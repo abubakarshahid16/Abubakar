@@ -15,13 +15,14 @@ against <standard clause>".
   **CONFIRM** (the row stands: a verified clause quote and a verified document quote, or, for a "missing" claim, found
   nowhere: marked absence not proved by code), **REMOVE** (the row is wrong), **UNSURE** (the default: the row stays,
   marked "AI could not confirm", internal).
-- REMOVE is NARROW on purpose (a wrong REMOVE is the worst outcome; lead decision 9 Nov): only two reasons, each with
-  code-verified evidence. `complies`: a NUMERIC row only (a figure with a unit, clause references read out first); the
-  compared pair is exactly the two REMOVE quotes, the row's OWN figure is the document quote's figure (never taken from the
-  clause), the code comparison (`compare_number`) says "meets", and the row, document quote and clause quote have one
-  subject. `already_stated`: the document quote is `<row subject> <separator> <value>` with the label equal to the row's
-  subject (no superset, no generic subject) and a value that STARTS with a digit (a bare word is never a value).
-  `not_applicable` NEVER removes: the judge records UNSURE with the note "AI suggests not applicable: engineer to decide".
+- REMOVE is as narrow as code can verify (a wrong REMOVE is the worst outcome; lead decision 9 Nov): ONE path, `already_stated`.
+  It needs ALL of: the ROW itself asserts an absence (the absence lexicon on the row's text); the row holds no figure with
+  a unit and no condition or qualifier the label does not carry; the document quote is `<label><separator><value>` with the
+  label equal to the row's subject as an ORDERED word sequence (no extra word, no No/Not/Without prefix, no plural); the
+  value is exactly NUMBER + UNIT (nonzero, a unit of the dimension the subject names) or a DATE: a digit alone is never a
+  value, and a subject that names no quantity can only be stated by a date.
+  `complies` and `not_applicable` NEVER remove: they are recorded as UNSURE with the note "AI suggests complies: engineer
+  to decide" or "AI suggests not applicable: engineer to decide". compare_number stays as evidence for CONFIRM.
   "Not mentioned" is never a reason. The evidence goes through the existing verifier (`ai_review_proposals.verify`, remove path).
 - A REMOVE is tied to THE ROW'S claim, by code: the row's subject (the head noun phrase of its comment) needs two or more
   content words and not only generic ones, or the row can never be removed. The row's page comes ONLY from its page/section

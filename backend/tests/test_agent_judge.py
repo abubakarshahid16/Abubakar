@@ -31,9 +31,9 @@ CLAIMS = [
 ]
 PAGE1 = "General notes\nDesign pressure: 10 bar\nDesign pressure: 14 bar\nDesign pressure: 25 bar\nTest pressure: 25 bar\nOperating pressure: 25 bar\nThe vessel is painted grey."
 PAGE2 = (
-    "Equipment: heat exchanger\nMaterial list: 12 items\nMaterial list: pending\nMaterial list: in progress\n"
+    "Equipment: heat exchanger\nMaterial list: 2024-05-01\nMaterial list: pending\nMaterial list: in progress\n"
     "Material list: see note\nMaterial list: -\nMaterial list: nil\nMaterial list: zzz qqq\nMaterial list approval status: 3 items\n"
-    "Material: 4 items\nMaterial list | 7 items\nOperating pressure: 25 bar\nSpare parts list: 5 items\nMaterial list entry 12 items is listed in the file"
+    "Material: 4 items\nMaterial list | 2024-07-03\nOperating pressure: 25 bar\nSpare parts list: 2024-06-02\nMaterial list entry 12 items is listed in the file"
 )
 CLAUSE_PAGE = (
     "1 General\nIntro words.\n4.1 Working pressure\nThe design pressure shall be at least 8 bar.\n"
@@ -138,7 +138,7 @@ def tool(**args):
 
 
 def remove(code="already_stated", **extra):
-    args = {"decision": "REMOVE", "reason_code": code, "page": 2, "doc_quote": "Material list: 12 items",
+    args = {"decision": "REMOVE", "reason_code": code, "page": 2, "doc_quote": "Material list: 2024-05-01",
             "standard": "ISO 9999", "clause": "4.2", "clause_quote": "Mark it clearly.", "reason": "stated"}  # fmt: skip
     args.update(extra)
     return tool(**args)
@@ -307,7 +307,7 @@ def box(copy_db):
             "J6": {"comment": "Hydrotest figure of 25 bar is wrong", "standard_reference": "x", "page_section": "p. 1"},
             "J7": {"comment": "See clause 4.1.4.4 for the paint colour", "standard_reference": "x", "page_section": "p. 1"},
             "J8": {"comment": "Relief setting shall exceed 5 bar (p.25)", "standard_reference": "x", "page_section": ""},
-            "J9": {"comment": "Operating pressure of 25 bar is wrong (p.2)", "standard_reference": "x", "page_section": "p. 1"},
+            "J9": {"comment": "Operating pressure is not specified (p.2)", "standard_reference": "x", "page_section": "p. 1"},
             "J10": {"comment": "Material list entry 12 items is listed in the file", "standard_reference": "x", "page_section": "p. 2"},
             "J11": {"comment": "Data is missing", "standard_reference": "x", "page_section": "p. 2"},
             "J12": {"comment": "Design data are missing", "standard_reference": "x", "page_section": "p. 2"},
@@ -369,25 +369,7 @@ def test_remove_because_it_is_not_mentioned_is_never_allowed(box, extra):
 def test_remove_needs_one_of_the_three_closed_reasons(box, code):
     args = remove()["args"]
     args["reason_code"] = code
-    assert (
-        call(box, **args)["reason"]
-        == "reason_code_not_complies_not_applicable_or_already_stated"
-    )
-
-
-def test_remove_complies_on_a_numeric_claim_needs_a_decided_compare(box):
-    box.ctx.current_item = "J1"
-    args = {"decision": "REMOVE", "reason_code": "complies", "page": 1, "doc_quote": DOC_Q, "standard": "ISO 9999", "clause": "4.1",
-            "clause_quote": CLAIMS and CLAUSE_Q, "reason": "meets"}  # fmt: skip
-    assert call(box, **args)["reason"] == "numeric_claim_needs_a_decided_compare_number"
-    args["figures"] = [{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}]
-    assert (
-        call(box, **args)["reason"] == "number_not_decided_by_code"
-    )  # offered but never compared
-    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "does_not_meet"}
-    assert call(box, **args)["reason"] == "verdict_disagrees_with_code_comparison"
-    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
-    assert call(box, **args)["accepted"] is True
+    assert call(box, **args)["reason"] == "reason_code_not_already_stated"
 
 
 def test_a_second_decision_for_the_same_row_is_refused(box):
@@ -663,11 +645,11 @@ def test_results_hold_no_document_text(a_file, copy_db, run_dir):
         "Material list",
         "design pressure",
         "12 bar",
-        "12 items",
+        "2024-05-01",
     ):
         assert banned not in results
     # the decisions file is local and DOES hold the verified quotes
-    assert "12 items" in (run_dir / "decisions.json").read_text()
+    assert "2024-05-01" in (run_dir / "decisions.json").read_text()
 
 
 def test_live_md_labels_the_counts_confirm_unsure_remove(a_file, copy_db, run_dir):
@@ -1011,19 +993,6 @@ def complies(**extra):
     return args
 
 
-def test_complies_needs_the_row_the_document_quote_and_the_clause_quote_to_share_one_subject(
-    box,
-):
-    on_row(box, "J1")
-    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
-    assert (
-        call(box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}]))[
-            "accepted"
-        ]
-        is True
-    )
-
-
 def test_a_quote_that_says_not_provided_never_removes_an_already_stated_row(box):
     on_row(box, "J2")
     out = call(box, **rm(page=3, doc_quote="Material list: not provided"))
@@ -1068,24 +1037,9 @@ def rules_absence(text):
 
 
 def test_a_row_with_no_derivable_subject_can_never_be_removed_but_can_be_unsure(box):
-    out = call(on_row(box, "J4"), **complies())
+    out = call(on_row(box, "J4"), **rm(page=1, doc_quote=DOC_Q))
     assert out["reason"] == "row_subject_not_derived"
     assert call(box, decision="UNSURE")["accepted"] is True
-
-
-def test_a_numeric_row_needs_the_figures_pair_to_be_exactly_the_remove_quotes(box):
-    on_row(box, "J1")
-    other = "The design pressure shall be at least 8 bar"  # not the REMOVE clause quote (no full stop)
-    box._compares[(DOC_Q, other)] = {"decided": True, "verdict": "meets"}
-    out = call(box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": other}]))
-    assert out["reason"] == "figures_not_the_remove_quotes"
-    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
-    assert (
-        call(box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}]))[
-            "accepted"
-        ]
-        is True
-    )
 
 
 def test_a_clause_number_is_not_a_figure_so_it_does_not_make_a_row_numeric():
@@ -1157,7 +1111,7 @@ def test_results_add_up_and_say_what_was_not_judged(tmp_path, copy_db, run_dir):
         [
             confirm(),
             remove(),
-            remove(doc_quote="Spare parts list: 5 items"),
+            remove(doc_quote="Spare parts list: 2024-06-02"),
             tool(decision="UNSURE"),
             boom,
             boom,
@@ -1245,52 +1199,6 @@ def meets(b, doc, clause):
     b._compares[(doc, clause)] = {"decided": True, "verdict": "meets"}
 
 
-def test_complies_on_a_non_numeric_row_is_never_a_remove(box):
-    out = call(on_row(box, "J3"), **complies())
-    assert (
-        out["accepted"] is False
-        and out["reason"] == "complies_only_removes_a_numeric_row"
-    )
-
-
-def test_a_numeric_row_with_one_subject_everywhere_and_its_own_figure_is_removable(box):
-    on_row(box, "J1")
-    meets(box, DOC_Q, CLAUSE_Q)
-    assert call(box, **numeric())["accepted"] is True
-
-
-def test_complies_refuses_a_different_subject_in_the_quotes(box):
-    on_row(box, "J6")  # "Design pressure of 25 bar ..."
-    meets(box, "Test pressure: 25 bar", CLAUSE_Q)
-    out = call(box, **numeric(doc_quote="Test pressure: 25 bar"))
-    assert out["reason"] == "subject_mismatch" and out["detail"]["document_quote"] == [
-        "pressure",
-        "test",
-    ]
-
-
-def test_the_row_figure_the_document_figure_and_the_clause_figure_must_be_the_same_story(
-    box,
-):
-    on_row(box, "J1")  # the row says 10 bar against a required 12 bar
-    wrong_doc = "Design pressure: 14 bar"
-    twelve = "The design pressure shall be at least 12 bar."
-    meets(box, wrong_doc, twelve)
-    out = call(
-        box, **numeric(page=1, doc_quote=wrong_doc, clause="4.6", clause_quote=twelve)
-    )
-    assert (
-        out["reason"] == "row_figure_not_the_document_figure"
-    )  # 14 is not the row's own figure (10)
-    meets(box, DOC_Q, twelve)
-    assert (
-        call(box, **numeric(doc_quote=DOC_Q, clause="4.6", clause_quote=twelve))[
-            "accepted"
-        ]
-        is True
-    )
-
-
 def test_not_applicable_never_removes_it_is_only_noted_for_the_engineer(box):
     out = call(
         on_row(box, "J2"),
@@ -1309,7 +1217,6 @@ def test_not_applicable_never_removes_it_is_only_noted_for_the_engineer(box):
         and stored["reason"] == aj_tools.NOT_APPLICABLE_NOTE
     )
     assert stored["suggests"] == "not_applicable" and aj_tools.REMOVE_REASONS == (
-        "complies",
         "already_stated",
     )
 
@@ -1338,22 +1245,9 @@ def test_a_scope_heading_is_no_basis_for_any_remove(box, heading_clause):
 def test_a_valueless_document_quote_never_removes_an_already_stated_row(box, value):
     out = call(on_row(box, "J2"), **rm(doc_quote=f"Material list: {value}"))
     assert out["accepted"] is False and out["reason"] in {
-        "quote_carries_no_value",
+        "value_not_a_quantity_or_date",
         "not_mentioned_is_never_a_reason_to_remove",
     }
-
-
-def test_a_bare_word_is_not_a_value_structurally_not_by_a_list(box):
-    out = call(on_row(box, "J2"), **rm(doc_quote="Material list: zzz qqq"))
-    assert out["reason"] == "quote_carries_no_value"
-    from app import agent_judge_rules as r
-
-    assert (
-        not r.digit_value("in progress")
-        and not r.digit_value("zzz")
-        and r.digit_value("12 items")
-        and r.digit_value("\u0662\u0660")
-    )
 
 
 @pytest.mark.parametrize(
@@ -1366,14 +1260,16 @@ def test_a_superset_or_subset_label_is_refused(box, quote):
 
 def test_the_label_may_be_followed_by_a_colon_an_equals_a_bar_or_a_tab(box):
     assert (
-        call(on_row(box, "J2"), **rm(doc_quote="Material list | 7 items"))["accepted"]
+        call(on_row(box, "J2"), **rm(doc_quote="Material list | 2024-07-03"))[
+            "accepted"
+        ]
         is True
     )
 
 
 def test_the_rows_page_comes_only_from_its_page_cell(box):
     out = call(
-        on_row(box, "J8"), **numeric(page=1)
+        on_row(box, "J8"), **rm(page=1, doc_quote=DOC_Q)
     )  # the page cell is empty; the comment cites a page of the standard
     assert out["reason"] == "row_has_no_page_cell"
     on_row(box, "J5")  # a section number is not a page
@@ -1449,26 +1345,23 @@ def test_the_results_say_how_few_rows_can_be_removed_at_all(a_file, copy_db, run
     )
     text = (run_dir / "RESULTS.md").read_text()
     assert (
-        "Rows the rules allow to be removed at all: 3 of 3" in text
+        "Rows the rules allow to be removed at all: 2 of 3" in text
     )  # J3 "paint colour": usable; "p. 2" ok; J1, J2 too
     assert (
-        "not_applicable never removes" in text
-        and "only numeric rows can be removed as complies" in text
+        "complies and not_applicable never remove" in text
+        and "only an absence row can be removed" in text
     )
 
 
-def test_the_removable_count_excludes_rows_without_a_page_cell_or_a_usable_subject(
+def test_the_removable_count_excludes_rows_without_a_page_cell_a_usable_subject_an_absence_claim_or_with_a_figure(
     tmp_path, copy_db, run_dir
 ):
-    claims = [
-        ("1", "p. 1", CLAIMS[0][2], "x"),
-        ("2", "", CLAIMS[1][2], "x"),
-        ("3", "p. 2", "Data is missing", "x"),
-    ]
-    a = make_a_xlsx(tmp_path / "three.xlsx", claims)
-    judge(a, copy_db, run_dir, al.FakeProvider([tool(decision="UNSURE")] * 3))
+    claims = [("1", "p. 1", "The material list is missing", "x"), ("2", "", "The spare parts schedule is missing", "x"),
+              ("3", "p. 2", "Data is missing", "x"), ("4", "p. 2", CLAIMS[0][2], "x"), ("5", "p. 1", "Gasket material shall be improved", "x")]  # fmt: skip
+    a = make_a_xlsx(tmp_path / "five.xlsx", claims)
+    judge(a, copy_db, run_dir, al.FakeProvider([tool(decision="UNSURE")] * 5))
     assert (
-        "Rows the rules allow to be removed at all: 1 of 3"
+        "Rows the rules allow to be removed at all: 1 of 5"
         in (run_dir / "RESULTS.md").read_text()
     )
 
@@ -1505,7 +1398,9 @@ def test_a_subject_that_heads_two_rows_is_a_template_prefix_and_removes_nothing(
     out = call(on_row(b, "T1"), **rm())
     assert out["reason"] == "row_subject_not_derived"
     assert (
-        call(on_row(b, "T3"), **rm(doc_quote="Spare parts list: 5 items"))["accepted"]
+        call(on_row(b, "T3"), **rm(doc_quote="Spare parts list: 2024-06-02"))[
+            "accepted"
+        ]
         is True
     )
     conn.close()
@@ -1518,3 +1413,269 @@ def test_the_shared_subjects_helper_and_the_removable_count():
             {"comment": "Spare parts list is missing", "page_section": "p. 1"}]  # fmt: skip
     shared = r.shared_subjects(rows)
     assert [r.removable_at_all(x, shared) for x in rows] == [False, False, True]
+
+
+# ---- review 3: complies never removes; already_stated is the one path and needs an ABSENCE row ----------------------
+
+
+@pytest.mark.parametrize("row_id", ["J1", "J3"])
+def test_complies_never_removes_it_is_only_noted_for_the_engineer(box, row_id):
+    on_row(box, row_id)
+    out = call(box, **complies())
+    stored = box.ctx.findings.get(row_id)
+    assert (
+        out["accepted"] is True
+        and stored["decision"] == "UNSURE"
+        and stored["reason"] == "AI suggests complies: engineer to decide"
+    )
+    assert stored["suggests"] == "complies"
+
+
+def row(comment, page="p. 2"):
+    return {"comment": comment, "page_section": page}
+
+
+ABSENT = row("The material list is missing")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["0", "00.0", "1/A", "3.2 of the spec", "2 of 5", "Rev 0", "ID 123", "9999", "1", "12 items", "one", "-", "pending", "2024-13-45", "1/1/1900", "0 bar", "5 foo"],
+)  # fmt: skip
+def test_a_digit_alone_is_never_a_value(value):
+    from app import agent_judge_rules as r
+
+    assert r.already_stated_problem(ABSENT, f"Material list: {value}") is not None
+
+
+@pytest.mark.parametrize(
+    "value", ["2024-05-01", "1 June 2024", "June 1, 2024", "01/06/2024"]
+)
+def test_a_date_is_a_value(value):
+    from app import agent_judge_rules as r
+
+    assert r.already_stated_problem(ABSENT, f"Material list: {value}") is None
+
+
+@pytest.mark.parametrize("value", ["12 bar", "99 psi", "\u0661\u0662 bar", "1.5 kPa"])
+def test_a_number_with_a_unit_of_the_right_dimension_is_a_value(value):
+    from app import agent_judge_rules as r
+
+    assert (
+        r.already_stated_problem(
+            row("Design pressure is not specified"), f"Design pressure: {value}"
+        )
+        is None
+    )
+
+
+def test_the_unit_class_must_match_the_quantity_the_subject_names_and_zero_is_refused():
+    from app import agent_judge_rules as r
+
+    pressure = row("Design pressure is not specified")
+    assert r.already_stated_problem(pressure, "Design pressure: 12 bar") is None
+    assert (
+        r.already_stated_problem(pressure, "Design pressure: 12 mm")
+        == "unit_does_not_match_the_subject"
+    )
+    assert (
+        r.already_stated_problem(pressure, "Design pressure: 12 degC")
+        == "unit_does_not_match_the_subject"
+    )
+    assert (
+        r.already_stated_problem(pressure, "Design pressure: 0 bar") == "value_is_zero"
+    )
+    assert (
+        r.already_stated_problem(
+            row("Design temperature is not specified"), "Design temperature: 80 degC"
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "No material list: 5 kg",
+        "Not material list: 5 kg",
+        "Without material list: 5 kg",
+        "Material list approval: 5 kg",
+        "Vendor material list: 5 kg",
+        "List material: 5 kg",
+        "Material lists: 5 kg",
+        "The material list: 5 kg",
+        "Material list 2: 5 kg",
+    ],
+)
+def test_the_label_is_the_subject_as_an_ordered_sequence_and_nothing_else(quote):
+    from app import agent_judge_rules as r
+
+    assert r.already_stated_problem(ABSENT, quote)[0] == "subject_mismatch"
+
+
+def test_a_reordered_label_is_a_different_subject():
+    from app import agent_judge_rules as r
+
+    out = r.already_stated_problem(
+        row("Design pressure is not specified"), "Pressure design: 12 bar"
+    )
+    assert out[0] == "subject_mismatch" and out[1]["document_quote"] == [
+        "pressure",
+        "design",
+    ]
+
+
+@pytest.mark.parametrize(
+    "comment",
+    ["Design pressure for the second case is not stated", "Design pressure when operating is not stated", "Design pressure above the limit is missing",
+     "Design pressure maximum is not specified", "Design pressure normal value is not stated", "Design pressure per unit is missing"],
+)  # fmt: skip
+def test_a_row_with_a_condition_the_label_does_not_carry_is_refused(comment):
+    from app import agent_judge_rules as r
+
+    assert (
+        r.already_stated_problem(row(comment), "Design pressure: 12 bar")
+        == "row_has_a_condition"
+    )
+
+
+def test_a_qualifier_inside_the_subject_is_carried_by_the_label():
+    from app import agent_judge_rules as r
+
+    operating = row("Operating pressure is not specified")
+    assert r.already_stated_problem(operating, "Operating pressure: 12 bar") is None
+    assert (
+        r.already_stated_problem(operating, "Pressure: 12 bar") == "row_has_a_condition"
+    )
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "Design pressure of 14 bar exceeds the 12 bar limit",
+        "Test pressure of 25 bar is missing",
+        "Relief setting of 99 psi is not stated",
+    ],
+)
+def test_a_row_with_a_figure_and_a_unit_is_never_removed_by_already_stated(comment):
+    from app import agent_judge_rules as r
+
+    quote = f"{' '.join(comment.split()[:2])}: 14 bar"
+    assert r.already_stated_problem(row(comment), quote) in {
+        "row_has_a_figure",
+        "row_is_not_an_absence_claim",
+    }
+
+
+def test_the_row_itself_must_assert_an_absence():
+    from app import agent_judge_rules as r
+
+    assert (
+        r.already_stated_problem(
+            row("Material list shall be improved"), "Material list: 12 kg"
+        )
+        == "row_is_not_an_absence_claim"
+    )
+    assert (
+        r.already_stated_problem(
+            row("Material list is not provided"), "Material list: 2024-05-01"
+        )
+        is None
+    )
+    assert (
+        r.already_stated_problem(
+            row("Material list is blank"), "Material list: 2024-05-01"
+        )
+        is None
+    )
+
+
+def test_the_reviewers_numeric_fail_row_is_not_removed_through_the_tool(box):
+    out = call(
+        on_row(box, "J1"), **rm(page=1, doc_quote=DOC_Q)
+    )  # "Design pressure: 10 bar" against a numeric Fail row
+    assert out["accepted"] is False and out["reason"] == "row_is_not_an_absence_claim"
+
+
+def test_the_total_ledger_cap_stops_the_run_before_any_row(a_file, copy_db, run_dir):
+    class Consent:
+        def per_request_consent(self, ids):
+            import contextlib
+
+            return contextlib.nullcontext()
+
+    p = al.FakeProvider([tool(decision="UNSURE")] * 3)
+    s = judge(
+        a_file,
+        copy_db,
+        run_dir,
+        p,
+        claude=True,
+        documents=["D1", "S1"],
+        consent=Consent(),
+        ledger=lambda _step: 10.0,
+        total_cap_usd=10.0,
+    )
+    assert (
+        s["stopped"] == "total cap for the agent test"
+        and s["rows_done"] == 0
+        and p.calls == []
+    )
+    below = judge(a_file, copy_db, run_dir.parent / "r2", al.FakeProvider([tool(decision="UNSURE")] * 3), claude=True, documents=["D1", "S1"], consent=Consent(), ledger=lambda _s: 9.99, total_cap_usd=10.0)  # fmt: skip
+    assert below["rows_done"] == 3 and not below["stopped"]
+
+
+def test_the_ledger_cap_is_read_after_every_row(a_file, copy_db, run_dir):
+    class Consent:
+        def per_request_consent(self, ids):
+            import contextlib
+
+            return contextlib.nullcontext()
+
+    spent = {"v": 0.0}
+
+    def ledger(_step):
+        return spent["v"]
+
+    class Step:
+        def complete(self, _m, _s):
+            spent["v"] += 6.0
+            return {
+                "tool": "judge_row",
+                "args": {"decision": "UNSURE"},
+                "reason": "r",
+                "usd": 0.0,
+            }
+
+    s = judge(
+        a_file,
+        copy_db,
+        run_dir,
+        Step(),
+        claude=True,
+        documents=["D1", "S1"],
+        consent=Consent(),
+        ledger=ledger,
+        total_cap_usd=10.0,
+    )
+    assert s["rows_done"] == 2 and s["stopped"] == "total cap for the agent test"
+
+
+def test_a_subject_that_names_no_quantity_can_only_be_stated_by_a_date():
+    from app import agent_judge_rules as r
+
+    assert (
+        r.already_stated_problem(ABSENT, "Material list: 12 kg")
+        == "value_not_a_quantity_or_date"
+    )
+    assert (
+        r.already_stated_problem(ABSENT, "Material list: 99 psi")
+        == "value_not_a_quantity_or_date"
+    )
+    assert r.already_stated_problem(ABSENT, "Material list: 2024-05-01") is None
+    assert (
+        r.already_stated_problem(
+            row("Design pressure is not specified"), "Design pressure: 12 bar"
+        )
+        is None
+    )
