@@ -39,6 +39,14 @@ LOCK_KIND = "agent_local_lead"
 TIMEOUT_S = 300.0
 NUM_PREDICT = 2048
 PROBE_TIMEOUT_S = 10.0
+DEFAULT_NUM_CTX = (
+    8192  # settings.local_num_ctx default: the window when the caller sets none
+)
+CHARS_PER_TOKEN = 3  # conservative: numbers and JSON tokenise densely
+WINDOW_MARGIN_TOKENS = 256
+KEEP_TOOL_RESULTS = 2  # the newest tool results are shown whole while they fit
+DROPPED = "[an earlier tool result was removed to fit the context window; call the tool again if you need it]"
+CUT = " [cut to fit the context window]"
 
 SYSTEM_RULES = (
     "You are a senior engineer reviewing one item of a submittal. Use one tool per turn. "
@@ -193,6 +201,39 @@ def to_ollama_messages(messages: list[dict], extra_system: str = "") -> list[dic
     return [{"role": "system", "content": "\n\n".join(system)}, *out]
 
 
+def _tokens(messages: list[dict]) -> int:
+    return -(-len(json.dumps(messages, ensure_ascii=False)) // CHARS_PER_TOKEN)
+
+
+def fit_to_window(
+    messages: list[dict], tools: list[dict], num_ctx: int | None, num_predict: int
+) -> tuple[list[dict], int]:
+    """(messages that fit the context window, number of tool results shortened). Never touches the system message or the
+    first user message. Oldest tool results go first (replaced by a fixed note), then the newest ones are cut. Without
+    this a page read or two fills a small window and the server answers 500 (found 9 Nov: prompts reached 8175 of 8192)."""
+    window = int(num_ctx or DEFAULT_NUM_CTX)
+    budget = window - int(num_predict) - WINDOW_MARGIN_TOKENS - _tokens(tools)
+    out = [dict(m) for m in messages]
+    tool_at = [i for i, m in enumerate(out) if m.get("role") == "tool"]
+    changed = 0
+    for i in tool_at[:-KEEP_TOOL_RESULTS] if KEEP_TOOL_RESULTS else tool_at:
+        if _tokens(out) <= budget:
+            break
+        if out[i].get("content") != DROPPED:
+            out[i]["content"] = DROPPED
+            changed += 1
+    for i in reversed(tool_at[-KEEP_TOOL_RESULTS:] if KEEP_TOOL_RESULTS else []):
+        over = _tokens(out) - budget
+        if over <= 0:
+            break
+        text = str(out[i].get("content") or "")
+        keep = max(len(text) - over * CHARS_PER_TOKEN - len(CUT), 0)
+        if keep < len(text):
+            out[i]["content"] = text[:keep] + CUT
+            changed += 1
+    return out, changed
+
+
 # ------------------------------------------------------------------ parsing
 
 
@@ -273,6 +314,7 @@ class LocalProvider:
         self._totals: dict[str, float] = {
             "calls": 0,
             "retries": 0,
+            "trimmed": 0,
             "seconds": 0.0,
             **dict.fromkeys(_STATS_KEYS, 0),
         }
@@ -282,14 +324,21 @@ class LocalProvider:
         options: dict[str, Any] = {"temperature": 0, "num_predict": self.num_predict}
         if self.num_ctx:
             options["num_ctx"] = int(self.num_ctx)
+        tools = ollama_tools(tool_specs)
+        fitted, trimmed = fit_to_window(
+            to_ollama_messages(messages, self.system),
+            tools,
+            self.num_ctx,
+            self.num_predict,
+        )
+        self._totals["trimmed"] += trimmed
         body: dict[str, Any] = {
             "model": self.model,
-            "messages": to_ollama_messages(messages, self.system),
+            "messages": fitted,
             "stream": False,
             "think": self.think,
             "options": options,
         }
-        tools = ollama_tools(tool_specs)
         if tools:
             body["tools"] = tools
         return body
