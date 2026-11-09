@@ -6,27 +6,14 @@ a database, never in the live one; nothing here writes an original database.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 
 from .rule_finish import (
-    CODE_STEPS,
-    COMPARATORS_ALLOWED,
-    FAIL,
-    MODEL_NONE,
-    PASS,
     RESULTS,
     STEPS,
-    conditions_of,
-    evidence_source,
-    fragments,
-    limit_and_unit,
-    quote_found,
 )
-from .rule_finish_figures import implied_comparator
 from .rule_finish_guard import require_work_copy
 
 # --------------------------------------------------------------------------- persistence (a COPY of a database only)
@@ -102,134 +89,6 @@ def _append_step(
     )
     conn.commit()
     return int(cur.lastrowid)
-
-
-def record_code_step(
-    conn: sqlite3.Connection,
-    rule: dict,
-    step: str,
-    pages: dict[int, str] | None = None,
-    *,
-    run_id: str,
-    note: str = "",
-    checker: str = "code",
-    at: str | None = None,
-) -> tuple[str, str, dict]:
-    """Steps a, b, c, d and g: the step function is called HERE on the rule and its result is what is written. Nobody
-    hands in a result."""
-    if step not in CODE_STEPS:
-        raise ValueError(f"step {step!r} is not recorded by code")
-    result, reason, evidence = {
-        "a": lambda: limit_and_unit(rule),
-        "b": lambda: evidence_source(rule),
-        "c": lambda: fragments(rule, pages),
-        "d": lambda: conditions_of(rule),
-        "g": lambda: quote_found(rule, pages),
-    }[step]()
-    _append_step(
-        conn,
-        rule["version_id"],
-        step,
-        result,
-        f"{note}{reason}",
-        evidence,
-        checker=checker,
-        model=MODEL_NONE,
-        run_id=run_id,
-        at=at,
-    )
-    return result, reason, evidence
-
-
-def _file_evidence(path: str | Path) -> tuple[dict, str, Path]:
-    p = Path(path)
-    if not p.is_file():
-        raise ValueError(f"refused: {p.name} does not exist")
-    raw = p.read_bytes()
-    try:
-        return json.loads(raw), hashlib.sha256(raw).hexdigest(), p
-    except ValueError as exc:
-        raise ValueError(f"refused: {p.name} is not JSON") from exc
-
-
-def _rule_key(conn: sqlite3.Connection, version_id: str) -> str:
-    found = load_rules_by_version(conn, version_id)
-    if not found:
-        raise ValueError("no such rule version in this copy")
-    return found[0]["rule_key"]
-
-
-def record_engineer_check(
-    conn: sqlite3.Connection,
-    rule_version_id: str,
-    output_path: str | Path,
-    *,
-    run_id: str,
-) -> str:
-    """Step e from the engineer's output file: its sha256 is recomputed here, its verdict must be OK or NOT_OK, it must
-    name its checker and the rule it is about (a prefix of this rule's key). Returns the result written."""
-    out, digest, path = _file_evidence(output_path)
-    verdict = str(out.get("verdict") or "").strip().upper().replace(" ", "_")
-    if verdict not in ("OK", "NOT_OK"):
-        raise ValueError("refused: the engineer output has no OK or NOT_OK verdict")
-    checker = str(out.get("checker") or "").strip()
-    prefix = str(out.get("rule_key_prefix") or "")
-    if (
-        not checker
-        or not prefix
-        or not _rule_key(conn, rule_version_id).startswith(prefix)
-    ):
-        raise ValueError(
-            "refused: the engineer output names no checker or another rule"
-        )
-    result = PASS if verdict == "OK" else FAIL
-    _append_step(
-        conn,
-        rule_version_id,
-        "e",
-        result,
-        f"engineer_check_{verdict.lower()}",
-        {"file": path.name, "path": str(path), "sha256": digest, "verdict": verdict},
-        checker=checker,
-        model="Claude chat helper",
-        run_id=run_id,
-    )
-    return result
-
-
-def record_owner_sample(
-    conn: sqlite3.Connection,
-    rule_version_id: str,
-    sample_id: str,
-    tick_path: str | Path,
-    *,
-    run_id: str,
-) -> str:
-    """Step f from the owner's tick file: JSON {"sample_id": ..., "ticks": {rule_key: "ok" | "wrong"}}; the sample id must
-    match and the rule must be in the file; the sha256 of the file is recomputed here."""
-    data, digest, path = _file_evidence(tick_path)
-    tick = (data.get("ticks") or {}).get(_rule_key(conn, rule_version_id))
-    if (
-        not (sample_id or "").strip()
-        or data.get("sample_id") != sample_id
-        or tick not in ("ok", "wrong")
-    ):
-        raise ValueError(
-            "refused: the tick file does not hold this sample id and this rule's tick"
-        )
-    result = PASS if tick == "ok" else FAIL
-    _append_step(
-        conn,
-        rule_version_id,
-        "f",
-        result,
-        f"owner_sample_{tick}",
-        {"sample_id": sample_id, "path": str(path), "sha256": digest},
-        checker="owner",
-        model="none: owner tick",
-        run_id=run_id,
-    )
-    return result
 
 
 def latest_steps(conn: sqlite3.Connection, rule_version_id: str) -> dict[str, dict]:
@@ -312,87 +171,6 @@ def load_rules(
 _APPLIED = """CREATE TABLE IF NOT EXISTS rule_finish_applied (
     id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id TEXT NOT NULL, value REAL, value_low REAL, value_high REAL,
     unit TEXT NOT NULL, comparator TEXT, approver TEXT NOT NULL, at TEXT NOT NULL)"""
-
-
-def _quote(rule: dict) -> str:
-    return " ".join(str(rule.get("quote") or "").split())
-
-
-def comparator_problem(quote: str, proposal: dict) -> str | None:
-    """None when the proposal's comparator is the one the quote's own phrase gives THAT figure (a single value), or
-    when a range proposal has no comparator and its ends are the quote's low (>=) and high (<=) ends; else the reason."""
-    unit = proposal.get("unit")
-    if proposal.get("value") is not None:
-        wanted = implied_comparator(quote, proposal["value"], unit)
-        given = proposal.get("comparator")
-        if given not in COMPARATORS_ALLOWED:
-            return "comparator_not_allowed"
-        return None if wanted == given else "comparator_not_implied_by_this_figure"
-    low = implied_comparator(quote, proposal["value_low"], unit)
-    high = implied_comparator(quote, proposal["value_high"], unit)
-    ok = low == ">=" and high == "<=" and proposal.get("comparator") in (None, "")
-    return None if ok else "range_ends_not_implied"
-
-
-def apply_proposal(
-    conn_copy: sqlite3.Connection, rule_version_id: str, proposal: dict, approver: str
-) -> dict:
-    """Write a proposed value, unit and comparator into the WORK COPY (never automatic: only an explicit call, named
-    approver). Refuses an original database and a proposal whose value or unit does not stand in the rule's quote:
-    step a must pass with the proposal applied. The rulebook rows stay as they are (append-only); the applied figure is
-    kept in `rule_finish_applied` and step a is recorded as pass with reason `proposal_applied`."""
-    require_work_copy(conn_copy)
-    if not (approver or "").strip():
-        raise ValueError("an approver is required")
-    rules = load_rules_by_version(conn_copy, rule_version_id)
-    if not rules:
-        raise ValueError("no such rule version in this copy")
-    unit = proposal.get("unit")
-    trial = dict(
-        rules[0],
-        value=proposal.get("value"),
-        value_low=proposal.get("value_low"),
-        value_high=proposal.get("value_high"),
-        unit=unit,
-        comparator=proposal.get("comparator"),
-    )
-    if trial["value"] is None and trial["value_low"] is None:
-        raise ValueError("a proposal needs a value")
-    result, reason, _ = limit_and_unit(trial)
-    if result != PASS:
-        raise ValueError(
-            f"refused: the proposal does not stand in the quote ({reason})"
-        )
-    wrong = comparator_problem(_quote(rules[0]), trial)
-    if wrong:
-        raise ValueError(f"refused: the comparator is not the quote's own ({wrong})")
-    ensure_table(conn_copy)
-    conn_copy.execute(_APPLIED)
-    at = now_utc()
-    conn_copy.execute(
-        "INSERT INTO rule_finish_applied (rule_version_id, value, value_low, value_high, unit, comparator, approver, at) VALUES (?,?,?,?,?,?,?,?)",
-        (
-            rule_version_id,
-            trial["value"],
-            trial["value_low"],
-            trial["value_high"],
-            unit,
-            trial["comparator"],
-            approver,
-            at,
-        ),
-    )
-    conn_copy.commit()
-    record_code_step(
-        conn_copy,
-        overlay_applied(conn_copy, rules[0]),
-        "a",
-        run_id="apply-proposal",
-        note="proposal_applied: ",
-        checker=approver,
-        at=at,
-    )
-    return trial
 
 
 def overlay_applied(conn: sqlite3.Connection, rule: dict) -> dict:

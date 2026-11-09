@@ -140,28 +140,68 @@ def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
             return FAIL, "value_not_in_quote", evidence
     if not figures:
         # the number stands in the quote with no unit of the table: a count or a ratio, which must say so
-        if unit in (None, "", "none"):
-            return PASS, "value_stands_no_unit_in_quote", evidence
-        evidence["unit"] = unit
-        return FAIL, "unit_not_in_quote", evidence
+        if unit not in (None, "", "none"):
+            evidence["unit"] = unit
+            return FAIL, "unit_not_in_quote", evidence
+        if _is_number(value):
+            return _comparator_verdict(
+                rule,
+                [ff.number_comparator(text, value)],
+                "value_stands_no_unit_in_quote",
+                evidence,
+            )
+        return PASS, "value_stands_no_unit_in_quote", evidence
     if not unit or str(unit).lower() == "none":
         return FAIL, "unit_not_filled", evidence
-    # each filled number stands in the quote (above); the unit stands beside at least one of them: "between 10 and 40 C"
-    # prints it once, after the last number
-    matched = [
-        name
-        for name, v in wanted
-        if any(f.value == float(v) and ff.unit_matches(unit, f) for f in figures)
-    ]
-    if not matched:
-        evidence["unit"] = unit
-        same_number = any(f.value == float(v) for _, v in wanted for f in figures)
-        return (
-            FAIL,
-            "unit_not_in_quote" if same_number else "value_not_in_quote",
-            evidence,
-        )
-    return PASS, "value_and_unit_stand_in_quote", evidence
+    found = _with_unit(figures, wanted, unit, evidence)
+    if isinstance(found, tuple):
+        return found
+    if (
+        len(wanted) == 2
+    ):  # a range: low <= high, the ends the quote's low (>=) and high (<=)
+        if float(low) > float(high):
+            return FAIL, "range_order", evidence
+        got = [next(iter(c)) if len(c) == 1 else None for c in found]
+        if got != [">=", "<="]:
+            return FAIL, "comparator_mismatch", evidence
+        return PASS, "value_and_unit_stand_in_quote", evidence
+    return _comparator_verdict(
+        rule, [c for cs in found for c in cs], "value_and_unit_stand_in_quote", evidence
+    )
+
+
+def _with_unit(figures, wanted: list, unit: str, evidence: dict):
+    """Every filled number stands in the quote WITH its unit (after the repo's unit comparison): "between 10 and 40 C"
+    prints the unit once, but the low end is then a figure of that unit too. The comparators the figures carry, per
+    number, or the failing verdict."""
+    found = []
+    for _, v in wanted:
+        hits = [f for f in figures if f.value == float(v) and ff.unit_matches(unit, f)]
+        if not hits:
+            evidence["unit"] = unit
+            same_number = any(f.value == float(v) for f in figures)
+            return (
+                FAIL,
+                "unit_not_in_quote" if same_number else "value_not_in_quote",
+                evidence,
+            )
+        found.append({h.comparator for h in hits})
+    return found
+
+
+def _comparator_verdict(
+    rule: dict, derived: list, passed: str, evidence: dict
+) -> tuple[str, str, dict]:
+    """The stored comparator must be the one the quote's own phrase gives the figure (a closed table, negation read);
+    none stored: fail; no phrase or more than one reading: incomplete; a different one: fail."""
+    stored = rule.get("comparator")
+    if len(set(derived)) != 1 or derived[0] is None:
+        return INCOMPLETE, "comparator_unreadable", evidence
+    if not stored:
+        return FAIL, "comparator_missing", evidence
+    if stored != derived[0]:
+        return FAIL, "comparator_mismatch", evidence
+    return PASS, passed, evidence
 
 
 # --------------------------------------------------------------------------- step b: evidence source
@@ -692,7 +732,10 @@ def finish_status(rule_steps: dict) -> FinishStatus:
         if got is None:
             return FinishStatus(NOT_FINISHED, name, "missing")
         if got not in _ALLOWED[name]:
-            return FinishStatus(NOT_FINISHED, name, got)
+            # a check bound to another version or quote is stale: it never counts
+            return FinishStatus(
+                NOT_FINISHED, name, f"{name}_stale" if got == "stale" else got
+            )
     return FinishStatus(FINISHED, None, None)
 
 

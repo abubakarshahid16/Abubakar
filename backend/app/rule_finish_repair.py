@@ -7,11 +7,12 @@ Every part is checked on its own; a part that fails is refused with its reason a
   figure     value and unit stand inside the quote (step a passes with it laid over); a figure with a condition is
              applied only if its condition is verified too
   comparator one the quote implies for that figure
-  text       a field, condition or exception: every content word and every number is on the standard's page text of the
-             rule's page or the next (the repo's fold; numbers by numparse)
+  text       a field, condition or exception: one entry of the closed vocabulary, or a CONTIGUOUS run of words of the
+             standard's page text of the rule's page or the next (the repo's fold), numbers on that text, and a negation
+             word in the text exactly when it is in the standard's clause
 
 Rows go to `rule_finish_repair` (append-only) of the copy; the rulebook rows are never changed. A step record is written
-for every step the repair touched, and an earlier engineer check (e) is set back to pending: it must be run again.
+for every step the repair touched; the engineer check (e) and the owner sample (f) are set back to incomplete.
 """
 
 from __future__ import annotations
@@ -24,22 +25,21 @@ from . import numparse
 from .converter_gates import fold
 from .rule_finish import (
     COMPARATORS_ALLOWED,
-    INCOMPLETE,
-    MODEL_NONE,
+    CONNECTION_WORDS,
     PASS,
+    equipment_types_in,
     limit_and_unit,
 )
 from .rule_finish_figures import fraction_spans, implied_comparator
 from .rule_finish_guard import require_work_copy
+from .rule_finish_record import record_code_step, reset_checks
 from .rule_finish_store import (
+    _APPLIED,
     _REPAIR,
-    _append_step,
     ensure_table,
-    latest_steps,
     load_rules_by_version,
     now_utc,
     overlay_applied,
-    record_code_step,
 )
 
 _WORD = re.compile(r"[a-z]+")
@@ -85,23 +85,120 @@ def _page_text(
     return pages_of(conn, rule["standard_document_id"])
 
 
+_NEGATION = frozenset(
+    {"not", "no", "nor", "never", "neither", "without", "except", "unless"}
+)
+_BREAKS = re.compile(r"[.;,:]")
+
+
+def _words(text: str) -> list[str]:
+    return _WORD.findall(fold(text))
+
+
+def _closed(text: str) -> bool:
+    """The text is exactly one entry of the closed vocabulary: a connection word or an equipment type."""
+    folded = " ".join(_words(text))
+    return folded in CONNECTION_WORDS or (folded in equipment_types_in(folded))
+
+
 def verify_text(text: str, rule: dict, pages: dict[int, str]) -> tuple[bool, str]:
-    """Every content word and every number of `text` stand in the standard's page text of the rule's page or the next."""
+    """A condition, exception or field of a repair stands only if it is one entry of the closed vocabulary, or its words
+    are a CONTIGUOUS run of the standard's page text (the rule's page or the next; the repo's fold) and every number is
+    on that text; and a negation word is in the text exactly when it is in the clause of the standard it matches."""
     page = rule.get("page")
     body = "\n".join(pages.get(p) or "" for p in (page, (page or 0) + 1))
     if not body.strip():
         return False, "page_text_missing"
-    folded = fold(body)
-    words = set(_WORD.findall(folded))
-    for word in _WORD.findall(fold(text)):
-        if word not in _FILLER and word not in words:
-            return False, "word_not_on_page"
-    have = {n.value for n in numparse.find_numbers(folded) if n.value is not None}
-    have |= {f.value for f in fraction_spans(folded)}
-    for n in numparse.find_numbers(text):
-        if n.value is not None and n.value not in have:
-            return False, "number_not_on_page"
-    return True, "stands_on_page"
+    have = {n.value for n in numparse.find_numbers(fold(body)) if n.value is not None}
+    have |= {f.value for f in fraction_spans(fold(body))}
+    if any(
+        n.value is not None and n.value not in have for n in numparse.find_numbers(text)
+    ):
+        return False, "number_not_on_page"
+    wanted = _words(text)
+    if not wanted:
+        return False, "no_words"
+    for clause in _BREAKS.split(fold(body)):
+        run = _words(clause)
+        at = next(
+            (
+                i
+                for i in range(len(run) - len(wanted) + 1)
+                if run[i : i + len(wanted)] == wanted
+            ),
+            None,
+        )
+        if at is not None:
+            if bool(_NEGATION & set(run)) != bool(_NEGATION & set(wanted)):
+                return False, "negation_differs"
+            return True, "stands_on_page"
+    if _closed(text):
+        return True, "closed_vocabulary"
+    return False, "not_a_contiguous_run_of_the_page"
+
+
+def apply_proposal(
+    conn_copy: sqlite3.Connection, rule_version_id: str, proposal: dict, approver: str
+) -> dict:
+    """Write a proposed value, unit and comparator into the WORK COPY (never automatic: only an explicit call, named
+    approver). Refuses an original database and a proposal whose value or unit does not stand in the rule's quote:
+    step a must pass with the proposal applied. The rulebook rows stay as they are (append-only); the applied figure is
+    kept in `rule_finish_applied` and step a is recorded as pass with reason `proposal_applied`."""
+    require_work_copy(conn_copy)
+    if not (approver or "").strip():
+        raise ValueError("an approver is required")
+    rules = load_rules_by_version(conn_copy, rule_version_id)
+    if not rules:
+        raise ValueError("no such rule version in this copy")
+    unit = proposal.get("unit")
+    trial = dict(
+        rules[0],
+        value=proposal.get("value"),
+        value_low=proposal.get("value_low"),
+        value_high=proposal.get("value_high"),
+        unit=unit,
+        comparator=proposal.get("comparator"),
+    )
+    if trial["value"] is None and trial["value_low"] is None:
+        raise ValueError("a proposal needs a value")
+    # step a verifies value, unit AND the comparator against the figure's own phrase (a range: both ends, low then high)
+    result, reason, _ = limit_and_unit(trial)
+    if result != PASS:
+        raise ValueError(
+            f"refused: the proposal does not stand in the quote ({reason})"
+        )
+    if trial["value"] is None and proposal.get("comparator"):
+        raise ValueError(
+            "refused: a range has no comparator of its own (low is >=, high is <=)"
+        )
+    ensure_table(conn_copy)
+    conn_copy.execute(_APPLIED)
+    at = now_utc()
+    conn_copy.execute(
+        "INSERT INTO rule_finish_applied (rule_version_id, value, value_low, value_high, unit, comparator, approver, at) VALUES (?,?,?,?,?,?,?,?)",
+        (
+            rule_version_id,
+            trial["value"],
+            trial["value_low"],
+            trial["value_high"],
+            unit,
+            trial["comparator"],
+            approver,
+            at,
+        ),
+    )
+    conn_copy.commit()
+    record_code_step(
+        conn_copy,
+        rule_version_id,
+        "a",
+        run_id="apply-proposal",
+        note="proposal_applied: ",
+        checker=approver,
+        at=at,
+    )
+    reset_checks(conn_copy, rule_version_id, approver, at)
+    return trial
 
 
 class _Check:
@@ -125,13 +222,15 @@ class _Check:
 
     def figure(self, fig: dict, unit: str | None) -> None:
         name = f"figure {fig['value']}"
-        trial = dict(
+        quote = " ".join(str(self.rule.get("quote") or "").split())
+        trial = dict(  # the comparator is verified apart (`comparator`); here the figure's own phrase must be readable
             self.rule,
             figures=None,
             value=fig["value"],
             value_low=None,
             value_high=None,
             unit=unit,
+            comparator=implied_comparator(quote, fig["value"], unit),
         )
         result, reason, _ = limit_and_unit(trial)
         if result != PASS:
@@ -214,46 +313,33 @@ def _write_rows(
 
 
 def _record_touched(
-    conn: sqlite3.Connection,
-    version_id: str,
-    rule: dict,
-    rows: list,
-    approver: str,
-    at: str,
+    conn: sqlite3.Connection, version_id: str, rows: list, approver: str, at: str
 ) -> dict:
+    """A step record for every step the repair touched (recomputed by the recorder), then e and f back to incomplete."""
     kinds = {k for k, _ in rows}
-    steps: dict = {}
-    if kinds & {"figure", "comparator"}:
-        steps["a"] = None
-    if kinds & {"condition", "exception"}:
-        steps["d"] = None
-    if rows:
-        steps["b"] = None
-    for step in steps:
-        steps[step] = record_code_step(
+    names = [
+        n
+        for n, hit in (
+            ("a", kinds & {"figure", "comparator"}),
+            ("d", kinds & {"condition", "exception"}),
+            ("b", rows),
+        )
+        if hit
+    ]
+    steps = {
+        n: record_code_step(
             conn,
-            rule,
-            step,
+            version_id,
+            n,
             run_id="apply-repair",
             note="repair_applied: ",
             checker=approver,
             at=at,
         )
-    if rows and "e" in latest_steps(
-        conn, version_id
-    ):  # the engineer check must be run again
-        _append_step(
-            conn,
-            version_id,
-            "e",
-            INCOMPLETE,
-            "pending_recheck_after_repair",
-            {"approver": approver},
-            checker=approver,
-            model=MODEL_NONE,
-            run_id="apply-repair",
-            at=at,
-        )
+        for n in names
+    }
+    if rows:
+        reset_checks(conn, version_id, approver, at)
     return {k: v[:2] for k, v in steps.items()}
 
 
@@ -276,12 +362,5 @@ def apply_repair(
     check.run(repair)
     at = now_utc()
     _write_rows(conn_copy, rule_version_id, check.rows, approver, at)
-    steps = _record_touched(
-        conn_copy,
-        rule_version_id,
-        overlay_applied(conn_copy, found[0]),
-        check.rows,
-        approver,
-        at,
-    )
+    steps = _record_touched(conn_copy, rule_version_id, check.rows, approver, at)
     return {"applied": check.applied, "refused": check.refused, "steps": steps}

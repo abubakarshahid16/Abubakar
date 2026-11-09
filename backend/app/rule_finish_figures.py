@@ -23,54 +23,79 @@ _GROUP_SEPARATORS = "    "
 _DIGITS = re.compile(r"\d+")
 #: a unit followed by a second unit word or a "per"/"/" part that the unit table does not read as one unit
 _COMPOUND = re.compile(
-    r"\s*(?:/\s*[a-z]|per\s+[a-z]|(?:hg|h\s?2\s?o|w\.?\s?[cg]\.?|wc|wg)(?![a-z]))"
+    r"\s*\.?\s*(?:/\s*[a-z]|per\s+[a-z]|(?:hg|h\s?2\s?o|w\.?\s?[cg]\.?|wc|wg|water|mercury)(?![a-z]))"
 )
 _RANGE_GAP = re.compile(r"\s*(?:to|and|[-–—])\s*")
 _RANGE_JOIN = re.compile(r"\s*(?:to|[-–—])\s*")
 _RANGE_OPEN = re.compile(r"(?:between|from)\s*$")
-_BREAK = re.compile(r"[.;:]\s")
+_BREAK = re.compile(r"(?<!min)(?<!max)[.;:]\s")
 
-#: Polarity phrases, longest first, so "not less than" is one phrase and never "less than".
-_POLARITY = (
-    ("greater than or equal to", ">="),
-    ("less than or equal to", "<="),
-    ("not to exceed", "<="),
-    ("shall not exceed", "<="),
-    ("not less than", ">="),
-    ("no less than", ">="),
-    ("not more than", "<="),
-    ("no more than", "<="),
-    ("not greater than", "<="),
-    ("at least", ">="),
-    ("at most", "<="),
-    ("minimum", ">="),
-    ("maximum", "<="),
-    ("exactly", "="),
-    ("equal to", "="),
-    ("equals", "="),
-    ("more than", ">"),
-    ("greater than", ">"),
-    ("exceeding", ">"),
-    ("less than", "<"),
-    ("smaller than", "<"),
-    ("up to", "<="),
-    (">=", ">="),
-    ("<=", "<="),
-    ("≥", ">="),
-    ("≤", "<="),
-    ("min.", ">="),
-    ("max.", "<="),
-    ("min", ">="),
-    ("max", "<="),
-)
+#: The CLOSED polarity table: every phrase that may give a figure a comparator, negated forms included. Anything else
+#: that carries a negation word is not read (no comparator, so step a is incomplete and a proposal is refused).
+POLARITY_TABLE: dict[str, tuple[str, ...]] = {
+    ">=": (
+        "at least",
+        "minimum",
+        "min.",
+        "min",
+        "not less than",
+        "no less than",
+        "not smaller than",
+        "not lower than",
+        "not fewer than",
+        "shall not be less than",
+        "shall not be smaller than",
+        "shall not be lower than",
+        "greater than or equal to",
+        ">=",
+        "≥",
+    ),
+    "<=": (
+        "at most",
+        "maximum",
+        "max.",
+        "max",
+        "not more than",
+        "no more than",
+        "not greater than",
+        "no greater than",
+        "not higher than",
+        "no higher than",
+        "not exceeding",
+        "shall not exceed",
+        "not to exceed",
+        "shall not be more than",
+        "shall not be greater than",
+        "shall not be higher than",
+        "nor more than",
+        "nor greater than",
+        "nor exceeding",
+        "up to",
+        "less than or equal to",
+        "<=",
+        "≤",
+    ),
+    "=": ("exactly", "equal to", "equals"),
+    ">": ("more than", "greater than", "exceeding", "higher than"),
+    "<": ("less than", "smaller than", "lower than", "fewer than"),
+}
+_SYMBOL = {phrase: sym for sym, phrases in POLARITY_TABLE.items() for phrase in phrases}
 _POLARITY_RE = re.compile(
     "|".join(
         r"(?<![a-z])" + re.escape(p) + (r"(?![a-z])" if p[-1].isalpha() else "")
-        for p, _ in _POLARITY
+        for p in sorted(_SYMBOL, key=len, reverse=True)
     ),
     re.IGNORECASE,
 )
-_SYMBOL = dict(_POLARITY)
+_NEGATION = re.compile(
+    r"(?<![a-z])(?:not|no|nor|neither|never|without|cannot|n't)(?![a-z])", re.IGNORECASE
+)
+_TRAILING = re.compile(
+    r"\s*,?\s*(minimum|maximum|min\.?|max\.?)(?![a-z])", re.IGNORECASE
+)
+#: Units whose letter case changes the meaning (milli/mega, siemens/second, ...): a case that is not exactly the rule's
+#: is not the same unit, and a figure printed so is not read.
+CASE_AMBIGUOUS = frozenset(numparse.CASE_KEPT_UNITS) | frozenset("MSGHTP")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -100,6 +125,12 @@ def normalise(quote: str) -> tuple[str, str | None]:
     """The quote with vulgar-fraction characters spelled as numparse reads a fraction ("1 1 half") and digit groups
     ("1 000") as the number numparse.parse_value reads; and the reason when one cannot be read."""
     out, problem, vulgar = [], None, 0
+    quote = re.sub(
+        r"(?<![a-z])(?:minus|negative)\s+(?=\d)", "-", quote, flags=re.IGNORECASE
+    )
+    quote = re.sub(
+        r"(?<=\d)\s*(?:per\s?cent|percent)(?![a-z])", "%", quote, flags=re.IGNORECASE
+    )
     for ch in quote:
         if unicodedata.name(ch, "").startswith("VULGAR FRACTION"):
             vulgar += 1
@@ -119,8 +150,7 @@ def normalise(quote: str) -> tuple[str, str | None]:
         while (
             j + 1 < len(numbers)
             and _DIGITS.fullmatch(numbers[j].raw)
-            and len(numbers[j + 1].raw) == 3
-            and _DIGITS.fullmatch(numbers[j + 1].raw)
+            and re.fullmatch(r"\d{3}(?:[.,]\d+)*", numbers[j + 1].raw)
             and text[numbers[j].end : numbers[j + 1].start] in tuple(_GROUP_SEPARATORS)
             and (j > i or len(numbers[j].raw) <= 3)
         ):
@@ -209,45 +239,72 @@ def fraction_ambiguous(text: str) -> bool:
     )
 
 
-def _governing(text: str, figure: Figure, before: int) -> tuple[str | None, str | None]:
-    """The comparator the phrase just before this figure gives: nearest polarity words after the previous figure and the
-    last sentence break; two different polarities in that stretch, or none, is no comparator."""
-    window = text[before : figure.start]
+def _phrase(window: str) -> tuple[str | None, str | None]:
+    """The comparator the phrases of `window` give: every table phrase is read (longest first); a negation word left over
+    that no table phrase uses, two different polarities, or none, is no comparator."""
     cut = list(_BREAK.finditer(window))
     window = window[cut[-1].end() :] if cut else window
     symbols = [_SYMBOL[m.group(0).lower()] for m in _POLARITY_RE.finditer(window)]
+    rest = _POLARITY_RE.sub(" ", window)
+    if _NEGATION.search(rest):
+        return None, "negation_not_in_table"
     if len(set(symbols)) == 1:
         return symbols[0], "governing_phrase"
     return None, ("conflicting_phrases" if symbols else None)
 
 
+def _claim(
+    text: str, figure: Figure, before: int
+) -> tuple[str | None, str | None, int]:
+    """(comparator, source, where this figure's phrase ends): the phrase IMMEDIATELY before it (after the previous figure
+    and its trailing word) and the "minimum"/"maximum" directly after its unit. Never inherited from another figure."""
+    comparator, source = _phrase(text[before : figure.start])
+    trail = _TRAILING.match(text, figure.unit_end)
+    end = figure.unit_end
+    if trail:
+        end = trail.end()
+        after = _SYMBOL[trail.group(1).lower()]
+        if comparator not in (None, after):
+            return None, "conflicting_phrases", end
+        if comparator is None and source == "negation_not_in_table":
+            return None, source, end
+        comparator, source = after, "trailing_word"
+    return comparator, source, end
+
+
+def _low_end(text: str, fig: Figure, before: int, out: list[Figure], numbers: list):
+    """The low end of a range that `fig` closes: the figure before it ("10 mm - 20 mm", "10 to 20 mm"), or a number that
+    shares its unit ("between 10 and 40 C", "from 10 to 40 C", "-10 to 40 C"); else None."""
+    prev = out[-1] if out else None
+    if (
+        prev is not None
+        and prev.unit == fig.unit
+        and _RANGE_JOIN.fullmatch(text[prev.unit_end : fig.start])
+    ):
+        return prev
+    lead = [
+        n
+        for n in numbers
+        if n.value is not None and n.end <= fig.start and n.start >= before
+    ]
+    if not lead:
+        return None
+    gap, n = text[lead[-1].end : fig.start], lead[-1]
+    if _RANGE_JOIN.fullmatch(gap) or (
+        _RANGE_GAP.fullmatch(gap) and _RANGE_OPEN.search(text[before : n.start])
+    ):
+        return Figure(n.value, fig.unit, n.start, n.end, n.end, n.raw)
+    return None
+
+
 def _with_ranges(text: str, figures: list[Figure]) -> list[Figure]:
-    """ "between 10 and 40 C", "from 10 to 40 C", "10-40 C": two figures, >= the low end and <= the high end."""
+    """ "between 10 and 40 C", "from 10 to 40 C", "10 to 20 mm", "10-40 C": two figures, >= the low end and <= the high
+    end; every other figure takes its own phrase."""
     out: list[Figure] = []
     numbers = numparse.find_numbers(text)
+    before = 0
     for fig in figures:
-        before = out[-1].unit_end if out else 0
-        low = None
-        prev = out[-1] if out else None
-        if (
-            prev is not None
-            and prev.unit == fig.unit
-            and _RANGE_JOIN.fullmatch(text[prev.unit_end : fig.start])
-        ):
-            low = prev
-        else:
-            lead = [
-                n
-                for n in numbers
-                if n.value is not None and n.end <= fig.start and n.start >= before
-            ]
-            if (
-                lead
-                and _RANGE_GAP.fullmatch(text[lead[-1].end : fig.start])
-                and _RANGE_OPEN.search(text[before : lead[-1].start])
-            ):
-                n = lead[-1]
-                low = Figure(n.value, fig.unit, n.digits_at, n.end, n.end, n.raw)
+        low = _low_end(text, fig, before, out, numbers)
         if low is not None:
             if out and out[-1] is low:
                 out.pop()
@@ -259,12 +316,26 @@ def _with_ranges(text: str, figures: list[Figure]) -> list[Figure]:
                     fig, comparator="<=", comparator_source="range_high"
                 ),
             ]
+            before = fig.unit_end
             continue
-        comparator, source = _governing(text, fig, before)
+        comparator, source, before = _claim(text, fig, before)
         out.append(
             dataclasses.replace(fig, comparator=comparator, comparator_source=source)
         )
     return out
+
+
+def number_comparator(text: str, value: float) -> str | None:
+    """The comparator the phrase before the ONE bare number (or whole fraction) `value` gives (a count or ratio with no
+    unit); None when the number is not there exactly once or no table phrase governs it."""
+    masked = mask_fractions(text)
+    hits = [(n.value, n.start, n.end, n.raw) for n in numparse.find_numbers(masked)]
+    hits += [(f.value, f.start, f.end, f.raw) for f in fraction_spans(text)]
+    hits = [h for h in hits if h[0] == float(value)]
+    if len(hits) != 1:
+        return None
+    v, start, end, raw = hits[0]
+    return _claim(text, Figure(v, "", start, end, end, raw), 0)[0]
 
 
 def read(quote: str) -> Reading:
@@ -273,6 +344,15 @@ def read(quote: str) -> Reading:
     if fraction_ambiguous(text):
         return Reading(text, (), "figure_ambiguous")
     figures = _raw_figures(text)
+    if any(
+        n.value is None
+        and (hit := _UNIT_AFTER.match(text, n.end))
+        and _is_unit_word(hit.group(1))
+        for n in numparse.find_numbers(mask_fractions(text))
+    ):
+        return Reading(text, tuple(figures), "number_unreadable")
+    if any(f.unit in CASE_AMBIGUOUS for f in figures):
+        return Reading(text, tuple(figures), "unit_case_ambiguous")
     if any(
         _COMPOUND.match(text[f.unit_end :].lower()) and "/" not in f.unit
         for f in figures
@@ -299,7 +379,15 @@ def stands(value: float, text: str) -> bool:
 
 
 def unit_matches(rule_unit: str | None, figure: Figure) -> bool:
+    """The rule's unit is the figure's, by the repo's unit comparison; where case is the meaning (m and M) the spelling
+    must be the same."""
     if not rule_unit or not figure.unit:
+        return False
+    if (
+        rule_unit != figure.unit
+        and rule_unit.lower() == figure.unit.lower()
+        and {rule_unit, figure.unit} & CASE_AMBIGUOUS
+    ):
         return False
     return claims.same_unit(
         claims.Measurement("", rule_unit, None, None, None),

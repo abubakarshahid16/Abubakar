@@ -1,101 +1,191 @@
-"""Hardening of the rule finishing line after review (Lane 1): comparators, the write guard, unreadable figures, closed
-vocabulary, the finish rules and recorded steps. Every text here is INVENTED."""
-
 # ruff: noqa: RUF001  (thin and no-break spaces in digit groups are the point of these tests)
+"""Reading figures for step a, polarity as a closed table, comparators, ranges, unreadable figures (Lane 1).
+Every text here is INVENTED."""
+
 from __future__ import annotations
 
-import hashlib
 import json
-import sqlite3
-from pathlib import Path
 
 import pytest
 
 from app import rule_finish as rf
 from app import rule_finish_figures as ff
-from app import rule_finish_guard as guard
-from app import rule_finish_repair as rr
-from app import rule_finish_store as st
+from tests.test_rule_finish_kit import marker_key, rule  # noqa: F401
+
+# ------------------------------------------------------------------------------------------------ H1 polarity table
+
+#: The closed table written out here, independently of the module, so a phrase dropped or changed there is caught.
+_GE = (
+    "at least",
+    "minimum",
+    "min.",
+    "min",
+    "not less than",
+    "no less than",
+    "not smaller than",
+    "not lower than",
+    "not fewer than",
+    "shall not be less than",
+    "shall not be smaller than",
+    "shall not be lower than",
+    "greater than or equal to",
+    ">=",
+    "\u2265",
+)
+_LE = (
+    "at most",
+    "maximum",
+    "max.",
+    "max",
+    "not more than",
+    "no more than",
+    "not greater than",
+    "no greater than",
+    "not higher than",
+    "no higher than",
+    "not exceeding",
+    "shall not exceed",
+    "not to exceed",
+    "shall not be more than",
+    "shall not be greater than",
+    "shall not be higher than",
+    "nor more than",
+    "nor greater than",
+    "nor exceeding",
+    "up to",
+    "less than or equal to",
+    "<=",
+    "\u2264",
+)
+TABLE = [
+    *((p, ">=") for p in _GE),
+    *((p, "<=") for p in _LE),
+    *((p, "=") for p in ("exactly", "equal to", "equals")),
+    *((p, ">") for p in ("more than", "greater than", "exceeding", "higher than")),
+    *((p, "<") for p in ("less than", "smaller than", "lower than", "fewer than")),
+]
 
 
-def rule(**kw):
-    base = {
-        "rule_id": "r1",
-        "rule_key": "abcdef0123",
-        "version_id": "v1",
-        "standard": "X.pdf",
-        "kind": "no_figure",
-        "field": "wall thickness",
-        "comparator": None,
-        "value": None,
-        "value_low": None,
-        "value_high": None,
-        "unit": None,
-        "quote": "Widgets shall be painted.",
-        "page": 1,
-        "standard_document_id": "d",
-        "applicability": [("subject", "pumps")],
-    }
-    base.update(kw)
-    return base
-
-
-def make_copy(
-    path: Path,
-    quote="The wall shall be at least 10 mm and at most 20 mm thick.",
-    marked=True,
-):
-    conn = sqlite3.connect(path)
-    conn.executescript(
-        """CREATE TABLE rulebook_rule (id TEXT, rule_key TEXT, standard TEXT);
-        CREATE TABLE rulebook_version (id TEXT, rule_id TEXT, version_no INT, kind TEXT, field TEXT, comparator TEXT,
-          value REAL, value_low REAL, value_high REAL, value_text TEXT, unit TEXT, unit_dimension TEXT, strength TEXT,
-          sentence_strength TEXT, context_flag TEXT);
-        CREATE TABLE rulebook_provenance (id INTEGER PRIMARY KEY, rule_version_id TEXT, standard_document_id TEXT,
-          edition TEXT, clause TEXT, page INT, quote TEXT, quote_start INT, quote_end INT, page_source TEXT);
-        CREATE TABLE rulebook_applicability (id INTEGER PRIMARY KEY, rule_version_id TEXT, key_type TEXT, value TEXT);"""
+def test_the_table_is_exactly_the_closed_table():
+    assert sorted(TABLE) == sorted(
+        (p, s) for s, ps in ff.POLARITY_TABLE.items() for p in ps
     )
-    conn.execute("INSERT INTO rulebook_rule VALUES ('r1','keyabc','X.pdf')")
-    conn.execute(
-        "INSERT INTO rulebook_version VALUES ('v1','r1',1,'no_figure','wall thickness',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'shall',NULL,NULL)"
-    )
-    conn.execute(
-        "INSERT INTO rulebook_provenance (rule_version_id, standard_document_id, clause, page, quote) VALUES ('v1','d','4.1',1,?)",
-        (quote,),
-    )
-    conn.execute(
-        "INSERT INTO rulebook_applicability (rule_version_id, key_type, value) VALUES ('v1','subject','pumps')"
-    )
-    conn.commit()
-    if marked:
-        guard._write_marker(conn, guard._real(path), "source-of-this-copy")
-    return conn
 
 
-# ------------------------------------------------------------------------------------------------ H1 comparators
+@pytest.mark.parametrize("phrase, sym", TABLE)
+def test_every_phrase_of_the_closed_table_gives_its_comparator(phrase, sym):
+    (f,) = ff.figures(f"The wall shall be {phrase} 10 mm thick.")
+    assert (f.value, f.comparator) == (10.0, sym)
 
 
 @pytest.mark.parametrize(
     "quote, expected",
     [
-        ("at least 10 mm and at most 20 mm", [(10.0, ">="), (20.0, "<=")]),
-        ("not less than 6 mm", [(6.0, ">=")]),
-        ("shall not exceed 6 mm", [(6.0, "<=")]),
-        ("exactly 6 mm", [(6.0, "=")]),
-        ("between 10 and 40 C", [(10.0, ">="), (40.0, "<=")]),
-        ("from 10 to 40 C", [(10.0, ">="), (40.0, "<=")]),
-        ("10-40 C", [(10.0, ">="), (40.0, "<=")]),
-        ("shall be 6 mm", [(6.0, None)]),  # no phrase of its own: no comparator
-        ("at least 5 mm, at most 9 mm", [(5.0, ">="), (9.0, "<=")]),
+        ("shall not be less than 10 mm", ">="),  # was read '<'
+        ("not exceeding 10 mm", "<="),  # was read '>'
+        ("no greater than 10 mm", "<="),
+        ("shall not be more than 10 mm", "<="),
+        ("not smaller than 10 mm", ">="),  # was read '<'
+        ("not lower than 10 mm", ">="),
+        ("not higher than 10 mm", "<="),
+        ("less than 10 mm", "<"),
+        ("more than 10 mm", ">"),
     ],
 )
-def test_each_figure_takes_the_comparator_of_its_own_governing_phrase(quote, expected):
+def test_a_negated_comparative_gives_the_right_polarity(quote, expected):
+    assert [f.comparator for f in ff.figures(quote)] == [expected]
+
+
+@pytest.mark.parametrize(
+    "quote, expected",
+    [
+        (
+            "not less than 10 mm nor more than 20 mm",
+            [(10.0, ">="), (20.0, "<=")],
+        ),  # the 20 was read '>'
+        ("not less than 10 mm and not more than 20 mm", [(10.0, ">="), (20.0, "<=")]),
+        ("not less than 10 mm and at most 20 mm", [(10.0, ">="), (20.0, "<=")]),
+        (
+            "10 mm minimum, 20 mm maximum",
+            [(10.0, ">="), (20.0, "<=")],
+        ),  # the 20 took '>=' from the 10's trailing word
+        ("20 mm maximum and 10 mm minimum", [(20.0, "<="), (10.0, ">=")]),
+        ("at least 10 mm and at most 20 mm", [(10.0, ">="), (20.0, "<=")]),
+        (
+            "at least 3/4 inch for threaded and 1 inch for flanged",
+            [(0.75, ">="), (1.0, None)],
+        ),  # never inherited
+    ],
+)
+def test_every_figure_takes_the_phrase_immediately_governing_it_and_never_one_from_another_figure(
+    quote, expected
+):
     assert [(f.value, f.comparator) for f in ff.figures(quote)] == expected
 
 
-def test_conflicting_polarity_in_one_phrase_gives_no_comparator():
-    (f,) = ff.figures("at least or at most 6 mm")
-    assert f.comparator is None and f.comparator_source == "conflicting_phrases"
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "neither less than 5 mm",  # a negation the table does not use
+        "shall not be roughly 5 mm",
+        "at least or at most 5 mm",  # two polarities
+        "5 mm",  # none
+        "at least 5 mm maximum",  # leading and trailing disagree
+    ],
+)
+def test_an_unknown_or_conflicting_phrase_is_no_comparator(quote):
+    (f,) = ff.figures(quote)
+    assert f.comparator is None
+    r = rule(quote=quote, kind="limit", value=5, unit="mm", comparator=">=")
+    assert rf.limit_and_unit(r)[:2] == (rf.INCOMPLETE, "comparator_unreadable")
+    assert (
+        rf.limit_and_unit(rule(quote=quote))[0] == rf.FAIL
+    )  # proposals list it with comparator None
+    _, _, ev = rf.limit_and_unit(rule(quote=quote))
+    assert ev["proposed"][0]["comparator"] is None
+
+
+def test_implied_comparator_needs_exactly_one_reading_of_the_figure():
+    assert ff.implied_comparator("at least 10 mm", 10, "mm") == ">="
+    assert (
+        ff.implied_comparator("at least 10 mm and at most 10 mm", 10, "mm") is None
+    )  # two printings disagree
+    assert ff.implied_comparator("at least 10 mm", 11, "mm") is None
+    assert ff.implied_comparator("at least 10 mm", 10, "kPa") is None
+    assert (
+        ff.implied_comparator("at least 10 mm and again at least 10 mm", 10, "mm")
+        == ">="
+    )
+
+
+def test_unit_matches_needs_both_units_and_the_same_case_where_case_is_meaning():
+    (f,) = ff.figures("at least 10 mm")
+    assert ff.unit_matches("mm", f) and ff.unit_matches("MM", f)
+    assert not ff.unit_matches(None, f) and not ff.unit_matches("", f)
+    assert not ff.unit_matches("mm", ff.Figure(1.0, "", 0, 1, 1, "1"))
+    assert not ff.unit_matches("M", ff.Figure(1.0, "m", 0, 1, 1, "1"))
+
+
+# ------------------------------------------------------------------------------------------------ ranges (H3)
+
+
+@pytest.mark.parametrize(
+    "quote",
+    ["between 10 and 40 C", "from 10 to 40 C", "10 to 40 C", "10-40 C", "10 C - 40 C"],
+)
+def test_a_range_is_two_figures_low_then_high(quote):
+    assert [(f.value, f.comparator) for f in ff.figures(quote)] == [
+        (10.0, ">="),
+        (40.0, "<="),
+    ]
+
+
+def test_a_signed_low_end_is_read_whole():
+    assert [(f.value, f.comparator) for f in ff.figures("-10 to 40 C")] == [
+        (-10.0, ">="),
+        (40.0, "<="),
+    ]
+    assert [f.value for f in ff.figures("minus 10 C")] == [-10.0]
 
 
 def test_a_range_proposal_is_two_figures_never_one_without_a_comparator():
@@ -106,158 +196,108 @@ def test_a_range_proposal_is_two_figures_never_one_without_a_comparator():
     ]
 
 
-@pytest.mark.parametrize("bad", ["<=", "garbage", ">", None])
-def test_apply_proposal_refuses_a_comparator_the_quote_does_not_give_that_figure(
-    tmp_path, bad
-):
-    conn = make_copy(
-        tmp_path / "w.sqlite", quote="The wall shall be at least 10 mm thick."
+def test_a_stored_range_needs_both_ends_in_the_unit_in_order():
+    q = "Ambient shall be between 10 and 40 C."
+    ok = rule(quote=q, kind="range", value_low=10, value_high=40, unit="C")
+    assert rf.limit_and_unit(ok)[:2] == (rf.PASS, "value_and_unit_stand_in_quote")
+    assert rf.limit_and_unit(dict(ok, value_low=40, value_high=10))[:2] == (
+        rf.FAIL,
+        "range_order",
     )
-    with pytest.raises(ValueError):
-        st.apply_proposal(
-            conn, "v1", {"value": 10.0, "unit": "mm", "comparator": bad}, "o"
-        )
-    assert st.latest_steps(conn, "v1") == {}
-    st.apply_proposal(
-        conn, "v1", {"value": 10.0, "unit": "mm", "comparator": ">="}, "o"
+    mixed = rule(
+        quote="Use 10 mm and 20 cm.",
+        kind="range",
+        value_low=10,
+        value_high=20,
+        unit="mm",
     )
-
-
-def test_apply_proposal_checks_each_figure_against_its_own_phrase(tmp_path):
-    conn = make_copy(tmp_path / "w.sqlite")  # at least 10 mm and at most 20 mm
-    with pytest.raises(ValueError):
-        st.apply_proposal(
-            conn, "v1", {"value": 10.0, "unit": "mm", "comparator": "<="}, "o"
-        )  # the other figure's
-    st.apply_proposal(
-        conn, "v1", {"value": 20.0, "unit": "mm", "comparator": "<="}, "o"
+    assert rf.limit_and_unit(mixed)[:2] == (
+        rf.FAIL,
+        "unit_not_in_quote",
+    )  # the unit fits one end only
+    other = rule(
+        quote="at least 10 mm, then 20 mm",
+        kind="range",
+        value_low=10,
+        value_high=20,
+        unit="mm",
     )
+    assert rf.limit_and_unit(other)[:2] == (
+        rf.FAIL,
+        "comparator_mismatch",
+    )  # the ends are not low and high
 
 
-def test_a_range_proposal_needs_the_quotes_low_and_high_ends_and_no_comparator(
-    tmp_path,
-):
-    conn = make_copy(
-        tmp_path / "w.sqlite", quote="Ambient shall be between 10 and 40 C."
+# ------------------------------------------------------------------------------------------------ H2 stored comparator
+
+
+def test_a_stored_comparator_must_be_the_figures_own():
+    q = "The wall shall be at least 10 mm thick."
+    ok = rule(quote=q, kind="limit", value=10, unit="mm", comparator=">=")
+    assert rf.limit_and_unit(ok)[:2] == (rf.PASS, "value_and_unit_stand_in_quote")
+    assert rf.limit_and_unit(dict(ok, comparator="<="))[:2] == (
+        rf.FAIL,
+        "comparator_mismatch",
     )
-    for bad in (
-        {"value_low": 10.0, "value_high": 40.0, "unit": "C", "comparator": ">="},
-        {"value_low": 40.0, "value_high": 40.0, "unit": "C"},
-    ):
-        with pytest.raises(ValueError):
-            st.apply_proposal(conn, "v1", bad, "o")
-    st.apply_proposal(
-        conn, "v1", {"value_low": 10.0, "value_high": 40.0, "unit": "C"}, "o"
+    assert rf.limit_and_unit(dict(ok, comparator=">"))[:2] == (
+        rf.FAIL,
+        "comparator_mismatch",
     )
-
-
-def test_apply_repair_checks_the_comparator_against_the_figures_it_is_applied_to(
-    tmp_path,
-):
-    conn = make_copy(tmp_path / "w.sqlite")
-    pages = {1: "The wall shall be at least 10 mm and at most 20 mm thick."}
-    out = rr.apply_repair(
-        conn,
-        "v1",
-        {"comparator": "<=", "figures": [{"value": 10.0, "unit": "mm"}]},
-        "o",
-        pages=pages,
+    assert rf.limit_and_unit(dict(ok, comparator=None))[:2] == (
+        rf.FAIL,
+        "comparator_missing",
     )
-    assert ("comparator", "comparator_not_in_quote") in {
-        (x["part"], x["reason"]) for x in out["refused"]
-    }
-    out = rr.apply_repair(
-        conn,
-        "v1",
-        {"comparator": "<=", "figures": [{"value": 20.0, "unit": "mm"}]},
-        "o",
-        pages=pages,
+    both = rule(
+        quote="at least 10 mm and at most 10 mm",
+        kind="limit",
+        value=10,
+        unit="mm",
+        comparator=">=",
     )
-    assert out["refused"] == []
+    assert rf.limit_and_unit(both)[:2] == (
+        rf.INCOMPLETE,
+        "comparator_unreadable",
+    )  # two readings of the figure
 
 
-# ------------------------------------------------------------------------------------------------ H2 write guard
+def test_a_bare_number_has_its_comparator_checked_too():
+    ok = rule(
+        quote="Provide at least 3 stages.",
+        kind="limit",
+        value=3,
+        comparator=">=",
+        unit=None,
+    )
+    assert rf.limit_and_unit(ok)[:2] == (rf.PASS, "value_stands_no_unit_in_quote")
+    assert rf.limit_and_unit(dict(ok, comparator="<="))[:2] == (
+        rf.FAIL,
+        "comparator_mismatch",
+    )
+    assert (
+        rf.limit_and_unit(
+            rule(
+                quote="Provide 3 stages.",
+                kind="limit",
+                value=3,
+                comparator=">=",
+                unit=None,
+            )
+        )[0]
+        == rf.INCOMPLETE
+    )
+    assert rf.limit_and_unit(dict(ok, unit="mm"))[:2] == (rf.FAIL, "unit_not_in_quote")
 
 
-def test_a_write_is_refused_unless_the_database_is_a_marked_copy_by_what_it_is_not_by_its_name(
-    tmp_path,
-):
-    for name in ("PSV-ALL.SQLITE", "Compile.sqlite", "anything.db", "work.sqlite"):
-        conn = make_copy(tmp_path / name, marked=False)
-        for call in (
-            lambda c: st.ensure_table(c),
-            lambda c: st._append_step(
-                c, "v1", "a", "pass", "r", {}, checker="c", model="m", run_id="x"
-            ),
-            lambda c: st.apply_proposal(
-                c, "v1", {"value": 10.0, "unit": "mm", "comparator": ">="}, "o"
-            ),
-            lambda c: rr.apply_repair(c, "v1", {}, "o", pages={}),
-        ):
-            with pytest.raises(guard.NotAWorkCopy):
-                call(conn)
-        assert (
-            conn.execute(
-                "SELECT name FROM sqlite_master WHERE name='rule_finish_step'"
-            ).fetchone()
-            is None
-        )
-
-
-def test_a_marker_copied_with_the_file_does_not_make_another_file_writable(tmp_path):
-    make_copy(tmp_path / "a.sqlite").close()
-    (tmp_path / "b.sqlite").write_bytes((tmp_path / "a.sqlite").read_bytes())
-    with pytest.raises(guard.NotAWorkCopy):
-        guard.require_work_copy(sqlite3.connect(tmp_path / "b.sqlite"))
-
-
-def test_a_marked_copy_that_is_a_protected_database_is_refused(tmp_path):
-    conn = make_copy(tmp_path / "a.sqlite")
-    guard.require_work_copy(conn)
-    with pytest.raises(guard.NotAWorkCopy):
-        guard.require_work_copy(conn, protected=[tmp_path / "a.sqlite"])
-    link = tmp_path / "link.sqlite"
-    link.symlink_to(tmp_path / "a.sqlite")
-    with pytest.raises(guard.NotAWorkCopy):
-        guard.require_work_copy(conn, protected=[link])
-
-
-def test_the_app_and_live_databases_are_protected(tmp_path, monkeypatch):
-    conn = make_copy(tmp_path / "live.sqlite")
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "live.sqlite"))
-    with pytest.raises(guard.NotAWorkCopy):
-        guard.require_work_copy(conn)
-
-
-def test_prepare_and_adopt_make_the_marker_only_for_a_verified_copy(tmp_path):
-    source = tmp_path / "src.sqlite"
-    make_copy(source, marked=False).close()
-    copy = guard.prepare_work_copy(source, tmp_path / "work.sqlite")
-    guard.require_work_copy(sqlite3.connect(copy), [source])
-    old = tmp_path / "old.sqlite"
-    old.write_bytes(source.read_bytes())
-    assert guard.adopt_copy(source, old) == old
-    guard.require_work_copy(sqlite3.connect(old), [source])
-    stranger = tmp_path / "stranger.sqlite"
-    sqlite3.connect(stranger).close()
-    with pytest.raises(guard.NotAWorkCopy):
-        guard.adopt_copy(source, stranger)
-    with pytest.raises(guard.NotAWorkCopy):
-        guard.adopt_copy(source, source)
-    other = make_copy(tmp_path / "other.sqlite", marked=False)
-    other.execute("DELETE FROM rulebook_provenance")
-    other.commit()
-    with pytest.raises(
-        guard.NotAWorkCopy
-    ):  # same tables, other rows: not a copy of this source
-        guard.adopt_copy(source, tmp_path / "other.sqlite")
-
-
-# ------------------------------------------------------------------------------------------------ H3 H4 M8 unreadable figures
+# ------------------------------------------------------------------------------------------------ fractions, groups
 
 
 @pytest.mark.parametrize(
-    "quote, value", [("size ½ inch", 0.5), ("size 1½ inch", 1.5), ("size ¾ inch", 0.75)]
+    "quote, value",
+    [
+        ("size at least ½ inch", 0.5),
+        ("size at least 1½ inch", 1.5),
+        ("size at least ¾ inch", 0.75),
+    ],
 )
 def test_a_vulgar_fraction_character_is_read_through_numparse(quote, value):
     result, reason, ev = rf.limit_and_unit(rule(quote=quote))
@@ -268,24 +308,43 @@ def test_a_vulgar_fraction_character_is_read_through_numparse(quote, value):
     assert rf.limit_and_unit(filled)[0] == rf.PASS
 
 
-@pytest.mark.parametrize(
-    "quote", ["a gap of 1 000 mm", "a gap of 1 000 mm", "a gap of 1 000 mm"]
-)
-def test_grouped_thousands_are_one_number_and_zero_never_stands_for_them(quote):
+def test_a_fraction_character_numparse_cannot_read_is_incomplete_never_not_applicable():
+    assert ff.normalise("size 3.½ inch")[1] == "fraction_character_unreadable"
+    assert rf.limit_and_unit(rule(quote="size 3.½ inch"))[0] in (rf.INCOMPLETE, rf.FAIL)
+    assert ff.read("size 3.½ inch").incomplete in (
+        "fraction_character_unreadable",
+        "figure_ambiguous",
+    )
+
+
+@pytest.mark.parametrize("sep", [" ", " ", " ", " "])
+def test_grouped_thousands_are_one_number_and_zero_never_stands_for_them(sep):
+    quote = f"at least 1{sep}000 mm"
     assert [f.value for f in ff.figures(quote)] == [1000.0]
     assert rf.limit_and_unit(
-        rule(quote=quote, kind="limit", value=0, unit="mm", comparator="=")
+        rule(quote=quote, kind="limit", value=0, unit="mm", comparator=">=")
     )[:2] == (rf.FAIL, "value_not_in_quote")
-    ok = rule(quote=quote, kind="limit", value=1000, unit="mm", comparator="=")
-    assert rf.limit_and_unit(ok)[0] == rf.PASS
     assert (
         rf.limit_and_unit(
-            rule(
-                quote="a gap of 0 mm", kind="limit", value=0, unit="mm", comparator="="
-            )
+            rule(quote=quote, kind="limit", value=1000, unit="mm", comparator=">=")
         )[0]
         == rf.PASS
     )
+    assert (
+        rf.limit_and_unit(
+            rule(quote="exactly 0 mm", kind="limit", value=0, unit="mm", comparator="=")
+        )[0]
+        == rf.PASS
+    )
+
+
+def test_grouped_digits_with_a_decimal_comma_are_read_whole_by_numparse_or_not_at_all():
+    assert [f.value for f in ff.figures("at least 1 000,5 mm")] == [1000.5]  # was 0.5
+    assert ff.normalise("a gap of 1 000,5,1 mm")[1] == "grouped_number_unreadable"
+    assert rf.limit_and_unit(rule(quote="a gap of 1 000,5,1 mm"))[0] == rf.INCOMPLETE
+
+
+# ------------------------------------------------------------------------------------------------ misreads (M9, H4)
 
 
 @pytest.mark.parametrize(
@@ -295,6 +354,10 @@ def test_grouped_thousands_are_one_number_and_zero_never_stands_for_them(quote):
         "a head of 5 mm H2O",
         "a rate of 5 mm per side",
         "5 mm w.c.",
+        "10 in. H2O",
+        "10 in. w.c.",
+        "10 IN. W.C.",
+        "10 in H2O",
     ],
 )
 def test_a_unit_followed_by_a_second_unit_word_is_incomplete(quote):
@@ -304,13 +367,49 @@ def test_a_unit_followed_by_a_second_unit_word_is_incomplete(quote):
 
 
 def test_a_compound_unit_the_unit_table_reads_is_a_figure():
-    assert rf.limit_and_unit(rule(quote="a rate of 10 mm/s"))[:2] == (
+    assert rf.limit_and_unit(rule(quote="a rate of at least 10 mm/s"))[:2] == (
         rf.FAIL,
         "figure_not_filled",
     )
 
 
-# ------------------------------------------------------------------------------------------------ M5 closed vocabulary
+@pytest.mark.parametrize("quote", ["a gap of 1.5.0 mm", "section 1.5.0 mm"])
+def test_a_compound_number_beside_a_unit_is_incomplete_not_no_figure(quote):
+    assert rf.limit_and_unit(rule(quote=quote))[:2] == (
+        rf.INCOMPLETE,
+        "number_unreadable",
+    )
+
+
+def test_percent_is_read_as_a_figure_through_the_unit_table():
+    (f,) = ff.figures("at least 50 percent")
+    assert (f.value, f.unit, f.comparator) == (50.0, "%", ">=")
+    assert (
+        rf.limit_and_unit(
+            rule(
+                quote="at least 50 percent",
+                kind="limit",
+                value=50,
+                unit="%",
+                comparator=">=",
+            )
+        )[0]
+        == rf.PASS
+    )
+    assert ff.figures("at least 50 per cent")[0].unit == "%"
+
+
+def test_a_unit_whose_case_is_its_meaning_is_not_read_loosely():
+    assert rf.limit_and_unit(rule(quote="a span of 10 M"))[:2] == (
+        rf.INCOMPLETE,
+        "unit_case_ambiguous",
+    )
+    r = rule(quote="at least 10 m", kind="limit", value=10, unit="M", comparator=">=")
+    assert rf.limit_and_unit(r)[0] == rf.FAIL  # a rule unit M is not the quote's m
+    assert rf.limit_and_unit(dict(r, unit="m"))[0] == rf.PASS
+
+
+# ------------------------------------------------------------------------------------------------ M5, M6
 
 
 def test_an_equipment_type_row_outside_the_vocabulary_is_incomplete_and_leaves_no_raw_text():
@@ -326,8 +425,6 @@ def test_an_equipment_type_row_outside_the_vocabulary_is_incomplete_and_leaves_n
     )
 
 
-# ------------------------------------------------------------------------------------------------ M6 finish rules
-
 ALL = {
     "a": "pass",
     "b": "pass",
@@ -339,9 +436,11 @@ ALL = {
 }
 
 
-def test_an_engineer_check_that_is_pending_does_not_finish_a_rule():
-    for bad in ("incomplete", "not_applicable", "fail"):
+def test_an_engineer_check_that_is_pending_or_stale_does_not_finish_a_rule():
+    for bad in ("incomplete", "not_applicable", "fail", "stale"):
         assert rf.may_decide(dict(ALL, e=bad)) is False
+    assert rf.finish_status(dict(ALL, e="stale")) == (rf.NOT_FINISHED, "e", "e_stale")
+    assert rf.finish_status(dict(ALL, f="stale")) == (rf.NOT_FINISHED, "f", "f_stale")
     assert rf.may_decide(dict(ALL, f="not_applicable")) is False
     assert (
         rf.may_decide(dict(ALL, b="not_applicable")) is True
@@ -349,23 +448,9 @@ def test_an_engineer_check_that_is_pending_does_not_finish_a_rule():
     )
 
 
-def test_a_value_filled_with_no_unit_figure_in_the_quote_needs_unit_none():
-    r = rule(
-        quote="Provide at least 3 stages.",
-        kind="limit",
-        value=3,
-        comparator=">=",
-        unit=None,
-    )
-    assert rf.limit_and_unit(r)[:2] == (rf.PASS, "value_stands_no_unit_in_quote")
-    assert rf.limit_and_unit(dict(r, unit="mm"))[:2] == (rf.FAIL, "unit_not_in_quote")
-
-
 def test_a_fragment_needs_every_pointer_to_hold_its_list():
     q = "The vendor shall state the following: (a) the tag; (b) the service; (c) the date; as listed below"
-    assert (
-        rf.fragments(rule(quote=q), {})[0] == rf.INCOMPLETE
-    )  # the second pointer holds no list
+    assert rf.fragments(rule(quote=q), {})[0] == rf.INCOMPLETE
 
 
 def test_a_condition_the_reader_cannot_read_whole_is_incomplete():
@@ -378,100 +463,17 @@ def test_a_condition_the_reader_cannot_read_whole_is_incomplete():
     assert rf.conditions_of(r)[0] == rf.INCOMPLETE
 
 
-# ------------------------------------------------------------------------------------------------ M7 recorded steps
-
-
-def test_a_code_step_is_recomputed_and_nobody_can_hand_in_a_pass(tmp_path):
-    conn = make_copy(tmp_path / "w.sqlite")
-    (r,) = st.load_rules_by_version(conn, "v1")
-    assert (
-        st.record_code_step(conn, r, "a", run_id="x")[0] == rf.FAIL
-    )  # the quote has figures, none filled
-    assert st.latest_steps(conn, "v1")["a"]["result"] == rf.FAIL
-    with pytest.raises(ValueError):
-        st.record_code_step(conn, r, "e", run_id="x")
-    with pytest.raises(ValueError):
-        st._append_step(
-            conn, "v1", "a", "maybe", "r", {}, checker="c", model="m", run_id="x"
-        )
-    assert not hasattr(st, "record_step")
-
-
-def _output(path: Path, **kw):
-    data = {
-        "rule_key_prefix": "keyabc",
-        "verdict": "OK",
-        "checker": "Claude chat helper (KJO engineer role)",
-    }
-    data.update(kw)
-    path.write_text(json.dumps(data))
-    return path
-
-
-def test_step_e_needs_the_engineer_output_file_its_sha256_and_a_verdict(tmp_path):
-    conn = make_copy(tmp_path / "w.sqlite")
-    out = _output(tmp_path / "out.json")
-    assert st.record_engineer_check(conn, "v1", out, run_id="x") == rf.PASS
-    row = st.latest_steps(conn, "v1")["e"]
-    assert row["evidence"]["sha256"] == hashlib.sha256(
-        out.read_bytes()
-    ).hexdigest() and row["checker"].startswith("Claude chat")
-    assert (
-        st.record_engineer_check(
-            conn, "v1", _output(tmp_path / "n.json", verdict="NOT_OK"), run_id="y"
-        )
-        == rf.FAIL
-    )
-    for bad in (
-        tmp_path / "missing.json",
-        _output(tmp_path / "v.json", verdict="maybe"),
-        _output(tmp_path / "k.json", rule_key_prefix="zzz"),
-        _output(tmp_path / "c.json", checker=""),
-    ):
-        with pytest.raises(ValueError):
-            st.record_engineer_check(conn, "v1", bad, run_id="z")
-
-
-def test_step_f_needs_a_sample_id_and_the_owners_tick_in_a_file(tmp_path):
-    conn = make_copy(tmp_path / "w.sqlite")
-    tick = tmp_path / "tick.json"
-    tick.write_text(json.dumps({"sample_id": "s1", "ticks": {"keyabc": "ok"}}))
-    assert st.record_owner_sample(conn, "v1", "s1", tick, run_id="x") == rf.PASS
-    assert (
-        st.latest_steps(conn, "v1")["f"]["evidence"]["sha256"]
-        == hashlib.sha256(tick.read_bytes()).hexdigest()
-    )
-    tick.write_text(json.dumps({"sample_id": "s1", "ticks": {"keyabc": "wrong"}}))
-    assert st.record_owner_sample(conn, "v1", "s1", tick, run_id="y") == rf.FAIL
-    for sid in ("s2", ""):
-        with pytest.raises(ValueError):
-            st.record_owner_sample(conn, "v1", sid, tick, run_id="z")
-    tick.write_text(json.dumps({"sample_id": "s1", "ticks": {"other": "ok"}}))
-    with pytest.raises(ValueError):
-        st.record_owner_sample(conn, "v1", "s1", tick, run_id="z")
-
-
-def test_history_stays_readable_and_the_latest_wins(tmp_path):
-    conn = make_copy(tmp_path / "w.sqlite")
-    st.record_engineer_check(
-        conn, "v1", _output(tmp_path / "a.json", verdict="NOT_OK"), run_id="1"
-    )
-    st.record_engineer_check(conn, "v1", _output(tmp_path / "b.json"), run_id="2")
-    assert st.latest_steps(conn, "v1")["e"]["result"] == rf.PASS
-    assert (
-        conn.execute("SELECT COUNT(*) FROM rule_finish_step WHERE step='e'").fetchone()[
-            0
-        ]
-        == 2
-    )
-
-
-def test_a_quote_with_no_phrase_gives_no_comparator_and_none_is_not_accepted_as_one(
-    tmp_path,
-):
-    conn = make_copy(tmp_path / "w.sqlite", quote="The wall shall be 10 mm thick.")
-    for given in (None, "", ">="):
-        with pytest.raises(ValueError):
-            st.apply_proposal(
-                conn, "v1", {"value": 10.0, "unit": "mm", "comparator": given}, "o"
-            )
+def test_a_join_must_start_with_the_quote_and_be_contiguous_in_the_pages(monkeypatch):
+    long = "The vendor shall state the following data about each relief valve it supplies to the site"
+    r = rule(quote=long, page=2)
+    pages = {2: f"Intro.\n{long}\n(a) the tag;\n(b) the service;\n"}
+    assert rf.rejoin(r, pages)[0] is not None
+    monkeypatch.setattr(
+        rf, "_list_after", lambda text, start: (start - 5, 2)
+    )  # a join that stops before the quote ends
+    assert rf.rejoin(r, pages) == (None, {"reason": "join_not_contiguous"})
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        rf, "quote_verified", lambda joined, text: False
+    )  # a join the pages do not hold
+    assert rf.rejoin(r, pages) == (None, {"reason": "join_not_contiguous"})

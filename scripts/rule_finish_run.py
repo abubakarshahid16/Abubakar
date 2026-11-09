@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app import rule_finish as rf  # noqa: E402
 from app import rule_finish_guard as guard  # noqa: E402
+from app import rule_finish_record as record  # noqa: E402
 from app import rule_finish_store as st  # noqa: E402
 
 HOME = Path.home()
@@ -70,23 +71,13 @@ def _is_marked(path: Path) -> bool:
         conn.close()
 
 
-def page_cache(pages_conn: sqlite3.Connection):
-    from app.compiled_rule_report import pages_of
-
-    cache: dict[str, dict[int, str]] = {}
-
-    def get(document_id: str | None) -> dict[int, str]:
-        if not document_id:
-            return {}
-        if document_id not in cache:
-            cache[document_id] = pages_of(pages_conn, document_id)
-        return cache[document_id]
-
-    return get
-
-
 def write_journey(
-    trace: Path, rule: dict, steps: dict, saved: dict, run_id: str
+    trace: Path,
+    rule: dict,
+    steps: dict,
+    saved: dict,
+    run_id: str,
+    current: dict | None = None,
 ) -> Path:
     out_dir = trace / "rules"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,6 +102,12 @@ def write_journey(
                 "checker": row["checker"],
             }
     flat = {n: v["result"] for n, v in journey_steps.items()}
+    flat.update(
+        {n: r for n, r in (current or {}).items() if n in ("e", "f")}
+    )  # a stale e or f never counts
+    for n in ("e", "f"):
+        if flat.get(n) == record.STALE and n in journey_steps:
+            journey_steps[n]["result"] = record.STALE
     status = rf.finish_status(flat)
     journey = {
         "rule_id": rule["rule_id"],
@@ -162,10 +159,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--trace-dir", type=Path, default=DEFAULT_TRACE)
     ap.add_argument("--run-id", default=None)
     args = ap.parse_args(argv)
+    if not args.trace_dir.resolve().is_relative_to(DEFAULT_TRACE.resolve()):
+        raise SystemExit(f"refused: --trace-dir must be inside {DEFAULT_TRACE}")
+    guard.register_protected(args.source)
+    guard.register_protected(args.pages_db)
 
     run_id = args.run_id or datetime.now(PKT).strftime("rf-%Y%m%d-%H%M%S")
     work = prepare_work_db(args.source, args.pages_db, args.work_db)
-    source, pages_conn = open_ro(args.source), open_ro(args.pages_db)
+    source = open_ro(args.source)
     rules = st.load_rules(source, standard=args.standard, key_prefix=args.rule_key)
     if not rules:
         print(
@@ -173,7 +174,6 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    get_pages = page_cache(pages_conn)
     log_dir = args.trace_dir / "logs" / "lane1"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{run_id}.jsonl"
@@ -190,15 +190,25 @@ def main(argv: list[str] | None = None) -> int:
             short = rule["rule_key"][:8]
             try:
                 rule = st.overlay_applied(work_conn, rule)
-                pages = get_pages(rule.get("standard_document_id"))
                 steps = {}
                 for name in rf.CODE_STEPS:  # each step is recomputed and written by the store; nothing is handed in
-                    steps[name] = st.record_code_step(
-                        work_conn, rule, name, pages, run_id=run_id
+                    steps[name] = record.record_code_step(
+                        work_conn,
+                        rule["version_id"],
+                        name,
+                        run_id=run_id,
+                        pages_db=args.pages_db,
                     )
                     counts[name][steps[name][0]] += 1
                 saved = st.latest_steps(work_conn, rule["version_id"])
-                path = write_journey(args.trace_dir, rule, steps, saved, run_id)
+                path = write_journey(
+                    args.trace_dir,
+                    rule,
+                    steps,
+                    saved,
+                    run_id,
+                    record.current_steps(work_conn, rule["version_id"]),
+                )
                 results = {n: r[0] for n, r in steps.items()}
                 bad = [n for n, r in results.items() if r == rf.FAIL]
                 worst = (

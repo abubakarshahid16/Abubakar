@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -46,6 +47,14 @@ def partly_compiled() -> set[str]:
     }
 
 
+def write_private(path: Path, text: str) -> None:
+    """A local file that only the owner reads (it holds sentence text for the later compile step): mode 0600."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)
+
+
 def ro(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -69,6 +78,8 @@ def main(argv=None) -> int:
     ap.add_argument("--rules-db", type=Path, default=RULES_DB)
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args(argv)
+    if not args.out.resolve().is_relative_to(OUT.parent.resolve()):
+        raise SystemExit(f"refused: --out must be inside {OUT.parent}")
     conn, newer = ro(args.db), ro(args.rules_db)
     newer_standards = set(standards_of(newer))
     names = sorted(
@@ -117,12 +128,12 @@ def main(argv=None) -> int:
                 "covered": result["covered"],
                 "uncovered": result["uncovered"],
             }
-            (args.out / f"{name}.json").write_text(
+            write_private(
+                args.out / f"{name}.json",
                 json.dumps(
                     {**row, "items": [i for i in result["items"] if not i["covered"]]},
                     indent=1,
                 ),
-                encoding="utf-8",
             )
             summary.append(row)
             note = ("" if read else " | PAGES NOT ALL READ") + (
@@ -137,7 +148,8 @@ def main(argv=None) -> int:
     ok = [s for s in summary if "numeric" in s]
     total = {k: sum(s[k] for s in ok) for k in ("numeric", "covered", "uncovered")}
     top = sorted(ok, key=lambda s: -s["uncovered"])[:5]
-    (args.out / "_summary.json").write_text(
+    write_private(
+        args.out / "_summary.json",
         json.dumps(
             {
                 "total": total,
@@ -148,7 +160,6 @@ def main(argv=None) -> int:
             },
             indent=1,
         ),
-        encoding="utf-8",
     )
     print(f"TOTAL standards {len(names)} | {total}")
     for s in top:

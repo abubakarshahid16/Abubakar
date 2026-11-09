@@ -1,60 +1,41 @@
-"""Fractions in step a, and the verified repair of a rule in a work copy (Lane 1). Every text here is INVENTED."""
+"""Applying a proposal or an engineer's repair to a marked work copy, verified by code (Lane 1).
+Every text here is INVENTED."""
 
 from __future__ import annotations
-
-import sqlite3
-from pathlib import Path
 
 import pytest
 
 from app import rule_finish as rf
-from app import rule_finish_guard as guard
+from app import rule_finish_record as rec
 from app import rule_finish_repair as rr
 from app import rule_finish_store as st
+from tests.test_rule_finish_kit import make_copy, marker_key, rule  # noqa: F401
 
 QUOTE = "The inlet shall be at least 3/4 inch for threaded valves and at least 1 inch for flanged valves."
 PAGES = {
-    1: "Page text. The inlet shall be at least 3/4 inch for threaded valves and at least 1 inch for flanged valves. Small widgets may be smaller.\nSmall compressor widgets are exempt."
+    1: "Page text. The inlet shall be at least 3/4 inch for threaded valves and at least 1 inch for flanged valves. "
+    "Small compressor widgets are exempt.\nWidgets shall not be painted."
 }
 
 
-def rule(**kw):
-    base = {
-        "quote": QUOTE,
-        "kind": "no_figure",
-        "field": "inlet size",
-        "value": None,
-        "unit": None,
-    }
-    base.update(kw)
-    return base
+def copy(tmp_path, quote=QUOTE, **kw):
+    return make_copy(tmp_path / "w.sqlite", quote=quote, **kw)
 
 
-# ------------------------------------------------------------------------------------------------ A: fractions
+# ------------------------------------------------------------------------------------------------ fractions
 
 
-@pytest.mark.parametrize(
-    "quote, expected",
-    [
-        ("at least 3/4 inch", 0.75),
+def test_a_fraction_is_one_figure_read_whole_never_its_denominator():
+    _, _, ev = rf.limit_and_unit(rule(quote="at least 3/4 inch"))
+    assert [p["value"] for p in ev["proposed"]] == [0.75]  # the old reading gave 4.0
+    for quote, expected in (
         ("at least 1 1/2 inch", 1.5),
         ("at least 2-3/8 inch", 2.375),
         ("at least 3 / 4 inch", 0.75),
-    ],
-)
-def test_a_fraction_is_one_figure_read_whole_by_numparse_never_its_denominator(
-    quote, expected
-):
-    result, reason, ev = rf.limit_and_unit(rule(quote=quote))
-    assert (result, reason) == (rf.FAIL, "figure_not_filled")
-    assert [p["value"] for p in ev["proposed"]] == [
-        expected
-    ]  # the old reading gave 4.0 for 3/4 inch
-
-
-def test_a_fraction_and_a_plain_figure_in_one_quote_are_both_proposed():
-    _, _, ev = rf.limit_and_unit(rule())
-    assert sorted(p["value"] for p in ev["proposed"]) == [0.75, 1.0]
+    ):
+        assert (
+            rf.limit_and_unit(rule(quote=quote))[2]["proposed"][0]["value"] == expected
+        )
 
 
 def test_a_filled_fraction_value_stands_and_its_denominator_does_not():
@@ -67,8 +48,10 @@ def test_a_filled_fraction_value_stands_and_its_denominator_does_not():
     )
     assert rf.limit_and_unit(ok)[0] == rf.PASS
     for wrong in (4.0, 3.0):
-        bad = dict(ok, value=wrong)
-        assert rf.limit_and_unit(bad)[:2] == (rf.FAIL, "value_not_in_quote")
+        assert rf.limit_and_unit(dict(ok, value=wrong))[:2] == (
+            rf.FAIL,
+            "value_not_in_quote",
+        )
 
 
 def test_a_slash_figure_numparse_does_not_read_whole_is_ambiguous_so_step_a_is_incomplete():
@@ -83,48 +66,57 @@ def test_a_slash_figure_numparse_does_not_read_whole_is_ambiguous_so_step_a_is_i
     )
 
 
-def _copy(path: Path, marked: bool = True) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
-    conn.executescript(
-        """CREATE TABLE rulebook_rule (id TEXT, rule_key TEXT, standard TEXT);
-        CREATE TABLE rulebook_version (id TEXT, rule_id TEXT, version_no INT, kind TEXT, field TEXT, comparator TEXT,
-          value REAL, value_low REAL, value_high REAL, value_text TEXT, unit TEXT, unit_dimension TEXT, strength TEXT,
-          sentence_strength TEXT, context_flag TEXT);
-        CREATE TABLE rulebook_provenance (id INTEGER PRIMARY KEY, rule_version_id TEXT, standard_document_id TEXT,
-          edition TEXT, clause TEXT, page INT, quote TEXT, quote_start INT, quote_end INT, page_source TEXT);
-        CREATE TABLE rulebook_applicability (id INTEGER PRIMARY KEY, rule_version_id TEXT, key_type TEXT, value TEXT);"""
+def test_a_denominator_does_not_stand_as_a_number_when_the_quote_has_no_unit_figure():
+    r = rule(
+        quote="The ratio shall be at least 3/4 of the total.",
+        kind="limit",
+        value=4.0,
+        unit="none",
+        comparator=">=",
     )
-    conn.execute("INSERT INTO rulebook_rule VALUES ('r1','keyabc','X.pdf')")
-    conn.execute(
-        "INSERT INTO rulebook_version VALUES ('v1','r1',1,'no_figure','inlet size',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'shall',NULL,NULL)"
-    )
-    conn.execute(
-        "INSERT INTO rulebook_provenance (rule_version_id, standard_document_id, clause, page, quote) VALUES ('v1','d',  '4.1', 1, ?)",
-        (QUOTE,),
-    )
-    conn.execute(
-        "INSERT INTO rulebook_applicability (rule_version_id, key_type, value) VALUES ('v1','subject','relief valves')"
-    )
-    conn.commit()
-    if marked:  # what prepare_work_copy does for a copy it made
-        guard._write_marker(conn, guard._real(path), "source-of-this-copy")
-    return conn
+    assert rf.limit_and_unit(r)[:2] == (rf.FAIL, "value_not_in_quote")
+    assert rf.limit_and_unit(dict(r, value=0.75))[0] == rf.PASS
 
 
-def test_apply_proposal_refuses_the_denominator_that_the_old_reading_proposed(tmp_path):
-    conn = _copy(tmp_path / "w.sqlite")
-    with pytest.raises(ValueError):
-        st.apply_proposal(
-            conn, "v1", {"value": 4.0, "unit": "inch", "comparator": ">="}, "o"
-        )
-    with pytest.raises(ValueError):  # a value that is not exactly a quoted figure
-        st.apply_proposal(
-            conn, "v1", {"value": 0.8, "unit": "inch", "comparator": ">="}, "o"
-        )
-    st.apply_proposal(
+# ------------------------------------------------------------------------------------------------ apply_proposal
+
+
+def test_apply_proposal_refuses_the_denominator_and_a_value_that_is_not_a_quoted_figure(
+    tmp_path,
+):
+    conn = copy(tmp_path)
+    for bad in (4.0, 0.8):
+        with pytest.raises(ValueError):
+            rr.apply_proposal(
+                conn, "v1", {"value": bad, "unit": "inch", "comparator": ">="}, "o"
+            )
+    rr.apply_proposal(
         conn, "v1", {"value": 0.75, "unit": "inch", "comparator": ">="}, "o"
     )
     assert st.latest_steps(conn, "v1")["a"]["reason"].startswith("proposal_applied")
+
+
+def test_apply_proposal_resets_the_engineer_check_and_the_owner_sample(tmp_path):
+    conn = copy(tmp_path)
+    st._append_step(
+        conn, "v1", "e", "pass", "ok", {}, checker="c", model="m", run_id="x"
+    )
+    st._append_step(
+        conn, "v1", "f", "pass", "ok", {}, checker="c", model="m", run_id="x"
+    )
+    rr.apply_proposal(
+        conn, "v1", {"value": 0.75, "unit": "inch", "comparator": ">="}, "o"
+    )
+    latest = st.latest_steps(conn, "v1")
+    assert [(latest[s]["result"], latest[s]["reason"]) for s in "ef"] == [
+        ("incomplete", "changed_after_check")
+    ] * 2
+    assert (
+        conn.execute("SELECT COUNT(*) FROM rule_finish_step WHERE step='e'").fetchone()[
+            0
+        ]
+        == 2
+    )  # history kept
 
 
 # ------------------------------------------------------------------------------------------------ B: step b, d
@@ -132,16 +124,14 @@ def test_apply_proposal_refuses_the_denominator_that_the_old_reading_proposed(tm
 
 def test_step_b_a_quantity_field_with_a_figure_is_a_datasheet_value_by_a_cue_list():
     result, reason, ev = rf.evidence_source(
-        rule(quote="The inlet shall be at least 3/4 inch.")
+        rule(quote="The inlet shall be at least 3/4 inch.", field="inlet size")
     )
     assert (result, reason) == (rf.PASS, rf.DATASHEET_VALUE) and "size" in ev["cues"]
     assert (
         rf.evidence_source(rule(quote="Widgets shall be good.", field="widgets"))[0]
         == rf.INCOMPLETE
     )
-    assert (
-        rf.evidence_source(rule(field="colour"))[0] == rf.INCOMPLETE
-    )  # a figure but no quantity cue on the field
+    assert rf.evidence_source(rule(field="colour"))[0] == rf.INCOMPLETE
 
 
 def test_step_d_connection_types_and_exceptions_are_testable_and_unknown_wording_is_incomplete():
@@ -153,8 +143,10 @@ def test_step_d_connection_types_and_exceptions_are_testable_and_unknown_wording
         ]
     )
     result, _, ev = rf.conditions_of(r)
-    assert result == rf.PASS
-    assert [t["values"] for t in ev["tests"]] == [["threaded"], ["flanged"]]
+    assert result == rf.PASS and [t["values"] for t in ev["tests"]] == [
+        ["threaded"],
+        ["flanged"],
+    ]
     ok = rule(
         applicability=[("subject", "relief valves")],
         exceptions=["small compressor valves"],
@@ -166,7 +158,7 @@ def test_step_d_connection_types_and_exceptions_are_testable_and_unknown_wording
     assert rf.conditions_of(bad)[:2] == (rf.INCOMPLETE, "exception_not_read")
 
 
-# ------------------------------------------------------------------------------------------------ B: apply_repair
+# ------------------------------------------------------------------------------------------------ apply_repair
 
 REPAIR = {
     "comparator": ">=",
@@ -178,62 +170,55 @@ REPAIR = {
 }
 
 
-def test_a_verified_repair_is_applied_to_the_copy_and_steps_a_b_d_pass(tmp_path):
-    conn = _copy(tmp_path / "w.sqlite")
+def test_a_verified_repair_is_applied_and_resets_e_and_f(tmp_path):
+    conn = copy(tmp_path)
     st._append_step(
         conn, "v1", "e", "fail", "not_ok", {}, checker="helper", model="m", run_id="r"
     )
+    st._append_step(
+        conn, "v1", "f", "pass", "ok", {}, checker="owner", model="m", run_id="r"
+    )
     out = rr.apply_repair(conn, "v1", REPAIR, "lead", pages=PAGES)
-    assert out["refused"] == [] and out["steps"]["a"] == (
-        "pass",
-        "figures_stand_in_quote",
-    )
+    assert out["refused"] == []
     latest = st.latest_steps(conn, "v1")
-    assert latest["a"]["result"] == latest["b"]["result"] == "pass"
-    assert (latest["e"]["result"], latest["e"]["reason"]) == (
-        "incomplete",
-        "pending_recheck_after_repair",
-    )
-    (r,) = st.load_rules_by_version(conn, "v1")
-    after = st.overlay_applied(conn, r)
+    assert latest["b"]["result"] == "pass"
+    assert [(latest[s]["result"], latest[s]["reason"]) for s in "ef"] == [
+        ("incomplete", "changed_after_check")
+    ] * 2
+    after = rec.rule_of(conn, "v1")
     assert (
-        len(after["figures"]) == 1 + 1
+        len(after["figures"]) == 2
         and ("condition", "threaded") in after["applicability"]
     )
     assert after["exceptions"] == ["small compressor widgets"]
-    assert (
-        rf.conditions_of(after)[0] == rf.PASS and rf.limit_and_unit(after)[0] == rf.PASS
-    )
+    assert rf.conditions_of(after)[0] == rf.PASS
+    assert rf.limit_and_unit(after)[:2] == (
+        rf.PASS,
+        "figures_stand_in_quote",
+    )  # each figure has its own phrase
     assert conn.execute("SELECT COUNT(*) FROM rule_finish_repair").fetchone()[0] == 6
 
 
 def test_parts_that_code_cannot_verify_are_refused_and_the_rest_still_applies(tmp_path):
-    conn = _copy(tmp_path / "w.sqlite")
+    conn = copy(tmp_path)
     repair = {
-        "comparator": "<=",  # the quote implies a minimum
+        "comparator": "<=",
         "figures": [
-            {"value": 4.0, "unit": "inch", "condition": "threaded"},  # the denominator
-            {
-                "value": 1.0,
-                "unit": "inch",
-                "condition": "connection is flanged",
-            },  # words not on the page
+            {"value": 4.0, "unit": "inch", "condition": "threaded"},
+            {"value": 1.0, "unit": "inch", "condition": "connection is flanged"},
             {"value": 0.75, "unit": "inch", "condition": "threaded"},
         ],
-        "exceptions": [
-            "purple gizmos",
-            "compressor widgets 99",
-        ],  # a word not on the page; a number not on it
+        "exceptions": ["purple gizmos", "compressor widgets 99"],
         "field": "inlet nps",
     }
     out = rr.apply_repair(conn, "v1", repair, "lead", pages=PAGES)
     reasons = {(x["part"], x["reason"]) for x in out["refused"]}
     assert ("comparator", "comparator_not_in_quote") in reasons
     assert ("figure 4.0", "value_not_in_quote") in reasons
-    assert ("condition of figure 1.0", "word_not_on_page") in reasons
-    assert ("exception", "word_not_on_page") in reasons and (
+    assert ("condition of figure 1.0", "not_a_contiguous_run_of_the_page") in reasons
+    assert ("exception", "not_a_contiguous_run_of_the_page") in reasons and (
         "field",
-        "word_not_on_page",
+        "not_a_contiguous_run_of_the_page",
     ) in reasons
     assert ("exception", "number_not_on_page") in reasons
     assert [x["part"] for x in out["applied"]] == [
@@ -242,18 +227,47 @@ def test_parts_that_code_cannot_verify_are_refused_and_the_rest_still_applies(tm
     ]
 
 
+def test_repair_text_must_be_a_contiguous_run_of_the_page_in_order_with_its_negation():
+    rule_ = rule(page=1)
+    ok = lambda text: rr.verify_text(text, rule_, PAGES)  # noqa: E731
+    assert ok("small compressor widgets") == (True, "stands_on_page")
+    assert ok("compressor widgets are exempt") == (True, "stands_on_page")
+    assert ok("widgets compressor") == (
+        False,
+        "not_a_contiguous_run_of_the_page",
+    )  # the words, out of order
+    assert ok("small widgets") == (False, "not_a_contiguous_run_of_the_page")  # a gap
+    assert ok("widgets shall be painted") == (False, "not_a_contiguous_run_of_the_page")
+    assert ok("be painted") == (
+        False,
+        "negation_differs",
+    )  # the standard says "shall not be painted"
+    assert ok("widgets shall not be painted") == (True, "stands_on_page")
+    assert ok("widgets shall not be painted at 99 mm") == (False, "number_not_on_page")
+    assert ok("pump") == (
+        True,
+        "closed_vocabulary",
+    )  # one entry of the closed vocabulary
+    assert ok("flanged") == (True, "stands_on_page")
+    assert ok("welded") == (True, "closed_vocabulary")
+    assert ok("") == (False, "no_words")
+    assert rr.verify_text("small", rule_, {}) == (False, "page_text_missing")
+
+
 def test_a_repair_refuses_an_unmarked_database_an_empty_approver_and_a_missing_rule(
     tmp_path,
 ):
-    with pytest.raises(PermissionError):
+    from app import rule_finish_guard as guard
+
+    with pytest.raises(guard.NotAWorkCopy):
         rr.apply_repair(
-            _copy(tmp_path / "w0.sqlite", marked=False),
+            make_copy(tmp_path / "w0.sqlite", marked=False),
             "v1",
             REPAIR,
             "lead",
             pages=PAGES,
         )
-    conn = _copy(tmp_path / "w.sqlite")
+    conn = copy(tmp_path)
     with pytest.raises(ValueError):
         rr.apply_repair(conn, "v1", REPAIR, " ", pages=PAGES)
     with pytest.raises(ValueError):
@@ -264,20 +278,3 @@ def test_a_repair_refuses_an_unmarked_database_an_empty_approver_and_a_missing_r
         ).fetchone()
         is None
     )
-
-
-def test_a_repair_needs_the_page_text_for_a_condition():
-    ok, why = rr.verify_text("threaded", {"page": 1}, {})
-    assert (ok, why) == (False, "page_text_missing")
-
-
-def test_a_denominator_does_not_stand_as_a_number_when_the_quote_has_no_unit_figure():
-    r = rule(
-        quote="The ratio shall be 3/4 of the total.",
-        kind="limit",
-        value=4.0,
-        unit="none",
-        comparator=">=",
-    )
-    assert rf.limit_and_unit(r)[:2] == (rf.FAIL, "value_not_in_quote")
-    assert rf.limit_and_unit(dict(r, value=0.75))[0] == rf.PASS
