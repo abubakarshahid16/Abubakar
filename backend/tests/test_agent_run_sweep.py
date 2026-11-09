@@ -302,3 +302,62 @@ def test_k_case_and_punctuation_variants_are_duplicates(copy_db, run_dir):
     )
     out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
     assert ids(out) == ["I1#1"] and len(prov.calls) == 2
+
+
+def stop_of(out):
+    return json.loads(read(out, "finals.json")).get("I1#stop")
+
+
+def test_l_resume_of_a_finished_none_left_sweep_keeps_its_reason(copy_db, run_dir):
+    go(copy_db, run_dir, al.FakeProvider([fin(1), NONE_LEFT]), [item(1, repeat=True)])
+    again = al.FakeProvider([])
+    out = go(copy_db, run_dir, again, [item(1, repeat=True)])
+    assert again.calls == [] and ids(out) == ["I1#1"]
+    assert stop_of(out) == "none left"
+    assert "sweep stopped early" not in results_text(out)
+
+
+def test_m_resume_of_an_item_cap_stop_keeps_its_reason(copy_db, run_dir):
+    tool = next(n for n in al.TOOL_NAMES if n not in ("record_finding", "ask_engineer"))
+    cap = {"tool": tool, "args": {}, "usd": 9.0}
+    kw = {"usd_cap_item": 1.0}
+    first = go(
+        copy_db, run_dir, al.FakeProvider([fin(1), cap]), [item(1, repeat=True)], **kw
+    )
+    assert stop_of(first) == "item cap"
+    out = go(copy_db, run_dir, al.FakeProvider([]), [item(1, repeat=True)], **kw)
+    assert stop_of(out) == "item cap"
+    assert "sweep stopped early: item cap (I1)" in results_text(out)
+
+
+def test_n_provider_error_stop_is_reported_saved_and_retried(copy_db, run_dir):
+    boom = lambda _m: (_ for _ in ()).throw(RuntimeError("down"))  # noqa: E731
+    first = go(
+        copy_db, run_dir, al.FakeProvider([fin(1), boom]), [item(1, repeat=True)]
+    )
+    assert stop_of(first) == "provider error"
+    retry = al.FakeProvider([NONE_LEFT])
+    out = go(copy_db, run_dir, retry, [item(1, repeat=True)])
+    assert len(retry.calls) == 1 and stop_of(out) == "none left"
+
+
+def test_o_a_dropped_duplicate_is_not_counted_in_live(copy_db, run_dir):
+    out = go(
+        copy_db, run_dir, al.FakeProvider([fin(1), fin(1)]), [item(1, repeat=True)]
+    )
+    assert ids(out) == ["I1#1"]
+    assert "YELLOW 1," in read(out, "LIVE.md")  # not 2: the copy is not a finding
+
+
+def test_p_lookalike_accent_and_fullwidth_variants_are_duplicates(copy_db, run_dir):
+    variants = [
+        "invented field deferred",
+        "Inv\u00e9nted field deferred",
+        "\uff49\uff4e\uff56\uff45\uff4e\uff54\uff45\uff44 \uff46\uff49\uff45\uff4c\uff44 \uff44\uff45\uff46\uff45\uff52\uff52\uff45\uff44",
+    ]
+    for i, second in enumerate(variants[1:]):
+        prov = al.FakeProvider(
+            [fin(1, quote=variants[0]), fin(1, quote=second), fin(3)]
+        )
+        out = go(copy_db, run_dir / str(i), prov, [item(1, repeat=True)])
+        assert ids(out) == ["I1#1"] and len(prov.calls) == 2

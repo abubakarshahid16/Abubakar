@@ -108,7 +108,9 @@ def run_sweep(
             res, stop = run_one(item, skill_item)
             if stop:
                 return stop
-            why = _WHY.get((res or {}).get("why"), "other")
+            # no result: the run was done before this start, so the saved reason stands
+            if res is not None:
+                why = _WHY.get(res.get("why"), "other")
         stored = trace.sink.get(rid)
         if stored is None:
             if (
