@@ -120,13 +120,13 @@ def _resolve_key(env: dict, reader_api) -> str:
     key = str(env.get(reader_api.API_KEY_ENV) or "").strip()
     if key:
         return key
-    failed = False
+    recorded_failure = False
     try:
         _env, fallback = reader_api._sources(None)
         key = str(getattr(fallback, "anthropic_api_key", "") or "").strip()
     except Exception:  # noqa: BLE001 - a bad .env or import failure: code only, raised OUTSIDE this block
-        failed = True
-    if failed:
+        recorded_failure = True
+    if recorded_failure:
         raise AgentGateClosed("settings_unreadable")
     if not key:
         raise AgentGateClosed("no_key_in_env_or_settings")
@@ -299,7 +299,7 @@ def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | N
     """One metered send. (answer, None) or (None, (kind, code, billed)); the original error is not carried out."""
     from app import reader_transport
 
-    failure: tuple | None = None
+    recorded_failure: tuple | None = None
     try:
         return _metered(raw)(
             request["url"],
@@ -311,14 +311,14 @@ def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | N
         code = getattr(exc, "code", None) or getattr(
             type(exc), "count_key", "budget_stop"
         )
-        failure = ("stop", str(code), False)
+        recorded_failure = ("stop", str(code), False)
     except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
-        failure = (
+        recorded_failure = (
             "transport",
             "transport_" + type(exc).__name__,
             not reader_transport.unbilled(exc),
         )
-    return None, failure
+    return None, recorded_failure
 
 
 def _call(
