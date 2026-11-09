@@ -77,6 +77,20 @@ CANON_KEYS = (
 PRIORITIES = ("must", "should", "nice")
 
 
+_CODE = re.compile(r"[A-Za-z0-9_]{1,40}")
+
+
+def safe_error_code(exc: BaseException) -> str:
+    """The code that may be logged for a provider error: the exception CLASS name, or the `code` of one of OUR adapter's
+    exceptions (module agent_claude or agent_local: letters, digits, underscore, at most 40). Never a message, never any
+    other code."""
+    code = getattr(exc, "code", None)
+    ours = type(exc).__module__.rsplit(".", 1)[-1] in ("agent_claude", "agent_local")
+    if ours and isinstance(code, str) and _CODE.fullmatch(code):
+        return code
+    return re.sub(r"[^A-Za-z0-9_]", "", type(exc).__name__)[:40]
+
+
 def yellow(reason: str, item: dict | None = None) -> dict:
     """The ask-the-engineer finding."""
     return {
@@ -353,11 +367,7 @@ class _ItemRun:
                 )
                 raise
             # the exception CLASS code goes to the trace and live.log (never a message), and to the result
-            self.error = re.sub(
-                r"[^A-Za-z0-9_]",
-                "",
-                str(getattr(exc, "code", None) or type(exc).__name__),
-            )[:60]
+            self.error = safe_error_code(exc)
             self._log(
                 "model",
                 {},

@@ -190,6 +190,8 @@ class TraceWriter:
             "NEXT": "",
         }
         self.problems: list[str] = []
+        #: ONE source for the problems text and the headline note (set by the runner): (run problems) -> (lines, note)
+        self.stats_view: Callable[[list[str]], tuple[list[str], str]] | None = None
         self.recent: deque[str] = deque(maxlen=5)
         self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0}
         # wrong verdicts are only known after the answer-key score; None = not measured
@@ -427,6 +429,11 @@ class TraceWriter:
         )
         self.problems = self.problems[-10:]
 
+    def note_problem(self, text: Any) -> None:
+        """A PROBLEM line in live.log only (the count and LIVE.md come from `stats_view`)."""
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.clock()))
+        self._append(self.root / "live.log", f"{stamp} | PROBLEM | {words(text)}")
+
     def set_live(self, **fields: str) -> None:
         for key, value in fields.items():
             self.live[key.upper()] = words(value, 40)
@@ -453,6 +460,9 @@ class TraceWriter:
         c = self.counts
         measured = wrong if wrong is not None else self.wrong
         wrong = "not measured (needs the key score)" if measured is None else measured
+        shown, note = (
+            self.stats_view(self.problems) if self.stats_view else (self.problems, "")
+        )
         lines = ["# LIVE", ""]
         for key in ("STEP", "DONE", "PROOF", "RUNNING"):
             lines.append(f"- **{key}**: {self.live.get(key, '')}")
@@ -460,12 +470,10 @@ class TraceWriter:
         lines.append(f"- **MODEL**: {self.live.get('MODEL', '')}")
         lines.append(
             f"- **RESULTS**: GREEN {c['GREEN']}, YELLOW {c['YELLOW']}, RED {c['RED']}, "
-            f"not sure {c['not sure']}, wrong {wrong}"
+            f"not sure {c['not sure']}, wrong {wrong}{note}"
         )
         lines.append(f"- **SPEND**: USD {self.spend:.2f}")
-        lines.append(
-            f"- **PROBLEMS**: {'; '.join(self.problems) if self.problems else 'none'}"
-        )
+        lines.append(f"- **PROBLEMS**: {'; '.join(shown) if shown else 'none'}")
         lines.append(f"- **NEXT**: {self.live.get('NEXT', '')}")
         lines += ["", "## Last 5 things done", ""]
         lines += [f"- {r}" for r in self.recent] or ["- nothing yet"]

@@ -215,11 +215,6 @@ def quote_verified(findings: list[dict], sink: Any) -> int:
     return n
 
 
-def _warning(stats: dict | None) -> str:
-    said = agent_run_stats.headline_warning(stats or {})
-    return f" ({said})" if said else ""
-
-
 def _headline(count: dict, findings: list[dict], second_ran: bool) -> str:
     not_sure = sum(1 for f in findings if f.get("color") not in count)
     if second_ran:
@@ -265,9 +260,15 @@ def write_results(
     stopped: str,
     second_ran: bool,
     editions: dict | None = None,
-    stats: dict | None = None,
+    stats: Any = None,
 ) -> Path:
     """RESULTS.md: counts, spend, minutes, model names. No document or standard text."""
+    shown = agent_run_stats.view(
+        stats, problems
+    )  # the same source as LIVE.md and the STATUS box
+    extra = shown[0][len(problems) :] or (
+        agent_run_stats.stat_lines(stats) if stats else []
+    )
     count = dict.fromkeys(("GREEN", "YELLOW", "RED"), 0)
     for f in findings:
         count[f["color"] if f.get("color") in count else "YELLOW"] += 1
@@ -283,7 +284,7 @@ def write_results(
         f"- Document id: {document_id}",
         f"- Items finished: {len(findings)}"
         + (f" (run paused: {agent_trace.words(stopped)})" if stopped else ""),
-        _headline(count, findings, second_ran) + _warning(stats),
+        _headline(count, findings, second_ran) + shown[1],
         f"- Quote verified by code: {verified} of {len(findings)} findings",
         f"- Second opinion: agreed {sec.count('agreed')}, disagreed {sec.count('disagreed')}, "
         f"no answer {sec.count('no answer')}, not run {sec.count('not run')}",
@@ -294,9 +295,9 @@ def write_results(
         *_edition_lines(editions),
         "- Scoring note: the scorer matches page digits as a substring; YELLOW rows count as raised",
         "- Wrong verdicts: not measured (needs the key score)",
-        f"- Problems: {agent_run_stats.problem_count(stats or {}, len(problems))}"
+        f"- Problems: {agent_run_stats.count_for_results(stats, problems)}"
         + ("; " + "; ".join(problems[-5:]) if problems else ""),
-        *[f"- {w}" for w in agent_run_stats.problem_words(stats or {})],
+        *[f"- {w}" for w in extra],
     ]
     path = run_dir / FILES["results"]
     agent_trace._atomic_write(path, "\n".join(lines) + "\n")

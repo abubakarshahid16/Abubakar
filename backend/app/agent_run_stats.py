@@ -1,90 +1,196 @@
 """Honest counts and the failure breaker of the agent proof test runner (#1690, part of #805).
 
 A run that "finished" while every item hit a provider error, or while most tool calls failed, must never read
-'Problems: none'. This module counts what went wrong (items ended by a provider error, tool calls that failed, items
-that ended on the step limit), says when a run is UNRELIABLE, and decides when consecutive provider errors with no spend
-stop the run. Codes and counts only: never a message, never document text.
+'Problems: none'. This module is the ONE source of the problems text, the problem count and the headline note: LIVE.md,
+RESULTS.md, the STATUS box and live.log all take them from `view`, so they cannot disagree.
+
+Counts are PER ITEM, with the LATEST outcome of each item: an item the breaker stopped and a resume then ran well no
+longer counts as an error (it is listed on a separate, clearly labelled 'retried after error' line). Codes and counts
+only: never a message, never document text.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-KEYS = ("provider_errors", "tool_calls", "tool_failures", "step_limit")
-FAIL_RATE = 0.30  # more than this share of failed tool calls makes the run unreliable
+FAIL_RATE = 0.30  # MORE than this share of failed tool calls makes the run unreliable
 BREAKER_ITEMS = 2  # consecutive provider-error items with zero spend stop the run
+THRESHOLD_WORDS = "limit: over 30%"
+
+
+class RunStats:
+    """Per-item outcome, tool calls and failures. `measured` is False for a run whose metadata predates the counts."""
+
+    def __init__(self, items: dict | None = None, measured: bool = True) -> None:
+        self.items: dict[str, dict] = items or {}
+        self.measured = measured
+        self._cur: str | None = None
+        self._prev: dict | None = None
+
+    @classmethod
+    def load(cls, meta: dict) -> RunStats:
+        saved = meta.get("stats")
+        if isinstance(saved, dict) and isinstance(saved.get("items"), dict):
+            items = {
+                str(k): dict(v)
+                for k, v in saved["items"].items()
+                if isinstance(v, dict)
+            }
+            return cls(items, measured=saved.get("measured", True) is not False)
+        return cls(
+            measured=not meta
+        )  # an old metadata file (it has other keys, no counts): not measured
+
+    def to_json(self) -> dict:
+        return {"items": self.items, "measured": self.measured}
+
+    # one item ------------------------------------------------------------------------------------------------
+    def begin(self, item_id: str) -> None:
+        self._cur, self._prev = str(item_id), self.items.get(str(item_id))
+        was_error = bool(self._prev) and (
+            self._prev.get("outcome") == "provider_error" or self._prev.get("retried")
+        )
+        self.items[self._cur] = {
+            "outcome": "",
+            "error": "",
+            "calls": 0,
+            "fails": 0,
+            "retried": was_error,
+        }
+
+    def abort(self) -> None:
+        """The item did not finish (run cap, fatal stop): its earlier record comes back."""
+        if self._cur is not None:
+            if self._prev is None:
+                self.items.pop(self._cur, None)
+            else:
+                self.items[self._cur] = self._prev
+        self._cur = None
+
+    def call(self, ok: bool) -> None:
+        if self._cur is not None:
+            rec = self.items[self._cur]
+            rec["calls"] += 1
+            rec["fails"] += 0 if ok else 1
+
+    def end(self, out: dict | None) -> None:
+        if self._cur is None:
+            return
+        why = (out or {}).get("why")
+        rec = self.items[self._cur]
+        rec["outcome"] = {
+            "provider error": "provider_error",
+            "step limit": "step_limit",
+        }.get(why, "ok")
+        rec["error"] = (
+            str((out or {}).get("error") or "")
+            if rec["outcome"] == "provider_error"
+            else ""
+        )
+        self._cur = None
+
+    # totals --------------------------------------------------------------------------------------------------
+    def total(self, key: str) -> int:
+        return sum(int(r.get(key) or 0) for r in self.items.values())
+
+    def count_outcome(self, outcome: str) -> int:
+        return sum(1 for r in self.items.values() if r.get("outcome") == outcome)
+
+    @property
+    def provider_errors(self) -> int:
+        return self.count_outcome("provider_error")
+
+    @property
+    def step_limit(self) -> int:
+        return self.count_outcome("step_limit")
+
+    @property
+    def retried(self) -> int:
+        return sum(1 for r in self.items.values() if r.get("retried"))
+
+    @property
+    def rate(self) -> float:
+        calls = self.total("calls")
+        return self.total("fails") / calls if calls else 0.0
 
 
 class CountingBox:
     """Wraps the toolbox: counts every tool call and every one that did not come back ok. All else is delegated."""
 
-    def __init__(self, inner: Any, stats: dict) -> None:
+    def __init__(self, inner: Any, stats: RunStats) -> None:
         self._inner, self._stats = inner, stats
 
     def run(self, name: str, args: Any) -> Any:
         res = self._inner.run(name, args)
-        self._stats["tool_calls"] = self._stats.get("tool_calls", 0) + 1
-        if not (isinstance(res, dict) and res.get("ok")):
-            self._stats["tool_failures"] = self._stats.get("tool_failures", 0) + 1
+        self._stats.call(isinstance(res, dict) and bool(res.get("ok")))
         return res
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
 
-def load(meta: dict) -> dict:
-    saved = meta.get("stats") if isinstance(meta.get("stats"), dict) else {}
-    return {k: int(saved.get(k) or 0) for k in KEYS}
+def percent(rate: float) -> str:
+    """The rate with the precision the 30% rule uses: 30.4% is printed as 30.4%, never as 30%."""
+    return f"{rate * 100:.1f}%"
 
 
-def count_item(stats: dict, out: dict | None) -> None:
-    """Count how one item ended: by a provider error, or on the step limit."""
-    why = (out or {}).get("why")
-    if why == "provider error":
-        stats["provider_errors"] += 1
-    elif why == "step limit":
-        stats["step_limit"] += 1
-
-
-def failure_rate(stats: dict) -> float:
-    calls = stats.get("tool_calls", 0)
-    return stats.get("tool_failures", 0) / calls if calls else 0.0
-
-
-def unreliable(stats: dict) -> bool:
-    return bool(
-        stats.get("provider_errors")
-        or stats.get("step_limit")
-        or failure_rate(stats) > FAIL_RATE
-    )
-
-
-def problem_count(stats: dict, run_problems: int = 0) -> int:
-    """Logged problems plus one for each category above 0 (and one more when the tool failure rate is above 30%)."""
-    kinds = sum(
-        1 for k in ("provider_errors", "tool_failures", "step_limit") if stats.get(k)
-    )
-    return run_problems + kinds + (1 if failure_rate(stats) > FAIL_RATE else 0)
-
-
-def problem_words(stats: dict) -> list[str]:
-    """The three honest counts, as lines (also in the STATUS box)."""
-    calls, failed = stats.get("tool_calls", 0), stats.get("tool_failures", 0)
-    rate = f"{failure_rate(stats) * 100:.0f}%" if calls else "no tool calls"
-    return [
-        f"items ended by provider error: {stats.get('provider_errors', 0)}",
-        f"tool calls failed: {failed} of {calls} ({rate})",
-        f"items ended on the step limit: {stats.get('step_limit', 0)}",
-    ]
-
-
-def headline_warning(stats: dict) -> str:
-    """'' for a clean run; otherwise the words the headline must carry."""
-    if failure_rate(stats) > FAIL_RATE:
+def unreliable_note(stats: RunStats) -> str:
+    """'' for a clean (or unmeasured) run, else the words the headline must carry."""
+    if not stats.measured:
+        return ""
+    if stats.rate > FAIL_RATE:
         return "run unreliable: tool failures"
-    if unreliable(stats):
+    if stats.provider_errors or stats.step_limit:
         return "run unreliable: provider errors or step limits"
     return ""
+
+
+def stat_lines(stats: RunStats) -> list[str]:
+    """The honest count lines (the same text in every output)."""
+    if not stats.measured:
+        return ["run statistics: not measured (this run started before they were kept)"]
+    calls, failed = stats.total("calls"), stats.total("fails")
+    rate = f"{percent(stats.rate)}; {THRESHOLD_WORDS}" if calls else "no tool calls"
+    lines = [
+        f"items ended by provider error: {stats.provider_errors}",
+        f"tool calls failed: {failed} of {calls} ({rate})",
+        f"items ended on the step limit: {stats.step_limit}",
+    ]
+    if stats.retried:
+        lines.append(
+            f"retried after error: {stats.retried} (they ran again; their latest outcome is counted above)"
+        )
+    return lines
+
+
+def problem_count(stats: RunStats, run_problems: int = 0) -> int:
+    """Logged problems plus one for each category above 0 (and one more when the failure rate is over 30%)."""
+    if not stats.measured:
+        return run_problems
+    kinds = sum(
+        1 for n in (stats.provider_errors, stats.total("fails"), stats.step_limit) if n
+    )
+    return run_problems + kinds + (1 if stats.rate > FAIL_RATE else 0)
+
+
+def view(stats: RunStats | None, run_problems: list[str]) -> tuple[list[str], str]:
+    """THE one source: (the problem lines to print, the headline note ' | run unreliable...' or '').
+
+    The lines are the run's own problems plus the honest counts when there is anything to say (or nothing measured)."""
+    if stats is None:
+        return list(run_problems), ""
+    say = (not stats.measured) or problem_count(stats) > 0 or stats.retried
+    lines = list(run_problems) + (stat_lines(stats) if say else [])
+    note = unreliable_note(stats)
+    return lines, (f" | {note}" if note else "")
+
+
+def count_for_results(stats: RunStats | None, run_problems: list[str]) -> int:
+    return (
+        problem_count(stats, len(run_problems))
+        if stats is not None
+        else len(run_problems)
+    )
 
 
 class Breaker:

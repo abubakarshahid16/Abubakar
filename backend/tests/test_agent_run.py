@@ -1663,7 +1663,7 @@ def test_a_clean_run_says_problems_zero(copy_db, run_dir):
         and "unreliable" not in text
         and "PROBLEMS none" in s["status_box"]
     )
-    assert "tool calls failed: 0 of 3 (0%)" in text
+    assert "tool calls failed: 0 of 3 (0.0%; limit: over 30%)" in text
 
 
 class FailingBox(Box):
@@ -1689,14 +1689,14 @@ def test_failing_tool_calls_make_the_run_unreliable_and_problems_nonzero(
     text = (run_dir / "RESULTS.md").read_text()
     assert (
         "run unreliable: tool failures" in text
-        and "tool calls failed: 3 of 6 (50%)" in text
+        and "tool calls failed: 3 of 6 (50.0%; limit: over 30%)" in text
     )
     assert "Problems: 0" not in text
     assert (
         "run unreliable: tool failures" in s["status_box"]
         and "PROBLEMS none" not in s["status_box"]
     )
-    assert "tool calls failed: 3 of 6 (50%)" in s["status_box"]
+    assert "tool calls failed: 3 of 6 (50.0%; limit: over 30%)" in s["status_box"]
 
 
 def test_an_item_ended_on_the_step_limit_is_counted(copy_db, run_dir):
@@ -1779,3 +1779,198 @@ def test_cli_exits_3_when_the_breaker_stops_the_run(
     args = [*_args(copy_db, tmp_path, "--documents", "D1"), "--provider", "local"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 3
     assert "provider errors on 2 items in a row" in "\n".join(lines)
+
+
+# ---- review round: one source of truth, once per item, error code leak, unmeasured --------------------------------
+
+SKILL4 = {
+    **SKILL,
+    "items": [
+        {"id": f"I{n}", "order": n, "topic": f"zorblat rating {n}"}
+        for n in (1, 2, 3, 4)
+    ],
+}
+
+
+def field(text, name):
+    import re as _re
+
+    m = _re.search(rf"^- \*\*{name}\*\*: (.*)$", text, _re.M)
+    return m.group(1) if m else None
+
+
+def box_field(box, name):
+    import re as _re
+
+    m = _re.search(rf"^{name}\s+(.*)$", box, _re.M)
+    return m.group(1) if m else None
+
+
+def run_with_failing_tools(copy_db, run_dir):
+    def step():
+        return {"tool": "open_page", "args": {"doc": "D1", "page": 1}, "reason": "r"}
+
+    return go(
+        copy_db,
+        run_dir,
+        al.FakeProvider([step(), final("YELLOW")] * 3),
+        toolbox_factory=lambda sc, rd: FailingBox(),
+    )
+
+
+@pytest.mark.parametrize("failing", [True, False])
+def test_live_results_and_status_say_the_same_about_problems(copy_db, run_dir, failing):
+    if failing:
+        s = run_with_failing_tools(copy_db, run_dir)
+    else:
+        s = go(copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3))
+    live = (run_dir / "LIVE.md").read_text()
+    results = (run_dir / "RESULTS.md").read_text()
+    assert field(live, "PROBLEMS") == box_field(s["status_box"], "PROBLEMS")
+    assert (
+        field(live, "RESULTS")
+        == box_field(s["status_box"], "RESULTS").split(" (GREEN and RED")[0]
+    )
+    count = int(results.split("- Problems: ")[1].split(";")[0].split("\n")[0])
+    if failing:
+        for line in ("tool calls failed: 3 of 6 (50.0%; limit: over 30%)",):
+            assert line in field(live, "PROBLEMS") and line in results
+        assert (
+            "run unreliable: tool failures" in field(live, "RESULTS")
+            and "run unreliable: tool failures" in results
+        )
+        assert count >= 1 and "PROBLEMS" in live and field(live, "PROBLEMS") != "none"
+        assert "run unreliable: tool failures" in (run_dir / "live.log").read_text()
+    else:
+        assert (
+            field(live, "PROBLEMS") == "none"
+            and count == 0
+            and "unreliable" not in live + results
+        )
+
+
+def run4(copy_db, run_dir, provider, **kw):
+    return go(copy_db, run_dir, provider, skill=SKILL4, **kw)
+
+
+def test_literal_breaker_then_resume_counts_each_item_once_by_its_latest_outcome(
+    copy_db, run_dir
+):
+    s = run4(
+        copy_db,
+        run_dir,
+        al.FakeProvider([final("YELLOW"), final("YELLOW"), boom, boom]),
+    )
+    assert (
+        s["stopped"].startswith("provider errors on 2 items in a row")
+        and s["items_done"] == 2
+    )
+    assert "items ended by provider error: 2" in (run_dir / "RESULTS.md").read_text()
+    p = al.FakeProvider([final("YELLOW"), final("YELLOW")])
+    s2 = run4(copy_db, run_dir, p)
+    text = (run_dir / "RESULTS.md").read_text()
+    assert len(p.calls) == 2 and s2["items_done"] == 4 and not s2["stopped"]
+    assert (
+        "items ended by provider error: 0" in text and "retried after error: 2" in text
+    )
+    assert "Problems: 0" in text and "unreliable" not in text
+    assert field((run_dir / "LIVE.md").read_text(), "PROBLEMS").startswith(
+        "items ended by provider error: 0"
+    )
+
+
+def test_literal_kill_after_item_two_resumes_at_item_three(copy_db, run_dir):
+    def die(_m):
+        raise Killed
+
+    first = al.FakeProvider([final("YELLOW"), final("YELLOW"), die])
+    with pytest.raises(Killed):
+        run4(copy_db, run_dir, first)
+    second = al.FakeProvider([final("YELLOW"), final("YELLOW")])
+    s = run4(copy_db, run_dir, second)
+    assert len(second.calls) == 2 and s["items_done"] == 4
+    assert "items ended by provider error: 0" in (run_dir / "RESULTS.md").read_text()
+
+
+SENTINEL = (
+    "SENTINEL-KEY-4711 and a long sentence that looks like a clause of a document"
+)
+
+
+def test_the_error_code_never_leaks_a_message_or_a_document_like_code(
+    cli, copy_db, run_dir, monkeypatch, capsys
+):
+    class Leaky(RuntimeError):
+        code = SENTINEL
+
+    def leak(_m):
+        raise Leaky(SENTINEL)
+
+    s = go(copy_db, run_dir, al.FakeProvider([leak, final("YELLOW"), final("YELLOW")]))
+    assert s["items_done"] == 3
+    blob = "".join(
+        p.read_text()
+        for p in run_dir.rglob("*")
+        if p.is_file() and p.suffix in (".log", ".jsonl", ".md", ".json")
+    )
+    blob += s["status_box"] + capsys.readouterr().out + capsys.readouterr().err
+    for leaked in ("SENTINEL", "4711", "long sentence", "clause of a document"):
+        assert leaked not in blob
+    assert "provider error Leaky" in (run_dir / "live.log").read_text()
+
+
+def test_the_adapter_codes_are_kept_when_short_and_ours_and_dropped_otherwise():
+    from app import agent_claude, agent_loop
+
+    assert (
+        agent_loop.safe_error_code(
+            agent_claude.AgentTransportError("transport_LiveWriteRefused")
+        )
+        == "transport_LiveWriteRefused"
+    )
+    assert (
+        agent_loop.safe_error_code(agent_claude.AgentBadReply("x" * 41))
+        == "AgentBadReply"
+    )
+    assert (
+        agent_loop.safe_error_code(agent_claude.AgentBadReply("bad shape with spaces"))
+        == "AgentBadReply"
+    )
+    assert agent_loop.safe_error_code(ValueError("m")) == "ValueError"
+
+
+def test_the_rate_prints_with_one_decimal_and_the_threshold_is_stated():
+    from app import agent_run_stats as rs
+
+    st = rs.RunStats()
+    st.items = {"a": {"outcome": "ok", "calls": 1000, "fails": 304, "retried": False}}
+    assert (
+        rs.percent(st.rate) == "30.4%"
+        and rs.unreliable_note(st) == "run unreliable: tool failures"
+    )
+    assert "(30.4%; limit: over 30%)" in "\n".join(rs.stat_lines(st))
+    st.items["a"]["fails"] = 300  # exactly 30% is not over the limit
+    assert rs.unreliable_note(st) == ""
+
+
+def test_a_run_from_before_the_counts_says_not_measured_never_zero(copy_db, run_dir):
+    run_dir.mkdir()
+    (run_dir / "run_meta.json").write_text(
+        json.dumps({"seconds": 5.0, "lead_models": ["x"]})
+    )
+    go(copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3))
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "run statistics: not measured" in text
+        and "items ended by provider error: 0" not in text
+    )
+    assert "not measured (this run started" in field(
+        (run_dir / "LIVE.md").read_text(), "PROBLEMS"
+    )
+    s2 = go(
+        copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3)
+    )  # still not measured after a resume
+    assert (
+        "run statistics: not measured" in (run_dir / "RESULTS.md").read_text()
+        and s2["items_done"] == 3
+    )

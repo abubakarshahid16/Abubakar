@@ -595,14 +595,19 @@ def _drive(
     by_id = {str(i["id"]): i for i in chosen}
     finals = _read_json(run_root / FILES["finals"], {})
     second = _read_json(run_root / FILES["second"], {})
-    stats = trace.stats = rstats.load(meta)
+    stats = trace.stats = rstats.RunStats.load(meta)
+    trace.stats_view = lambda run_problems: rstats.view(stats, run_problems)
     box, breaker, stopped = rstats.CountingBox(box, stats), rstats.Breaker(), ""
 
     def save() -> dict:
         saved = _save_meta(
             run_root, trace, meta, lead, second, base_seconds + time.time() - started
         )
-        saved["stats"] = stats
+        saved["stats"] = stats.to_json()
+        note = rstats.unreliable_note(stats)
+        if note and note != getattr(trace, "warned", ""):
+            trace.warned = note
+            trace.note_problem(note)
         _write_json(run_root / FILES["meta"], saved)
         return saved
 
@@ -614,6 +619,7 @@ def _drive(
                 trace.problem(f"{stopped} reached: run paused, resumable")
                 break
             if iid not in finals:
+                stats.begin(iid)
                 out = agent_loop.run_items(
                     [loop_item],
                     box,
@@ -624,10 +630,11 @@ def _drive(
                     usd_cap_run=cap_run,
                 )
                 if out["stopped"]:
+                    stats.abort()
                     stopped = out["stopped"]
                     break
                 res = out["results"].get(iid)
-                rstats.count_item(stats, res)
+                stats.end(res)
                 if breaker.seen(iid, res):
                     stopped = _trip(breaker, finals, trace, run_root)
                     break
@@ -648,6 +655,7 @@ def _drive(
     except Exception as exc:
         if not getattr(exc, "fatal", False):
             raise
+        stats.abort()
         stopped = fatal_problem(exc)
         trace.problem(f"{stopped}: run stopped, resumable")
     save()
@@ -721,15 +729,6 @@ def status_box(trace: agent_trace.TraceWriter) -> str:
     """The owner's STATUS box, from LIVE.md (rewritten first)."""
     text = trace.refresh_live().read_text(encoding="utf-8")
     fields = dict(re.findall(r"^- \*\*([A-Z]+)\*\*: (.*)$", text, re.M))
-    stats = getattr(trace, "stats", None)
-    if stats:
-        if rstats.unreliable(stats):
-            fields["RESULTS"] += " | " + rstats.headline_warning(stats)
-        base = fields.get("PROBLEMS", "none")
-        parts = ([] if base == "none" else [base]) + (
-            rstats.problem_words(stats) if rstats.problem_count(stats) else []
-        )
-        fields["PROBLEMS"] = "; ".join(parts) or "none"
     if not getattr(trace, "second_ran", True):
         fields["RESULTS"] += " (GREEN and RED: second opinion not run: not decided)"
     body = [f"{k:9}{fields.get(k, '')}" for k in STATUS_FIELDS]
