@@ -4,7 +4,11 @@
 {"tool", "args", "reason", "usd"} or {"final": {...}, "usd"}. EVERY call goes through `reader_transport`
 (the one Claude socket) wrapped by `claude_spend.metered(step="agent_review")`, so the caps, the approved-document
 gate and the ledger apply as on every other Claude lane. This module opens no socket, adds no flag and never reads
-`backend/.env`: the gate is the process environment only (REASONING_PROVIDER, both STANDARDS_READER_* flags, the key).
+`backend/.env`. KEY: the process environment first (ANTHROPIC_API_KEY), then the app's own settings fallback exactly as
+`reader_api` does it (`settings.anthropic_api_key`, loaded from backend/.env by the settings model; this module reads no
+file). SWITCHES: process environment only (REASONING_PROVIDER and both STANDARDS_READER_* flags); `.env` never opens the
+lane. The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
+the provider, in a module global, the ledger, a trace or an error (codes only).
 
 THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consent(ids)` / `claude_approved.carrying(ids)`
 with exactly the selected documents. Without a declaration every call fails closed with `DocumentNotApproved` (a
@@ -103,9 +107,30 @@ class AgentTransportError(AgentClaudeError):
 
 
 def gate_open(env: dict | None = None) -> bool:
-    """True only when the process environment opens the lane. `backend/.env` is never read here."""
+    """True only when the PROCESS environment opens the lane (switches: process env only; `.env` never opens it)."""
     env = os.environ if env is None else env
     return str(env.get("REASONING_PROVIDER") or "").strip().lower() in _OPEN_PROVIDERS
+
+
+def _resolve_key(env: dict, reader_api) -> str:
+    """The API key: `env` first, then the app's settings fallback (as `reader_api` does). Never logged or kept.
+
+    A failing fallback or a missing key is a code that says where we looked, never what we found.
+    """
+    key = str(env.get(reader_api.API_KEY_ENV) or "").strip()
+    if key:
+        return key
+    recorded_failure = False
+    try:
+        _env, fallback = reader_api._sources(None)
+        key = str(getattr(fallback, "anthropic_api_key", "") or "").strip()
+    except Exception:  # noqa: BLE001 - a bad .env or import failure: code only, raised OUTSIDE this block
+        recorded_failure = True
+    if recorded_failure:
+        raise AgentGateClosed("settings_unreadable")
+    if not key:
+        raise AgentGateClosed("no_key_in_env_or_settings")
+    return key
 
 
 def _request(model: str, max_tokens: int, env: dict | None) -> dict:
@@ -115,6 +140,8 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
     env = dict(os.environ) if env is None else env
     if not gate_open(env):
         raise AgentGateClosed
+    key = _resolve_key(env, reader_api)
+    built, refused = None, False
     try:
         cfg = replace(
             reader_api.ReaderSettings.from_env(env),
@@ -122,9 +149,16 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
             max_tokens=int(max_tokens),
             timeout_seconds=120.0,
         )
-        return reader_api.build_request("x", cfg=cfg, env=env)
+        # a call-local copy carries the key ONLY for this build; the flags above were read from `env` alone
+        built = reader_api.build_request(
+            "x", cfg=cfg, env={**env, reader_api.API_KEY_ENV: key}
+        )
     except reader_api.ReaderRefused:
-        raise AgentGateClosed from None
+        refused = True
+    key = ""  # no frame of a later error keeps it
+    if refused:
+        raise AgentGateClosed
+    return built
 
 
 def _transport(send: Callable | None) -> Callable:
@@ -261,6 +295,32 @@ def _answered_model(answer: Any) -> str:
     return name.strip() if isinstance(name, str) and name.strip() else "unknown"
 
 
+def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | None]:
+    """One metered send. (answer, None) or (None, (kind, code, billed)); the original error is not carried out."""
+    from app import reader_transport
+
+    recorded_failure: tuple | None = None
+    try:
+        return _metered(raw)(
+            request["url"],
+            headers=request["headers"],
+            body=body,
+            timeout=request["timeout"],
+        ), None
+    except claude_spend.StopRun as exc:
+        code = getattr(exc, "code", None) or getattr(
+            type(exc), "count_key", "budget_stop"
+        )
+        recorded_failure = ("stop", str(code), False)
+    except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
+        recorded_failure = (
+            "transport",
+            "transport_" + type(exc).__name__,
+            not reader_transport.unbilled(exc),
+        )
+    return None, recorded_failure
+
+
 def _call(
     model: str,
     body_parts: dict,
@@ -269,40 +329,36 @@ def _call(
     env: dict | None,
     meter: SpendMeter | None = None,
 ) -> tuple[dict, float]:
-    from app import claude_approved, reader_transport
+    from app import claude_approved
 
-    request = _request(model, max_tokens, env)
     declared = claude_approved.carried()
     if (
         not declared
     ):  # absent or empty: we cannot tell what a prompt carries, so nothing is sent
         raise AgentGateClosed("undeclared_documents")
+    chars = sum(
+        len(json.dumps(body_parts.get(k), default=str))
+        for k in ("messages", "system", "tools")
+    )
+    worst = claude_spend.worst_case_usd(model, chars, int(max_tokens))
+    if meter is not None:
+        meter.check(worst)
     raw = _transport(send)
+    # the request (and so the key) exists only from here: every raise above holds no key in any frame
+    request = _request(model, max_tokens, env)
     body = dict(request["body"])
     body.update(body_parts)
     body["model"], body["max_tokens"] = model, int(max_tokens)
-    chars = sum(
-        len(json.dumps(body.get(k), default=str))
-        for k in ("messages", "system", "tools")
-    )
-    worst = claude_spend.worst_case_usd(model, chars, int(body["max_tokens"]))
-    if meter is not None:
-        meter.check(worst)
-    try:
-        answer = _metered(raw)(
-            request["url"],
-            headers=request["headers"],
-            body=body,
-            timeout=request["timeout"],
-        )
-    except claude_spend.StopRun as exc:
-        raise AgentBudgetStop(
-            getattr(exc, "code", None) or getattr(type(exc), "count_key", "budget_stop")
-        ) from None
-    except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
-        if meter is not None and not reader_transport.unbilled(exc):
+    answer, failure = _send_once(raw, request, body)
+    # the headers (the key) leave this frame before any error is raised from it
+    del request
+    if failure is not None:
+        kind, code, billed = failure
+        if meter is not None and billed:
             meter.add(worst)  # may have been billed: charged at the worst case
-        raise AgentTransportError("transport_" + type(exc).__name__) from None
+        if kind == "stop":
+            raise AgentBudgetStop(code)
+        raise AgentTransportError(code)
     usd = _usd(model, answer, body) if isinstance(answer, dict) else worst
     if meter is not None:
         meter.add(usd)  # a paid bad reply still counts toward the cap
