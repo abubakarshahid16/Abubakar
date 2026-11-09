@@ -704,7 +704,7 @@ class ToolBox:
         ):
             return "value_not_on_page"
         problem = agent_bind.binding_problem(
-            f, verdict, self.ctx.current_topic
+            f, verdict, self, clause_text
         ) or self._numbers_problem(f, verdict)
         if problem:
             return problem

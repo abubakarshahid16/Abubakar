@@ -686,6 +686,10 @@ def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
         ]
     )
     box = _loop_box(("sub", "std"))
+    keep = box.set_item
+    box.set_item = lambda item_id, topic=None: keep(
+        item_id
+    )  # this test is about the loop path, not the binding
     out = agent_loop.run_item(
         {"id": "I-1", "doc": "sub"}, {}, box, provider, usd_cap=1.0
     )

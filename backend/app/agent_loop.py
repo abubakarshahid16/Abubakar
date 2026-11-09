@@ -281,7 +281,7 @@ class _ItemRun:
         self.specs = _specs(toolbox)
         if callable(getattr(toolbox, "set_item", None)):
             try:  # the item's topic binds a GREEN or RED to it; a toolbox that takes no topic still works
-                toolbox.set_item(self.id, topic=item.get("topic"))
+                toolbox.set_item(self.id, topic=item.get("topic") or "")
             except TypeError:
                 toolbox.set_item(self.id)
         self.names = {sp.get("name") for sp in self.specs}

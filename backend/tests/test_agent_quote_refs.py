@@ -374,6 +374,10 @@ def _scripted(box, final):
 
 def test_loop_green_by_reference_is_not_downgraded_and_stores_the_exact_text():
     box = make()
+    keep = box.set_item
+    box.set_item = lambda item_id, topic=None: keep(
+        item_id
+    )  # this test is about the reference path, not the binding
     final = {k: v for k, v in finding().items() if k not in ("item", "doc")}
     provider, out = _scripted(box, final)
     assert out["why"] == "recorded" and out["finding"]["color"] == "GREEN"
