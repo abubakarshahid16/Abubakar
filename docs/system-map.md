@@ -258,6 +258,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
 | `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
+| `agent_skills` | Loads the local playbook per document kind for the agent review (#1690); refuses files inside the repo |
 | `highlight` | Locating a quoted answer on the rendered page |
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
 | `ingest` | Background ingestion worker |
