@@ -46,7 +46,7 @@ def make_provider(kind: str):
         return SmokeProvider()
     module, cls = {
         "claude": ("agent_claude", "ClaudeProvider"),
-        "local": ("agent_local", "LocalProvider"),
+        "local": ("agent_local_lead", "LocalProvider"),
     }[kind]
     try:
         mod = __import__(f"app.{module}", fromlist=[cls])

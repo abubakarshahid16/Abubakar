@@ -28,6 +28,7 @@ ENTRY_POINTS = (
     "agent_tools",
     "agent_claude",
     "agent_local",
+    "agent_local_lead",
 )
 
 

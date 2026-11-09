@@ -647,10 +647,17 @@ def test_cli_fake_run_prints_the_status_box(cli, copy_db, tmp_path, monkeypatch)
     assert (tmp_path / "cli-run" / "RESULTS.md").exists()
 
 
-def test_cli_missing_provider_module_fails_clearly(cli):
+def test_cli_local_provider_is_the_local_lead(cli):
+    from app import agent_local_lead
+
+    assert isinstance(cli.make_provider("local"), agent_local_lead.LocalProvider)
+
+
+def test_cli_missing_provider_module_fails_clearly(cli, monkeypatch):
+    monkeypatch.setitem(sys.modules, "app.agent_local_lead", None)
     with pytest.raises(SystemExit) as exc:
         cli.make_provider("local")
-    assert "agent_local" in str(exc.value)
+    assert "agent_local_lead" in str(exc.value)
 
 
 def test_cli_refuses_the_live_database(cli, tmp_path):
