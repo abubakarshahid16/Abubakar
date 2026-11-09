@@ -1395,11 +1395,60 @@ def test_a_closed_toolbox_never_returns_clause_text_or_opens_a_database(monkeypa
     assert out["ok"] is False and "text" not in out["result"] and opened == []
 
 
-def test_a_label_line_that_is_not_a_date_does_not_make_a_conflict(tmp_path):
-    text = "Issue Date: 23 May 2019\nIssued by the standards committee for general use\nEdition notes follow"
+def test_issued_by_is_not_a_label_so_it_is_harmless(tmp_path):
+    text = "Issue Date: 23 May 2019\nIssued by the standards committee for general use"
     assert (
         ev(one_page_db(tmp_path, text), "ISO 7777", "23 May 2019", docs=("A",))[
             "status"
         ]
         == "confirmed"
     )
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        "Issue Date: 23/05/24",
+        "Issue Date: 5 June 24",
+        "Issue Date: \u0662\u0660\u0662\u0664",  # an Arabic-Indic digit year
+        "Issue Date: 5 June",  # a date with no year
+        "Issued: 5 June",
+        "Issued 5 June",
+        "Date of Issue - 7 May",
+        "Edition: second",
+    ],
+)
+def test_any_other_labelled_value_is_a_conflict(tmp_path, other):
+    conn = one_page_db(tmp_path, "Edition: 2019\n" + other)
+    assert (
+        ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "edition not confirmed"
+    )
+
+
+def test_a_date_split_over_two_lines_never_confirms(tmp_path):
+    conn = one_page_db(tmp_path, "Edition: 2019\nIssue Date: 5 June\n2024")
+    assert (
+        ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "edition not confirmed"
+    )
+
+
+def test_a_label_with_an_empty_value_is_not_a_conflict_and_does_not_confirm(tmp_path):
+    conn = one_page_db(tmp_path, "Edition: 2019\nIssue Date:\n5 June 2024")
+    assert ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "confirmed"
+    assert ev(one_page_db(tmp_path, "Issue Date:\n2019", filename="ISO 7777.pdf"), "ISO 7777", "2019", docs=("A",))["status"] == "edition not confirmed"  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Edition: 2019.5",
+        "Issue Date: 2019-06-01",
+        "Edition: 2019 and more",
+        "Edition 20190",
+    ],
+)
+def test_verify_quote_needs_the_exact_value(quote):
+    from app import agent_edition
+
+    assert not agent_edition.verify_quote(quote, quote, "2019")
+    assert agent_edition.verify_quote("Edition: 2019.", "x\nEdition: 2019.\n", "2019")

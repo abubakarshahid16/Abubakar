@@ -26,7 +26,7 @@ def _edition_fold(text: str) -> str:
 #: (The revision date is not an edition: it is not in the list.)
 _LINE = re.compile(
     r"^\s*(?:\d+(?:\.\d+)*[.)]?\s+|[-*\u2022]\s+)?"
-    r"(?P<label>issue\s*date|date\s*of\s*issue|issued|edition)\b\s*[:\-\u2013\u2014]?\s*(?P<value>.*?)\s*$",
+    r"(?P<label>issue\s*date|date\s*of\s*issue|edition|issued(?=\s*[:\-\u2013\u2014]|\s+(?:\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)))\b\s*[:\-\u2013\u2014]?\s*(?P<value>.*?)\s*$",
     re.IGNORECASE,
 )
 _END_PUNCT = " \t.,;:)"
@@ -39,20 +39,6 @@ def _labelled(line: str) -> str | None:
         return None
     value = _edition_fold(found.group("value").rstrip(_END_PUNCT))
     return value or None
-
-
-_DATELIKE = re.compile(
-    r"(?<!\d)(?:19|20)\d{2}(?!\d)|^\s*\d+(?:\.\d+)*\s*["
-    + re.escape(_END_PUNCT)
-    + r"]*$"
-)
-
-
-def _is_datelike(line: str) -> bool:
-    """A labelled line whose value is a date or an edition number (a year, or a plain number): only such lines can
-    conflict. 'Issued by the committee' is a label line, not a second edition."""
-    found = _LINE.match(line)
-    return bool(found and _DATELIKE.search(found.group("value")))
 
 
 def _line_confirms(line: str, edition: str) -> bool:
@@ -81,8 +67,7 @@ def _page_lines(
         value = _labelled(line)
         if value is None:
             continue
-        if _is_datelike(line):
-            values.add(value)
+        values.add(value)  # ANY labelled line with another value is a conflict
         quote = line.strip()
         if verify_quote(quote, page_text, edition):
             hits.append({"page": page_no, "quote": quote})
