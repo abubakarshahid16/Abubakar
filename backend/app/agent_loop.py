@@ -340,7 +340,17 @@ class _ItemRun:
         t0 = time.time()
         try:
             reply = self.provider.complete(self.messages, self.specs)
-        except Exception as exc:  # noqa: BLE001 - any provider failure ends in YELLOW
+        except Exception as exc:
+            if getattr(exc, "fatal", False):
+                # a budget or gate stop ends the RUN, not this item: saved to the trace, then raised
+                self._log(
+                    "model",
+                    {},
+                    {"ok": False},
+                    "fatal " + words(getattr(exc, "code", ""), 3),
+                    time.time() - t0,
+                )
+                raise
             # recorded: the failure is counted in the finding, never raised
             self.finding = yellow("provider error " + type(exc).__name__, self.item)
             self.why = "provider error"

@@ -39,6 +39,10 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_review_pass` | The AI engineering review pass runner (off by default): one model call proposes, code verifies and stores; changes no row |
 | `agent_loop` | The agent proof test loop (off by default, `AGENT_REVIEW_ENABLED`): a provider picks one tool per step, code runs it; ends in a finding checked for the honesty rules |
 | `agent_trace` | Local-only trace, live log, LIVE.md and resume state for the agent proof test; never inside the repository |
+| `agent_run` | The agent proof test runner (off by default, `AGENT_REVIEW_ENABLED`): runs a skill's items on a read-only COPY of the database, applies the second opinion, writes local RESULTS, examples and a workbook the answer-key scorer can read |
+| `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
+| `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |
+| `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
 | `agent_local` | Local second opinion for the agent proof test (off by default): the local Qwen 35B through `model_transport`, heavy lock and unload around a batch, errors are codes only |
 | `ai_review_proposals` | The review pass's proposal schema and code verifier: refuses any unverified value, page or clause; a Pass is never created |
