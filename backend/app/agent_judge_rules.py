@@ -316,3 +316,58 @@ def already_stated_problem(row: dict, doc_quote: object) -> str | tuple | None:
     if not seen or seen != subject:
         return "subject_mismatch", {"row": list(subject), "document_quote": list(seen)}
     return value_problem(str(doc_quote)[found.end() :], tuple(_stem(w) for w in seen))
+
+
+# ---- the row's Standard Reference cell ---------------------------------------------------------------------------
+
+_CLAUSE_TAIL = re.compile(
+    r"^(?:clause|cl\.?|section|sec\.?|para(?:graph)?\.?|\u00a7)?\s*(\d+(?:\.\d+)+[A-Za-z]?|\d+)$",
+    re.IGNORECASE,
+)
+_CLAUSE_WORDS = {
+    "clause",
+    "cl",
+    "cl.",
+    "section",
+    "sec",
+    "sec.",
+    "para",
+    "paragraph",
+    "para.",
+    "\u00a7",
+}
+
+
+def parse_reference(cell: object) -> dict | None:
+    """The row's Standard Reference cell as {'standard', 'clause'} ('clause' None when there is none), or None.
+
+    'API 610-X 5.3.4.1' -> API 610-X + 5.3.4.1; 'API 610' -> API 610 only (610 is the standard's own number);
+    'SAES-J-600 4.1.1.4' -> SAES-J-600 + 4.1.1.4; 'ISO 9999 clause 4.2' -> ISO 9999 + 4.2. Only the first reference of a
+    cell holding several (separated by ';' or a new line) is read."""
+    from . import standard_ids
+
+    text = " ".join(re.split(r"[;\n]", str(cell or ""))[0].split())
+    if not text:
+        return None
+    tokens = text.split()
+    last = tokens[-1].rstrip(".,")
+    dotted = re.fullmatch(r"\d+(?:\.\d+)+[A-Za-z]?", last)
+    bare = re.fullmatch(r"\d+", last)
+    head = tokens[:-1]
+    while head and head[-1].lower().rstrip(".") in _CLAUSE_WORDS:
+        head = head[:-1]
+    standard = " ".join(head).rstrip(",;: ")
+    if dotted and not standard:
+        return None  # only a clause, no standard named
+    if dotted and standard:
+        return {"standard": standard, "clause": last}
+    if (
+        bare
+        and standard
+        and standard_ids.parse(standard) is not None
+        and standard_ids.parse(text) is not None
+    ):
+        own = standard_ids.parse(standard)
+        if own is not None and getattr(own, "number", None) != last:
+            return {"standard": standard, "clause": last}
+    return {"standard": " ".join(tokens).rstrip(".,"), "clause": None}

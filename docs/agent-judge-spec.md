@@ -45,6 +45,17 @@ consent for exactly the declared documents, the spend caps (meter and ledger), t
 with second opinion agreed or vetoed, UNSURE, refused quote attempts, tool failure rate, spend, minutes, model names from
 the responses), `LIVE.md`, `live.log`, traces.
 
+## Reasons, evidence minimum and the document side (first real run)
+- Every UNSURE carries a reason CODE from a closed set: `standard_not_held`, `document_evidence_not_found`, `claim_unclear`,
+  `step_limit`, `error`. Code sets it where it can (the row's standard is not held, a step limit, an error); otherwise it is
+  the agent's choice and anything else becomes `claim_unclear`. The reason text is never empty. RESULTS, decisions, the
+  judged workbook notes and the STATUS box count UNSURE by code.
+- Before CONFIRM, REMOVE or UNSURE the agent must have opened the row's cited page and searched for its subject words (no
+  page cell: two searches). The first early call is refused with a hint; a second is accepted but coded `claim_unclear`.
+- When the standard is not held, the agent still verifies the DOCUMENT side: CONFIRM needs a verified document quote on the
+  row's page (or an absence that code checks: the page was read and lacks the subject's words); otherwise UNSURE
+  `standard_not_held`. The row's Standard Reference cell is parsed into (standard, clause) and given to the agent.
+
 ## Cost control
 `--rows 1-5` and `--limit N` make a small cost check. A projector prints after the first rows (cost per row times the
 rows left). `--budget-usd` is a hard cap on the provider's own meter and a pre-row check (spent plus the dearest row so far must stay within it); the run stops resumably before the row. `--rows` errors on a bad spec; `8-` means row 8 to the last.

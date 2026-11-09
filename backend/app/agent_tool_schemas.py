@@ -104,6 +104,17 @@ INPUT_SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "at most 30 words, no document text",
             },
+            "unsure_code": {
+                "type": "string",
+                "enum": [
+                    "standard_not_held",
+                    "document_evidence_not_found",
+                    "claim_unclear",
+                    "step_limit",
+                    "error",
+                ],
+                "description": "UNSURE only: why the row stays",
+            },
             "absent": {
                 "type": "boolean",
                 "description": "CONFIRM only: the row says something is missing and you found it nowhere",

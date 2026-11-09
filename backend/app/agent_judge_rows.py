@@ -21,7 +21,7 @@ from pathlib import Path
 
 import openpyxl
 
-from .agent_judge_rules import row_pages
+from .agent_judge_rules import parse_reference, row_pages
 from .agent_run_crs import _cell
 
 CRS_SHEET = "CRS"
@@ -92,6 +92,9 @@ def read_rows(path: str | os.PathLike) -> list[dict]:
             "comment": get(H_COMMENT),
             "standard_reference": get(H_STANDARD),
         }
+        row["reference"] = parse_reference(
+            row["standard_reference"]
+        )  # {"standard", "clause"} or None
         row["pages"] = row_pages(
             row
         )  # the pages the row NAMES ('p. 3', 'pages 3 and 5'); a section number is not a page
@@ -172,7 +175,7 @@ def _note(decision: dict) -> str:
         )
     if kind == "REMOVE":  # a REMOVE that stays (the second opinion did not agree)
         return "AI judge: removal not confirmed by the second opinion"
-    return "AI judge: AI could not confirm"
+    return f"AI judge: AI could not confirm ({decision.get('unsure_code') or 'claim_unclear'})"
 
 
 def write_judged(

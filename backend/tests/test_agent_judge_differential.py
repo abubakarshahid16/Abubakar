@@ -74,6 +74,7 @@ def make_box(row, pages, clause_text):
         },
     )
     ctx.current_item = "R"
+    box.enforce_minimum = False
     return box
 
 

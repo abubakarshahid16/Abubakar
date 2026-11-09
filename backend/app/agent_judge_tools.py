@@ -37,6 +37,14 @@ from .agent_tools import (
 from .agent_trace import words
 
 NOT_MENTIONED = "not_mentioned_is_never_a_reason_to_remove"
+#: Why a row stays UNSURE: a CLOSED set. The code sets it where it can be determined; the agent chooses among the rest.
+UNSURE_CODES = (
+    "standard_not_held",
+    "document_evidence_not_found",
+    "claim_unclear",
+    "step_limit",
+    "error",
+)
 DECISIONS = ("CONFIRM", "REMOVE", "UNSURE")
 REMOVE_REASONS = (
     "already_stated",
@@ -102,9 +110,93 @@ class JudgeToolBox(ToolBox):
         )  # template prefixes: such rows can only be confirmed or kept
         self._tools = {n: self._tools[n] for n in KEPT_TOOLS}
         self._tools["judge_row"] = self.judge_row
+        self.enforce_minimum = True  # tests that are not about the minimum turn it off
+        self._seen: dict[
+            str, dict
+        ] = {}  # item -> pages opened, searches run, early call refused, standards not held
         self.refusals: dict[
             str, int
         ] = {}  # code -> count (RESULTS: unverifiable quotes, never text)
+
+    # ---------------------------------------------------------------- what the agent did for this row
+
+    def _seen_for(self, item: str) -> dict:
+        return self._seen.setdefault(
+            item, {"pages": set(), "searches": [], "early": False, "not_held": set()}
+        )
+
+    def open_page(self, doc: object = None, page: object = None) -> dict:
+        out = super().open_page(doc, page)
+        if (
+            out.get("ok")
+            and isinstance(out.get("result"), dict)
+            and out["result"].get("page")
+        ):
+            self._seen_for(str(self.ctx.current_item or ""))["pages"].add(
+                out["result"]["page"]
+            )
+        return out
+
+    def search(self, query: object = None, scope: object = None) -> dict:
+        out = super().search(query, scope)
+        if out.get("ok") and isinstance(query, str):
+            self._seen_for(str(self.ctx.current_item or ""))["searches"].append(query)
+        return out
+
+    def get_clause(self, standard: object = None, clause: object = None) -> dict:
+        out = super().get_clause(standard, clause)
+        state = str((out.get("result") or {}).get("state") or "")
+        if not out.get("ok") and state.startswith("not held"):
+            self._seen_for(str(self.ctx.current_item or ""))["not_held"].add(
+                str(standard)
+            )
+        return out
+
+    def standard_held(self, row: Mapping, item: str | None = None) -> bool | None:
+        """Is the standard the row cites held at a confirmed edition? None when the row names none (not determinable)."""
+        ref = row.get("reference") or rules.parse_reference(
+            row.get("standard_reference")
+        )
+        if not ref or not ref.get("standard"):
+            return None
+        from . import standard_ids
+
+        seen = self._seen_for(str(item or self.ctx.current_item or ""))["not_held"]
+        if any(standard_ids.same_standard(ref["standard"], n) for n in seen):
+            return False
+        for name, edition in self.ctx.editions.items():
+            if standard_ids.same_standard(ref["standard"], name):
+                return self._evidence(name, edition).get("status") == "confirmed"
+        return False
+
+    def minimum_missing(self, item: str, row: Mapping) -> list[str]:
+        """What the agent must still do before it may record CONFIRM or UNSURE: open the row's cited page and search for
+        the row's subject words (no page cell: two searches)."""
+        if not self.enforce_minimum:
+            return []
+        seen, pages = self._seen_for(item), rules.row_pages(row)
+        subject = rules.head_subject(row.get("comment")) or frozenset(
+            rules._content_words(" ".join(str(row.get("comment") or "").split()[:8]))
+        )
+        hit = [
+            q
+            for q in seen["searches"]
+            if not subject or subject & set(rules._content_words(q))
+        ]
+        if pages:
+            missing = (
+                []
+                if set(pages) & seen["pages"]
+                else [f"open the row's cited page ({pages[0]}) with open_page"]
+            )
+            return missing + (
+                [] if hit else ["run one search for the row's subject words"]
+            )
+        return (
+            []
+            if len(hit) >= 2
+            else ["the row names no page: run two searches for its subject words"]
+        )
 
     # ---------------------------------------------------------------- the one decision tool
 
@@ -120,6 +212,7 @@ class JudgeToolBox(ToolBox):
         figures: object = None,
         reason: object = None,
         absent: object = None,
+        unsure_code: object = None,
     ) -> dict:
         why = self._judge_problem(
             decision,
@@ -132,6 +225,7 @@ class JudgeToolBox(ToolBox):
             figures,
             reason,
             absent,
+            unsure_code,
         )
         if isinstance(
             why, tuple
@@ -177,6 +271,7 @@ class JudgeToolBox(ToolBox):
         figures,
         reason,
         absent,
+        unsure_code=None,
     ):
         """The refusal code (str), or the decision to store (dict). First failure wins."""
         item = str(self.ctx.current_item or "")
@@ -196,17 +291,17 @@ class JudgeToolBox(ToolBox):
             "doc": self.ctx.document_id,
             "reason": said,
         }
+        held = self.standard_held(row)
+        early = self._early(item, row, base, held)
+        if early is not None:
+            return early
         if dec == "UNSURE":
-            return base
+            return self._unsure(base, unsure_code, held)
         code = str(reason_code or "").strip().lower() if dec == "REMOVE" else None
         if code in NOTES:  # never a REMOVE: the row stays and the engineer decides
-            return {
-                **base,
-                "decision": "UNSURE",
-                "color": COLOUR["UNSURE"],
-                "reason": NOTES[code],
-                "suggests": code,
-            }
+            return self._unsure(
+                {**base, "reason": NOTES[code], "suggests": code}, None, held
+            )
         if dec == "REMOVE":
             if code not in REMOVE_REASONS:
                 return "reason_code_not_already_stated"
@@ -217,9 +312,25 @@ class JudgeToolBox(ToolBox):
                 return "row_subject_not_derived"  # such a row can only be CONFIRMed or UNSURE
         if dec == "CONFIRM" and absent is True:
             doc_quote = None  # a "missing" claim confirmed: there is no quote to give
-        evidence = self._gather(dec, page, doc_quote, standard, clause, clause_quote)
+        unheld = (
+            dec == "CONFIRM" and held is False
+        )  # the standard is not held: only the DOCUMENT side can be confirmed
+        if unheld and absent is not True and not str(doc_quote or "").strip():
+            return "document_quote_required"  # the standard is not held: the document side needs a verified quote
+        if unheld and absent is True and (bad := self._absence_problem(item, row)):
+            return bad
+        evidence = self._gather(
+            dec, page, doc_quote, standard, clause, clause_quote, need_clause=not unheld
+        )
         if isinstance(evidence, str):
             return evidence
+        if (
+            unheld
+            and evidence.get("page")
+            and rules.row_pages(row)
+            and evidence["page"] not in rules.row_pages(row)
+        ):
+            return "page_not_the_rows_page"
         if (
             dec == "REMOVE"
         ):  # the row's subject, page and reason structure first, then the numbers, then the verifier
@@ -238,13 +349,69 @@ class JudgeToolBox(ToolBox):
             **({"reason_code": code} if code else {}),
             **(
                 {"absence_unproven": True}
-                if dec == "CONFIRM" and absent is True
+                if dec == "CONFIRM" and absent is True and not unheld
                 else {}
             ),
+            **(
+                {"standard_not_held": True, "absence_checked_on_page": True}
+                if unheld and absent is True
+                else {}
+            ),
+            **({"standard_not_held": True} if unheld and absent is not True else {}),
             **({"figures": figures} if figures else {}),
         }
 
-    def _gather(self, dec, page, doc_quote, standard, clause, clause_quote):
+    def _early(self, item, row, base, held):
+        """The evidence minimum: before CONFIRM, REMOVE or UNSURE the agent must have opened the row's cited page and searched
+        for its subject. The first early call is refused with a hint (once); a second is accepted but coded claim_unclear."""
+        missing = self.minimum_missing(item, row)
+        if not missing:
+            return None
+        seen = self._seen_for(item)
+        if not seen["early"]:
+            seen["early"] = True
+            return "evidence_minimum_not_met", {"still_required": missing}
+        return self._unsure(
+            {**base, "reason": "decided before the evidence minimum was met"},
+            "claim_unclear",
+            held,
+        )
+
+    @staticmethod
+    def _unsure(base, agent_code, held):
+        """UNSURE with a reason CODE from the closed set: set by code where it can be determined (the standard is not held),
+        else the agent's choice, anything else claim_unclear. The reason text is never empty."""
+        chosen = str(agent_code or "").strip().lower()
+        code = (
+            "standard_not_held"
+            if held is False
+            else (chosen if chosen in UNSURE_CODES else "claim_unclear")
+        )
+        return {
+            **base,
+            "decision": "UNSURE",
+            "color": COLOUR["UNSURE"],
+            "unsure_code": code,
+            "reason": base.get("reason") or f"unsure: {code}",
+        }
+
+    def _absence_problem(self, item, row):
+        """A missing-item claim confirmed WITHOUT a clause: code checks the cited page was opened and does not hold the
+        subject's words. (Absence is never a quote.)"""
+        pages = rules.row_pages(row)
+        subject = rules.head_subject(row.get("comment"))
+        if not pages or not subject:
+            return "absence_not_verifiable"
+        if pages[0] not in self._seen_for(item)["pages"]:
+            return "absence_needs_the_page_opened"
+        text = self._page_text(self.ctx.document_id, pages[0]) or ""
+        return (
+            "subject_words_are_on_the_page" if rules.words_in(text, subject) else None
+        )
+
+    def _gather(
+        self, dec, page, doc_quote, standard, clause, clause_quote, need_clause=True
+    ):
         """The verified evidence (dict) or a refusal code. Page text and clause text are read by code, quotes checked."""
         out: dict = {}
         if doc_quote is not None or dec == "REMOVE":
@@ -260,6 +427,8 @@ class JudgeToolBox(ToolBox):
             if _fold(quote) not in _fold(text):
                 return "document_quote_not_on_page"
             out.update(page=number, doc_quote=quote)
+        if not need_clause:
+            return out
         body, _doc, why = self._clause_text(standard, clause)
         if body is None:
             return f"clause_not_verified:{why}"

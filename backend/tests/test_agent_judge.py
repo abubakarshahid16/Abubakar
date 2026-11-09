@@ -1,6 +1,7 @@
 """#1690 agent judge mode: invented workbook, invented database copy, fake providers. No model, no network."""
 
 import hashlib
+import json
 import re
 import sqlite3
 
@@ -169,8 +170,16 @@ def yes(model="qwen-x"):
     return {"agree": True, "reason": "r", "usd": 0.0, "model": model}
 
 
+def relaxed(scope, readers, rows):
+    """The default judge toolbox with the evidence minimum off (the tests about the minimum turn it on)."""
+    box = aj.default_toolbox(scope, readers, rows)
+    box.enforce_minimum = False
+    return box
+
+
 def judge(a_file, copy_db, run_dir, provider, **kw):
     kw.setdefault("editions", EDITIONS)
+    kw.setdefault("toolbox_factory", relaxed)
     return aj.run_judge(a_file, copy_db, "D1", provider, run_dir=run_dir, **kw)
 
 
@@ -238,7 +247,7 @@ def test_writer_round_trip_keeps_the_layout_the_scorer_reads(a_file, tmp_path):
     )
     assert (
         ws.cell(10, 10).value == "AI judge: confirmed (p.1)"
-        and ws.cell(11, 10).value == "AI judge: AI could not confirm"
+        and ws.cell(11, 10).value == "AI judge: AI could not confirm (claim_unclear)"
     )
     removed = wb["Removed by AI judge"]
     assert [c.value for c in removed[1]] == list(jr.REMOVED_HEADERS) and removed.cell(
@@ -300,7 +309,7 @@ def box(copy_db):
     allowed = {"D1", "S1"}
     readers = ar.Readers(conn, allowed)
     rows = {"J1": {"comment": CLAIMS[0][2], "standard_reference": "ISO 9999 clause 4.1", "page_section": "p. 1"},
-            "J2": {"comment": CLAIMS[1][2], "standard_reference": "x", "page_section": "p. 2"},
+            "J2": {"comment": CLAIMS[1][2], "standard_reference": "ISO 9999 clause 4.2", "page_section": "p. 2"},
             "J3": {"comment": "Paint colour is not specified", "standard_reference": "x", "page_section": "p. 1"},
             "J4": {"comment": "12 bar", "standard_reference": "x", "page_section": "p. 1"},
             "J5": {"comment": "The spare parts schedule is missing", "standard_reference": "x", "page_section": "4.2"},
@@ -314,6 +323,7 @@ def box(copy_db):
             "J13": {"comment": "Pressure is wrong", "standard_reference": "x", "page_section": "p. 2"}}  # fmt: skip
     scope = {"allowed": frozenset(allowed), "document_id": "D1", "editions": EDITIONS}
     b = aj.default_toolbox(scope, readers, rows)
+    b.enforce_minimum = False
     b.ctx.current_item = "J2"
     b.ctx.findings = InMemoryFindings()
     yield b
@@ -321,7 +331,9 @@ def box(copy_db):
 
 
 def call(b, **args):
-    return b.run("judge_row", args)["result"]
+    out = b.run("judge_row", args)["result"]
+    assert "verdict" in out or "refused" in out, out  # a tool error would show here
+    return out
 
 
 def test_remove_already_stated_with_verified_quotes_is_accepted(box):
@@ -927,7 +939,7 @@ def test_cli_builds_one_real_claude_provider_with_the_judge_system_text(cli):
     assert (
         p.model == "claude-sonnet-5-5"
         and "judge_row" in p.system
-        and "never record_finding" in p.system
+        and "Never record_finding" in p.system
     )
 
 
@@ -1393,6 +1405,7 @@ def test_a_subject_that_heads_two_rows_is_a_template_prefix_and_removes_nothing(
         "editions": EDITIONS,
     }
     b = aj.default_toolbox(scope, ar.Readers(conn, {"D1", "S1"}), rows)
+    b.enforce_minimum = False
     b.ctx.findings = InMemoryFindings()
     assert b.shared == frozenset({frozenset({"material", "list"})})
     out = call(on_row(b, "T1"), **rm())
@@ -1678,4 +1691,430 @@ def test_a_subject_that_names_no_quantity_can_only_be_stated_by_a_date():
             row("Design pressure is not specified"), "Design pressure: 12 bar"
         )
         is None
+    )
+
+
+# ---- first real run lessons: UNSURE reason codes, the evidence minimum, the document side, the reference cell ----------
+
+
+def strict_box(copy_db):
+    """The default judge toolbox with the evidence minimum ON (production behaviour)."""
+    conn = ar.open_readonly(copy_db)
+    rows = {
+        "H1": {"comment": "Paint colour is not specified", "standard_reference": "ISO 9999 clause 4.2", "page_section": "p. 1"},
+        "N1": {"comment": "Paint colour is not specified", "standard_reference": "ISO 1111 clause 5.3", "page_section": "p. 1"},
+        "N2": {"comment": "Design pressure is not given", "standard_reference": "ISO 1111 clause 5.3", "page_section": "p. 1"},
+        "P1": {"comment": "Gasket material is not specified", "standard_reference": "ISO 9999 clause 4.2", "page_section": ""},
+        "X1": {"comment": "Gasket marking is not specified", "standard_reference": "", "page_section": "p. 1"},
+    }  # fmt: skip
+    scope = {
+        "allowed": frozenset({"D1", "S1"}),
+        "document_id": "D1",
+        "editions": EDITIONS,
+    }
+    b = aj.default_toolbox(scope, ar.Readers(conn, {"D1", "S1"}), rows)
+    b.ctx.findings = InMemoryFindings()
+    return b, conn
+
+
+def asked(b, row_id):
+    b.ctx.current_item = row_id
+    return b
+
+
+def read(b, page=1, query="paint colour"):
+    assert b.run("open_page", {"page": page})["ok"]
+    assert b.run("search", {"query": query})["ok"]
+
+
+def test_a_row_whose_standard_is_not_held_gets_standard_not_held_whatever_the_agent_says(
+    copy_db,
+):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "N1"))
+    out = call(
+        b,
+        decision="UNSURE",
+        unsure_code="claim_unclear",
+        reason="cannot judge the requirement",
+    )
+    stored = b.ctx.findings.get("N1")
+    assert (
+        out["accepted"] is True
+        and stored["unsure_code"] == "standard_not_held"
+        and stored["reason"] == "cannot judge the requirement"
+    )
+    conn.close()
+
+
+@pytest.mark.parametrize(("given", "expected"), [("document_evidence_not_found", "document_evidence_not_found"), ("claim_unclear", "claim_unclear"), ("step_limit", "step_limit"), ("error", "error"), ("bogus", "claim_unclear"), (None, "claim_unclear"), ("", "claim_unclear"), ("STANDARD_NOT_HELD", "standard_not_held"), (7, "claim_unclear")])  # fmt: skip
+def test_the_agents_unsure_code_is_coerced_into_the_closed_set(
+    copy_db, given, expected
+):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "H1"))
+    assert (
+        call(b, decision="UNSURE", unsure_code=given, reason="why")["accepted"] is True
+    )
+    assert b.ctx.findings.get("H1")["unsure_code"] == expected
+    conn.close()
+
+
+def test_an_unsure_reason_is_never_empty(copy_db):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "H1"))
+    assert (
+        call(b, decision="UNSURE", unsure_code="document_evidence_not_found")[
+            "accepted"
+        ]
+        is True
+    )
+    assert b.ctx.findings.get("H1")["reason"] == "unsure: document_evidence_not_found"
+    conn.close()
+
+
+def test_the_complies_and_not_applicable_notes_carry_a_code_too(copy_db):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "N1"))
+    call(b, decision="REMOVE", reason_code="complies", reason="meets")
+    assert (
+        b.ctx.findings.get("N1")["unsure_code"] == "standard_not_held"
+        and b.ctx.findings.get("N1")["suggests"] == "complies"
+    )
+    conn.close()
+
+
+def test_a_get_clause_that_says_not_held_marks_the_row_standard_as_not_held(copy_db):
+    b, conn = strict_box(copy_db)
+    assert b.standard_held(b.rows["H1"], "H1") is True
+    asked(b, "H1")
+    assert b.run("get_clause", {"standard": "ISO 9999", "clause": "4.2"})["ok"] is True
+    assert b.standard_held(b.rows["H1"], "H1") is True
+    b.run("get_clause", {"standard": "ISO 7777", "clause": "1.1"})  # not held at all
+    assert b._seen_for("H1")["not_held"] == {"ISO 7777"}
+    assert b.standard_held({"standard_reference": "ISO 7777 clause 1.1"}, "H1") is False
+    assert (
+        b.standard_held(b.rows["X1"], "X1") is None
+    )  # a row with no reference: not determinable
+    conn.close()
+
+
+def test_the_loop_ends_are_coded_step_limit_and_error(a_file, copy_db, run_dir):
+    class Forever:
+        def complete(self, _m, _s):
+            return {"tool": "open_page", "args": {"page": 1}, "reason": "r", "usd": 0}
+
+    s = judge(a_file, copy_db, run_dir, Forever(), limit=1)
+    assert (
+        decision(s, "J1")["unsure_code"] == "step_limit" and decision(s, "J1")["reason"]
+    )
+
+    def boom(_m):
+        raise RuntimeError("down")
+
+    s2 = judge(
+        a_file,
+        copy_db,
+        run_dir.parent / "r2",
+        al.FakeProvider([boom, tool(decision="UNSURE")]),
+        rows="1-2",
+    )
+    assert decision(s2, "J1")["unsure_code"] == "error" and decision(s2, "J1")["reason"]
+
+
+# -- the evidence minimum -------------------------------------------------------------------------------------------
+
+
+def test_a_decision_before_the_page_is_opened_and_searched_is_refused_once_with_a_hint(
+    copy_db,
+):
+    b, conn = strict_box(copy_db)
+    out = call(asked(b, "H1"), decision="UNSURE", reason="too early")
+    assert out["accepted"] is False and out["reason"] == "evidence_minimum_not_met"
+    assert out["detail"]["still_required"] == [
+        "open the row's cited page (1) with open_page",
+        "run one search for the row's subject words",
+    ]
+    assert b.ctx.findings.has("H1") is False
+    b.run("open_page", {"page": 1})
+    assert (
+        call(b, decision="UNSURE", reason="still early")["accepted"] is True
+    )  # second early call: accepted, coded
+    stored = b.ctx.findings.get("H1")
+    assert (
+        stored["unsure_code"] == "claim_unclear"
+        and stored["reason"] == "decided before the evidence minimum was met"
+    )
+    conn.close()
+
+
+def test_a_second_early_confirm_is_never_a_confirm(copy_db):
+    b, conn = strict_box(copy_db)
+    asked(b, "H1")
+    call(b, **confirm()["args"])  # refused once
+    out = call(b, **confirm(page=1)["args"])
+    assert out["accepted"] is True and b.ctx.findings.get("H1")["decision"] == "UNSURE"
+    conn.close()
+
+
+def test_once_the_minimum_is_met_the_decision_is_taken_as_it_is(copy_db):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "H1"))
+    out = call(
+        b,
+        decision="UNSURE",
+        unsure_code="document_evidence_not_found",
+        reason="read the page",
+    )
+    assert (
+        out["accepted"] is True
+        and b.ctx.findings.get("H1")["unsure_code"] == "document_evidence_not_found"
+    )
+    assert b.refusals == {}
+    conn.close()
+
+
+def test_a_search_that_is_not_about_the_row_subject_does_not_count(copy_db):
+    b, conn = strict_box(copy_db)
+    asked(b, "H1")
+    b.run("open_page", {"page": 1})
+    b.run("search", {"query": "heat exchanger"})
+    assert call(b, decision="UNSURE")["reason"] == "evidence_minimum_not_met"
+    b.run("search", {"query": "paint"})
+    assert call(b, decision="UNSURE")["accepted"] is True
+    conn.close()
+
+
+def test_a_row_with_no_page_cell_needs_two_searches(copy_db):
+    b, conn = strict_box(copy_db)
+    asked(b, "P1")
+    b.run("search", {"query": "gasket material"})
+    out = call(b, decision="UNSURE")
+    assert (
+        out["reason"] == "evidence_minimum_not_met"
+        and "two searches" in out["detail"]["still_required"][0]
+    )
+    b.run("search", {"query": "gasket"})
+    assert call(b, decision="UNSURE")["accepted"] is True
+    conn.close()
+
+
+def test_the_minimum_applies_inside_a_run_and_the_agent_can_meet_it(
+    a_file, copy_db, run_dir
+):
+    script = [tool(decision="UNSURE"),
+              {"tool": "open_page", "args": {"page": 1}, "reason": "r", "usd": 0.0},
+              {"tool": "search", "args": {"query": "design pressure"}, "reason": "r", "usd": 0.0},
+              tool(decision="UNSURE", unsure_code="document_evidence_not_found", reason="read it")]  # fmt: skip
+    s = aj.run_judge(
+        a_file,
+        copy_db,
+        "D1",
+        al.FakeProvider(script),
+        run_dir=run_dir,
+        editions=EDITIONS,
+        rows="1",
+    )
+    assert decision(s, "J1")["unsure_code"] == "document_evidence_not_found"
+    assert decision(s, "J1")["reason"] == "read it"
+
+
+# -- the document side when the standard is not held ---------------------------------------------------------------
+
+
+def test_with_the_standard_not_held_a_verified_document_quote_on_the_rows_page_confirms(
+    copy_db,
+):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "N2"), page=1, query="design pressure")
+    out = call(
+        b, decision="CONFIRM", page=1, doc_quote=DOC_Q, reason="the page shows a value"
+    )
+    stored = b.ctx.findings.get("N2")
+    assert (
+        out["accepted"] is True
+        and stored["decision"] == "CONFIRM"
+        and stored["standard_not_held"] is True
+    )
+    assert "clause_quote" not in stored
+    conn.close()
+
+
+def test_with_the_standard_not_held_confirm_still_needs_a_real_quote_on_the_rows_page(
+    copy_db,
+):
+    b, conn = strict_box(copy_db)
+    read(asked(b, "N2"), page=1, query="design pressure")
+    assert (
+        call(b, decision="CONFIRM", page=1, doc_quote="Design pressure: 99 bar")[
+            "reason"
+        ]
+        == "document_quote_not_on_page"
+    )
+    assert (
+        call(b, decision="CONFIRM", page=2, doc_quote="Material list: 2024-05-01")[
+            "reason"
+        ]
+        == "page_not_the_rows_page"
+    )
+    assert (
+        call(b, decision="CONFIRM", reason="no quote")["reason"]
+        == "document_quote_required"
+    )
+    assert b.ctx.findings.has("N2") is False
+    conn.close()
+
+
+def test_an_absence_is_confirmed_by_code_only_when_the_page_was_read_and_lacks_the_subject(
+    copy_db,
+):
+    b, conn = strict_box(copy_db)
+    asked(b, "N1")
+    b.run("search", {"query": "paint colour"})
+    b.run("open_page", {"page": 1})
+    out = call(b, decision="CONFIRM", absent=True, reason="no paint colour on the page")
+    stored = b.ctx.findings.get("N1")
+    assert (
+        out["accepted"] is True
+        and stored["absence_checked_on_page"] is True
+        and stored["standard_not_held"] is True
+    )
+    asked(
+        b, "N2"
+    )  # the page DOES hold the subject words (design pressure): absence cannot be confirmed
+    b.run("search", {"query": "design pressure"})
+    b.run("open_page", {"page": 1})
+    assert (
+        call(b, decision="CONFIRM", absent=True)["reason"]
+        == "subject_words_are_on_the_page"
+    )
+    conn.close()
+
+
+def test_the_claim_the_agent_gets_carries_the_parsed_reference_and_whether_it_is_held(
+    a_file, copy_db, run_dir
+):
+    provider = al.FakeProvider([tool(decision="UNSURE")])
+    aj.run_judge(
+        a_file,
+        copy_db,
+        "D1",
+        provider,
+        run_dir=run_dir,
+        editions=EDITIONS,
+        rows="1",
+        toolbox_factory=relaxed,
+    )
+    claim = provider.calls[0][0]["content"]["skill_item"]["claim"]
+    assert claim["reference"] == {"standard": "ISO 9999", "clause": "4.1", "held": True}
+    assert (
+        "document side" in aj.JUDGE_SYSTEM.lower()
+        and "never guess a clause" in aj.JUDGE_SYSTEM
+    )
+
+
+# -- the Standard Reference cell ------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("API 610-X 5.3.4.1", ("API 610-X", "5.3.4.1")),
+        ("API 610", ("API 610", None)),
+        ("SAES-J-600 4.1.1.4", ("SAES-J-600", "4.1.1.4")),
+        ("SAES-J-600", ("SAES-J-600", None)),
+        ("ISO 9999 clause 4.2", ("ISO 9999", "4.2")),
+        ("ISO 9999 Cl. 4.2.1", ("ISO 9999", "4.2.1")),
+        ("API 610-X, 5.3.4.1", ("API 610-X", "5.3.4.1")),
+        ("API 650 sec. 5.1; ISO 9999 4.2", ("API 650", "5.1")),
+        ("API 610 5", ("API 610", "5")),
+    ],
+)
+def test_the_reference_cell_forms_are_parsed(cell, expected):
+    from app import agent_judge_rules as r
+
+    got = r.parse_reference(cell)
+    assert (got["standard"], got["clause"]) == expected
+
+
+@pytest.mark.parametrize("cell", ["", "   ", None, "Section 4.2", "4.2.1"])
+def test_a_cell_with_no_standard_is_not_a_reference(cell):
+    from app import agent_judge_rules as r
+
+    assert r.parse_reference(cell) is None
+
+
+def test_the_reader_parses_the_reference_of_every_row(a_file):
+    ref = jr.read_rows(a_file)[0]["reference"]
+    assert ref == {"standard": "ISO 9999", "clause": "4.1"}
+
+
+# -- counts BY reason code ------------------------------------------------------------------------------------------
+
+
+def test_results_decisions_workbook_and_status_count_unsure_by_reason(
+    tmp_path, copy_db, run_dir
+):
+    claims = [("1", "p. 1", "Design pressure is not given", "ISO 9999 clause 4.1"), ("2", "p. 1", "Paint colour is not specified", "ISO 9999 clause 4.2"),
+              ("3", "p. 1", "Gasket marking is not stated", "ISO 1111 clause 5.3"), ("4", "p. 2", "Nozzle schedule is blank", "ISO 1111 clause 5.3"),
+              ("5", "p. 2", "Welding procedure reference is not given", "ISO 9999 clause 4.2")]  # fmt: skip
+    a = make_a_xlsx(tmp_path / "five.xlsx", claims)
+
+    def boom(_m):
+        raise RuntimeError("down")
+
+    provider = al.FakeProvider([tool(decision="UNSURE", unsure_code="document_evidence_not_found", reason="read it"),
+                                tool(decision="UNSURE", unsure_code="nonsense", reason="vague"),
+                                tool(decision="UNSURE", reason="cannot judge"), tool(decision="UNSURE", reason="cannot judge"), boom])  # fmt: skip
+    s = judge(a, copy_db, run_dir, provider)
+    text = (run_dir / "RESULTS.md").read_text()
+    line = "UNSURE by reason: standard_not_held 2, document_evidence_not_found 1, claim_unclear 1, step_limit 0, error 1"
+    assert f"- {line}" in text
+    assert [decision(s, f"J{i}")["unsure_code"] for i in (1, 2, 3, 4, 5)] == [
+        "document_evidence_not_found",
+        "claim_unclear",
+        "standard_not_held",
+        "standard_not_held",
+        "error",
+    ]
+    assert all(decision(s, f"J{i}")["reason"] for i in range(1, 6))
+    assert line in s["status_box"]
+    notes = [
+        c.value for c in openpyxl.load_workbook(s["xlsx"])["CRS"]["J"][9:] if c.value
+    ]
+    assert (
+        sum("(standard_not_held)" in n for n in notes) == 2
+        and sum("(error)" in n for n in notes) == 1
+    )
+    saved = json.loads((run_dir / "decisions.json").read_text())
+    assert saved["J3"]["unsure_code"] == "standard_not_held"
+    logs = (run_dir / "live.log").read_text() + "".join(
+        p.read_text() for p in run_dir.glob("*.trace.jsonl")
+    )
+    for banned in (
+        "Gasket marking",
+        "Nozzle schedule",
+        "Welding procedure",
+        "Paint colour",
+    ):
+        assert (
+            banned not in logs and banned not in text and banned not in s["status_box"]
+        )  # no row text outside decisions.json
+
+
+def test_the_status_box_counts_unsure_by_reason_while_the_run_is_going(
+    copy_db, run_dir, tmp_path
+):
+    seen = []
+    judge(
+        ten_rows(tmp_path),
+        copy_db,
+        run_dir,
+        Dear(),
+        on_status=lambda t: seen.append(ar.status_box(t)),
+    )
+    assert (
+        seen
+        and "UNSURE by reason: standard_not_held 0, document_evidence_not_found 0, claim_unclear 10, step_limit 0, error 0"
+        in seen[0]
     )
