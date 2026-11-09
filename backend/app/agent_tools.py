@@ -32,6 +32,14 @@ from .agent_edition import (
     NOT_CONFIRMED,
     _not_confirmed,
 )
+from .agent_subject import subject_ambiguous, subject_words
+from .agent_tool_schemas import (
+    ARG_ALIASES,
+    INPUT_SCHEMAS,
+    coerce_page,
+    coerce_scope,
+    expect_of,
+)
 from .reader_api import _fold
 
 VERDICTS = ("GREEN", "YELLOW", "RED")
@@ -101,186 +109,8 @@ TOOL_SPECS: list[dict] = [
     },
 ]
 
-_S = {"type": "string"}
-_FIGURES = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {"doc_quote": _S, "clause_quote": _S},
-        "required": ["doc_quote", "clause_quote"],
-    },
-}
-#: Real JSON Schemas (what the model is shown). `params` above stays for compatibility.
-INPUT_SCHEMAS: dict[str, dict] = {
-    "open_page": {
-        "type": "object",
-        "properties": {
-            "doc": {
-                "type": "string",
-                "description": "document id; the run's own document when left out",
-            },
-            "page": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "page number, 1-based",
-            },
-        },
-        "required": ["page"],
-    },
-    "search": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "words to look for"},
-            "scope": {
-                "type": "array",
-                "items": _S,
-                "description": "optional document ids; all allowed documents when left out",
-            },
-        },
-        "required": ["query"],
-    },
-    "get_clause": {
-        "type": "object",
-        "properties": {"standard": _S, "clause": _S},
-        "required": ["standard", "clause"],
-    },
-    "compare_number": {
-        "type": "object",
-        "properties": {
-            "doc_quote": {
-                "type": "string",
-                "description": "the document's words holding the figure, with unit",
-            },
-            "clause_quote": {
-                "type": "string",
-                "description": "the clause's words holding the figure, with unit",
-            },
-        },
-        "required": ["doc_quote", "clause_quote"],
-    },
-    "record_finding": {
-        "type": "object",
-        "properties": {
-            "finding": {
-                "type": "object",
-                "properties": {
-                    "item": _S,
-                    "doc": _S,
-                    "color": {"type": "string", "enum": ["GREEN", "YELLOW", "RED"]},
-                    "page": {"type": "integer", "minimum": 1},
-                    "doc_quote": _S,
-                    "clause_quote": _S,
-                    "standard": _S,
-                    "clause": _S,
-                    "action": _S,
-                    "priority": {"type": "string", "enum": ["must", "should", "nice"]},
-                    "figures": _FIGURES,
-                    "reason": _S,
-                },
-                "required": ["color", "action", "priority", "reason"],
-            }
-        },
-        "required": ["finding"],
-    },
-    "ask_engineer": {
-        "type": "object",
-        "properties": {
-            "item": {
-                "type": "string",
-                "description": "optional: the current item is used",
-            },
-            "why": {
-                "type": "string",
-                "description": "why the engineer must decide, at most 30 words",
-            },
-        },
-        "required": ["why"],
-    },
-}
 for _spec in TOOL_SPECS:
     _spec["input_schema"] = INPUT_SCHEMAS[_spec["name"]]
-
-
-#: Words that carry no subject: articles, modals, comparators, requirement words. A CLOSED set: a word not listed here is
-#: part of the subject, so a doubtful case ends as "subject not matched" (cannot decide), never as a pass.
-NEUTRAL_WORDS = frozenset(
-    {
-        "a", "an", "the", "of", "is", "are", "be", "been", "shall", "must", "should", "will", "may", "can", "value", "values",
-        "comparator", "requirement", "at", "least", "most", "more", "less", "than", "not", "no", "exceed", "exceeding",
-        "maximum", "minimum", "max", "min", "required", "limited", "limit", "between", "and", "to", "from", "up", "equal",
-        "greater", "lower", "higher", "above", "below", "under", "over", "have", "has", "with", "for", "in", "by",
-    }
-)  # fmt: skip
-_FIRST_NUMBER = re.compile(r"[-+\u2212]?\d")
-
-
-def _stem(word: str) -> str:
-    """Plural endings only (-ies, -es, -s); never -ing or -ed ("bearing" is not "bear"). Same on both sides."""
-    if len(word) > 4 and word.endswith("ies"):
-        return word[:-3] + "y"
-    if len(word) > 4 and word.endswith(("sses", "xes", "ches", "shes", "zes")):
-        return word[:-2]
-    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
-        return word[:-1]
-    return word
-
-
-_FIGURE_TOKEN = re.compile(
-    r"\d+(?:[.,]\d+)*|[\u00bc-\u00be\u2150-\u215e]|\b(?:"
-    + "|".join(sorted(ai_review_proposals.NUMBER_WORDS))
-    + r")\b",
-    re.IGNORECASE,
-)
-#: A number that names a kind, not a quantity: "Class 150", "Type 2", "No. 3".
-_LABEL_NUMBER = re.compile(
-    r"\b(?:class|type|no|number|grade|series|schedule|sch|pn|dn|group|category|part|table|item|clause|section|zone|size)\.?\s*#?\d",
-    re.IGNORECASE,
-)
-
-
-#: Short words that are words, not labels. Any other token of two letters or fewer in a subject region ("Grade A",
-#: "Zone H", "Pump K") is a label we cannot compare, so the quote is ambiguous. A lowercase "a" is the article.
-SHORT_WORDS_ALLOWED = frozenset(
-    {"of", "is", "to", "be", "no", "or", "at", "in", "by", "an", "as", "on"}
-)
-
-
-def _label_before_number(quote: str) -> str:
-    found = _FIRST_NUMBER.search(quote)
-    return quote[: found.start()] if found else quote
-
-
-def _has_short_label(quote: str) -> bool:
-    for at, token in enumerate(re.findall(r"[A-Za-z]+", _label_before_number(quote))):
-        if len(token) > 2 or token.lower() in SHORT_WORDS_ALLOWED:
-            continue
-        if token.lower() == "a" and (at == 0 or token == "a"):
-            continue  # the article: a lowercase "a", or "A" opening the quote; never "Grade A"
-        return True
-    return False
-
-
-def subject_ambiguous(quote: str) -> bool:
-    """More than one number in the quote (so the figure's own number cannot be told from a number inside its label), or a
-    number that names a kind ("Class 150"). Such a quote is never compared."""
-    return (
-        len(_FIGURE_TOKEN.findall(quote)) > 1
-        or bool(_LABEL_NUMBER.search(quote))
-        or _has_short_label(quote)
-    )
-
-
-def subject_words(quote: str) -> frozenset[str]:
-    """The subject of a quoted figure: the content words BEFORE its first number (its label), lowercased, punctuation
-    stripped, inflections folded, neutral words removed (units are never in a label). A bare value has an empty subject."""
-    label = _label_before_number(quote)
-    out = set()
-    for raw in re.findall(r"[a-z]+", label.lower()):
-        word = _stem(raw)
-        if raw in NEUTRAL_WORDS or word in NEUTRAL_WORDS:
-            continue
-        out.add(word)
-    return frozenset(out)
 
 
 class FindingStore(Protocol):
@@ -343,73 +173,6 @@ def _refuse(reason: str, cites: Iterable[dict] = ()) -> dict:
 
 def _int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-def coerce_page(value: object) -> tuple[int | None, str | None]:
-    """(page, None) or (None, code). 1, 1.0, "1", "1.0" and " 1 " are page 1; 0, negatives and non-numbers are refused."""
-    if isinstance(value, bool) or value is None:
-        return None, "page_missing_or_not_a_number"
-    number: float | None = None
-    if isinstance(value, (int, float)):
-        number = float(value)
-    elif isinstance(value, str):
-        try:
-            number = float(value.strip())
-        except ValueError:
-            number = None
-    if (
-        number is None
-        or number != number
-        or number in (float("inf"), float("-inf"))
-        or number != int(number)
-    ):
-        return None, "page_missing_or_not_a_number"
-    if number < 1:
-        return None, "page_must_be_1_or_more"
-    return int(number), None
-
-
-def coerce_scope(value: object) -> list[str] | None:
-    """None (the default scope) for null, empty or unreadable; else a list of document ids from a list, a comma list or JSON text."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        if text.startswith("["):
-            try:
-                value = json.loads(text)
-            except ValueError:
-                value = text.strip("[]").split(",")
-        else:
-            value = text.split(",")
-    if isinstance(value, (list, tuple, set, frozenset)):
-        ids = [
-            str(v).strip().strip("\"'")
-            for v in value
-            if isinstance(v, (str, int)) and str(v).strip()
-        ]
-        return ids or None
-    return None
-
-
-def expect_of(name: str) -> dict:
-    """The argument NAMES and types a tool expects (a hint for a retry; no text)."""
-    schema = INPUT_SCHEMAS.get(name) or {}
-    required = set(schema.get("required") or [])
-    return {
-        k: (v.get("type", "any") + ("" if k in required else "?"))
-        for k, v in (schema.get("properties") or {}).items()
-    }
-
-
-#: Names a model may use for an argument; mapped to the real one.
-ARG_ALIASES = {
-    "document": "doc", "document_id": "doc", "doc_id": "doc", "page_no": "page", "page_number": "page",
-    "q": "query", "question": "query", "search_query": "query", "documents": "scope", "doc_ids": "scope",
-    "clause_number": "clause", "standard_id": "standard",
-}  # fmt: skip
 
 
 def _default_page_reader(doc: str, page: int) -> str | None:
