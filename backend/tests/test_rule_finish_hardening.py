@@ -113,8 +113,8 @@ def test_a_negated_comparative_gives_the_right_polarity(quote, expected):
         ("at least 10 mm and at most 20 mm", [(10.0, ">="), (20.0, "<=")]),
         (
             "at least 3/4 inch for threaded and 1 inch for flanged",
-            [(0.75, ">="), (1.0, None)],
-        ),  # never inherited
+            [(0.75, ">="), (1.0, ">=")],
+        ),  # the same-sentence shape: inherited
     ],
 )
 def test_every_figure_takes_the_phrase_immediately_governing_it_and_never_one_from_another_figure(
@@ -477,3 +477,138 @@ def test_a_join_must_start_with_the_quote_and_be_contiguous_in_the_pages(monkeyp
         rf, "quote_verified", lambda joined, text: False
     )  # a join the pages do not hold
     assert rf.rejoin(r, pages) == (None, {"reason": "join_not_contiguous"})
+
+
+# ------------------------------------------------------------------------------------------------ narrow inheritance
+
+
+@pytest.mark.parametrize(
+    "quote, expected",
+    [
+        (
+            "The inlet shall be at least 3/4 inch for threaded valves and 1 inch for flanged valves.",
+            [(0.75, ">="), (1.0, ">=")],
+        ),
+        ("at least 10 mm, 20 mm", [(10.0, ">="), (20.0, ">=")]),
+        ("at most 10 mm or 20 mm", [(10.0, "<="), (20.0, "<=")]),
+        (
+            "at least 10 mm and 2 cm",
+            [(10.0, ">="), (2.0, ">=")],
+        ),  # a convertible unit of the same dimension
+        (
+            "at least 10 mm for A and 20 mm for B and 30 mm for C",
+            [(10.0, ">="), (20.0, ">="), (30.0, ">=")],
+        ),
+    ],
+)
+def test_a_later_figure_of_the_same_sentence_inherits_only_in_the_shape_a_for_x_and_b_for_y(
+    quote, expected
+):
+    assert [(f.value, f.comparator) for f in ff.figures(quote)] == expected
+
+
+@pytest.mark.parametrize(
+    "quote, expected",
+    [
+        (
+            "10 mm minimum, 20 mm maximum",
+            [(10.0, ">="), (20.0, "<=")],
+        ),  # the 20 has its own trailing word
+        ("at least 10 mm and at most 20 mm", [(10.0, ">="), (20.0, "<=")]),
+        (
+            "at least 10 mm and 20 mm maximum",
+            [(10.0, ">="), (20.0, "<=")],
+        ),  # (1) its own trailing word
+        ("at least 10 mm but not more than 20 mm", [(10.0, ">="), (20.0, "<=")]),
+        (
+            "at least 10 mm and not more than 20 mm",
+            [(10.0, ">="), (20.0, "<=")],
+        ),  # (1) a polarity word of its own
+        (
+            "at least 10 mm and not 20 mm",
+            [(10.0, ">="), (20.0, None)],
+        ),  # (1) a negation of its own
+        ("at least 10 mm, however 20 mm", [(10.0, ">="), (20.0, None)]),  # (3)
+        ("at least 10 mm except 20 mm", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm unless 20 mm", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm but 20 mm", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm for A except B and 20 mm", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm for A unless B and 20 mm", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm for A but B and 20 mm", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm for A however B and 20 mm", [(10.0, ">="), (20.0, None)]),
+        (
+            "at least 1.5 mm for A and 2 mm for B",
+            [(1.5, ">="), (2.0, ">=")],
+        ),  # a decimal point is no sentence break
+        ("at least 10 mm; 20 mm for valves", [(10.0, ">="), (20.0, None)]),
+        ("at least 10 mm. 20 mm for valves", [(10.0, ">="), (20.0, None)]),
+        (
+            "at least 10 mm and 20 kPa",
+            [(10.0, ">="), (20.0, None)],
+        ),  # (4) another dimension
+        (
+            "10 mm minimum, 20 mm",
+            [(10.0, ">="), (20.0, None)],
+        ),  # the first one's comparator is a trailing word, not a phrase
+        (
+            "at least 10 mm and, in addition, 20 mm",
+            [(10.0, ">="), (20.0, None)],
+        ),  # (5) another shape
+        ("at least 10 mm as well as 20 mm", [(10.0, ">="), (20.0, None)]),
+        (
+            "shall be 10 mm and 20 mm",
+            [(10.0, None), (20.0, None)],
+        ),  # nothing to inherit
+    ],
+)
+def test_nothing_else_is_inherited(quote, expected):
+    assert [(f.value, f.comparator) for f in ff.figures(quote)] == expected
+
+
+def test_an_inherited_comparator_lets_step_a_pass_two_conditional_figures_and_stays_incomplete_without_it():
+    q = "The inlet shall be at least 3/4 inch for threaded valves and 1 inch for flanged valves."
+    both = rule(
+        quote=q, figures=[{"value": 0.75}, {"value": 1.0}], unit="inch", comparator=">="
+    )
+    assert rf.limit_and_unit(both)[:2] == (rf.PASS, "figures_stand_in_quote")
+    assert rf.limit_and_unit(dict(both, comparator="<="))[0] == rf.FAIL
+    other = rule(
+        quote="at least 3/4 inch for threaded valves. 1 inch for flanged valves.",
+        figures=[{"value": 0.75}, {"value": 1.0}],
+        unit="inch",
+        comparator=">=",
+    )
+    assert rf.limit_and_unit(other)[:2] == (rf.INCOMPLETE, "comparator_unreadable")
+
+
+def test_the_same_unit_inherits_whatever_its_dimension():
+    quote = "at least 10 ppm for A and 20 ppm for B"
+    assert [(f.value, f.comparator) for f in ff.figures(quote)] == [
+        (10.0, ">="),
+        (20.0, ">="),
+    ]
+
+
+def test_a_connection_type_word_may_qualify_a_figure_before_the_next_one_and_no_other_word_may():
+    assert [
+        (f.value, f.comparator)
+        for f in ff.figures(
+            "Minimum size shall be 3/4 inch threaded or 1 inch flanged."
+        )
+    ] == [(0.75, ">="), (1.0, ">=")]
+    assert [
+        (f.value, f.comparator)
+        for f in ff.figures("at least 3/4 inch threaded and 1 inch flanged")
+    ] == [(0.75, ">="), (1.0, ">=")]
+    assert [
+        (f.value, f.comparator)
+        for f in ff.figures("at least 3/4 inch banana or 1 inch flanged")
+    ] == [(0.75, ">="), (1.0, None)]
+    assert [
+        (f.value, f.comparator)
+        for f in ff.figures("at least 3/4 inch threaded flanged or 1 inch")
+    ] == [(0.75, ">="), (1.0, None)]
+
+
+def test_the_connection_qualifiers_are_the_closed_vocabulary_of_step_d():
+    assert set(ff.CONNECTION_QUALIFIERS) == set(rf.CONNECTION_WORDS)

@@ -297,6 +297,54 @@ def _low_end(text: str, fig: Figure, before: int, out: list[Figure], numbers: li
     return None
 
 
+#: How two figures of one sentence are joined when the later one shares the first one's phrase: "A <unit> for X and B
+#: <unit> for Y": an optional "for <words>", then "and", "or" or a comma.
+#: A connection-type word that may qualify a figure before the next one ("3/4 inch threaded or 1 inch flanged"): the same
+#: closed vocabulary step d reads (`rule_finish.CONNECTION_WORDS`; a test keeps the two equal).
+CONNECTION_QUALIFIERS = (
+    "threaded",
+    "screwed",
+    "flanged",
+    "welded",
+    "socket-welded",
+    "socket welded",
+    "butt-welded",
+    "butt welded",
+)
+_QUALIFIER = (
+    "(?:\\s+(?:" + "|".join(re.escape(w) for w in CONNECTION_QUALIFIERS) + "))?"
+)
+_INHERIT_GAP = re.compile(
+    r"(?:\s*for\s+[a-z][a-z \-]*?)?"
+    + _QUALIFIER
+    + r"\s*(?:,\s*)?(?:and|or)\s*(?:,\s*)?|\s*,\s*",
+    re.IGNORECASE,
+)
+#: Contrast words that end the sentence's one reading (a period, semicolon or colon cannot lie in a gap the shape accepts).
+_SENTENCE_STOP = re.compile(
+    r"(?<![a-z])(?:however|except|unless|but|whereas|provided)(?![a-z])",
+    re.IGNORECASE,
+)
+
+
+def _inherits(text: str, prev: Figure, fig: Figure, gap_from: int) -> bool:
+    """A later figure of the SAME sentence takes the comparator of the figure before it only when all hold: that figure's
+    comparator came from its own leading phrase (or was itself inherited this way); no sentence break or contrast word
+    lies between them; the later figure is of the same dimension; and they are joined only by "for ... and", "and", "or"
+    or a comma. (That the later figure has no polarity or negation word of its own is the caller's condition.)"""
+    gap = text[gap_from : fig.start]
+    same_dimension = prev.unit.lower() == fig.unit.lower() or (
+        claims.unit_dimension(prev.unit) is not None
+        and claims.unit_dimension(prev.unit) == claims.unit_dimension(fig.unit)
+    )
+    return bool(
+        prev.comparator_source in ("governing_phrase", "inherited_same_sentence")
+        and not _SENTENCE_STOP.search(gap)
+        and same_dimension
+        and _INHERIT_GAP.fullmatch(gap)
+    )
+
+
 def _with_ranges(text: str, figures: list[Figure]) -> list[Figure]:
     """ "between 10 and 40 C", "from 10 to 40 C", "10 to 20 mm", "10-40 C": two figures, >= the low end and <= the high
     end; every other figure takes its own phrase."""
@@ -318,7 +366,10 @@ def _with_ranges(text: str, figures: list[Figure]) -> list[Figure]:
             ]
             before = fig.unit_end
             continue
+        start = before
         comparator, source, before = _claim(text, fig, before)
+        if comparator is None and out and _inherits(text, out[-1], fig, start):
+            comparator, source = out[-1].comparator, "inherited_same_sentence"
         out.append(
             dataclasses.replace(fig, comparator=comparator, comparator_source=source)
         )
