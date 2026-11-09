@@ -553,6 +553,28 @@ def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
     return meta
 
 
+def _trip(breaker, finals, trace, run_root) -> str:
+    """The failure breaker tripped: its items go back out of finals and the done set, so a resume asks them again."""
+    for dead in breaker.items:
+        finals.pop(dead, None)
+        trace.unmark_done(dead)
+    _write_json(run_root / FILES["finals"], finals)
+    words = breaker.words()
+    trace.problem(words)
+    return words
+
+
+def _second_for(other, finding, iid, second, trace, run_root) -> None:
+    """The second opinion on a GREEN or RED finding, asked once and saved."""
+    if (
+        other is not None
+        and finding.get("color") in ("GREEN", "RED")
+        and iid not in second
+    ):
+        second[iid] = ask_second_opinion(other, finding, trace)
+        _write_json(run_root / FILES["second"], second)
+
+
 def _drive(
     chosen,
     document_id,
@@ -607,14 +629,7 @@ def _drive(
                 res = out["results"].get(iid)
                 rstats.count_item(stats, res)
                 if breaker.seen(iid, res):
-                    for dead in (
-                        breaker.items
-                    ):  # kept OUT of finals and the done set: a resume retries them
-                        finals.pop(dead, None)
-                        trace.unmark_done(dead)
-                    _write_json(run_root / FILES["finals"], finals)
-                    stopped = breaker.words()
-                    trace.problem(stopped)
+                    stopped = _trip(breaker, finals, trace, run_root)
                     break
                 finals[iid] = (
                     res["finding"]
@@ -625,14 +640,7 @@ def _drive(
                     )
                 )
                 _write_json(run_root / FILES["finals"], finals)
-            finding = finals[iid]
-            if (
-                other is not None
-                and finding.get("color") in ("GREEN", "RED")
-                and iid not in second
-            ):
-                second[iid] = ask_second_opinion(other, finding, trace)
-                _write_json(run_root / FILES["second"], second)
+            _second_for(other, finals[iid], iid, second, trace, run_root)
             meta = save()
             if len(trace.completed) % 10 == 0 and on_status:
                 trace.refresh_live()
