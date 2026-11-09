@@ -21,6 +21,7 @@ question locally); tests inject a fake.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -93,10 +94,111 @@ TOOL_SPECS: list[dict] = [
     },
     {
         "name": "ask_engineer",
-        "description": "Ask the engineer: stores a YELLOW query row. Give the item id and a reason of at most 30 words; no document text.",
-        "params": {"item": "item id", "reason": "why the engineer must decide"},
+        "description": "Ask the engineer: stores a YELLOW query row for the current item. Give why in at most 30 words; no document text.",
+        "params": {
+            "why": "why the engineer must decide (item is filled in by the loop)"
+        },
     },
 ]
+
+_S = {"type": "string"}
+_FIGURES = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"doc_quote": _S, "clause_quote": _S},
+        "required": ["doc_quote", "clause_quote"],
+    },
+}
+#: Real JSON Schemas (what the model is shown). `params` above stays for compatibility.
+INPUT_SCHEMAS: dict[str, dict] = {
+    "open_page": {
+        "type": "object",
+        "properties": {
+            "doc": {
+                "type": "string",
+                "description": "document id; the run's own document when left out",
+            },
+            "page": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "page number, 1-based",
+            },
+        },
+        "required": ["page"],
+    },
+    "search": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "words to look for"},
+            "scope": {
+                "type": "array",
+                "items": _S,
+                "description": "optional document ids; all allowed documents when left out",
+            },
+        },
+        "required": ["query"],
+    },
+    "get_clause": {
+        "type": "object",
+        "properties": {"standard": _S, "clause": _S},
+        "required": ["standard", "clause"],
+    },
+    "compare_number": {
+        "type": "object",
+        "properties": {
+            "doc_quote": {
+                "type": "string",
+                "description": "the document's words holding the figure, with unit",
+            },
+            "clause_quote": {
+                "type": "string",
+                "description": "the clause's words holding the figure, with unit",
+            },
+        },
+        "required": ["doc_quote", "clause_quote"],
+    },
+    "record_finding": {
+        "type": "object",
+        "properties": {
+            "finding": {
+                "type": "object",
+                "properties": {
+                    "item": _S,
+                    "doc": _S,
+                    "color": {"type": "string", "enum": ["GREEN", "YELLOW", "RED"]},
+                    "page": {"type": "integer", "minimum": 1},
+                    "doc_quote": _S,
+                    "clause_quote": _S,
+                    "standard": _S,
+                    "clause": _S,
+                    "action": _S,
+                    "priority": {"type": "string", "enum": ["must", "should", "nice"]},
+                    "figures": _FIGURES,
+                    "reason": _S,
+                },
+                "required": ["color", "action", "priority", "reason"],
+            }
+        },
+        "required": ["finding"],
+    },
+    "ask_engineer": {
+        "type": "object",
+        "properties": {
+            "item": {
+                "type": "string",
+                "description": "optional: the current item is used",
+            },
+            "why": {
+                "type": "string",
+                "description": "why the engineer must decide, at most 30 words",
+            },
+        },
+        "required": ["why"],
+    },
+}
+for _spec in TOOL_SPECS:
+    _spec["input_schema"] = INPUT_SCHEMAS[_spec["name"]]
 
 
 #: Words that carry no subject: articles, modals, comparators, requirement words. A CLOSED set: a word not listed here is
@@ -225,6 +327,7 @@ class ToolContext:
         default_factory=InMemoryFindings
     )  # sink: accepted findings only
     queries: list[dict] = field(default_factory=list)  # sink: engineer query rows
+    current_item: str | None = None  # set by the loop for each item
 
     def __post_init__(self) -> None:
         self.allowed_document_ids = frozenset(self.allowed_document_ids)
@@ -240,6 +343,73 @@ def _refuse(reason: str, cites: Iterable[dict] = ()) -> dict:
 
 def _int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def coerce_page(value: object) -> tuple[int | None, str | None]:
+    """(page, None) or (None, code). 1, 1.0, "1", "1.0" and " 1 " are page 1; 0, negatives and non-numbers are refused."""
+    if isinstance(value, bool) or value is None:
+        return None, "page_missing_or_not_a_number"
+    number: float | None = None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            number = None
+    if (
+        number is None
+        or number != number
+        or number in (float("inf"), float("-inf"))
+        or number != int(number)
+    ):
+        return None, "page_missing_or_not_a_number"
+    if number < 1:
+        return None, "page_must_be_1_or_more"
+    return int(number), None
+
+
+def coerce_scope(value: object) -> list[str] | None:
+    """None (the default scope) for null, empty or unreadable; else a list of document ids from a list, a comma list or JSON text."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except ValueError:
+                value = text.strip("[]").split(",")
+        else:
+            value = text.split(",")
+    if isinstance(value, (list, tuple, set, frozenset)):
+        ids = [
+            str(v).strip().strip("\"'")
+            for v in value
+            if isinstance(v, (str, int)) and str(v).strip()
+        ]
+        return ids or None
+    return None
+
+
+def expect_of(name: str) -> dict:
+    """The argument NAMES and types a tool expects (a hint for a retry; no text)."""
+    schema = INPUT_SCHEMAS.get(name) or {}
+    required = set(schema.get("required") or [])
+    return {
+        k: (v.get("type", "any") + ("" if k in required else "?"))
+        for k, v in (schema.get("properties") or {}).items()
+    }
+
+
+#: Names a model may use for an argument; mapped to the real one.
+ARG_ALIASES = {
+    "document": "doc", "document_id": "doc", "doc_id": "doc", "page_no": "page", "page_number": "page",
+    "q": "query", "question": "query", "search_query": "query", "documents": "scope", "doc_ids": "scope",
+    "clause_number": "clause", "standard_id": "standard",
+}  # fmt: skip
 
 
 def _default_page_reader(doc: str, page: int) -> str | None:
@@ -332,21 +502,60 @@ class ToolBox:
 
     # ---------------------------------------------------------------- dispatch
 
+    def set_item(self, item_id: object) -> None:
+        """The loop names the item it is working on; ask_engineer and record_finding default to it."""
+        self.ctx.current_item = str(item_id) if item_id not in (None, "") else None
+
+    def _clean_args(self, name: str, args: dict) -> dict:
+        """Map known aliases, drop names the tool does not take. Never fails for a name the model could not know."""
+        known = set((INPUT_SCHEMAS.get(name) or {}).get("properties") or [])
+        if name == "ask_engineer":
+            known |= {"reason"}  # the old name, kept
+        out: dict = {}
+        if name == "record_finding" and "finding" not in args and "color" in args:
+            args = {"finding": args}  # the fields sent flat
+        for key, value in args.items():
+            real = key if key in known else ARG_ALIASES.get(key, key)
+            if name == "ask_engineer" and key in ("question", "text", "message"):
+                real = "why"
+            if real in known and real not in out:
+                out[real] = value
+        return out
+
     def run(self, name: str, args: object) -> dict:
         tool = self._tools.get(name)
         if tool is None:
-            return _refuse("unknown_tool")
+            return self._hinted(_refuse("unknown_tool"), None)
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = None
         if not isinstance(args, dict):
-            return _refuse("arguments_malformed")
+            return self._hinted(_refuse("arguments_malformed"), name)
         try:
-            return tool(**args)
+            return self._hinted(tool(**self._clean_args(name, args)), name)
         except TypeError:
-            return _refuse("arguments_malformed")
+            return self._hinted(_refuse("arguments_malformed"), name)
         except Exception as exc:  # noqa: BLE001  a tool failure is a refusal, never a verdict; only the class is reported
             recorded = type(
                 exc
             ).__name__  # only the class is recorded, never the message
-            return _refuse(f"tool_error:{recorded}")
+            return self._hinted(_refuse(f"tool_error:{recorded}"), name)
+
+    @staticmethod
+    def _hinted(out: dict, name: str | None) -> dict:
+        """A refusal carries the expected argument names and types, so one retry can use the right shape."""
+        result = out.get("result")
+        if (
+            not out.get("ok")
+            and isinstance(result, dict)
+            and ("refused" in result or result.get("verdict") == "refused")
+        ):
+            result["expect"] = (
+                expect_of(name) if name else {n: expect_of(n) for n in INPUT_SCHEMAS}
+            )
+        return out
 
     def _in_scope(self, doc: object) -> bool:
         return isinstance(doc, str) and doc in self.ctx.allowed_document_ids
@@ -354,11 +563,13 @@ class ToolBox:
     # ---------------------------------------------------------------- open_page
 
     def open_page(self, doc: object = None, page: object = None) -> dict:
-        number = _int(page)
+        if doc in (None, ""):
+            doc = self.ctx.document_id  # the run's own document
+        number, bad = coerce_page(page)
         if not self._in_scope(doc):
             return _refuse("document_not_in_scope")
-        if number is None or number < 1:
-            return _refuse("page_number_invalid")
+        if number is None:
+            return _refuse(bad or "page_number_invalid")
         text = self._page(doc, number)
         if text is None:
             return _res(
@@ -394,12 +605,14 @@ class ToolBox:
         if not isinstance(query, str) or not query.strip():
             return _refuse("query_missing")
         allowed = self.ctx.allowed_document_ids
-        if scope is not None:
-            if not isinstance(scope, (list, tuple, set, frozenset)):
-                return _refuse("scope_malformed")
-            allowed = allowed & frozenset(
-                s for s in scope if isinstance(s, str)
-            )  # intersection, never union
+        asked = coerce_scope(scope)
+        note = None
+        if asked is not None:
+            narrowed = allowed & frozenset(asked)  # intersection, never union
+            if narrowed:
+                allowed = narrowed
+            else:  # ids the model could not know: search everything it may read, and say so
+                note = "scope_not_recognised_all_allowed_documents_searched"
         if not allowed:
             return _res(True, {"passages": [], "note": "nothing in scope"})
         out = self._search(query, allowed)
@@ -413,7 +626,10 @@ class ToolBox:
             page = hit.get("page_start")
             passages.append({"doc": doc, "page": page, "text": hit.get("text") or ""})
             cites.append({"doc": doc, "page": page})
-        return _res(True, {"passages": passages}, cites)
+        result: dict = {"passages": passages}
+        if note:
+            result["note"] = note
+        return _res(True, result, cites)
 
     # ---------------------------------------------------------------- get_clause
 
@@ -462,7 +678,11 @@ class ToolBox:
         return None, doc, "clause not found in the held standard"
 
     def get_clause(self, standard: object = None, clause: object = None) -> dict:
+        if isinstance(clause, (int, float)) and not isinstance(clause, bool):
+            clause = str(clause)  # "4.2" sent as a number
         body, _doc, reason = self._clause_text(standard, clause)
+        if reason == "arguments_malformed":
+            return _refuse(reason)
         if body is None:
             return _res(
                 False, {"standard": standard, "clause": clause, "state": reason}
@@ -563,6 +783,11 @@ class ToolBox:
         return text if text and text.strip() else None
 
     def record_finding(self, finding: object = None) -> dict:
+        if isinstance(finding, str):
+            try:
+                finding = json.loads(finding)
+            except ValueError:
+                finding = None
         if not isinstance(finding, dict):
             return _res(
                 False,
@@ -572,6 +797,7 @@ class ToolBox:
                     "reason": "finding_malformed",
                 },
             )
+        finding = self._tolerant_finding(finding)
         why = self._finding_problem(finding)
         if why:
             return _res(
@@ -619,6 +845,31 @@ class ToolBox:
             },
             cites,
         )
+
+    def _tolerant_finding(self, finding: dict) -> dict:
+        """Types the model could not know: page as text, empty strings for what it has not got, item and doc left out."""
+        f = {k: v for k, v in finding.items() if v is not None}
+        for key in (
+            "priority",
+            "figures",
+            "page",
+            "doc_quote",
+            "clause_quote",
+            "standard",
+            "clause",
+            "doc",
+            "item",
+        ):
+            if f.get(key) in ("", [], {}):
+                f.pop(key)
+        if "page" in f:
+            page, _bad = coerce_page(f["page"])
+            f["page"] = page if page is not None else f["page"]
+        if isinstance(f.get("priority"), str):
+            f["priority"] = f["priority"].strip().lower()
+        f.setdefault("item", self.ctx.current_item)
+        f.setdefault("doc", self.ctx.document_id)
+        return {k: v for k, v in f.items() if v is not None}
 
     def _finding_problem(self, f: dict) -> str | None:
         """None when the finding stands, else the reason it is refused (first failure)."""
@@ -760,15 +1011,17 @@ class ToolBox:
 
     # ---------------------------------------------------------------- ask_engineer
 
-    def ask_engineer(self, item: object = None, reason: object = None) -> dict:
-        item_id = str(item or "").strip()
-        words = str(reason or "").split()
+    def ask_engineer(
+        self, item: object = None, why: object = None, reason: object = None
+    ) -> dict:
+        # the loop's own item wins: the model may not know the item id (and may name another item)
+        item_id = str(self.ctx.current_item or item or "").strip()
+        words = str(why or reason or "").split()
         if not item_id:
             return _refuse("item_missing")
         if not words:
-            return _refuse("reason_missing")
-        if len(words) > MAX_REASON_WORDS:
-            return _refuse("reason_longer_than_30_words")
+            return _refuse("why_missing")
+        words = words[:MAX_REASON_WORDS]  # too long is cut, never refused
         row = {
             "item": item_id,
             "verdict": "YELLOW",
