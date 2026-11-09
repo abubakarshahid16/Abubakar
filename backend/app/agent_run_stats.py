@@ -27,6 +27,9 @@ class RunStats:
         self.runs = 1  # this run's number: 1 for the first, 2 for the first resume, ...
         self._cur: str | None = None
         self._prev: dict | None = None
+        self._begun: set[str] = (
+            set()
+        )  # keys started in THIS process: a second start is an in-run rerun
 
     @classmethod
     def load(cls, meta: dict) -> RunStats:
@@ -53,12 +56,18 @@ class RunStats:
         was_error = bool(self._prev) and (
             self._prev.get("outcome") == "provider_error" or self._prev.get("retried")
         )
+        rerun = self._cur in self._begun and bool(self._prev)
+        self._begun.add(self._cur)
         self.items[self._cur] = {
             "outcome": "",
             "error": "",
             "calls": 0,
             "fails": 0,
             "retried": was_error,
+            "attempts": int((self._prev or {}).get("attempts") or 1) + 1
+            if self._prev
+            else 1,
+            "rerun": (self._prev or {}).get("outcome", "") if rerun else "",
         }
 
     def abort(self) -> None:
@@ -107,11 +116,20 @@ class RunStats:
         )
 
     def sweep_runs(self, outcome: str | None = None) -> int:
-        """Sweep RUNS (keys `<id>#<n>`), all or with this outcome."""
+        """Sweep RUNS (keys `<id>#<n>`), all or with this outcome. With no outcome every ATTEMPT is counted, so a
+        run asked again counts twice; with an outcome, the latest outcome of each run."""
+        if outcome is None:
+            return sum(
+                int(r.get("attempts") or 1) for k, r in self.items.items() if "#" in k
+            )
         return sum(
-            1
-            for k, r in self.items.items()
-            if "#" in k and outcome in (None, r.get("outcome"))
+            1 for k, r in self.items.items() if "#" in k and r.get("outcome") == outcome
+        )
+
+    def sweep_reruns(self, outcome: str) -> int:
+        """Sweep runs asked again in the same invocation after this outcome (provider_error, step_limit)."""
+        return sum(
+            1 for k, r in self.items.items() if "#" in k and r.get("rerun") == outcome
         )
 
     @property
@@ -181,9 +199,13 @@ def stat_lines(stats: RunStats) -> list[str]:
         f"items ended on the step limit: {stats.step_limit}",
     ]
     if stats.sweep_runs():
+        again = ""
+        pe, sl = stats.sweep_reruns("provider_error"), stats.sweep_reruns("step_limit")
+        if pe or sl:
+            again = f"; retried after provider error {pe}, rerun on the higher step cap {sl}"
         lines.append(
             f"sweep runs asked: {stats.sweep_runs()} (ended by provider error {stats.sweep_runs('provider_error')}, "
-            f"on the step limit {stats.sweep_runs('step_limit')}); the item counts above count skill items"
+            f"on the step limit {stats.sweep_runs('step_limit')}{again}); the item counts above count skill items"
         )
     if stats.retried:
         lines.append(

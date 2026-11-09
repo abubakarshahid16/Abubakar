@@ -608,7 +608,9 @@ def _runners(
         finals[key] = finding
         _write_json(run_root / FILES["finals"], finals)
 
-    def run_one(li: dict, skill_item: dict) -> tuple[dict | None, str]:
+    def run_one(
+        li: dict, skill_item: dict, max_steps: int = agent_loop.MAX_STEPS
+    ) -> tuple[dict | None, str]:
         """One loop run: (result, the reason the whole run stops or '')."""
         key = li["id"]
         stats.begin(key)
@@ -618,6 +620,7 @@ def _runners(
             lead,
             trace,
             skill_for=lambda _it: skill_item,
+            max_steps=max_steps,
             usd_cap_item=caps[0],
             usd_cap_run=caps[1],
         )
