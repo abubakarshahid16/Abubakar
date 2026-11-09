@@ -500,3 +500,30 @@ def test_w_resume_after_a_retried_sweep_does_not_duplicate_or_overwrite(
     again = al.FakeProvider([])
     out = go(copy_db, run_dir, again, [item(1, repeat=True)])
     assert again.calls == [] and ids(out) == ["I1#1"] and stop_of(out) == "none left"
+
+
+def test_aa_provider_error_retry_uses_the_item_cap_minus_the_first_attempt(
+    copy_db, run_dir
+):
+    cap, per = 1.5, 0.1
+    script = [*(paid(per) for _ in range(10)), boom, *(paid(per) for _ in range(40))]
+    prov = al.FakeProvider(script)
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)], usd_cap_item=cap)
+    paid_calls = len(prov.calls) - 1  # the one provider error spent nothing
+    assert (
+        paid_calls * per <= cap + per + 1e-9
+    )  # a fresh cap would allow 15 paid steps more
+    assert stop_of(out) == "item cap"
+
+
+def test_ab_a_rerun_adds_to_the_failed_calls_of_the_first_attempt(copy_db, run_dir):
+    class FailBox(Box):
+        def run(self, name, args):
+            if name == paid()["tool"]:
+                return {"ok": False, "result": {}, "cites": []}
+            return super().run(name, args)
+
+    out = ar.run_review(copy_db, "D1", "invented_kind",
+                        al.FakeProvider([paid(), boom, paid(), boom]), run_dir=run_dir,
+                        toolbox_factory=lambda s, r: FailBox(), skill=skill(item(1, repeat=True)))  # fmt: skip
+    assert "tool calls failed: 2 of 2" in results_text(out)
