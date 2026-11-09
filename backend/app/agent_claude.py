@@ -120,11 +120,14 @@ def _resolve_key(env: dict, reader_api) -> str:
     key = str(env.get(reader_api.API_KEY_ENV) or "").strip()
     if key:
         return key
+    failed = False
     try:
         _env, fallback = reader_api._sources(None)
         key = str(getattr(fallback, "anthropic_api_key", "") or "").strip()
-    except Exception:  # noqa: BLE001 - a bad .env or import failure: code only
-        raise AgentGateClosed("settings_unreadable") from None
+    except Exception:  # noqa: BLE001 - a bad .env or import failure: code only, raised OUTSIDE this block
+        failed = True
+    if failed:
+        raise AgentGateClosed("settings_unreadable")
     if not key:
         raise AgentGateClosed("no_key_in_env_or_settings")
     return key
@@ -138,6 +141,7 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
     if not gate_open(env):
         raise AgentGateClosed
     key = _resolve_key(env, reader_api)
+    built, refused = None, False
     try:
         cfg = replace(
             reader_api.ReaderSettings.from_env(env),
@@ -146,11 +150,15 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
             timeout_seconds=120.0,
         )
         # a call-local copy carries the key ONLY for this build; the flags above were read from `env` alone
-        return reader_api.build_request(
+        built = reader_api.build_request(
             "x", cfg=cfg, env={**env, reader_api.API_KEY_ENV: key}
         )
     except reader_api.ReaderRefused:
-        raise AgentGateClosed from None
+        refused = True
+    key = ""  # no frame of a later error keeps it
+    if refused:
+        raise AgentGateClosed
+    return built
 
 
 def _transport(send: Callable | None) -> Callable:
@@ -287,6 +295,32 @@ def _answered_model(answer: Any) -> str:
     return name.strip() if isinstance(name, str) and name.strip() else "unknown"
 
 
+def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | None]:
+    """One metered send. (answer, None) or (None, (kind, code, billed)); the original error is not carried out."""
+    from app import reader_transport
+
+    failure: tuple | None = None
+    try:
+        return _metered(raw)(
+            request["url"],
+            headers=request["headers"],
+            body=body,
+            timeout=request["timeout"],
+        ), None
+    except claude_spend.StopRun as exc:
+        code = getattr(exc, "code", None) or getattr(
+            type(exc), "count_key", "budget_stop"
+        )
+        failure = ("stop", str(code), False)
+    except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
+        failure = (
+            "transport",
+            "transport_" + type(exc).__name__,
+            not reader_transport.unbilled(exc),
+        )
+    return None, failure
+
+
 def _call(
     model: str,
     body_parts: dict,
@@ -295,7 +329,7 @@ def _call(
     env: dict | None,
     meter: SpendMeter | None = None,
 ) -> tuple[dict, float]:
-    from app import claude_approved, reader_transport
+    from app import claude_approved
 
     request = _request(model, max_tokens, env)
     declared = claude_approved.carried()
@@ -314,21 +348,16 @@ def _call(
     worst = claude_spend.worst_case_usd(model, chars, int(body["max_tokens"]))
     if meter is not None:
         meter.check(worst)
-    try:
-        answer = _metered(raw)(
-            request["url"],
-            headers=request["headers"],
-            body=body,
-            timeout=request["timeout"],
-        )
-    except claude_spend.StopRun as exc:
-        raise AgentBudgetStop(
-            getattr(exc, "code", None) or getattr(type(exc), "count_key", "budget_stop")
-        ) from None
-    except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
-        if meter is not None and not reader_transport.unbilled(exc):
+    answer, failure = _send_once(raw, request, body)
+    # the headers (the key) leave this frame before any error is raised from it
+    del request
+    if failure is not None:
+        kind, code, billed = failure
+        if meter is not None and billed:
             meter.add(worst)  # may have been billed: charged at the worst case
-        raise AgentTransportError("transport_" + type(exc).__name__) from None
+        if kind == "stop":
+            raise AgentBudgetStop(code)
+        raise AgentTransportError(code)
     usd = _usd(model, answer, body) if isinstance(answer, dict) else worst
     if meter is not None:
         meter.add(usd)  # a paid bad reply still counts toward the cap

@@ -584,3 +584,100 @@ def test_the_key_appears_nowhere_but_the_request_headers(
     )
     err_out = capfd.readouterr()
     assert _leaks(caplog.text, ledger, err_out.out, err_out.err, *seen) == []
+
+
+def _set_process_env(monkeypatch, **extra):
+    for k, v in {k: v for k, v in ENV.items() if k != "ANTHROPIC_API_KEY"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for k, v in extra.items():
+        monkeypatch.setenv(k, v)
+
+
+@pytest.mark.parametrize("env_key", [None, "env-key-value"])
+def test_the_process_environment_is_never_written(monkeypatch, env_key):
+    import os
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    _set_process_env(monkeypatch, **({"ANTHROPIC_API_KEY": env_key} if env_key else {}))
+    before = dict(os.environ)
+    ac.ClaudeProvider(send=Headers(tool_use(doc="D", page=1))).complete(MSGS, SPECS)
+    assert dict(os.environ) == before and (
+        env_key or "ANTHROPIC_API_KEY" not in os.environ
+    )
+
+
+@pytest.mark.parametrize("blank", ["   ", "\t\n", " \n\t "])
+def test_a_blank_env_key_falls_through_to_settings(monkeypatch, blank):
+    monkeypatch.setattr(settings, "anthropic_api_key", "settings-key-value")
+    s = Headers(tool_use(doc="D", page=1))
+    ac.ClaudeProvider(send=s, env={**ENV, "ANTHROPIC_API_KEY": blank}).complete(
+        MSGS, SPECS
+    )
+    assert s.headers[0]["x-api-key"] == "settings-key-value"
+
+
+def test_settings_reasoning_provider_never_opens_the_gate(monkeypatch):
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    s = Sender(tool_use(doc="D", page=1))
+    with pytest.raises(ac.AgentGateClosed):
+        ac.ClaudeProvider(
+            send=s, env={k: v for k, v in ENV.items() if k != "REASONING_PROVIDER"}
+        ).complete(MSGS, SPECS)
+    assert s.bodies == [] and ac.gate_open({}) is False
+
+
+def _chain(exc):
+    seen = []
+    while exc is not None and exc not in seen:
+        seen.append(exc)
+        exc = exc.__cause__ or exc.__context__
+    return seen
+
+
+def _holds_key(exc) -> bool:
+    for e in _chain(exc):
+        if SENTINEL in repr(e.args):
+            return True
+        tb = e.__traceback__
+        while tb is not None:
+            if SENTINEL in repr(tb.tb_frame.f_locals):
+                return True
+            tb = tb.tb_next
+    return False
+
+
+@pytest.mark.parametrize(
+    "sender",
+    [
+        lambda: Headers([], raises=RuntimeError("boom")),
+        lambda: Headers([{"type": "text", "text": "x"}], stop="max_tokens"),
+    ],
+)
+def test_no_raised_error_chain_or_frame_holds_the_key(monkeypatch, sender):
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    with pytest.raises(ac.AgentClaudeError) as e:
+        ac.ClaudeProvider(send=sender(), env=NO_KEY).complete(MSGS, SPECS)
+    assert not _holds_key(e.value)
+    assert e.value.__context__ is None and e.value.__cause__ is None
+
+
+def test_gate_and_settings_errors_hold_no_key_in_any_frame(monkeypatch):
+    from app import reader_api
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    with pytest.raises(ac.AgentGateClosed) as e:  # flag refused inside build_request
+        ac.ClaudeProvider(
+            send=Sender([]),
+            env={k: v for k, v in NO_KEY.items() if k != "STANDARDS_READER_ENABLED"},
+        ).complete(MSGS, SPECS)
+    assert not _holds_key(e.value) and e.value.__context__ is None
+
+    def boom(_env):
+        raise ValueError(SENTINEL)
+
+    monkeypatch.setattr(reader_api, "_sources", boom)
+    with pytest.raises(ac.AgentGateClosed) as e2:
+        ac.ClaudeProvider(send=Sender([]), env=NO_KEY).complete(MSGS, SPECS)
+    assert e2.value.__context__ is None and not _holds_key(e2.value)
