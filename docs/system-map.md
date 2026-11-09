@@ -44,6 +44,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_run` | The agent proof test runner (off by default, `AGENT_REVIEW_ENABLED`): runs a skill's items on a read-only COPY of the database, applies the second opinion, writes local RESULTS, examples and a workbook the answer-key scorer can read |
 | `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
 | `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |
+| `agent_run_stats` | Honest counts (provider errors, failed tool calls, step-limit items), the 'run unreliable' words and the failure breaker of the agent proof test runner |
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
 | `agent_local` | Local second opinion for the agent proof test (off by default): the local Qwen 35B through `model_transport`, heavy lock and unload around a batch, errors are codes only |

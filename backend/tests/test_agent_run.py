@@ -566,6 +566,14 @@ def test_default_toolbox_reads_only_the_copy_and_only_in_scope(copy_db, run_dir)
 
 
 @pytest.fixture
+def db_is_copy(copy_db, monkeypatch):
+    """The app's configured database IS the copy (what `DB_PATH=<copy>` does in the command environment)."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "db_path", copy_db)
+
+
+@pytest.fixture
 def cli():
     root = Path(__file__).resolve().parents[2] / "scripts"
     sys.path.insert(0, str(root))
@@ -748,6 +756,7 @@ def test_total_cap_stops_cleanly_and_resumes(copy_db, run_dir):
     assert len(p.calls) == 1 and s2["items_done"] == 3 and not s2["stopped"]
 
 
+@pytest.mark.usefixtures("db_is_copy")
 def test_cli_dry_run_lists_documents_declares_nothing_and_calls_nothing(
     cli, copy_db, tmp_path, monkeypatch
 ):
@@ -772,11 +781,12 @@ def test_cli_dry_run_lists_documents_declares_nothing_and_calls_nothing(
     assert consent.declared == []
 
 
+@pytest.mark.usefixtures("db_is_copy")
 def test_cli_claude_without_documents_is_refused(cli, copy_db, tmp_path):
     lines = []
     args = [*_args(copy_db, tmp_path, "--dry-run"), "--provider", "claude"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
-    assert "--documents" in lines[0]
+    assert any("--documents" in line for line in lines)
 
 
 def test_cli_builds_one_real_claude_provider_with_the_lead_model(cli):
@@ -897,12 +907,18 @@ def test_ledger_step_cap_stops_the_run(copy_db, run_dir, claude_ledger):
 
 
 def test_a_non_fatal_provider_error_stays_yellow(copy_db, run_dir, claude_ledger):
-    s = claude_go(
-        copy_db, run_dir, real(Sender(raises=ValueError("x")), total_cap_usd=10.0)
-    )
+    class Flaky(Sender):
+        def __call__(self, url, *, headers, body, timeout):
+            self.raises = (
+                ValueError("x") if not self.models else None
+            )  # only the first call fails
+            return super().__call__(url, headers=headers, body=body, timeout=timeout)
+
+    s = claude_go(copy_db, run_dir, real(Flaky(), total_cap_usd=10.0))
     assert not s["stopped"] and [f["color"] for f in s["findings"]] == ["YELLOW"] * 3
 
 
+@pytest.mark.usefixtures("db_is_copy")
 def test_cli_returns_non_zero_on_a_fatal_stop(
     cli, copy_db, tmp_path, monkeypatch, claude_ledger
 ):
@@ -925,6 +941,7 @@ class LocalFake(Opinion):
         LocalFake.unloaded += 1
 
 
+@pytest.mark.usefixtures("db_is_copy")
 def test_local_second_opinion_never_sends_anything_to_claude(
     cli, copy_db, tmp_path, monkeypatch, claude_ledger
 ):
@@ -1327,6 +1344,7 @@ def test_verify_quote_refuses_a_quote_that_is_not_on_the_page_or_too_long():
     assert not agent_edition.verify_quote("Next Issue Date: 23 May 2019", "Next Issue Date: 23 May 2019", "23 May 2019")  # fmt: skip
 
 
+@pytest.mark.usefixtures("db_is_copy")
 def test_the_cli_builds_exactly_one_provider_per_run(
     cli, copy_db, tmp_path, monkeypatch
 ):
@@ -1575,4 +1593,472 @@ def test_a_long_line_with_a_digit_month_ordinal_or_roman_numeral_still_conflicts
     assert (
         ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
         == "edition not confirmed"
+    )
+
+
+# ---- first real Claude run lessons: breaker, honest counts, db path guard, error codes, resume ----------------------
+
+
+def boom(_m):
+    raise RuntimeError("provider down")
+
+
+class Hot(RuntimeError):
+    fatal = True
+    code = "budget_stop"
+
+
+def test_two_provider_errors_with_no_spend_stop_the_run_and_keep_the_items_out_of_finals(
+    copy_db, run_dir
+):
+    s = go(copy_db, run_dir, al.FakeProvider([boom, boom, boom]))
+    assert s["stopped"].startswith("provider errors on 2 items in a row (RuntimeError)")
+    assert s["items_done"] == 0 and "provider errors" in s["status_box"]
+    assert json.loads((run_dir / "finals.json").read_text()) == {}
+    assert json.loads((run_dir / "state.json").read_text())["completed"] == {}
+
+
+def test_after_the_breaker_a_resume_asks_the_failed_items_again(copy_db, run_dir):
+    go(copy_db, run_dir, al.FakeProvider([boom, boom]))
+    p = al.FakeProvider([final("YELLOW")] * 3)
+    s = go(copy_db, run_dir, p)
+    assert len(p.calls) == 3 and s["items_done"] == 3 and not s["stopped"]
+
+
+def test_one_provider_error_between_good_items_does_not_trip_the_breaker(
+    copy_db, run_dir
+):
+    s = go(copy_db, run_dir, al.FakeProvider([boom, final("YELLOW"), boom]))
+    assert not s["stopped"] and s["items_done"] == 3
+    assert "items ended by provider error: 2" in (run_dir / "RESULTS.md").read_text()
+
+
+def test_a_provider_error_with_spend_is_not_counted_by_the_breaker(copy_db, run_dir):
+    def tool(_m):
+        return {
+            "tool": "open_page",
+            "args": {"doc": "D1", "page": 1},
+            "reason": "r",
+            "usd": 0.1,
+        }
+
+    # item 1: a paid tool step, then the provider fails: spend > 0, so it does not count toward the breaker
+    s = go(copy_db, run_dir, al.FakeProvider([tool, boom, tool, boom, final("YELLOW")]))
+    assert not s["stopped"]
+
+
+def test_the_exception_class_code_is_logged_never_the_message(copy_db, run_dir):
+    go(copy_db, run_dir, al.FakeProvider([boom, final("YELLOW"), final("YELLOW")]))
+    log = (run_dir / "live.log").read_text()
+    assert "provider error RuntimeError" in log and "provider down" not in log
+    traces = "".join(p.read_text() for p in run_dir.glob("*.trace.jsonl"))
+    assert "provider error RuntimeError" in traces and "provider down" not in traces
+
+
+def test_a_clean_run_says_problems_zero(copy_db, run_dir):
+    s = go(copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3))
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "Problems: 0" in text
+        and "unreliable" not in text
+        and "PROBLEMS none" in s["status_box"]
+    )
+    assert "tool calls failed: 0 of 3 (0.0%; limit: over 30%)" in text
+
+
+class FailingBox(Box):
+    def run(self, name, args):
+        if name == "record_finding":
+            return super().run(name, args)
+        return {"ok": False, "result": {"error": "bad"}, "cites": []}
+
+
+def test_failing_tool_calls_make_the_run_unreliable_and_problems_nonzero(
+    copy_db, run_dir
+):
+    def step():
+        return {"tool": "open_page", "args": {"doc": "D1", "page": 1}, "reason": "r"}
+
+    script = [step(), final("YELLOW")] * 3
+    s = go(
+        copy_db,
+        run_dir,
+        al.FakeProvider(script),
+        toolbox_factory=lambda sc, rd: FailingBox(),
+    )
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "run unreliable: tool failures" in text
+        and "tool calls failed: 3 of 6 (50.0%; limit: over 30%)" in text
+    )
+    assert "Problems: 0" not in text
+    assert (
+        "run unreliable: tool failures" in s["status_box"]
+        and "PROBLEMS none" not in s["status_box"]
+    )
+    assert "tool calls failed: 3 of 6 (50.0%; limit: over 30%)" in s["status_box"]
+
+
+def test_an_item_ended_on_the_step_limit_is_counted(copy_db, run_dir):
+    class Forever:
+        def complete(self, _m, _s):
+            return {
+                "tool": "open_page",
+                "args": {"doc": "D1", "page": 1},
+                "reason": "r",
+                "usd": 0,
+            }
+
+    s = go(copy_db, run_dir, Forever(), limit=1)
+    text = (run_dir / "RESULTS.md").read_text()
+    assert "items ended on the step limit: 1" in text and "Problems: 0" not in text
+    assert s["findings"][0]["color"] == "YELLOW"
+
+
+def test_a_fatal_stop_on_item_one_is_retried_on_resume_not_replayed(copy_db, run_dir):
+    def fatal(_m):
+        raise Hot("budget_stop")
+
+    s = go(copy_db, run_dir, al.FakeProvider([fatal]))
+    assert s["stopped"].startswith("budget stop") and s["items_done"] == 0
+    p = al.FakeProvider([final("YELLOW")] * 3)
+    s2 = go(copy_db, run_dir, p)
+    assert (
+        len(p.calls) == 3 and s2["items_done"] == 3
+    )  # item 1 asked the provider again
+
+
+def test_the_db_path_guard_names_the_one_line_fix(copy_db, tmp_path):
+    with pytest.raises(ar.DbPathMismatch) as exc:
+        ar.check_db_path(copy_db, configured=tmp_path / "other.sqlite")
+    assert str(exc.value).startswith("set DB_PATH=") and str(copy_db.resolve()) in str(
+        exc.value
+    )
+    assert str(exc.value).endswith("in the command environment")
+    ar.check_db_path(copy_db, configured=copy_db)
+
+
+def test_cli_refuses_before_any_model_call_when_db_path_is_not_the_copy(
+    cli, copy_db, tmp_path, monkeypatch
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "db_path", tmp_path / "elsewhere.sqlite")
+    monkeypatch.setattr(
+        cli, "make_provider", lambda _k: (_ for _ in ()).throw(AssertionError("built"))
+    )
+    for extra in ([], ["--dry-run"]):
+        lines = []
+        args = [
+            *_args(copy_db, tmp_path, "--documents", "D1", *extra),
+            "--provider",
+            "claude",
+        ]
+        assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
+        assert "set DB_PATH=" in lines[0] and "in the command environment" in lines[0]
+    lines = []  # a fake provider never reads the configured database: no check
+    assert (
+        cli.main(
+            _args(copy_db, tmp_path, "--dry-run"),
+            env={"AGENT_REVIEW_ENABLED": "1"},
+            out=lines.append,
+        )
+        == 0
+    )
+
+
+@pytest.mark.usefixtures("db_is_copy")
+def test_cli_exits_3_when_the_breaker_stops_the_run(
+    cli, copy_db, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        ar, "default_toolbox", lambda scope, readers: factory(scope, readers)
+    )
+    monkeypatch.setattr(cli, "make_provider", lambda _k: al.FakeProvider([boom, boom]))
+    lines = []
+    args = [*_args(copy_db, tmp_path, "--documents", "D1"), "--provider", "local"]
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 3
+    assert "provider errors on 2 items in a row" in "\n".join(lines)
+
+
+# ---- review round: one source of truth, once per item, error code leak, unmeasured --------------------------------
+
+SKILL4 = {
+    **SKILL,
+    "items": [
+        {"id": f"I{n}", "order": n, "topic": f"zorblat rating {n}"}
+        for n in (1, 2, 3, 4)
+    ],
+}
+
+
+def field(text, name):
+    import re as _re
+
+    m = _re.search(rf"^- \*\*{name}\*\*: (.*)$", text, _re.M)
+    return m.group(1) if m else None
+
+
+def box_field(box, name):
+    import re as _re
+
+    m = _re.search(rf"^{name}\s+(.*)$", box, _re.M)
+    return m.group(1) if m else None
+
+
+def run_with_failing_tools(copy_db, run_dir):
+    def step():
+        return {"tool": "open_page", "args": {"doc": "D1", "page": 1}, "reason": "r"}
+
+    return go(
+        copy_db,
+        run_dir,
+        al.FakeProvider([step(), final("YELLOW")] * 3),
+        toolbox_factory=lambda sc, rd: FailingBox(),
+    )
+
+
+@pytest.mark.parametrize("failing", [True, False])
+def test_live_results_and_status_say_the_same_about_problems(copy_db, run_dir, failing):
+    if failing:
+        s = run_with_failing_tools(copy_db, run_dir)
+    else:
+        s = go(copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3))
+    live = (run_dir / "LIVE.md").read_text()
+    results = (run_dir / "RESULTS.md").read_text()
+    assert field(live, "PROBLEMS") == box_field(s["status_box"], "PROBLEMS")
+    assert (
+        field(live, "RESULTS")
+        == box_field(s["status_box"], "RESULTS").split(" (GREEN and RED")[0]
+    )
+    count = int(results.split("- Problems: ")[1].split(";")[0].split("\n")[0])
+    if failing:
+        for line in ("tool calls failed: 3 of 6 (50.0%; limit: over 30%)",):
+            assert line in field(live, "PROBLEMS") and line in results
+        assert (
+            "run unreliable: tool failures" in field(live, "RESULTS")
+            and "run unreliable: tool failures" in results
+        )
+        assert count >= 1 and "PROBLEMS" in live and field(live, "PROBLEMS") != "none"
+        assert "run unreliable: tool failures" in (run_dir / "live.log").read_text()
+    else:
+        assert (
+            field(live, "PROBLEMS") == "none"
+            and count == 0
+            and "unreliable" not in live + results
+        )
+
+
+def run4(copy_db, run_dir, provider, **kw):
+    return go(copy_db, run_dir, provider, skill=SKILL4, **kw)
+
+
+def test_literal_breaker_then_resume_counts_each_item_once_by_its_latest_outcome(
+    copy_db, run_dir
+):
+    s = run4(
+        copy_db,
+        run_dir,
+        al.FakeProvider([final("YELLOW"), final("YELLOW"), boom, boom]),
+    )
+    assert (
+        s["stopped"].startswith("provider errors on 2 items in a row")
+        and s["items_done"] == 2
+    )
+    assert "items ended by provider error: 2" in (run_dir / "RESULTS.md").read_text()
+    p = al.FakeProvider([final("YELLOW"), final("YELLOW")])
+    s2 = run4(copy_db, run_dir, p)
+    text = (run_dir / "RESULTS.md").read_text()
+    assert len(p.calls) == 2 and s2["items_done"] == 4 and not s2["stopped"]
+    assert (
+        "items ended by provider error: 0" in text and "retried after error: 2" in text
+    )
+    assert "Problems: 0" in text and "unreliable" not in text
+    assert field((run_dir / "LIVE.md").read_text(), "PROBLEMS").startswith(
+        "items ended by provider error: 0"
+    )
+
+
+def test_literal_kill_after_item_two_resumes_at_item_three(copy_db, run_dir):
+    def die(_m):
+        raise Killed
+
+    first = al.FakeProvider([final("YELLOW"), final("YELLOW"), die])
+    with pytest.raises(Killed):
+        run4(copy_db, run_dir, first)
+    second = al.FakeProvider([final("YELLOW"), final("YELLOW")])
+    s = run4(copy_db, run_dir, second)
+    assert len(second.calls) == 2 and s["items_done"] == 4
+    assert "items ended by provider error: 0" in (run_dir / "RESULTS.md").read_text()
+
+
+SENTINEL = (
+    "SENTINEL-KEY-4711 and a long sentence that looks like a clause of a document"
+)
+
+
+def test_the_error_code_never_leaks_a_message_or_a_document_like_code(
+    cli, copy_db, run_dir, monkeypatch, capsys
+):
+    class Leaky(RuntimeError):
+        code = SENTINEL
+
+    def leak(_m):
+        raise Leaky(SENTINEL)
+
+    s = go(copy_db, run_dir, al.FakeProvider([leak, final("YELLOW"), final("YELLOW")]))
+    assert s["items_done"] == 3
+    blob = "".join(
+        p.read_text()
+        for p in run_dir.rglob("*")
+        if p.is_file() and p.suffix in (".log", ".jsonl", ".md", ".json")
+    )
+    blob += s["status_box"] + capsys.readouterr().out + capsys.readouterr().err
+    for leaked in ("SENTINEL", "4711", "long sentence", "clause of a document"):
+        assert leaked not in blob
+    assert "provider error Leaky" in (run_dir / "live.log").read_text()
+
+
+def test_the_adapter_codes_are_kept_when_short_and_ours_and_dropped_otherwise():
+    from app import agent_claude, agent_loop
+
+    assert (
+        agent_loop.safe_error_code(
+            agent_claude.AgentTransportError("transport_LiveWriteRefused")
+        )
+        == "transport_LiveWriteRefused"
+    )
+    assert (
+        agent_loop.safe_error_code(agent_claude.AgentBadReply("x" * 41))
+        == "AgentBadReply"
+    )
+    assert (
+        agent_loop.safe_error_code(agent_claude.AgentBadReply("bad shape with spaces"))
+        == "AgentBadReply"
+    )
+    assert agent_loop.safe_error_code(ValueError("m")) == "ValueError"
+
+
+def test_the_rate_prints_with_one_decimal_and_the_threshold_is_stated():
+    from app import agent_run_stats as rs
+
+    st = rs.RunStats()
+    st.items = {"a": {"outcome": "ok", "calls": 1000, "fails": 304, "retried": False}}
+    assert (
+        rs.percent(st.rate) == "30.4%"
+        and rs.unreliable_note(st) == "run unreliable: tool failures"
+    )
+    assert "(30.4%; limit: over 30%)" in "\n".join(rs.stat_lines(st))
+    st.items["a"]["fails"] = 300  # exactly 30% is not over the limit
+    assert rs.unreliable_note(st) == ""
+
+
+def test_a_run_from_before_the_counts_says_not_measured_never_zero(copy_db, run_dir):
+    run_dir.mkdir()
+    (run_dir / "run_meta.json").write_text(
+        json.dumps({"seconds": 5.0, "lead_models": ["x"]})
+    )
+    go(copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3))
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "earlier items: not measured" in text
+        and "items ended by provider error: 0" not in text
+    )
+    assert "earlier items: not measured (this run started" in field(
+        (run_dir / "LIVE.md").read_text(), "PROBLEMS"
+    )
+    s2 = go(
+        copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3)
+    )  # still not measured after a resume
+    assert (
+        "earlier items: not measured" in (run_dir / "RESULTS.md").read_text()
+        and s2["items_done"] == 3
+    )
+
+
+def everything_written(run_dir, status_box, capsys):
+    blob = "".join(
+        p.read_text()
+        for p in run_dir.rglob("*")
+        if p.is_file() and p.suffix in (".log", ".jsonl", ".md", ".json")
+    )
+    return blob + status_box + capsys.readouterr().out + capsys.readouterr().err
+
+
+def test_a_fatal_exception_with_a_document_like_code_or_a_key_leaks_nowhere(
+    copy_db, run_dir, capsys
+):
+    class FatalLeak(RuntimeError):
+        fatal = True
+        code = SENTINEL
+
+    def hot(_m):
+        raise FatalLeak(SENTINEL)
+
+    s = go(copy_db, run_dir, al.FakeProvider([hot]))
+    assert s["stopped"] and "fatal FatalLeak" in (run_dir / "live.log").read_text()
+    blob = everything_written(run_dir, s["status_box"], capsys)
+    for leaked in ("SENTINEL", "4711", "long sentence", "clause of a document"):
+        assert leaked not in blob
+
+
+def test_a_foreign_exception_with_a_short_code_logs_only_its_class_name(
+    copy_db, run_dir
+):
+    class Foreign(RuntimeError):
+        code = "ABC123"
+
+    def err(_m):
+        raise Foreign("m")
+
+    go(copy_db, run_dir, al.FakeProvider([err, final("YELLOW"), final("YELLOW")]))
+    log = (run_dir / "live.log").read_text()
+    assert "provider error Foreign" in log and "ABC123" not in log
+
+
+def test_a_run_resumed_from_before_the_counts_still_counts_its_own_provider_error(
+    copy_db, run_dir
+):
+    run_dir.mkdir()
+    (run_dir / "run_meta.json").write_text(
+        json.dumps({"seconds": 5.0, "lead_models": ["x"]})
+    )
+    s = go(copy_db, run_dir, al.FakeProvider([boom, final("YELLOW"), final("YELLOW")]))
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "earlier items: not measured" in text
+        and "items ended by provider error: 1" in text
+    )
+    assert "Problems: 0" not in text and "run unreliable" in text
+    assert (
+        "run unreliable" in s["status_box"]
+        and field((run_dir / "LIVE.md").read_text(), "PROBLEMS") != "none"
+    )
+
+
+def test_the_unreliable_line_in_live_log_says_it_is_this_run_only(copy_db, run_dir):
+    run4(copy_db, run_dir, al.FakeProvider([final("YELLOW"), boom, boom]))
+    run4(copy_db, run_dir, al.FakeProvider([boom, boom]))
+    lines = [
+        x
+        for x in (run_dir / "live.log").read_text().splitlines()
+        if "run unreliable" in x and "PROBLEM" in x
+    ]
+    assert len(lines) == 2
+    assert "this run only; not cumulative" in lines[0] and "resumed run" not in lines[0]
+    assert "this run only, resumed run 2; not cumulative" in lines[1]
+
+
+def test_a_foreign_fatal_code_never_chooses_the_problem_words(copy_db, run_dir):
+    class Foreign(RuntimeError):
+        fatal = True
+        code = "document_x"
+
+    def hot(_m):
+        raise Foreign("m")
+
+    s = go(copy_db, run_dir, al.FakeProvider([hot]))
+    assert (
+        s["stopped"].startswith("budget stop")
+        and "documents not declared" not in s["stopped"]
     )

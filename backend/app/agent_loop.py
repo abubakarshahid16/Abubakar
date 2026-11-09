@@ -77,6 +77,20 @@ CANON_KEYS = (
 PRIORITIES = ("must", "should", "nice")
 
 
+_CODE = re.compile(r"[A-Za-z0-9_]{1,40}")
+
+
+def safe_error_code(exc: BaseException) -> str:
+    """The code that may be logged for a provider error: the exception CLASS name, or the `code` of one of OUR adapter's
+    exceptions (module agent_claude or agent_local: letters, digits, underscore, at most 40). Never a message, never any
+    other code."""
+    code = getattr(exc, "code", None)
+    ours = type(exc).__module__.rsplit(".", 1)[-1] in ("agent_claude", "agent_local")
+    if ours and isinstance(code, str) and _CODE.fullmatch(code):
+        return code
+    return re.sub(r"[^A-Za-z0-9_]", "", type(exc).__name__)[:40]
+
+
 def yellow(reason: str, item: dict | None = None) -> dict:
     """The ask-the-engineer finding."""
     return {
@@ -162,7 +176,7 @@ def _run_tool(toolbox: Any, name: str, args: Any) -> dict:
         res = toolbox.run(name, args)
     except Exception as exc:  # noqa: BLE001 - a tool failure is a result the model sees
         # recorded: the failure is counted in the finding, never raised
-        return {"ok": False, "result": {"error": type(exc).__name__}, "cites": []}
+        return {"ok": False, "result": {"error": safe_error_code(exc)}, "cites": []}
     return res if isinstance(res, dict) else {"ok": False, "result": {}, "cites": []}
 
 
@@ -263,6 +277,7 @@ class _ItemRun:
         self.usd, self.step = 0.0, 0
         self.finding: dict | None = None
         self.why = ""
+        self.error = ""
 
     def _log(self, name, args, res, reason, secs, verified="", replayed=False):
         if self.trace:
@@ -351,12 +366,20 @@ class _ItemRun:
                     "model",
                     {},
                     {"ok": False},
-                    "fatal " + words(getattr(exc, "code", ""), 3),
+                    "fatal " + safe_error_code(exc),
                     time.time() - t0,
                 )
                 raise
-            # recorded: the failure is counted in the finding, never raised
-            self.finding = yellow("provider error " + type(exc).__name__, self.item)
+            # the exception CLASS code goes to the trace and live.log (never a message), and to the result
+            self.error = safe_error_code(exc)
+            self._log(
+                "model",
+                {},
+                {"ok": False},
+                "provider error " + self.error,
+                time.time() - t0,
+            )
+            self.finding = yellow("provider error " + self.error, self.item)
             self.why = "provider error"
             return None, 0.0, 0.0
         cost = self._usd(reply)
@@ -486,6 +509,7 @@ class _ItemRun:
             "steps": self.step,
             "usd": self.usd,
             "why": self.why,
+            "error": self.error,
         }
 
 

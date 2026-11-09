@@ -128,7 +128,9 @@ def fatal_problem(exc: BaseException) -> str:
     """The PROBLEM words of a fatal stop: from its code only, never a message."""
     if isinstance(exc, heavy_lock.HeavyJobBusy):
         return "heavy lock busy"
-    code = str(getattr(exc, "code", "") or "")
+    from .agent_loop import safe_error_code
+
+    code = safe_error_code(exc)
     if "document" in code:
         return "documents not declared"
     if type(exc).__name__ == "AgentGateClosed":
