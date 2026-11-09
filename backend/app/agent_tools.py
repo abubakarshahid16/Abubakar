@@ -30,7 +30,6 @@ from . import ai_review_proposals, numparse, standard_ids, subject_scope
 from .agent_edition import (
     NOT_CONFIRMED,
     _not_confirmed,
-    edition_evidence,
 )
 from .reader_api import _fold
 
@@ -261,16 +260,11 @@ def _default_standard_pages(doc: str) -> list[tuple[int, str]]:
     return subject_scope.standard_pages(doc)
 
 
-def _evidence_from(resolver, allowed: frozenset[str]) -> Callable[[str, str], dict]:
-    """Edition evidence from the database (the default), or from an injected doc resolver (tests): no page quote."""
+def _evidence_from(resolver) -> Callable[[str, str], dict]:
+    """Edition evidence from an injected doc resolver (tests: no page quote); with nothing injected it FAILS CLOSED."""
     if resolver is None:
-
-        def from_db(standard: str, edition: str) -> dict:
-            from .db import connect
-
-            return edition_evidence(connect(), allowed, standard, edition)
-
-        return from_db
+        # no resolver and no evidence function: fail closed, and never open the configured database
+        return lambda _s, _e: _not_confirmed("no resolver given")
 
     def from_resolver(standard: str, edition: str) -> dict:
         doc = resolver(standard, edition)
@@ -321,9 +315,7 @@ class ToolBox:
         self._page = page_reader or _default_page_reader
         self._search = searcher or _default_search
         self._standard_pages = standard_pages or _default_standard_pages
-        self._evidence = edition_evidence or _evidence_from(
-            standard_resolver, ctx.allowed_document_ids
-        )
+        self._evidence = edition_evidence or _evidence_from(standard_resolver)
         #: the edition evidence of each standard resolved by get_clause: {standard: evidence}
         self.edition_evidence_seen: dict[str, dict] = {}
         #: compare results this box has made: (clause_figure, doc_figure) -> normalised result

@@ -637,11 +637,25 @@ def tiny_db(monkeypatch):
     return conn
 
 
+def _db_evidence(allowed):
+    from app import db
+    from app.agent_edition import edition_evidence
+
+    return lambda s, e: edition_evidence(db.connect(), frozenset(allowed), s, e)
+
+
 def _loop_box(allowed):
     ctx = ToolContext(frozenset(allowed), "sub", {"ISO 9999": "2020"})
+    from app import db
+    from app.agent_edition import edition_evidence
+
     return ToolBox(
-        ctx, searcher=fake_search
-    )  # page, clause and standard readers are the real defaults
+        ctx,
+        searcher=fake_search,
+        edition_evidence=lambda s, e: edition_evidence(
+            db.connect(), frozenset(allowed), s, e
+        ),
+    )  # page and clause readers are the real defaults; the edition evidence is asked of the (fake) database
 
 
 def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
@@ -736,6 +750,7 @@ def test_real_sink_survives_kill_and_refuses_second_record(tiny_db, tmp_path):
                 frozenset(("sub", "std")), "sub", {"ISO 9999": "2020"}, findings=sink
             ),
             searcher=fake_search,
+            edition_evidence=_db_evidence(("sub", "std")),
         )
 
     first = toolbox()

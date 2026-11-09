@@ -1056,13 +1056,23 @@ def test_date_folding_matches_spacing_and_case(std_db):
         assert resolve(std_db, "ISO 6666", text, docs=("D",)) == "D"
 
 
-def test_the_tools_default_resolver_is_the_same_helper(std_db, monkeypatch):
+def test_a_toolbox_with_no_evidence_source_fails_closed_without_touching_any_database(
+    monkeypatch,
+):
     from app import agent_tools, db
 
-    monkeypatch.setattr(db, "connect", lambda: std_db)
-    evidence = agent_tools._evidence_from(None, frozenset({"A", "C"}))
-    assert evidence("ISO 7777", "23 May 2019")["doc"] == "A"
-    assert evidence("ISO 8888", "1 June 2018")["status"] == "edition not confirmed"
+    def boom():
+        raise AssertionError("the configured database was opened")
+
+    monkeypatch.setattr(db, "connect", boom)
+    ctx = agent_tools.ToolContext(frozenset({"A"}), "A", {"ISO 7777": "23 May 2019"})
+    out = agent_tools.ToolBox(ctx, standard_pages=lambda _d: [(1, "x")]).run(
+        "get_clause", {"standard": "ISO 7777", "clause": "4.1"}
+    )
+    assert (
+        out["ok"] is False
+        and out["result"]["state"] == "not held: edition not confirmed"
+    )
 
 
 # ---- edition EVIDENCE: page quote, verbatim, or 'edition not confirmed' ------------------------------------------
@@ -1099,9 +1109,9 @@ def ev_db(tmp_path):
 
 
 def ev(conn, std, edition, docs=("A", "C", "E", "L", "N", "P", "Q")):
-    from app import agent_tools
+    from app import agent_edition
 
-    return agent_tools.edition_evidence(conn, docs, std, edition)
+    return agent_edition.edition_evidence(conn, docs, std, edition)
 
 
 def test_edition_on_page_1_gives_the_page_and_the_exact_printed_line(ev_db):
@@ -1202,3 +1212,119 @@ def test_results_lists_each_standard_with_page_quote_or_not_confirmed(
         in text
     )
     assert "- Edition: ISO 1111 2000: edition not confirmed" in text
+
+
+# ---- the printed line must be a LABELLED edition line ---------------------------------------------------------
+
+
+def one_page_db(tmp_path, text, page=2, filename="ISO 7777.pdf"):
+    path = tmp_path / f"one-{abs(hash((text, filename)))}.sqlite"
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT);"
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
+    )
+    db.execute("INSERT INTO documents VALUES ('A', ?)", (filename,))
+    db.execute("INSERT INTO pages VALUES ('A', ?, ?)", (page, text))
+    db.commit()
+    db.close()
+    return ar.open_readonly(path)
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        ("Previous Issue: 1 January 2018", "1 January 2018"),
+        ("Next Planned Update: 1 June 2024", "1 June 2024"),
+        ("Copyright (c) 2020 The Body", "2020"),
+        ("© Issue Date: 2020", "2020"),
+        ("Doc no 12019-44", "2019"),
+        ("Issue Date: 12019-44", "2019"),
+        ("Issue Date: 23 May 20199", "23 May 2019"),
+        ("23 May 2019", "23 May 2019"),  # a bare date, no label
+        ("This edition supersedes the one of 23 May 2019", "23 May 2019"),
+        ("Issue Date: 1 May 2018 (previous 23 May 2019)", "23 May 2019"),
+        ("Issued with Next Planned Update: 23 May 2019", "23 May 2019"),
+    ],
+)
+def test_a_line_that_is_not_the_labelled_issue_date_never_confirms(
+    tmp_path, text, asked
+):
+    conn = one_page_db(tmp_path, "Title\n" + text + "\nBody")
+    assert ev(conn, "ISO 7777", asked, docs=("A",))["status"] == "edition not confirmed"
+
+
+@pytest.mark.parametrize(
+    "label", ["Issue Date:", "Date of Issue -", "Issued:", "Edition:", "REVISION DATE:"]
+)
+def test_each_allowed_label_confirms_the_correct_line(tmp_path, label):
+    conn = one_page_db(tmp_path, f"Title\n{label} 23 May 2019\nBody", page=2)
+    got = ev(conn, "ISO 7777", "23 May 2019", docs=("A",))
+    assert (
+        got["status"] == "confirmed"
+        and got["page"] == 2
+        and got["quote"] == f"{label} 23 May 2019"
+    )
+
+
+def test_issue_date_on_page_2_confirms_with_page_2_and_the_verbatim_line(tmp_path):
+    conn = one_page_db(tmp_path, "Cover\n  Issue Date: 23 May 2019   \nOther", page=2)
+    got = ev(conn, "ISO 7777", "23 May 2019", docs=("A",))
+    assert (got["status"], got["page"], got["quote"]) == (
+        "confirmed",
+        2,
+        "Issue Date: 23 May 2019",
+    )
+
+
+def test_two_different_dates_are_not_confirmed_unless_the_asked_one_is_the_issue_date(
+    tmp_path,
+):
+    text = "Issue Date: 23 May 2019\nRevision Date: 5 July 2020"
+    conn = one_page_db(tmp_path, text)
+    assert (
+        ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"] == "confirmed"
+    )  # the issue date
+    assert (
+        ev(conn, "ISO 7777", "5 July 2020", docs=("A",))["status"]
+        == "edition not confirmed"
+    )  # a revision
+
+
+def test_file_name_edition_needs_digit_boundaries(tmp_path):
+    conn = one_page_db(tmp_path, "x", filename="ISO 7777-12019.pdf")
+    assert (
+        ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "edition not confirmed"
+    )
+    conn = one_page_db(tmp_path, "x", filename="ISO 7777-2019.pdf")
+    assert ev(conn, "ISO 7777", "2019", docs=("A",))["source"] == "file name"
+
+
+def test_verify_quote_refuses_a_quote_that_is_not_on_the_page_or_too_long():
+    from app import agent_edition
+
+    page = "Title\nIssue Date: 23 May 2019\n"
+    assert agent_edition.verify_quote("Issue Date: 23 May 2019", page, "23 May 2019")
+    assert not agent_edition.verify_quote(
+        "Issue Date: 23 May 2019", "other page", "23 May 2019"
+    )
+    assert not agent_edition.verify_quote("Issue Date: 23 May 2019" + " " * 80, page + " " * 80, "23 May 2019")  # fmt: skip
+    assert not agent_edition.verify_quote("Next Issue Date: 23 May 2019", "Next Issue Date: 23 May 2019", "23 May 2019")  # fmt: skip
+
+
+def test_the_cli_builds_exactly_one_provider_per_run(
+    cli, copy_db, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        ar, "default_toolbox", lambda scope, readers: factory(scope, readers)
+    )
+    built = []
+
+    def make(_kind):
+        built.append(1)
+        return al.FakeProvider([final("YELLOW")] * 3)
+
+    monkeypatch.setattr(cli, "make_provider", make)
+    args = [*_args(copy_db, tmp_path), "--provider", "local"]
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lambda _l: None) == 0
+    assert len(built) == 1
