@@ -18,7 +18,7 @@ PAGES = {
     (
         DOC,
         1,
-    ): "Widget model W-1 is rated for a working figure of 12 units at the stated site.\nMaterial: invented alloy.",
+    ): "Widget model W-1 is rated for a working figure of 12 units at the stated site.\nMaterial: invented alloy.\nWorking figure: 12 units",
     (DOC, 2): "   ",
     (OTHER, 1): "Hidden words about the invented gadget live here.",
 }
@@ -456,11 +456,12 @@ def test_subject_mismatch_blocks_a_pass_finding(monkeypatch):
     }
     plug_compare(monkeypatch, lambda d, c: FigureResult(True))
     b.run("compare_number", fig)
-    r = b.run("record_finding", {"finding": good(figures=[fig])})
-    assert (
-        r["result"]["reason"] == "number_not_decided_by_code"
-        and b.ctx.findings.all() == []
+    r = b.run(
+        "record_finding",
+        {"finding": good(figures=[fig], doc_quote=DQ, clause_quote=CQ)},
     )
+    # refused whichever gate sees it first (figures not inside the quote, or never decided by code)
+    assert r["result"]["accepted"] is False and b.ctx.findings.all() == []
 
 
 def test_record_green_accepted_and_stored():
@@ -503,7 +504,7 @@ def test_refused_findings_not_stored():
 def test_numbers_decided_only_by_code(monkeypatch):
     b = box()
     fig = {"doc_quote": DQ, "clause_quote": CQ}
-    f = good(figures=[fig])
+    f = good(figures=[fig], doc_quote=DQ, clause_quote=CQ)
     assert (
         b.run("record_finding", {"finding": f})["result"]["reason"]
         == "number_not_decided_by_code"
@@ -671,7 +672,7 @@ def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
 
     plug_compare(monkeypatch, lambda d, c: FigureResult(True))
     fig = {"doc_quote": DQ, "clause_quote": CQ}
-    final = good(doc="sub", figures=[fig])
+    final = good(doc="sub", figures=[fig], doc_quote=DQ, clause_quote=CQ)
     provider = agent_loop.FakeProvider(
         [
             {"tool": "open_page", "args": {"doc": "sub", "page": 1}, "reason": "read"},

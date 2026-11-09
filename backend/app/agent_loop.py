@@ -280,9 +280,10 @@ class _ItemRun:
         self.sink = sink if sink is not None else (trace.sink if trace else None)
         self.specs = _specs(toolbox)
         if callable(getattr(toolbox, "set_item", None)):
-            toolbox.set_item(
-                self.id
-            )  # ask_engineer and record_finding default to this item
+            try:  # the item's topic binds a GREEN or RED to it; a toolbox that takes no topic still works
+                toolbox.set_item(self.id, topic=item.get("topic"))
+            except TypeError:
+                toolbox.set_item(self.id)
         self.names = {sp.get("name") for sp in self.specs}
         self.messages = _initial(item, skill_item)
         note = getattr(toolbox, "prompt_note", "")

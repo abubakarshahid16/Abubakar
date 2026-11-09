@@ -161,9 +161,8 @@ def test_a_ref_to_lines_that_do_not_support_green_is_still_refused():
         "doc_quote": "Design pressure: 12 bar",
         "clause_quote": "Design pressure shall be at least 8 bar",
     }
-    assert (
-        record(box, figures=[fig])["result"]["reason"] == "number_not_decided_by_code"
-    )  # compare_number still decides
+    # compare_number still decides; here the figures are not inside the quotes either, so the binding refuses first
+    assert record(box, figures=[fig])["result"]["accepted"] is False
     assert box.ctx.findings.all() == []
 
 
