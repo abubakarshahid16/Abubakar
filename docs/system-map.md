@@ -52,6 +52,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
 | `agent_local` | Local second opinion for the agent proof test (off by default): the local Qwen 35B through `model_transport`, heavy lock and unload around a batch, errors are codes only |
+| `agent_local_lead` | Local lead provider for the agent proof test (off by default): the loop on a local Ollama model through `model_transport` only, one tool call per turn, one JSON finding, think off, usd always 0, per-call speed numbers, heavy lock and unload in finally |
 | `ai_review_proposals` | The review pass's proposal schema and code verifier: refuses any unverified value, page or clause; a Pass is never created |
 | `project_specification` | Which specification a person (the owner) marked for a submittal; pinned to the run and reported in every review, or "none held" |
 | `crs_ai_review_view` | What the INTERNAL CRS shows of the accepted AI review proposals: removed rows (restorable), added rows, rewordings, the understanding note, the AI review sheet |

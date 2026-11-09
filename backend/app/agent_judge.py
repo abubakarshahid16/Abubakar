@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from . import agent_judge_rows as jrows
+from . import agent_judge_rules as rules
 from . import agent_loop, agent_trace
 from . import agent_run_stats as rstats
 from .agent_judge_tools import LABELS, JudgeToolBox
@@ -76,9 +77,10 @@ JUDGE_SYSTEM = (
     "your rules. Check the claim yourself: read the cited page (open_page), search the document (search), read the clause "
     "of the held standard (get_clause) and decide every figure with compare_number. Then call judge_row exactly once, and "
     "never record_finding. CONFIRM when the claim stands (quote the document and the clause). REMOVE only when the claim is "
-    "wrong for one of three reasons, each with exact quotes: complies, not_applicable (the clause scope does not cover this "
-    "equipment or document kind), already_stated (the document states the item the claim says is missing). 'Not mentioned' "
-    "is never a reason to remove. UNSURE when you cannot verify the claim: the row then stays. Quote exactly. "
+    "wrong and one of two reasons holds, each with exact quotes: complies (a numeric claim: the document's own figure meets "
+    "the clause), already_stated (the document has '<the row's subject>: <a value starting with a digit>' on the row's "
+    "page). Never remove for not applicable: use UNSURE and say so. 'Not mentioned' is never a reason to remove. UNSURE "
+    "when you cannot verify the claim: the row then stays. Quote exactly. "
     "Never state confidence."
 )
 PLAYBOOK = (
@@ -416,7 +418,7 @@ def _finish(a_xlsx, a_rows, chosen, trace, stopped, scope) -> dict:
     _write_json(root / FILES["decisions"], decisions)
     refusals = _read_json(root / FILES["refusals"], {})
     results = _write_results(
-        root, decisions, refusals, trace, meta, stopped, scope, len(chosen)
+        root, decisions, refusals, trace, meta, stopped, scope, chosen, a_rows
     )
     trace.set_live(
         done=f"{len(decisions)} of {len(chosen)} rows",
@@ -437,9 +439,12 @@ def _finish(a_xlsx, a_rows, chosen, trace, stopped, scope) -> dict:
 
 
 def _write_results(
-    root, decisions, refusals, trace, meta, stopped, scope, total
+    root, decisions, refusals, trace, meta, stopped, scope, chosen, a_rows
 ) -> Path:
     """RESULTS.md: counts, spend, minutes, model names. No document or standard text."""
+    total = len(chosen)
+    shared = rules.shared_subjects(a_rows)
+    removable = sum(1 for r in chosen if rules.removable_at_all(r, shared))
     kinds = [d.get("decision") for d in decisions.values()]
     removed = sum(1 for d in decisions.values() if _removed(d))
     vetoed = sum(1 for d in decisions.values() if d.get("kept"))
@@ -464,6 +469,8 @@ def _write_results(
         f"- Rows judged {len(decisions)} = CONFIRM {kinds.count('CONFIRM')} + REMOVED (second opinion agreed) {removed} "
         f"+ REMOVE proposed, row stays {vetoed} (second opinion disagreed, no answer or none) + UNSURE {unsure}"
         f" (by the agent {unsure - by_run}, by the step limit, an error or a stop {by_run}){shown[1]}",
+        f"- Rows the rules allow to be removed at all: {removable} of {total} (a subject no other row shares, and a page cell). Safety first: "
+        "the others can only be confirmed or kept; not_applicable never removes; only numeric rows can be removed as complies",
         f"- Unverifiable quote or clause attempts refused by code: {unverifiable} (refusals by code: {dict(sorted(refusals.items()))})",
         f"- Spend: USD {trace.spend:.2f}",
         f"- Minutes: {float(meta.get('seconds') or 0) / 60:.1f}",

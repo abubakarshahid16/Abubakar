@@ -15,18 +15,19 @@ against <standard clause>".
   **CONFIRM** (the row stands: a verified clause quote and a verified document quote, or, for a "missing" claim, found
   nowhere: marked absence not proved by code), **REMOVE** (the row is wrong), **UNSURE** (the default: the row stays,
   marked "AI could not confirm", internal).
-- REMOVE is allowed ONLY for one of three reasons, each with code-verified evidence: `complies` (a document quote on a page
-  and a clause quote from the clause read at the confirmed edition; every figure decided by compare_number as "meets";
-  a numeric claim needs them), `not_applicable` (a clause scope quote plus a document quote naming the equipment or
-  document kind), `already_stated` (a document quote on a page that states what the row says is missing).
-  "Not mentioned" is never a reason. The evidence goes through the existing verifier (`ai_review_proposals.verify`, the
-  remove path); quote checking is not reimplemented.
-- A REMOVE is tied to THE ROW'S claim, by code: the row's subject (the head noun phrase of its comment; not derivable means
-  the row can never be removed) must equal the subject of the document quote and of the clause quote (`complies`), or be in
-  the document quote (`already_stated`, which also needs a value and no absence words); the quote's page is the row's page
-  (or carries the subject when the row names none); `not_applicable` needs the clause to be a scope clause and a document
-  quote that names the kind; absence words in the quotes or reason refuse it; a numeric row (a figure with a unit) needs
-  the compared pair to be exactly the REMOVE quotes with the row's own number in it.
+- REMOVE is NARROW on purpose (a wrong REMOVE is the worst outcome; lead decision 9 Nov): only two reasons, each with
+  code-verified evidence. `complies`: a NUMERIC row only (a figure with a unit, clause references read out first); the
+  compared pair is exactly the two REMOVE quotes, the row's OWN figure is the document quote's figure (never taken from the
+  clause), the code comparison (`compare_number`) says "meets", and the row, document quote and clause quote have one
+  subject. `already_stated`: the document quote is `<row subject> <separator> <value>` with the label equal to the row's
+  subject (no superset, no generic subject) and a value that STARTS with a digit (a bare word is never a value).
+  `not_applicable` NEVER removes: the judge records UNSURE with the note "AI suggests not applicable: engineer to decide".
+  "Not mentioned" is never a reason. The evidence goes through the existing verifier (`ai_review_proposals.verify`, remove path).
+- A REMOVE is tied to THE ROW'S claim, by code: the row's subject (the head noun phrase of its comment) needs two or more
+  content words and not only generic ones, or the row can never be removed. The row's page comes ONLY from its page/section
+  cell (a page named in the comment text is not the row's page; no cell, no REMOVE) and the document quote is on that page.
+  A document quote that repeats six or more consecutive words of the row's comment is never a basis. Absence words
+  (pending, void, empty, none, to follow, ...) are an extra net behind the structural value rule.
 - Every REMOVE additionally gets the LOCAL second opinion (`agent_local`, a different model family, same strict JSON
   rules, asked one question per reason code). A disagreement, no answer, an unknown or same-family model, or no second
   opinion at all: the row stays.

@@ -28,7 +28,11 @@ ENTRY_POINTS = (
     "agent_tools",
     "agent_claude",
     "agent_local",
+<<<<<<< HEAD
     "agent_judge",
+=======
+    "agent_local_lead",
+>>>>>>> origin/main
 )
 
 

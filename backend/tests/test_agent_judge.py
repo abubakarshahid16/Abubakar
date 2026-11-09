@@ -9,6 +9,7 @@ import pytest
 
 from app import agent_judge as aj
 from app import agent_judge_rows as jr
+from app import agent_judge_tools as aj_tools
 from app import agent_loop as al
 from app import agent_run as ar
 from app.agent_judge_tools import JudgeToolBox
@@ -28,11 +29,15 @@ CLAIMS = [
     ("2", "p. 2", "The material list is missing", "ISO 9999 clause 4.2"),
     ("3", "p. 1", "Paint colour is not specified", "ISO 9999 clause 4.2"),
 ]
-PAGE1 = "General notes\nDesign pressure: 10 bar\nThe vessel is painted grey."
-PAGE2 = "Equipment: heat exchanger\nMaterial list: carbon steel shell."
+PAGE1 = "General notes\nDesign pressure: 10 bar\nDesign pressure: 14 bar\nDesign pressure: 25 bar\nTest pressure: 25 bar\nOperating pressure: 25 bar\nThe vessel is painted grey."
+PAGE2 = (
+    "Equipment: heat exchanger\nMaterial list: 12 items\nMaterial list: pending\nMaterial list: in progress\n"
+    "Material list: see note\nMaterial list: -\nMaterial list: nil\nMaterial list: zzz qqq\nMaterial list approval status: 3 items\n"
+    "Material: 4 items\nMaterial list | 7 items\nOperating pressure: 25 bar\nSpare parts list: 5 items\nMaterial list entry 12 items is listed in the file"
+)
 CLAUSE_PAGE = (
     "1 General\nIntro words.\n4.1 Working pressure\nThe design pressure shall be at least 8 bar.\n"
-    "4.2 Marking\nMark it clearly.\n4.3 Scope\nThis clause does not apply to heat exchangers.\n4.4 End\nOther.\n4.5 Gaps\nA value that is not provided is a gap."
+    "4.2 Marking\nMark it clearly.\n4.3 Scope\nThis clause does not apply to heat exchangers.\n4.4 End\nOther.\n4.5 Gaps\nA value that is not provided is a gap.\n4.6 Twelve\nThe design pressure shall be at least 12 bar."
 )
 DOC_Q = "Design pressure: 10 bar"
 CLAUSE_Q = "The design pressure shall be at least 8 bar."
@@ -133,7 +138,7 @@ def tool(**args):
 
 
 def remove(code="already_stated", **extra):
-    args = {"decision": "REMOVE", "reason_code": code, "page": 2, "doc_quote": "Material list: carbon steel shell.",
+    args = {"decision": "REMOVE", "reason_code": code, "page": 2, "doc_quote": "Material list: 12 items",
             "standard": "ISO 9999", "clause": "4.2", "clause_quote": "Mark it clearly.", "reason": "stated"}  # fmt: skip
     args.update(extra)
     return tool(**args)
@@ -298,9 +303,15 @@ def box(copy_db):
             "J2": {"comment": CLAIMS[1][2], "standard_reference": "x", "page_section": "p. 2"},
             "J3": {"comment": "Paint colour is not specified", "standard_reference": "x", "page_section": "p. 1"},
             "J4": {"comment": "12 bar", "standard_reference": "x", "page_section": "p. 1"},
-            "J5": {"comment": "The material list is missing", "standard_reference": "x", "page_section": "4.2"},
-            "J6": {"comment": "Design pressure of 25 bar is wrong", "standard_reference": "x", "page_section": "p. 1"},
-            "J7": {"comment": "See clause 4.1.4.4 for the paint colour", "standard_reference": "x", "page_section": "p. 1"}}  # fmt: skip
+            "J5": {"comment": "The spare parts schedule is missing", "standard_reference": "x", "page_section": "4.2"},
+            "J6": {"comment": "Hydrotest figure of 25 bar is wrong", "standard_reference": "x", "page_section": "p. 1"},
+            "J7": {"comment": "See clause 4.1.4.4 for the paint colour", "standard_reference": "x", "page_section": "p. 1"},
+            "J8": {"comment": "Relief setting shall exceed 5 bar (p.25)", "standard_reference": "x", "page_section": ""},
+            "J9": {"comment": "Operating pressure of 25 bar is wrong (p.2)", "standard_reference": "x", "page_section": "p. 1"},
+            "J10": {"comment": "Material list entry 12 items is listed in the file", "standard_reference": "x", "page_section": "p. 2"},
+            "J11": {"comment": "Data is missing", "standard_reference": "x", "page_section": "p. 2"},
+            "J12": {"comment": "Design data are missing", "standard_reference": "x", "page_section": "p. 2"},
+            "J13": {"comment": "Pressure is wrong", "standard_reference": "x", "page_section": "p. 2"}}  # fmt: skip
     scope = {"allowed": frozenset(allowed), "document_id": "D1", "editions": EDITIONS}
     b = aj.default_toolbox(scope, readers, rows)
     b.ctx.current_item = "J2"
@@ -376,17 +387,6 @@ def test_remove_complies_on_a_numeric_claim_needs_a_decided_compare(box):
     box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "does_not_meet"}
     assert call(box, **args)["reason"] == "verdict_disagrees_with_code_comparison"
     box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
-    assert call(box, **args)["accepted"] is True
-
-
-def test_remove_not_applicable_needs_the_scope_quote_and_the_document_quote(box):
-    args = remove(
-        "not_applicable",
-        page=2,
-        doc_quote="Equipment: heat exchanger",
-        clause="4.3",
-        clause_quote=SCOPE_Q,
-    )["args"]
     assert call(box, **args)["accepted"] is True
 
 
@@ -663,11 +663,11 @@ def test_results_hold_no_document_text(a_file, copy_db, run_dir):
         "Material list",
         "design pressure",
         "12 bar",
-        "carbon steel",
+        "12 items",
     ):
         assert banned not in results
     # the decisions file is local and DOES hold the verified quotes
-    assert "carbon steel" in (run_dir / "decisions.json").read_text()
+    assert "12 items" in (run_dir / "decisions.json").read_text()
 
 
 def test_live_md_labels_the_counts_confirm_unsure_remove(a_file, copy_db, run_dir):
@@ -1011,15 +1011,6 @@ def complies(**extra):
     return args
 
 
-def test_a_pressure_quote_cannot_remove_a_paint_colour_row(box):
-    out = call(on_row(box, "J3"), **complies())
-    assert out["accepted"] is False and out["reason"] == "subject_mismatch"
-    assert out["detail"]["row"] == ["colour", "paint"] and out["detail"][
-        "document_quote"
-    ] == ["design", "pressure"]
-    assert box.ctx.findings.has("J3") is False
-
-
 def test_complies_needs_the_row_the_document_quote_and_the_clause_quote_to_share_one_subject(
     box,
 ):
@@ -1031,17 +1022,6 @@ def test_complies_needs_the_row_the_document_quote_and_the_clause_quote_to_share
         ]
         is True
     )
-
-
-def test_not_applicable_needs_a_scope_clause_and_a_document_quote_that_names_the_kind(
-    box,
-):
-    on_row(box, "J3")
-    general = {"decision": "REMOVE", "reason_code": "not_applicable", "page": 1, "doc_quote": "General notes",
-               "standard": "ISO 9999", "clause": "4.2", "clause_quote": "Mark it clearly.", "reason": "scope"}  # fmt: skip
-    assert call(box, **general)["reason"] == "clause_is_not_a_scope_clause"
-    general.update(clause="4.3", clause_quote=SCOPE_Q)
-    assert call(box, **general)["reason"] == "document_quote_does_not_name_the_kind"
 
 
 def test_a_quote_that_says_not_provided_never_removes_an_already_stated_row(box):
@@ -1087,34 +1067,6 @@ def rules_absence(text):
     return rules.absence(text)
 
 
-def test_already_stated_needs_the_row_subject_in_the_quote_and_a_value(box):
-    out = call(on_row(box, "J5"), **rm(page=4, doc_quote="Material list:"))
-    assert out["reason"] == "quote_carries_no_value"
-    out = call(on_row(box, "J2"), **rm(page=2, doc_quote="Equipment: heat exchanger"))
-    assert out["reason"] == "subject_mismatch" and out["detail"]["row"] == [
-        "list",
-        "material",
-    ]
-
-
-def test_the_page_must_be_the_rows_page_or_carry_the_subject_when_the_row_names_none(
-    box,
-):
-    assert (
-        call(
-            on_row(box, "J1"), **complies(page=2, doc_quote="Equipment: heat exchanger")
-        )["reason"]
-        == "page_not_the_rows_page"
-    )
-    assert (
-        call(on_row(box, "J5"), **rm(page=1, doc_quote="General notes"))["reason"]
-        == "page_not_the_rows_page"
-    )
-    assert (
-        call(on_row(box, "J5"), **rm(page=2))["accepted"] is True
-    )  # no page named: the subject words are on page 2
-
-
 def test_a_row_with_no_derivable_subject_can_never_be_removed_but_can_be_unsure(box):
     out = call(on_row(box, "J4"), **complies())
     assert out["reason"] == "row_subject_not_derived"
@@ -1134,15 +1086,6 @@ def test_a_numeric_row_needs_the_figures_pair_to_be_exactly_the_remove_quotes(bo
         ]
         is True
     )
-
-
-def test_the_rows_own_number_must_be_one_of_the_compared_numbers(box):
-    on_row(box, "J6")  # the row speaks of 25 bar; the quotes hold 10 and 8
-    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
-    out = call(
-        box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}])
-    )
-    assert out["reason"] == "row_figure_not_compared"
 
 
 def test_a_clause_number_is_not_a_figure_so_it_does_not_make_a_row_numeric():
@@ -1179,18 +1122,6 @@ def test_the_second_opinion_sees_the_rows_claim_and_the_reason_code(
     )
 
 
-def test_row_pages_ignore_a_section_number_but_read_pages_named_in_the_comment():
-    from app import agent_judge_rules as rules
-
-    assert rules.row_pages({"page_section": "4.1", "comment": "x"}) == []
-    assert rules.row_pages({"page_section": "12", "comment": "x"}) == [12]
-    assert rules.row_pages({"page_section": "", "comment": "see pages 3 and 5"}) == [
-        3,
-        5,
-    ]
-    assert jr.read_rows  # the reader fills `pages` from the same function
-
-
 def test_the_live_count_shows_a_remove_only_after_the_second_opinion_agreed(
     a_file, copy_db, run_dir
 ):
@@ -1213,7 +1144,7 @@ def test_the_live_count_shows_a_remove_only_after_the_second_opinion_agreed(
 
 def test_results_add_up_and_say_what_was_not_judged(tmp_path, copy_db, run_dir):
     claims = [(str(i), p, c, "ISO 9999 clause 4.2") for i, (p, c) in enumerate(
-        [("p. 1", CLAIMS[0][2]), ("p. 2", CLAIMS[1][2]), ("p. 2", CLAIMS[1][2]), ("p. 1", CLAIMS[2][2]), ("p. 1", CLAIMS[2][2]), ("p. 1", "x")], 1)]  # fmt: skip
+        [("p. 1", CLAIMS[0][2]), ("p. 2", CLAIMS[1][2]), ("p. 2", "The spare parts list is missing"), ("p. 1", CLAIMS[2][2]), ("p. 1", "Pump casing data shall be stated"), ("p. 1", "x")], 1)]  # fmt: skip
     a = make_a_xlsx(tmp_path / "six.xlsx", claims)
 
     def boom(_m):
@@ -1223,7 +1154,14 @@ def test_results_add_up_and_say_what_was_not_judged(tmp_path, copy_db, run_dir):
         [yes(), {"agree": False, "reason": "r", "usd": 0.0, "model": "qwen-x"}]
     )
     provider = al.FakeProvider(
-        [confirm(), remove(), remove(), tool(decision="UNSURE"), boom, boom]
+        [
+            confirm(),
+            remove(),
+            remove(doc_quote="Spare parts list: 5 items"),
+            tool(decision="UNSURE"),
+            boom,
+            boom,
+        ]
     )
     s = judge(a, copy_db, run_dir, provider, second_opinion=other, limit=5)
     text = (run_dir / "RESULTS.md").read_text()
@@ -1288,3 +1226,295 @@ def test_a_run_stopped_early_states_the_untouched_rows(copy_db, run_dir, tmp_pat
         and "next row could pass the budget" in text
     )
     assert s["rows_done"] == 2
+
+
+# ---- the NARROWED REMOVE power (lead decision): each rule, each reviewer class ---------------------------------------
+
+
+def numeric(**extra):
+    """complies on the numeric row J1 (own figure 10 bar), pair identical to the quotes."""
+    args = complies(**extra)
+    args.setdefault(
+        "figures",
+        [{"doc_quote": args["doc_quote"], "clause_quote": args["clause_quote"]}],
+    )
+    return args
+
+
+def meets(b, doc, clause):
+    b._compares[(doc, clause)] = {"decided": True, "verdict": "meets"}
+
+
+def test_complies_on_a_non_numeric_row_is_never_a_remove(box):
+    out = call(on_row(box, "J3"), **complies())
+    assert (
+        out["accepted"] is False
+        and out["reason"] == "complies_only_removes_a_numeric_row"
+    )
+
+
+def test_a_numeric_row_with_one_subject_everywhere_and_its_own_figure_is_removable(box):
+    on_row(box, "J1")
+    meets(box, DOC_Q, CLAUSE_Q)
+    assert call(box, **numeric())["accepted"] is True
+
+
+def test_complies_refuses_a_different_subject_in_the_quotes(box):
+    on_row(box, "J6")  # "Design pressure of 25 bar ..."
+    meets(box, "Test pressure: 25 bar", CLAUSE_Q)
+    out = call(box, **numeric(doc_quote="Test pressure: 25 bar"))
+    assert out["reason"] == "subject_mismatch" and out["detail"]["document_quote"] == [
+        "pressure",
+        "test",
+    ]
+
+
+def test_the_row_figure_the_document_figure_and_the_clause_figure_must_be_the_same_story(
+    box,
+):
+    on_row(box, "J1")  # the row says 10 bar against a required 12 bar
+    wrong_doc = "Design pressure: 14 bar"
+    twelve = "The design pressure shall be at least 12 bar."
+    meets(box, wrong_doc, twelve)
+    out = call(
+        box, **numeric(page=1, doc_quote=wrong_doc, clause="4.6", clause_quote=twelve)
+    )
+    assert (
+        out["reason"] == "row_figure_not_the_document_figure"
+    )  # 14 is not the row's own figure (10)
+    meets(box, DOC_Q, twelve)
+    assert (
+        call(box, **numeric(doc_quote=DOC_Q, clause="4.6", clause_quote=twelve))[
+            "accepted"
+        ]
+        is True
+    )
+
+
+def test_not_applicable_never_removes_it_is_only_noted_for_the_engineer(box):
+    out = call(
+        on_row(box, "J2"),
+        **remove(
+            "not_applicable",
+            page=2,
+            doc_quote="Equipment: heat exchanger",
+            clause="4.3",
+            clause_quote=SCOPE_Q,
+        )["args"],
+    )
+    stored = box.ctx.findings.get("J2")
+    assert (
+        out["accepted"] is True
+        and stored["decision"] == "UNSURE"
+        and stored["reason"] == aj_tools.NOT_APPLICABLE_NOTE
+    )
+    assert stored["suggests"] == "not_applicable" and aj_tools.REMOVE_REASONS == (
+        "complies",
+        "already_stated",
+    )
+
+
+@pytest.mark.parametrize("heading_clause", ["4.3", "4.2"])
+def test_a_scope_heading_is_no_basis_for_any_remove(box, heading_clause):
+    on_row(box, "J2")
+    out = call(
+        box,
+        **rm(
+            clause=heading_clause,
+            clause_quote=SCOPE_Q if heading_clause == "4.3" else "Mark it clearly.",
+        ),
+    )
+    assert (
+        out["accepted"] is True and box.ctx.findings.get("J2")["decision"] == "REMOVE"
+    )  # already_stated, on its own rules
+    assert not hasattr(
+        __import__("app.agent_judge_rules", fromlist=["x"]), "scope_heading"
+    )
+
+
+@pytest.mark.parametrize(
+    "value", ["pending", "in progress", "see note", "-", "nil", "zzz qqq"]
+)
+def test_a_valueless_document_quote_never_removes_an_already_stated_row(box, value):
+    out = call(on_row(box, "J2"), **rm(doc_quote=f"Material list: {value}"))
+    assert out["accepted"] is False and out["reason"] in {
+        "quote_carries_no_value",
+        "not_mentioned_is_never_a_reason_to_remove",
+    }
+
+
+def test_a_bare_word_is_not_a_value_structurally_not_by_a_list(box):
+    out = call(on_row(box, "J2"), **rm(doc_quote="Material list: zzz qqq"))
+    assert out["reason"] == "quote_carries_no_value"
+    from app import agent_judge_rules as r
+
+    assert (
+        not r.digit_value("in progress")
+        and not r.digit_value("zzz")
+        and r.digit_value("12 items")
+        and r.digit_value("\u0662\u0660")
+    )
+
+
+@pytest.mark.parametrize(
+    "quote", ["Material list approval status: 3 items", "Material: 4 items"]
+)
+def test_a_superset_or_subset_label_is_refused(box, quote):
+    out = call(on_row(box, "J2"), **rm(doc_quote=quote))
+    assert out["reason"] == "subject_mismatch"
+
+
+def test_the_label_may_be_followed_by_a_colon_an_equals_a_bar_or_a_tab(box):
+    assert (
+        call(on_row(box, "J2"), **rm(doc_quote="Material list | 7 items"))["accepted"]
+        is True
+    )
+
+
+def test_the_rows_page_comes_only_from_its_page_cell(box):
+    out = call(
+        on_row(box, "J8"), **numeric(page=1)
+    )  # the page cell is empty; the comment cites a page of the standard
+    assert out["reason"] == "row_has_no_page_cell"
+    on_row(box, "J5")  # a section number is not a page
+    assert call(box, **rm(page=2))["reason"] == "row_has_no_page_cell"
+
+
+def test_a_page_named_in_the_comment_is_not_the_rows_page(box):
+    on_row(box, "J9")  # page cell p. 1, the comment says (p.2)
+    quote = "Operating pressure: 25 bar"
+    assert (
+        call(box, **rm(page=2, doc_quote=quote))["reason"] == "page_not_the_rows_page"
+    )
+    assert call(box, **rm(page=1, doc_quote=quote))["accepted"] is True
+
+
+def test_the_document_quote_must_be_on_the_rows_page(box):
+    assert (
+        call(on_row(box, "J2"), **rm(page=1, doc_quote="General notes"))["reason"]
+        == "page_not_the_rows_page"
+    )
+
+
+@pytest.mark.parametrize("row_id", ["J11", "J12", "J13"])
+def test_a_generic_or_one_word_subject_can_never_be_removed(box, row_id):
+    assert call(on_row(box, row_id), **rm())["reason"] == "row_subject_not_derived"
+    assert call(box, decision="UNSURE")["accepted"] is True
+
+
+def test_a_quote_that_repeats_the_rows_own_words_is_never_a_basis(box):
+    out = call(
+        on_row(box, "J10"),
+        **rm(doc_quote="Material list entry 12 items is listed in the file"),
+    )
+    assert out["reason"] == "quote_repeats_the_rows_own_text"
+    from app import agent_judge_rules as r
+
+    assert r.repeats_row_text(
+        "a b c d e f g", "x a b c d e f y"
+    ) and not r.repeats_row_text("a b c d e", "a b c d e f")
+
+
+@pytest.mark.parametrize(
+    "word",
+    ["pending", "void", "empty", "nil", "none", "unavailable", "under review", "to follow", "by others", "see note",
+     "in progress", "later", "not indicated", "not listed", "without value", "never issued", "no data", "not applicable",
+     "awaiting", "deferred", "withheld", "not declared", "not yet available", "vendor to advise", "tba", "omitted"],
+)  # fmt: skip
+def test_the_reviewers_absence_words_are_an_extra_net(word):
+    from app import agent_judge_rules as r
+
+    assert r.absence(f"Material list: {word}")
+
+
+def test_the_reader_takes_pages_from_the_cell_only(a_file):
+    rows = jr.read_rows(a_file)
+    assert rows[0]["pages"] == [1] and rows[0]["page_hint"] == 1
+    from app import agent_judge_rules as r
+
+    assert (
+        r.row_pages({"page_section": "4.1", "comment": "see pages 3 and 5 (p.25)"})
+        == []
+    )
+    assert r.row_pages({"page_section": "pages 3 and 5", "comment": "x"}) == [3, 5]
+    assert r.row_pages({"page_section": "12", "comment": "x"}) == [12]
+
+
+def test_the_results_say_how_few_rows_can_be_removed_at_all(a_file, copy_db, run_dir):
+    judge(
+        a_file,
+        copy_db,
+        run_dir,
+        al.FakeProvider([confirm(), tool(decision="UNSURE"), tool(decision="UNSURE")]),
+    )
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "Rows the rules allow to be removed at all: 3 of 3" in text
+    )  # J3 "paint colour": usable; "p. 2" ok; J1, J2 too
+    assert (
+        "not_applicable never removes" in text
+        and "only numeric rows can be removed as complies" in text
+    )
+
+
+def test_the_removable_count_excludes_rows_without_a_page_cell_or_a_usable_subject(
+    tmp_path, copy_db, run_dir
+):
+    claims = [
+        ("1", "p. 1", CLAIMS[0][2], "x"),
+        ("2", "", CLAIMS[1][2], "x"),
+        ("3", "p. 2", "Data is missing", "x"),
+    ]
+    a = make_a_xlsx(tmp_path / "three.xlsx", claims)
+    judge(a, copy_db, run_dir, al.FakeProvider([tool(decision="UNSURE")] * 3))
+    assert (
+        "Rows the rules allow to be removed at all: 1 of 3"
+        in (run_dir / "RESULTS.md").read_text()
+    )
+
+
+def test_a_subject_that_heads_two_rows_is_a_template_prefix_and_removes_nothing(
+    copy_db,
+):
+    conn = ar.open_readonly(copy_db)
+    rows = {
+        "T1": {
+            "comment": "Material list is missing",
+            "page_section": "p. 2",
+            "standard_reference": "x",
+        },
+        "T2": {
+            "comment": "Material list is incomplete",
+            "page_section": "p. 2",
+            "standard_reference": "x",
+        },
+        "T3": {
+            "comment": "Spare parts list is missing",
+            "page_section": "p. 2",
+            "standard_reference": "x",
+        },
+    }
+    scope = {
+        "allowed": frozenset({"D1", "S1"}),
+        "document_id": "D1",
+        "editions": EDITIONS,
+    }
+    b = aj.default_toolbox(scope, ar.Readers(conn, {"D1", "S1"}), rows)
+    b.ctx.findings = InMemoryFindings()
+    assert b.shared == frozenset({frozenset({"material", "list"})})
+    out = call(on_row(b, "T1"), **rm())
+    assert out["reason"] == "row_subject_not_derived"
+    assert (
+        call(on_row(b, "T3"), **rm(doc_quote="Spare parts list: 5 items"))["accepted"]
+        is True
+    )
+    conn.close()
+
+
+def test_the_shared_subjects_helper_and_the_removable_count():
+    from app import agent_judge_rules as r
+
+    rows = [{"comment": "Material list is missing", "page_section": "p. 1"}, {"comment": "Material list is wrong", "page_section": "p. 1"},
+            {"comment": "Spare parts list is missing", "page_section": "p. 1"}]  # fmt: skip
+    shared = r.shared_subjects(rows)
+    assert [r.removable_at_all(x, shared) for x in rows] == [False, False, True]
