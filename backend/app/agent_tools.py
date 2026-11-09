@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from . import ai_review_proposals, numparse, standard_ids, subject_scope
+from . import agent_bind, ai_review_proposals, numparse, standard_ids, subject_scope
 from .agent_edition import (
     NOT_CONFIRMED,
     _not_confirmed,
@@ -158,6 +158,7 @@ class ToolContext:
     )  # sink: accepted findings only
     queries: list[dict] = field(default_factory=list)  # sink: engineer query rows
     current_item: str | None = None  # set by the loop for each item
+    current_topic: str | None = None  # the item's topic words, set by the loop
 
     def __post_init__(self) -> None:
         self.allowed_document_ids = frozenset(self.allowed_document_ids)
@@ -169,10 +170,6 @@ def _res(ok: bool, result: dict, cites: Iterable[dict] = ()) -> dict:
 
 def _refuse(reason: str, cites: Iterable[dict] = ()) -> dict:
     return _res(False, {"refused": reason}, cites)
-
-
-def _int(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _default_page_reader(doc: str, page: int) -> str | None:
@@ -265,9 +262,10 @@ class ToolBox:
 
     # ---------------------------------------------------------------- dispatch
 
-    def set_item(self, item_id: object) -> None:
-        """The loop names the item it is working on; ask_engineer and record_finding default to it."""
+    def set_item(self, item_id: object, topic: object = None) -> None:
+        """The loop names the item (and its topic); ask_engineer and record_finding default to it, GREEN/RED bind to it."""
         self.ctx.current_item = str(item_id) if item_id not in (None, "") else None
+        self.ctx.current_topic = None if topic is None else str(topic)
 
     def _clean_args(self, name: str, args: dict) -> dict:
         """Map known aliases, drop names the tool does not take. Never fails for a name the model could not know."""
@@ -318,6 +316,8 @@ class ToolBox:
             result["expect"] = (
                 expect_of(name) if name else {n: expect_of(n) for n in INPUT_SCHEMAS}
             )
+        if isinstance(result, dict) and result.get("reason") == agent_bind.CODE:
+            result["expect"] = agent_bind.EXPECT
         return out
 
     def _in_scope(self, doc: object) -> bool:
@@ -650,7 +650,7 @@ class ToolBox:
             return "confidence_never_high"
         if f.get("priority") not in (None, *PRIORITIES):
             return "priority_not_known"
-        doc, page = f.get("doc"), _int(f.get("page"))
+        doc, page = f.get("doc"), coerce_page(f.get("page"))[0]
         quote = str(f.get("doc_quote") or "").strip()
         if doc is not None and not self._in_scope(doc):
             return "document_not_in_scope"
@@ -703,7 +703,9 @@ class ToolBox:
             and not numparse.value_in_text(value, self._page_text(doc, page) or "")
         ):
             return "value_not_on_page"
-        problem = self._numbers_problem(f, verdict)
+        problem = self._numbers_problem(f, verdict) or agent_bind.binding_problem(
+            f, verdict, self, clause_text
+        )
         if problem:
             return problem
         if quote and clause_text is not None:

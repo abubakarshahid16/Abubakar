@@ -22,6 +22,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 |---|---|
 | `agent_tools` | Agent reviewer tools: open page, search, get clause, compare number, record finding, ask engineer (#1690) |
 | `agent_quote_refs` | Quote by reference: the model names page line ids and clause block ids, code writes the exact quote text (#1690) |
+| `agent_bind` | GREEN and RED only for numbers decided by code: figures inside their quotes, topic overlap, clause quote rules; textual findings are YELLOW (#1690) |
 | `agent_tool_schemas` | Model-facing JSON Schemas of the agent tools, tolerant argument coercion and refusal hints (#1690) |
 | `agent_subject` | Subject check for compare_number: a figure is compared only with the same subject (#1690) |
 | `absence` | ONE RULE FOR ABSENCE (#450, #451): not found is never a positive outcome |

@@ -18,14 +18,14 @@ PAGES = {
     (
         DOC,
         1,
-    ): "Widget model W-1 is rated for a working figure of 12 units at the stated site.\nMaterial: invented alloy.",
+    ): "Widget model W-1 is rated for a working figure of 12 bar at the stated site.\nMaterial: invented alloy.\nWorking figure: 12 bar",
     (DOC, 2): "   ",
     (OTHER, 1): "Hidden words about the invented gadget live here.",
 }
 STD_PAGES = [
     (
         1,
-        "1 General\nIntro words.\n4.2 Working figure\nThe working figure shall be at least 10 units.\nException: none for sealed widgets.\n4.3 Marking\nMark it.",
+        "1 General\nIntro words.\n4.2 Working figure\nThe working figure shall be at least 10 bar.\nException: none for sealed widgets.\n4.3 Marking\nMark it.",
     ),
 ]
 
@@ -62,21 +62,21 @@ def box(allowed=(DOC, STD), editions=None, **kw):
     return ToolBox(ctx, **defaults)
 
 
-DQ = "Working figure: 12 units"
-CQ = "The working figure shall be at least 10 units"
+DQ = "Working figure: 12 bar"
+CQ = "The working figure shall be at least 10 bar"
 
 
 def good(**over):
     f = {
         "item": "I-1",
-        "color": "GREEN",
+        "color": "YELLOW",
         "doc": DOC,
         "page": 1,
-        "doc_quote": "rated for a working figure of 12 units",
+        "doc_quote": "rated for a working figure of 12 bar",
         "standard": "ISO 9999",
         "clause": "4.2",
-        "clause_quote": "shall be at least 10 units",
-        "value": "12 units",
+        "clause_quote": "shall be at least 10 bar",
+        "value": "12 bar",
         "reason": "Figure is stated.",
         "action": "none",
         "priority": "should",
@@ -159,7 +159,7 @@ def test_get_clause_full_text_with_exception():
     r = box().run("get_clause", {"standard": "ISO 9999", "clause": "4.2"})
     assert (
         r["ok"]
-        and "at least 10 units" in r["result"]["text"]
+        and "at least 10 bar" in r["result"]["text"]
         and "Exception" in r["result"]["text"]
     )
     assert "Mark it" not in r["result"]["text"]
@@ -199,7 +199,7 @@ def test_compare_unavailable_cannot_decide(monkeypatch):
 
 def test_compare_mapping_and_argument_order(monkeypatch):
     seen = []
-    answers = {"12 units": True, "20 units": False}
+    answers = {"12 bar": True, "20 bar": False}
 
     def fake(doc_quote, clause_quote):
         seen.append((doc_quote, clause_quote))
@@ -211,15 +211,15 @@ def test_compare_mapping_and_argument_order(monkeypatch):
         n: b.run(
             "compare_number", {"doc_quote": f"Working figure: {n}", "clause_quote": CQ}
         )["result"]
-        for n in ("12 units", "20 units", "30 units")
+        for n in ("12 bar", "20 bar", "30 bar")
     }
     assert (
-        out["12 units"]["verdict"] == "meets"
-        and out["20 units"]["verdict"] == "does_not_meet"
+        out["12 bar"]["verdict"] == "meets"
+        and out["20 bar"]["verdict"] == "does_not_meet"
     )
     assert (
-        out["30 units"]["verdict"] == "cannot decide"
-        and out["30 units"]["decided"] is False
+        out["30 bar"]["verdict"] == "cannot decide"
+        and out["30 bar"]["decided"] is False
     )
     assert seen[0] == (DQ, CQ)  # document quote first, clause quote second
 
@@ -456,11 +456,12 @@ def test_subject_mismatch_blocks_a_pass_finding(monkeypatch):
     }
     plug_compare(monkeypatch, lambda d, c: FigureResult(True))
     b.run("compare_number", fig)
-    r = b.run("record_finding", {"finding": good(figures=[fig])})
-    assert (
-        r["result"]["reason"] == "number_not_decided_by_code"
-        and b.ctx.findings.all() == []
+    r = b.run(
+        "record_finding",
+        {"finding": good(color="GREEN", figures=[fig], doc_quote=DQ, clause_quote=CQ)},
     )
+    # refused whichever gate sees it first (figures not inside the quote, or never decided by code)
+    assert r["result"]["accepted"] is False and b.ctx.findings.all() == []
 
 
 def test_record_green_accepted_and_stored():
@@ -476,7 +477,7 @@ def test_record_green_accepted_and_stored():
 
 def test_green_without_document_quote_refused():
     b = box()
-    r = b.run("record_finding", {"finding": good(doc_quote="")})
+    r = b.run("record_finding", {"finding": good(color="GREEN", doc_quote="")})
     assert (
         not r["ok"]
         and r["result"]["verdict"] == "refused"
@@ -488,12 +489,12 @@ def test_green_without_document_quote_refused():
 def test_refused_findings_not_stored():
     b = box()
     for bad in (
-        good(doc_quote="a quote that is nowhere on the page"),
-        good(clause_quote="text that is not in the clause at all"),
-        good(doc=OTHER),
-        good(reason="not mentioned in the document"),
-        good(clause="9.9"),
-        good(page=2),
+        good(color="GREEN", doc_quote="a quote that is nowhere on the page"),
+        good(color="GREEN", clause_quote="text that is not in the clause at all"),
+        good(color="GREEN", doc=OTHER),
+        good(color="GREEN", reason="not mentioned in the document"),
+        good(color="GREEN", clause="9.9"),
+        good(color="GREEN", page=2),
         good(color="BLUE"),
     ):
         assert b.run("record_finding", {"finding": bad})["result"]["accepted"] is False
@@ -503,7 +504,7 @@ def test_refused_findings_not_stored():
 def test_numbers_decided_only_by_code(monkeypatch):
     b = box()
     fig = {"doc_quote": DQ, "clause_quote": CQ}
-    f = good(figures=[fig])
+    f = good(color="GREEN", figures=[fig], doc_quote=DQ, clause_quote=CQ)
     assert (
         b.run("record_finding", {"finding": f})["result"]["reason"]
         == "number_not_decided_by_code"
@@ -560,7 +561,7 @@ def test_color_verdict_alias_and_conflict_and_required():
     # a FRESH item id, so the only possible refusal is the conflict itself
     clash = b.run("record_finding", {"finding": good(item="I-2", verdict="RED")})
     assert clash["result"]["reason"] == "color_not_green_yellow_red_or_conflicting"
-    same = b.run("record_finding", {"finding": good(item="I-3", verdict="GREEN")})
+    same = b.run("record_finding", {"finding": good(item="I-3", verdict="YELLOW")})
     assert (
         same["result"]["accepted"] is True
     )  # the same word in both keys is not a conflict
@@ -575,7 +576,7 @@ def test_stored_finding_uses_canonical_keys():
     b = box()
     b.run("record_finding", {"finding": good()})
     assert (
-        b.ctx.findings.all()[0]["color"] == "GREEN"
+        b.ctx.findings.all()[0]["color"] == "YELLOW"
         and "verdict" not in b.ctx.findings.all()[0]
     )
 
@@ -671,7 +672,7 @@ def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
 
     plug_compare(monkeypatch, lambda d, c: FigureResult(True))
     fig = {"doc_quote": DQ, "clause_quote": CQ}
-    final = good(doc="sub", figures=[fig])
+    final = good(color="GREEN", doc="sub", figures=[fig], doc_quote=DQ, clause_quote=CQ)
     provider = agent_loop.FakeProvider(
         [
             {"tool": "open_page", "args": {"doc": "sub", "page": 1}, "reason": "read"},
@@ -686,8 +687,12 @@ def test_integration_loop_records_through_real_toolbox(tiny_db, monkeypatch):
     )
     box = _loop_box(("sub", "std"))
     out = agent_loop.run_item(
-        {"id": "I-1", "doc": "sub"}, {}, box, provider, usd_cap=1.0
-    )
+        {"id": "I-1", "doc": "sub", "topic": "Working figure"},
+        {},
+        box,
+        provider,
+        usd_cap=1.0,
+    )  # the item's topic reaches the toolbox through the loop: the numeric GREEN is bound end to end
     assert out["why"] == "recorded" and out["finding"]["color"] == "GREEN"
     assert [f["item"] for f in box.ctx.findings.all()] == ["I-1"]
 
@@ -727,7 +732,8 @@ def test_second_record_for_same_item_refused_first_stays():
     )
     assert again["ok"] is False and again["result"]["reason"] == "already recorded"
     assert (
-        len(b.ctx.findings.all()) == 1 and b.ctx.findings.get("I-1")["color"] == "GREEN"
+        len(b.ctx.findings.all()) == 1
+        and b.ctx.findings.get("I-1")["color"] == "YELLOW"
     )
 
 
@@ -770,7 +776,7 @@ def test_real_sink_survives_kill_and_refuses_second_record(tiny_db, tmp_path):
     second = toolbox()
     assert (
         second.ctx.findings.has("I-1")
-        and second.ctx.findings.get("I-1")["color"] == "GREEN"
+        and second.ctx.findings.get("I-1")["color"] == "YELLOW"
     )
     again = second.run("record_finding", {"finding": good(doc="sub", color="YELLOW")})
     assert again["ok"] is False and again["result"]["reason"] == "already recorded"
@@ -818,12 +824,12 @@ PLAUSIBLE = [
         "record_finding",
         {
             "finding": {
-                "color": "GREEN",
+                "color": "YELLOW",
                 "item": "I-1",
                 "doc": DOC,
                 "page": 1,
-                "doc_quote": "rated for a working figure of 12 units",
-                "clause_quote": "shall be at least 10 units",
+                "doc_quote": "rated for a working figure of 12 bar",
+                "clause_quote": "shall be at least 10 bar",
                 "standard": "ISO 9999",
                 "clause": "4.2",
                 "action": "none",
@@ -958,7 +964,7 @@ def test_record_finding_tolerates_shapes_the_model_could_not_know():
         page="1",
         priority="Should",
         figures=[],
-        clause_quote="shall be at least 10 units",
+        clause_quote="shall be at least 10 bar",
     )
     flat.pop("item")
     flat.pop("doc")
