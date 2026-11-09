@@ -10,7 +10,7 @@ WHAT IS SENT: the verified document quote, the verified clause quote and the col
 
 THE ONE SOCKET. Every call goes through `model_transport.post_json_retrying` (the repo's pattern for local calls: one
 retry after a timeout only). This module opens no socket and imports no http library. The destination is
-`settings.ollama_url`, re-validated as loopback by `model_transport.endpoint` before every request; `model_transport`
+the configured Ollama URL, re-validated as loopback by `model_transport.endpoint` before every request; `model_transport`
 takes no per-call URL, so the `url` argument here is only a CHECK: if given and it differs from the current setting the
 call is refused (agree None) and nothing is sent. To point a run at the TEST Ollama (port 11435) the caller sets
 OLLAMA_URL=http://127.0.0.1:11435 in the PROCESS environment before the app starts, never in `backend/.env`.
@@ -35,7 +35,6 @@ from contextlib import contextmanager
 
 from app import heavy_lock, model_memory, model_transport
 from app.agent_trace import words
-from app.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +151,11 @@ class LocalSecondOpinion:
     def _url_matches(self) -> bool:
         if self.url is None:
             return True
-        return str(self.url).rstrip("/") == str(settings.ollama_url).rstrip("/")
+        try:
+            current = model_transport.endpoint("/api/chat")
+        except Exception:  # noqa: BLE001 - a refused host or stopped engine is a mismatch; nothing is sent
+            return False
+        return current == str(self.url).rstrip("/") + "/api/chat"
 
     def second_opinion(self, finding: dict, evidence: dict, **_kw) -> dict:
         if not self._url_matches():

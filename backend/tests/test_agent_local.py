@@ -116,7 +116,9 @@ def test_request_body_only_allowed_fields(sent):
 
 def test_url_mismatch_sends_nothing(sent, monkeypatch):
     calls, _ = sent
-    monkeypatch.setattr(al.settings, "ollama_url", "http://127.0.0.1:11434")
+    monkeypatch.setattr(
+        model_transport.settings, "ollama_url", "http://127.0.0.1:11434"
+    )
     out = al.LocalSecondOpinion(url="http://127.0.0.1:11435").second_opinion(
         FINDING, EVID
     )
@@ -279,3 +281,25 @@ def test_red_is_sent(sent):
     assert (
         al.LocalSecondOpinion().second_opinion({"color": "RED"}, EVID)["agree"] is False
     )
+
+
+def test_url_match_sends_and_non_loopback_is_refused(sent, monkeypatch):
+    calls, box = sent
+    box["answer"] = reply('{"agree": true}')
+    monkeypatch.setattr(
+        model_transport.settings, "ollama_url", "http://127.0.0.1:11435"
+    )
+    assert (
+        al.LocalSecondOpinion(url="http://127.0.0.1:11435/").second_opinion(
+            FINDING, EVID
+        )["agree"]
+        is True
+    )
+    assert len(calls) == 1
+    monkeypatch.setattr(
+        model_transport.settings, "ollama_url", "http://example.com:11435"
+    )
+    out = al.LocalSecondOpinion(url="http://example.com:11435").second_opinion(
+        FINDING, EVID
+    )
+    assert out["agree"] is None and len(calls) == 1
