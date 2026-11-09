@@ -30,11 +30,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import unicodedata
 from contextlib import contextmanager
 
 from app import heavy_lock, model_memory, model_transport
 from app.agent_trace import words
+from app.word_fold import fold_compat
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +52,6 @@ SYSTEM = (
 )
 OPEN, CLOSE = "<<<QUOTE_7f3a9c>>>", "<<<END_QUOTE_7f3a9c>>>"
 _TOKEN = "7f3a9c"
-_FORMAT_CHARS = re.compile("[\u200b-\u200f\u2060\ufeff]")
 _FRAGMENTS = ("<<", ">>", "quote_")
 
 
@@ -60,7 +59,7 @@ def _fence(text) -> str:
     """The quote itself. If it holds ANY fragment of the marker family (after NFKC fold, format characters removed,
     lowercase) it is refused: stripping is never relied on, because a stripped marker can re-form."""
     raw = str(text or "")
-    norm = _FORMAT_CHARS.sub("", unicodedata.normalize("NFKC", raw)).lower()
+    norm = fold_compat(raw)
     if any(f in norm for f in _FRAGMENTS) or _TOKEN in norm:
         raise QuoteHoldsMarker
     return raw

@@ -303,3 +303,15 @@ def test_url_match_sends_and_non_loopback_is_refused(sent, monkeypatch):
         FINDING, EVID
     )
     assert out["agree"] is None and len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "evil",
+    ["ﬁ QUOTE_7f3a9c", "x ­QUO⁠TE_​7f3a9c", "ＱＵＯＴＥ_7f3a9c"],
+)
+def test_ligature_soft_hyphen_and_fullwidth_refuse(sent, evil):
+    calls, _ = sent
+    out = al.LocalSecondOpinion().second_opinion(
+        FINDING, {"doc_quote": evil, "clause_quote": CLQ}
+    )
+    assert out["agree"] is None and calls == []
