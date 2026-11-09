@@ -46,7 +46,7 @@ def ask_second_opinion(opinion: Any, finding: dict, trace: Any) -> dict:
     evidence = {k: finding.get(k) for k in ("doc_quote", "clause_quote")}
     try:
         reply = opinion.second_opinion(
-            {k: finding.get(k) for k in ("item", "color", "judge")}, evidence
+            {k: finding.get(k) for k in ("item", "color", "judge", "claim")}, evidence
         )
     except Exception as exc:
         if getattr(exc, "fatal", False):

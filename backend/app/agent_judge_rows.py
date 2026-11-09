@@ -18,10 +18,10 @@ import os
 import re
 from copy import copy
 from pathlib import Path
-from typing import Any
 
 import openpyxl
 
+from .agent_judge_rules import row_pages
 from .agent_run_crs import _cell
 
 CRS_SHEET = "CRS"
@@ -71,11 +71,6 @@ def _header(ws) -> tuple[int, dict[str, int]]:
     raise WorkbookLayout("no header row with the page, comment and standard columns")
 
 
-def _page_hint(text: Any) -> int | None:
-    found = re.search(r"\d+", str(text or ""))
-    return int(found.group(0)) if found else None
-
-
 def read_rows(path: str | os.PathLike) -> list[dict]:
     """A's claim rows: {'id','excel_row','item','page_section','page_hint','comment','standard_reference'}."""
     wb = _load(path)
@@ -89,31 +84,56 @@ def read_rows(path: str | os.PathLike) -> list[dict]:
         if _filled(cells) < MIN_FILLED:
             continue
         get = lambda name, r=r: ws.cell(r, cols[name]).value if name in cols else None  # noqa: E731
-        rows.append(
-            {
-                "id": f"J{len(rows) + 1}",
-                "excel_row": r,
-                "item": get(H_ITEM),
-                "page_section": get(H_PAGE),
-                "page_hint": _page_hint(get(H_PAGE)),
-                "comment": get(H_COMMENT),
-                "standard_reference": get(H_STANDARD),
-            }
-        )
+        row = {
+            "id": f"J{len(rows) + 1}",
+            "excel_row": r,
+            "item": get(H_ITEM),
+            "page_section": get(H_PAGE),
+            "comment": get(H_COMMENT),
+            "standard_reference": get(H_STANDARD),
+        }
+        row["pages"] = row_pages(
+            row
+        )  # the pages the row NAMES ('p. 3', 'pages 3 and 5'); a section number is not a page
+        row["page_hint"] = row["pages"][0] if row["pages"] else None
+        rows.append(row)
     return rows
 
 
+_ROW_ITEM = re.compile(r"^J?(\d+)(?:-J?(\d*))?$", re.IGNORECASE)
+
+
 def parse_row_ids(spec: str | None, total: int) -> list[str] | None:
-    """'1-5,9' or 'J1-J5,J9' -> ['J1',...,'J5','J9'] (kept inside 1..total); None when no spec."""
-    if not spec:
+    """'1-5,9' or 'J1-J5,J9' -> ['J1',...,'J5','J9']; '8-' is row 8 to the LAST row; None when there is no spec.
+
+    A bad spec is an error, never a silent empty selection: '8-5' (backwards), 'abc', '0', a negative number, an empty
+    item ('1,,2'), a row the file does not have."""
+    if spec is None or not str(spec).strip():
+        if spec is not None:
+            raise ValueError("--rows is empty")
         return None
     out: list[str] = []
-    for part in spec.split(","):
-        nums = [int(n) for n in re.findall(r"\d+", part)]
-        if not nums:
-            continue
-        lo, hi = nums[0], nums[-1]
-        out += [f"J{n}" for n in range(lo, hi + 1) if 1 <= n <= total]
+    for part in str(spec).split(","):
+        found = _ROW_ITEM.match(part.strip())
+        if not found:
+            raise ValueError(
+                f"--rows item '{part.strip()}' is not a row id or a range (use 3, J3, 2-5, 8-)"
+            )
+        lo = int(found.group(1))
+        hi = (
+            total
+            if (found.group(2) == "" and "-" in part)
+            else int(found.group(2) or lo)
+        )
+        if lo < 1 or hi < 1:
+            raise ValueError("--rows numbers start at 1")
+        if hi < lo:
+            raise ValueError(f"--rows range '{part.strip()}' runs backwards")
+        if hi > total:
+            raise ValueError(
+                f"--rows names row {hi}, but the workbook has {total} rows"
+            )
+        out += [f"J{n}" for n in range(lo, hi + 1)]
     return list(dict.fromkeys(out))
 
 

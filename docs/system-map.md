@@ -48,6 +48,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_judge` | The agent judge mode runner (off by default): judges system A's CRS rows one by one, a REMOVE needs the local second opinion, writes the judged workbook, decisions and RESULTS locally |
 | `agent_judge_tools` | The judge's toolbox: the agent tools plus `judge_row` (CONFIRM, REMOVE with a closed reason and code-verified evidence, UNSURE) |
 | `agent_judge_rows` | Reads system A's CRS workbook (never writes it) and writes the judged workbook the answer-key scorer can read |
+| `agent_judge_rules` | Ties a judge REMOVE to the row's claim: the row's subject, its page, absence words, values, numeric rows and scope clauses; pure functions |
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
 | `agent_local` | Local second opinion for the agent proof test (off by default): the local Qwen 35B through `model_transport`, heavy lock and unload around a batch, errors are codes only |

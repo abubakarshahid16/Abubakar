@@ -276,6 +276,16 @@ class TraceWriter:
         self.counts[colour if colour in self.counts else "not sure"] -= 1
         self._save_state()
 
+    def recolor(self, item_id: Any, colour: str) -> None:
+        """Change a finished item's colour in the counts (the judge counts a REMOVE only after the second opinion agreed)."""
+        old = self.completed.get(str(item_id))
+        if old is None or colour not in COLOURS or old == colour:
+            return
+        self.counts[old if old in self.counts else "not sure"] -= 1
+        self.counts[colour] += 1
+        self.completed[str(item_id)] = colour
+        self._save_state()
+
     def _ckpt_path(self, item_id: Any) -> Path:
         return self.root / f"{_file_id(item_id)}.ckpt.json"
 

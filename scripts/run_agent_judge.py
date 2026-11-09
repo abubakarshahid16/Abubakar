@@ -54,7 +54,7 @@ class SmokeJudge:
         }
 
 
-def make_judge_provider(kind: str):
+def make_judge_provider(kind: str, budget: float | None = None):
     """The lead provider, built ONCE per run. A missing module or a wrong constructor fails loudly (no fallback)."""
     if kind == "fake":
         return SmokeJudge()
@@ -64,7 +64,10 @@ def make_judge_provider(kind: str):
         raise SystemExit(
             f"provider 'claude' is not built yet: app.agent_claude is missing ({type(exc).__name__})"
         ) from None
-    return ClaudeProvider(model=LEAD_MODEL, system=agent_judge.JUDGE_SYSTEM)
+    # with a budget the provider's OWN meter stops the run (AgentBudgetStop, resumable) the moment it would be passed
+    return ClaudeProvider(
+        model=LEAD_MODEL, system=agent_judge.JUDGE_SYSTEM, total_cap_usd=budget
+    )
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
@@ -137,7 +140,7 @@ def main(argv: list[str] | None = None, env: dict | None = None, out=print) -> i
         agent_judge_rows.WorkbookLayout,
     ) as exc:
         out(f"refused: {exc}")
-    except (LookupError, FileNotFoundError, SystemExit) as exc:
+    except (LookupError, FileNotFoundError, SystemExit, ValueError) as exc:
         out(f"cannot start: {exc}")
     return 2
 
@@ -192,7 +195,7 @@ def _run(args: argparse.Namespace, out) -> int:
         out("database path check: DB_PATH is the copy")
     if args.dry_run:
         return _dry_run(args, rows, out)
-    provider = make_judge_provider(args.provider)
+    provider = make_judge_provider(args.provider, args.budget_usd)
     opinion = (
         make_second_opinion(args.local_model)
         if args.second_opinion == "local"

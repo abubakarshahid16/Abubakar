@@ -1,6 +1,7 @@
 """#1690 agent judge mode: invented workbook, invented database copy, fake providers. No model, no network."""
 
 import hashlib
+import re
 import sqlite3
 
 import openpyxl
@@ -31,7 +32,7 @@ PAGE1 = "General notes\nDesign pressure: 10 bar\nThe vessel is painted grey."
 PAGE2 = "Equipment: heat exchanger\nMaterial list: carbon steel shell."
 CLAUSE_PAGE = (
     "1 General\nIntro words.\n4.1 Working pressure\nThe design pressure shall be at least 8 bar.\n"
-    "4.2 Marking\nMark it clearly.\n4.3 Scope\nThis clause does not apply to heat exchangers.\n4.4 End\nOther."
+    "4.2 Marking\nMark it clearly.\n4.3 Scope\nThis clause does not apply to heat exchangers.\n4.4 End\nOther.\n4.5 Gaps\nA value that is not provided is a gap."
 )
 DOC_Q = "Design pressure: 10 bar"
 CLAUSE_Q = "The design pressure shall be at least 8 bar."
@@ -110,6 +111,8 @@ def copy_db(tmp_path):
         [
             ("D1", 1, PAGE1),
             ("D1", 2, PAGE2),
+            ("D1", 3, "Material list: not provided"),
+            ("D1", 4, "Material list:"),
             ("S1", 1, "Title\nIssue Date: 9 March 2021"),
             ("S1", 2, CLAUSE_PAGE),
         ],
@@ -188,9 +191,23 @@ def test_reader_finds_the_claim_rows_below_the_header(a_file):
 
 
 def test_row_selection_by_ids_and_ranges():
-    assert jr.parse_row_ids("1-3,5", 4) == ["J1", "J2", "J3"]
+    assert jr.parse_row_ids("1-3,5", 9) == ["J1", "J2", "J3", "J5"]
     assert jr.parse_row_ids("J2-J3,J2", 9) == ["J2", "J3"]
+    assert jr.parse_row_ids("8-", 10) == [
+        "J8",
+        "J9",
+        "J10",
+    ]  # an open range runs to the last row
     assert jr.parse_row_ids(None, 9) is None
+
+
+@pytest.mark.parametrize(
+    "spec",
+    ["8-5", "abc", "0", "-3", "1,,2", ",", "", "  ", "J0", "99", "1-99", "2-x", "1.5"],
+)
+def test_a_bad_rows_spec_is_an_error_never_an_empty_selection(spec):
+    with pytest.raises(ValueError):
+        jr.parse_row_ids(spec, 10)
 
 
 def test_writer_round_trip_keeps_the_layout_the_scorer_reads(a_file, tmp_path):
@@ -278,7 +295,12 @@ def box(copy_db):
     allowed = {"D1", "S1"}
     readers = ar.Readers(conn, allowed)
     rows = {"J1": {"comment": CLAIMS[0][2], "standard_reference": "ISO 9999 clause 4.1", "page_section": "p. 1"},
-            "J2": {"comment": CLAIMS[1][2], "standard_reference": "x", "page_section": "p. 2"}}  # fmt: skip
+            "J2": {"comment": CLAIMS[1][2], "standard_reference": "x", "page_section": "p. 2"},
+            "J3": {"comment": "Paint colour is not specified", "standard_reference": "x", "page_section": "p. 1"},
+            "J4": {"comment": "12 bar", "standard_reference": "x", "page_section": "p. 1"},
+            "J5": {"comment": "The material list is missing", "standard_reference": "x", "page_section": "4.2"},
+            "J6": {"comment": "Design pressure of 25 bar is wrong", "standard_reference": "x", "page_section": "p. 1"},
+            "J7": {"comment": "See clause 4.1.4.4 for the paint colour", "standard_reference": "x", "page_section": "p. 1"}}  # fmt: skip
     scope = {"allowed": frozenset(allowed), "document_id": "D1", "editions": EDITIONS}
     b = aj.default_toolbox(scope, readers, rows)
     b.ctx.current_item = "J2"
@@ -445,7 +467,7 @@ def test_a_remove_agreed_by_the_second_opinion_takes_the_row_out(
     assert other.unloaded == 1
     text = (run_dir / "RESULTS.md").read_text()
     assert (
-        "CONFIRM 1, REMOVE 1" in text
+        "CONFIRM 1 + REMOVED (second opinion agreed) 1" in text
         and "UNSURE 1" in text
         and "claude-sonnet-5-5" in text
         and "qwen-x" in text
@@ -466,25 +488,27 @@ def test_a_remove_the_second_opinion_does_not_confirm_keeps_the_row(
         a_file,
         copy_db,
         run_dir,
-        al.FakeProvider([remove(), remove(), remove()]),
-        second_opinion=Opinion([reply] * 3),
-        limit=1,
+        al.FakeProvider([remove()]),
+        second_opinion=Opinion([reply]),
+        rows="2",
     )
-    assert why in decision(s, "J1")["second"] and decision(s, "J1")["kept"] is True
+    assert why in decision(s, "J2")["second"] and decision(s, "J2")["kept"] is True
     assert len(read_kept(s)) == 3  # nothing removed
     assert (
         "AI judge: removal not confirmed"
-        in openpyxl.load_workbook(s["xlsx"])["CRS"].cell(10, 10).value
+        in openpyxl.load_workbook(s["xlsx"])["CRS"].cell(11, 10).value
     )
-    assert "vetoed or unavailable 1" in (run_dir / "RESULTS.md").read_text()
+    assert "REMOVE proposed, row stays 1" in (run_dir / "RESULTS.md").read_text()
 
 
 def test_without_a_second_opinion_no_row_is_ever_removed(a_file, copy_db, run_dir):
-    s = judge(a_file, copy_db, run_dir, al.FakeProvider([remove(), remove(), remove()]))
-    assert all(
-        "no second opinion available" in decision(s, f"J{i}")["second"]
-        for i in (1, 2, 3)
+    s = judge(
+        a_file,
+        copy_db,
+        run_dir,
+        al.FakeProvider([tool(decision="UNSURE"), remove(), tool(decision="UNSURE")]),
     )
+    assert "no second opinion available" in decision(s, "J2")["second"]
     assert (
         len(read_kept(s)) == 3
         and openpyxl.load_workbook(s["xlsx"])["Removed by AI judge"].max_row == 1
@@ -654,7 +678,10 @@ def test_live_md_labels_the_counts_confirm_unsure_remove(a_file, copy_db, run_di
         al.FakeProvider([confirm(), tool(decision="UNSURE"), tool(decision="UNSURE")]),
     )
     live = (run_dir / "LIVE.md").read_text()
-    assert "CONFIRM 1, UNSURE 2, REMOVE 0" in live
+    assert (
+        "CONFIRM 1, UNSURE (removals not confirmed stay here) 2, REMOVED (second opinion agreed) 0"
+        in live
+    )
 
 
 # ---- the cost projector ------------------------------------------------------------------------------------------
@@ -677,30 +704,58 @@ def test_the_projector_prints_cost_per_row_times_the_rows_left(
     assert len(lines) == 3
 
 
-def test_a_run_projected_over_the_budget_stops_resumable(a_file, copy_db, run_dir):
-    big = tmp = None
+class Dear:
+    """A provider whose every call costs USD 1.00 and ends the row (UNSURE)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, _m, _s):
+        self.calls += 1
+        return {
+            "tool": "judge_row",
+            "args": {"decision": "UNSURE"},
+            "reason": "r",
+            "usd": 1.0,
+        }
+
+
+def ten_rows(tmp_path):
     claims = [
         (str(n), "p. 1", f"claim {n}", "ISO 9999 clause 4.2") for n in range(1, 11)
     ]
-    a = make_a_xlsx(run_dir.parent / "ten.xlsx", claims)
-    s = judge(
-        a,
-        copy_db,
-        run_dir,
-        al.FakeProvider([tool(decision="UNSURE")] * 10),
-        budget_usd=0.5,
+    return make_a_xlsx(tmp_path / "ten.xlsx", claims)
+
+
+def test_a_budget_stops_before_the_row_that_could_pass_it(copy_db, run_dir, tmp_path):
+    a, p = ten_rows(tmp_path), Dear()
+    s = judge(a, copy_db, run_dir, p, budget_usd=1.0)
+    assert (
+        s["stopped"] == "the next row could pass the budget"
+        and s["rows_done"] == 1
+        and p.calls == 1
     )
-    assert s["stopped"] == "projected cost is over the budget" and s["rows_done"] == 3
-    assert "OVER the budget" in s["status_box"] or "over the budget" in s["status_box"]
-    s2 = judge(
-        a,
-        copy_db,
-        run_dir,
-        al.FakeProvider([tool(decision="UNSURE")] * 10),
-        budget_usd=100,
-    )
-    assert s2["rows_done"] == 10 and not s2["stopped"]
-    del big, tmp
+    assert s["spend"] == pytest.approx(1.0)  # never the 6.0 an unchecked run reached
+    assert "next row could pass the budget" in s["status_box"]
+    again = judge(
+        a, copy_db, run_dir, Dear(), budget_usd=100
+    )  # resumes: row 1 is not asked again
+    assert again["rows_done"] == 10 and not again["stopped"]
+
+
+def test_a_budget_of_two_and_a_half_stops_after_two_rows(copy_db, run_dir, tmp_path):
+    s = judge(ten_rows(tmp_path), copy_db, run_dir, Dear(), budget_usd=2.5)
+    assert s["rows_done"] == 2 and s["spend"] == pytest.approx(2.0)
+
+
+def test_no_budget_means_no_budget_stop(copy_db, run_dir, tmp_path):
+    s = judge(ten_rows(tmp_path), copy_db, run_dir, Dear())
+    assert s["rows_done"] == 10 and not s["stopped"]
+
+
+def test_the_claude_provider_gets_the_budget_as_its_own_hard_cap(cli):
+    pytest.importorskip("app.agent_claude")
+    assert cli.make_judge_provider("claude", 1.0).meter.cap == 1.0
 
 
 # ---- the CLI -----------------------------------------------------------------------------------------------------
@@ -755,7 +810,7 @@ def test_cli_dry_run_calls_no_model_and_declares_nothing(
     monkeypatch.setattr(
         cli,
         "make_judge_provider",
-        lambda _k: (_ for _ in ()).throw(AssertionError("built")),
+        lambda _k, _b=None: (_ for _ in ()).throw(AssertionError("built")),
     )
     lines = []
     args = cli_args(
@@ -894,27 +949,28 @@ def test_cli_builds_one_real_claude_provider_with_the_judge_system_text(cli):
     )
 
 
-def test_cli_exit_3_when_the_budget_stops_the_run(
-    cli, a_file, copy_db, tmp_path, monkeypatch
-):
-    class Paid:
-        def complete(self, _m, _s):
-            return {
-                "tool": "judge_row",
-                "args": {"decision": "UNSURE"},
-                "reason": "r",
-                "usd": 1.0,
-            }
-
-    monkeypatch.setattr(cli, "make_judge_provider", lambda _k: Paid())
-    claims = [
-        (str(n), "p. 1", f"claim {n}", "ISO 9999 clause 4.2") for n in range(1, 8)
-    ]
-    big = make_a_xlsx(tmp_path / "big.xlsx", claims)
+def test_cli_exit_3_when_the_budget_stops_the_run(cli, copy_db, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "make_judge_provider", lambda _k, _b=None: Dear())
     lines = []
-    args = cli_args(big, copy_db, tmp_path, "--provider", "fake", "--budget-usd", "2")
+    args = cli_args(
+        ten_rows(tmp_path),
+        copy_db,
+        tmp_path,
+        "--provider",
+        "fake",
+        "--budget-usd",
+        "2.5",
+    )
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 3
-    assert any("OVER the budget" in x for x in lines)
+    assert any("projected total" in x for x in lines)
+
+
+@pytest.mark.parametrize("spec", ["8-5", "abc", "0", "1,,2", "99"])
+def test_cli_rows_errors_are_clear_not_empty(cli, a_file, copy_db, tmp_path, spec):
+    lines = []
+    args = cli_args(a_file, copy_db, tmp_path, "--provider", "fake", "--rows", spec)
+    assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lines.append) == 2
+    assert "--rows" in lines[0] and not (tmp_path / "cli-run").exists()
 
 
 def test_remove_goes_through_the_existing_verifier(box, monkeypatch):
@@ -933,3 +989,302 @@ def test_remove_goes_through_the_existing_verifier(box, monkeypatch):
         and out["reason"] == "verify_refused:evidence_not_on_page"
     )
     assert box.ctx.findings.has("J2") is False
+
+
+# ---- review round: a REMOVE is tied to THE ROW'S claim ------------------------------------------------------------
+
+
+def rm(**extra):
+    """The arguments of the default REMOVE (already_stated on the material list row), changed by `extra`."""
+    return remove(**extra)["args"]
+
+
+def on_row(b, row_id):
+    b.ctx.current_item = row_id
+    return b
+
+
+def complies(**extra):
+    args = {"decision": "REMOVE", "reason_code": "complies", "page": 1, "doc_quote": DOC_Q, "standard": "ISO 9999",
+            "clause": "4.1", "clause_quote": CLAUSE_Q, "reason": "meets"}  # fmt: skip
+    args.update(extra)
+    return args
+
+
+def test_a_pressure_quote_cannot_remove_a_paint_colour_row(box):
+    out = call(on_row(box, "J3"), **complies())
+    assert out["accepted"] is False and out["reason"] == "subject_mismatch"
+    assert out["detail"]["row"] == ["colour", "paint"] and out["detail"][
+        "document_quote"
+    ] == ["design", "pressure"]
+    assert box.ctx.findings.has("J3") is False
+
+
+def test_complies_needs_the_row_the_document_quote_and_the_clause_quote_to_share_one_subject(
+    box,
+):
+    on_row(box, "J1")
+    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
+    assert (
+        call(box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}]))[
+            "accepted"
+        ]
+        is True
+    )
+
+
+def test_not_applicable_needs_a_scope_clause_and_a_document_quote_that_names_the_kind(
+    box,
+):
+    on_row(box, "J3")
+    general = {"decision": "REMOVE", "reason_code": "not_applicable", "page": 1, "doc_quote": "General notes",
+               "standard": "ISO 9999", "clause": "4.2", "clause_quote": "Mark it clearly.", "reason": "scope"}  # fmt: skip
+    assert call(box, **general)["reason"] == "clause_is_not_a_scope_clause"
+    general.update(clause="4.3", clause_quote=SCOPE_Q)
+    assert call(box, **general)["reason"] == "document_quote_does_not_name_the_kind"
+
+
+def test_a_quote_that_says_not_provided_never_removes_an_already_stated_row(box):
+    on_row(box, "J2")
+    out = call(box, **rm(page=3, doc_quote="Material list: not provided"))
+    assert (
+        out["reason"] == "not_mentioned_is_never_a_reason_to_remove"
+        and box.ctx.findings.has("J2") is False
+    )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["the item was omitted", "there is no information", "the document does not state it", "the sheet lacks a value",
+     "it is not available", "the value is to be advised", "not specified", "the field is blank", "vendor to advise", "TBA"],
+)  # fmt: skip
+def test_absence_in_the_reason_blocks_a_remove(box, reason):
+    assert (
+        call(on_row(box, "J2"), **rm(reason=reason))["reason"]
+        == "not_mentioned_is_never_a_reason_to_remove"
+    )
+
+
+def test_ordinary_words_that_contain_an_absence_word_do_not_block_a_remove(box):
+    assert (
+        call(on_row(box, "J2"), **rm(reason="black paint list is stated"))["accepted"]
+        is True
+    )
+
+
+def test_the_clause_quote_is_checked_for_absence_too(box):
+    out = call(
+        on_row(box, "J2"),
+        **rm(clause="4.5", clause_quote="A value that is not provided is a gap."),
+    )
+    assert out["reason"] == "not_mentioned_is_never_a_reason_to_remove"
+    assert rules_absence("Value to be advised") and not rules_absence("Value: 10 bar")
+
+
+def rules_absence(text):
+    from app import agent_judge_rules as rules
+
+    return rules.absence(text)
+
+
+def test_already_stated_needs_the_row_subject_in_the_quote_and_a_value(box):
+    out = call(on_row(box, "J5"), **rm(page=4, doc_quote="Material list:"))
+    assert out["reason"] == "quote_carries_no_value"
+    out = call(on_row(box, "J2"), **rm(page=2, doc_quote="Equipment: heat exchanger"))
+    assert out["reason"] == "subject_mismatch" and out["detail"]["row"] == [
+        "list",
+        "material",
+    ]
+
+
+def test_the_page_must_be_the_rows_page_or_carry_the_subject_when_the_row_names_none(
+    box,
+):
+    assert (
+        call(
+            on_row(box, "J1"), **complies(page=2, doc_quote="Equipment: heat exchanger")
+        )["reason"]
+        == "page_not_the_rows_page"
+    )
+    assert (
+        call(on_row(box, "J5"), **rm(page=1, doc_quote="General notes"))["reason"]
+        == "page_not_the_rows_page"
+    )
+    assert (
+        call(on_row(box, "J5"), **rm(page=2))["accepted"] is True
+    )  # no page named: the subject words are on page 2
+
+
+def test_a_row_with_no_derivable_subject_can_never_be_removed_but_can_be_unsure(box):
+    out = call(on_row(box, "J4"), **complies())
+    assert out["reason"] == "row_subject_not_derived"
+    assert call(box, decision="UNSURE")["accepted"] is True
+
+
+def test_a_numeric_row_needs_the_figures_pair_to_be_exactly_the_remove_quotes(box):
+    on_row(box, "J1")
+    other = "The design pressure shall be at least 8 bar"  # not the REMOVE clause quote (no full stop)
+    box._compares[(DOC_Q, other)] = {"decided": True, "verdict": "meets"}
+    out = call(box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": other}]))
+    assert out["reason"] == "figures_not_the_remove_quotes"
+    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
+    assert (
+        call(box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}]))[
+            "accepted"
+        ]
+        is True
+    )
+
+
+def test_the_rows_own_number_must_be_one_of_the_compared_numbers(box):
+    on_row(box, "J6")  # the row speaks of 25 bar; the quotes hold 10 and 8
+    box._compares[(DOC_Q, CLAUSE_Q)] = {"decided": True, "verdict": "meets"}
+    out = call(
+        box, **complies(figures=[{"doc_quote": DOC_Q, "clause_quote": CLAUSE_Q}])
+    )
+    assert out["reason"] == "row_figure_not_compared"
+
+
+def test_a_clause_number_is_not_a_figure_so_it_does_not_make_a_row_numeric():
+    from app import agent_judge_rules as rules
+
+    assert rules.numeric_row("Design pressure of 10 bar is below the required 12 bar")
+    assert not rules.numeric_row("See clause 4.1.4.4 for the paint colour")
+    assert not rules.numeric_row("Paint per section 4.2, page 3 and item 7")
+    assert rules.figures_in("Set at 4.1.4.4 and 12 mm") == [("12", "mm")]
+    assert not rules.numeric_row(
+        "Per clause 4 in the standard"
+    )  # "in" is a unit, but 4 is a clause number here
+    assert not rules.numeric_row("See page 3 in the datasheet")
+    assert rules.numeric_row("The nozzle is 4 in too small")
+
+
+def test_the_second_opinion_sees_the_rows_claim_and_the_reason_code(
+    a_file, copy_db, run_dir
+):
+    other = Opinion([yes()])
+    judge(
+        a_file,
+        copy_db,
+        run_dir,
+        al.FakeProvider([remove()]),
+        second_opinion=other,
+        rows="2",
+    )
+    asked, evidence = other.calls[0]
+    assert asked["claim"] == CLAIMS[1][2] and asked["judge"] == "already_stated"
+    assert (
+        evidence["doc_quote"].startswith("Material")
+        and evidence["clause_quote"] == "Mark it clearly."
+    )
+
+
+def test_row_pages_ignore_a_section_number_but_read_pages_named_in_the_comment():
+    from app import agent_judge_rules as rules
+
+    assert rules.row_pages({"page_section": "4.1", "comment": "x"}) == []
+    assert rules.row_pages({"page_section": "12", "comment": "x"}) == [12]
+    assert rules.row_pages({"page_section": "", "comment": "see pages 3 and 5"}) == [
+        3,
+        5,
+    ]
+    assert jr.read_rows  # the reader fills `pages` from the same function
+
+
+def test_the_live_count_shows_a_remove_only_after_the_second_opinion_agreed(
+    a_file, copy_db, run_dir
+):
+    s = judge(
+        a_file,
+        copy_db,
+        run_dir,
+        al.FakeProvider([remove(), remove()]),
+        second_opinion=Opinion([yes()]),
+        rows="2",
+    )
+    assert "REMOVED (second opinion agreed) 1" in (run_dir / "LIVE.md").read_text()
+    run2 = run_dir.parent / "run2"
+    judge(
+        a_file, copy_db, run2, al.FakeProvider([remove()]), rows="2"
+    )  # no second opinion: stays
+    assert "REMOVED (second opinion agreed) 0" in (run2 / "LIVE.md").read_text()
+    assert s["rows_done"] == 1
+
+
+def test_results_add_up_and_say_what_was_not_judged(tmp_path, copy_db, run_dir):
+    claims = [(str(i), p, c, "ISO 9999 clause 4.2") for i, (p, c) in enumerate(
+        [("p. 1", CLAIMS[0][2]), ("p. 2", CLAIMS[1][2]), ("p. 2", CLAIMS[1][2]), ("p. 1", CLAIMS[2][2]), ("p. 1", CLAIMS[2][2]), ("p. 1", "x")], 1)]  # fmt: skip
+    a = make_a_xlsx(tmp_path / "six.xlsx", claims)
+
+    def boom(_m):
+        raise RuntimeError("down")
+
+    other = Opinion(
+        [yes(), {"agree": False, "reason": "r", "usd": 0.0, "model": "qwen-x"}]
+    )
+    provider = al.FakeProvider(
+        [confirm(), remove(), remove(), tool(decision="UNSURE"), boom, boom]
+    )
+    s = judge(a, copy_db, run_dir, provider, second_opinion=other, limit=5)
+    text = (run_dir / "RESULTS.md").read_text()
+    line = next(x for x in text.splitlines() if x.startswith("- Rows judged"))
+    nums = [
+        int(n)
+        for n in re.findall(
+            r"\b(\d+)\b", line.replace("by the agent", "").split("(by")[0]
+        )
+    ]
+    judged, confirm_n, removed, vetoed, unsure = (
+        nums[0],
+        nums[1],
+        nums[2],
+        nums[3],
+        nums[4],
+    )
+    assert (judged, confirm_n, removed, vetoed, unsure) == (
+        5,
+        1,
+        1,
+        1,
+        2,
+    ) and judged == confirm_n + removed + vetoed + unsure
+    assert "by the agent 1, by the step limit, an error or a stop 1" in line
+    assert (
+        "Rows selected: 5; judged: 5; untouched (not judged): 0" in text
+        and s["rows_done"] == 5
+    )
+
+
+def test_rows_the_run_did_not_reach_are_untouched_and_unchanged_in_the_judged_crs(
+    a_file, copy_db, run_dir
+):
+    s = judge(
+        a_file, copy_db, run_dir, al.FakeProvider([confirm()]), rows="1-2", limit=1
+    )
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "judged: 1; untouched (not judged): 0" in text
+    )  # selected 1 (the limit), judged 1
+    s2 = judge(
+        a_file,
+        copy_db,
+        run_dir.parent / "r2",
+        al.FakeProvider([confirm()]),
+        second_opinion=None,
+        rows="1",
+    )
+    ws = openpyxl.load_workbook(s2["xlsx"])["CRS"]
+    assert (
+        ws.cell(11, 10).value is None and ws.cell(12, 10).value is None
+    )  # J2, J3 were never touched
+    assert s["rows_done"] == 1
+
+
+def test_a_run_stopped_early_states_the_untouched_rows(copy_db, run_dir, tmp_path):
+    s = judge(ten_rows(tmp_path), copy_db, run_dir, Dear(), budget_usd=2.5)
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "Rows selected: 10; judged: 2; untouched (not judged): 8" in text
+        and "next row could pass the budget" in text
+    )
+    assert s["rows_done"] == 2

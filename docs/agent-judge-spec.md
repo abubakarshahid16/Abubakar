@@ -21,6 +21,12 @@ against <standard clause>".
   document kind), `already_stated` (a document quote on a page that states what the row says is missing).
   "Not mentioned" is never a reason. The evidence goes through the existing verifier (`ai_review_proposals.verify`, the
   remove path); quote checking is not reimplemented.
+- A REMOVE is tied to THE ROW'S claim, by code: the row's subject (the head noun phrase of its comment; not derivable means
+  the row can never be removed) must equal the subject of the document quote and of the clause quote (`complies`), or be in
+  the document quote (`already_stated`, which also needs a value and no absence words); the quote's page is the row's page
+  (or carries the subject when the row names none); `not_applicable` needs the clause to be a scope clause and a document
+  quote that names the kind; absence words in the quotes or reason refuse it; a numeric row (a figure with a unit) needs
+  the compared pair to be exactly the REMOVE quotes with the row's own number in it.
 - Every REMOVE additionally gets the LOCAL second opinion (`agent_local`, a different model family, same strict JSON
   rules, asked one question per reason code). A disagreement, no answer, an unknown or same-family model, or no second
   opinion at all: the row stays.
@@ -39,7 +45,7 @@ the responses), `LIVE.md`, `live.log`, traces.
 
 ## Cost control
 `--rows 1-5` and `--limit N` make a small cost check. A projector prints after the first rows (cost per row times the
-rows left). `--budget-usd` stops the run, resumable, when the projection passes it.
+rows left). `--budget-usd` is a hard cap on the provider's own meter and a pre-row check (spent plus the dearest row so far must stay within it); the run stops resumably before the row. `--rows` errors on a bad spec; `8-` means row 8 to the last.
 
 ## Done-gate
 `answer_key_score.py` on the judged workbooks against the current answer keys, compared with A alone. Adopt only if the
