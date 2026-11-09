@@ -50,7 +50,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_run_sweep` | Repeat runner for sweep items of the agent proof test: one skill item run again and again, each run told the quotes already recorded, until nothing new; every finding keeps the normal quote verification and is YELLOW |
 | `rule_finish` | The rule finishing line (steps a to g): limit and unit inside the quote, evidence source, fragments, testable conditions, quote found; may_decide and finish_status; proposals applied to a work copy only |
 | `rule_finish_store` | The finishing line's store (copy only): the `rule_finish_step` table, reading rules from a rulebook copy, applying a proposal |
-| `rule_finish_figures` | Reading the figures of a quote for step a (numbers by numparse, whole fractions included, units by claims) |
+| `rule_finish_figures` | The numbers of a quote for step a, fail closed: figures before a unit of the unit table, and every number token (any script, words, fractions) after the repo's reference stripping; no English decides anything |
 | `rule_finish_guard` | Where the finishing line may write: only a marked work copy, never the source, pages, app or live database |
 | `rule_finish_record` | Recording the finishing line's steps bound to the rule version, quote and content: code steps recomputed from the work copy, inputs and sample sheets issued by code, the engineer check and owner sample from files that answer an issued input, stale checks never counting |
 | `rule_finish_repair` | Applying an engineer's repair of a rule to a work copy, each part verified by code against the quote and the standard's page text |

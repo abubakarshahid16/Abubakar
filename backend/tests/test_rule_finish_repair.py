@@ -38,65 +38,58 @@ def test_a_fraction_is_one_figure_read_whole_never_its_denominator():
         )
 
 
-def test_a_filled_fraction_value_stands_and_its_denominator_does_not():
-    ok = rule(
-        quote="at least 3/4 inch",
-        kind="limit",
-        value=0.75,
-        unit="inch",
-        comparator=">=",
-    )
-    assert rf.limit_and_unit(ok)[0] == rf.PASS
-    for wrong in (4.0, 3.0):
-        assert rf.limit_and_unit(dict(ok, value=wrong))[:2] == (
-            rf.FAIL,
-            "value_not_in_quote",
-        )
-
-
-def test_a_slash_figure_numparse_does_not_read_whole_is_ambiguous_so_step_a_is_incomplete():
-    for quote in ("at least 1/2/3 inch of cover", "use 12/25/2019 mm"):
-        assert rf.limit_and_unit(rule(quote=quote))[:2] == (
-            rf.INCOMPLETE,
-            "figure_ambiguous",
-        )
-    assert (
-        rf.limit_and_unit(rule(quote="issued 12/25/2019 for the project"))[0]
-        == rf.NOT_APPLICABLE
-    )
-
-
-def test_a_denominator_does_not_stand_as_a_number_when_the_quote_has_no_unit_figure():
-    r = rule(
-        quote="The ratio shall be at least 3/4 of the total.",
-        kind="limit",
-        value=4.0,
-        unit="none",
-        comparator=">=",
-    )
-    assert rf.limit_and_unit(r)[:2] == (rf.FAIL, "value_not_in_quote")
-    assert rf.limit_and_unit(dict(r, value=0.75))[:2] == (
-        rf.INCOMPLETE,
-        "comparator_needs_engineer",
-    )
-
-
 # ------------------------------------------------------------------------------------------------ apply_proposal
 
 
-def test_apply_proposal_refuses_the_denominator_and_a_value_that_is_not_a_quoted_figure(
+def test_apply_proposal_proposes_value_and_unit_only_and_the_comparator_is_the_engineers(
     tmp_path,
 ):
     conn = copy(tmp_path, quote="The inlet shall be at least 3/4 inch.")
-    for bad in (4.0, 0.8):
-        with pytest.raises(ValueError):
+    for bad in (4.0, 0.8, 3.0):  # the denominator, a value that is not printed
+        with pytest.raises(ValueError, match="does not stand"):
+            rr.apply_proposal(conn, "v1", {"value": bad, "unit": "inch"}, "o")
+    with pytest.raises(ValueError, match="does not stand"):
+        rr.apply_proposal(conn, "v1", {"value": 0.75, "unit": "mm"}, "o")
+    for comparator in (">=", "<=", "garbage"):
+        with pytest.raises(ValueError, match="engineer_required"):
             rr.apply_proposal(
-                conn, "v1", {"value": bad, "unit": "inch", "comparator": ">="}, "o"
+                conn,
+                "v1",
+                {"value": 0.75, "unit": "inch", "comparator": comparator},
+                "o",
             )
+    assert st.latest_steps(conn, "v1") == {}
     rr.apply_proposal(
-        conn, "v1", {"value": 0.75, "unit": "inch", "comparator": ">="}, "o"
+        conn, "v1", {"value": 0.75, "unit": "inch", "comparator": "?"}, "o"
     )
-    assert st.latest_steps(conn, "v1")["a"]["reason"].startswith("proposal_applied")
+    rule_ = rec.rule_of(conn, "v1")
+    assert (rule_["value"], rule_["unit"], rule_["comparator"]) == (
+        0.75,
+        "inch",
+        None,
+    )  # no comparator from code
+    assert st.latest_steps(conn, "v1")["a"]["reason"].startswith(
+        "proposal_applied: engineer_confirmation_pending"
+    )
+
+
+def test_apply_proposal_takes_a_range_as_two_numbers_and_one_unit(tmp_path):
+    conn = copy(tmp_path, quote="Ambient shall be between 10 and 40 C.")
+    with pytest.raises(ValueError, match="does not stand"):
+        rr.apply_proposal(
+            conn, "v1", {"value_low": 10, "value_high": 45, "unit": "C"}, "o"
+        )
+    with pytest.raises(ValueError, match="engineer_required"):
+        rr.apply_proposal(
+            conn,
+            "v1",
+            {"value_low": 10, "value_high": 40, "unit": "C", "comparator": ">="},
+            "o",
+        )
+    with pytest.raises(ValueError):
+        rr.apply_proposal(conn, "v1", {"unit": "C"}, "o")
+    rr.apply_proposal(conn, "v1", {"value_low": 10, "value_high": 40, "unit": "C"}, "o")
+    assert rec.rule_of(conn, "v1")["value_high"] == 40
 
 
 def test_apply_proposal_resets_the_engineer_check_and_the_owner_sample(tmp_path):
@@ -107,9 +100,7 @@ def test_apply_proposal_resets_the_engineer_check_and_the_owner_sample(tmp_path)
     st._append_step(
         conn, "v1", "f", "pass", "ok", {}, checker="c", model="m", run_id="x"
     )
-    rr.apply_proposal(
-        conn, "v1", {"value": 0.75, "unit": "inch", "comparator": ">="}, "o"
-    )
+    rr.apply_proposal(conn, "v1", {"value": 0.75, "unit": "inch"}, "o")
     latest = st.latest_steps(conn, "v1")
     assert [(latest[s]["result"], latest[s]["reason"]) for s in "ef"] == [
         ("incomplete", "changed_after_check")
@@ -197,8 +188,8 @@ def test_a_verified_repair_is_applied_and_resets_e_and_f(tmp_path):
     assert rf.conditions_of(after)[0] == rf.PASS
     assert rf.limit_and_unit(after)[:2] == (
         rf.INCOMPLETE,
-        "comparator_needs_engineer",
-    )  # two figures: the engineer's
+        "engineer_confirmation_pending",
+    )  # the meaning is the engineer's
     assert conn.execute("SELECT COUNT(*) FROM rule_finish_repair").fetchone()[0] == 6
 
 

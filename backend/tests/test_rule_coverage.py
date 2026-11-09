@@ -18,17 +18,27 @@ def rules(*quotes, page=1):
     return [{"page": page, "quote": q} for q in quotes]
 
 
-def test_numeric_requirement_sentences_need_an_obligation_word_and_a_figure_with_a_unit():
+def test_a_numeric_requirement_has_an_obligation_word_and_any_number_token_fail_closed():
     result = rc.numeric_clause_coverage({1: PAGE}, [])
     assert (
         result["numeric"] == 3 and result["covered"] == 0 and result["uncovered"] == 3
     )
-    assert not rc.is_numeric_requirement(
+    assert rc.is_numeric_requirement(
         "The vendor shall paint the valve in 2 coats."
-    )  # 2 coats: no unit of the table
+    )  # a count: still a number
+    assert rc.is_numeric_requirement("The vendor shall fit ten bolts.")  # a number word
+    assert rc.is_numeric_requirement(
+        "The vendor shall use 10 liters of oil."
+    )  # a unit the table does not know
+    assert rc.is_numeric_requirement(
+        "The vendor shall use \u00bd of it."
+    )  # a vulgar fraction
     assert not rc.is_numeric_requirement(
         "The pipe is 50 mm in diameter."
     )  # no obligation
+    assert not rc.is_numeric_requirement(
+        "The vendor shall obey clause 4.2 and table 7 of API 610."
+    )  # references only
     assert rc.is_numeric_requirement("The pipe is required to be 50 mm in diameter.")
 
 

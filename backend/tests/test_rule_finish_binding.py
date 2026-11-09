@@ -31,114 +31,6 @@ ROOT = Path(__file__).resolve().parents[2]
 # ------------------------------------------------------------------------------------------------ proposals
 
 
-@pytest.mark.parametrize("bad", ["<=", "garbage", ">", None, ""])
-def test_apply_proposal_refuses_a_comparator_the_quote_does_not_give_the_figure(
-    tmp_path, bad
-):
-    conn = make_copy(
-        tmp_path / "w.sqlite", quote="The wall shall be at least 10 mm thick."
-    )
-    with pytest.raises(ValueError):
-        rr.apply_proposal(
-            conn, "v1", {"value": 10.0, "unit": "mm", "comparator": bad}, "o"
-        )
-    assert st.latest_steps(conn, "v1") == {}
-    rr.apply_proposal(
-        conn, "v1", {"value": 10.0, "unit": "mm", "comparator": ">="}, "o"
-    )
-
-
-@pytest.mark.parametrize(
-    "quote, good",
-    [
-        ("The wall shall not be less than 10 mm thick.", ">="),
-        ("The wall shall be not exceeding 10 mm.", "<="),
-        ("Height 10 mm maximum.", "<="),
-        ("Height 10 mm or more.", ">="),
-    ],
-)
-def test_the_simple_shape_gives_proposals_the_right_polarity(tmp_path, quote, good):
-    conn = make_copy(tmp_path / "w.sqlite", quote=quote)
-    for bad in ({">=": "<=", "<=": ">="}[good], "<" if good == ">=" else ">"):
-        with pytest.raises(ValueError):
-            rr.apply_proposal(
-                conn, "v1", {"value": 10.0, "unit": "mm", "comparator": bad}, "o"
-            )
-    rr.apply_proposal(
-        conn, "v1", {"value": 10.0, "unit": "mm", "comparator": good}, "o"
-    )
-
-
-@pytest.mark.parametrize(
-    "quote",
-    [
-        "The wall shall be at least 10 mm and at most 20 mm thick.",
-        "Not less than 10 mm nor more than 20 mm.",
-        "Height 10 mm minimum, 20 mm maximum.",
-        "At least 10 mm and 20 mm or less.",
-        "Wall is 5 mm (minimum) for 40 bar",
-        "A minimum of 4 bolts of 12 mm shall be fitted.",
-    ],
-)
-def test_a_proposal_outside_the_simple_shape_is_refused_as_engineer_required(
-    tmp_path, quote
-):
-    conn = make_copy(tmp_path / "w.sqlite", quote=quote)
-    value = {"The wall shall be at least 10 mm and at most 20 mm thick.": 10.0}.get(
-        quote, 10.0
-    )
-    for comparator in (">=", "<="):
-        with pytest.raises(ValueError, match="engineer_required"):
-            rr.apply_proposal(
-                conn,
-                "v1",
-                {"value": value, "unit": "mm", "comparator": comparator},
-                "o",
-            )
-    assert st.latest_steps(conn, "v1") == {}
-
-
-def test_a_range_proposal_is_for_the_closed_forms_and_has_no_comparator_of_its_own(
-    tmp_path,
-):
-    conn = make_copy(
-        tmp_path / "w.sqlite", quote="Ambient shall be between 10 and 40 C."
-    )
-    for bad in (
-        {"value_low": 10.0, "value_high": 40.0, "unit": "C", "comparator": ">="},
-        {"value_low": 40.0, "value_high": 40.0, "unit": "C"},
-    ):
-        with pytest.raises(ValueError):
-            rr.apply_proposal(conn, "v1", bad, "o")
-    rr.apply_proposal(
-        conn, "v1", {"value_low": 10.0, "value_high": 40.0, "unit": "C"}, "o"
-    )
-
-
-def test_apply_repair_stores_an_allowed_comparator_and_step_a_decides_whether_it_is_right(
-    tmp_path,
-):
-    conn = make_copy(
-        tmp_path / "w.sqlite", quote="The wall shall be at least 10 mm thick."
-    )
-    pages = {1: "The wall shall be at least 10 mm thick."}
-    out = rr.apply_repair(conn, "v1", {"comparator": "garbage"}, "o", pages=pages)
-    assert ("comparator", "comparator_not_allowed") in {
-        (x["part"], x["reason"]) for x in out["refused"]
-    }
-    rr.apply_repair(
-        conn,
-        "v1",
-        {"comparator": "<=", "figures": [{"value": 10.0, "unit": "mm"}]},
-        "o",
-        pages=pages,
-    )
-    assert rf.limit_and_unit(rec.rule_of(conn, "v1"))[:2] == (
-        rf.FAIL,
-        "comparator_mismatch",
-    )
-
-
 # ------------------------------------------------------------------------------------------------ H2 / M10 write guard
 
 
@@ -395,7 +287,9 @@ def two_figure_copy(tmp_path):
 
 def answer(tmp_path, conn, pages, name="out.json", **kw):
     """The engineer's output to a REAL issued input: what the lead's flow does."""
-    _, digest = rec.make_engineer_input(conn, "v1", tmp_path / "issued", pages)
+    _, digest = rec.make_engineer_input(
+        conn, "v1", tmp_path / "issued", pages, trace_root=tmp_path
+    )
     rule_ = rec.rule_of(conn, "v1")
     data = {
         "rule_key": rule_["rule_key"],
@@ -406,6 +300,7 @@ def answer(tmp_path, conn, pages, name="out.json", **kw):
         "checker_kind": rec.CHECKER_KIND,
         "verdict": "OK",
         "confirmed_figures": CONFIRMED,
+        "accounted_numbers": [],
     }
     data.update(kw)
     out = tmp_path / name
@@ -417,7 +312,9 @@ def test_the_engineer_input_is_written_by_code_with_the_rule_the_pages_and_the_c
     tmp_path,
 ):
     conn, pages = two_figure_copy(tmp_path)
-    path, digest = rec.make_engineer_input(conn, "v1", tmp_path / "issued", pages)
+    path, digest = rec.make_engineer_input(
+        conn, "v1", tmp_path / "issued", pages, trace_root=tmp_path
+    )
     doc = json.loads(path.read_text())
     rule_ = rec.rule_of(conn, "v1")
     assert (
@@ -441,7 +338,7 @@ def test_step_a_passes_on_confirmed_figures_only_while_the_engineer_check_is_bou
     conn, pages = two_figure_copy(tmp_path)
     assert rec.record_code_step(conn, "v1", "a", run_id="x")[:2] == (
         rf.INCOMPLETE,
-        "comparator_needs_engineer",
+        "engineer_confirmation_pending",
     )
     out = answer(tmp_path, conn, pages)
     assert rec.record_engineer_check(conn, "v1", out, run_id="x") == rf.PASS
@@ -463,7 +360,7 @@ def test_step_a_passes_on_confirmed_figures_only_while_the_engineer_check_is_bou
     assert rec.current_steps(conn, "v1")["e"] == "incomplete"
     assert rec.record_code_step(conn, "v1", "a", run_id="z")[:2] == (
         rf.INCOMPLETE,
-        "comparator_needs_engineer",
+        "engineer_confirmation_pending",
     )
 
 
@@ -615,7 +512,9 @@ def test_step_f_is_bound_to_an_issued_sheet_sample_folder_version_quote_and_cont
     tmp_path,
 ):
     conn, _ = two_figure_copy(tmp_path)
-    sheet, digest = rec.make_sample_sheet(conn, "v1", tmp_path / "sheets", "s1", "01")
+    sheet, digest = rec.make_sample_sheet(
+        conn, "v1", tmp_path / "sheets", "s1", "01", trace_root=tmp_path
+    )
     assert json.loads(sheet.read_text())["rule"][
         "content_sha256"
     ] == rec.content_sha256(rec.rule_of(conn, "v1"))
@@ -660,16 +559,22 @@ def test_step_f_is_bound_to_an_issued_sheet_sample_folder_version_quote_and_cont
                 conn, "v1", sid, _tick(tmp_path, conn, digest, **kw), run_id="z"
             )
     with pytest.raises(ValueError):
-        rec.make_sample_sheet(conn, "v1", tmp_path / "sheets", "", "01")
+        rec.make_sample_sheet(
+            conn, "v1", tmp_path / "sheets", "", "01", trace_root=tmp_path
+        )
     with pytest.raises(ValueError):
-        rec.make_sample_sheet(conn, "v1", tmp_path / "sheets", "s1", " ")
+        rec.make_sample_sheet(
+            conn, "v1", tmp_path / "sheets", "s1", " ", trace_root=tmp_path
+        )
 
 
 def test_the_same_tick_file_cannot_be_recorded_again_after_the_content_changed(
     tmp_path,
 ):
     conn, _ = two_figure_copy(tmp_path)
-    _, digest = rec.make_sample_sheet(conn, "v1", tmp_path / "sheets", "s1", "01")
+    _, digest = rec.make_sample_sheet(
+        conn, "v1", tmp_path / "sheets", "s1", "01", trace_root=tmp_path
+    )
     tick = _tick(tmp_path, conn, digest)
     assert rec.record_owner_sample(conn, "v1", "s1", tick, run_id="1") == rf.PASS
     rr.apply_repair(conn, "v1", {"conditions": ["flanged"]}, "o", pages={1: "x"})
@@ -692,7 +597,7 @@ def test_a_check_bound_to_another_version_or_to_older_content_is_stale(tmp_path)
     assert (
         rec.current_steps(conn, "v1")["e"] == "stale"
     )  # the content changed under a check that was not reset
-    assert "confirmed_figures" not in rec.rule_of(conn, "v1")
+    assert "engineer_check" not in rec.rule_of(conn, "v1")
     conn.execute("DELETE FROM rule_finish_repair WHERE kind = 'exception'")
     conn.commit()
     ev = dict(st.latest_steps(conn, "v1")["e"]["evidence"], rule_version_id="v2")
@@ -706,9 +611,11 @@ def test_a_check_bound_to_another_version_or_to_older_content_is_stale(tmp_path)
     st._append_step(
         conn, "v1", "e", "fail", "not ok", ev, checker="c", model="m", run_id="r"
     )
-    assert "confirmed_figures" not in rec.rule_of(
-        conn, "v1"
-    )  # only a PASS check confirms figures
+    assert rec.rule_of(conn, "v1")["engineer_check"]["result"] == "fail"
+    assert rf.limit_and_unit(rec.rule_of(conn, "v1"))[:2] == (
+        rf.INCOMPLETE,
+        "engineer_not_ok",
+    )  # only a PASS confirms
 
 
 def test_a_check_bound_to_an_earlier_quote_or_content_is_stale_and_never_counts(
@@ -716,7 +623,9 @@ def test_a_check_bound_to_an_earlier_quote_or_content_is_stale_and_never_counts(
 ):
     conn, pages = two_figure_copy(tmp_path)
     rec.record_engineer_check(conn, "v1", answer(tmp_path, conn, pages), run_id="x")
-    _, digest = rec.make_sample_sheet(conn, "v1", tmp_path / "sheets", "s1", "01")
+    _, digest = rec.make_sample_sheet(
+        conn, "v1", tmp_path / "sheets", "s1", "01", trace_root=tmp_path
+    )
     rec.record_owner_sample(conn, "v1", "s1", _tick(tmp_path, conn, digest), run_id="x")
     assert (rec.current_steps(conn, "v1")["e"], rec.current_steps(conn, "v1")["f"]) == (
         "pass",
@@ -751,14 +660,14 @@ def test_a_check_bound_to_an_earlier_quote_or_content_is_stale_and_never_counts(
 def test_a_stale_check_does_not_give_step_a_its_confirmed_figures(tmp_path):
     conn, pages = two_figure_copy(tmp_path)
     rec.record_engineer_check(conn, "v1", answer(tmp_path, conn, pages), run_id="x")
-    assert "confirmed_figures" in rec.rule_of(conn, "v1")
+    assert "engineer_check" in rec.rule_of(conn, "v1")
     conn.execute(
         "UPDATE rulebook_provenance SET quote = ? WHERE rule_version_id = 'v1'",
         (f"The inlet shall be {TWO} and more.",),
     )
     conn.commit()
     guard._write_marker(conn, guard._real(tmp_path / "w.sqlite"), "source-of-this-copy")
-    assert "confirmed_figures" not in rec.rule_of(conn, "v1")
+    assert "engineer_check" not in rec.rule_of(conn, "v1")
 
 
 def test_a_marker_key_file_must_be_private_long_enough_and_is_created_once(
@@ -882,3 +791,318 @@ def test_a_lost_race_creating_the_key_file_reads_the_winners_file(
 
     monkeypatch.setattr(os, "open", losing)
     assert guard._key() == b"w" * 64
+
+
+# ------------------------------------------------------------------------------------------------ e follows the stored figures
+
+
+def test_a_second_engineer_check_that_differs_from_the_stored_figures_is_recorded_as_a_fail_and_step_a_follows(
+    tmp_path,
+):
+    conn, pages = two_figure_copy(tmp_path)
+    assert (
+        rec.record_engineer_check(conn, "v1", answer(tmp_path, conn, pages), run_id="1")
+        == rf.PASS
+    )
+    assert rec.current_steps(conn, "v1")["a"] == rf.PASS  # a follows the current e
+    other = [dict(f, comparator="<=") for f in CONFIRMED]
+    second = answer(
+        tmp_path, conn, pages, name="second.json", confirmed_figures=other
+    )  # OK, but another comparator
+    assert rec.record_engineer_check(conn, "v1", second, run_id="2") == rf.FAIL
+    row = st.latest_steps(conn, "v1")["e"]
+    assert (row["result"], row["reason"]) == ("fail", "engineer_figures_differ")
+    assert rec.current_steps(conn, "v1")["a"] == rf.INCOMPLETE
+    assert st.latest_steps(conn, "v1")["a"]["reason"].endswith(
+        "engineer_not_ok"
+    )  # recorded when e was recorded
+    assert (
+        rec.record_engineer_check(
+            conn, "v1", answer(tmp_path, conn, pages, name="third.json"), run_id="3"
+        )
+        == rf.PASS
+    )
+    assert rec.current_steps(conn, "v1")["a"] == rf.PASS
+
+
+def test_step_a_is_derived_from_the_current_engineer_check_whenever_it_is_read(
+    tmp_path,
+):
+    conn, _ = two_figure_copy(tmp_path)
+    rec.record_code_step(conn, "v1", "a", run_id="x")  # recorded while no e exists
+    st._append_step(
+        conn, "v1", "a", "pass", "forged", {}, checker="c", model="m", run_id="r"
+    )  # a stored pass is not read
+    assert rec.current_steps(conn, "v1")["a"] == rf.INCOMPLETE
+
+
+def test_confirmed_figures_and_accounted_numbers_of_the_wrong_shape_are_refused_cleanly(
+    tmp_path,
+):
+    conn, pages = two_figure_copy(tmp_path)
+    for change in (
+        {"confirmed_figures": [1]},
+        {"confirmed_figures": ["x"]},
+        {"confirmed_figures": [None]},
+        {"confirmed_figures": {"a": 1}},
+        {"confirmed_figures": [{"kind": "range", "low": "x", "high": 2, "unit": "C"}]},
+        {"accounted_numbers": None},
+        {"accounted_numbers": ["4"]},
+        {"accounted_numbers": [{"token": "4"}]},
+        {"accounted_numbers": [{"token": "4", "reason": "because"}]},
+        {"accounted_numbers": [{"token": "", "reason": "count"}]},
+        {"accounted_numbers": [None]},
+        {"accounted_numbers": [{"token": 4, "reason": "count"}]},
+    ):
+        with pytest.raises(ValueError, match="refused"):
+            rec.record_engineer_check(
+                conn, "v1", answer(tmp_path, conn, pages, **change), run_id="x"
+            )
+
+
+def test_the_engineer_input_lists_the_number_tokens_and_the_closed_reasons(tmp_path):
+    conn, pages = two_figure_copy(tmp_path)
+    path, _ = rec.make_engineer_input(
+        conn, "v1", tmp_path / "issued", pages, trace_root=tmp_path
+    )
+    doc = json.loads(path.read_text())
+    assert doc["number_tokens"] == ["3/4", "1"] and doc["account_reasons"] == [
+        "count",
+        "designator",
+        "reference",
+        "other_engineer_ok",
+    ]
+    for key in ("field", "kind", "strength", "clause", "page", "quote"):
+        assert key in doc["rule"]
+
+
+@pytest.mark.parametrize(
+    "bad", ["../x", "a/b", "a b", "", "..", ".", "x" * 65, "a\\b", "x;y", "é"]
+)
+def test_a_sample_id_for_a_file_name_has_no_separator_and_is_plain(tmp_path, bad):
+    conn, _ = two_figure_copy(tmp_path)
+    with pytest.raises(ValueError, match=r"refused|required"):
+        rec.make_sample_sheet(
+            conn, "v1", tmp_path / "sheets", bad, "01", trace_root=tmp_path
+        )
+    assert not (tmp_path / "sheets").exists() or not list(
+        (tmp_path / "sheets").iterdir()
+    )
+    path, _ = rec.make_sample_sheet(
+        conn, "v1", tmp_path / "sheets", "s-1.a_b", "01", trace_root=tmp_path
+    )
+    assert path.name.startswith("s-1.a_b-")
+
+
+def test_inputs_and_sheets_are_written_inside_the_trace_folder_with_no_symlink_and_mode_0600(
+    tmp_path,
+):
+    conn, pages = two_figure_copy(tmp_path)
+    outside = tmp_path.parent / "outside-the-trace"
+    for call in (
+        lambda d: rec.make_engineer_input(
+            conn, "v1", d, pages, trace_root=tmp_path / "trace"
+        ),
+        lambda d: rec.make_sample_sheet(
+            conn, "v1", d, "s1", "01", trace_root=tmp_path / "trace"
+        ),
+    ):
+        with pytest.raises(ValueError, match="inside the trace folder"):
+            call(outside)
+        with pytest.raises(ValueError, match="inside the trace folder"):
+            call(tmp_path / "trace" / ".." / "elsewhere")
+    (tmp_path / "trace").mkdir()
+    (tmp_path / "real").mkdir()
+    (tmp_path / "trace" / "link").symlink_to(tmp_path / "real")
+    with pytest.raises(ValueError, match="symlink"):
+        rec.make_engineer_input(
+            conn,
+            "v1",
+            tmp_path / "trace" / "link",
+            pages,
+            trace_root=tmp_path / "trace",
+        )
+    good = tmp_path / "trace" / "ok"
+    path, _ = rec.make_engineer_input(
+        conn, "v1", good, pages, trace_root=tmp_path / "trace"
+    )
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    path.unlink()
+    path.symlink_to(tmp_path / "real" / "target")
+    with pytest.raises(ValueError, match="symlink"):
+        rec.make_engineer_input(conn, "v1", good, pages, trace_root=tmp_path / "trace")
+
+
+def test_journeys_and_logs_are_written_mode_0600(tmp_path):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import rule_finish_run as run
+
+    target = tmp_path / "journey.json"
+    run.write_private(target, "x")
+    target.chmod(0o644)
+    run.write_private(target, "y")
+    assert target.read_text() == "y" and oct(target.stat().st_mode & 0o777) == "0o600"
+    log = tmp_path / "run.jsonl"
+    log.write_text("old\n")
+    log.chmod(0o644)
+    with run.open_private(log) as handle:
+        handle.write("new\n")
+    assert (
+        log.read_text() == "old\nnew\n" and oct(log.stat().st_mode & 0o777) == "0o600"
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"step": "z"},
+        {"result": "maybe"},
+        {"reason": ""},
+        {"reason": "  "},
+        {"run_id": ""},
+        {"run_id": " "},
+        {"model": ""},
+        {"model": " "},
+        {"checker": ""},
+        {"checker": " "},
+    ],
+)
+def test_the_one_writer_of_steps_refuses_an_unknown_step_or_result_and_every_empty_field(
+    tmp_path, kwargs
+):
+    conn = make_copy(tmp_path / "w.sqlite")
+    args = {
+        "step": "a",
+        "result": "pass",
+        "reason": "r",
+        "run_id": "x",
+        "model": "m",
+        "checker": "c",
+    }
+    args.update(kwargs)
+    with pytest.raises(ValueError):
+        st._append_step(
+            conn,
+            "v1",
+            args["step"],
+            args["result"],
+            args["reason"],
+            {},
+            checker=args["checker"],
+            model=args["model"],
+            run_id=args["run_id"],
+        )
+    assert st.latest_steps(conn, "v1") == {}
+    st._append_step(
+        conn, "v1", "a", "pass", "r", {}, checker="c", model="m", run_id="x"
+    )
+
+
+def test_a_count_the_engineer_accounts_for_lets_step_a_pass_and_an_unaccounted_one_does_not(
+    tmp_path,
+):
+    conn = make_copy(
+        tmp_path / "w.sqlite",
+        quote="At least 4 bolts of at least 12 mm shall be fitted.",
+    )
+    pages = make_pages_db(
+        tmp_path / "pages.sqlite",
+        {1: "At least 4 bolts of at least 12 mm shall be fitted."},
+    )
+    rr.apply_proposal(conn, "v1", {"value": 12, "unit": "mm"}, "o")
+    rr.apply_repair(conn, "v1", {"comparator": ">="}, "o", pages={1: "x"})
+    figures = [{"value": 12, "unit": "mm", "comparator": ">="}]
+
+    def answer_with(name, accounted):
+        _, digest = rec.make_engineer_input(
+            conn, "v1", tmp_path / "issued", pages, trace_root=tmp_path
+        )
+        r = rec.rule_of(conn, "v1")
+        data = {
+            "rule_key": r["rule_key"],
+            "rule_version_id": "v1",
+            "quote_sha256": rec.quote_sha256(r),
+            "content_sha256": rec.content_sha256(r),
+            "input_sha256": digest,
+            "checker_kind": rec.CHECKER_KIND,
+            "verdict": "OK",
+            "confirmed_figures": figures,
+            "accounted_numbers": accounted,
+        }
+        out = tmp_path / name
+        out.write_text(json.dumps(data))
+        return out
+
+    assert (
+        rec.record_engineer_check(conn, "v1", answer_with("a.json", []), run_id="1")
+        == rf.PASS
+    )
+    assert st.latest_steps(conn, "v1")["a"]["reason"].endswith("unaccounted_numbers")
+    assert rec.current_steps(conn, "v1")["a"] == rf.INCOMPLETE
+    counted = [{"token": "4", "reason": "count"}]
+    assert (
+        rec.record_engineer_check(
+            conn, "v1", answer_with("b.json", counted), run_id="2"
+        )
+        == rf.PASS
+    )
+    assert st.latest_steps(conn, "v1")["a"]["reason"].endswith(
+        "comparator_confirmed_by_engineer"
+    )
+    assert rec.current_steps(conn, "v1")["a"] == rf.PASS
+    assert rec.rule_of(conn, "v1")["engineer_check"]["accounted_numbers"] == counted
+
+
+def test_an_engineer_not_ok_with_other_figures_is_recorded_as_not_ok(tmp_path):
+    conn, pages = two_figure_copy(tmp_path)
+    other = [dict(f, comparator="<=") for f in CONFIRMED]
+    out = answer(tmp_path, conn, pages, verdict="NOT_OK", confirmed_figures=other)
+    assert rec.record_engineer_check(conn, "v1", out, run_id="x") == rf.FAIL
+    assert st.latest_steps(conn, "v1")["e"]["reason"] == "engineer_check_not_ok"
+
+
+def test_apply_proposal_needs_a_named_approver(tmp_path):
+    conn = make_copy(
+        tmp_path / "w.sqlite", quote="The wall shall be at least 10 mm thick."
+    )
+    for bad in ("", "  ", None):
+        with pytest.raises(ValueError, match="approver"):
+            rr.apply_proposal(conn, "v1", {"value": 10, "unit": "mm"}, bad)
+    assert st.latest_steps(conn, "v1") == {}
+
+
+def test_a_symlink_inside_the_trace_folder_is_refused_and_the_file_open_never_follows_one(
+    tmp_path, monkeypatch
+):
+    conn, pages = two_figure_copy(tmp_path)
+    root = tmp_path / "trace"
+    (root / "real").mkdir(parents=True)
+    (root / "link").symlink_to(
+        root / "real"
+    )  # a link to another place INSIDE the trace folder
+    with pytest.raises(ValueError, match="symlink"):
+        rec.make_engineer_input(conn, "v1", root / "link", pages, trace_root=root)
+    good = root / "ok"
+    path, _ = rec.make_engineer_input(conn, "v1", good, pages, trace_root=root)
+    target = root / "real" / "target"
+    target.write_text("do not overwrite")
+    path.unlink()
+    path.symlink_to(target)
+    monkeypatch.setattr(
+        Path, "is_symlink", lambda self: False
+    )  # only the open itself is left to refuse it
+    with pytest.raises(OSError):
+        rec.make_engineer_input(conn, "v1", good, pages, trace_root=root)
+    assert target.read_text() == "do not overwrite"
+
+
+def test_an_issued_file_is_mode_0600_whatever_the_umask(tmp_path):
+    conn, pages = two_figure_copy(tmp_path)
+    old = os.umask(0)
+    try:
+        path, _ = rec.make_engineer_input(
+            conn, "v1", tmp_path / "issued", pages, trace_root=tmp_path
+        )
+    finally:
+        os.umask(old)
+    assert oct(path.stat().st_mode & 0o777) == "0o600"

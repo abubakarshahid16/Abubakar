@@ -16,21 +16,27 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 
+from . import rule_finish_figures as ff
 from .rule_finish import (
+    ACCOUNT_REASONS,
     CODE_STEPS,
     COMPARATORS_ALLOWED,
     FAIL,
     INCOMPLETE,
     MODEL_NONE,
     PASS,
+    _stored_figures,
     conditions_of,
     evidence_source,
+    figure_key,
     fragments,
     limit_and_unit,
     quote_found,
+    same_figures,
 )
 from .rule_finish_guard import require_work_copy
 from .rule_finish_store import (
@@ -61,6 +67,11 @@ def content_sha256(rule: dict) -> str:
     evidence-source decision. A change to any of them is a change of content, and a check bound to the old content is
     stale."""
     payload = {
+        "field": rule.get("field"),
+        "kind": rule.get("kind"),
+        "strength": rule.get("strength"),
+        "clause": rule.get("clause"),
+        "page": rule.get("page"),
         "value": rule.get("value"),
         "value_low": rule.get("value_low"),
         "value_high": rule.get("value_high"),
@@ -96,13 +107,14 @@ def rule_of(conn: sqlite3.Connection, rule_version_id: str) -> dict:
         raise ValueError("no such rule version in this copy")
     rule = overlay_applied(conn, found[0])
     row = latest_steps(conn, rule_version_id).get("e")
-    if (
-        row
-        and row["result"] == PASS
-        and _bound_to(row["evidence"], rule_version_id, rule)
-    ):
+    if row and _bound_to(row["evidence"], rule_version_id, rule):
         rule = dict(
-            rule, confirmed_figures=row["evidence"].get("confirmed_figures") or []
+            rule,
+            engineer_check={
+                "result": row["result"],
+                "confirmed_figures": row["evidence"].get("confirmed_figures") or [],
+                "accounted_numbers": row["evidence"].get("accounted_numbers") or [],
+            },
         )
     return rule
 
@@ -197,16 +209,55 @@ def _issued(
     )
 
 
+SAFE_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+TRACE_ROOT = Path.home() / "project/mirror/trace"
+
+
+def _safe_name(*parts: str) -> str:
+    """A file name made of ids that are plain: letters, digits, _ . - (no separators), never dots alone."""
+    for part in parts:
+        if not SAFE_ID.fullmatch(part or "") or not part.strip("."):
+            raise ValueError(
+                "refused: an id for a file name must be 1 to 64 of letters, digits, _ . - (no separators)"
+            )
+    return "-".join(parts)
+
+
+def _safe_dir(out_dir: str | Path, trace_root: str | Path) -> Path:
+    """The folder an input or sheet is written to: inside the trace folder, with no symlink anywhere on its path."""
+    out, root = Path(out_dir), Path(trace_root)
+    if os.path.realpath(out) != os.path.normpath(Path(out).absolute()) or not Path(
+        os.path.realpath(out)
+    ).is_relative_to(os.path.realpath(root)):
+        raise ValueError(
+            "refused: the output folder must be inside the trace folder and hold no symlink"
+        )
+    return out
+
+
 def _issue(
-    conn, kind: str, rule: dict, document: dict, out_dir: str | Path, name: str, **extra
+    conn,
+    kind: str,
+    rule: dict,
+    document: dict,
+    out_dir: str | Path,
+    name: str,
+    trace_root: str | Path,
+    **extra,
 ) -> tuple[Path, str]:
     require_work_copy(conn)
     conn.execute(_ISSUED)
-    out = Path(out_dir)
+    out = _safe_dir(out_dir, trace_root)
     out.mkdir(parents=True, exist_ok=True)
     path = out / name
+    if path.is_symlink():
+        raise ValueError("refused: the output file is a symlink")
     raw = json.dumps(document, indent=1, sort_keys=True).encode("utf-8")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
     with os.fdopen(fd, "wb") as handle:
         handle.write(raw)
     digest = hashlib.sha256(raw).hexdigest()
@@ -260,6 +311,8 @@ def make_engineer_input(
     rule_version_id: str,
     out_dir: str | Path,
     pages_db: str | Path,
+    *,
+    trace_root: str | Path = TRACE_ROOT,
 ) -> tuple[Path, str]:
     """The input for the engineer helper, written by CODE: the rule's fields and content hash, and the standard's pages
     named by the rule's page and the next. Its sha256 is recorded as ISSUED; the engineer's output must carry it."""
@@ -272,6 +325,8 @@ def make_engineer_input(
         "kind": "engineer_input",
         "rule": _rule_document(rule),
         "pages": wanted,
+        "number_tokens": [raw for raw, _ in ff.number_tokens(rule["quote"] or "")],
+        "account_reasons": list(ACCOUNT_REASONS),
         "answer_with": [
             "rule_key",
             "rule_version_id",
@@ -280,11 +335,17 @@ def make_engineer_input(
             "input_sha256",
             "checker_kind",
             "verdict",
-            "confirmed_figures [{value, unit, comparator}]",
+            "confirmed_figures [{value, unit, comparator} | {low, high, unit, kind: range}]",
+            "accounted_numbers [{token, reason}]",
         ],
     }
-    name = f"{rule['rule_key'][:12]}-{rule_version_id[:12]}-{content_sha256(rule)[:12]}.input.json"
-    return _issue(conn, "e", rule, document, out_dir, name)
+    name = (
+        _safe_name(
+            rule["rule_key"][:12], rule_version_id[:12], content_sha256(rule)[:12]
+        )
+        + ".input.json"
+    )
+    return _issue(conn, "e", rule, document, out_dir, name, trace_root)
 
 
 def make_sample_sheet(
@@ -293,6 +354,8 @@ def make_sample_sheet(
     out_dir: str | Path,
     sample_id: str,
     folder: str,
+    *,
+    trace_root: str | Path = TRACE_ROOT,
 ) -> tuple[Path, str]:
     """The owner's sample sheet for one rule, written by code; its sha256 is recorded as ISSUED for this sample id and
     folder; the owner's tick file must carry it."""
@@ -305,20 +368,48 @@ def make_sample_sheet(
         "folder": folder,
         "rule": _rule_document(rule),
     }
-    name = f"{sample_id}-{rule['rule_key'][:12]}-{rule_version_id[:12]}.sheet.json"
+    name = (
+        _safe_name(sample_id, rule["rule_key"][:12], rule_version_id[:12])
+        + ".sheet.json"
+    )
     return _issue(
-        conn, "f", rule, document, out_dir, name, sample_id=sample_id, folder=folder
+        conn,
+        "f",
+        rule,
+        document,
+        out_dir,
+        name,
+        trace_root,
+        sample_id=sample_id,
+        folder=folder,
     )
 
 
 def _valid_figures(figures: object) -> bool:
-    return isinstance(figures, list) and all(
-        isinstance(f, dict)
-        and _is_num(f.get("value"))
-        and isinstance(f.get("unit"), str)
-        and f["unit"].strip()
-        and f.get("comparator") in COMPARATORS_ALLOWED
-        for f in figures
+    """confirmed_figures: a list of {value, unit, comparator} or {low, high, unit, kind: "range"}; every item well formed."""
+    if not isinstance(figures, list):
+        return False
+    for f in figures:
+        key = figure_key(f)
+        if (
+            key is None
+            or not isinstance(key[3 if key[0] == "range" else 2], str)
+            or not key[3 if key[0] == "range" else 2].strip()
+        ):
+            return False
+        if key[0] == "limit" and key[3] not in COMPARATORS_ALLOWED:
+            return False
+    return True
+
+
+def _valid_accounted(items: object) -> bool:
+    """accounted_numbers: a list of {token, reason} with the reason from the closed set."""
+    return isinstance(items, list) and all(
+        isinstance(a, dict)
+        and isinstance(a.get("token"), str)
+        and a["token"]
+        and a.get("reason") in ACCOUNT_REASONS
+        for a in items
     )
 
 
@@ -351,6 +442,8 @@ def _engineer_problems(conn, rule: dict, version_id: str, data: dict) -> list[st
         problems.append("bound to other content (the rule changed after this check)")
     if not _valid_figures(data.get("confirmed_figures")):
         problems.append("confirmed_figures missing or malformed")
+    if not _valid_accounted(data.get("accounted_numbers")):
+        problems.append("accounted_numbers missing or malformed")
     if not _issued(
         conn, "e", version_id, content_sha256(rule), data.get("input_sha256")
     ):
@@ -377,13 +470,16 @@ def record_engineer_check(
     if problems:
         raise ValueError("refused: " + "; ".join(problems))
     verdict = str(data["verdict"]).strip().upper().replace(" ", "_")
-    result = PASS if verdict == "OK" else FAIL
+    differs = verdict == "OK" and not same_figures(
+        _stored_figures(rule), data["confirmed_figures"]
+    )
+    result = PASS if verdict == "OK" and not differs else FAIL
     _append_step(
         conn,
         rule_version_id,
         "e",
         result,
-        f"engineer_check_{verdict.lower()}",
+        "engineer_figures_differ" if differs else f"engineer_check_{verdict.lower()}",
         {
             "file": path.name,
             "path": str(path),
@@ -395,11 +491,15 @@ def record_engineer_check(
             "content_sha256": content_sha256(rule),
             "input_sha256": data["input_sha256"],
             "confirmed_figures": data["confirmed_figures"],
+            "accounted_numbers": data["accounted_numbers"],
         },
         checker=CHECKER_KIND,
         model="Claude chat helper",
         run_id=run_id,
     )
+    record_code_step(
+        conn, rule_version_id, "a", run_id=run_id, note="engineer_check_recorded: "
+    )  # a follows e
     return result
 
 
@@ -474,6 +574,9 @@ def current_steps(conn: sqlite3.Connection, rule_version_id: str) -> dict[str, s
             and not _bound_to(row["evidence"], rule_version_id, rule)
         )
         out[step] = STALE if stale else row["result"]
+    out["a"] = limit_and_unit(rule_of(conn, rule_version_id))[
+        0
+    ]  # derived from the CURRENT e, whenever it is read
     return out
 
 

@@ -27,9 +27,8 @@ from .converter_gates import fold
 from .rule_finish import (
     COMPARATORS_ALLOWED,
     CONNECTION_WORDS,
-    PASS,
+    _stand,
     equipment_types_in,
-    limit_and_unit,
 )
 from .rule_finish_figures import fraction_spans
 from .rule_finish_guard import require_work_copy
@@ -141,59 +140,44 @@ def verify_text(text: str, rule: dict, pages: dict[int, str]) -> tuple[bool, str
 def apply_proposal(
     conn_copy: sqlite3.Connection, rule_version_id: str, proposal: dict, approver: str
 ) -> dict:
-    """Write a proposed value, unit and comparator into the WORK COPY (never automatic: only an explicit call, named
-    approver). Refuses an original database and a proposal whose value or unit does not stand in the rule's quote:
-    step a must pass with the proposal applied. The rulebook rows stay as they are (append-only); the applied figure is
-    kept in `rule_finish_applied` and step a is recorded as pass with reason `proposal_applied`."""
+    """Write a proposed value and unit (or the two ends of a range) into the WORK COPY (never automatic: only an explicit
+    call, named approver). Code verifies NUMBERS only: each number and the unit stand in the rule's quote (numparse, the
+    unit table). The comparator is the engineer's: a proposal with one is refused as `engineer_required`, and the stored
+    comparator stays empty until a verified repair sets it. The rulebook rows stay as they are (append-only); the applied
+    figure is kept in `rule_finish_applied` and step a is recomputed and recorded."""
     require_work_copy(conn_copy)
     if not (approver or "").strip():
         raise ValueError("an approver is required")
     rules = load_rules_by_version(conn_copy, rule_version_id)
     if not rules:
         raise ValueError("no such rule version in this copy")
-    unit = proposal.get("unit")
-    trial = dict(
-        rules[0],
-        value=proposal.get("value"),
-        value_low=proposal.get("value_low"),
-        value_high=proposal.get("value_high"),
-        unit=unit,
-        comparator=proposal.get("comparator"),
+    if proposal.get("comparator") not in (None, "", "?"):
+        raise ValueError(
+            "refused: engineer_required (a comparator is the engineer's, never code's)"
+        )
+    value, low, high, unit = (
+        proposal.get(k) for k in ("value", "value_low", "value_high", "unit")
     )
-    if trial["value"] is None and trial["value_low"] is None:
+    if value is None and low is None:
         raise ValueError("a proposal needs a value")
-    if ff.read(" ".join(str(rules[0].get("quote") or "").split())).shape not in (
-        "simple",
-        "range",
-    ):
+    quote = " ".join(str(rules[0].get("quote") or "").split())
+    item = (
+        ("limit", float(value), unit, None)
+        if value is not None
+        else ("range", float(low), float(high), unit)
+    )
+    wrong = _stand([item], ff.figures(quote), quote)
+    if wrong:
         raise ValueError(
-            "refused: engineer_required (code reads a comparator only in the simple shape or a closed range)"
-        )
-    # step a verifies value, unit AND the comparator (simple shape: the table's; closed range: low >=, high <=)
-    result, reason, _ = limit_and_unit(trial)
-    if result != PASS:
-        raise ValueError(
-            f"refused: the proposal does not stand in the quote ({reason})"
-        )
-    if trial["value"] is None and proposal.get("comparator"):
-        raise ValueError(
-            "refused: a range has no comparator of its own (low is >=, high is <=)"
+            f"refused: the proposal does not stand in the quote ({wrong[1]})"
         )
     ensure_table(conn_copy)
     conn_copy.execute(_APPLIED)
     at = now_utc()
     conn_copy.execute(
-        "INSERT INTO rule_finish_applied (rule_version_id, value, value_low, value_high, unit, comparator, approver, at) VALUES (?,?,?,?,?,?,?,?)",
-        (
-            rule_version_id,
-            trial["value"],
-            trial["value_low"],
-            trial["value_high"],
-            unit,
-            trial["comparator"],
-            approver,
-            at,
-        ),
+        "INSERT INTO rule_finish_applied (rule_version_id, value, value_low, value_high, unit, comparator, approver, at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (rule_version_id, value, low, high, unit, None, approver, at),
     )
     conn_copy.commit()
     record_code_step(
@@ -206,24 +190,13 @@ def apply_proposal(
         at=at,
     )
     reset_checks(conn_copy, rule_version_id, approver, at)
-    return trial
+    return {"value": value, "value_low": low, "value_high": high, "unit": unit}
 
 
 def _figure_problem(quote: str, value: float, unit: str | None) -> str | None:
-    """None when the figure `value unit` stands in the quote (numparse, the unit table), else the reason."""
-    reading = ff.read(quote)
-    if reading.incomplete:
-        return reading.incomplete
-    if not any(f.value == float(value) for f in reading.figures):
-        return "value_not_in_quote"
-    return (
-        None
-        if any(
-            f.value == float(value) and ff.unit_matches(unit, f)
-            for f in reading.figures
-        )
-        else "unit_not_in_quote"
-    )
+    """None when the number `value` and its `unit` stand in the quote (numparse, the unit table), else the reason."""
+    wrong = _stand([("limit", float(value), unit, None)], ff.figures(quote), quote)
+    return wrong[1] if wrong else None
 
 
 class _Check:

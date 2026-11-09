@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -41,6 +42,20 @@ PKT = ZoneInfo("Asia/Karachi")
 RED, RESET = "\033[31m", "\033[0m"
 LANE = "1"
 RUN_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def write_private(path: Path, text: str) -> None:
+    """A local file only the owner reads (journeys and logs hold numbers of a standard): mode 0600, even over an old file."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)
+
+
+def open_private(path: Path):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    path.chmod(0o600)
+    return os.fdopen(fd, "a", encoding="utf-8")
 
 
 def pkt_now() -> str:
@@ -125,9 +140,7 @@ def write_journey(
         "blocking_step": status.blocking,
     }
     path = out_dir / f"{rule['rule_key']}.json"
-    path.write_text(
-        json.dumps(journey, indent=2, sort_keys=True, default=str), encoding="utf-8"
-    )
+    write_private(path, json.dumps(journey, indent=2, sort_keys=True, default=str))
     return path
 
 
@@ -190,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     counts: dict[str, Counter] = {s: Counter() for s in rf.CODE_STEPS}
     errors: list[str] = []
     done = 0
-    with log_path.open("a", encoding="utf-8") as log:
+    with open_private(log_path) as log:
         for rule in rules:
             done += 1
             short = rule["rule_key"][:8]

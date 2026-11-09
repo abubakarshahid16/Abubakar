@@ -42,31 +42,6 @@ def rule(**kw) -> dict:
 # ------------------------------------------------------------------------------------------------ step a
 
 
-def test_a_figure_in_the_quote_with_nothing_filled_fails_and_proposes_without_applying():
-    r = rule(quote="The pump casing shall have a wall of at least 6 mm.")
-    result, reason, ev = rf.limit_and_unit(r)
-    assert (result, reason) == (rf.FAIL, "figure_not_filled")
-    (p,) = ev["proposed"]
-    assert (p["value"], p["unit"], p["comparator"], p["applied"]) == (
-        6.0,
-        "mm",
-        ">=",
-        False,
-    )
-    assert r["value"] is None and r["unit"] is None  # never applied silently
-
-
-def test_a_filled_value_and_unit_that_stand_in_the_quote_pass():
-    r = rule(
-        kind="limit",
-        value=6,
-        unit="mm",
-        comparator=">=",
-        quote="The wall shall be at least 6 mm thick.",
-    )
-    assert rf.limit_and_unit(r)[:2] == (rf.PASS, "value_and_unit_stand_in_quote")
-
-
 @pytest.mark.parametrize(
     "value, unit, reason",
     [
@@ -84,47 +59,6 @@ def test_a_value_or_unit_not_in_the_quote_fails(value, unit, reason):
         quote="The wall shall be at least 6 mm thick.",
     )
     assert rf.limit_and_unit(r)[:2] == (rf.FAIL, reason)
-
-
-def test_a_range_needs_both_ends_in_the_quote():
-    q = "Ambient temperature shall be between 10 and 40 C."
-    ok = rule(kind="range", value_low=10, value_high=40, unit="C", quote=q)
-    bad = rule(kind="range", value_low=10, value_high=45, unit="C", quote=q)
-    assert rf.limit_and_unit(ok)[0] == rf.PASS
-    assert rf.limit_and_unit(bad)[:2] == (rf.FAIL, "value_not_in_quote")
-
-
-@pytest.mark.parametrize(
-    "quote",
-    [
-        "Widgets shall be painted.",  # no number
-        "Issued 12 March 2025 under clause 4.3.2 for part PN-16.",  # a date, a clause and a part number
-        "See table 7 and item 5 of the list.",  # bare numbers
-    ],
-)
-def test_a_quote_with_no_figure_with_a_unit_is_not_applicable(quote):
-    assert rf.limit_and_unit(rule(quote=quote))[:2] == (
-        rf.NOT_APPLICABLE,
-        "no_figure_in_quote",
-    )
-
-
-def test_a_number_the_unit_table_does_not_know_is_not_a_figure():
-    assert (
-        rf.limit_and_unit(rule(quote="Provide 5 widgets per bay."))[0]
-        == rf.NOT_APPLICABLE
-    )
-
-
-def test_a_number_read_by_numparse_with_a_thousands_comma_stands():
-    r = rule(
-        kind="limit",
-        value=1000,
-        unit="kPa",
-        comparator="<=",
-        quote="The pressure shall not exceed 1,000 kPa.",
-    )
-    assert rf.limit_and_unit(r)[0] == rf.PASS
 
 
 # ------------------------------------------------------------------------------------------------ step b
@@ -347,14 +281,6 @@ def test_the_results_may_be_dicts_or_tuples():
     assert rf.may_decide(steps) is False
 
 
-def test_run_steps_alone_never_finishes_a_rule():
-    steps = rf.run_steps(rule(), PAGES)
-    assert set(steps) == set(rf.CODE_STEPS)
-    assert (
-        rf.may_decide({k: v[0] for k, v in steps.items()}) is False
-    )  # e and f are missing
-
-
 # ------------------------------------------------------------------------------------------------ the runner
 
 
@@ -408,15 +334,3 @@ def test_the_runner_pkt_time_is_asia_karachi():
     import rule_finish_run as run
 
     assert str(run.PKT) == "Asia/Karachi" and run.pkt_now().endswith(" PKT")
-
-
-def test_a_lone_letter_unit_after_a_space_is_read_as_the_figure_it_is():
-    q = "The vent shall be at least 15 m from any ignition source."
-    ok = rule(kind="limit", value=15, unit="m", comparator=">=", quote=q)
-    assert rf.limit_and_unit(ok)[:2] == (rf.PASS, "value_and_unit_stand_in_quote")
-    assert rf.limit_and_unit(rule(quote=q))[:2] == (rf.FAIL, "figure_not_filled")
-    # "a" is the word, not an ampere: no figure
-    assert (
-        rf.limit_and_unit(rule(quote="Give it 3 a coat of paint."))[0]
-        == rf.NOT_APPLICABLE
-    )

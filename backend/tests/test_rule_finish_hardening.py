@@ -1,6 +1,7 @@
-"""Step a, simple and closed: figures, units, the closed polarity table, the simple shape, engineer-confirmed figures (Lane 1).
-Every text here is INVENTED."""
+"""Step a, fail closed: code verifies NUMBERS and QUOTES, never meaning; the engineer's confirmed figures carry the meaning
+(Lane 1). Every text here is INVENTED."""
 
+# ruff: noqa: RUF001  (fullwidth digits and thin spaces are the point of these tests)
 from __future__ import annotations
 
 import json
@@ -11,443 +12,442 @@ from app import rule_finish as rf
 from app import rule_finish_figures as ff
 from tests.test_rule_finish_kit import marker_key, rule  # noqa: F401
 
-# ------------------------------------------------------------------------------------------------ H1 polarity table
-
-#: The closed table written out here, independently of the module, so a phrase dropped or changed there is caught.
-_GE = (
-    "at least",
-    "minimum",
-    "min.",
-    "min",
-    "not less than",
-    "no less than",
-    "not smaller than",
-    "not lower than",
-    "not fewer than",
-    "shall not be less than",
-    "shall not be smaller than",
-    "shall not be lower than",
-    "greater than or equal to",
-    ">=",
-    "\u2265",
-)
-_LE = (
-    "at most",
-    "maximum",
-    "max.",
-    "max",
-    "not more than",
-    "no more than",
-    "not greater than",
-    "no greater than",
-    "not higher than",
-    "no higher than",
-    "not exceeding",
-    "shall not exceed",
-    "not to exceed",
-    "shall not be more than",
-    "shall not be greater than",
-    "shall not be higher than",
-    "nor more than",
-    "nor greater than",
-    "nor exceeding",
-    "up to",
-    "less than or equal to",
-    "<=",
-    "\u2264",
-)
-TABLE = [
-    *((p, ">=") for p in _GE),
-    *((p, "<=") for p in _LE),
-    *((p, "=") for p in ("exactly", "equal to", "equals")),
-    *((p, ">") for p in ("more than", "greater than", "exceeding", "higher than")),
-    *((p, "<") for p in ("less than", "smaller than", "lower than", "fewer than")),
-]
+Q = "The wall shall be at least 10 mm thick."
 
 
-def test_the_table_is_exactly_the_closed_table():
-    assert sorted(TABLE) == sorted(
-        (p, s) for s, ps in ff.POLARITY_TABLE.items() for p in ps
-    )
+def eng(figures, accounted=(), result="pass"):
+    """What `rule_of` lays on a rule when an engineer check is bound to this version, quote and content."""
+    return {
+        "result": result,
+        "confirmed_figures": list(figures),
+        "accounted_numbers": list(accounted),
+    }
 
 
-@pytest.mark.parametrize("phrase, sym", TABLE)
-def test_every_phrase_of_the_closed_table_gives_its_comparator_in_the_simple_shape(
-    phrase, sym
-):
-    r = ff.read(f"The wall shall be {phrase} 10 mm thick.")
-    assert (r.shape, r.comparator, [f.value for f in r.figures]) == (
-        "simple",
-        sym,
-        [10.0],
-    )
+def limit(value=10, unit="mm", comparator=">="):
+    return {"value": value, "unit": unit, "comparator": comparator}
 
 
-@pytest.mark.parametrize(
-    "quote, comparator",
-    [
-        ("shall not be less than 10 mm", ">="),
-        ("not exceeding 10 mm", "<="),
-        ("no greater than 10 mm", "<="),
-        ("shall not be more than 10 mm", "<="),
-        ("not smaller than 10 mm", ">="),
-        ("less than 10 mm", "<"),
-        ("more than 10 mm", ">"),
-        ("10 mm minimum", ">="),
-        ("10 mm maximum", "<="),
-        ("10 mm or more", ">="),
-        ("10 mm or less", "<="),
-        ("10 mm or below", "<="),
-        ("10 mm or lower", "<="),
-        ("10 mm or fewer", "<="),
-        ("10 mm at the most", "<="),
-    ],
-)
-def test_the_simple_shape_reads_a_phrase_directly_before_or_a_trailing_word_directly_after(
-    quote, comparator
-):
-    r = ff.read(f"The wall is {quote} thick.")
-    assert (r.shape, r.comparator) == ("simple", comparator)
+def stored(quote=Q, check=None, **kw):
+    base = {
+        "quote": quote,
+        "kind": "limit",
+        "value": 10,
+        "unit": "mm",
+        "comparator": ">=",
+    }
+    if check is not None:
+        base["engineer_check"] = check
+    return rule(**{**base, **kw})
 
 
-@pytest.mark.parametrize(
-    "quote",
-    [
-        "At least 10 mm and 20 mm or less",
-        "Not more than 10 mm and 5 mm or more",
-        "Wall is 5 mm (minimum) for 40 bar",
-        "The design pressure shall be 40 bar, minimum wall 5 mm",
-        "10 mm minimum, 20 mm maximum",
-        "at least 10 mm and at most 20 mm",
-        "at least 10 mm but not more than 20 mm",
-        "at least 10 mm except 20 mm",
-        "at least 10 mm. 20 mm for valves",
-        "at least 3/4 inch for threaded valves and 1 inch for flanged valves",  # no inheritance, ever
-        "at least 10 mm and 20 mm",
-        "A minimum of 4 bolts of 12 mm shall be fitted.",  # a polarity phrase that governs a bare count
-        "At least 2 pumps with a 50 mm suction shall be provided.",
-        "At most 3 gaskets of 2 mm shall be used.",
-        "The wall is 5 mm (minimum).",  # a parenthetical polarity
-        "Minimum wall thickness shall be 5 mm.",  # the phrase is not directly before the figure
-        "Class 150 flanges shall be at least 10 mm.",  # a bare number elsewhere
-        "at least 10 mm minimum",  # two phrases
-        "not at least 10 mm",  # a negation the table does not use
-        "neither less than 5 mm",
-        "shall be 6 mm",  # no phrase
-        "10-40 C",  # a range in no closed form
-        "10 mm to 20 mm",
-        "at least 1 in 50 mm",
-    ],
-)
-def test_every_other_shape_is_complex_and_gets_no_comparator_from_code(quote):
-    r = ff.read(quote)
-    assert (r.shape, r.comparator) == ("complex", None), quote
-    q = rule(quote=quote)
-    result, reason, ev = rf.limit_and_unit(q)
-    assert (result, reason) == (rf.FAIL, "figure_not_filled") and ev[
-        "engineer_required"
-    ] is True
-    assert ev["proposed"] == []  # never a proposal outside the simple shape
+# ------------------------------------------------------------------------------------------------ no English decides anything
 
 
-@pytest.mark.parametrize(
-    "quote",
-    [
-        "between 10 and 40 C",
-        "Between 10 and 40 C",
-        "from 10 to 40 C",
-        "10 to 40 C",
-        "Range: between -10 and 40 C",
-    ],
-)
-def test_a_closed_range_form_has_its_two_ends_and_a_proposal_of_both(quote):
-    r = ff.read(quote)
-    assert r.shape == "range" and r.figures[0].value <= r.figures[1].value
-    _, _, ev = rf.limit_and_unit(rule(quote=quote))
-    assert [(p["comparator"], p["applied"]) for p in ev["proposed"]] == [
-        (">=", False),
-        ("<=", False),
-    ]
-    assert ev["engineer_required"] is False
-
-
-def test_other_range_shapes_are_not_closed_forms():
-    for quote in (
-        "between 10 and 40 C and 50 C",
-        "10 to 40 C or 50 C",
-        "between 10 and 40",
-        "and 10 to 40 C",
+def test_the_module_has_no_polarity_negation_or_shape_machinery_left():
+    for name in (
+        "POLARITY_TABLE",
+        "_NEGATION",
+        "_closed_range",
+        "_TRAILING",
+        "read",
+        "implied_comparator",
+        "SAFE_CASE_UNITS",
     ):
-        assert ff.read(quote).shape != "range", quote
-
-
-# ------------------------------------------------------------------------------------------------ units
+        assert not hasattr(ff, name), name
+    assert not hasattr(rf, "proposal_of") and not hasattr(rf, "run_steps")
 
 
 @pytest.mark.parametrize(
     "quote",
     [
-        "a gap of 10 mm/m",
-        "a gap of 10 psi/ft",
-        "a gap of 10 deg C",
-        "a gap of 10 \u00b0 C",
-        "a gap of 100 \u00baC",
-        "a gap of 10 in wc",
-        'a gap of 12"',
-        "a gap of 12''",
-        "a gap of 5 tons",
-        "a gap of 10 US gpm",
-        "a gap of 1e3 mm",
-        "a gap of 10 MM",
-        "a gap of 10 Mm",
-        "a gap of 10 M",
-        "a gap of 10 x 20 mm",
+        "The wall shall be at least 10 mm thick.",
+        "The wall shall not be less than 10 mm thick.",
+        "The wall shall be not more than 10 mm thick.",
+        "not between 10 and 40 C",
+        "outside 10 to 40 C",
+        "10 to 40 mm is not allowed",
+        "it isn't more than 10 mm",
+        "prohibited from exceeding 10 mm",
+        "unacceptable above 10 mm",
+        "forbidden over 10 mm",
+        "unless 10 mm is used",
+        "other than 10 mm",
+        "if less than 10 mm",
+        "at least 10 mm and 20 mm or less",
     ],
 )
-def test_a_number_with_a_unit_shape_the_table_does_not_read_is_incomplete_never_not_applicable(
+def test_the_same_numbers_never_pass_on_the_strength_of_the_english_around_them(quote):
+    """Code reads no English: whatever the words say, no engineer check means no pass, and a stored figure meets its
+    quote only by number and unit."""
+    first = ff.figures(quote)[0]
+    r = stored(quote, value=first.value, unit=first.unit)
+    assert rf.limit_and_unit(r)[0] in (rf.INCOMPLETE, rf.FAIL)
+    assert rf.limit_and_unit(rule(quote=quote))[0] in (rf.INCOMPLETE, rf.FAIL)
+    for comparator in (
+        ">=",
+        "<=",
+        "<",
+        ">",
+        "=",
+    ):  # an engineer check that differs from the stored comparator never passes
+        wrong = dict(
+            r,
+            comparator=">=",
+            engineer_check=eng([limit(first.value, first.unit, comparator)]),
+        )
+        got = rf.limit_and_unit(wrong)[:2]
+        assert (
+            got != (rf.PASS, "comparator_confirmed_by_engineer") or comparator == ">="
+        )
+
+
+# ------------------------------------------------------------------------------------------------ number tokens, fail closed
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Use 10 liters of oil",
+        "Use 10 kilopascals",
+        "Use 10 millimetres",
+        "Use 10 degrees Celsius",
+        "Use 10 °C",
+        "Use 10 ºC",
+        "Use 10 ℃",
+        "Use 10 in²",
+        "Use 10 MMSCFD",
+        "Use １０ mm",
+        "Use ١٠ mm",
+        "Use ten bar",
+        "Use 10 /min",
+        "Use 2 NPT",
+        "Use 10 ㎜",
+        "Use 10 ㎏",
+        "Use ½ inch",
+        "Use 三 bolts",
+        "Use 1e3 mm",
+        "Use 5.3.2 mm",
+        "Use 1/2/3 mm",
+        "Use 10 mm Hg",
+        "Use 10 in. H2O",
+        "Use 10 US gpm",
+        'Use 12"',
+        "Use 5 tons",
+        "Use 10 mm/m",
+        "Use 10 psi/ft",
+        "Use 100 ºF",
+        "Use twenty-five mm",
+        "Use hundreds of bolts",
+        "Use 2nd and 3rd",
+        "Use 1 000 mm",
+    ],
+)
+def test_a_number_the_figure_reader_does_not_know_is_never_no_figure_and_never_a_pass(
     quote,
 ):
     result, reason, _ = rf.limit_and_unit(rule(quote=quote))
-    assert result == rf.INCOMPLETE, (quote, reason)
-    filled = rule(quote=quote, kind="limit", value=10, unit="mm", comparator="=")
-    assert rf.limit_and_unit(filled)[0] == rf.INCOMPLETE
+    assert result in (rf.INCOMPLETE, rf.FAIL), (quote, result, reason)
+    assert ff.number_tokens(quote), quote
 
 
 @pytest.mark.parametrize(
     "quote",
     [
         "Widgets shall be painted.",
-        "Provide 3 stages.",
-        "issued 12 March 2025",
-        "see clause 4.1.2 and table 7",
-        "5 widgets per bay",
-    ],
+        "Use NPT threads and MMSCFD units.",
+        "Use liters and kilopascals only.",
+        "see clause 4.1.2 and table 7 of API 610 and note 2 on page 5, section 3, para 4.1, figure 3",
+        "per ISO 15156-3 and NACE MR0175",
+        "",
+    ][:-1],
 )
-def test_not_applicable_only_where_the_quote_has_no_number_and_unit_shape_at_all(quote):
+def test_not_applicable_only_where_the_quote_has_no_number_token_at_all(quote):
     assert rf.limit_and_unit(rule(quote=quote))[:2] == (
         rf.NOT_APPLICABLE,
-        "no_figure_in_quote",
+        "no_number_in_quote",
     )
 
 
-def test_a_unit_whose_capital_is_not_its_meaning_is_refused_and_the_safe_spellings_read():
-    for unit in ("MM", "Mm", "M", "S", "G"):
-        assert ff.read(f"at least 10 {unit}").incomplete == "unit_case_ambiguous"
-    for unit in ("kPa", "MPa", "C", "mm", "bar"):
-        assert ff.read(f"at least 10 {unit} thick").incomplete is None
-    (f,) = ff.figures("at least 10 mm")
-    assert ff.unit_matches("mm", f) and not ff.unit_matches("MM", f)
-    assert not ff.unit_matches(None, f) and not ff.unit_matches("", f)
-    assert not ff.unit_matches("mm", ff.Figure(1.0, "", 0, 1, 1, "1"))
-
-
-# ------------------------------------------------------------------------------------------------ step a: stored figures
-
-
-Q = "The wall shall be at least 10 mm thick."
-
-
-def stored(**kw):
-    base = {"quote": Q, "kind": "limit", "value": 10, "unit": "mm", "comparator": ">="}
-    return rule(**{**base, **kw})
-
-
-def test_a_simple_shape_passes_when_value_unit_and_comparator_are_the_quotes():
-    assert rf.limit_and_unit(stored())[:2] == (rf.PASS, "value_and_unit_stand_in_quote")
-    assert rf.limit_and_unit(stored(comparator="<="))[:2] == (
-        rf.FAIL,
-        "comparator_mismatch",
+def test_the_references_the_repo_strips_are_stripped_and_everything_else_counts():
+    assert (
+        ff.number_tokens(
+            "see clause 4.1.2, table 7, figure 3, note 2, page 5, section 3 and para 4.1"
+        )
+        == []
     )
-    assert rf.limit_and_unit(stored(comparator=None))[:2] == (
-        rf.FAIL,
-        "comparator_mismatch",
-    )
-    assert rf.limit_and_unit(stored(value=11))[:2] == (rf.FAIL, "value_not_in_quote")
-    assert rf.limit_and_unit(stored(unit="kPa"))[:2] == (rf.FAIL, "unit_not_in_quote")
-    assert rf.limit_and_unit(stored(unit=None))[:2] == (rf.FAIL, "unit_not_filled")
+    raw = [t for t, _ in ff.number_tokens("API 610 requires 12 bolts per clause 4.2")]
+    assert raw == ["12"]
+    assert [t for t, _ in ff.number_tokens("Use 3/4 inch and 1 1/2 inch")] == [
+        "3/4",
+        "1 1/2",
+    ]
 
 
-def test_every_figure_of_the_quote_must_be_stored_or_confirmed():
-    q = "at least 10 mm and 20 mm"
-    r = rule(quote=q, kind="limit", value=10, unit="mm", comparator=">=")
-    assert rf.limit_and_unit(r)[:2] == (rf.INCOMPLETE, "unaccounted_figures")
-    conf = [{"value": 20, "unit": "mm", "comparator": ">="}]
-    assert rf.limit_and_unit(dict(r, confirmed_figures=conf))[:2] == (
+@pytest.mark.parametrize(
+    "word",
+    [
+        "one",
+        "two",
+        "three",
+        "ten",
+        "twenty",
+        "thirty",
+        "forty",
+        "fifty",
+        "hundred",
+        "thousand",
+        "million",
+        "half",
+        "dozen",
+        "ninety",
+    ],
+)
+def test_every_number_word_and_its_plural_or_ordinal_is_a_token(word):
+    for form in (word, word + "s", word + "th"):
+        assert [t for t, _ in ff.number_tokens(f"Use {form} bolts")] == [form], form
+    assert (
+        ff.number_tokens("someone, tone, wonder, often, stone") == []
+    )  # not inside other words
+
+
+def test_a_token_from_a_non_ascii_digit_or_numeral_has_no_value_and_is_never_a_figure():
+    for quote in ("１０", "١٠", "²", "½", "三", "①"):
+        tokens = ff.number_tokens(f"Use {quote} mm")
+        assert tokens and tokens[0][1] is None, quote
+    assert ff.figures("Use １０ mm") == ()
+
+
+# ------------------------------------------------------------------------------------------------ step a, stored figures
+
+
+def test_step_a_is_pending_until_an_engineer_check_is_bound_to_this_version_and_content():
+    assert rf.limit_and_unit(stored())[:2] == (
         rf.INCOMPLETE,
-        "comparator_needs_engineer",
+        "engineer_confirmation_pending",
     )
-    both = [
-        {"value": 10, "unit": "mm", "comparator": ">="},
-        {"value": 20, "unit": "mm", "comparator": ">="},
-    ]
-    two = rule(
-        quote=q,
-        figures=[{"value": 10}, {"value": 20}],
-        unit="mm",
-        comparator=">=",
-        confirmed_figures=both,
+    assert rf.limit_and_unit(stored(check=eng([limit()])))[:2] == (
+        rf.PASS,
+        "comparator_confirmed_by_engineer",
     )
-    assert rf.limit_and_unit(two)[:2] == (rf.PASS, "comparator_confirmed_by_engineer")
+    assert rf.limit_and_unit(stored(check=eng([limit()], result="fail")))[:2] == (
+        rf.INCOMPLETE,
+        "engineer_not_ok",
+    )
 
 
-def test_in_every_complex_shape_step_a_passes_only_on_the_engineers_confirmed_figures_exactly():
-    q = "at least 3/4 inch for threaded valves and at least 1 inch for flanged valves"
-    base = rule(
-        quote=q, figures=[{"value": 0.75}, {"value": 1.0}], unit="inch", comparator=">="
+def test_the_engineers_figures_must_equal_the_stored_ones_exactly():
+    base = stored()
+    for bad in (
+        [limit(comparator="<=")],
+        [limit(value=11)],
+        [limit(unit="kPa")],
+        [],
+        [limit(), limit(value=20)],
+        [{"low": 10, "high": 10, "unit": "mm", "kind": "range"}],
+        [{"value": 10, "unit": "mm"}],
+        ["x"],
+        [None],
+        [1],
+        [{"kind": "range"}],
+        [{"value": "x", "unit": "mm", "comparator": ">="}],
+    ):
+        assert rf.limit_and_unit(dict(base, engineer_check=eng(bad)))[:2] == (
+            rf.INCOMPLETE,
+            "engineer_figures_differ",
+        ), bad
+    assert (
+        rf.same_figures(rf._stored_figures(base), [limit(unit="MM")]) is False
+    )  # a difference of case only
+    assert (
+        rf.same_figures([("limit", 0.75, "inch", ">=")], [limit(0.75, "inch")]) is True
     )
-    assert rf.limit_and_unit(base)[:2] == (rf.INCOMPLETE, "comparator_needs_engineer")
-    good = [
-        {"value": 0.75, "unit": "inch", "comparator": ">="},
-        {"value": 1.0, "unit": "inch", "comparator": ">="},
-    ]
-    assert rf.limit_and_unit(dict(base, confirmed_figures=good))[:2] == (
+
+
+def test_a_unit_the_repo_reads_as_the_same_unit_is_the_same():
+    assert (
+        ff.same_unit("mm", "mm") and ff.same_unit("kPa", "kpa") is False
+    )  # a case difference is no match
+    assert (
+        not ff.same_unit(None, "mm")
+        and not ff.same_unit("mm", "")
+        and not ff.same_unit("mm", "kPa")
+    )
+
+
+def test_a_stored_range_is_confirmed_as_a_range_with_its_two_ends_and_a_unit():
+    q = "Ambient shall be between 10 and 40 C."
+    r = rule(quote=q, kind="range", value_low=10, value_high=40, unit="C")
+    good = {"low": 10, "high": 40, "unit": "C", "kind": "range"}
+    assert rf.limit_and_unit(dict(r, engineer_check=eng([good])))[:2] == (
         rf.PASS,
         "comparator_confirmed_by_engineer",
     )
     for bad in (
-        good[:1],  # one figure missing
-        [*good, {"value": 2.0, "unit": "inch", "comparator": ">="}],  # one more
-        [dict(good[0], comparator="<="), good[1]],  # another comparator
-        [dict(good[0], value=0.8), good[1]],  # another value
-        [dict(good[0], unit="mm"), good[1]],  # another unit
-        [],
+        {**good, "low": 11},
+        {**good, "high": 41},
+        {**good, "unit": "F"},
+        {"value": 10, "unit": "C", "comparator": ">="},
     ):
-        assert rf.limit_and_unit(dict(base, confirmed_figures=bad))[0] == rf.INCOMPLETE
-    assert (
-        rf.limit_and_unit(dict(base, comparator="<=", confirmed_figures=good))[0]
-        == rf.INCOMPLETE
-    )
-
-
-def test_a_closed_range_passes_with_both_ends_in_order_and_needs_no_engineer():
-    q = "Ambient shall be between 10 and 40 C."
-    ok = rule(quote=q, kind="range", value_low=10, value_high=40, unit="C")
-    assert rf.limit_and_unit(ok)[:2] == (rf.PASS, "value_and_unit_stand_in_quote")
-    assert rf.limit_and_unit(dict(ok, value_low=40, value_high=10))[0] in (
+        assert rf.limit_and_unit(dict(r, engineer_check=eng([bad])))[0] == rf.INCOMPLETE
+    assert rf.limit_and_unit(dict(r, value_low=40, value_high=10))[:2] == (
         rf.FAIL,
-        rf.INCOMPLETE,
+        "range_order",
     )
-    assert rf.limit_and_unit(dict(ok, value_high=45))[:2] == (
+    assert rf.limit_and_unit(dict(r, value_high=45))[:2] == (
         rf.FAIL,
         "value_not_in_quote",
     )
-    assert rf.limit_and_unit(dict(ok, unit="F"))[0] == rf.FAIL
-    unordered = rule(
-        quote="between 40 and 10 C", kind="range", value_low=40, value_high=10, unit="C"
+    assert rf.limit_and_unit(dict(r, unit="F"))[:2] == (rf.FAIL, "unit_not_in_quote")
+    mixed = rule(
+        quote="Use 10 mm and 20 cm.",
+        kind="range",
+        value_low=10,
+        value_high=20,
+        unit="mm",
     )
-    assert rf.limit_and_unit(unordered)[:2] == (rf.FAIL, "range_order")
+    assert rf.limit_and_unit(mixed)[:2] == (
+        rf.FAIL,
+        "unit_not_in_quote",
+    )  # the unit fits one end only
 
 
-def test_a_bare_number_limit_needs_the_engineers_confirmation_too():
-    r = rule(
-        quote="Provide at least 3 stages.",
-        kind="limit",
-        value=3,
-        comparator=">=",
-        unit=None,
+def test_a_stored_figure_must_stand_in_the_quote_with_its_number_and_unit():
+    assert rf.limit_and_unit(stored(value=11))[:2] == (rf.FAIL, "value_not_in_quote")
+    assert rf.limit_and_unit(stored(unit="kPa"))[:2] == (rf.FAIL, "unit_not_in_quote")
+    assert rf.limit_and_unit(stored(unit="MM"))[:2] == (rf.FAIL, "unit_not_in_quote")
+    assert rf.limit_and_unit(stored(unit=None))[:2] == (rf.FAIL, "unit_not_filled")
+    assert rf.limit_and_unit(stored(unit="none"))[:2] == (rf.FAIL, "unit_not_filled")
+    assert rf.limit_and_unit(stored("Widgets shall be painted."))[:2] == (
+        rf.FAIL,
+        "value_not_in_quote",
     )
-    assert rf.limit_and_unit(r)[:2] == (rf.INCOMPLETE, "comparator_needs_engineer")
-    conf = [{"value": 3, "unit": "none", "comparator": ">="}]
-    assert rf.limit_and_unit(dict(r, unit="none", confirmed_figures=conf))[:2] == (
+    other = stored("The wall shall be 10 mm and 10 kPa thick.")
+    assert rf.limit_and_unit(other)[:2] == (
+        rf.FAIL,
+        "unit_not_in_quote",
+    )  # the same number printed with another unit
+
+
+def test_every_number_token_of_the_quote_is_a_stored_figure_or_accounted_by_the_engineer():
+    q = "At least 4 bolts of 12 mm shall be fitted."
+    r = stored(q, value=12)
+    only = eng([limit(12)])
+    assert rf.limit_and_unit(dict(r, engineer_check=only))[:2] == (
+        rf.INCOMPLETE,
+        "unaccounted_numbers",
+    )
+    assert rf.limit_and_unit(dict(r, engineer_check=only))[2]["unaccounted"] == ["4"]
+    counted = eng([limit(12)], [{"token": "4", "reason": "count"}])
+    assert rf.limit_and_unit(dict(r, engineer_check=counted))[:2] == (
         rf.PASS,
         "comparator_confirmed_by_engineer",
     )
-    assert rf.limit_and_unit(dict(r, value=4))[:2] == (rf.FAIL, "value_not_in_quote")
+    for noise in (
+        [{"token": "5", "reason": "count"}],
+        ["4"],
+        [None],
+        [{"reason": "count"}],
+    ):
+        assert (
+            rf.limit_and_unit(dict(r, engineer_check=eng([limit(12)], noise)))[0]
+            == rf.INCOMPLETE
+        )
+    words = stored("Provide ten bolts of at least 12 mm.", value=12)
+    assert rf.limit_and_unit(dict(words, engineer_check=eng([limit(12)])))[2][
+        "unaccounted"
+    ] == ["ten"]
 
 
-# ------------------------------------------------------------------------------------------------ fractions, groups, compounds
-
-
-@pytest.mark.parametrize(
-    "quote, value",
-    [
-        ("size at least \u00bd inch", 0.5),
-        ("size at least 1\u00bd inch", 1.5),
-        ("size at least \u00be inch", 0.75),
-    ],
-)
-def test_a_vulgar_fraction_character_is_read_through_numparse(quote, value):
-    result, reason, ev = rf.limit_and_unit(rule(quote=quote))
-    assert (result, reason) == (rf.FAIL, "figure_not_filled") and ev["proposed"][0][
-        "value"
-    ] == value
-    filled = rule(quote=quote, kind="limit", value=value, unit="inch", comparator=">=")
-    assert rf.limit_and_unit(filled)[0] == rf.PASS
-
-
-def test_a_fraction_character_numparse_cannot_read_is_incomplete_never_not_applicable():
-    assert ff.normalise("size 3.\u00bd inch")[1] == "fraction_character_unreadable"
-    assert ff.read("size 3.\u00bd inch").incomplete in (
-        "fraction_character_unreadable",
-        "figure_ambiguous",
-    )
-
-
-@pytest.mark.parametrize("sep", [" ", "\u2009", "\u00a0", "\u202f"])
-def test_grouped_thousands_are_one_number_and_zero_never_stands_for_them(sep):
-    quote = f"at least 1{sep}000 mm"
-    assert [f.value for f in ff.figures(quote)] == [1000.0]
-    assert rf.limit_and_unit(
-        rule(quote=quote, kind="limit", value=0, unit="mm", comparator=">=")
-    )[:2] == (rf.FAIL, "value_not_in_quote")
-    assert (
-        rf.limit_and_unit(
-            rule(quote=quote, kind="limit", value=1000, unit="mm", comparator=">=")
-        )[0]
-        == rf.PASS
-    )
-    assert (
-        rf.limit_and_unit(
-            rule(quote="exactly 0 mm", kind="limit", value=0, unit="mm", comparator="=")
-        )[0]
-        == rf.PASS
-    )
-
-
-def test_grouped_digits_with_a_decimal_comma_are_read_whole_by_numparse_or_not_at_all():
-    assert [f.value for f in ff.figures("at least 1 000,5 mm")] == [1000.5]
-    assert ff.normalise("a gap of 1 000,5,1 mm")[1] == "grouped_number_unreadable"
-    assert rf.limit_and_unit(rule(quote="a gap of 1 000,5,1 mm"))[0] == rf.INCOMPLETE
-
-
-@pytest.mark.parametrize(
-    "quote",
-    [
-        "a head of 10 mm Hg",
-        "a head of 5 mm H2O",
-        "a rate of 5 mm per side",
-        "5 mm w.c.",
-        "10 in. H2O",
-        "10 in. w.c.",
-        "10 IN. W.C.",
-        "10 in H2O",
-    ],
-)
-def test_a_unit_followed_by_a_second_unit_word_is_incomplete(quote):
-    assert rf.limit_and_unit(rule(quote=quote))[0] == rf.INCOMPLETE
-
-
-def test_a_compound_unit_the_unit_table_reads_is_a_figure():
-    assert rf.limit_and_unit(rule(quote="a rate of at least 10 mm/s"))[:2] == (
-        rf.FAIL,
-        "figure_not_filled",
-    )
-
-
-@pytest.mark.parametrize("quote", ["a gap of 1.5.0 mm", "section 1.5.0 mm"])
-def test_a_compound_number_beside_a_unit_is_incomplete_not_no_figure(quote):
-    assert rf.limit_and_unit(rule(quote=quote))[:2] == (
+def test_a_rule_with_no_figure_is_failed_when_the_quote_prints_one_and_proposes_value_and_unit_only():
+    r = rule(quote="The pump casing shall have a wall of at least 6 mm.")
+    result, reason, ev = rf.limit_and_unit(r)
+    assert (result, reason) == (rf.FAIL, "figure_not_filled") and ev[
+        "engineer_required"
+    ] is True
+    assert ev["proposed"] == [
+        {"value": 6.0, "unit": "mm", "comparator": "?", "applied": False}
+    ]
+    assert r["value"] is None and r["unit"] is None  # never applied silently
+    assert rf.limit_and_unit(rule(quote="Provide ten bolts."))[:2] == (
         rf.INCOMPLETE,
-        "number_unreadable",
+        "engineer_confirmation_pending",
     )
 
 
-def test_percent_minus_and_signed_figures_are_read_through_numparse():
-    r = ff.read("at least 50 percent")
-    assert (r.figures[0].value, r.figures[0].unit, r.comparator) == (50.0, "%", ">=")
-    assert ff.figures("at least 50 per cent")[0].unit == "%"
-    assert [f.value for f in ff.figures("not less than minus 10 C")] == [-10.0]
-    assert [f.value for f in ff.read("between -10 and 40 C").figures] == [-10.0, 40.0]
+def test_a_quote_with_numbers_all_accounted_and_no_figure_passes_on_the_engineers_word():
+    r = rule(
+        quote="Provide at least ten bolts.",
+        engineer_check=eng([], [{"token": "ten", "reason": "count"}]),
+    )
+    assert rf.limit_and_unit(r)[:2] == (rf.PASS, "comparator_confirmed_by_engineer")
+    assert rf.limit_and_unit(dict(r, engineer_check=eng([])))[:2] == (
+        rf.INCOMPLETE,
+        "unaccounted_numbers",
+    )
+
+
+def test_a_stored_figure_with_no_number_in_the_quote_fails():
+    assert rf.limit_and_unit(
+        rule(quote="Widgets shall be painted.", value=3, unit="mm")
+    )[:2] == (rf.FAIL, "value_not_in_quote")
+
+
+def test_a_fraction_is_one_token_and_one_figure_read_whole_by_numparse():
+    r = rule(
+        quote="at least 3/4 inch",
+        kind="limit",
+        value=0.75,
+        unit="inch",
+        comparator=">=",
+    )
+    ok = dict(r, engineer_check=eng([limit(0.75, "inch")]))
+    assert rf.limit_and_unit(ok)[:2] == (rf.PASS, "comparator_confirmed_by_engineer")
+    assert rf.limit_and_unit(dict(r, value=4.0))[:2] == (
+        rf.FAIL,
+        "value_not_in_quote",
+    )  # never its denominator
+    assert rf.limit_and_unit(dict(r, value=3.0))[:2] == (rf.FAIL, "value_not_in_quote")
+    assert [f.value for f in ff.figures("at least 1 1/2 inch")] == [1.5]
+
+
+@pytest.mark.parametrize("sep", [" ", " ", " ", " "])
+def test_a_grouped_number_is_two_tokens_never_one_figure_and_zero_does_not_stand_for_them(
+    sep,
+):
+    quote = f"at least 1{sep}000 mm"
+    r = rule(quote=quote, kind="limit", value=1000, unit="mm", comparator=">=")
+    assert rf.limit_and_unit(r)[0] == rf.FAIL  # 1000 is not printed
+    zero = rule(quote=quote, kind="limit", value=0, unit="mm", comparator=">=")
+    assert rf.limit_and_unit(zero)[:2] == (rf.FAIL, "value_not_in_quote")
+
+
+def test_a_zero_value_stands_only_where_a_zero_is_printed():
+    assert (
+        ff.stands(0, "a gap of 0 mm")
+        and not ff.stands(0, "a gap of 000 mm")
+        and not ff.stands(0, "a gap of 5 mm")
+    )
+    r = rule(
+        quote="The gap shall be 0 mm.", kind="limit", value=0, unit="mm", comparator="="
+    )
+    assert (
+        rf.limit_and_unit(dict(r, engineer_check=eng([limit(0, "mm", "=")])))[0]
+        == rf.PASS
+    )
+
+
+def test_figures_are_the_numbers_directly_before_a_unit_of_the_table_and_nothing_else():
+    assert [
+        (f.value, f.unit)
+        for f in ff.figures("at least 10 mm and 2 cm, 15 m from, 3/4 inch")
+    ] == [
+        (10.0, "mm"),
+        (2.0, "cm"),
+        (15.0, "m"),
+        (0.75, "inch"),
+    ]
+    assert ff.figures("Provide 3 stages, 12 March 2025, item 5") == ()
 
 
 # ------------------------------------------------------------------------------------------------ M5, M6
@@ -516,51 +516,77 @@ def test_a_join_must_start_with_the_quote_and_be_contiguous_in_the_pages(monkeyp
     assert rf.rejoin(r, pages) == (None, {"reason": "join_not_contiguous"})
 
 
-def test_a_trailing_phrase_not_directly_after_the_unit_makes_the_shape_complex():
-    assert ff.read("The wall shall be at least 10 mm thick or less.").shape == "complex"
-    assert ff.read("The wall shall be at least 10 mm thick.").shape == "simple"
+def test_an_empty_quote_fails_and_the_article_a_is_not_the_unit_ampere():
+    assert rf.limit_and_unit(rule(quote=""))[:2] == (rf.FAIL, "no_quote")
+    assert rf.limit_and_unit(rule(quote=None))[:2] == (rf.FAIL, "no_quote")
+    assert ff.figures("Give it 3 a coat") == () and [
+        f.unit for f in ff.figures("Draw 3 A")
+    ] == ["A"]
 
 
-def test_a_pair_of_numbers_joined_by_and_is_a_range_only_after_between():
-    assert ff.read("Use 10 and 40 C").shape == "complex"
-    assert ff.read("Use between 10 and 40 C").shape == "range"
-    assert ff.read("Use 10 to 40 C").shape == "range"
-    assert ff.read("Use and 10 to 40 C").shape == "complex"
-    assert ff.read("Use between 10 to 40 C").shape == "complex"
-
-
-def test_a_zero_value_stands_only_where_a_zero_is_printed():
-    r = rule(
-        quote="The gap shall be at least 000 mm.",
-        kind="limit",
-        value=0,
-        unit="mm",
-        comparator=">=",
-    )
-    assert rf.limit_and_unit(r)[:2] == (rf.FAIL, "value_not_in_quote")
-    assert (
-        ff.stands(0, "a gap of 0 mm")
-        and not ff.stands(0, "a gap of 000 mm")
-        and not ff.stands(0, "a gap of 5 mm")
-    )
-
-
-def test_a_polar_phrase_a_unit_symbol_token_or_a_stop_word_after_a_number_is_read_closed():
-    assert rf.limit_and_unit(rule(quote="a gap of 12 °CELSIUS"))[0] == rf.INCOMPLETE
-    assert rf.limit_and_unit(rule(quote="a gap of 12 °C"))[0] in (
+def test_a_stored_figure_with_no_printed_unit_beside_its_number_is_a_unit_not_in_the_quote():
+    r = stored("Provide at least 10 stages.")
+    assert rf.limit_and_unit(r)[:2] == (rf.FAIL, "unit_not_in_quote")
+    other = stored("Provide 10 stages of 10 mm and 10 kPa.")
+    assert rf.limit_and_unit(other)[:2] == (
         rf.FAIL,
-        rf.INCOMPLETE,
+        "unit_not_in_quote",
+    )  # one printing of the number has another unit
+
+
+def test_the_engineers_figures_are_matched_one_for_one():
+    twin = [("limit", 10.0, "mm", ">="), ("limit", 10.0, "mm", ">=")]
+    assert (
+        rf.same_figures(twin, [limit(10), limit(20)]) is False
+    )  # one confirmed figure cannot account for two stored
+    assert rf.same_figures(twin, [limit(10), limit(10)]) is True
+    assert (
+        rf.same_figures(
+            [("limit", 10.0, "mm", ">=")],
+            [{"value": 10, "unit": "mm", "comparator": ">=", "kind": "x"}],
+        )
+        is True
+    )
+    assert (
+        rf.same_figures(
+            [("limit", 10.0, "mm", ">=")],
+            [{"low": 10, "high": 10, "unit": "mm", "kind": "range"}],
+        )
+        is False
+    )
+    assert rf.same_figures([("range", 1.0, 2.0, "C")], [limit(1, "C")]) is False
+    assert (
+        rf.figure_key("x") is None
+        and rf.figure_key({"kind": "range", "low": 1}) is None
     )
 
 
-def test_a_polar_phrase_anywhere_else_in_the_quote_makes_the_shape_complex():
-    assert (
-        ff.read(
-            "The wall shall be at least 10 mm thick and greater than the flange."
-        ).shape
-        == "complex"
+def test_the_content_hash_covers_everything_the_engineer_is_shown():
+    from app import rule_finish_record as rec
+
+    base = rule(
+        field="inlet size",
+        kind="limit",
+        strength="shall",
+        clause="4.1",
+        page=3,
+        quote="The inlet shall be at least 5 mm.",
     )
-    assert (
-        ff.read("The wall shall be at least 10 mm thick and not welded.").shape
-        == "complex"
+    h = rec.content_sha256(base)
+    for change in (
+        {"field": "colour"},
+        {"field": "outlet size"},
+        {"kind": "range"},
+        {"strength": "should"},
+        {"clause": "4.2"},
+        {"page": 4},
+    ):
+        assert rec.content_sha256(dict(base, **change)) != h, change
+    shown = dict(
+        base, quote="The inlet size shall be shown on the data sheet at least 5 mm."
     )
+    assert rf.evidence_source(shown)[1] != rf.evidence_source(base)[1]
+    assert (
+        rec.content_sha256(shown) != h
+    )  # the evidence-source decision alone differs: same field, figures and page
+    assert rec.content_sha256(dict(base)) == h

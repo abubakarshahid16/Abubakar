@@ -19,7 +19,9 @@ _OBLIGATION = re.compile(r"\b(?:shall|must|required)\b")
 
 
 def is_numeric_requirement(sentence: str) -> bool:
-    return bool(_OBLIGATION.search(sentence.lower())) and bool(ff.figures(sentence))
+    return bool(_OBLIGATION.search(sentence.lower())) and bool(
+        ff.number_tokens(sentence)
+    )
 
 
 def _span(needle: str, folded_page: str) -> tuple[int, int] | None:
