@@ -310,6 +310,19 @@ class JudgeToolBox(ToolBox):
             subject = rules.row_subject(row.get("comment"))
             if not subject or subject in self.shared:
                 return "row_subject_not_derived"  # such a row can only be CONFIRMed or UNSURE
+        return self._evidenced(
+            item,
+            row,
+            base,
+            held,
+            code,
+            (page, doc_quote, standard, clause, clause_quote, figures, absent),
+        )
+
+    def _evidenced(self, item, row, base, held, code, given):
+        """CONFIRM or REMOVE: gather and check the evidence, the REMOVE rules, the figures; then the decision to store."""
+        page, doc_quote, standard, clause, clause_quote, figures, absent = given
+        dec = base["decision"]
         if dec == "CONFIRM" and absent is True:
             doc_quote = None  # a "missing" claim confirmed: there is no quote to give
         unheld = (
