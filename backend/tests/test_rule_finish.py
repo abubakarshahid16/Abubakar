@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from app import rule_finish as rf
+from app import rule_finish_store as st
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -360,7 +361,7 @@ def test_run_steps_alone_never_finishes_a_rule():
 
 def test_record_step_keeps_history_and_reads_the_latest_per_step():
     conn = sqlite3.connect(":memory:")
-    rf.record_step(
+    st.record_step(
         conn,
         "v1",
         "e",
@@ -371,7 +372,7 @@ def test_record_step_keeps_history_and_reads_the_latest_per_step():
         model="claude chat",
         run_id="r1",
     )
-    rf.record_step(
+    st.record_step(
         conn,
         "v1",
         "e",
@@ -382,7 +383,7 @@ def test_record_step_keeps_history_and_reads_the_latest_per_step():
         model="claude chat",
         run_id="r2",
     )
-    rf.record_step(
+    st.record_step(
         conn,
         "v1",
         "a",
@@ -393,7 +394,7 @@ def test_record_step_keeps_history_and_reads_the_latest_per_step():
         model=rf.MODEL_NONE,
         run_id="r2",
     )
-    latest = rf.latest_steps(conn, "v1")
+    latest = st.latest_steps(conn, "v1")
     assert (
         latest["e"]["result"] == "pass"
         and latest["e"]["checker"] == "helper-2"
@@ -405,19 +406,19 @@ def test_record_step_keeps_history_and_reads_the_latest_per_step():
         ]
         == 2
     )
-    assert rf.latest_steps(sqlite3.connect(":memory:"), "v1") == {}
+    assert st.latest_steps(sqlite3.connect(":memory:"), "v1") == {}
 
 
 def test_record_step_refuses_bad_input_and_an_unnamed_engineer():
     conn = sqlite3.connect(":memory:")
     with pytest.raises(ValueError):
-        rf.record_step(conn, "v1", "z", "pass", "r", checker="c", model="m", run_id="x")
+        st.record_step(conn, "v1", "z", "pass", "r", checker="c", model="m", run_id="x")
     with pytest.raises(ValueError):
-        rf.record_step(
+        st.record_step(
             conn, "v1", "a", "maybe", "r", checker="c", model="m", run_id="x"
         )
     with pytest.raises(ValueError):
-        rf.record_step(conn, "v1", "e", "pass", "ok", checker="", model="m", run_id="x")
+        st.record_step(conn, "v1", "e", "pass", "ok", checker="", model="m", run_id="x")
 
 
 # ------------------------------------------------------------------------------------------------ the runner
@@ -505,11 +506,11 @@ GOOD_PROPOSAL = {"value": 4.0, "unit": "inch", "comparator": ">="}
 
 def test_apply_proposal_writes_the_copy_and_step_a_then_passes(tmp_path):
     conn = _mini_copy(tmp_path / "work.sqlite")
-    (r,) = rf.load_rules_by_version(conn, "v1")
+    (r,) = st.load_rules_by_version(conn, "v1")
     assert rf.limit_and_unit(r)[1] == "figure_not_filled"
-    rf.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
-    assert rf.latest_steps(conn, "v1")["a"]["reason"] == "proposal_applied"
-    again = rf.overlay_applied(conn, r)
+    st.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
+    assert st.latest_steps(conn, "v1")["a"]["reason"] == "proposal_applied"
+    again = st.overlay_applied(conn, r)
     assert again["value"] == 4.0 and rf.limit_and_unit(again)[0] == rf.PASS
 
 
@@ -526,17 +527,17 @@ def test_apply_proposal_refuses_a_figure_that_does_not_stand_in_the_quote(
 ):
     conn = _mini_copy(tmp_path / "work.sqlite")
     with pytest.raises(ValueError):
-        rf.apply_proposal(conn, "v1", bad, "owner-1")
-    assert rf.latest_steps(conn, "v1") == {}
+        st.apply_proposal(conn, "v1", bad, "owner-1")
+    assert st.latest_steps(conn, "v1") == {}
 
 
 def test_apply_proposal_refuses_an_original_database_and_an_unnamed_approver(tmp_path):
     conn = _mini_copy(tmp_path / "psv-all.sqlite")
     with pytest.raises(PermissionError):
-        rf.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
-    assert rf.latest_steps(conn, "v1") == {}
+        st.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
+    assert st.latest_steps(conn, "v1") == {}
     copy = _mini_copy(tmp_path / "w2.sqlite")
     with pytest.raises(ValueError):
-        rf.apply_proposal(copy, "v1", GOOD_PROPOSAL, " ")
+        st.apply_proposal(copy, "v1", GOOD_PROPOSAL, " ")
     with pytest.raises(PermissionError):
-        rf.apply_proposal(sqlite3.connect(":memory:"), "v1", GOOD_PROPOSAL, "o")
+        st.apply_proposal(sqlite3.connect(":memory:"), "v1", GOOD_PROPOSAL, "o")

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import rule_coverage as rc  # noqa: E402
-from app import rule_finish as rf  # noqa: E402
+from app import rule_finish_store as st  # noqa: E402
 from app.compiled_rule_report import pages_of  # noqa: E402
 
 HOME = Path.home()
@@ -94,7 +94,7 @@ def main(argv=None) -> int:
                 print(f"{RED}{name} | document not found{RESET}")
                 continue
             pages = pages_of(conn, doc["id"])
-            rules = rf.load_rules(
+            rules = st.load_rules(
                 newer if name in newer_standards else conn, standard=name
             )
             result = rc.numeric_clause_coverage(pages, rules)

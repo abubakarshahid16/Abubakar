@@ -49,6 +49,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_run_stats` | Honest counts (provider errors, failed tool calls, step-limit items), the 'run unreliable' words and the failure breaker of the agent proof test runner |
 | `agent_run_sweep` | Repeat runner for sweep items of the agent proof test: one skill item run again and again, each run told the quotes already recorded, until nothing new; every finding keeps the normal quote verification and is YELLOW |
 | `rule_finish` | The rule finishing line (steps a to g): limit and unit inside the quote, evidence source, fragments, testable conditions, quote found; may_decide and finish_status; proposals applied to a work copy only |
+| `rule_finish_store` | The finishing line's store (copy only): the `rule_finish_step` table, reading rules from a rulebook copy, applying a proposal |
 | `rule_coverage` | Which numeric obligation sentences of a standard no compiled rule covers (counts per standard, local files only) |
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |

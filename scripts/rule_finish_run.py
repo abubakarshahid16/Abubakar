@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import rule_finish as rf  # noqa: E402
+from app import rule_finish_store as st  # noqa: E402
 
 HOME = Path.home()
 DEFAULT_SOURCE = HOME / "project/mirror/proof/db/compile/psv-all.sqlite"
@@ -169,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     run_id = args.run_id or datetime.now(PKT).strftime("rf-%Y%m%d-%H%M%S")
     work = prepare_work_db(args.source, args.pages_db, args.work_db)
     source, pages_conn = open_ro(args.source), open_ro(args.pages_db)
-    rules = rf.load_rules(source, standard=args.standard, key_prefix=args.rule_key)
+    rules = st.load_rules(source, standard=args.standard, key_prefix=args.rule_key)
     if not rules:
         print(
             f"{RED}no rule found for {args.standard or args.rule_key}{RESET}",
@@ -181,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{run_id}.jsonl"
     work_conn = sqlite3.connect(work)
-    rf.ensure_table(work_conn)
+    st.ensure_table(work_conn)
 
     counts: dict[str, Counter] = {s: Counter() for s in rf.CODE_STEPS}
     errors: list[str] = []
@@ -191,10 +192,10 @@ def main(argv: list[str] | None = None) -> int:
             done += 1
             short = rule["rule_key"][:8]
             try:
-                rule = rf.overlay_applied(work_conn, rule)
+                rule = st.overlay_applied(work_conn, rule)
                 steps = rf.run_steps(rule, get_pages(rule.get("standard_document_id")))
                 for name, (result, reason, evidence) in steps.items():
-                    rf.record_step(
+                    st.record_step(
                         work_conn,
                         rule["version_id"],
                         name,
@@ -206,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                         run_id=run_id,
                     )
                     counts[name][result] += 1
-                saved = rf.latest_steps(work_conn, rule["version_id"])
+                saved = st.latest_steps(work_conn, rule["version_id"])
                 path = write_journey(args.trace_dir, rule, steps, saved, run_id)
                 results = {n: r[0] for n, r in steps.items()}
                 bad = [n for n, r in results.items() if r == rf.FAIL]
