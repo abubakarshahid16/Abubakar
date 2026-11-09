@@ -106,10 +106,10 @@ def test_a_python_push_runs_the_check_and_a_docs_push_does_not(tmp_path):
     names = lambda files: [s[0] for s in guard.plan(files, "py", tmp_path)]  # noqa: E731
     assert "no second number reader" in names(["backend/app/x.py"])
     assert "no second number reader" not in names(["README.md"])
-    step = [
+    step = next(
         s
         for s in guard.plan(["backend/app/x.py"], "py", tmp_path)
         if s[0] == "no second number reader"
-    ][0]
+    )
     assert step[1][1].endswith("check_second_number_reader.py")
     assert "fold_compat" in step[3]
