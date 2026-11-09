@@ -67,6 +67,8 @@ CANON_KEYS = (
     "page",
     "doc_quote",
     "clause_quote",
+    "doc_quote_ref",
+    "clause_quote_ref",
     "standard",
     "clause",
     "action",
@@ -139,8 +141,14 @@ def check_final(finding: Any) -> dict:
     if out.get("priority") not in PRIORITIES:
         out.pop("priority", None)
     if colour == "GREEN":
-        quote = out.get("doc_quote")
-        if not (isinstance(quote, str) and quote.strip() and _page_ok(out.get("page"))):
+        quote, page = out.get("doc_quote"), out.get("page")
+        ref = out.get("doc_quote_ref")
+        if isinstance(ref, dict) and ref.get("lines") not in (None, "", []):
+            quote, page = (
+                "by reference",
+                ref.get("page", page),
+            )  # the toolbox writes the text and checks it
+        if not (isinstance(quote, str) and quote.strip() and _page_ok(page)):
             return _down(out, "no document quote and page")
         text = " ".join(str(v) for v in out.values() if isinstance(v, str))
         if _NOT_MENTIONED.search(text):
@@ -277,6 +285,9 @@ class _ItemRun:
             )  # ask_engineer and record_finding default to this item
         self.names = {sp.get("name") for sp in self.specs}
         self.messages = _initial(item, skill_item)
+        note = getattr(toolbox, "prompt_note", "")
+        if note:  # quote by reference: one generic paragraph for the lead
+            self.messages[0]["content"]["instruction"] += " " + note
         self.calls = trace.load_checkpoint(self.id) if trace else []
         self.usd, self.step = 0.0, 0
         self.finding: dict | None = None
@@ -483,7 +494,8 @@ class _ItemRun:
         )
         self.save(name, args, res, reason, cost)
         if accepted:
-            self.finding, self.why = args["finding"], "recorded"
+            built = getattr(self.toolbox, "built_finding", None)
+            self.finding, self.why = (built or dict)(args["finding"]), "recorded"
             if self.sink is not None and not self.sink.has(self.id):
                 self.sink.add(self.id, self.finding)
         elif name == "ask_engineer" and res.get("ok"):

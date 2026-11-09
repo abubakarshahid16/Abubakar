@@ -316,17 +316,20 @@ def _ledger_default(step: str) -> float:
     return claude_spend.spent(step)
 
 
-def default_toolbox(scope: dict, readers: Readers) -> Any:
+def default_toolbox(
+    scope: dict, readers: Readers, quote_by_reference: bool = False
+) -> Any:
     """The real six-tool box (`agent_tools`, PR #1693), with readers bound to the read-only copy."""
-    from . import agent_tools
+    from . import agent_quote_refs, agent_tools
 
     ctx = agent_tools.ToolContext(
         allowed_document_ids=scope["allowed"],
         document_id=scope["document_id"],
         editions=scope["editions"],
     )
-    return agent_tools.ToolBox(
+    return agent_quote_refs.make_toolbox(
         ctx,
+        quote_by_reference=quote_by_reference,
         page_reader=readers.page,
         searcher=readers.search,
         standard_pages=readers.standard_pages,
@@ -450,6 +453,7 @@ def run_review(
     usd_cap_item: float = USD_CAP_ITEM,
     usd_cap_run: float = USD_CAP_RUN,
     toolbox_factory: Callable[[dict, Readers], Any] | None = None,
+    quote_by_reference: bool = False,
     on_status: Callable[[agent_trace.TraceWriter], None] | None = None,
 ) -> dict:
     """Run one document on a database COPY; write the local result files. `local` takes the heavy lock."""
@@ -479,7 +483,11 @@ def run_review(
             "editions": held,
             "report": report,
         }
-        box = (toolbox_factory or default_toolbox)(scope, readers)
+        box = (
+            (toolbox_factory or default_toolbox)(scope, readers)
+            if not (quote_by_reference and toolbox_factory is None)
+            else default_toolbox(scope, readers, quote_by_reference=True)
+        )
         lead, other = Recorder(provider), wrap_opinion(second_opinion, provider, local)
         trace.second_ran = other is not None
         guard = _guard(local, claude, consent, allowed)

@@ -92,6 +92,11 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         "--skill", required=True, help="skill kind, or a local skill .json file"
     )
     ap.add_argument("--provider", choices=("fake", "claude", "local"), required=True)
+    ap.add_argument(
+        "--quote-by-reference",
+        action="store_true",
+        help="the model names page line ids and clause block ids; code writes the exact quote text (for the local lead)",
+    )
     ap.add_argument("--limit", type=int, default=None, help="only the first N items")
     ap.add_argument("--items", default=None, help="comma-separated skill item ids")
     ap.add_argument(
@@ -244,6 +249,7 @@ def _run(args: argparse.Namespace, out) -> int:
             local=args.provider == "local",
             claude=args.provider == "claude",
             documents=_ids(args.documents),
+            quote_by_reference=args.quote_by_reference,
             on_status=status,
         )
     except heavy_lock.HeavyJobBusy as exc:
