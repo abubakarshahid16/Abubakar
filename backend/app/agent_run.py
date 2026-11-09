@@ -201,29 +201,13 @@ class Readers:
         }
 
 
-def _fold(text: str) -> str:
-    return re.sub(r"\s+", "", str(text or "")).lower()
-
-
 def resolve_standard(
     conn: sqlite3.Connection, candidates: Iterable[str], standard: str, edition: str
 ) -> str | None:
-    """The candidate document whose file name is `standard` and prints `edition`, else None."""
-    from . import standard_ids
+    """The candidate document that is `standard` and prints `edition` (file name or first pages), else None."""
+    from .agent_tools import resolve_edition
 
-    want = _fold(edition)
-    if not want:
-        return None
-    for doc in sorted(candidates):
-        row = conn.execute(
-            "SELECT filename FROM documents WHERE id = ?", (doc,)
-        ).fetchone()
-        if row is None:
-            continue
-        stem = re.sub(r"\.(pdf|docx?)$", "", row["filename"] or "", flags=re.I)
-        if standard_ids.same_standard(standard, stem) and want in _fold(stem):
-            return doc
-    return None
+    return resolve_edition(conn, candidates, standard, edition)
 
 
 def load_editions(run_dir: Path, editions: dict | None) -> dict[str, str]:

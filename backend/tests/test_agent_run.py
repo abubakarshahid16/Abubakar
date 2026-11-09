@@ -996,3 +996,70 @@ def test_same_family_with_a_date_suffix_is_yellow(copy_db, run_dir):
     s = go(copy_db, run_dir, al.FakeProvider([{**final("GREEN"), "model": "claude-sonnet-5-5"}]),
            second_opinion=Opinion([ok(True, "claude-sonnet-5-5-20251101")]), limit=1)  # fmt: skip
     assert s["findings"][0]["color"] == "YELLOW"
+
+
+# ---- edition resolves from the file name OR the first 3 pages ----------------------------------------------------
+
+
+@pytest.fixture
+def std_db(tmp_path):
+    path = tmp_path / "std.sqlite"
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT);"
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
+        "INSERT INTO documents VALUES ('A','ISO 7777.pdf'),('B','ISO 7777-2021.pdf'),"
+        "('C','ISO 8888.pdf'),('D','ISO 6666.pdf');"
+        "INSERT INTO pages VALUES ('A',1,'Title. Issue Date: 23 May 2019'),"
+        "('C',1,'nothing'),('C',2,'nothing'),('C',3,'nothing'),('C',4,'Issue Date: 1 June 2018'),"
+        "('D',2,'Issue   Date:  23   May   2019');"
+    )
+    db.commit()
+    conn = ar.open_readonly(path)
+    yield conn
+    conn.close()
+
+
+def resolve(conn, standard, edition, docs=("A", "B", "C", "D")):
+    return ar.resolve_standard(conn, docs, standard, edition)
+
+
+def test_edition_only_in_page_text_resolves(std_db):
+    assert resolve(std_db, "ISO 7777", "23 May 2019", docs=("A",)) == "A"
+
+
+def test_edition_in_the_file_name_still_resolves(std_db):
+    assert resolve(std_db, "ISO 7777", "2021") == "B"
+
+
+def test_edition_in_neither_is_not_held(std_db):
+    assert resolve(std_db, "ISO 7777", "1 January 1999") is None
+
+
+def test_wrong_standard_with_the_right_edition_is_not_held(std_db):
+    assert resolve(std_db, "ISO 9999", "23 May 2019") is None
+    assert resolve(std_db, "ISO 8888", "23 May 2019") is None
+
+
+def test_edition_printed_only_on_page_4_does_not_resolve(std_db):
+    assert resolve(std_db, "ISO 8888", "1 June 2018") is None
+
+
+def test_empty_edition_is_refused(std_db):
+    assert resolve(std_db, "ISO 7777", "") is None
+    assert resolve(std_db, "ISO 7777", "   ") is None
+
+
+def test_date_folding_matches_spacing_and_case(std_db):
+    for text in ("23 May 2019", "23may2019", "23  May  2019", "23 MAY 2019"):
+        assert resolve(std_db, "ISO 7777", text, docs=("A",)) == "A"
+        assert resolve(std_db, "ISO 6666", text, docs=("D",)) == "D"
+
+
+def test_the_tools_default_resolver_is_the_same_helper(std_db, monkeypatch):
+    from app import agent_tools, db
+
+    monkeypatch.setattr(db, "connect", lambda: std_db)
+    resolver = agent_tools._default_standard_resolver(frozenset({"A", "C"}))
+    assert resolver("ISO 7777", "23 May 2019") == "A"
+    assert resolver("ISO 8888", "1 June 2018") is None

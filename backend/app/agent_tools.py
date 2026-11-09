@@ -256,6 +256,48 @@ def _default_standard_pages(doc: str) -> list[tuple[int, str]]:
     return subject_scope.standard_pages(doc)
 
 
+EDITION_PAGES = 3  # a standard prints its issue date on its first pages
+
+
+def _edition_fold(text: str) -> str:
+    """Case and ALL whitespace removed: '23 May 2019', '23  May  2019' and '23may2019' are one edition."""
+    return re.sub(r"\s+", "", str(text or "")).lower()
+
+
+def resolve_edition(conn, candidates, standard: str, edition: str) -> str | None:
+    """The candidate document that IS `standard` (by its file name) and prints `edition`, else None.
+
+    The edition counts when its folded text appears in the folded file name OR in the folded text of the document's
+    first EDITION_PAGES pages. ONE helper for the tools and the runner, so the two cannot drift. `conn` is any
+    sqlite connection with `documents(id, filename)` and `pages(document_id, page_no, text)`."""
+    want = _edition_fold(edition)
+    if not want:
+        return None
+    for doc in sorted(candidates):
+        row = conn.execute(
+            "SELECT filename FROM documents WHERE id = ?", (doc,)
+        ).fetchone()
+        if row is None:
+            continue
+        stem = re.sub(
+            r"\.(pdf|docx?)$",
+            "",
+            row["filename"] or "",
+            flags=re.IGNORECASE,
+        )
+        if not standard_ids.same_standard(standard, stem):
+            continue
+        if want in _edition_fold(stem):
+            return doc
+        pages = conn.execute(
+            "SELECT text FROM pages WHERE document_id = ? AND page_no <= ? ORDER BY page_no",
+            (doc, EDITION_PAGES),
+        ).fetchall()
+        if any(want in _edition_fold(p["text"] or "") for p in pages):
+            return doc
+    return None
+
+
 def _default_standard_resolver(
     allowed: frozenset[str],
 ) -> Callable[[str, str], str | None]:
@@ -264,25 +306,7 @@ def _default_standard_resolver(
     def resolve(standard: str, edition: str) -> str | None:
         from .db import connect
 
-        want = _fold(edition)
-        for doc in sorted(allowed):
-            row = (
-                connect()
-                .execute("SELECT filename FROM documents WHERE id = ?", (doc,))
-                .fetchone()
-            )
-            if row is None:
-                continue
-            stem = re.sub(
-                r"\.(pdf|docx?)$", "", row["filename"] or "", flags=re.IGNORECASE
-            )
-            if (
-                standard_ids.same_standard(standard, stem)
-                and want
-                and want in _fold(stem)
-            ):
-                return doc
-        return None
+        return resolve_edition(connect(), allowed, standard, edition)
 
     return resolve
 
