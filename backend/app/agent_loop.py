@@ -25,6 +25,10 @@ from app.agent_trace import words
 
 COLOURS = ("GREEN", "YELLOW", "RED")
 MAX_STEPS = 15
+SWEEP_SENTENCE = (
+    "List one NEW matching field not in already_recorded; "
+    "if there is none, ask the engineer with the reason 'none left'."
+)
 TOOL_NAMES = (
     "open_page",
     "search",
@@ -228,7 +232,7 @@ def _ask_engineer(toolbox: Any, item: dict, reason: str) -> None:
 
 
 def _initial(item: dict, skill_item: Any) -> list[dict]:
-    return [
+    msgs = [
         {
             "role": "user",
             "content": {
@@ -239,6 +243,11 @@ def _initial(item: dict, skill_item: Any) -> list[dict]:
             },
         }
     ]
+    if (
+        "already_recorded" in item
+    ):  # a sweep run (agent_run_sweep): one fixed generic sentence
+        msgs[0]["content"]["instruction"] += " " + SWEEP_SENTENCE
+    return msgs
 
 
 def _quote_hash(finding: dict) -> str:
