@@ -622,3 +622,31 @@ def test_replay_never_runs_a_side_effect_tool_even_if_marked_rerun(tmp_path, too
     al.run_item(ITEM, {}, box, p, max_steps=5, usd_cap=5, trace=w)
     # record_finding ran once (the model's new final), never for the saved call; ask_engineer never
     assert box.ran.count(tool) == (1 if tool == "record_finding" else 0)
+
+
+class _Stop(RuntimeError):
+    fatal = True
+    code = "budget_stop"
+
+
+def test_a_fatal_provider_error_is_raised_not_made_yellow(tmp_path):
+    class Boom:
+        def complete(self, _m, _s):
+            raise _Stop("x")
+
+    trace = at.TraceWriter(tmp_path / "r", total=1)
+    with pytest.raises(_Stop):
+        al.run_item(
+            {"id": "i1", "doc": "d"}, None, Box(), Boom(), usd_cap=5.0, trace=trace
+        )
+    assert not trace.is_done("i1")
+    assert "fatal" in (tmp_path / "r" / "live.log").read_text()
+
+
+def test_a_non_fatal_provider_error_is_still_yellow(tmp_path):
+    class Boom:
+        def complete(self, _m, _s):
+            raise ValueError("x")
+
+    out = al.run_item({"id": "i1", "doc": "d"}, None, Box(), Boom(), usd_cap=5.0)
+    assert out["finding"]["color"] == "YELLOW" and out["why"] == "provider error"

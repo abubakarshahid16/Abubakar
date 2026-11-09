@@ -191,7 +191,9 @@ class TraceWriter:
         }
         self.problems: list[str] = []
         self.recent: deque[str] = deque(maxlen=5)
-        self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0, "wrong": 0}
+        self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0}
+        # wrong verdicts are only known after the answer-key score; None = not measured
+        self.wrong: int | None = None
         self.completed: dict[str, str] = {}
         self._sources: dict[str, set] = {}
         self._sink: FindingSink | None = None
@@ -434,8 +436,15 @@ class TraceWriter:
             left = "0 min left" if total and done >= total else "time left unknown"
         return f"[{bar}] {done}/{total} items, {left}"
 
-    def refresh_live(self) -> Path:
+    def set_wrong(self, wrong: int | None) -> None:
+        """Record the measured count of wrong verdicts (from the answer-key score)."""
+        self.wrong = wrong
+
+    def refresh_live(self, wrong: int | None = None) -> Path:
+        """Rewrite LIVE.md. `wrong` is shown only when measured (passed here or via set_wrong)."""
         c = self.counts
+        measured = wrong if wrong is not None else self.wrong
+        wrong = "not measured (needs the key score)" if measured is None else measured
         lines = ["# LIVE", ""]
         for key in ("STEP", "DONE", "PROOF", "RUNNING"):
             lines.append(f"- **{key}**: {self.live.get(key, '')}")
@@ -443,7 +452,7 @@ class TraceWriter:
         lines.append(f"- **MODEL**: {self.live.get('MODEL', '')}")
         lines.append(
             f"- **RESULTS**: GREEN {c['GREEN']}, YELLOW {c['YELLOW']}, RED {c['RED']}, "
-            f"not sure {c['not sure']}, wrong {c['wrong']}"
+            f"not sure {c['not sure']}, wrong {wrong}"
         )
         lines.append(f"- **SPEND**: USD {self.spend:.2f}")
         lines.append(

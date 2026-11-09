@@ -441,3 +441,8 @@ def test_the_answering_model_comes_from_the_response_not_the_config():
     )
     del o.reply["model"]
     assert provider(s).second_opinion(F, EV, send=o)["model"] == "unknown"
+
+
+def test_budget_and_gate_stops_are_fatal_and_bad_replies_are_not():
+    assert ac.AgentBudgetStop.fatal and ac.AgentGateClosed.fatal
+    assert not ac.AgentBadReply.fatal and not ac.AgentTransportError.fatal

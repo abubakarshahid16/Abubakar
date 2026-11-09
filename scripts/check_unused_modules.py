@@ -20,8 +20,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "backend" / "app"
 #: What starts the app: the web server module, and what `run.py` imports.
-#: `agent_loop` is the offline agent proof test (#1690), started by a script, not by the server.
-ENTRY_POINTS = ("main", "agent_loop", "agent_tools", "agent_claude", "agent_skills")
+#: The agent proof test modules (#1690) are started by a script, not by the server.
+ENTRY_POINTS = (
+    "main",
+    "agent_loop",
+    "agent_run",
+    "agent_tools",
+    "agent_claude",
+    "agent_local",
+)
 
 
 def module_name(path: Path, app: Path) -> str:

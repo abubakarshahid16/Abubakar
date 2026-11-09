@@ -27,6 +27,10 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from . import ai_review_proposals, numparse, standard_ids, subject_scope
+from .agent_edition import (
+    NOT_CONFIRMED,
+    _not_confirmed,
+)
 from .reader_api import _fold
 
 VERDICTS = ("GREEN", "YELLOW", "RED")
@@ -256,35 +260,25 @@ def _default_standard_pages(doc: str) -> list[tuple[int, str]]:
     return subject_scope.standard_pages(doc)
 
 
-def _default_standard_resolver(
-    allowed: frozenset[str],
-) -> Callable[[str, str], str | None]:
-    """(standard, edition) -> the allowed document that is that standard at that edition, else None."""
+def _evidence_from(resolver) -> Callable[[str, str], dict]:
+    """Edition evidence from an injected doc resolver (tests: no page quote); with nothing injected it FAILS CLOSED."""
+    if resolver is None:
+        # no resolver and no evidence function: fail closed, and never open the configured database
+        return lambda _s, _e: _not_confirmed("no resolver given")
 
-    def resolve(standard: str, edition: str) -> str | None:
-        from .db import connect
+    def from_resolver(standard: str, edition: str) -> dict:
+        doc = resolver(standard, edition)
+        if doc is None:
+            return _not_confirmed("not resolved")
+        return {
+            "status": "confirmed",
+            "doc": doc,
+            "page": None,
+            "quote": None,
+            "source": "resolver",
+        }
 
-        want = _fold(edition)
-        for doc in sorted(allowed):
-            row = (
-                connect()
-                .execute("SELECT filename FROM documents WHERE id = ?", (doc,))
-                .fetchone()
-            )
-            if row is None:
-                continue
-            stem = re.sub(
-                r"\.(pdf|docx?)$", "", row["filename"] or "", flags=re.IGNORECASE
-            )
-            if (
-                standard_ids.same_standard(standard, stem)
-                and want
-                and want in _fold(stem)
-            ):
-                return doc
-        return None
-
-    return resolve
+    return from_resolver
 
 
 def _default_search(query: str, allowed: frozenset[str]) -> dict:
@@ -315,14 +309,15 @@ class ToolBox:
         searcher: Callable[[str, frozenset[str]], dict] | None = None,
         standard_pages: Callable[[str], list[tuple[int, str]]] | None = None,
         standard_resolver: Callable[[str, str], str | None] | None = None,
+        edition_evidence: Callable[[str, str], dict] | None = None,
     ) -> None:
         self.ctx = ctx
         self._page = page_reader or _default_page_reader
         self._search = searcher or _default_search
         self._standard_pages = standard_pages or _default_standard_pages
-        self._resolve = standard_resolver or _default_standard_resolver(
-            ctx.allowed_document_ids
-        )
+        self._evidence = edition_evidence or _evidence_from(standard_resolver)
+        #: the edition evidence of each standard resolved by get_clause: {standard: evidence}
+        self.edition_evidence_seen: dict[str, dict] = {}
         #: compare results this box has made: (clause_figure, doc_figure) -> normalised result
         self.compare_failures = 0
         self._compares: dict[tuple[str, str], dict] = {}
@@ -444,9 +439,13 @@ class ToolBox:
         edition = self._edition_of(standard)
         if edition is None:
             return None, None, "not held: contract edition unknown"
-        doc = self._resolve(standard, edition)
+        found = self._evidence(standard, edition)
+        doc = found.get("doc") if found.get("status") == "confirmed" else None
         if doc is None or not self._in_scope(doc):
-            return None, None, "not held"
+            return None, None, "not held: " + NOT_CONFIRMED
+        self.edition_evidence_seen[standard] = {
+            k: found.get(k) for k in ("page", "quote", "source")
+        }
         text = subject_scope.StandardText(self._standard_pages(doc))
         for key in _clause_key(clause):
             spans = text.spans(key)
@@ -475,6 +474,7 @@ class ToolBox:
                 "standard": standard,
                 "clause": clause,
                 "edition": self._edition_of(standard),
+                "edition_evidence": self.edition_evidence_seen.get(standard),
                 "text": shown,
                 "truncated": len(shown) < len(body),
             },

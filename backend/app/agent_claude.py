@@ -74,6 +74,7 @@ class AgentClaudeError(RuntimeError):
     """Base: the message is a code, never text from a document."""
 
     code = "agent_claude_error"
+    fatal = False  # True: the run must STOP (agent_loop re-raises it instead of making a YELLOW finding)
 
     def __init__(self, code: str | None = None) -> None:
         self.code = code or self.code
@@ -82,10 +83,12 @@ class AgentClaudeError(RuntimeError):
 
 class AgentGateClosed(AgentClaudeError):
     code = "gate_closed"
+    fatal = True
 
 
 class AgentBudgetStop(AgentClaudeError):
     code = "budget_stop"
+    fatal = True
 
 
 class AgentBadReply(AgentClaudeError):
