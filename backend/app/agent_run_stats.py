@@ -61,8 +61,10 @@ class RunStats:
         self.items[self._cur] = {
             "outcome": "",
             "error": "",
-            "calls": 0,
-            "fails": 0,
+            "calls": int(self._prev["calls"])
+            if rerun
+            else 0,  # an in-run rerun adds to attempt 1
+            "fails": int(self._prev["fails"]) if rerun else 0,
             "retried": was_error,
             "attempts": int((self._prev or {}).get("attempts") or 1) + 1
             if self._prev
@@ -254,7 +256,10 @@ class Breaker:
         if not bad:
             self.items, self.codes = [], []
             return False
-        self.items.append(item_id)
+        if not (self.items and self.items[-1] == item_id):
+            self.items.append(
+                item_id
+            )  # the same run asked again (a retry) is not a second item
         self.codes.append(str(out.get("error") or "unknown"))
         return len(self.items) >= self.limit
 

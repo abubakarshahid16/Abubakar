@@ -63,17 +63,25 @@ _RETRY = (
 QUIET = ("none left",)  # the only stop that is not shown in RESULTS Problems
 
 
-def _again(run_one, item: dict, skill_item: dict, rid: str, res: dict, trace: Any):
+def _again(
+    run_one, item: dict, skill_item: dict, rid: str, res: dict, trace: Any, halt
+):
     """ONE immediate rerun of a run that ended on a provider error (same cap) or on the step limit (higher cap).
     Returns (result, stop). The run is taken back out of the done set first, so the loop does not skip it."""
     why = res.get("why")
+    if why not in ("provider error", "step limit"):
+        return res, ""
+    trace.unmark_done(rid)  # also when halted below: a resume asks this run again
+    if (
+        stop := halt()
+    ):  # the total cap is checked before every attempt, a rerun included
+        return res, stop
+    spent = float(
+        res.get("usd") or 0.0
+    )  # the item cap bounds the first attempt plus the rerun
     if why == "provider error":
-        trace.unmark_done(rid)
-        return run_one(item, skill_item)
-    if why == "step limit":
-        trace.unmark_done(rid)
-        return run_one(item, skill_item, max_steps=REPEAT_RETRY_STEPS)
-    return res, ""
+        return run_one(item, skill_item, spent=spent)
+    return run_one(item, skill_item, max_steps=REPEAT_RETRY_STEPS, spent=spent)
 
 
 def _forced(finding: dict, rid: str) -> dict:
@@ -127,7 +135,7 @@ def run_sweep(
             if stop:
                 return stop
             if res is not None:
-                res, stop = _again(run_one, item, skill_item, rid, res, trace)
+                res, stop = _again(run_one, item, skill_item, rid, res, trace, halt)
                 if stop:
                     return stop
             # no result: the run was done before this start, so the saved reason stands

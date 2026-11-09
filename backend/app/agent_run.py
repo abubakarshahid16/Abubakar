@@ -609,7 +609,10 @@ def _runners(
         _write_json(run_root / FILES["finals"], finals)
 
     def run_one(
-        li: dict, skill_item: dict, max_steps: int = agent_loop.MAX_STEPS
+        li: dict,
+        skill_item: dict,
+        max_steps: int = agent_loop.MAX_STEPS,
+        spent: float = 0.0,
     ) -> tuple[dict | None, str]:
         """One loop run: (result, the reason the whole run stops or '')."""
         key = li["id"]
@@ -621,7 +624,9 @@ def _runners(
             trace,
             skill_for=lambda _it: skill_item,
             max_steps=max_steps,
-            usd_cap_item=caps[0],
+            usd_cap_item=max(
+                0.0, caps[0] - spent
+            ),  # a rerun shares the item cap with the attempt before it
             usd_cap_run=caps[1],
         )
         if out["stopped"]:
