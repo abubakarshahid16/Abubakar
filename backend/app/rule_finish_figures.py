@@ -1,9 +1,12 @@
 """Reading the figures of a quote for the rule finishing line (step a): numbers with a unit of the unit table.
 
 Numbers are `numparse`'s (whole fractions, mixed numbers, grouped thousands, vulgar-fraction characters through their
-compatibility form), units are `claims`'. No second number reader. A quote whose figure cannot be read with certainty
-(a slash figure numparse does not read whole, a unit followed by a second unit word, an unreadable digit group) gives
-`Reading.incomplete`, never a guessed figure. Each figure carries the comparator its OWN governing phrase gives.
+compatibility form), units are `claims`'. No second number reader. CODE READS ONLY WHAT IT CAN READ ROBUSTLY: a quote
+whose figure or unit cannot be read with certainty (an unknown unit, a compound unit, a unit printed in a case that
+changes its meaning, a slash figure numparse does not read whole, an unreadable digit group) gives `Reading.incomplete`.
+The comparator is decided here in ONE shape only (`shape == "simple"`: one unit figure, one table phrase directly
+governing it, nothing else polar or numeric in the quote) or for the closed range forms; in every other shape the
+meaning is the engineer's (`shape == "complex"`). No inheritance of a phrase from one figure to another.
 Pure functions; no database, no model.
 """
 
@@ -25,10 +28,6 @@ _DIGITS = re.compile(r"\d+")
 _COMPOUND = re.compile(
     r"\s*\.?\s*(?:/\s*[a-z]|per\s+[a-z]|(?:hg|h\s?2\s?o|w\.?\s?[cg]\.?|wc|wg|water|mercury)(?![a-z]))"
 )
-_RANGE_GAP = re.compile(r"\s*(?:to|and|[-–—])\s*")
-_RANGE_JOIN = re.compile(r"\s*(?:to|[-–—])\s*")
-_RANGE_OPEN = re.compile(r"(?:between|from)\s*$")
-_BREAK = re.compile(r"(?<!min)(?<!max)[.;:]\s")
 
 #: The CLOSED polarity table: every phrase that may give a figure a comparator, negated forms included. Anything else
 #: that carries a negation word is not read (no comparator, so step a is incomplete and a proposal is refused).
@@ -90,8 +89,125 @@ _POLARITY_RE = re.compile(
 _NEGATION = re.compile(
     r"(?<![a-z])(?:not|no|nor|neither|never|without|cannot|n't)(?![a-z])", re.IGNORECASE
 )
+#: What may follow a figure's unit directly and give it its comparator.
+_TRAILING_PHRASES = {
+    "minimum": ">=",
+    "or more": ">=",
+    "maximum": "<=",
+    "or less": "<=",
+    "or below": "<=",
+    "or lower": "<=",
+    "or fewer": "<=",
+    "at the most": "<=",
+}
 _TRAILING = re.compile(
-    r"\s*,?\s*(minimum|maximum|min\.?|max\.?)(?![a-z])", re.IGNORECASE
+    r"\s+("
+    + "|".join(sorted(map(re.escape, _TRAILING_PHRASES), key=len, reverse=True))
+    + r")(?![a-z])",
+    re.IGNORECASE,
+)
+_RANGE_FORM = re.compile(r"(?:(between)\s+)?$", re.IGNORECASE)
+_FROM_FORM = re.compile(r"(?:from\s+)?$", re.IGNORECASE)
+_UNIT_SHAPED = re.compile(r"\s?([A-Za-z°º\"'%µ][A-Za-z0-9°º/%.\-\"']{0,11})")
+#: Words of up to four letters that follow a number without being a unit.
+_FUNCTION_WORDS = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "of",
+        "to",
+        "or",
+        "and",
+        "in",
+        "is",
+        "as",
+        "at",
+        "on",
+        "by",
+        "for",
+        "if",
+        "it",
+        "be",
+        "no",
+        "not",
+        "we",
+        "are",
+        "per",
+        "than",
+        "with",
+        "from",
+        "that",
+        "this",
+        "each",
+        "any",
+        "all",
+        "but",
+        "may",
+        "can",
+        "has",
+        "was",
+        "will",
+        "must",
+        "off",
+        "out",
+        "via",
+        "its",
+        "into",
+        "then",
+        "when",
+        "also",
+        "only",
+        "both",
+        "such",
+        "same",
+    ]
+)
+#: Units printed with a capital that mean what they say; any other capital in a unit is ambiguous (MM, Mm, M, S, G).
+SAFE_CASE_UNITS = frozenset(
+    [
+        "C",
+        "F",
+        "K",
+        "°C",
+        "°F",
+        "Pa",
+        "kPa",
+        "MPa",
+        "GPa",
+        "N",
+        "kN",
+        "MN",
+        "W",
+        "kW",
+        "MW",
+        "V",
+        "kV",
+        "A",
+        "kA",
+        "Hz",
+        "kHz",
+        "MHz",
+        "GHz",
+        "L",
+        "kPag",
+        "MPag",
+        "kPaa",
+        "MPaa",
+        "J",
+        "kJ",
+        "MJ",
+        "Wh",
+        "kWh",
+        "MWh",
+        "dB",
+        "dBA",
+        "dB(A)",
+        "Btu",
+        "BTU",
+        "Nm",
+        "kNm",
+    ]
 )
 #: Units whose letter case changes the meaning (milli/mega, siemens/second, ...): a case that is not exactly the rule's
 #: is not the same unit, and a figure printed so is not read.
@@ -106,8 +222,6 @@ class Figure:
     end: int
     unit_end: int
     raw: str
-    comparator: str | None = None
-    comparator_source: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -115,6 +229,9 @@ class Reading:
     text: str
     figures: tuple[Figure, ...]
     incomplete: str | None = None
+    #: "none" (no figure), "simple" (comparator decided: `comparator`), "range" (closed form: low and high end) or "complex"
+    shape: str = "none"
+    comparator: str | None = None
 
 
 def _is_unit_word(word: str) -> bool:
@@ -239,158 +356,85 @@ def fraction_ambiguous(text: str) -> bool:
     )
 
 
-def _phrase(window: str) -> tuple[str | None, str | None]:
-    """The comparator the phrases of `window` give: every table phrase is read (longest first); a negation word left over
-    that no table phrase uses, two different polarities, or none, is no comparator."""
-    cut = list(_BREAK.finditer(window))
-    window = window[cut[-1].end() :] if cut else window
-    symbols = [_SYMBOL[m.group(0).lower()] for m in _POLARITY_RE.finditer(window)]
-    rest = _POLARITY_RE.sub(" ", window)
-    if _NEGATION.search(rest):
-        return None, "negation_not_in_table"
-    if len(set(symbols)) == 1:
-        return symbols[0], "governing_phrase"
-    return None, ("conflicting_phrases" if symbols else None)
+def _covered(n, figures: list[Figure]) -> bool:
+    return any(
+        f.start <= n.start < f.end or f.start <= n.digits_at < f.end for f in figures
+    )
 
 
-def _claim(
-    text: str, figure: Figure, before: int
-) -> tuple[str | None, str | None, int]:
-    """(comparator, source, where this figure's phrase ends): the phrase IMMEDIATELY before it (after the previous figure
-    and its trailing word) and the "minimum"/"maximum" directly after its unit. Never inherited from another figure."""
-    comparator, source = _phrase(text[before : figure.start])
-    trail = _TRAILING.match(text, figure.unit_end)
-    end = figure.unit_end
+_IN_COMPOUND = re.compile(
+    r"\d\s*in\.?\s+(?:wc|w\.\s?c\.|h\s?2\s?o|hg|wg)(?![a-z])", re.IGNORECASE
+)
+
+
+def _unknown_unit(text: str, figures: list[Figure]) -> bool:
+    """A number that is no figure but is followed by a token shaped like a unit (a symbol, a slash, a short word that is no
+    function word): an unknown, compound or oddly printed unit, never "no figure"."""
+    masked = mask_fractions(text)
+    if _IN_COMPOUND.search(masked):
+        return True
+    for n in numparse.find_numbers(masked):
+        if n.value is None or n.joined or _covered(n, figures):
+            continue
+        hit = _UNIT_SHAPED.match(masked, n.end)
+        if not hit:
+            continue
+        token = hit.group(1).rstrip(".,;:)").lower()
+        if token in _FUNCTION_WORDS or not token:
+            continue
+        if len(token) <= 4 or "/" in token or not token[0].isalpha():
+            return True
+    return False
+
+
+def _phrases_of(
+    text: str, start: int, unit_end: int
+) -> tuple[list[tuple[int, int, str]], str]:
+    """The table phrases that sit directly before the figure and directly after its unit, and the text without them."""
+    found = []
+    lead = text[:start]
+    hit = None
+    for m in _POLARITY_RE.finditer(lead):
+        if not lead[m.end() :].strip():
+            hit = m
+    if hit:
+        found.append((hit.start(), hit.end(), _SYMBOL[hit.group(0).lower()]))
+    trail = _TRAILING.match(text, unit_end)
     if trail:
-        end = trail.end()
-        after = _SYMBOL[trail.group(1).lower()]
-        if comparator not in (None, after):
-            return None, "conflicting_phrases", end
-        if comparator is None and source == "negation_not_in_table":
-            return None, source, end
-        comparator, source = after, "trailing_word"
-    return comparator, source, end
+        found.append(
+            (trail.start(1), trail.end(1), _TRAILING_PHRASES[trail.group(1).lower()])
+        )
+    rest = text
+    for a, b, _ in sorted(found, reverse=True):
+        rest = rest[:a] + " " + rest[b:]
+    return found, rest
 
 
-def _low_end(text: str, fig: Figure, before: int, out: list[Figure], numbers: list):
-    """The low end of a range that `fig` closes: the figure before it ("10 mm - 20 mm", "10 to 20 mm"), or a number that
-    shares its unit ("between 10 and 40 C", "from 10 to 40 C", "-10 to 40 C"); else None."""
-    prev = out[-1] if out else None
-    if (
-        prev is not None
-        and prev.unit == fig.unit
-        and _RANGE_JOIN.fullmatch(text[prev.unit_end : fig.start])
-    ):
-        return prev
-    lead = [
-        n
-        for n in numbers
-        if n.value is not None and n.end <= fig.start and n.start >= before
+def _closed_range(text: str, figures: list[Figure]):
+    """ "between X and Y UNIT", "from X to Y UNIT", "X to Y UNIT": the unit once, at the end, and nothing else numeric.
+    Returns the (low, high) figures or None."""
+    high = figures[0]
+    numbers = [
+        n for n in numparse.find_numbers(text) if n.value is not None and not n.joined
     ]
-    if not lead:
-        return None
-    gap, n = text[lead[-1].end : fig.start], lead[-1]
-    if _RANGE_JOIN.fullmatch(gap) or (
-        _RANGE_GAP.fullmatch(gap) and _RANGE_OPEN.search(text[before : n.start])
+    if (
+        len(numbers) != 2
+        or numbers[1].start > high.start
+        or numbers[1].end <= high.start
     ):
-        return Figure(n.value, fig.unit, n.start, n.end, n.end, n.raw)
+        return None
+    low, end = numbers
+    gap = text[low.end : end.start].strip().lower()
+    before = text[: low.start].lower()
+    if (gap == "and" and re.search(r"between\s*$", before)) or (
+        gap == "to" and not re.search(r"(?:between|and|to)\s*$", before)
+    ):
+        return Figure(low.value, high.unit, low.start, low.end, low.end, low.raw), high
     return None
 
 
-#: How two figures of one sentence are joined when the later one shares the first one's phrase: "A <unit> for X and B
-#: <unit> for Y": an optional "for <words>", then "and", "or" or a comma.
-#: A connection-type word that may qualify a figure before the next one ("3/4 inch threaded or 1 inch flanged"): the same
-#: closed vocabulary step d reads (`rule_finish.CONNECTION_WORDS`; a test keeps the two equal).
-CONNECTION_QUALIFIERS = (
-    "threaded",
-    "screwed",
-    "flanged",
-    "welded",
-    "socket-welded",
-    "socket welded",
-    "butt-welded",
-    "butt welded",
-)
-_QUALIFIER = (
-    "(?:\\s+(?:" + "|".join(re.escape(w) for w in CONNECTION_QUALIFIERS) + "))?"
-)
-_INHERIT_GAP = re.compile(
-    r"(?:\s*for\s+[a-z][a-z \-]*?)?"
-    + _QUALIFIER
-    + r"\s*(?:,\s*)?(?:and|or)\s*(?:,\s*)?|\s*,\s*",
-    re.IGNORECASE,
-)
-#: Contrast words that end the sentence's one reading (a period, semicolon or colon cannot lie in a gap the shape accepts).
-_SENTENCE_STOP = re.compile(
-    r"(?<![a-z])(?:however|except|unless|but|whereas|provided)(?![a-z])",
-    re.IGNORECASE,
-)
-
-
-def _inherits(text: str, prev: Figure, fig: Figure, gap_from: int) -> bool:
-    """A later figure of the SAME sentence takes the comparator of the figure before it only when all hold: that figure's
-    comparator came from its own leading phrase (or was itself inherited this way); no sentence break or contrast word
-    lies between them; the later figure is of the same dimension; and they are joined only by "for ... and", "and", "or"
-    or a comma. (That the later figure has no polarity or negation word of its own is the caller's condition.)"""
-    gap = text[gap_from : fig.start]
-    same_dimension = prev.unit.lower() == fig.unit.lower() or (
-        claims.unit_dimension(prev.unit) is not None
-        and claims.unit_dimension(prev.unit) == claims.unit_dimension(fig.unit)
-    )
-    return bool(
-        prev.comparator_source in ("governing_phrase", "inherited_same_sentence")
-        and not _SENTENCE_STOP.search(gap)
-        and same_dimension
-        and _INHERIT_GAP.fullmatch(gap)
-    )
-
-
-def _with_ranges(text: str, figures: list[Figure]) -> list[Figure]:
-    """ "between 10 and 40 C", "from 10 to 40 C", "10 to 20 mm", "10-40 C": two figures, >= the low end and <= the high
-    end; every other figure takes its own phrase."""
-    out: list[Figure] = []
-    numbers = numparse.find_numbers(text)
-    before = 0
-    for fig in figures:
-        low = _low_end(text, fig, before, out, numbers)
-        if low is not None:
-            if out and out[-1] is low:
-                out.pop()
-            out += [
-                dataclasses.replace(
-                    low, comparator=">=", comparator_source="range_low"
-                ),
-                dataclasses.replace(
-                    fig, comparator="<=", comparator_source="range_high"
-                ),
-            ]
-            before = fig.unit_end
-            continue
-        start = before
-        comparator, source, before = _claim(text, fig, before)
-        if comparator is None and out and _inherits(text, out[-1], fig, start):
-            comparator, source = out[-1].comparator, "inherited_same_sentence"
-        out.append(
-            dataclasses.replace(fig, comparator=comparator, comparator_source=source)
-        )
-    return out
-
-
-def number_comparator(text: str, value: float) -> str | None:
-    """The comparator the phrase before the ONE bare number (or whole fraction) `value` gives (a count or ratio with no
-    unit); None when the number is not there exactly once or no table phrase governs it."""
-    masked = mask_fractions(text)
-    hits = [(n.value, n.start, n.end, n.raw) for n in numparse.find_numbers(masked)]
-    hits += [(f.value, f.start, f.end, f.raw) for f in fraction_spans(text)]
-    hits = [h for h in hits if h[0] == float(value)]
-    if len(hits) != 1:
-        return None
-    v, start, end, raw = hits[0]
-    return _claim(text, Figure(v, "", start, end, end, raw), 0)[0]
-
-
 def read(quote: str) -> Reading:
-    """The figures of the quote, each with its own comparator, or the reason it cannot be read with certainty."""
+    """The figures of the quote and how far code can read their comparator, or why it cannot read them at all."""
     text, problem = normalise(quote)
     if fraction_ambiguous(text):
         return Reading(text, (), "figure_ambiguous")
@@ -402,14 +446,36 @@ def read(quote: str) -> Reading:
         for n in numparse.find_numbers(mask_fractions(text))
     ):
         return Reading(text, tuple(figures), "number_unreadable")
-    if any(f.unit in CASE_AMBIGUOUS for f in figures):
+    if any(f.unit != f.unit.lower() and f.unit not in SAFE_CASE_UNITS for f in figures):
         return Reading(text, tuple(figures), "unit_case_ambiguous")
     if any(
         _COMPOUND.match(text[f.unit_end :].lower()) and "/" not in f.unit
         for f in figures
     ):
         return Reading(text, tuple(figures), "compound_unit")
-    return Reading(text, tuple(_with_ranges(text, figures)), problem)
+    if _unknown_unit(text, figures):
+        return Reading(text, tuple(figures), "unit_not_in_table")
+    if problem:
+        return Reading(text, tuple(figures), problem)
+    if not figures:
+        return Reading(text, (), None, "none")
+    ends = _closed_range(text, figures)
+    if ends:
+        return Reading(text, ends, None, "range")
+    others = [
+        n
+        for n in numparse.find_numbers(mask_fractions(text))
+        if n.value is not None and not _covered(n, figures)
+    ]
+    if len(figures) == 1 and not others:
+        found, rest = _phrases_of(text, figures[0].start, figures[0].unit_end)
+        if len(found) == 1 and not (
+            _POLARITY_RE.search(rest)
+            or _NEGATION.search(rest)
+            or _TRAILING.search(rest)
+        ):
+            return Reading(text, tuple(figures), None, "simple", found[0][2])
+    return Reading(text, tuple(figures), None, "complex")
 
 
 def figures(quote: str) -> tuple[Figure, ...]:
@@ -430,28 +496,14 @@ def stands(value: float, text: str) -> bool:
 
 
 def unit_matches(rule_unit: str | None, figure: Figure) -> bool:
-    """The rule's unit is the figure's, by the repo's unit comparison; where case is the meaning (m and M) the spelling
-    must be the same."""
-    if not rule_unit or not figure.unit:
-        return False
+    """The rule's unit is the figure's, by the repo's unit comparison; a difference of case only is no match."""
     if (
-        rule_unit != figure.unit
-        and rule_unit.lower() == figure.unit.lower()
-        and {rule_unit, figure.unit} & CASE_AMBIGUOUS
+        not rule_unit
+        or not figure.unit
+        or (rule_unit != figure.unit and rule_unit.lower() == figure.unit.lower())
     ):
         return False
     return claims.same_unit(
         claims.Measurement("", rule_unit, None, None, None),
         claims.Measurement("", figure.unit, None, None, None),
     )
-
-
-def implied_comparator(quote: str, value: float, unit: str | None) -> str | None:
-    """The comparator this quote gives the figure `value unit` by its own governing phrase, or None (unreadable, absent,
-    conflicting between two printings of the same figure)."""
-    found = {
-        f.comparator
-        for f in figures(quote)
-        if f.value == float(value) and (unit is None or unit_matches(unit, f))
-    }
-    return found.pop() if len(found) == 1 else None

@@ -75,7 +75,10 @@ def test_a_denominator_does_not_stand_as_a_number_when_the_quote_has_no_unit_fig
         comparator=">=",
     )
     assert rf.limit_and_unit(r)[:2] == (rf.FAIL, "value_not_in_quote")
-    assert rf.limit_and_unit(dict(r, value=0.75))[0] == rf.PASS
+    assert rf.limit_and_unit(dict(r, value=0.75))[:2] == (
+        rf.INCOMPLETE,
+        "comparator_needs_engineer",
+    )
 
 
 # ------------------------------------------------------------------------------------------------ apply_proposal
@@ -84,7 +87,7 @@ def test_a_denominator_does_not_stand_as_a_number_when_the_quote_has_no_unit_fig
 def test_apply_proposal_refuses_the_denominator_and_a_value_that_is_not_a_quoted_figure(
     tmp_path,
 ):
-    conn = copy(tmp_path)
+    conn = copy(tmp_path, quote="The inlet shall be at least 3/4 inch.")
     for bad in (4.0, 0.8):
         with pytest.raises(ValueError):
             rr.apply_proposal(
@@ -97,7 +100,7 @@ def test_apply_proposal_refuses_the_denominator_and_a_value_that_is_not_a_quoted
 
 
 def test_apply_proposal_resets_the_engineer_check_and_the_owner_sample(tmp_path):
-    conn = copy(tmp_path)
+    conn = copy(tmp_path, quote="The inlet shall be at least 3/4 inch.")
     st._append_step(
         conn, "v1", "e", "pass", "ok", {}, checker="c", model="m", run_id="x"
     )
@@ -193,16 +196,16 @@ def test_a_verified_repair_is_applied_and_resets_e_and_f(tmp_path):
     assert after["exceptions"] == ["small compressor widgets"]
     assert rf.conditions_of(after)[0] == rf.PASS
     assert rf.limit_and_unit(after)[:2] == (
-        rf.PASS,
-        "figures_stand_in_quote",
-    )  # each figure has its own phrase
+        rf.INCOMPLETE,
+        "comparator_needs_engineer",
+    )  # two figures: the engineer's
     assert conn.execute("SELECT COUNT(*) FROM rule_finish_repair").fetchone()[0] == 6
 
 
 def test_parts_that_code_cannot_verify_are_refused_and_the_rest_still_applies(tmp_path):
     conn = copy(tmp_path)
     repair = {
-        "comparator": "<=",
+        "comparator": "garbage",
         "figures": [
             {"value": 4.0, "unit": "inch", "condition": "threaded"},
             {"value": 1.0, "unit": "inch", "condition": "connection is flanged"},
@@ -213,7 +216,7 @@ def test_parts_that_code_cannot_verify_are_refused_and_the_rest_still_applies(tm
     }
     out = rr.apply_repair(conn, "v1", repair, "lead", pages=PAGES)
     reasons = {(x["part"], x["reason"]) for x in out["refused"]}
-    assert ("comparator", "comparator_not_in_quote") in reasons
+    assert ("comparator", "comparator_not_allowed") in reasons
     assert ("figure 4.0", "value_not_in_quote") in reasons
     assert ("condition of figure 1.0", "not_a_contiguous_run_of_the_page") in reasons
     assert ("exception", "not_a_contiguous_run_of_the_page") in reasons and (

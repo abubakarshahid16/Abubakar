@@ -56,50 +56,76 @@ def _is_number(value: Any) -> bool:
 # --------------------------------------------------------------------------- step a: limit and unit
 
 
-def proposal_of(rule: dict) -> list[dict]:
-    """The figures the quote implies for a rule (never applied), each with the comparator its own phrase gives."""
-    return _proposal(ff.figures(_quote_of(rule)))
+def _stored_figures(rule: dict) -> list[tuple[float, str, str | None]]:
+    """(value, unit, comparator) of every figure the rule stores: a limit, the two ends of a range, or each of `figures`."""
+    unit = rule.get("unit")
+    if rule.get("figures"):
+        return [
+            (float(f["value"]), f.get("unit") or unit, rule.get("comparator"))
+            for f in rule["figures"]
+        ]
+    if _is_number(rule.get("value")):
+        return [(float(rule["value"]), unit, rule.get("comparator"))]
+    if _is_number(rule.get("value_low")) and _is_number(rule.get("value_high")):
+        return [
+            (float(rule["value_low"]), unit, ">="),
+            (float(rule["value_high"]), unit, "<="),
+        ]
+    return []
 
 
-def _proposal(figures) -> list[dict]:
-    """What the quote implies for the empty fields. NEVER applied here: a person or a later reviewed step applies it."""
+def _same_figures(stored: list, confirmed: list) -> bool:
+    """The engineer's confirmed figures equal the stored ones exactly: the same values, units and comparators."""
+    left = sorted((round(v, 9), str(u).lower(), c) for v, u, c in stored)
+    right = sorted(
+        (
+            round(float(f.get("value", "nan")), 9),
+            str(f.get("unit")).lower(),
+            f.get("comparator"),
+        )
+        for f in confirmed
+    )
+    return bool(stored) and left == right
+
+
+def _proposal(reading) -> list[dict]:
+    """What the quote implies for the empty fields, ONLY where code can read the comparator (the simple shape or a closed
+    range); otherwise the engineer is required. NEVER applied here."""
+    if reading.shape == "simple":
+        ends = [(reading.figures[0], reading.comparator)]
+    elif reading.shape == "range":
+        ends = [(reading.figures[0], ">="), (reading.figures[1], "<=")]
+    else:
+        return []
     return [
-        {
-            "value": f.value,
-            "unit": f.unit,
-            "comparator": f.comparator,
-            "comparator_source": f.comparator_source,
-            "applied": False,
-        }
-        for f in figures
+        {"value": f.value, "unit": f.unit, "comparator": c, "applied": False}
+        for f, c in ends
     ]
 
 
-def _figures_list(rule: dict) -> tuple[str, str, dict]:
-    """A rule that carries several figures (one per condition, e.g. by connection type): each stands in the quote with
-    its unit, found by the same step as a single figure."""
-    seen = []
-    for fig in rule["figures"]:
-        trial = dict(
-            rule,
-            figures=None,
-            value=fig.get("value"),
-            value_low=None,
-            value_high=None,
-            unit=fig.get("unit") or rule.get("unit"),
-        )
-        result, reason, evidence = limit_and_unit(trial)
-        if result != PASS:
-            return result, reason, dict(evidence, figure=fig.get("value"))
-        seen.append(fig.get("value"))
-    return PASS, "figures_stand_in_quote", {"figures": seen}
+def _stands_with_unit(figures, stored: list, evidence: dict):
+    """Every stored figure stands in the quote WITH its unit (the repo's unit comparison); the failing verdict or None."""
+    for value, unit, _ in stored:
+        if not unit or str(unit).lower() == "none":
+            return FAIL, "unit_not_filled", evidence
+        hits = [f for f in figures if f.value == value and ff.unit_matches(unit, f)]
+        if not hits:
+            evidence["unit"] = unit
+            same_number = any(f.value == value for f in figures)
+            return (
+                FAIL,
+                "unit_not_in_quote" if same_number else "value_not_in_quote",
+                evidence,
+            )
+    return None
 
 
 def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
-    """Step a. A figure (number + unit of the unit table) in the quote must be filled as value (or value_low and
-    value_high) AND unit, and code verifies both stand inside the quote. No figure in the quote: not_applicable. A quote
-    whose figure cannot be read with certainty (a slash figure, a compound unit, an unreadable digit group or fraction
-    character) is incomplete, never passed and never not_applicable."""
+    """Step a, simple and closed. PASS only when every stored figure and its unit stand in the quote (numparse, the unit
+    table), every unit figure of the quote is stored (or confirmed by the engineer), and the comparator is either decided
+    by code in the simple shape (one figure, one table phrase directly governing it) or confirmed by the engineer's
+    confirmed_figures for this exact version and content. A quote whose figure or unit cannot be read with certainty is
+    INCOMPLETE; NOT_APPLICABLE only where the quote has no figure at all."""
     quote = _quote_of(rule)
     if not quote:
         return FAIL, "no_quote", {}
@@ -110,98 +136,53 @@ def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
             reading.incomplete,
             {"figures_in_quote": len(reading.figures)},
         )
-    if rule.get("figures"):
-        return _figures_list(rule)
-    figures, text = reading.figures, reading.text
-    value, low, high, unit = (
-        rule.get("value"),
-        rule.get("value_low"),
-        rule.get("value_high"),
-        rule.get("unit"),
-    )
-    filled = [v for v in (value, low, high) if _is_number(v)]
-    evidence: dict = {"figures_in_quote": len(figures)}
-    if not figures and not filled:
+    figures, stored = reading.figures, _stored_figures(rule)
+    evidence: dict = {"figures_in_quote": len(figures), "shape": reading.shape}
+    if not figures and not stored:
         return NOT_APPLICABLE, "no_figure_in_quote", evidence
-    if figures and not filled:
-        evidence["proposed"] = _proposal(figures)
+    if figures and not stored:
+        evidence["proposed"] = _proposal(reading)
+        evidence["engineer_required"] = reading.shape == "complex"
         return FAIL, "figure_not_filled", evidence
-    # a value is filled: it must stand in the quote, and where the quote has a figure, so must its unit
-    wanted = (
-        [("value", value)]
-        if _is_number(value)
-        else [("value_low", low), ("value_high", high)]
-    )
-    if any(not _is_number(v) for _, v in wanted):
-        return FAIL, "range_end_missing", evidence
-    for name, v in wanted:
-        if not ff.stands(v, text):
-            evidence["missing"] = name
+    for value, _, _ in stored:
+        if not ff.stands(value, reading.text):
             return FAIL, "value_not_in_quote", evidence
-    if not figures:
-        # the number stands in the quote with no unit of the table: a count or a ratio, which must say so
-        if unit not in (None, "", "none"):
-            evidence["unit"] = unit
-            return FAIL, "unit_not_in_quote", evidence
-        if _is_number(value):
-            return _comparator_verdict(
-                rule,
-                [ff.number_comparator(text, value)],
-                "value_stands_no_unit_in_quote",
-                evidence,
-            )
-        return PASS, "value_stands_no_unit_in_quote", evidence
-    if not unit or str(unit).lower() == "none":
-        return FAIL, "unit_not_filled", evidence
-    found = _with_unit(figures, wanted, unit, evidence)
-    if isinstance(found, tuple):
-        return found
-    if (
-        len(wanted) == 2
-    ):  # a range: low <= high, the ends the quote's low (>=) and high (<=)
-        if float(low) > float(high):
-            return FAIL, "range_order", evidence
-        got = [next(iter(c)) if len(c) == 1 else None for c in found]
-        if got != [">=", "<="]:
+    if not figures:  # a bare number: the engineer reads what it is a limit of
+        return _confirmed_or(rule, stored, evidence)
+    verdict = _stands_with_unit(figures, stored, evidence)
+    if verdict:
+        return verdict
+    if len(stored) == 2 and rule.get("value") is None and stored[0][0] > stored[1][0]:
+        return FAIL, "range_order", evidence
+    confirmed = rule.get("confirmed_figures") or []
+    lone = [
+        f
+        for f in figures
+        if not any(f.value == v and ff.unit_matches(u, f) for v, u, _ in stored)
+    ]
+    if any(
+        not any(
+            f.value == float(c.get("value", "nan"))
+            and ff.unit_matches(c.get("unit"), f)
+            for c in confirmed
+        )
+        for f in lone
+    ):
+        return INCOMPLETE, "unaccounted_figures", evidence
+    if reading.shape == "simple" and len(stored) == 1:
+        if stored[0][2] != reading.comparator:
             return FAIL, "comparator_mismatch", evidence
         return PASS, "value_and_unit_stand_in_quote", evidence
-    return _comparator_verdict(
-        rule, [c for cs in found for c in cs], "value_and_unit_stand_in_quote", evidence
-    )
+    if reading.shape == "range" and rule.get("value") is None and len(stored) == 2:
+        return PASS, "value_and_unit_stand_in_quote", evidence
+    return _confirmed_or(rule, stored, evidence)
 
 
-def _with_unit(figures, wanted: list, unit: str, evidence: dict):
-    """Every filled number stands in the quote WITH its unit (after the repo's unit comparison): "between 10 and 40 C"
-    prints the unit once, but the low end is then a figure of that unit too. The comparators the figures carry, per
-    number, or the failing verdict."""
-    found = []
-    for _, v in wanted:
-        hits = [f for f in figures if f.value == float(v) and ff.unit_matches(unit, f)]
-        if not hits:
-            evidence["unit"] = unit
-            same_number = any(f.value == float(v) for f in figures)
-            return (
-                FAIL,
-                "unit_not_in_quote" if same_number else "value_not_in_quote",
-                evidence,
-            )
-        found.append({h.comparator for h in hits})
-    return found
-
-
-def _comparator_verdict(
-    rule: dict, derived: list, passed: str, evidence: dict
-) -> tuple[str, str, dict]:
-    """The stored comparator must be the one the quote's own phrase gives the figure (a closed table, negation read);
-    none stored: fail; no phrase or more than one reading: incomplete; a different one: fail."""
-    stored = rule.get("comparator")
-    if len(set(derived)) != 1 or derived[0] is None:
-        return INCOMPLETE, "comparator_unreadable", evidence
-    if not stored:
-        return FAIL, "comparator_missing", evidence
-    if stored != derived[0]:
-        return FAIL, "comparator_mismatch", evidence
-    return PASS, passed, evidence
+def _confirmed_or(rule: dict, stored: list, evidence: dict):
+    """The comparator is not decided by code in this shape: it passes only on the engineer's confirmed figures."""
+    if _same_figures(stored, rule.get("confirmed_figures") or []):
+        return PASS, "comparator_confirmed_by_engineer", evidence
+    return INCOMPLETE, "comparator_needs_engineer", evidence
 
 
 # --------------------------------------------------------------------------- step b: evidence source
@@ -543,15 +524,6 @@ CONNECTION_WORDS = {
     "butt welded": "butt welded",
 }
 _UNCONDITIONAL = frozenset({"in all cases", "always", "at all times", "in every case"})
-CONDITION_KINDS = (
-    "size",
-    "temperature",
-    "pressure",
-    "material",
-    "service",
-    "class",
-    "pn",
-)
 
 
 def equipment_types_in(text: str) -> list[str]:

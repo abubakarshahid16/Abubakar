@@ -43,7 +43,7 @@ def rule(**kw) -> dict:
 
 
 def test_a_figure_in_the_quote_with_nothing_filled_fails_and_proposes_without_applying():
-    r = rule(quote="The pump casing shall have a minimum wall of 6 mm.")
+    r = rule(quote="The pump casing shall have a wall of at least 6 mm.")
     result, reason, ev = rf.limit_and_unit(r)
     assert (result, reason) == (rf.FAIL, "figure_not_filled")
     (p,) = ev["proposed"]

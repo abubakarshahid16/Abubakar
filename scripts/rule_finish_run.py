@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from collections import Counter
@@ -39,6 +40,7 @@ DEFAULT_TRACE = HOME / "project/mirror/trace"
 PKT = ZoneInfo("Asia/Karachi")
 RED, RESET = "\033[31m", "\033[0m"
 LANE = "1"
+RUN_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 
 
 def pkt_now() -> str:
@@ -165,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
     guard.register_protected(args.pages_db)
 
     run_id = args.run_id or datetime.now(PKT).strftime("rf-%Y%m%d-%H%M%S")
+    if not RUN_ID.fullmatch(run_id) or run_id.strip(".") == "":
+        raise SystemExit(
+            "refused: --run-id must be 1 to 64 characters of letters, digits, _ . - (no separators)"
+        )
     work = prepare_work_db(args.source, args.pages_db, args.work_db)
     source = open_ro(args.source)
     rules = st.load_rules(source, standard=args.standard, key_prefix=args.rule_key)

@@ -22,6 +22,7 @@ import re
 import sqlite3
 
 from . import numparse
+from . import rule_finish_figures as ff
 from .converter_gates import fold
 from .rule_finish import (
     COMPARATORS_ALLOWED,
@@ -30,7 +31,7 @@ from .rule_finish import (
     equipment_types_in,
     limit_and_unit,
 )
-from .rule_finish_figures import fraction_spans, implied_comparator
+from .rule_finish_figures import fraction_spans
 from .rule_finish_guard import require_work_copy
 from .rule_finish_record import record_code_step, reset_checks
 from .rule_finish_store import (
@@ -161,7 +162,14 @@ def apply_proposal(
     )
     if trial["value"] is None and trial["value_low"] is None:
         raise ValueError("a proposal needs a value")
-    # step a verifies value, unit AND the comparator against the figure's own phrase (a range: both ends, low then high)
+    if ff.read(" ".join(str(rules[0].get("quote") or "").split())).shape not in (
+        "simple",
+        "range",
+    ):
+        raise ValueError(
+            "refused: engineer_required (code reads a comparator only in the simple shape or a closed range)"
+        )
+    # step a verifies value, unit AND the comparator (simple shape: the table's; closed range: low >=, high <=)
     result, reason, _ = limit_and_unit(trial)
     if result != PASS:
         raise ValueError(
@@ -201,6 +209,23 @@ def apply_proposal(
     return trial
 
 
+def _figure_problem(quote: str, value: float, unit: str | None) -> str | None:
+    """None when the figure `value unit` stands in the quote (numparse, the unit table), else the reason."""
+    reading = ff.read(quote)
+    if reading.incomplete:
+        return reading.incomplete
+    if not any(f.value == float(value) for f in reading.figures):
+        return "value_not_in_quote"
+    return (
+        None
+        if any(
+            f.value == float(value) and ff.unit_matches(unit, f)
+            for f in reading.figures
+        )
+        else "unit_not_in_quote"
+    )
+
+
 class _Check:
     """The parts of one repair, each verified on its own: what is applied, what is refused and why, the rows to write."""
 
@@ -222,19 +247,11 @@ class _Check:
 
     def figure(self, fig: dict, unit: str | None) -> None:
         name = f"figure {fig['value']}"
-        quote = " ".join(str(self.rule.get("quote") or "").split())
-        trial = dict(  # the comparator is verified apart (`comparator`); here the figure's own phrase must be readable
-            self.rule,
-            figures=None,
-            value=fig["value"],
-            value_low=None,
-            value_high=None,
-            unit=unit,
-            comparator=implied_comparator(quote, fig["value"], unit),
+        wrong = _figure_problem(
+            " ".join(str(self.rule.get("quote") or "").split()), fig["value"], unit
         )
-        result, reason, _ = limit_and_unit(trial)
-        if result != PASS:
-            self.refused.append({"part": name, "reason": reason})
+        if wrong:
+            self.refused.append({"part": name, "reason": wrong})
         elif fig.get("condition") and not self.text(
             f"condition of {name}", fig["condition"]
         ):
@@ -256,25 +273,14 @@ class _Check:
                 self.rows.append(("condition", {"text": fig["condition"]}))
 
     def comparator(self, comparator: str) -> None:
-        """The comparator must be the one the quote's own phrase gives EACH figure it is applied to (the figures of this
-        repair, else the rule's own value)."""
-        quote = " ".join(str(self.rule.get("quote") or "").split())
-        targets = self.figures_applied or (
-            [(self.rule["value"], self.rule.get("unit"))]
-            if self.rule.get("value") is not None
-            else []
-        )
-        ok = (
-            comparator in COMPARATORS_ALLOWED
-            and bool(targets)
-            and all(implied_comparator(quote, v, u) == comparator for v, u in targets)
-        )
-        if ok:
-            self.applied.append({"part": "comparator", "reason": "implied_by_quote"})
+        """A comparator row is a stored field: it must be an allowed one. Whether it is right is decided by step a (code in
+        the simple shape, the engineer's confirmed figures in every other)."""
+        if comparator in COMPARATORS_ALLOWED:
+            self.applied.append({"part": "comparator", "reason": "stored_for_step_a"})
             self.rows.append(("comparator", {"text": comparator}))
         else:
             self.refused.append(
-                {"part": "comparator", "reason": "comparator_not_in_quote"}
+                {"part": "comparator", "reason": "comparator_not_allowed"}
             )
 
     def run(self, repair: dict) -> None:

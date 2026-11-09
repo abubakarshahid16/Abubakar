@@ -80,13 +80,26 @@ def db_file(conn: sqlite3.Connection) -> str:
 
 
 def _key() -> bytes:
+    """The signing key: created once with O_EXCL (a lost race re-reads the winner's file), mode 0600 checked on EVERY
+    read, at least 32 characters; a key file that is open to others, empty or short is refused, never regenerated (that
+    would orphan every marker)."""
     path = Path(os.environ.get("RULE_FINISH_MARKER_KEY_FILE") or DEFAULT_KEY_FILE)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as handle:
-            handle.write(uuid.uuid4().hex + uuid.uuid4().hex)
-    return path.read_text().strip().encode()
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(uuid.uuid4().hex + uuid.uuid4().hex)
+        except FileExistsError:
+            pass
+    if path.stat().st_mode & 0o077:
+        raise NotAWorkCopy(
+            "refused: the marker key file is readable by others (it must be mode 0600)"
+        )
+    key = path.read_text().strip()
+    if len(key) < 32:
+        raise NotAWorkCopy("refused: the marker key file is empty or too short")
+    return key.encode()
 
 
 def _mac(
