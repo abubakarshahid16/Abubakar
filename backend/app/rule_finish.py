@@ -23,9 +23,25 @@ import hashlib
 import re
 from typing import Any, NamedTuple
 
-from . import claims, numparse
+from . import claims
 from .compiled_rule_proof import quote_verified
+from .rule_finish_figures import (
+    figures as _figures,
+)
+from .rule_finish_figures import (
+    fraction_ambiguous as _fraction_ambiguous,
+)
+from .rule_finish_figures import (
+    number_of as _number_of,
+)
+from .rule_finish_figures import (
+    stands as _stands,
+)
+from .rule_finish_figures import (
+    unit_matches as _unit_matches,
+)
 
+COMPARATORS_ALLOWED = (">=", ">", "<=", "<", "=", "!=")
 PASS, FAIL, NOT_APPLICABLE, INCOMPLETE = "pass", "fail", "not_applicable", "incomplete"
 RESULTS = (PASS, FAIL, NOT_APPLICABLE, INCOMPLETE)
 STEPS = ("a", "b", "c", "d", "e", "f", "g")
@@ -70,42 +86,10 @@ _COMPARATOR_WORDS = (
 )
 
 
-_LONE_UNIT = re.compile(r"\s+([A-Za-z])(?![A-Za-z0-9])")
-
-
-def _figures(quote: str) -> tuple[claims.Measurement, ...]:
-    """Numbers with a unit in the unit table: a bare number, a date or a part-number-like token is not a figure.
-
-    `claims.extract_measurements` reads the unit written after a number; it sets aside a lone letter that follows a space
-    ("15 m"), because "3 a coat" is a word. Here such a letter is read as a unit when `claims.is_unit` knows it and it is
-    not the word "a". The numbers are numparse's; the unit table is claims'."""
-    found = list(claims.extract_measurements(quote))
-    have = {(numparse.as_limit(m.raw_value), m.raw_unit) for m in found}
-    taken = {numparse.as_limit(m.raw_value) for m in found}
-    for number in numparse.find_numbers(quote):
-        if number.value is None or number.joined or number.value in taken:
-            continue
-        hit = _LONE_UNIT.match(quote, number.end)
-        if (
-            hit
-            and hit.group(1) != "a"
-            and claims.is_unit(hit.group(1))
-            and (number.value, hit.group(1)) not in have
-        ):
-            found.append(
-                claims.normalise(quote[number.start : number.end], hit.group(1))
-            )
-    return tuple(found)
-
-
-def _number_of(m: claims.Measurement) -> float | None:
-    return numparse.as_limit(m.raw_value) if m.raw_value is not None else None
-
-
-def _unit_matches(rule_unit: str | None, m: claims.Measurement) -> bool:
-    if not rule_unit or not m.raw_unit:
-        return False
-    return claims.same_unit(claims.Measurement("", rule_unit, None, None, None), m)
+def proposal_of(rule: dict) -> list[dict]:
+    """The figures the quote implies for a rule (never applied)."""
+    quote = _quote_of(rule)
+    return _proposal(quote, _figures(quote))
 
 
 def _proposal(quote: str, figures: tuple[claims.Measurement, ...]) -> list[dict]:
@@ -137,12 +121,36 @@ def _proposal(quote: str, figures: tuple[claims.Measurement, ...]) -> list[dict]
     return out
 
 
+def _figures_list(rule: dict) -> tuple[str, str, dict]:
+    """A rule that carries several figures (one per condition, e.g. by connection type): each stands in the quote with
+    its unit, found by the same step as a single figure."""
+    seen = []
+    for fig in rule["figures"]:
+        trial = dict(
+            rule,
+            figures=None,
+            value=fig.get("value"),
+            value_low=None,
+            value_high=None,
+            unit=fig.get("unit") or rule.get("unit"),
+        )
+        result, reason, evidence = limit_and_unit(trial)
+        if result != PASS:
+            return result, reason, dict(evidence, figure=fig.get("value"))
+        seen.append(fig.get("value"))
+    return PASS, "figures_stand_in_quote", {"figures": seen}
+
+
 def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
     """Step a. A figure (number + unit of the unit table) in the quote must be filled as value (or value_low and
     value_high) AND unit, and code verifies both stand inside the quote. No figure in the quote: not_applicable."""
     quote = _quote_of(rule)
     if not quote:
         return FAIL, "no_quote", {}
+    if _fraction_ambiguous(quote):
+        return INCOMPLETE, "figure_ambiguous", {"figures_in_quote": None}
+    if rule.get("figures"):
+        return _figures_list(rule)
     figures = _figures(quote)
     value, low, high, unit = (
         rule.get("value"),
@@ -166,7 +174,7 @@ def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
     if any(not _is_number(v) for _, v in wanted):
         return FAIL, "range_end_missing", evidence
     for name, v in wanted:
-        if not numparse.value_in_text(v, quote):
+        if not _stands(v, quote):
             evidence["missing"] = name
             return FAIL, "value_not_in_quote", evidence
     if not figures:
@@ -210,6 +218,26 @@ EVIDENCE_SOURCES = (
     PROCEDURE,
     OWNER_DUTY,
     SOURCE_INCOMPLETE,
+)
+
+#: Words of a rule's field that name a quantity a datasheet field can hold (step b, closed list).
+QUANTITY_CUES = (
+    "size",
+    "dimension",
+    "diameter",
+    "length",
+    "thickness",
+    "width",
+    "height",
+    "rating",
+    "setting",
+    "pressure",
+    "temperature",
+    "capacity",
+    "clearance",
+    "distance",
+    "flow",
+    "speed",
 )
 
 _SHEET = r"(?:data\s?sheets?|specification\s+sheets?|spec\.?\s+sheets?)"
@@ -292,8 +320,10 @@ def evidence_source(rule: dict) -> tuple[str, str, dict]:
     text = (
         " ".join(str(rule.get("field") or "").split()) + " | " + _quote_of(rule)
     ).lower()
-    has_number = _is_number(rule.get("value")) or (
-        _is_number(rule.get("value_low")) and _is_number(rule.get("value_high"))
+    has_number = (
+        _is_number(rule.get("value"))
+        or (_is_number(rule.get("value_low")) and _is_number(rule.get("value_high")))
+        or bool(rule.get("figures"))
     )
     presence = [label for label, pattern in _PRESENCE if pattern.search(text)]
     if presence:
@@ -311,6 +341,18 @@ def evidence_source(rule: dict) -> tuple[str, str, dict]:
             PASS,
             DATASHEET_VALUE,
             {"source": DATASHEET_VALUE, "cues": ["limit_on_field"]},
+        )
+    # a size, dimension, rating or setting a datasheet field can hold, with a figure in the quote: closed cue list
+    quantity = [
+        word
+        for word in QUANTITY_CUES
+        if re.search(rf"\b{word}s?\b", str(rule.get("field") or "").lower())
+    ]
+    if quantity and _figures(_quote_of(rule)):
+        return (
+            PASS,
+            DATASHEET_VALUE,
+            {"source": DATASHEET_VALUE, "cues": [*quantity, "figure_in_quote"]},
         )
     return INCOMPLETE, SOURCE_INCOMPLETE, {"source": SOURCE_INCOMPLETE, "cues": []}
 
@@ -487,6 +529,18 @@ EQUIPMENT_VOCAB: tuple[tuple[str, re.Pattern], ...] = (
     ("control valve", re.compile(r"\bcontrol\s+valves?\b")),
     ("valve", re.compile(r"\bvalves?\b")),
 )
+#: How a connection is made: the closed words a connection-type condition may use (the repo's own vocabulary of
+#: end connections: threaded/screwed, flanged, welded, socketweld, buttweld).
+CONNECTION_WORDS = {
+    "threaded": "threaded",
+    "screwed": "threaded",
+    "flanged": "flanged",
+    "welded": "welded",
+    "socket-welded": "socket welded",
+    "socket welded": "socket welded",
+    "butt-welded": "butt welded",
+    "butt welded": "butt welded",
+}
 _UNCONDITIONAL = frozenset({"in all cases", "always", "at all times", "in every case"})
 CONDITION_KINDS = (
     "size",
@@ -508,6 +562,17 @@ def _read_condition(text: str):
     from . import conditions  # heavy import, only when a condition row needs it
 
     return conditions.read_condition(text)
+
+
+def _connection_types(text: str) -> list[str]:
+    folded = " ".join(str(text or "").lower().split())
+    return sorted(
+        {
+            kind
+            for word, kind in CONNECTION_WORDS.items()
+            if re.search(rf"\b{re.escape(word)}\b", folded)
+        }
+    )
 
 
 def conditions_of(rule: dict) -> tuple[str, str, dict]:
@@ -542,6 +607,10 @@ def conditions_of(rule: dict) -> tuple[str, str, dict]:
             if value.lower().strip(" .") in _UNCONDITIONAL:
                 tests.append({"kind": "always", "text": None})
                 continue
+            connection = _connection_types(value)
+            if connection:
+                tests.append({"kind": "connection_type", "values": connection})
+                continue
             reading = _read_condition(value)
             if reading is None:
                 problems.append({"row": key_type, "why": "condition_not_read"})
@@ -561,10 +630,20 @@ def conditions_of(rule: dict) -> tuple[str, str, dict]:
                     )
         else:
             problems.append({"row": key_type, "why": "row_type_not_in_vocabulary"})
+    for text in rule.get("exceptions") or ():
+        text = " ".join(str(text).split())
+        kinds = _connection_types(text)
+        types = equipment_types_in(text)
+        if kinds or types:
+            tests.append(
+                {"kind": "exception", "equipment_types": types, "connection": kinds}
+            )
+        else:
+            problems.append({"row": "exception", "why": "exception_not_read"})
     evidence = {
         "equipment_types": sorted(set(equipment)),
         "tests": tests,
-        "rows": len(rows),
+        "rows": len(rows) + len(rule.get("exceptions") or ()),
     }
     if problems:
         evidence["problems"] = problems

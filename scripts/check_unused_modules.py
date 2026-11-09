@@ -32,6 +32,7 @@ ENTRY_POINTS = (
     # reached from scripts/rule_finish_run.py and scripts/rule_coverage_run.py until wired into the review path (Lane 3)
     "rule_finish",
     "rule_finish_store",
+    "rule_finish_repair",
     "rule_coverage",
 )
 

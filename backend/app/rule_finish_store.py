@@ -252,17 +252,56 @@ def overlay_applied(conn: sqlite3.Connection, rule: dict) -> dict:
             (rule["version_id"],),
         ).fetchone()
     except sqlite3.OperationalError:
+        row = None
+    if row is not None:
+        rule = dict(
+            rule,
+            value=row[0],
+            value_low=row[1],
+            value_high=row[2],
+            unit=row[3],
+            comparator=row[4],
+        )
+    return _overlay_repairs(conn, rule)
+
+
+_REPAIR = """CREATE TABLE IF NOT EXISTS rule_finish_repair (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('field','comparator','figure','condition','exception')),
+    payload_json TEXT NOT NULL, approver TEXT NOT NULL, at TEXT NOT NULL)"""
+
+
+def _overlay_repairs(conn: sqlite3.Connection, rule: dict) -> dict:
+    """Append-only repair rows of this copy laid over the rule: field, comparator, the figures (one per condition),
+    condition rows added to its applicability, and its exceptions."""
+    try:
+        rows = conn.execute(
+            "SELECT kind, payload_json FROM rule_finish_repair WHERE rule_version_id = ? ORDER BY id",
+            (rule["version_id"],),
+        ).fetchall()
+    except sqlite3.OperationalError:
         return rule
-    if row is None:
-        return rule
-    return dict(
-        rule,
-        value=row[0],
-        value_low=row[1],
-        value_high=row[2],
-        unit=row[3],
-        comparator=row[4],
-    )
+    out = dict(rule)
+    figures, conditions, exceptions = [], [], list(rule.get("exceptions") or ())
+    for kind, payload in rows:
+        item = json.loads(payload)
+        if kind == "field":
+            out["field"] = item["text"]
+        elif kind == "comparator":
+            out["comparator"] = item["text"]
+        elif kind == "figure":
+            figures.append(item)
+        elif kind == "condition":
+            conditions.append(("condition", item["text"]))
+        elif kind == "exception":
+            exceptions.append(item["text"])
+    if figures:
+        out["figures"] = figures
+        if len(figures) == 1 and figures[0].get("value") is not None:
+            out["value"], out["unit"] = figures[0]["value"], figures[0].get("unit")
+    out["applicability"] = [*out.get("applicability", ()), *conditions]
+    out["exceptions"] = exceptions
+    return out
 
 
 def load_rules_by_version(conn: sqlite3.Connection, version_id: str) -> list[dict]:
