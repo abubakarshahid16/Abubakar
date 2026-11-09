@@ -446,3 +446,141 @@ def test_the_answering_model_comes_from_the_response_not_the_config():
 def test_budget_and_gate_stops_are_fatal_and_bad_replies_are_not():
     assert ac.AgentBudgetStop.fatal and ac.AgentGateClosed.fatal
     assert not ac.AgentBadReply.fatal and not ac.AgentTransportError.fatal
+
+
+# ---- the key: process env first, then the app settings; switches process env only; never printed
+
+
+SENTINEL = "sk-ant-api03-Zq7Xv9Lm2Bn4Cr8Tw3Kd6Hf1Jg5Ps0Ye"
+NO_KEY = {k: v for k, v in ENV.items() if k != "ANTHROPIC_API_KEY"}
+
+
+class Headers(Sender):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.headers = []
+
+    def __call__(self, url, *, headers, body, timeout):
+        self.headers.append(dict(headers))
+        return super().__call__(url, headers=headers, body=body, timeout=timeout)
+
+
+def test_env_key_wins_over_settings(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", "settings-key-value")
+    s = Headers(tool_use(doc="D", page=1))
+    ac.ClaudeProvider(
+        send=s, env={**ENV, "ANTHROPIC_API_KEY": "env-key-value"}
+    ).complete(MSGS, SPECS)
+    assert s.headers[0]["x-api-key"] == "env-key-value"
+
+
+def test_settings_key_is_the_fallback_when_env_has_none(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", "settings-key-value")
+    s = Headers(tool_use(doc="D", page=1))
+    ac.ClaudeProvider(send=s, env=NO_KEY).complete(MSGS, SPECS)
+    assert s.headers[0]["x-api-key"] == "settings-key-value"
+
+
+def test_no_key_anywhere_is_gate_closed_and_nothing_is_sent(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    s = Sender(tool_use(doc="D", page=1))
+    with pytest.raises(ac.AgentGateClosed) as e:
+        ac.ClaudeProvider(send=s, env=NO_KEY).complete(MSGS, SPECS)
+    assert s.bodies == [] and e.value.code == "no_key_in_env_or_settings"
+
+
+def test_a_broken_settings_fallback_is_a_code_only_gate_closed(monkeypatch):
+    from app import reader_api
+
+    def boom(_env):
+        raise ValueError(SENTINEL)
+
+    monkeypatch.setattr(reader_api, "_sources", boom)
+    s = Sender(tool_use(doc="D", page=1))
+    with pytest.raises(ac.AgentGateClosed) as e:
+        ac.ClaudeProvider(send=s, env=NO_KEY).complete(MSGS, SPECS)
+    assert s.bodies == [] and e.value.code == "settings_unreadable"
+    assert SENTINEL not in str(e.value) + repr(e.value) and e.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "drop",
+    [
+        "REASONING_PROVIDER",
+        "STANDARDS_READER_ENABLED",
+        "STANDARDS_READER_ALLOW_PUBLIC_EGRESS",
+    ],
+)
+def test_flags_stay_process_env_only_even_when_settings_holds_a_key(monkeypatch, drop):
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    monkeypatch.setattr(settings, "standards_reader_enabled", True)
+    monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
+    s = Sender(tool_use(doc="D", page=1))
+    with pytest.raises(ac.AgentGateClosed):
+        ac.ClaudeProvider(
+            send=s, env={k: v for k, v in ENV.items() if k != drop}
+        ).complete(MSGS, SPECS)
+    assert s.bodies == []
+
+
+def test_the_key_is_never_stored_on_the_provider(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    p = ac.ClaudeProvider(send=Headers(tool_use(doc="D", page=1)), env=NO_KEY)
+    p.complete(MSGS, SPECS)
+    assert (
+        SENTINEL not in repr(vars(p))
+        and SENTINEL not in repr(vars(ac))
+        and SENTINEL not in repr(NO_KEY)
+    )
+
+
+def _leaks(*texts):
+    return [t for t in texts if SENTINEL in t or SENTINEL[:8] in t]
+
+
+def test_the_key_appears_nowhere_but_the_request_headers(
+    monkeypatch, caplog, capfd, tmp_path
+):
+    import logging
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    env = {**ENV, "ANTHROPIC_API_KEY": SENTINEL}
+    caplog.set_level(logging.DEBUG)
+    seen: list[str] = []
+    ok = Headers(tool_use(doc="D", page=1))
+    seen.append(repr(ac.ClaudeProvider(send=ok, env=env).complete(MSGS, SPECS)))
+    assert ok.headers[0]["x-api-key"] == SENTINEL  # the one allowed place
+    seen.append(
+        repr(ac.ClaudeProvider(send=Headers([]), env=env).second_opinion(F, EV))
+    )
+    for sender, e in (
+        (Headers([], raises=RuntimeError(SENTINEL[:3])), env),  # a failing call
+        (
+            Headers([{"type": "text", "text": "nope"}], stop="end_turn"),
+            env,
+        ),  # garbage reply
+        (
+            Headers(tool_use(doc="D", page=1)),
+            NO_KEY,
+        ),  # gate closed (no key anywhere after the next line)
+    ):
+        if e is NO_KEY:
+            monkeypatch.setattr(settings, "anthropic_api_key", "")
+            e = {k: v for k, v in e.items() if k != "REASONING_PROVIDER"}
+        with pytest.raises(ac.AgentClaudeError) as err:
+            ac.ClaudeProvider(send=sender, env=e).complete(MSGS, SPECS)
+        seen += [str(err.value), repr(err.value)]
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.0001)
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    with pytest.raises(ac.AgentBudgetStop) as err:
+        ac.ClaudeProvider(send=Headers(tool_use(doc="D", page=1)), env=env).complete(
+            MSGS, SPECS
+        )
+    seen += [str(err.value), repr(err.value)]
+    ledger = (
+        settings.claude_spend_log.read_text()
+        if settings.claude_spend_log.exists()
+        else ""
+    )
+    err_out = capfd.readouterr()
+    assert _leaks(caplog.text, ledger, err_out.out, err_out.err, *seen) == []

@@ -4,7 +4,11 @@
 {"tool", "args", "reason", "usd"} or {"final": {...}, "usd"}. EVERY call goes through `reader_transport`
 (the one Claude socket) wrapped by `claude_spend.metered(step="agent_review")`, so the caps, the approved-document
 gate and the ledger apply as on every other Claude lane. This module opens no socket, adds no flag and never reads
-`backend/.env`: the gate is the process environment only (REASONING_PROVIDER, both STANDARDS_READER_* flags, the key).
+`backend/.env`. KEY: the process environment first (ANTHROPIC_API_KEY), then the app's own settings fallback exactly as
+`reader_api` does it (`settings.anthropic_api_key`, loaded from backend/.env by the settings model; this module reads no
+file). SWITCHES: process environment only (REASONING_PROVIDER and both STANDARDS_READER_* flags); `.env` never opens the
+lane. The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
+the provider, in a module global, the ledger, a trace or an error (codes only).
 
 THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consent(ids)` / `claude_approved.carrying(ids)`
 with exactly the selected documents. Without a declaration every call fails closed with `DocumentNotApproved` (a
@@ -103,9 +107,27 @@ class AgentTransportError(AgentClaudeError):
 
 
 def gate_open(env: dict | None = None) -> bool:
-    """True only when the process environment opens the lane. `backend/.env` is never read here."""
+    """True only when the PROCESS environment opens the lane (switches: process env only; `.env` never opens it)."""
     env = os.environ if env is None else env
     return str(env.get("REASONING_PROVIDER") or "").strip().lower() in _OPEN_PROVIDERS
+
+
+def _resolve_key(env: dict, reader_api) -> str:
+    """The API key: `env` first, then the app's settings fallback (as `reader_api` does). Never logged or kept.
+
+    A failing fallback or a missing key is a code that says where we looked, never what we found.
+    """
+    key = str(env.get(reader_api.API_KEY_ENV) or "").strip()
+    if key:
+        return key
+    try:
+        _env, fallback = reader_api._sources(None)
+        key = str(getattr(fallback, "anthropic_api_key", "") or "").strip()
+    except Exception:  # noqa: BLE001 - a bad .env or import failure: code only
+        raise AgentGateClosed("settings_unreadable") from None
+    if not key:
+        raise AgentGateClosed("no_key_in_env_or_settings")
+    return key
 
 
 def _request(model: str, max_tokens: int, env: dict | None) -> dict:
@@ -115,6 +137,7 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
     env = dict(os.environ) if env is None else env
     if not gate_open(env):
         raise AgentGateClosed
+    key = _resolve_key(env, reader_api)
     try:
         cfg = replace(
             reader_api.ReaderSettings.from_env(env),
@@ -122,7 +145,10 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
             max_tokens=int(max_tokens),
             timeout_seconds=120.0,
         )
-        return reader_api.build_request("x", cfg=cfg, env=env)
+        # a call-local copy carries the key ONLY for this build; the flags above were read from `env` alone
+        return reader_api.build_request(
+            "x", cfg=cfg, env={**env, reader_api.API_KEY_ENV: key}
+        )
     except reader_api.ReaderRefused:
         raise AgentGateClosed from None
 
