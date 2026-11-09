@@ -1010,7 +1010,7 @@ def std_db(tmp_path):
         "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
         "INSERT INTO documents VALUES ('A','ISO 7777.pdf'),('B','ISO 7777-2021.pdf'),"
         "('C','ISO 8888.pdf'),('D','ISO 6666.pdf');"
-        "INSERT INTO pages VALUES ('A',1,'Title. Issue Date: 23 May 2019'),"
+        "INSERT INTO pages VALUES ('A',1,'Title.\nIssue Date: 23 May 2019'),"
         "('C',1,'nothing'),('C',2,'nothing'),('C',3,'nothing'),('C',4,'Issue Date: 1 June 2018'),"
         "('D',2,'Issue   Date:  23   May   2019');"
     )
@@ -1077,7 +1077,7 @@ def test_a_toolbox_with_no_evidence_source_fails_closed_without_touching_any_dat
 
 # ---- edition EVIDENCE: page quote, verbatim, or 'edition not confirmed' ------------------------------------------
 
-LONG = "Issue Date: 23 May 2019 " + "x" * 120
+LONG = "Issue Date:" + " " * 100 + "23 May 2019"
 
 
 @pytest.fixture
@@ -1147,10 +1147,8 @@ def test_file_name_edition_carries_the_file_name_source(ev_db):
     )
 
 
-def test_a_long_line_is_cut_to_80_characters_and_stays_a_verbatim_substring(ev_db):
-    got = ev(ev_db, "ISO 4444", "23 May 2019")
-    assert got["status"] == "confirmed" and len(got["quote"]) <= 80
-    assert got["quote"] in LONG and "23 May 2019" in got["quote"]
+def test_a_line_longer_than_80_characters_is_never_quoted(ev_db):
+    assert ev(ev_db, "ISO 4444", "23 May 2019")["status"] == "edition not confirmed"
 
 
 def test_an_edition_split_over_two_lines_has_no_verifiable_quote_so_not_confirmed(
@@ -1245,6 +1243,15 @@ def one_page_db(tmp_path, text, page=2, filename="ISO 7777.pdf"):
         ("This edition supersedes the one of 23 May 2019", "23 May 2019"),
         ("Issue Date: 1 May 2018 (previous 23 May 2019)", "23 May 2019"),
         ("Issued with Next Planned Update: 23 May 2019", "23 May 2019"),
+        ("Edition: 2019.5", "2019"),
+        ("Issue Date: 2019-06-01", "2019"),
+        ("Edition 3.1", "3"),
+        ("Edition: 1/2019", "2019"),
+        ("Edition: 2019,5", "2019"),
+        ("This standard, edition 2019 is withdrawn", "2019"),
+        ("The date of issue 23 May 2019 was postponed", "23 May 2019"),
+        ("Issue Date: 23 May 2019 (Rev 3)", "23 May 2019"),
+        ("Revision Date: 23 May 2019", "23 May 2019"),
     ],
 )
 def test_a_line_that_is_not_the_labelled_issue_date_never_confirms(
@@ -1255,7 +1262,15 @@ def test_a_line_that_is_not_the_labelled_issue_date_never_confirms(
 
 
 @pytest.mark.parametrize(
-    "label", ["Issue Date:", "Date of Issue -", "Issued:", "Edition:", "REVISION DATE:"]
+    "label",
+    [
+        "Issue Date:",
+        "Date of Issue -",
+        "Issued:",
+        "Edition:",
+        "1. Edition",
+        "- Issue Date:",
+    ],
 )
 def test_each_allowed_label_confirms_the_correct_line(tmp_path, label):
     conn = one_page_db(tmp_path, f"Title\n{label} 23 May 2019\nBody", page=2)
@@ -1328,3 +1343,63 @@ def test_the_cli_builds_exactly_one_provider_per_run(
     args = [*_args(copy_db, tmp_path), "--provider", "local"]
     assert cli.main(args, env={"AGENT_REVIEW_ENABLED": "1"}, out=lambda _l: None) == 0
     assert len(built) == 1
+
+
+@pytest.mark.parametrize(
+    "line", ["Edition: 2019.", "Issue Date: 2019,", "  Edition   2019  "]
+)
+def test_end_punctuation_and_spacing_after_the_edition_are_fine(tmp_path, line):
+    conn = one_page_db(tmp_path, "Title\n" + line)
+    assert ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "confirmed"
+
+
+def test_two_issue_lines_with_different_dates_are_not_confirmed(tmp_path):
+    conn = one_page_db(tmp_path, "Issue Date: 23 May 2019\nEdition: 2020")
+    assert (
+        ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
+        == "edition not confirmed"
+    )
+    assert (
+        ev(conn, "ISO 7777", "2020", docs=("A",))["status"] == "edition not confirmed"
+    )
+
+
+def test_the_same_issue_date_repeated_as_a_running_header_is_fine(tmp_path):
+    conn = one_page_db(
+        tmp_path, "Issue Date: 23 May 2019\nBody\nIssue Date: 23 May 2019"
+    )
+    assert ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"] == "confirmed"
+
+
+def test_a_file_name_followed_by_a_longer_value_does_not_confirm(tmp_path):
+    for name in ("ISO 7777-2019.5.pdf", "ISO 7777-2019-06-01.pdf"):
+        conn = one_page_db(tmp_path, "x", filename=name)
+        assert (
+            ev(conn, "ISO 7777", "2019", docs=("A",))["status"]
+            == "edition not confirmed"
+        )
+
+
+def test_a_closed_toolbox_never_returns_clause_text_or_opens_a_database(monkeypatch):
+    from app import agent_tools, db
+
+    opened = []
+    monkeypatch.setattr(db, "connect", lambda: opened.append(1))
+    ctx = agent_tools.ToolContext(frozenset({"A"}), "A", {"ISO 7777": "23 May 2019"})
+    pages = [
+        (1, "1 General\nIntro.\n4.1 Figure\nThe figure shall be 5.\n4.2 Next\nOther.")
+    ]
+    out = agent_tools.ToolBox(ctx, standard_pages=lambda _d: pages).run(
+        "get_clause", {"standard": "ISO 7777", "clause": "4.1"}
+    )
+    assert out["ok"] is False and "text" not in out["result"] and opened == []
+
+
+def test_a_label_line_that_is_not_a_date_does_not_make_a_conflict(tmp_path):
+    text = "Issue Date: 23 May 2019\nIssued by the standards committee for general use\nEdition notes follow"
+    assert (
+        ev(one_page_db(tmp_path, text), "ISO 7777", "23 May 2019", docs=("A",))[
+            "status"
+        ]
+        == "confirmed"
+    )
