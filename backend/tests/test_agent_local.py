@@ -315,3 +315,31 @@ def test_ligature_soft_hyphen_and_fullwidth_refuse(sent, evil):
         FINDING, {"doc_quote": evil, "clause_quote": CLQ}
     )
     assert out["agree"] is None and calls == []
+
+
+def test_judge_mode_questions_and_the_unchanged_colour_question():
+    from app import agent_local as al
+
+    box = al.LocalSecondOpinion("tag")
+    for code, question in al.JUDGE_QUESTIONS.items():
+        body = box.build_body(
+            {"item": "J1", "judge": code},
+            {"doc_quote": "dq text here", "clause_quote": "cq text here"},
+        )
+        prompt = body["messages"][1]["content"]
+        assert (
+            question in prompt
+            and "Colour claimed" not in prompt
+            and prompt.count(al.OPEN) == 2
+        )
+    plain = box.build_body(
+        {"color": "GREEN"},
+        {"doc_quote": "dq text here", "clause_quote": "cq text here"},
+    )
+    assert "Colour claimed" in plain["messages"][1]["content"]
+    with pytest.raises(al.AgentLocalError):
+        box.build_body(
+            {"judge": "anything_else"}, {"doc_quote": "a", "clause_quote": "b"}
+        )
+    with pytest.raises(al.AgentLocalError):
+        box.build_body({}, {"doc_quote": "a", "clause_quote": "b"})

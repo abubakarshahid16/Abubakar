@@ -983,3 +983,13 @@ def test_yellow_with_empty_strings_is_accepted():
         "reason": "x",
     }
     assert box().run("record_finding", {"finding": f})["ok"] is True
+
+
+def test_judge_row_schema_names_the_three_decisions_and_the_closed_reasons():
+    schema = agent_tools.INPUT_SCHEMAS["judge_row"]["properties"]
+    assert schema["decision"]["enum"] == ["CONFIRM", "REMOVE", "UNSURE"]
+    assert schema["reason_code"]["enum"] == [
+        "complies",
+        "not_applicable",
+        "already_stated",
+    ]

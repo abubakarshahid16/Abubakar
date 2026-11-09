@@ -281,3 +281,16 @@ def test_wrong_is_not_measured_unless_a_value_is_passed(tmp_path):
     assert "wrong 2" in w.refresh_live(wrong=2).read_text()
     w.set_wrong(0)  # a measured zero is shown as a zero
     assert "wrong 0" in w.refresh_live().read_text()
+
+
+def test_live_md_uses_result_labels_when_given(tmp_path):
+    t = at.TraceWriter(tmp_path / "r", total=1)
+    t.result_labels = {"GREEN": "CONFIRM", "YELLOW": "UNSURE", "RED": "REMOVE"}
+    t.mark_done("a", "GREEN")
+    assert "CONFIRM 1, UNSURE 0, REMOVE 0" in t.refresh_live().read_text()
+    plain = at.TraceWriter(tmp_path / "r2", total=1)
+    assert "GREEN 0, YELLOW 0, RED 0" in plain.refresh_live().read_text()
+
+
+def test_judge_row_is_a_side_effect_tool_so_a_resume_never_runs_it_again():
+    assert "judge_row" in at.SIDE_EFFECT_TOOLS

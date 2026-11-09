@@ -34,7 +34,7 @@ ENV_NAME = "AGENT_TEST_DIR"
 MAX_WORDS = 20
 MAX_CHARS = 160
 REF_KEYS = ("page", "clause", "standard", "doc")
-SIDE_EFFECT_TOOLS = ("record_finding", "ask_engineer")
+SIDE_EFFECT_TOOLS = ("record_finding", "ask_engineer", "judge_row")
 VERDICT_WORDS = ("accepted", "refused", "decided", "cannot decide")
 COLOURS = ("GREEN", "YELLOW", "RED")
 
@@ -191,6 +191,8 @@ class TraceWriter:
         }
         self.problems: list[str] = []
         #: ONE source for the problems text and the headline note (set by the runner): (run problems) -> (lines, note)
+        #: optional {colour: label} for the LIVE.md results line (the judge says CONFIRM / UNSURE / REMOVE)
+        self.result_labels: dict[str, str] | None = None
         self.stats_view: Callable[[list[str]], tuple[list[str], str]] | None = None
         self.recent: deque[str] = deque(maxlen=5)
         self.counts = {"GREEN": 0, "YELLOW": 0, "RED": 0, "not sure": 0}
@@ -455,6 +457,10 @@ class TraceWriter:
         """Record the measured count of wrong verdicts (from the answer-key score)."""
         self.wrong = wrong
 
+    def _counts_text(self) -> str:
+        c, lab = self.counts, self.result_labels or {}
+        return ", ".join(f"{lab.get(k, k)} {c[k]}" for k in ("GREEN", "YELLOW", "RED"))
+
     def refresh_live(self, wrong: int | None = None) -> Path:
         """Rewrite LIVE.md. `wrong` is shown only when measured (passed here or via set_wrong)."""
         c = self.counts
@@ -469,7 +475,7 @@ class TraceWriter:
         lines.append(f"- **PROGRESS**: {self.progress()}")
         lines.append(f"- **MODEL**: {self.live.get('MODEL', '')}")
         lines.append(
-            f"- **RESULTS**: GREEN {c['GREEN']}, YELLOW {c['YELLOW']}, RED {c['RED']}, "
+            f"- **RESULTS**: {self._counts_text()}, "
             f"not sure {c['not sure']}, wrong {wrong}{note}"
         )
         lines.append(f"- **SPEND**: USD {self.spend:.2f}")

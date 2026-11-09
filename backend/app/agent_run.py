@@ -562,12 +562,12 @@ def _save_meta(run_root, trace, meta, lead, second, seconds, stats=None) -> dict
     return meta
 
 
-def _trip(breaker, finals, trace, run_root) -> str:
+def _trip(breaker, finals, trace, run_root, name=None) -> str:
     """The failure breaker tripped: its items go back out of finals and the done set, so a resume asks them again."""
     for dead in breaker.items:
         finals.pop(dead, None)
         trace.unmark_done(dead)
-    _write_json(run_root / FILES["finals"], finals)
+    _write_json(run_root / (name or FILES["finals"]), finals)
     words = breaker.words()
     trace.problem(words)
     return words

@@ -202,13 +202,15 @@ def _ask_engineer(toolbox: Any, item: dict, reason: str) -> None:
 
 
 def _initial(item: dict, skill_item: Any) -> list[dict]:
+    custom = skill_item.get("instruction") if isinstance(skill_item, dict) else None
     return [
         {
             "role": "user",
             "content": {
                 "item": item,
                 "skill_item": skill_item,
-                "instruction": "Review this item with the tools. Finish with a final "
+                "instruction": custom
+                or "Review this item with the tools. Finish with a final "
                 "finding (GREEN, YELLOW or RED) that quotes the document.",
             },
         }
@@ -265,6 +267,8 @@ class _ItemRun:
         self.item, self.toolbox, self.provider = item, toolbox, provider
         self.max_steps, self.usd_cap, self.trace = max_steps, usd_cap, trace
         self.id, self.doc = item.get("id"), item.get("doc")
+        #: the tool whose accepted call ends an item (the judge's toolbox says `judge_row`)
+        self.end_tools = tuple(getattr(toolbox, "END_TOOLS", ("record_finding",)))
         self.sink = sink if sink is not None else (trace.sink if trace else None)
         self.specs = _specs(toolbox)
         if callable(getattr(toolbox, "set_item", None)):
@@ -311,7 +315,7 @@ class _ItemRun:
             "result": {k: saved.get(k) for k in ("verdict", "accepted", "reason")},
             "cites": [],
         }
-        if name == "record_finding" and saved.get("accepted"):
+        if name in self.end_tools and saved.get("accepted"):
             stored = self.sink.get(self.id) if self.sink else None
             if stored is not None:
                 self.finding = stored
@@ -468,7 +472,7 @@ class _ItemRun:
         t1 = time.time()
         res = _run_tool(self.toolbox, name, args)
         self._add(name, args, reason, res)
-        accepted = name == "record_finding" and _accepted(res)
+        accepted = name in self.end_tools and _accepted(res)
         self._log(
             name,
             args,
@@ -479,7 +483,12 @@ class _ItemRun:
         )
         self.save(name, args, res, reason, cost)
         if accepted:
-            self.finding, self.why = args["finding"], "recorded"
+            stored = (
+                self.sink.get(self.id)
+                if name != "record_finding" and self.sink
+                else None
+            )
+            self.finding, self.why = stored or args.get("finding") or args, "recorded"
             if self.sink is not None and not self.sink.has(self.id):
                 self.sink.add(self.id, self.finding)
         elif name == "ask_engineer" and res.get("ok"):

@@ -85,6 +85,32 @@ INPUT_SCHEMAS: dict[str, dict] = {
         },
         "required": ["finding"],
     },
+    "judge_row": {  # judge mode only (agent_judge_tools): ONE decision per row of system A's CRS
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": ["CONFIRM", "REMOVE", "UNSURE"]},
+            "reason_code": {
+                "type": "string",
+                "enum": ["complies", "not_applicable", "already_stated"],
+                "description": "REMOVE only: one of these three",
+            },
+            "page": {"type": "integer", "minimum": 1},
+            "doc_quote": _S,
+            "standard": _S,
+            "clause": _S,
+            "clause_quote": _S,
+            "figures": _FIGURES,
+            "reason": {
+                "type": "string",
+                "description": "at most 30 words, no document text",
+            },
+            "absent": {
+                "type": "boolean",
+                "description": "CONFIRM only: the row says something is missing and you found it nowhere",
+            },
+        },
+        "required": ["decision"],
+    },
     "ask_engineer": {
         "type": "object",
         "properties": {

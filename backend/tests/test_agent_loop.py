@@ -650,3 +650,51 @@ def test_a_non_fatal_provider_error_is_still_yellow(tmp_path):
 
     out = al.run_item({"id": "i1", "doc": "d"}, None, Box(), Boom(), usd_cap=5.0)
     assert out["finding"]["color"] == "YELLOW" and out["why"] == "provider error"
+
+
+class EndBox(Box):
+    """A toolbox whose own decision tool ends the item (the judge mode's judge_row)."""
+
+    END_TOOLS = ("judge_row",)
+    TOOL_SPECS: ClassVar[list] = [
+        *SPECS,
+        {"name": "judge_row", "description": "", "params": {}},
+    ]
+
+    def run(self, name, args):
+        if name == "judge_row":
+            self.ran.append(name)
+            return {
+                "ok": True,
+                "result": {"verdict": "accepted", "accepted": True},
+                "cites": [],
+            }
+        return super().run(name, args)
+
+
+def test_an_accepted_end_tool_ends_the_item_with_the_stored_decision(tmp_path):
+    trace = at.TraceWriter(tmp_path / "r", total=1)
+    trace.sink.add("i1", {"item": "i1", "decision": "CONFIRM", "color": "GREEN"})
+    script = [{"tool": "judge_row", "args": {"decision": "CONFIRM"}, "reason": "r"}]
+    out = al.run_item(
+        ITEM, {}, EndBox(), al.FakeProvider(script), usd_cap=1.0, trace=trace
+    )
+    assert out["why"] == "recorded" and out["finding"]["decision"] == "CONFIRM"
+
+
+def test_record_finding_does_not_end_an_item_when_it_is_not_the_end_tool():
+    script = [{"final": GOOD}, {"tool": "judge_row", "args": {}, "reason": "r"}]
+    box = EndBox()
+    out = al.run_item(ITEM, {}, box, al.FakeProvider(script), usd_cap=1.0)
+    assert box.ran == ["record_finding", "judge_row"] and out["finding"] == {}
+
+
+def test_a_custom_instruction_replaces_the_default_one():
+    provider = al.FakeProvider([{"tool": "judge_row", "args": {}, "reason": "r"}])
+    al.run_item(
+        ITEM, {"instruction": "Judge this row"}, EndBox(), provider, usd_cap=1.0
+    )
+    assert provider.calls[0][0]["content"]["instruction"] == "Judge this row"
+    plain = al.FakeProvider([{"final": GOOD}])
+    al.run_item(ITEM, {}, Box(), plain, usd_cap=1.0)
+    assert plain.calls[0][0]["content"]["instruction"].startswith("Review this item")
