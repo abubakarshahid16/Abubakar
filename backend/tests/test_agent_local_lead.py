@@ -480,3 +480,12 @@ def test_no_window_set_uses_the_8192_default():
     provider = al.LocalProvider()
     sent = provider.build_body(_loop_messages(8, 8000), [])["messages"]
     assert al._tokens(sent) <= al.DEFAULT_NUM_CTX - al.NUM_PREDICT
+
+
+def test_the_system_rules_tell_the_lead_that_only_a_decided_number_can_be_green_or_red():
+    system = al.to_ollama_messages([])[0]["content"]
+    assert "GREEN or RED is only for a number that compare_number" in system
+    assert "record YELLOW" in system
+    assert (
+        len(system) < 2000
+    )  # the rules stay short: a small window must keep room for the item
