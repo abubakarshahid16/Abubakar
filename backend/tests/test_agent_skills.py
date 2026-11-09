@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -192,3 +193,25 @@ def test_items_in_order_validates_n(tmp_path, monkeypatch, bad):
     _put(tmp_path, monkeypatch, _data())
     with pytest.raises(sk.SkillError, match="whole number"):
         sk.items_in_order("equipment_datasheet", bad)
+
+
+def test_hard_linked_skill_file_refused(tmp_path, monkeypatch):
+    inside = tmp_path / "inside"
+    outside = tmp_path / "outside"
+    inside.mkdir()
+    outside.mkdir()
+    (inside / "equipment_datasheet.json").write_text(json.dumps(_data()))
+    os.link(inside / "equipment_datasheet.json", outside / "equipment_datasheet.json")
+    monkeypatch.setenv("AGENT_SKILLS_DIR", str(outside))
+    with pytest.raises(sk.SkillError, match="hard_linked"):
+        sk.load_skill("equipment_datasheet")
+
+
+def test_repo_root_identity_check_without_a_git_entry(tmp_path, monkeypatch):
+    fake_root = tmp_path / "fakerepo"
+    (fake_root / "skills").mkdir(parents=True)
+    (fake_root / "skills" / "equipment_datasheet.json").write_text(json.dumps(_data()))
+    monkeypatch.setattr(sk, "_REPO_ROOT", fake_root)
+    monkeypatch.setenv("AGENT_SKILLS_DIR", str(fake_root / "skills"))
+    with pytest.raises(sk.SkillError, match="outside the git repository"):
+        sk.load_skill("equipment_datasheet")

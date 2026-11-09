@@ -157,6 +157,8 @@ def load_skill(kind: str) -> dict:
         raise SkillError("skill files must live outside the git repository")
     if not path.is_file():
         raise SkillError(f"skill file not found for kind {kind}")
+    if path.stat().st_nlink > 1:
+        raise SkillError("hard_linked")
     try:
         data = json.loads(_read_text(path), object_pairs_hook=_no_duplicate_keys)
     except json.JSONDecodeError as exc:
