@@ -191,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
             done += 1
             short = rule["rule_key"][:8]
             try:
+                rule = rf.overlay_applied(work_conn, rule)
                 steps = rf.run_steps(rule, get_pages(rule.get("standard_document_id")))
                 for name, (result, reason, evidence) in steps.items():
                     rf.record_step(

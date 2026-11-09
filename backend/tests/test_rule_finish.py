@@ -470,3 +470,73 @@ def test_a_lone_letter_unit_after_a_space_is_read_as_the_figure_it_is():
         rf.limit_and_unit(rule(quote="Give it 3 a coat of paint."))[0]
         == rf.NOT_APPLICABLE
     )
+
+
+# ------------------------------------------------------------------------------------------------ apply_proposal
+
+
+def _mini_copy(
+    path: Path, quote="The inlet shall be at least 4 inch in size."
+) -> sqlite3.Connection:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """CREATE TABLE rulebook_rule (id TEXT, rule_key TEXT, standard TEXT);
+        CREATE TABLE rulebook_version (id TEXT, rule_id TEXT, version_no INT, kind TEXT, field TEXT, comparator TEXT,
+          value REAL, value_low REAL, value_high REAL, value_text TEXT, unit TEXT, unit_dimension TEXT, strength TEXT,
+          sentence_strength TEXT, context_flag TEXT);
+        CREATE TABLE rulebook_provenance (id INTEGER PRIMARY KEY, rule_version_id TEXT, standard_document_id TEXT,
+          edition TEXT, clause TEXT, page INT, quote TEXT, quote_start INT, quote_end INT, page_source TEXT);
+        CREATE TABLE rulebook_applicability (id INTEGER PRIMARY KEY, rule_version_id TEXT, key_type TEXT, value TEXT);"""
+    )
+    conn.execute("INSERT INTO rulebook_rule VALUES ('r1','keyabc','X.pdf')")
+    conn.execute(
+        "INSERT INTO rulebook_version VALUES ('v1','r1',1,'no_figure','inlet size',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'shall',NULL,NULL)"
+    )
+    conn.execute(
+        "INSERT INTO rulebook_provenance (rule_version_id, standard_document_id, clause, page, quote) VALUES ('v1','d','4.1',1,?)",
+        (quote,),
+    )
+    conn.commit()
+    return conn
+
+
+GOOD_PROPOSAL = {"value": 4.0, "unit": "inch", "comparator": ">="}
+
+
+def test_apply_proposal_writes_the_copy_and_step_a_then_passes(tmp_path):
+    conn = _mini_copy(tmp_path / "work.sqlite")
+    (r,) = rf.load_rules_by_version(conn, "v1")
+    assert rf.limit_and_unit(r)[1] == "figure_not_filled"
+    rf.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
+    assert rf.latest_steps(conn, "v1")["a"]["reason"] == "proposal_applied"
+    again = rf.overlay_applied(conn, r)
+    assert again["value"] == 4.0 and rf.limit_and_unit(again)[0] == rf.PASS
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"value": 5.0, "unit": "inch", "comparator": ">="},
+        {"value": 4.0, "unit": "kPa", "comparator": ">="},
+        {"unit": "inch"},
+    ],
+)
+def test_apply_proposal_refuses_a_figure_that_does_not_stand_in_the_quote(
+    tmp_path, bad
+):
+    conn = _mini_copy(tmp_path / "work.sqlite")
+    with pytest.raises(ValueError):
+        rf.apply_proposal(conn, "v1", bad, "owner-1")
+    assert rf.latest_steps(conn, "v1") == {}
+
+
+def test_apply_proposal_refuses_an_original_database_and_an_unnamed_approver(tmp_path):
+    conn = _mini_copy(tmp_path / "psv-all.sqlite")
+    with pytest.raises(PermissionError):
+        rf.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
+    assert rf.latest_steps(conn, "v1") == {}
+    copy = _mini_copy(tmp_path / "w2.sqlite")
+    with pytest.raises(ValueError):
+        rf.apply_proposal(copy, "v1", GOOD_PROPOSAL, " ")
+    with pytest.raises(PermissionError):
+        rf.apply_proposal(sqlite3.connect(":memory:"), "v1", GOOD_PROPOSAL, "o")

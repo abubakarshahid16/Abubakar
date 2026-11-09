@@ -24,6 +24,7 @@ import json
 import re
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from . import claims, numparse
@@ -812,3 +813,121 @@ def load_rules(
         ]
         rules.append(rule)
     return rules
+
+
+# --------------------------------------------------------------------------- applying a proposal (a COPY only, by explicit call)
+
+ORIGINAL_DB_NAMES = frozenset(
+    {"psv-all.sqlite", "compile.sqlite", "combined-run.sqlite", "crsfix-run.sqlite"}
+)
+_APPLIED = """CREATE TABLE IF NOT EXISTS rule_finish_applied (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id TEXT NOT NULL, value REAL, value_low REAL, value_high REAL,
+    unit TEXT NOT NULL, comparator TEXT, approver TEXT NOT NULL, at TEXT NOT NULL)"""
+
+
+def _db_file(conn: sqlite3.Connection) -> str:
+    for _, name, path in conn.execute("PRAGMA database_list"):
+        if name == "main":
+            return path or ""
+    return ""
+
+
+def apply_proposal(
+    conn_copy: sqlite3.Connection, rule_version_id: str, proposal: dict, approver: str
+) -> dict:
+    """Write a proposed value, unit and comparator into the WORK COPY (never automatic: only an explicit call, named
+    approver). Refuses an original database and a proposal whose value or unit does not stand in the rule's quote:
+    step a must pass with the proposal applied. The rulebook rows stay as they are (append-only); the applied figure is
+    kept in `rule_finish_applied` and step a is recorded as pass with reason `proposal_applied`."""
+    path = _db_file(conn_copy)
+    if not path or Path(path).name in ORIGINAL_DB_NAMES:
+        raise PermissionError(
+            "refused: an original database; a proposal is applied only in a copy"
+        )
+    if not (approver or "").strip():
+        raise ValueError("an approver is required")
+    rules = load_rules_by_version(conn_copy, rule_version_id)
+    if not rules:
+        raise ValueError("no such rule version in this copy")
+    unit = proposal.get("unit")
+    trial = dict(
+        rules[0],
+        value=proposal.get("value"),
+        value_low=proposal.get("value_low"),
+        value_high=proposal.get("value_high"),
+        unit=unit,
+        comparator=proposal.get("comparator"),
+    )
+    if trial["value"] is None and trial["value_low"] is None:
+        raise ValueError("a proposal needs a value")
+    result, reason, evidence = limit_and_unit(trial)
+    if result != PASS:
+        raise ValueError(
+            f"refused: the proposal does not stand in the quote ({reason})"
+        )
+    ensure_table(conn_copy)
+    conn_copy.execute(_APPLIED)
+    at = now_utc()
+    conn_copy.execute(
+        "INSERT INTO rule_finish_applied (rule_version_id, value, value_low, value_high, unit, comparator, approver, at) VALUES (?,?,?,?,?,?,?,?)",
+        (
+            rule_version_id,
+            trial["value"],
+            trial["value_low"],
+            trial["value_high"],
+            unit,
+            trial["comparator"],
+            approver,
+            at,
+        ),
+    )
+    conn_copy.commit()
+    record_step(
+        conn_copy,
+        rule_version_id,
+        "a",
+        PASS,
+        "proposal_applied",
+        dict(evidence, approver=approver),
+        checker=approver,
+        model=MODEL_NONE,
+        run_id="apply-proposal",
+        at=at,
+    )
+    return trial
+
+
+def overlay_applied(conn: sqlite3.Connection, rule: dict) -> dict:
+    """The rule with the latest applied proposal of this copy laid over its value, unit and comparator."""
+    try:
+        row = conn.execute(
+            "SELECT value, value_low, value_high, unit, comparator FROM rule_finish_applied WHERE rule_version_id = ? ORDER BY id DESC LIMIT 1",
+            (rule["version_id"],),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return rule
+    if row is None:
+        return rule
+    return dict(
+        rule,
+        value=row[0],
+        value_low=row[1],
+        value_high=row[2],
+        unit=row[3],
+        comparator=row[4],
+    )
+
+
+def load_rules_by_version(conn: sqlite3.Connection, version_id: str) -> list[dict]:
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT r.rule_key FROM rulebook_version v JOIN rulebook_rule r ON r.id = v.rule_id WHERE v.id = ?",
+        (version_id,),
+    ).fetchone()
+    if row is None:
+        return []
+    return [
+        r
+        for r in load_rules(conn, key_prefix=row["rule_key"])
+        if r["version_id"] == version_id
+    ]
