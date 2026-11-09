@@ -259,6 +259,7 @@ class _ItemRun:
         self.usd, self.step = 0.0, 0
         self.finding: dict | None = None
         self.why = ""
+        self.error = ""
 
     def _log(self, name, args, res, reason, secs, verified="", replayed=False):
         if self.trace:
@@ -351,7 +352,19 @@ class _ItemRun:
                     time.time() - t0,
                 )
                 raise
-            # recorded: the failure is counted in the finding, never raised
+            # the exception CLASS code goes to the trace and live.log (never a message), and to the result
+            self.error = re.sub(
+                r"[^A-Za-z0-9_]",
+                "",
+                str(getattr(exc, "code", None) or type(exc).__name__),
+            )[:60]
+            self._log(
+                "model",
+                {},
+                {"ok": False},
+                "provider error " + self.error,
+                time.time() - t0,
+            )
             self.finding = yellow("provider error " + type(exc).__name__, self.item)
             self.why = "provider error"
             return None, 0.0, 0.0
@@ -482,6 +495,7 @@ class _ItemRun:
             "steps": self.step,
             "usd": self.usd,
             "why": self.why,
+            "error": self.error,
         }
 
 

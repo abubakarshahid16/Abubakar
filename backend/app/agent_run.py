@@ -47,6 +47,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import agent_loop, agent_trace, heavy_lock, live_guard
+from . import agent_run_stats as rstats
 from .agent_edition import edition_evidence
 from .agent_run_crs import (
     CHECKED_SHEET as CHECKED_SHEET,
@@ -252,6 +253,33 @@ def build_scope(
             allowed.add(doc)
             held[standard] = edition
     return frozenset(allowed), held, missing
+
+
+class DbPathMismatch(RuntimeError):
+    """The app's configured database is not the copy: claude_approved would open the wrong file (the live trap)."""
+
+
+def check_db_path(
+    db_copy: str | os.PathLike, configured: str | os.PathLike | None = None
+) -> None:
+    """The app's own database path (`settings.db_path`, what `db.connect()` opens) must be the SAME file as the copy.
+
+    Run before any model call: the Claude gate reads the configured database, and a live-shaped path is refused there
+    on every call. The one-line fix names the copy."""
+    from .config import settings
+
+    cfg, copy = (
+        Path(settings.db_path if configured is None else configured),
+        Path(db_copy),
+    )
+    try:
+        same = (
+            cfg.exists() and copy.exists() and cfg.samefile(copy)
+        ) or cfg.resolve() == copy.resolve()
+    except OSError:
+        same = False
+    if not same:
+        raise DbPathMismatch(f"set DB_PATH={copy.resolve()} in the command environment")
 
 
 class DocumentsNotDeclared(RuntimeError):
@@ -545,7 +573,17 @@ def _drive(
     by_id = {str(i["id"]): i for i in chosen}
     finals = _read_json(run_root / FILES["finals"], {})
     second = _read_json(run_root / FILES["second"], {})
-    stopped = ""
+    stats = trace.stats = rstats.load(meta)
+    box, breaker, stopped = rstats.CountingBox(box, stats), rstats.Breaker(), ""
+
+    def save() -> dict:
+        saved = _save_meta(
+            run_root, trace, meta, lead, second, base_seconds + time.time() - started
+        )
+        saved["stats"] = stats
+        _write_json(run_root / FILES["meta"], saved)
+        return saved
+
     try:
         for loop_item in loop_items(document_id, chosen):
             iid = loop_item["id"]
@@ -567,7 +605,18 @@ def _drive(
                     stopped = out["stopped"]
                     break
                 res = out["results"].get(iid)
-                finding = (
+                rstats.count_item(stats, res)
+                if breaker.seen(iid, res):
+                    for dead in (
+                        breaker.items
+                    ):  # kept OUT of finals and the done set: a resume retries them
+                        finals.pop(dead, None)
+                        trace.unmark_done(dead)
+                    _write_json(run_root / FILES["finals"], finals)
+                    stopped = breaker.words()
+                    trace.problem(stopped)
+                    break
+                finals[iid] = (
                     res["finding"]
                     if res
                     else (
@@ -575,7 +624,6 @@ def _drive(
                         or agent_loop.yellow("result lost in a restart", loop_item)
                     )
                 )
-                finals[iid] = finding
                 _write_json(run_root / FILES["finals"], finals)
             finding = finals[iid]
             if (
@@ -585,14 +633,7 @@ def _drive(
             ):
                 second[iid] = ask_second_opinion(other, finding, trace)
                 _write_json(run_root / FILES["second"], second)
-            meta = _save_meta(
-                run_root,
-                trace,
-                meta,
-                lead,
-                second,
-                base_seconds + time.time() - started,
-            )
+            meta = save()
             if len(trace.completed) % 10 == 0 and on_status:
                 trace.refresh_live()
                 on_status(trace)
@@ -601,6 +642,7 @@ def _drive(
             raise
         stopped = fatal_problem(exc)
         trace.problem(f"{stopped}: run stopped, resumable")
+    save()
     return stopped
 
 
@@ -640,6 +682,7 @@ def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dic
         stopped=stopped,
         second_ran=second_ran,
         editions=scope["report"],
+        stats=getattr(trace, "stats", None),
     )
     trace.set_live(
         done=f"{len(findings)} of {len(chosen)} items",
@@ -670,6 +713,15 @@ def status_box(trace: agent_trace.TraceWriter) -> str:
     """The owner's STATUS box, from LIVE.md (rewritten first)."""
     text = trace.refresh_live().read_text(encoding="utf-8")
     fields = dict(re.findall(r"^- \*\*([A-Z]+)\*\*: (.*)$", text, re.M))
+    stats = getattr(trace, "stats", None)
+    if stats:
+        if rstats.unreliable(stats):
+            fields["RESULTS"] += " | " + rstats.headline_warning(stats)
+        base = fields.get("PROBLEMS", "none")
+        parts = ([] if base == "none" else [base]) + (
+            rstats.problem_words(stats) if rstats.problem_count(stats) else []
+        )
+        fields["PROBLEMS"] = "; ".join(parts) or "none"
     if not getattr(trace, "second_ran", True):
         fields["RESULTS"] += " (GREEN and RED: second opinion not run: not decided)"
     body = [f"{k:9}{fields.get(k, '')}" for k in STATUS_FIELDS]

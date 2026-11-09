@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from . import agent_loop, agent_trace
+from . import agent_loop, agent_run_stats, agent_trace
 
 CRS_SHEET = "CRS"
 CONTRACTOR_SHEET = "Contractor"
@@ -215,6 +215,11 @@ def quote_verified(findings: list[dict], sink: Any) -> int:
     return n
 
 
+def _warning(stats: dict | None) -> str:
+    said = agent_run_stats.headline_warning(stats or {})
+    return f" ({said})" if said else ""
+
+
 def _headline(count: dict, findings: list[dict], second_ran: bool) -> str:
     not_sure = sum(1 for f in findings if f.get("color") not in count)
     if second_ran:
@@ -260,6 +265,7 @@ def write_results(
     stopped: str,
     second_ran: bool,
     editions: dict | None = None,
+    stats: dict | None = None,
 ) -> Path:
     """RESULTS.md: counts, spend, minutes, model names. No document or standard text."""
     count = dict.fromkeys(("GREEN", "YELLOW", "RED"), 0)
@@ -277,7 +283,7 @@ def write_results(
         f"- Document id: {document_id}",
         f"- Items finished: {len(findings)}"
         + (f" (run paused: {agent_trace.words(stopped)})" if stopped else ""),
-        _headline(count, findings, second_ran),
+        _headline(count, findings, second_ran) + _warning(stats),
         f"- Quote verified by code: {verified} of {len(findings)} findings",
         f"- Second opinion: agreed {sec.count('agreed')}, disagreed {sec.count('disagreed')}, "
         f"no answer {sec.count('no answer')}, not run {sec.count('not run')}",
@@ -288,8 +294,9 @@ def write_results(
         *_edition_lines(editions),
         "- Scoring note: the scorer matches page digits as a substring; YELLOW rows count as raised",
         "- Wrong verdicts: not measured (needs the key score)",
-        f"- Problems: {len(problems)}"
+        f"- Problems: {agent_run_stats.problem_count(stats or {}, len(problems))}"
         + ("; " + "; ".join(problems[-5:]) if problems else ""),
+        *[f"- {w}" for w in agent_run_stats.problem_words(stats or {})],
     ]
     path = run_dir / FILES["results"]
     agent_trace._atomic_write(path, "\n".join(lines) + "\n")

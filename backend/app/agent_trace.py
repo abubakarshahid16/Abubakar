@@ -264,6 +264,14 @@ class TraceWriter:
         if done % 10 == 0:
             self.refresh_live()
 
+    def unmark_done(self, item_id: Any) -> None:
+        """Take an item back out of the finished set, so a resume runs it again (the failure breaker uses this)."""
+        colour = self.completed.pop(str(item_id), None)
+        if colour is None:
+            return
+        self.counts[colour if colour in self.counts else "not sure"] -= 1
+        self._save_state()
+
     def _ckpt_path(self, item_id: Any) -> Path:
         return self.root / f"{_file_id(item_id)}.ckpt.json"
 
