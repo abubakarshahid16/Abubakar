@@ -1,22 +1,21 @@
 """Bind a GREEN or RED finding to its item (#1690, CLAUDE.md rule 4). Pure functions: no db, no model, no network.
 
-The lead's default is YELLOW (the engineer). A GREEN or RED is accepted only when ALL of these hold:
-  1. every figure it claims (`value`, each `figures` pair) stands INSIDE the quote it is claimed from, with number AND unit
-     (a bare number, a date, a part-number-like token is not a figure);
+GREEN and RED exist ONLY for numeric requirements decided by code. A GREEN or RED is accepted only when ALL hold:
+  1. at least one `figures` pair was DECIDED by compare_number (code, not the model; its label-subject check applies), with
+     number AND unit on both sides, both sides standing INSIDE their quotes (a bare number, a date or a part-number-like
+     token is not a figure), and any claimed `value` standing inside the document quote with a unit;
   2. the clause quote is at least 40 characters and is not the clause's own heading text (or a prefix of it);
-  3. the item's topic has at least two content words (fewer: YELLOW only) and the quotes share them (two with the document
-     quote, one with the clause quote);
-  4. EITHER a `figures` pair was DECIDED by compare_number (code, not the model),
-     OR (a textual finding, no value or figures) the document quote holds EVERY topic word (at most 4), has at least 40
-     characters and is not a heading-like line (6 words or fewer, no digit, no sentence punctuation).
-A failure is refused as `quote_not_about_item` with a fixed-word hint (no text) that names the YELLOW way. YELLOW claims
-nothing and is never bound. A run where the loop never named an item (topic None) binds nothing by topic.
+  3. when the loop named the item's topic: the document quote shares at least two of its content words and the clause quote
+     at least one; a topic of fewer than two content words can never carry GREEN or RED. No topic known (None) is the same as
+     no overlap check, but a decided pair is still required.
+Every TEXTUAL finding (no decided figures pair) is refused as `quote_not_about_item` with a fixed-word hint to record YELLOW:
+the engineer decides. YELLOW claims nothing and is never bound.
 
 LIMITS, stated plainly. This is a HEURISTIC on words and numbers; it cannot judge meaning. It does NOT bind the quote to the
-right INSTANCE: a paragraph about another tag or device that uses the same words (and the same figure) passes, and so does
-a figure that appears twice in a quote with different meaning. A true GREEN phrased in synonyms of the topic, or with a unit
-the repo's unit table lacks, is refused (the safe side: record YELLOW). What remains behind these rules is the local second
-opinion and the engineer.
+right INSTANCE: a decided figure about another tag or device that uses the same words (and a figure with the same label)
+passes, and so does a figure that appears twice in a quote with different meaning. A true numeric GREEN phrased in synonyms
+of the topic, or in a unit the repo's unit table lacks, is refused (record YELLOW). What stays behind these rules is the
+local second opinion and the engineer.
 """
 
 from __future__ import annotations
@@ -32,6 +31,7 @@ EXPECT = {
     "doc_quote": "lines that state the item's own value, sharing its topic words",
     "clause_quote": "clause lines about the same topic",
     "figures": "each figure's text must stand inside the quote it is claimed from",
+    "green_or_red": "only for a number decided by compare_number (a figures pair, number and unit on both sides); a textual finding is YELLOW",
     "otherwise": "record YELLOW for the engineer; an item whose topic has fewer than two content words can only be YELLOW",
 }
 MIN_DOC_WORDS = 2
@@ -78,20 +78,12 @@ _NUMBER_UNIT = re.compile(
     r"(?<![\w.])[-+\u2212]?\d+(?:[.,]\d+)?\s*([A-Za-z\u00b0%\u00b5\u03a9][A-Za-z\u00b0%\u00b5\u03a9/^]*)"
 )
 MIN_CLAUSE_QUOTE_CHARS = 40
-MIN_TEXT_QUOTE_CHARS = 40
-MAX_TOPIC_WORDS = 4
-MAX_HEADING_WORDS = 6
 
 
 def has_figure(text: object) -> bool:
     """A number WITH a unit, outside dates and part-number-like tokens. A bare number is not a figure."""
     masked = _NOT_FIGURE.sub(" ", str(text or ""))
     return any(claims.is_unit(m.group(1)) for m in _NUMBER_UNIT.finditer(masked))
-
-
-def heading_like(line: str) -> bool:
-    """A short line with no digit and no sentence punctuation: a heading, a title, a label."""
-    return len(line.split()) <= MAX_HEADING_WORDS and not re.search(r"\d|[.;:!?]", line)
 
 
 def values_inside(
@@ -132,24 +124,6 @@ def decided_pair(finding: dict, decided: dict) -> bool:
     return False
 
 
-def topic_order(topic: str) -> list[str]:
-    """The topic's content words in order of first appearance, at most MAX_TOPIC_WORDS."""
-    seen: list[str] = []
-    for raw in re.findall(r"[a-z]+", str(topic or "").lower()):
-        word = next(iter(content_words(raw)), None)
-        if word and word not in seen:
-            seen.append(word)
-    return seen[:MAX_TOPIC_WORDS]
-
-
-def textual_bound(topic: str, doc_quote: str) -> bool:
-    """A textual finding: the quote holds EVERY topic word (up to 4), is long enough and is not heading-like."""
-    wanted = topic_order(topic)
-    if len(doc_quote.strip()) < MIN_TEXT_QUOTE_CHARS or heading_like(doc_quote.strip()):
-        return False
-    return bool(wanted) and set(wanted) <= content_words(doc_quote)
-
-
 def clause_quote_ok(clause_quote: str, clause_text: str | None) -> bool:
     """Rule 4: long enough, and not the clause's own heading text (with or without its number) or a prefix of it."""
     quote = _fold(clause_quote)
@@ -176,34 +150,24 @@ def binding_problem(
 ) -> str | None:
     """CODE when a GREEN or RED is not bound to its item, else None. YELLOW claims nothing and is never bound.
 
-    Accepted only when: figures (if any) stand inside their quotes with number and unit; the clause quote is long enough and
-    not the clause heading; the item topic has at least two content words; and EITHER a figures pair was decided by
-    compare_number OR (a textual finding) the document quote holds every topic word, is long enough and is no heading.
-    A run where the loop never named an item (topic None) binds nothing by topic."""
+    A GREEN or RED stands ONLY on a number decided by code: at least one `figures` pair that compare_number DECIDED, with
+    number and unit on both sides, both inside their quotes. Every textual finding is refused (record YELLOW). On top of
+    that: the clause quote is at least 40 characters and not the clause heading; and, when the loop named the item's topic,
+    the quotes share its content words (two in the document quote, one in the clause quote), so a topic of fewer than two
+    content words can never carry GREEN or RED."""
     if colour not in ("GREEN", "RED"):
         return None
     doc_quote, clause_quote = (
         str(finding.get("doc_quote") or ""),
         str(finding.get("clause_quote") or ""),
     )
-    topic = box.ctx.current_topic
-    if (
-        topic is None
-    ):  # the loop never named an item: only "figures stand inside their quotes" applies
-        return (
-            None
-            if values_inside(finding, doc_quote, clause_quote, unit=False)
-            else CODE
-        )
-    if not values_inside(finding, doc_quote, clause_quote):
+    if not values_inside(finding, doc_quote, clause_quote) or not decided_pair(
+        finding, box._compares
+    ):
         return CODE
     if not clause_quote_ok(clause_quote, clause_text):
         return CODE
-    if not topic_bound(topic, doc_quote, clause_quote):
-        return CODE  # a topic of fewer than two content words can never share two with a quote: YELLOW only
-    numeric = bool(finding.get("figures")) or bool(
-        str(finding.get("value") or "").strip()
-    )
-    if numeric:
-        return None if decided_pair(finding, box._compares) else CODE
-    return None if textual_bound(topic, doc_quote) else CODE
+    topic = box.ctx.current_topic
+    if topic is not None and not topic_bound(topic, doc_quote, clause_quote):
+        return CODE
+    return None

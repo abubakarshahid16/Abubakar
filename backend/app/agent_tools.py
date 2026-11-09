@@ -703,9 +703,9 @@ class ToolBox:
             and not numparse.value_in_text(value, self._page_text(doc, page) or "")
         ):
             return "value_not_on_page"
-        problem = agent_bind.binding_problem(
+        problem = self._numbers_problem(f, verdict) or agent_bind.binding_problem(
             f, verdict, self, clause_text
-        ) or self._numbers_problem(f, verdict)
+        )
         if problem:
             return problem
         if quote and clause_text is not None:

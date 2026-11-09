@@ -168,6 +168,20 @@ def _down(finding: dict, reason: str) -> dict:
     return out
 
 
+def _name_item(toolbox: Any, item: dict) -> bool:
+    """Tell the toolbox the current item and its topic (an empty one when the item has none). False when the toolbox takes no
+    topic: the caller then lets no GREEN or RED stand (there is no silent unbound path)."""
+    setter = getattr(toolbox, "set_item", None)
+    if not callable(setter):
+        return True
+    try:
+        setter(item.get("id"), topic=item.get("topic") or "")
+    except TypeError:
+        setter(item.get("id"))
+        return False
+    return True
+
+
 def _specs(toolbox: Any) -> list[dict]:
     """The toolbox's own TOOL_SPECS; the agent_tools module's only if it has none."""
     specs = getattr(toolbox, "TOOL_SPECS", None)
@@ -279,11 +293,9 @@ class _ItemRun:
         self.id, self.doc = item.get("id"), item.get("doc")
         self.sink = sink if sink is not None else (trace.sink if trace else None)
         self.specs = _specs(toolbox)
-        if callable(getattr(toolbox, "set_item", None)):
-            try:  # the item's topic binds a GREEN or RED to it; a toolbox that takes no topic still works
-                toolbox.set_item(self.id, topic=item.get("topic") or "")
-            except TypeError:
-                toolbox.set_item(self.id)
+        self.named = _name_item(
+            toolbox, item
+        )  # False: the toolbox cannot take the topic, so no GREEN or RED may stand
         self.names = {sp.get("name") for sp in self.specs}
         self.messages = _initial(item, skill_item)
         note = getattr(toolbox, "prompt_note", "")
@@ -462,6 +474,8 @@ class _ItemRun:
     def _own(self, finding):
         finding.setdefault("item", self.id)
         finding.setdefault("doc", self.doc)
+        if not self.named and finding.get("color") in ("GREEN", "RED"):
+            return _down(finding, "item topic could not be bound")
         return finding
 
     def one_step(self):
@@ -705,6 +719,9 @@ def answer_open_page(
             else yellow("not answered on the page", it)
         )
         if raw is not None:
+            named = _name_item(toolbox, it)
+            if not named and f.get("color") in ("GREEN", "RED"):
+                f = _down(f, "item topic could not be bound")
             f.setdefault("item", it.get("id"))
             if not _accepted(_run_tool(toolbox, "record_finding", {"finding": f})):
                 f = yellow("finding refused", it)

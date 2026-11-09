@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from app import agent_claude, agent_loop, agent_quote_refs, agent_tools, agent_trace
@@ -15,13 +18,13 @@ from app.agent_quote_refs import (
 from app.agent_tools import ToolBox, ToolContext
 
 DOC, OTHER, STD = "doc-sub", "doc-secret", "doc-std"
-LINE1 = "Widget model W-1 is rated for a working figure of 12 units at the stated site."
+LINE1 = "Widget model W-1 is rated for a working figure of 12 bar at the stated site."
 PAGE1 = f"{LINE1}\nMaterial: invented alloy.\n\nTest pressure: 20 bar\nDesign pressure: 12 bar\n"
 PAGES = {(DOC, 1): PAGE1, (DOC, 2): "Second page line.", (OTHER, 1): "Hidden words."}
 STD_PAGES = [
-    (1, "1 General\nIntro words.\n4.2 Working figure\nThe working figure shall be at least 10 units.\nException: none for sealed widgets.\n4.3 Marking\nMark it."),
+    (1, "1 General\nIntro words.\n4.2 Working figure\nThe working figure shall be at least 10 bar.\nException: none for sealed widgets.\n4.3 Marking\nMark it."),
 ]  # fmt: skip
-C1 = "4.2 Working figure The working figure shall be at least 10 units."
+C1 = "4.2 Working figure The working figure shall be at least 10 bar."
 
 
 def make(on=True, allowed=(DOC, STD)):
@@ -46,8 +49,8 @@ def opened(box=None):
 
 def finding(**over):
     f = {
-        "item": "I-1", "color": "GREEN", "doc": DOC, "action": "none", "priority": "should", "reason": "Figure stated.",
-        "value": "12 units", "doc_quote_ref": {"page": 1, "lines": "L1"},
+        "item": "I-1", "color": "YELLOW", "doc": DOC, "action": "none", "priority": "should", "reason": "Figure stated.",
+        "value": "12 bar", "doc_quote_ref": {"page": 1, "lines": "L1"},
         "clause_quote_ref": {"standard": "ISO 9999", "clause": "4.2", "blocks": "C1"},
     }  # fmt: skip
     f.update(over)
@@ -82,7 +85,7 @@ def test_open_page_returns_numbered_lines_when_on():
 
 
 def test_clause_blocks_exact_and_numbered():
-    assert numbered_blocks("4.2 Working figure\nThe working figure shall be at least 10 units.\nException: none for sealed widgets.") == [
+    assert numbered_blocks("4.2 Working figure\nThe working figure shall be at least 10 bar.\nException: none for sealed widgets.") == [
         ("C1", C1), ("C2", "Exception: none for sealed widgets.")]  # fmt: skip
     r = make().run("get_clause", {"standard": "ISO 9999", "clause": "4.2"})
     assert (
@@ -152,9 +155,14 @@ def test_multi_line_ref_is_joined_with_one_space_and_verifies():
 
 def test_a_ref_to_lines_that_do_not_support_green_is_still_refused():
     box = opened()
-    assert record(box, value="99 bar")["result"]["reason"] == "value_not_on_page"
     assert (
-        record(box, reason="the figure is not mentioned")["result"]["reason"]
+        record(box, color="GREEN", value="99 bar")["result"]["reason"]
+        == "value_not_on_page"
+    )
+    assert (
+        record(box, color="GREEN", reason="the figure is not mentioned")["result"][
+            "reason"
+        ]
         == "not_mentioned_is_never_green"
     )
     fig = {
@@ -162,7 +170,7 @@ def test_a_ref_to_lines_that_do_not_support_green_is_still_refused():
         "clause_quote": "Design pressure shall be at least 8 bar",
     }
     # compare_number still decides; here the figures are not inside the quotes either, so the binding refuses first
-    assert record(box, figures=[fig])["result"]["accepted"] is False
+    assert record(box, color="GREEN", figures=[fig])["result"]["accepted"] is False
     assert box.ctx.findings.all() == []
 
 
@@ -220,7 +228,7 @@ def test_a_typed_quote_without_a_ref_still_works_and_is_verified():
     typed = {k: v for k, v in finding().items() if not k.endswith("_ref")}
     typed.update(
         page=1, standard="ISO 9999", clause="4.2",
-        doc_quote="rated for a working figure of 12 units", clause_quote="shall be at least 10 units",
+        doc_quote="rated for a working figure of 12 bar", clause_quote="shall be at least 10 bar",
     )  # fmt: skip
     assert box.run("record_finding", {"finding": typed})["ok"]
     box2 = opened()
@@ -372,20 +380,59 @@ def _scripted(box, final):
     )
 
 
-def test_loop_green_by_reference_is_not_downgraded_and_stores_the_exact_text():
+def test_loop_numeric_green_by_reference_is_bound_end_to_end_and_stores_the_exact_text(
+    monkeypatch,
+):
+    mod = types.ModuleType("app.figure_compare")
+    mod.compare = lambda d, c: types.SimpleNamespace(
+        verdict=True, reason="r", direction=None
+    )
+    monkeypatch.setitem(sys.modules, "app.figure_compare", mod)
+    monkeypatch.setattr(__import__("app"), "figure_compare", mod, raising=False)
     box = make()
-    keep = box.set_item
-    box.set_item = lambda item_id, topic=None: keep(
-        item_id
-    )  # this test is about the reference path, not the binding
-    final = {k: v for k, v in finding().items() if k not in ("item", "doc")}
-    provider, out = _scripted(box, final)
+    pair = {
+        "doc_quote": "working figure of 12 bar",
+        "clause_quote": "The working figure shall be at least 10 bar",
+    }
+    final = {
+        k: v
+        for k, v in finding(color="GREEN", figures=[pair], value="12 bar").items()
+        if k not in ("item", "doc")
+    }
+    provider = agent_loop.FakeProvider(
+        [
+            {"tool": "open_page", "args": {"doc": DOC, "page": 1}, "reason": "read"},
+            {
+                "tool": "get_clause",
+                "args": {"standard": "ISO 9999", "clause": "4.2"},
+                "reason": "clause",
+            },
+            {"tool": "compare_number", "args": pair, "reason": "compare"},
+            {"final": final},
+        ]
+    )
+    out = agent_loop.run_item(
+        {"id": "I-1", "doc": DOC, "topic": "Working figure"},
+        {},
+        box,
+        provider,
+        usd_cap=1.0,
+    )
     assert out["why"] == "recorded" and out["finding"]["color"] == "GREEN"
     assert out["finding"]["doc_quote"] == LINE1 and out["finding"]["clause_quote"] == C1
     assert "doc_quote_ref" not in out["finding"]
     assert agent_quote_refs.PROMPT_NOTE in str(
         provider.calls[0][0]["content"]["instruction"]
     )
+
+
+def test_loop_textual_green_by_reference_is_refused():
+    box = make()
+    _provider, out = _scripted(
+        box,
+        {k: v for k, v in finding(color="GREEN").items() if k not in ("item", "doc")},
+    )
+    assert out["finding"]["color"] == "YELLOW" and box.ctx.findings.all() == []
 
 
 def test_loop_prompt_note_only_when_on():
