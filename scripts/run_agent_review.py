@@ -39,14 +39,14 @@ class SmokeProvider:
         }
 
 
-def make_provider(kind: str):
+def make_provider(kind: str, model: str | None = None):
     """The lead provider for `kind`, built ONCE per run. The real ones are imported lazily; a missing module or a
     wrong constructor fails loudly (no fallback)."""
     if kind == "fake":
         return SmokeProvider()
     module, cls = {
         "claude": ("agent_claude", "ClaudeProvider"),
-        "local": ("agent_local", "LocalProvider"),
+        "local": ("agent_local_lead", "LocalProvider"),
     }[kind]
     try:
         mod = __import__(f"app.{module}", fromlist=[cls])
@@ -55,7 +55,9 @@ def make_provider(kind: str):
         raise SystemExit(
             f"provider '{kind}' is not built yet: app.{module}.{cls} is missing ({type(exc).__name__})"
         ) from None
-    return klass(model=LEAD_MODEL) if kind == "claude" else klass()
+    if kind == "claude":
+        return klass(model=LEAD_MODEL)
+    return klass(model=model) if model else klass()
 
 
 def make_second_opinion(model: str):
@@ -100,6 +102,11 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--local-model", default=None, help="model tag for --second-opinion local"
+    )
+    ap.add_argument(
+        "--lead-model",
+        default=None,
+        help="model tag for the LEAD with --provider local (default: the Qwen tag); not the second opinion's",
     )
     ap.add_argument(
         "--run-dir",
@@ -163,6 +170,8 @@ def _run(args: argparse.Namespace, out) -> int:
     chosen = agent_run.select_items(skill, ids, args.limit)
     if args.second_opinion == "local" and not args.local_model:
         raise SystemExit("--second-opinion local needs --local-model (the model tag)")
+    if args.lead_model and args.provider != "local":
+        raise SystemExit("--lead-model is only for --provider local")
     if args.provider in ("claude", "local"):
         agent_run.check_db_path(
             args.db_copy
@@ -206,7 +215,11 @@ def _run(args: argparse.Namespace, out) -> int:
         out("items: " + ", ".join(report["items"]))
         out("no model was called")
         return 0
-    provider = make_provider(args.provider)
+    provider = (
+        make_provider(args.provider, args.lead_model)
+        if args.lead_model
+        else make_provider(args.provider)
+    )
     opinion = (
         make_second_opinion(args.local_model)
         if args.second_opinion == "local"

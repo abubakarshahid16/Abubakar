@@ -82,10 +82,14 @@ _CODE = re.compile(r"[A-Za-z0-9_]{1,40}")
 
 def safe_error_code(exc: BaseException) -> str:
     """The code that may be logged for a provider error: the exception CLASS name, or the `code` of one of OUR adapter's
-    exceptions (module agent_claude or agent_local: letters, digits, underscore, at most 40). Never a message, never any
+    exceptions (module agent_claude, agent_local or agent_local_lead: letters, digits, underscore, at most 40). Never a message, never any
     other code."""
     code = getattr(exc, "code", None)
-    ours = type(exc).__module__.rsplit(".", 1)[-1] in ("agent_claude", "agent_local")
+    ours = type(exc).__module__.rsplit(".", 1)[-1] in (
+        "agent_claude",
+        "agent_local",
+        "agent_local_lead",
+    )
     if ours and isinstance(code, str) and _CODE.fullmatch(code):
         return code
     return re.sub(r"[^A-Za-z0-9_]", "", type(exc).__name__)[:40]
