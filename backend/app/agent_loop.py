@@ -176,7 +176,7 @@ def _run_tool(toolbox: Any, name: str, args: Any) -> dict:
         res = toolbox.run(name, args)
     except Exception as exc:  # noqa: BLE001 - a tool failure is a result the model sees
         # recorded: the failure is counted in the finding, never raised
-        return {"ok": False, "result": {"error": type(exc).__name__}, "cites": []}
+        return {"ok": False, "result": {"error": safe_error_code(exc)}, "cites": []}
     return res if isinstance(res, dict) else {"ok": False, "result": {}, "cites": []}
 
 
@@ -362,7 +362,7 @@ class _ItemRun:
                     "model",
                     {},
                     {"ok": False},
-                    "fatal " + words(getattr(exc, "code", ""), 3),
+                    "fatal " + safe_error_code(exc),
                     time.time() - t0,
                 )
                 raise
@@ -375,7 +375,7 @@ class _ItemRun:
                 "provider error " + self.error,
                 time.time() - t0,
             )
-            self.finding = yellow("provider error " + type(exc).__name__, self.item)
+            self.finding = yellow("provider error " + self.error, self.item)
             self.why = "provider error"
             return None, 0.0, 0.0
         cost = self._usd(reply)

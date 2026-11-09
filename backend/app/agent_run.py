@@ -552,7 +552,10 @@ def _save_meta(run_root, trace, meta, lead, second, seconds, stats=None) -> dict
         note = rstats.unreliable_note(stats)
         if note and note != getattr(trace, "warned", ""):
             trace.warned = note
-            trace.note_problem(note)  # live.log too, once
+            n = stats.runs
+            trace.note_problem(
+                f"{note} (this run only{'' if n == 1 else f', resumed run {n}'}; not cumulative)"
+            )  # live.log, once per run
     _write_json(run_root / FILES["meta"], meta)
     names = ", ".join(meta["lead_models"]) or "not reported by the provider"
     trace.set_live(model=names)

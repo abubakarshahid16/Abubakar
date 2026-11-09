@@ -24,6 +24,7 @@ class RunStats:
     def __init__(self, items: dict | None = None, measured: bool = True) -> None:
         self.items: dict[str, dict] = items or {}
         self.measured = measured
+        self.runs = 1  # this run's number: 1 for the first, 2 for the first resume, ...
         self._cur: str | None = None
         self._prev: dict | None = None
 
@@ -36,13 +37,15 @@ class RunStats:
                 for k, v in saved["items"].items()
                 if isinstance(v, dict)
             }
-            return cls(items, measured=saved.get("measured", True) is not False)
+            st = cls(items, measured=saved.get("measured", True) is not False)
+            st.runs = int(saved.get("runs") or 0) + 1
+            return st
         return cls(
             measured=not meta
         )  # an old metadata file (it has other keys, no counts): not measured
 
     def to_json(self) -> dict:
-        return {"items": self.items, "measured": self.measured}
+        return {"items": self.items, "measured": self.measured, "runs": self.runs}
 
     # one item ------------------------------------------------------------------------------------------------
     def begin(self, item_id: str) -> None:
@@ -136,8 +139,6 @@ def percent(rate: float) -> str:
 
 def unreliable_note(stats: RunStats) -> str:
     """'' for a clean (or unmeasured) run, else the words the headline must carry."""
-    if not stats.measured:
-        return ""
     if stats.rate > FAIL_RATE:
         return "run unreliable: tool failures"
     if stats.provider_errors or stats.step_limit:
@@ -145,13 +146,21 @@ def unreliable_note(stats: RunStats) -> str:
     return ""
 
 
+NOT_MEASURED = (
+    "earlier items: not measured (this run started before the counts were kept)"
+)
+
+
 def stat_lines(stats: RunStats) -> list[str]:
-    """The honest count lines (the same text in every output)."""
-    if not stats.measured:
-        return ["run statistics: not measured (this run started before they were kept)"]
+    """The honest count lines (the same text in every output). For a run resumed from before the counts were kept, the
+    earlier items are labelled 'not measured' and the counts below cover the items run since."""
+    earlier = [NOT_MEASURED] if not stats.measured else []
+    if not stats.measured and not problem_count(stats) and not stats.retried:
+        return earlier  # nothing went wrong in the measured items: say only what is not measured, never a bare 0
     calls, failed = stats.total("calls"), stats.total("fails")
     rate = f"{percent(stats.rate)}; {THRESHOLD_WORDS}" if calls else "no tool calls"
     lines = [
+        *earlier,
         f"items ended by provider error: {stats.provider_errors}",
         f"tool calls failed: {failed} of {calls} ({rate})",
         f"items ended on the step limit: {stats.step_limit}",
@@ -165,8 +174,6 @@ def stat_lines(stats: RunStats) -> list[str]:
 
 def problem_count(stats: RunStats, run_problems: int = 0) -> int:
     """Logged problems plus one for each category above 0 (and one more when the failure rate is over 30%)."""
-    if not stats.measured:
-        return run_problems
     kinds = sum(
         1 for n in (stats.provider_errors, stats.total("fails"), stats.step_limit) if n
     )

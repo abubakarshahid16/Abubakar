@@ -1961,16 +1961,104 @@ def test_a_run_from_before_the_counts_says_not_measured_never_zero(copy_db, run_
     go(copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3))
     text = (run_dir / "RESULTS.md").read_text()
     assert (
-        "run statistics: not measured" in text
+        "earlier items: not measured" in text
         and "items ended by provider error: 0" not in text
     )
-    assert "not measured (this run started" in field(
+    assert "earlier items: not measured (this run started" in field(
         (run_dir / "LIVE.md").read_text(), "PROBLEMS"
     )
     s2 = go(
         copy_db, run_dir, al.FakeProvider([final("YELLOW")] * 3)
     )  # still not measured after a resume
     assert (
-        "run statistics: not measured" in (run_dir / "RESULTS.md").read_text()
+        "earlier items: not measured" in (run_dir / "RESULTS.md").read_text()
         and s2["items_done"] == 3
+    )
+
+
+def everything_written(run_dir, status_box, capsys):
+    blob = "".join(
+        p.read_text()
+        for p in run_dir.rglob("*")
+        if p.is_file() and p.suffix in (".log", ".jsonl", ".md", ".json")
+    )
+    return blob + status_box + capsys.readouterr().out + capsys.readouterr().err
+
+
+def test_a_fatal_exception_with_a_document_like_code_or_a_key_leaks_nowhere(
+    copy_db, run_dir, capsys
+):
+    class FatalLeak(RuntimeError):
+        fatal = True
+        code = SENTINEL
+
+    def hot(_m):
+        raise FatalLeak(SENTINEL)
+
+    s = go(copy_db, run_dir, al.FakeProvider([hot]))
+    assert s["stopped"] and "fatal FatalLeak" in (run_dir / "live.log").read_text()
+    blob = everything_written(run_dir, s["status_box"], capsys)
+    for leaked in ("SENTINEL", "4711", "long sentence", "clause of a document"):
+        assert leaked not in blob
+
+
+def test_a_foreign_exception_with_a_short_code_logs_only_its_class_name(
+    copy_db, run_dir
+):
+    class Foreign(RuntimeError):
+        code = "ABC123"
+
+    def err(_m):
+        raise Foreign("m")
+
+    go(copy_db, run_dir, al.FakeProvider([err, final("YELLOW"), final("YELLOW")]))
+    log = (run_dir / "live.log").read_text()
+    assert "provider error Foreign" in log and "ABC123" not in log
+
+
+def test_a_run_resumed_from_before_the_counts_still_counts_its_own_provider_error(
+    copy_db, run_dir
+):
+    run_dir.mkdir()
+    (run_dir / "run_meta.json").write_text(
+        json.dumps({"seconds": 5.0, "lead_models": ["x"]})
+    )
+    s = go(copy_db, run_dir, al.FakeProvider([boom, final("YELLOW"), final("YELLOW")]))
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "earlier items: not measured" in text
+        and "items ended by provider error: 1" in text
+    )
+    assert "Problems: 0" not in text and "run unreliable" in text
+    assert (
+        "run unreliable" in s["status_box"]
+        and field((run_dir / "LIVE.md").read_text(), "PROBLEMS") != "none"
+    )
+
+
+def test_the_unreliable_line_in_live_log_says_it_is_this_run_only(copy_db, run_dir):
+    run4(copy_db, run_dir, al.FakeProvider([final("YELLOW"), boom, boom]))
+    run4(copy_db, run_dir, al.FakeProvider([boom, boom]))
+    lines = [
+        x
+        for x in (run_dir / "live.log").read_text().splitlines()
+        if "run unreliable" in x and "PROBLEM" in x
+    ]
+    assert len(lines) == 2
+    assert "this run only; not cumulative" in lines[0] and "resumed run" not in lines[0]
+    assert "this run only, resumed run 2; not cumulative" in lines[1]
+
+
+def test_a_foreign_fatal_code_never_chooses_the_problem_words(copy_db, run_dir):
+    class Foreign(RuntimeError):
+        fatal = True
+        code = "document_x"
+
+    def hot(_m):
+        raise Foreign("m")
+
+    s = go(copy_db, run_dir, al.FakeProvider([hot]))
+    assert (
+        s["stopped"].startswith("budget stop")
+        and "documents not declared" not in s["stopped"]
     )
