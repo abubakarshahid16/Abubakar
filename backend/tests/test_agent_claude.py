@@ -681,3 +681,38 @@ def test_gate_and_settings_errors_hold_no_key_in_any_frame(monkeypatch):
     with pytest.raises(ac.AgentGateClosed) as e2:
         ac.ClaudeProvider(send=Sender([]), env=NO_KEY).complete(MSGS, SPECS)
     assert e2.value.__context__ is None and not _holds_key(e2.value)
+
+
+def test_undeclared_documents_error_holds_no_key_in_any_frame(monkeypatch):
+    from app import claude_approved
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    for env in (NO_KEY, {**ENV, "ANTHROPIC_API_KEY": SENTINEL}):
+        token = claude_approved._CARRIED.set(frozenset())
+        try:
+            with pytest.raises(ac.AgentGateClosed) as e:
+                ac.ClaudeProvider(send=Sender([]), env=env).complete(MSGS, SPECS)
+        finally:
+            claude_approved._CARRIED.reset(token)
+        assert e.value.code == "undeclared_documents"
+        walk = _frame_locals(e.value)
+        # the injected env of the second case is the caller's own dict; the adapter adds no copy of it
+        assert not any(SENTINEL in v for name, v in walk if name != "env")
+
+
+def test_over_cap_error_holds_no_key_in_any_frame(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", SENTINEL)
+    s = Sender(tool_use(doc="D", page=1))
+    with pytest.raises(ac.AgentBudgetStop) as e:
+        ac.ClaudeProvider(send=s, env=NO_KEY, total_cap_usd=0.0).complete(MSGS, SPECS)
+    assert s.bodies == [] and e.value.code == "test_cap"
+    assert not _holds_key(e.value)
+
+
+def _frame_locals(exc):
+    out = []
+    tb = exc.__traceback__
+    while tb is not None:
+        out += [(k, repr(v)) for k, v in tb.tb_frame.f_locals.items()]
+        tb = tb.tb_next
+    return out

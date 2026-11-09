@@ -331,23 +331,24 @@ def _call(
 ) -> tuple[dict, float]:
     from app import claude_approved
 
-    request = _request(model, max_tokens, env)
     declared = claude_approved.carried()
     if (
         not declared
     ):  # absent or empty: we cannot tell what a prompt carries, so nothing is sent
         raise AgentGateClosed("undeclared_documents")
+    chars = sum(
+        len(json.dumps(body_parts.get(k), default=str))
+        for k in ("messages", "system", "tools")
+    )
+    worst = claude_spend.worst_case_usd(model, chars, int(max_tokens))
+    if meter is not None:
+        meter.check(worst)
     raw = _transport(send)
+    # the request (and so the key) exists only from here: every raise above holds no key in any frame
+    request = _request(model, max_tokens, env)
     body = dict(request["body"])
     body.update(body_parts)
     body["model"], body["max_tokens"] = model, int(max_tokens)
-    chars = sum(
-        len(json.dumps(body.get(k), default=str))
-        for k in ("messages", "system", "tools")
-    )
-    worst = claude_spend.worst_case_usd(model, chars, int(body["max_tokens"]))
-    if meter is not None:
-        meter.check(worst)
     answer, failure = _send_once(raw, request, body)
     # the headers (the key) leave this frame before any error is raised from it
     del request
