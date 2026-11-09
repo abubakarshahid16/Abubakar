@@ -53,7 +53,10 @@ SYSTEM_RULES = (
     "Finish with ONE JSON object and nothing else (no prose, no code fence) with keys: item, doc, color (GREEN, YELLOW "
     "or RED), page, doc_quote, clause_quote, standard, clause, action, priority (must, should, nice), reason (at most "
     "20 words). Quote the document exactly. Not mentioned is never GREEN. Never state confidence. "
-    "Numbers are decided by the compare_number tool, not by you. When unsure, ask the engineer."
+    "Numbers are decided by the compare_number tool, not by you. GREEN or RED is only for a number that compare_number "
+    "decided from a document quote and a clause quote that both contain the number and its unit. For anything else "
+    "(text, a missing or unclear value, a requirement that is not a number) record YELLOW with the quote you found. "
+    "When unsure, ask the engineer."
 )
 
 #: Fixed generic wording: never document text.
