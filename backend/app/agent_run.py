@@ -537,7 +537,7 @@ def _guard(local, claude, consent, allowed):
     return stack
 
 
-def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
+def _save_meta(run_root, trace, meta, lead, second, seconds, stats=None) -> dict:
     """Minutes so far and the model names the responses reported, saved after every item."""
     meta = {
         "seconds": seconds,
@@ -547,6 +547,12 @@ def _save_meta(run_root, trace, meta, lead, second, seconds) -> dict:
             | {v.get("model") or UNKNOWN for v in second.values()}
         ),
     }
+    if stats is not None:
+        meta["stats"] = stats.to_json()
+        note = rstats.unreliable_note(stats)
+        if note and note != getattr(trace, "warned", ""):
+            trace.warned = note
+            trace.note_problem(note)  # live.log too, once
     _write_json(run_root / FILES["meta"], meta)
     names = ", ".join(meta["lead_models"]) or "not reported by the provider"
     trace.set_live(model=names)
@@ -600,16 +606,8 @@ def _drive(
     box, breaker, stopped = rstats.CountingBox(box, stats), rstats.Breaker(), ""
 
     def save() -> dict:
-        saved = _save_meta(
-            run_root, trace, meta, lead, second, base_seconds + time.time() - started
-        )
-        saved["stats"] = stats.to_json()
-        note = rstats.unreliable_note(stats)
-        if note and note != getattr(trace, "warned", ""):
-            trace.warned = note
-            trace.note_problem(note)
-        _write_json(run_root / FILES["meta"], saved)
-        return saved
+        seconds = base_seconds + time.time() - started
+        return _save_meta(run_root, trace, meta, lead, second, seconds, stats)
 
     try:
         for loop_item in loop_items(document_id, chosen):
