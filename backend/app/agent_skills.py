@@ -38,7 +38,7 @@ def skills_dir() -> Path:
 
 def _same_file(a: Path, b: Path) -> bool:
     try:
-        return os.path.samefile(a, b)
+        return a.samefile(b)
     except OSError:
         return False
 
