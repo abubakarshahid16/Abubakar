@@ -153,7 +153,10 @@ class LocalSecondOpinion:
             return True
         try:
             current = model_transport.endpoint("/api/chat")
-        except Exception:  # noqa: BLE001 - a refused host or stopped engine is a mismatch; nothing is sent
+        except (
+            model_transport.ModelHostRefused,
+            model_transport.LocalEngineNotLoaded,
+        ):  # a refused host is a mismatch
             return False
         return current == str(self.url).rstrip("/") + "/api/chat"
 
