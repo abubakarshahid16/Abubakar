@@ -169,7 +169,7 @@ def test_get_clause_not_held_cases():
         box(editions={"ISO 9999": "1999"}).run(
             "get_clause", {"standard": "ISO 9999", "clause": "4.2"}
         )["result"]["state"]
-        == "not held"
+        == "not held: edition not confirmed"
     )
     # the standard's document is not in scope: refused, rule 5
     assert (

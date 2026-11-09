@@ -47,6 +47,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import agent_loop, agent_trace, heavy_lock, live_guard
+from .agent_edition import edition_evidence
 from .agent_run_crs import (
     CHECKED_SHEET as CHECKED_SHEET,
 )
@@ -165,8 +166,9 @@ class Readers:
             )
         ]
 
-    def resolver(self, standard: str, edition: str) -> str | None:
-        return resolve_standard(self.conn, self.allowed, standard, edition)
+    def evidence(self, standard: str, edition: str) -> dict:
+        """The tools' edition evidence, from the read-only copy (never the configured database)."""
+        return edition_evidence(self.conn, self.allowed, standard, edition)
 
     def search(self, query: str, allowed: frozenset[str]) -> dict:
         """KEYWORD search over the copy's pages (no model, no embedding). The proof run's search; the hybrid
@@ -205,7 +207,7 @@ def resolve_standard(
     conn: sqlite3.Connection, candidates: Iterable[str], standard: str, edition: str
 ) -> str | None:
     """The candidate document that is `standard` and prints `edition` (file name or first pages), else None."""
-    from .agent_tools import resolve_edition
+    from .agent_edition import resolve_edition
 
     return resolve_edition(conn, candidates, standard, edition)
 
@@ -300,7 +302,7 @@ def default_toolbox(scope: dict, readers: Readers) -> Any:
         page_reader=readers.page,
         searcher=readers.search,
         standard_pages=readers.standard_pages,
-        standard_resolver=readers.resolver,
+        edition_evidence=readers.evidence,
     )
 
 
@@ -434,7 +436,7 @@ def run_review(
             step_name=f"agent review: {wanted.get('kind')}",
         )
         run_root = trace.root
-        allowed, held = _scope_for(
+        allowed, held, report = _scope_for(
             conn,
             trace,
             document_id,
@@ -443,7 +445,12 @@ def run_review(
             documents,
         )
         readers = Readers(conn, allowed)
-        scope = {"allowed": allowed, "document_id": document_id, "editions": held}
+        scope = {
+            "allowed": allowed,
+            "document_id": document_id,
+            "editions": held,
+            "report": report,
+        }
         box = (toolbox_factory or default_toolbox)(scope, readers)
         lead, other = Recorder(provider), wrap_opinion(second_opinion, provider, local)
         trace.second_ran = other is not None
@@ -466,28 +473,24 @@ def run_review(
         lead.close()
         if other:
             other.unload()
-        return _finish(
-            chosen,
-            document_id,
-            wanted,
-            trace,
-            run_root,
-            stopped,
-            other is not None,
-            scope,
-        )
+        return _finish(chosen, document_id, wanted, trace, run_root, stopped, scope)
     finally:
         conn.close()
 
 
 def _scope_for(conn, trace, document_id, edition_map, claude, documents):
-    """(allowed ids, held editions). A Claude run is narrowed to exactly its declared documents."""
+    """(allowed ids, held editions, edition evidence per standard). A Claude run is narrowed to exactly its declared documents."""
     allowed, held, missing = build_scope(conn, document_id, edition_map)
     if missing:
         trace.problem(f"{len(missing)} standards named in the edition map are not held")
     if claude:
         allowed = declared_documents(allowed, document_id, documents)
-    return allowed, held
+    others = allowed - {document_id}
+    report = {
+        std: {**edition_evidence(conn, others, std, ed), "edition": ed}
+        for std, ed in edition_map.items()
+    }
+    return allowed, held, report
 
 
 def _guard(local, claude, consent, allowed):
@@ -601,9 +604,8 @@ def _drive(
     return stopped
 
 
-def _finish(
-    chosen, document_id, wanted, trace, run_root, stopped, second_ran, scope
-) -> dict:
+def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dict:
+    second_ran = trace.second_ran
     finals = _read_json(run_root / FILES["finals"], {})
     second = _read_json(run_root / FILES["second"], {})
     meta = _read_json(run_root / FILES["meta"], {})
@@ -637,6 +639,7 @@ def _finish(
         problems=trace.problems,
         stopped=stopped,
         second_ran=second_ran,
+        editions=scope["report"],
     )
     trace.set_live(
         done=f"{len(findings)} of {len(chosen)} items",

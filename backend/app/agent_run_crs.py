@@ -228,6 +228,23 @@ def _headline(count: dict, findings: list[dict], second_ran: bool) -> str:
     )
 
 
+def _edition_lines(editions: dict | None) -> list[str]:
+    """Per standard: its edition and the printed line that confirms it, or 'edition not confirmed'."""
+    lines = []
+    for std, ev in sorted((editions or {}).items()):
+        if ev.get("status") != "confirmed":
+            lines.append(f"- Edition: {std} {ev.get('edition')}: edition not confirmed")
+        elif ev.get("page") is not None:
+            lines.append(
+                f"- Edition: {std} {ev.get('edition')} p.{ev['page']} verified: {ev.get('quote')}"
+            )
+        else:
+            lines.append(
+                f"- Edition: {std} {ev.get('edition')} verified from the file name"
+            )
+    return lines
+
+
 def write_results(
     run_dir: Path,
     *,
@@ -242,6 +259,7 @@ def write_results(
     problems: list[str],
     stopped: str,
     second_ran: bool,
+    editions: dict | None = None,
 ) -> Path:
     """RESULTS.md: counts, spend, minutes, model names. No document or standard text."""
     count = dict.fromkeys(("GREEN", "YELLOW", "RED"), 0)
@@ -267,6 +285,7 @@ def write_results(
         f"- Minutes: {seconds / 60:.1f}",
         f"- Lead model (reported by the provider's response): {models}",
         f"- Second-opinion model (reported by the provider's response): {other}",
+        *_edition_lines(editions),
         "- Scoring note: the scorer matches page digits as a substring; YELLOW rows count as raised",
         "- Wrong verdicts: not measured (needs the key score)",
         f"- Problems: {len(problems)}"

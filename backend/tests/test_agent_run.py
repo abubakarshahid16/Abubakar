@@ -1060,6 +1060,145 @@ def test_the_tools_default_resolver_is_the_same_helper(std_db, monkeypatch):
     from app import agent_tools, db
 
     monkeypatch.setattr(db, "connect", lambda: std_db)
-    resolver = agent_tools._default_standard_resolver(frozenset({"A", "C"}))
-    assert resolver("ISO 7777", "23 May 2019") == "A"
-    assert resolver("ISO 8888", "1 June 2018") is None
+    evidence = agent_tools._evidence_from(None, frozenset({"A", "C"}))
+    assert evidence("ISO 7777", "23 May 2019")["doc"] == "A"
+    assert evidence("ISO 8888", "1 June 2018")["status"] == "edition not confirmed"
+
+
+# ---- edition EVIDENCE: page quote, verbatim, or 'edition not confirmed' ------------------------------------------
+
+LONG = "Issue Date: 23 May 2019 " + "x" * 120
+
+
+@pytest.fixture
+def ev_db(tmp_path):
+    path = tmp_path / "ev.sqlite"
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT);"
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
+        "INSERT INTO documents VALUES ('A','ISO 7777.pdf'),('C','ISO 8888.pdf'),('E','ISO 5555.pdf'),"
+        "('L','ISO 4444.pdf'),('N','ISO 3333-2021.pdf'),('P','ISO 2222.pdf'),('Q','ISO 2222 copy.pdf');"
+    )
+    db.executemany(
+        "INSERT INTO pages VALUES (?,?,?)",
+        [
+            ("A", 1, "Title line\n  Issue Date:  23 May 2019  \nother"),
+            ("C", 4, "Issue Date: 1 June 2018"),
+            ("E", 2, "Issue Date: 23 May\n2019"),
+            ("L", 3, LONG),
+            ("P", 1, "Issue Date: 5 July 2020"),
+            ("Q", 1, "Issue Date: 5 July 2020"),
+            ("A", 2, "Clause 4.1 The figure shall be 5."),
+        ],
+    )
+    db.commit()
+    conn = ar.open_readonly(path)
+    yield conn
+    conn.close()
+
+
+def ev(conn, std, edition, docs=("A", "C", "E", "L", "N", "P", "Q")):
+    from app import agent_tools
+
+    return agent_tools.edition_evidence(conn, docs, std, edition)
+
+
+def test_edition_on_page_1_gives_the_page_and_the_exact_printed_line(ev_db):
+    got = ev(ev_db, "ISO 7777", "23 May 2019")
+    assert got["status"] == "confirmed" and got["doc"] == "A" and got["page"] == 1
+    assert (
+        got["quote"] == "Issue Date:  23 May 2019"
+    )  # verbatim: the original spacing, not the folded text
+    assert got["quote"] in "Title line\n  Issue Date:  23 May 2019  \nother"
+
+
+def test_edition_only_on_page_4_is_not_confirmed(ev_db):
+    got = ev(ev_db, "ISO 8888", "1 June 2018")
+    assert (
+        got["status"] == "edition not confirmed"
+        and got["doc"] is None
+        and got["quote"] is None
+    )
+
+
+def test_empty_or_missing_edition_is_not_confirmed(ev_db):
+    for edition in ("", "  ", None):
+        assert ev(ev_db, "ISO 7777", edition)["status"] == "edition not confirmed"
+
+
+def test_file_name_edition_carries_the_file_name_source(ev_db):
+    got = ev(ev_db, "ISO 3333", "2021")
+    assert (
+        got["doc"] == "N"
+        and got["source"] == "file name"
+        and got["page"] is None
+        and got["quote"] is None
+    )
+
+
+def test_a_long_line_is_cut_to_80_characters_and_stays_a_verbatim_substring(ev_db):
+    got = ev(ev_db, "ISO 4444", "23 May 2019")
+    assert got["status"] == "confirmed" and len(got["quote"]) <= 80
+    assert got["quote"] in LONG and "23 May 2019" in got["quote"]
+
+
+def test_an_edition_split_over_two_lines_has_no_verifiable_quote_so_not_confirmed(
+    ev_db,
+):
+    assert ev(ev_db, "ISO 5555", "23 May 2019")["status"] == "edition not confirmed"
+
+
+def test_two_standards_resolve_independently(ev_db):
+    a = ev(ev_db, "ISO 7777", "23 May 2019")
+    n = ev(ev_db, "ISO 3333", "2021")
+    assert (a["doc"], n["doc"]) == ("A", "N")
+    assert ev(ev_db, "ISO 7777", "2021")["status"] == "edition not confirmed"
+
+
+def test_two_matching_documents_are_not_guessed_between(ev_db):
+    assert ev(ev_db, "ISO 2222", "5 July 2020")["status"] == "edition not confirmed"
+
+
+def test_get_clause_with_an_unconfirmed_edition_returns_no_clause_text(ev_db):
+    from app import agent_tools
+
+    def box(editions):
+        ctx = agent_tools.ToolContext(frozenset({"A", "C"}), "A", editions)
+        return agent_tools.ToolBox(
+            ctx, edition_evidence=ar.Readers(ev_db, {"A", "C"}).evidence,
+            standard_pages=lambda _d: [(2, "1 General\nIntro words.\n4.1 Figure\nThe figure shall be 5.\n4.2 Next\nOther.")],
+        )  # fmt: skip
+
+    bad = box({"ISO 8888": "1 June 2018"}).run(
+        "get_clause", {"standard": "ISO 8888", "clause": "4.1"}
+    )
+    assert (
+        bad["ok"] is False
+        and bad["result"]["state"] == "not held: edition not confirmed"
+    )
+    assert "text" not in bad["result"]
+    good = box({"ISO 7777": "23 May 2019"}).run(
+        "get_clause", {"standard": "ISO 7777", "clause": "4.1"}
+    )
+    assert good["ok"] is True
+    assert good["result"]["edition_evidence"]["page"] == 1
+    assert good["result"]["edition_evidence"]["quote"] == "Issue Date:  23 May 2019"
+
+
+def test_results_lists_each_standard_with_page_quote_or_not_confirmed(
+    copy_db, run_dir, tmp_path
+):
+    run_dir.mkdir()
+    ev_conn = sqlite3.connect(copy_db)
+    ev_conn.execute("INSERT INTO pages VALUES ('S1', 2, 'Issue Date: 9 March 2021')")
+    ev_conn.commit()
+    ev_conn.close()
+    go(copy_db, run_dir, al.FakeProvider([final("YELLOW")]), limit=1,
+       editions={"ISO 9999": "9 March 2021", "ISO 1111": "2000"})  # fmt: skip
+    text = (run_dir / "RESULTS.md").read_text()
+    assert (
+        "- Edition: ISO 9999 9 March 2021 p.2 verified: Issue Date: 9 March 2021"
+        in text
+    )
+    assert "- Edition: ISO 1111 2000: edition not confirmed" in text
