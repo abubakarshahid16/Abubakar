@@ -50,13 +50,19 @@ _WORDS = re.compile(
 )
 
 
-def _value_like(line: str) -> bool:
-    """A labelled line whose value is a competing VALUE: a digit (any Unicode decimal digit), a month name or
-    abbreviation, an ordinal word, or a Roman numeral, each as a whole word. A value of ordinary words (prose) is
-    neither a conflict nor a confirmation."""
+PROSE_WORDS = 5  # a competing value is short; a sentence is long
+
+
+def _is_prose(line: str) -> bool:
+    """A labelled line whose value is a SENTENCE, so it is neither a conflict nor a confirmation: at least PROSE_WORDS
+    alphabetic words AND no digit (any Unicode decimal digit), month name, ordinal word or Roman numeral. Anything
+    else is a competing value (a 1 to 4 word value is treated as one: that fails safe). The word list is only a net;
+    the gate is the length."""
     found = _LINE.match(line)
     value = found.group("value") if found else ""
-    return any(ch.isdecimal() for ch in value) or bool(_WORDS.search(value))
+    if any(ch.isdecimal() for ch in value) or _WORDS.search(value):
+        return False
+    return len(re.findall(r"[^\W\d_]+", value)) >= PROSE_WORDS
 
 
 def _line_confirms(line: str, edition: str) -> bool:
@@ -85,10 +91,10 @@ def _page_lines(
         value = _labelled(line)
         if value is None:
             continue
-        if value == _edition_fold(edition) or _value_like(line):
+        if value == _edition_fold(edition) or not _is_prose(line):
             values.add(
                 value
-            )  # another VALUE-LIKE labelled value is a conflict; prose is ignored
+            )  # any labelled value that is not a sentence competes; a sentence is ignored
         quote = line.strip()
         if verify_quote(quote, page_text, edition):
             hits.append({"page": page_no, "quote": quote})

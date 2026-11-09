@@ -1481,25 +1481,98 @@ def test_a_value_like_edition_line_is_a_conflict(tmp_path, other):
     )
 
 
-@pytest.mark.parametrize(
-    "prose",
-    [
-        "Edition notes follow",
-        "Edition: current",
-        "Edition: latest",
-        "Edition of the references",
-    ],
-)
-def test_prose_after_the_label_is_ignored(tmp_path, prose):
-    conn = one_page_db(tmp_path, "Issue Date: 23 May 2019\n" + prose)
+def _sentences(n=30):
+    """Invented prose of 5 to 9 words: no digit, month, ordinal word or Roman numeral."""
+    subjects = [
+        "the references listed below",
+        "all cited documents",
+        "every supplier drawing",
+        "the attached notes",
+        "this clause",
+    ]
+    verbs = [
+        "apply unless noted otherwise",
+        "remain valid for reviewers",
+        "are kept with the project file",
+        "describe general practice only",
+        "form part of the package",
+    ]
+    out = [f"{sub} {verb}" for sub in subjects for verb in verbs]
+    prefixes = [
+        "edition of",
+        "edition: see that the",
+        "issued: note that the",
+        "date of issue is where the",
+        "issue date and the",
+        "edition is that the",
+    ]
+    return [f"{prefixes[i % len(prefixes)]} {out[i % len(out)]}" for i in range(n)]
+
+
+def test_thirty_invented_prose_lines_of_five_words_or_more_are_ignored(tmp_path):
+    from app import agent_edition
+
+    lines = _sentences(30)
+    assert len(set(lines)) == 30
+    for line in lines:
+        assert len(line.split()) >= 5 and agent_edition._is_prose(line), line
+    conn = one_page_db(tmp_path, "Issue Date: 23 May 2019\n" + "\n".join(lines))
     assert ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"] == "confirmed"
 
 
-def test_prose_never_confirms_by_itself(tmp_path):
-    conn = one_page_db(tmp_path, "Edition notes follow\nEdition: current")
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Eleventh", "Twentieth", "Twelve", "Two", "Rev. B", "A", "twenty nineteen", "Mayo", "Mai", "Dezember", "octobre",
+        "Draft", "Superseded", "Previous", "Final", "Current", "Withdrawn", "latest",
+    ],
+)  # fmt: skip
+def test_a_short_value_of_any_kind_is_a_competing_value(tmp_path, value):
+    for label in ("Edition:", "Issue Date:", "Date of Issue -"):
+        conn = one_page_db(tmp_path, f"Issue Date: 23 May 2019\n{label} {value}")
+        assert (
+            ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
+            == "edition not confirmed"
+        )
+
+
+def test_four_word_prose_is_treated_as_a_value_and_fails_safe(tmp_path):
+    conn = one_page_db(
+        tmp_path, "Issue Date: 23 May 2019\nEdition notes are listed below here"
+    )  # 5 words: a sentence
+    assert ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"] == "confirmed"
+    conn = one_page_db(
+        tmp_path, "Issue Date: 23 May 2019\nEdition notes follow"
+    )  # 2 words
     assert (
-        ev(conn, "ISO 7777", "current", docs=("A",))["status"] == "confirmed"
-    )  # exact value still confirms
+        ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
+        == "edition not confirmed"
+    )
+    conn = one_page_db(
+        tmp_path, "Issue Date: 23 May 2019\nEdition: see the notes below"
+    )  # 4 words
     assert (
-        ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "edition not confirmed"
+        ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
+        == "edition not confirmed"
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Edition: the references listed below were reviewed in 2024",
+        "Edition: see the notes dated 5 June for the details",
+        "Edition: the references listed below say third edition",
+        "Edition: the references listed below use part iv",
+        "Edition: the references listed below use ٢٠ pages",
+        "Edition: the notes written in May for the details",
+    ],
+)  # fmt: skip
+def test_a_long_line_with_a_digit_month_ordinal_or_roman_numeral_still_conflicts(
+    tmp_path, line
+):
+    conn = one_page_db(tmp_path, "Issue Date: 23 May 2019\n" + line)
+    assert (
+        ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
+        == "edition not confirmed"
     )
