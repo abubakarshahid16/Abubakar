@@ -1419,7 +1419,7 @@ def test_a_quote_that_repeats_the_rows_own_words_is_never_a_basis(box):
     "word",
     ["pending", "void", "empty", "nil", "none", "unavailable", "under review", "to follow", "by others", "see note",
      "in progress", "later", "not indicated", "not listed", "without value", "never issued", "no data", "not applicable",
-     "awaiting", "deferred", "withheld", "not declared", "not yet available", "vendor to advise", "tba", "omitted"],
+     "awaiting", "deferred", "withheld", "not declared", "vendor to advise", "tba", "omitted"],
 )  # fmt: skip
 def test_the_reviewers_absence_words_are_an_extra_net(word):
     from app import agent_judge_rules as r

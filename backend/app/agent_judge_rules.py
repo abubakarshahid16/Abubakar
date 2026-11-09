@@ -34,7 +34,7 @@ ABSENCE_EXTRA = (
     "not defined", "not included", "none given", "no value", "unspecified", "unknown", "tba", "tbc", "tbd",
     "pending", "void", "empty", "nil", "none", "unavailable", "under review", "to follow", "by others", "see note",
     "in progress", "later", "not indicated", "not listed", "without value", "never issued", "no data", "not applicable",
-    "awaiting", "deferred", "withheld", "not declared", "not yet available", "vendor to advise", "as per vendor",
+    "awaiting", "deferred", "withheld", "not declared", "vendor to advise", "as per vendor",
     "to be issued", "not defined", "incomplete", "outstanding", "reserved", "tba", "by vendor", "by supplier",
 )  # fmt: skip
 _ABSENCE = re.compile(
