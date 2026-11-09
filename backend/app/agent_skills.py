@@ -24,6 +24,8 @@ DEFAULT_DIR = "~/project/mirror/skills"
 _TOP = ("kind", "version", "items")
 _STR_FIELDS = ("id", "topic", "expected", "acceptable_range", "escalate_when")
 _ITEM_FIELDS = (*_STR_FIELDS, "order", "clause_refs")
+_OPTIONAL = ("repeat", "repeat_max")
+REPEAT_MAX_LIMIT = 30
 _REF_FIELDS = ("standard", "clause")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,13 +97,32 @@ def _check_refs(refs: object, idx: int) -> None:
             _check_text(ref[key], f"item {idx} clause_refs {key}")
 
 
+def _check_repeat(it: dict, idx: int) -> None:
+    """`repeat` (bool) turns the item into a sweep; `repeat_max` (1..30) is only valid with repeat: true."""
+    if "repeat" in it and not isinstance(it["repeat"], bool):
+        raise SkillError(f"item {idx} repeat must be true or false")
+    if "repeat_max" in it:
+        top = it["repeat_max"]
+        if it.get("repeat") is not True:
+            raise SkillError(f"item {idx} repeat_max needs repeat: true")
+        if (
+            not isinstance(top, int)
+            or isinstance(top, bool)
+            or not 1 <= top <= REPEAT_MAX_LIMIT
+        ):
+            raise SkillError(
+                f"item {idx} repeat_max must be a whole number from 1 to {REPEAT_MAX_LIMIT}"
+            )
+
+
 def _check_item(it: object, idx: int) -> None:
     if not isinstance(it, dict):
         raise SkillError(f"item {idx} is not an object")
     for key in _ITEM_FIELDS:
         if key not in it:
             raise SkillError(f"item {idx} missing field: {key}")
-    _check_keys(it, _ITEM_FIELDS, f"item {idx}")
+    _check_keys(it, (*_ITEM_FIELDS, *_OPTIONAL), f"item {idx}")
+    _check_repeat(it, idx)
     for key in _STR_FIELDS:
         _check_text(it[key], f"item {idx} field {key}")
     if not isinstance(it["order"], int) or isinstance(it["order"], bool):

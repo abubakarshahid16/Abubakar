@@ -48,6 +48,7 @@ from urllib.parse import quote
 
 from . import agent_loop, agent_trace, heavy_lock, live_guard
 from . import agent_run_stats as rstats
+from . import agent_run_sweep as sweep
 from .agent_edition import edition_evidence
 from .agent_run_crs import (
     CHECKED_SHEET as CHECKED_SHEET,
@@ -592,6 +593,46 @@ def _second_for(other, finding, iid, second, trace, run_root) -> None:
         _write_json(run_root / FILES["second"], second)
 
 
+def _runners(
+    box, lead, trace, run_root, finals, stats, breaker, ledger, total_cap, caps
+):
+    """The three small steps a driven run uses: halt (ledger cap), put (save a final), run_one (one loop run)."""
+
+    def halt() -> str:
+        if ledger is not None and ledger(LEDGER_STEP) >= total_cap:
+            trace.problem("total cap for the agent test reached: run paused, resumable")
+            return "total cap for the agent test"
+        return ""
+
+    def put(key: str, finding: dict) -> None:
+        finals[key] = finding
+        _write_json(run_root / FILES["finals"], finals)
+
+    def run_one(li: dict, skill_item: dict) -> tuple[dict | None, str]:
+        """One loop run: (result, the reason the whole run stops or '')."""
+        key = li["id"]
+        stats.begin(key)
+        out = agent_loop.run_items(
+            [li],
+            box,
+            lead,
+            trace,
+            skill_for=lambda _it: skill_item,
+            usd_cap_item=caps[0],
+            usd_cap_run=caps[1],
+        )
+        if out["stopped"]:
+            stats.abort()
+            return None, out["stopped"]
+        res = out["results"].get(key)
+        stats.end(res)
+        if breaker.seen(key, res):
+            return res, _trip(breaker, finals, trace, run_root)
+        return res, ""
+
+    return halt, put, run_one
+
+
 def _drive(
     chosen,
     document_id,
@@ -620,43 +661,43 @@ def _drive(
         seconds = base_seconds + time.time() - started
         return _save_meta(run_root, trace, meta, lead, second, seconds, stats)
 
+    halt, put, run_one = _runners(
+        box,
+        lead,
+        trace,
+        run_root,
+        finals,
+        stats,
+        breaker,
+        ledger,
+        total_cap,
+        (cap_item, cap_run),
+    )
     try:
         for loop_item in loop_items(document_id, chosen):
             iid = loop_item["id"]
-            if ledger is not None and ledger(LEDGER_STEP) >= total_cap:
-                stopped = "total cap for the agent test"
-                trace.problem(f"{stopped} reached: run paused, resumable")
+            if stopped := halt():
                 break
-            if iid not in finals:
-                stats.begin(iid)
-                out = agent_loop.run_items(
-                    [loop_item],
-                    box,
-                    lead,
-                    trace,
-                    skill_for=lambda _it, i=iid: by_id[i],
-                    usd_cap_item=cap_item,
-                    usd_cap_run=cap_run,
-                )
-                if out["stopped"]:
-                    stats.abort()
-                    stopped = out["stopped"]
+            if sweep.is_sweep(by_id[iid]):
+                if stopped := sweep.run_sweep(
+                    loop_item, by_id[iid], finals, trace, run_one, put, halt
+                ):
                     break
-                res = out["results"].get(iid)
-                stats.end(res)
-                if breaker.seen(iid, res):
-                    stopped = _trip(breaker, finals, trace, run_root)
+            elif iid not in finals:
+                res, stopped = run_one(loop_item, by_id[iid])
+                if stopped:
                     break
-                finals[iid] = (
+                put(
+                    iid,
                     res["finding"]
                     if res
                     else (
                         trace.sink.get(iid)
                         or agent_loop.yellow("result lost in a restart", loop_item)
-                    )
+                    ),
                 )
-                _write_json(run_root / FILES["finals"], finals)
-            _second_for(other, finals[iid], iid, second, trace, run_root)
+            for key in sweep.keys_for(by_id[iid], finals):
+                _second_for(other, finals[key], key, second, trace, run_root)
             meta = save()
             if len(trace.completed) % 10 == 0 and on_status:
                 trace.refresh_live()
@@ -678,17 +719,17 @@ def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dic
     meta = _read_json(run_root / FILES["meta"], {})
     lead_models = list(meta.get("lead_models", []))
     opinion_models = list(meta.get("opinion_models", []))
-    findings = []
+    findings, items_done, topics = [], 0, {}
     for item in chosen:
-        iid = str(item["id"])
-        if iid not in finals:
-            continue
-        got = second.get(iid, {})
-        same = not models_differ(lead_models, got.get("model"))
-        findings.append(
-            apply_second_opinion(finals[iid], got.get("agree"), second_ran, same)
-        )
-    topics = {str(i["id"]): _clean(i.get("topic")) for i in chosen}
+        keys = sweep.keys_for(item, finals)
+        items_done += 1 if keys else 0
+        for key in keys:
+            got = second.get(key, {})
+            same = not models_differ(lead_models, got.get("model"))
+            findings.append(
+                apply_second_opinion(finals[key], got.get("agree"), second_ran, same)
+            )
+            topics[key] = _clean(item.get("topic"))
     rows = crs_rows_from_findings(findings, topics)
     write_crs_xlsx(rows, run_root / FILES["crs"])
     write_examples(run_root, rows)
@@ -703,14 +744,17 @@ def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dic
         opinion_models=opinion_models,
         skill=wanted,
         document_id=document_id,
-        problems=trace.problems,
+        problems=[*trace.problems, *sweep.stops(finals, chosen)],
         stopped=stopped,
         second_ran=second_ran,
         editions=scope["report"],
         stats=getattr(trace, "stats", None),
+        items_done=items_done,
+        sweep_items=sum(1 for i in chosen if sweep.is_sweep(i)),
+        sweep_runs=getattr(getattr(trace, "stats", None), "sweep_runs", lambda: 0)(),
     )
     trace.set_live(
-        done=f"{len(findings)} of {len(chosen)} items",
+        done=f"{items_done} of {len(chosen)} items",
         next="read RESULTS.md" if not stopped else "resume the run",
     )
     trace.piece_done("results written")
@@ -718,7 +762,7 @@ def _finish(chosen, document_id, wanted, trace, run_root, stopped, scope) -> dic
         "status_box": status_box(trace),
         "findings": findings,
         "items_total": len(chosen),
-        "items_done": len(findings),
+        "items_done": items_done,
         "stopped": stopped,
         "spend": trace.spend,
         "quote_verified": verified,
