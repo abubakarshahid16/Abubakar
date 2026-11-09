@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from app import rule_finish as rf
+from app import rule_finish_guard as guard
 from app import rule_finish_repair as rr
 from app import rule_finish_store as st
 
@@ -82,7 +83,7 @@ def test_a_slash_figure_numparse_does_not_read_whole_is_ambiguous_so_step_a_is_i
     )
 
 
-def _copy(path: Path) -> sqlite3.Connection:
+def _copy(path: Path, marked: bool = True) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.executescript(
         """CREATE TABLE rulebook_rule (id TEXT, rule_key TEXT, standard TEXT);
@@ -105,6 +106,8 @@ def _copy(path: Path) -> sqlite3.Connection:
         "INSERT INTO rulebook_applicability (rule_version_id, key_type, value) VALUES ('v1','subject','relief valves')"
     )
     conn.commit()
+    if marked:  # what prepare_work_copy does for a copy it made
+        guard._write_marker(conn, guard._real(path), "source-of-this-copy")
     return conn
 
 
@@ -121,7 +124,7 @@ def test_apply_proposal_refuses_the_denominator_that_the_old_reading_proposed(tm
     st.apply_proposal(
         conn, "v1", {"value": 0.75, "unit": "inch", "comparator": ">="}, "o"
     )
-    assert st.latest_steps(conn, "v1")["a"]["reason"] == "proposal_applied"
+    assert st.latest_steps(conn, "v1")["a"]["reason"].startswith("proposal_applied")
 
 
 # ------------------------------------------------------------------------------------------------ B: step b, d
@@ -177,7 +180,7 @@ REPAIR = {
 
 def test_a_verified_repair_is_applied_to_the_copy_and_steps_a_b_d_pass(tmp_path):
     conn = _copy(tmp_path / "w.sqlite")
-    st.record_step(
+    st._append_step(
         conn, "v1", "e", "fail", "not_ok", {}, checker="helper", model="m", run_id="r"
     )
     out = rr.apply_repair(conn, "v1", REPAIR, "lead", pages=PAGES)
@@ -239,12 +242,16 @@ def test_parts_that_code_cannot_verify_are_refused_and_the_rest_still_applies(tm
     ]
 
 
-def test_a_repair_refuses_an_original_database_an_empty_approver_and_a_missing_rule(
+def test_a_repair_refuses_an_unmarked_database_an_empty_approver_and_a_missing_rule(
     tmp_path,
 ):
     with pytest.raises(PermissionError):
         rr.apply_repair(
-            _copy(tmp_path / "psv-all.sqlite"), "v1", REPAIR, "lead", pages=PAGES
+            _copy(tmp_path / "w0.sqlite", marked=False),
+            "v1",
+            REPAIR,
+            "lead",
+            pages=PAGES,
         )
     conn = _copy(tmp_path / "w.sqlite")
     with pytest.raises(ValueError):

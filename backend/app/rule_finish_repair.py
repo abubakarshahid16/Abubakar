@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from pathlib import Path
 
 from . import numparse
 from .converter_gates import fold
@@ -28,22 +27,19 @@ from .rule_finish import (
     INCOMPLETE,
     MODEL_NONE,
     PASS,
-    conditions_of,
-    evidence_source,
     limit_and_unit,
-    proposal_of,
 )
-from .rule_finish_figures import fraction_spans
+from .rule_finish_figures import fraction_spans, implied_comparator
+from .rule_finish_guard import require_work_copy
 from .rule_finish_store import (
     _REPAIR,
-    ORIGINAL_DB_NAMES,
-    _db_file,
+    _append_step,
     ensure_table,
     latest_steps,
     load_rules_by_version,
     now_utc,
     overlay_applied,
-    record_step,
+    record_code_step,
 )
 
 _WORD = re.compile(r"[a-z]+")
@@ -118,6 +114,7 @@ class _Check:
         self.applied: list[dict] = []
         self.refused: list[dict] = []
         self.rows: list[tuple[str, dict]] = []
+        self.figures_applied: list[tuple[float, str | None]] = []
 
     def text(self, part: str, text: str) -> bool:
         if self.pages is None:
@@ -145,6 +142,7 @@ class _Check:
             self.refused.append({"part": name, "reason": "its condition was refused"})
         else:
             self.applied.append({"part": name, "reason": "stands_in_quote"})
+            self.figures_applied.append((fig["value"], unit))
             self.rows.append(
                 (
                     "figure",
@@ -159,8 +157,20 @@ class _Check:
                 self.rows.append(("condition", {"text": fig["condition"]}))
 
     def comparator(self, comparator: str) -> None:
-        implied = {p["comparator"] for p in proposal_of(self.rule)}
-        if comparator in COMPARATORS_ALLOWED and comparator in implied:
+        """The comparator must be the one the quote's own phrase gives EACH figure it is applied to (the figures of this
+        repair, else the rule's own value)."""
+        quote = " ".join(str(self.rule.get("quote") or "").split())
+        targets = self.figures_applied or (
+            [(self.rule["value"], self.rule.get("unit"))]
+            if self.rule.get("value") is not None
+            else []
+        )
+        ok = (
+            comparator in COMPARATORS_ALLOWED
+            and bool(targets)
+            and all(implied_comparator(quote, v, u) == comparator for v, u in targets)
+        )
+        if ok:
             self.applied.append({"part": "comparator", "reason": "implied_by_quote"})
             self.rows.append(("comparator", {"text": comparator}))
         else:
@@ -212,30 +222,27 @@ def _record_touched(
     at: str,
 ) -> dict:
     kinds = {k for k, _ in rows}
-    steps = {}
+    steps: dict = {}
     if kinds & {"figure", "comparator"}:
-        steps["a"] = limit_and_unit(rule)
+        steps["a"] = None
     if kinds & {"condition", "exception"}:
-        steps["d"] = conditions_of(rule)
+        steps["d"] = None
     if rows:
-        steps["b"] = evidence_source(rule)
-    for step, (result, reason, evidence) in steps.items():
-        record_step(
+        steps["b"] = None
+    for step in steps:
+        steps[step] = record_code_step(
             conn,
-            version_id,
+            rule,
             step,
-            result,
-            f"repair_applied: {reason}",
-            dict(evidence, approver=approver),
-            checker=approver,
-            model=MODEL_NONE,
             run_id="apply-repair",
+            note="repair_applied: ",
+            checker=approver,
             at=at,
         )
     if rows and "e" in latest_steps(
         conn, version_id
     ):  # the engineer check must be run again
-        record_step(
+        _append_step(
             conn,
             version_id,
             "e",
@@ -259,11 +266,7 @@ def apply_repair(
 ) -> dict:
     """Apply the verified parts of `repair` to the copy; returns {applied, refused, steps}. Refuses at once an original
     database, an empty approver and an unknown rule version."""
-    path = _db_file(conn_copy)
-    if not path or Path(path).name in ORIGINAL_DB_NAMES:
-        raise PermissionError(
-            "refused: an original database; a repair is applied only in a copy"
-        )
+    require_work_copy(conn_copy)
     if not (approver or "").strip():
         raise ValueError("an approver is required")
     found = load_rules_by_version(conn_copy, rule_version_id)

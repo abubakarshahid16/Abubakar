@@ -23,23 +23,8 @@ import hashlib
 import re
 from typing import Any, NamedTuple
 
-from . import claims
+from . import rule_finish_figures as ff
 from .compiled_rule_proof import quote_verified
-from .rule_finish_figures import (
-    figures as _figures,
-)
-from .rule_finish_figures import (
-    fraction_ambiguous as _fraction_ambiguous,
-)
-from .rule_finish_figures import (
-    number_of as _number_of,
-)
-from .rule_finish_figures import (
-    stands as _stands,
-)
-from .rule_finish_figures import (
-    unit_matches as _unit_matches,
-)
 
 COMPARATORS_ALLOWED = (">=", ">", "<=", "<", "=", "!=")
 PASS, FAIL, NOT_APPLICABLE, INCOMPLETE = "pass", "fail", "not_applicable", "incomplete"
@@ -70,55 +55,24 @@ def _is_number(value: Any) -> bool:
 
 # --------------------------------------------------------------------------- step a: limit and unit
 
-_COMPARATOR_WORDS = (
-    (
-        re.compile(
-            r"\b(?:maximum|max\.?|not\s+(?:to\s+)?exceed|no\s+more\s+than|not\s+more\s+than|at\s+most|up\s+to)\b"
-        ),
-        "<=",
-    ),
-    (
-        re.compile(
-            r"\b(?:minimum|min\.?|not\s+less\s+than|no\s+less\s+than|at\s+least)\b"
-        ),
-        ">=",
-    ),
-)
-
 
 def proposal_of(rule: dict) -> list[dict]:
-    """The figures the quote implies for a rule (never applied)."""
-    quote = _quote_of(rule)
-    return _proposal(quote, _figures(quote))
+    """The figures the quote implies for a rule (never applied), each with the comparator its own phrase gives."""
+    return _proposal(ff.figures(_quote_of(rule)))
 
 
-def _proposal(quote: str, figures: tuple[claims.Measurement, ...]) -> list[dict]:
+def _proposal(figures) -> list[dict]:
     """What the quote implies for the empty fields. NEVER applied here: a person or a later reviewed step applies it."""
-    lowered = quote.lower()
-    out = []
-    for m in figures:
-        comparator, source = m.comparator, "stated_in_quote" if m.comparator else None
-        if comparator is None:
-            before = (
-                lowered[: lowered.find(m.raw_value.lower())]
-                if m.raw_value.lower() in lowered
-                else lowered
-            )
-            for pattern, symbol in _COMPARATOR_WORDS:
-                hit = list(pattern.finditer(before[-60:]))
-                if hit:
-                    comparator, source = symbol, "cue_word_before_figure"
-                    break
-        out.append(
-            {
-                "value": _number_of(m),
-                "unit": m.raw_unit,
-                "comparator": comparator,
-                "comparator_source": source,
-                "applied": False,
-            }
-        )
-    return out
+    return [
+        {
+            "value": f.value,
+            "unit": f.unit,
+            "comparator": f.comparator,
+            "comparator_source": f.comparator_source,
+            "applied": False,
+        }
+        for f in figures
+    ]
 
 
 def _figures_list(rule: dict) -> tuple[str, str, dict]:
@@ -143,15 +97,22 @@ def _figures_list(rule: dict) -> tuple[str, str, dict]:
 
 def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
     """Step a. A figure (number + unit of the unit table) in the quote must be filled as value (or value_low and
-    value_high) AND unit, and code verifies both stand inside the quote. No figure in the quote: not_applicable."""
+    value_high) AND unit, and code verifies both stand inside the quote. No figure in the quote: not_applicable. A quote
+    whose figure cannot be read with certainty (a slash figure, a compound unit, an unreadable digit group or fraction
+    character) is incomplete, never passed and never not_applicable."""
     quote = _quote_of(rule)
     if not quote:
         return FAIL, "no_quote", {}
-    if _fraction_ambiguous(quote):
-        return INCOMPLETE, "figure_ambiguous", {"figures_in_quote": None}
+    reading = ff.read(quote)
+    if reading.incomplete:
+        return (
+            INCOMPLETE,
+            reading.incomplete,
+            {"figures_in_quote": len(reading.figures)},
+        )
     if rule.get("figures"):
         return _figures_list(rule)
-    figures = _figures(quote)
+    figures, text = reading.figures, reading.text
     value, low, high, unit = (
         rule.get("value"),
         rule.get("value_low"),
@@ -163,7 +124,7 @@ def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
     if not figures and not filled:
         return NOT_APPLICABLE, "no_figure_in_quote", evidence
     if figures and not filled:
-        evidence["proposed"] = _proposal(quote, figures)
+        evidence["proposed"] = _proposal(figures)
         return FAIL, "figure_not_filled", evidence
     # a value is filled: it must stand in the quote, and where the quote has a figure, so must its unit
     wanted = (
@@ -174,7 +135,7 @@ def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
     if any(not _is_number(v) for _, v in wanted):
         return FAIL, "range_end_missing", evidence
     for name, v in wanted:
-        if not _stands(v, quote):
+        if not ff.stands(v, text):
             evidence["missing"] = name
             return FAIL, "value_not_in_quote", evidence
     if not figures:
@@ -190,11 +151,11 @@ def limit_and_unit(rule: dict) -> tuple[str, str, dict]:
     matched = [
         name
         for name, v in wanted
-        if any(_number_of(m) == float(v) and _unit_matches(unit, m) for m in figures)
+        if any(f.value == float(v) and ff.unit_matches(unit, f) for f in figures)
     ]
     if not matched:
         evidence["unit"] = unit
-        same_number = any(_number_of(m) == float(v) for _, v in wanted for m in figures)
+        same_number = any(f.value == float(v) for _, v in wanted for f in figures)
         return (
             FAIL,
             "unit_not_in_quote" if same_number else "value_not_in_quote",
@@ -348,7 +309,7 @@ def evidence_source(rule: dict) -> tuple[str, str, dict]:
         for word in QUANTITY_CUES
         if re.search(rf"\b{word}s?\b", str(rule.get("field") or "").lower())
     ]
-    if quantity and _figures(_quote_of(rule)):
+    if quantity and ff.figures(_quote_of(rule)):
         return (
             PASS,
             DATASHEET_VALUE,
@@ -586,17 +547,17 @@ def conditions_of(rule: dict) -> tuple[str, str, dict]:
     tests: list[dict] = []
     problems: list[dict] = []
     for key_type, value in rows:
-        if key_type == "equipment_type":
-            found = equipment_types_in(value) or [value.lower()]
-            equipment.extend(found)
-        elif key_type == "subject":
+        if key_type in ("equipment_type", "subject"):
             found = equipment_types_in(value)
             if found:
                 equipment.extend(found)
             else:
-                problems.append(
-                    {"row": key_type, "why": "subject_not_in_equipment_vocabulary"}
+                why = (
+                    "equipment_type_not_in_vocabulary"
+                    if key_type == "equipment_type"
+                    else "subject_not_in_equipment_vocabulary"
                 )
+                problems.append({"row": key_type, "why": why})
         elif key_type in (
             "condition",
             "service",

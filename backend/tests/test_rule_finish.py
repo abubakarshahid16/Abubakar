@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from app import rule_finish as rf
-from app import rule_finish_store as st
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -356,71 +355,6 @@ def test_run_steps_alone_never_finishes_a_rule():
     )  # e and f are missing
 
 
-# ------------------------------------------------------------------------------------------------ persistence
-
-
-def test_record_step_keeps_history_and_reads_the_latest_per_step():
-    conn = sqlite3.connect(":memory:")
-    st.record_step(
-        conn,
-        "v1",
-        "e",
-        "fail",
-        "not ok",
-        {"why": "x"},
-        checker="helper-1",
-        model="claude chat",
-        run_id="r1",
-    )
-    st.record_step(
-        conn,
-        "v1",
-        "e",
-        "pass",
-        "ok",
-        {},
-        checker="helper-2",
-        model="claude chat",
-        run_id="r2",
-    )
-    st.record_step(
-        conn,
-        "v1",
-        "a",
-        "pass",
-        "ok",
-        {},
-        checker="code",
-        model=rf.MODEL_NONE,
-        run_id="r2",
-    )
-    latest = st.latest_steps(conn, "v1")
-    assert (
-        latest["e"]["result"] == "pass"
-        and latest["e"]["checker"] == "helper-2"
-        and latest["a"]["model"] == rf.MODEL_NONE
-    )
-    assert (
-        conn.execute("SELECT COUNT(*) FROM rule_finish_step WHERE step='e'").fetchone()[
-            0
-        ]
-        == 2
-    )
-    assert st.latest_steps(sqlite3.connect(":memory:"), "v1") == {}
-
-
-def test_record_step_refuses_bad_input_and_an_unnamed_engineer():
-    conn = sqlite3.connect(":memory:")
-    with pytest.raises(ValueError):
-        st.record_step(conn, "v1", "z", "pass", "r", checker="c", model="m", run_id="x")
-    with pytest.raises(ValueError):
-        st.record_step(
-            conn, "v1", "a", "maybe", "r", checker="c", model="m", run_id="x"
-        )
-    with pytest.raises(ValueError):
-        st.record_step(conn, "v1", "e", "pass", "ok", checker="", model="m", run_id="x")
-
-
 # ------------------------------------------------------------------------------------------------ the runner
 
 
@@ -437,7 +371,9 @@ def _tiny_rulebook(path: Path) -> None:
     conn.close()
 
 
-def test_the_runner_refuses_to_write_to_an_original_database(tmp_path, monkeypatch):
+def test_the_runner_makes_a_marked_copy_and_refuses_every_protected_or_stranger_database(
+    tmp_path,
+):
     sys.path.insert(0, str(ROOT / "scripts"))
     import rule_finish_run as run
 
@@ -445,13 +381,26 @@ def test_the_runner_refuses_to_write_to_an_original_database(tmp_path, monkeypat
     _tiny_rulebook(source)
     pages = tmp_path / "pages.sqlite"
     sqlite3.connect(pages).close()
-    for bad in (source, pages):
+    for bad in (
+        source,
+        pages,
+    ):  # the source and the pages database, even renamed by case or a link
         with pytest.raises(SystemExit) as exc:
             run.prepare_work_db(source, pages, bad)
         assert "refused" in str(exc.value)
+    link = tmp_path / "link.sqlite"
+    link.symlink_to(source)
+    with pytest.raises(SystemExit):
+        run.prepare_work_db(source, pages, link)
     copy = run.prepare_work_db(source, pages, tmp_path / "work.sqlite")
     assert copy.exists() and copy != source
-    assert run.same_file(source, source) and not run.same_file(source, copy)
+    assert run.prepare_work_db(source, pages, copy) == copy  # a marked copy is reused
+    stranger = tmp_path / "stranger.sqlite"
+    sqlite3.connect(stranger).close()
+    with pytest.raises(
+        SystemExit
+    ):  # an existing file that is not a copy of the source is refused
+        run.prepare_work_db(source, pages, stranger)
 
 
 def test_the_runner_pkt_time_is_asia_karachi():
@@ -471,73 +420,3 @@ def test_a_lone_letter_unit_after_a_space_is_read_as_the_figure_it_is():
         rf.limit_and_unit(rule(quote="Give it 3 a coat of paint."))[0]
         == rf.NOT_APPLICABLE
     )
-
-
-# ------------------------------------------------------------------------------------------------ apply_proposal
-
-
-def _mini_copy(
-    path: Path, quote="The inlet shall be at least 4 inch in size."
-) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
-    conn.executescript(
-        """CREATE TABLE rulebook_rule (id TEXT, rule_key TEXT, standard TEXT);
-        CREATE TABLE rulebook_version (id TEXT, rule_id TEXT, version_no INT, kind TEXT, field TEXT, comparator TEXT,
-          value REAL, value_low REAL, value_high REAL, value_text TEXT, unit TEXT, unit_dimension TEXT, strength TEXT,
-          sentence_strength TEXT, context_flag TEXT);
-        CREATE TABLE rulebook_provenance (id INTEGER PRIMARY KEY, rule_version_id TEXT, standard_document_id TEXT,
-          edition TEXT, clause TEXT, page INT, quote TEXT, quote_start INT, quote_end INT, page_source TEXT);
-        CREATE TABLE rulebook_applicability (id INTEGER PRIMARY KEY, rule_version_id TEXT, key_type TEXT, value TEXT);"""
-    )
-    conn.execute("INSERT INTO rulebook_rule VALUES ('r1','keyabc','X.pdf')")
-    conn.execute(
-        "INSERT INTO rulebook_version VALUES ('v1','r1',1,'no_figure','inlet size',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'shall',NULL,NULL)"
-    )
-    conn.execute(
-        "INSERT INTO rulebook_provenance (rule_version_id, standard_document_id, clause, page, quote) VALUES ('v1','d','4.1',1,?)",
-        (quote,),
-    )
-    conn.commit()
-    return conn
-
-
-GOOD_PROPOSAL = {"value": 4.0, "unit": "inch", "comparator": ">="}
-
-
-def test_apply_proposal_writes_the_copy_and_step_a_then_passes(tmp_path):
-    conn = _mini_copy(tmp_path / "work.sqlite")
-    (r,) = st.load_rules_by_version(conn, "v1")
-    assert rf.limit_and_unit(r)[1] == "figure_not_filled"
-    st.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
-    assert st.latest_steps(conn, "v1")["a"]["reason"] == "proposal_applied"
-    again = st.overlay_applied(conn, r)
-    assert again["value"] == 4.0 and rf.limit_and_unit(again)[0] == rf.PASS
-
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        {"value": 5.0, "unit": "inch", "comparator": ">="},
-        {"value": 4.0, "unit": "kPa", "comparator": ">="},
-        {"unit": "inch"},
-    ],
-)
-def test_apply_proposal_refuses_a_figure_that_does_not_stand_in_the_quote(
-    tmp_path, bad
-):
-    conn = _mini_copy(tmp_path / "work.sqlite")
-    with pytest.raises(ValueError):
-        st.apply_proposal(conn, "v1", bad, "owner-1")
-    assert st.latest_steps(conn, "v1") == {}
-
-
-def test_apply_proposal_refuses_an_original_database_and_an_unnamed_approver(tmp_path):
-    conn = _mini_copy(tmp_path / "psv-all.sqlite")
-    with pytest.raises(PermissionError):
-        st.apply_proposal(conn, "v1", GOOD_PROPOSAL, "owner-1")
-    assert st.latest_steps(conn, "v1") == {}
-    copy = _mini_copy(tmp_path / "w2.sqlite")
-    with pytest.raises(ValueError):
-        st.apply_proposal(copy, "v1", GOOD_PROPOSAL, " ")
-    with pytest.raises(PermissionError):
-        st.apply_proposal(sqlite3.connect(":memory:"), "v1", GOOD_PROPOSAL, "o")

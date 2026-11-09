@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sqlite3
 import sys
 from collections import Counter
@@ -28,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import rule_finish as rf  # noqa: E402
+from app import rule_finish_guard as guard  # noqa: E402
 from app import rule_finish_store as st  # noqa: E402
 
 HOME = Path.home()
@@ -50,28 +50,24 @@ def open_ro(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def same_file(a: Path, b: Path) -> bool:
-    try:
-        return a.exists() and b.exists() and a.samefile(b)
-    except OSError:
-        return a.resolve() == b.resolve()
-
-
 def prepare_work_db(source: Path, pages: Path, work: Path) -> Path:
-    """The copy the steps are written to. Refuses the original compile database (or the pages copy)."""
-    if (
-        work.resolve() == source.resolve()
-        or work.resolve() == pages.resolve()
-        or same_file(work, source)
-        or same_file(work, pages)
-    ):
-        raise SystemExit(
-            f"refused: {work} is an original database; steps are written only to a copy"
-        )
-    if not work.exists():
-        work.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, work)
-    return work
+    """The marked copy the steps are written to. A new copy is made and marked; an existing file that is a verified copy of
+    the source and has no marker yet is marked once (adopted); anything else, and every protected database (the source,
+    the pages copy, the app's and the live one), is refused."""
+    try:
+        if work.exists() and not _is_marked(work):
+            return guard.adopt_copy(source, work, [pages])
+        return guard.prepare_work_copy(source, work, [pages])
+    except guard.NotAWorkCopy as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _is_marked(path: Path) -> bool:
+    conn = sqlite3.connect(path)
+    try:
+        return guard._marker_row(conn) is not None
+    finally:
+        conn.close()
 
 
 def page_cache(pages_conn: sqlite3.Connection):
@@ -182,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{run_id}.jsonl"
     work_conn = sqlite3.connect(work)
+    guard.require_work_copy(work_conn, [args.source, args.pages_db])
     st.ensure_table(work_conn)
 
     counts: dict[str, Counter] = {s: Counter() for s in rf.CODE_STEPS}
@@ -193,20 +190,13 @@ def main(argv: list[str] | None = None) -> int:
             short = rule["rule_key"][:8]
             try:
                 rule = st.overlay_applied(work_conn, rule)
-                steps = rf.run_steps(rule, get_pages(rule.get("standard_document_id")))
-                for name, (result, reason, evidence) in steps.items():
-                    st.record_step(
-                        work_conn,
-                        rule["version_id"],
-                        name,
-                        result,
-                        reason,
-                        evidence,
-                        checker="code",
-                        model=rf.MODEL_NONE,
-                        run_id=run_id,
+                pages = get_pages(rule.get("standard_document_id"))
+                steps = {}
+                for name in rf.CODE_STEPS:  # each step is recomputed and written by the store; nothing is handed in
+                    steps[name] = st.record_code_step(
+                        work_conn, rule, name, pages, run_id=run_id
                     )
-                    counts[name][result] += 1
+                    counts[name][steps[name][0]] += 1
                 saved = st.latest_steps(work_conn, rule["version_id"])
                 path = write_journey(args.trace_dir, rule, steps, saved, run_id)
                 results = {n: r[0] for n, r in steps.items()}

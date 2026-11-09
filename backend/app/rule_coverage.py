@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from . import rule_finish
+from . import rule_finish_figures as ff
 from .compiled_rule_pages import _clause_in_force, sentences_of
 from .converter_gates import fold as _fold
 
@@ -19,9 +19,7 @@ _OBLIGATION = re.compile(r"\b(?:shall|must|required)\b")
 
 
 def is_numeric_requirement(sentence: str) -> bool:
-    return bool(_OBLIGATION.search(sentence.lower())) and bool(
-        rule_finish._figures(sentence)
-    )
+    return bool(_OBLIGATION.search(sentence.lower())) and bool(ff.figures(sentence))
 
 
 def _span(needle: str, folded_page: str) -> tuple[int, int] | None:

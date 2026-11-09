@@ -51,6 +51,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_finish` | The rule finishing line (steps a to g): limit and unit inside the quote, evidence source, fragments, testable conditions, quote found; may_decide and finish_status; proposals applied to a work copy only |
 | `rule_finish_store` | The finishing line's store (copy only): the `rule_finish_step` table, reading rules from a rulebook copy, applying a proposal |
 | `rule_finish_figures` | Reading the figures of a quote for step a (numbers by numparse, whole fractions included, units by claims) |
+| `rule_finish_guard` | Where the finishing line may write: only a marked work copy, never the source, pages, app or live database |
 | `rule_finish_repair` | Applying an engineer's repair of a rule to a work copy, each part verified by code against the quote and the standard's page text |
 | `rule_coverage` | Which numeric obligation sentences of a standard no compiled rule covers (counts per standard, local files only) |
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |

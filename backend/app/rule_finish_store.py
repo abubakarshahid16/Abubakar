@@ -6,12 +6,28 @@ a database, never in the live one; nothing here writes an original database.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .rule_finish import MODEL_NONE, PASS, RESULTS, STEPS, limit_and_unit
+from .rule_finish import (
+    CODE_STEPS,
+    COMPARATORS_ALLOWED,
+    FAIL,
+    MODEL_NONE,
+    PASS,
+    RESULTS,
+    STEPS,
+    conditions_of,
+    evidence_source,
+    fragments,
+    limit_and_unit,
+    quote_found,
+)
+from .rule_finish_figures import implied_comparator
+from .rule_finish_guard import require_work_copy
 
 # --------------------------------------------------------------------------- persistence (a COPY of a database only)
 
@@ -30,7 +46,9 @@ _INDEX = "CREATE INDEX IF NOT EXISTS idx_rule_finish_step ON rule_finish_step(ru
 
 
 def ensure_table(conn: sqlite3.Connection) -> None:
-    """Create `rule_finish_step` (append-only history; the latest row per rule version and step is the current one)."""
+    """Create `rule_finish_step` (append-only history; the latest row per rule version and step is the current one).
+    Only in a marked work copy (`rule_finish_guard`)."""
+    require_work_copy(conn)
     conn.execute(_TABLE)
     conn.execute(_INDEX)
     conn.commit()
@@ -40,33 +58,32 @@ def now_utc() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def record_step(
+def _append_step(
     conn: sqlite3.Connection,
     rule_version_id: str,
     step: str,
     result: str,
     reason: str,
-    evidence: dict | None = None,
+    evidence: dict | None,
     *,
     checker: str,
     model: str,
     run_id: str,
     at: str | None = None,
 ) -> int:
-    """Append one step result. Steps e (AI engineer check) and f (owner sample) are written here by their own processes;
-    both must name who checked."""
+    """The one writer of `rule_finish_step`; module-private: a step is recorded only through `record_code_step` (a to d
+    and g, recomputed here), `record_engineer_check` (e), `record_owner_sample` (f) or the repair's own records."""
     if step not in STEPS:
         raise ValueError(f"unknown step {step!r}")
     if result not in RESULTS:
         raise ValueError(f"unknown result {result!r}")
-    if step in ("e", "f") and not (checker or "").strip():
-        raise ValueError(f"step {step} needs a named checker")
     if (
         not (reason or "").strip()
         or not (run_id or "").strip()
         or not (model or "").strip()
+        or not (checker or "").strip()
     ):
-        raise ValueError("reason, model and run_id are required")
+        raise ValueError("reason, checker, model and run_id are required")
     ensure_table(conn)
     cur = conn.execute(
         "INSERT INTO rule_finish_step (rule_version_id, step, result, reason, evidence_json, checker, model, run_id, at) "
@@ -77,7 +94,7 @@ def record_step(
             result,
             reason,
             json.dumps(evidence or {}, sort_keys=True),
-            checker or "",
+            checker,
             model,
             run_id,
             at or now_utc(),
@@ -85,6 +102,134 @@ def record_step(
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def record_code_step(
+    conn: sqlite3.Connection,
+    rule: dict,
+    step: str,
+    pages: dict[int, str] | None = None,
+    *,
+    run_id: str,
+    note: str = "",
+    checker: str = "code",
+    at: str | None = None,
+) -> tuple[str, str, dict]:
+    """Steps a, b, c, d and g: the step function is called HERE on the rule and its result is what is written. Nobody
+    hands in a result."""
+    if step not in CODE_STEPS:
+        raise ValueError(f"step {step!r} is not recorded by code")
+    result, reason, evidence = {
+        "a": lambda: limit_and_unit(rule),
+        "b": lambda: evidence_source(rule),
+        "c": lambda: fragments(rule, pages),
+        "d": lambda: conditions_of(rule),
+        "g": lambda: quote_found(rule, pages),
+    }[step]()
+    _append_step(
+        conn,
+        rule["version_id"],
+        step,
+        result,
+        f"{note}{reason}",
+        evidence,
+        checker=checker,
+        model=MODEL_NONE,
+        run_id=run_id,
+        at=at,
+    )
+    return result, reason, evidence
+
+
+def _file_evidence(path: str | Path) -> tuple[dict, str, Path]:
+    p = Path(path)
+    if not p.is_file():
+        raise ValueError(f"refused: {p.name} does not exist")
+    raw = p.read_bytes()
+    try:
+        return json.loads(raw), hashlib.sha256(raw).hexdigest(), p
+    except ValueError as exc:
+        raise ValueError(f"refused: {p.name} is not JSON") from exc
+
+
+def _rule_key(conn: sqlite3.Connection, version_id: str) -> str:
+    found = load_rules_by_version(conn, version_id)
+    if not found:
+        raise ValueError("no such rule version in this copy")
+    return found[0]["rule_key"]
+
+
+def record_engineer_check(
+    conn: sqlite3.Connection,
+    rule_version_id: str,
+    output_path: str | Path,
+    *,
+    run_id: str,
+) -> str:
+    """Step e from the engineer's output file: its sha256 is recomputed here, its verdict must be OK or NOT_OK, it must
+    name its checker and the rule it is about (a prefix of this rule's key). Returns the result written."""
+    out, digest, path = _file_evidence(output_path)
+    verdict = str(out.get("verdict") or "").strip().upper().replace(" ", "_")
+    if verdict not in ("OK", "NOT_OK"):
+        raise ValueError("refused: the engineer output has no OK or NOT_OK verdict")
+    checker = str(out.get("checker") or "").strip()
+    prefix = str(out.get("rule_key_prefix") or "")
+    if (
+        not checker
+        or not prefix
+        or not _rule_key(conn, rule_version_id).startswith(prefix)
+    ):
+        raise ValueError(
+            "refused: the engineer output names no checker or another rule"
+        )
+    result = PASS if verdict == "OK" else FAIL
+    _append_step(
+        conn,
+        rule_version_id,
+        "e",
+        result,
+        f"engineer_check_{verdict.lower()}",
+        {"file": path.name, "path": str(path), "sha256": digest, "verdict": verdict},
+        checker=checker,
+        model="Claude chat helper",
+        run_id=run_id,
+    )
+    return result
+
+
+def record_owner_sample(
+    conn: sqlite3.Connection,
+    rule_version_id: str,
+    sample_id: str,
+    tick_path: str | Path,
+    *,
+    run_id: str,
+) -> str:
+    """Step f from the owner's tick file: JSON {"sample_id": ..., "ticks": {rule_key: "ok" | "wrong"}}; the sample id must
+    match and the rule must be in the file; the sha256 of the file is recomputed here."""
+    data, digest, path = _file_evidence(tick_path)
+    tick = (data.get("ticks") or {}).get(_rule_key(conn, rule_version_id))
+    if (
+        not (sample_id or "").strip()
+        or data.get("sample_id") != sample_id
+        or tick not in ("ok", "wrong")
+    ):
+        raise ValueError(
+            "refused: the tick file does not hold this sample id and this rule's tick"
+        )
+    result = PASS if tick == "ok" else FAIL
+    _append_step(
+        conn,
+        rule_version_id,
+        "f",
+        result,
+        f"owner_sample_{tick}",
+        {"sample_id": sample_id, "path": str(path), "sha256": digest},
+        checker="owner",
+        model="none: owner tick",
+        run_id=run_id,
+    )
+    return result
 
 
 def latest_steps(conn: sqlite3.Connection, rule_version_id: str) -> dict[str, dict]:
@@ -164,19 +309,29 @@ def load_rules(
 
 # --------------------------------------------------------------------------- applying a proposal (a COPY only, by explicit call)
 
-ORIGINAL_DB_NAMES = frozenset(
-    {"psv-all.sqlite", "compile.sqlite", "combined-run.sqlite", "crsfix-run.sqlite"}
-)
 _APPLIED = """CREATE TABLE IF NOT EXISTS rule_finish_applied (
     id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id TEXT NOT NULL, value REAL, value_low REAL, value_high REAL,
     unit TEXT NOT NULL, comparator TEXT, approver TEXT NOT NULL, at TEXT NOT NULL)"""
 
 
-def _db_file(conn: sqlite3.Connection) -> str:
-    for _, name, path in conn.execute("PRAGMA database_list"):
-        if name == "main":
-            return path or ""
-    return ""
+def _quote(rule: dict) -> str:
+    return " ".join(str(rule.get("quote") or "").split())
+
+
+def comparator_problem(quote: str, proposal: dict) -> str | None:
+    """None when the proposal's comparator is the one the quote's own phrase gives THAT figure (a single value), or
+    when a range proposal has no comparator and its ends are the quote's low (>=) and high (<=) ends; else the reason."""
+    unit = proposal.get("unit")
+    if proposal.get("value") is not None:
+        wanted = implied_comparator(quote, proposal["value"], unit)
+        given = proposal.get("comparator")
+        if given not in COMPARATORS_ALLOWED:
+            return "comparator_not_allowed"
+        return None if wanted == given else "comparator_not_implied_by_this_figure"
+    low = implied_comparator(quote, proposal["value_low"], unit)
+    high = implied_comparator(quote, proposal["value_high"], unit)
+    ok = low == ">=" and high == "<=" and proposal.get("comparator") in (None, "")
+    return None if ok else "range_ends_not_implied"
 
 
 def apply_proposal(
@@ -186,11 +341,7 @@ def apply_proposal(
     approver). Refuses an original database and a proposal whose value or unit does not stand in the rule's quote:
     step a must pass with the proposal applied. The rulebook rows stay as they are (append-only); the applied figure is
     kept in `rule_finish_applied` and step a is recorded as pass with reason `proposal_applied`."""
-    path = _db_file(conn_copy)
-    if not path or Path(path).name in ORIGINAL_DB_NAMES:
-        raise PermissionError(
-            "refused: an original database; a proposal is applied only in a copy"
-        )
+    require_work_copy(conn_copy)
     if not (approver or "").strip():
         raise ValueError("an approver is required")
     rules = load_rules_by_version(conn_copy, rule_version_id)
@@ -207,11 +358,14 @@ def apply_proposal(
     )
     if trial["value"] is None and trial["value_low"] is None:
         raise ValueError("a proposal needs a value")
-    result, reason, evidence = limit_and_unit(trial)
+    result, reason, _ = limit_and_unit(trial)
     if result != PASS:
         raise ValueError(
             f"refused: the proposal does not stand in the quote ({reason})"
         )
+    wrong = comparator_problem(_quote(rules[0]), trial)
+    if wrong:
+        raise ValueError(f"refused: the comparator is not the quote's own ({wrong})")
     ensure_table(conn_copy)
     conn_copy.execute(_APPLIED)
     at = now_utc()
@@ -229,16 +383,13 @@ def apply_proposal(
         ),
     )
     conn_copy.commit()
-    record_step(
+    record_code_step(
         conn_copy,
-        rule_version_id,
+        overlay_applied(conn_copy, rules[0]),
         "a",
-        PASS,
-        "proposal_applied",
-        dict(evidence, approver=approver),
-        checker=approver,
-        model=MODEL_NONE,
         run_id="apply-proposal",
+        note="proposal_applied: ",
+        checker=approver,
         at=at,
     )
     return trial
