@@ -41,6 +41,24 @@ def _labelled(line: str) -> str | None:
     return value or None
 
 
+_WORDS = re.compile(
+    r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december"
+    r"|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+    r"|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth"
+    r"|i|ii|iii|iv|v|vi|vii|viii|ix|x)\b",
+    re.IGNORECASE,
+)
+
+
+def _value_like(line: str) -> bool:
+    """A labelled line whose value is a competing VALUE: a digit (any Unicode decimal digit), a month name or
+    abbreviation, an ordinal word, or a Roman numeral, each as a whole word. A value of ordinary words (prose) is
+    neither a conflict nor a confirmation."""
+    found = _LINE.match(line)
+    value = found.group("value") if found else ""
+    return any(ch.isdecimal() for ch in value) or bool(_WORDS.search(value))
+
+
 def _line_confirms(line: str, edition: str) -> bool:
     """True when this one line is a label followed by EXACTLY the edition and only end punctuation: no trailing
     words, no longer value ('2019.5', '2019-06-01', '3.1' do not confirm '2019' or '3')."""
@@ -67,7 +85,10 @@ def _page_lines(
         value = _labelled(line)
         if value is None:
             continue
-        values.add(value)  # ANY labelled line with another value is a conflict
+        if value == _edition_fold(edition) or _value_like(line):
+            values.add(
+                value
+            )  # another VALUE-LIKE labelled value is a conflict; prose is ignored
         quote = line.strip()
         if verify_quote(quote, page_text, edition):
             hits.append({"page": page_no, "quote": quote})

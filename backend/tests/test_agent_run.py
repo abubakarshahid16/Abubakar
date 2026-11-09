@@ -1452,3 +1452,54 @@ def test_verify_quote_needs_the_exact_value(quote):
 
     assert not agent_edition.verify_quote(quote, quote, "2019")
     assert agent_edition.verify_quote("Edition: 2019.", "x\nEdition: 2019.\n", "2019")
+
+
+def test_the_real_copy_shape_prose_after_the_label_does_not_block_a_confirmation(
+    tmp_path,
+):
+    text = "Title\nIssue Date: 23 May 2019\nedition of the references listed below, unless noted otherwise"
+    got = ev(one_page_db(tmp_path, text), "ISO 7777", "23 May 2019", docs=("A",))
+    assert got["status"] == "confirmed" and got["page"] == 2
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        "Edition: Third",
+        "Edition: III",
+        "Edition: 3rd",
+        "Edition: 24 May",
+        "Edition: iv",
+        "Edition: Sept",
+    ],
+)
+def test_a_value_like_edition_line_is_a_conflict(tmp_path, other):
+    conn = one_page_db(tmp_path, "Issue Date: 23 May 2019\n" + other)
+    assert (
+        ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"]
+        == "edition not confirmed"
+    )
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Edition notes follow",
+        "Edition: current",
+        "Edition: latest",
+        "Edition of the references",
+    ],
+)
+def test_prose_after_the_label_is_ignored(tmp_path, prose):
+    conn = one_page_db(tmp_path, "Issue Date: 23 May 2019\n" + prose)
+    assert ev(conn, "ISO 7777", "23 May 2019", docs=("A",))["status"] == "confirmed"
+
+
+def test_prose_never_confirms_by_itself(tmp_path):
+    conn = one_page_db(tmp_path, "Edition notes follow\nEdition: current")
+    assert (
+        ev(conn, "ISO 7777", "current", docs=("A",))["status"] == "confirmed"
+    )  # exact value still confirms
+    assert (
+        ev(conn, "ISO 7777", "2019", docs=("A",))["status"] == "edition not confirmed"
+    )
