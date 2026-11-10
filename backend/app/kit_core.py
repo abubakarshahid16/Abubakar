@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import hold_reason
+
 REFERENCE = Path(__file__).resolve().parent / "reference"
 
 
@@ -187,6 +189,8 @@ def held(result: dict, item: dict) -> dict:
     if result["status"] in ("COMPLIANT", "NON_COMPLIANT"):
         out["status"] = "NEEDS_ENGINEER_REVIEW"
         out["rule_said"] = result["status"]
+        # held only because a draft card is not a proven rule: that is its hold reason
+        out[hold_reason.KEY] = hold_reason.RULE_NOT_PROVEN
         out["detail"] = (
             f"The numbers read: {result['detail']} (held for the engineer: draft kit card)"
         )

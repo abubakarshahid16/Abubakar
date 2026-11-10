@@ -27,6 +27,12 @@ R3  A held datasheet check whose hold reason is `field_several_values`, checked 
 R4  A cited standard the scope check says does not appear to apply (`cited_not_applicable`)
     is not a CRS comment: it is a Review note naming the standard and the check's reason.
 
+DRAFT PASS (owner 3 Nov 11:40 b, `compliance_list._draft_pass`; owner 10 Nov): with this switch on, a value read
+    that only a draft rule passed goes to the internal list as "No issue found (draft rule)", also with
+    CRS_COMPLIANCE_LIST_ENABLED off, and only when its stored hold reason is `rule_not_proven` (held for no other
+    reason), the value read carries no placeholder or deferral phrase ("By Contractor", "TBA"; its own fact too),
+    and no engineer decided it (`draft_pass_may_leave`).
+
 ALWAYS KEPT: a finding an engineer decided (confirmed or accepted, `crs_decider.decider`), a row with an issued number, a
 finding with no hold code, and `deferred_marker` (a figure followed by "By Contractor" is not
 a confirmed value; owner, 10 Nov: those rows stay on the CRS).
@@ -189,6 +195,39 @@ def status_words(finding: dict) -> str:
     return LISTED_PREFIX + REASON_WORDS.get(
         hold_reason.of(finding) or "", "held for the engineer"
     )
+
+
+# ------------------------------------------------------------ the draft pass: one finding
+
+
+def draft_pass_may_leave(finding: dict) -> bool:
+    """Switch on: may `compliance_list._draft_pass` take this draft-rule pass off the CRS? Only when its hold was
+    made because the rule is not proven (`rule_not_proven`, not `deferred_marker` or any other reason), no
+    engineer decided it, and neither the value read nor its own fact names a placeholder or a deferral. Off: False."""
+    if not enabled() or crs_decider.decider(finding):
+        return False
+    if hold_reason.of(finding) != hold_reason.RULE_NOT_PROVEN:
+        return False
+    from .blank_markers import names_a_marker
+
+    if names_a_marker(str(finding.get("contractor_evidence_text") or "")):
+        return False
+    own = _own_fact(finding.get("fact_id"))
+    return own is None or _unmarked(own)
+
+
+def _own_fact(fact_id: str | None) -> dict | None:
+    """The finding's own fact, current or not (the one it was read from). None: no fact id, or none on record."""
+    if not fact_id:
+        return None
+    from .db import connect
+
+    row = (
+        connect()
+        .execute("SELECT * FROM submittal_facts WHERE id = ?", (fact_id,))
+        .fetchone()
+    )
+    return dict(row) if row else None
 
 
 # ------------------------------------------------------------ R1 / R4: the standards rows
