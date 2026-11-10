@@ -19,10 +19,23 @@ from app import crs_export, crs_mapping, crs_routing, export_status, hold_reason
 from app.config import settings
 from app.datasheet_checks import DRAFT_MARK
 
-STATED, PLACEHOLDER = (
-    {"field_value": "12 barg"},
-    {"field_value": "10 barg By Contractor"},
-)
+
+def fact(value, n="1", **over):
+    """An invented fact of the field "Body material" on one sheet."""
+    base = {
+        "id": f"fact-{n}",
+        "field_name": "Body material",
+        "field_label": "Body material",
+        "field_value": value,
+        "raw_value": value,
+        "equipment_tag": None,
+    }
+    return {**base, **over}
+
+
+#: Two different unmarked values, and one value with a deferral mark.
+STATED = [fact("CF8M", "a"), fact("WCB", "b")]
+PLACEHOLDER = [fact("CF8M", "a"), fact("CF8M By Contractor", "b")]
 
 
 def held(code, n=None, **over):
@@ -70,7 +83,7 @@ CHECK = {
 @pytest.fixture
 def switch(monkeypatch):
     facts = {"fact-R3": STATED, "fact-R3tba": PLACEHOLDER, "fact-R3nodraft": STATED}
-    monkeypatch.setattr(crs_routing, "_fact", facts.get)
+    monkeypatch.setattr(crs_routing, "_field_values", lambda i: facts.get(i, []))
     monkeypatch.setattr(crs_routing, "_kept_keys", lambda rows, run_id, scope: set())
     monkeypatch.setattr(
         crs_routing, "_spec_requires", lambda run_id, allowed: lambda ident: False
@@ -206,6 +219,7 @@ def test_r3_needs_a_draft_rule_and_a_stated_value_with_no_placeholder(switch):
         held(hold_reason.FIELD_SEVERAL_VALUES, "R3", contractor_evidence_text=""),
         held(hold_reason.FIELD_SEVERAL_VALUES, "R3", fact_id="fact-none"),
         held(hold_reason.FIELD_SEVERAL_VALUES, "R3", confirmed_by="eng-1"),
+        held(hold_reason.FIELD_SEVERAL_VALUES, "R3", show_for_engineer_tick=True),
     ]
     for f in keep:
         assert crs_routing.rule(f) is None, f
@@ -429,3 +443,150 @@ def test_kept_keys_are_issued_or_decided_never_a_draft_number(temp_storage):
         issued=False,
     )
     assert crs_routing._kept_keys(rows, "run-k", "scope-k") == {"k-issued"}
+
+
+def test_a_finding_an_engineer_accepted_stays_on_the_crs(switch):
+    """The accept button writes approval_status 'accepted' + approved_by (`crs_decider.decider`)."""
+    switch(True)
+    for code, n in (
+        (hold_reason.APPLICABILITY_NOT_STATED, "R2a"),
+        (hold_reason.FIELD_SEVERAL_VALUES, "R3"),
+    ):
+        assert crs_routing.rule(held(code, n)) is not None
+        accepted = held(code, n, approval_status="accepted", approved_by="eng-2")
+        assert crs_routing.rule(accepted) is None
+        assert len(crs_mapping.crs_groups([accepted])) == 1
+
+
+# ------------------------------------------------------------------ R3: every value of the field
+
+
+@pytest.mark.parametrize(
+    "values, moves",
+    [
+        (["CF8M", "CF8M By Contractor"], False),  # the reviewer's four orders
+        (["CF8M", "TBD"], False),
+        (["CF8M", "-"], False),
+        (["TBD", "CF8M"], False),
+        (["CF8M", "WCB"], True),  # all present and unmarked
+        (["CF8M", "WCB", "A216 WCC"], True),
+        (
+            ["By Contractor", "CF8M", "WCB"],
+            False,
+        ),  # one marked value, in every position
+        (["CF8M", "By Contractor", "WCB"], False),
+        (["CF8M", "WCB", "By Contractor"], False),
+        (["CF8M", "WCB", ""], False),  # a blank one
+        (["CF8M", "CF8M"], False),  # one value printed twice is not two values
+    ],
+)
+def test_r3_moves_only_when_every_value_of_the_field_is_stated_and_unmarked(
+    monkeypatch, temp_storage, values, moves
+):
+    """On a database, no stand-in: the finding stores only the FIRST fact (`datasheet_checks`
+    stores `get(field)[0]`); the rule reads every fact of that field on the sheet."""
+    from app import db
+
+    monkeypatch.setattr(settings, "crs_routing_by_hold_reason_enabled", True)
+    _doc("sub_r3", "CONTRACTOR_SUBMITTAL", "Invented valve datasheet.")
+    with db.connect() as conn:
+        for i, value in enumerate([*values, "Invented other value"]):
+            name = "Body material" if i < len(values) else "Design pressure"
+            conn.execute(
+                "INSERT INTO submittal_facts (id, submittal_document_id, field_name, field_label,"
+                " field_value, raw_value, is_blank, page, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,1,'2026-11-10','2026-11-10')",
+                (f"v{i}", "sub_r3", name, name, value, value, 0 if value else 1),
+            )
+    assert len(crs_routing._field_values("v0")) == len(values)  # never the other field
+    finding = held(
+        hold_reason.FIELD_SEVERAL_VALUES,
+        "R3",
+        fact_id="v0",
+        contractor_evidence_text=values[0],
+    )
+    assert (crs_routing.rule(finding) == "R3") is moves
+
+
+def test_a_row_held_because_the_field_it_is_checked_against_has_two_values_stays(
+    switch, monkeypatch
+):
+    """Its own field states one value: not two values of that field."""
+    switch(True)
+    monkeypatch.setattr(crs_routing, "_field_values", lambda i: [fact("CF8M", "a")])
+    assert crs_routing.rule(held(hold_reason.FIELD_SEVERAL_VALUES, "R3")) is None
+    other_tag = [
+        fact("CF8M", "a", equipment_tag="P-1"),
+        fact("WCB", "b", equipment_tag="P-2"),
+    ]
+    monkeypatch.setattr(crs_routing, "_field_values", lambda i: other_tag)
+    assert crs_routing.rule(held(hold_reason.FIELD_SEVERAL_VALUES, "R3")) is None
+
+
+# ------------------------------------------------------------------ the real lookups, no stand-in
+
+
+def test_r1_row_stays_through_the_real_run_and_specification_lookup(
+    monkeypatch, temp_storage
+):
+    """No stand-in for `_spec_requires` or `_kept_keys`."""
+    from app import project_specification as ps
+    from app import review_jobs
+
+    monkeypatch.setattr(settings, "crs_routing_by_hold_reason_enabled", True)
+    sub = _doc("sub_r1b", "CONTRACTOR_SUBMITTAL", "Invented pump datasheet.")
+    spec = _doc(
+        "spec_r1b",
+        "CONTRACT_DOCUMENT",
+        "The invented pump shall comply with API 991 in full.",
+    )
+    _user("own_r1b", [sub, spec])
+    scope = frozenset({sub, spec})
+    run_id, _job = review_jobs.enqueue(
+        sub, allowed_document_ids=scope, requested_by="own_r1b"
+    )
+    rows = crs_mapping.standards_check_rows(CHECK, "D.pdf")
+    kept, notes = crs_routing.standards(rows, [], CHECK, run_id, "scope-r1b", scope)
+    assert "API 991" not in {
+        r["standard_reference"] for r in kept
+    }  # no specification held
+    _requirement("q-r1b", spec, "The invented pump shall comply with API 991 in full.")
+    assert ps.mark(sub, spec, "own_r1b") == (True, "")
+    kept, notes = crs_routing.standards(rows, [], CHECK, run_id, "scope-r1b", scope)
+    assert "API 991" in {r["standard_reference"] for r in kept}
+    assert crs_routing.NOTE_NOT_REQUIRED not in {n["note"] for n in notes}
+
+
+def test_kept_keys_include_a_row_an_engineer_decided_on_this_run(temp_storage):
+    from app import crs_issue
+
+    rows = [
+        {"row_kind": crs_routing.NOT_CITED, "comment_key": "k-decided"},
+        {"row_kind": crs_routing.NOT_APPLICABLE, "comment_key": "k-open"},
+    ]
+    assert crs_routing._kept_keys(rows, "run-d", "scope-d") == set()
+    crs_issue._record(
+        "run-d",
+        "row",
+        "k-decided",
+        "accept",
+        "Invented engineer reason, kept.",
+        "eng-1",
+    )
+    crs_issue._record(
+        "run-d",
+        "row",
+        "k-elsewhere",
+        "accept",
+        "Invented engineer reason, other.",
+        "eng-1",
+    )
+    crs_issue._record(
+        "run-other",
+        "row",
+        "k-open",
+        "accept",
+        "Invented reason on another run.",
+        "eng-1",
+    )
+    assert crs_routing._kept_keys(rows, "run-d", "scope-d") == {"k-decided"}

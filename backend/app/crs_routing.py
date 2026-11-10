@@ -17,19 +17,24 @@ R2  A held datasheet check whose stored hold reason (`hold_reason`) is
     `applicability_not_stated` or `applicability_not_stated_absent` goes to the internal
     list with its reason (owner, 10 Nov: YES). `applicability_several_values` stays.
 R3  A held datasheet check whose hold reason is `field_several_values`, checked only by a
-    draft rule, with a value read whose fact carries no placeholder mark
-    (`blank_markers.fact_is_placeholder` False) goes to the internal list with its reason.
+    draft rule, goes to the internal list with its reason only when EVERY value the sheet
+    states for that field (`_field_values`: every fact of the sheet that may be the field,
+    not only the one the finding stores) is present and unmarked: no placeholder
+    (`blank_markers.fact_is_placeholder`) and no deferral phrase ("By Contractor", "TBA";
+    `blank_markers.names_a_marker`). One marked, blank or dash value keeps the row. A row
+    held because the field it is checked AGAINST has two values (its own field states one)
+    stays.
 R4  A cited standard the scope check says does not appear to apply (`cited_not_applicable`)
     is not a CRS comment: it is a Review note naming the standard and the check's reason.
 
-ALWAYS KEPT: a finding an engineer confirmed or decided, a row with an issued number, a
+ALWAYS KEPT: a finding an engineer decided (confirmed or accepted, `crs_decider.decider`), a row with an issued number, a
 finding with no hold code, and `deferred_marker` (a figure followed by "By Contractor" is not
 a confirmed value; owner, 10 Nov: those rows stay on the CRS).
 """
 
 from __future__ import annotations
 
-from . import hold_reason
+from . import crs_decider, hold_reason
 from .config import settings
 
 R2, R3 = "R2", "R3"
@@ -47,7 +52,7 @@ REASON_WORDS = {
     ),
     hold_reason.FIELD_SEVERAL_VALUES: (
         "the field has more than one value on the sheet, only a draft rule checks it,"
-        " and the value read carries no placeholder mark"
+        " and every value it states is given with no placeholder or deferral mark"
     ),
 }
 LISTED_PREFIX = "Engineer to check here, not a CRS comment: "
@@ -72,7 +77,7 @@ def rule(finding: dict) -> str | None:
     """The rule ("R2" or "R3") that moves this finding to the internal list, else None. Switch off: None."""
     if not enabled() or finding.get("origin") != _DATASHEET:
         return None
-    if finding.get("compliance_status") != _HELD or finding.get("confirmed_by"):
+    if finding.get("compliance_status") != _HELD or crs_decider.decider(finding):
         return None
     if finding.get("approval_status") == "rejected":
         return None
@@ -82,7 +87,7 @@ def rule(finding: dict) -> str | None:
     if (
         code == hold_reason.FIELD_SEVERAL_VALUES
         and _draft_only(finding)
-        and _value_stated(finding)
+        and _every_value_unmarked(finding)
     ):
         return R3
     return None
@@ -103,30 +108,80 @@ def _draft_only(finding: dict) -> bool:
     )
 
 
-def _value_stated(finding: dict) -> bool:
-    """A value was read and its fact carries no placeholder mark. No fact on record: not stated."""
-    from .blank_markers import fact_is_placeholder
+def _every_value_unmarked(finding: dict) -> bool:
+    """A value was read, the field itself states two or more different values for the finding's
+    tag (`same_value.key`, as the check compares them), and every value is present and unmarked."""
+    from .same_value import key
 
     if not str(finding.get("contractor_evidence_text") or "").strip():
         return False
-    fact = _fact(finding.get("fact_id"))
-    return fact is not None and not fact_is_placeholder(fact)
+    values = _field_values(finding.get("fact_id"))
+    tag = values[0].get("equipment_tag") if values else None
+    differ = {key(f) for f in values if f.get("equipment_tag") == tag}
+    return len(differ) >= 2 and all(_unmarked(f) for f in values)
 
 
-def _fact(fact_id: str | None) -> dict | None:
-    if not fact_id:
-        return None
+def _unmarked(fact: dict) -> bool:
+    """Present, and no placeholder, blank mark or deferral phrase anywhere in it."""
+    from .blank_markers import fact_is_placeholder, names_a_marker
+
+    printed = [fact.get(k) for k in ("field_value", "raw_value", "value_note")]
+    if fact.get("is_blank") or fact.get("blank_marker") or not any(printed[:2]):
+        return False
+    if fact_is_placeholder(fact):
+        return False
+    return not any(names_a_marker(str(v)) for v in printed if v)
+
+
+def _field_values(fact_id: str | None) -> list[dict]:
+    """Every value the sheet states for the field of this fact: the current facts of the same
+    submittal that may be that field (a role their names share with it, or the same label),
+    the fact itself first. Wider than the check's own reading, never narrower: one more value
+    can only keep a row on the CRS. No fact on record: []."""
+    facts = _sheet_facts(fact_id) if fact_id else []
+    own = next((f for f in facts if f.get("id") == fact_id), None)
+    if own is None:
+        return []
+    from .datasheet_checks import load_rules
+
+    rules = load_rules()
+    roles, label = _roles(own, rules), _label(own)
+    same = [
+        f
+        for f in facts
+        if f is not own and (roles & _roles(f, rules) or (label and _label(f) == label))
+    ]
+    return [own, *same]
+
+
+def _roles(fact: dict, rules: dict) -> set[str]:
+    from .datasheet_roles import roles_of
+
+    names = {fact.get("field_name"), fact.get("field_label")}
+    return {r for n in names if n for r in roles_of(str(n), rules)}
+
+
+def _label(fact: dict) -> str:
+    return " ".join(
+        str(fact.get("field_label") or fact.get("field_name") or "").lower().split()
+    )
+
+
+def _sheet_facts(fact_id: str) -> list[dict]:
+    """The current facts of the submittal this fact belongs to (the fact itself always)."""
     from .db import connect
 
-    row = (
+    rows = (
         connect()
         .execute(
-            "SELECT is_blank, field_value, raw_value, blank_marker FROM submittal_facts WHERE id = ?",
-            (fact_id,),
+            "SELECT * FROM submittal_facts WHERE submittal_document_id ="
+            " (SELECT submittal_document_id FROM submittal_facts WHERE id = ?)"
+            " AND (superseded_at IS NULL OR id = ?)",
+            (fact_id, fact_id),
         )
-        .fetchone()
+        .fetchall()
     )
-    return dict(row) if row is not None else None
+    return [dict(r) for r in rows]
 
 
 def status_words(finding: dict) -> str:
