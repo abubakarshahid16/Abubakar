@@ -23,7 +23,8 @@ back from it, so a reworded sentence cannot move a finding:
 
 `datasheet_checks.store` stores the code in `review_findings.hold_reason_code`
 for a finding stored as NEEDS_ENGINEER_REVIEW, and NULL for any other status.
-Nothing reads it to decide yet: no CRS row, verdict or count changes.
+No verdict or count reads it. Only `crs_routing` reads it, behind its own switch (off),
+to choose which sheet shows a held row (CRS or the internal list); the switch off, no CRS row changes.
 """
 
 from __future__ import annotations
