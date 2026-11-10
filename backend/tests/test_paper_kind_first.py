@@ -319,3 +319,103 @@ def test_a_failed_kind_decision_stores_no_main_type(monkeypatch):
     monkeypatch.setattr(paper_kind, "classify_paper_kind", boom)
     assert classification.classify_equipment_type_for_submittal("p1") is None
     assert _equipment("p1")[0] is None
+
+
+# ------------------------------------------------ an engineer confirms a kind
+
+
+def _confirmer():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash, created_at)"
+            " VALUES ('u1','u@x.test','u','x','2026-11-11')"
+        )
+    return "u1"
+
+
+def test_confirm_after_routing_gives_the_new_kind_and_main_label(monkeypatch):
+    from app import doc_router
+
+    monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
+    _doc("d1", [DATASHEET])
+    doc_router.route_document("d1")
+    classification.classify_equipment_type_for_submittal("d1")
+    assert paper_kind.main_label("d1") == "Centrifugal Pump"
+    doc_router.confirm("d1", "procedure", _confirmer())
+    assert paper_kind.stored("d1") == "procedure"
+    assert paper_kind.main_label("d1") == "procedure"
+
+
+def test_a_confirmed_procedure_has_no_main_equipment_type(monkeypatch):
+    from app import doc_router
+
+    _doc("d1", [DATASHEET])
+    classification.classify_equipment_type_for_submittal("d1")  # switch off: a type
+    monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
+    doc_router.confirm("d1", "procedure", _confirmer())
+    equipment, evidence = _equipment("d1")
+    assert equipment is None and evidence["main_label"] == "procedure"
+    audit = (
+        db.connect()
+        .execute(
+            "SELECT detail FROM audit_events WHERE resource_id = 'd1'"
+            " AND action = 'equipment_type_reclassified'"
+        )
+        .fetchall()
+    )
+    assert json.loads(audit[-1]["detail"])["old"] == "Centrifugal Pump"
+
+
+def test_confirming_back_to_a_datasheet_gives_the_type_back(monkeypatch):
+    from app import doc_router
+
+    monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
+    _doc("p1", [PROCEDURE])
+    classification.classify_equipment_type_for_submittal("p1")
+    doc_router.confirm("p1", "datasheet", _confirmer())
+    assert paper_kind.stored("p1") == "datasheet"
+    assert _equipment("p1")[0] == "Centrifugal Compressor"
+
+
+def test_confirm_with_the_switch_off_is_unchanged():
+    from app import doc_router
+
+    _doc("d1", [DATASHEET])
+    classification.classify_equipment_type_for_submittal("d1")
+    doc_router.confirm("d1", "procedure", _confirmer())
+    assert _equipment("d1")[0] == "Centrifugal Pump"
+    tables = {r[0] for r in db.connect().execute("SELECT name FROM sqlite_master")}
+    assert "paper_kinds" not in tables
+
+
+def test_an_engineer_may_confirm_a_test_record(monkeypatch):
+    from app import doc_router
+
+    monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
+    _doc("d1", [DATASHEET])
+    assert "test_record" in [k["id"] for k in doc_router.kinds()]
+    doc_router.confirm("d1", "test_record", _confirmer())
+    assert paper_kind.stored("d1") == "test_record"
+    assert (
+        paper_kind.main_label("d1") == "Centrifugal Pump"
+    )  # a test record keeps its type
+
+
+def test_a_confirmed_procedure_loses_its_main_type_even_on_a_confirmed_record(
+    monkeypatch,
+):
+    """The equipment classifier leaves a confirmed record alone; the kind confirmation still applies the rule."""
+    from app import doc_router
+
+    _doc("d1", [DATASHEET])
+    classification.classify_equipment_type_for_submittal("d1")  # switch off: a type
+    user = _confirmer()
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET confirmed_by = ? WHERE document_id = 'd1'",
+            (user,),
+        )
+    monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
+    doc_router.confirm("d1", "contract", user)
+    assert _equipment("d1")[0] is None
+    assert paper_kind.main_label("d1") == "contract"

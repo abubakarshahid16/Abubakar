@@ -65,8 +65,14 @@ PAPER_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("test_record", _TEST_RECORD),
     *document_kind._KIND_CUES[1:],
 )
-#: `document_kind` kinds (and the router's) that are kinds of the closed list.
+#: `document_kind` kinds (and the router's, `reference/document_kinds.json`, which
+#: an engineer may confirm) that are kinds of the closed list.
 _SAME = {"datasheet", "procedure", "contract", "drawing", "test_record"}
+#: Every other kind is `other`, on purpose: specification, transmittal, FEED,
+#: standard, study, report, letter and unknown. The owner's list is closed (order
+#: 11 Nov step 2); none of them is a datasheet, procedure, contract, drawing or
+#: test record, and a new name must never silently become one of those. "other"
+#: is not a procedure or contract, so its equipment type is left as it was.
 
 
 def to_paper_kind(kind: str | None) -> str:
@@ -297,6 +303,29 @@ def hold_main_equipment(document_id: str, pages: Sequence[dict]) -> str | None:
             classified_by="paper_kind_first",
         )
     return decided.paper_kind
+
+
+def after_confirm(document_id: str) -> str | None:
+    """An engineer confirmed the document's kind (`doc_router.confirm`). Switch on:
+    the paper kind is derived again from that kind (it always wins) and the main
+    label rule applied: a procedure or contract has its main equipment type cleared
+    (audited); any other kind has its type decided again for a submittal. Returns
+    the stored paper kind; switch off: None, nothing written."""
+    from . import classification
+    from .config import settings
+
+    if not settings.paper_kind_first_enabled:
+        return None
+    pages = [
+        dict(r)
+        for r in connect().execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    ]
+    if hold_main_equipment(document_id, pages) is None:
+        classification.classify_equipment_type_for_submittal(document_id)
+    return stored(document_id)
 
 
 def main_label(document_id: str) -> str | None:

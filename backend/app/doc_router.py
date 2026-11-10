@@ -260,6 +260,9 @@ def confirm(document_id: str, kind: str, confirmed_by: str | None) -> dict:
             " ON CONFLICT(document_id) DO UPDATE SET kind = excluded.kind, state = 'confirmed',"
             " confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at",
             (document_id, kind, str(vocabulary().get("router_version", "1")), now, confirmed_by, now))
+    from . import paper_kind  # switch on: the confirmed kind decides the paper kind
+
+    paper_kind.after_confirm(document_id)
     return of_documents([document_id])[document_id]
 
 
