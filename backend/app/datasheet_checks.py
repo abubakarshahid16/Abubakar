@@ -683,7 +683,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         # The condition is unknown and the field is absent: whether the contractor owes this value is not known, so it is not a missing value.
         return held(why_held.unknown_condition(unknown["_why"]), _sentence(
             f"the {_pretty(field).lower()} is not given, and whether it is needed depends on the "
-            f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
+            f"{_pretty(unknown['role']).lower()}, {absence.unknown_condition_words(unknown['_why'])}"))
     if fact is None:
         if why == "absent":
             # PLANNER 2026-10-10 (F-a): a field not read as a fact is searched for in the text of every
