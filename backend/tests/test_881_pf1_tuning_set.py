@@ -29,6 +29,25 @@ def test_the_committed_files_are_exactly_what_the_committed_spec_builds(tmp_path
     assert fresh == committed
 
 
+def test_the_build_writes_lf_even_where_text_mode_writes_crlf(tmp_path, monkeypatch):
+    """Windows text mode (newline=None) turns "\\n" into "\\r\\n": the Windows CI's build of
+    index.json differed from the committed LF file. Emulate it and require LF anyway."""
+    import pathlib
+
+    real = pathlib.Path.write_text
+
+    def windows_write_text(self, data, encoding=None, errors=None, newline=None):
+        if newline is None:
+            data, newline = data.replace("\n", "\r\n"), ""
+        return real(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", windows_write_text)
+    pf1_set.build(_spec(), tmp_path / "fresh")
+    for p in (tmp_path / "fresh").iterdir():
+        if p.suffix == ".json":
+            assert b"\r\n" not in p.read_bytes(), p.name
+
+
 def test_every_committed_document_is_invented_tuning_and_has_no_library_standard():
     index = json.loads((SET / "index.json").read_text(encoding="utf-8"))
     assert index["source"] == "invented" and len(index["documents"]) >= 4
