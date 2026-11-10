@@ -10,6 +10,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 
+from . import rulebook_v2_schema
 from .rule_finish import (
     RESULTS,
     STEPS,
@@ -122,48 +123,11 @@ def load_rules(
     key_prefix: str | None = None,
 ) -> list[dict]:
     """The latest version of every rule of `standard` (or whose rule_key starts with `key_prefix`), with its first
-    provenance and its applicability rows, as plain dicts. Read only."""
+    provenance and its applicability rows, as plain dicts. Read only, through the rulebook's own module."""
     conn.row_factory = sqlite3.Row
-    where, args = [], []
-    if standard:
-        where.append("r.standard = ?")
-        args.append(standard)
-    if key_prefix:
-        where.append("r.rule_key LIKE ? ESCAPE '\\'")
-        args.append(
-            key_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            + "%"
-        )
-    if not where:
-        raise ValueError("give a standard or a rule key prefix")
-    sql = (
-        "SELECT r.id AS rule_id, r.rule_key, r.standard, v.id AS version_id, v.version_no, v.kind, v.field, v.comparator, "
-        "v.value, v.value_low, v.value_high, v.value_text, v.unit, v.unit_dimension, v.strength, v.sentence_strength, "
-        "v.context_flag FROM rulebook_rule r JOIN rulebook_version v ON v.rule_id = r.id "
-        "WHERE "
-        + " AND ".join(where)
-        + " AND v.version_no = (SELECT MAX(version_no) FROM rulebook_version x WHERE x.rule_id = r.id) "
-        "ORDER BY r.rule_key"
+    return rulebook_v2_schema.latest_versions(
+        conn, standard=standard, key_prefix=key_prefix
     )
-    rules = []
-    for row in conn.execute(sql, args).fetchall():
-        rule = dict(row)
-        prov = conn.execute(
-            "SELECT standard_document_id, edition, clause, page, quote, quote_start, quote_end, page_source "
-            "FROM rulebook_provenance WHERE rule_version_id = ? ORDER BY id LIMIT 1",
-            (rule["version_id"],),
-        ).fetchone()
-        if prov is not None:
-            rule.update(dict(prov))
-        rule["applicability"] = [
-            (a["key_type"], a["value"])
-            for a in conn.execute(
-                "SELECT key_type, value FROM rulebook_applicability WHERE rule_version_id = ? ORDER BY id",
-                (rule["version_id"],),
-            )
-        ]
-        rules.append(rule)
-    return rules
 
 
 # --------------------------------------------------------------------------- applying a proposal (a COPY only, by explicit call)
@@ -235,14 +199,11 @@ def _overlay_repairs(conn: sqlite3.Connection, rule: dict) -> dict:
 
 def load_rules_by_version(conn: sqlite3.Connection, version_id: str) -> list[dict]:
     conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT r.rule_key FROM rulebook_version v JOIN rulebook_rule r ON r.id = v.rule_id WHERE v.id = ?",
-        (version_id,),
-    ).fetchone()
-    if row is None:
+    rule_key = rulebook_v2_schema.rule_key_of_version(conn, version_id)
+    if rule_key is None:
         return []
     return [
         r
-        for r in load_rules(conn, key_prefix=row["rule_key"])
+        for r in load_rules(conn, key_prefix=rule_key)
         if r["version_id"] == version_id
     ]

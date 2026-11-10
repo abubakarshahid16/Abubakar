@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -20,16 +21,18 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import live_guard, rulebook_v2_schema
 from .config import settings
 
 MARKER = "rule_finish_work_marker"
-_TABLES = ("rulebook_rule", "rulebook_version", "rulebook_provenance")
+_TABLES = rulebook_v2_schema.FINISH_TABLES
 HOME = Path.home()
 #: Databases that are never written, whatever a caller passes: the compile source and the standards' pages copy.
 DEFAULT_SOURCE = HOME / "project/mirror/proof/db/compile/psv-all.sqlite"
 DEFAULT_PAGES = HOME / "project/mirror/proof/agent-test/db/agent-copy.sqlite"
 DEFAULT_KEY_FILE = HOME / "project/mirror/trace/.rule-finish-marker-key"
 _REGISTERED: list[str] = []
+log = logging.getLogger(__name__)
 
 
 class NotAWorkCopy(PermissionError):
@@ -91,7 +94,9 @@ def _key() -> bytes:
             with os.fdopen(fd, "w") as handle:
                 handle.write(uuid.uuid4().hex + uuid.uuid4().hex)
         except FileExistsError:
-            pass
+            log.info(
+                "rule finish: another process created the marker key first; reading its file"
+            )
     if path.stat().st_mode & 0o077:
         raise NotAWorkCopy(
             "refused: the marker key file is readable by others (it must be mode 0600)"
@@ -114,12 +119,7 @@ def _mac(
 
 def _counts(conn: sqlite3.Connection) -> str | None:
     try:
-        return json.dumps(
-            {
-                t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                for t in _TABLES
-            }
-        )
+        return json.dumps(rulebook_v2_schema.finish_counts(conn))
     except sqlite3.OperationalError:
         return None
 
@@ -159,6 +159,7 @@ def require_work_copy(
         raise NotAWorkCopy(
             "refused: the file no longer holds the rulebook tables the copy was made with"
         )
+    _refuse_live(path)
     for other in [*protected_paths(protected), row[2]]:
         if other and same_file(path, other):
             raise NotAWorkCopy(
@@ -199,7 +200,14 @@ def _write_marker(conn: sqlite3.Connection, copy_path: str, source_path: str) ->
     conn.commit()
 
 
+def _refuse_live(path: str | os.PathLike) -> None:
+    """Any checkout's live database, by path shape or inode (`live_guard.is_live_shaped`), is never a work copy."""
+    if live_guard.is_live_shaped(path):
+        raise NotAWorkCopy("refused: this is a live database (live_guard)")
+
+
 def _refuse_protected(path: Path, protected: list[str | os.PathLike]) -> None:
+    _refuse_live(path)
     for other in protected_paths(protected):
         if other and same_file(path, other):
             raise NotAWorkCopy(f"refused: {path.name} is a protected database")
@@ -250,10 +258,37 @@ def adopt_copy(
         try:
             require_work_copy(dst, [source, *(protected or ())])
             return work
-        except NotAWorkCopy:
-            pass
+        except NotAWorkCopy as exc:
+            log.info(
+                "rule finish: adopting %s, replacing its marker: %s", work.name, exc
+            )
         _write_marker(dst, _real(work), _real(source))
     finally:
         src.close()
         dst.close()
     return work
+
+
+def is_marked(path: Path) -> bool:
+    """Whether `path` carries a marker row at all (signed or not). Opened read only."""
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return _marker_row(conn) is not None
+    finally:
+        conn.close()
+
+
+def open_work_copy(
+    work: Path, protected: list[str | os.PathLike] | None = None
+) -> sqlite3.Connection:
+    """The ONE read-write connection the finishing line's runner opens: refused for a live database before it is opened
+    (`live_guard.is_live_shaped`), and closed again unless `require_work_copy` passes (a signed marker naming this file,
+    not live, not protected)."""
+    _refuse_live(work)
+    conn = sqlite3.connect(work)
+    try:
+        require_work_copy(conn, protected)
+    except BaseException:
+        conn.close()
+        raise
+    return conn

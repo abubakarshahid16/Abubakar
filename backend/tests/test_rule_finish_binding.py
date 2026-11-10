@@ -87,6 +87,37 @@ def test_a_hand_made_marker_is_refused_because_it_is_not_signed(tmp_path):
         guard.require_work_copy(older)
 
 
+def test_a_live_shaped_database_is_never_a_work_copy_even_with_a_signed_marker(
+    tmp_path,
+):
+    live = tmp_path / "other-checkout" / "backend" / "data" / "rag_intelligence.sqlite"
+    live.parent.mkdir(parents=True)
+    make_copy(live).close()  # a signed marker naming this very file
+    with pytest.raises(guard.NotAWorkCopy, match="live"):
+        guard.require_work_copy(sqlite3.connect(live))
+    with pytest.raises(guard.NotAWorkCopy, match="live"):
+        guard.open_work_copy(live)
+    make_copy(tmp_path / "src.sqlite", marked=False).close()
+    target = live.with_name("RAG_Intelligence.SQLITE")  # the same shape, any case
+    for make in (guard.prepare_work_copy, guard.adopt_copy):
+        with pytest.raises(guard.NotAWorkCopy, match="live"):
+            make(tmp_path / "src.sqlite", target)
+
+
+def test_the_runner_opens_its_one_read_write_connection_only_on_a_marked_copy(
+    tmp_path,
+):
+    make_copy(tmp_path / "w.sqlite").close()
+    conn = guard.open_work_copy(tmp_path / "w.sqlite")
+    st.ensure_table(conn)  # usable for writing
+    conn.close()
+    make_copy(tmp_path / "plain.sqlite", marked=False).close()
+    with pytest.raises(guard.NotAWorkCopy, match="no work-copy marker"):
+        guard.open_work_copy(tmp_path / "plain.sqlite")
+    assert guard.is_marked(tmp_path / "w.sqlite")
+    assert not guard.is_marked(tmp_path / "plain.sqlite")
+
+
 def test_a_marker_signed_with_another_key_is_refused(tmp_path, monkeypatch):
     conn = make_copy(tmp_path / "w.sqlite")
     guard.require_work_copy(conn)

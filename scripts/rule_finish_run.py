@@ -73,19 +73,11 @@ def prepare_work_db(source: Path, pages: Path, work: Path) -> Path:
     the source and has no marker yet is marked once (adopted); anything else, and every protected database (the source,
     the pages copy, the app's and the live one), is refused."""
     try:
-        if work.exists() and not _is_marked(work):
+        if work.exists() and not guard.is_marked(work):
             return guard.adopt_copy(source, work, [pages])
         return guard.prepare_work_copy(source, work, [pages])
     except guard.NotAWorkCopy as exc:
         raise SystemExit(str(exc)) from exc
-
-
-def _is_marked(path: Path) -> bool:
-    conn = sqlite3.connect(path)
-    try:
-        return guard._marker_row(conn) is not None
-    finally:
-        conn.close()
 
 
 def write_journey(
@@ -196,8 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     log_dir = args.trace_dir / "logs" / "lane1"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{run_id}.jsonl"
-    work_conn = sqlite3.connect(work)
-    guard.require_work_copy(work_conn, [args.source, args.pages_db])
+    work_conn = guard.open_work_copy(work, [args.source, args.pages_db])
     st.ensure_table(work_conn)
 
     counts: dict[str, Counter] = {s: Counter() for s in rf.CODE_STEPS}
