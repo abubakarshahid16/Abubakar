@@ -204,6 +204,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `hold_reason` | Why a held datasheet check is held, as a code from a closed set written with its words; stored on the finding; no verdict reads it, only `crs_routing` (which sheet shows a held row, behind its switch) (#805 Cycle 2) |
 | `crs_routing` | Owner order 10 Nov step 4 (#805 Cycle 2): which sheet shows a row, by stored hold reason and the standards check (R1-R4); never a verdict, behind CRS_ROUTING_BY_HOLD_REASON_ENABLED |
 | `crs_tick_sheet` | Owner order 11 Nov step 1 (#805): the internal-only sheet "Passed by a tested rule: engineer to tick" holding the safety-tick rows (not CRS comments); which rows leave the CRS sheet is `crs_export._tick_section`; behind CRS_ROUTING_BY_HOLD_REASON_ENABLED |
+| `crs_by_contractor` | Owner order 11 Nov, owner answer (#805): on the contractor (issue) copy only, the rows held because a value is marked deferred (hold reason `deferred_marker`) are one query row naming every field with its tag, page and number; `crs_mapping.build_crs_rows` marks the rows, `crs_export.build_crs_view` folds them; the internal copy keeps one row per field; behind CRS_BY_CONTRACTOR_ONE_ROW_ENABLED |
 | `impossible_sign` | A value that should not be negative, printed negative, never gives a Pass; it becomes a Query (#1607) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |

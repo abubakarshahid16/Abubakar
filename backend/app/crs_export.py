@@ -29,6 +29,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from . import (
     compliance_list,
     crs_ai_review_view,
+    crs_by_contractor,
     crs_routing,
     crs_tick_sheet,
     run_record,
@@ -414,6 +415,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
                     and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
         withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))
         findings = [f for f in findings if not _no_issuable_text(f)]
+        findings = crs_by_contractor.one_row(findings)  # owner 11 Nov; off: as it was
 
     qon = bool(meta.get("export_quality", quality.enabled()))  # #1503
     findings, dropped, merged = quality.prepare(findings, copy, _no_text, qon)
@@ -486,10 +488,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "standard_reference": str(finding.get("standard_reference") or ""),
             "severity": str(finding.get("severity") or ""),
             "ai_review_comment": _ai_column(finding, copy),
-            # R30: internal copy only, like the AI column.
+            # R30, and rule_trust (#947) below: internal copy only, like the AI column.
             "reasoning": (str(finding.get("reasoning") or "")
                           if copy == COPY_INTERNAL else ""),
-            # rule_trust (#947): internal copy only, like the two above.
             "rule_trust": (str(finding.get("rule_trust") or "")
                            if copy == COPY_INTERNAL else ""),
         })

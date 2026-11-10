@@ -390,6 +390,12 @@ class SettingsExt(BaseModel):
     #: is listed as "No issue found (draft rule)" (`compliance_list._draft_pass`). No verdict changes. OFF: as it was.
     #: Env: CRS_ROUTING_BY_HOLD_REASON_ENABLED.
     crs_routing_by_hold_reason_enabled: bool = False
+    #: Owner order 11 Nov (#805), owner answer: on the CONTRACTOR copy only, the rows held because the sheet marks
+    #: a value as deferred ("By Contractor", "TBA"; hold reason `deferred_marker`) are ONE query row asking for the
+    #: confirmed figures, each field still named with its tag and page (`crs_by_contractor`). The internal copy keeps
+    #: one row per field; a row with the engineer's own words, a contractor reply or a closed number keeps its own
+    #: row. Export only, no verdict changes. OFF: as it was. Env: CRS_BY_CONTRACTOR_ONE_ROW_ENABLED.
+    crs_by_contractor_one_row_enabled: bool = False
     #: Owner order 11 Nov, step 2 (#805): paper kind first. Every paper gets one kind of a closed list (datasheet,
     #: procedure, contract, drawing, test record, other) from its own cover and title words (`paper_kind`), before
     #: the equipment type; a procedure or a contract keeps an equipment type only as a SECONDARY label, never the
