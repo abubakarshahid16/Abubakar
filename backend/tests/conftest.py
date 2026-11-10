@@ -163,6 +163,22 @@ def _fresh_ollama_probe_state():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_login_limiter():
+    """The sign-in failure limiter is process-wide on purpose (one budget per
+    email and per client host), and every `TestClient` request comes from the
+    same host, "testclient". A test that fills that host bucket - the
+    fresh-email-per-request test in test_auth.py does - left it full for up to
+    `auth_lockout_seconds`, so any later test in the same worker that signed in
+    got 429 `rate_limited` (CI run 42679962305, test_review_code.py). Each test
+    starts and ends with an empty limiter; the product limiter is unchanged."""
+    from app import auth
+
+    auth.reset_limiter()
+    yield
+    auth.reset_limiter()
+
+
+@pytest.fixture(autouse=True)
 def _the_local_answer_cache_is_off_unless_a_test_asks_for_it(monkeypatch):
     """No stored model answer is reused (or written) by a test that did not
     ask: with a model server running, `model_identity` would answer and a
