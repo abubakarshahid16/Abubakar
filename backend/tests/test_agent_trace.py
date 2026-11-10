@@ -224,6 +224,26 @@ def test_stale_lock_of_a_dead_pid_is_taken_over(tmp_path):
         assert lock.mine
 
 
+def test_lock_liveness_never_asks_os_kill(tmp_path, monkeypatch):
+    """Windows: os.kill(pid, 0) is no probe (signal 0 is CTRL_C_EVENT); for a dead pid it
+    raised WinError 87 out of acquire (scheduled Windows run, 10 Nov). Emulated here."""
+    import os
+
+    import psutil
+
+    def windows_kill(pid, sig):
+        raise OSError(22, "The parameter is incorrect")
+
+    monkeypatch.setattr(os, "kill", windows_kill)
+    monkeypatch.setattr(psutil, "pid_exists", lambda pid: pid == os.getpid())
+    (tmp_path / "run.lock").write_text("999999999 1\n")
+    with at.RunLock(tmp_path) as lock:
+        assert lock.mine
+    (tmp_path / "run.lock").write_text(f"{os.getpid()} 1\n")
+    with pytest.raises(at.RunLocked):
+        at.RunLock(tmp_path).acquire()
+
+
 def test_live_lock_is_not_stale(tmp_path):
     import os
 
