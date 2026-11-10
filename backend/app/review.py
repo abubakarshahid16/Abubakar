@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import finding_query, pdf_guard, severity_rule
+from . import finding_query, hold_reason, pdf_guard, severity_rule
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
@@ -227,7 +227,7 @@ def ensure_schema() -> None:
             "tier": "TEXT",
             "show_for_engineer_tick": "INTEGER",
             "rule_said": "TEXT",
-            "hold_reason_code": "TEXT",  # `hold_reason` (#805 Cycle 2); not #921's reason_code
+            hold_reason.COLUMN: "TEXT",  # `hold_reason` (#805 Cycle 2); not #921's reason_code
         }.items():
             # RACE-SAFE, because this runs on read paths: see `db.add_column_if_missing`.
             add_column_if_missing(conn, "review_findings", name, definition)
@@ -533,7 +533,7 @@ _EXTRA_FIELDS = (
     "confirmed_by", "confirmed_at",
     # rule_trust (#947): NULL unless the run labelled the rule (switch on).
     "trust_label", "tier", "show_for_engineer_tick", "rule_said",
-    "hold_reason_code",
+    hold_reason.COLUMN,
 )
 
 

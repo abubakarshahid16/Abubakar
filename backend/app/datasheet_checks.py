@@ -667,7 +667,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                          else "it has two different values on the sheet")
                 return held(why_held.applicability(why), _sentence(
                     f"whether it applies depends on the {_pretty(condition['role']).lower()}, and {state}"))
-            unknown = unknown or condition
+            unknown = unknown or {**condition, "_why": why}
             continue
         stated = _fold(_shown(cond_fact))
         if not any(_fold(word) in stated for word in condition["any"]):
@@ -681,7 +681,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     fact, why = _one(get(field))
     if fact is None and unknown is not None:
         # The condition is unknown and the field is absent: whether the contractor owes this value is not known, so it is not a missing value.
-        return held(why_held.APPLICABILITY_NOT_STATED_ABSENT, _sentence(
+        return held(why_held.unknown_condition(unknown["_why"]), _sentence(
             f"the {_pretty(field).lower()} is not given, and whether it is needed depends on the "
             f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
     if fact is None:
@@ -771,7 +771,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if other is None or other.get("is_blank"):
             state = ("is not given" if (other is not None or why == "absent")
                      else "is stated twice with different values")
-            return res(NEEDS_ENGINEER_REVIEW, _sentence(
+            return held(why_held.checked_against(other, why), _sentence(
                 f"the {_pretty(rule['right']).lower()} it is checked against {state}"), fact)
         right = _scale(_measure(other))
         if kind == "percent_of":
@@ -1186,7 +1186,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             "trust_label": r.get("trust_label"), "tier": r.get("tier"),
             "show_for_engineer_tick": (int(bool(r["show_for_engineer_tick"]))
                                        if "trust_label" in r else None),
-            "rule_said": r.get("rule_said"), "hold_reason_code": why_held.stored(r, status),
+            "rule_said": r.get("rule_said"), why_held.COLUMN: why_held.stored(r, status),
         }, created_by=None)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})

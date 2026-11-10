@@ -35,14 +35,14 @@ def temp_db(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _fact(name, value, i, note=None):
+def _fact(name, value, i, note=None, unit=None):
     out = {
         "id": f"f{i}",
         "field_name": name,
         "field_label": name,
         "raw_value": value,
         "field_value": value,
-        "raw_unit": None,
+        "raw_unit": unit,
         "page": 2,
         "equipment_tag": None,
     }
@@ -73,6 +73,10 @@ def _body(i, value):
     return _fact("body material", value, i)
 
 
+def _bar(name, value, i):
+    return _fact(name, value, i, unit="barg")
+
+
 def _cond(i, value):
     return _fact("test condition", value, i)
 
@@ -99,6 +103,17 @@ def _results(monkeypatch):
         },
         "source": {"standard": "STD-1", "clause": "4.3"},
     }
+    compare = {
+        "id": "T-9",
+        "text": "The set pressure is at most the design pressure",
+        "rule": {
+            "kind": "compare",
+            "left": "set_pressure",
+            "op": "<=",
+            "right": "design_pressure",
+        },
+        "source": {"standard": "STD-1", "clause": "4.4"},
+    }
     return [
         _eval(_item("T-1", COND), {}),
         _eval(
@@ -109,6 +124,22 @@ def _results(monkeypatch):
         _eval(_item("T-5"), {"body_material": [_body(5, "CF8M")]}),
         *deferred,
         _eval(other, {"set_pressure": [_fact("set pressure", "abc", 7)]}),
+        # an "evaluate" condition with TWO values on the sheet, and the field absent
+        _eval(
+            _item("T-8", COND, "evaluate"),
+            {"test_condition": [_cond(8, "yes"), _cond(9, "no")]},
+        ),
+        # the field it is checked against is stated twice with different values
+        _eval(
+            compare,
+            {
+                "set_pressure": [_bar("set pressure", "10", 10)],
+                "design_pressure": [
+                    _bar("design pressure", "12", 11),
+                    _bar("design pressure", "14", 12),
+                ],
+            },
+        ),
     ]
 
 
@@ -120,6 +151,8 @@ EXPECTED_CODE = {
     "T-5": None,  # decided (COMPLIANT): not held, no code
     "T-6": hold_reason.DEFERRED_MARKER,
     "T-7": hold_reason.OTHER,  # held for a reason with no named code: the fallback
+    "T-8": hold_reason.APPLICABILITY_SEVERAL_VALUES,  # the words say "does not state"
+    "T-9": hold_reason.FIELD_SEVERAL_VALUES,
 }
 
 _DRAFT = "DRAFT checklist, not signed off"
@@ -173,6 +206,20 @@ BEFORE = {
         f"The set pressure is at most 10 barg (STD-1 4.3; {_DRAFT})",
         "Could not be checked: the two values are not numbers on one scale and pressure "
         "basis.",
+        "minor",
+    ),
+    "T-8": (
+        "NEEDS_ENGINEER_REVIEW",
+        _BODY,
+        "Could not be checked: the body material is not given, and whether it is needed "
+        "depends on the test condition, which the sheet does not state.",
+        "minor",
+    ),
+    "T-9": (
+        "NEEDS_ENGINEER_REVIEW",
+        f"The set pressure is at most the design pressure (STD-1 4.4; {_DRAFT})",
+        "Could not be checked: the design pressure it is checked against is stated "
+        "twice with different values.",
         "minor",
     ),
 }

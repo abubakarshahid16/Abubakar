@@ -45,7 +45,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         3,
         "an absent field under an unknown condition is coded as the condition alone",
-        "        return held(why_held.APPLICABILITY_NOT_STATED_ABSENT, _sentence(\n",
+        '        return held(why_held.unknown_condition(unknown["_why"]), _sentence(\n',
         "        return held(why_held.APPLICABILITY_NOT_STATED, _sentence(\n",
         "each_hold_path or store_writes_each_code",
     ),
@@ -59,16 +59,31 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         5,
         "the store writes no hold reason code",
-        '"hold_reason_code": why_held.stored(r, status),',
-        '"hold_reason_code": None,',
+        "why_held.COLUMN: why_held.stored(r, status),",
+        "why_held.COLUMN: None,",
         "store_writes_each_code or every_stored_code or crs_is_the_same",
     ),
     _m(
         6,
         "the store codes a finding whatever status it is stored with "
         "(a decided pass gets a code)",
-        '"hold_reason_code": why_held.stored(r, status),',
-        '"hold_reason_code": why_held.stored(r, NEEDS_ENGINEER_REVIEW),',
+        "why_held.COLUMN: why_held.stored(r, status),",
+        "why_held.COLUMN: why_held.stored(r, NEEDS_ENGINEER_REVIEW),",
         "store_writes_each_code",
+    ),
+    _m(
+        7,
+        "an evaluated condition with two values on the sheet is coded as not stated "
+        "(the absent-field code)",
+        '            unknown = unknown or {**condition, "_why": why}\n',
+        '            unknown = unknown or {**condition, "_why": "absent"}\n',
+        "each_hold_path or store_writes_each_code",
+    ),
+    _m(
+        8,
+        "the field a value is checked against, stated twice, is coded 'other'",
+        "            return held(why_held.checked_against(other, why), _sentence(\n",
+        "            return held(why_held.OTHER, _sentence(\n",
+        "each_hold_path or store_writes_each_code",
     ),
 )
