@@ -227,9 +227,9 @@ def ensure_schema() -> None:
             "tier": "TEXT",
             "show_for_engineer_tick": "INTEGER",
             "rule_said": "TEXT",
+            "hold_reason_code": "TEXT",  # `hold_reason` (#805 Cycle 2); not #921's reason_code
         }.items():
-            # RACE-SAFE, because this runs on read paths. See
-            # `db.add_column_if_missing`.
+            # RACE-SAFE, because this runs on read paths: see `db.add_column_if_missing`.
             add_column_if_missing(conn, "review_findings", name, definition)
         for _index in (
             "idx_review_findings_document ON review_findings(document_id, status, updated_at DESC)",
@@ -533,6 +533,7 @@ _EXTRA_FIELDS = (
     "confirmed_by", "confirmed_at",
     # rule_trust (#947): NULL unless the run labelled the rule (switch on).
     "trust_label", "tier", "show_for_engineer_tick", "rule_said",
+    "hold_reason_code",
 )
 
 
@@ -572,12 +573,11 @@ def create(payload: dict, *, created_by: str | None, conn=None) -> dict:
                requirement, finding, required_action, governing_sources, unresolved_evidence, response_text, disposition, citation_ids,
                owner_user_id, due_date, status, approval_status, approved_by, approved_at,
                escalation_level, created_by, created_at, updated_at,
-               review_run_id, origin, compliance_status, contractor_page,
-               contractor_section, contractor_evidence_text, requirement_source_text,
-               ai_rationale, fact_id, equipment_tag, standard_clause,
-               confirmed_by, confirmed_at, trust_label, tier, show_for_engineer_tick, rule_said)
+               review_run_id, origin, compliance_status, contractor_page, contractor_section, contractor_evidence_text,
+               requirement_source_text, ai_rationale, fact_id, equipment_tag, standard_clause, confirmed_by, confirmed_at,
+               trust_label, tier, show_for_engineer_tick, rule_said, hold_reason_code)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 finding_id, payload["document_id"], payload.get("baseline_document_id"), template_id,
                 discipline, payload.get("confidence"),

@@ -21,7 +21,7 @@ words so the engineer sees what the numbers said.
 
 from __future__ import annotations
 
-from . import blank_markers
+from . import blank_markers, hold_reason
 from .config import settings
 
 DEFERRED_VALUE = "deferred_value"
@@ -167,6 +167,7 @@ def hold_results(
             {
                 **r,
                 "status": _QUERY,
+                hold_reason.KEY: hold_reason.DEFERRED_MARKER,  # written with the words below
                 "detail": (
                     f"Could not be judged: the sheet marks a value this check rests on '{note}', so it is "
                     f"deferred to the contractor. The numbers read {r['status']}; engineer to confirm. "
