@@ -390,3 +390,19 @@ def test_a_query_row_of_many_fields_is_no_taller_than_excel_allows(monkeypatch):
     ).worksheets[0]
     (cell,) = [c for r in ws.iter_rows() for c in r if bc.LEAD in str(c.value or "")]
     assert ws.row_dimensions[cell.row].height == crs_export.MAX_ROW_HEIGHT == 409
+
+
+def test_switch_off_a_tall_row_keeps_mains_height(monkeypatch):
+    """The cap is the switch's (lead, 11 Nov); off, a tall row's height is main's formula, uncapped."""
+    switch(monkeypatch, False)
+    comment = "\n".join(f"Invented line {n}" for n in range(60))
+    # main's formula, uncapped
+    mains = max(15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+    assert crs_export.row_height(comment) == mains > crs_export.MAX_ROW_HEIGHT
+    row = {**rows_of([BREACH])[0], "engineer_confirmed": True, "comment": comment}
+    meta = {"review_run_id": "run-inv", "copy": crs_export.COPY_INTERNAL}
+    ws = openpyxl.load_workbook(
+        io.BytesIO(crs_export.build_crs([row], meta))
+    ).worksheets[0]
+    (cell,) = [c for r in ws.iter_rows() for c in r if c.value == comment]
+    assert ws.row_dimensions[cell.row].height == mains

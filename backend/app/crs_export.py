@@ -641,9 +641,9 @@ def _wraps(column: int, value) -> bool:
 
 
 def row_height(comment: str) -> int:
-    """A table row's height for its comment, never above Excel's limit (`MAX_ROW_HEIGHT`)."""
-    lines = comment.count("\n") + len(comment) // 90 + 1
-    return min(MAX_ROW_HEIGHT, max(15, 13 * lines))
+    """A table row's height for its comment; with the By Contractor switch on, never above Excel's limit."""
+    height = max(15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+    return min(MAX_ROW_HEIGHT, height) if crs_by_contractor.enabled() else height
 
 
 def build_crs(findings: list[dict], meta: dict) -> bytes:

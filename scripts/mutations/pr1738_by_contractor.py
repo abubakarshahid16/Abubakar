@@ -182,8 +182,16 @@ MUTATIONS: tuple[Mutation, ...] = (
         "19",
         "the row height is not capped at Excel's limit",
         _E,
-        "    return min(MAX_ROW_HEIGHT, max(15, 13 * lines))\n",
-        "    return max(15, 13 * lines)\n",
+        "    return min(MAX_ROW_HEIGHT, height) if crs_by_contractor.enabled() else height\n",
+        "    return height\n",
         "no_taller_than_excel_allows",
+    ),
+    _m(
+        "20",
+        "the row height is capped with the switch OFF too (off is no longer main's workbook)",
+        _E,
+        "    return min(MAX_ROW_HEIGHT, height) if crs_by_contractor.enabled() else height\n",
+        "    return min(MAX_ROW_HEIGHT, height)\n",
+        "switch_off_a_tall_row_keeps_mains_height",
     ),
 )
