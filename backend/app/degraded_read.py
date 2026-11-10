@@ -26,7 +26,7 @@ recorded nowhere as a flag; a failed QUOTE or value check is a gate doing its jo
 
 from __future__ import annotations
 
-from . import datasheets
+from . import datasheets, hold_reason
 
 NO_TEXT = "no text on this page"
 #: The `form_reader.Reason` values that say the AI's reading of a field did NOT come back (the
@@ -162,17 +162,24 @@ def with_reader(split: dict, document_id: str) -> dict:
 
 def item_roles() -> dict[str, frozenset[str]]:
     """{checklist item id: every role the item reads} (its field, both sides of a comparison, the
-    inputs of a calculation, a condition role), from the reference data and the local overlay."""
+    inputs of a calculation, a condition role), from the reference data, the local overlay and every
+    kit's cards."""
     from . import datasheet_checks as dc
+    from . import kit_core
     from .form_reader_fields import _roles_named_in
 
     rules = dc.load_rules()
-    roles = rules["roles"]
+    groups = [
+        (rules["roles"], [*entry.get("items", []), *dc._local_items(key)])
+        for key, entry in (rules.get("checklists") or {}).items()
+        if isinstance(entry, dict)  # not the "_about" note
+    ]
+    # Every kit card too, its draft roles known: a kit pass is held and its code routes it (PR 1733 review).
+    drafted = {**rules["roles"], **(rules.get("draft_roles") or {})}
+    groups += [(drafted, kit.cards()) for kit in kit_core._kits()]
     out: dict[str, frozenset[str]] = {}
-    for key, entry in (rules.get("checklists") or {}).items():
-        if not isinstance(entry, dict):  # the "_about" note
-            continue
-        for item in [*entry.get("items", []), *dc._local_items(key)]:
+    for roles, group in groups:
+        for item in group:
             body = {k: v for k, v in item.items() if k not in ("text", "source")}
             named = set(_roles_named_in(body, roles))
             named |= FORMULA_INPUTS.get(
@@ -208,8 +215,29 @@ def hold(results: list[dict], document_id: str) -> list[dict]:
                     "status": "NEEDS_ENGINEER_REVIEW",
                     "detail": HELD.format(why=why),
                 }
+        elif _kit_pass(r) and _why_held(r, record, missing, roles_of, page_gap):
+            # A kit card's pass, already held by `kit_core.held`: this hold's reason, not "rule not proven".
+            r = {k: v for k, v in r.items() if k != hold_reason.KEY}
         held.append(r)
     return held
+
+
+def _kit_pass(r: dict) -> bool:
+    return bool(
+        r.get("kit") and r.get("checklist") and r.get("rule_said") == "COMPLIANT"
+    )
+
+
+def relies_on_failed_read(roles: frozenset[str], document_id: str | None) -> bool:
+    """Would `hold` hold a pass that reads `roles` on this document (a page read in part, or one of
+    `roles` with an error reason)? `crs_routing` asks it of a stored row. No document: False."""
+    if not document_id:
+        return False
+    summary = datasheets.latest_reader_summary(document_id)
+    record = assess(summary)
+    if not record:
+        return False
+    return is_part(record) or bool(roles & missing_roles(summary).keys())
 
 
 def _why_held(

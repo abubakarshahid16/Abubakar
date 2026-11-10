@@ -117,6 +117,13 @@ def _right_roles(rules: dict) -> dict[str, str]:
             right = rule.get("right") or rule.get("percent_of_role")
             if right:
                 found[item["id"]] = right
+    # A kit card's other side too (PR 1733 review): its pass is held, and its code routes it.
+    from . import kit_core
+
+    for card in (c for kit in kit_core._kits() for c in kit.cards()):
+        rule = card.get("rule") or {}
+        if right := rule.get("right") or rule.get("percent_of_role"):
+            found.setdefault(card["id"], right)
     return found
 
 
@@ -142,7 +149,8 @@ def hold_results(
     right_of = _right_roles(rules)
     out = []
     for r in results:
-        if r.get("status") not in _DECIDED:
+        kit_pass = bool(r.get("kit")) and r.get("rule_said") in _DECIDED
+        if r.get("status") not in _DECIDED and not kit_pass:
             out.append(r)
             continue
         right = right_of.get(r.get("rule_id"))
@@ -162,6 +170,9 @@ def hold_results(
             )
         if not note:
             out.append(r)
+            continue
+        if kit_pass:  # held already by its kit card (`kit_core.held`): this hold's reason, its words unchanged
+            out.append({**r, hold_reason.KEY: hold_reason.DEFERRED_MARKER})
             continue
         out.append(
             {

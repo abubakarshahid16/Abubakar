@@ -18,7 +18,10 @@ from app import (
     crs_export,
     crs_mapping,
     crs_routing,
+    datasheets,
     db,
+    deferred_value,
+    degraded_read,
     hold_reason,
     kit_core,
     review,
@@ -53,6 +56,26 @@ def temp_db(tmp_path, monkeypatch):
         )
     yield
     db.reset_connection()
+
+
+class Sheet:
+    """The invented sheet the routing guards read: page texts, current facts, a failed AI reading."""
+
+    def __init__(self):
+        self.pages = {(DOC, 1): "Invented field 12 barg\nAnother field 30 degC"}
+        self.facts: list[dict] = []
+        self.failed_read = False
+
+
+@pytest.fixture(autouse=True)
+def sheet(monkeypatch):
+    s = Sheet()
+    monkeypatch.setattr(crs_routing, "_page_text", lambda d, p: s.pages.get((d, p)))
+    monkeypatch.setattr(crs_routing, "_document_facts", lambda d: s.facts)
+    monkeypatch.setattr(
+        degraded_read, "relies_on_failed_read", lambda roles, d: s.failed_read
+    )
+    return s
 
 
 def switch(monkeypatch, routing=True, compliance=False):
@@ -164,6 +187,9 @@ def draft_pass(n="1", **over):
         "standard_name": "INVENTED-STD 1",
         "requirement": f"Invented requirement {n}",
         "finding": f"Invented field {n} 12 barg (page 1) is stated.",
+        "document_id": DOC,
+        # a real consistency pair of the reference data: design pressure against operating pressure
+        "requirement_source_text": f"{dc.LABEL} DS-C1: invented text {n}",
     }
     return {**base, **over}
 
@@ -179,10 +205,14 @@ def test_a_draft_pass_moves_with_routing_on_also_with_the_compliance_list_off(
     assert cl.sheet_rows([f])[0][4] == cl.STATUS  # "No issue found (draft rule)"
 
 
-def test_a_stored_draft_pass_moves_end_to_end(monkeypatch):
+def test_a_stored_draft_pass_moves_end_to_end(monkeypatch, sheet):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
     stored = _store([_passed()], label=rule_trust.label_check)["T-1"]
     switch(monkeypatch, routing=True)
+    assert not cl.is_listed(stored)  # T-1 is no rule of the reference data: kept
+    monkeypatch.setattr(
+        crs_routing, "_rule_roles", lambda i: frozenset({"body_material"})
+    )
     assert cl.is_listed(stored) and crs_mapping.crs_groups([stored]) == []
 
 
@@ -313,3 +343,248 @@ def test_switch_off_the_workbook_is_main_s(monkeypatch, compliance):
     assert on != off  # not vacuous: the switch changes which rows the CRS shows
     moved = {f["id"] for f in _findings() if cl.is_listed(f)}
     assert moved == {"f-1"}  # only the plain draft pass; the guarded rows stay
+
+
+# ------------------------------------------------------------ the same page marks the figure deferred (owner, key row 33)
+
+
+@pytest.mark.parametrize(
+    "line, page, moves",
+    [
+        (
+            "Other field 12 barg By Contractor / Vendor",
+            1,
+            False,
+        ),  # (a) same figure, same dimension
+        (
+            "Other field 12 kg/m3 By Contractor",
+            1,
+            True,
+        ),  # (b) same figure, another dimension
+        ("Other field 12 barg By Contractor", 2, True),  # (c) marked on another page
+        ("Other field 12 barg", 1, True),  # (d) the same figure, no mark
+        ("Other field 13 barg TBA", 1, True),  # a marked line with another figure
+        (
+            "Other field 174 psig By Contractor",
+            1,
+            True,
+        ),  # the same pressure in other units is not the figure
+    ],
+)
+def test_a_figure_the_same_page_marks_deferred_keeps_the_draft_pass(
+    monkeypatch, sheet, line, page, moves
+):
+    switch(monkeypatch, routing=True)
+    sheet.pages[(DOC, page)] = sheet.pages.get((DOC, page), "") + "\n" + line
+    assert cl.is_listed(draft_pass()) is moves
+
+
+def test_an_unreadable_page_keeps_the_draft_pass(monkeypatch, sheet):
+    switch(monkeypatch, routing=True)
+    del sheet.pages[(DOC, 1)]  # (e)
+    assert not cl.is_listed(draft_pass())
+    sheet.pages[(DOC, 1)] = ""
+    assert not cl.is_listed(draft_pass())
+
+
+def test_a_value_with_no_figure_and_unit_is_not_compared(monkeypatch, sheet):
+    switch(monkeypatch, routing=True)
+    sheet.pages[(DOC, 1)] = "CF8M By Contractor"
+    assert cl.is_listed(draft_pass(contractor_evidence_text="CF8M"))
+
+
+def test_the_page_text_is_read_from_the_database(monkeypatch):
+    monkeypatch.undo()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, needs_ocr, batch_no, equation_heavy)"
+            " VALUES (?, 1, 'Invented 12 barg', 16, 0, 0, 0)",
+            (DOC,),
+        )
+    assert crs_routing._page_text(DOC, 1) == "Invented 12 barg"
+    assert (
+        crs_routing._page_text(DOC, 2) is None
+        and crs_routing._page_text(None, 1) is None
+    )
+    assert crs_routing._page_text(DOC, None) is None
+
+
+# ------------------------------------------------------------ every value the rule reads (PR 1733 review)
+
+
+def _kit_card(card_id):
+    return next(c for k in kit_core._kits() for c in k.cards() if c["id"] == card_id)
+
+
+def _calc_item():
+    """A real checklist item of the reference data whose rule is a sizing calculation."""
+    for entry in (dc.load_rules().get("checklists") or {}).values():
+        for item in entry.get("items", []) if isinstance(entry, dict) else []:
+            if (item.get("rule") or {}).get("formula") in degraded_read.FORMULA_INPUTS:
+                return item
+    raise AssertionError("no calculation item in the reference data")
+
+
+def _noted(name, value, note, tag=None):
+    return {
+        **_fact(name, value, name.replace(" ", "-"), note=note),
+        "equipment_tag": tag,
+    }
+
+
+def test_a_deferred_value_on_the_other_side_of_the_rule_keeps_the_row(
+    monkeypatch, sheet
+):
+    switch(monkeypatch, routing=True)
+    card = _kit_card("VSLD-05")  # design pressure >= 105 % of operating pressure
+    f = draft_pass(requirement_source_text=f"{dc.LABEL} VSLD-05: {card['text']}")
+    assert cl.is_listed(f)  # a clean kit pass still moves
+    sheet.facts = [_noted("operating pressure", "11 barg", "By Contractor")]
+    assert not cl.is_listed(f)
+    sheet.facts = [_noted("operating pressure", "11 barg", "By Contractor", tag="P-2")]
+    assert cl.is_listed(f)  # another tag's value is not the one this row read
+
+
+def test_a_deferred_calculation_input_keeps_the_row(monkeypatch, sheet):
+    switch(monkeypatch, routing=True)
+    item = _calc_item()
+    f = draft_pass(requirement_source_text=f"{dc.LABEL} {item['id']}: x")
+    assert cl.is_listed(f)
+    sheet.facts = [_noted("required capacity", "9000 kg/h", "TBA")]
+    assert not cl.is_listed(f)
+
+
+def test_a_failed_ai_reading_keeps_the_row_and_an_unknown_rule_stays(
+    monkeypatch, sheet
+):
+    switch(monkeypatch, routing=True)
+    f = draft_pass(requirement_source_text=f"{dc.LABEL} VSLD-05: x")
+    assert cl.is_listed(f)
+    sheet.failed_read = True
+    assert not cl.is_listed(f)
+    sheet.failed_read = False
+    assert not cl.is_listed(
+        draft_pass(requirement_source_text=f"{dc.LABEL} NO-SUCH-1: x")
+    )
+    assert not cl.is_listed(draft_pass(requirement_source_text="free text"))
+
+
+def test_rule_roles_cover_both_sides_kit_cards_and_calculation_inputs():
+    assert (
+        crs_routing._rule_id({"requirement_source_text": f"{dc.LABEL} VSLD-05: a: b"})
+        == "VSLD-05"
+    )
+    assert crs_routing._rule_id({"requirement_source_text": "Other VSLD-05: a"}) is None
+    assert {"design_pressure", "operating_pressure"} <= crs_routing._rule_roles(
+        "VSLD-05"
+    )
+    assert {"design_pressure", "operating_pressure"} <= crs_routing._rule_roles("DS-C1")
+    assert "required_capacity" in crs_routing._rule_roles(_calc_item()["id"])
+    assert (
+        crs_routing._rule_roles("NO-SUCH-1") is None
+        and crs_routing._rule_roles(None) is None
+    )
+
+
+def test_relies_on_failed_read_asks_the_reader_summary(monkeypatch):
+    monkeypatch.undo()
+    summaries = {}
+    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda d: summaries.get(d))
+    roles = frozenset({"operating_pressure"})
+    assert not degraded_read.relies_on_failed_read(roles, DOC)
+    summaries[DOC] = {
+        "engine": "ollama",
+        "rejected_fields": {"operating_pressure: model_timed_out": 1},
+    }
+    assert degraded_read.relies_on_failed_read(roles, DOC)
+    assert not degraded_read.relies_on_failed_read(frozenset({"set_pressure"}), DOC)
+    summaries[DOC] = {
+        "engine": "ollama",
+        "partly_read": {"2": "engine answer unusable"},
+    }
+    assert degraded_read.relies_on_failed_read(frozenset(), DOC)
+    assert not degraded_read.relies_on_failed_read(roles, None)
+
+
+# ------------------------------------------------------------ a kit pass gets the reason of the hold it would get
+
+
+def _kit_pass(card_id="VSLD-05"):
+    return kit_core.held(
+        {
+            "rule_id": card_id,
+            "status": "COMPLIANT",
+            "text": "x",
+            "detail": "d",
+            "checklist": True,
+            "fact_id": "f-own",
+            "equipment_tag": None,
+            "role": "design_pressure",
+        },
+        {"kit": "vessel"},
+    )
+
+
+def test_a_kit_pass_resting_on_a_deferred_value_gets_deferred_marker(monkeypatch):
+    monkeypatch.setattr(settings, "deferred_value_is_query_enabled", True)
+    assert (
+        deferred_value._right_roles(dc.load_rules())["VSLD-05"] == "operating_pressure"
+    )
+    own = {
+        "id": "f-own",
+        "field_name": "design pressure",
+        "field_value": "12 barg",
+        "equipment_tag": None,
+    }
+    right = {
+        "id": "f-r",
+        "field_name": "operating pressure",
+        "field_value": "11 barg",
+        "value_note": "By Contractor",
+        "equipment_tag": None,
+    }
+    out = deferred_value.hold_results(
+        [_kit_pass()], [own, right], dc.load_rules(), frozenset()
+    )
+    assert out[0][hold_reason.KEY] == hold_reason.DEFERRED_MARKER
+    assert (
+        out[0]["status"] == "NEEDS_ENGINEER_REVIEW"
+        and out[0]["detail"] == _kit_pass()["detail"]
+    )
+    clean = deferred_value.hold_results(
+        [_kit_pass()], [own], dc.load_rules(), frozenset()
+    )
+    assert clean[0][hold_reason.KEY] == hold_reason.RULE_NOT_PROVEN
+
+
+def test_a_kit_pass_on_a_failed_ai_reading_loses_rule_not_proven(monkeypatch):
+    summary = {
+        "engine": "ollama",
+        "rejected_fields": {"operating_pressure: model_failed": 1},
+    }
+    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda d: summary)
+    out = degraded_read.hold([_kit_pass()], DOC)
+    assert (
+        hold_reason.KEY not in out[0]
+        and hold_reason.stored(out[0], out[0]["status"]) == hold_reason.OTHER
+    )
+    monkeypatch.setattr(datasheets, "latest_reader_summary", lambda d: None)
+    assert (
+        degraded_read.hold([_kit_pass()], DOC)[0][hold_reason.KEY]
+        == hold_reason.RULE_NOT_PROVEN
+    )
+
+
+def test_label_check_keeps_the_code_of_an_earlier_hold(monkeypatch):
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    deferred = {
+        **_kit_pass(),
+        hold_reason.KEY: hold_reason.DEFERRED_MARKER,
+        "draft": True,
+        "local": True,
+    }
+    assert (
+        rule_trust.label_check(deferred)[hold_reason.KEY] == hold_reason.DEFERRED_MARKER
+    )
+    failed = {k: v for k, v in deferred.items() if k != hold_reason.KEY}
+    assert hold_reason.KEY not in rule_trust.label_check(failed)

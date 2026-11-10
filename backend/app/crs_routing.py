@@ -31,7 +31,8 @@ DRAFT PASS (owner 3 Nov 11:40 b, `compliance_list._draft_pass`; owner 10 Nov): w
     that only a draft rule passed goes to the internal list as "No issue found (draft rule)", also with
     CRS_COMPLIANCE_LIST_ENABLED off, and only when its stored hold reason is `rule_not_proven` (held for no other
     reason), the value read carries no placeholder or deferral phrase ("By Contractor", "TBA"; its own fact too),
-    and no engineer decided it (`draft_pass_may_leave`).
+    no line of its page marks the same figure (same unit dimension) as deferred, no other value its rule reads is
+    marked or failed to read, and no engineer decided it (`draft_pass_may_leave`).
 
 ALWAYS KEPT: a finding an engineer decided (confirmed or accepted, `crs_decider.decider`), a row with an issued number, a
 finding with no hold code, and `deferred_marker` (a figure followed by "By Contractor" is not
@@ -203,7 +204,9 @@ def status_words(finding: dict) -> str:
 def draft_pass_may_leave(finding: dict) -> bool:
     """Switch on: may `compliance_list._draft_pass` take this draft-rule pass off the CRS? Only when its hold was
     made because the rule is not proven (`rule_not_proven`, not `deferred_marker` or any other reason), no
-    engineer decided it, and neither the value read nor its own fact names a placeholder or a deferral. Off: False."""
+    engineer decided it, neither the value read nor its own fact names a placeholder or a deferral, its page does
+    not mark the same figure deferred (`_page_defers_the_figure`), and no other value its rule reads is marked or
+    failed to read (`_relies_on_a_doubtful_value`). Off: False."""
     if not enabled() or crs_decider.decider(finding):
         return False
     if hold_reason.of(finding) != hold_reason.RULE_NOT_PROVEN:
@@ -213,7 +216,127 @@ def draft_pass_may_leave(finding: dict) -> bool:
     if names_a_marker(str(finding.get("contractor_evidence_text") or "")):
         return False
     own = _own_fact(finding.get("fact_id"))
-    return own is None or _unmarked(own)
+    if own is not None and not _unmarked(own):
+        return False
+    return not (
+        _page_defers_the_figure(finding) or _relies_on_a_doubtful_value(finding)
+    )
+
+
+def _relies_on_a_doubtful_value(finding: dict) -> bool:
+    """EVERY value the row's rule reads, not only its own (PR 1733 review): the other side of a comparison, a
+    calculation's inputs, a condition (`degraded_read.item_roles`, from each item's rule and formula, kit cards
+    included; a consistency pair's two roles). True, so the row stays, when one of the sheet's current facts for
+    those roles (its tag, or the common section) carries a placeholder or deferral mark (`_unmarked`), or the
+    AI reading of one did not come back (`degraded_read.relies_on_failed_read`). A rule not found: True."""
+    from . import degraded_read
+
+    roles = _rule_roles(_rule_id(finding))
+    if roles is None:
+        return True
+    document = finding.get("document_id")
+    if degraded_read.relies_on_failed_read(roles, document):
+        return True
+    from .datasheet_checks import load_rules
+
+    rules, tag = load_rules(), finding.get("equipment_tag")
+    return any(
+        not _unmarked(f)
+        for f in _document_facts(document)
+        if f.get("equipment_tag") in (tag, None) and _roles(f, rules) & roles
+    )
+
+
+def _rule_id(finding: dict) -> str | None:
+    """The rule id `datasheet_checks.store` writes into `requirement_source_text` ("<LABEL> <id>: <text>")."""
+    from .datasheet_checks import LABEL
+
+    text = str(finding.get("requirement_source_text") or "")
+    head, sep, _rest = text.partition(":")
+    if not sep or not head.startswith(f"{LABEL} "):
+        return None
+    return head[len(LABEL) + 1 :].strip() or None
+
+
+def _rule_roles(rule_id: str | None) -> frozenset[str] | None:
+    """Every role the rule `rule_id` reads: a checklist item or kit card, else a consistency pair. None: unknown."""
+    if not rule_id:
+        return None
+    from . import degraded_read
+    from .datasheet_checks import load_rules
+    from .form_reader_fields import _roles_named_in
+
+    found = degraded_read.item_roles().get(rule_id)
+    if found is not None:
+        return found
+    rules = load_rules()
+    pair = next(
+        (r for r in rules.get("consistency", []) if r.get("id") == rule_id), None
+    )
+    return None if pair is None else frozenset(_roles_named_in(pair, rules["roles"]))
+
+
+def _document_facts(document_id: str | None) -> list[dict]:
+    """The current facts of one submittal. No document: []."""
+    if not document_id:
+        return []
+    from .db import connect
+
+    rows = (
+        connect()
+        .execute(
+            "SELECT * FROM submittal_facts WHERE submittal_document_id = ?"
+            " AND superseded_at IS NULL",
+            (document_id,),
+        )
+        .fetchall()
+    )
+    return [dict(r) for r in rows]
+
+
+def _page_defers_the_figure(finding: dict) -> bool:
+    """Owner 10 Nov (key row 33 stays): does the SAME page mark the value's figure as not confirmed? True when a line
+    of the finding's page carries the same figure in the same unit dimension (`claims.extract_measurements`, the one
+    number reader) together with a deferral mark (`blank_markers.names_a_marker`): then no draft pass on that
+    figure is confirmed. A page that cannot be read is True too (the row stays, the safe side). A value read with
+    no figure and unit has nothing to compare: False. No field name, label or layout is read."""
+    from .blank_markers import names_a_marker
+    from .claims import extract_measurements
+    from .numparse import as_number
+
+    def figures(text: str) -> set[tuple[float, str]]:
+        return {
+            (number, m.dimension)
+            for m in extract_measurements(text)
+            if m.dimension and (number := as_number(m.raw_value)) is not None
+        }
+
+    own = figures(str(finding.get("contractor_evidence_text") or ""))
+    if not own:
+        return False
+    text = _page_text(finding.get("document_id"), finding.get("contractor_page"))
+    if not text:
+        return True
+    return any(
+        own & figures(line) for line in text.splitlines() if names_a_marker(line)
+    )
+
+
+def _page_text(document_id: str | None, page) -> str | None:
+    """The stored text of one page of the submittal, or None (no document, no page number, no text)."""
+    if not document_id or page in (None, ""):
+        return None
+    from .db import connect
+
+    row = (
+        connect()
+        .execute(
+            "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+            (document_id, page),
+        )
+        .fetchone()
+    )
+    return row["text"] if row and row["text"] else None
 
 
 def _own_fact(fact_id: str | None) -> dict | None:

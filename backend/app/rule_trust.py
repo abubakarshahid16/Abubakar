@@ -482,13 +482,13 @@ def label_finding(
 
 def label_check(result: dict) -> dict:
     """The opt-in hook for a datasheet check, like `label_finding`: unchanged with the switch off; on, labelled by
-    `check_label` and, when UNPROVEN, held with the hold code `rule_not_proven` (a check's text is its `detail`;
-    a kit card `kit_core.held` held carries it already). No tick: a signed checklist is an engineer's approval."""
+    `check_label`, an UNPROVEN Pass or Fail held here coded `rule_not_proven`. No tick: a signed checklist is approval."""
     if not settings.rule_auto_use_enabled:
         return result
     out = apply_trust(result, check_label(result))
     if out.get("rule_said"):  # held because the rule is not proven
         out["detail"] = f"{result.get('detail') or ''} ({UNPROVEN_REASON})".strip()
+    if out["status"] != result["status"]:  # held here; an earlier hold keeps its code
         out[hold_reason.KEY] = hold_reason.RULE_NOT_PROVEN
     out.update(tier=None, show_for_engineer_tick=False)
     if out["trust_label"] == TESTED_CARD:  # order 306.1
