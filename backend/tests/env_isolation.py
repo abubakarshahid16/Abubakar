@@ -319,6 +319,7 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_compliance_list_enabled": False,
     "crs_routing_by_hold_reason_enabled": False,  # owner order 10 Nov step 4: which sheet shows a row, no model or socket
     "paper_kind_first_enabled": False,  # owner order 11 Nov step 2: paper kind first, no model or socket
+    "crs_by_contractor_one_row_enabled": False,  # owner order 11 Nov: one By Contractor row on the contractor copy, no model or socket
     "crs_drop_placeholder_rows_enabled": False,
     "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)

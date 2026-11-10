@@ -29,6 +29,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from . import (
     compliance_list,
     crs_ai_review_view,
+    crs_by_contractor,
     crs_routing,
     crs_tick_sheet,
     run_record,
@@ -136,11 +137,11 @@ def empty_comment_text(crs_ref: str = "", carried: bool = False) -> str:
     return EMPTY_COMMENT_TEXT
 
 
-#: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
-#: engineering check's unconfirmed items, so the engineer sees them on the
-#: sheet before confirming. No existing column moves or is renamed.
+#: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI engineering check's unconfirmed
+#: items, so the engineer sees them on the sheet before confirming. No existing column moves or is renamed.
 AI_COLUMN = "AI Review Comments"
 AI_COLUMN_WIDTH = 60.0
+MAX_ROW_HEIGHT = 409  # Excel's largest row height, in points
 #: R30 (#763, owner approved 11 Oct): the chain behind each row - value and
 #: page read, clause, result, and why - in a NEW LAST column of the INTERNAL
 #: copy only. The issue copy never carries it; no existing column moves.
@@ -414,6 +415,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
                     and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
         withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))
         findings = [f for f in findings if not _no_issuable_text(f)]
+        findings = crs_by_contractor.one_row(findings)  # owner 11 Nov; off: as it was
 
     qon = bool(meta.get("export_quality", quality.enabled()))  # #1503
     findings, dropped, merged = quality.prepare(findings, copy, _no_text, qon)
@@ -486,10 +488,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "standard_reference": str(finding.get("standard_reference") or ""),
             "severity": str(finding.get("severity") or ""),
             "ai_review_comment": _ai_column(finding, copy),
-            # R30: internal copy only, like the AI column.
+            # R30, and rule_trust (#947) below: internal copy only, like the AI column.
             "reasoning": (str(finding.get("reasoning") or "")
                           if copy == COPY_INTERNAL else ""),
-            # rule_trust (#947): internal copy only, like the two above.
             "rule_trust": (str(finding.get("rule_trust") or "")
                            if copy == COPY_INTERNAL else ""),
         })
@@ -547,12 +548,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
              "reason": str(s.get("reason") or ""),
              "evidence": str(s.get("evidence") or "")}
             for s in (meta.get("applicable_standards") or [])],
-        # 2f: internal notes, internal copy only.
         "review_notes": ([
             {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
              "count": n.get("count"), "detail": str(n.get("detail") or "")}
             for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
+    view = crs_by_contractor.count_into(view, findings)
     return quality.finish(view, dropped, merged) if qon else view
 
 
@@ -633,6 +634,18 @@ def _note_cell(ws, view: dict, put) -> None:
     ws.row_dimensions[row].height = max(15, 13 * (len(note) // 90 + 1))
 
 
+def _wraps(column: int, value) -> bool:
+    """The columns that wrap; switch on, also an Item No of several lines (the By Contractor query row's)."""
+    several = column == 1 and "\n" in str(value) and crs_by_contractor.enabled()
+    return column in (3, 4, 8, 10, 11, 12) or several
+
+
+def row_height(comment: str) -> int:
+    """A table row's height for its comment; with the By Contractor switch on, never above Excel's limit."""
+    height = max(15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+    return min(MAX_ROW_HEIGHT, height) if crs_by_contractor.enabled() else height
+
+
 def build_crs(findings: list[dict], meta: dict) -> bytes:
     """Render a CRS workbook and return its bytes.
 
@@ -708,12 +721,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values[9:] = quality.tail_cells(view, entry, values[9:])  # #1503
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
+            cell = put(row, i, value, wrap=_wraps(i, value), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill
-        ws.row_dimensions[row].height = max(
-            15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+        ws.row_dimensions[row].height = row_height(comment)
 
     # THE REPLY CONVENTION, ON THE SHEET ITSELF: a tip on every Contractor's
     # Response cell asks for a response code first (`crs_numbers.parse_response`

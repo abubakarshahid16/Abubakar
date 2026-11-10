@@ -41,7 +41,7 @@ import re
 
 from openpyxl.styles import Alignment, Font
 
-from . import crs_page_words
+from . import crs_by_contractor, crs_page_words
 from .config import settings
 from .crs_mapping import NOTE_MISSING_STANDARD
 from .rule_trust import UNPROVEN_REASON
@@ -541,7 +541,7 @@ def _finish_rows(rows: list[dict], ref_label: str) -> tuple[set[str], bool]:
             entry.get("standard_reference") or "",
         )
         entry["priority_label"] = priority_label(entry.get("priority"))
-        if entry["comment_missing"]:
+        if entry["comment_missing"] or crs_by_contractor.is_query(entry["comment"]):
             continue
         first, _, tail = entry["comment"].partition("\n")
         prefix = first + "\n" if first.startswith(f"{ref_label}: ") and tail else ""

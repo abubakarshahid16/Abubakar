@@ -29,6 +29,7 @@ import re
 from . import (
     crs_ai_drafts,
     crs_blank_fields,
+    crs_by_contractor,
     crs_checklist,
     crs_item_series,
     crs_no_field,
@@ -1512,16 +1513,14 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "severity": row_severity(group),
                     "engineer_confirmed": all(_confirmed(g) for g in group),
                     # Never printed: what the permanent CRS number is keyed on.
-                    # A field row (order 139 part 2) is keyed on the FIELD, never
-                    # on whichever clause leads it, so a re-run that adds a
-                    # clause keeps its number.
+                    # A field row (order 139 part 2) is keyed on the FIELD, never on
+                    # whichever clause leads it: a re-run adding a clause keeps its number.
                     "comment_key": item["comment_key"],
                     # Never printed (spec d): every finding's own per-requirement
                     # key, so the numbers earlier per-clause rows hold are found.
                     "member_keys": crs_item_series.member_keys(group),
-                    # Never printed: the group key the run summary sends the
-                    # screen, and the row's first line when it asks two or more
-                    # things.
+                    # Never printed: the group key the run summary sends the screen,
+                    # and the row's first line when it asks two or more things.
                     "crs_group": item["key"],
                     "crs_action": item["action"],
                     # R30: the chain behind the comment (internal copy only).
@@ -1537,6 +1536,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 rows[-1]["member_keys"] = sorted(
                     {*rows[-1]["member_keys"], item["comment_key"]}
                 )
+            crs_by_contractor.mark(rows[-1], group, _field_label, word_pages.at)
             # Spec f: the rank, and the SAME sort key `crs_groups` orders by, so the
             # file's rows and the screen's `crs_order` cannot disagree.
             rows[-1]["priority"] = item["priority"]

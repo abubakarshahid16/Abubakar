@@ -39,6 +39,18 @@ _RESPONSE_HEADERS = {"contractorsresponse", "contractorresponse", "contractorsre
                      "contractorreply", "response", "vendorresponse", "vendorreply"}
 
 
+def numbers_in(item: str) -> list[str]:
+    """The Item No cell's numbers: one per line when EVERY line is a permanent number (the contractor copy's
+    "By Contractor" query row carries each member's number, `crs_by_contractor`), so the one reply is recorded
+    against each; else the cell as it is (one item, matched or reported as before)."""
+    from .crs_numbers import parse_ref
+
+    lines = [line.strip() for line in item.splitlines() if line.strip()]
+    if len(lines) > 1 and all(parse_ref(line) for line in lines):
+        return lines
+    return [item]
+
+
 def read_replies(data: bytes) -> list[dict]:
     """[{"row": sheet row number, "item": Item No as text, "response": text}]
     for every data row that has an Item No. Raises ReplySheetError when the
@@ -93,13 +105,14 @@ def read_replies(data: bytes) -> list[dict]:
                 response = cells[response_col]
                 named = name_col is not None and name_col < len(cells)
                 name = cells[name_col] if named else None
-                out.append(
+                out.extend(
                     {
                         "row": number,
-                        "item": item,
+                        "item": one,
                         "response": str(response).strip() if response is not None else "",
                         "document_name": str(name).strip() if name is not None else "",
                     }
+                    for one in numbers_in(item)
                 )
             return out
     finally:
