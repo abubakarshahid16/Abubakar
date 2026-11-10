@@ -281,6 +281,22 @@ def test_a_fake_model_reads_a_pdf_through_read_file_with(key):
     assert s["found"] >= 8 and s["forbidden"] == 0 and s["wrong_value"] == 0
 
 
+def test_the_oracle_quotes_the_unit_printed_with_its_value():
+    """The upper bound quotes a unit with ITS number: "...or 12" would prove "months" only by
+    the 18 before it, which the gates refuse (#1653), so the ceiling would sit below a perfect
+    reader. A unit not printed after the value leaves the quote at the value."""
+    page = "Warranty: 18 months from delivery or 12 months from start-up.\nSize: 6, full bore."
+    warranty = {"field": "Warranty", "value": "12", "unit": "months"}
+    assert bench._oracle_quote(warranty, page) == (
+        "Warranty",
+        "Warranty: 18 months from delivery or 12 months",
+    )
+    assert bench._oracle_quote({"field": "Size", "value": "6", "unit": "in"}, page) == (
+        "Size",
+        "Size: 6",
+    )
+
+
 @pytest.fixture
 def no_ocr(monkeypatch, tmp_path):
     """The project's OCR engine is not here: its model folder is empty."""
