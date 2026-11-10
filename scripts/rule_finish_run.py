@@ -63,7 +63,7 @@ def pkt_now() -> str:
 
 
 def open_ro(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = guard.open_read_only(path)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -73,6 +73,7 @@ def prepare_work_db(source: Path, pages: Path, work: Path) -> Path:
     the source and has no marker yet is marked once (adopted); anything else, and every protected database (the source,
     the pages copy, the app's and the live one), is refused."""
     try:
+        guard.refuse_live(work)  # before anything opens it, even read only
         if work.exists() and not guard.is_marked(work):
             return guard.adopt_copy(source, work, [pages])
         return guard.prepare_work_copy(source, work, [pages])

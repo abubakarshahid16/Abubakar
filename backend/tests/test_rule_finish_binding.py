@@ -708,7 +708,7 @@ def test_a_marker_key_file_must_be_private_long_enough_and_is_created_once(
     monkeypatch.setenv("RULE_FINISH_MARKER_KEY_FILE", str(key))
     first = guard._key()
     assert (
-        len(first) >= 32
+        len(first) == 64
         and oct(key.stat().st_mode & 0o777) == "0o600"
         and guard._key() == first
     )
@@ -717,10 +717,10 @@ def test_a_marker_key_file_must_be_private_long_enough_and_is_created_once(
         guard._key()
     key.chmod(0o600)
     key.write_text("short")
-    with pytest.raises(guard.NotAWorkCopy, match="too short"):
+    with pytest.raises(guard.NotAWorkCopy, match="64 hex"):
         guard._key()
     key.write_text("")
-    with pytest.raises(guard.NotAWorkCopy, match="too short"):
+    with pytest.raises(guard.NotAWorkCopy, match="64 hex"):
         guard._key()
 
 
@@ -815,13 +815,13 @@ def test_a_lost_race_creating_the_key_file_reads_the_winners_file(
 
     def losing(path, flags, mode=0o777):
         if str(path) == str(key):
-            key.write_text("w" * 64)
+            key.write_text("e" * 64)
             key.chmod(0o600)
             raise FileExistsError(path)
         return real_open(path, flags, mode)
 
     monkeypatch.setattr(os, "open", losing)
-    assert guard._key() == b"w" * 64
+    assert guard._key() == b"e" * 64
 
 
 # ------------------------------------------------------------------------------------------------ e follows the stored figures

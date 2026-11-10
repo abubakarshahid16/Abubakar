@@ -15,6 +15,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import uuid
@@ -33,10 +34,18 @@ DEFAULT_PAGES = HOME / "project/mirror/proof/agent-test/db/agent-copy.sqlite"
 DEFAULT_KEY_FILE = HOME / "project/mirror/trace/.rule-finish-marker-key"
 _REGISTERED: list[str] = []
 log = logging.getLogger(__name__)
+_KEY_SHAPE = re.compile(r"[0-9a-f]{64}")
 
 
 class NotAWorkCopy(PermissionError):
     """A write was refused: the database is not a marked copy, or it is a protected database."""
+
+
+def open_read_only(path: str | os.PathLike) -> sqlite3.Connection:
+    """The ONE way the finishing line opens a database read only. The path is resolved and percent-encoded
+    (`Path.as_uri`, as `live_guard` does), so a name holding `?`, `#`, `%` or `&` cannot add URI parameters
+    (`?mode=rw&x=` would otherwise turn read only into read-write) or point at another file."""
+    return sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
 
 
 def _real(path: str | os.PathLike) -> str:
@@ -84,8 +93,8 @@ def db_file(conn: sqlite3.Connection) -> str:
 
 def _key() -> bytes:
     """The signing key: created once with O_EXCL (a lost race re-reads the winner's file), mode 0600 checked on EVERY
-    read, at least 32 characters; a key file that is open to others, empty or short is refused, never regenerated (that
-    would orphan every marker)."""
+    read, exactly the 64 hex characters it was created with; a key file that is open to others, empty, partly written
+    or edited is refused, never regenerated (that would orphan every marker)."""
     path = Path(os.environ.get("RULE_FINISH_MARKER_KEY_FILE") or DEFAULT_KEY_FILE)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,8 +111,10 @@ def _key() -> bytes:
             "refused: the marker key file is readable by others (it must be mode 0600)"
         )
     key = path.read_text().strip()
-    if len(key) < 32:
-        raise NotAWorkCopy("refused: the marker key file is empty or too short")
+    if not _KEY_SHAPE.fullmatch(key):
+        raise NotAWorkCopy(
+            "refused: the marker key file is not exactly 64 hex characters (empty, short, partly written or edited)"
+        )
     return key.encode()
 
 
@@ -159,7 +170,7 @@ def require_work_copy(
         raise NotAWorkCopy(
             "refused: the file no longer holds the rulebook tables the copy was made with"
         )
-    _refuse_live(path)
+    refuse_live(path)
     for other in [*protected_paths(protected), row[2]]:
         if other and same_file(path, other):
             raise NotAWorkCopy(
@@ -200,14 +211,14 @@ def _write_marker(conn: sqlite3.Connection, copy_path: str, source_path: str) ->
     conn.commit()
 
 
-def _refuse_live(path: str | os.PathLike) -> None:
+def refuse_live(path: str | os.PathLike) -> None:
     """Any checkout's live database, by path shape or inode (`live_guard.is_live_shaped`), is never a work copy."""
     if live_guard.is_live_shaped(path):
         raise NotAWorkCopy("refused: this is a live database (live_guard)")
 
 
 def _refuse_protected(path: Path, protected: list[str | os.PathLike]) -> None:
-    _refuse_live(path)
+    refuse_live(path)
     for other in protected_paths(protected):
         if other and same_file(path, other):
             raise NotAWorkCopy(f"refused: {path.name} is a protected database")
@@ -244,7 +255,7 @@ def adopt_copy(
     the same rulebook tables with the same row counts. An older or invalid marker is replaced by a valid one."""
     register_protected(source)
     _refuse_protected(work, [source, *(protected or ())])
-    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    src = open_read_only(source)
     dst = sqlite3.connect(work)
     try:
         if not set(_TABLES) <= _tables(dst):
@@ -270,8 +281,9 @@ def adopt_copy(
 
 
 def is_marked(path: Path) -> bool:
-    """Whether `path` carries a marker row at all (signed or not). Opened read only."""
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    """Whether `path` carries a marker row at all (signed or not). A live database is refused; opened read only."""
+    refuse_live(path)
+    conn = open_read_only(path)
     try:
         return _marker_row(conn) is not None
     finally:
@@ -284,7 +296,7 @@ def open_work_copy(
     """The ONE read-write connection the finishing line's runner opens: refused for a live database before it is opened
     (`live_guard.is_live_shaped`), and closed again unless `require_work_copy` passes (a signed marker naming this file,
     not live, not protected)."""
-    _refuse_live(work)
+    refuse_live(work)
     conn = sqlite3.connect(work)
     try:
         require_work_copy(conn, protected)

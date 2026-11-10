@@ -38,7 +38,7 @@ from .rule_finish import (
     quote_found,
     same_figures,
 )
-from .rule_finish_guard import require_work_copy
+from .rule_finish_guard import open_read_only, require_work_copy
 from .rule_finish_store import (
     _append_step,
     latest_steps,
@@ -124,7 +124,7 @@ def _pages(rule: dict, pages_db: str | Path | None) -> dict[int, str]:
         raise ValueError("steps c and g need the pages database (pages_db)")
     from .compiled_rule_report import pages_of
 
-    conn = sqlite3.connect(f"file:{pages_db}?mode=ro", uri=True)
+    conn = open_read_only(pages_db)
     conn.row_factory = sqlite3.Row
     try:
         return pages_of(conn, rule["standard_document_id"])

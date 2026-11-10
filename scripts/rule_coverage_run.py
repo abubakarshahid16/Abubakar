@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import rule_coverage as rc  # noqa: E402
+from app import rule_finish_guard as guard  # noqa: E402
 from app import rule_finish_store as st  # noqa: E402
 from app.compiled_rule_report import pages_of  # noqa: E402
 
@@ -56,7 +57,7 @@ def write_private(path: Path, text: str) -> None:
 
 
 def ro(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = guard.open_read_only(path)
     conn.row_factory = sqlite3.Row
     return conn
 
