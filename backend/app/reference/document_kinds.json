@@ -9,7 +9,6 @@
     "transmittal": {"label": "Transmittal", "cues": []},
     "contract": {"label": "Contract document", "cues": []},
     "drawing": {"label": "Drawing", "cues": []},
-    "test_record": {"label": "Test record", "cues": []},
     "datasheet": {
       "label": "Datasheet",
       "cues": [

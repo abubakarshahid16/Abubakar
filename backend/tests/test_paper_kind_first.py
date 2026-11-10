@@ -419,3 +419,29 @@ def test_a_confirmed_procedure_loses_its_main_type_even_on_a_confirmed_record(
     doc_router.confirm("d1", "contract", user)
     assert _equipment("d1")[0] is None
     assert paper_kind.main_label("d1") == "contract"
+
+
+MAIN_KINDS = [
+    "specification",
+    "transmittal",
+    "contract",
+    "drawing",
+    "datasheet",
+    "procedure",
+    "study",
+    "report",
+    "feed",
+    "standard",
+    "letter",
+]
+
+
+def test_switch_off_the_confirm_list_is_as_on_main(monkeypatch):
+    from app import doc_router
+
+    _doc("d1", [DATASHEET])
+    assert [k["id"] for k in doc_router.kinds()] == MAIN_KINDS
+    with pytest.raises(doc_router.UnknownKind):
+        doc_router.confirm("d1", "test_record", _confirmer())
+    monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
+    assert [k["id"] for k in doc_router.kinds()] == [*MAIN_KINDS, "test_record"]

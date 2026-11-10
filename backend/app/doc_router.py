@@ -65,9 +65,25 @@ def vocabulary() -> dict:
     return _load(str(CUES_PATH), CUES_PATH.stat().st_mtime)
 
 
+def _confirmable() -> dict:
+    """The cue file's kinds, plus "Test record" with PAPER_KIND_FIRST_ENABLED on
+    (owner order 11 Nov step 2: a paper kind of the closed list; no cues, so
+    routing never suggests it). Off: as on main."""
+    from .config import settings
+
+    on = settings.paper_kind_first_enabled
+    extra = {"test_record": {"label": "Test record"}} if on else {}
+    return {**vocabulary()["kinds"], **extra}
+
+
+def _refuse_unless_confirmable(kind: str) -> None:
+    if kind not in _confirmable():
+        raise UnknownKind(f"unknown document kind {kind!r}")
+
+
 def kinds() -> list[dict]:
     """The kinds a person may choose, in file order: [{"id", "label"}]."""
-    return [{"id": k, "label": v.get("label", k)} for k, v in vocabulary()["kinds"].items()]
+    return [{"id": k, "label": v.get("label", k)} for k, v in _confirmable().items()]
 
 
 # ------------------------------------------------------------------ features
@@ -250,7 +266,7 @@ def confirm(document_id: str, kind: str, confirmed_by: str | None) -> dict:
     """A person's decision. Sets the kind and `confirmed`. A kind not in the
     vocabulary is refused by name."""
     if kind not in vocabulary()["kinds"]:
-        raise UnknownKind(f"unknown document kind {kind!r}")
+        _refuse_unless_confirmable(kind)
     conn = connect()
     now = _now()
     with conn:
