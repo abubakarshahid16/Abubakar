@@ -954,6 +954,10 @@ def test_no_route_or_retrieval_module_imports_the_rulebook_and_a_verdict_only_be
         # no route, no retrieval, reads no rule: it imports only `rulebook_v2_stated`'s words, and `run_parts.crs_part`
         # alone reaches it, behind RULEBOOK_V2_REVIEW_ENABLED (held just below)
         "rulebook_v2_crs.py",
+        # the rule finishing line: no route, no retrieval, no verdict; reads rule rows and row counts of a work COPY
+        # only through `rulebook_v2_schema`'s read functions, so it names no rulebook table itself
+        "rule_finish_store.py",
+        "rule_finish_guard.py",
     }
     assert "compiled_rule_report.py" in importers
     crs = (APP / "rulebook_v2_crs.py").read_text(encoding="utf-8")
