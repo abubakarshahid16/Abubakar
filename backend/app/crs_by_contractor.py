@@ -86,6 +86,12 @@ def mark(row: dict, group: list[dict], label_of, page_of) -> None:
         row[KEY] = entries
 
 
+def is_query(comment: str) -> bool:
+    """Is this comment the query row (switch on)? Its whole text stays in the comment cell: the export-quality
+    length cut (`crs_export_quality._finish_rows`) would move the later fields to another column."""
+    return enabled() and LEAD in str(comment or "").split("\n")[:2]
+
+
 def _member(row: dict) -> bool:
     """May this issue-copy row be folded into the query row?"""
     entries = row.get(KEY)

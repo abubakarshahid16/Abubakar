@@ -297,3 +297,23 @@ def test_switch_on_the_workbook_prints_the_query_row_on_the_contractor_copy(
     assert text.count(bc.LEAD) == 1
     for n in (1, 2, 3):
         assert f"Invented quantity {n}" in text
+
+
+def test_with_export_quality_on_a_long_query_row_keeps_every_field_in_its_comment(
+    monkeypatch,
+):
+    """The export-quality cut (350 characters) would move the later fields to another column; the query
+    row keeps them all in its own comment cell."""
+    many = [finding(n, page=n) for n in range(1, 13)]
+    rows = issue_rows(monkeypatch, many, True)
+    meta = {
+        "review_run_id": "run-inv",
+        "copy": crs_export.COPY_ISSUE,
+        "export_quality": True,
+    }
+    v = crs_export.build_crs_view([dict(r) for r in rows], meta)
+    (query,) = [r for r in v["rows"] if bc.LEAD in r["comment"]]
+    assert len(query["comment"]) > 350
+    for n in range(1, 13):
+        assert f"- Invented quantity {n} (tag Q-7, p.{n}" in query["comment"]
+    assert crs_export.AI_COLUMN not in v["columns"]

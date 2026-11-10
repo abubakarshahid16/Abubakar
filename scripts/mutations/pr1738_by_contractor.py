@@ -11,6 +11,7 @@ from ._base import APP, Mutation
 _B = APP / "crs_by_contractor.py"
 _M = APP / "crs_mapping.py"
 _E = APP / "crs_export.py"
+_Q = APP / "crs_export_quality.py"
 _T = "tests/test_by_contractor_one_row.py"
 _TAGS = ("honesty", "critical")
 
@@ -144,5 +145,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    findings = crs_by_contractor.one_row(findings)\n"
         '    qon = bool(meta.get("export_quality", quality.enabled()))  # #1503\n',
         "internal_copy_keeps_one_row_per_field",
+    ),
+    _m(
+        "15",
+        "export quality cuts the query row at 350 characters (later fields leave its comment)",
+        _Q,
+        '        if entry["comment_missing"] or crs_by_contractor.is_query(entry["comment"]):\n',
+        '        if entry["comment_missing"]:\n',
+        "long_query_row_keeps_every_field",
     ),
 )
