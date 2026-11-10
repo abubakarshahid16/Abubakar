@@ -204,7 +204,8 @@ def status_words(finding: dict) -> str:
 def draft_pass_may_leave(finding: dict) -> bool:
     """Switch on: may `compliance_list._draft_pass` take this draft-rule pass off the CRS? Only when its hold was
     made because the rule is not proven (`rule_not_proven`, not `deferred_marker` or any other reason), no
-    engineer decided it, neither the value read nor its own fact names a placeholder or a deferral, its page does
+    engineer decided it, neither the value read nor its own fact names a placeholder or a deferral, its own fact is
+    not impossible as read (`impossible_sign.impossible`, as for every value its rule reads), its page does
     not mark the same figure deferred (`_page_defers_the_figure`), and no other value its rule reads is marked or
     failed to read (`_relies_on_a_doubtful_value`). Off: False."""
     if not enabled() or crs_decider.decider(finding):
@@ -218,6 +219,12 @@ def draft_pass_may_leave(finding: dict) -> bool:
     own = _own_fact(finding.get("fact_id"))
     if own is not None and not _unmarked(own):
         return False
+    if own is not None:
+        from .datasheet_checks import load_rules
+        from .impossible_sign import impossible
+
+        if impossible(own, load_rules(), _wanted(finding.get("document_id"))):
+            return False
     return not (
         _page_defers_the_figure(finding) or _relies_on_a_doubtful_value(finding)
     )
@@ -241,12 +248,23 @@ def _relies_on_a_doubtful_value(finding: dict) -> bool:
     from .datasheet_checks import load_rules
     from .impossible_sign import impossible
 
-    rules, tag = load_rules(), finding.get("equipment_tag")
+    rules, tag, wanted = load_rules(), finding.get("equipment_tag"), _wanted(document)
     return any(
-        not _unmarked(f) or impossible(f, rules)
+        not _unmarked(f) or impossible(f, rules, wanted)
         for f in _document_facts(document)
         if f.get("equipment_tag") in (tag, None) and _roles(f, rules) & roles
     )
+
+
+def _wanted(document_id: str | None) -> frozenset | None:
+    """The roles `datasheet_checks.evaluate` preferred for this submittal (`checklist_scope.wanted` of its stored
+    classification). None: no document, or no classification on record."""
+    if not document_id:
+        return None
+    from . import checklist_scope, classification
+
+    stored = classification.of_document(document_id)
+    return None if stored is None else checklist_scope.wanted(stored)
 
 
 def _rule_id(finding: dict) -> str | None:

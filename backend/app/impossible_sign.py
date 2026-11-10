@@ -158,9 +158,13 @@ def hold_results(
     return out
 
 
-def impossible(fact: dict, rules: dict) -> bool:
-    """Is this one value impossible as read (`hold_results`'s own test)? `crs_routing` asks it of a stored fact."""
-    return bool(_impossible([fact], rules, frozenset()))
+def impossible(fact: dict, rules: dict, wanted: frozenset | None) -> bool:
+    """Is this one value impossible as read (`hold_results`'s own test)? `crs_routing` asks it of a stored fact,
+    with the roles the check preferred (`checklist_scope.wanted`). None, those roles not found: a value that is
+    negative or a glued number counts as impossible (the safe side; the role it was read as is unknown)."""
+    if wanted is None:
+        return is_negative(fact) or _glued_number(fact)
+    return bool(_impossible([fact], rules, wanted))
 
 
 def hold_pass(verdict: dict, fact: dict | None) -> dict:
