@@ -49,8 +49,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "03",
         "the CRS sheet keeps the tick rows while they are also drawn on their own sheet",
-        '        "rows": crs_tick_sheet.renumber(rest),\n',
-        '        "rows": crs_tick_sheet.renumber(view["rows"]),\n',
+        '        "rows": rest,\n',
+        '        "rows": view["rows"],\n',
         "leave_the_crs_sheet_for_their_own_section",
     ),
     _m(
@@ -66,5 +66,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    view = _tick_section(build_crs_view(findings, meta))\n",
         "    view = build_crs_view(findings, meta)\n",
         "leave_the_crs_sheet_for_their_own_section or numbers_its_own_rows",
+    ),
+    _m(
+        "06",
+        "the CRS sheet renumbers its rows after the split (the Internal sheet and the preview then name"
+        " another comment's reasoning by the same Item No)",
+        '        "rows": rest,\n',
+        '        "rows": [{**r, "item_no": n} for n, r in enumerate(rest, start=1)],\n',
+        "points_at_the_same_comment or match_the_preview or one_numbering",
     ),
 )

@@ -608,15 +608,16 @@ def _tick_section(view: dict) -> dict:
     """Owner order 11 Nov (step 1, `crs_tick_sheet`): the view the workbook draws. Only the internal copy with
     CRS_ROUTING_BY_HOLD_REASON_ENABLED on splits: the safety-tick rows leave `rows` (the CRS sheet) for
     `tick_rows` (their own sheet). Otherwise the view, untouched. Which sheet a row prints on is the
-    workbook's choice: the preview keeps every row, where the tick is made."""
+    workbook's choice: the preview keeps every row, where the tick is made. No row is renumbered: the
+    CRS sheet, the tick sheet, the Internal sheet and the preview share the view's one numbering."""
     if view["crs_copy"] != COPY_INTERNAL or not crs_routing.enabled():
         return view
     ticks = [r for r in view["rows"] if r.get("row_kind") == ROW_KIND_SAFETY_TICK]
     rest = [r for r in view["rows"] if r.get("row_kind") != ROW_KIND_SAFETY_TICK]
     return {
         **view,
-        "rows": crs_tick_sheet.renumber(rest),
-        "tick_rows": crs_tick_sheet.renumber(ticks),
+        "rows": rest,
+        "tick_rows": ticks,
     }
 
 

@@ -112,16 +112,62 @@ def test_switch_on_the_sheet_sits_next_to_the_crs_sheet(monkeypatch):
     assert book(ROWS).sheetnames[:2] == ["CRS", ts.SHEET]
 
 
-def test_switch_on_each_sheet_numbers_its_own_rows_without_gaps(monkeypatch):
+def test_switch_on_every_sheet_keeps_the_views_one_numbering(monkeypatch):
+    """No renumbering: a row's Item No is the one the preview gives it, on whichever sheet it prints."""
     switch(monkeypatch, True)
     wb = book(ROWS)
     first = crs_export.COLUMN_HEADER_ROW + 1
-    assert [wb["CRS"].cell(first + i, 1).value for i in range(2)] == [1, 2]
+    assert [wb["CRS"].cell(first + i, 1).value for i in range(2)] == [1, 3]
     ws = wb[ts.SHEET]
-    assert [ws.cell(ts.HEADER_ROW + 1 + i, 1).value for i in range(2)] == [
-        1,
-        2,
+    assert [ws.cell(ts.HEADER_ROW + 1 + i, 1).value for i in range(2)] == [2, 4]
+
+
+def _reasoned(rows):
+    """Each invented row with its own reasoning, so a misplaced Internal line is visible."""
+    return [{**r, "reasoning": f"why {r['comment']}", "rule_trust": "t"} for r in rows]
+
+
+def _item_to_comment(wb) -> dict:
+    """Item No -> comment over the CRS sheet and the tick sheet."""
+    out = {}
+    ws = wb["CRS"]
+    for r in range(crs_export.COLUMN_HEADER_ROW + 1, ws.max_row + 1):
+        if str(ws.cell(r, 4).value or "").startswith(("Invented", "ENGINEER")):
+            out[ws.cell(r, 1).value] = ws.cell(r, 4).value
+    if ts.SHEET in wb.sheetnames:
+        tk = wb[ts.SHEET]
+        for r in range(ts.HEADER_ROW + 1, tk.max_row + 1):
+            out[tk.cell(r, 1).value] = tk.cell(r, 4).value
+    return out
+
+
+def test_switch_on_with_export_quality_the_internal_sheet_points_at_the_same_comment(
+    monkeypatch,
+):
+    """Review finding on #1736: every Internal line's Item No names the row whose reasoning it carries."""
+    switch(monkeypatch, True)
+    monkeypatch.setattr(settings, "crs_export_quality_enabled", True)
+    wb = book(_reasoned(ROWS))
+    comments = _item_to_comment(wb)
+    inner = wb[crs_export.quality.INTERNAL_SHEET]
+    lines = [
+        (inner.cell(r, 1).value, inner.cell(r, 3).value)
+        for r in range(2, inner.max_row + 1)
+        if str(inner.cell(r, 3).value or "").startswith("why ")
     ]
+    assert len(lines) == 4
+    for item_no, reasoning in lines:
+        assert str(reasoning).startswith(f"why {comments[item_no]}")
+
+
+def test_switch_on_the_workbook_numbers_match_the_preview(monkeypatch):
+    switch(monkeypatch, True)
+    monkeypatch.setattr(settings, "crs_export_quality_enabled", True)
+    view = crs_export.build_crs_view(
+        _reasoned(ROWS), {"review_run_id": "run-1", "copy": "internal"}
+    )
+    preview = {r["item_no"]: r["comment"] for r in view["rows"]}
+    assert _item_to_comment(book(_reasoned(ROWS))) == preview
 
 
 def test_switch_on_a_permanent_number_is_kept_on_the_tick_sheet(monkeypatch):

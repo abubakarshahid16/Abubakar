@@ -21,14 +21,6 @@ COUNT_LINE = (
 HEADER_ROW = 4
 
 
-def renumber(rows: list[dict]) -> list[dict]:
-    """Item numbers 1..N on one sheet, no gaps; a permanent number (`crs_ref`) is kept as it is."""
-    return [
-        r if r.get("crs_ref") else {**r, "item_no": n}
-        for n, r in enumerate(rows, start=1)
-    ]
-
-
 def row_values(view: dict, entry: dict) -> list:
     """The cells of one row, in the internal CRS sheet's own column order (`crs_export.build_crs`)."""
     from . import crs_export_quality as quality
