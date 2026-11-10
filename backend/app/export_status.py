@@ -191,10 +191,14 @@ def one_row(
     crs_scope: str,
     allowed: frozenset[str],
 ) -> tuple[list[dict], list[dict]]:
-    """One row per problem (#1503): as they came with the switch off."""
-    from . import crs_one_row
+    """One row per problem (#1503), then the standards rows routed by `crs_routing` (R1, R4;
+    owner order 10 Nov): as they came with both switches off."""
+    from . import crs_one_row, crs_routing
 
-    return crs_one_row.apply(rows, notes, findings, check, run_id, crs_scope, allowed)
+    rows, notes = crs_one_row.apply(
+        rows, notes, findings, check, run_id, crs_scope, allowed
+    )
+    return crs_routing.standards(rows, notes, check, run_id, crs_scope, allowed)
 
 
 def standards_sheet(rows: list[dict], submittal_id: str) -> list[dict]:

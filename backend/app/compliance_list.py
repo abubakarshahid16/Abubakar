@@ -5,10 +5,14 @@ with nothing found, writes NO CRS row. It goes to the internal-only sheet "Compl
 A draft rule is one no person approved: its label is `UNPROVEN`. A rule an owner or engineer approved decides in the CRS as before. A value that was
 not read stays a row, and so does a SAFETY field or a safety tick (the engineer's own check). Nothing here compares a number or names a layout (rule 13). The label words are
 strings so the CRS mapping can ask without importing the trust module; a test holds them to `rule_trust`.
+
+Owner order 10 Nov (step 4), behind its own switch CRS_ROUTING_BY_HOLD_REASON_ENABLED: a held check moved off the CRS by
+its stored hold reason (`crs_routing`, R2 and R3) is listed here too, its reason in Status, so it is never dropped unseen.
 """
 
 from __future__ import annotations
 
+from . import crs_routing
 from .config import settings
 
 SHEET = "Compliance list"
@@ -41,6 +45,12 @@ def _value_given(finding: dict) -> bool:
 
 
 def is_listed(finding: dict) -> bool:
+    """A draft-rule value with nothing found (`_draft_pass`), or a held check moved here by its
+    stored hold reason (`crs_routing.rule`, its own switch). Either way: no CRS row."""
+    return _draft_pass(finding) or crs_routing.rule(finding) is not None
+
+
+def _draft_pass(finding: dict) -> bool:
     """Switch on, a value read, nothing found by a draft rule, no person's decision on it."""
     if (
         not enabled()
@@ -60,7 +70,8 @@ def is_listed(finding: dict) -> bool:
 
 
 def sheet_rows(findings: list[dict]) -> list[tuple]:
-    """One line per listed finding: page, field, value read, standard and clause, status, the rule's words."""
+    """One line per listed finding: page, field, value read, standard and clause, status (a moved
+    held check's status is its reason), the rule's words."""
     out = []
     for f in (f for f in findings if is_listed(f)):
         where = " ".join(
@@ -72,7 +83,7 @@ def sheet_rows(findings: list[dict]) -> list[tuple]:
                 f.get("contractor_section") or "",
                 str(f.get("contractor_evidence_text") or ""),
                 where,
-                STATUS,
+                STATUS if _draft_pass(f) else crs_routing.status_words(f),
                 str(f.get("finding") or ""),
             )
         )
@@ -99,15 +110,22 @@ def for_run(run_id: str | None) -> list[tuple]:
     """The listed lines of one review run, read from its stored findings the way the CRS reads them
     (`presence_check.marked`: a held pass that only says a field is stated was never a pass, so it is no list line).
     Nothing when the switch is off."""
-    if not enabled() or not run_id:
+    if not (enabled() or crs_routing.enabled()) or not run_id:
         return []
     from .presence_check import marked
 
     return sheet_rows([marked(f) for f in _stored(run_id)])
 
 
-def count_line(total: int) -> str:
-    return f"{total} values with no issue found by a draft rule (a safety field stays a CRS row, where it is ticked)."
+def count_line(total: int, moved: int = 0) -> str:
+    """The sheet's first line. `moved`: of `total`, the held checks moved here by their hold reason."""
+    line = f"{total - moved} values with no issue found by a draft rule (a safety field stays a CRS row, where it is ticked)."
+    if not moved:
+        return line
+    return (
+        f"{line} {moved} held checks of this review run are listed here instead of the CRS, each with its"
+        " reason in Status: the engineer checks them here."
+    )
 
 
 def write_sheet(wb, run_id: str | None, write) -> None:
@@ -118,7 +136,8 @@ def write_sheet(wb, run_id: str | None, write) -> None:
     from openpyxl.styles import Alignment, Font
 
     sheet = wb.create_sheet(SHEET)
-    write(sheet, 1, 1, count_line(len(lines))).font = Font(bold=True)
+    moved = sum(1 for line in lines if line[4] != STATUS)
+    write(sheet, 1, 1, count_line(len(lines), moved)).font = Font(bold=True)
     for col, header in enumerate(COLUMNS, start=1):
         write(sheet, 2, col, header).font = Font(bold=True)
     for r, line in enumerate(lines, start=3):

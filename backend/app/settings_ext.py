@@ -382,6 +382,13 @@ class SettingsExt(BaseModel):
     #: CRS row; it is listed on the internal-only sheet "Compliance list" as "No issue found (draft rule)".
     #: Findings are untouched. OFF: as it was. Env: CRS_COMPLIANCE_LIST_ENABLED.
     crs_compliance_list_enabled: bool = False
+    #: Owner order 10 Nov, step 4 (#805 Cycle 2): which sheet shows a row, by the stored hold reason (`crs_routing`).
+    #: R1 a "did not reference X" row stays only when the held project specification requires X with a verified quote;
+    #: R2 a check held because its applicability condition is not stated and R3 a check held for two values under a
+    #: draft rule, with a stated value, go to the internal "Compliance list" with the reason; R4 a cited standard that
+    #: does not appear to apply is named in the Review notes, not a comment. No verdict changes. OFF: as it was.
+    #: Env: CRS_ROUTING_BY_HOLD_REASON_ENABLED.
+    crs_routing_by_hold_reason_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
