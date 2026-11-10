@@ -18,7 +18,7 @@ standards' `comparison._hold_low_trust_breach` (`hold_pass`).
 
 from __future__ import annotations
 
-from . import claims, numparse
+from . import claims, hold_reason, numparse
 from .deferred_value import CALC_INPUT_ROLES
 
 _PASS = "COMPLIANT"
@@ -76,8 +76,17 @@ def _roles_read(rules: dict) -> dict[str, set[str]]:
         r["id"]: {r[k] for k in ("left", "right") if r.get(k)}
         for r in rules.get("consistency", [])
     }
-    for checklist in (rules.get("checklists") or {}).values():
-        for item in checklist.get("items", []) if isinstance(checklist, dict) else []:
+    # Every kit card too: its pass is held, and its code routes it (PR 1733 review).
+    from . import kit_core
+
+    groups = [
+        c.get("items", [])
+        for c in (rules.get("checklists") or {}).values()
+        if isinstance(c, dict)
+    ]
+    groups += [kit.cards() for kit in kit_core._kits()]
+    for group in groups:
+        for item in group:
             rule = item.get("rule") or {}
             read = {
                 rule[k]
@@ -114,6 +123,10 @@ def hold_results(
     reads = _roles_read(rules)
     out = []
     for r in results:
+        # A kit card's pass, already held by `kit_core.held`, is checked as the pass it was (PR 1733 review).
+        kit = r if r.get("kit") and r.get("rule_said") == _PASS else None
+        if kit is not None:
+            r = {**r, "status": _PASS}
         hit = None
         if r.get("status") == _PASS:
             tag, read = r.get("equipment_tag"), reads.get(r.get("rule_id"), set())
@@ -127,7 +140,12 @@ def hold_results(
                 None,
             )
         if hit is None:
-            out.append(r)
+            out.append(kit or r)
+            continue
+        if (
+            kit is not None
+        ):  # its words and status stay; its code is this hold's, not "rule not proven"
+            out.append({k: v for k, v in kit.items() if k != hold_reason.KEY})
             continue
         out.append(
             {
@@ -138,6 +156,11 @@ def hold_results(
             }
         )
     return out
+
+
+def impossible(fact: dict, rules: dict) -> bool:
+    """Is this one value impossible as read (`hold_results`'s own test)? `crs_routing` asks it of a stored fact."""
+    return bool(_impossible([fact], rules, frozenset()))
 
 
 def hold_pass(verdict: dict, fact: dict | None) -> dict:

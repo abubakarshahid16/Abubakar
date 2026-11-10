@@ -227,8 +227,9 @@ def _relies_on_a_doubtful_value(finding: dict) -> bool:
     """EVERY value the row's rule reads, not only its own (PR 1733 review): the other side of a comparison, a
     calculation's inputs, a condition (`degraded_read.item_roles`, from each item's rule and formula, kit cards
     included; a consistency pair's two roles). True, so the row stays, when one of the sheet's current facts for
-    those roles (its tag, or the common section) carries a placeholder or deferral mark (`_unmarked`), or the
-    AI reading of one did not come back (`degraded_read.relies_on_failed_read`). A rule not found: True."""
+    those roles (its tag, or the common section) carries a placeholder or deferral mark (`_unmarked`), is
+    impossible as read (`impossible_sign.impossible`), or the AI reading of one did not come back
+    (`degraded_read.relies_on_failed_read`). A rule not found: True."""
     from . import degraded_read
 
     roles = _rule_roles(_rule_id(finding))
@@ -238,10 +239,11 @@ def _relies_on_a_doubtful_value(finding: dict) -> bool:
     if degraded_read.relies_on_failed_read(roles, document):
         return True
     from .datasheet_checks import load_rules
+    from .impossible_sign import impossible
 
     rules, tag = load_rules(), finding.get("equipment_tag")
     return any(
-        not _unmarked(f)
+        not _unmarked(f) or impossible(f, rules)
         for f in _document_facts(document)
         if f.get("equipment_tag") in (tag, None) and _roles(f, rules) & roles
     )

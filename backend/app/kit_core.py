@@ -197,6 +197,23 @@ def held(result: dict, item: dict) -> dict:
     return out
 
 
+def contradicted(result: dict, said: str | None, fact_ids) -> bool:
+    """A kit card's verdict, held by `held`, that another check of the same value contradicts
+    (`rulebook_v2_review.settle_with_checks` holds a plain verdict there): that hold, not "rule not proven"."""
+    verdict = result.get("rule_said") if result.get("kit") else None
+    return bool(
+        said is not None
+        and verdict in ("COMPLIANT", "NON_COMPLIANT")
+        and verdict != said
+        and result.get("fact_id") in fact_ids
+    )
+
+
+def without_code(result: dict) -> dict:
+    """`result` less its hold code: stored as `other`, the hold another step made (`hold_reason.stored`)."""
+    return {k: v for k, v in result.items() if k != hold_reason.KEY}
+
+
 def _with_bounds(item: dict, rules: dict) -> dict:
     """A card may carry `plausible: {min, max}` for its own field (a scale the sheet can print two ways, such as a joint
     efficiency of 0.85 or 85): a value outside it is an engineer's question, never judged. Only this card sees it;

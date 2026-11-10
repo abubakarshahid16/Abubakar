@@ -588,3 +588,93 @@ def test_label_check_keeps_the_code_of_an_earlier_hold(monkeypatch):
     )
     failed = {k: v for k, v in deferred.items() if k != hold_reason.KEY}
     assert hold_reason.KEY not in rule_trust.label_check(failed)
+
+
+# ------------------------------------------------------------ every post-check step re-codes a kit pass (PR 1733 review)
+
+
+def _vsld09(value="-3"):
+    """An invented VSLD-09 (test pressure stated) kit pass on `value`, and that value's fact."""
+    fact = {
+        "id": "f-tp",
+        "field_name": "test pressure",
+        "field_label": "test pressure",
+        "raw_value": value,
+        "field_value": value,
+        "page": 1,
+        "equipment_tag": None,
+    }
+    kit = kit_core.held(
+        {
+            "rule_id": "VSLD-09",
+            "status": "COMPLIANT",
+            "text": "x",
+            "detail": "d",
+            "checklist": True,
+            "fact_id": "f-tp",
+            "equipment_tag": None,
+            "role": "test_pressure",
+        },
+        {"kit": "vessel"},
+    )
+    return kit, fact
+
+
+@pytest.mark.parametrize("value", ["-3", "PN-16"])
+def test_an_impossible_value_kit_pass_loses_rule_not_proven(monkeypatch, value):
+    from app import impossible_sign
+
+    monkeypatch.setattr(settings, "deferred_value_is_query_enabled", False)
+    kit, fact = _vsld09(value)
+    assert "test_pressure" in impossible_sign._roles_read(dc.load_rules())["VSLD-09"]
+    out = deferred_value.hold_results([kit], [fact], dc.load_rules(), frozenset())
+    assert hold_reason.KEY not in out[0]
+    assert hold_reason.stored(out[0], out[0]["status"]) == hold_reason.OTHER
+    assert out[0]["status"] == kit["status"] and out[0]["detail"] == kit["detail"]
+    clean_kit, clean = _vsld09("15 barg")
+    same = deferred_value.hold_results(
+        [clean_kit], [clean], dc.load_rules(), frozenset()
+    )
+    assert same[0][hold_reason.KEY] == hold_reason.RULE_NOT_PROVEN
+
+
+@pytest.mark.parametrize("value", ["-3", "PN-16"])
+def test_an_impossible_value_the_rule_reads_keeps_the_row(monkeypatch, sheet, value):
+    """Routing on, re-checked from the stored facts: the row passes every check or it stays."""
+    switch(monkeypatch, routing=True)
+    f = draft_pass(
+        requirement_source_text=f"{dc.LABEL} VSLD-09: x", contractor_evidence_text="15"
+    )
+    sheet.facts = [_vsld09("15 barg")[1]]
+    assert cl.is_listed(f)
+    sheet.facts = [_vsld09(value)[1]]
+    assert not cl.is_listed(f)
+
+
+def test_a_kit_pass_the_rulebook_contradicts_loses_rule_not_proven():
+    from types import SimpleNamespace
+
+    from app import rulebook_v2_review as v2
+
+    kit, _fact = _vsld09("15 barg")
+    row = SimpleNamespace(
+        status="NON_COMPLIANT",
+        rule_said=None,
+        reason=None,
+        fact_ids={"f-tp"},
+        words="w",
+    )
+    out = v2.settle_with_checks(SimpleNamespace(rows=[row]), [kit])
+    assert hold_reason.KEY not in out[0] and out[0]["detail"] == kit["detail"]
+    assert row.status == "NON_COMPLIANT"  # the rulebook's own record is unchanged
+    agree = SimpleNamespace(
+        status="COMPLIANT", rule_said=None, reason=None, fact_ids={"f-tp"}, words="w"
+    )
+    same = v2.settle_with_checks(SimpleNamespace(rows=[agree]), [kit])
+    assert same[0][hold_reason.KEY] == hold_reason.RULE_NOT_PROVEN
+    other = SimpleNamespace(
+        status="NON_COMPLIANT", rule_said=None, reason=None, fact_ids={"f-x"}, words="w"
+    )
+    assert v2.settle_with_checks(SimpleNamespace(rows=[other]), [kit])[0][
+        hold_reason.KEY
+    ] == (hold_reason.RULE_NOT_PROVEN)
