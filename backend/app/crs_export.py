@@ -26,7 +26,13 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from . import compliance_list, crs_ai_review_view, run_record
+from . import (
+    compliance_list,
+    crs_ai_review_view,
+    crs_routing,
+    crs_tick_sheet,
+    run_record,
+)
 from . import crs_export_quality as quality
 from .crs_mapping import (
     PRIORITY_CARRIED_FORWARD,
@@ -594,6 +600,24 @@ def _later_sheets(wb, view: dict, meta: dict, internal: bool) -> None:
         quality.scrub_workbook(wb, len(view["rows"]))
     if internal:  # owner 3 Nov (b): draft-rule values with nothing found
         compliance_list.write_sheet(wb, meta.get("review_run_id"), _write)
+    if view.get("tick_rows"):  # owner order 11 Nov: the safety ticks
+        crs_tick_sheet.write_sheet(wb, view, view["tick_rows"])
+
+
+def _tick_section(view: dict) -> dict:
+    """Owner order 11 Nov (step 1, `crs_tick_sheet`): the view the workbook draws. Only the internal copy with
+    CRS_ROUTING_BY_HOLD_REASON_ENABLED on splits: the safety-tick rows leave `rows` (the CRS sheet) for
+    `tick_rows` (their own sheet). Otherwise the view, untouched. Which sheet a row prints on is the
+    workbook's choice: the preview keeps every row, where the tick is made."""
+    if view["crs_copy"] != COPY_INTERNAL or not crs_routing.enabled():
+        return view
+    ticks = [r for r in view["rows"] if r.get("row_kind") == ROW_KIND_SAFETY_TICK]
+    rest = [r for r in view["rows"] if r.get("row_kind") != ROW_KIND_SAFETY_TICK]
+    return {
+        **view,
+        "rows": crs_tick_sheet.renumber(rest),
+        "tick_rows": crs_tick_sheet.renumber(ticks),
+    }
 
 
 def _note_cell(ws, view: dict, put) -> None:
@@ -625,7 +649,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     EVERY VALUE COMES FROM `build_crs_view`. This function decides fonts,
     widths, merges and row heights - never what the sheet says.
     """
-    view = build_crs_view(findings, meta)
+    view = _tick_section(build_crs_view(findings, meta))
 
     wb = Workbook()
     ws = wb.active
