@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import hold_reason
+
 REFERENCE = Path(__file__).resolve().parent / "reference"
 
 
@@ -187,10 +189,29 @@ def held(result: dict, item: dict) -> dict:
     if result["status"] in ("COMPLIANT", "NON_COMPLIANT"):
         out["status"] = "NEEDS_ENGINEER_REVIEW"
         out["rule_said"] = result["status"]
+        # held only because a draft card is not a proven rule: that is its hold reason
+        out[hold_reason.KEY] = hold_reason.RULE_NOT_PROVEN
         out["detail"] = (
             f"The numbers read: {result['detail']} (held for the engineer: draft kit card)"
         )
     return out
+
+
+def contradicted(result: dict, said: str | None, fact_ids) -> bool:
+    """A kit card's verdict, held by `held`, that another check of the same value contradicts
+    (`rulebook_v2_review.settle_with_checks` holds a plain verdict there): that hold, not "rule not proven"."""
+    verdict = result.get("rule_said") if result.get("kit") else None
+    return bool(
+        said is not None
+        and verdict in ("COMPLIANT", "NON_COMPLIANT")
+        and verdict != said
+        and result.get("fact_id") in fact_ids
+    )
+
+
+def without_code(result: dict) -> dict:
+    """`result` less its hold code: stored as `other`, the hold another step made (`hold_reason.stored`)."""
+    return {k: v for k, v in result.items() if k != hold_reason.KEY}
 
 
 def _with_bounds(item: dict, rules: dict) -> dict:

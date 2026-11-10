@@ -8,6 +8,8 @@ strings so the CRS mapping can ask without importing the trust module; a test ho
 
 Owner order 10 Nov (step 4), behind its own switch CRS_ROUTING_BY_HOLD_REASON_ENABLED: a held check moved off the CRS by
 its stored hold reason (`crs_routing`, R2 and R3) is listed here too, its reason in Status, so it is never dropped unseen.
+That switch also lists the draft pass above when this one is off, narrowed by `crs_routing.draft_pass_may_leave`
+(stored hold reason `rule_not_proven`; never a "By Contractor" value; never an engineer's decision).
 """
 
 from __future__ import annotations
@@ -51,9 +53,11 @@ def is_listed(finding: dict) -> bool:
 
 
 def _draft_pass(finding: dict) -> bool:
-    """Switch on, a value read, nothing found by a draft rule, no person's decision on it."""
+    """Switch on, a value read, nothing found by a draft rule, no person's decision on it. The routing switch
+    (owner 10 Nov) turns this on too, and while it is on a row also passes `crs_routing.draft_pass_may_leave`."""
+    routed = crs_routing.enabled()
     if (
-        not enabled()
+        not (enabled() or routed)
         or finding.get("confirmed_by")
         or finding.get("approval_status") == "rejected"
     ):
@@ -62,6 +66,8 @@ def _draft_pass(finding: dict) -> bool:
         return False
     if finding.get("tier") == "SAFETY" or finding.get("show_for_engineer_tick"):
         return False  # a safety field is the engineer's tick: it stays a CRS row, where the tick is made
+    if routed and not crs_routing.draft_pass_may_leave(finding):
+        return False
     return (
         finding.get("compliance_status") == _HELD
         and finding.get("rule_said") == _PASS

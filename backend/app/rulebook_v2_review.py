@@ -35,6 +35,7 @@ from . import (
     degraded_read,
     field_links,
     kind_rules,
+    kit_core,
     match_rules,
     material_reference,
     requirements_3b,
@@ -792,5 +793,7 @@ def settle_with_checks(review: Review, results: list[dict]) -> list[dict]:
                     "rule_said": status,
                     "detail": f"{V1_DISAGREES}: the rulebook said {said} on this field. {result.get('detail') or ''}",
                 }
+            elif kit_core.contradicted(result, said, row.fact_ids):  # PR 1733 review
+                result = kit_core.without_code(result)
         out.append(result)
     return out
