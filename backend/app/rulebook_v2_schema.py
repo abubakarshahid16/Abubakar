@@ -315,3 +315,74 @@ def decisions_on(conn, documents: list[str]) -> list[tuple[str, str, str]]:
             documents,
         )
     ]
+
+
+# Reads for the rule finishing line (`rule_finish_store`, `rule_finish_guard`), on a COPY. Read only; nothing here
+# decides a verdict, and nothing here writes.
+
+#: The tables a finishing-line work copy is checked against: their row counts are sealed into its marker.
+FINISH_TABLES = ("rulebook_rule", "rulebook_version", "rulebook_provenance")
+
+
+def finish_counts(conn) -> dict[str, int]:
+    """Row counts of `FINISH_TABLES`. A missing table raises `sqlite3.OperationalError` (the caller decides)."""
+    return {
+        t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        for t in FINISH_TABLES
+    }
+
+
+def latest_versions(
+    conn, *, standard: str | None = None, key_prefix: str | None = None
+) -> list[dict]:
+    """The latest version of every rule of `standard` (or whose rule_key starts with `key_prefix`), with its first
+    provenance and its applicability rows, as plain dicts. `conn.row_factory` must be `sqlite3.Row`. Read only."""
+    where, args = [], []
+    if standard:
+        where.append("r.standard = ?")
+        args.append(standard)
+    if key_prefix:
+        where.append("r.rule_key LIKE ? ESCAPE '\\'")
+        args.append(
+            key_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            + "%"
+        )
+    if not where:
+        raise ValueError("give a standard or a rule key prefix")
+    sql = (
+        "SELECT r.id AS rule_id, r.rule_key, r.standard, v.id AS version_id, v.version_no, v.kind, v.field, v.comparator, "
+        "v.value, v.value_low, v.value_high, v.value_text, v.unit, v.unit_dimension, v.strength, v.sentence_strength, "
+        "v.context_flag FROM rulebook_rule r JOIN rulebook_version v ON v.rule_id = r.id "
+        "WHERE "
+        + " AND ".join(where)
+        + " AND v.version_no = (SELECT MAX(version_no) FROM rulebook_version x WHERE x.rule_id = r.id) "
+        "ORDER BY r.rule_key"
+    )
+    rules = []
+    for row in conn.execute(sql, args).fetchall():
+        rule = dict(row)
+        prov = conn.execute(
+            "SELECT standard_document_id, edition, clause, page, quote, quote_start, quote_end, page_source "
+            "FROM rulebook_provenance WHERE rule_version_id = ? ORDER BY id LIMIT 1",
+            (rule["version_id"],),
+        ).fetchone()
+        if prov is not None:
+            rule.update(dict(prov))
+        rule["applicability"] = [
+            (a["key_type"], a["value"])
+            for a in conn.execute(
+                "SELECT key_type, value FROM rulebook_applicability WHERE rule_version_id = ? ORDER BY id",
+                (rule["version_id"],),
+            )
+        ]
+        rules.append(rule)
+    return rules
+
+
+def rule_key_of_version(conn, version_id: str) -> str | None:
+    """The rule_key a version belongs to, or None. Read only."""
+    row = conn.execute(
+        "SELECT r.rule_key FROM rulebook_version v JOIN rulebook_rule r ON r.id = v.rule_id WHERE v.id = ?",
+        (version_id,),
+    ).fetchone()
+    return None if row is None else row[0]
