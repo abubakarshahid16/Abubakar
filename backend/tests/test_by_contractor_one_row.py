@@ -119,6 +119,7 @@ def test_switch_on_each_deferred_row_carries_its_field_tag_and_page(monkeypatch)
         {"id": ""},
         {"crs_field_label": "", "contractor_section": ""},
     ],
+    ids=["other_code", "no_code", "decided", "engineer_words", "no_id", "no_field"],
 )
 def test_a_row_not_held_only_for_a_deferred_value_carries_no_entry(monkeypatch, over):
     switch(monkeypatch, True)

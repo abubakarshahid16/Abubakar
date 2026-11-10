@@ -45,7 +45,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _B,
         "    if not enabled():\n        return rows\n",
         "    if False:\n        return rows\n",
-        "switch_off_every_export_path",
+        "switch_off_the_workbook_ignores_the_entries",
     ),
     _m(
         "03",
@@ -61,7 +61,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _B,
         'if f.get("compliance_status") != _HELD or f.get("engineer_comment"):',
         'if f.get("compliance_status") != _HELD:',
-        "engineer_worded_finding_keeps_its_own_row",
+        "not_held_only_for_a_deferred_value and engineer_words",
     ),
     _m(
         "05",
