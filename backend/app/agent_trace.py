@@ -575,13 +575,12 @@ class RunLock:
 
     @staticmethod
     def _alive(pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+        """psutil, never `os.kill(pid, 0)`: on Windows signal 0 is CTRL_C_EVENT, so os.kill
+        sends Ctrl+C to a console process group, or raises WinError 87 for a pid that is no
+        group, instead of asking whether the process exists."""
+        import psutil
+
+        return bool(psutil.pid_exists(pid))
 
     def _stale(self) -> bool:
         try:
