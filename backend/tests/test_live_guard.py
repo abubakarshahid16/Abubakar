@@ -336,14 +336,16 @@ def test_relative_paths_to_the_live_database_are_refused(tmp_path, monkeypatch):
 def test_a_hash_or_question_mark_in_the_path_does_not_hide_the_live_database(
     tmp_path, monkeypatch
 ):
-    odd = tmp_path / "a#b?c"
+    # "?" is not a legal character in a Windows file name (WinError 123); "#" is tested everywhere.
+    q = "" if os.name == "nt" else "?"
+    odd = tmp_path / f"a#b{q}c"
     cased = _db(odd / "checkout" / "Backend" / "Data" / "rag_intelligence.SQLITE")
     assert live_guard.is_live_shaped(cased)
     _refused(monkeypatch, cased)
 
-    live = _live(tmp_path / "d#e?f")
+    live = _live(tmp_path / f"d#e{q}f")
     monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
-    link = odd / "x#y?z.sqlite"
+    link = odd / f"x#y{q}z.sqlite"
     os.link(live, link)
     assert live_guard.is_live_shaped(link)
     _refused(monkeypatch, link)
@@ -398,6 +400,11 @@ def test_from_a_worktree_the_main_checkouts_live_file_is_known(tmp_path):
     assert _REAL_KNOWN_LIVE_FILES(main / "backend") == (main_live,)
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows chmod sets only the read-only flag: a folder cannot be made unsearchable; "
+    "the next test injects the same PermissionError on every platform",
+)
 def test_a_live_file_that_cannot_be_checked_counts_as_live(tmp_path, monkeypatch):
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("root reads a chmod 000 folder")
@@ -410,6 +417,23 @@ def test_a_live_file_that_cannot_be_checked_counts_as_live(tmp_path, monkeypatch
         assert live_guard.is_live_shaped(other)
     finally:
         locked.chmod(0o755)
+
+
+def test_a_check_refused_by_permissions_counts_as_live_on_every_platform(
+    tmp_path, monkeypatch
+):
+    """The fail-closed rule without chmod, so Windows proves it too: the identity check of a
+    known live file raises PermissionError, and an unrelated file then counts as live."""
+    live = _db(tmp_path / "locked" / "backend" / "data" / "rag_intelligence.sqlite")
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: (live,))
+    other = _db(tmp_path / "other.sqlite")
+    assert not live_guard.is_live_shaped(other)
+
+    def refused(self, target):
+        raise PermissionError(13, "Permission denied", str(target))
+
+    monkeypatch.setattr(Path, "samefile", refused)
+    assert live_guard.is_live_shaped(other)
 
 
 def test_a_missing_known_live_file_is_skipped(tmp_path, monkeypatch):

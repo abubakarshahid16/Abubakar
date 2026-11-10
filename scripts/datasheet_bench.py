@@ -641,15 +641,26 @@ def _loose(text: str) -> str:
 def _oracle_quote(item: dict, page: str) -> tuple[str, str] | None:
     """(label as printed, quote) for one answer-key item on one page: the
     span of the PAGE TEXT from the label to the nearest following printing of
-    the value, copied from the page. None when the page does not carry both."""
+    the value, copied from the page, and on through the item's unit when the
+    page prints it right after the value ("12 months"): a perfect reader quotes
+    the unit with its number, and the gates refuse a unit the quote prints only
+    with another number (#1653). None when the page does not carry both."""
     value = re.compile(r"(?<![\w.])" + _loose(item["value"]) + r"(?![\w])", re.IGNORECASE)
+    unit = item.get("unit")
+    after = (
+        re.compile(r"[ \t\u00b0(\[]*" + _loose(unit) + r"(?!\w)", re.IGNORECASE)
+        if unit
+        else None
+    )
     best = None
     for label in [item["field"], *item.get("aliases", [])]:
         for m in re.finditer(r"(?<!\w)" + _loose(label) + r"(?!\w)", page, re.IGNORECASE):
             v = value.search(page, m.end())
             if v is None or v.start() - m.end() > 400:
                 continue
-            span = (v.end() - m.start(), m.group(0), page[m.start():v.end()])
+            u = after.match(page, v.end()) if after else None
+            end = u.end() if u else v.end()
+            span = (end - m.start(), m.group(0), page[m.start() : end])
             if best is None or span[0] < best[0]:
                 best = span
     return None if best is None else (best[1], best[2])

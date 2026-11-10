@@ -18,6 +18,11 @@ from . import agent_loop
 from .word_fold import fold_compat
 
 DEFAULT_MAX = 15
+# A repeat run that ended on the step limit gets ONE more run with this higher cap (twice the normal one). The rerun is a
+# fresh run of the same run id (the loop deletes a finished run's checkpoint), so it has the whole higher cap.
+# Repeat runs only: a plain item keeps agent_loop.MAX_STEPS. Why 2x: a sweep run walks a field list and often needs
+# one more look per field; the item USD cap still bounds the cost of a run that never finds a field.
+REPEAT_RETRY_STEPS = 2 * agent_loop.MAX_STEPS
 SEP = "#"
 CUT = 80
 
@@ -58,6 +63,27 @@ _RETRY = (
 QUIET = ("none left",)  # the only stop that is not shown in RESULTS Problems
 
 
+def _again(
+    run_one, item: dict, skill_item: dict, rid: str, res: dict, trace: Any, halt
+):
+    """ONE immediate rerun of a run that ended on a provider error (same cap) or on the step limit (higher cap).
+    Returns (result, stop). The run is taken back out of the done set first, so the loop does not skip it."""
+    why = res.get("why")
+    if why not in ("provider error", "step limit"):
+        return res, ""
+    trace.unmark_done(rid)  # also when halted below: a resume asks this run again
+    if (
+        stop := halt()
+    ):  # the total cap is checked before every attempt, a rerun included
+        return res, stop
+    spent = float(
+        res.get("usd") or 0.0
+    )  # the item cap bounds the first attempt plus the rerun
+    if why == "provider error":
+        return run_one(item, skill_item, spent=spent)
+    return run_one(item, skill_item, max_steps=REPEAT_RETRY_STEPS, spent=spent)
+
+
 def _forced(finding: dict, rid: str) -> dict:
     """The finding as kept. The colour is already YELLOW (agent_loop forces it before anything is stored)."""
     return {**finding, "item": rid, "sweep": True}
@@ -78,7 +104,7 @@ def run_sweep(
     skill_item: dict,
     finals: dict,
     trace: Any,
-    run_one: Callable[[dict, dict], tuple[dict | None, str]],
+    run_one: Callable[..., tuple[dict | None, str]],
     put: Callable[[str, Any], None],
     halt: Callable[[], str],
 ) -> str:
@@ -108,6 +134,10 @@ def run_sweep(
             res, stop = run_one(item, skill_item)
             if stop:
                 return stop
+            if res is not None:
+                res, stop = _again(run_one, item, skill_item, rid, res, trace, halt)
+                if stop:
+                    return stop
             # no result: the run was done before this start, so the saved reason stands
             if res is not None:
                 why = _WHY.get(res.get("why"), "other")

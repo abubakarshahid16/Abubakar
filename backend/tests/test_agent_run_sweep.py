@@ -83,6 +83,12 @@ def ids(out):
     return [f["item"] for f in out["findings"]]
 
 
+def paid(usd=0.1):
+    """A paid tool step: a provider error after it has spend, so the failure breaker does not count it."""
+    tool = next(n for n in al.TOOL_NAMES if n not in ("record_finding", "ask_engineer"))
+    return {"tool": tool, "args": {}, "usd": usd}
+
+
 def results_text(out):
     return (ar.Path(out["run_dir"]) / ar.FILES["results"]).read_text(encoding="utf-8")
 
@@ -228,7 +234,9 @@ def test_h_no_green_or_red_anywhere_for_a_sweep_run(copy_db, run_dir):
 
 def test_i_item_counts_tell_one_story_for_a_mixed_run(copy_db, run_dir):
     boom = lambda _m: (_ for _ in ()).throw(RuntimeError("down"))  # noqa: E731
-    prov = al.FakeProvider([fin(1), fin(2), boom, fin(9, "GREEN"), boom])
+    prov = al.FakeProvider(
+        [fin(1), fin(2), paid(), boom, boom, fin(9, "GREEN"), paid(), boom, boom]
+    )
     out = go(copy_db, run_dir, prov, [item(1, repeat=True), item(2), item(3)])
     live, res = read(out, "LIVE.md"), read(out, "RESULTS.md")
     # the failed third run is not done (a resume asks it again): LIVE counts the runs that are done
@@ -237,15 +245,20 @@ def test_i_item_counts_tell_one_story_for_a_mixed_run(copy_db, run_dir):
     assert (
         "items ended by provider error: 2" in res
     )  # skill items: I1 (its third run) and I3
-    assert "sweep runs asked: 3 (ended by provider error 1" in res
-    assert "2 sweep findings from 1 sweep items, 3 sweep runs asked" in res
+    assert "sweep runs asked: 4 (ended by provider error 1" in res
+    assert "2 sweep findings from 1 sweep items, 4 sweep runs asked" in res
 
 
 def test_j_why_a_sweep_stopped_is_reported_and_a_failed_run_is_asked_again(
     copy_db, run_dir
 ):
     boom = lambda _m: (_ for _ in ()).throw(RuntimeError("down"))  # noqa: E731
-    out = go(copy_db, run_dir, al.FakeProvider([fin(1), boom]), [item(1, repeat=True)])
+    out = go(
+        copy_db,
+        run_dir,
+        al.FakeProvider([fin(1), paid(), boom, boom]),
+        [item(1, repeat=True)],
+    )
     assert ids(out) == ["I1#1"]
     assert "sweep stopped early: provider error (I1)" in results_text(out)
     again = al.FakeProvider([fin(2), NONE_LEFT])
@@ -333,7 +346,10 @@ def test_m_resume_of_an_item_cap_stop_keeps_its_reason(copy_db, run_dir):
 def test_n_provider_error_stop_is_reported_saved_and_retried(copy_db, run_dir):
     boom = lambda _m: (_ for _ in ()).throw(RuntimeError("down"))  # noqa: E731
     first = go(
-        copy_db, run_dir, al.FakeProvider([fin(1), boom]), [item(1, repeat=True)]
+        copy_db,
+        run_dir,
+        al.FakeProvider([fin(1), paid(), boom, boom]),
+        [item(1, repeat=True)],
     )
     assert stop_of(first) == "provider error"
     retry = al.FakeProvider([NONE_LEFT])
@@ -361,3 +377,153 @@ def test_p_lookalike_accent_and_fullwidth_variants_are_duplicates(copy_db, run_d
         )
         out = go(copy_db, run_dir / str(i), prov, [item(1, repeat=True)])
         assert ids(out) == ["I1#1"] and len(prov.calls) == 2
+
+
+# ---- local early stops: one retry after a provider error, one rerun on a higher step cap (repeat items only) ----------
+def boom(_m):
+    raise RuntimeError("down")
+
+
+def steps(n):
+    return [paid(0.001) for _ in range(n)]
+
+
+def test_q_provider_error_then_success_records_the_finding_and_counts_the_retry(
+    copy_db, run_dir
+):
+    prov = al.FakeProvider([boom, fin(1), NONE_LEFT])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
+    assert ids(out) == ["I1#1"] and stop_of(out) == "none left"
+    res = results_text(out)
+    assert "sweep runs asked: 3 (" in res  # I1#1 twice, I1#2 once: every attempt counts
+    assert "retried after provider error 1, rerun on the higher step cap 0" in res
+    assert "sweep stopped early" not in res
+
+
+def test_r_one_flaky_run_asked_twice_is_not_two_items_for_the_breaker(copy_db, run_dir):
+    out = go(copy_db, run_dir, al.FakeProvider([boom, boom]), [item(1, repeat=True)])
+    assert not out["stopped"] and stop_of(out) == "provider error"
+
+
+def test_r2_two_different_items_with_zero_spend_errors_still_trip_the_breaker(
+    copy_db, run_dir
+):
+    prov = al.FakeProvider([boom, boom, boom])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True), item(2), item(3)])
+    assert out["stopped"].startswith("provider errors on 2 items in a row")
+    assert len(prov.calls) == 3 and out["items_done"] == 0
+
+
+def test_x_total_cap_is_checked_before_a_retry(copy_db, run_dir):
+    spent = {"v": 0.0}
+
+    def boom_and_spend(_m):
+        spent["v"] = 99.0
+        raise RuntimeError("down")
+
+    prov = al.FakeProvider([boom_and_spend, fin(1), NONE_LEFT])
+    import contextlib
+
+    consent = SimpleNamespace(per_request_consent=lambda _ids: contextlib.nullcontext())
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)], claude=True, consent=consent,
+             documents=["D1"], ledger=lambda _s: spent["v"], total_cap_usd=10.0)  # fmt: skip
+    assert out["stopped"] == "total cap for the agent test" and len(prov.calls) == 1
+    fp = (
+        run_dir / ar.FILES["finals"]
+    )  # nothing is kept as final: a resume asks it again
+    assert not fp.exists() or "I1#1" not in json.loads(fp.read_text(encoding="utf-8"))
+
+
+def test_y_item_cap_bounds_the_first_run_plus_the_rerun(copy_db, run_dir):
+    cap, per = 1.8, 0.1
+    prov = al.FakeProvider([paid(per) for _ in range(60)])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)], usd_cap_item=cap)
+    assert stop_of(out) == "item cap"
+    assert len(prov.calls) * per <= cap + per + 1e-9  # not 2x the cap
+
+
+def test_z_a_retry_adds_to_the_calls_of_the_first_attempt(copy_db, run_dir):
+    out = go(copy_db, run_dir, al.FakeProvider([paid(), boom, paid(), boom]), [item(1, repeat=True)])  # fmt: skip
+    res = results_text(out)
+    assert "tool calls failed: 0 of 2" in res and "sweep runs asked: 2 (" in res
+    assert "items ended by provider error: 1" in res
+
+
+def test_s_two_paid_provider_errors_end_the_sweep_as_provider_error(copy_db, run_dir):
+    prov = al.FakeProvider([fin(1), paid(), boom, boom])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
+    assert ids(out) == ["I1#1"] and stop_of(out) == "provider error"
+    assert len(prov.calls) == 4  # one retry, not more
+    res = results_text(out)
+    assert "sweep stopped early: provider error (I1)" in res
+    assert "retried after provider error 1" in res
+
+
+def test_t_step_limit_then_success_on_the_higher_cap_records_the_finding(
+    copy_db, run_dir
+):
+    assert sw.REPEAT_RETRY_STEPS > al.MAX_STEPS
+    prov = al.FakeProvider([*steps(al.MAX_STEPS), fin(1), NONE_LEFT])
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
+    assert ids(out) == ["I1#1"] and stop_of(out) == "none left"
+    assert "rerun on the higher step cap 1" in results_text(out)
+
+
+def test_u_step_limit_twice_is_reported_as_step_limit(copy_db, run_dir):
+    # the first run stops at the normal cap; the one rerun (a fresh run, the checkpoint is gone) stops at the higher one
+    total = al.MAX_STEPS + sw.REPEAT_RETRY_STEPS
+    prov = al.FakeProvider(steps(total + 5))
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)])
+    assert stop_of(out) == "step limit" and len(prov.calls) == total
+    assert "sweep stopped early: step limit (I1)" in results_text(out)
+
+
+def test_v_a_plain_item_is_not_retried_and_keeps_the_normal_cap(copy_db, run_dir):
+    prov = al.FakeProvider(steps(al.MAX_STEPS * 2))
+    out = go(copy_db, run_dir, prov, [item(1)])
+    assert len(prov.calls) == al.MAX_STEPS and out["items_done"] == 1
+    assert "rerun on the higher step cap" not in results_text(out)
+    prov = al.FakeProvider([paid(), boom, fin(1)])
+    out = go(copy_db, run_dir / "b", prov, [item(1)])
+    assert len(prov.calls) == 2  # the error ended the item; nothing asked again
+
+
+def test_w_resume_after_a_retried_sweep_does_not_duplicate_or_overwrite(
+    copy_db, run_dir
+):
+    go(
+        copy_db,
+        run_dir,
+        al.FakeProvider([boom, fin(1), NONE_LEFT]),
+        [item(1, repeat=True)],
+    )
+    again = al.FakeProvider([])
+    out = go(copy_db, run_dir, again, [item(1, repeat=True)])
+    assert again.calls == [] and ids(out) == ["I1#1"] and stop_of(out) == "none left"
+
+
+def test_aa_provider_error_retry_uses_the_item_cap_minus_the_first_attempt(
+    copy_db, run_dir
+):
+    cap, per = 1.5, 0.1
+    script = [*(paid(per) for _ in range(10)), boom, *(paid(per) for _ in range(40))]
+    prov = al.FakeProvider(script)
+    out = go(copy_db, run_dir, prov, [item(1, repeat=True)], usd_cap_item=cap)
+    paid_calls = len(prov.calls) - 1  # the one provider error spent nothing
+    assert (
+        paid_calls * per <= cap + per + 1e-9
+    )  # a fresh cap would allow 15 paid steps more
+    assert stop_of(out) == "item cap"
+
+
+def test_ab_a_rerun_adds_to_the_failed_calls_of_the_first_attempt(copy_db, run_dir):
+    class FailBox(Box):
+        def run(self, name, args):
+            if name == paid()["tool"]:
+                return {"ok": False, "result": {}, "cites": []}
+            return super().run(name, args)
+
+    out = ar.run_review(copy_db, "D1", "invented_kind",
+                        al.FakeProvider([paid(), boom, paid(), boom]), run_dir=run_dir,
+                        toolbox_factory=lambda s, r: FailBox(), skill=skill(item(1, repeat=True)))  # fmt: skip
+    assert "tool calls failed: 2 of 2" in results_text(out)
