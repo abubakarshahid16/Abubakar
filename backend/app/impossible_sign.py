@@ -161,10 +161,15 @@ def hold_results(
 def impossible(fact: dict, rules: dict, wanted: frozenset | None) -> bool:
     """Is this one value impossible as read (`hold_results`'s own test)? `crs_routing` asks it of a stored fact,
     with the roles the check preferred (`checklist_scope.wanted`). None, those roles not found: a value that is
-    negative or a glued number counts as impossible (the safe side; the role it was read as is unknown)."""
+    negative or a glued number counts as impossible (the safe side; the role it was read as is unknown).
+
+    Impossible under EITHER reading, the wanted roles or none (the first matching role, as before PR 1735):
+    routing never keeps fewer rows than main, also when the submittal was re-classified after its check."""
     if wanted is None:
         return is_negative(fact) or _glued_number(fact)
-    return bool(_impossible([fact], rules, wanted))
+    return bool(
+        _impossible([fact], rules, wanted) or _impossible([fact], rules, frozenset())
+    )
 
 
 def hold_pass(verdict: dict, fact: dict | None) -> dict:

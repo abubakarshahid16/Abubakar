@@ -749,3 +749,37 @@ def test_an_impossible_value_in_the_findings_own_fact_keeps_the_row(monkeypatch,
     assert cl.is_listed(draft_pass(fact_id="f9"))
     own["f9"] = _fact("test pressure", value, 9)
     assert not cl.is_listed(draft_pass(fact_id="f9"))
+
+
+#: Invented rules, the other way round: the FIRST matching role may not be negative, the wanted one may.
+_FIRST_ROLE_BOUNDED = {
+    **_TWO_ROLES,
+    "roles": {
+        "a_role": {"kind": "x", "names": ["^thing$"], "never_negative": True},
+        "b_role": {"kind": "x", "names": ["^thing$"]},
+    },
+}
+
+
+@pytest.mark.parametrize(
+    "rules", [_TWO_ROLES, _FIRST_ROLE_BOUNDED], ids=["wanted-role", "first-role"]
+)
+def test_a_value_impossible_under_either_reading_keeps_the_row(
+    monkeypatch, sheet, rules
+):
+    """Routing never keeps fewer rows than main (PR 1735 review): impossible for the wanted role OR for the first
+    matching role (a re-classified submittal included), the row stays; the own fact and the rule's facts alike."""
+    switch(monkeypatch, routing=True)
+    monkeypatch.setattr(dc, "load_rules", lambda: rules)
+    monkeypatch.setattr(
+        crs_routing, "_rule_roles", lambda i: frozenset({"a_role", "b_role"})
+    )
+    _classify("Widget")
+    f = draft_pass()
+    sheet.facts = [_fact("thing", "15", 1)]
+    assert crs_routing.draft_pass_may_leave(f)
+    sheet.facts = [_fact("thing", "-3", 1)]
+    assert not crs_routing.draft_pass_may_leave(f)
+    sheet.facts = []
+    monkeypatch.setattr(crs_routing, "_own_fact", lambda i: _fact("thing", "-3", 9))
+    assert not crs_routing.draft_pass_may_leave(draft_pass(fact_id="f9"))
