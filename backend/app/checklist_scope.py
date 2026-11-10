@@ -140,12 +140,27 @@ def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[
     check DS-R1 must not stop with the checklist)."""
     from . import datasheet_checks
 
-    rules = datasheet_checks.load_rules()
-    if review_type(classification) is None:
-        rules = {**rules, "checklists": {}}
     return datasheet_checks.evaluate(
         facts,
         equipment_type=classification.get("equipment_type"),
         page_texts=page_texts,
-        rules=rules,
+        rules=rules_for(classification),
     )
+
+
+def rules_for(classification: dict) -> dict:
+    """The rules `evaluate` checks one review with: no checklist when `review_type` allows none."""
+    from . import datasheet_checks
+
+    rules = datasheet_checks.load_rules()
+    if review_type(classification) is None:
+        rules = {**rules, "checklists": {}}
+    return rules
+
+
+def wanted(classification: dict) -> frozenset:
+    """The roles a field name is read as when it names several, as `evaluate` reads them
+    (`datasheet_roles.wanted_roles` of the stored type, on the same rules)."""
+    from .datasheet_roles import wanted_roles
+
+    return wanted_roles(classification.get("equipment_type"), rules_for(classification))

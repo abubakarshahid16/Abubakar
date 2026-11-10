@@ -678,3 +678,108 @@ def test_a_kit_pass_the_rulebook_contradicts_loses_rule_not_proven():
     assert v2.settle_with_checks(SimpleNamespace(rows=[other]), [kit])[0][
         hold_reason.KEY
     ] == (hold_reason.RULE_NOT_PROVEN)
+
+
+# ------------------------------------------------------------ the routing re-check is as strong as the check (#1733 round 3)
+
+#: Invented rules: one field name, two roles; only the second may not be negative, and only the type "Widget" wants it.
+_TWO_ROLES = {
+    "roles": {
+        "a_role": {"kind": "x", "names": ["^thing$"]},
+        "b_role": {"kind": "x", "names": ["^thing$"], "never_negative": True},
+    },
+    "mandatory": {"_generic": [], "Widget": ["b_role"]},
+    "checklists": {},
+    "consistency": [],
+}
+
+
+def _classify(equipment_type):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by, equipment_type)"
+            " VALUES (?, 'none', ?)",
+            (DOC, equipment_type),
+        )
+
+
+def test_the_routing_recheck_reads_a_field_as_the_role_the_check_read_it(
+    monkeypatch, sheet
+):
+    """A name matching two roles is read as the one the equipment type wants, at check time and in routing."""
+    from app import impossible_sign
+
+    switch(monkeypatch, routing=True)
+    monkeypatch.setattr(dc, "load_rules", lambda: _TWO_ROLES)
+    monkeypatch.setattr(crs_routing, "_rule_roles", lambda i: frozenset({"b_role"}))
+    negative = _fact("thing", "-3", 1)
+    wanted = dc.datasheet_roles.wanted_roles("Widget", _TWO_ROLES)
+    # the check holds it
+    assert impossible_sign._impossible([negative], _TWO_ROLES, wanted)
+    assert not impossible_sign._impossible([negative], _TWO_ROLES, frozenset())
+    _classify("Widget")
+    f = draft_pass()
+    sheet.facts = [_fact("thing", "15", 1)]
+    assert crs_routing.draft_pass_may_leave(f)
+    sheet.facts = [negative]
+    assert not crs_routing.draft_pass_may_leave(f)
+
+
+def test_with_no_stored_type_an_impossible_looking_value_keeps_the_row(
+    monkeypatch, sheet
+):
+    """The safe side: the type's roles cannot be found, so a negative value the rule reads keeps the row."""
+    switch(monkeypatch, routing=True)
+    monkeypatch.setattr(dc, "load_rules", lambda: _TWO_ROLES)
+    monkeypatch.setattr(crs_routing, "_rule_roles", lambda i: frozenset({"b_role"}))
+    f = draft_pass()
+    sheet.facts = [_fact("thing", "15", 1)]
+    assert crs_routing.draft_pass_may_leave(f)
+    sheet.facts = [_fact("thing", "-3", 1)]
+    assert not crs_routing.draft_pass_may_leave(f)
+
+
+@pytest.mark.parametrize("value", ["-3", "PN-16"])
+def test_an_impossible_value_in_the_findings_own_fact_keeps_the_row(monkeypatch, value):
+    """The finding's own fact (current or superseded) is checked for an impossible value, as for a mark."""
+    switch(monkeypatch, routing=True)
+    _classify(None)
+    own = {"f9": _fact("test pressure", "15 barg", 9)}
+    monkeypatch.setattr(crs_routing, "_own_fact", lambda i: own.get(i))
+    assert cl.is_listed(draft_pass(fact_id="f9"))
+    own["f9"] = _fact("test pressure", value, 9)
+    assert not cl.is_listed(draft_pass(fact_id="f9"))
+
+
+#: Invented rules, the other way round: the FIRST matching role may not be negative, the wanted one may.
+_FIRST_ROLE_BOUNDED = {
+    **_TWO_ROLES,
+    "roles": {
+        "a_role": {"kind": "x", "names": ["^thing$"], "never_negative": True},
+        "b_role": {"kind": "x", "names": ["^thing$"]},
+    },
+}
+
+
+@pytest.mark.parametrize(
+    "rules", [_TWO_ROLES, _FIRST_ROLE_BOUNDED], ids=["wanted-role", "first-role"]
+)
+def test_a_value_impossible_under_either_reading_keeps_the_row(
+    monkeypatch, sheet, rules
+):
+    """Routing never keeps fewer rows than main (PR 1735 review): impossible for the wanted role OR for the first
+    matching role (a re-classified submittal included), the row stays; the own fact and the rule's facts alike."""
+    switch(monkeypatch, routing=True)
+    monkeypatch.setattr(dc, "load_rules", lambda: rules)
+    monkeypatch.setattr(
+        crs_routing, "_rule_roles", lambda i: frozenset({"a_role", "b_role"})
+    )
+    _classify("Widget")
+    f = draft_pass()
+    sheet.facts = [_fact("thing", "15", 1)]
+    assert crs_routing.draft_pass_may_leave(f)
+    sheet.facts = [_fact("thing", "-3", 1)]
+    assert not crs_routing.draft_pass_may_leave(f)
+    sheet.facts = []
+    monkeypatch.setattr(crs_routing, "_own_fact", lambda i: _fact("thing", "-3", 9))
+    assert not crs_routing.draft_pass_may_leave(draft_pass(fact_id="f9"))
