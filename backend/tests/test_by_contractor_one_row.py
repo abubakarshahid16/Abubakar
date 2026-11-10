@@ -169,6 +169,10 @@ def test_switch_on_the_contractor_copy_has_one_query_row_naming_every_field(
 
 def test_the_query_row_takes_the_first_members_place_and_number(monkeypatch):
     rows = issue_rows(monkeypatch, [*DEFERRED, BREACH], True)
+    late = {
+        k: v for k, v in rows[0].items() if k != bc.KEY
+    }  # a plain row after the deferred ones
+    rows.append({**late, "finding_id": "fid-late", "finding_ids": ["fid-late"]})
     rows = [
         {**r, "crs_ref": f"CRS-INV-00{i}", "crs_status": "Open"}
         for i, r in enumerate(rows, 1)
@@ -197,6 +201,7 @@ def test_switch_on_the_internal_copy_keeps_one_row_per_field(monkeypatch):
         {"crs_response": "Invented contractor reply"},
         {"crs_status": "Closed - invented note"},
     ],
+    ids=["edit", "answer", "shut"],
 )
 def test_a_row_with_the_engineers_words_a_reply_or_a_closed_number_keeps_its_own_row(
     monkeypatch, over
