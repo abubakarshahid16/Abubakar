@@ -110,6 +110,8 @@ _KIND_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("feed", re.compile(r"\bFEED\b|(?i:\bfront[- ]end\s+engineering\s+design\b)")),
     ("datasheet", re.compile(r"\bdata\s?sheets?\b", re.I)),
 )
+#: A title cue list: `_KIND_CUES`, or the paper kind's own (`paper_kind`).
+Cues = Sequence[tuple[str, re.Pattern[str]]]
 _STANDARD_LINE = re.compile(
     r"^(?:SAES|SAEP|SAIC|ISO|IEC|API|ASME|ASTM|NORSOK|NFPA|IEEE|BS|DIN|EN)"
     r"[-\s]?[A-Z]{0,3}[-\s]?\d",
@@ -200,8 +202,7 @@ def _type_code_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | N
 
 
 def _title_cue_hit(
-    lines: Sequence[tuple[int, str]],
-    cues: Sequence[tuple[str, re.Pattern[str]]] = _KIND_CUES,
+    lines: Sequence[tuple[int, str]], cues: Cues = _KIND_CUES
 ) -> tuple[str, int, str] | None:
     # #1476: the earliest page first - a document names itself at its start, and
     # an attachment deep inside (a safety data sheet on page 51) is not its title.
@@ -234,10 +235,7 @@ def _contract_body_hit(pages: Sequence[dict]) -> tuple[int, str] | None:
 
 
 def decide_document_kind(
-    pages: Sequence[dict],
-    *,
-    document_role: str | None = None,
-    cues: Sequence[tuple[str, re.Pattern[str]]] = _KIND_CUES,
+    pages: Sequence[dict], *, document_role: str | None = None, cues: Cues = _KIND_CUES
 ) -> DocumentKindEvidence:
     """The kind of ONE document from its title block and cover; pure, no I/O.
 

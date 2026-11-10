@@ -197,7 +197,10 @@ def _pages_of(document_id: str) -> list[str]:
 
 def route_document(document_id: str) -> Routing | None:
     """Route one document and store the result. A CONFIRMED kind is left alone
-    (None is returned). Idempotent."""
+    (None is returned). Idempotent. Switch on: the paper kind too (`paper_kind`)."""
+    from . import paper_kind
+
+    paper_kind.classify_quietly(document_id)
     conn = connect()
     existing = conn.execute("SELECT state, router_version FROM document_kinds WHERE document_id = ?",
                             (document_id,)).fetchone()

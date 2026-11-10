@@ -209,6 +209,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
 | `doc_router` | The document-type router (W5b-02, #526) |
 | `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
+| `paper_kind` | Paper kind first (owner order 11 Nov step 2, #805): one kind of a closed list (datasheet, procedure, contract, drawing, test record, other) from the paper's cover and title; a procedure or contract keeps an equipment type only as a secondary label; behind PAPER_KIND_FIRST_ENABLED (off) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
 | `kind_standards` | Standards by role and document kind: a procedure or study leaves out equipment design standards, counted in the run note; method standards still needed are named once (off by default) |
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |

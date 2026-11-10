@@ -131,12 +131,6 @@ def _route_document_kind(doc_id: str, result: dict) -> None:
     except Exception as exc:  # noqa: BLE001 - advice must not block ingestion
         _log.warning("document type routing failed for %s: %s", doc_id, type(exc).__name__)
         result["route_kind_error"] = type(exc).__name__
-    # Owner order 11 Nov step 2: every paper gets a paper kind (switch off: nothing).
-    from . import paper_kind
-
-    decided = paper_kind.classify_quietly(doc_id)
-    if decided is not None:
-        result["paper_kind"] = decided.paper_kind
 
 
 class IngestionWorker(ReviewDrain):

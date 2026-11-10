@@ -51,7 +51,9 @@ CONTRACT = (
     "1.0 CONTRACTOR shall submit a plan within thirty days of this CONTRACT.\n"
     + _filler("Clause")
 )
-DATASHEET = "ACME PLANT PROJECT\nCENTRIFUGAL PUMP DATA SHEET\nREV.: 00\n" + _filler("Row")
+DATASHEET = "ACME PLANT PROJECT\nCENTRIFUGAL PUMP DATA SHEET\nREV.: 00\n" + _filler(
+    "Row"
+)
 
 
 def _doc(doc_id, pages, *, role="CONTRACTOR_SUBMITTAL", filename=None):
@@ -60,7 +62,15 @@ def _doc(doc_id, pages, *, role="CONTRACTOR_SUBMITTAL", filename=None):
         conn.execute(
             "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path,"
             " status, uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            (doc_id, filename or f"{doc_id}.pdf", doc_id, 1, "x", "ready", "2026-11-11"),
+            (
+                doc_id,
+                filename or f"{doc_id}.pdf",
+                doc_id,
+                1,
+                "x",
+                "ready",
+                "2026-11-11",
+            ),
         )
         for n, text in enumerate(pages, start=1):
             conn.execute(
@@ -83,11 +93,15 @@ def _doc(doc_id, pages, *, role="CONTRACTOR_SUBMITTAL", filename=None):
 
 
 def _equipment(doc_id):
-    row = db.connect().execute(
-        "SELECT equipment_type, equipment_type_evidence FROM document_classification"
-        " WHERE document_id = ?",
-        (doc_id,),
-    ).fetchone()
+    row = (
+        db.connect()
+        .execute(
+            "SELECT equipment_type, equipment_type_evidence FROM document_classification"
+            " WHERE document_id = ?",
+            (doc_id,),
+        )
+        .fetchone()
+    )
     return row["equipment_type"], json.loads(row["equipment_type_evidence"] or "null")
 
 
@@ -118,9 +132,22 @@ def test_kind_from_the_papers_own_title(lines, want):
 
 def test_the_list_is_closed():
     assert paper_kind.PAPER_KINDS == (
-        "datasheet", "procedure", "contract", "drawing", "test_record", "other",
+        "datasheet",
+        "procedure",
+        "contract",
+        "drawing",
+        "test_record",
+        "other",
     )
-    for kind in ("specification", "transmittal", "feed", "standard", "unknown", None, "letter"):
+    for kind in (
+        "specification",
+        "transmittal",
+        "feed",
+        "standard",
+        "unknown",
+        None,
+        "letter",
+    ):
         assert paper_kind.to_paper_kind(kind) == "other"
 
 
@@ -134,14 +161,22 @@ def test_a_standard_is_other():
 def test_number_outside_the_list_and_title_inside_takes_the_title_as_a_guess():
     page = _page("Document No. 99999-00-SP-0001", "AIR COOLER DATA SHEET")
     got = paper_kind.decide_paper_kind([page])
-    assert (got.paper_kind, got.guess, got.source_kind) == ("datasheet", True, "specification")
+    assert (got.paper_kind, got.guess, got.source_kind) == (
+        "datasheet",
+        True,
+        "specification",
+    )
 
 
 def test_engineer_confirmed_kind_decides():
     got = paper_kind.decide_paper_kind(
         [_page("ACME", "HAZARD STUDY PROCEDURE")], confirmed_kind="contract"
     )
-    assert (got.paper_kind, got.method, got.guess) == ("contract", "engineer_confirmed", False)
+    assert (got.paper_kind, got.method, got.guess) == (
+        "contract",
+        "engineer_confirmed",
+        False,
+    )
 
 
 def test_file_name_never_decides(monkeypatch):
@@ -168,7 +203,9 @@ def test_switch_on_every_paper_gets_a_kind(monkeypatch):
     for doc_id in ("c1", "p1", "s1"):
         paper_kind.classify_paper_kind(doc_id)
     assert [paper_kind.stored(d) for d in ("c1", "p1", "s1")] == [
-        "contract", "procedure", "other",
+        "contract",
+        "procedure",
+        "other",
     ]
 
 
@@ -215,12 +252,19 @@ def test_a_cleared_main_type_is_audited(monkeypatch):
     classification.classify_equipment_type_for_submittal("p1")  # switch off: a type
     monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
     classification.classify_equipment_type_for_submittal("p1")
-    rows = db.connect().execute(
-        "SELECT detail FROM audit_events WHERE action = 'equipment_type_reclassified'"
-        " AND resource_id = 'p1'"
-    ).fetchall()
+    rows = (
+        db.connect()
+        .execute(
+            "SELECT detail FROM audit_events WHERE action = 'equipment_type_reclassified'"
+            " AND resource_id = 'p1'"
+        )
+        .fetchall()
+    )
     details = [json.loads(r["detail"]) for r in rows]
-    assert {"old": "Centrifugal Compressor", "new": "none (procedure)"}.items() <= details[-1].items()
+    assert {
+        "old": "Centrifugal Compressor",
+        "new": "none (procedure)",
+    }.items() <= details[-1].items()
 
 
 def test_kind_never_changes_who_may_read(monkeypatch):
@@ -229,9 +273,13 @@ def test_kind_never_changes_who_may_read(monkeypatch):
     _doc("p1", [PROCEDURE])
     conn = db.connect()
     grant_tables = ["document_role_access", "user_roles", "roles"]
-    before = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in grant_tables}
+    before = {
+        t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in grant_tables
+    }
     classification.classify_equipment_type_for_submittal("p1")
-    after = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in grant_tables}
+    after = {
+        t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in grant_tables
+    }
     assert grant_tables and before == after
 
 
@@ -241,10 +289,11 @@ def test_ingest_labels_every_paper_after_routing(monkeypatch):
     _doc("c1", [CONTRACT], role=None)
     result: dict = {}
     ingest._route_document_kind("c1", result)
-    assert "paper_kind" not in result  # switch off: as it was
+    tables = {r[0] for r in db.connect().execute("SELECT name FROM sqlite_master")}
+    assert "paper_kinds" not in tables  # switch off: as it was
     monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
     ingest._route_document_kind("c1", result)
-    assert result["paper_kind"] == "contract" and paper_kind.stored("c1") == "contract"
+    assert paper_kind.stored("c1") == "contract"
 
 
 def test_main_label_of_a_procedure_is_never_its_stored_type(monkeypatch):

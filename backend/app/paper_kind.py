@@ -110,8 +110,12 @@ def decide_paper_kind(
     `PAPER_CUES`."""
     if confirmed_kind:
         return PaperKind(
-            to_paper_kind(confirmed_kind), None, None, "engineer_confirmed",
-            False, confirmed_kind,
+            to_paper_kind(confirmed_kind),
+            None,
+            None,
+            "engineer_confirmed",
+            False,
+            confirmed_kind,
         )
     found = document_kind.decide_document_kind(
         pages, document_role=document_role, cues=PAPER_CUES
@@ -126,6 +130,7 @@ def decide_paper_kind(
 
 
 # ------------------------------------------------------------------ storage
+
 
 @schema_once
 def ensure_schema(conn=None) -> None:
@@ -176,7 +181,9 @@ def classify_paper_kind(document_id: str) -> PaperKind | None:
     decided = decide_paper_kind(
         pages,
         document_role=role["document_role"] if role else None,
-        confirmed_kind=confirmed[0] if confirmed and confirmed[1] == "confirmed" else None,
+        confirmed_kind=confirmed[0]
+        if confirmed and confirmed[1] == "confirmed"
+        else None,
     )
     if decided.paper_kind not in PAPER_KINDS:  # the list is closed
         raise ValueError(f"not a paper kind: {decided.paper_kind}")
@@ -196,11 +203,14 @@ def classify_quietly(document_id: str) -> PaperKind | None:
     try:
         return classify_paper_kind(document_id)
     except Exception as exc:  # noqa: BLE001 - a label must not block ingestion
-        _log.warning("the paper kind of %s was not written (%s)", document_id, type(exc).__name__)
+        _log.warning(
+            "the paper kind of %s was not written (%s)", document_id, type(exc).__name__
+        )
         return None
 
 
 # ------------------------------------------------- equipment type, secondary
+
 
 def secondary_equipment(pages: Sequence[dict]) -> dict | None:
     """The equipment type the title block names, kept as a SECONDARY label of a
@@ -208,12 +218,32 @@ def secondary_equipment(pages: Sequence[dict]) -> dict | None:
     lines = [
         (pg, ln)
         for pg, ln in title_block_lines(pages)
-        if len(ln.split()) <= document_kind._TITLE_WORDS_MAX and not ln.rstrip().endswith(".")
+        if len(ln.split()) <= document_kind._TITLE_WORDS_MAX
+        and not ln.rstrip().endswith(".")
     ]
     found = suggest_equipment_type_from_title(lines)
     if found is None:
         return None
-    return {"equipment_type": found.equipment_type, "page": found.page, "quote": found.quote}
+    return {
+        "equipment_type": found.equipment_type,
+        "page": found.page,
+        "quote": found.quote,
+    }
+
+
+def no_main_equipment(document_id: str, pages: Sequence[dict]) -> bool:
+    """Called before the equipment type is decided: True when no main type may be
+    stored (a procedure or a contract; or the kind could not be decided, logged).
+    Switch off: False, nothing written."""
+    try:
+        return hold_main_equipment(document_id, pages) is not None
+    except Exception as exc:  # noqa: BLE001 - no kind, no guessed type
+        _log.warning(
+            "the paper kind of %s was not decided (%s); no equipment type stored",
+            document_id,
+            type(exc).__name__,
+        )
+        return True
 
 
 def hold_main_equipment(document_id: str, pages: Sequence[dict]) -> str | None:
