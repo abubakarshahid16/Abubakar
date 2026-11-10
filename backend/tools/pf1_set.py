@@ -480,7 +480,8 @@ def build(spec: dict, out_dir: str | Path, *, allow_in_git: bool = False) -> dic
     out.mkdir(parents=True, exist_ok=True)
     for name, data in files.items():
         (out / name).write_bytes(data)
-    (out / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    # Bytes, as for the keys: text mode writes "\r\n" on Windows, and the committed set is LF.
+    (out / "index.json").write_bytes((json.dumps(index, indent=2) + "\n").encode("utf-8"))
     return index
 
 
