@@ -35,6 +35,7 @@ import re
 from pathlib import Path
 
 from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
+from . import hold_reason as why_held
 from .at_limit import hold as _hold
 from .checklist_scope import governs, sources
 from .config import settings
@@ -537,7 +538,6 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     return found[0], None
 
 
-
 def _page_span(page_texts: dict[int, str] | None) -> str:
     pages = sorted(page_texts or {})
     if not pages:
@@ -634,6 +634,9 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                 # Stored with the finding like any other citation (#805 Stage A).
                 "standard": source["standard"], "clause": source["clause"], "draft": draft}
 
+    def held(code, detail, fact=None, role=None):  # with a `hold_reason` code
+        return {**res(NEEDS_ENGINEER_REVIEW, detail, fact, role), why_held.KEY: code}
+
     raw_conditions = item.get("condition")
     # One condition, or a list that must ALL hold (a bellows valve AND sour service).
     conditions = (raw_conditions if isinstance(raw_conditions, list)
@@ -651,9 +654,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                     f"to use is not known")), "calc": True}
             implied = implied_phase(get, condition["role"], rules) if why == "absent" else None
             if implied and not any(_fold(word) in implied[0] for word in condition["any"]):
-                # R12 (#776): the phase is not stated, but the service names the
-                # OTHER phase - this item probably does not apply. Asked, never
-                # decided: a guess is shown as a guess (CLAUDE.md rule 4).
+                # R12 (#776): the phase is not stated, but the service names the OTHER phase - this item
+                # probably does not apply. Asked, never decided: a guess is shown as a guess (CLAUDE.md rule 4).
                 phase, hint, hint_role = implied
                 return res(NEEDS_ENGINEER_REVIEW, _sentence(
                     f"the {_pretty(condition['role']).lower()} is not stated, and "
@@ -663,9 +665,9 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             if item.get("when_unknown") != "evaluate":
                 state = ("the sheet does not state it" if why == "absent"
                          else "it has two different values on the sheet")
-                return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                return held(why_held.applicability(why), _sentence(
                     f"whether it applies depends on the {_pretty(condition['role']).lower()}, and {state}"))
-            unknown = unknown or condition
+            unknown = unknown or {**condition, "_why": why}
             continue
         stated = _fold(_shown(cond_fact))
         if not any(_fold(word) in stated for word in condition["any"]):
@@ -678,17 +680,15 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return evaluate_calc(item, field, get, res, rules)
     fact, why = _one(get(field))
     if fact is None and unknown is not None:
-        # The condition is unknown and the field is absent: whether the
-        # contractor owes this value is not known, so it is not a missing value.
-        return res(NEEDS_ENGINEER_REVIEW, _sentence(
+        # The condition is unknown and the field is absent: whether the contractor owes this value is not known, so it is not a missing value.
+        return held(why_held.unknown_condition(unknown["_why"]), _sentence(
             f"the {_pretty(field).lower()} is not given, and whether it is needed depends on the "
             f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
     if fact is None:
         if why == "absent":
-            # PLANNER 2026-10-10 (F-a): a field not read as a fact is searched
-            # for in the text of every page. On the sheet but not read is a
-            # READER GAP, never the contractor's omission; not in any page's
-            # text, with every page's text there, is missing (the contractor's).
+            # PLANNER 2026-10-10 (F-a): a field not read as a fact is searched for in the text of every
+            # page. On the sheet but not read is a READER GAP, never the contractor's omission; not in
+            # any page's text, with every page's text there, is missing (the contractor's).
             searched = label_search(field, rules, page_texts or {})
             if searched is None:
                 return res(MISSING_INFORMATION,
@@ -703,9 +703,9 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                     f"{_pretty(field)} was not read as a value, and no label for it was found in the text of pages "
                     f"{_page_span(page_texts)} (searched by its name; the sheet may state it in other words); the contractor is to provide it.")
             return {**r, "text_searched": True}
-        return res(NEEDS_ENGINEER_REVIEW,
-                   _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
-                   get(field)[0])
+        return held(why_held.FIELD_SEVERAL_VALUES,
+                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
+                    get(field)[0])
     if blank_markers.fact_is_placeholder(fact, figure_wins=True):
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
@@ -771,7 +771,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if other is None or other.get("is_blank"):
             state = ("is not given" if (other is not None or why == "absent")
                      else "is stated twice with different values")
-            return res(NEEDS_ENGINEER_REVIEW, _sentence(
+            return held(why_held.checked_against(other, why), _sentence(
                 f"the {_pretty(rule['right']).lower()} it is checked against {state}"), fact)
         right = _scale(_measure(other))
         if kind == "percent_of":
@@ -1186,7 +1186,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             "trust_label": r.get("trust_label"), "tier": r.get("tier"),
             "show_for_engineer_tick": (int(bool(r["show_for_engineer_tick"]))
                                        if "trust_label" in r else None),
-            "rule_said": r.get("rule_said"),
+            "rule_said": r.get("rule_said"), why_held.COLUMN: why_held.stored(r, status),
         }, created_by=None)
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
