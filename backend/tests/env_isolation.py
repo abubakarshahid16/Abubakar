@@ -318,6 +318,7 @@ EGRESS_SAFE: dict[str, object] = {
     "standard_scope_not_no_enabled": False,
     "crs_compliance_list_enabled": False,
     "crs_routing_by_hold_reason_enabled": False,  # owner order 10 Nov step 4: which sheet shows a row, no model or socket
+    "paper_kind_first_enabled": False,  # owner order 11 Nov step 2: paper kind first, no model or socket
     "crs_drop_placeholder_rows_enabled": False,
     "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)

@@ -691,6 +691,17 @@ def classify_equipment_type_for_submittal(
     pages = [dict(r) for r in conn.execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?"
         " ORDER BY page_no", (document_id,))]
+    # Owner order 11 Nov step 2: the paper kind first; a procedure or a contract
+    # takes no equipment type as its main label (switch off: nothing happens).
+    # A failure stores no type at all: a guess is not made without the kind.
+    from . import paper_kind
+    try:
+        if paper_kind.hold_main_equipment(document_id, pages) is not None:
+            return None
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("the paper kind of %s was not decided (%s); no equipment type"
+                     " stored", document_id, type(exc).__name__)
+        return None
     evidence = equipment_title_block.decide(
         conn, document_id, pages, kind_on, existing["document_role"]
     )
