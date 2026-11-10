@@ -137,9 +137,8 @@ def empty_comment_text(crs_ref: str = "", carried: bool = False) -> str:
     return EMPTY_COMMENT_TEXT
 
 
-#: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
-#: engineering check's unconfirmed items, so the engineer sees them on the
-#: sheet before confirming. No existing column moves or is renamed.
+#: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI engineering check's unconfirmed
+#: items, so the engineer sees them on the sheet before confirming. No existing column moves or is renamed.
 AI_COLUMN = "AI Review Comments"
 AI_COLUMN_WIDTH = 60.0
 MAX_ROW_HEIGHT = 409  # Excel's largest row height, in points
@@ -636,8 +635,9 @@ def _note_cell(ws, view: dict, put) -> None:
 
 
 def _wraps(column: int, value) -> bool:
-    """The columns that wrap, and any cell of several lines (the By Contractor query row's Item No)."""
-    return column in (3, 4, 8, 10, 11, 12) or "\n" in str(value)
+    """The columns that wrap; switch on, also an Item No of several lines (the By Contractor query row's)."""
+    several = column == 1 and "\n" in str(value) and crs_by_contractor.enabled()
+    return column in (3, 4, 8, 10, 11, 12) or several
 
 
 def row_height(comment: str) -> int:

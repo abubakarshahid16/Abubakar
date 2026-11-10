@@ -342,6 +342,7 @@ def test_a_reply_on_the_query_row_is_read_for_every_members_number(monkeypatch):
     ws = wb.worksheets[0]
     (cell,) = [c for r in ws.iter_rows() for c in r if bc.LEAD in str(c.value or "")]
     assert ws.cell(cell.row, 1).value.split("\n") == members
+    assert ws.cell(cell.row, 1).alignment.wrap_text  # every number shown, one per line
     ws.cell(cell.row, 6).value = "Clarification needed - invented reply"
     out = io.BytesIO()
     wb.save(out)
@@ -406,3 +407,32 @@ def test_switch_off_a_tall_row_keeps_mains_height(monkeypatch):
     ).worksheets[0]
     (cell,) = [c for r in ws.iter_rows() for c in r if c.value == comment]
     assert ws.row_dimensions[cell.row].height == mains
+
+
+def test_switch_off_the_workbook_is_mains_values_and_styles(monkeypatch):
+    """Switch off, the workbook at this head equals the one main's code built (`crs_by_contractor_off_layout.json`,
+    dumped once from origin/main): every cell's value and style, wrap and row heights included, on both copies,
+    export quality off and on. The fixture holds a contractor reply of two lines and a tall row."""
+    import json
+    from pathlib import Path
+
+    from tests.crs_by_contractor_off_layout import build_all
+
+    switch(monkeypatch, False)
+    path = Path(__file__).parent / "crs_by_contractor_off_layout.json"
+    expected = json.loads(path.read_text())
+    got = json.loads(json.dumps(build_all(), sort_keys=True))
+    assert sorted(got) == sorted(expected)
+    for name, book in expected.items():
+        assert got[name]["sheets"] == book["sheets"], name
+        for sheet in book["sheets"]:
+            for part in ("widths", "merged", "heights", "max", "cells"):
+                assert got[name][sheet][part] == book[sheet][part], (name, sheet, part)
+    reply = [
+        c
+        for c in expected["issue-quality-off"]["CRS"]["cells"]
+        if "invented second line" in str(c[1])
+    ]
+    assert (
+        reply and not reply[0][4]
+    )  # main does not wrap the reply cell; neither may this head
