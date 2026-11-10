@@ -590,3 +590,42 @@ def test_kept_keys_include_a_row_an_engineer_decided_on_this_run(temp_storage):
         "eng-1",
     )
     assert crs_routing._kept_keys(rows, "run-d", "scope-d") == {"k-decided"}
+
+
+def test_r3_a_deferral_phrase_in_a_values_note_keeps_the_row(switch, monkeypatch):
+    """'CF8M' printed with the note 'By Contractor' beside it is not an unmarked value."""
+    switch(True)
+    noted = [fact("CF8M", "a"), fact("WCB", "b", value_note="By Contractor")]
+    monkeypatch.setattr(crs_routing, "_field_values", lambda i: noted)
+    assert crs_routing.rule(held(hold_reason.FIELD_SEVERAL_VALUES, "R3")) is None
+    noted[1]["value_note"] = "Invented plain note"
+    assert crs_routing.rule(held(hold_reason.FIELD_SEVERAL_VALUES, "R3")) == "R3"
+
+
+def test_r3_reads_only_current_facts_a_superseded_reading_is_not_a_value(
+    monkeypatch, temp_storage
+):
+    from app import db
+
+    monkeypatch.setattr(settings, "crs_routing_by_hold_reason_enabled", True)
+    _doc("sub_sup", "CONTRACTOR_SUBMITTAL", "Invented valve datasheet.")
+    with db.connect() as conn:
+        for fid, value, gone in (
+            ("s0", "CF8M", None),
+            ("s1", "WCB", None),
+            ("s2", "TBD", "2026-11-09"),
+        ):
+            conn.execute(
+                "INSERT INTO submittal_facts (id, submittal_document_id, field_name, field_label,"
+                " field_value, raw_value, is_blank, page, created_at, updated_at, superseded_at)"
+                " VALUES (?,?,'Body material','Body material',?,?,0,1,'2026-11-10','2026-11-10',?)",
+                (fid, "sub_sup", value, value, gone),
+            )
+    assert [f["id"] for f in crs_routing._field_values("s0")] == ["s0", "s1"]
+    finding = held(
+        hold_reason.FIELD_SEVERAL_VALUES,
+        "R3",
+        fact_id="s0",
+        contractor_evidence_text="CF8M",
+    )
+    assert crs_routing.rule(finding) == "R3"
