@@ -390,6 +390,12 @@ class SettingsExt(BaseModel):
     #: is listed as "No issue found (draft rule)" (`compliance_list._draft_pass`). No verdict changes. OFF: as it was.
     #: Env: CRS_ROUTING_BY_HOLD_REASON_ENABLED.
     crs_routing_by_hold_reason_enabled: bool = False
+    #: Owner order 11 Nov, step 2 (#805): paper kind first. Every paper gets one kind of a closed list (datasheet,
+    #: procedure, contract, drawing, test record, other) from its own cover and title words (`paper_kind`), before
+    #: the equipment type; a procedure or a contract keeps an equipment type only as a SECONDARY label, never the
+    #: main one. Classification only, never access control (rule 5). No model. OFF: as it was.
+    #: Env: PAPER_KIND_FIRST_ENABLED.
+    paper_kind_first_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
