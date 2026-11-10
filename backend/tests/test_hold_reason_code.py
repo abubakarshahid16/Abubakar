@@ -151,7 +151,7 @@ EXPECTED_CODE = {
     "T-5": None,  # decided (COMPLIANT): not held, no code
     "T-6": hold_reason.DEFERRED_MARKER,
     "T-7": hold_reason.OTHER,  # held for a reason with no named code: the fallback
-    "T-8": hold_reason.APPLICABILITY_SEVERAL_VALUES,  # the words say "does not state"
+    "T-8": hold_reason.APPLICABILITY_SEVERAL_VALUES,
     "T-9": hold_reason.FIELD_SEVERAL_VALUES,
 }
 
@@ -220,6 +220,25 @@ BEFORE = {
         f"The set pressure is at most the design pressure (STD-1 4.4; {_DRAFT})",
         "Could not be checked: the design pressure it is checked against is stated "
         "twice with different values.",
+        "minor",
+    ),
+}
+
+
+#: T-8's words changed on purpose (docs/status-honesty-audit.md, the two-values
+#: entry): its condition has TWO values on the sheet, so "which the sheet does not
+#: state" was false. Every other prose line stays byte-identical to BEFORE.
+SEVERAL_WORDS = (
+    "for which the sheet gives several different values, and the engineer is to "
+    "confirm which one applies"
+)
+NOW = {
+    **BEFORE,
+    "T-8": (
+        "NEEDS_ENGINEER_REVIEW",
+        _BODY,
+        "Could not be checked: the body material is not given, and whether it is needed "
+        f"depends on the test condition, {SEVERAL_WORDS}.",
         "minor",
     ),
 }
@@ -315,8 +334,8 @@ def test_an_old_findings_table_gains_the_column(monkeypatch):
 
 def test_the_stored_prose_is_byte_identical_to_before(monkeypatch):
     stored = _stored(monkeypatch)
-    assert set(stored) == set(BEFORE)
-    for rule_id, (status, requirement, detail, severity) in BEFORE.items():
+    assert set(stored) == set(NOW)
+    for rule_id, (status, requirement, detail, severity) in NOW.items():
         f = stored[rule_id]
         assert f["compliance_status"] == status
         assert f["requirement"] == requirement
@@ -347,3 +366,27 @@ def test_the_crs_is_the_same_with_and_without_the_code(monkeypatch):
     assert crs_export.build_crs_view(rows, meta) == crs_export.build_crs_view(
         crs_mapping.build_crs_rows(without, [], "sheet.pdf"), meta
     )
+
+
+# ------------------------------------------------------------ two values: the words are true
+
+
+def test_two_values_for_the_condition_are_never_called_not_stated(monkeypatch):
+    """An invented sheet gives the condition two values and leaves the field out. The
+    reason says several values are given and the engineer confirms which applies; it
+    never says the sheet "does not state" the condition (it does, twice). The code and
+    the status are unchanged."""
+    two = {"test_condition": [_cond(21, "yes"), _cond(22, "no")]}
+    result = _eval(_item("T-10", COND, "evaluate"), two)
+    assert result["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert result[hold_reason.KEY] == hold_reason.APPLICABILITY_SEVERAL_VALUES
+    assert "does not state" not in result["detail"]
+    assert SEVERAL_WORDS in result["detail"]
+    # the absent case keeps its true words
+    absent = _eval(_item("T-11", COND, "evaluate"), {})
+    assert absent["detail"].endswith("which the sheet does not state.")
+    assert SEVERAL_WORDS not in absent["detail"]
+    # and no CRS row built from the stored T-8 says "does not state"
+    findings = [f for k, f in _stored(monkeypatch).items() if k == "T-8"]
+    rows = crs_mapping.build_crs_rows(findings, [], "sheet.pdf")
+    assert rows and not any("does not state" in str(r) for r in rows)

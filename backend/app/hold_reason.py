@@ -80,8 +80,9 @@ def applicability(why: str | None) -> str:
 def unknown_condition(why: str | None) -> str:
     """The code for "the field is not given, and whether it is needed depends on a
     condition" (`when_unknown: "evaluate"`): `why` is the reason `datasheet_checks._one`
-    gave for that condition. Two values on the sheet is the several-values case,
-    although the words say "which the sheet does not state" for both."""
+    gave for that condition. Two values on the sheet is the several-values case, and
+    its words say the sheet gives several values and the engineer confirms which one
+    applies (only the absent case says "which the sheet does not state")."""
     return (
         APPLICABILITY_NOT_STATED_ABSENT
         if why == "absent"
