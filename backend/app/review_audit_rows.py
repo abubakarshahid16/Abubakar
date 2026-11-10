@@ -24,6 +24,7 @@ _REMOVED_WORDS = {
     "not_engineer_confirmed": "not engineer-confirmed",
     "safety_ticks": "safety ticks",
     "withheld_no_text": "no text",
+    "folded_by_contractor": "folded into the By Contractor row",
 }
 
 
@@ -47,6 +48,9 @@ def crs_reconciliation(rows: list[dict], meta: dict) -> dict:
             ),
             "withheld_no_text": view["rows_withheld_no_text"],
         }
+        # switch on only: one By Contractor query row stands for these rows
+        if view.get(ce.crs_by_contractor.FOLDED):
+            removed["folded_by_contractor"] = view[ce.crs_by_contractor.FOLDED]
     # the rows the copy itself adds to what was composed (`crs_export._copy_and_rows`)
     composed = len(ce._copy_and_rows(rows, meta)[1])
     exported, total = len(view["rows"]), sum(removed.values())

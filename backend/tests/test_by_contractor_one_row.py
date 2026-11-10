@@ -182,7 +182,9 @@ def test_the_query_row_takes_the_first_members_place_and_number(monkeypatch):
     v = view(rows, crs_export.COPY_ISSUE)
     query = next(r for r in v["rows"] if bc.LEAD in r["comment"])
     assert v["rows"].index(query) == first
-    assert query["item_no"] == rows[first]["crs_ref"]
+    # Item No: every member's number, the first member's first, one per line
+    assert query["item_no"] == "\n".join(r["crs_ref"] for r in rows if bc.KEY in r)
+    assert query["item_no"].split("\n")[0] == rows[first]["crs_ref"]
     for r in rows:
         if bc.KEY in r:  # every member's own number stays on its line
             assert r["crs_ref"] in query["comment"]
@@ -318,3 +320,73 @@ def test_with_export_quality_on_a_long_query_row_keeps_every_field_in_its_commen
     for n in range(1, 13):
         assert f"- Invented quantity {n} (tag Q-7, p.{n}" in query["comment"]
     assert crs_export.AI_COLUMN not in v["columns"]
+
+
+# ------------------------------------------------------------ review fixes: replies, audit count, row height
+
+
+def numbered(rows):
+    return [
+        {**r, "crs_ref": f"CRS-INV-{i:03d}", "crs_status": "Open"}
+        for i, r in enumerate(rows, 1)
+    ]
+
+
+def test_a_reply_on_the_query_row_is_read_for_every_members_number(monkeypatch):
+    from app import crs_reply
+
+    rows = numbered(issue_rows(monkeypatch, [*DEFERRED, BREACH], True))
+    members = [r["crs_ref"] for r in rows if bc.KEY in r]
+    meta = {"review_run_id": "run-inv", "copy": crs_export.COPY_ISSUE}
+    wb = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, meta)))
+    ws = wb.worksheets[0]
+    (cell,) = [c for r in ws.iter_rows() for c in r if bc.LEAD in str(c.value or "")]
+    assert ws.cell(cell.row, 1).value.split("\n") == members
+    ws.cell(cell.row, 6).value = "Clarification needed - invented reply"
+    out = io.BytesIO()
+    wb.save(out)
+    replies = crs_reply.read_replies(out.getvalue())
+    got = {r["item"]: r["response"] for r in replies}
+    for ref in members:
+        assert got[ref] == "Clarification needed - invented reply"
+    assert len({r["row"] for r in replies if r["item"] in members}) == 1
+
+
+def test_a_reply_on_one_members_number_alone_is_read_for_that_number():
+    from app import crs_reply
+
+    assert crs_reply.numbers_in("CRS-INV-002") == ["CRS-INV-002"]
+    assert crs_reply.numbers_in("CRS-INV-002\nCRS-INV-003") == [
+        "CRS-INV-002",
+        "CRS-INV-003",
+    ]
+    # a line that is no number: the cell stays one item, matched or reported as before
+    assert crs_reply.numbers_in("CRS-INV-002\ninvented note") == [
+        "CRS-INV-002\ninvented note"
+    ]
+
+
+@pytest.mark.parametrize("on", [False, True], ids=["switch_off", "switch_on"])
+def test_the_audit_reconciliation_adds_up_with_the_folded_rows(monkeypatch, on):
+    from app import review_audit_rows
+
+    rows = issue_rows(monkeypatch, [*DEFERRED, BREACH], on)
+    meta = {"review_run_id": "run-inv", "copy": crs_export.COPY_ISSUE}
+    rec = review_audit_rows.crs_reconciliation([dict(r) for r in rows], meta)
+    assert rec["adds_up"], rec["line"]
+    if on:
+        assert rec["removed"]["folded_by_contractor"] == 2
+        assert "folded into the By Contractor row 2" in rec["line"]
+    else:
+        assert "folded_by_contractor" not in rec["removed"]
+
+
+def test_a_query_row_of_many_fields_is_no_taller_than_excel_allows(monkeypatch):
+    many = [finding(n, page=n) for n in range(1, 61)]
+    rows = issue_rows(monkeypatch, many, True)
+    meta = {"review_run_id": "run-inv", "copy": crs_export.COPY_ISSUE}
+    ws = openpyxl.load_workbook(
+        io.BytesIO(crs_export.build_crs(rows, meta))
+    ).worksheets[0]
+    (cell,) = [c for r in ws.iter_rows() for c in r if bc.LEAD in str(c.value or "")]
+    assert ws.row_dimensions[cell.row].height == crs_export.MAX_ROW_HEIGHT == 409

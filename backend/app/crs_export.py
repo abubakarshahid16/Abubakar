@@ -142,6 +142,7 @@ def empty_comment_text(crs_ref: str = "", carried: bool = False) -> str:
 #: sheet before confirming. No existing column moves or is renamed.
 AI_COLUMN = "AI Review Comments"
 AI_COLUMN_WIDTH = 60.0
+MAX_ROW_HEIGHT = 409  # Excel's largest row height, in points
 #: R30 (#763, owner approved 11 Oct): the chain behind each row - value and
 #: page read, clause, result, and why - in a NEW LAST column of the INTERNAL
 #: copy only. The issue copy never carries it; no existing column moves.
@@ -548,12 +549,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
              "reason": str(s.get("reason") or ""),
              "evidence": str(s.get("evidence") or "")}
             for s in (meta.get("applicable_standards") or [])],
-        # 2f: internal notes, internal copy only.
         "review_notes": ([
             {"note": str(n.get("note") or ""), "standard": str(n.get("standard") or ""),
              "count": n.get("count"), "detail": str(n.get("detail") or "")}
             for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
+    view = crs_by_contractor.count_into(view, findings)
     return quality.finish(view, dropped, merged) if qon else view
 
 
@@ -634,6 +635,17 @@ def _note_cell(ws, view: dict, put) -> None:
     ws.row_dimensions[row].height = max(15, 13 * (len(note) // 90 + 1))
 
 
+def _wraps(column: int, value) -> bool:
+    """The columns that wrap, and any cell of several lines (the By Contractor query row's Item No)."""
+    return column in (3, 4, 8, 10, 11, 12) or "\n" in str(value)
+
+
+def row_height(comment: str) -> int:
+    """A table row's height for its comment, never above Excel's limit (`MAX_ROW_HEIGHT`)."""
+    lines = comment.count("\n") + len(comment) // 90 + 1
+    return min(MAX_ROW_HEIGHT, max(15, 13 * lines))
+
+
 def build_crs(findings: list[dict], meta: dict) -> bytes:
     """Render a CRS workbook and return its bytes.
 
@@ -709,12 +721,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values[9:] = quality.tail_cells(view, entry, values[9:])  # #1503
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
+            cell = put(row, i, value, wrap=_wraps(i, value), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill
-        ws.row_dimensions[row].height = max(
-            15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
+        ws.row_dimensions[row].height = row_height(comment)
 
     # THE REPLY CONVENTION, ON THE SHEET ITSELF: a tip on every Contractor's
     # Response cell asks for a response code first (`crs_numbers.parse_response`

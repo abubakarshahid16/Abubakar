@@ -122,6 +122,7 @@ def _joined(members: list[dict]) -> dict:
     entries = [e for r in members for e in r[KEY]]
     lines = [line(e, str(r.get("crs_ref") or "")) for r in members for e in r[KEY]]
     priorities = [p for r in members if isinstance(p := r.get("priority"), int)]
+    numbers = [str(r["crs_ref"]) for r in members if r.get("crs_ref")]
 
     def joined(key: str) -> str:
         return "; ".join(
@@ -138,12 +139,28 @@ def _joined(members: list[dict]) -> dict:
             dict.fromkeys(e["page"] for e in entries if e["page"])
         ),
         "finding_ids": [e["finding_id"] for e in entries],
+        # EVERY member's permanent number, one per line, in the Item No cell: a reply to this row is recorded
+        # against each of them (`crs_reply.read_replies` reads one number per line).
+        "crs_ref": "\n".join(dict.fromkeys(numbers)),
         "by_contractor_rows": len(members),
         KEY: entries,
     }
     if priorities:
         row["priority"] = min(priorities)
     return row
+
+
+#: The view key counting the rows folded away (members beyond the first), for the audit's reconciliation.
+FOLDED = "rows_folded_by_contractor"
+
+
+def count_into(view: dict, rows: list[dict]) -> dict:
+    """`view` with the number of rows the query row(s) among `rows` stand for beyond themselves, when any
+    (`review_audit_rows.crs_reconciliation` counts them as removed). None folded: `view` unchanged."""
+    folded = sum(r.get("by_contractor_rows", 1) - 1 for r in rows)
+    if folded:
+        view[FOLDED] = folded
+    return view
 
 
 def one_row(rows: list[dict]) -> list[dict]:
