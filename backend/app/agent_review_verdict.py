@@ -710,7 +710,7 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
 DEFERRED_WHY = "the quoted paper text defers or leaves open this value"
 UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
 UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
-NOT_STATED_WHY = "the reviewer's code found the AI reader's own words say this is not stated; its view is not confirmed"
+NOT_STATED_WHY = "the reviewer's code found words, in the AI reader's answer or in the text it quoted, that say this is not stated; its view is not confirmed"  # says_absent reads both
 NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )

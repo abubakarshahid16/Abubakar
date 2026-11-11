@@ -671,25 +671,52 @@ GUARD_REASONS = {
     "DEFERRED_WHY": "the quoted paper text defers or leaves open this value",
     "UNVERIFIED_PAPER_WHY": "the quoted paper text could not be verified by code",
     "UNVERIFIED_CLAUSE_WHY": "the quoted clause text could not be verified by code",
-    "NOT_STATED_WHY": "the reviewer's code found the AI reader's own words say this is not stated; its view is not confirmed",
+    "NOT_STATED_WHY": "the reviewer's code found words, in the AI reader's answer or in the text it quoted, that say this is not stated; its view is not confirmed",
     "NO_VALUE_WHY": "the AI reader quoted only the field's name, with no value; check the paper",
     "DISAGREE_WHY": "two AI readers disagree on this line",
 }
 
 
-def test_the_guard_reasons_are_exactly_these_and_assert_nothing_about_the_paper():
+BANNED = (
+    "the paper gives",
+    "the paper does not",
+    "the paper says",
+    "the paper is",
+    "the paper has",
+)
+#: The owner's own wording for a silent paper (a rule of 16.3, not a guard reason); every other `*_WHY` is checked.
+EXEMPT = {"SILENCE_WHY"}
+
+
+def test_the_guard_reasons_are_exactly_these():
     for name, text in GUARD_REASONS.items():
         assert getattr(V, name) == text, name
-    banned = (
-        "the paper gives",
-        "the paper does not",
-        "the paper says",
-        "the paper is",
-        "the paper has",
+
+
+def test_no_reason_constant_of_the_module_asserts_a_fact_about_the_paper():
+    """Every `*_WHY` string of the verdict module is collected by its name, so a new reason cannot escape the check."""
+    found = {
+        n: getattr(V, n)
+        for n in dir(V)
+        if n.endswith("_WHY") and isinstance(getattr(V, n), str)
+    }
+    assert set(GUARD_REASONS) <= set(found)
+    for name, text in found.items():
+        if name not in EXEMPT:
+            assert not any(b in text.lower() for b in BANNED), (name, text)
+    for text in (W.SECOND_DISAGREED, W.ONE_READER):
+        assert not any(b in text.lower() for b in BANNED), text
+
+
+def test_not_stated_is_true_for_both_sources_the_code_reads():
+    from_answer = {"reasoning": "the coating layers are not mentioned on the sheet"}
+    from_quote = {"paper_quote": "Coating layers: not specified"}
+    for line in (from_answer, from_quote):
+        assert V.says_absent(line)
+    assert not V.says_absent(
+        {"reasoning": "two layers are stated", "paper_quote": "Coating layers two"}
     )
-    texts = [*GUARD_REASONS.values(), W.SECOND_DISAGREED, W.ONE_READER]
-    for text in texts:
-        assert not any(b in text.lower() for b in banned), text
+    assert "answer" in V.NOT_STATED_WHY and "text it quoted" in V.NOT_STATED_WHY
 
 
 def test_a_deferral_is_stated_only_for_a_quote_code_verified():
