@@ -202,7 +202,6 @@ def test_line_wraps_and_note_references_are_not_deferrals():
         "Set pressure 10 barg is determined\nby calculation per API 520\nand shown on the drawing",
         "By design the body is cast steel",
         "Set pressure 10 bar\nNote 3",
-        "Seat tightness\nlater",
     ):
         assert not V.quote_defers(text), text
         assert exit_of(met(paper_quote=text))["verdict_label"] == W.THINKS_MET
@@ -341,3 +340,131 @@ def test_a_guarded_line_is_on_the_query_side_of_the_workbook_with_its_new_reason
     assert V.DEFERRED_WHY in text
     counts = C.run_counts([held, moved])
     assert counts["held_ai_pass"] == 1 and counts["query"] == 2
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "*",
+        "-",
+        "?",
+        "_____",
+        "to follow",
+        "TBN",
+        "VTA",
+        "as per vendor",
+        "later",
+        "hold",
+    ],
+)
+def test_a_lone_marker_on_its_own_line_or_cell_defers_the_value(marker):
+    for quote in (
+        f"Seat tightness\n{marker}",
+        f"Seat tightness | {marker}",
+        f"Seat tightness\t{marker}",
+    ):
+        assert V.quote_defers(quote), quote
+        assert exit_of(met(paper_quote=quote))["not_proven_reason"] == V.DEFERRED_WHY
+
+
+def test_a_marker_inside_a_longer_line_is_not_a_lone_marker():
+    for text in (
+        "10 - 20 bar",
+        "hold-down bolts",
+        "later revision applies",
+        "Set pressure 10 bar\nNote 3",
+    ):
+        assert not V.quote_defers(text), text
+
+
+def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
+    import openpyxl
+
+    from app import agent_review_crs as C
+
+    ok = {"source": "rule", "rule_label": {"tier": "AI approved"}}
+    no = {
+        "source": "rule",
+        "rule_tier": V.RULE_NOT_APPROVED,
+        "rule_unapproved_why": "values",
+    }
+
+    def mk(iid, item=ok, **kw):
+        base = {
+            "item_id": iid,
+            "source": "rule",
+            "standard": "STD-1",
+            "clause": "4.1",
+            "verdict": "Query",
+            "decided_by": "engineer",
+            "ai_verdict": "Pass",
+            "why": "no second opinion",
+            "paper_page": 2,
+            "paper_quote": "Nameplate: steel",
+            "clause_quote": "Nameplates shall be steel and fixed",
+            "quotes_checked": dict(OK),
+            "model": "m",
+            "field_roles": ["nameplate_material"],
+        }
+        return W.final_cap({**base, **kw}, item)
+
+    lines = [
+        mk("L-pass", verdict="Pass", decided_by="AI verdict"),
+        mk("L-fail", verdict="Fail", decided_by="decided by code", ai_verdict="Fail"),
+        mk("L-met"),
+        mk("L-notmet", ai_verdict="Fail"),
+        mk("L-defer", paper_quote="Value TBA"),
+        mk("L-unver", quotes_checked={"paper": True, "clause": False}),
+        mk("L-disagree", second_opinion={"agree": False}),
+        mk("L-na", ai_verdict="Query", reason_code="not_applicable"),
+        mk("L-na-moved", reason_code="not_applicable", paper_quote="Value TBA"),
+        mk("L-error", error="timeout", ai_verdict=None),
+        mk("L-unapproved", item=no),
+    ]
+    meta = {
+        "paper": "P",
+        "run_id": "r",
+        "date": "2026-11-12",
+        "lead_models": [],
+        "second_models": [],
+    }
+    path = C.write_internal(lines, tmp_path / "i.xlsx", meta)
+    wb = openpyxl.load_workbook(path)
+    ids = {ln["item_id"] for ln in lines}
+    seen: dict[str, list[str]] = {i: [] for i in ids}
+    for title in wb.sheetnames:
+        for row in wb[title].iter_rows(values_only=True):
+            if row and row[0] in ids and title != C.RUN_SHEET:
+                seen[row[0]].append(title)
+    assert all(len(v) == 1 for v in seen.values()), seen
+    assert {i: v[0] for i, v in seen.items()} == {
+        i: C.sheet_of(ln) for ln in lines for i in [ln["item_id"]]
+    }
+    rows = C.sheet_rows(lines)
+    for title, n in rows.items():
+        assert n == sum(1 for v in seen.values() if v[0] == title), title
+    assert sum(rows.values()) == len(lines)
+    counts = C.run_counts(lines)
+    assert counts["sheet_rows"] == rows
+    assert (
+        counts["held_ai_pass"] == rows[C.HELD_PASS_SHEET] == 1
+    )  # only L-met
+    assert (
+        counts["query_not_applicable"]
+        == rows[C.NOT_APPLICABLE_SHEET]
+        == counts["not_applicable"]
+        == 1
+    )
+    by_class = W.counts(lines)
+    classes = (
+        "proven_pass proven_fail ai_thinks_met ai_thinks_not_met unapproved_ai_thinks_met "
+        "unapproved_ai_thinks_not_met query_for_the_engineer not_applicable not_reviewed"
+    ).split()
+    assert sum(by_class[k] for k in classes) == len(lines)
+    run_text = "\n".join(
+        str(c)
+        for r in wb[C.RUN_SHEET].iter_rows(values_only=True)
+        for c in r
+        if c is not None
+    )
+    assert "sheet_rows" in run_text and "held_ai_pass" in run_text

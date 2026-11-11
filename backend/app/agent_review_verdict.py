@@ -709,18 +709,16 @@ DISAGREE_WHY = "two AI readers disagree on this line"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase
-_CELL_SPLIT = re.compile(
-    r"[|\t]+"
-)  # a table cell ends at | or a tab; a PDF line wrap does not end a cell
+_CELL_SPLIT = re.compile(r"[|\t\r\n]+")  # a cell or a line of the quote
 
 
 def quote_defers(quote: Any) -> bool:
     """The paper quote defers or leaves open the value: a whole deferral phrase anywhere in it ("by contractor", "to be
-    confirmed", "TBA", "vendor to advise": word boundaries) or one cell of it that is wholly a marker ("later", "hold", "-",
-    "*"). A cell ends at a bar or a tab, NOT at a line wrap: a wrapped line that merely starts with "by ..." or is a "Note 3"
-    reference, or "by ..." with no named party, is running text, not a value, and is not a deferral. The helper cannot tell a value from running text, so a
-    marker alone on a wrapped line ("Seat tightness" / "later") is NOT caught: the stricter reading is kept. ONE word list:
-    `blank_markers` (rule 8); this adds no words of its own."""
+    confirmed", "TBA", "vendor to advise": word boundaries), or a cell or line of it (split at a bar, a tab or a line wrap)
+    whose WHOLE content is exactly one marker of the list ("later", "hold", "to follow", "TBN", "VTA", "as per vendor", "*",
+    "-", "?", a run of "_"), wherever it stands. A line that merely starts with "by ..." or is a "Note 3" reference is running
+    text, not a value, and is not a deferral; so a bare "by others" is not caught (the list has no such phrase and none is
+    added). ONE word list: `blank_markers` (rule 8); this adds no words of its own."""
     text = str(quote or "")
     if blank_markers.names_a_marker(text):
         return True
