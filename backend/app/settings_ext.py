@@ -519,3 +519,9 @@ class SettingsExt(BaseModel):
     #: Agent proof test (#1690, part of #805): a lead reviewer agent loop (`agent_loop`) with tools. OFF by default.
     #: Env: AGENT_REVIEW_ENABLED. Claude calls go only through reader_transport and claude_spend.metered.
     agent_review_enabled: bool = False
+    #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
+    #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
+    #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with
+    #: both egress flags and a key; the approved-document list and the USD caps still apply on every call. Under
+    #: REASONING_PROVIDER=ollama it changes nothing (the master switch is checked first). Env: AGENT_REVIEW_ENGINE.
+    agent_review_engine: str = "ollama"
