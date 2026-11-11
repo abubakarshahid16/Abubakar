@@ -240,3 +240,31 @@ def test_run_counts_are_counts_only_with_a_denominator():
     assert (
         counts["unapproved_lines"] == 1 and counts["proven_fail"] == 3
     )  # R-1, R-6 (advice), S-1
+
+
+def test_a_not_reviewed_line_is_off_the_crs_the_comment_only_copy_and_the_contractor_copy(
+    tmp_path,
+):
+    nr = mk("R-N", "Query", None, error="stop_max_tokens", reasoning="")
+    assert nr["verdict_class"] == W.CLASS_NOT_REVIEWED
+    held = mk(
+        "R-H", "Query", "Pass", error="timeout"
+    )  # an AI Pass with a failed call is still not reviewed, not a held Pass
+    assert held["verdict_class"] == W.CLASS_NOT_REVIEWED
+    lines = [nr, held, mk("R-1", "Fail", "Fail")]
+    internal = C.write_internal(lines, tmp_path / "i.xlsx", META)
+    assert item_ids(internal, "CRS") == ["R-1"]
+    assert sorted(item_ids(internal, C.NOT_REVIEWED_SHEET)) == ["R-H", "R-N"]
+    assert (
+        item_ids(internal, C.HELD_PASS_SHEET) == []
+        and item_ids(internal, C.PASSED_SHEET) == []
+    )
+    assert "not_reviewed | 2" in sheet_text(internal, C.RUN_SHEET)
+    assert item_ids(C.write_comment_only(lines, tmp_path / "o.xlsx", META)) == ["R-1"]
+    assert item_ids(C.write_contractor(lines, tmp_path / "c.xlsx", META)) == ["R-1"]
+    assert (
+        C.NOT_REVIEWED_SHEET
+        not in openpyxl.load_workbook(
+            C.write_internal([lines[2]], tmp_path / "j.xlsx", META)
+        ).sheetnames
+    )

@@ -20,9 +20,10 @@ from __future__ import annotations
 import sqlite3
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
-from . import rule_labels
+from . import rule_equipment, rule_labels
 from .agent_review_verdict import RULE_NOT_APPROVED, TIER_NOT_APPROVED
 
 ANOTHER_PAPER = "needs_another_paper"
@@ -30,13 +31,25 @@ NEEDS_HUMAN = "needs_a_human"
 QUOTE_NOT_FOUND = "quote_not_found"
 NOT_LABELLED = "not_labelled_yet"
 KIND_UNKNOWN = "paper_kind_unknown"
-REASONS = (ANOTHER_PAPER, NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED, KIND_UNKNOWN)
+ANOTHER_EQUIPMENT = "another_equipment_type"
+NO_EQUIPMENT = "paper_names_no_equipment"
+REASONS = (
+    ANOTHER_PAPER,
+    NEEDS_HUMAN,
+    QUOTE_NOT_FOUND,
+    NOT_LABELLED,
+    KIND_UNKNOWN,
+    ANOTHER_EQUIPMENT,
+    NO_EQUIPMENT,
+)
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
     NEEDS_HUMAN: "needs a human",
     QUOTE_NOT_FOUND: "quote not found",
     NOT_LABELLED: "not labelled yet",
     KIND_UNKNOWN: "paper kind unknown",
+    ANOTHER_EQUIPMENT: "another equipment type",
+    NO_EQUIPMENT: "the paper names no equipment",
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = ("off", "both")
@@ -64,7 +77,7 @@ def _parts(disagreement: Any) -> set[str]:
     return {p.strip() for p in str(disagreement or "").split(",") if p.strip()}
 
 
-def decide_rule(
+def _decide_label(
     conn: sqlite3.Connection,
     requirement_id: str,
     paper_kind: str | None,
@@ -149,6 +162,43 @@ def decide_rule(
     return out
 
 
+def decide_rule(
+    conn: sqlite3.Connection,
+    requirement_id: str,
+    paper_kind: str | None,
+    kind_known: bool = True,
+    *,
+    equipment_type: str | None = None,
+    ask_unapproved: str = "off",
+    equipment: EquipmentCtx | None = None,
+) -> dict:
+    """The label decision (`_decide_label`), then, only with an `equipment` context, the equipment filter, which can only
+    REMOVE a rule that would be asked (reason another_equipment_type / paper_names_no_equipment). A rule whose equipment label is
+    not agreed stays asked and is counted apart (`equipment_why` = equipment_not_known)."""
+    out = _decide_label(
+        conn,
+        requirement_id,
+        paper_kind,
+        kind_known,
+        equipment_type=equipment_type,
+        ask_unapproved=ask_unapproved,
+    )
+    if equipment is None or not out["ask"]:
+        return out
+    label = rule_equipment.label_for(conn, "requirement", str(requirement_id)) or {}
+    out["equipment"] = {
+        k: label.get(k)
+        for k in ("equip_family", "equip_type", "equip_state", "equip_general")
+    }
+    keep, why, family = equipment_decision(
+        label, equipment.eq, equipment.tax, equipment.mode
+    )
+    out["equipment_why"] = why
+    if not keep:
+        out.update(ask=False, reason=why, tier=None, equipment_family=family)
+    return out
+
+
 def tier_lookup(
     conn: sqlite3.Connection,
     paper_kind: str | None,
@@ -175,6 +225,174 @@ def tier_lookup(
     return lookup
 
 
+# ---- the equipment filter: only ever REMOVES rules ------------------------------------------------------------------------
+
+EQUIPMENT_MODES = ("off", "on", "type", "family")  # "on" is an alias of "type"
+
+
+class EquipmentLabelsMissing(ValueError):
+    """The equipment filter is on but the database holds no equipment labels table."""
+
+
+def norm_mode(mode: Any) -> str | None:
+    """None (filter off), "type" ("on" or "type") or "family"."""
+    m = str(mode or "off").strip().lower()
+    if m not in EQUIPMENT_MODES:
+        raise ValueError(f"the equipment filter is one of {EQUIPMENT_MODES}")
+    return None if m == "off" else ("type" if m == "on" else m)
+
+
+@dataclass(frozen=True)
+class PaperEquipment:
+    """What the paper is about, in taxonomy ids. `named`: the reader found equipment; `types` is empty when it found some the
+    mapping does not know (then the paper's equipment is not usable)."""
+
+    types: frozenset[str] = frozenset()
+    families: frozenset[str] = frozenset()
+    named: bool = False
+    app_names: tuple[str, ...] = ()
+
+    @property
+    def usable(self) -> bool:
+        return bool(self.types)
+
+
+@dataclass(frozen=True)
+class EquipmentCtx:
+    """Everything the filter needs for one paper: its equipment, the taxonomy, the mapping and the mode."""
+
+    eq: PaperEquipment
+    tax: rule_equipment.Taxonomy
+    mapping: Mapping
+    mode: str = "type"
+
+
+def paper_equipment(
+    conn: sqlite3.Connection,
+    document_id: str,
+    tax: rule_equipment.Taxonomy,
+    mapping: Mapping,
+) -> PaperEquipment:
+    """The paper's equipment: the app's reader (`subject_scope.read_equipment`: stored classification, then title) gives app
+    names; the mapping data turns them into taxonomy type ids; a more specific taxonomy type named by the classification text
+    whose `also_applies` lists a mapped type is added; optional `related` data adds equipment a type is also read against. A type
+    also stands for everything it lists under `also_applies`."""
+    from . import subject_scope
+
+    names = mapping.get("map") or {}
+    try:
+        row = conn.execute(
+            "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        row = None
+    record = {"equipment_type": row[0], "title": row[1]} if row else {}
+    found, _source, _doubt = subject_scope.read_equipment(
+        record, [], subject_scope.vocabulary()
+    )
+    types = {names[n] for n in found if n in names}
+    text = rule_equipment._norm(record.get("equipment_type"))
+    if text and types:
+        for label, tid in tax.names.items():
+            if (
+                label
+                and f"_{label}_" in f"_{text}_"
+                and set(tax.also.get(tid, ())) & tax.expand(types)
+            ):
+                types.add(tid)
+    related_map = mapping.get("related") or {}
+    related = {
+        r for t in list(types) for r in related_map.get(t, []) if r in tax.type_family
+    }
+    every = types | related
+    return PaperEquipment(
+        frozenset(tax.expand(every)) if every else frozenset(),
+        frozenset(tax.type_family[t] for t in every if t in tax.type_family),
+        bool(found),
+        tuple(sorted(found)),
+    )
+
+
+def equipment_decision(
+    label: Mapping, eq: PaperEquipment, tax: rule_equipment.Taxonomy, mode: str = "type"
+) -> tuple[bool, str, str | None]:
+    """(keep, reason, family left out). A rule is left out ONLY when its equipment label is `agreed` and names another type
+    (mode "family": another FAMILY; a sibling type of the paper's family is asked). Kept: general, same_equipment,
+    equipment_not_known (the label is not agreed, or names nothing: no ground to remove it). Removed: another_equipment_type;
+    paper_names_no_equipment (the paper names no usable equipment: every rule that names a type or a family goes)."""
+    if str(label.get("equip_state") or "") != rule_equipment.AGREED:
+        return True, "equipment_not_known", None
+    if int(label.get("equip_general") or 0) == 1:
+        return True, "general", None
+    rtype, rfam = label.get("equip_type") or None, label.get("equip_family") or None
+    if not eq.usable:
+        return False, NO_EQUIPMENT, rfam or tax.type_family.get(rtype or "")
+    if mode == "family":
+        fam = rfam or tax.type_family.get(rtype or "")
+        if fam is None:
+            return True, "equipment_not_known", None
+        return (
+            (True, "same_equipment", None)
+            if fam in eq.families
+            else (False, ANOTHER_EQUIPMENT, fam)
+        )
+    if rtype:
+        if rtype in eq.types:
+            return True, "same_equipment", None
+        return False, ANOTHER_EQUIPMENT, rfam or tax.type_family.get(rtype)
+    if rfam:
+        return (
+            (True, "same_equipment", None)
+            if rfam in eq.families
+            else (False, ANOTHER_EQUIPMENT, rfam)
+        )
+    return True, "equipment_not_known", None
+
+
+def load_equipment(
+    conn: sqlite3.Connection, document_id: str, mode: Any = "type"
+) -> EquipmentCtx | None:
+    """The equipment context of one paper, or None when the filter is off. Refuses (EquipmentLabelsMissing) when the filter is
+    on and the database holds no equipment labels table: a filter on nothing is not a filter."""
+    m = norm_mode(mode)
+    if m is None:
+        return None
+    if not rule_equipment.has_tables(conn):
+        raise EquipmentLabelsMissing(
+            "the equipment filter needs the rule_equipment_label table"
+        )
+    tax, mapping = rule_equipment.Taxonomy.load(), rule_equipment.load_mapping()
+    return EquipmentCtx(
+        paper_equipment(conn, document_id, tax, mapping), tax, mapping, m
+    )
+
+
+def equipment_skill_fits(types_app: set[str], ctx: EquipmentCtx) -> bool:
+    """The same notion of "same equipment" for a checklist item: its app equipment names, mapped, meet the paper's types."""
+    names = ctx.mapping.get("map") or {}
+    return (
+        bool({names[n] for n in types_app if n in names} & ctx.eq.types)
+        if ctx.eq.usable
+        else False
+    )
+
+
+def equipment_block(ctx: EquipmentCtx, why_kept: Mapping[str, Mapping]) -> dict:
+    """The equipment facts of one list for the Rules used record and the CRS: the paper's equipment and how the asked rules
+    matched (counts only)."""
+    kept = Counter(
+        w.get("equipment_why") for w in why_kept.values() if w.get("equipment_why")
+    )
+    return {
+        "paper_types": sorted(ctx.eq.types),
+        "paper_families": sorted(ctx.eq.families),
+        "paper_named_equipment": ctx.eq.named,
+        "paper_usable": ctx.eq.usable,
+        "asked_by_equipment": dict(kept),
+    }
+
+
 # ---- filtering ----------------------------------------------------------------------------------------------------------
 
 
@@ -188,6 +406,7 @@ def left_out_record(row: Mapping, why: Mapping, key: str) -> dict:
         "page": row.get("page"),
         "reason": why["reason"],
         "disagreement": why.get("disagreement"),
+        "equipment_family": why.get("equipment_family"),
         "needs_paper_kind": why.get("needs_kind"),
         "label_state": why.get("state"),
     }
@@ -202,6 +421,7 @@ def filter_rows(
     *,
     equipment_type: str | None = None,
     ask_unapproved: str = "off",
+    equipment: EquipmentCtx | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, dict]]:
     """(kept rows, left-out records, decision of each kept row by its id). A row with no id is never lost: it is left out
     as not labelled."""
@@ -215,6 +435,7 @@ def filter_rows(
             kind_known,
             equipment_type=equipment_type,
             ask_unapproved=ask_unapproved,
+            equipment=equipment,
         )
         if why["ask"]:
             kept.append(dict(row))
@@ -233,7 +454,9 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
         for r in left
         if r["reason"] == ANOTHER_PAPER
     )
-    out: dict[str, Any] = {r: c.get(r, 0) for r in REASONS if r != ANOTHER_PAPER}
+    out: dict[str, Any] = {
+        r: c.get(r, 0) for r in REASONS if r not in (ANOTHER_PAPER, ANOTHER_EQUIPMENT)
+    }
     parts: Counter = (
         Counter()
     )  # a needs-a-human rule counts once under each disagreement part it carries
@@ -245,6 +468,15 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
     out[ANOTHER_PAPER] = {
         "total": c.get(ANOTHER_PAPER, 0),
         "by_kind": dict(sorted(by_kind.items())),
+    }
+    by_family = Counter(
+        r.get("equipment_family") or "unnamed"
+        for r in left
+        if r["reason"] == ANOTHER_EQUIPMENT
+    )
+    out[ANOTHER_EQUIPMENT] = {
+        "total": c.get(ANOTHER_EQUIPMENT, 0),
+        "by_family": dict(sorted(by_family.items())),
     }
     return out
 
@@ -262,6 +494,19 @@ def summary_lines(
             f"{k} {n}" for k, n in sorted(other.get("by_kind", {}).items())
         )
         lines.append(f"needs another paper: {other['total']} rules ({parts})")
+    eq_other = counts.get(ANOTHER_EQUIPMENT) or {}
+    if eq_other.get("total"):
+        parts = ", ".join(
+            f"{k} {n}" for k, n in sorted(eq_other.get("by_family", {}).items())
+        )
+        lines.append(
+            f"another equipment type: {eq_other['total']} rules not asked ({parts})"
+        )
+    if counts.get(NO_EQUIPMENT):
+        lines.append(
+            f"the paper names no equipment: {counts[NO_EQUIPMENT]} rules about a named equipment not asked; "
+            "only general rules and rules of unknown equipment are asked"
+        )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"
         for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED)
@@ -349,6 +594,7 @@ def label_block(
     kind: Mapping,
     missing: list[dict],
     unapproved: int = 0,
+    equipment: Mapping | None = None,
 ) -> dict:
     """What the Rules used page and the CRS summary need: counts, left-out records, missing books. No text."""
     return {
@@ -359,6 +605,7 @@ def label_block(
         "paper_kind_guess": kind.get("guess"),
         "counts": dict(counts),
         "unapproved_asked": unapproved,
+        "equipment": equipment,
         "summary_lines": summary_lines(
             counts, kind.get("kind"), bool(kind.get("known"))
         )
@@ -381,6 +628,7 @@ def rule_label_of(why: Mapping) -> dict:
         "tier": why.get("tier"),
         "state": why.get("state"),
         "label_key": why.get("label_key"),
+        "equipment": why.get("equipment"),
         "unapproved_why": why.get("unapproved_why"),
     }
 
@@ -414,6 +662,7 @@ def rules_used(items: Iterable[Mapping], block: Mapping | None) -> dict:
                 "paper_kind": lab.get("paper_kind"),
                 "field": lab.get("field"),
                 "tier": lab.get("tier"),
+                "equipment": lab.get("equipment"),
                 "recommendation": it.get("rule_kind") == "advice",
                 "not_approved_why": it.get("rule_unapproved_why")
                 if it.get("rule_tier") == RULE_NOT_APPROVED
@@ -423,6 +672,7 @@ def rules_used(items: Iterable[Mapping], block: Mapping | None) -> dict:
     return {
         "paper_kind": block.get("paper_kind"),
         "paper_kind_known": block.get("paper_kind_known"),
+        "equipment": block.get("equipment"),
         "asked_by_tier": dict(Counter(a["tier"] for a in asked)),
         "asked": asked,
         "left_out": block.get("left_out") or [],
@@ -496,12 +746,20 @@ def filter_skill_items(
     items: list[dict],
     paper_types: set[str],
     governing: Mapping | None = None,
+    equipment: EquipmentCtx | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """F2: (kept, dropped records). A checklist item about equipment types is kept only when the paper's type is among them;
+    """F2: (kept, dropped records). With an `equipment` context the ONE notion of "same equipment" is the taxonomy mapping. A checklist item about equipment types is kept only when the paper's type is among them;
     a paper of unknown type gets no type-specific checklist item. An item about no type stays (it is general)."""
     kept, dropped = [], []
     for it in items:
         types = skill_types(conn, it, governing)
+        if equipment is not None:
+            if not types or equipment_skill_fits(types, equipment):
+                kept.append(it)
+            else:
+                reason = ANOTHER_TYPE if equipment.eq.usable else TYPE_UNKNOWN
+                dropped.append({"item_id": it.get("item_id"), "reason": reason})
+            continue
         if not types or (paper_types and types & paper_types):
             kept.append(it)
         else:

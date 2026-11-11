@@ -7,7 +7,7 @@ a guard can only make a verdict LESS confident, never more.
 PUBLIC API OF THE AGENT REVIEW CORE (one docstring index for all core modules; model calls are always injected)
   agent_review_verdict   gate: check_quotes, textual_verdict, number_verdict, needs_second_opinion, compare_figures,
                          figures_by_code, widen_to_sentence, hold_conditional_fail (F1), hold_table_note_fail (F3),
-                         cap_unapproved, apply_holds (the order the runner applies them in), restore_holds (a stored
+                         cap_unapproved, silence_is_query / hold_silence (a silent paper is a Query), apply_holds (the order the runner applies them in), restore_holds (a stored
                          answer decided again), calls_allowed(item), item_tier(item, lookup), USABLE_TIERS
   agent_review_context   F4: fingerprint, quote_on_page, neighbour_pages, build_parts, evaluate, held_decision,
                          check_fail (the whole code decision; the model call is an injected callable)
@@ -36,7 +36,7 @@ THE RUNNER MUST (guards that live only in the experiment's Runner; HB2's runner 
      passed only when that text is the requirement block.
   6. THE ORDER of the decide path: gate -> absence -> F1 -> F3 -> cap (apply_holds, with a tier-derived item: use item_tier) ->
      F4 (a Fail only, never for an unapproved item, in_scope False in a free redecide) -> deferral guard on a Pass (pass_guard) ->
-     silence (hold_silence, inside final_cap) -> final_cap_all at the exit WITH tier_lookup -> writers.
+     silence (hold_silence, inside final_cap(..., paper_kind=)) -> final_cap_all at the exit WITH tier_lookup -> writers.
   7. The deferral guard is given ALL pages of the paper (1..total from the database), not only the pages sent to the model.
   8. Cap stops: the ledger reserves before and settles after EVERY call (lead, second, absence second, final check, context);
      a fatal exception (budget stop) halts the run: pass `fatal` to check_fail and halt on `result.fatal`; only the app's
@@ -655,3 +655,34 @@ def restore_holds(
             {k: held[k] for k in _DECISION_KEYS}, table_note_hold=held["table_note"]
         )
     return out
+
+
+# ---------------------------------------------------------------- owner 16.3: when the paper is silent, the answer is a Query
+
+#: Reason codes of a line whose verdict rests on absence (the paper does not state it).
+SILENCE_CODES = frozenset({"absent", "absent_pages_not_named", "sheet_silent"})
+SILENCE_WHY = "the paper is silent on this; a missing statement is not a failure"
+
+
+def silence_is_query(paper_kind: Any) -> bool:
+    """THE one switch point: for which paper kinds does a silent paper give a Query (never "not met")? Every kind except a
+    datasheet (a datasheet has a fixed set of entries, so an absent required entry stays the AI's opinion "not met"). An
+    unknown kind is silent too: the safe side. Change this function, and only this one, to change the rule."""
+    return str(paper_kind or "").strip().lower() != "datasheet"
+
+
+def hold_silence(line: Mapping, paper_kind: Any) -> dict:
+    """A line resting on absence, on a paper kind where silence is a Query, is a Query whatever the verdict said."""
+    if (
+        line.get("reason_code") in SILENCE_CODES
+        and silence_is_query(paper_kind)
+        and line.get("verdict") in (PASS, FAIL, QUERY)
+    ):
+        return {
+            **dict(line),
+            "verdict": QUERY,
+            "decided_by": BY_ENGINEER,
+            "why": SILENCE_WHY,
+            "silence_query": True,
+        }
+    return dict(line)

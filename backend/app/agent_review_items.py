@@ -461,7 +461,17 @@ def _candidate_rules(
 
 
 def _checklist(
-    conn, stds, cache, rules, block, kind, known, skills, document_id, pages
+    conn,
+    stds,
+    cache,
+    rules,
+    block,
+    kind,
+    known,
+    skills,
+    document_id,
+    pages,
+    eq_ctx=None,
 ):
     """(checklist items, merged records): only for the kind the code reads, F2-filtered by equipment type, and never folded
     into a rule that is not AI approved (its line would be capped)."""
@@ -472,7 +482,7 @@ def _checklist(
         for it in sorted(skill["items"], key=lambda i: i["order"]):
             sk.append(skill_item(it, skill["kind"], stds, cache, prefer, pages))
     types = rules_mod.paper_equipment_types(conn, document_id)
-    sk, dropped = rules_mod.filter_skill_items(conn, sk, types)
+    sk, dropped = rules_mod.filter_skill_items(conn, sk, types, None, eq_ctx)
     rules_mod.add_skill_block(block, dropped)
     return _fold_duplicates(
         sk, [r for r in rules if r.get("rule_tier") != RULE_NOT_APPROVED]
@@ -490,6 +500,7 @@ def build_items(
     requirement_rows: list[dict] | None = None,
     equipment_type: str | None = None,
     ask_unapproved: str = "off",
+    equipment_filter: str = "off",
 ) -> dict:
     """The item list for one paper, from the database (read only; `conn` is the caller's connection).
 
@@ -508,6 +519,7 @@ def build_items(
     reqs, left, run_id = _candidate_rules(
         ro, document_id, paper_kind, requirement_rows, run_id
     )
+    eq_ctx = rules_mod.load_equipment(conn, document_id, equipment_filter)
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]
     reqs, lab_left, why_kept = rules_mod.filter_rows(
@@ -517,6 +529,7 @@ def build_items(
         known,
         equipment_type=equipment_type,
         ask_unapproved=ask_unapproved,
+        equipment=eq_ctx,
     )
     block = rules_mod.label_block(
         rules_mod.count_left_out(lab_left),
@@ -526,6 +539,7 @@ def build_items(
         sum(
             1 for w in why_kept.values() if w.get("tier") == rules_mod.TIER_NOT_APPROVED
         ),
+        None if eq_ctx is None else rules_mod.equipment_block(eq_ctx, why_kept),
     )
     rules = [
         rule_item(r, stds, cache, names.get(r["standard_document_id"]), pages)
@@ -536,7 +550,7 @@ def build_items(
         rule["rule_label"] = rules_mod.rule_label_of(why)
         rule.update(rules_mod.tier_fields(why))
     sk, merged = _checklist(
-        conn, stds, cache, rules, block, kind, known, skills, document_id, pages
+        conn, stds, cache, rules, block, kind, known, skills, document_id, pages, eq_ctx
     )
     items = sk + rules
     return {

@@ -1,0 +1,37 @@
+{
+ "about": "the app's equipment names mapped to taxonomy type ids by name; edit freely",
+ "map": {
+  "steam turbine": "steam_turbine",
+  "gas turbine": "gas_turbine",
+  "relief valve": "relief_valve",
+  "control valve": "control_valve",
+  "check valve": "check_valve",
+  "pump": "pump",
+  "compressor": "compressor",
+  "heat exchanger": "heat_exchanger",
+  "pressure vessel": "pressure_vessel",
+  "storage tank": "storage_tank",
+  "boiler": "boiler",
+  "fired heater": "fired_heater",
+  "motor": "motor",
+  "transformer": "transformer",
+  "pressure transmitter": "transmitter",
+  "temperature transmitter": "transmitter",
+  "flow transmitter": "transmitter",
+  "level transmitter": "transmitter",
+  "battery": "battery",
+  "cable": "cable",
+  "piping": "piping"
+ },
+ "unmapped": [
+  "bolting",
+  "flange",
+  "gasket",
+  "nozzle"
+ ],
+ "related": {
+  "relief_valve": [
+   "pressure_vessel"
+  ]
+ }
+}

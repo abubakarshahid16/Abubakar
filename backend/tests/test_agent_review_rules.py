@@ -467,3 +467,338 @@ def test_an_ai_approved_label_that_carries_a_disagreement_is_never_asked_as_appr
             and out["reason"] == R.NEEDS_HUMAN
             and out["tier"] is None
         )
+
+
+# ---------------------------------------------------------------- the equipment filter: only ever REMOVES rules
+
+import json  # noqa: E402
+
+from app import rule_equipment as REQ  # noqa: E402
+
+TAX = {
+    "families": [
+        {"id": "rotating", "name": "Rotating", "types": [
+            {"id": "pump", "name": "Pump (kind not stated)", "parts": [], "synonyms": []},
+            {"id": "centrifugal_pump", "name": "Centrifugal pump", "parts": [], "synonyms": [], "also_applies": ["pump"]},
+            {"id": "dosing_pump", "name": "Dosing pump", "parts": [], "synonyms": [], "also_applies": ["pump"]},
+            {"id": "compressor", "name": "Compressor", "parts": [], "synonyms": []}]},
+        {"id": "pressure_relief", "name": "Relief", "types": [
+            {"id": "relief_valve", "name": "Relief valve", "parts": [], "synonyms": ["PSV"]}]},
+    ],
+    "general": "applies to all equipment", "not_equipment": [], "part_ids_shared": "x",
+}  # fmt: skip
+MAP = {
+    "map": {"pump": "pump", "relief valve": "relief_valve", "compressor": "compressor"},
+    "unmapped": [],
+}
+
+
+@pytest.fixture
+def tax(tmp_path):
+    path = tmp_path / "tax.json"
+    path.write_text(json.dumps(TAX))
+    return REQ.Taxonomy.load(path)
+
+
+def _paper(tax, *types, named=True):
+    ids = tax.expand(set(types))
+    return R.PaperEquipment(
+        frozenset(ids), frozenset(tax.type_family[t] for t in types), named, ()
+    )
+
+
+def _erow(state="agreed", general=0, type_=None, family=None):
+    return {
+        "equip_state": state,
+        "equip_general": general,
+        "equip_type": type_,
+        "equip_family": family,
+    }
+
+
+def test_the_equipment_rules(tax):
+    cp = _paper(
+        tax, "centrifugal_pump"
+    )  # a centrifugal pump paper also counts as a pump
+    d = lambda row, eq=cp: R.equipment_decision(row, eq, tax)  # noqa: E731
+    assert d(_erow(general=1))[:2] == (True, "general")
+    assert d(_erow(type_="centrifugal_pump"))[:2] == (True, "same_equipment")
+    assert d(_erow(type_="pump"))[:2] == (
+        True,
+        "same_equipment",
+    )  # the paper's type is listed under the rule's type
+    assert d(_erow(family="rotating"))[:2] == (
+        True,
+        "same_equipment",
+    )  # a whole-family rule
+    assert d(_erow(type_="dosing_pump")) == (False, R.ANOTHER_EQUIPMENT, "rotating")
+    assert d(_erow(type_="relief_valve")) == (
+        False,
+        R.ANOTHER_EQUIPMENT,
+        "pressure_relief",
+    )
+    assert d(_erow(family="pressure_relief")) == (
+        False,
+        R.ANOTHER_EQUIPMENT,
+        "pressure_relief",
+    )
+    # the reverse is NOT taken: a generic pump paper does not get a centrifugal-pump rule
+    assert d(_erow(type_="centrifugal_pump"), _paper(tax, "pump")) == (
+        False,
+        R.ANOTHER_EQUIPMENT,
+        "rotating",
+    )
+    for state in (
+        "needs_human",
+        "unlabelled",
+        None,
+    ):  # doubt: an equipment label that is not agreed is asked as today
+        assert d(_erow(state=state, type_="relief_valve"))[:2] == (
+            True,
+            "equipment_not_known",
+        )
+    assert d(_erow())[:2] == (
+        True,
+        "equipment_not_known",
+    )  # agreed but names nothing: no ground to remove it
+
+
+def test_a_paper_that_names_no_equipment_gets_only_general_rules_and_rules_of_unknown_equipment(
+    tax,
+):
+    none = R.PaperEquipment(frozenset(), frozenset(), False, ())
+    assert R.equipment_decision(_erow(general=1), none, tax)[:2] == (True, "general")
+    assert R.equipment_decision(_erow(state="needs_human", type_="pump"), none, tax)[
+        :2
+    ] == (True, "equipment_not_known")
+    assert R.equipment_decision(_erow(type_="pump"), none, tax) == (
+        False,
+        R.NO_EQUIPMENT,
+        "rotating",
+    )
+    assert R.equipment_decision(_erow(family="rotating"), none, tax) == (
+        False,
+        R.NO_EQUIPMENT,
+        "rotating",
+    )
+
+
+def test_the_family_mode_leaves_out_only_another_family_and_on_is_an_alias_of_type(tax):
+    cp = _paper(tax, "centrifugal_pump")
+    fam = lambda row: R.equipment_decision(row, cp, tax, "family")  # noqa: E731
+    assert fam(_erow(type_="dosing_pump"))[:2] == (
+        True,
+        "same_equipment",
+    )  # a sibling type of the same family is asked
+    assert fam(_erow(type_="relief_valve")) == (
+        False,
+        R.ANOTHER_EQUIPMENT,
+        "pressure_relief",
+    )
+    assert R.equipment_decision(_erow(type_="dosing_pump"), cp, tax, "type") == (
+        False,
+        R.ANOTHER_EQUIPMENT,
+        "rotating",
+    )
+    none = R.PaperEquipment(frozenset(), frozenset(), False, ())
+    assert R.equipment_decision(_erow(type_="pump"), none, tax, "family") == (
+        False,
+        R.NO_EQUIPMENT,
+        "rotating",
+    )
+    assert (
+        R.norm_mode("on") == "type"
+        and R.norm_mode("type") == "type"
+        and R.norm_mode("family") == "family"
+    )
+    assert R.norm_mode("off") is None and R.norm_mode(None) is None
+    with pytest.raises(ValueError):
+        R.norm_mode("sideways")
+
+
+def _classified(conn, rows):
+    conn.execute(
+        "CREATE TABLE document_classification (document_id TEXT, equipment_type TEXT, title TEXT)"
+    )
+    conn.executemany("INSERT INTO document_classification VALUES (?,?,?)", rows)
+
+
+def test_the_paper_equipment_is_read_by_the_app_and_mapped_by_the_data_file(conn, tax):
+    _classified(conn, [("cp", "Centrifugal Pump", None), ("psv", "Pressure Safety Valve", None), ("none", None, None),
+                       ("unmapped", "Heat Exchanger", None)])  # fmt: skip
+    cp = R.paper_equipment(conn, "cp", tax, MAP)
+    assert cp.types == {"centrifugal_pump", "pump"} and cp.usable
+    assert R.paper_equipment(conn, "psv", tax, MAP).types == {"relief_valve"}
+    none = R.paper_equipment(conn, "none", tax, MAP)
+    assert not none.usable and not none.named
+    um = R.paper_equipment(conn, "unmapped", tax, MAP)
+    assert (
+        not um.usable and um.named
+    )  # the reader found equipment the mapping does not know
+
+
+def test_a_mapping_file_may_name_equipment_a_type_is_also_read_against(conn, tax):
+    _classified(conn, [("p", "Pressure Safety Valve", None)])
+    base = R.paper_equipment(conn, "p", tax, MAP)
+    rel = R.paper_equipment(
+        conn, "p", tax, {**MAP, "related": {"relief_valve": ["compressor"]}}
+    )
+    assert base.types == {"relief_valve"} and rel.types == {
+        "relief_valve",
+        "compressor",
+    }
+    assert rel.families == {"pressure_relief", "rotating"}
+    assert R.equipment_decision(_erow(type_="compressor"), base, tax)[0] is False
+    assert R.equipment_decision(_erow(type_="compressor"), rel, tax)[0] is True
+
+
+def _equipment_world(conn, tax, paper_type, labels):
+    """AI approved datasheet rules r<i>; `labels`: (ref, state, general, type, family) rows of the equipment table."""
+    _classified(conn, [("paper", paper_type, None)])
+    REQ.create_tables(conn)
+    for ref, state, general, typ, fam in labels:
+        label(conn, ref)
+        if state is not None:
+            cols = {"source": "requirement", "rule_ref": ref, "equip_state": state, "equip_general": general,
+                    "equip_type": typ, "equip_family": fam, "labelled_at": "t"}  # fmt: skip
+            if state == "agreed":
+                cols.update(
+                    model_a=s.MODEL_A,
+                    model_b=s.MODEL_B,
+                    prompt_version="rule-equip-v1",
+                    list_sha="c" * 64,
+                )
+            else:
+                cols.update(equip_disagreement="type")
+            conn.execute(
+                f"INSERT INTO rule_equipment_label ({', '.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                tuple(cols.values()),
+            )
+    return R.EquipmentCtx(R.paper_equipment(conn, "paper", tax, MAP), tax, MAP, "type")
+
+
+def test_the_filter_only_removes_rules_counts_by_family_and_says_so_on_the_crs(
+    conn, tax
+):
+    labels = [("r1", "agreed", 1, None, None), ("r2", "agreed", 0, "relief_valve", "pressure_relief"),
+              ("r3", "needs_human", 0, "relief_valve", "pressure_relief"), ("r4", "agreed", 0, "pump", "rotating"),
+              ("r5", None, 0, None, None)]  # fmt: skip
+    ctx = _equipment_world(conn, tax, "Centrifugal Pump", labels)
+    rows = [{"id": r[0], "item_id": f"R-{r[0]}", "standard": "Book"} for r in labels]
+    off_kept, _, _ = R.filter_rows(conn, rows, "datasheet")
+    kept, left, why = R.filter_rows(conn, rows, "datasheet", equipment=ctx)
+    assert {k["id"] for k in off_kept} - {k["id"] for k in kept} == {
+        "r2"
+    }  # it only removes
+    assert {k["id"] for k in kept} <= {k["id"] for k in off_kept}
+    counts = R.count_left_out(left)
+    assert counts[R.ANOTHER_EQUIPMENT] == {
+        "total": 1,
+        "by_family": {"pressure_relief": 1},
+    }
+    block = R.label_block(
+        counts,
+        left,
+        {"kind": "datasheet", "known": True},
+        [],
+        0,
+        R.equipment_block(ctx, why),
+    )
+    assert (
+        "another equipment type: 1 rules not asked (pressure_relief 1)"
+        in block["summary_lines"]
+    )
+    assert block["equipment"]["asked_by_equipment"] == {
+        "general": 1,
+        "equipment_not_known": 2,
+        "same_equipment": 1,
+    }
+    assert (
+        block["equipment"]["paper_types"] == ["centrifugal_pump", "pump"]
+        and block["equipment"]["paper_usable"]
+    )
+    items = [
+        {
+            "source": "rule",
+            "rule_version_id": k["id"],
+            "rule_label": R.rule_label_of(why[k["id"]]),
+        }
+        for k in kept
+    ]
+    used = R.rules_used(items, block)
+    assert (
+        used["equipment"]["paper_families"] == ["rotating"]
+        and used["asked"][0]["equipment"]["equip_state"] == "agreed"
+    )
+    assert (
+        left[0]["reason"] == R.ANOTHER_EQUIPMENT
+        and left[0]["equipment_family"] == "pressure_relief"
+    )
+
+
+def test_a_paper_that_names_no_equipment_loses_the_named_equipment_rules_and_says_so(
+    conn, tax
+):
+    labels = [
+        ("r1", "agreed", 1, None, None),
+        ("r2", "agreed", 0, "pump", "rotating"),
+        ("r3", "unlabelled", 0, None, None),
+    ]
+    ctx = _equipment_world(conn, tax, None, labels)
+    kept, left, _ = R.filter_rows(
+        conn,
+        [{"id": r[0], "item_id": r[0]} for r in labels],
+        "datasheet",
+        equipment=ctx,
+    )
+    assert {k["id"] for k in kept} == {"r1", "r3"}
+    counts = R.count_left_out(left)
+    assert counts[R.NO_EQUIPMENT] == 1
+    assert any(
+        x.startswith("the paper names no equipment: 1 rules")
+        for x in R.summary_lines(counts, "datasheet")
+    )
+
+
+def test_the_filter_never_asks_a_rule_the_label_decision_left_out(conn, tax):
+    labels = [("r1", "agreed", 1, None, None)]
+    ctx = _equipment_world(conn, tax, "Centrifugal Pump", labels)
+    label(conn, "wrongkind", kind="procedure")
+    got = R.decide_rule(conn, "wrongkind", "datasheet", equipment=ctx)
+    assert (
+        got["ask"] is False
+        and got["reason"] == R.ANOTHER_PAPER
+        and "equipment_why" not in got
+    )
+    assert (
+        R.decide_rule(conn, "r1", "datasheet", equipment=ctx)["equipment_why"]
+        == "general"
+    )
+
+
+def test_the_filter_needs_the_equipment_table_and_is_off_by_default(conn):
+    assert R.load_equipment(conn, "paper", "off") is None
+    with pytest.raises(R.EquipmentLabelsMissing):  # the filter is on, the table is not there: refused, not silently skipped
+        R.load_equipment(conn, "paper", "on")
+    assert R.load_equipment(conn, "paper", "off") is None
+    REQ.create_tables(conn)
+    _classified(conn, [("paper", "Pressure Safety Valve", None)])
+    ctx = R.load_equipment(conn, "paper", "on")  # the real taxonomy and mapping data files
+    assert ctx.mode == "type" and ctx.eq.usable and R.load_equipment(conn, "paper", "family").mode == "family"
+
+
+def test_checklist_items_use_the_same_taxonomy_notion_of_same_equipment(conn, tax):
+    ctx = R.EquipmentCtx(_paper(tax, "centrifugal_pump"), tax, MAP, "type")
+    gov = {"equipment_types": {"pump": ["STD-P-1"], "relief valve": ["STD-V-1"]}}
+    items = [skill("S-A", "STD-P-1"), skill("S-B", "STD-V-1"), skill("S-N")]
+    kept, dropped = R.filter_skill_items(conn, items, {"pump"}, gov, ctx)
+    assert [i["item_id"] for i in kept] == ["S-A", "S-N"] and dropped == [
+        {"item_id": "S-B", "reason": R.ANOTHER_TYPE}
+    ]
+    none = R.EquipmentCtx(
+        R.PaperEquipment(frozenset(), frozenset(), False, ()), tax, MAP, "type"
+    )
+    kept, dropped = R.filter_skill_items(conn, items, set(), gov, none)
+    assert [i["item_id"] for i in kept] == ["S-N"] and {
+        d["reason"] for d in dropped
+    } == {R.TYPE_UNKNOWN}

@@ -461,3 +461,61 @@ def test_the_callers_connection_keeps_its_row_factory(con):
     before = con.row_factory
     it.build_items(con, PAPER, KIND, skills=[SKILL], cache={})
     assert con.row_factory is before
+
+
+def _eq_label(con, ref, state, general=0, typ=None, fam=None):
+    cols = {"source": "requirement", "rule_ref": ref, "equip_state": state, "equip_general": general, "equip_type": typ,
+            "equip_family": fam, "labelled_at": "t", "model_a": s.MODEL_A, "model_b": s.MODEL_B,
+            "prompt_version": "rule-equip-v1", "list_sha": "c" * 64}  # fmt: skip
+    con.execute(
+        f"INSERT INTO rule_equipment_label ({', '.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+        tuple(cols.values()),
+    )
+
+
+def test_the_equipment_filter_only_removes_rules_and_is_counted_and_off_keeps_the_old_list(
+    con,
+):
+    from app import rule_equipment as REQ
+
+    REQ.create_tables(con)
+    con.execute(
+        "CREATE TABLE document_classification (document_id TEXT, equipment_type TEXT, title TEXT)"
+    )
+    con.execute(
+        "INSERT INTO document_classification VALUES (?, 'Pressure Safety Valve', NULL)",
+        (PAPER,),
+    )
+    _eq_label(con, "r-limit", "agreed", general=1)
+    _eq_label(
+        con, "r-coat", "agreed", typ="pump", fam="rotating"
+    )  # another equipment type: left out
+    _eq_label(con, "r-table", "needs_human")  # not agreed: asked as before
+    off = it.build_items(con, PAPER, KIND, skills=[], cache={})
+    on = it.build_items(con, PAPER, KIND, skills=[], cache={}, equipment_filter="on")
+    ids = lambda d: {i["rule_version_id"] for i in d["items"] if i["source"] == "rule"}  # noqa: E731
+    assert ids(on) <= ids(off) and ids(off) - ids(on) == {"r-coat"}
+    block = on["rule_labels"]
+    assert block["counts"]["another_equipment_type"] == {
+        "total": 1,
+        "by_family": {"rotating": 1},
+    }
+    assert any(
+        x.startswith("another equipment type: 1 rules not asked (rotating 1)")
+        for x in block["summary_lines"]
+    )
+    assert (
+        block["equipment"]["paper_usable"]
+        and block["equipment"]["asked_by_equipment"]["general"] == 1
+    )
+    assert off["rule_labels"]["equipment"] is None and "equipment" not in " ".join(
+        off["rule_labels"]["summary_lines"]
+    )
+    assert on["items"][-1]["rule_label"]["equipment"] is not None
+
+
+def test_the_equipment_filter_without_the_labels_table_is_refused(con):
+    from app import agent_review_rules as R
+
+    with pytest.raises(R.EquipmentLabelsMissing):
+        it.build_items(con, PAPER, KIND, skills=[], cache={}, equipment_filter="on")

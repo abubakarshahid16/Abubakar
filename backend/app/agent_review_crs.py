@@ -60,6 +60,11 @@ UNAPPROVED_NOTE = (
     "AI opinion, rule not yet approved. The rule is not AI approved: never a Pass or a Fail, never sent to the "
     "contractor. Not CRS comments."
 )
+NOT_REVIEWED_SHEET = "Not reviewed"
+NOT_REVIEWED_NOTE = (
+    "The AI call failed or its answer was cut off: these lines were NOT reviewed (nothing is said about the paper). "
+    "Not CRS comments."
+)
 NOT_APPLICABLE_NOTE = "Not applicable (AI, engineer to confirm). Not CRS comments."
 HELD_PASS_SHEET = "AI met, not proven by code"  # Excel: 31 characters at most, no colon
 HELD_PASS_NOTE = (
@@ -514,7 +519,16 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
     unapproved = [
         ln for ln in lines if wording.is_unapproved(ln)
     ]  # their own sheet, off the CRS and off every Pass list
-    lines = [ln for ln in lines if not wording.is_unapproved(ln)]
+    not_reviewed = [
+        ln
+        for ln in lines
+        if wording.is_not_reviewed(ln) and not wording.is_unapproved(ln)
+    ]  # their own sheet: never a CRS comment, never a verdict
+    lines = [
+        ln
+        for ln in lines
+        if not wording.is_unapproved(ln) and not wording.is_not_reviewed(ln)
+    ]
     problems = [
         ln
         for ln in lines
@@ -560,6 +574,15 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
         INTERNAL_HEADERS,
         (held_row(ln, paper) for ln in held),
     )
+    if not_reviewed:
+        _sheet(
+            wb,
+            NOT_REVIEWED_SHEET,
+            meta,
+            NOT_REVIEWED_NOTE,
+            INTERNAL_HEADERS,
+            (internal_row(ln, paper) for ln in not_reviewed),
+        )
     if unapproved:
         _sheet(
             wb,
@@ -631,6 +654,7 @@ def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) ->
             and not is_not_applicable(ln)
             and not is_held_pass(ln)
             and not wording.is_unapproved(ln)
+            and not wording.is_not_reviewed(ln)
         ),
         first=True,
     )
