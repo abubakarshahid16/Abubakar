@@ -802,7 +802,10 @@ def import_labels(http: Http, labels_dir: Path | None) -> list[Check]:
     if labels_dir is None:
         return out
     for name, route in (
-        ("ocr-boxes.json", "/api/admin/ocr-boxes/import"),  # first: labels on scanned pages are judged by them
+        (
+            "ocr-boxes.json",
+            "/api/admin/ocr-boxes/import",
+        ),  # first: labels on scanned pages are judged by them
         ("rule-labels.json", "/api/admin/rule-labels/import"),
         ("rule-equipment.json", "/api/admin/rule-equipment/import"),
     ):

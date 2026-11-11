@@ -153,7 +153,7 @@ def agreement(boxes: list[str], page_text: str) -> tuple[float, bool]:
 
 
 def _shape(raw: Any) -> tuple[list[tuple[str, float]], str | None] | None:
-    """(boxes, None) or (None-ish, cause): the page's boxes as (text, score) pairs, or the cause word."""
+    """(the page's boxes as (text, score) pairs, None), ([], "bad_score"), or None when the boxes are not a list of texts."""
     if not isinstance(raw, dict):
         return None
     boxes = raw.get("boxes")
@@ -176,126 +176,140 @@ def _shape(raw: Any) -> tuple[list[tuple[str, float]], str | None] | None:
     return out, None
 
 
+def _well_formed(raw: Any) -> tuple[list[tuple[str, float]] | None, str | None]:
+    """(the page's boxes, None) or (None, the cause word): the shape of one page of the file, before the database is asked."""
+    if not isinstance(raw, dict):
+        return None, "malformed"
+    page, dsha = raw.get("page"), raw.get("document_sha256")
+    if (
+        not isinstance(raw.get("document_id"), str)
+        or not raw["document_id"]
+        or isinstance(page, bool)
+        or not isinstance(page, int)
+        or not _HEX64.match(str(dsha or ""))
+        or not isinstance(raw.get("engine"), str)
+        or not raw["engine"].strip()
+        or not isinstance(raw.get("made_at"), str)
+    ):
+        return None, "malformed"
+    shaped = _shape(raw)
+    if shaped is None:
+        return None, "malformed"
+    boxes, bad = shaped
+    if bad:
+        return None, bad
+    if raw.get("boxes_sha256") not in (None, boxes_sha256(boxes)):
+        return None, "malformed"
+    return boxes, None
+
+
+def _document(conn: sqlite3.Connection, did: str) -> tuple | None:
+    """(sha256, role, page texts, page origins) of a document as the app holds it, or None when it is not there."""
+    row = conn.execute(
+        "SELECT d.sha256, c.document_role FROM documents d LEFT JOIN document_classification c"
+        " ON c.document_id = d.id WHERE d.id = ?",
+        (did,),
+    ).fetchone()
+    if row is None:
+        return None
+    return (
+        row[0],
+        row[1],
+        compiled_rule_report.pages_of(conn, did),
+        compiled_rule_report.page_origin(conn, did),
+    )
+
+
+def _against_the_app(
+    raw: dict, boxes: list, held: tuple | None
+) -> tuple[str | None, float, bool]:
+    """(the cause word or None, the text agreement, whether the words are identical) of a well-formed page against the
+    document the app holds."""
+    if held is None:
+        return "unknown_document", 0.0, False
+    sha, role, texts, origin = held
+    page = raw["page"]
+    if role != STANDARD_ROLE:
+        return "not_a_rule_book", 0.0, False
+    if sha != raw["document_sha256"]:
+        return "revision_mismatch", 0.0, False
+    if not (texts.get(page) or "").strip():
+        return "no_such_page", 0.0, False
+    if (origin.get(page) or {}).get("page_source") != "recognised":
+        return "not_recognised_page", 0.0, False
+    score, identical = agreement([t for t, _ in boxes], texts[page])
+    return ("text_mismatch" if score < AGREEMENT_MIN else None), score, identical
+
+
+def _store(
+    conn: sqlite3.Connection,
+    raw: dict,
+    boxes: list,
+    score: float,
+    identical: bool,
+    file_sha256: str,
+) -> None:
+    did, page = raw["document_id"], raw["page"]
+    with conn:
+        conn.execute(
+            "INSERT INTO ocr_box_page (document_id, page_no, engine, extracted_at, matches_page, model, dpi,"
+            " document_sha256, boxes_sha256, file_sha256, text_agreement, imported_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+            (
+                did,
+                page,
+                raw["engine"],
+                raw["made_at"],
+                1 if identical else 0,
+                raw.get("model") if isinstance(raw.get("model"), str) else None,
+                raw.get("dpi") if isinstance(raw.get("dpi"), int) else None,
+                raw["document_sha256"],
+                boxes_sha256(boxes),
+                file_sha256,
+                round(score, 6),
+            ),
+        )
+        conn.executemany(
+            "INSERT INTO ocr_box (document_id, page_no, seq, text, score) VALUES (?,?,?,?,?)",
+            [(did, page, i, t, s) for i, (t, s) in enumerate(boxes)],
+        )
+
+
 def import_pages(conn: sqlite3.Connection, pages: list[Any], file_sha256: str) -> dict:
     """Check and store `pages` on `conn` (the server's own connection). Returns counts only:
-    {read, stored, unchanged, refused: {cause: n}}. Switch off: raises `SwitchedOff`."""
+    {read, stored, unchanged, refused: {cause: n}, refused_total}. Switch off: raises `SwitchedOff`."""
     require_on()
     create_tables(conn)
+    refused = dict.fromkeys(CAUSES, 0)
     counts: dict[str, Any] = {
         "read": 0,
         "stored": 0,
         "unchanged": 0,
-        "refused": dict.fromkeys(CAUSES, 0),
+        "refused": refused,
     }
     docs: dict[str, tuple | None] = {}
-
-    def refuse(cause: str) -> None:
-        counts["refused"][cause] += 1
-
     for raw in pages:
         counts["read"] += 1
-        if not isinstance(raw, dict):
-            refuse("malformed")
-            continue
-        did, page, dsha = (
-            raw.get("document_id"),
-            raw.get("page"),
-            raw.get("document_sha256"),
-        )
-        if (
-            not isinstance(did, str)
-            or not did
-            or isinstance(page, bool)
-            or not isinstance(page, int)
-            or not _HEX64.match(str(dsha or ""))
-            or not isinstance(raw.get("engine"), str)
-            or not raw["engine"].strip()
-            or not isinstance(raw.get("made_at"), str)
-        ):
-            refuse("malformed")
-            continue
-        shaped = _shape(raw)
-        if shaped is None:
-            refuse("malformed")
-            continue
-        boxes, bad = shaped
-        if bad:
-            refuse(bad)
-            continue
-        if raw.get("boxes_sha256") not in (None, boxes_sha256(boxes)):
-            refuse("malformed")
-            continue
-        if did not in docs:
-            row = conn.execute(
-                "SELECT d.sha256, c.document_role FROM documents d LEFT JOIN document_classification c"
-                " ON c.document_id = d.id WHERE d.id = ?",
-                (did,),
-            ).fetchone()
-            docs[did] = (
-                None
-                if row is None
-                else (
-                    row[0],
-                    row[1],
-                    compiled_rule_report.pages_of(conn, did),
-                    compiled_rule_report.page_origin(conn, did),
-                )
+        boxes, cause = _well_formed(raw)
+        if cause is None:
+            if raw["document_id"] not in docs:
+                docs[raw["document_id"]] = _document(conn, raw["document_id"])
+            cause, score, identical = _against_the_app(
+                raw, boxes, docs[raw["document_id"]]
             )
-        held = docs[did]
-        if held is None:
-            refuse("unknown_document")
-            continue
-        sha, role, texts, origin = held
-        if role != STANDARD_ROLE:
-            refuse("not_a_rule_book")
-            continue
-        if sha != dsha:
-            refuse("revision_mismatch")
-            continue
-        if not (texts.get(page) or "").strip():
-            refuse("no_such_page")
-            continue
-        if (origin.get(page) or {}).get("page_source") != "recognised":
-            refuse("not_recognised_page")
-            continue
-        score, identical = agreement([t for t, _ in boxes], texts[page])
-        if score < AGREEMENT_MIN:
-            refuse("text_mismatch")
-            continue
-        digest = boxes_sha256(boxes)
-        have = conn.execute(
-            "SELECT boxes_sha256 FROM ocr_box_page WHERE document_id = ? AND page_no = ?",
-            (did, page),
-        ).fetchone()
-        if have is not None:
-            if have[0] == digest:
+        if cause is None:
+            have = conn.execute(
+                "SELECT boxes_sha256 FROM ocr_box_page WHERE document_id = ? AND page_no = ?",
+                (raw["document_id"], raw["page"]),
+            ).fetchone()
+            if have is None:
+                _store(conn, raw, boxes, score, identical, file_sha256)
+                counts["stored"] += 1
+            elif have[0] == boxes_sha256(boxes):
                 counts["unchanged"] += 1
             else:
-                refuse("conflict")
-            continue
-        with conn:
-            conn.execute(
-                "INSERT INTO ocr_box_page (document_id, page_no, engine, extracted_at, matches_page, model, dpi,"
-                " document_sha256, boxes_sha256, file_sha256, text_agreement, imported_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-                (
-                    did,
-                    page,
-                    raw["engine"],
-                    raw["made_at"],
-                    1 if identical else 0,
-                    raw.get("model") if isinstance(raw.get("model"), str) else None,
-                    raw.get("dpi") if isinstance(raw.get("dpi"), int) else None,
-                    dsha,
-                    digest,
-                    file_sha256,
-                    round(score, 6),
-                ),
-            )
-            conn.executemany(
-                "INSERT INTO ocr_box (document_id, page_no, seq, text, score) VALUES (?,?,?,?,?)",
-                [(did, page, i, t, s) for i, (t, s) in enumerate(boxes)],
-            )
-        counts["stored"] += 1
-    counts["refused_total"] = sum(counts["refused"].values())
+                cause = "conflict"
+        if cause is not None:
+            refused[cause] += 1
+    counts["refused_total"] = sum(refused.values())
     return counts
