@@ -26,6 +26,9 @@ VerdictClass = Literal[
     "AI opinion, rule not yet approved",
     "Query for the engineer",
     "Not applicable",
+    #: The AI gave no answer for this line, even after the batch was split: the PAPER was not reviewed on it.
+    #: Never a Query about the paper.
+    "Not reviewed",
 ]
 
 #: The word shown on a line.
@@ -36,6 +39,7 @@ VerdictWord = Literal[
     "AI thinks: not met",
     "Query",
     "Not applicable",
+    "Not reviewed",
 ]
 
 #: Who stands behind a rule.
@@ -66,7 +70,14 @@ LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
         ("Not applicable",),
         (*_APPROVED_TIERS, "Not AI approved", None),
     ),
+    "Not reviewed": (
+        ("Not reviewed",),
+        (*_APPROVED_TIERS, "Not AI approved", None),
+    ),
 }
+
+#: Where a rule's text was read from: the page text, or a scanned page re-read as a picture (owner 16.3 point 2).
+ReadFrom = Literal["text", "scan"]
 
 Count = Annotated[int, Field(ge=0)]
 
@@ -100,6 +111,8 @@ class AgentRunSummary(BaseModel):
     #: null when the run was not stopped early.
     stop_reason: str | None = None
     missing_books: list[str] = []
+    #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
+    not_reviewed: Count = 0
 
 
 class AgentLine(BaseModel):
@@ -172,6 +185,8 @@ class AgentAskedRule(BaseModel):
     #: null when the rule has no equipment type.
     equipment: str | None = None
     tier: RuleTier
+    #: "scan" for a rule re-read from a scanned page; "text" otherwise.
+    read_from: ReadFrom = "text"
 
 
 class AgentLeftOutRule(BaseModel):
@@ -190,6 +205,18 @@ class AgentMissingBook(BaseModel):
     why: str
 
 
+class AgentBookCoverage(BaseModel):
+    """How much of one rule book the stored rules cover (free coverage check). The screen computes the percentage from the
+    two integers, so the denominator is always shown; a book with no row in the coverage file has every number null."""
+
+    rule_book: str
+    requirement_sentences: int | None = Field(default=None, ge=0)
+    covered_sentences: int | None = Field(default=None, ge=0)
+    unreadable_pages: int | None = Field(default=None, ge=0)
+    weak_pages: int | None = Field(default=None, ge=0)
+    below_half: bool | None = None
+
+
 class AgentRulesUsed(BaseModel):
     """GET /api/reviews/runs/{id}/rules-used (view only)."""
 
@@ -200,5 +227,7 @@ class AgentRulesUsed(BaseModel):
     #: left-out rules counted per reason.
     left_out_counts: dict[LeftOutReason, Count] = {}
     missing_books: list[AgentMissingBook] = []
+    #: coverage of each rule book that was asked or left out; empty when no coverage file is placed.
+    books: list[AgentBookCoverage] = []
     #: null unless a person changed the rule set (then their name).
     rule_set_changed_by: str | None = None
