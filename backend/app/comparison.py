@@ -57,7 +57,7 @@ from . import (absence, claims, closing_noun, conditions, datasheets, errors, fi
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
-from . import presence_check
+from . import job_progress, presence_check
 from .config import settings
 from .deferred_value import framing as _framing, reason as _deferred_reason
 from .impossible_sign import hold_pass as _hold_impossible_pass
@@ -2542,7 +2542,7 @@ def _run_comparison(
     if settings.geometry_reader_enabled or settings.field_naming_enabled:
         from . import field_vocabulary
         field_names = field_vocabulary.names_for(requirements, facts, stored)
-    for requirement in requirements:
+    for requirement in job_progress.counting(requirements):
         # CONTAINMENT, NOT EXACT EQUALITY. Measured over this corpus, exact
         # equality between a requirement's subject and a datasheet caption
         # matched 0 of 77; containment matched the pairs an engineer picked.
