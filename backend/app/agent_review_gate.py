@@ -23,8 +23,17 @@ FEATURE_OFF = "feature_off"
 #: switch stays one switch; inside it a paper of any other kind, or of an unknown kind, is refused before any job exists.
 #: Widening this tuple is an owner decision.
 AGENT_REVIEW_KINDS = ("datasheet",)
+#: GENERAL REVIEW kinds, behind the SAME switch. OWNER, 11 Nov 2026 (STATE 16.4, word for word): "Do not switch them off. Review
+#: them in GENERAL REVIEW mode when we hold no rule book for the paper: ... Never ask equipment rules of a paper they do not
+#: belong to. Silence is a "Query", never "not met". No "Pass" or "Fail" in this mode. All lines internal only." ... "Switch it
+#: on in the app only if that score is clearly better than tonight's." (Scored 11 Nov: wrong lines 26 to 2 on a procedure, 18 to 1
+#: on a contract; planted errors caught 0 to 5 of 10 on each.) A paper of any other kind stays refused (409).
+AGENT_GENERAL_REVIEW_KINDS = ("procedure", "contract")
 KIND_NOT_ENABLED = "kind_not_enabled"
-KIND_NOT_ENABLED_MESSAGE = "AI review is on for datasheets only (owner, 11 Nov 2026)"
+KIND_NOT_ENABLED_MESSAGE = (
+    "AI review is on for datasheets (rule review) and for procedures and contracts "
+    "(general review, no rule book) only (owner, 11 Nov 2026)"
+)
 
 
 class FeatureOff(RuntimeError):
@@ -44,6 +53,18 @@ def require_on() -> None:
 def kind_enabled(kind: str | None) -> bool:
     """May the AI reviewer take a paper of this decided kind? An unknown kind (None, "unknown") never."""
     return str(kind or "").strip().lower().replace(" ", "_") in AGENT_REVIEW_KINDS
+
+
+def general_kind_enabled(kind: str | None) -> bool:
+    """Does this decided kind get the GENERAL review (no rule book, no Pass or Fail)? An unknown kind never."""
+    return (
+        str(kind or "").strip().lower().replace(" ", "_") in AGENT_GENERAL_REVIEW_KINDS
+    )
+
+
+def any_kind_enabled(kind: str | None) -> bool:
+    """A kind either review accepts: a datasheet (rule review) or a procedure or contract (general review)."""
+    return kind_enabled(kind) or general_kind_enabled(kind)
 
 
 def claude_lane_open() -> bool:

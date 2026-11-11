@@ -10,6 +10,8 @@
                               (for resume and the xlsx) and its trace. The table itself refuses "Pass" or "Fail" on a line
                               whose class is not "Proven by code" and on a rule that is not AI approved or approved by a person.
     agent_review_missing_book a rule book the paper cites that the library does not hold (listed, never counted against).
+    agent_review_general      one row per GENERAL review run (procedures and contracts, no rule book): the project papers the
+                              request named, and the ones that were used (id and name). A run with no row is a rule review.
 
 Switch off: `ensure_schema` does nothing and creates nothing; `create_tables` raises `FeatureOff`. A GET never creates a
 table: `has_tables` says whether they exist.
@@ -27,6 +29,17 @@ CLASSES = (
     "Query for the engineer",
     "Not applicable",
     "Not reviewed",
+    # General review (no rule book; procedures and contracts): the two classes only that mode has (#1690, #781).
+    "Not checked: rule book not held",
+    "AI note, no rule book",
+)
+GENERAL_CLASSES = ("Not checked: rule book not held", "AI note, no rule book")
+PARTS = (
+    "not held",
+    "checklist",
+    "paper against itself",
+    "against project papers",
+    "engineering comment",
 )
 WORDS = (
     "Pass",
@@ -36,6 +49,8 @@ WORDS = (
     "Query",
     "Not applicable",
     "Not reviewed",
+    "Not checked",
+    "AI note",
 )
 TIERS = ("Owner", "Engineer", "AI approved", "Not AI approved")
 TABLES = (
@@ -43,6 +58,7 @@ TABLES = (
     "agent_review_rule",
     "agent_review_line",
     "agent_review_missing_book",
+    "agent_review_general",
 )
 
 
@@ -103,9 +119,18 @@ _STATEMENTS = (
         line_json TEXT NOT NULL,
         trace_json TEXT,
         decided_at TEXT NOT NULL,
+        part TEXT CHECK (part IS NULL OR part IN {_in(PARTS)}),
+        text_source TEXT CHECK (text_source IS NULL OR text_source IN ('quote', 'the model''s words')),
         PRIMARY KEY (run_id, item_id),
         CHECK (word NOT IN ('Pass', 'Fail') OR verdict_class = 'Proven by code'),
-        CHECK (word NOT IN ('Pass', 'Fail') OR rule_tier IS NULL OR rule_tier <> 'Not AI approved')
+        CHECK (word NOT IN ('Pass', 'Fail') OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
+        CHECK (verdict_class NOT IN {_in(GENERAL_CLASSES)} OR (rule_tier IS NULL AND part IS NOT NULL)),
+        CHECK (word NOT IN ('Not checked', 'AI note') OR verdict_class IN {_in(GENERAL_CLASSES)})
+    )""",
+    """CREATE TABLE IF NOT EXISTS agent_review_general (
+        run_id TEXT PRIMARY KEY,
+        requested_json TEXT NOT NULL DEFAULT '[]',
+        project_json TEXT NOT NULL DEFAULT '[]'
     )""",
     """CREATE TABLE IF NOT EXISTS agent_review_missing_book (
         run_id TEXT NOT NULL,

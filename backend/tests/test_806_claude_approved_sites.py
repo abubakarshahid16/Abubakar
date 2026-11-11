@@ -165,6 +165,9 @@ DECLARED_BY = {
     # AI reviewer in the app: owner order of 11 Nov 2026 night (step F), recorded on #1584. The job declares exactly the paper
     # under review and the rule books of its asked items (`claude_approved.carrying`), then runs the runner inside it.
     "agent_review_run.py": "agent_review_jobs.py",
+    # General review of procedures and contracts (#781, same order): it calls only through the runner above, and declares exactly
+    # the paper and the project papers the request named (`claude_approved.carrying`) before any call.
+    "agent_general_job.py": "agent_general_job.py",
 }
 #: The lane itself and its plumbing: they send what a caller declared.
 THE_LANE = {"reasoning_provider.py", "claude_spend.py", "reader_transport.py", "reader_api.py",

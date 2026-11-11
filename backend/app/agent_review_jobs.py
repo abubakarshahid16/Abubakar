@@ -6,8 +6,9 @@ when the one switch is on (`agent_review_gate.enabled`); with the switch off not
 
 JOB ORDER
   1. read the paper (`nothing_read.read_phase`, as the classic review does);
-  2. the paper's KIND first (`agent_review_kind`); unknown stays unknown, and a kind the reviewer is not enabled for
-     (`agent_review_gate.AGENT_REVIEW_KINDS`, datasheets only) asks nothing: the run says so;
+  2. the paper's KIND first (`agent_review_kind`); unknown stays unknown. A datasheet goes to the rule review below; a
+     procedure or a contract (`agent_review_gate.AGENT_GENERAL_REVIEW_KINDS`) goes to the GENERAL review
+     (`agent_general_job`: no rule book, no Pass or Fail, internal only); any other kind asks nothing: the run says so;
   3. the standards: a finished classic run of the same code version is reused, else the classic selection runs inline;
   4. the RIGHT rules only (`agent_review_items.build_items`): kind must equal the paper's, tier usable, equipment type fits;
      everything else is counted with one reason and stored as "left out";
@@ -28,6 +29,9 @@ import logging
 import uuid
 from pathlib import Path
 
+from . import (
+    agent_general_job as general_job,
+)
 from . import agent_review_crs as crs_lines
 from . import (
     agent_review_gate,
@@ -100,12 +104,14 @@ def enqueue(
     *,
     allowed_document_ids: frozenset[str],
     requested_by: str | None,
+    project_document_ids: tuple[str, ...] | None = None,
 ) -> tuple[str, str]:
     """Create the run and its job together. Returns (run_id, job_id).
 
     Raises ReviewAlreadyActive when ANY review (classic or AI) of this submittal is queued or running, and ValueError when
     the caller may not read the submittal. Off: raises FeatureOff and creates nothing. (The paper's kind is checked by the
-    caller first: `agent_review_gate.kind_enabled`.)"""
+    caller first: `agent_review_gate.any_kind_enabled`.) `project_document_ids` is not None only for a GENERAL review (a
+    procedure or a contract): the papers the request named for part 4, written with the run in the same transaction."""
     agent_review_gate.require_on()
     from . import submittal_review
 
@@ -136,6 +142,8 @@ def enqueue(
             (job_id, submittal_document_id, STAGE, now, now, job_queue.PRIORITY_INTERACTIVE, requested_by,
              review_jobs.review_code_version(), config_version(), run_id, len(STEPS)),
         )  # fmt: skip
+        if project_document_ids is not None:
+            general_job.record_request(conn, run_id, project_document_ids)
         job_queue.audit(
             conn,
             "job.queued",
@@ -749,6 +757,13 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
         _write_run_start(run_id, submittal, kind, started)
+        if kind.known and agent_review_gate.general_kind_enabled(kind.kind):
+            _progress(conn, job_id, 2, heartbeat)
+            result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
+                                     name=_document_name(submittal), lane=lane,
+                                     heartbeat=heartbeat)  # fmt: skip
+            _progress(conn, job_id, 3, heartbeat)
+            return _done(conn, job_id, run_id, result)
         plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
