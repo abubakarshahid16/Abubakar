@@ -44,7 +44,10 @@ SECOND_MODEL = "claude-opus-5-5"
 MAX_TOKENS = 2048
 SECOND_MAX_TOKENS = 400
 TOTAL_CAP_USD = 10.0
-_OPEN_PROVIDERS = ("claude", "per_task")
+#: REASONING_PROVIDER=claude opens the lane for every reasoning step. Under `per_task` (owner, 12 Nov 2026) it opens ONLY
+#: when the AI reviewer's OWN engine setting (AGENT_REVIEW_ENGINE, `settings.agent_review_engine`) says claude, as every
+#: other step with an engine setting works (`reasoning_provider.claude_unavailable_for_task`). `ollama` refuses all.
+ENGINE_ENV = "AGENT_REVIEW_ENGINE"
 _CACHE = {"type": "ephemeral"}
 
 SYSTEM_RULES = (
@@ -121,6 +124,7 @@ def _env_with_settings() -> dict:
     out = dict(os.environ)
     wanted = {
         "REASONING_PROVIDER": settings.reasoning_provider,
+        ENGINE_ENV: settings.agent_review_engine,
         "STANDARDS_READER_ENABLED": "1" if settings.standards_reader_enabled else "",
         "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1"
         if settings.standards_reader_allow_public_egress
@@ -137,7 +141,14 @@ def gate_open(env: dict | None = None) -> bool:
     environment with the app settings behind it (`_env_with_settings`). The two egress flags and the key are checked again
     where the request is built and where it is sent."""
     env = _env_with_settings() if env is None else env
-    return str(env.get("REASONING_PROVIDER") or "").strip().lower() in _OPEN_PROVIDERS
+    provider = str(env.get("REASONING_PROVIDER") or "").strip().lower()
+    if provider == "claude":
+        return True
+    # per_task: only when this reviewer's own engine says claude. Anything else (ollama, unknown, empty) is closed.
+    return (
+        provider == "per_task"
+        and str(env.get(ENGINE_ENV) or "").strip().lower() == "claude"
+    )
 
 
 def _resolve_key(env: dict, reader_api) -> str:

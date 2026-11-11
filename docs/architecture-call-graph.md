@@ -100,6 +100,20 @@ model call and that no model output reached a finding; both are no longer true:
   parts hold their rules. In a Claude-lane run with the local engine setting, the step is
   skipped by `local_engine_bar` and listed as not checked.
 
+**Who may use Claude under `per_task` (12 Nov 2026).** Each step that has its own engine setting asks
+`reasoning_provider.claude_unavailable_for_task(<setting>)`; the settings a normal review reads are listed once, in
+`local_engine_bar.REVIEW_ENGINE_SETTINGS` (`match_engine`, `vision_reader_engine`, `datasheet_ai_reader`,
+`crs_ai_wording_engine`, `review_ai_check_engine`, `ai_clause_review_engine`, `ai_division_scope_engine`,
+`ai_engineering_review_pass_engine`). The AI reviewer (rule review and general review) has its own,
+`agent_review_engine` (`AGENT_REVIEW_ENGINE`, default ollama): `agent_claude.gate_open` and
+`agent_review_gate.claude_lane_open` (the agent-status route) are open under `claude`, or under `per_task` only when that
+setting says claude; `ollama` closes both. `local_engine_bar.is_claude_lane_run` is true under `claude`, and under `per_task`
+only when one of `REVIEW_ENGINE_SETTINGS` says claude: a normal review with every engine local is not barred. The bar is decided per job by
+`is_claude_lane_run(agent_job)`: the AI reviewer's job (`jobs.stage = agent_review`, it carries `review_jobs._review_scope`) is
+barred exactly when its own gate is open; a normal review by the rule above. The reviewer's own setting does not bar a
+normal review. The app's second opinion on a Claude review is Claude (`agent_review_run`); the local second opinion exists
+only in `scripts/run_agent_review.py`.
+
 Section 2's line references above are still those of `1b445af`.
 
 ## 3. Model and network layer

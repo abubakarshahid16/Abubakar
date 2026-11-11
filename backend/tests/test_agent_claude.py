@@ -13,6 +13,7 @@ from app.config import settings
 
 ENV = {
     "REASONING_PROVIDER": "claude",
+    "AGENT_REVIEW_ENGINE": "claude",
     "STANDARDS_READER_ENABLED": "1",
     "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1",
     "ANTHROPIC_API_KEY": "test-key-not-real",
@@ -723,6 +724,7 @@ def _frame_locals(exc):
 
 LANE_NAMES = {
     "REASONING_PROVIDER": ("reasoning_provider", "claude", "ollama"),
+    "AGENT_REVIEW_ENGINE": ("agent_review_engine", "claude", "ollama"),
     "STANDARDS_READER_ENABLED": ("standards_reader_enabled", True, False),
     "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": (
         "standards_reader_allow_public_egress",
@@ -732,6 +734,7 @@ LANE_NAMES = {
 }
 OPEN_VALUE = {
     "REASONING_PROVIDER": "claude",
+    "AGENT_REVIEW_ENGINE": "claude",
     "STANDARDS_READER_ENABLED": "1",
     "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1",
 }

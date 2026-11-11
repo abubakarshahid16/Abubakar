@@ -8,11 +8,13 @@
  * reality.
  */
 
-/** Directory the backend is started from. */
-export const BACKEND_DIR = "D:\\project\\Rag_chatbot\\backend";
-
-/** Interpreter path. The virtualenv is at the PROJECT ROOT, not backend/. */
-export const PYTHON = "D:\\project\\Rag_chatbot\\.venv\\Scripts\\python.exe";
+/**
+ * Folder the backend is started from, relative to the project folder.
+ * No drive letter, no absolute path, no machine or old project name: the hint
+ * must be true on any machine. Run it from the project folder, with the
+ * project's Python (3.12) active.
+ */
+export const BACKEND_DIR = "backend";
 
 /**
  * The ONLY supported way to start the API.
@@ -23,7 +25,7 @@ export const PYTHON = "D:\\project\\Rag_chatbot\\.venv\\Scripts\\python.exe";
  */
 export const BACKEND_ENTRYPOINT = "run.py";
 
-export const START_BACKEND_COMMAND = `cd ${BACKEND_DIR}\n${PYTHON} ${BACKEND_ENTRYPOINT}`;
+export const START_BACKEND_COMMAND = `cd ${BACKEND_DIR}\npython ${BACKEND_ENTRYPOINT}`;
 
 /** Where the API listens. Loopback only - document text never leaves the host. */
 export const API_ORIGIN = "http://127.0.0.1:8000";

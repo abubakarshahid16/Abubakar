@@ -68,8 +68,15 @@ def any_kind_enabled(kind: str | None) -> bool:
 
 
 def claude_lane_open() -> bool:
-    """Whether the Claude lane itself is open: the provider switch, both egress flags and a key. Says nothing about the
-    approved-document list or the budget, which are checked again on every call."""
+    """Whether THIS reviewer may call Claude: the provider switch (claude, or per_task with `agent_review_engine` = claude),
+    both egress flags and a key. Says nothing about the approved-document list or the budget, which are checked again on every
+    call. Under per_task with the reviewer's engine on ollama this is False even when the lane itself is open."""
     from . import agent_claude, reasoning_provider
 
-    return bool(agent_claude.gate_open() and reasoning_provider.claude_lane_open())
+    return bool(
+        agent_claude.gate_open()
+        and reasoning_provider.claude_unavailable_for_task(
+            settings.agent_review_engine
+        )[0]
+        is None
+    )
