@@ -6,26 +6,34 @@
  * Rule: "Pass" and "Fail" may be shown ONLY under the class "Proven by code".
  * `lineView` enforces it on the way in, even if the API sent otherwise.
  */
-import type { AgentLine, AgentLeftOutReason, AgentRuleTier, AgentVerdictClass } from "../../../types/api";
+import type { AgentLeftOutReason, AgentRuleTier, AgentVerdictClass } from "../../../types/api";
 
-export const PROVEN: AgentVerdictClass = "Proven by code";
+/** "Not reviewed" (the AI gave no answer for the item) is a class of its own,
+ *  never mixed into Query. It is added here until the contract carries it. */
+export type ShownClass = AgentVerdictClass | "Not reviewed";
+
+export const NOT_REVIEWED_NOTE = "the AI gave no answer for these items";
+
+export const PROVEN: ShownClass = "Proven by code";
 
 /** Display order of the class blocks. */
-export const CLASS_ORDER: readonly AgentVerdictClass[] = [
+export const CLASS_ORDER: readonly ShownClass[] = [
   "Proven by code",
   "AI opinion, engineer to confirm",
   "AI opinion, rule not yet approved",
   "Query for the engineer",
   "Not applicable",
+  "Not reviewed",
 ];
 
 /** Colour is never the only signal: each class has its own mark and border. */
-export const CLASS_STYLE: Record<AgentVerdictClass, { mark: string; border: string }> = {
+export const CLASS_STYLE: Record<ShownClass, { mark: string; border: string }> = {
   "Proven by code": { mark: "■", border: "border-l-4 border-solid border-signal-400" },
   "AI opinion, engineer to confirm": { mark: "◆", border: "border-l-4 border-dashed border-warn-500" },
   "AI opinion, rule not yet approved": { mark: "◇", border: "border-l-4 border-dotted border-warn-500" },
   "Query for the engineer": { mark: "?", border: "border-l-4 border-double border-slateish-400" },
   "Not applicable": { mark: "–", border: "border-l-4 border-solid border-ink-600" },
+  "Not reviewed": { mark: "○", border: "border-l-4 border-dashed border-slateish-500" },
 };
 
 export const LEFT_OUT_REASONS: readonly AgentLeftOutReason[] = [
@@ -34,13 +42,13 @@ export const LEFT_OUT_REASONS: readonly AgentLeftOutReason[] = [
 ];
 export const TIERS: readonly AgentRuleTier[] = ["AI approved", "Engineer", "Owner", "Not AI approved"];
 
-export function isKnownClass(value: string): value is AgentVerdictClass {
+export function isKnownClass(value: string): value is ShownClass {
   return (CLASS_ORDER as readonly string[]).includes(value);
 }
 
 export interface LineView {
   /** the class block the line belongs to; null when the class is not in the vocabulary */
-  klass: AgentVerdictClass | null;
+  klass: ShownClass | null;
   /** the word to show; null when the word may not be shown for this line */
   word: string | null;
   dataError: boolean;
@@ -49,12 +57,13 @@ export interface LineView {
 /** What may be shown for one line. A "Pass"/"Fail" word on a class other
  *  than "Proven by code" is NOT shown; the line shows its class and a visible
  *  data-error note. An unknown class is a data error too. */
-export function lineView(line: Pick<AgentLine, "verdict_class" | "word">): LineView {
-  const known = isKnownClass(line.verdict_class);
+export function lineView(line: { verdict_class: string; word: string }): LineView {
+  const klass = line.verdict_class;
+  const known = isKnownClass(klass);
   const provenOnly = line.word === "Pass" || line.word === "Fail";
   if (!known) return { klass: null, word: provenOnly ? null : line.word, dataError: true };
-  if (provenOnly && line.verdict_class !== PROVEN) return { klass: line.verdict_class, word: null, dataError: true };
-  return { klass: line.verdict_class, word: line.word, dataError: false };
+  if (provenOnly && klass !== PROVEN) return { klass, word: null, dataError: true };
+  return { klass, word: line.word, dataError: false };
 }
 
 export const DATA_ERROR_NOTE =

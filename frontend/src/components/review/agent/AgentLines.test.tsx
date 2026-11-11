@@ -46,7 +46,7 @@ describe("AgentLines", () => {
       const block = screen.getByTestId(`block-${klass}`);
       expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${word}$`));
     }
-    expect(CLASS_ORDER).toHaveLength(5);
+    expect(CLASS_ORDER).toHaveLength(6);
     expect(screen.getByRole("table", { name: "AI opinion, rule not yet approved" })).toBeInTheDocument();
   });
 
@@ -91,5 +91,27 @@ describe("AgentLines", () => {
     render(<AgentLines runId="r1" onOpenTrace={onOpen} />);
     await userEvent.click(await screen.findByRole("button", { name: "Open the trace of line T1" }));
     expect(onOpen).toHaveBeenCalledWith("T1");
+  });
+});
+
+describe("AgentLines: Not reviewed and checklist items", () => {
+  /** MUTATION PROOF: put "Not reviewed" under Query and this fails. */
+  it("Not reviewed has its own block with its note, apart from Query", async () => {
+    lines.mockResolvedValue(ok([
+      line({ item_id: "N1", verdict_class: "Not reviewed" as never, word: "Not reviewed" as never }),
+      line({ item_id: "Q1", verdict_class: "Query for the engineer", word: "Query" }),
+    ]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    const nr = await screen.findByTestId("block-Not reviewed");
+    expect(within(nr).getByTestId("word-N1")).toHaveTextContent(/^Not reviewed$/);
+    expect(nr).toHaveTextContent("the AI gave no answer for these items");
+    expect(within(nr).queryByTestId("word-Q1")).toBeNull();
+    expect(within(screen.getByTestId("block-Query for the engineer")).getByTestId("word-Q1")).toBeInTheDocument();
+  });
+  it("a null rule tier (checklist item) renders as checklist item, not blank or null", async () => {
+    lines.mockResolvedValue(ok([line({ item_id: "C1", rule_tier: null })]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    expect((await screen.findByText("checklist item"))).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/null/);
   });
 });

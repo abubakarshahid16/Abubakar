@@ -49,3 +49,11 @@ describe("AgentSummary", () => {
     expect(screen.getByText(/None: every rule book/)).toBeInTheDocument();
   });
 });
+
+describe("AgentSummary: Not reviewed", () => {
+  it("counts Not reviewed on its own line with its meaning", () => {
+    render(<AgentSummary summary={summary({ counts_by_class: { "Query for the engineer": 2, "Not reviewed": 3 } })} />);
+    expect(screen.getByTestId("count-Not reviewed")).toHaveTextContent("Not reviewed: 3 (the AI gave no answer for these items)");
+    expect(screen.getByTestId("count-Query for the engineer")).toHaveTextContent("Query for the engineer: 2");
+  });
+});

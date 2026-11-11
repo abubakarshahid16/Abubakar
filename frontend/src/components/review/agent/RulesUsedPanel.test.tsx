@@ -112,3 +112,44 @@ describe("RulesUsedPanel", () => {
     expect(rulesUsed).toHaveBeenCalledWith("r1");
   });
 });
+
+describe("RulesUsedView: rule books and scans", () => {
+  const withBooks = (books: unknown) => ({ ...data(), books } as never);
+  /** MUTATION PROOF: render null as 0 or 100% and the not-measured test fails;
+   *  drop the below_half warning and the warning test fails. */
+  it("shows coverage with its denominator and a plain warning below half", () => {
+    render(<RulesUsedView data={withBooks([
+      { rule_book: "Book A", requirement_sentences: 530, covered_sentences: 412, unreadable_pages: 2, weak_pages: 5, below_half: false },
+      { rule_book: "Book B", requirement_sentences: 100, covered_sentences: 40, unreadable_pages: 9, weak_pages: 11, below_half: true },
+    ])} />);
+    const books = screen.getByTestId("books");
+    expect(books).toHaveTextContent("Book A: 412 of 530 requirement sentences stored (78%)");
+    expect(books).toHaveTextContent("unreadable pages: 2 · weak pages: 5");
+    const warnings = screen.getAllByRole("note");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toHaveTextContent("less than half of this book's requirement sentences are stored: weak or scanned pages must be re-read");
+    expect(within(books).getByText(/Book B/).closest("li")).toContainElement(warnings[0]);
+  });
+  it("null numbers render as not measured, never 0% or 100%", () => {
+    render(<RulesUsedView data={withBooks([
+      { rule_book: "Book N", requirement_sentences: null, covered_sentences: null, unreadable_pages: null, weak_pages: null, below_half: null },
+      { rule_book: "Book Z", requirement_sentences: 0, covered_sentences: 0 },
+    ])} />);
+    const books = screen.getByTestId("books");
+    expect(books).toHaveTextContent("Book N: not measured");
+    expect(books).toHaveTextContent("Book Z: not measured");
+    expect(books).toHaveTextContent("unreadable pages: not measured · weak pages: not measured");
+    expect(books.textContent).not.toMatch(/%/);
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+  it("no books recorded says so", () => {
+    render(<RulesUsedView data={data()} />);
+    expect(screen.getByTestId("books-empty")).toBeInTheDocument();
+  });
+  it("marks a rule read from a scan, and only that one", () => {
+    const d = data();
+    render(<RulesUsedView data={{ ...d, asked: [{ ...d.asked[0], read_from: "scan" }, { ...d.asked[1], read_from: "text" }] }} />);
+    expect(screen.getAllByText("read from a scan")).toHaveLength(1);
+    expect(screen.getByText("read from a scan").closest("tr")).toHaveTextContent("q one");
+  });
+});

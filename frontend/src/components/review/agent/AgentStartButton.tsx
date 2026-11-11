@@ -11,14 +11,18 @@ import type { AgentStatus, ReviewRunSummary } from "../../../types/api";
 export const LANE_CLOSED_REASON =
   "The AI reviewer cannot start: the Claude connection is not open on this machine. An administrator opens it in the settings file.";
 
-export function AgentStartButton({ status, documentId, onStarted }: {
+export function AgentStartButton({ status, documentId, paperKind = null, onStarted }: {
   status: AgentStatus | null;
+  /** The paper's kind when the screen knows it; null when not known. */
+  paperKind?: string | null;
   documentId: string;
   onStarted: (run: ReviewRunSummary) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!status || !status.enabled) return null;
+  // Datasheets only: a paper known to be of another kind gets no button.
+  if (paperKind != null && paperKind !== "datasheet") return null;
   const closed = !status.claude_lane_open;
 
   async function press() {
@@ -26,6 +30,7 @@ export function AgentStartButton({ status, documentId, onStarted }: {
     setError(null);
     const result = await agentReview.start(documentId);
     setBusy(false);
+    // 409 "kind_not_enabled": the server's own words, plainly, nothing else.
     if (!result.ok) setError(result.error.message);
     else onStarted(result.data);
   }

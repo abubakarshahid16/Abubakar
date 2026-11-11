@@ -28,6 +28,17 @@ describe("agentSwitch", () => {
     stub(200, { enabled: true, claude_lane_open: false });
     expect(await agentSwitch()).toEqual({ state: "on", status: { enabled: true, claude_lane_open: false } });
   });
+  it("a structured 404 body with code feature_off is off too", async () => {
+    stub(404, { detail: { code: "feature_off", message: "x" } });
+    expect(await agentSwitch()).toEqual({ state: "off" });
+    expect(isFeatureOff(await agentReview.rulesUsed("r1"))).toBe(true);
+  });
+  it("a 409 kind_not_enabled keeps its code and message for the screen", async () => {
+    stub(409, { detail: { code: "kind_not_enabled", message: "AI review is on for datasheets only" } });
+    const r = await agentReview.start("d");
+    expect(!r.ok && !r.disconnected && r.error.message).toBe("AI review is on for datasheets only");
+    expect(isFeatureOff(r)).toBe(false);
+  });
   it("a network failure or a wrong shape is off", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("down"))));
     expect(await agentSwitch()).toEqual({ state: "off" });

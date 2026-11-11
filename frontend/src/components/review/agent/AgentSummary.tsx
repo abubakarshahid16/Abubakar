@@ -4,7 +4,7 @@
  * percentage. A null cost renders nothing (never 0).
  */
 import type { AgentRunSummary } from "../../../types/api";
-import { CLASS_ORDER, CLASS_STYLE, isKnownClass } from "./agentWords";
+import { CLASS_ORDER, CLASS_STYLE, NOT_REVIEWED_NOTE, isKnownClass } from "./agentWords";
 
 export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
   const counts = summary.counts_by_class;
@@ -36,7 +36,7 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           <ul className="mt-1 space-y-1 text-sm">
             {known.map((c) => (
               <li key={c} data-testid={`count-${c}`} className={`pl-2 ${CLASS_STYLE[c].border}`}>
-                <span aria-hidden="true">{CLASS_STYLE[c].mark} </span>{c}: <span className="font-mono">{counts[c]}</span>
+                <span aria-hidden="true">{CLASS_STYLE[c].mark} </span>{c}: <span className="font-mono">{counts[c]}</span>{c === "Not reviewed" ? ` (${NOT_REVIEWED_NOTE})` : ""}
               </li>
             ))}
             {other.map((c) => (

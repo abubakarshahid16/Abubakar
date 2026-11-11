@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 
 import { agentReview } from "../../../api/agentReview";
 import type { AgentLine } from "../../../types/api";
-import { CLASS_ORDER, CLASS_STYLE, DATA_ERROR_NOTE, lineView } from "./agentWords";
+import { CLASS_ORDER, CLASS_STYLE, DATA_ERROR_NOTE, NOT_REVIEWED_NOTE, lineView } from "./agentWords";
 
 function Block({ title, mark, border, lines, onOpen }: {
   title: string; mark: string; border: string; lines: AgentLine[]; onOpen: (itemId: string) => void;
@@ -18,6 +18,7 @@ function Block({ title, mark, border, lines, onOpen }: {
       <h3 className={`pl-2 text-sm font-semibold text-slateish-100 ${border}`}>
         <span aria-hidden="true">{mark} </span>{title} <span className="font-normal text-slateish-400">({lines.length} loaded)</span>
       </h3>
+      {title === "Not reviewed" && <p className="pl-2 text-xs text-slateish-400">{NOT_REVIEWED_NOTE}</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <caption className="sr-only">{title}</caption>
@@ -46,7 +47,7 @@ function Block({ title, mark, border, lines, onOpen }: {
                   <td className="pr-3">{line.page != null ? line.page : ""}</td>
                   <td className="pr-3">{line.rule_book}</td>
                   <td className="pr-3">{line.clause}</td>
-                  <td className="pr-3">{line.rule_tier}</td>
+                  <td className="pr-3">{line.rule_tier ?? "checklist item"}</td>
                   <td className="break-words">{line.reason}</td>
                 </tr>
               );
