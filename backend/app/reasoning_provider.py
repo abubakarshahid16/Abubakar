@@ -39,6 +39,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from . import claude_image_tokens as image_rule
 from . import local_engine_bar, model_metrics, model_transport, worker_review
 from .ai.json_reply import unfenced
 from .config import settings
@@ -100,11 +101,8 @@ class PageImage:
 
     @property
     def tokens(self) -> int:
-        """Anthropic's published estimate (`claude_spend.image_tokens`): width x height / 750 after the long-edge
-        scale-down, at most one image's maximum."""
-        from . import claude_spend
-
-        return claude_spend.image_tokens(self.width, self.height)
+        """Anthropic's published estimate (`claude_image_tokens.image_tokens`)."""
+        return image_rule.image_tokens(self.width, self.height)
 
 
 @dataclass(frozen=True)
@@ -628,7 +626,7 @@ class ClaudeProvider:
         stored, key = _stored_answer(step, body, packet)
         if stored is not None:
             return self._response(stored, packet, 0.0, 0.0)
-        prompt_chars, image_tokens = _input_counts(packet, prompt)
+        prompt_chars, image_tokens = image_rule.packet_counts(packet, prompt)
         max_tokens = packet.num_predict + (packet.thinking_budget or 0)
         send = self._send()     # egress off refuses here, before anything is held
         held = claude_spend.reserve(
@@ -686,24 +684,6 @@ def _stream_delta(block: dict | None, delta: dict, parts: list[str], on_text) ->
                 block["text"] = block.get("text", "") + piece
 
 
-def _input_counts(packet: Packet, prompt: str) -> tuple[int, int]:
-    """(prompt characters, image tokens) for the worst-case reservation of one single or streamed call. An image
-    block inside `packet.messages` counts by the published image rule (`claude_spend.split_images`), not as its
-    base64 text. With `messages` set, `packet.images` is only an accounting placeholder for images that ride inside
-    `messages` (`_request` sends none of them), so the larger of the two counts, never both and never fewer; without
-    `messages`, `packet.images` is what is sent."""
-    from . import claude_spend
-
-    chars = len(packet.system) + len(prompt)
-    in_messages = 0
-    for message in packet.messages or ():
-        part, tokens = claude_spend.split_images(message)
-        chars += len(json.dumps(part, default=str))
-        in_messages += tokens
-    declared = sum(i.tokens for i in packet.images)
-    return chars, (max(declared, in_messages) if packet.messages is not None else declared)
-
-
 def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
     """The Messages API through `reader_transport.stream`: the same gates and worst-case
     RESERVATION, settled AFTER whether it finished, was stopped (it cost what it produced)
@@ -719,7 +699,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
         response = provider._response(stored, packet, 0.0, 0.0)
         on_text(response.text)
         return response
-    prompt_chars, image_tokens = _input_counts(packet, prompt)
+    prompt_chars, image_tokens = image_rule.packet_counts(packet, prompt)
     max_tokens = packet.num_predict + (packet.thinking_budget or 0)
     send = provider._stream_transport
     if send is None:
@@ -729,8 +709,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                                   "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
         send = reader_transport.stream
     held = claude_spend.reserve(
-        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens,
-                                          image_tokens=image_tokens),
+        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens, image_tokens),
         model=provider.requested_model, prompt_sha256=packet.sha256)
     started = time.time()
     parts: list[str] = []

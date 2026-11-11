@@ -33,6 +33,7 @@ from typing import Any
 
 from app import claude_spend
 from app.agent_trace import words
+from app.claude_image_tokens import json_counts
 
 STEP = "agent_review"
 LEAD_MODEL = "claude-sonnet-5-5"
@@ -281,15 +282,10 @@ def _usd(model: str, answer: dict, body: dict) -> float:
     usage = answer.get("usage")
     if isinstance(usage, dict) and usage:
         return float(claude_spend.cost_usd(model, usage))
-    messages, message_images = claude_spend.split_images(body.get("messages"))
-    system, system_images = claude_spend.split_images(body.get("system"))
-    chars = len(json.dumps(messages, default=str)) + len(json.dumps(system, default=str))
+    chars, images = json_counts([body.get("messages"), body.get("system")])
     return float(
         claude_spend.worst_case_usd(
-            model,
-            chars,
-            int(body.get("max_tokens") or 0),
-            image_tokens=message_images + system_images,
+            model, chars, int(body.get("max_tokens") or 0), image_tokens=images
         )
     )
 
@@ -341,13 +337,13 @@ def _call(
         not declared
     ):  # absent or empty: we cannot tell what a prompt carries, so nothing is sent
         raise AgentGateClosed("undeclared_documents")
-    # An image block counts by the published image rule, not as its base64 text (claude_spend.split_images).
-    chars, images = 0, 0
-    for k in ("messages", "system", "tools"):
-        part, part_images = claude_spend.split_images(body_parts.get(k))
-        chars += len(json.dumps(part, default=str))
-        images += part_images
-    worst = claude_spend.worst_case_usd(model, chars, int(max_tokens), image_tokens=images)
+    # An image block counts by the published image rule, not as its base64 text.
+    chars, images = json_counts(
+        body_parts.get(k) for k in ("messages", "system", "tools")
+    )
+    worst = claude_spend.worst_case_usd(
+        model, chars, int(max_tokens), image_tokens=images
+    )
     if meter is not None:
         meter.check(worst)
     raw = _transport(send)

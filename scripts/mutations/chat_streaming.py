@@ -41,7 +41,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="found_only_by_its_owner", tags=("privacy", "critical")),
     Mutation(id="M948", phase=82, description="budget: a streamed Claude call skips the cap check",
              path=APP / "reasoning_provider.py",
-             anchor="    held = claude_spend.reserve(\n        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens,\n                                          image_tokens=image_tokens),\n        model=provider.requested_model, prompt_sha256=packet.sha256)\n",
+             anchor="    held = claude_spend.reserve(\n        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens, image_tokens),\n        model=provider.requested_model, prompt_sha256=packet.sha256)\n",
              replacement="    held = claude_spend.Reservation(\"m\", step, provider.requested_model, 0.0, packet.sha256, time.time())\n",
              target=_T, keyword="over_the_budget_is_refused", tags=("budget", "critical")),
     Mutation(id="M949", phase=82, description="stream: the first real step is never announced",
