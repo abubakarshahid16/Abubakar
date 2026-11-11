@@ -20,14 +20,21 @@ approved on it. Lines get their tier from `agent_review_wording.final_cap`, whic
 
 from __future__ import annotations
 
-
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 from . import agent_review_wording as wording
-from .agent_review_verdict import BY_ABSENCE, BY_AI, BY_CODE, BY_FINAL_CHECK, FAIL, PASS, QUERY
+from .agent_review_verdict import (
+    BY_ABSENCE,
+    BY_AI,
+    BY_CODE,
+    BY_FINAL_CHECK,
+    FAIL,
+    PASS,
+    QUERY,
+)
 from .agent_run_crs import _cell, _page_cell
 
 
@@ -45,14 +52,20 @@ def _refuse_unproven(lines: Iterable[Mapping]) -> None:
 TOP_TEXT = "AI review, engineer to confirm"
 CRS_SHEET = "CRS"
 PASSED_SHEET = "Passed - engineer to tick"
-NOT_APPLICABLE_SHEET = "Not applicable (AI, to confirm)"  # Excel: 31 characters at most, no colon
+NOT_APPLICABLE_SHEET = (
+    "Not applicable (AI, to confirm)"  # Excel: 31 characters at most, no colon
+)
 UNAPPROVED_SHEET = "Rules not yet approved"  # Excel: 31 characters at most
-UNAPPROVED_NOTE = ("AI opinion, rule not yet approved. The rule is not AI approved: never a Pass or a Fail, never sent to the "
-                   "contractor. Not CRS comments.")
+UNAPPROVED_NOTE = (
+    "AI opinion, rule not yet approved. The rule is not AI approved: never a Pass or a Fail, never sent to the "
+    "contractor. Not CRS comments."
+)
 NOT_APPLICABLE_NOTE = "Not applicable (AI, engineer to confirm). Not CRS comments."
 HELD_PASS_SHEET = "AI met, not proven by code"  # Excel: 31 characters at most, no colon
-HELD_PASS_NOTE = ("AI says met, not proven by code: engineer to tick. The gate reason is in the comment and the "
-                  "Quotes checked column. Not CRS comments.")
+HELD_PASS_NOTE = (
+    "AI says met, not proven by code: engineer to tick. The gate reason is in the comment and the "
+    "Quotes checked column. Not CRS comments."
+)
 RUN_SHEET = "Run"
 HEADING_ROWS = 8  # the old engine's CRS: 8 rows above the column headings
 OLD_HEADERS = (
@@ -100,7 +113,11 @@ def field_words(line: Mapping) -> str:
     label = _clean(line.get("field"))
     if label:
         return label
-    roles = [r.replace("_", " ").strip() for r in line.get("field_roles") or [] if str(r).strip()]
+    roles = [
+        r.replace("_", " ").strip()
+        for r in line.get("field_roles") or []
+        if str(r).strip()
+    ]
     return ", ".join(roles) or against(line) or str(line.get("item_id") or "item")
 
 
@@ -108,7 +125,11 @@ def line_page(line: Mapping) -> int | None:
     page = line.get("paper_page")
     if isinstance(page, int) and not isinstance(page, bool) and page >= 1:
         return page
-    hints = [p for p in line.get("page_hint") or [] if isinstance(p, int) and not isinstance(p, bool) and p >= 1]
+    hints = [
+        p
+        for p in line.get("page_hint") or []
+        if isinstance(p, int) and not isinstance(p, bool) and p >= 1
+    ]
     return hints[0] if hints else None
 
 
@@ -137,7 +158,11 @@ def asks(line: Mapping) -> str:
 def stated(line: Mapping) -> str:
     """What the sheet states, in its own words: the paper quote only when code found it on the page."""
     q = line.get("quotes_checked") or {}
-    return _short(line.get("paper_quote"), MAX_QUOTE_WORDS) if q.get("paper") and _clean(line.get("paper_quote")) else ""
+    return (
+        _short(line.get("paper_quote"), MAX_QUOTE_WORDS)
+        if q.get("paper") and _clean(line.get("paper_quote"))
+        else ""
+    )
 
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
@@ -155,10 +180,19 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
     Refused when it has fewer than MIN_ASK_WORDS words, or carries a number that is not in a quote code VERIFIED (the
     paper quote or the clause quote): never a value the checked quotes do not hold."""
     q = line.get("quotes_checked") or {}
-    held = " ".join(_clean(x) for x in (line.get("paper_quote") if q.get("paper") else "",
-                                        line.get("clause_quote") if q.get("clause") else ""))
+    held = " ".join(
+        _clean(x)
+        for x in (
+            line.get("paper_quote") if q.get("paper") else "",
+            line.get("clause_quote") if q.get("clause") else "",
+        )
+    )
     held_numbers = set(_NUMBER.findall(held))
-    sources = (line.get("comment"),) if contractor else (line.get("comment"), line.get("reasoning"))
+    sources = (
+        (line.get("comment"),)
+        if contractor
+        else (line.get("comment"), line.get("reasoning"))
+    )
     for candidate in (_first_sentence(x) for x in sources):
         if len(candidate.split()) < MIN_ASK_WORDS:
             continue
@@ -170,8 +204,11 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
 def is_held_pass(line: Mapping) -> bool:
     """An AI Pass the gate held (quote, length, second opinion, ...): not a comment, ticked by the engineer on its own
     sheet. A Pass held because the value is marked deferred on the sheet IS a comment and stays on the CRS."""
-    return (line.get("ai_verdict") == PASS and line.get("verdict") == QUERY
-            and line.get("reason_code") != "value_deferred")
+    return (
+        line.get("ai_verdict") == PASS
+        and line.get("verdict") == QUERY
+        and line.get("reason_code") != "value_deferred"
+    )
 
 
 def is_not_applicable(line: Mapping) -> bool:
@@ -183,8 +220,12 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
     """The COMPANY Comments cell, in plain words: the field, the page, what the requirement asks, and what is wrong,
     missing or to be confirmed. Built from the item, the reason code and the code-checked quotes; no reasoning, and
     never a value that is not quoted."""
-    if line.get("recommendation") and not line.get("_recommended"):  # order 12: a 'should' rule, marked
-        return "Recommendation (should, not shall): " + company_comment({**line, "_recommended": True}, contractor)
+    if line.get("recommendation") and not line.get(
+        "_recommended"
+    ):  # order 12: a 'should' rule, marked
+        return "Recommendation (should, not shall): " + company_comment(
+            {**line, "_recommended": True}, contractor
+        )
     page = line_page(line)
     where = f"{field_words(line)} (page {page})" if page else field_words(line)
     rule = against(line) or "the requirement"
@@ -200,31 +241,51 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
         return said or fixed
 
     if verdict == PASS:
-        return f'{where}: the sheet states "{has}", which meets {rule}.' if has else f"{where}: meets {rule}."
+        return (
+            f'{where}: the sheet states "{has}", which meets {rule}.'
+            if has
+            else f"{where}: meets {rule}."
+        )
     if code == "value_deferred":
-        at = f" on page {line.get('deferred_page')}" if line.get("deferred_page") else ""
-        return f"{where}: the sheet marks this value as not final{at} (by contractor / to be advised). {req}. " + then(
-            "Provide the final value.")
+        at = (
+            f" on page {line.get('deferred_page')}" if line.get("deferred_page") else ""
+        )
+        return (
+            f"{where}: the sheet marks this value as not final{at} (by contractor / to be advised). {req}. "
+            + then("Provide the final value.")
+        )
     if verdict == FAIL and line.get("decided_by") == BY_CODE:
-        head = f'{where}: the stated value "{has}" does not meet {rule}' if has else f"{where}: does not meet {rule}"
+        head = (
+            f'{where}: the stated value "{has}" does not meet {rule}'
+            if has
+            else f"{where}: does not meet {rule}"
+        )
         return f"{head}. {req}." + (f" {said}" if said else "")
     if code in ("absent", "absent_pages_not_named") or (verdict == FAIL and not has):
         pages = f" (pages searched: {searched})" if searched else ""
         return f"{where}: not shown on the sheet{pages}. {req}. " + then("Provide it.")
     if verdict == FAIL:
-        return f'{where}: the sheet states "{has}", which does not meet {rule}. {req}.' + (f" {said}" if said else "")
+        return (
+            f'{where}: the sheet states "{has}", which does not meet {rule}. {req}.'
+            + (f" {said}" if said else "")
+        )
     if code == "ai_call_failed":
         return f"{where}: confirm compliance with {rule}. {req}. (Not reviewed: the AI call failed.)"
     if code == "sheet_silent":
         return f"{where}: the sheet does not state this. {req}. " + then("Confirm.")
     if code == "needs_drawing_or_calc":
         return f"{where}: cannot be checked from the sheet alone. {req}. " + then(
-            "Provide the drawing or calculation that shows it.")
+            "Provide the drawing or calculation that shows it."
+        )
     if code == "not_applicable":
         return f"{where}: the AI judged {rule} not applicable to this paper. Engineer to confirm."
     if has:
-        return f'{where}: the sheet states "{has}"; confirm it meets {rule}. {req}.' + (f" {said}" if said else "")
-    return f"{where}: confirm compliance with {rule}. {req}." + (f" {said}" if said else "")
+        return f'{where}: the sheet states "{has}"; confirm it meets {rule}. {req}.' + (
+            f" {said}" if said else ""
+        )
+    return f"{where}: confirm compliance with {rule}. {req}." + (
+        f" {said}" if said else ""
+    )
 
 
 def comment_by(line: Mapping) -> str:
@@ -247,7 +308,9 @@ def verdict_cell(line: Mapping) -> str:
 
 
 def _verdict_cell(line: Mapping) -> str:
-    if wording.is_opinion(line):  # order 12: never "Pass" or "Fail" for what code did not prove
+    if wording.is_opinion(
+        line
+    ):  # order 12: never "Pass" or "Fail" for what code did not prove
         return f"{line['verdict_label']} ({line['verdict_class']}); not proven by code: {_clean(line.get('not_proven_reason'))}"
     word = VERDICT_WORDS.get(line.get("verdict"), VERDICT_WORDS[QUERY])
     if line.get("decided_by") == BY_CODE and line.get("verdict") in (PASS, FAIL):
@@ -267,7 +330,11 @@ def reason_cell(line: Mapping) -> str | None:
     if not code:
         return None
     pages = [str(p) for p in line.get("pages_searched") or []]
-    return f"{code} (pages searched {', '.join(pages)})" if code.startswith("absent") and pages else code
+    return (
+        f"{code} (pages searched {', '.join(pages)})"
+        if code.startswith("absent") and pages
+        else code
+    )
 
 
 def paper_quote_cell(line: Mapping) -> str | None:
@@ -326,21 +393,41 @@ def held_row(line: Mapping, paper: str) -> list:
     row = internal_row(line, paper)
     has = stated(line)
     says = line.get("verdict_label") or "AI says met"
-    row[3] = (f"{field_words(line)}: {says} ({against(line) or 'the requirement'})"
-              + (f'; the sheet states "{has}"' if has else "") + f". Not proven by code: {_clean(line.get('why'))}.")
+    row[3] = (
+        f"{field_words(line)}: {says} ({against(line) or 'the requirement'})"
+        + (f'; the sheet states "{has}"' if has else "")
+        + f". Not proven by code: {_clean(line.get('why'))}."
+    )
     return row
 
 
 def contractor_row(line: Mapping, paper: str) -> list:
     """The comment only: no reasoning, no model, no quotes, no verdict words."""
-    return [line.get("item_id"), paper, _page_cell(line_page(line)), company_comment(line, contractor=True), None,
-            None, against(line) or None]
+    return [
+        line.get("item_id"),
+        paper,
+        _page_cell(line_page(line)),
+        company_comment(line, contractor=True),
+        None,
+        None,
+        against(line) or None,
+    ]
 
 
 def old_row(line: Mapping, paper: str) -> list:
     # the comment-only copy is scored as contractor-visible text: the contractor wording (no reasoning)
-    return [line.get("item_id"), paper, _page_cell(line_page(line)), company_comment(line, contractor=True),
-            comment_by(line), None, None, against(line) or None, line.get("priority"), None]
+    return [
+        line.get("item_id"),
+        paper,
+        _page_cell(line_page(line)),
+        company_comment(line, contractor=True),
+        comment_by(line),
+        None,
+        None,
+        against(line) or None,
+        line.get("priority"),
+        None,
+    ]
 
 
 def _heading(ws, meta: Mapping, sheet_note: str) -> None:
@@ -349,8 +436,14 @@ def _heading(ws, meta: Mapping, sheet_note: str) -> None:
         [TOP_TEXT],
         ["COMMENT RESOLUTION SHEET"],
         ["Paper:", meta.get("paper")],
-        ["Lead model (from the API response):", ", ".join(meta.get("lead_models") or []) or "not reported"],
-        ["Second opinion model (from the API response):", ", ".join(meta.get("second_models") or []) or "none"],
+        [
+            "Lead model (from the API response):",
+            ", ".join(meta.get("lead_models") or []) or "not reported",
+        ],
+        [
+            "Second opinion model (from the API response):",
+            ", ".join(meta.get("second_models") or []) or "none",
+        ],
         ["Run:", meta.get("run_id"), "Date:", meta.get("date")],
         [sheet_note],
         [],
@@ -359,7 +452,15 @@ def _heading(ws, meta: Mapping, sheet_note: str) -> None:
         ws.append([_cell(v) for v in r])
 
 
-def _sheet(wb, title: str, meta: Mapping, note: str, headers: Iterable[str], rows: Iterable[list], first: bool = False):
+def _sheet(
+    wb,
+    title: str,
+    meta: Mapping,
+    note: str,
+    headers: Iterable[str],
+    rows: Iterable[list],
+    first: bool = False,
+):
     ws = wb.active if first else wb.create_sheet(title)
     ws.title = title
     _heading(ws, meta, note)
@@ -379,16 +480,30 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
     all_lines = lines
-    unapproved = [ln for ln in lines if wording.is_unapproved(ln)]  # their own sheet, off the CRS and off every Pass list
+    unapproved = [
+        ln for ln in lines if wording.is_unapproved(ln)
+    ]  # their own sheet, off the CRS and off every Pass list
     lines = [ln for ln in lines if not wording.is_unapproved(ln)]
-    problems = [ln for ln in lines if ln.get("verdict") in (FAIL, QUERY) and not is_not_applicable(ln)
-                and not is_held_pass(ln)]
+    problems = [
+        ln
+        for ln in lines
+        if ln.get("verdict") in (FAIL, QUERY)
+        and not is_not_applicable(ln)
+        and not is_held_pass(ln)
+    ]
     held = [ln for ln in lines if is_held_pass(ln)]
     passed = [ln for ln in lines if ln.get("verdict") == PASS]
     not_applicable = [ln for ln in lines if is_not_applicable(ln)]
     wb = _wb()
-    ws_crs = _sheet(wb, CRS_SHEET, meta, f"Fail and Query lines; Pass lines are on the sheet '{PASSED_SHEET}'.",
-                    INTERNAL_HEADERS, (internal_row(ln, paper) for ln in problems), first=True)
+    ws_crs = _sheet(
+        wb,
+        CRS_SHEET,
+        meta,
+        f"Fail and Query lines; Pass lines are on the sheet '{PASSED_SHEET}'.",
+        INTERNAL_HEADERS,
+        (internal_row(ln, paper) for ln in problems),
+        first=True,
+    )
     block = meta.get("rule_labels")
     if block:  # order 12: the rules not asked (counts, one summary line each) and the rule books not held
         ws_crs.append([])
@@ -396,21 +511,58 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
             ws_crs.append([_cell(text)])
         held_books = block.get("missing_rule_books") or []
         if held_books:
-            ws_crs.append([_cell("Rule books not held by the library (not counted against the system, excluded from "
-                                 "every score):")])
+            ws_crs.append(
+                [
+                    _cell(
+                        "Rule books not held by the library (not counted against the system, excluded from "
+                        "every score):"
+                    )
+                ]
+            )
             for b in held_books:
                 ws_crs.append([_cell(f"{b.get('rule_book')} ({b.get('why')})")])
-    _sheet(wb, PASSED_SHEET, meta, "Pass lines: the engineer ticks each one. Not CRS comments.",
-           INTERNAL_HEADERS, (internal_row(ln, paper) for ln in passed))
-    _sheet(wb, NOT_APPLICABLE_SHEET, meta, NOT_APPLICABLE_NOTE,
-           INTERNAL_HEADERS, (internal_row(ln, paper) for ln in not_applicable))
-    _sheet(wb, HELD_PASS_SHEET, meta, HELD_PASS_NOTE, INTERNAL_HEADERS, (held_row(ln, paper) for ln in held))
+    _sheet(
+        wb,
+        PASSED_SHEET,
+        meta,
+        "Pass lines: the engineer ticks each one. Not CRS comments.",
+        INTERNAL_HEADERS,
+        (internal_row(ln, paper) for ln in passed),
+    )
+    _sheet(
+        wb,
+        NOT_APPLICABLE_SHEET,
+        meta,
+        NOT_APPLICABLE_NOTE,
+        INTERNAL_HEADERS,
+        (internal_row(ln, paper) for ln in not_applicable),
+    )
+    _sheet(
+        wb,
+        HELD_PASS_SHEET,
+        meta,
+        HELD_PASS_NOTE,
+        INTERNAL_HEADERS,
+        (held_row(ln, paper) for ln in held),
+    )
     if unapproved:
-        _sheet(wb, UNAPPROVED_SHEET, meta, UNAPPROVED_NOTE, INTERNAL_HEADERS, (internal_row(ln, paper) for ln in unapproved))
+        _sheet(
+            wb,
+            UNAPPROVED_SHEET,
+            meta,
+            UNAPPROVED_NOTE,
+            INTERNAL_HEADERS,
+            (internal_row(ln, paper) for ln in unapproved),
+        )
     ws = wb.create_sheet(RUN_SHEET)
     ws.append([TOP_TEXT])
-    for key, value in {**run_counts(all_lines), **(meta.get("order12_counts") or {})}.items():
-        ws.append([key, _cell(value if not isinstance(value, (dict, list)) else str(value))])
+    for key, value in {
+        **run_counts(all_lines),
+        **(meta.get("order12_counts") or {}),
+    }.items():
+        ws.append(
+            [key, _cell(value if not isinstance(value, (dict, list)) else str(value))]
+        )
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
@@ -421,11 +573,23 @@ def write_contractor(lines: list[Mapping], path: str | Path, meta: Mapping) -> P
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
     wb = _wb()
-    contractor_meta = {**meta, "lead_models": [], "second_models": []}  # the contractor copy names no model
+    contractor_meta = {
+        **meta,
+        "lead_models": [],
+        "second_models": [],
+    }  # the contractor copy names no model
     ws = wb.active
     ws.title = CRS_SHEET
-    for r in ([TOP_TEXT], ["COMMENT RESOLUTION SHEET"], ["Paper:", paper], ["Date:", contractor_meta.get("date")],
-              [], [], [], []):
+    for r in (
+        [TOP_TEXT],
+        ["COMMENT RESOLUTION SHEET"],
+        ["Paper:", paper],
+        ["Date:", contractor_meta.get("date")],
+        [],
+        [],
+        [],
+        [],
+    ):
         ws.append([_cell(v) for v in r])
     ws.append(list(CONTRACTOR_HEADERS))
     for ln in lines:
@@ -447,10 +611,22 @@ def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) ->
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
     wb = _wb()
-    _sheet(wb, CRS_SHEET, meta, "Comment-only copy of the Fail and Query lines, for scoring beside the old engine.",
-           OLD_HEADERS, (old_row(ln, paper) for ln in lines
-                         if ln.get("verdict") in (FAIL, QUERY) and not is_not_applicable(ln)
-                         and not is_held_pass(ln) and not wording.is_unapproved(ln)), first=True)
+    _sheet(
+        wb,
+        CRS_SHEET,
+        meta,
+        "Comment-only copy of the Fail and Query lines, for scoring beside the old engine.",
+        OLD_HEADERS,
+        (
+            old_row(ln, paper)
+            for ln in lines
+            if ln.get("verdict") in (FAIL, QUERY)
+            and not is_not_applicable(ln)
+            and not is_held_pass(ln)
+            and not wording.is_unapproved(ln)
+        ),
+        first=True,
+    )
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
@@ -460,15 +636,23 @@ def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) ->
 def run_counts(lines: list[Mapping]) -> dict:
     """Counts only (no text): lines, verdicts, how decided, quote check rate, AI call failures."""
     n = len(lines)
-    by_verdict = {v: sum(1 for ln in lines if ln.get("verdict") == v) for v in (PASS, FAIL, QUERY)}
-    both = sum(1 for ln in lines if (ln.get("quotes_checked") or {}).get("paper") and
-               (ln.get("quotes_checked") or {}).get("clause"))
+    by_verdict = {
+        v: sum(1 for ln in lines if ln.get("verdict") == v) for v in (PASS, FAIL, QUERY)
+    }
+    both = sum(
+        1
+        for ln in lines
+        if (ln.get("quotes_checked") or {}).get("paper")
+        and (ln.get("quotes_checked") or {}).get("clause")
+    )
     errors: dict[str, int] = {}
     for ln in lines:
         if ln.get("error"):
             errors[str(ln["error"])] = errors.get(str(ln["error"]), 0) + 1
     with_verdict = by_verdict[PASS] + by_verdict[FAIL]
-    order12 = wording.counts(lines) if any("verdict_class" in ln for ln in lines) else {}
+    order12 = (
+        wording.counts(lines) if any("verdict_class" in ln for ln in lines) else {}
+    )
     return {
         **order12,
         "lines": n,
@@ -477,14 +661,30 @@ def run_counts(lines: list[Mapping]) -> dict:
         "query": by_verdict[QUERY],
         "query_not_applicable": sum(1 for ln in lines if is_not_applicable(ln)),
         "held_ai_pass": sum(1 for ln in lines if is_held_pass(ln)),
-        "value_deferred": sum(1 for ln in lines if ln.get("reason_code") == "value_deferred"),
+        "value_deferred": sum(
+            1 for ln in lines if ln.get("reason_code") == "value_deferred"
+        ),
         "lines_with_a_verdict": f"{with_verdict} of {n}",
-        "decided_by_ai": sum(1 for ln in lines if ln.get("decided_by") == BY_AI and ln.get("verdict") != QUERY),
-        "decided_by_code": sum(1 for ln in lines if ln.get("decided_by") == BY_CODE and ln.get("verdict") != QUERY),
-        "decided_after_final_check": sum(1 for ln in lines if ln.get("decided_by") == BY_FINAL_CHECK
-                                         and ln.get("verdict") != QUERY),
-        "decided_absence_checked": sum(1 for ln in lines if ln.get("decided_by") == BY_ABSENCE
-                                       and ln.get("verdict") == FAIL),
+        "decided_by_ai": sum(
+            1
+            for ln in lines
+            if ln.get("decided_by") == BY_AI and ln.get("verdict") != QUERY
+        ),
+        "decided_by_code": sum(
+            1
+            for ln in lines
+            if ln.get("decided_by") == BY_CODE and ln.get("verdict") != QUERY
+        ),
+        "decided_after_final_check": sum(
+            1
+            for ln in lines
+            if ln.get("decided_by") == BY_FINAL_CHECK and ln.get("verdict") != QUERY
+        ),
+        "decided_absence_checked": sum(
+            1
+            for ln in lines
+            if ln.get("decided_by") == BY_ABSENCE and ln.get("verdict") == FAIL
+        ),
         "both_quotes_checked": f"{both} of {n}",
         "ai_call_failures": errors,
     }

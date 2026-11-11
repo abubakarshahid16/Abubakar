@@ -31,7 +31,6 @@ line shows it. A failure can only make a line LESS confident, never more.
 
 from __future__ import annotations
 
-
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -71,7 +70,9 @@ class QuoteCheck:
     clause: bool
     paper_why: str | None = None
     clause_why: str | None = None
-    clause_strong: bool = False  # agent_bind.clause_quote_ok: 40+ characters and not the clause heading
+    clause_strong: bool = (
+        False  # agent_bind.clause_quote_ok: 40+ characters and not the clause heading
+    )
 
     @property
     def both(self) -> bool:
@@ -98,7 +99,9 @@ def _page_no(page: Any) -> int | None:
     return None
 
 
-def check_paper_quote(quote: Any, page: Any, pages: Mapping[int, str]) -> tuple[bool, str | None]:
+def check_paper_quote(
+    quote: Any, page: Any, pages: Mapping[int, str]
+) -> tuple[bool, str | None]:
     """The paper quote stands on the page it names, among the pages that were sent (record_finding's check)."""
     text = str(quote or "").strip()
     if not text:
@@ -136,17 +139,31 @@ def check_clause_quote(
 
 
 def check_quotes(
-    answer: Mapping, pages: Mapping[int, str], clause_text: str | None, whole_requirement: str | None = None
+    answer: Mapping,
+    pages: Mapping[int, str],
+    clause_text: str | None,
+    whole_requirement: str | None = None,
 ) -> QuoteCheck:
-    paper, paper_why = check_paper_quote(answer.get("paper_quote"), answer.get("paper_page"), pages)
-    clause, clause_why, strong = check_clause_quote(answer.get("clause_quote"), clause_text, whole_requirement)
+    paper, paper_why = check_paper_quote(
+        answer.get("paper_quote"), answer.get("paper_page"), pages
+    )
+    clause, clause_why, strong = check_clause_quote(
+        answer.get("clause_quote"), clause_text, whole_requirement
+    )
     return QuoteCheck(paper, clause, paper_why, clause_why, strong)
 
 
 def says_absent(answer: Mapping) -> bool:
     """The AI's own words say the paper does not state it (agent_tools.NOT_MENTIONED_WORDS): never a Pass."""
-    text = _fold(" ".join(str(answer.get(k) or "") for k in ("reasoning", "comment", "paper_quote")))
-    return any(_fold(w) in text for w in agent_tools.NOT_MENTIONED_WORDS) or answer.get("mentioned") is False
+    text = _fold(
+        " ".join(
+            str(answer.get(k) or "") for k in ("reasoning", "comment", "paper_quote")
+        )
+    )
+    return (
+        any(_fold(w) in text for w in agent_tools.NOT_MENTIONED_WORDS)
+        or answer.get("mentioned") is False
+    )
 
 
 def is_number_item(item: Mapping) -> bool:
@@ -154,9 +171,15 @@ def is_number_item(item: Mapping) -> bool:
     return item.get("rule_kind") in NUMBER_KINDS
 
 
-def needs_second_opinion(ai_verdict: str | None, checks: QuoteCheck, error: str | None, absent: bool = False) -> bool:
+def needs_second_opinion(
+    ai_verdict: str | None, checks: QuoteCheck, error: str | None, absent: bool = False
+) -> bool:
     """Ask the second opinion only when a Pass or Fail could still stand (saves money; the rule is the same)."""
-    if error or ai_verdict not in (PASS, FAIL) or not (checks.both and checks.clause_strong):
+    if (
+        error
+        or ai_verdict not in (PASS, FAIL)
+        or not (checks.both and checks.clause_strong)
+    ):
         return False
     return not (ai_verdict == PASS and absent)
 
@@ -182,11 +205,20 @@ def textual_verdict(
     if ai_verdict not in (PASS, FAIL):
         return _query("the AI did not give pass or fail", second_opinion="not asked")
     if not checks.paper:
-        return _query(f"paper quote not verified by code ({checks.paper_why})", second_opinion="not asked")
+        return _query(
+            f"paper quote not verified by code ({checks.paper_why})",
+            second_opinion="not asked",
+        )
     if not checks.clause:
-        return _query(f"clause quote not verified by code ({checks.clause_why})", second_opinion="not asked")
+        return _query(
+            f"clause quote not verified by code ({checks.clause_why})",
+            second_opinion="not asked",
+        )
     if not checks.clause_strong:
-        return _query("clause quote is too short or is the clause heading", second_opinion="not asked")
+        return _query(
+            "clause quote is too short or is the clause heading",
+            second_opinion="not asked",
+        )
     if ai_verdict == PASS and absent:
         return _query("not mentioned is never a pass", second_opinion="not asked")
     if second is None:
@@ -199,14 +231,24 @@ def textual_verdict(
     )
     verdict = VERDICT_OF.get(str(out.get("color")), QUERY)
     if verdict == QUERY:
-        return _query(str(out.get("reason") or "second opinion did not agree"),
-                      second_opinion=out.get("second_opinion") or "no answer")
-    return {"verdict": verdict, "decided_by": BY_AI, "why": None, "second_opinion": "agreed"}
+        return _query(
+            str(out.get("reason") or "second opinion did not agree"),
+            second_opinion=out.get("second_opinion") or "no answer",
+        )
+    return {
+        "verdict": verdict,
+        "decided_by": BY_AI,
+        "why": None,
+        "second_opinion": "agreed",
+    }
 
 
 def figures_inside(answer: Mapping) -> bool:
     """Each figure stands inside its own quote, with number and unit (agent_bind's figure rule)."""
-    pf, cf = str(answer.get("paper_figure") or "").strip(), str(answer.get("clause_figure") or "").strip()
+    pf, cf = (
+        str(answer.get("paper_figure") or "").strip(),
+        str(answer.get("clause_figure") or "").strip(),
+    )
     if not pf or not cf:
         return False
     if _fold(pf) not in _fold(str(answer.get("paper_quote") or "")):
@@ -216,7 +258,13 @@ def figures_inside(answer: Mapping) -> bool:
     return agent_bind.has_figure(pf) and agent_bind.has_figure(cf)
 
 
-def number_verdict(compare: Mapping | None, checks: QuoteCheck, answer: Mapping, *, error: str | None = None) -> dict:
+def number_verdict(
+    compare: Mapping | None,
+    checks: QuoteCheck,
+    answer: Mapping,
+    *,
+    error: str | None = None,
+) -> dict:
     """{'verdict', 'decided_by', 'why'} for a number line: only compare_number decides (labelled 'decided by code')."""
     if error:
         return _query(f"AI call failed: {error}")
@@ -228,7 +276,10 @@ def number_verdict(compare: Mapping | None, checks: QuoteCheck, answer: Mapping,
         return _query("no figure with its unit inside both quotes")
     if not isinstance(compare, Mapping) or compare.get("decided") is not True:
         reason = (compare or {}).get("reason") if isinstance(compare, Mapping) else None
-        return _query(f"code could not compare the figures ({reason or 'not compared'})", by=BY_CODE)
+        return _query(
+            f"code could not compare the figures ({reason or 'not compared'})",
+            by=BY_CODE,
+        )
     if compare.get("verdict") == "meets":
         return {"verdict": PASS, "decided_by": BY_CODE, "why": None}
     if compare.get("verdict") == "does_not_meet":
@@ -240,7 +291,10 @@ def compare_figures(box: Any, answer: Mapping) -> dict | None:
     """compare_number (ToolBox, code) on the two figures; None when there are no two figures to compare."""
     if not figures_inside(answer):
         return None
-    res = box.compare_number(str(answer.get("paper_figure")).strip(), str(answer.get("clause_figure")).strip())
+    res = box.compare_number(
+        str(answer.get("paper_figure")).strip(),
+        str(answer.get("clause_figure")).strip(),
+    )
     inner = res.get("result") if isinstance(res, dict) else None
     return inner if isinstance(inner, dict) else None
 
@@ -251,36 +305,58 @@ def compare_figures(box: Any, answer: Mapping) -> dict | None:
 def figures_in(text: Any) -> list[str]:
     """Every figure (a number WITH a unit, agent_bind's figure rule: dates and part-number-like tokens masked) in text."""
     masked = agent_bind._NOT_FIGURE.sub(" ", str(text or ""))
-    return [m.group(0).strip() for m in agent_bind._NUMBER_UNIT.finditer(masked) if agent_bind.claims.is_unit(m.group(1))]
+    return [
+        m.group(0).strip()
+        for m in agent_bind._NUMBER_UNIT.finditer(masked)
+        if agent_bind.claims.is_unit(m.group(1))
+    ]
 
 
 def figures_by_code(answer: Mapping) -> dict | None:
     """(a) The AI gave no usable figures: code reads them from the two VERIFIED quotes. A copy of the answer with
     paper_figure / clause_figure set when each quote holds EXACTLY ONE figure; None for none or several (Query)."""
-    paper, clause = figures_in(answer.get("paper_quote")), figures_in(answer.get("clause_quote"))
+    paper, clause = (
+        figures_in(answer.get("paper_quote")),
+        figures_in(answer.get("clause_quote")),
+    )
     if len(paper) != 1 or len(clause) != 1:
         return None
-    return {**answer, "paper_figure": paper[0], "clause_figure": clause[0], "figures_by": "code"}
+    return {
+        **answer,
+        "paper_figure": paper[0],
+        "clause_figure": clause[0],
+        "figures_by": "code",
+    }
 
 
 def compare_quotes(box: Any, answer: Mapping) -> dict | None:
     """compare_number (code) on the two whole verified quotes: it checks the subject of both and the quantity."""
-    res = box.compare_number(str(answer.get("paper_quote") or ""), str(answer.get("clause_quote") or ""))
+    res = box.compare_number(
+        str(answer.get("paper_quote") or ""), str(answer.get("clause_quote") or "")
+    )
     inner = res.get("result") if isinstance(res, dict) else None
     return inner if isinstance(inner, dict) else None
 
 
 # ---------------------------------------------------------------- step D round 2 (b): the short quote widened by code
 
-_SENTENCE_END = re.compile(r"(?<=[.!?;])\s+(?=[A-Z0-9(\"'])|\n\s*\n|\n(?=\s*(?:[a-z]\)|\(?[a-z0-9]{1,3}\)|\d+(?:\.\d+)+\s))")
+_SENTENCE_END = re.compile(
+    r"(?<=[.!?;])\s+(?=[A-Z0-9(\"'])|\n\s*\n|\n(?=\s*(?:[a-z]\)|\(?[a-z0-9]{1,3}\)|\d+(?:\.\d+)+\s))"
+)
 
 
 def sentences(text: str) -> list[str]:
     """The stored clause text cut into sentences by code (an end mark then a capital, a blank line, a list item)."""
-    return [" ".join(p.split()) for p in _SENTENCE_END.split(str(text or "")) if p and p.strip()]
+    return [
+        " ".join(p.split())
+        for p in _SENTENCE_END.split(str(text or ""))
+        if p and p.strip()
+    ]
 
 
-_NOTE_OR_EXAMPLE = re.compile(r"^\W*(?:note|notes|example|examples|e\.?\s?g\.?)\b", re.IGNORECASE)
+_NOTE_OR_EXAMPLE = re.compile(
+    r"^\W*(?:note|notes|example|examples|e\.?\s?g\.?)\b", re.IGNORECASE
+)
 
 
 def is_note_or_example(sentence: str | None) -> bool:
@@ -295,7 +371,12 @@ def widen_to_sentence(quote: Any, clause_text: str | None) -> str | None:
     if not q or not clause_text:
         return None
     hits = [s for s in sentences(clause_text) if q in _fold(s)]
-    if len(hits) != 1 or len(hits[0]) > MAX_SENTENCE_CHARS or _fold(hits[0]) == q or is_note_or_example(hits[0]):
+    if (
+        len(hits) != 1
+        or len(hits[0]) > MAX_SENTENCE_CHARS
+        or _fold(hits[0]) == q
+        or is_note_or_example(hits[0])
+    ):
         return None
     return hits[0]
 
@@ -303,7 +384,10 @@ def widen_to_sentence(quote: Any, clause_text: str | None) -> str | None:
 # ---------------------------------------------------------------- order 12 F1: a conditional rule's Fail is never proven
 
 #: Plain conditional words only (no equipment, service or scoping words: rule 13).
-_CONDITIONAL = re.compile(r"\b(?:if|when|where|unless|provided that|in case|except|only|otherwise)\b", re.IGNORECASE)
+_CONDITIONAL = re.compile(
+    r"\b(?:if|when|where|unless|provided that|in case|except|only|otherwise)\b",
+    re.IGNORECASE,
+)
 CONDITIONAL_WHY = "the rule is conditional; code cannot prove the condition holds"
 
 
@@ -313,12 +397,20 @@ def is_conditional(*texts: Any) -> bool:
     return any(_CONDITIONAL.search(str(t or "")) for t in texts)
 
 
-def hold_conditional_fail(decision: Mapping, clause_quote: Any, requirement: Any) -> dict:
+def hold_conditional_fail(
+    decision: Mapping, clause_quote: Any, requirement: Any
+) -> dict:
     """A Fail of a rule whose clause quote or stored rule words state a condition is held: the answer schema carries no paper
     quote for the condition, so code cannot prove the condition holds on the paper. The line becomes a Query (the CRS shows it
     as the AI's opinion). A Pass and every other decision come back unchanged; this only makes a verdict less confident."""
     if decision.get("verdict") == FAIL and is_conditional(clause_quote, requirement):
-        return {**decision, "verdict": QUERY, "decided_by": BY_ENGINEER, "why": CONDITIONAL_WHY, "conditional": True}
+        return {
+            **decision,
+            "verdict": QUERY,
+            "decided_by": BY_ENGINEER,
+            "why": CONDITIONAL_WHY,
+            "conditional": True,
+        }
     return dict(decision)
 
 
@@ -328,10 +420,13 @@ def hold_conditional_fail(decision: Mapping, clause_quote: Any, requirement: Any
 TABLE_TYPES = frozenset({"table_row", "table_value"})
 #: A cache entry whose clause text came from a table page (`exp11.items`: source "table_page").
 TABLE_SOURCES = frozenset({"table_page"})
-TABLE_NOTE_WHY = "the rule is a table row or a note; its conditions may lie outside the quote"
+TABLE_NOTE_WHY = (
+    "the rule is a table row or a note; its conditions may lie outside the quote"
+)
 _NOTE_START = re.compile(
     r"^[\W_]{0,3}(?:notes?\s*(?:[\d:.)(\[]|$)|[\[(]\s*\d{1,3}\s*[\])]|[\u00b9\u00b2\u00b3\u2070-\u2079]+)",
-    re.IGNORECASE)
+    re.IGNORECASE,
+)
 
 
 def is_note_start(text: Any) -> bool:
@@ -340,11 +435,16 @@ def is_note_start(text: Any) -> bool:
     return bool(_NOTE_START.match(str(text or "")))
 
 
-def table_or_note_why(item: Mapping, rule_text: Any, clause_sources: Iterable[Any] = ()) -> str | None:
+def table_or_note_why(
+    item: Mapping, rule_text: Any, clause_sources: Iterable[Any] = ()
+) -> str | None:
     """Which of (a) the stored requirement is a table row, (b) the rule's quote begins with a note marker, (c) the clause text
     came from a table fired; None when none did."""
-    if item.get("requirement_type") in TABLE_TYPES or item.get("table_row") is not None \
-            or item.get("clause_from") == "table_caption":
+    if (
+        item.get("requirement_type") in TABLE_TYPES
+        or item.get("table_row") is not None
+        or item.get("clause_from") == "table_caption"
+    ):
         return "a"
     if is_note_start(rule_text):
         return "b"
@@ -353,11 +453,21 @@ def table_or_note_why(item: Mapping, rule_text: Any, clause_sources: Iterable[An
     return None
 
 
-def hold_table_note_fail(decision: Mapping, item: Mapping, rule_text: Any, clause_sources: Iterable[Any] = ()) -> dict:
+def hold_table_note_fail(
+    decision: Mapping, item: Mapping, rule_text: Any, clause_sources: Iterable[Any] = ()
+) -> dict:
     """A Fail of a table row or note rule is held (it becomes a Query shown as the AI's opinion). Pass and everything else
     come back unchanged: this only makes a verdict less confident."""
-    if decision.get("verdict") == FAIL and (why := table_or_note_why(item, rule_text, clause_sources)):
-        return {**decision, "verdict": QUERY, "decided_by": BY_ENGINEER, "why": TABLE_NOTE_WHY, "table_note": why}
+    if decision.get("verdict") == FAIL and (
+        why := table_or_note_why(item, rule_text, clause_sources)
+    ):
+        return {
+            **decision,
+            "verdict": QUERY,
+            "decided_by": BY_ENGINEER,
+            "why": TABLE_NOTE_WHY,
+            "table_note": why,
+        }
     return dict(decision)
 
 
@@ -366,7 +476,9 @@ def hold_table_note_fail(decision: Mapping, item: Mapping, rule_text: Any, claus
 OWNER_TIER, ENGINEER_TIER, AI_TIER = "owner", "engineer", "AI approved"
 #: The ONLY tiers a Pass or a Fail may stand on (the same words `rule_labels.usable_tier` returns).
 USABLE_TIERS = frozenset({OWNER_TIER, ENGINEER_TIER, AI_TIER})
-TIER_NOT_APPROVED = "not AI approved"  # the tier word shown for a rule asked although not approved
+TIER_NOT_APPROVED = (
+    "not AI approved"  # the tier word shown for a rule asked although not approved
+)
 RULE_NOT_APPROVED = "not_approved"  # the item/line field `rule_tier` of such a rule; the cap is keyed on it
 NOT_A_RULE = "not a rule"  # a checklist item: no stored rule, so no tier applies
 CLASS_UNAPPROVED_WHY = "the rule is not AI approved: {parts}"
@@ -374,10 +486,14 @@ TIER_NOT_ESTABLISHED = "its approval tier could not be established"
 
 
 def unapproved_why(item: Mapping) -> str:
-    return CLASS_UNAPPROVED_WHY.format(parts=item.get("rule_unapproved_why") or "not agreed")
+    return CLASS_UNAPPROVED_WHY.format(
+        parts=item.get("rule_unapproved_why") or "not agreed"
+    )
 
 
-def item_tier(item: Mapping | None, lookup: Callable[[Mapping], str | None] | None = None) -> str:
+def item_tier(
+    item: Mapping | None, lookup: Callable[[Mapping], str | None] | None = None
+) -> str:
     """The CURRENT tier of an item: one of USABLE_TIERS, RULE_NOT_APPROVED or NOT_A_RULE (a checklist item).
 
     A rule item whose tier cannot be established is NOT approved: `rule_tier == "not_approved"` on the item, a label tier that
@@ -403,7 +519,9 @@ def item_tier(item: Mapping | None, lookup: Callable[[Mapping], str | None] | No
     return RULE_NOT_APPROVED
 
 
-def calls_allowed(item: Mapping | None, lookup: Callable[[Mapping], str | None] | None = None) -> bool:
+def calls_allowed(
+    item: Mapping | None, lookup: Callable[[Mapping], str | None] | None = None
+) -> bool:
     """May a model call beyond the lead's own answer be bought for this item (second opinion, absence second opinion,
     final check, context check)? Never for a rule that is not approved (its line is capped, so the call could change
     nothing but the bill), never for a rule whose tier cannot be established. A checklist item: yes."""
@@ -414,7 +532,9 @@ def cap_unapproved(decision: Mapping, item: Mapping | None) -> dict:
     """THE cap: a line whose rule is not AI approved can never be a Pass or a Fail, whatever the gate proved. It becomes a
     Query (shown as the AI's opinion, rule not yet approved). Everything else comes back unchanged. Keyed on the item's
     own `rule_tier` marker; `final_cap` (agent_review_wording) is the exit version that re-derives the tier."""
-    if (item or {}).get("rule_tier") == RULE_NOT_APPROVED and decision.get("verdict") in (PASS, FAIL):
+    if (item or {}).get("rule_tier") == RULE_NOT_APPROVED and decision.get(
+        "verdict"
+    ) in (PASS, FAIL):
         return {
             **decision,
             "verdict": QUERY,
@@ -444,7 +564,9 @@ def apply_holds(
 _DECISION_KEYS = ("verdict", "decided_by", "why")
 
 
-def restore_holds(line: Mapping, item: Mapping, *, clause_sources: Iterable[Any] = ()) -> dict:
+def restore_holds(
+    line: Mapping, item: Mapping, *, clause_sources: Iterable[Any] = ()
+) -> dict:
     """The same guards on a line RESTORED from a stored answer (a redecide, a resume): the cap first, then F1 and F3 on a
     restored code Fail. Nothing a restore does lifts a hold."""
     out = dict(line)
@@ -456,5 +578,7 @@ def restore_holds(line: Mapping, item: Mapping, *, clause_sources: Iterable[Any]
         out.update({k: held[k] for k in _DECISION_KEYS}, conditional_hold=True)
     held = hold_table_note_fail(out, item, out.get("requirement"), clause_sources)
     if held.get("table_note"):
-        out.update({k: held[k] for k in _DECISION_KEYS}, table_note_hold=held["table_note"])
+        out.update(
+            {k: held[k] for k in _DECISION_KEYS}, table_note_hold=held["table_note"]
+        )
     return out

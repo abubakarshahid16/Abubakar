@@ -18,7 +18,6 @@ document text, filename or path in any return value or error (ids and page numbe
 
 from __future__ import annotations
 
-
 import hashlib
 import os
 import sqlite3
@@ -54,7 +53,10 @@ class PageImageUnavailable(Exception):
 def lead_sees_images(lead: str | None) -> bool:
     """True for a Claude lead, False for a local text-only model or anything unknown."""
     name = (lead or "").strip().lower()
-    return any(name == k or name.startswith(k + "-") or name.startswith(k + ":") for k in LEADS_THAT_SEE_IMAGES)
+    return any(
+        name == k or name.startswith(k + "-") or name.startswith(k + ":")
+        for k in LEADS_THAT_SEE_IMAGES
+    )
 
 
 # ------------------------------------------------------------------ finding the stored PDF
@@ -65,7 +67,8 @@ def document_ref(conn: sqlite3.Connection, document_id: str) -> dict:
     cursor = conn.cursor()
     cursor.row_factory = sqlite3.Row
     row = cursor.execute(
-        "SELECT id, sha256, stored_path, pagination FROM documents WHERE id = ?", (document_id,)
+        "SELECT id, sha256, stored_path, pagination FROM documents WHERE id = ?",
+        (document_id,),
     ).fetchone()
     if row is None:
         raise PageImageUnavailable("document_not_found")
@@ -96,7 +99,9 @@ def pdf_path(ref: Mapping, data_dir: str | os.PathLike) -> Path:
         raise PageImageUnavailable("stored_file_missing")
     if Path(str(value)).is_file():
         return Path(str(value))
-    for start in range(len(parts)):  # written on another machine: the longest tail that exists under data_dir
+    for start in range(
+        len(parts)
+    ):  # written on another machine: the longest tail that exists under data_dir
         candidate = base.joinpath(*parts[start:])
         if candidate.is_file():
             return candidate
@@ -141,7 +146,9 @@ def _render(path: Path, page: int, long_side: int, max_bytes: int) -> bytes:
                 data = pix.tobytes("png")
                 if len(data) <= max_bytes:
                     return data
-                if max(pix.width, pix.height) < 400:  # never shrink into an unreadable thumbnail
+                if (
+                    max(pix.width, pix.height) < 400
+                ):  # never shrink into an unreadable thumbnail
                     raise PageImageUnavailable("page_image_too_large")
                 scale *= SHRINK
     except PageImageUnavailable:
@@ -166,7 +173,9 @@ def page_image(
     """
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
         raise PageImageUnavailable("page_number_invalid")
-    if (ref.get("pagination") or "") == "flow":  # a Word document has no printed pages (as the page-image route)
+    if (
+        ref.get("pagination") or ""
+    ) == "flow":  # a Word document has no printed pages (as the page-image route)
         raise PageImageUnavailable("no_printed_pages")
     if data_dir is None:
         from .config import settings
@@ -229,18 +238,32 @@ def open_page_with_image(
     no readable text: that is when the image helps most). A refusal never gets an image. `result['image']` says
     'attached' or 'not_available:<code>' so the lead knows; with the flag off nothing is added at all.
     """
-    res = toolbox.run("open_page", {"doc": doc, "page": page}) if hasattr(toolbox, "run") else toolbox.open_page(doc, page)
-    return _add_image(toolbox, res, lead_sees_images=lead_sees_images, image_for=image_for)
+    res = (
+        toolbox.run("open_page", {"doc": doc, "page": page})
+        if hasattr(toolbox, "run")
+        else toolbox.open_page(doc, page)
+    )
+    return _add_image(
+        toolbox, res, lead_sees_images=lead_sees_images, image_for=image_for
+    )
 
 
-def _add_image(toolbox: Any, res: Any, *, lead_sees_images: bool, image_for: Callable[[str, int], bytes]) -> Any:
+def _add_image(
+    toolbox: Any,
+    res: Any,
+    *,
+    lead_sees_images: bool,
+    image_for: Callable[[str, int], bytes],
+) -> Any:
     if not lead_sees_images or not isinstance(res, dict):
         return res
     inner = res.get("result")
     if not isinstance(inner, dict) or "refused" in inner:
         return res
     doc, number = inner.get("doc"), inner.get("page")
-    allowed = getattr(getattr(toolbox, "ctx", None), "allowed_document_ids", frozenset())
+    allowed = getattr(
+        getattr(toolbox, "ctx", None), "allowed_document_ids", frozenset()
+    )
     if not isinstance(doc, str) or doc not in allowed or not isinstance(number, int):
         return res  # rule 5: never an image of a document outside the scope
     out = {**res, "result": dict(inner)}
@@ -262,28 +285,43 @@ class ImageToolBox:
     """Wraps an `agent_tools.ToolBox`: open_page gains the image when `lead_sees_images`; everything else delegates."""
 
     def __init__(
-        self, toolbox: Any, *, lead_sees_images: bool, image_for: Callable[[str, int], bytes]
+        self,
+        toolbox: Any,
+        *,
+        lead_sees_images: bool,
+        image_for: Callable[[str, int], bytes],
     ) -> None:
         self._inner = toolbox
         self.lead_sees_images = bool(lead_sees_images)
         self._image_for = image_for
         self.images_attached = 0
 
-    def __getattr__(self, name: str) -> Any:  # ctx, TOOL_SPECS, set_item, compare_failures, ...
+    def __getattr__(
+        self, name: str
+    ) -> Any:  # ctx, TOOL_SPECS, set_item, compare_failures, ...
         return getattr(self._inner, name)
 
     def run(self, name: str, args: object) -> dict:
         res = self._inner.run(name, args)
         if name != "open_page":
             return res
-        out = _add_image(self._inner, res, lead_sees_images=self.lead_sees_images, image_for=self._image_for)
+        out = _add_image(
+            self._inner,
+            res,
+            lead_sees_images=self.lead_sees_images,
+            image_for=self._image_for,
+        )
         if isinstance(out, dict) and IMAGE_KEY in out:
             self.images_attached += 1
         return out
 
     def open_page(self, doc: object = None, page: object = None) -> dict:
         return open_page_with_image(
-            self._inner, doc, page, lead_sees_images=self.lead_sees_images, image_for=self._image_for
+            self._inner,
+            doc,
+            page,
+            lead_sees_images=self.lead_sees_images,
+            image_for=self._image_for,
         )
 
 
@@ -329,7 +367,9 @@ def strip_images(messages: list[dict]) -> list[dict]:
     return out
 
 
-def to_api_messages(messages: list[dict], *, keep_last: int | None = None) -> tuple[list[dict], list[str]]:
+def to_api_messages(
+    messages: list[dict], *, keep_last: int | None = None
+) -> tuple[list[dict], list[str]]:
     """`agent_claude.to_api_messages`, with each tool result's image put in its tool_result as an image block.
 
     `keep_last`: only the last N images are sent (older ones become the text note 'image shown earlier'), so a long
@@ -339,21 +379,38 @@ def to_api_messages(messages: list[dict], *, keep_last: int | None = None) -> tu
 
     api, system = agent_claude.to_api_messages(strip_images(messages))
     # agent_claude.to_api_messages emits exactly one message per non-system loop message, in order.
-    plain = [m for m in (messages or []) if not (isinstance(m, dict) and m.get("role") == "system")]
-    if len(plain) != len(api):  # the shape changed under us: send no images rather than misplace one
+    plain = [
+        m
+        for m in (messages or [])
+        if not (isinstance(m, dict) and m.get("role") == "system")
+    ]
+    if len(plain) != len(
+        api
+    ):  # the shape changed under us: send no images rather than misplace one
         return api, system
     with_image = [
-        i for i, m in enumerate(plain)
-        if m.get("role") == "tool" and isinstance(m.get("content"), dict) and IMAGE_KEY in m["content"]
+        i
+        for i, m in enumerate(plain)
+        if m.get("role") == "tool"
+        and isinstance(m.get("content"), dict)
+        and IMAGE_KEY in m["content"]
     ]
-    send = set(with_image if keep_last is None else with_image[len(with_image) - keep_last:] if keep_last > 0 else [])
+    send = set(
+        with_image
+        if keep_last is None
+        else with_image[len(with_image) - keep_last :]
+        if keep_last > 0
+        else []
+    )
     for i in with_image:
         blocks = api[i]["content"]
         if not blocks or blocks[0].get("type") != "tool_result":
             continue
         first = dict(blocks[0])
         text = first.get("content")
-        parts = [{"type": "text", "text": text if isinstance(text, str) and text else "."}]
+        parts = [
+            {"type": "text", "text": text if isinstance(text, str) and text else "."}
+        ]
         if i in send:
             parts.append(image_block(plain[i]["content"][IMAGE_KEY]))
         else:

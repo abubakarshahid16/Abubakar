@@ -36,13 +36,31 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
-from .agent_review_verdict import BY_ABSENCE  # noqa: F401  the label lives with the other labels
+from .agent_review_verdict import (
+    BY_ABSENCE,  # noqa: F401  the label lives with the other labels
+)
 
 MIN_PAGE_CHARS = 100
 #: Condition openers: a sentence that binds only under a condition the paper may not show is not provably required.
-CONDITION_WORDS = ("if", "when", "where", "whenever", "unless", "in case", "provided that", "specified", "purchaser",
-                   "agreed", "applicable", "optional", "option", "otherwise")
-_CONDITION = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in CONDITION_WORDS) + r")\b")
+CONDITION_WORDS = (
+    "if",
+    "when",
+    "where",
+    "whenever",
+    "unless",
+    "in case",
+    "provided that",
+    "specified",
+    "purchaser",
+    "agreed",
+    "applicable",
+    "optional",
+    "option",
+    "otherwise",
+)
+_CONDITION = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in CONDITION_WORDS) + r")\b"
+)
 
 #: why code -> the plain why written on the Query line
 ABSENCE_WHY = {
@@ -89,14 +107,22 @@ class Proof:
         return f"{text} (page {self.page})" if self.page else text
 
     def to_json(self) -> dict:
-        return {"proven": self.proven, "code": self.code, "page": self.page, "role": self.role,
-                "role_source": self.role_source, "pages_checked": self.pages_checked,
-                "facts_checked": self.facts_checked}
+        return {
+            "proven": self.proven,
+            "code": self.code,
+            "page": self.page,
+            "role": self.role,
+            "role_source": self.role_source,
+            "pages_checked": self.pages_checked,
+            "facts_checked": self.facts_checked,
+        }
 
 
 def fold(text: Any) -> str:
     """The role matcher's fold (datasheet_checks._fold) plus punctuation to spaces, so a label is read the same way."""
-    return " ".join(re.sub(r"[^\w\s.]", " ", str(text or "").lower().replace(":", " ")).split())
+    return " ".join(
+        re.sub(r"[^\w\s.]", " ", str(text or "").lower().replace(":", " ")).split()
+    )
 
 
 # ---------------------------------------------------------------- 1 required
@@ -108,16 +134,24 @@ def required(item: Mapping, requirement: str | None) -> str | None:
 
     if item.get("source") != "rule":
         return "absence_not_a_rule"
-    if item.get("rule_row_found") is not True:  # review 4: no stored requirement row read: the rule cannot bind
+    if (
+        item.get("rule_row_found") is not True
+    ):  # review 4: no stored requirement row read: the rule cannot bind
         return "absence_rule_not_found"
-    if item.get("rule_kind") == "advice" or item.get("requirement_type") == "recommendation":
+    if (
+        item.get("rule_kind") == "advice"
+        or item.get("requirement_type") == "recommendation"
+    ):
         return "absence_advice"
     sentence = " ".join(str(requirement or "").lower().split())
     if not sentence or strength_of(sentence) != "shall":
         return "absence_not_binding"
     if str(item.get("rule_exceptions") or "").strip() not in ("", "[]", "{}", "null"):
         return "absence_exception"
-    if item.get("requirement_type") == "numeric_limit" and str(item.get("rule_condition") or "").strip():
+    if (
+        item.get("requirement_type") == "numeric_limit"
+        and str(item.get("rule_condition") or "").strip()
+    ):
         return "absence_conditional"
     if _CONDITION.search(sentence):
         return "absence_conditional"
@@ -154,7 +188,9 @@ def _synonym_groups() -> dict[str, list[str]]:
 
 @dataclass(frozen=True)
 class FieldWords:
-    role: str | None  # the registry role, or None when only a synonym group knows the field
+    role: (
+        str | None
+    )  # the registry role, or None when only a synonym group knows the field
     canonical: str | None  # the synonym group, or None
     patterns: tuple[re.Pattern, ...]
     spellings: tuple[str, ...]
@@ -166,7 +202,9 @@ class FieldWords:
         return tuple(dict.fromkeys(out))
 
 
-def field_words(candidates: Iterable[tuple[str, str]], rules: Mapping | None = None) -> FieldWords | None:
+def field_words(
+    candidates: Iterable[tuple[str, str]], rules: Mapping | None = None
+) -> FieldWords | None:
     """The first candidate field (name, source) the registry knows, with its words; None when none is known."""
     from . import datasheet_roles, field_links
 
@@ -176,7 +214,9 @@ def field_words(candidates: Iterable[tuple[str, str]], rules: Mapping | None = N
         name = str(name or "").strip()
         if not name:
             continue
-        roles = datasheet_roles.roles_of(name, rules) or datasheet_roles.roles_of(name.replace("_", " "), rules)
+        roles = datasheet_roles.roles_of(name, rules) or datasheet_roles.roles_of(
+            name.replace("_", " "), rules
+        )
         if not roles and name in rules["roles"]:
             roles = [name]
         canon = field_links.canonical(name.replace("_", " "))
@@ -187,24 +227,38 @@ def field_words(candidates: Iterable[tuple[str, str]], rules: Mapping | None = N
         patterns: list[re.Pattern] = []
         for r in roles:
             for p in rules["roles"][r]["names"]:
-                patterns.append(_deanchor(p))  # a bad pattern raises: never a silently smaller search
+                patterns.append(
+                    _deanchor(p)
+                )  # a bad pattern raises: never a silently smaller search
         if role and group is None:
             rc = field_links.canonical(role.replace("_", " "))
             group = rc if rc in groups else None
-        spellings = sorted(set(groups.get(group, [])) | ({fold(name.replace("_", " "))} if roles or group else set()))
-        return FieldWords(role, group, tuple(patterns), tuple(s for s in spellings if s), source)
+        spellings = sorted(
+            set(groups.get(group, []))
+            | ({fold(name.replace("_", " "))} if roles or group else set())
+        )
+        return FieldWords(
+            role, group, tuple(patterns), tuple(s for s in spellings if s), source
+        )
     return None
 
 
 def candidates_of(item: Mapping) -> list[tuple[str, str]]:
     """The rule's OWN field names, in order: its field roles (H3's, or the rule data's), then the requirement's stored
     closed-vocabulary name. Never the AI's label: that names the paper words nearest to where the item should be."""
-    out = [(str(r), str(item.get("field_roles_source") or "items")) for r in item.get("field_roles") or []]
-    out += [(str(n), "stored requirement name") for n in item.get("requirement_names") or []]
+    out = [
+        (str(r), str(item.get("field_roles_source") or "items"))
+        for r in item.get("field_roles") or []
+    ]
+    out += [
+        (str(n), "stored requirement name") for n in item.get("requirement_names") or []
+    ]
     return out
 
 
-def roles_named_in(sentence: str | None, carried: Iterable[str], rules: Mapping | None = None) -> list[str]:
+def roles_named_in(
+    sentence: str | None, carried: Iterable[str], rules: Mapping | None = None
+) -> list[str]:
     """The carried registry roles whose label pattern stands in the requirement sentence itself (code, registry
     words): the field the rule's own words name when the rule data stores none."""
     rules = rules or registry()
@@ -217,18 +271,21 @@ def roles_named_in(sentence: str | None, carried: Iterable[str], rules: Mapping 
     return out
 
 
-def carried_roles(paper_kind: str | None, equipment_type: str | None, rules: Mapping | None = None) -> frozenset | None:
+def carried_roles(
+    paper_kind: str | None, equipment_type: str | None, rules: Mapping | None = None
+) -> frozenset | None:
     """The roles this paper kind carries: the registry's field list for the equipment type, for a datasheet only.
     None: no field list (another paper kind, or no list for the type)."""
-    from . import datasheet_roles
-
-    from . import datasheet_checks
+    from . import datasheet_checks, datasheet_roles
 
     if paper_kind != "datasheet":
         return None
     rules = rules or registry()
     # review 5: an unknown type falls back to the GENERIC list in the product; that is no field list of THIS paper
-    if not equipment_type or datasheet_checks.mandatory_list_key(equipment_type, rules) == "_generic":
+    if (
+        not equipment_type
+        or datasheet_checks.mandatory_list_key(equipment_type, rules) == "_generic"
+    ):
         return None
     roles = datasheet_roles.wanted_roles(equipment_type, rules)
     return roles or None
@@ -237,7 +294,9 @@ def carried_roles(paper_kind: str | None, equipment_type: str | None, rules: Map
 # ---------------------------------------------------------------- 3 readable pages
 
 
-def unreadable_page(texts: Mapping[int, str], total: int, ledger: Mapping[int, Mapping] | None) -> int | None:
+def unreadable_page(
+    texts: Mapping[int, str], total: int, ledger: Mapping[int, Mapping] | None
+) -> int | None:
     """The first page 1..total that is not readable as text, else None. `ledger` None: text checks only (fixtures)."""
     if total <= 0:
         return 1
@@ -271,7 +330,9 @@ def _line_has(line: str, words: FieldWords, any_word: bool = False) -> bool:
     return False
 
 
-def fact_naming(facts: Iterable[Mapping], words: FieldWords, rules: Mapping | None = None) -> int | None:
+def fact_naming(
+    facts: Iterable[Mapping], words: FieldWords, rules: Mapping | None = None
+) -> int | None:
     """The page of the first fact read from the paper that names the field (its role, its words), else None.
     A fact with no page counts as page 0 (still a hit)."""
     from . import datasheet_roles
@@ -296,9 +357,17 @@ def page_naming(texts: Mapping[int, str], total: int, words: FieldWords) -> int 
     return None
 
 
-def prove(item: Mapping, requirement: str | None, texts: Mapping[int, str], total: int,
-          ledger: Mapping[int, Mapping] | None, facts: list[Mapping], carried: frozenset | None,
-          deferred: Callable[[str], int | None] | None = None, rules: Mapping | None = None) -> Proof:
+def prove(
+    item: Mapping,
+    requirement: str | None,
+    texts: Mapping[int, str],
+    total: int,
+    ledger: Mapping[int, Mapping] | None,
+    facts: list[Mapping],
+    carried: frozenset | None,
+    deferred: Callable[[str], int | None] | None = None,
+    rules: Mapping | None = None,
+) -> Proof:
     """Steps 1-6 in order; the first that fails names the why code. `carried`: `carried_roles` of this paper."""
     code = required(item, requirement)
     if code:
@@ -316,7 +385,11 @@ def prove(item: Mapping, requirement: str | None, texts: Mapping[int, str], tota
     if not known:
         return Proof(False, "absence_field_unknown")
     first = known[0]
-    base = {"role": first.role or first.canonical, "role_source": first.source, "field_words": first.names()}
+    base = {
+        "role": first.role or first.canonical,
+        "role_source": first.source,
+        "field_words": first.names(),
+    }
     for words in known:
         if words.role is None or words.role not in carried:
             return Proof(False, "absence_not_carried", **base)
@@ -326,23 +399,45 @@ def prove(item: Mapping, requirement: str | None, texts: Mapping[int, str], tota
     for words in known:
         page = fact_naming(facts, words, rules)
         if page is not None:
-            return Proof(False, "absence_field_read", page or None, facts_checked=len(facts), **base)
+            return Proof(
+                False,
+                "absence_field_read",
+                page or None,
+                facts_checked=len(facts),
+                **base,
+            )
         page = page_naming(texts, total, words)
         if page is not None:
-            return Proof(False, "absence_field_words_on_page", page, pages_checked=total, facts_checked=len(facts),
-                         **base)
+            return Proof(
+                False,
+                "absence_field_words_on_page",
+                page,
+                pages_checked=total,
+                facts_checked=len(facts),
+                **base,
+            )
         if deferred is not None:
             for name in words.names():
                 page = deferred(name)
                 if page is not None:
-                    return Proof(False, "absence_value_deferred", page, pages_checked=total, **base)
-    return Proof(True, None, None, pages_checked=total, facts_checked=len(facts), **base)
+                    return Proof(
+                        False,
+                        "absence_value_deferred",
+                        page,
+                        pages_checked=total,
+                        **base,
+                    )
+    return Proof(
+        True, None, None, pages_checked=total, facts_checked=len(facts), **base
+    )
 
 
 def comment(words: tuple[str, ...], standard: Any, clause: Any) -> str:
     """The contractor sentence for a checked absence: the registry's field name, no number, no paper words."""
     name = words[0] if words else "this item"
-    where = " ".join(str(x) for x in (standard, f"clause {clause}" if clause else "") if x)
+    where = " ".join(
+        str(x) for x in (standard, f"clause {clause}" if clause else "") if x
+    )
     return f"The {name} is not stated on the paper; please state it{f' as {where} requires' if where else ''}."
 
 
@@ -366,13 +461,18 @@ def deferred_mark(field_text: str, texts: Mapping[int, str]) -> int | None:
     return None
 
 
-def pass_guard(item: Mapping, label: str, texts: Mapping[int, str]) -> tuple[dict, str, int | None] | None:
+def pass_guard(
+    item: Mapping, label: str, texts: Mapping[int, str]
+) -> tuple[dict, str, int | None] | None:
     """(decision, reason code, deferred page) when a Pass must become a Query, else None. Field words: the item's roles, else
     the field label code found on the page. Unknown field words: Query on the safe side; the field marked deferred on any
     page: Query. A guard that only makes a Pass less confident."""
     from .agent_bind import content_words
 
-    field_text = " ".join(str(r).replace("_", " ") for r in item.get("field_roles") or []) or label
+    field_text = (
+        " ".join(str(r).replace("_", " ") for r in item.get("field_roles") or [])
+        or label
+    )
     if not content_words(field_text):
         return (
             {
@@ -387,7 +487,11 @@ def pass_guard(item: Mapping, label: str, texts: Mapping[int, str]) -> tuple[dic
     if page is None:
         return None
     return (
-        {"verdict": "Query", "decided_by": "engineer", "why": f"the sheet marks this value as not final on page {page}"},
+        {
+            "verdict": "Query",
+            "decided_by": "engineer",
+            "why": f"the sheet marks this value as not final on page {page}",
+        },
         "value_deferred",
         page,
     )

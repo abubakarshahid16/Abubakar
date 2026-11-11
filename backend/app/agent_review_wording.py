@@ -34,7 +34,13 @@ CLASS_OPINION = "AI opinion, engineer to confirm"
 CLASS_QUERY = "Query for the engineer"
 CLASS_UNAPPROVED = "AI opinion, rule not yet approved"
 CLASS_NOT_APPLICABLE = "Not applicable"
-CLASSES = (CLASS_PROVEN, CLASS_OPINION, CLASS_UNAPPROVED, CLASS_QUERY, CLASS_NOT_APPLICABLE)
+CLASSES = (
+    CLASS_PROVEN,
+    CLASS_OPINION,
+    CLASS_UNAPPROVED,
+    CLASS_QUERY,
+    CLASS_NOT_APPLICABLE,
+)
 THINKS_MET, THINKS_NOT_MET = "AI thinks: met", "AI thinks: not met"
 WORD_QUERY = "Query for the engineer"
 RECOMMENDATION = "recommendation"
@@ -44,7 +50,9 @@ KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 def classify(line: Mapping) -> dict:
     """verdict_label, verdict_class, not_proven_reason (None when proven) for one line."""
     verdict, ai = line.get("verdict"), line.get("ai_verdict")
-    if line.get("rule_tier") == RULE_NOT_APPROVED:  # never proven, whatever the stored verdict says
+    if (
+        line.get("rule_tier") == RULE_NOT_APPROVED
+    ):  # never proven, whatever the stored verdict says
         why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
         if ai in (PASS, FAIL) and not line.get("error"):
             return {
@@ -52,20 +60,40 @@ def classify(line: Mapping) -> dict:
                 "verdict_class": CLASS_UNAPPROVED,
                 "not_proven_reason": why,
             }
-        return {"verdict_label": WORD_QUERY, "verdict_class": CLASS_QUERY, "not_proven_reason": why}
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": why,
+        }
     if verdict in (PASS, FAIL):
-        return {"verdict_label": verdict, "verdict_class": CLASS_PROVEN, "not_proven_reason": None}
-    if verdict == QUERY and line.get("reason_code") == "not_applicable":  # the AI judged the rule not for this paper
+        return {
+            "verdict_label": verdict,
+            "verdict_class": CLASS_PROVEN,
+            "not_proven_reason": None,
+        }
+    if (
+        verdict == QUERY and line.get("reason_code") == "not_applicable"
+    ):  # the AI judged the rule not for this paper
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_NOT_APPLICABLE,
             "not_proven_reason": "the AI judged the rule not applicable to this paper",
         }
-    held = line.get("conditional_hold") or line.get("table_note_hold") or line.get("context_hold")
+    held = (
+        line.get("conditional_hold")
+        or line.get("table_note_hold")
+        or line.get("context_hold")
+    )
     if held and ai != FAIL:  # a held code Fail: no AI opinion to show
-        return {"verdict_label": WORD_QUERY, "verdict_class": CLASS_QUERY, "not_proven_reason": str(line.get("why") or "")}
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": str(line.get("why") or ""),
+        }
     if verdict == QUERY and ai in (PASS, FAIL) and not line.get("error"):
-        reason = str(line.get("why") or line.get("reason_code") or "the gate did not accept it").strip()
+        reason = str(
+            line.get("why") or line.get("reason_code") or "the gate did not accept it"
+        ).strip()
         return {
             "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
             "verdict_class": CLASS_OPINION,
@@ -74,7 +102,8 @@ def classify(line: Mapping) -> dict:
     return {
         "verdict_label": WORD_QUERY,
         "verdict_class": CLASS_QUERY,
-        "not_proven_reason": str(line.get("why") or line.get("reason_code") or "") or None,
+        "not_proven_reason": str(line.get("why") or line.get("reason_code") or "")
+        or None,
     }
 
 
@@ -163,7 +192,11 @@ def counts(lines: Iterable[Mapping]) -> dict:
     ls = [apply(ln) for ln in lines]
 
     def n(label: str, cls: str) -> int:
-        return sum(1 for ln in ls if ln["verdict_label"] == label and ln["verdict_class"] == cls)
+        return sum(
+            1
+            for ln in ls
+            if ln["verdict_label"] == label and ln["verdict_class"] == cls
+        )
 
     return {
         "proven_pass": n(PASS, CLASS_PROVEN),
@@ -172,7 +205,9 @@ def counts(lines: Iterable[Mapping]) -> dict:
         "ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_OPINION),
         "unapproved_ai_thinks_met": n(THINKS_MET, CLASS_UNAPPROVED),
         "unapproved_ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_UNAPPROVED),
-        "unapproved_lines": sum(1 for ln in ls if ln.get("rule_tier") == RULE_NOT_APPROVED),
+        "unapproved_lines": sum(
+            1 for ln in ls if ln.get("rule_tier") == RULE_NOT_APPROVED
+        ),
         "query_for_the_engineer": n(WORD_QUERY, CLASS_QUERY),
         "not_applicable": n(WORD_QUERY, CLASS_NOT_APPLICABLE),
         "recommendation_lines": sum(1 for ln in ls if ln[RECOMMENDATION]),

@@ -12,7 +12,6 @@ layout (rule 13).
 
 from __future__ import annotations
 
-
 import hashlib
 import json
 from collections.abc import Callable, Mapping
@@ -20,12 +19,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import agent_claude, agent_run_second
-
 from .reader_api import _fold
 
 MIN_QUOTE_CHARS = 12
 EDGE = 0.15  # a quote in the first or last 15% of its page text pulls in the neighbour page
-WHY_LIMITS = "a condition on the rule-book page limits this rule; code cannot prove it holds"
+WHY_LIMITS = (
+    "a condition on the rule-book page limits this rule; code cannot prove it holds"
+)
 WHY_NOT_DONE = "context check not completed"
 PROVEN, HELD, NOT_COMPLETED = "proven", "held", "not_completed"
 
@@ -36,18 +36,23 @@ CONTEXT_SYSTEM = (
     "edge), then the paper words the Fail rests on and the paper pages. Answer from these texts only. limits: true when the "
     "standard page states a condition, scope, service, type, exception, table heading or note that limits WHEN this "
     "sentence applies, else false. condition_quote: when limits is true, the words of that condition copied word for word "
-    "from the standard page. condition_met: \"yes\" when the paper pages show the condition holds for this item, \"no\" "
-    "when they show it does not, \"not_shown\" when they do not show it. paper_quote_for_condition: when \"yes\", the "
+    'from the standard page. condition_met: "yes" when the paper pages show the condition holds for this item, "no" '
+    'when they show it does not, "not_shown" when they do not show it. paper_quote_for_condition: when "yes", the '
     "paper words that show it, copied word for word from the paper pages. reason: at most 20 words."
 )
-ANSWER_SHAPE = ('Reply with ONE JSON object: {"limits": true or false, "condition_quote": "...", "condition_met": '
-                '"yes or no or not_shown", "paper_quote_for_condition": "...", "reason": "..."}')
+ANSWER_SHAPE = (
+    'Reply with ONE JSON object: {"limits": true or false, "condition_quote": "...", "condition_met": '
+    '"yes or no or not_shown", "paper_quote_for_condition": "...", "reason": "..."}'
+)
 
 
 def fingerprint(rule_text: Any, paper_quotes: Any) -> str:
     """A hash of the rule quote and the paper quote(s) a check was made on: an old outcome carries over only when both are the
     same (folded) words."""
-    parts = [_fold(str(rule_text or ""))] + sorted(_fold(str(q)) for q in (paper_quotes or []) if q)
+    parts = [
+        _fold(str(rule_text or "")),
+        *sorted(_fold(str(q)) for q in (paper_quotes or []) if q),
+    ]
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:16]
 
 
@@ -73,15 +78,40 @@ def neighbour_pages(page: int, text: str, rule_text: str | None) -> list[int]:
     return out
 
 
-def build_parts(rule_text: str, clause: Any, rule_pages: Mapping[int, str], paper_quotes: list[str],
-                paper_pages: Mapping[int, str]) -> dict:
-    claim = {"rule_quote": rule_text, "clause": clause,
-             "standard_pages": {str(n): t for n, t in sorted(rule_pages.items())},
-             "paper_quotes_the_fail_rests_on": [q for q in paper_quotes if q],
-             "paper_pages": {str(n): t for n, t in sorted(paper_pages.items())}, "question": ANSWER_SHAPE}
-    return {"system": [{"type": "text", "text": CONTEXT_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            "messages": [{"role": "user", "content": [{"type": "text", "text": json.dumps(claim, ensure_ascii=False)}]}],
-            "thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}}
+def build_parts(
+    rule_text: str,
+    clause: Any,
+    rule_pages: Mapping[int, str],
+    paper_quotes: list[str],
+    paper_pages: Mapping[int, str],
+) -> dict:
+    claim = {
+        "rule_quote": rule_text,
+        "clause": clause,
+        "standard_pages": {str(n): t for n, t in sorted(rule_pages.items())},
+        "paper_quotes_the_fail_rests_on": [q for q in paper_quotes if q],
+        "paper_pages": {str(n): t for n, t in sorted(paper_pages.items())},
+        "question": ANSWER_SHAPE,
+    }
+    return {
+        "system": [
+            {
+                "type": "text",
+                "text": CONTEXT_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": json.dumps(claim, ensure_ascii=False)}
+                ],
+            }
+        ],
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "high"},
+    }
 
 
 def _found(quote: Any, texts: list[str]) -> bool:
@@ -92,19 +122,33 @@ def _found(quote: Any, texts: list[str]) -> bool:
 def evaluate(obj: Any, rule_page_texts: list[str], paper_page_texts: list[str]) -> dict:
     """The code's decision on the model's answer: outcome proven | held | not_completed, plus limits and condition_met."""
     if not isinstance(obj, dict) or not isinstance(obj.get("limits"), bool):
-        return {"outcome": NOT_COMPLETED, "limits": None, "condition_met": None, "why": WHY_NOT_DONE}
+        return {
+            "outcome": NOT_COMPLETED,
+            "limits": None,
+            "condition_met": None,
+            "why": WHY_NOT_DONE,
+        }
     limits = obj["limits"]
     met = str(obj.get("condition_met") or "").strip().lower() or None
     if not limits:
         return {"outcome": PROVEN, "limits": False, "condition_met": met, "why": None}
-    if (met == "yes" and _found(obj.get("condition_quote"), rule_page_texts)
-            and _found(obj.get("paper_quote_for_condition"), paper_page_texts)):
+    if (
+        met == "yes"
+        and _found(obj.get("condition_quote"), rule_page_texts)
+        and _found(obj.get("paper_quote_for_condition"), paper_page_texts)
+    ):
         return {"outcome": PROVEN, "limits": True, "condition_met": "yes", "why": None}
     return {"outcome": HELD, "limits": True, "condition_met": met, "why": WHY_LIMITS}
 
 
 def held_decision(decision: Mapping, why: str) -> dict:
-    return {**decision, "verdict": "Query", "decided_by": "engineer", "why": why, "context_hold": True}
+    return {
+        **decision,
+        "verdict": "Query",
+        "decided_by": "engineer",
+        "why": why,
+        "context_hold": True,
+    }
 
 
 # ---------------------------------------------------------------- the whole code decision
@@ -151,7 +195,11 @@ def check_fail(
     fp = fingerprint(rule_text, paper_quotes)
     same = bool(stored) and stored.get("context_hash") == fp
 
-    def done(outcome: Mapping, exchange: dict | None = None, fatal_exc: BaseException | None = None) -> ContextResult:
+    def done(
+        outcome: Mapping,
+        exchange: dict | None = None,
+        fatal_exc: BaseException | None = None,
+    ) -> ContextResult:
         info = {
             "context_check": outcome["outcome"],
             "context_limits": outcome.get("limits"),
@@ -160,12 +208,30 @@ def check_fail(
         }
         if outcome["outcome"] == PROVEN:
             return ContextResult(dict(decision), info, exchange, fatal_exc)
-        return ContextResult(held_decision(decision, outcome.get("why") or WHY_NOT_DONE), info, exchange, fatal_exc)
+        return ContextResult(
+            held_decision(decision, outcome.get("why") or WHY_NOT_DONE),
+            info,
+            exchange,
+            fatal_exc,
+        )
 
-    def failed(exchange: dict | None = None, fatal_exc: BaseException | None = None) -> ContextResult:
-        return done({"outcome": NOT_COMPLETED, "limits": None, "condition_met": None, "why": WHY_NOT_DONE}, exchange, fatal_exc)
+    def failed(
+        exchange: dict | None = None, fatal_exc: BaseException | None = None
+    ) -> ContextResult:
+        return done(
+            {
+                "outcome": NOT_COMPLETED,
+                "limits": None,
+                "condition_met": None,
+                "why": WHY_NOT_DONE,
+            },
+            exchange,
+            fatal_exc,
+        )
 
-    if same and stored.get("context_check") == PROVEN:  # the same quotes were checked and proven before
+    if (
+        same and stored.get("context_check") == PROVEN
+    ):  # the same quotes were checked and proven before
         info = {
             "context_check": PROVEN,
             "context_limits": stored.get("context_limits"),
@@ -173,7 +239,9 @@ def check_fail(
             "context_hash": fp,
         }
         return ContextResult(dict(decision), info)
-    if same and stored.get("context_check") == HELD:  # a line held before stays held, no new call
+    if (
+        same and stored.get("context_check") == HELD
+    ):  # a line held before stays held, no new call
         return done(
             {
                 "outcome": HELD,
@@ -182,17 +250,27 @@ def check_fail(
                 "why": WHY_LIMITS,
             }
         )
-    if not in_scope or ask is None:  # no call is made: a Fail is never proven without the check
+    if (
+        not in_scope or ask is None
+    ):  # no call is made: a Fail is never proven without the check
         return failed()
-    first = std_pages(rule_doc, rule_page) if (std_pages and rule_doc and isinstance(rule_page, int)) else None
-    if not first or not rule_text or not quote_on_page(rule_text, first):  # no page, or the quote is not on its own page
+    first = (
+        std_pages(rule_doc, rule_page)
+        if (std_pages and rule_doc and isinstance(rule_page, int))
+        else None
+    )
+    if (
+        not first or not rule_text or not quote_on_page(rule_text, first)
+    ):  # no page, or the quote is not on its own page
         return failed()
     rule_pages = {}
     for n in neighbour_pages(rule_page, first, rule_text):
         text = first if n == rule_page else std_pages(rule_doc, n)
         if text:
             rule_pages[n] = text
-    parts = build_parts(rule_text, clause, rule_pages, [str(q) for q in paper_quotes if q], paper_pages)
+    parts = build_parts(
+        rule_text, clause, rule_pages, [str(q) for q in paper_quotes if q], paper_pages
+    )
     exchange: dict = {
         "request": parts["messages"][0]["content"][0]["text"],
         "rule_pages": sorted(rule_pages),
@@ -212,9 +290,13 @@ def check_fail(
         obj = agent_claude.parse_json_object(str(reply.get("text")))
     model = reply.get("model")
     exchange.update(answer=obj, model=model, usd=reply.get("usd"))
-    if not agent_run_second.models_differ([lead_model or ""], model):  # a model of the lead's family cannot check it
+    if not agent_run_second.models_differ(
+        [lead_model or ""], model
+    ):  # a model of the lead's family cannot check it
         exchange["error"] = "same model family as the lead, or unknown"
         return failed(exchange)
-    outcome = evaluate(obj, list(rule_pages.values()), [t for t in paper_pages.values() if t])
+    outcome = evaluate(
+        obj, list(rule_pages.values()), [t for t in paper_pages.values() if t]
+    )
     exchange["code_decision"] = outcome
     return done(outcome, exchange)

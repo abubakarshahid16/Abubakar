@@ -96,7 +96,9 @@ def decide_rule(
     if not kind_known or not want:
         out["reason"] = KIND_UNKNOWN
         return out
-    got = rule_labels.usable_tier(conn, requirement_id=str(requirement_id), equipment_type=equipment_type)
+    got = rule_labels.usable_tier(
+        conn, requirement_id=str(requirement_id), equipment_type=equipment_type
+    )
     label = got.label
     if label is None:
         out["reason"] = NOT_LABELLED
@@ -110,7 +112,11 @@ def decide_rule(
         label_key=str(label.get("rule_ref") or label.get("rule_version_id")),
     )
     if kind is None:  # the two models did not agree on a kind
-        out["reason"] = QUOTE_NOT_FOUND if state == rule_labels.QUOTE_NOT_FOUND else _REASON_OF.get(got.reason, NEEDS_HUMAN)
+        out["reason"] = (
+            QUOTE_NOT_FOUND
+            if state == rule_labels.QUOTE_NOT_FOUND
+            else _REASON_OF.get(got.reason, NEEDS_HUMAN)
+        )
         if state in ("labelled_a", ""):
             out["reason"] = NOT_LABELLED
         return out
@@ -130,7 +136,11 @@ def decide_rule(
         and not isinstance(page, bool)
         and not (parts & UNQUOTABLE_PARTS)
     ):  # both models' kind (the stored agreed kind) is the paper's kind, the quote was found, no person declined it
-        out.update(ask=True, tier=TIER_NOT_APPROVED, unapproved_why=", ".join(sorted(parts)) or "not agreed")
+        out.update(
+            ask=True,
+            tier=TIER_NOT_APPROVED,
+            unapproved_why=", ".join(sorted(parts)) or "not agreed",
+        )
         return out
     out["reason"] = _REASON_OF.get(got.reason, NOT_LABELLED)
     return out
@@ -170,7 +180,12 @@ def filter_rows(
     for row in rows:
         rid = str(row.get(id_key))
         why = decide_rule(
-            conn, rid, paper_kind, kind_known, equipment_type=equipment_type, ask_unapproved=ask_unapproved
+            conn,
+            rid,
+            paper_kind,
+            kind_known,
+            equipment_type=equipment_type,
+            ask_unapproved=ask_unapproved,
         )
         if why["ask"]:
             kept.append(dict(row))
@@ -184,26 +199,45 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
     """Counts only: {'needs_another_paper': {'total': n, 'by_kind': {...}}, 'needs_a_human': n, ...}."""
     left = list(left)
     c = Counter(r["reason"] for r in left)
-    by_kind = Counter(r.get("needs_paper_kind") or "unlabelled" for r in left if r["reason"] == ANOTHER_PAPER)
+    by_kind = Counter(
+        r.get("needs_paper_kind") or "unlabelled"
+        for r in left
+        if r["reason"] == ANOTHER_PAPER
+    )
     out: dict[str, Any] = {r: c.get(r, 0) for r in REASONS if r != ANOTHER_PAPER}
-    parts: Counter = Counter()  # a needs-a-human rule counts once under each disagreement part it carries
+    parts: Counter = (
+        Counter()
+    )  # a needs-a-human rule counts once under each disagreement part it carries
     for r in left:
         if r["reason"] == NEEDS_HUMAN:
             for part in str(r.get("disagreement") or "unstated").split(","):
                 parts[part.strip() or "unstated"] += 1
     out["needs_a_human_by_disagreement"] = dict(sorted(parts.items()))
-    out[ANOTHER_PAPER] = {"total": c.get(ANOTHER_PAPER, 0), "by_kind": dict(sorted(by_kind.items()))}
+    out[ANOTHER_PAPER] = {
+        "total": c.get(ANOTHER_PAPER, 0),
+        "by_kind": dict(sorted(by_kind.items())),
+    }
     return out
 
 
-def summary_lines(counts: Mapping, paper_kind: str | None, kind_known: bool = True) -> list[str]:
+def summary_lines(
+    counts: Mapping,
+    paper_kind: str | None,  # noqa: ARG001 - kept for the callers' signature
+    kind_known: bool = True,
+) -> list[str]:
     """The CRS summary lines: ONE line for rules that need another paper; one line for the rest. Counts only."""
     lines = []
     other = counts.get(ANOTHER_PAPER) or {}
     if other.get("total"):
-        parts = ", ".join(f"{k} {n}" for k, n in sorted(other.get("by_kind", {}).items()))
+        parts = ", ".join(
+            f"{k} {n}" for k, n in sorted(other.get("by_kind", {}).items())
+        )
         lines.append(f"needs another paper: {other['total']} rules ({parts})")
-    rest = [f"{REASON_WORDS[r]} {counts[r]}" for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED) if counts.get(r)]
+    rest = [
+        f"{REASON_WORDS[r]} {counts[r]}"
+        for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED)
+        if counts.get(r)
+    ]
     if rest:
         lines.append("rules not asked: " + ", ".join(rest))
     if not kind_known:
@@ -246,11 +280,19 @@ def missing_rule_books(
     that the library does not hold. Never counted against any score. Names of standards only, no paper text."""
     from . import applicability, standard_ids
 
-    text = "\n".join(r[0] or "" for r in conn.execute("SELECT text FROM pages WHERE document_id = ? ORDER BY page_no", (document_id,)))
+    text = "\n".join(
+        r[0] or ""
+        for r in conn.execute(
+            "SELECT text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    )
     library = library_of(conn)
     out: list[dict] = []
     seen: set[str] = set()
-    for name in applicability.missing_references(library, standard_ids.cited_standards(text)):
+    for name in applicability.missing_references(
+        library, standard_ids.cited_standards(text)
+    ):
         seen.add(standard_ids.key(name))
         out.append({"rule_book": name, "why": "cited by the paper"})
     table = governing if governing is not None else applicability.governing_table()
@@ -260,7 +302,12 @@ def missing_rule_books(
             continue
         seen.add(key)
         if applicability.find_standard(library, name) is None:
-            out.append({"rule_book": name, "why": f"needed by the paper kind or type ({equipment_type})"})
+            out.append(
+                {
+                    "rule_book": name,
+                    "why": f"needed by the paper kind or type ({equipment_type})",
+                }
+            )
     return out
 
 
@@ -283,9 +330,13 @@ def label_block(
         "paper_kind_guess": kind.get("guess"),
         "counts": dict(counts),
         "unapproved_asked": unapproved,
-        "summary_lines": summary_lines(counts, kind.get("kind"), bool(kind.get("known")))
+        "summary_lines": summary_lines(
+            counts, kind.get("kind"), bool(kind.get("known"))
+        )
         + (
-            [f"rules asked though not AI approved: {unapproved} (shown as AI opinion, rule not yet approved)"]
+            [
+                f"rules asked though not AI approved: {unapproved} (shown as AI opinion, rule not yet approved)"
+            ]
             if unapproved
             else []
         ),
@@ -308,7 +359,10 @@ def rule_label_of(why: Mapping) -> dict:
 def tier_fields(why: Mapping) -> dict:
     """The item fields of an asked-though-unapproved rule (every cap is keyed on `rule_tier`)."""
     if why.get("tier") == TIER_NOT_APPROVED:
-        return {"rule_tier": RULE_NOT_APPROVED, "rule_unapproved_why": why.get("unapproved_why")}
+        return {
+            "rule_tier": RULE_NOT_APPROVED,
+            "rule_unapproved_why": why.get("unapproved_why"),
+        }
     return {}
 
 
@@ -332,7 +386,9 @@ def rules_used(items: Iterable[Mapping], block: Mapping | None) -> dict:
                 "field": lab.get("field"),
                 "tier": lab.get("tier"),
                 "recommendation": it.get("rule_kind") == "advice",
-                "not_approved_why": it.get("rule_unapproved_why") if it.get("rule_tier") == RULE_NOT_APPROVED else None,
+                "not_approved_why": it.get("rule_unapproved_why")
+                if it.get("rule_tier") == RULE_NOT_APPROVED
+                else None,
             }
         )
     return {
@@ -365,16 +421,21 @@ def paper_equipment_types(conn: sqlite3.Connection, document_id: str) -> set[str
 
     try:
         row = conn.execute(
-            "SELECT equipment_type, title FROM document_classification WHERE document_id = ?", (document_id,)
+            "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
+            (document_id,),
         ).fetchone()
     except sqlite3.Error:
         row = None
     record = {"equipment_type": row[0], "title": row[1]} if row else {}
-    found, _source, _doubt = subject_scope.read_equipment(record, [], subject_scope.vocabulary())
+    found, _source, _doubt = subject_scope.read_equipment(
+        record, [], subject_scope.vocabulary()
+    )
     return set(found)
 
 
-def skill_types(conn: sqlite3.Connection, item: Mapping, governing: Mapping | None = None) -> set[str]:
+def skill_types(
+    conn: sqlite3.Connection, item: Mapping, governing: Mapping | None = None
+) -> set[str]:
     """The equipment types a checklist item is about, read from DATA only: the types whose governing standards (reference
     table) the item cites, and the types named in the cited standard's own classification. No equipment name in code."""
     from . import applicability, standard_ids, subject_scope
@@ -415,7 +476,12 @@ def filter_skill_items(
         if not types or (paper_types and types & paper_types):
             kept.append(it)
         else:
-            dropped.append({"item_id": it.get("item_id"), "reason": ANOTHER_TYPE if paper_types else TYPE_UNKNOWN})
+            dropped.append(
+                {
+                    "item_id": it.get("item_id"),
+                    "reason": ANOTHER_TYPE if paper_types else TYPE_UNKNOWN,
+                }
+            )
     return kept, dropped
 
 
