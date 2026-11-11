@@ -69,6 +69,8 @@ def test_the_start_hint_is_machine_neutral_and_carries_no_old_name():
     assert read_const("BACKEND_DIR") == "backend"
     assert "export const PYTHON" not in text
     assert "python ${BACKEND_ENTRYPOINT}" in text
-    assert not re.search(r"[A-Za-z]:\\\\", text), "a drive-letter path is machine-specific"
+    assert not re.search(r"[A-Za-z]:\\\\", text), (
+        "a drive-letter path is machine-specific"
+    )
     assert "rag_chatbot" not in text.lower(), "the old project name must not appear"
     assert "Scripts" not in text and ".venv" not in text
