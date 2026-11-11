@@ -281,11 +281,16 @@ def _usd(model: str, answer: dict, body: dict) -> float:
     usage = answer.get("usage")
     if isinstance(usage, dict) and usage:
         return float(claude_spend.cost_usd(model, usage))
-    chars = len(json.dumps(body.get("messages"), default=str)) + len(
-        json.dumps(body.get("system"), default=str)
-    )
+    messages, message_images = claude_spend.split_images(body.get("messages"))
+    system, system_images = claude_spend.split_images(body.get("system"))
+    chars = len(json.dumps(messages, default=str)) + len(json.dumps(system, default=str))
     return float(
-        claude_spend.worst_case_usd(model, chars, int(body.get("max_tokens") or 0))
+        claude_spend.worst_case_usd(
+            model,
+            chars,
+            int(body.get("max_tokens") or 0),
+            image_tokens=message_images + system_images,
+        )
     )
 
 
@@ -336,11 +341,13 @@ def _call(
         not declared
     ):  # absent or empty: we cannot tell what a prompt carries, so nothing is sent
         raise AgentGateClosed("undeclared_documents")
-    chars = sum(
-        len(json.dumps(body_parts.get(k), default=str))
-        for k in ("messages", "system", "tools")
-    )
-    worst = claude_spend.worst_case_usd(model, chars, int(max_tokens))
+    # An image block counts by the published image rule, not as its base64 text (claude_spend.split_images).
+    chars, images = 0, 0
+    for k in ("messages", "system", "tools"):
+        part, part_images = claude_spend.split_images(body_parts.get(k))
+        chars += len(json.dumps(part, default=str))
+        images += part_images
+    worst = claude_spend.worst_case_usd(model, chars, int(max_tokens), image_tokens=images)
     if meter is not None:
         meter.check(worst)
     raw = _transport(send)
