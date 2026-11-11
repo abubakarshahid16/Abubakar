@@ -2930,3 +2930,7 @@ export interface FactBatchConfirmation {
   status_after: Record<string, number>;
   boundary: string;
 }
+
+/** The AI reviewer contract (#1690). GENERATED from `backend/app/api/agent_review_schemas.py`: edit the backend
+ *  model, then run `python scripts/gen_contract_types.py`; CI fails on drift. */
+export * from "./generated/agent_review";

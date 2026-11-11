@@ -60,8 +60,9 @@ def test_every_generated_module_is_registered():
         "review_findings.ts",
         "review_runs.ts",
         "run_standards.ts",
+        "agent_review.ts",
     } <= set(MODULES)
-    assert sum(len(module.models) for module in MODULES.values()) == 7 + 17
+    assert sum(len(module.models) for module in MODULES.values()) == 7 + 17 + 11
 
 
 @pytest.mark.parametrize("module", ALL, ids=lambda module: module.filename)
