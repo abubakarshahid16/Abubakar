@@ -16,6 +16,7 @@ META = {
     "lead_models": ["lead-m"],
     "second_models": ["second-m"],
 }
+SK = {"S-1"}
 OK = {"source": "rule", "rule_label": {"tier": "AI approved"}}
 NO = {
     "source": "rule",
@@ -42,7 +43,7 @@ def mk(iid, verdict, ai=None, item=OK, **kw):
         "field_roles": ["nameplate_material"],
     }
     base.update(kw)
-    return W.final_cap(base, item)
+    return W.final_cap(base, item, skill_ids=SK)
 
 
 def sheet_text(path, title):
@@ -73,7 +74,9 @@ LINES = [
         "R-5", "Fail", "Fail", item=NO
     ),  # proven by the gate but the rule is not approved: capped
     mk("R-6", "Fail", "Fail", rule_kind="advice"),  # a "should" rule
-    mk("S-1", "Fail", "Fail", item={"source": "skill"}),  # a checklist Fail
+    mk(
+        "S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"}
+    ),  # a checklist Fail
     mk("R-7", "Query", None, reason_code="not_applicable"),
 ]
 
@@ -139,7 +142,7 @@ def test_the_passed_list_never_holds_a_stored_pass_of_an_unapproved_rule(tmp_pat
         "decided_by": "decided by code",
         "ai_verdict": "Pass",
     }
-    capped = W.final_cap_all([stored], {"R-9": NO})
+    capped = W.final_cap_all([stored], {"R-9": NO}, skill_ids=SK)
     path = C.write_internal(capped, tmp_path / "i.xlsx", META)
     assert item_ids(path, C.PASSED_SHEET) == []
     contractor = C.write_contractor(capped, tmp_path / "c.xlsx", META)
@@ -237,3 +240,50 @@ def test_run_counts_are_counts_only_with_a_denominator():
     assert (
         counts["unapproved_lines"] == 1 and counts["proven_fail"] == 3
     )  # R-1, R-6 (advice), S-1
+
+
+def test_a_not_reviewed_line_is_off_the_crs_the_comment_only_copy_and_the_contractor_copy(
+    tmp_path,
+):
+    nr = mk("R-N", "Query", None, error="stop_max_tokens", reasoning="")
+    assert nr["verdict_class"] == W.CLASS_NOT_REVIEWED
+    held = mk(
+        "R-H", "Query", "Pass", error="timeout"
+    )  # an AI Pass with a failed call is still not reviewed, not a held Pass
+    assert held["verdict_class"] == W.CLASS_NOT_REVIEWED
+    lines = [nr, held, mk("R-1", "Fail", "Fail")]
+    internal = C.write_internal(lines, tmp_path / "i.xlsx", META)
+    assert item_ids(internal, "CRS") == ["R-1"]
+    assert sorted(item_ids(internal, C.NOT_REVIEWED_SHEET)) == ["R-H", "R-N"]
+    assert (
+        item_ids(internal, C.HELD_PASS_SHEET) == []
+        and item_ids(internal, C.PASSED_SHEET) == []
+    )
+    assert "not_reviewed | 2" in sheet_text(internal, C.RUN_SHEET)
+    assert item_ids(C.write_comment_only(lines, tmp_path / "o.xlsx", META)) == ["R-1"]
+    assert item_ids(C.write_contractor(lines, tmp_path / "c.xlsx", META)) == ["R-1"]
+    assert (
+        C.NOT_REVIEWED_SHEET
+        not in openpyxl.load_workbook(
+            C.write_internal([lines[2]], tmp_path / "j.xlsx", META)
+        ).sheetnames
+    )
+
+
+def test_a_not_reviewed_line_of_an_unapproved_rule_and_an_unclassified_error_line_are_only_on_the_not_reviewed_sheet(
+    tmp_path,
+):
+    cut = mk("R-U", "Query", "Pass", item=NO, error="stop_max_tokens")
+    assert cut["verdict_class"] == W.CLASS_NOT_REVIEWED
+    raw = {
+        **mk("R-Q", "Query", None),
+        "error": "timeout",
+    }  # a line whose class was never recomputed
+    raw.pop("verdict_class")
+    internal = C.write_internal(
+        [cut, raw, mk("R-1", "Fail", "Fail")], tmp_path / "i.xlsx", META
+    )
+    assert item_ids(internal, "CRS") == ["R-1"]
+    assert sorted(item_ids(internal, C.NOT_REVIEWED_SHEET)) == ["R-Q", "R-U"]
+    assert C.UNAPPROVED_SHEET not in openpyxl.load_workbook(internal).sheetnames
+    assert item_ids(C.write_comment_only([cut, raw], tmp_path / "o.xlsx", META)) == []

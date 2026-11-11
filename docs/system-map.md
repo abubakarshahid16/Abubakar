@@ -81,6 +81,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_label_quantity` | Owner decision 1: whether a rule's quote states a quantity (a number that is not a clause number, a name part or a reference), the strict rule that stops two empty readings approving a numeric rule |
 | `rule_label_ocr` | Owner decision 1: the confidence of a rule's quote at quote level (the minimum score of the stored OCR boxes its words touch, exact inside the quote), read only; without stored boxes the strict page rule stays |
 | `rule_label_import` | Owner decision 1: the server's import of a label file, every row re-checked by code against the stored rule, quote and page; counts only |
+| `rule_equipment` | Order 16.2: the equipment label of a rule (family, type, part or general; two different models agreed) in its own table `rule_equipment_label`, append-only, made only when `agent_review_enabled` is on; the closed taxonomy and the app-name mapping as data files; the lab table converted to a label file and its import, every row checked again by code |
+| `agent_review_equipment` | The AI reviewer's equipment filter: the paper's equipment (read by the app, mapped by data onto the closed taxonomy) against each rule's equipment label; it only ever removes rules and checklist items, each with its own true reason; a missing label means equipment not known (asked) |
 | `agent_review_standards` | The held standards' text for the AI reviewer's items: clause bodies, table captions and placed clause headings read from the stored pages; read only |
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
@@ -119,6 +121,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
+| `api.rule_equipment` | Route: POST /api/admin/rule-equipment/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores an equipment label file after checking each row again |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |

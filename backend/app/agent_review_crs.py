@@ -60,6 +60,11 @@ UNAPPROVED_NOTE = (
     "AI opinion, rule not yet approved. The rule is not AI approved: never a Pass or a Fail, never sent to the "
     "contractor. Not CRS comments."
 )
+NOT_REVIEWED_SHEET = "Not reviewed"
+NOT_REVIEWED_NOTE = (
+    "The AI call failed or its answer was cut off: these lines were NOT reviewed (nothing is said about the paper). "
+    "Not CRS comments."
+)
 NOT_APPLICABLE_NOTE = "Not applicable (AI, engineer to confirm). Not CRS comments."
 HELD_PASS_SHEET = "AI met, not proven by code"  # Excel: 31 characters at most, no colon
 HELD_PASS_NOTE = (
@@ -507,14 +512,35 @@ def _run_sheet(wb, all_lines: list[Mapping], meta: Mapping) -> None:
         )
 
 
+def _extra_sheets(
+    wb, meta: Mapping, paper: str, not_reviewed: list, unapproved: list
+) -> None:
+    """The sheets that exist only when they have lines: Not reviewed, and the rules not yet approved."""
+    if not_reviewed:
+        _sheet(wb, NOT_REVIEWED_SHEET, meta, NOT_REVIEWED_NOTE, INTERNAL_HEADERS,
+               (internal_row(ln, paper) for ln in not_reviewed))  # fmt: skip
+    if unapproved:
+        _sheet(wb, UNAPPROVED_SHEET, meta, UNAPPROVED_NOTE, INTERNAL_HEADERS,
+               (internal_row(ln, paper) for ln in unapproved))  # fmt: skip
+
+
 def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
     all_lines = lines
     unapproved = [
-        ln for ln in lines if wording.is_unapproved(ln)
+        ln
+        for ln in lines
+        if wording.is_unapproved(ln) and not wording.is_not_reviewed(ln)
     ]  # their own sheet, off the CRS and off every Pass list
-    lines = [ln for ln in lines if not wording.is_unapproved(ln)]
+    not_reviewed = [
+        ln for ln in lines if wording.is_not_reviewed(ln)
+    ]  # their own sheet, whatever the rule's tier: never a CRS comment, never a verdict
+    lines = [
+        ln
+        for ln in lines
+        if not wording.is_unapproved(ln) and not wording.is_not_reviewed(ln)
+    ]
     problems = [
         ln
         for ln in lines
@@ -560,15 +586,7 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
         INTERNAL_HEADERS,
         (held_row(ln, paper) for ln in held),
     )
-    if unapproved:
-        _sheet(
-            wb,
-            UNAPPROVED_SHEET,
-            meta,
-            UNAPPROVED_NOTE,
-            INTERNAL_HEADERS,
-            (internal_row(ln, paper) for ln in unapproved),
-        )
+    _extra_sheets(wb, meta, paper, not_reviewed, unapproved)
     _run_sheet(wb, all_lines, meta)
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -631,6 +649,7 @@ def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) ->
             and not is_not_applicable(ln)
             and not is_held_pass(ln)
             and not wording.is_unapproved(ln)
+            and not wording.is_not_reviewed(ln)
         ),
         first=True,
     )

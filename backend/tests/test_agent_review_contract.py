@@ -63,6 +63,9 @@ def test_vocabularies_are_exactly_the_owner_words():
         "not labelled yet",
         "another equipment type",
         "rule book not held",
+        "the paper names no equipment",
+        "the paper names equipment the equipment list does not know",
+        "the paper's equipment could not be read",
     ]
 
 
@@ -296,3 +299,16 @@ def test_summary_counts_not_reviewed_and_rules_used_carries_coverage_and_read_fr
             tier="Owner",
             read_from="photo",
         )
+
+
+def test_summary_and_rules_used_carry_the_equipment_state_and_notes():
+    assert (
+        ar.AgentRunSummary(paper_kind="d", paper_kind_source="x").equipment_notes == []
+    )
+    got = ar.AgentRulesUsed(
+        paper_kind="d", equipment_state="usable", equipment_notes=["a"]
+    )
+    assert (got.equipment_state, got.equipment_notes) == ("usable", ["a"])
+    assert ar.AgentLeftOutRule(
+        rule_book="b", clause="1", reason="the paper names no equipment"
+    )

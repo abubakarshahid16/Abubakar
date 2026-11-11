@@ -7,7 +7,7 @@ a guard can only make a verdict LESS confident, never more.
 PUBLIC API OF THE AGENT REVIEW CORE (one docstring index for all core modules; model calls are always injected)
   agent_review_verdict   gate: check_quotes, textual_verdict, number_verdict, needs_second_opinion, compare_figures,
                          figures_by_code, widen_to_sentence, hold_conditional_fail (F1), hold_table_note_fail (F3),
-                         cap_unapproved, apply_holds (the order the runner applies them in), restore_holds (a stored
+                         cap_unapproved, silence_is_query / hold_silence (a silent paper is a Query), apply_holds (the order the runner applies them in), restore_holds (a stored
                          answer decided again), calls_allowed(item), item_tier(item, lookup), USABLE_TIERS
   agent_review_context   F4: fingerprint, quote_on_page, neighbour_pages, build_parts, evaluate, held_decision,
                          check_fail (the whole code decision; the model call is an injected callable)
@@ -21,6 +21,35 @@ PUBLIC API OF THE AGENT REVIEW CORE (one docstring index for all core modules; m
                          is_unapproved, CLASS_*
   agent_review_crs       write_internal, write_contractor, write_comment_only, run_counts (refuse unproven Pass/Fail)
 
+THE RUNNER MUST (guards that live only in the experiment's Runner; HB2's runner re-creates each one, each with a test; R10)
+  1. reason_of / TIGHTENING: a reason code "absent", "absent_pages_not_named" or "verdict_and_reason_differ" forces the AI verdict
+     to Query; a line with reason "absent" becomes Query ("not shown on the sheet; code cannot prove an absence") BEFORE the
+     absence proof runs; the absence proof only for an AI Fail and only if calls_allowed(item).
+  2. The second opinion: asked only when needs_second_opinion AND calls_allowed AND the stop flag is clear, by a model of a
+     DIFFERENT family than the lead; the lead's model name comes from the API response (unnamed = never a Pass); a stored
+     second opinion is reused, never asked again; widening a short clause quote drops the stored second opinion.
+  3. final check / tiebreak: only when the second disagreed (agree False), the models differ, the AI said Fail (a Pass only
+     with its own switch) and the item is not unapproved.
+  4. widen: only a verified but weak clause quote, AI Fail (a Pass only with its switch), never an annex rule, re-verified
+     strong; figures_by_code only when both quotes are verified, the AI said Pass or Fail, and the figures are not already inside.
+  5. held_texts: the clause quote is checked against the held text it stands in, the requirement first; whole_requirement is
+     passed only when that text is the requirement block.
+  6. THE ORDER of the decide path: gate -> absence -> F1 -> F3 -> cap (apply_holds, with a tier-derived item: use item_tier) ->
+     F4 (a Fail only, never for an unapproved item, in_scope False in a free redecide) -> deferral guard on a Pass (pass_guard) ->
+     silence (hold_silence, inside final_cap(..., paper_kind=)) -> final_cap_all at the exit WITH tier_lookup -> writers.
+  7. The deferral guard is given ALL pages of the paper (1..total from the database), not only the pages sent to the model.
+  8. Cap stops: the ledger reserves before and settles after EVERY call (lead, second, absence second, final check, context);
+     a fatal exception (budget stop) halts the run: pass `fatal` to check_fail and halt on `result.fatal`; only the app's
+     claude_spend / reader_transport lane.
+  9. Refusals before any call: a tiered item list without the order-12 switches; a runner paper kind that differs from the
+     filter's kind; the context check on without rule-book pages in the database; the lead and the second or context model of
+     the same family.
+ 10. Redecide / resume: every line restored from a stored run goes through restore_holds and final_cap_all; a stored context
+     fingerprint carries over only through check_fail's `stored`.
+ 11. Items: run agent_review_items.validate() on every item list; a checklist item is one ONLY by is_checklist_item (source
+     "skill" and an id in the checklist data and no rule reference); anything else is a rule and needs a tier. Also pass the
+     paper's equipment type to decide_rule / tier_lookup (a person's approval for ANY type counts when none is given).
+
 THE RULE. A line is Pass or Fail ONLY when:
   textual line: the paper quote AND the clause quote are both verified by code, the AI's own verdict is Pass or Fail,
                 the AI call did not fail, "not mentioned" is not called a Pass, and the second opinion (agent_run_second,
@@ -33,8 +62,9 @@ line shows it. A failure can only make a line LESS confident, never more.
 
 from __future__ import annotations
 
+import functools
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -493,18 +523,60 @@ def unapproved_why(item: Mapping) -> str:
     )
 
 
-def item_tier(
-    item: Mapping | None, lookup: Callable[[Mapping], str | None] | None = None
-) -> str:
-    """The CURRENT tier of an item: one of USABLE_TIERS, RULE_NOT_APPROVED or NOT_A_RULE (a checklist item).
+@functools.cache
+def checklist_ids() -> frozenset[str]:
+    """The item ids ("S-<id>") of every checklist the app holds (`agent_skills`): the data a checklist item must come from."""
+    from . import agent_skills
 
-    A rule item whose tier cannot be established is NOT approved: `rule_tier == "not_approved"` on the item, a label tier that
-    is not usable, or no tier at all all give RULE_NOT_APPROVED. With `lookup(item)` (e.g. `rule_labels.usable_tier`) the CURRENT
-    label table decides instead of the carried tier. An item that says it is not approved is never promoted by a lookup. No item at all is a rule whose tier
-    is not established."""
+    ids: set[str] = set()
+    for kind in agent_skills.KINDS:
+        try:
+            skill = agent_skills.load_skill(kind)
+        except agent_skills.SkillError:
+            continue
+        ids |= {f"S-{it['id']}" for it in skill["items"]}
+    return frozenset(ids)
+
+
+def is_checklist_item(
+    item: Mapping | None, skill_ids: Collection[str] | None = None
+) -> bool:
+    """A checklist item ONLY when: source is exactly "skill", its id is a checklist id that exists in the checklist data
+    (`skill_ids`, default `checklist_ids()`), and it holds no rule reference (no rule version, rule quote, requirement type or
+    tier marker). Anything else is a RULE and needs a tier: the marker is never taken on trust."""
+    if not isinstance(item, Mapping) or item.get("source") != "skill":
+        return False
+    ids = checklist_ids() if skill_ids is None else skill_ids
+    if item.get("item_id") not in ids:
+        return False
+    return not any(
+        item.get(k)
+        for k in (
+            "rule_version_id",
+            "rule_quote_ref",
+            "requirement_type",
+            "rule_tier",
+            "rule_label",
+        )
+    )
+
+
+def item_tier(
+    item: Mapping | None,
+    lookup: Callable[[Mapping], str | None] | None = None,
+    skill_ids: Collection[str] | None = None,
+) -> str:
+    """The CURRENT tier of an item: one of USABLE_TIERS, RULE_NOT_APPROVED or NOT_A_RULE (a checklist item, see
+    `is_checklist_item`).
+
+    Every other item is a rule. A rule whose tier cannot be established is NOT approved: `rule_tier == "not_approved"` on the
+    item, a label tier that is not usable, or no tier at all all give RULE_NOT_APPROVED; so does an item that is not a
+    checklist item but says it is. With `lookup(item)` (e.g. `rules.tier_lookup`) the CURRENT label table decides instead of
+    the carried tier. An item that says it is not approved is never promoted by a lookup. No item at all is a rule whose tier is
+    not established."""
     if item is None:
         return RULE_NOT_APPROVED
-    if item.get("source") != "rule":
+    if is_checklist_item(item, skill_ids):
         return NOT_A_RULE
     if item.get("rule_tier") == RULE_NOT_APPROVED:
         return RULE_NOT_APPROVED
@@ -515,18 +587,18 @@ def item_tier(
         return str(got) if got in USABLE_TIERS else RULE_NOT_APPROVED
     label = item.get("rule_label")
     carried = label.get("tier") if isinstance(label, Mapping) else None
-    if carried in USABLE_TIERS:
-        return str(carried)
-    return RULE_NOT_APPROVED
+    return str(carried) if carried in USABLE_TIERS else RULE_NOT_APPROVED
 
 
 def calls_allowed(
-    item: Mapping | None, lookup: Callable[[Mapping], str | None] | None = None
+    item: Mapping | None,
+    lookup: Callable[[Mapping], str | None] | None = None,
+    skill_ids: Collection[str] | None = None,
 ) -> bool:
     """May a model call beyond the lead's own answer be bought for this item (second opinion, absence second opinion,
     final check, context check)? Never for a rule that is not approved (its line is capped, so the call could change
     nothing but the bill), never for a rule whose tier cannot be established. A checklist item: yes."""
-    return item_tier(item, lookup) != RULE_NOT_APPROVED
+    return item_tier(item, lookup, skill_ids) != RULE_NOT_APPROVED
 
 
 def cap_unapproved(decision: Mapping, item: Mapping | None) -> dict:
@@ -583,3 +655,34 @@ def restore_holds(
             {k: held[k] for k in _DECISION_KEYS}, table_note_hold=held["table_note"]
         )
     return out
+
+
+# ---------------------------------------------------------------- owner 16.3: when the paper is silent, the answer is a Query
+
+#: Reason codes of a line whose verdict rests on absence (the paper does not state it).
+SILENCE_CODES = frozenset({"absent", "absent_pages_not_named", "sheet_silent"})
+SILENCE_WHY = "the paper is silent on this; a missing statement is not a failure"
+
+
+def silence_is_query(paper_kind: Any) -> bool:
+    """THE one switch point: for which paper kinds does a silent paper give a Query (never "not met")? Every kind except a
+    datasheet (a datasheet has a fixed set of entries, so an absent required entry stays the AI's opinion "not met"). An
+    unknown kind is silent too: the safe side. Change this function, and only this one, to change the rule."""
+    return str(paper_kind or "").strip().lower() != "datasheet"
+
+
+def hold_silence(line: Mapping, paper_kind: Any) -> dict:
+    """A line resting on absence, on a paper kind where silence is a Query, is a Query whatever the verdict said."""
+    if (
+        line.get("reason_code") in SILENCE_CODES
+        and silence_is_query(paper_kind)
+        and line.get("verdict") in (FAIL, QUERY)  # a Pass is never touched
+    ):
+        return {
+            **dict(line),
+            "verdict": QUERY,
+            "decided_by": BY_ENGINEER,
+            "why": SILENCE_WHY,
+            "silence_query": True,
+        }
+    return dict(line)

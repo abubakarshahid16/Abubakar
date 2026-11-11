@@ -4,7 +4,7 @@
 export type AgentVerdictClass = "Proven by code" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed";
 export type AgentVerdictWord = "Pass" | "Fail" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed";
 export type AgentRuleTier = "Owner" | "Engineer" | "AI approved" | "Not AI approved";
-export type AgentLeftOutReason = "needs another paper" | "needs a human" | "quote not found" | "not labelled yet" | "another equipment type" | "rule book not held";
+export type AgentLeftOutReason = "needs another paper" | "needs a human" | "quote not found" | "not labelled yet" | "another equipment type" | "rule book not held" | "the paper names no equipment" | "the paper names equipment the equipment list does not know" | "the paper's equipment could not be read";
 
 /** POST /api/reviews/agent-run body. */
 export interface AgentRunRequest {
@@ -30,6 +30,10 @@ export interface AgentRunSummary {
   /** null when the run was not stopped early. */
   stop_reason?: string | null;
   missing_books: string[];
+  /** how the paper's equipment was read (the state word), null when not known. */
+  equipment_state?: string | null;
+  /** the sentences about the paper's equipment and the rules left out for it (counts only, no document text). */
+  equipment_notes: string[];
   /** lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class. */
   not_reviewed: number;
 }
@@ -122,6 +126,9 @@ export interface AgentRulesUsed {
   /** left-out rules counted per reason. */
   left_out_counts: Record<string, number>;
   missing_books: AgentMissingBook[];
+  /** how the paper's equipment was read, and the sentences about it (same as the summary). */
+  equipment_state?: string | null;
+  equipment_notes: string[];
   /** coverage of each rule book that was asked or left out; empty when no coverage file is placed. */
   books: AgentBookCoverage[];
   /** null unless a person changed the rule set (then their name). */

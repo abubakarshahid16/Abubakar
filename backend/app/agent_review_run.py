@@ -67,7 +67,6 @@ from .agent_review_request import (
     pages_for,
     parse_answers,
     plan_pages,
-    silence_guard,
     stop_reason,
 )
 
@@ -149,14 +148,12 @@ class Runner(DecideMixin):
         return {**self.exit_line(line), "resumed": True}
 
     def exit_line(self, line: Mapping) -> dict:
-        """THE one exit every line goes through before it is stored or written (table row, xlsx, API): the tier from the
-        CURRENT label table (`final_cap`), then the silent-paper rule. Only ever makes a line less confident."""
-        out = wording.final_cap(
-            line,
-            self._tiered(self.items_by_id.get(str(line.get("item_id")))),
-            self.tier_lookup,
-        )
-        return silence_guard(out, self.paper_kind)
+        """THE one exit every line goes through before it is stored or written (table row, xlsx, API): the core's
+        `final_cap_all` with the CURRENT label table (`tier_lookup`), the silent-paper rule (`paper_kind`) and the
+        "Not reviewed" class. Only ever makes a line less confident."""
+        return wording.final_cap_all(
+            [line], self.items_by_id, self.tier_lookup, None, self.paper_kind
+        )[0]
 
     # ---- output
     def emit(self, line: dict) -> None:

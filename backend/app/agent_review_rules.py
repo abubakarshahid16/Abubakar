@@ -22,7 +22,23 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from . import rule_labels
+from . import rule_equipment, rule_labels
+from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment filter lives in its own module
+    ANOTHER_EQUIPMENT,
+    EQUIPMENT_MODES,
+    NO_EQUIPMENT,
+    NOT_IN_LIST,
+    PAPER_EQUIPMENT_REASONS,
+    UNREADABLE,
+    EquipmentCtx,
+    PaperEquipment,
+    equipment_block,
+    equipment_decision,
+    equipment_skill_fits,
+    load_equipment,
+    norm_mode,
+    paper_equipment,
+)
 from .agent_review_verdict import RULE_NOT_APPROVED, TIER_NOT_APPROVED
 
 ANOTHER_PAPER = "needs_another_paper"
@@ -30,13 +46,25 @@ NEEDS_HUMAN = "needs_a_human"
 QUOTE_NOT_FOUND = "quote_not_found"
 NOT_LABELLED = "not_labelled_yet"
 KIND_UNKNOWN = "paper_kind_unknown"
-REASONS = (ANOTHER_PAPER, NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED, KIND_UNKNOWN)
+REASONS = (
+    ANOTHER_PAPER,
+    NEEDS_HUMAN,
+    QUOTE_NOT_FOUND,
+    NOT_LABELLED,
+    KIND_UNKNOWN,
+    ANOTHER_EQUIPMENT,
+    *PAPER_EQUIPMENT_REASONS,
+)
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
     NEEDS_HUMAN: "needs a human",
     QUOTE_NOT_FOUND: "quote not found",
     NOT_LABELLED: "not labelled yet",
     KIND_UNKNOWN: "paper kind unknown",
+    ANOTHER_EQUIPMENT: "another equipment type",
+    NO_EQUIPMENT: "the paper names no equipment",
+    NOT_IN_LIST: "the paper names equipment the equipment list does not know",
+    UNREADABLE: "the paper's equipment could not be read",
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = ("off", "both")
@@ -64,7 +92,22 @@ def _parts(disagreement: Any) -> set[str]:
     return {p.strip() for p in str(disagreement or "").split(",") if p.strip()}
 
 
-def decide_rule(
+def _blank_decision() -> dict[str, Any]:
+    return {
+        "ask": False,
+        "reason": None,
+        "tier": None,
+        "label_paper_kind": None,
+        "field": None,
+        "state": None,
+        "label_key": None,
+        "needs_kind": None,
+        "disagreement": None,
+        "unapproved_why": None,
+    }
+
+
+def _decide_label(
     conn: sqlite3.Connection,
     requirement_id: str,
     paper_kind: str | None,
@@ -80,18 +123,7 @@ def decide_rule(
     paper). `tier` is "owner", "engineer", "AI approved" or "not AI approved"."""
     if ask_unapproved not in ASK_UNAPPROVED_MODES:
         raise ValueError(f"ask_unapproved is one of {ASK_UNAPPROVED_MODES}")
-    out: dict[str, Any] = {
-        "ask": False,
-        "reason": None,
-        "tier": None,
-        "label_paper_kind": None,
-        "field": None,
-        "state": None,
-        "label_key": None,
-        "needs_kind": None,
-        "disagreement": None,
-        "unapproved_why": None,
-    }
+    out = _blank_decision()
     want = norm_kind(paper_kind)
     if not kind_known or not want:
         out["reason"] = KIND_UNKNOWN
@@ -123,8 +155,11 @@ def decide_rule(
     if kind != want:
         out["reason"], out["needs_kind"] = ANOTHER_PAPER, kind
         return out
-    if got.tier:
+    if got.tier and not (label.get("disagreement") and got.tier == rule_labels.AI_TIER):
         out.update(ask=True, tier=got.tier)
+        return out
+    if got.tier:  # labelled ai_approved but its readings disagree somewhere: a human decides (never asked as approved)
+        out["reason"] = NEEDS_HUMAN
         return out
     parts = _parts(label.get("disagreement"))
     page = label.get("quote_page")
@@ -143,6 +178,43 @@ def decide_rule(
         )
         return out
     out["reason"] = _REASON_OF.get(got.reason, NOT_LABELLED)
+    return out
+
+
+def decide_rule(
+    conn: sqlite3.Connection,
+    requirement_id: str,
+    paper_kind: str | None,
+    kind_known: bool = True,
+    *,
+    equipment_type: str | None = None,
+    ask_unapproved: str = "off",
+    equipment: EquipmentCtx | None = None,
+) -> dict:
+    """The label decision (`_decide_label`), then, only with an `equipment` context, the equipment filter, which can only
+    REMOVE a rule that would be asked (reason another_equipment_type / paper_names_no_equipment). A rule whose equipment label is
+    not agreed stays asked and is counted apart (`equipment_why` = equipment_not_known)."""
+    out = _decide_label(
+        conn,
+        requirement_id,
+        paper_kind,
+        kind_known,
+        equipment_type=equipment_type,
+        ask_unapproved=ask_unapproved,
+    )
+    if equipment is None or not out["ask"]:
+        return out
+    label = rule_equipment.label_for(conn, "requirement", str(requirement_id)) or {}
+    out["equipment"] = {
+        k: label.get(k)
+        for k in ("equip_family", "equip_type", "equip_state", "equip_general")
+    }
+    keep, why, family = equipment_decision(
+        label, equipment.eq, equipment.tax, equipment.mode
+    )
+    out["equipment_why"] = why
+    if not keep:
+        out.update(ask=False, reason=why, tier=None, equipment_family=family)
     return out
 
 
@@ -185,6 +257,7 @@ def left_out_record(row: Mapping, why: Mapping, key: str) -> dict:
         "page": row.get("page"),
         "reason": why["reason"],
         "disagreement": why.get("disagreement"),
+        "equipment_family": why.get("equipment_family"),
         "needs_paper_kind": why.get("needs_kind"),
         "label_state": why.get("state"),
     }
@@ -199,6 +272,7 @@ def filter_rows(
     *,
     equipment_type: str | None = None,
     ask_unapproved: str = "off",
+    equipment: EquipmentCtx | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, dict]]:
     """(kept rows, left-out records, decision of each kept row by its id). A row with no id is never lost: it is left out
     as not labelled."""
@@ -212,6 +286,7 @@ def filter_rows(
             kind_known,
             equipment_type=equipment_type,
             ask_unapproved=ask_unapproved,
+            equipment=equipment,
         )
         if why["ask"]:
             kept.append(dict(row))
@@ -230,7 +305,9 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
         for r in left
         if r["reason"] == ANOTHER_PAPER
     )
-    out: dict[str, Any] = {r: c.get(r, 0) for r in REASONS if r != ANOTHER_PAPER}
+    out: dict[str, Any] = {
+        r: c.get(r, 0) for r in REASONS if r not in (ANOTHER_PAPER, ANOTHER_EQUIPMENT)
+    }
     parts: Counter = (
         Counter()
     )  # a needs-a-human rule counts once under each disagreement part it carries
@@ -242,6 +319,29 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
     out[ANOTHER_PAPER] = {
         "total": c.get(ANOTHER_PAPER, 0),
         "by_kind": dict(sorted(by_kind.items())),
+    }
+    by_family = Counter(
+        r.get("equipment_family") or "unnamed"
+        for r in left
+        if r["reason"] == ANOTHER_EQUIPMENT
+    )
+    out[ANOTHER_EQUIPMENT] = {
+        "total": c.get(ANOTHER_EQUIPMENT, 0),
+        "by_family": dict(sorted(by_family.items())),
+    }
+    # the removed rules' family counts when the paper's equipment is not usable (rules-used record)
+    out["paper_equipment_left_out_by_family"] = {
+        reason: dict(
+            sorted(
+                Counter(
+                    r.get("equipment_family") or "unnamed"
+                    for r in left
+                    if r["reason"] == reason
+                ).items()
+            )
+        )
+        for reason in PAPER_EQUIPMENT_REASONS
+        if c.get(reason)
     }
     return out
 
@@ -259,6 +359,28 @@ def summary_lines(
             f"{k} {n}" for k, n in sorted(other.get("by_kind", {}).items())
         )
         lines.append(f"needs another paper: {other['total']} rules ({parts})")
+    eq_other = counts.get(ANOTHER_EQUIPMENT) or {}
+    if eq_other.get("total"):
+        parts = ", ".join(
+            f"{k} {n}" for k, n in sorted(eq_other.get("by_family", {}).items())
+        )
+        lines.append(
+            f"another equipment type: {eq_other['total']} rules not asked ({parts})"
+        )
+    for reason, text in (
+        (NO_EQUIPMENT, "the paper names no equipment"),
+        (NOT_IN_LIST, "the paper names equipment the equipment list does not know"),
+        (UNREADABLE, "the paper's equipment could not be read"),
+    ):
+        if counts.get(reason):
+            lines.append(
+                f"{text}: {counts[reason]} rules that name an equipment were not asked"
+                + (
+                    "; only general rules and rules of unknown equipment are asked"
+                    if reason == NO_EQUIPMENT
+                    else ""
+                )
+            )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"
         for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED)
@@ -346,6 +468,7 @@ def label_block(
     kind: Mapping,
     missing: list[dict],
     unapproved: int = 0,
+    equipment: Mapping | None = None,
 ) -> dict:
     """What the Rules used page and the CRS summary need: counts, left-out records, missing books. No text."""
     return {
@@ -356,6 +479,7 @@ def label_block(
         "paper_kind_guess": kind.get("guess"),
         "counts": dict(counts),
         "unapproved_asked": unapproved,
+        "equipment": equipment,
         "summary_lines": summary_lines(
             counts, kind.get("kind"), bool(kind.get("known"))
         )
@@ -378,6 +502,7 @@ def rule_label_of(why: Mapping) -> dict:
         "tier": why.get("tier"),
         "state": why.get("state"),
         "label_key": why.get("label_key"),
+        "equipment": why.get("equipment"),
         "unapproved_why": why.get("unapproved_why"),
     }
 
@@ -411,6 +536,7 @@ def rules_used(items: Iterable[Mapping], block: Mapping | None) -> dict:
                 "paper_kind": lab.get("paper_kind"),
                 "field": lab.get("field"),
                 "tier": lab.get("tier"),
+                "equipment": lab.get("equipment"),
                 "recommendation": it.get("rule_kind") == "advice",
                 "not_approved_why": it.get("rule_unapproved_why")
                 if it.get("rule_tier") == RULE_NOT_APPROVED
@@ -420,6 +546,7 @@ def rules_used(items: Iterable[Mapping], block: Mapping | None) -> dict:
     return {
         "paper_kind": block.get("paper_kind"),
         "paper_kind_known": block.get("paper_kind_known"),
+        "equipment": block.get("equipment"),
         "asked_by_tier": dict(Counter(a["tier"] for a in asked)),
         "asked": asked,
         "left_out": block.get("left_out") or [],
@@ -493,21 +620,29 @@ def filter_skill_items(
     items: list[dict],
     paper_types: set[str],
     governing: Mapping | None = None,
+    equipment: EquipmentCtx | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """F2: (kept, dropped records). A checklist item about equipment types is kept only when the paper's type is among them;
-    a paper of unknown type gets no type-specific checklist item. An item about no type stays (it is general)."""
+    """F2: (kept, dropped records). A checklist item about equipment types is kept only when the paper's type is among them; a
+    paper of unknown type gets no type-specific checklist item; an item about no type stays (it is general). With an `equipment`
+    context the taxonomy test can only REMOVE an item the plain test kept."""
     kept, dropped = [], []
     for it in items:
         types = skill_types(conn, it, governing)
-        if not types or (paper_types and types & paper_types):
+        plain_keep = not types or bool(
+            paper_types and types & paper_types
+        )  # the plain F2 test (filter off)
+        reason = ANOTHER_TYPE if paper_types else TYPE_UNKNOWN
+        if plain_keep and equipment is not None and types:
+            # an equipment mode may only REMOVE an item the plain test kept: never add one (the `related` data is for rules only,
+            # so the paper's core types are used), and a name the mapping does not know leaves the plain decision standing
+            names = equipment.mapping.get("map") or {}
+            if all(n in names for n in types):
+                plain_keep = equipment_skill_fits(types, equipment)
+                reason = ANOTHER_TYPE if equipment.eq.usable else TYPE_UNKNOWN
+        if plain_keep:
             kept.append(it)
         else:
-            dropped.append(
-                {
-                    "item_id": it.get("item_id"),
-                    "reason": ANOTHER_TYPE if paper_types else TYPE_UNKNOWN,
-                }
-            )
+            dropped.append({"item_id": it.get("item_id"), "reason": reason})
     return kept, dropped
 
 

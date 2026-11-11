@@ -53,6 +53,9 @@ LeftOutReason = Literal[
     "not labelled yet",
     "another equipment type",
     "rule book not held",
+    "the paper names no equipment",
+    "the paper names equipment the equipment list does not know",
+    "the paper's equipment could not be read",
 ]
 
 #: The closed table every line must match: class -> (allowed words, allowed
@@ -111,6 +114,10 @@ class AgentRunSummary(BaseModel):
     #: null when the run was not stopped early.
     stop_reason: str | None = None
     missing_books: list[str] = []
+    #: how the paper's equipment was read (the state word), null when not known.
+    equipment_state: str | None = None
+    #: the sentences about the paper's equipment and the rules left out for it (counts only, no document text).
+    equipment_notes: list[str] = []
     #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
     not_reviewed: Count = 0
 
@@ -227,6 +234,9 @@ class AgentRulesUsed(BaseModel):
     #: left-out rules counted per reason.
     left_out_counts: dict[LeftOutReason, Count] = {}
     missing_books: list[AgentMissingBook] = []
+    #: how the paper's equipment was read, and the sentences about it (same as the summary).
+    equipment_state: str | None = None
+    equipment_notes: list[str] = []
     #: coverage of each rule book that was asked or left out; empty when no coverage file is placed.
     books: list[AgentBookCoverage] = []
     #: null unless a person changed the rule set (then their name).

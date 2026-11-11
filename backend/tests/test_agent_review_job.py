@@ -93,7 +93,7 @@ def test_a_full_fake_model_review_writes_lines_both_copies_and_the_record(world)
         "R-mark": ("Proven by code", "Fail"),
         "R-colour": ("Not reviewed", "Not reviewed"),
     }
-    assert lines["R-colour"]["reason"] == "not reviewed: no answer from the AI"
+    assert lines["R-colour"]["reason"].startswith("no answer from the AI")
     assert lines["R-mark"]["rule_tier"] == "AI approved"
     run = dict(
         db.connect()

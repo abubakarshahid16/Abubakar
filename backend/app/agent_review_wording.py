@@ -13,7 +13,7 @@ not approved can never stay Pass or Fail.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 
 from .agent_review_verdict import (
     AI_TIER,
@@ -23,9 +23,11 @@ from .agent_review_verdict import (
     PASS,
     QUERY,
     RULE_NOT_APPROVED,
+    SILENCE_WHY,
     TIER_NOT_APPROVED,
     TIER_NOT_ESTABLISHED,
     USABLE_TIERS,
+    hold_silence,
     item_tier,
 )
 
@@ -34,12 +36,16 @@ CLASS_OPINION = "AI opinion, engineer to confirm"
 CLASS_QUERY = "Query for the engineer"
 CLASS_UNAPPROVED = "AI opinion, rule not yet approved"
 CLASS_NOT_APPLICABLE = "Not applicable"
+CLASS_NOT_REVIEWED = "Not reviewed"
+WORD_NOT_REVIEWED = "Not reviewed"
+ERROR_WORDS = {"stop_max_tokens": "no answer from the AI: answer cut off"}
 CLASSES = (
     CLASS_PROVEN,
     CLASS_OPINION,
     CLASS_UNAPPROVED,
     CLASS_QUERY,
     CLASS_NOT_APPLICABLE,
+    CLASS_NOT_REVIEWED,
 )
 THINKS_MET, THINKS_NOT_MET = "AI thinks: met", "AI thinks: not met"
 WORD_QUERY = "Query for the engineer"
@@ -48,13 +54,35 @@ KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
 def classify(line: Mapping) -> dict:
-    """verdict_label, verdict_class, not_proven_reason (None when proven) for one line."""
+    """verdict_label, verdict_class, not_proven_reason (None when proven) for one line.
+
+    THE ORDER at the exit (the first that applies wins): 1. Not reviewed (the AI gave no answer); 2. silence (a non-datasheet
+    paper that is silent: Query, and when the rule is also not AI approved the reason says both); 3. the cap of a rule that is
+    not AI approved; 4. proven Pass / Fail, then the AI opinions, then Query."""
     verdict, ai = line.get("verdict"), line.get("ai_verdict")
-    if (
-        line.get("rule_tier") == RULE_NOT_APPROVED
-    ):  # never proven, whatever the stored verdict says
-        why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
-        if ai in (PASS, FAIL) and not line.get("error"):
+    unapproved = line.get("rule_tier") == RULE_NOT_APPROVED
+    why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
+    if line.get(
+        "error"
+    ):  # 1. the AI call failed: not reviewed, never a Query about the paper, whatever the rule's tier
+        return {
+            "verdict_label": WORD_NOT_REVIEWED,
+            "verdict_class": CLASS_NOT_REVIEWED,
+            "not_proven_reason": ERROR_WORDS.get(
+                str(line["error"]), f"no answer from the AI: {line['error']}"
+            ),
+        }
+    if line.get(
+        "silence_query"
+    ):  # 2. the owner's rule: a silent paper is a Query, never "not met"
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": SILENCE_WHY
+            + ("; the rule is also not AI approved" if unapproved else ""),
+        }
+    if unapproved:  # 3. never proven, whatever the stored verdict says
+        if ai in (PASS, FAIL):
             return {
                 "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
                 "verdict_class": CLASS_UNAPPROVED,
@@ -65,7 +93,7 @@ def classify(line: Mapping) -> dict:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": why,
         }
-    if verdict in (PASS, FAIL):
+    if verdict in (PASS, FAIL):  # 4. proven, then the AI opinions, then Query
         return {
             "verdict_label": verdict,
             "verdict_class": CLASS_PROVEN,
@@ -116,6 +144,8 @@ def final_cap(
     line: Mapping,
     item: Mapping | None,
     lookup: Callable[[Mapping], str | None] | None = None,
+    skill_ids: Collection[str] | None = None,
+    paper_kind: str | None = None,
 ) -> dict:
     """THE exit cap. The line with its item's CURRENT tier written on it (`tier`), the cap applied and the words added.
 
@@ -125,13 +155,17 @@ def final_cap(
       files it as "AI opinion, rule not yet approved"; a line stored by an earlier run keeps nothing it does not now earn;
     * a rule that is approved: a stale `rule_tier` marker of an earlier run is dropped (a capped Query stays a Query);
     * a checklist item has no tier; its line is unchanged.
+    * a line that rests on absence (`reason_code` absent / sheet_silent) on a paper kind where silence is a Query (every kind
+      but a datasheet; an unknown or missing `paper_kind` counts as silent) is a Query: `hold_silence`.
     Idempotent. Only makes a line less confident."""
-    out = dict(line)
-    tier = item_tier(item, lookup)
+    out = hold_silence(line, paper_kind)
+    tier = item_tier(item, lookup, skill_ids)
     if tier == NOT_A_RULE:
         out.pop("rule_tier", None)
         out["tier"] = None
+        out["checklist"] = True
         return apply(out)
+    out["checklist"] = False
     if tier == RULE_NOT_APPROVED:
         out["rule_tier"] = RULE_NOT_APPROVED
         out["tier"] = TIER_NOT_APPROVED
@@ -155,16 +189,17 @@ def final_cap_all(
     lines: Iterable[Mapping],
     items_by_id: Mapping[str, Mapping],
     lookup: Callable[[Mapping], str | None] | None = None,
+    skill_ids: Collection[str] | None = None,
+    paper_kind: str | None = None,
 ) -> list[dict]:
-    """`final_cap` for every line, each with its own item (found by `item_id`; a line with no item is a rule whose tier
-    is not established, unless the line says it is a checklist line)."""
-    out = []
-    for ln in lines:
-        item = items_by_id.get(str(ln.get("item_id")))
-        if item is None and ln.get("source") == "skill":
-            item = {"source": "skill"}
-        out.append(final_cap(ln, item, lookup))
-    return out
+    """`final_cap` for every line, each with its own item (found by `item_id`). A stored line with NO item is a rule line whose
+    tier is not established: capped, whatever source the line claims."""
+    return [
+        final_cap(
+            ln, items_by_id.get(str(ln.get("item_id"))), lookup, skill_ids, paper_kind
+        )
+        for ln in lines
+    ]
 
 
 def writer_refusal(line: Mapping) -> str | None:
@@ -174,13 +209,20 @@ def writer_refusal(line: Mapping) -> str | None:
         return None
     if line.get("tier") in USABLE_TIERS:
         return None
-    if line.get("source") == "skill" and "tier" in line and line.get("tier") is None:
+    if (
+        line.get("checklist") is True and line.get("tier") is None
+    ):  # set only by final_cap for a real checklist item
         return None
     return f"a {line.get('verdict')} line may not be written without an approved rule tier (tier={line.get('tier')!r})"
 
 
 def is_opinion(line: Mapping) -> bool:
     return line.get("verdict_class") in (CLASS_OPINION, CLASS_UNAPPROVED)
+
+
+def is_not_reviewed(line: Mapping) -> bool:
+    """The AI gave no answer for the item. Computed from the line itself (`classify`), never trusted from a stored class."""
+    return classify(line)["verdict_class"] == CLASS_NOT_REVIEWED
 
 
 def is_unapproved(line: Mapping) -> bool:
@@ -210,6 +252,16 @@ def counts(lines: Iterable[Mapping]) -> dict:
         ),
         "query_for_the_engineer": n(WORD_QUERY, CLASS_QUERY),
         "not_applicable": n(WORD_QUERY, CLASS_NOT_APPLICABLE),
+        "not_reviewed": sum(
+            1 for ln in ls if ln["verdict_class"] == CLASS_NOT_REVIEWED
+        ),
+        "not_reviewed_answer_cut_off": sum(
+            1
+            for ln in ls
+            if ln["verdict_class"] == CLASS_NOT_REVIEWED
+            and ln.get("error") == "stop_max_tokens"
+        ),
+        "silent_paper_queries": sum(1 for ln in ls if ln.get("silence_query")),
         "recommendation_lines": sum(1 for ln in ls if ln[RECOMMENDATION]),
     }
 
@@ -218,6 +270,7 @@ __all__ = [
     "AI_TIER",
     "CLASSES",
     "CLASS_NOT_APPLICABLE",
+    "CLASS_NOT_REVIEWED",
     "CLASS_OPINION",
     "CLASS_PROVEN",
     "CLASS_QUERY",
@@ -229,6 +282,7 @@ __all__ = [
     "counts",
     "final_cap",
     "final_cap_all",
+    "is_not_reviewed",
     "is_opinion",
     "is_unapproved",
     "writer_refusal",

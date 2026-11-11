@@ -62,8 +62,6 @@ ACTIVE_RUN = review_jobs.ACTIVE_RUN
 #: Words of the contract (`api/agent_review_schemas.py`).
 WORD_OF_LABEL = {"Query for the engineer": "Query"}
 NOT_APPLICABLE = "Not applicable"
-NOT_REVIEWED = "Not reviewed"
-NOT_REVIEWED_REASON = "not reviewed: no answer from the AI"
 #: The label table's tier words -> the contract's. A tier we cannot name is never shown as approved.
 TIER_WORDS = {
     "owner": "Owner",
@@ -71,13 +69,16 @@ TIER_WORDS = {
     "AI approved": "AI approved",
     "not AI approved": "Not AI approved",
 }
+#: The core's reason -> the contract's left-out word (`rules.REASON_WORDS`); "paper kind unknown" is said once on the run.
 LEFT_OUT_WORDS = {
-    rules.ANOTHER_PAPER: "needs another paper",
-    rules.NEEDS_HUMAN: "needs a human",
-    rules.QUOTE_NOT_FOUND: "quote not found",
-    rules.NOT_LABELLED: "not labelled yet",
-    "another_equipment_type": "another equipment type",
+    k: v for k, v in rules.REASON_WORDS.items() if k != rules.KIND_UNKNOWN
 }
+EQUIPMENT_LINES = (
+    "another equipment type",
+    "the paper names no equipment",
+    "the paper names equipment the equipment list does not know",
+    "the paper's equipment could not be read",
+)
 
 
 class _Cancelled(Exception):
@@ -215,25 +216,20 @@ def _tier_word(item: dict) -> str | None:
 
 
 def _line_tier(line: dict) -> str | None:
-    """The tier of a stored LINE: the one the exit wrote from the CURRENT label table (`tier`)."""
-    if line.get("source") != "rule" and line.get("tier") is None:
+    """The tier of a stored LINE: the one the exit wrote (`tier`, from the CURRENT label table); a checklist line has none."""
+    if line.get("checklist") is True and line.get("tier") is None:
         return None
     return TIER_WORDS.get(line.get("tier")) or "Not AI approved"
 
 
 def contract_class_and_word(line: dict) -> tuple[str, str]:
-    """The contract's class and word of one line. A line with no answer from the AI is "Not reviewed", never a Query about the
-    paper; "Pass" / "Fail" only for a line proven by code (the class table of the contract and of the table's own CHECK)."""
-    line = wording.apply(line)
-    if line.get("error"):
-        return NOT_REVIEWED, NOT_REVIEWED
-    if (
-        crs_lines.is_not_applicable(line)
-        and line["verdict_class"] == wording.CLASS_QUERY
-    ):
+    """The contract's class and word of one line, as the core's `wording.classify` gives them (the "Not reviewed" class, the
+    silent-paper Query and the caps are the core's): only the word "Query for the engineer" is shortened to "Query"."""
+    got = wording.apply(line)
+    if crs_lines.is_not_applicable(got) and got["verdict_class"] == wording.CLASS_QUERY:
         return "Not applicable", NOT_APPLICABLE
-    label = line["verdict_label"]
-    return line["verdict_class"], WORD_OF_LABEL.get(label, label)
+    label = got["verdict_label"]
+    return got["verdict_class"], WORD_OF_LABEL.get(label, label)
 
 
 def store_line(run_id: str, line: dict, trace: dict | None) -> None:
@@ -241,12 +237,7 @@ def store_line(run_id: str, line: dict, trace: dict | None) -> None:
     the runner's one exit; the table's CHECK refuses an unproven Pass or Fail again."""
     cls, word = contract_class_and_word(line)
     reason = str(
-        NOT_REVIEWED_REASON
-        if word == NOT_REVIEWED
-        else line.get("not_proven_reason")
-        or line.get("reasoning")
-        or line.get("why")
-        or ""
+        line.get("not_proven_reason") or line.get("reasoning") or line.get("why") or ""
     )
     page = line.get("paper_page")
     with connect() as conn:
@@ -305,7 +296,7 @@ def _asked_row(run_id: str, it: dict, cache: dict, kind: str) -> tuple:
     read_from = "scan" if str(full.get("read_from") or "") == "scan" else "text"
     return (run_id, str(it.get("item_id")), 1, None, str(it.get("standard") or ""), str(it.get("clause") or ""), quote,
             it.get("clause_page"), it.get("standard_document_id"), read_from, lab.get("paper_kind") or kind,
-            lab.get("field"), _equipment_of(full), _tier_word(it))  # fmt: skip
+            lab.get("field"), _equipment_of(lab.get("equipment")), _tier_word(it))  # fmt: skip
 
 
 def _write_rules(run_id: str, doc: dict, cache: dict, kind: str) -> None:
@@ -475,7 +466,7 @@ def _plan(
     )  # a cited standard joins the list too (when auto-approve is on)
     cache: dict = {}
     doc = items_mod.build_items(conn, submittal, kind.as_dict(), run_id=scope_run, cache=cache,
-                                equipment_type=kind.equipment_type)  # fmt: skip
+                                equipment_type=kind.equipment_type, equipment_filter="type")  # fmt: skip
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache)
     if refused:
@@ -498,16 +489,13 @@ def _plan(
     }
 
 
-def _tier_lookup(equipment: str | None):
-    """The CURRENT tier of a rule item from the label table (read on the calling thread's own connection)."""
+def _tier_lookup(kind: agent_review_kind.PaperReading):
+    """The core's `rules.tier_lookup` on the calling thread's own connection (a sqlite connection does not cross threads)."""
 
     def lookup(item) -> str | None:
-        rid = item.get("rule_version_id")
-        if not rid:
-            return None
-        return rule_labels.usable_tier(
-            connect(), requirement_id=str(rid), equipment_type=equipment
-        ).tier
+        return rules.tier_lookup(
+            connect(), kind.kind, kind.known, equipment_type=kind.equipment_type
+        )(item)
 
     return lookup
 
@@ -527,7 +515,7 @@ def _make_runner(
         clauses=request_mod.ClauseCache(plan["cache"]), model=agent_claude.LEAD_MODEL, send=send, env=env,
         done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type, std_pages=request_mod.StdPages(),
         sink=lambda line, trace: store_line(run_id, line, trace), trace_path=folder / "trace.jsonl",
-        tier_lookup=_tier_lookup(kind.equipment_type),
+        tier_lookup=_tier_lookup(kind),
         retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS,
     )  # fmt: skip
 
@@ -564,6 +552,22 @@ def _stop_text(runner, plan: dict) -> str | None:
         same = not runner.stop_text or runner.stop_text == runner.stopped
         return runner.stopped if same else f"{runner.stopped}: {runner.stop_text}"
     return plan.get("stop")
+
+
+def _equipment_facts(block: dict) -> dict:
+    """What the paper's equipment state means for the rules: the state word, and the summary sentences about equipment (counts
+    only, no document text) that the summary and Rules used routes show."""
+    eq = block.get("equipment") or {}
+    notes = [
+        ln
+        for ln in block.get("summary_lines") or []
+        if str(ln).startswith(EQUIPMENT_LINES)
+    ]
+    return {
+        "state": eq.get("paper_equipment_state"),
+        "types": eq.get("paper_types") or [],
+        "notes": notes,
+    }
 
 
 def _finish(
@@ -605,10 +609,11 @@ def _finish(
     with connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
-            " usd, models_json, stop_reason, counts_json, items_total, partial, rule_set_changed_by, started_at, finished_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)",
+            " usd, models_json, stop_reason, counts_json, items_total, partial, rule_set_changed_by, started_at, finished_at,"
+            " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
             (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
-             json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now()),
+             json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now(),
+             json.dumps(_equipment_facts(plan["block"]))),
         )  # fmt: skip
     return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial}
 

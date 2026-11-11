@@ -461,3 +461,19 @@ the proven Fail only.
 Page pictures (drawings, scans) are not wired: a page with no text yields no Pass or Fail. The absence proof is built and off.
 The Rules used page's coverage numbers come from a coverage file the lead places under the data dir (`coverage/coverage.json`);
 without it every number is null. Checklist lines show no rule tier (null).
+
+**Guards left out on purpose.** There is no final check / tiebreak: no path in the runner calls a third model, so a line whose
+second opinion disagrees stays "AI thinks" (never a Pass or Fail). A short clause quote is never widened: a line whose clause
+quote is verified but weak simply stays held (a Query or an AI opinion), so no path needs the widen conditions.
+
+**Order for step H (live update).** 1. Update the code and start the server with the switch still off; check the table list is
+unchanged. 2. Switch on (`AGENT_REVIEW_ENABLED`, then `REASONING_PROVIDER`, `STANDARDS_READER_ENABLED`,
+`STANDARDS_READER_ALLOW_PUBLIC_EGRESS` in `backend/.env`, names only, after saving a copy). 3. Import the rule labels
+(`POST /api/admin/rule-labels/import`, #1744). 4. Import the equipment labels (`POST /api/admin/rule-equipment/import`, the
+core's route). 5. Place `coverage.json` under `<data dir>/coverage/` (the Rules used page shows nothing for coverage without it).
+6. One datasheet review through the app; save the CRS and the Rules used page.
+
+**Equipment.** The paper's equipment is read by the app's own reader and passed to the rule choice with
+`equipment_filter="type"`: a rule whose agreed label names another type or family is left out ("another equipment type"); the
+paper's equipment state (names none / not in the list / unreadable) is said on the summary and Rules used routes
+(`equipment_state`, `equipment_notes`).

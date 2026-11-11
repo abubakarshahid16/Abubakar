@@ -14,7 +14,6 @@ from typing import Any
 from . import agent_claude, claude_spend
 from . import agent_review_items as items_mod
 from . import agent_review_verdict as verdict
-from . import agent_review_wording as wording
 from .reader_api import _fold
 
 FINAL_MODEL = "claude-opus-5-5"
@@ -525,33 +524,3 @@ def stop_reason(exc: BaseException, step_worst: float | None = None) -> tuple[st
             "an app USD cap refused the call; it fits now (calls in flight were holding it)",
         )
     return code, code
-
-
-# ---------------------------------------------------------------- the silent paper
-
-SILENT_CODES = ("sheet_silent", "absent")
-SILENT_WHY = "the paper is silent on this; for this paper kind silence is a question, never a finding"
-
-
-def silence_guard(line: Mapping, paper_kind: str | None) -> dict:
-    """Owner, 11 Nov 2026 (16.3 point 4): when the AI's "not met" rests only on the paper being silent and the paper kind is
-    not a datasheet, the line is a Query, never "AI thinks: not met". The one exit calls this; with the AI reviewer on for
-    datasheets only (`agent_review_gate.AGENT_REVIEW_KINDS`) it cannot fire, and stays wired so widening the kinds is safe.
-    Only makes a line less confident."""
-    out = dict(line)
-    if (
-        str(paper_kind or "").strip().lower() != "datasheet"
-        and out.get("ai_verdict") == verdict.FAIL
-        and out.get("reason_code_ai") in SILENT_CODES
-        and not out.get("error")
-    ):
-        out.update(
-            verdict=verdict.QUERY,
-            decided_by=verdict.BY_ENGINEER,
-            why=SILENT_WHY,
-            silent_query=True,
-        )
-        return wording.apply(
-            {**out, "ai_verdict_was": out.get("ai_verdict"), "ai_verdict": None}
-        )
-    return wording.apply(out)

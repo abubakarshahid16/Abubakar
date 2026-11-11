@@ -37,7 +37,7 @@ ENTRY_POINTS = (
     # the AI-approved rule labels' job: started by scripts/run_rule_labels.py, never by the server (it writes a COPY)
     "rule_label_job",
     "rule_label_convert",
-    # page pictures of the AI reviewer (drawings and scans): ported with the core, not wired into the first job (text pages only)
+    # page pictures of the AI reviewer (drawings and scans): not wired into the job (text pages only)
     "agent_review_pages",
 )
 

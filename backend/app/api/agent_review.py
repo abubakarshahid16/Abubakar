@@ -58,6 +58,13 @@ def _require_on() -> None:
 router = APIRouter(dependencies=[Depends(_require_on)])
 
 
+def _equipment(run: dict) -> dict:
+    try:
+        return json.loads(run.get("equipment_json") or "{}")
+    except ValueError:
+        return {}
+
+
 def _run_or_404(run_id: str, scope: access.AccessScope) -> dict:
     """The run row of an AI review the caller may read; 404 otherwise (and when no table exists yet: a read creates none)."""
     run = submittal_review.get_review_run(
@@ -173,6 +180,8 @@ def agent_summary(
         stop_reason=run["stop_reason"],
         missing_books=books,
         not_reviewed=counts.get("Not reviewed", 0),
+        equipment_state=_equipment(run).get("state"),
+        equipment_notes=_equipment(run).get("notes") or [],
     )
 
 
@@ -384,4 +393,6 @@ def rules_used(
         paper_kind=run["paper_kind"], equipment_type=run["equipment_type"], asked=asked, left_out=left,
         left_out_counts=counts, missing_books=missing, books=_coverage_for(rules),
         rule_set_changed_by=run["rule_set_changed_by"],
+        equipment_state=_equipment(run).get("state"),
+        equipment_notes=_equipment(run).get("notes") or [],
     )  # fmt: skip

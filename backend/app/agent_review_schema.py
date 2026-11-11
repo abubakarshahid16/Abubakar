@@ -65,7 +65,8 @@ _STATEMENTS = (
         partial INTEGER NOT NULL DEFAULT 0 CHECK (partial IN (0, 1)),
         rule_set_changed_by TEXT,
         started_at TEXT NOT NULL,
-        finished_at TEXT
+        finished_at TEXT,
+        equipment_json TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS agent_review_rule (
         run_id TEXT NOT NULL,
