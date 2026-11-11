@@ -12,11 +12,13 @@ PUBLIC API OF THE AGENT REVIEW CORE (one docstring index for all core modules; m
   agent_review_context   F4: fingerprint, quote_on_page, neighbour_pages, build_parts, evaluate, held_decision,
                          check_fail (the whole code decision; the model call is an injected callable)
   agent_review_rules     rule choice: decide_rule, filter_rows, count_left_out, summary_lines, left_out_record, label_block,
-                         rules_used, missing_rule_books, filter_skill_items (F2), skill_fits, paper_equipment_types
-  agent_review_items     build_items, batch_by_page, validate, applicable_rules, rule_item, skill_item
+                         rules_used, missing_rule_books, filter_skill_items (F2), skill_fits, paper_equipment_types, tier_lookup (the
+                         CURRENT tier from the label table, for final_cap)
+  agent_review_items     build_items (agent_review_standards: its clause reader), batch_by_page, validate, applicable_rules, rule_item, skill_item
   agent_review_pages     page_image, image_source, image_tokens, ImageToolBox, to_api_messages, PageImageUnavailable
   agent_review_absence   prove, comment, ABSENCE_WHY, Proof (an absence Fail proven by code)
-  agent_review_wording   classify, apply, final_cap (ONE cap at the exit), counts, is_opinion, is_unapproved, CLASS_*
+  agent_review_wording   classify, apply, final_cap / final_cap_all (ONE cap at the exit), writer_refusal, counts, is_opinion,
+                         is_unapproved, CLASS_*
   agent_review_crs       write_internal, write_contractor, write_comment_only, run_counts (refuse unproven Pass/Fail)
 
 THE RULE. A line is Pass or Fail ONLY when:
@@ -497,8 +499,8 @@ def item_tier(
     """The CURRENT tier of an item: one of USABLE_TIERS, RULE_NOT_APPROVED or NOT_A_RULE (a checklist item).
 
     A rule item whose tier cannot be established is NOT approved: `rule_tier == "not_approved"` on the item, a label tier that
-    is not usable, or no tier at all (re-derived with `lookup(item)` when given, e.g. `rule_labels.usable_tier`) all give
-    RULE_NOT_APPROVED. An item that says it is not approved is never promoted by a lookup. No item at all is a rule whose tier
+    is not usable, or no tier at all all give RULE_NOT_APPROVED. With `lookup(item)` (e.g. `rule_labels.usable_tier`) the CURRENT
+    label table decides instead of the carried tier. An item that says it is not approved is never promoted by a lookup. No item at all is a rule whose tier
     is not established."""
     if item is None:
         return RULE_NOT_APPROVED
@@ -506,16 +508,15 @@ def item_tier(
         return NOT_A_RULE
     if item.get("rule_tier") == RULE_NOT_APPROVED:
         return RULE_NOT_APPROVED
+    if (
+        lookup is not None
+    ):  # the CURRENT label table decides, whatever tier the item carried when it was built
+        got = lookup(item)
+        return str(got) if got in USABLE_TIERS else RULE_NOT_APPROVED
     label = item.get("rule_label")
     carried = label.get("tier") if isinstance(label, Mapping) else None
     if carried in USABLE_TIERS:
         return str(carried)
-    if carried:  # a tier word that is not usable (for example "not AI approved")
-        return RULE_NOT_APPROVED
-    if lookup is not None:
-        got = lookup(item)
-        if got in USABLE_TIERS:
-            return str(got)
     return RULE_NOT_APPROVED
 
 

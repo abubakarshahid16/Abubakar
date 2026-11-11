@@ -146,6 +146,32 @@ def decide_rule(
     return out
 
 
+def tier_lookup(
+    conn: sqlite3.Connection,
+    paper_kind: str | None,
+    kind_known: bool = True,
+    *,
+    equipment_type: str | None = None,
+    ask_unapproved: str = "off",
+):
+    """A `lookup(item)` for `agent_review_verdict.item_tier` / `agent_review_wording.final_cap`: the CURRENT tier of a rule item
+    from the label table now ("owner", "engineer", "AI approved", or the not-approved word / None). A rule the table would not
+    ask of this paper is None, so a stored Pass or Fail of it can never stand."""
+
+    def lookup(item: Mapping) -> str | None:
+        got = decide_rule(
+            conn,
+            str(item.get("rule_version_id")),
+            paper_kind,
+            kind_known,
+            equipment_type=equipment_type,
+            ask_unapproved=ask_unapproved,
+        )
+        return got["tier"] if got["ask"] else None
+
+    return lookup
+
+
 # ---- filtering ----------------------------------------------------------------------------------------------------------
 
 
