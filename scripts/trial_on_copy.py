@@ -802,10 +802,13 @@ def import_labels(http: Http, labels_dir: Path | None) -> list[Check]:
     if labels_dir is None:
         return out
     for name, route in (
+        ("ocr-boxes.json", "/api/admin/ocr-boxes/import"),  # first: labels on scanned pages are judged by them
         ("rule-labels.json", "/api/admin/rule-labels/import"),
         ("rule-equipment.json", "/api/admin/rule-equipment/import"),
     ):
         f = Path(labels_dir) / name
+        if name == "ocr-boxes.json" and not f.is_file():
+            continue  # optional: a trial without box evidence is the strict page rule, as before
         if not f.is_file():
             out.append(Check(f"label import {name}", False, "file missing"))
             continue
