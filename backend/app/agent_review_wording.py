@@ -1,0 +1,200 @@
+"""The words of a verdict (owner decision 2, 11 Nov 2026). Pure functions, no I/O, no model call.
+
+Proven by code -> "Pass" / "Fail" (the gate's own Pass or Fail: both quotes verified by code, figures compared by code, or a
+second model agreeing on verified quotes). An AI verdict the gate did not let stand -> "AI thinks: met" / "AI thinks: not
+met", class "AI opinion, engineer to confirm", with the gate's reason. A rule that is not yet AI approved -> class "AI
+opinion, rule not yet approved". No AI verdict -> "Query for the engineer". The classes are counted apart; a line of an
+AI class is never a Pass or a Fail, never on the contractor copy.
+
+`final_cap` is the ONE function every line passes before any output is written (lines, both xlsx copies, counts, rules-used):
+it takes the line AND its item's CURRENT tier and applies the cap and these words. A stored Pass or Fail of a rule that is now
+not approved can never stay Pass or Fail.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Mapping
+
+from .agent_review_verdict import (
+    AI_TIER,
+    BY_ENGINEER,
+    FAIL,
+    NOT_A_RULE,
+    PASS,
+    QUERY,
+    RULE_NOT_APPROVED,
+    TIER_NOT_APPROVED,
+    TIER_NOT_ESTABLISHED,
+    USABLE_TIERS,
+    item_tier,
+)
+
+CLASS_PROVEN = "Proven by code"
+CLASS_OPINION = "AI opinion, engineer to confirm"
+CLASS_QUERY = "Query for the engineer"
+CLASS_UNAPPROVED = "AI opinion, rule not yet approved"
+CLASS_NOT_APPLICABLE = "Not applicable"
+CLASSES = (CLASS_PROVEN, CLASS_OPINION, CLASS_UNAPPROVED, CLASS_QUERY, CLASS_NOT_APPLICABLE)
+THINKS_MET, THINKS_NOT_MET = "AI thinks: met", "AI thinks: not met"
+WORD_QUERY = "Query for the engineer"
+RECOMMENDATION = "recommendation"
+KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
+
+
+def classify(line: Mapping) -> dict:
+    """verdict_label, verdict_class, not_proven_reason (None when proven) for one line."""
+    verdict, ai = line.get("verdict"), line.get("ai_verdict")
+    if line.get("rule_tier") == RULE_NOT_APPROVED:  # never proven, whatever the stored verdict says
+        why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
+        if ai in (PASS, FAIL) and not line.get("error"):
+            return {
+                "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
+                "verdict_class": CLASS_UNAPPROVED,
+                "not_proven_reason": why,
+            }
+        return {"verdict_label": WORD_QUERY, "verdict_class": CLASS_QUERY, "not_proven_reason": why}
+    if verdict in (PASS, FAIL):
+        return {"verdict_label": verdict, "verdict_class": CLASS_PROVEN, "not_proven_reason": None}
+    if verdict == QUERY and line.get("reason_code") == "not_applicable":  # the AI judged the rule not for this paper
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_NOT_APPLICABLE,
+            "not_proven_reason": "the AI judged the rule not applicable to this paper",
+        }
+    held = line.get("conditional_hold") or line.get("table_note_hold") or line.get("context_hold")
+    if held and ai != FAIL:  # a held code Fail: no AI opinion to show
+        return {"verdict_label": WORD_QUERY, "verdict_class": CLASS_QUERY, "not_proven_reason": str(line.get("why") or "")}
+    if verdict == QUERY and ai in (PASS, FAIL) and not line.get("error"):
+        reason = str(line.get("why") or line.get("reason_code") or "the gate did not accept it").strip()
+        return {
+            "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
+            "verdict_class": CLASS_OPINION,
+            "not_proven_reason": reason,
+        }
+    return {
+        "verdict_label": WORD_QUERY,
+        "verdict_class": CLASS_QUERY,
+        "not_proven_reason": str(line.get("why") or line.get("reason_code") or "") or None,
+    }
+
+
+def apply(line: Mapping) -> dict:
+    """The line with the words added (idempotent). A 'should' rule is marked a recommendation."""
+    return {**line, **classify(line), RECOMMENDATION: line.get("rule_kind") == "advice"}
+
+
+def final_cap(
+    line: Mapping,
+    item: Mapping | None,
+    lookup: Callable[[Mapping], str | None] | None = None,
+) -> dict:
+    """THE exit cap. The line with its item's CURRENT tier written on it (`tier`), the cap applied and the words added.
+
+    * the tier is `item_tier(item, lookup)`: re-derived through `lookup` when the item carries none; a rule item whose tier
+      cannot be established is NOT approved;
+    * a rule that is not approved: a Pass or Fail becomes a Query (`unapproved_cap`), `rule_tier` is set so every writer
+      files it as "AI opinion, rule not yet approved"; a line stored by an earlier run keeps nothing it does not now earn;
+    * a rule that is approved: a stale `rule_tier` marker of an earlier run is dropped (a capped Query stays a Query);
+    * a checklist item has no tier; its line is unchanged.
+    Idempotent. Only makes a line less confident."""
+    out = dict(line)
+    tier = item_tier(item, lookup)
+    if tier == NOT_A_RULE:
+        out.pop("rule_tier", None)
+        out["tier"] = None
+        return apply(out)
+    if tier == RULE_NOT_APPROVED:
+        out["rule_tier"] = RULE_NOT_APPROVED
+        out["tier"] = TIER_NOT_APPROVED
+        why = (item or {}).get("rule_unapproved_why") or out.get("rule_unapproved_why")
+        out["rule_unapproved_why"] = why or TIER_NOT_ESTABLISHED
+        if out.get("verdict") in (PASS, FAIL):
+            out.update(
+                verdict=QUERY,
+                decided_by=BY_ENGINEER,
+                why=f"the rule is not AI approved: {out['rule_unapproved_why']}",
+                unapproved_cap=True,
+            )
+        return apply(out)
+    out.pop("rule_tier", None)
+    out.pop("rule_unapproved_why", None)
+    out["tier"] = tier
+    return apply(out)
+
+
+def final_cap_all(
+    lines: Iterable[Mapping],
+    items_by_id: Mapping[str, Mapping],
+    lookup: Callable[[Mapping], str | None] | None = None,
+) -> list[dict]:
+    """`final_cap` for every line, each with its own item (found by `item_id`; a line with no item is a rule whose tier
+    is not established, unless the line says it is a checklist line)."""
+    out = []
+    for ln in lines:
+        item = items_by_id.get(str(ln.get("item_id")))
+        if item is None and ln.get("source") == "skill":
+            item = {"source": "skill"}
+        out.append(final_cap(ln, item, lookup))
+    return out
+
+
+def writer_refusal(line: Mapping) -> str | None:
+    """Why a CRS writer must refuse this line, or None. A Pass or Fail needs: a checklist line, or a rule line whose tier is
+    owner, engineer or AI approved (written by `final_cap`). Defence in depth: nothing else may be written as Pass/Fail."""
+    if line.get("verdict") not in (PASS, FAIL):
+        return None
+    if line.get("tier") in USABLE_TIERS:
+        return None
+    if line.get("source") == "skill" and "tier" in line and line.get("tier") is None:
+        return None
+    return f"a {line.get('verdict')} line may not be written without an approved rule tier (tier={line.get('tier')!r})"
+
+
+def is_opinion(line: Mapping) -> bool:
+    return line.get("verdict_class") in (CLASS_OPINION, CLASS_UNAPPROVED)
+
+
+def is_unapproved(line: Mapping) -> bool:
+    return line.get("rule_tier") == RULE_NOT_APPROVED
+
+
+def counts(lines: Iterable[Mapping]) -> dict:
+    """The classes counted apart: proven pass/fail, AI thinks met/not met (approved and not-yet-approved rules apart), query."""
+    ls = [apply(ln) for ln in lines]
+
+    def n(label: str, cls: str) -> int:
+        return sum(1 for ln in ls if ln["verdict_label"] == label and ln["verdict_class"] == cls)
+
+    return {
+        "proven_pass": n(PASS, CLASS_PROVEN),
+        "proven_fail": n(FAIL, CLASS_PROVEN),
+        "ai_thinks_met": n(THINKS_MET, CLASS_OPINION),
+        "ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_OPINION),
+        "unapproved_ai_thinks_met": n(THINKS_MET, CLASS_UNAPPROVED),
+        "unapproved_ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_UNAPPROVED),
+        "unapproved_lines": sum(1 for ln in ls if ln.get("rule_tier") == RULE_NOT_APPROVED),
+        "query_for_the_engineer": n(WORD_QUERY, CLASS_QUERY),
+        "not_applicable": n(WORD_QUERY, CLASS_NOT_APPLICABLE),
+        "recommendation_lines": sum(1 for ln in ls if ln[RECOMMENDATION]),
+    }
+
+
+__all__ = [
+    "AI_TIER",
+    "CLASSES",
+    "CLASS_NOT_APPLICABLE",
+    "CLASS_OPINION",
+    "CLASS_PROVEN",
+    "CLASS_QUERY",
+    "CLASS_UNAPPROVED",
+    "THINKS_MET",
+    "THINKS_NOT_MET",
+    "apply",
+    "classify",
+    "counts",
+    "final_cap",
+    "final_cap_all",
+    "is_opinion",
+    "is_unapproved",
+    "writer_refusal",
+]
