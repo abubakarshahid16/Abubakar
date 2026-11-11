@@ -32,6 +32,16 @@ from .agent_trace import words
 from .reader_api import _fold
 
 
+def _holds(decision: Mapping) -> dict:
+    """The hold flags a decision carries onto its stored line (each only ever makes the line less confident)."""
+    return {
+        "conditional_hold": bool(decision.get("conditional")),
+        "not_mentioned_hold": bool(decision.get("not_mentioned")),
+        "table_note_hold": decision.get("table_note"),
+        "context_hold": bool(decision.get("context_hold")),
+    }
+
+
 class DecideMixin:
     # ---- per item
     def _tiered(self, item: dict) -> dict:
@@ -264,9 +274,7 @@ class DecideMixin:
             "rule_unapproved_why": item.get("rule_unapproved_why"),
             "rule_label": item.get("rule_label"),
             "unapproved_cap": bool(decision.get("unapproved_cap")),
-            "conditional_hold": bool(decision.get("conditional")),
-            "table_note_hold": decision.get("table_note"),
-            "context_hold": bool(decision.get("context_hold")),
+            **_holds(decision),
             "context_check": None,
             "context_hash": None,
             "context_limits": None,
