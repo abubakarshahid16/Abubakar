@@ -330,19 +330,18 @@ class Runner(DecideMixin):
             standard_pages=lambda _d: [],
         )
 
+    # BOUND of lead calls for one asked group (a single item, or a half already split): at most 2 (first + one retry, whether
+    # the retry is for a cut-off at twice the limit or for an unreadable reply at the same limit); a retry after a
+    # cut-off is never followed by a third call, and is never re-sent after a transport failure or timeout (a lead call
+    # waits `agent_claude.request_timeout(limit)` = max(120 s, limit / 40 tokens a second): at least 120 s, longer as the limit grows, 300 s at the 12,000-token ceiling). A batch of N > 1 that is cut
+    # off is 1 call, then at most 2 per half (<= 5 calls), plus <= 2 per re-asked group of items a readable answer left
+    # out. COST: the returned usd is the sum of every lead call made for the group (a cut-off call at its reserved worst
+    # case, as the run is charged); `run_batch` shares it equally over the group's items. The cut-off call of a batch that
+    # is then split is charged to the run, not to any line.
     def _ask_lead(
         self, batch: list[dict], parts: dict, split_ok: bool
     ) -> tuple[dict | None, float, str | None, str | None]:
-        """(answers by item id or None, usd, error code or None, answering model). One call; one retry of a single item.
-
-        BOUND of lead calls for one asked group (a single item, or a half already split): at most 2 (first + one retry, whether
-        the retry is for a cut-off at twice the limit or for an unreadable reply at the same limit); a retry after a
-        cut-off is never followed by a third call, and is never re-sent after a transport failure or timeout (a lead call
-        waits `agent_claude.request_timeout(limit)` = max(120 s, limit / 40 tokens a second): at least 120 s, longer as the limit grows, 300 s at the 12,000-token ceiling). A batch of N > 1 that is cut
-        off is 1 call, then at most 2 per half (<= 5 calls), plus <= 2 per re-asked group of items a readable answer left
-        out. COST: the returned usd is the sum of every lead call made for the group (a cut-off call at its reserved worst
-        case, as the run is charged); `run_batch` shares it equally over the group's items. The cut-off call of a batch that
-        is then split is charged to the run, not to any line."""
+        """(answers by item id or None, usd, error code or None, answering model); the bound and the cost rule are above."""
         max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
         answer, usd, error, model = None, 0.0, None, None
         spent = retry_worst = (
