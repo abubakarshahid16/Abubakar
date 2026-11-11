@@ -683,7 +683,10 @@ def skill_dir(tmp_path, monkeypatch):
     import shutil
     from pathlib import Path
 
-    shutil.copy(Path(__file__).parent / "fixtures" / "sample_skill.json", tmp_path / "equipment_datasheet.json")
+    shutil.copy(
+        Path(__file__).parent / "fixtures" / "sample_skill.json",
+        tmp_path / "equipment_datasheet.json",
+    )
     monkeypatch.setenv("AGENT_SKILLS_DIR", str(tmp_path))
     V._CHECKLIST_IDS.clear()
     yield tmp_path
@@ -693,21 +696,34 @@ def skill_dir(tmp_path, monkeypatch):
 def test_the_checklist_files_are_the_default_source_of_checklist_ids(skill_dir):
     ids = V.checklist_ids()
     assert {"S-W-1", "S-W-2"} <= ids and ids and all(i.startswith("S-") for i in ids)
-    assert V.is_checklist_item({"item_id": "S-W-1", "source": "skill", "rule_version_id": None})
-    assert not V.is_checklist_item({"item_id": "S-invented-not-in-the-data", "source": "skill"})
+    assert V.is_checklist_item(
+        {"item_id": "S-W-1", "source": "skill", "rule_version_id": None}
+    )
+    assert not V.is_checklist_item(
+        {"item_id": "S-invented-not-in-the-data", "source": "skill"}
+    )
 
 
-def test_no_checklist_file_means_an_empty_list_that_is_not_remembered(tmp_path, monkeypatch):
+def test_no_checklist_file_means_an_empty_list_that_is_not_remembered(
+    tmp_path, monkeypatch
+):
     """A clean checkout (and a machine with no skills folder) has no checklist data: no line can be a checklist line, so every
     line of an item that is not a rule is capped as not approved: safe, never silent (the job logs a warning)."""
     monkeypatch.setenv("AGENT_SKILLS_DIR", str(tmp_path))
     V._CHECKLIST_IDS.clear()
     assert V.checklist_ids() == frozenset()
-    assert not V.is_checklist_item({"item_id": "S-W-1", "source": "skill", "rule_version_id": None})
-    assert V.item_tier({"item_id": "S-W-1", "source": "skill"}, None) == V.RULE_NOT_APPROVED
+    assert not V.is_checklist_item(
+        {"item_id": "S-W-1", "source": "skill", "rule_version_id": None}
+    )
+    assert (
+        V.item_tier({"item_id": "S-W-1", "source": "skill"}, None)
+        == V.RULE_NOT_APPROVED
+    )
 
 
-def test_a_failed_checklist_load_is_never_remembered_as_an_empty_set(skill_dir, monkeypatch):
+def test_a_failed_checklist_load_is_never_remembered_as_an_empty_set(
+    skill_dir, monkeypatch
+):
     from app import agent_skills
 
     real = agent_skills.load_skill
