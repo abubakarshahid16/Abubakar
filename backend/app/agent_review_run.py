@@ -54,7 +54,10 @@ from .agent_review_request import (
     FATAL,
     MAX_BATCH,
     MAX_RETRIES,
+    CUT_OFF_TWICE,
     MAX_TOKENS_CAP,
+    RETRY_MAX_TOKENS,
+    RETRY_TOKEN_FACTOR,
     PROMPT_VERSION,
     RETRY_BASE_SECONDS,
     SECOND_MAX_TOKENS,
@@ -333,7 +336,23 @@ class Runner(DecideMixin):
         try:
             with self._lock:
                 self.calls["lead"] += 1
-            raw, usd = self.call(self.model, parts, max_tokens)
+            try:
+                raw, usd = self.call(self.model, parts, max_tokens)
+            except agent_claude.AgentBadReply as exc:
+                if exc.code != "stop_max_tokens" or (split_ok and len(batch) > 1):
+                    raise  # a bigger batch is split by the caller instead
+                # cut off, and it cannot be split: ONE more ask with a larger limit. `call` reserves the worst case of THIS
+                # limit and the run's caps apply as to any call. Still cut off: "not reviewed", never a guessed verdict.
+                bigger = min(RETRY_MAX_TOKENS, max_tokens * RETRY_TOKEN_FACTOR)
+                with self._lock:
+                    self.calls["lead"] += 1
+                    self.calls["retries"] += 1
+                try:
+                    raw, usd = self.call(self.model, parts, bigger)
+                except agent_claude.AgentBadReply as exc2:
+                    if exc2.code == "stop_max_tokens":
+                        return None, 0.0, CUT_OFF_TWICE, None
+                    raise
             model = agent_claude._answered_model(raw)
             if model != "unknown":
                 self.lead_models.add(model)
