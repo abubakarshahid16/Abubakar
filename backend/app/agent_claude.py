@@ -145,7 +145,10 @@ def gate_open(env: dict | None = None) -> bool:
     if provider == "claude":
         return True
     # per_task: only when this reviewer's own engine says claude. Anything else (ollama, unknown, empty) is closed.
-    return provider == "per_task" and str(env.get(ENGINE_ENV) or "").strip().lower() == "claude"
+    return (
+        provider == "per_task"
+        and str(env.get(ENGINE_ENV) or "").strip().lower() == "claude"
+    )
 
 
 def _resolve_key(env: dict, reader_api) -> str:

@@ -75,5 +75,8 @@ def claude_lane_open() -> bool:
 
     return bool(
         agent_claude.gate_open()
-        and reasoning_provider.claude_unavailable_for_task(settings.agent_review_engine)[0] is None
+        and reasoning_provider.claude_unavailable_for_task(
+            settings.agent_review_engine
+        )[0]
+        is None
     )

@@ -49,7 +49,9 @@ def test_a_per_task_review_with_one_engine_on_claude_is_barred(open_lane, name):
     assert _barred_during_job() is True
 
 
-def test_a_per_task_review_with_a_claude_engine_but_a_closed_lane_is_not_barred(open_lane):
+def test_a_per_task_review_with_a_claude_engine_but_a_closed_lane_is_not_barred(
+    open_lane,
+):
     open_lane.setattr(settings, "reasoning_provider", "per_task")
     open_lane.setattr(settings, "match_engine", "claude")
     open_lane.setattr(settings, "standards_reader_enabled", False)
@@ -69,14 +71,18 @@ def test_under_claude_a_review_is_barred_as_before(open_lane):  # (c)
 
 
 @pytest.mark.parametrize("own", ["ollama", "claude", ""])
-def test_under_ollama_the_reviewer_gate_is_closed_whatever_its_engine_says(open_lane, own):  # (d)
+def test_under_ollama_the_reviewer_gate_is_closed_whatever_its_engine_says(
+    open_lane, own
+):  # (d)
     open_lane.setattr(settings, "reasoning_provider", "ollama")
     open_lane.setattr(settings, "agent_review_engine", own)
     assert agent_review_gate.claude_lane_open() is False
     assert local_engine_bar.is_claude_lane_run() is False
 
 
-def test_under_per_task_with_the_reviewer_engine_on_claude_the_gate_is_open(open_lane):  # (e)
+def test_under_per_task_with_the_reviewer_engine_on_claude_the_gate_is_open(
+    open_lane,
+):  # (e)
     open_lane.setattr(settings, "reasoning_provider", "per_task")
     open_lane.setattr(settings, "agent_review_engine", "claude")
     from app import agent_claude
@@ -85,9 +91,13 @@ def test_under_per_task_with_the_reviewer_engine_on_claude_the_gate_is_open(open
     assert agent_review_gate.claude_lane_open() is True
 
 
-def test_under_per_task_with_the_reviewer_engine_on_ollama_the_gate_is_closed(open_lane):  # (f)
+def test_under_per_task_with_the_reviewer_engine_on_ollama_the_gate_is_closed(
+    open_lane,
+):  # (f)
     open_lane.setattr(settings, "reasoning_provider", "per_task")
-    open_lane.setattr(settings, "match_engine", "claude")  # another step's engine does not open it
+    open_lane.setattr(
+        settings, "match_engine", "claude"
+    )  # another step's engine does not open it
     from app import agent_claude
 
     assert agent_claude.gate_open() is False
@@ -101,4 +111,9 @@ def test_an_injected_env_is_obeyed_exactly_for_the_reviewer_gate():
     per_task = {"REASONING_PROVIDER": "per_task"}
     assert agent_claude.gate_open(per_task) is False
     assert agent_claude.gate_open({**per_task, "AGENT_REVIEW_ENGINE": "claude"}) is True
-    assert agent_claude.gate_open({"REASONING_PROVIDER": "ollama", "AGENT_REVIEW_ENGINE": "claude"}) is False
+    assert (
+        agent_claude.gate_open(
+            {"REASONING_PROVIDER": "ollama", "AGENT_REVIEW_ENGINE": "claude"}
+        )
+        is False
+    )
