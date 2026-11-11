@@ -92,6 +92,8 @@ export const OLD_REVIEW_PANEL_TABS: Readonly<Record<string, WorkspaceTab>> = {
   numbers: "numbers",
   how: "how",
   crs: "crs",
+  rules: "rules",
+  agent: "agent",
 };
 
 /** What a `/review[/<record>[/<panel>]]` address opens now. `address` is

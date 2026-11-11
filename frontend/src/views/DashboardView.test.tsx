@@ -691,3 +691,20 @@ describe("audit 2026-09-30: every block's label is true of that block", () => {
       .toBeInTheDocument();
   });
 });
+
+// ------------------------------------- rule 10 with the AI reviewer switched on
+
+describe("rule 10: the Dashboard is unchanged when the AI reviewer's switch is on", () => {
+  /** MUTATION PROOF: add a fifth Headline card, or an AI reviewer tile, and
+   *  this fails. */
+  it("has exactly four primary cards and nothing about the AI reviewer", async () => {
+    const spy = mockApi(makeMetrics(), makeCoverage(), { "/reviews/agent-status": { enabled: true, claude_lane_open: true } });
+    await openDashboard();
+    await documentsTile();
+    const grid = document.querySelector(".lg\\:grid-cols-4");
+    expect(grid).not.toBeNull();
+    expect(grid!.children).toHaveLength(4);
+    expect(document.body.textContent).not.toMatch(/Start AI review|Rules used|AI review summary/);
+    expect(spy).toHaveBeenCalled();
+  });
+});

@@ -26,6 +26,8 @@ const DETAILS_ID = "ws-tab-details";
 export const SIMPLE_TABS: readonly WorkspaceTab[] = ["sheet", "crs"];
 /** The engineer tabs, under "Details" in Simple view. */
 export const DETAIL_TABS: readonly WorkspaceTab[] = ["how", "findings", "standards", "steps", "numbers"];
+/** The AI reviewer's tabs (#1690): only while its switch is on. */
+export const AGENT_TABS: readonly WorkspaceTab[] = ["agent", "rules"];
 
 type Slot = WorkspaceTab | "details";
 
@@ -48,12 +50,14 @@ const SMALL_CLASS = {
   off: "rounded-[var(--radius-sm)] px-2 py-1 text-xs text-slateish-300 hover:text-slateish-100",
 };
 
-export function WorkspaceTabs({ tab, onTab, mode = "detailed", children }: WorkspaceTabsProps) {
+export function WorkspaceTabs({ tab, onTab, mode = "detailed", agentTabs = false, children }: WorkspaceTabsProps) {
   const refs = useRef<Partial<Record<Slot, HTMLButtonElement | null>>>({});
   // The engineer tab Details goes back to (the last one seen; first "how").
   const lastDetail = useRef<WorkspaceTab>(DETAIL_TABS[0]);
   const simple = mode === "simple";
-  const inDetails = DETAIL_TABS.includes(tab);
+  const detailTabs = agentTabs ? [...DETAIL_TABS, ...AGENT_TABS] : DETAIL_TABS;
+  const allTabs = agentTabs ? WORKSPACE_TABS : WORKSPACE_TABS.filter((t) => !AGENT_TABS.includes(t));
+  const inDetails = detailTabs.includes(tab);
   if (inDetails) lastDetail.current = tab;
 
   const select = (slot: Slot) => {
@@ -61,7 +65,7 @@ export function WorkspaceTabs({ tab, onTab, mode = "detailed", children }: Works
     refs.current[slot]?.focus();
   };
 
-  const mainSlots: readonly Slot[] = simple ? [...SIMPLE_TABS, "details"] : WORKSPACE_TABS;
+  const mainSlots: readonly Slot[] = simple ? [...SIMPLE_TABS, "details"] : allTabs;
   const mainCurrent: Slot = simple && inDetails ? "details" : tab;
 
   function onKeys(list: readonly Slot[], current: Slot) {
@@ -111,10 +115,10 @@ export function WorkspaceTabs({ tab, onTab, mode = "detailed", children }: Works
       {simple && inDetails && (
         <div
           role="tablist" aria-label="Details" id="ws-details-row" data-testid="ws-details-row"
-          onKeyDown={onKeys(DETAIL_TABS, tab)}
+          onKeyDown={onKeys(detailTabs, tab)}
           className="flex flex-wrap gap-1"
         >
-          {DETAIL_TABS.map((t) => tabButton(t, true))}
+          {detailTabs.map((t) => tabButton(t, true))}
         </div>
       )}
       <div role="tabpanel" id={tabPanelId(tab)} aria-labelledby={tabId(tab)} tabIndex={0}>
