@@ -1590,3 +1590,42 @@ def test_the_schema_walks_call_with_no_connection_does_nothing_off_and_creates_o
     monkeypatch.setattr(settings, "rulebook_v2_enabled", True)
     rulebook_v2.ensure_schema()
     assert rulebook_v2.has_schema(_conn())
+
+
+def test_the_read_only_readers_for_the_rule_labels_answer_empty_without_the_book_and_read_what_is_there():
+    import sqlite3
+
+    from app import compiled_rule_report as report
+    from app import rulebook_v2_schema as schema
+
+    bare = sqlite3.connect(":memory:")
+    assert (
+        schema.approval_rows(bare, "v1") == []
+        and schema.provenance_of(bare, "v1") == []
+    )
+    assert schema.latest_quotes(bare) == [] and schema.latest_rule_rows(bare) == []
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        "CREATE TABLE rulebook_rule (id TEXT, standard TEXT);"
+        "CREATE TABLE rulebook_version (id TEXT, rule_id TEXT, version_no INTEGER);"
+        "CREATE TABLE rulebook_provenance (id TEXT, rule_version_id TEXT, standard_document_id TEXT, clause TEXT,"
+        " page INTEGER, quote TEXT);"
+        "CREATE TABLE rulebook_approval (id TEXT, rule_version_id TEXT, decision TEXT, equipment_type TEXT, tier TEXT);"
+        "INSERT INTO rulebook_rule VALUES ('r', 'S');"
+        "INSERT INTO rulebook_version VALUES ('v1', 'r', 1), ('v2', 'r', 2);"
+        "INSERT INTO rulebook_provenance VALUES ('p1', 'v1', 'd', '1', 1, 'old'), ('p2', 'v2', 'd', '2', 3, 'new');"
+        "INSERT INTO rulebook_approval VALUES ('a', 'v2', 'approve', 'kind_x', 'engineer');"
+    )
+    assert schema.approval_rows(conn, "v2") == [("approve", "kind_x", "engineer")]
+    assert schema.provenance_of(conn, "v2") == [("d", 3, "new")]
+    assert schema.latest_quotes(conn) == [("v2", "d", 3, "new")]
+    assert schema.latest_rule_rows(conn) == [("v2", "d", "S", "2", 3, "new")]
+    assert report.book_approval_rows(conn, "v2") == schema.approval_rows(
+        conn, "v2"
+    )  # the allowed seam is a pure pass-through
+    assert report.book_latest_rule_rows(conn) == schema.latest_rule_rows(conn)
+    before = conn.execute("SELECT COUNT(*) FROM rulebook_approval").fetchone()[0]
+    schema.approval_rows(conn, "v2")
+    assert (
+        conn.execute("SELECT COUNT(*) FROM rulebook_approval").fetchone()[0] == before
+    )
