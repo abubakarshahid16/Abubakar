@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from app import agent_review_gate, local_engine_bar
+from app import agent_review_gate, agent_review_kind, local_engine_bar
 from app import reasoning_provider as rp
 from app.config import settings
+from tests.test_agent_review_job import run_job, start, world  # noqa: F401 - fixture
 
 
 @pytest.fixture
@@ -120,8 +121,6 @@ def test_an_injected_env_is_obeyed_exactly_for_the_reviewer_gate():
 
 
 # ---- the bar is decided PER JOB: the AI reviewer's real job function --------------------------------------------------
-from tests.test_agent_review_job import run_job, start, world  # noqa: E402,F401 - fixture
-from app import agent_review_kind  # noqa: E402
 
 
 def _watch_bar(monkeypatch):
@@ -151,7 +150,8 @@ def _lane(monkeypatch, provider, own):
 
 
 def test_the_real_agent_job_is_barred_when_its_own_gate_is_open_and_every_other_engine_is_local(
-    world, monkeypatch
+    world,  # noqa: F811
+    monkeypatch,
 ):
     seen = _watch_bar(monkeypatch)
     _lane(monkeypatch, "per_task", "claude")
@@ -162,7 +162,8 @@ def test_the_real_agent_job_is_barred_when_its_own_gate_is_open_and_every_other_
 
 
 def test_the_real_agent_job_is_not_barred_when_its_own_gate_is_closed(
-    world, monkeypatch
+    world,  # noqa: F811
+    monkeypatch,
 ):
     seen = _watch_bar(monkeypatch)
     _lane(monkeypatch, "per_task", "ollama")
@@ -172,7 +173,8 @@ def test_the_real_agent_job_is_not_barred_when_its_own_gate_is_closed(
 
 
 def test_the_real_agent_job_under_ollama_is_not_barred_whatever_its_setting_says(
-    world, monkeypatch
+    world,  # noqa: F811
+    monkeypatch,
 ):
     seen = _watch_bar(monkeypatch)
     _lane(monkeypatch, "ollama", "claude")
