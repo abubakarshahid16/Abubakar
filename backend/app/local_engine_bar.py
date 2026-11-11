@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -97,18 +98,21 @@ REVIEW_ENGINE_SETTINGS = (
 )
 
 
-def is_claude_lane_run(agent_job: bool = False) -> bool:
+def is_claude_lane_run(agent_job: bool | None = False) -> bool:
     """True when THIS job can really go to Claude, and the lane itself is open. Decided per job, by ONE function.
 
-    * the AI reviewer's job (`agent_job`, rule review and general review): when its own gate is open
+    * the AI reviewer's job (`agent_job` True, rule review and general review): when its own gate is open
       (`claude_unavailable_for_task(agent_review_engine)`: claude, or per_task with `agent_review_engine` = claude).
-    * a normal review, `claude`: every reasoning step may, so any review is one (as before).
+    * a normal review (False), `claude`: every reasoning step may, so any review is one (as before).
     * a normal review, `per_task`: only when one of `REVIEW_ENGINE_SETTINGS` says claude. With every engine local the
       review runs exactly as under `ollama`: no bar, nothing skipped (owner, 12 Nov 2026).
+    * the kind of job could not be read (None): barred when EITHER rule would bar it (the safe side).
     * anything else: never."""
     from . import reasoning_provider as rp
     from .config import settings
 
+    if agent_job is None:
+        return is_claude_lane_run(True) or is_claude_lane_run(False)
     if agent_job:
         return rp.claude_unavailable_for_task(settings.agent_review_engine)[0] is None
     provider = rp._provider_setting()
@@ -124,8 +128,9 @@ def is_claude_lane_run(agent_job: bool = False) -> bool:
     return rp.claude_lane_open()
 
 
-def _is_agent_job(job_id) -> bool:
-    """The kind of job, from its row (`jobs.stage`): the AI reviewer's job or not."""
+def _is_agent_job(job_id) -> bool | None:
+    """The kind of job, from its row (`jobs.stage`): True for the AI reviewer's job, False for a normal review, None when
+    it cannot be read (no row, a database error). None is barred if either kind would be: the safe side."""
     from . import agent_review_gate
     from .db import connect
 
@@ -135,9 +140,18 @@ def _is_agent_job(job_id) -> bool:
             .execute("SELECT stage FROM jobs WHERE id = ?", (job_id,))
             .fetchone()
         )
-    except sqlite3.Error:  # no table: a normal review
-        return False
-    return row is not None and row["stage"] == agent_review_gate.STAGE
+    except sqlite3.Error as exc:
+        logging.getLogger(__name__).warning(
+            "local engine bar: job kind unreadable (%s); barred if either kind would be",
+            type(exc).__name__,
+        )
+        return None
+    if row is None:
+        logging.getLogger(__name__).warning(
+            "local engine bar: job kind unreadable (no job row); barred if either kind would be"
+        )
+        return None
+    return row["stage"] == agent_review_gate.STAGE
 
 
 @contextmanager
@@ -154,7 +168,7 @@ def barring_local_engine(job):
 
     @functools.wraps(job)
     def wrapper(*args, **kwargs):
-        if not is_claude_lane_run(agent_job=bool(args) and _is_agent_job(args[0])):
+        if not is_claude_lane_run(agent_job=_is_agent_job(args[0]) if args else False):
             return job(*args, **kwargs)
         with bar():
             return job(*args, **kwargs)

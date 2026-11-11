@@ -3,6 +3,8 @@ under per_task when every one of its own engine settings is local (owner, 12 Nov
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from app import agent_review_gate, agent_review_kind, local_engine_bar
@@ -185,41 +187,92 @@ def test_the_real_agent_job_under_ollama_is_not_barred_whatever_its_setting_says
 
 def test_every_engine_setting_given_to_the_lane_gate_is_in_the_one_list():
     """A new per-step engine setting passed to `claude_for_task` / `claude_unavailable_for_task` must be in
-    `REVIEW_ENGINE_SETTINGS`, or a review that uses it would run unbarred. Scans the source."""
-    import re
+    `REVIEW_ENGINE_SETTINGS`, or a review that uses it would run unbarred. Scans the source; an argument it cannot
+    resolve to a settings name fails the test (never skipped silently)."""
+    import ast
     from pathlib import Path
 
     app = Path(__file__).resolve().parents[1] / "app"
-    call = re.compile(
-        r"(?:claude_for_task|claude_unavailable_for_task)\(\s*([^,)]+(?:\([^)]*\))?)"
-    )
-    names, helpers = set(), set()
-    for path in app.rglob("*.py"):
+    trees = {p: ast.parse(p.read_text()) for p in app.rglob("*.py")}
+    defs = {}
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                defs.setdefault(node.name, []).append(node)
+
+    def settings_names(node):
+        return {
+            n.attr
+            for n in ast.walk(node)
+            if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name)
+            and n.value.id == "settings"
+        }
+
+    names, unresolved = set(), []
+    for path, tree in trees.items():
         if path.name == "reasoning_provider.py":
             continue
-        for arg in call.findall(path.read_text()):
-            m = re.fullmatch(r"(?:settings\.)([a-z_]+)", arg.strip())
-            if m:
-                names.add(m.group(1))
-            else:
-                helpers.add((path.name, arg.strip()))
-    # a helper such as `engine_setting()` / `_engine()` / `opinion_engine()` reads one setting: resolve by its body
-    for fname, arg in helpers:
-        helper = arg.rstrip("()").split(".")[-1]
-        if not helper or not helper.isidentifier():
-            continue
-        for path in app.rglob("*.py"):
-            m = re.search(
-                rf"def {helper}\(\)[^\n]*:\n(?:\s+\"\"\".*?\"\"\"\n)?\s+return[^\n]*?settings\.([a-z_]+)",
-                path.read_text(),
-                re.S,
-            )
-            if m:
-                names.add(m.group(1))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            fn = node.func
+            called = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if called not in ("claude_for_task", "claude_unavailable_for_task"):
+                continue
+            arg = node.args[0]
+            found = settings_names(arg)
+            if not found and isinstance(
+                arg, ast.Call
+            ):  # a helper: the one setting its body reads
+                f = arg.func
+                helper = (
+                    f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+                )
+                for d in defs.get(helper, []):
+                    found |= settings_names(d)
+            if not found:
+                unresolved.append((path.name, node.lineno, ast.unparse(arg)))
+            names |= found
+    assert not unresolved, f"cannot resolve to a settings name: {unresolved}"
     names.discard(
         "agent_review_engine"
     )  # the AI reviewer's own job, decided separately per job
-    assert names, "the scan found nothing: the test is vacuous"
+    assert {"vision_reader_engine", "match_engine"} <= names, (
+        "the scan misses known steps: vacuous"
+    )
     assert names <= set(local_engine_bar.REVIEW_ENGINE_SETTINGS), sorted(
         names - set(local_engine_bar.REVIEW_ENGINE_SETTINGS)
+    )
+
+
+def test_an_unreadable_job_kind_is_barred_if_either_kind_would_be(open_lane, caplog):
+    open_lane.setattr(settings, "reasoning_provider", "per_task")
+    open_lane.setattr(settings, "agent_review_engine", "claude")
+    from app import db
+
+    def broken():
+        raise sqlite3.OperationalError("no such table")
+
+    open_lane.setattr(db, "connect", broken)
+    assert local_engine_bar._is_agent_job("job-x") is None
+    assert local_engine_bar.is_claude_lane_run(None) is True
+    assert (
+        local_engine_bar.barring_local_engine(
+            lambda _job_id: local_engine_bar.active()
+        )("job-x")
+        is True
+    )
+    assert "OperationalError" in caplog.text and "no such table" not in caplog.text
+
+
+def test_an_unreadable_job_kind_under_ollama_is_not_barred(open_lane):
+    open_lane.setattr(settings, "reasoning_provider", "ollama")
+    open_lane.setattr(settings, "agent_review_engine", "claude")
+    assert local_engine_bar.is_claude_lane_run(None) is False
+    assert (
+        local_engine_bar.barring_local_engine(
+            lambda _job_id: local_engine_bar.active()
+        )("no-such-job")
+        is False
     )
