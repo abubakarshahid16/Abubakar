@@ -528,3 +528,59 @@ def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_vi
         {**base, "reasoning": None, "second_opinion": {"agree": False}}, ok
     )
     assert W.ONE_READER not in bare["not_proven_reason"]
+
+
+def test_the_contractor_visible_copy_carries_none_of_the_guard_words(tmp_path):
+    import openpyxl
+
+    from app import agent_review_crs as C
+
+    ok = {"source": "rule", "rule_label": {"tier": "AI approved"}}
+    base = {
+        "item_id": "R-1",
+        "source": "rule",
+        "standard": "STD-1",
+        "clause": "4.1",
+        "verdict": "Query",
+        "decided_by": "engineer",
+        "ai_verdict": "Pass",
+        "why": "second opinion disagreed",
+        "paper_page": 2,
+        "paper_quote": "Nameplate: steel",
+        "clause_quote": "Nameplates shall be steel and fixed",
+        "quotes_checked": dict(OK),
+        "model": "m",
+        "field_roles": ["nameplate_material"],
+        "reasoning": "The sheet states the requirement is met.",
+        "second_opinion": {"agree": False},
+    }
+    moved = W.final_cap(base, ok)
+    assert moved["not_proven_reason"].startswith(V.DISAGREE_WHY)
+    meta = {
+        "paper": "P",
+        "run_id": "r",
+        "date": "2026-11-12",
+        "lead_models": [],
+        "second_models": [],
+    }
+    internal = openpyxl.load_workbook(
+        C.write_internal([moved], tmp_path / "i.xlsx", meta)
+    )
+    internal_text = " ".join(
+        str(c)
+        for ws in internal
+        for r in ws.iter_rows(values_only=True)
+        for c in r
+        if c
+    )
+    assert W.ONE_READER in internal_text
+    for name, path in (
+        ("comment-only", C.write_comment_only([moved], tmp_path / "o.xlsx", meta)),
+        ("contractor", C.write_contractor([moved], tmp_path / "c.xlsx", meta)),
+    ):
+        for ws in openpyxl.load_workbook(path):
+            for row in ws.iter_rows(values_only=True):
+                for cell in row:
+                    for word in ("AI reader", "not confirmed", "AI thinks", "disagree"):
+                        assert word not in str(cell or ""), (name, word)
+    assert "AI reader" not in C.company_comment(moved, contractor=True)

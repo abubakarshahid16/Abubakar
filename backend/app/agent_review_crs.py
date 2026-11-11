@@ -278,9 +278,9 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
         )
     page = line_page(line)
     where = f"{field_words(line)} (page {page})" if page else field_words(line)
-    if moved_by_guard(
-        line
-    ):  # N9: the guard's reason leads; the first reader's view follows, marked
+    if (
+        not contractor and moved_by_guard(line)
+    ):  # N9, internal copy only (the contractor-visible copy carries no AI words): the guard's reason leads
         return f"{where}: {line['not_proven_reason']}"
     rule = against(line) or "the requirement"
     ask = asks(line)
