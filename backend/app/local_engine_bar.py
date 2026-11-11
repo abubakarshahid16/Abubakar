@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import functools
 import json
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -134,7 +135,7 @@ def _is_agent_job(job_id) -> bool:
             .execute("SELECT stage FROM jobs WHERE id = ?", (job_id,))
             .fetchone()
         )
-    except Exception:  # noqa: BLE001 - no table or row: a normal review
+    except sqlite3.Error:  # no table: a normal review
         return False
     return row is not None and row["stage"] == agent_review_gate.STAGE
 
