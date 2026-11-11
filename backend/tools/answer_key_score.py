@@ -151,7 +151,12 @@ def clause_ref(text) -> tuple | None:
     'API 610', 'API 2000' -> (standard, None): a number right after a bare family name is the standard's own.
     'API 526 2017', 'X-1-2023 6.1' -> the edition year is dropped, never read as a clause.
     'API 610 datasheet annex' -> ('API610', None): a standard with no clause number. None: no standard."""
-    t = re.sub(r"\((?:p\.|pages?|edition)[^)]*\)", " ", str(text or ""), flags=re.I)
+    t = re.sub(
+        r"\((?:p\.|pages?|edition|table|figure|fig\.)[^)]*\)",
+        " ",
+        str(text or ""),
+        flags=re.I,
+    )
     t = re.sub(r"\.pdf\b|\bclause\b|\bcl\.|\u00a7", " ", t, flags=re.I)
     t = " " + " ".join(t.split())
     head, clause = t, None
@@ -162,8 +167,10 @@ def clause_ref(text) -> tuple | None:
             head, clause = before, number
     std_tokens = []
     for token in head.split():
-        if not re.search(r"[A-Z0-9]", token):
-            break  # the standard's id ends at the first plain word ('datasheet annex')
+        if not re.search(r"[A-Z0-9]", token) or re.fullmatch(
+            r"(table|figure|fig\.?|annex|appendix)", token, flags=re.I
+        ):
+            break  # the standard's id ends at the first plain word ('datasheet annex', 'Table 3')
         std_tokens.append(token)
     raw = " ".join(std_tokens)
     trimmed = re.sub(r"[-:\s](19|20)\d\d$", "", raw)
@@ -230,10 +237,13 @@ def known_role(role: str, rules: dict) -> bool:
 
 
 def _spelling_names(spelling: str, label_words: list[str]) -> bool:
-    """Every word of the key's printed label is a whole word of the line's label."""
+    """Every word of the key's printed label is a whole word of the line's label. A one-word printed label
+    must BE the line's whole label: "Material" names a line labelled "Material", not "Spring material"."""
     want = _words(spelling)
     if not want or not label_words:
         return False
+    if len(want) == 1:
+        return label_words == want
     return all(w in label_words for w in want)
 
 
@@ -475,7 +485,8 @@ def _specificity(k: KeyRow) -> tuple:
 
 def credit(rows: list[KeyRow], pool: list[Line]) -> dict:
     """Which key rows each line counts for. A line answering several rows on field and page counts for the
-    rows whose own point it also matches; if it matches none, for ONE row only (the most specific: fewest
+    rows whose own point it also matches (two rows citing the same clause, or printing the same label, both
+    count from one line: that is their own point); if it matches none, for ONE row only (the most specific: fewest
     roles, fewest pages, then the first). One line never counts for a second row on field and page alone."""
     out: dict[int, list] = {}
     for ln in pool:
@@ -561,9 +572,15 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
         "lines_without_page": sum(1 for ln in lines if not ln.pages),
         "matched_lines": {},
     }
-    found_rows = [k for k in key if k.scored_as in ("problem", "complies")]
-    on_crs = credit(found_rows, comments)
-    on_pass = credit(found_rows, passes)
+    problem_rows = [k for k in key if k.scored_as == "problem"]
+    complies_rows = [k for k in key if k.scored_as == "complies"]
+    # Comment lines credit problem rows only, pass lines complies rows only; a pass line that answers no
+    # complies row may then show a problem row hidden by a pass (a wrong pass).
+    raised = credit(complies_rows, comments)  # reported apart, never a found
+    on_crs = {**credit(problem_rows, comments), **raised}
+    on_pass = credit(complies_rows, passes)
+    pass_left = [ln for ln in passes if not any(answers(k, ln) for k in complies_rows)]
+    on_pass.update(credit(problem_rows, pass_left))
     hidden_by_pass: set = set()
     for k in key:
         if k.scored_as == "not scored":

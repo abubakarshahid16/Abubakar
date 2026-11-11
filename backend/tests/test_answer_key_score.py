@@ -476,7 +476,7 @@ def test_a_one_word_printed_label_needs_the_whole_word():
     _, patterns = aks._registry()
     spell = {"bearing_type": ("bear",)}
     assert "bearing_type" not in aks.roles_named("Bearing temperature", patterns, spell)
-    assert "bearing_type" in aks.roles_named("Bear (x)", patterns, spell)
+    assert "bearing_type" in aks.roles_named("Bear", patterns, spell)
     spell = {"seal_plan": ("plant",)}
     assert "seal_plan" not in aks.roles_named("Plan view", patterns, spell)
 
@@ -518,6 +518,8 @@ def test_an_unknown_verdict_is_not_counted_and_is_reported(tmp_path):
         ("XS-1 (edition not recorded) cl. 5", ("XS1", "5")),
         ("XS 610 datasheet annex", ("XS610", None)),
         ("ASME-Sec-VIII-Div1-2023 clause UG-99", ("ASMESECVIIIDIV1", "UG-99")),
+        ("XS-1 (Table 3) 5.2", ("XS1", "5.2")),
+        ("XS 526 Table 3", ("XS526", "3")),
         ("", None),
     ],
 )
@@ -565,3 +567,34 @@ def test_overlap_names_rows_in_both_scorer_only_and_hand_only():
         "scorer_only": [12],
         "hand_only": [10],
     }
+
+
+def test_a_pass_line_goes_to_the_complies_row_not_the_problem_row_on_the_same_point(
+    tmp_path,
+):
+    key = [
+        {"kind": "problem", "role": "body_material", "page": "1"},
+        {"kind": "complies", "role": "body_material", "page": "1"},
+    ]
+    res = _score(
+        tmp_path, key, [], [("p.1", "Body (page 1): meets", "XS-1 6.1", "Pass", "")]
+    )
+    assert res["complies_confirmed"] == [3]
+    assert res["wrong_passes"] == [] and res["wrong_pass_lines"] == 0
+
+
+def test_a_comment_line_goes_to_the_problem_row_not_the_complies_row(tmp_path):
+    key = [
+        {"kind": "complies", "role": "body_material", "page": "1"},
+        {"kind": "problem", "role": "body_material", "page": "1"},
+    ]
+    res = _score(tmp_path, key, [("p.1 - Body", "c", "XS-1 6.1", "Query", "")])
+    assert res["problems_found"] == [3]
+    assert res["complies_confirmed"] == []
+
+
+def test_a_one_word_printed_label_must_be_the_whole_line_label():
+    _, patterns = aks._registry()
+    spell = {"body_material": ("Material",)}
+    assert "body_material" not in aks.roles_named("Spring material", patterns, spell)
+    assert "body_material" in aks.roles_named("Material", patterns, spell)
