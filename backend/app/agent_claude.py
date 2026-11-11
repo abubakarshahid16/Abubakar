@@ -172,6 +172,16 @@ def _resolve_key(env: dict, reader_api) -> str:
     return key
 
 
+#: the wait for one answer: 120 s, and longer only for a limit above 4,800 tokens: limit / SLOW_TOKENS_PER_SECOND seconds
+#: (40 tokens a second is a slow rate), so a 12,000-token retry waits 300 s and every other call keeps 120 s.
+BASE_TIMEOUT_SECONDS = 120.0
+SLOW_TOKENS_PER_SECOND = 40.0
+
+
+def request_timeout(max_tokens: int) -> float:
+    return max(BASE_TIMEOUT_SECONDS, int(max_tokens) / SLOW_TOKENS_PER_SECOND)
+
+
 def _request(model: str, max_tokens: int, env: dict | None) -> dict:
     """url, headers, timeout and a body shell from `reader_api.build_request` (both flags, https, host, key)."""
     from app import reader_api
@@ -186,7 +196,7 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
             reader_api.ReaderSettings.from_env(env),
             model=model,
             max_tokens=int(max_tokens),
-            timeout_seconds=120.0,
+            timeout_seconds=request_timeout(max_tokens),
         )
         # a call-local copy carries the key ONLY for this build; the flags above were read from `env` alone
         built = reader_api.build_request(

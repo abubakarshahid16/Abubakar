@@ -37,6 +37,16 @@ MAX_TOKENS_CAP = 8000
 MAX_RETRIES = 3
 #: a lead answer that stopped at max_tokens, or could not be read: the batch is split in half and asked once more per half
 SPLITTABLE = ("stop_max_tokens", "unparseable_reply")
+#: an answer cut off at its limit, for an item that cannot be split further (a single item, or a half already split), is
+#: asked ONCE more with RETRY_TOKEN_FACTOR times the limit, never above RETRY_MAX_TOKENS. Measured (12 Nov trial, 72 lines):
+#: 2 cut-offs, a batch of 8 at 6,200 and a half of 4 at 3,400 (about 850+ tokens an item); complete answers used 1,000 to
+#: 5,500 tokens. Twice the limit clears all of them; the ceiling keeps the worst case of one call near USD 0.12.
+RETRY_TOKEN_FACTOR = 2
+RETRY_MAX_TOKENS = 12000
+#: the line's error when the retry was cut off too (shown as "no answer from the AI: <this>")
+CUT_OFF_TWICE = "answer cut off twice (the second try had twice the limit)"
+#: the line's error when the larger-limit retry came back whole but unreadable (no third call is made)
+SECOND_UNREADABLE = "the second answer could not be read (after a cut-off)"
 RETRY_BASE_SECONDS = 4.0
 CONCURRENCY = 3
 SECOND_MAX_TOKENS = agent_claude.SECOND_MAX_TOKENS
