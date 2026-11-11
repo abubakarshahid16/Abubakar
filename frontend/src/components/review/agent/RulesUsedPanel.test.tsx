@@ -22,10 +22,10 @@ function data(over: Partial<AgentRulesUsed> = {}): AgentRulesUsed {
   return {
     paper_kind: "datasheet", equipment_type: "pump",
     asked: [
-      { rule_book: "Book A", clause: "1.1", quote: "q one", paper_kind: "datasheet", field: "rated flow", equipment: null, tier: "AI approved" },
-      { rule_book: "Book B", clause: "2.1", quote: "q two", paper_kind: "datasheet", field: null, equipment: "pump", tier: "Engineer" },
-      { rule_book: "Book B", clause: "2.2", quote: "q three", paper_kind: "datasheet", field: "head", equipment: "pump", tier: "Not AI approved" },
-      { rule_book: "Book C", clause: "3.1", quote: "q four", paper_kind: "datasheet", field: "x", equipment: "pump", tier: "Owner" },
+      { rule_book: "Book A", clause: "1.1", quote: "q one", paper_kind: "datasheet", field: "rated flow", equipment: null, tier: "AI approved", read_from: "text" },
+      { rule_book: "Book B", clause: "2.1", quote: "q two", paper_kind: "datasheet", field: null, equipment: "pump", tier: "Engineer", read_from: "text" },
+      { rule_book: "Book B", clause: "2.2", quote: "q three", paper_kind: "datasheet", field: "head", equipment: "pump", tier: "Not AI approved", read_from: "text" },
+      { rule_book: "Book C", clause: "3.1", quote: "q four", paper_kind: "datasheet", field: "x", equipment: "pump", tier: "Owner", read_from: "text" },
     ],
     left_out: [
       { rule_book: "Book A", clause: "9.1", reason: "needs another paper" },
@@ -34,7 +34,7 @@ function data(over: Partial<AgentRulesUsed> = {}): AgentRulesUsed {
     ],
     left_out_counts: { "needs another paper": 1, "needs a human": 2 },
     missing_books: [{ name: "Book Q", why: "not in the library" }],
-    rule_set_changed_by: null, ...over,
+    rule_set_changed_by: null, books: [], equipment_state: null, equipment_notes: [], ...over,
   };
 }
 
@@ -114,7 +114,7 @@ describe("RulesUsedPanel", () => {
 });
 
 describe("RulesUsedView: rule books and scans", () => {
-  const withBooks = (books: unknown) => ({ ...data(), books } as never);
+  const withBooks = (books: AgentRulesUsed["books"]) => ({ ...data(), books });
   /** MUTATION PROOF: render null as 0 or 100% and the not-measured test fails;
    *  drop the below_half warning and the warning test fails. */
   it("shows coverage with its denominator and a plain warning below half", () => {
@@ -148,8 +148,21 @@ describe("RulesUsedView: rule books and scans", () => {
   });
   it("marks a rule read from a scan, and only that one", () => {
     const d = data();
-    render(<RulesUsedView data={{ ...d, asked: [{ ...d.asked[0], read_from: "scan" }, { ...d.asked[1], read_from: "text" }] }} />);
+    render(<RulesUsedView data={{ ...d, asked: [{ ...d.asked[0], read_from: "scan" as const }, { ...d.asked[1], read_from: "text" as const }] }} />);
     expect(screen.getAllByText("read from a scan")).toHaveLength(1);
     expect(screen.getByText("read from a scan").closest("tr")).toHaveTextContent("q one");
+  });
+});
+
+describe("RulesUsedView: equipment notes and new reasons", () => {
+  it("shows equipment_notes and the three new left-out reasons in their contract words", () => {
+    render(<RulesUsedView data={data({
+      equipment_notes: ["The paper names no equipment; 7 rules were left out for it."],
+      left_out: [{ rule_book: "Book A", clause: "1", reason: "the paper names no equipment" }],
+      left_out_counts: { "the paper names no equipment": 7 },
+    })} />);
+    expect(screen.getByTestId("equipment-notes")).toHaveTextContent("The paper names no equipment; 7 rules were left out for it.");
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("the paper names no equipment: 7");
+    expect(screen.getAllByText("the paper names no equipment").length).toBeGreaterThan(0);
   });
 });

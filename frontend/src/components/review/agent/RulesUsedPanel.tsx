@@ -6,23 +6,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { agentReview, isFeatureOff } from "../../../api/agentReview";
-import type { AgentAskedRule, AgentRulesUsed } from "../../../types/api";
+import type { AgentBookCoverage, AgentRulesUsed } from "../../../types/api";
 import { LEFT_OUT_REASONS } from "./agentWords";
-
-/** Per rule book: how much of it is stored. Added here until the generated
- *  contract carries it (HB2); every number may be null (= not measured). */
-export interface BookCoverage {
-  rule_book: string;
-  requirement_sentences?: number | null;
-  covered_sentences?: number | null;
-  unreadable_pages?: number | null;
-  weak_pages?: number | null;
-  below_half?: boolean | null;
-}
-export type RulesData = Omit<AgentRulesUsed, "asked"> & {
-  asked: (AgentAskedRule & { read_from?: "text" | "scan" | null })[];
-  books?: BookCoverage[];
-};
 
 export const NOT_MEASURED = "not measured";
 export const LESS_THAN_HALF =
@@ -30,7 +15,7 @@ export const LESS_THAN_HALF =
 
 /** "412 of 530 requirement sentences stored (78%)", or "not measured" when
  *  either number is missing or the book has no counted sentence. */
-export function coverageWords(b: BookCoverage): string {
+export function coverageWords(b: AgentBookCoverage): string {
   const total = b.requirement_sentences;
   const got = b.covered_sentences;
   if (total == null || got == null || total <= 0) return NOT_MEASURED;
@@ -44,7 +29,7 @@ const UNDECIDED = new Set(["", "unknown", "not decided", "not known"]);
 
 const has = (text: string, needle: string) => text.toLowerCase().includes(needle);
 
-export function RulesUsedView({ data }: { data: RulesData }) {
+export function RulesUsedView({ data }: { data: AgentRulesUsed }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
   const asked = useMemo(
@@ -72,6 +57,11 @@ export function RulesUsedView({ data }: { data: RulesData }) {
         {data.rule_set_changed_by != null && (
           <p data-testid="rules-changed-by" className="text-sm text-warn-500">Rule set changed by {data.rule_set_changed_by}</p>
         )}
+        {(data.equipment_notes ?? []).length > 0 && (
+          <ul data-testid="equipment-notes" className="list-disc pl-5 text-sm text-slateish-100">
+            {data.equipment_notes.map((n) => <li key={n}>{n}</li>)}
+          </ul>
+        )}
         <p className="text-xs text-slateish-400">View only. The rules are chosen automatically; this page shows what was chosen.</p>
       </header>
 
@@ -84,11 +74,11 @@ export function RulesUsedView({ data }: { data: RulesData }) {
 
       <section aria-labelledby="rules-books-title" className="space-y-1">
         <h3 id="rules-books-title" className="text-base font-semibold text-slateish-100">Rule books</h3>
-        {(data.books ?? []).length === 0 ? (
+        {data.books.length === 0 ? (
           <p data-testid="books-empty" className="text-sm text-slateish-300">No rule book coverage was recorded for this review.</p>
         ) : (
           <ul className="space-y-2 text-sm" data-testid="books">
-            {(data.books ?? []).filter((b) => !needle || has(b.rule_book, needle)).map((b) => (
+            {data.books.filter((b) => !needle || has(b.rule_book, needle)).map((b) => (
               <li key={b.rule_book} className="text-slateish-100">
                 <span className="font-medium">{b.rule_book}</span>: {coverageWords(b)}
                 <span className="block text-xs text-slateish-400">
@@ -191,7 +181,7 @@ export function RulesUsedView({ data }: { data: RulesData }) {
 }
 
 export function RulesUsedPanel({ runId }: { runId: string }) {
-  const [data, setData] = useState<RulesData | null>(null);
+  const [data, setData] = useState<AgentRulesUsed | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "none" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {

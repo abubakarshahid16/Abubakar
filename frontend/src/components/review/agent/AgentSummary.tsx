@@ -22,6 +22,11 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
         {cost != null && (<><dt className="text-slateish-400">Cost</dt><dd className="text-slateish-100">USD {cost.toFixed(2)}</dd></>)}
         {summary.models.length > 0 && (<><dt className="text-slateish-400">Models</dt><dd className="text-slateish-100">{summary.models.join(", ")}</dd></>)}
       </dl>
+      {(summary.equipment_notes ?? []).length > 0 && (
+        <ul data-testid="equipment-notes" className="list-disc pl-5 text-sm text-slateish-100">
+          {summary.equipment_notes.map((n) => <li key={n}>{n}</li>)}
+        </ul>
+      )}
       {summary.stop_reason && (
         <p role="status" data-testid="agent-stop-reason"
           className="rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">

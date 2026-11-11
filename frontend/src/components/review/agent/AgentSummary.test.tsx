@@ -12,7 +12,7 @@ function summary(over: Partial<AgentRunSummary> = {}): AgentRunSummary {
   return {
     paper_kind: "datasheet", paper_kind_source: "title page", equipment_type: "pump", counts_by_class: {
       "Proven by code": 4, "AI opinion, engineer to confirm": 2, "AI opinion, rule not yet approved": 1,
-    }, usd: 1.5, models: ["model-a"], stop_reason: null, missing_books: ["Book Z"], ...over,
+    }, usd: 1.5, models: ["model-a"], stop_reason: null, missing_books: ["Book Z"], equipment_state: null, equipment_notes: [], not_reviewed: 0, ...over,
   };
 }
 
@@ -55,5 +55,14 @@ describe("AgentSummary: Not reviewed", () => {
     render(<AgentSummary summary={summary({ counts_by_class: { "Query for the engineer": 2, "Not reviewed": 3 } })} />);
     expect(screen.getByTestId("count-Not reviewed")).toHaveTextContent("Not reviewed: 3 (the AI gave no answer for these items)");
     expect(screen.getByTestId("count-Query for the engineer")).toHaveTextContent("Query for the engineer: 2");
+  });
+});
+
+describe("AgentSummary: equipment notes", () => {
+  it("shows the true sentences about the paper's equipment, and none when there are none", () => {
+    const { rerender } = render(<AgentSummary summary={summary({ equipment_notes: ["The paper names equipment the equipment list does not know; 12 rules were left out for it."] })} />);
+    expect(screen.getByTestId("equipment-notes")).toHaveTextContent("12 rules were left out for it");
+    rerender(<AgentSummary summary={summary()} />);
+    expect(screen.queryByTestId("equipment-notes")).toBeNull();
   });
 });
