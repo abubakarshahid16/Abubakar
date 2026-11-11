@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from . import agent_review_wording as wording
+from . import numparse
 from .agent_review_verdict import (
     BY_ABSENCE,
     BY_AI,
@@ -170,7 +171,6 @@ def stated(line: Mapping) -> str:
     )
 
 
-_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 MIN_ASK_WORDS = 3
 
 
@@ -192,7 +192,7 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
             line.get("clause_quote") if q.get("clause") else "",
         )
     )
-    held_numbers = set(_NUMBER.findall(held))
+    held_numbers = numparse.number_keys(held)
     sources = (
         (line.get("comment"),)
         if contractor
@@ -201,7 +201,7 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
     for candidate in (_first_sentence(x) for x in sources):
         if len(candidate.split()) < MIN_ASK_WORDS:
             continue
-        if set(_NUMBER.findall(candidate)) <= held_numbers:
+        if numparse.number_keys(candidate) <= held_numbers:
             return candidate
     return ""
 

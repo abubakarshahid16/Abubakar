@@ -16,7 +16,7 @@ WHAT IT DOES, per rule:
 WRITES ONLY A DATABASE COPY. `refuse_live` (the project's `live_guard`) refuses a live-shaped path, a symlink or hard
 link to one, its `-wal` file and its folder; every public function that takes a connection checks the connection's own
 file again. The live database receives labels only through the server's import route (`rule_label_import`). The
-existing tables, `rulebook_approval` among them, are never written.
+existing tables, the rule book's approvals among them, are never written.
 
 MONEY. Every call goes through `agent_claude._call` (`reader_transport` + `claude_spend.metered`: the app's caps), and
 first through an INJECTED order ledger (`reserve` before the send, `settle` with the real usage after; see
@@ -44,7 +44,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote as urlquote
 
-from . import agent_claude, claude_spend, live_guard, rule_label_ocr, rule_labels
+from . import (
+    agent_claude,
+    claude_spend,
+    compiled_rule_report,
+    live_guard,
+    rule_label_ocr,
+    rule_labels,
+)
 from .compiled_rule_proof import quote_verified
 from .rule_label_lane import (  # noqa: F401 - CapLedger: the script's name for it
     CapLedger,
@@ -159,7 +166,7 @@ def select_rules(
     limit: int = 0,
 ) -> list[Rule]:
     """The rules of one source in a stable order. 'requirement': the current `standard_requirements` rows (quote = the
-    verbatim `source_text`); 'rulebook': the latest `rulebook_version` of each rule with its provenance. `books` are a
+    verbatim `source_text`); 'rulebook': the latest rule-book version of each rule with its provenance. `books` are a
     standard's name or document id; `ids` narrow to those rules. Naming nothing selects nothing (never 'all by
     accident')."""
     if source not in SOURCES:
@@ -180,18 +187,16 @@ def select_rules(
             f"{gone} ORDER BY 3, s.page, s.id"
         )
     else:
-        sql = (
-            "SELECT v.id, p.standard_document_id, r.standard, p.clause, p.page, p.quote FROM rulebook_version v"
-            " JOIN rulebook_rule r ON r.id = v.rule_id JOIN rulebook_provenance p ON p.rule_version_id = v.id"
-            " WHERE v.version_no = (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
-            " ORDER BY 3, p.page, v.id, p.id"
-        )
+        sql = None
     wanted_ids, wanted_books = (
         set(ids),
         {_book_key(b) for b in books} | {str(b) for b in books},
     )
     rules, seen = [], set()
-    for ref, sdid, standard, clause, page, quote in conn.execute(sql):
+    listed = (
+        conn.execute(sql) if sql else compiled_rule_report.book_latest_rule_rows(conn)
+    )
+    for ref, sdid, standard, clause, page, quote in listed:
         if ref in seen:
             continue
         if wanted_ids and ref not in wanted_ids:

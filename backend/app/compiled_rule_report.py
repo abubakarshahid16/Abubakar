@@ -37,6 +37,34 @@ def run_book(conn, review_run_id: str) -> tuple[int, str | None] | None:
     return rulebook_v2_schema.run_used(conn, review_run_id)
 
 
+def book_approval_rows(conn, rule_version_id: str) -> list[tuple]:
+    """A rule version's approvals as (decision, equipment type, tier), for the rule labels (`rulebook_v2_schema`)."""
+    from . import rulebook_v2_schema
+
+    return rulebook_v2_schema.approval_rows(conn, rule_version_id)
+
+
+def book_provenance_of(conn, rule_version_id: str) -> list[tuple]:
+    """(document, page, quote) a rule version cites, for the rule labels (`rulebook_v2_schema`)."""
+    from . import rulebook_v2_schema
+
+    return rulebook_v2_schema.provenance_of(conn, rule_version_id)
+
+
+def book_latest_quotes(conn) -> list[tuple]:
+    """(version id, document, page, quote) of every latest rule version, for the rule labels (`rulebook_v2_schema`)."""
+    from . import rulebook_v2_schema
+
+    return rulebook_v2_schema.latest_quotes(conn)
+
+
+def book_latest_rule_rows(conn) -> list[tuple]:
+    """Every latest rule version with its provenance, for the rule labels (`rulebook_v2_schema`)."""
+    from . import rulebook_v2_schema
+
+    return rulebook_v2_schema.latest_rule_rows(conn)
+
+
 def decisions_on(conn, documents: list[str]) -> list[tuple[str, str, str]]:
     """The rulebook's decisions on rules read in `documents` (`rulebook_v2_schema.decisions_on`)."""
     from . import rulebook_v2_schema

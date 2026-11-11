@@ -12,7 +12,7 @@ states a quantity is not approved on two readings that hold no number; the kind,
 Nothing here asks a model anything and no AI word decides a state.
 
 THE TIER (`usable_tier`): a rule is usable by the reviewer when a PERSON approved that exact rule-book version
-(`rulebook_approval`, owner or engineer tier, read only here, never written) or when its label is `ai_approved`. A
+(the rule book's approvals, owner or engineer tier, read only here, never written) or when its label is `ai_approved`. A
 person's refusal of the exact version is never overridden by an AI label. A rule that is not usable comes back with ONE
 reason word. This replaces the engineer sample for now (owner decision 1); an engineer who comes later reviews the
 `needs_human` list and a sample.
@@ -29,7 +29,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from . import claims, numparse
+from . import claims, compiled_rule_report, numparse
 from .rule_label_quantity import quote_states_a_quantity
 from .rule_label_schema import (
     AI_APPROVED,
@@ -481,18 +481,12 @@ def _person_decisions(
     conn, version_id: str, equipment_type: str | None
 ) -> tuple[str | None, bool]:
     """(tier a person's approval gives this exact version, whether a person's decision refuses it). READ ONLY: nothing
-    in this module writes `rulebook_approval`. Per equipment type the LAST decision counts; a decision that names no
+    in this module writes the rule book's approvals. Per equipment type the LAST decision counts; a decision that names no
     type (a retirement) ends every approval before it (the rule book's own reading of its rows)."""
-    if not _has(conn, "rulebook_approval"):
-        return None, False
-    columns = {r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")}
-    tier_col = "tier" if "tier" in columns else "NULL"
-    type_col = "equipment_type" if "equipment_type" in columns else "NULL"
     standing: dict[str, str | None] = {}
     declined = False
-    for decision, etype, tier in conn.execute(
-        f"SELECT decision, {type_col}, {tier_col} FROM rulebook_approval WHERE rule_version_id = ? ORDER BY rowid",
-        (version_id,),
+    for decision, etype, tier in compiled_rule_report.book_approval_rows(
+        conn, version_id
     ):
         kind = " ".join(str(etype or "").casefold().split())
         if not kind:
@@ -570,13 +564,7 @@ def bridge_map(conn) -> dict[tuple, str]:
     """{(document id, page, quote with spaces folded): rule_version_id} for the latest rule-book versions, so a
     requirement with the same quote on the same document and page also carries its rule-book version id. Empty when the
     rule book has no tables here. Read only."""
-    if not (_has(conn, "rulebook_version") and _has(conn, "rulebook_provenance")):
-        return {}
     out: dict[tuple, str] = {}
-    for r in conn.execute(
-        "SELECT p.rule_version_id, p.standard_document_id, p.page, p.quote FROM rulebook_provenance p"
-        " JOIN rulebook_version v ON v.id = p.rule_version_id WHERE v.version_no = ("
-        "SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
-    ):
-        out.setdefault((r[1], r[2], " ".join(str(r[3] or "").split())), r[0])
+    for vid, sdid, page, quote in compiled_rule_report.book_latest_quotes(conn):
+        out.setdefault((sdid, page, " ".join(str(quote or "").split())), vid)
     return out
