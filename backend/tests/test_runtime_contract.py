@@ -64,11 +64,11 @@ def test_the_documented_api_origin_matches_the_configured_bind():
     )
 
 
-def test_the_documented_python_path_is_the_project_root_venv():
-    python = read_const("PYTHON")
-    assert python.endswith("python.exe")
-    # "\." is not a valid escape. Python leaves an unknown escape as-is, so
-    # this happened to mean the right thing while emitting a SyntaxWarning on
-    # every run - visible in the CI log the first time the suite ran there.
-    assert "\\.venv\\" in python
-    assert r"backend\.venv" not in python, "the venv is at the project root"
+def test_the_start_hint_is_machine_neutral_and_carries_no_old_name():
+    text = RUNTIME_TS.read_text(encoding="utf-8")
+    assert read_const("BACKEND_DIR") == "backend"
+    assert "export const PYTHON" not in text
+    assert "python ${BACKEND_ENTRYPOINT}" in text
+    assert not re.search(r"[A-Za-z]:\\\\", text), "a drive-letter path is machine-specific"
+    assert "rag_chatbot" not in text.lower(), "the old project name must not appear"
+    assert "Scripts" not in text and ".venv" not in text
