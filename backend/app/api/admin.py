@@ -17,12 +17,14 @@ from ..api_utils import reject_unknown_params
 from ..config import settings
 from ..db import connect
 from ..paging import limit_param, offset_param, page_body
+from . import ocr_boxes as ocr_boxes_api
 from . import rule_equipment as rule_equipment_api
 from . import rule_labels as rule_labels_api
 
 router = APIRouter()
 router.include_router(rule_labels_api.router)  # rule-labels import
 router.include_router(rule_equipment_api.router)  # equipment-labels import
+router.include_router(ocr_boxes_api.router)  # OCR boxes import
 
 
 @router.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
