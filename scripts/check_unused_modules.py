@@ -34,6 +34,8 @@ ENTRY_POINTS = (
     "rule_finish_store",
     "rule_finish_repair",
     "rule_coverage",
+    # contract only until the agent review routes land (#1690); read by scripts/gen_contract_types.py
+    "api.agent_review_schemas",
 )
 
 
