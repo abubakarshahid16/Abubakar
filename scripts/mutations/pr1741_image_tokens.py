@@ -99,8 +99,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "09",
         "an image's base64 text is ALSO counted as prompt characters (the 13x over-count is back)",
         _I,
-        '                return {k: walk(v) for k, v in node.items() if k != "source"}\n',
-        "                return {k: walk(v) for k, v in node.items()}\n",
+        '                return {k: v for k, v in node.items() if k != "source"}\n',
+        "                return dict(node)\n",
         "page_image_by_the_image_rule",
     ),
     _m(
@@ -115,7 +115,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "11",
         "an image inside a list (a tool_result's content) is not found",
         _I,
-        "            return [walk(v) for v in node]\n",
+        "            return type(node)(walk(v, True) for v in node)\n",
         "            return node\n",
         "inside_a_tool_result",
     ),
@@ -134,5 +134,49 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        worst = worst_case_usd(model, prompt_chars, cap, image_tokens=images)\n",
         "        worst = worst_case_usd(model, prompt_chars, cap)\n",
         "metered_counts",
+    ),
+    _m(
+        "14",
+        "any data with an IHDR chunk at the PNG offset is read as a PNG (the signature check is dropped)",
+        _I,
+        "    if raw.startswith(_PNG_SIGNATURE):\n"
+        '        if len(raw) < 24 or raw[12:16] != b"IHDR":\n'
+        "            return None\n",
+        '    if len(raw) >= 24 and raw[12:16] == b"IHDR":\n',
+        "png_header_needs_the_signature",
+    ),
+    _m(
+        "15",
+        "a scaled-down edge is rounded down, so the count falls below the API's",
+        _I,
+        "        w = -(-w * IMAGE_LONG_EDGE_PX // long_edge)\n"
+        "        h = -(-h * IMAGE_LONG_EDGE_PX // long_edge)\n",
+        "        w = w * IMAGE_LONG_EDGE_PX // long_edge\n"
+        "        h = h * IMAGE_LONG_EDGE_PX // long_edge\n",
+        "rounded_up_never_down",
+    ),
+    _m(
+        "16",
+        "a JPEG cut short inside its frame header still gives a size",
+        _I,
+        "            if length < 7 or i + 9 > len(raw):\n                return None\n",
+        "",
+        "jpeg_cut_short",
+    ),
+    _m(
+        "17",
+        "a tool_use input that looks like an image is counted as an image, not as its billed text",
+        _I,
+        "            if kind in _TEXT_ONLY_BLOCKS:\n                return node\n",
+        "",
+        "tool_use_input_is_counted_as_text",
+    ),
+    _m(
+        "18",
+        "a tool_result's non-image content is searched for image look-alikes",
+        _I,
+        "        return type(content)(walk(b, True) if is_image(b) else b for b in content)\n",
+        "        return type(content)(walk(b, True) for b in content)\n",
+        "non_image_content_is_counted_as_text",
     ),
 )

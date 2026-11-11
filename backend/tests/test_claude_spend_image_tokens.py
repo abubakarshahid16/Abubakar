@@ -504,3 +504,64 @@ def test_the_provider_reserves_a_streamed_image(monkeypatch):
             )
         )
     ]
+
+
+# ------------------------------------------------------------------ review of #1741: closed findings
+
+
+def test_a_tool_use_input_is_counted_as_text_even_when_it_looks_like_an_image():
+    """A tool call's input is model-written JSON, billed as text: 300 000 characters there are text tokens."""
+    data = _b64(_png(10, 10, pad=225_000))
+    assert len(data) >= 300_000
+    fake = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": data},
+    }
+    call = {"type": "tool_use", "id": "t", "name": "n", "input": {"blocks": [fake]}}
+    messages = [{"role": "assistant", "content": [call]}]
+    stripped, tokens = cit.split_images(messages)
+    assert tokens == 0
+    assert json.dumps(stripped) == json.dumps(messages)
+    chars, images = cit.json_counts([messages])
+    assert chars > 300_000 and images == 0
+
+
+def test_a_tool_result_s_non_image_content_is_counted_as_text():
+    data = _b64(_png(10, 10, pad=30_000))
+    nested = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": data},
+    }
+    text_block = {"type": "text", "text": "x", "extra": [nested]}
+    result = {
+        "type": "tool_result",
+        "tool_use_id": "t",
+        "content": [text_block, _block(_png(20, 20))],
+    }
+    stripped, tokens = cit.split_images([{"role": "user", "content": [result]}])
+    assert tokens == cit.image_tokens(20, 20)  # the real image block only
+    assert data in json.dumps(stripped)  # the nested look-alike stays text
+
+
+def test_a_png_header_needs_the_signature_and_an_ihdr_chunk():
+    no_signature = b"GIF89a\x00\x00\x00\x00\x00\x00IHDR" + struct.pack(">II", 100, 100)
+    assert cit.image_size(no_signature) is None
+    not_ihdr = (
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"tEXt"
+        + struct.pack(">II", 100, 100)
+    )
+    assert cit.image_size(not_ihdr) is None
+
+
+def test_a_scaled_edge_is_rounded_up_never_down():
+    # 5001 x 2701 scales to 2576 x 1391.27: the short edge counts as 1392, so 4782 tokens, not 4778
+    assert cit.image_tokens(5001, 2701) == 2576 * 1392 // 750 + 1 == 4782
+
+
+def test_a_jpeg_cut_short_inside_its_frame_header_gives_no_size():
+    assert cit.image_size(b"\xff\xd8\xff\xc0\x00\x11\x08\x01") is None
+    assert (
+        cit.image_size(b"\xff\xd8\xff\xc0\x00\x05\x08\x01\x00\x02\x00\x03\x00") is None
+    )

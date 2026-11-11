@@ -29,6 +29,8 @@ _JPEG_SOF = frozenset(
 )
 #: JPEG markers with no length field after them (TEM, RST0-7, SOI); EOI (0xD9) ends the image.
 _JPEG_STANDALONE = frozenset({0x01, *range(0xD0, 0xD9)})
+#: Blocks whose whole body is billed as text (a tool call's input JSON), never searched for images.
+_TEXT_ONLY_BLOCKS = frozenset({"tool_use", "server_tool_use"})
 
 
 def image_tokens(width, height) -> int:
@@ -109,24 +111,41 @@ def image_block_tokens(block) -> int:
 
 
 def split_images(value):
-    """`(value without image data, image tokens)`. Every image block (a dict with `"type": "image"` and a `source`)
-    anywhere in `value` (messages, a tool_result's content, a system list) is counted by `image_block_tokens` and its
-    `source` left out of the copy, so its base64 text is not ALSO counted as prompt characters. Everything else is
-    copied as it is: with no image in it, the copy serialises to exactly the same characters as `value`."""
+    """`(value without image data, image tokens)`. Every image block (a dict with `"type": "image"` and a `source`, as
+    an item of a list: messages' content, a tool_result's content, a system list) is counted by `image_block_tokens`
+    and its `source` left out of the copy, so its base64 text is not ALSO counted as prompt characters. A tool_use
+    block's input and a tool_result's non-image content are model or tool JSON, billed as text whatever they look
+    like, so they are copied unchanged and counted as text. With no image in it, the copy serialises to exactly the
+    same characters as `value`."""
     tokens = 0
 
-    def walk(node):
+    def is_image(node) -> bool:
+        return (
+            isinstance(node, dict) and node.get("type") == "image" and "source" in node
+        )
+
+    def walk(node, in_list: bool = False):
         nonlocal tokens
         if isinstance(node, dict):
-            if node.get("type") == "image" and "source" in node:
+            kind = node.get("type")
+            if in_list and is_image(node):
                 tokens += image_block_tokens(node)
-                return {k: walk(v) for k, v in node.items() if k != "source"}
+                return {k: v for k, v in node.items() if k != "source"}
+            if kind in _TEXT_ONLY_BLOCKS:
+                return node
+            if kind == "tool_result":
+                return {
+                    k: (result(v) if k == "content" else v) for k, v in node.items()
+                }
             return {k: walk(v) for k, v in node.items()}
-        if isinstance(node, list):
-            return [walk(v) for v in node]
-        if isinstance(node, tuple):
-            return tuple(walk(v) for v in node)
+        if isinstance(node, (list, tuple)):
+            return type(node)(walk(v, True) for v in node)
         return node
+
+    def result(content):
+        if not isinstance(content, (list, tuple)):
+            return content
+        return type(content)(walk(b, True) if is_image(b) else b for b in content)
 
     stripped = walk(value)
     return stripped, tokens
