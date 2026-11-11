@@ -248,14 +248,31 @@ def test_9_the_papers_equipment_type_goes_to_the_rule_choice(w):
 def test_the_silent_paper_rule_is_the_cores_at_the_exit_for_any_kind_but_a_datasheet():
     from app import agent_review_wording as W
 
-    line = {"item_id": "R-1", "source": "rule", "verdict": "Query", "ai_verdict": "Fail", "reason_code": "sheet_silent",
-            "reason_code_ai": "sheet_silent", "rule_label": {"tier": "AI approved"}}
+    line = {
+        "item_id": "R-1",
+        "source": "rule",
+        "verdict": "Query",
+        "ai_verdict": "Fail",
+        "reason_code": "sheet_silent",
+        "reason_code_ai": "sheet_silent",
+        "rule_label": {"tier": "AI approved"},
+    }
     item = {"item_id": "R-1", "source": "rule", "rule_label": {"tier": "AI approved"}}
     look = lambda _i: "AI approved"  # noqa: E731
     for kind in ("procedure", "contract", None):
-        assert W.final_cap_all([line], {"R-1": item}, look, None, kind)[0]["verdict_label"] == "Query for the engineer"
-    assert W.final_cap_all([line], {"R-1": item}, look, None, "datasheet")[0]["verdict_label"] == "AI thinks: not met"
-    assert not hasattr(run_mod, "silence_guard") and not hasattr(request_mod, "silence_guard")  # no local copy
+        assert (
+            W.final_cap_all([line], {"R-1": item}, look, None, kind)[0]["verdict_label"]
+            == "Query for the engineer"
+        )
+    assert (
+        W.final_cap_all([line], {"R-1": item}, look, None, "datasheet")[0][
+            "verdict_label"
+        ]
+        == "AI thinks: not met"
+    )
+    assert not hasattr(run_mod, "silence_guard") and not hasattr(
+        request_mod, "silence_guard"
+    )  # no local copy
 
 
 def test_10_calls_allowed_is_asked_of_the_current_tier_before_every_extra_call(w):

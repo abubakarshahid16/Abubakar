@@ -164,7 +164,10 @@ def item_doc(
         },
         "left_out": list(left_out),
         "summary_lines": ["another equipment type: 2 rules not asked (pump 2)"],
-        "equipment": {"paper_equipment_state": "usable", "paper_types": ["invented_type"]},
+        "equipment": {
+            "paper_equipment_state": "usable",
+            "paper_types": ["invented_type"],
+        },
         "missing_rule_books": [
             {"rule_book": "INV-MISSING-9", "why": "cited by the paper"}
         ],

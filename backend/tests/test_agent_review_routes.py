@@ -227,8 +227,14 @@ def test_summary_lines_trace_crs_and_rules_used_after_a_review(client):
         {"rule_book": "INV-OTHER", "clause": "9.1", "reason": "needs another paper"}
     ]
     assert used["left_out_counts"] == {"needs another paper": 1}
-    assert (used["equipment_state"], used["equipment_notes"]) == ("usable", ["another equipment type: 2 rules not asked (pump 2)"])
-    assert (summary["equipment_state"], summary["equipment_notes"]) == (used["equipment_state"], used["equipment_notes"])
+    assert (used["equipment_state"], used["equipment_notes"]) == (
+        "usable",
+        ["another equipment type: 2 rules not asked (pump 2)"],
+    )
+    assert (summary["equipment_state"], summary["equipment_notes"]) == (
+        used["equipment_state"],
+        used["equipment_notes"],
+    )
     assert used["missing_books"][0]["name"] == "INV-MISSING-9"
     assert all(r["read_from"] == "text" for r in used["asked"])
 
