@@ -67,7 +67,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from . import agent_bind, agent_run_second, agent_tools
+from . import agent_bind, agent_run_second, agent_tools, blank_markers
 from .reader_api import _fold
 
 PASS, FAIL, QUERY = "Pass", "Fail", "Query"
@@ -251,7 +251,11 @@ def textual_verdict(
             second_opinion="not asked",
         )
     if ai_verdict == PASS and absent:
-        return _query("not mentioned is never a pass", second_opinion="not asked")
+        return _query(
+            "not mentioned is never a pass",
+            second_opinion="not asked",
+            not_mentioned=True,  # the CODE the line carries (`not_mentioned_hold`); never matched on the sentence
+        )
     if second is None:
         return _query("no second opinion", second_opinion="not asked")
     agree = second.get("agree")
@@ -698,3 +702,95 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
             "silence_query": True,
         }
     return dict(line)
+
+
+# ---------------------------------------------------------------- N9: an "AI thinks: met" the code cannot stand behind is a Query
+
+DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stand"
+UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
+UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
+NOT_STATED_WHY = "the paper does not state this; the AI reader's view is not confirmed"
+NO_VALUE_WHY = "the paper gives no value for this field"
+DISAGREE_WHY = "two AI readers disagree on this line"
+_GENERIC_BY = re.compile(
+    r"by\s", re.IGNORECASE
+)  # "by calculation ...": running text; real "by contractor" is a phrase
+_CELL_SPLIT = re.compile(r"[|\t\r\n]+")  # a cell or a line of the quote
+
+
+def quote_defers(quote: Any) -> bool:
+    """The paper quote defers or leaves open the value: a whole deferral phrase anywhere in it ("by contractor", "to be
+    confirmed", "TBA", "vendor to advise": word boundaries), or a cell or line of it (split at a bar, a tab or a line wrap)
+    whose WHOLE content is exactly one marker of the list ("later", "hold", "to follow", "TBN", "VTA", "as per vendor", "*",
+    "-", "?", a run of "_"), wherever it stands. A line that merely starts with "by ..." or is a "Note 3" reference is running
+    text, not a value, and is not a deferral; so a bare "by others" is not caught (the list has no such phrase and none is
+    added). ONE word list: `blank_markers` (rule 8); this adds no words of its own."""
+    text = str(quote or "")
+    if blank_markers.names_a_marker(text):
+        return True
+    return any(
+        blank_markers.is_marker(cell)
+        and not _GENERIC_BY.match(cell.strip())
+        and not is_note_start(cell)
+        for cell in _CELL_SPLIT.split(text)
+        if cell.strip()
+    )
+
+
+def quote_is_label_only(line: Mapping) -> bool:
+    """The paper quote holds the asked field's own label and NOTHING else: every word of the quote (stemmed, none dropped as
+    generic) is a word of the field's label (`field_label_ai`, `field`, `field_roles`) and the quote has no digit. A label
+    names the field; it is no value for it. Conservative: any extra word ("required", "yes", a figure) means a value may be
+    there, and the line is left alone."""
+    quote = str(line.get("paper_quote") or "")
+    label = " ".join(
+        str(x)
+        for x in (
+            line.get("field_label_ai"),
+            line.get("field"),
+            *(line.get("field_roles") or []),
+        )
+        if x
+    )
+    words = {agent_bind._stem(w) for w in re.findall(r"[a-z]+", quote.lower())}
+    have = {agent_bind._stem(w) for w in re.findall(r"[a-z]+", label.lower())}
+    return bool(words) and not re.search(r"\d", quote) and words <= have
+
+
+def met_unsafe_why(line: Mapping) -> str | None:
+    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None. (a) the paper quote
+    it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (a line with no record of
+    the check counts as not verified; a "met" with NO clause quote recorded, for example a checklist item whose clause was
+    not quoted, is therefore a Query BY DESIGN: the gate already refuses a Pass without a verified clause quote). Acts ONLY
+    on a line whose verdict is Query (the lines shown as "AI thinks: met"); a proven Fail or Pass passes through. Never touches a proven Pass or any other AI word: it only makes a line less confident."""
+    if (
+        line.get("ai_verdict") != PASS or line.get("verdict") != QUERY
+    ):  # a proven Pass or Fail is never touched
+        return None
+    if quote_defers(line.get("paper_quote")):
+        return DEFERRED_WHY
+    if line.get(
+        "not_mentioned_hold"
+    ):  # the gate's own code: "not mentioned" is never compliant (standing rule 4)
+        return NOT_STATED_WHY
+    checks = line.get("quotes_checked")
+    checks = checks if isinstance(checks, Mapping) else {}
+    if not checks.get("paper"):
+        return UNVERIFIED_PAPER_WHY
+    if not checks.get("clause"):
+        return UNVERIFIED_CLAUSE_WHY
+    if quote_is_label_only(line):
+        return NO_VALUE_WHY
+    # The line field `second_opinion` tells the three apart: None = not asked; {"agree": True} = agreed;
+    # {"agree": False} = DISAGREED; {"agree": None} = asked but no usable answer (failed / not run). Only an explicit
+    # False moves the line; "not asked" and "failed" are neither agreement nor disagreement.
+    second = line.get("second_opinion")
+    if isinstance(second, Mapping) and second.get("agree") is False:
+        return DISAGREE_WHY
+    return None
+
+
+def moved_by_guard(line: Mapping) -> bool:
+    """The line is a "met" the guard made a Query (its stored `not_proven_reason` leads with the guard's reason)."""
+    why = met_unsafe_why(line)
+    return bool(why and str(line.get("not_proven_reason") or "").startswith(why))

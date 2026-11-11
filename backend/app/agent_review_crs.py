@@ -35,6 +35,8 @@ from .agent_review_verdict import (
     FAIL,
     PASS,
     QUERY,
+    met_unsafe_why,
+    moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
 
@@ -209,16 +211,59 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
 def is_held_pass(line: Mapping) -> bool:
     """An AI Pass the gate held (quote, length, second opinion, ...): not a comment, ticked by the engineer on its own
     sheet. A Pass held because the value is marked deferred on the sheet IS a comment and stays on the CRS."""
+    label = line.get("verdict_label")
+    shown_as_met = (
+        label == wording.THINKS_MET if label is not None else not met_unsafe_why(line)
+    )  # N9: a "met" the exit turned into a Query is a Query line, not an AI-met line
     return (
         line.get("ai_verdict") == PASS
         and line.get("verdict") == QUERY
         and line.get("reason_code") != "value_deferred"
+        and shown_as_met
     )
 
 
 def is_not_applicable(line: Mapping) -> bool:
     """A Query the AI marked not_applicable: not a comment; it goes to its own internal sheet."""
-    return line.get("verdict") == QUERY and line.get("reason_code") == "not_applicable"
+    return (
+        line.get("verdict") == QUERY
+        and line.get("reason_code") == "not_applicable"
+        and line.get("verdict_class") in (None, wording.CLASS_NOT_APPLICABLE)
+    )  # N9: a line the exit made a plain Query (class Query) is on the Query side
+
+
+def sheet_of(line: Mapping) -> str:
+    """THE one decision of which sheet of the internal copy a line is on. Every sheet's rows and every printed count
+    (`sheet_rows`, `held_ai_pass`, `query_not_applicable`, the Run sheet) come from it: a line is on exactly one sheet."""
+    if wording.is_not_reviewed(line):
+        return NOT_REVIEWED_SHEET
+    if wording.is_unapproved(line):
+        return UNAPPROVED_SHEET
+    if is_not_applicable(line):
+        return NOT_APPLICABLE_SHEET
+    if is_held_pass(line):
+        return HELD_PASS_SHEET
+    if line.get("verdict") == PASS:
+        return PASSED_SHEET
+    return CRS_SHEET
+
+
+def sheet_rows(lines: Iterable[Mapping]) -> dict[str, int]:
+    """Rows per sheet of the internal copy (the sheets that only exist when they have lines count 0 when absent)."""
+    out = dict.fromkeys(
+        (
+            CRS_SHEET,
+            PASSED_SHEET,
+            NOT_APPLICABLE_SHEET,
+            HELD_PASS_SHEET,
+            NOT_REVIEWED_SHEET,
+            UNAPPROVED_SHEET,
+        ),
+        0,
+    )
+    for ln in lines:
+        out[sheet_of(ln)] += 1
+    return out
 
 
 def company_comment(line: Mapping, contractor: bool = False) -> str:
@@ -233,6 +278,10 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
         )
     page = line_page(line)
     where = f"{field_words(line)} (page {page})" if page else field_words(line)
+    if (
+        not contractor and moved_by_guard(line)
+    ):  # N9, internal copy only (the contractor-visible copy carries no AI words): the guard's reason leads
+        return f"{where}: {line['not_proven_reason']}"
     rule = against(line) or "the requirement"
     ask = asks(line)
     req = f'{rule} asks: "{ask}"' if ask else f"see {rule}"
@@ -318,6 +367,8 @@ def _verdict_cell(line: Mapping) -> str:
     ):  # order 12: never "Pass" or "Fail" for what code did not prove
         return f"{line['verdict_label']} ({line['verdict_class']}); not proven by code: {_clean(line.get('not_proven_reason'))}"
     word = VERDICT_WORDS.get(line.get("verdict"), VERDICT_WORDS[QUERY])
+    if moved_by_guard(line):  # N9: the new reason
+        return f"{word}; not proven by code: {line['not_proven_reason']}"
     if line.get("decided_by") == BY_CODE and line.get("verdict") in (PASS, FAIL):
         return f"{word}, decided by code"
     if line.get("decided_by") == BY_AI and line.get("verdict") in (PASS, FAIL):
@@ -528,29 +579,13 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
     all_lines = lines
-    unapproved = [
-        ln
-        for ln in lines
-        if wording.is_unapproved(ln) and not wording.is_not_reviewed(ln)
-    ]  # their own sheet, off the CRS and off every Pass list
-    not_reviewed = [
-        ln for ln in lines if wording.is_not_reviewed(ln)
-    ]  # their own sheet, whatever the rule's tier: never a CRS comment, never a verdict
-    lines = [
-        ln
-        for ln in lines
-        if not wording.is_unapproved(ln) and not wording.is_not_reviewed(ln)
-    ]
-    problems = [
-        ln
-        for ln in lines
-        if ln.get("verdict") in (FAIL, QUERY)
-        and not is_not_applicable(ln)
-        and not is_held_pass(ln)
-    ]
-    held = [ln for ln in lines if is_held_pass(ln)]
-    passed = [ln for ln in lines if ln.get("verdict") == PASS]
-    not_applicable = [ln for ln in lines if is_not_applicable(ln)]
+    on = {name: [ln for ln in lines if sheet_of(ln) == name] for name in sheet_rows([])}
+    problems, held, passed = on[CRS_SHEET], on[HELD_PASS_SHEET], on[PASSED_SHEET]
+    not_applicable, not_reviewed, unapproved = (
+        on[NOT_APPLICABLE_SHEET],
+        on[NOT_REVIEWED_SHEET],
+        on[UNAPPROVED_SHEET],
+    )
     wb = _wb()
     ws_crs = _sheet(
         wb,
@@ -642,15 +677,7 @@ def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) ->
         meta,
         "Comment-only copy of the Fail and Query lines, for scoring beside the old engine.",
         OLD_HEADERS,
-        (
-            old_row(ln, paper)
-            for ln in lines
-            if ln.get("verdict") in (FAIL, QUERY)
-            and not is_not_applicable(ln)
-            and not is_held_pass(ln)
-            and not wording.is_unapproved(ln)
-            and not wording.is_not_reviewed(ln)
-        ),
+        (old_row(ln, paper) for ln in lines if sheet_of(ln) == CRS_SHEET),
         first=True,
     )
     out = Path(path)
@@ -679,14 +706,16 @@ def run_counts(lines: list[Mapping]) -> dict:
     order12 = (
         wording.counts(lines) if any("verdict_class" in ln for ln in lines) else {}
     )
+    rows = sheet_rows(lines)
     return {
         **order12,
         "lines": n,
         "pass": by_verdict[PASS],
         "fail": by_verdict[FAIL],
         "query": by_verdict[QUERY],
-        "query_not_applicable": sum(1 for ln in lines if is_not_applicable(ln)),
-        "held_ai_pass": sum(1 for ln in lines if is_held_pass(ln)),
+        "sheet_rows": rows,
+        "query_not_applicable": rows[NOT_APPLICABLE_SHEET],
+        "held_ai_pass": rows[HELD_PASS_SHEET],
         "value_deferred": sum(
             1 for ln in lines if ln.get("reason_code") == "value_deferred"
         ),
