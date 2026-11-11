@@ -386,3 +386,75 @@ def rule_key_of_version(conn, version_id: str) -> str | None:
         (version_id,),
     ).fetchone()
     return None if row is None else row[0]
+
+
+# READ-ONLY reads for the rule labels (`rule_labels`, `rule_label_job`, `rule_label_import`): the rule book's tables are
+# named only in the rule book's own modules (test_only_the_rulebook_modules_name_its_tables). SELECT only; a database
+# without these tables answers empty.
+
+
+def approval_rows(conn, rule_version_id: str) -> list[tuple]:
+    """[(decision, equipment_type, tier)] of one rule version's approvals, oldest first. A column an older table lacks
+    reads as None. Empty without the table. Reads only."""
+    if not _table_exists(conn, "rulebook_approval"):
+        return []
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(rulebook_approval)")}
+    tier = "tier" if "tier" in columns else "NULL"
+    kind = "equipment_type" if "equipment_type" in columns else "NULL"
+    return [
+        tuple(r)
+        for r in conn.execute(
+            f"SELECT decision, {kind}, {tier} FROM rulebook_approval WHERE rule_version_id = ? ORDER BY rowid",
+            (rule_version_id,),
+        )
+    ]
+
+
+def _has_book(conn) -> bool:
+    return _table_exists(conn, "rulebook_version") and _table_exists(
+        conn, "rulebook_provenance"
+    )
+
+
+def provenance_of(conn, rule_version_id: str) -> list[tuple]:
+    """[(standard_document_id, page, quote)] one rule version cites, in stored order. Empty without the tables."""
+    if not _has_book(conn):
+        return []
+    return [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT standard_document_id, page, quote FROM rulebook_provenance WHERE rule_version_id = ? ORDER BY rowid",
+            (rule_version_id,),
+        )
+    ]
+
+
+def latest_quotes(conn) -> list[tuple]:
+    """[(rule_version_id, standard_document_id, page, quote)] of every latest rule version's provenance. Empty without
+    the tables."""
+    if not _has_book(conn):
+        return []
+    return [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT p.rule_version_id, p.standard_document_id, p.page, p.quote FROM rulebook_provenance p"
+            " JOIN rulebook_version v ON v.id = p.rule_version_id WHERE v.version_no = ("
+            "SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
+        )
+    ]
+
+
+def latest_rule_rows(conn) -> list[tuple]:
+    """[(rule_version_id, standard_document_id, standard, clause, page, quote)] of every latest rule version with its
+    provenance, by standard, page, version. Empty without the tables."""
+    if not (_has_book(conn) and _table_exists(conn, "rulebook_rule")):
+        return []
+    return [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT v.id, p.standard_document_id, r.standard, p.clause, p.page, p.quote FROM rulebook_version v"
+            " JOIN rulebook_rule r ON r.id = v.rule_id JOIN rulebook_provenance p ON p.rule_version_id = v.id"
+            " WHERE v.version_no = (SELECT MAX(version_no) FROM rulebook_version WHERE rule_id = v.rule_id)"
+            " ORDER BY 3, p.page, v.id, p.id"
+        )
+    ]

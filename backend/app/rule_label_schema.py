@@ -1,7 +1,7 @@
 """Rule labels and the `ai_approved` tier: the tables, their guards, the words they allow (owner decision 1, 11 Nov 2026).
 
 A rule is "AI approved" when two DIFFERENT Claude models agree on its paper kind, field and reading AND code finds its
-quote word for word on the rule-book page. That is a state of `rule_label`, a table of its own: `rulebook_approval`
+quote word for word on the rule-book page. That is a state of `rule_label`, a table of its own: the rule book's approvals
 (a person's decision, owner or engineer tier, an active user as approver) is never written here and cannot hold this
 tier.
 
@@ -12,7 +12,7 @@ called by the label job and by the import, and by nothing at server start: `ensu
 reviewer PR wires it.
 
 `rule_label` is keyed by (source, rule_ref): source 'requirement' (rule_ref = `standard_requirements.id`, the rule the
-reviewer asks) or 'rulebook' (rule_ref = a `rulebook_version` id). `rule_version_id` is the rule-book version carrying
+reviewer asks) or 'rulebook' (rule_ref = a rule-book version id). `rule_version_id` is the rule-book version carrying
 the same quote on the same page, else NULL (the rule book may not exist in a database at all).
 
 NOTHING IS DELETED. A row cannot be deleted or replaced; a re-label is an UPDATE of the row and appends a

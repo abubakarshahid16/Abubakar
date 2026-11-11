@@ -6,7 +6,7 @@ prompt versions, agreed reading; no quote or answer text) crosses from the copy 
 the server's own check stands between the file and the table.
 
 EVERY ROW IS CHECKED AGAIN, BY CODE, AGAINST THE RULE AS THIS DATABASE HOLDS IT NOW:
-  * the rule must still exist (`unknown_rule`): a `standard_requirements` row, or a `rulebook_version` with provenance;
+  * the rule must still exist (`unknown_rule`): a `standard_requirements` row, or a rule-book version with provenance;
   * the quote hash the file carries must still be the hash of the stored quote text (`skipped_changed_quote`): a label
     belongs to the words it was made on;
   * a row that claims `ai_approved` must also pass `rule_labels.approval_guard` against the stored quote (two named,
@@ -22,7 +22,7 @@ it in the data directory (the route is admin only). It cannot tell a converter's
 file cannot do is skip a check: every row is still re-checked by code, as above, with or without the origin.
 
 IDEMPOTENT. A row identical to the stored one is counted as stored and not written again (no new event); a changed row
-updates the stored one (the table's trigger appends the event). Nothing is deleted. `rulebook_approval` and every other
+updates the stored one (the table's trigger appends the event). Nothing is deleted. the rule book's approvals and every other
 existing table are never written.
 """
 
@@ -35,7 +35,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import rule_label_ocr, rule_labels
+from . import compiled_rule_report, rule_label_ocr, rule_labels
 from .config import settings
 from .rule_label_schema import (
     AI_APPROVED,
@@ -118,12 +118,7 @@ def _stored_rule(conn, source: str, ref: str) -> list[dict] | None:
             if r is None
             else [{"sdid": r[0], "page": r[1], "quote": str(r[2] or "")}]
         )
-    if not (_has(conn, "rulebook_version") and _has(conn, "rulebook_provenance")):
-        return None
-    rows = conn.execute(
-        "SELECT p.standard_document_id, p.page, p.quote FROM rulebook_provenance p WHERE p.rule_version_id = ? ORDER BY p.rowid",
-        (ref,),
-    ).fetchall()
+    rows = compiled_rule_report.book_provenance_of(conn, ref)
     return [
         {"sdid": r[0], "page": r[1], "quote": str(r[2] or "")} for r in rows
     ] or None
@@ -182,7 +177,6 @@ def _approval_failure(
 ) -> str | None:
     """The count key a claimed approval fails under, or None when every check holds: the page the row names, the
     approval guard (with the lab prompt only for a lab row), the quote on its page, the page's OCR confidence."""
-    from . import compiled_rule_report
     from .compiled_rule_proof import quote_verified
 
     lab = raw.get("origin") == rule_labels.LAB_ORIGIN
