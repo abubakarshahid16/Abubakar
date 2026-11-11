@@ -60,9 +60,8 @@ def _jpeg_size(raw: bytes) -> tuple[int, int] | None:
         if marker in _JPEG_STANDALONE:
             i += 2
             continue
-        if marker == 0xD9 or i + 4 > len(
-            raw
-        ):  # end of image, or cut short, before any frame
+        # The end of the image, or the data cut short, before any frame.
+        if marker == 0xD9 or i + 4 > len(raw):
             return None
         length = int.from_bytes(raw[i + 2 : i + 4], "big")
         if marker in _JPEG_SOF:

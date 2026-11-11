@@ -90,11 +90,13 @@ def test_one_image_never_counts_more_than_the_maximum():
     assert cit.image_tokens(9000, 9000) == cit.IMAGE_MAX_TOKENS
 
 
-@pytest.mark.parametrize(
-    "size",
-    [(0, 100), (100, 0), (-5, 10), (None, 10), ("100", "100"), (True, 10), (1.5, 2)],
-)
-def test_a_size_that_is_not_two_positive_whole_numbers_counts_the_maximum(size):
+@pytest.mark.parametrize("size", [(0, 100), (100, 0), (-5, 10)])
+def test_a_zero_or_negative_size_counts_the_maximum(size):
+    assert cit.image_tokens(*size) == cit.IMAGE_MAX_TOKENS
+
+
+@pytest.mark.parametrize("size", [(None, 10), ("100", "100"), (True, 10), (1.5, 2)])
+def test_a_size_that_is_not_whole_numbers_counts_the_maximum(size):
     assert cit.image_tokens(*size) == cit.IMAGE_MAX_TOKENS
 
 
@@ -292,9 +294,9 @@ def test_metered_counts_an_image_in_the_system_list(monkeypatch):
         "system": [{"type": "text", "text": "s"}, _block(_jpeg(800, 600))],
     }
     worst = _worst_reserved(monkeypatch, body)
-    stripped, tokens = cit.split_images(body["system"])
+    stripped = [{"type": "text", "text": "s"}, {"type": "image"}]
+    tokens = cit.image_tokens(800, 600)
     chars = len(json.dumps([])) + len(json.dumps(stripped, ensure_ascii=False))
-    assert tokens == cit.image_tokens(800, 600)
     assert worst == pytest.approx(
         claude_spend.worst_case_usd(MODEL, chars, 10, image_tokens=tokens)
     )
@@ -355,14 +357,14 @@ def test_the_agent_run_meter_counts_a_page_image_by_the_image_rule(monkeypatch):
     }
     with pytest.raises(_Stop):
         agent_claude._call(MODEL, parts, 100, None, None, meter=Meter())
-    stripped, tokens = cit.split_images(parts["messages"])
+    stripped = [{"role": "user", "content": [{"type": "image"}]}]
+    tokens = cit.image_tokens(1700, 2200)
     chars = len(json.dumps(stripped)) + len(json.dumps("s")) + len(json.dumps([]))
     assert seen == [
         pytest.approx(
             claude_spend.worst_case_usd(MODEL, chars, 100, image_tokens=tokens)
         )
     ]
-    assert tokens == cit.image_tokens(1700, 2200)
 
 
 def test_the_agent_fallback_cost_without_usage_counts_the_image_by_the_rule():
@@ -373,7 +375,7 @@ def test_the_agent_fallback_cost_without_usage_counts_the_image_by_the_rule():
         "max_tokens": 50,
     }
     got = agent_claude._usd(MODEL, {}, body)
-    stripped, _ = cit.split_images(body["messages"])
+    stripped = [{"role": "user", "content": [{"type": "image"}]}]
     chars = len(json.dumps(stripped)) + len(json.dumps(None))
     assert got == pytest.approx(
         claude_spend.worst_case_usd(
@@ -475,10 +477,11 @@ def test_the_provider_reserves_a_tool_loop_image_by_the_rule(monkeypatch):
     )
     provider = rp.ClaudeProvider(MODEL, transport=lambda *a, **k: {})
     seen = _provider_reserved(monkeypatch, lambda: provider.reason(packet))
-    stripped, tokens = cit.split_images(messages[0])
+    tool = {"type": "tool_result", "tool_use_id": "t", "content": [{"type": "image"}]}
+    stripped, tokens = {"role": "user", "content": [tool]}, cit.image_tokens(1500, 1500)
     prompt = provider._request(packet)[2]
     chars = len(packet.system) + len(prompt) + len(json.dumps(stripped))
-    assert tokens == cit.image_tokens(1500, 1500) and chars < 1000
+    assert chars < 1000
     assert seen == [
         pytest.approx(
             claude_spend.worst_case_usd(MODEL, chars, 10, image_tokens=tokens)
