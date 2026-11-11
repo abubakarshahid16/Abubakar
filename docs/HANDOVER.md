@@ -358,6 +358,7 @@ required for "enterprise", explicitly deferred by Ali.
 | `/review` built from the audit, not generic rules | The project's real failure modes are documented; generic linting misses them. |
 | Dashboard unchanged except counts inside the Documents tile | Ali: "we have to be minimalistic dashboard keep it as it is." |
 | No `.env` ever committed; hook fails closed | ADR-0004. Hook previously failed open (audit #24). |
+| **AI-approved rules** (owner decision 1, 11 Nov 2026): a rule is usable by the AI reviewer when a person approved it (owner or engineer tier, `rulebook_approval`) OR its label `ai_approved` | No engineer is available. `ai_approved` = two DIFFERENT Claude models agree on the rule's paper kind, field and reading under one prompt version, AND code finds its quote word for word on the rule-book page; rules where they disagree are `needs_human` and decide nothing. It lives in its own tables (`rule_label`, `rule_label_event`, made only when `agent_review_enabled` is on) and never writes an owner or engineer approval; a person's refusal is never overridden. It replaces the engineer sample FOR NOW: when an engineer comes he reviews the `needs_human` list and a sample, not everything. The label job writes a database COPY only (`scripts/run_rule_labels.py`); the live app takes the label file through `POST /api/admin/rule-labels/import`, which checks every row again. Code: `rule_labels.py` (decision, tier), `rule_label_job.py`, `rule_label_import.py`. |
 
 ---
 

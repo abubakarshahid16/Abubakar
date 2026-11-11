@@ -34,6 +34,8 @@ ENTRY_POINTS = (
     "rule_finish_store",
     "rule_finish_repair",
     "rule_coverage",
+    # the AI-approved rule labels' job: started by scripts/run_rule_labels.py, never by the server (it writes a COPY)
+    "rule_label_job",
 )
 
 
