@@ -172,11 +172,11 @@ describe("RulesUsedView: where the rules came from", () => {
   it("says the source, the repeats, and the other-book count with its boundary", () => {
     render(<RulesUsedView data={data({
       candidates_from: "the rules of the selected books", same_rule_repeats: 3,
-      other_books: { books: 3, ai_approved_rules: 100, boundary: "only rule books you may read" },
+      other_books: { books: 3, ai_approved_rules: 100, boundary: "rule books the person who started this review may read" },
     })} />);
     expect(screen.getByTestId("candidates-from")).toHaveTextContent("taken from: the rules of the selected books");
     expect(screen.getByTestId("candidates-from")).toHaveTextContent("3 stored rules are the same rule");
-    expect(screen.getByTestId("other-books")).toHaveTextContent("100 in 3 books (counted over only rule books you may read)");
+    expect(screen.getByTestId("other-books")).toHaveTextContent("100 in 3 books (counted over rule books the person who started this review may read)");
   });
   it("shows nothing for a run stored before this was kept (null, never 0)", () => {
     render(<RulesUsedView data={data({ candidates_from: null, same_rule_repeats: null, other_books: null })} />);

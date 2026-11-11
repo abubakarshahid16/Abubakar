@@ -408,7 +408,7 @@ def test_the_rules_used_route_says_where_the_rules_came_from_and_keeps_it_after_
     assert body["other_books"] == {
         "books": 0,
         "ai_approved_rules": 0,
-        "boundary": "only rule books you may read",
+        "boundary": "rule books the person who started this review may read",
     }
     db.reset_connection()  # a restart: only what the run row stored is left
     again = client.get(f"/api/reviews/runs/{run_id}/rules-used").json()

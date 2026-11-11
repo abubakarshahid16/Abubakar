@@ -66,7 +66,7 @@ router = APIRouter(dependencies=[Depends(_require_on)])
 
 
 #: whose books the count of other-book rules covers (rule 4: every count states its boundary).
-OTHER_BOOKS_BOUNDARY = "only rule books you may read"
+OTHER_BOOKS_BOUNDARY = "rule books the person who started this review may read"
 
 
 def _equipment(run: dict) -> dict:
