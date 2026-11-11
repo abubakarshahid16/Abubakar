@@ -36,10 +36,14 @@ def test_b_the_next_test_sees_the_original_values():
         assert getattr(settings, name) == _ORIGINAL[name], name
 
 
-def test_bench_main_under_pytest_does_not_look_for_a_real_env_file(monkeypatch, tmp_path):
+def test_bench_main_under_pytest_does_not_look_for_a_real_env_file(
+    monkeypatch, tmp_path
+):
     """In a checkout with no backend/.env (a git worktree), `_settings_file` asked git for the
     MAIN checkout and returned its real `.env`. Under pytest it must answer None without asking."""
-    spec = importlib.util.spec_from_file_location("bench_script_n8", REPO / "scripts" / "crs_bench.py")
+    spec = importlib.util.spec_from_file_location(
+        "bench_script_n8", REPO / "scripts" / "crs_bench.py"
+    )
     script = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(script)
     monkeypatch.setattr(script, "REPO", tmp_path)  # a checkout with no backend/.env
