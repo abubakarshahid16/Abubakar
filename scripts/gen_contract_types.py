@@ -70,6 +70,7 @@ class Module:
 
 
 def modules() -> tuple[Module, ...]:
+    from app.api import agent_review_schemas as ar
     from app.api import run_summary as rs
 
     return (
@@ -91,6 +92,30 @@ def modules() -> tuple[Module, ...]:
                 (("TierRow", "label"), "RunSummaryTierLabel"),
                 (("TierRow", "reason"), "RunSummaryTierReason"),
                 (("TierRow", "crs_priority_label"), "RunSummaryCrsPriorityLabel"),
+            ),
+        ),
+        Module(
+            filename="agent_review.ts",
+            sent_defaults=True,
+            source="backend/app/api/agent_review_schemas.py",
+            models=(
+                (ar.AgentRunRequest, "AgentRunRequest"),
+                (ar.AgentStatus, "AgentStatus"),
+                (ar.AgentRunSummary, "AgentRunSummary"),
+                (ar.AgentLine, "AgentLine"),
+                (ar.AgentLineList, "AgentLineList"),
+                (ar.AgentGateStep, "AgentGateStep"),
+                (ar.AgentTrace, "AgentTrace"),
+                (ar.AgentAskedRule, "AgentAskedRule"),
+                (ar.AgentLeftOutRule, "AgentLeftOutRule"),
+                (ar.AgentMissingBook, "AgentMissingBook"),
+                (ar.AgentRulesUsed, "AgentRulesUsed"),
+            ),
+            unions=(
+                (("AgentLine", "verdict_class"), "AgentVerdictClass"),
+                (("AgentLine", "word"), "AgentVerdictWord"),
+                (("AgentLine", "rule_tier"), "AgentRuleTier"),
+                (("AgentLeftOutRule", "reason"), "AgentLeftOutReason"),
             ),
         ),
     )
