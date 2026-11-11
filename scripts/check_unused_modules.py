@@ -38,11 +38,12 @@ ENTRY_POINTS = (
     "rule_label_job",
     "rule_label_convert",
     # the AI reviewer's decision core (#1690, PR-b): pure libraries, reached by agent_review_run/agent_review_jobs of the same
-    # PR (HB2); staged here until that job imports them, then these eight lines go.
+    # PR (HB2); staged here until that job imports them, then these nine lines go.
     "agent_review_verdict",
     "agent_review_context",
     "agent_review_rules",
     "agent_review_items",
+    "agent_review_standards",
     "agent_review_pages",
     "agent_review_absence",
     "agent_review_wording",
