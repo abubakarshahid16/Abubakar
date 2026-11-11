@@ -113,10 +113,8 @@ def test_switch_off_every_route_is_404_feature_off_and_no_table_exists(
     )
 
 
-@pytest.mark.parametrize(
-    "kind", ["procedure", "contract", "drawing", "calculation", "other", "unknown"]
-)
-def test_only_a_datasheet_is_accepted_any_other_kind_is_409_with_no_job_and_no_call(
+@pytest.mark.parametrize("kind", ["drawing", "calculation", "other", "unknown"])
+def test_only_a_datasheet_a_procedure_or_a_contract_is_accepted_any_other_kind_is_409_with_no_job_and_no_call(
     client, monkeypatch, kind
 ):
     monkeypatch.setattr(
@@ -127,9 +125,11 @@ def test_only_a_datasheet_is_accepted_any_other_kind_is_409_with_no_job_and_no_c
     r = client.post("/api/reviews/agent-run", json={"submittal_document_id": s.PAPER})
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "kind_not_enabled"
+    assert r.json()["detail"]["message"] == agent_review_gate.KIND_NOT_ENABLED_MESSAGE
     assert (
-        r.json()["detail"]["message"]
-        == "AI review is on for datasheets only (owner, 11 Nov 2026)"
+        agent_review_gate.KIND_NOT_ENABLED_MESSAGE
+        == "AI review is on for datasheets (rule review) and for procedures and contracts "
+        "(general review, no rule book) only (owner, 11 Nov 2026)"
     )
     assert (
         db.connect()

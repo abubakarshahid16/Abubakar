@@ -100,6 +100,7 @@ def modules() -> tuple[Module, ...]:
             source="backend/app/api/agent_review_schemas.py",
             models=(
                 (ar.AgentRunRequest, "AgentRunRequest"),
+                (ar.AgentProjectPaper, "AgentProjectPaper"),
                 (ar.AgentStatus, "AgentStatus"),
                 (ar.AgentRunSummary, "AgentRunSummary"),
                 (ar.AgentLine, "AgentLine"),
@@ -116,6 +117,9 @@ def modules() -> tuple[Module, ...]:
                 (("AgentLine", "verdict_class"), "AgentVerdictClass"),
                 (("AgentLine", "word"), "AgentVerdictWord"),
                 (("AgentLine", "rule_tier"), "AgentRuleTier"),
+                (("AgentLine", "part"), "AgentPart"),
+                (("AgentLine", "text_source"), "AgentTextSource"),
+                (("AgentRunSummary", "mode"), "AgentMode"),
                 (("AgentLeftOutRule", "reason"), "AgentLeftOutReason"),
             ),
         ),

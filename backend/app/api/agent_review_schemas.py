@@ -29,6 +29,10 @@ VerdictClass = Literal[
     #: The AI gave no answer for this line, even after the batch was split: the PAPER was not reviewed on it.
     #: Never a Query about the paper.
     "Not reviewed",
+    #: GENERAL REVIEW (procedures and contracts, no rule book; owner 11 Nov 2026): a rule book the paper cites that we do not
+    #: hold, and an AI engineering note with no rule behind it. Never a Pass, a Fail or an "AI thinks"; internal only.
+    "Not checked: rule book not held",
+    "AI note, no rule book",
 ]
 
 #: The word shown on a line.
@@ -40,6 +44,8 @@ VerdictWord = Literal[
     "Query",
     "Not applicable",
     "Not reviewed",
+    "Not checked",
+    "AI note",
 ]
 
 #: Who stands behind a rule.
@@ -77,7 +83,32 @@ LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
         ("Not reviewed",),
         (*_APPROVED_TIERS, "Not AI approved", None),
     ),
+    # General review: no rule, so no tier (null only).
+    "Not checked: rule book not held": (("Not checked",), (None,)),
+    "AI note, no rule book": (("AI note",), (None,)),
 }
+
+#: Which part of a general review a line belongs to (null on every line of a rule review).
+Part = Literal[
+    "not held",
+    "checklist",
+    "paper against itself",
+    "against project papers",
+    "engineering comment",
+]
+#: What the line's text is: a quote from the paper, or the model's own words (a quote is always shown apart, verified by code).
+TextSource = Literal["quote", "the model's words"]
+#: The classes of a RULE review: a line of these classes carries no part. A line of a general review is one of the four
+#: classes below, with a part; "Query" and "Not reviewed" appear in both modes.
+RULE_REVIEW_ONLY = (
+    "Proven by code",
+    "AI opinion, engineer to confirm",
+    "AI opinion, rule not yet approved",
+    "Not applicable",
+)
+GENERAL_ONLY = ("Not checked: rule book not held", "AI note, no rule book")
+#: The two modes of a run.
+Mode = Literal["rule review", "general review"]
 
 #: Where a rule's text was read from: the page text, or a scanned page re-read as a picture (owner 16.3 point 2).
 ReadFrom = Literal["text", "scan"]
@@ -89,6 +120,16 @@ class AgentRunRequest(BaseModel):
     """POST /api/reviews/agent-run body."""
 
     submittal_document_id: str
+    #: General review only (a procedure or a contract): the project papers part 4 is checked against. Optional. Never chosen
+    #: silently: each must be readable by the caller and is checked again when the job runs. Empty: part 4 says so on one line.
+    project_document_ids: list[str] = Field(default=[], max_length=10)
+
+
+class AgentProjectPaper(BaseModel):
+    """A project paper a general review was checked against."""
+
+    document_id: str
+    name: str
 
 
 class AgentStatus(BaseModel):
@@ -120,6 +161,10 @@ class AgentRunSummary(BaseModel):
     equipment_notes: list[str] = []
     #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
     not_reviewed: Count = 0
+    #: "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise.
+    mode: Mode = "rule review"
+    #: the project papers a general review was checked against (empty for a rule review, or when none was named).
+    project_papers_used: list[AgentProjectPaper] = []
 
 
 class AgentLine(BaseModel):
@@ -135,6 +180,10 @@ class AgentLine(BaseModel):
     reason: str
     #: null for a checklist item, which has no rule tier.
     rule_tier: RuleTier | None
+    #: general review only: which part the line belongs to; null on a rule review line.
+    part: Part | None = None
+    #: general review only: whether the text is a quote or the model's words; null otherwise.
+    text_source: TextSource | None = None
 
     @model_validator(mode="after")
     def _class_word_and_tier_agree(self) -> AgentLine:
@@ -146,6 +195,16 @@ class AgentLine(BaseModel):
         if self.rule_tier not in tiers:
             raise ValueError(
                 f'class "{self.verdict_class}" cannot have rule tier {self.rule_tier!r}'
+            )
+        if self.verdict_class in RULE_REVIEW_ONLY and (
+            self.part is not None or self.text_source is not None
+        ):
+            raise ValueError(
+                f'class "{self.verdict_class}" belongs to a rule review: it has no part'
+            )
+        if self.verdict_class in GENERAL_ONLY and self.part is None:
+            raise ValueError(
+                f'class "{self.verdict_class}" belongs to a general review: it needs its part'
             )
         return self
 
@@ -178,6 +237,10 @@ class AgentTrace(BaseModel):
     model: str
     reason: str
     gate: list[AgentGateStep] = []
+    #: general review: the second quote (a second place in the paper, or a project paper); null otherwise.
+    other_quote: str | None = None
+    #: general review: the part of the review the line belongs to.
+    part: Part | None = None
 
 
 class AgentAskedRule(BaseModel):

@@ -439,12 +439,44 @@ not replaced: `REASONING_PROVIDER`, both `STANDARDS_READER_*` flags and a key (r
 settings), the owner-approved document list and the USD caps in `claude_spend` (step `agent_review`: USD 5 per step, USD 15
 per run) all still apply. A cap stops the run with a PARTIAL result and a stop reason.
 
-**Datasheets only (owner, 11 Nov 2026).** The reviewer accepts a paper only when its decided kind is "datasheet"
-(`AGENT_REVIEW_KINDS`). Any other kind, or an unknown one, is refused with 409 `kind_not_enabled` ("AI review is on for
-datasheets only (owner, 11 Nov 2026)"): no job, no call, no charge. Reason: in the experiment's procedure and contract runs most
+**Rule review: datasheets only (owner, 11 Nov 2026).** The RULE review accepts a paper only when its decided kind is
+"datasheet" (`AGENT_REVIEW_KINDS`). Any kind the general review does not name (below), or an unknown one, is refused with 409
+`kind_not_enabled`: no job, no call, no charge. Reason: in the experiment's procedure and contract runs most
 "AI thinks: not met" lines were wrong because the paper was silent. Widening the tuple is the owner's decision; the silent-paper
 rule (`silence_guard`: a "not met" that rests only on silence is a Query for any kind but a datasheet) is already wired at the
 one exit.
+
+**General review of procedures and contracts (owner, 11 Nov 2026, STATE 16.4; #781, #1690 step F).** The owner CORRECTED the
+"datasheets only" order for procedures and contracts: do not switch them off; review them in GENERAL REVIEW mode when we hold no
+rule book for the paper ("Switch it on in the app only if that score is clearly better than tonight's"). The lab run scored
+clearly better (wrong lines 26 to 2 on a procedure and 18 to 1 on a contract; planted errors caught 0 to 5 of 10 on each; false
+alarms 10 to 1 and 6 to 1), so the SAME switch now also takes `AGENT_GENERAL_REVIEW_KINDS = ("procedure", "contract")`; every
+other non-datasheet kind (drawing, calculation, other, unknown) stays 409 `kind_not_enabled`. A datasheet still goes to the rule
+review. What a general run does: (1) one line per cited rule book we do not hold, "Not checked: rule book not held"; a held
+cited book is decided by code and recorded: one with no approved rule of this paper's kind is "not used in this general
+review", one that DOES carry approved rules of the kind is named in one line ("rule books we hold that fit this paper were not
+used: rule review for this kind is switched off"); (2) the completeness checklist of the kind, only when its subject fits the
+paper, else "no completeness checklist for this kind of paper" (contracts have none); (3) the paper against itself, every quote
+verified by code, a second model of another family keeps or drops each finding, figures are "differ: by code" only under the
+strict rule; (4) the paper against the PROJECT PAPERS the request named (`project_document_ids`; the app has no project or folder
+field on a document, so they are never chosen silently: each is checked against the caller's scope, is not the paper or a rule
+book, and is checked again when the job runs and against the approved-documents list before any call; none named: one line
+"no project paper was given to check against"); (5) at most 10 AI engineering comments per run, each tied to a verified quote.
+Classes: "Not checked: rule book not held", "AI note, no rule book", "Query for the engineer" (silence is a Query), "Not
+reviewed" (a cut-off or failed answer). No Pass, Fail, "AI thinks" or "Proven by code" can leave `agent_general_review.
+finalize_line`, and no rule item is ever built; the contractor and comment-only copies are written EMPTY. Code: `agent_general_
+review.py` (exit, decision), `_parts.py`, `_prompts.py`, `_job.py`, `_crs.py`. Money: the existing step caps through the runner;
+nothing new. Tables: `agent_review_line` has two new columns and classes and `agent_review_general` is new (created by
+CREATE IF NOT EXISTS; a line table of the older shape is UPGRADED in one transaction by the server with the switch on (renamed to `agent_review_line_before_general_<time>` and kept, every row copied, the event written to `audit_events`); if that fails the transaction rolls back, every AI-review route answers 503 "the AI review tables could not be upgraded: <reason>" and no run starts: the shape is checked before the first Claude call). Three defects of the lab scoring are fixed and tested: the stored text is whole (it was cut at 200
+characters), a checklist Query says whether the answer was "partly covered" or "not found" and a "present" answer that carries
+a concern becomes an AI note, and a claim that something is MISSING on a page whose pictures or formulas were not read as text
+is a Query ("could not be checked").
+**NOT proven (general review).** It found 2 of the 4 key problems on the one HAZOP paper (1 weakly); removed items are not
+caught (a planted removal leaves nothing to quote: 4 of 10 planted changes missed on each paper); contracts have no
+checklist, so on a contract parts 3 and 4 and the comments carry everything; a procedure of another subject than the one
+checklist gets "no checklist"; 2 of 22 lines were wrong on the HAZOP paper and one false "missing" on a page of pictures; the
+second quote of a project-paper finding can be unrelated (the second model is now asked, and such a line is shown as a plain
+comment, not as "disagrees with"). It was never run on live data, and the app code was never run with a real model.
 
 **What it does.** Paper kind first, then the right rules only (kind equal, tier usable, equipment fits), batches by page through
 the Claude lane, code verifies every quote and compares every number, a second model of another family must agree, a Fail is

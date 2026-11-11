@@ -1,14 +1,25 @@
 // GENERATED from backend/app/api/agent_review_schemas.py by scripts/gen_contract_types.py.
 // Do not edit: change the backend model and run the script (order 119.1).
 
-export type AgentVerdictClass = "Proven by code" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed";
-export type AgentVerdictWord = "Pass" | "Fail" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed";
+export type AgentVerdictClass = "Proven by code" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed" | "Not checked: rule book not held" | "AI note, no rule book";
+export type AgentVerdictWord = "Pass" | "Fail" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed" | "Not checked" | "AI note";
 export type AgentRuleTier = "Owner" | "Engineer" | "AI approved" | "Not AI approved";
+export type AgentPart = "not held" | "checklist" | "paper against itself" | "against project papers" | "engineering comment";
+export type AgentTextSource = "quote" | "the model's words";
+export type AgentMode = "rule review" | "general review";
 export type AgentLeftOutReason = "needs another paper" | "needs a human" | "quote not found" | "not labelled yet" | "another equipment type" | "rule book not held" | "the paper names no equipment" | "the paper names equipment the equipment list does not know" | "the paper's equipment could not be read";
 
 /** POST /api/reviews/agent-run body. */
 export interface AgentRunRequest {
   submittal_document_id: string;
+  /** General review only (a procedure or a contract): the project papers part 4 is checked against. Optional. Never chosen silently: each must be readable by the caller and is checked again when the job runs. Empty: part 4 says so on one line. */
+  project_document_ids: string[];
+}
+
+/** A project paper a general review was checked against. */
+export interface AgentProjectPaper {
+  document_id: string;
+  name: string;
 }
 
 /** GET /api/reviews/agent-status: whether the feature is on and whether the Claude lane is open. Both false means the screen shows no start button. */
@@ -36,6 +47,10 @@ export interface AgentRunSummary {
   equipment_notes: string[];
   /** lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class. */
   not_reviewed: number;
+  /** "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise. */
+  mode: AgentMode;
+  /** the project papers a general review was checked against (empty for a rule review, or when none was named). */
+  project_papers_used: AgentProjectPaper[];
 }
 
 /** One CRS line of the AI reviewer. */
@@ -50,6 +65,10 @@ export interface AgentLine {
   reason: string;
   /** null for a checklist item, which has no rule tier. */
   rule_tier: AgentRuleTier | null;
+  /** general review only: which part the line belongs to; null on a rule review line. */
+  part?: AgentPart | null;
+  /** general review only: whether the text is a quote or the model's words; null otherwise. */
+  text_source?: AgentTextSource | null;
 }
 
 /** GET /api/reviews/runs/{id}/agent/lines: one page of lines. */
@@ -77,6 +96,10 @@ export interface AgentTrace {
   model: string;
   reason: string;
   gate: AgentGateStep[];
+  /** general review: the second quote (a second place in the paper, or a project paper); null otherwise. */
+  other_quote?: string | null;
+  /** general review: the part of the review the line belongs to. */
+  part?: "not held" | "checklist" | "paper against itself" | "against project papers" | "engineering comment" | null;
 }
 
 /** A rule that was asked of this paper. */

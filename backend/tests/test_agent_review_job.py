@@ -216,9 +216,7 @@ def test_an_unknown_paper_kind_asks_nothing_and_the_run_says_so(world, monkeypat
     )
 
 
-@pytest.mark.parametrize(
-    "kind", ["procedure", "contract", "drawing", "calculation", "other"]
-)
+@pytest.mark.parametrize("kind", ["drawing", "calculation", "other"])
 def test_a_kind_the_reviewer_is_not_enabled_for_asks_nothing_even_inside_the_job(
     world, monkeypatch, kind
 ):

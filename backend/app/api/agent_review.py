@@ -1,6 +1,8 @@
 """The AI reviewer's routes (#1690). Every route answers 404 "feature_off" while `agent_review_gate.enabled()` is off.
 
-    POST /api/reviews/agent-run                          start an AI review of one datasheet (409 for any other kind)
+    POST /api/reviews/agent-run                          start an AI review of one datasheet (rule review) or of one
+                                                         procedure or contract (general review, no rule book); 409 for any
+                                                         other kind
     GET  /api/reviews/agent-status                       {enabled, claude_lane_open}
     GET  /api/reviews/runs/{id}/agent/summary            counts per class, spend, stop reason, missing rule books
     GET  /api/reviews/runs/{id}/agent/lines              the CRS lines, one page at a time
@@ -25,6 +27,7 @@ from fastapi.responses import FileResponse
 
 from .. import (
     access,
+    agent_general_review,
     agent_review_coverage,
     agent_review_gate,
     agent_review_jobs,
@@ -53,6 +56,10 @@ PAGE_MAX = 500
 def _require_on() -> None:
     if not agent_review_gate.enabled():
         raise HTTPException(status_code=404, detail=agent_review_gate.FEATURE_OFF)
+    try:  # an older line table is upgraded (data kept) here; a table that cannot be upgraded answers 503 on every route
+        agent_review_schema.upgrade_if_old()
+    except agent_review_schema.UpgradeFailed as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 router = APIRouter(dependencies=[Depends(_require_on)])
@@ -105,14 +112,16 @@ def start_agent_run(
     scope: access.AccessScope = Depends(access.current_scope),
     _admin: dict | None = Depends(admin_mod.current_admin),
 ):
-    """Queue an AI review of one submittal. ADMIN-GATED like the classic review. Only a datasheet is accepted (owner, 11 Nov
-    2026): any other kind, or one that is unknown, is a 409 `kind_not_enabled` with no job, no call and no charge."""
+    """Queue an AI review of one submittal. ADMIN-GATED like the classic review. A datasheet gets the rule review; a procedure or a
+    contract gets the GENERAL review (no rule book; owner, 11 Nov 2026, STATE 16.4). Any other kind, or one that is unknown, is a
+    409 `kind_not_enabled` with no job, no call and no charge. `project_document_ids` (general review only) names the papers part 4
+    checks against: each must be readable by the caller, else the request is refused before any job exists."""
     _require_identity_to_write(scope)
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
     reading = agent_review_kind.decide(document_id, scope.allowed_document_ids)
-    if not (reading.known and agent_review_gate.kind_enabled(reading.kind)):
+    if not (reading.known and agent_review_gate.any_kind_enabled(reading.kind)):
         detail = errors.safe_error(
             errors.INVALID_PARAMETER,
             agent_review_gate.KIND_NOT_ENABLED_MESSAGE,
@@ -122,11 +131,14 @@ def start_agent_run(
             status_code=409,
             detail={**detail, "code": agent_review_gate.KIND_NOT_ENABLED},
         )
+    general = agent_review_gate.general_kind_enabled(reading.kind)
+    project = _checked_project_papers(body, document_id, scope, general)
     try:
         run_id, _job = agent_review_jobs.enqueue(
             document_id,
             allowed_document_ids=scope.allowed_document_ids,
             requested_by=scope.user_id,
+            project_document_ids=project if general else None,
         )
     except review_jobs.ReviewAlreadyActive as exc:
         raise HTTPException(
@@ -142,6 +154,40 @@ def start_agent_run(
         run_id, allowed_document_ids=scope.allowed_document_ids
     )
     return main_mod._run_summary(run, scope)
+
+
+def _checked_project_papers(
+    body: contract.AgentRunRequest,
+    document_id: str,
+    scope: access.AccessScope,
+    general: bool,
+) -> tuple[str, ...]:
+    """The project papers a request names, checked BEFORE any job exists (a filter may only narrow what the caller may read):
+    unreadable is a 404 like every other document; a rule book, the paper itself or a document with no text is a 422."""
+    if not body.project_document_ids:
+        return ()
+    if not general:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(
+                errors.INVALID_PARAMETER,
+                "project_document_ids belong to a general review (a procedure or a contract) only",
+            ),
+        )
+    for d in body.project_document_ids:
+        require_document(d, scope)
+    accepted, problems = agent_general_review.check_project_papers(
+        connect(), document_id, body.project_document_ids, scope.allowed_document_ids
+    )
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(
+                errors.INVALID_PARAMETER,
+                "project paper refused: " + "; ".join(problems),
+            ),
+        )
+    return tuple(p["document_id"] for p in accepted)
 
 
 @router.get(
@@ -180,6 +226,7 @@ def agent_summary(
         stop_reason=run["stop_reason"],
         missing_books=books,
         not_reviewed=counts.get("Not reviewed", 0),
+        **_mode_of(conn, review_run_id),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
     )
@@ -201,7 +248,7 @@ def agent_lines(
     rows = (
         connect()
         .execute(
-            "SELECT rowid AS rid, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier"
+            "SELECT rowid AS rid, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier, part, text_source"
             " FROM agent_review_line WHERE run_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
             (review_run_id, cursor, limit + 1),
         )
@@ -218,6 +265,29 @@ def agent_lines(
     return contract.AgentLineList(
         lines=lines, next=str(page[-1]["rid"]) if more and page else None
     )
+
+
+def _mode_of(conn, run_id: str) -> dict:
+    """The mode of a run and the project papers a general review used: a run with a row in `agent_review_general` is a general
+    review. Read only."""
+    row = conn.execute(
+        "SELECT project_json FROM agent_review_general WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        return {"mode": "rule review", "project_papers_used": []}
+    try:
+        used = json.loads(row["project_json"] or "[]")
+    except ValueError:
+        used = []
+    return {
+        "mode": "general review",
+        "project_papers_used": [
+            contract.AgentProjectPaper(
+                document_id=str(p["document_id"]), name=str(p["name"])
+            )
+            for p in used
+        ],
+    }
 
 
 def _gate_steps(line: dict) -> list[contract.AgentGateStep]:
@@ -279,6 +349,42 @@ def _gate_steps(line: dict) -> list[contract.AgentGateStep]:
     return [contract.AgentGateStep(step=a, outcome=b, reason=c) for a, b, c in steps]
 
 
+def _general_trace(item_id: str, line: dict, reason: str) -> contract.AgentTrace:
+    """The trace of a general review line: the verified quote(s), what code checked, the second model's answer. No rule."""
+    q_a = line.get("quote_a") or line.get("quote_paper") or {}
+    q_b = line.get("quote_b") or line.get("quote_other") or {}
+    steps = [
+        (
+            "quote verified by code",
+            "verified"
+            if line.get("quotes_verified_by_code")
+            else "no quote on this line",
+            "",
+        )
+    ]
+    if line.get("figures"):
+        steps.append(("figures", str(line["figures"]), ""))
+    if line.get("second_model_reason") is not None:
+        steps.append(
+            (
+                "second opinion (another model)",
+                "keeps it",
+                str(line["second_model_reason"]),
+            )
+        )
+    steps.append(
+        ("decision", str(line.get("word") or ""), str(line.get("subkind") or ""))
+    )
+    page = q_a.get("page")
+    return contract.AgentTrace(
+        item_id=item_id, page=page if isinstance(page, int) and page >= 1 else None,
+        paper_quote=str(q_a.get("text") or ""), rule_quote="", rule_book=str(line.get("rule_book") or ""), clause="",
+        model=", ".join(line.get("second_model") or []), reason=reason,
+        gate=[contract.AgentGateStep(step=a, outcome=b, reason=c) for a, b, c in steps],
+        other_quote=str(q_b.get("text")) if q_b.get("text") else None, part=line.get("part_word"),
+    )  # fmt: skip
+
+
 @router.get(
     "/api/reviews/runs/{review_run_id}/agent/lines/{item_id}/trace",
     response_model=contract.AgentTrace,
@@ -302,6 +408,8 @@ def agent_trace(
     if row is None:
         raise HTTPException(status_code=404, detail="no such line")
     line = json.loads(row["line_json"])
+    if line.get("general"):
+        return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")
     return contract.AgentTrace(
         item_id=item_id,
