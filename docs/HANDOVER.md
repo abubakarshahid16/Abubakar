@@ -426,3 +426,38 @@ holds the package against it → sends it back same day instead of a month later
 - Send the client the three open questions (deliverables register scope,
   escalation ladder definition, news/media privacy expectations).
 - Delete old `oldname.sqlite*` after verifying document counts match.
+
+
+---
+
+## 10. The AI reviewer in the app (#1690, 11 Nov 2026) - what the one switch turns on
+
+**Switch.** `AGENT_REVIEW_ENABLED` (`settings.agent_review_enabled`, default OFF; read only by
+`agent_review_gate.enabled()`). Off: no table, every `/api/reviews/agent-*`, `.../agent/*` and `.../rules-used` route answers
+404 `feature_off`, no `agent_review` job is claimed, no Claude call, the classic review is unchanged. The Claude lane gate is
+not replaced: `REASONING_PROVIDER`, both `STANDARDS_READER_*` flags and a key (read from the process env, else from the app
+settings), the owner-approved document list and the USD caps in `claude_spend` (step `agent_review`: USD 5 per step, USD 15
+per run) all still apply. A cap stops the run with a PARTIAL result and a stop reason.
+
+**Datasheets only (owner, 11 Nov 2026).** The reviewer accepts a paper only when its decided kind is "datasheet"
+(`AGENT_REVIEW_KINDS`). Any other kind, or an unknown one, is refused with 409 `kind_not_enabled` ("AI review is on for
+datasheets only (owner, 11 Nov 2026)"): no job, no call, no charge. Reason: in the experiment's procedure and contract runs most
+"AI thinks: not met" lines were wrong because the paper was silent. Widening the tuple is the owner's decision; the silent-paper
+rule (`silence_guard`: a "not met" that rests only on silence is a Query for any kind but a datasheet) is already wired at the
+one exit.
+
+**What it does.** Paper kind first, then the right rules only (kind equal, tier usable, equipment fits), batches by page through
+the Claude lane, code verifies every quote and compares every number, a second model of another family must agree, a Fail is
+proven only after the rule-book page context check. One exit (`Runner.exit_line`) caps every line by its rule's CURRENT tier
+(label table) before it is stored, written to the CRS or served. Tables: `agent_review_run`, `_rule`, `_line`, `_missing_book`.
+CRS internal and contractor copies (xlsx) and the trace file go to `<data dir>/agent_reviews/<run id>/`.
+
+**Wording classes (owner decision 2).** "Proven by code" (Pass / Fail), "AI opinion, engineer to confirm" (AI thinks: met / not
+met, with the reason it is not proven), "AI opinion, rule not yet approved", "Query for the engineer", "Not applicable", and
+"Not reviewed" (the AI gave no answer even after the batch was split: never a Query about the paper). The contractor copy holds
+the proven Fail only.
+
+**NOT proven / not in this PR.** No frontend. No run on live data. Not run with a real model (every test uses an invented fake).
+Page pictures (drawings, scans) are not wired: a page with no text yields no Pass or Fail. The absence proof is built and off.
+The Rules used page's coverage numbers come from a coverage file the lead places under the data dir (`coverage/coverage.json`);
+without it every number is null. Checklist lines show no rule tier (null).

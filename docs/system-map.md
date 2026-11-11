@@ -44,6 +44,23 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_loop` | The agent proof test loop (off by default, `AGENT_REVIEW_ENABLED`): a provider picks one tool per step, code runs it; ends in a finding checked for the honesty rules |
 | `agent_trace` | Local-only trace, live log, LIVE.md and resume state for the agent proof test; never inside the repository |
 | `agent_run` | The agent proof test runner (off by default, `AGENT_REVIEW_ENABLED`): runs a skill's items on a read-only COPY of the database, applies the second opinion, writes local RESULTS, examples and a workbook the answer-key scorer can read |
+| `agent_review_gate` | The AI reviewer's ONE switch (`enabled`, `settings.agent_review_enabled`, default off), the kinds it accepts (`AGENT_REVIEW_KINDS`, datasheets only, owner 11 Nov 2026) and whether the Claude lane is open; off means no table, 404 on every route, no job claimed, no call |
+| `agent_review_schema` | The AI reviewer's tables (run, rule, line, missing book), made only when the switch is on, never an ALTER; the line table itself refuses an unproven Pass or Fail |
+| `agent_review_kind` | The paper's kind decided FIRST by code (unknown stays unknown, a guess is called a guess) and its equipment type by the app's own reader |
+| `agent_review_request` | The AI reviewer's request side: prompts, page batches, the held texts, the answers, the step cap's admission and the silent-paper rule |
+| `agent_review_decide` | The AI reviewer's per-item decision (mixin of the runner): evidence, gate, holds, absence proof, the context check; every guard only lowers confidence |
+| `agent_review_run` | The AI reviewer's runner: one Claude call per page batch through the app's lane and caps, one exit that caps every line by its rule's CURRENT tier, split batches, resume without paying twice, a partial run on a stop |
+| `agent_review_jobs` | The AI reviewer as a job of the review worker (stage `agent_review`): enqueue, claim, preflight, run, resume after a restart, lines and rules into the tables, CRS xlsx and trace into the run's folder |
+| `agent_review_coverage` | Reads the rule-book coverage file under the data directory for the Rules used page; absent file or book: nothing, never a zero |
+| `api.agent_review` | Routes of the AI reviewer: start (datasheets only), status, summary, lines, trace, CRS copies, Rules used; 404 feature_off while the switch is off; scoped like the other review routes; a GET never writes |
+| `agent_review_verdict` | The AI reviewer's gate (core): when a line may be called Pass or Fail, the holds F1 and F3, the cap of an unapproved rule, the tier of an item |
+| `agent_review_context` | The AI reviewer's context check F4 (core): a Fail is proven only after one call with the rule-book page; it can only hold |
+| `agent_review_rules` | The AI reviewer's rule choice (core): a rule is asked only when its label kind is the paper's and its tier is usable; every other rule counted with one reason |
+| `agent_review_items` | The AI reviewer's item list (core): the right rules and approved checklist items for one paper, page hints, batches |
+| `agent_review_pages` | Page pictures for the AI reviewer (core): rendering and the image block; not wired into the first job (text pages only) |
+| `agent_review_absence` | The AI reviewer's absence proof (core): an absence Fail only when code proves it; off by default in the job |
+| `agent_review_wording` | The AI reviewer's words (core): Pass/Fail only when proven, else AI thinks met / not met; the one exit cap by current tier; counts per class |
+| `agent_review_crs` | The AI reviewer's CRS writers (core): internal and contractor xlsx; refuse an unproven Pass or Fail; contractor copy holds the proven Fail only |
 | `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
 | `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |
 | `agent_run_stats` | Honest counts (provider errors, failed tool calls, step-limit items), the 'run unreliable' words and the failure breaker of the agent proof test runner |

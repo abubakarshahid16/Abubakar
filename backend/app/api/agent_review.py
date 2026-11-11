@@ -307,7 +307,11 @@ def agent_trace(
     )
 
 
-@router.get("/api/reviews/runs/{review_run_id}/agent/crs", response_class=FileResponse)
+@router.get(
+    "/api/reviews/runs/{review_run_id}/agent/crs",
+    response_class=FileResponse,
+    responses={200: {"content": {XLSX: {"schema": {"type": "string", "format": "binary"}}}}},
+)
 def agent_crs(
     review_run_id: str,
     request: Request,

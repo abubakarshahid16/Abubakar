@@ -28,7 +28,9 @@ from tests import agent_review_support as s
 
 
 def reading(kind="datasheet", known=True):
-    return agent_review_kind.PaperReading(kind, known, "read by code", "title", False, None, None)
+    return agent_review_kind.PaperReading(
+        kind, known, "read by code", "title", False, None, None
+    )
 
 
 @pytest.fixture
@@ -37,7 +39,9 @@ def world(tmp_path, monkeypatch):
     fake = s.FakeModel()
     monkeypatch.setattr(agent_review_jobs, "lane", lambda: (fake, s.ENV))
     monkeypatch.setattr(agent_review_kind, "decide", lambda *_a, **_k: reading())
-    monkeypatch.setattr(agent_review_jobs, "_scope_run_id", lambda _c, _s, run_id, *_a: run_id)
+    monkeypatch.setattr(
+        agent_review_jobs, "_scope_run_id", lambda _c, _s, run_id, *_a: run_id
+    )
     monkeypatch.setattr(nothing_read, "read_phase", lambda *_a: None)
     doc, cache = s.item_doc()
 
@@ -58,7 +62,9 @@ _CACHE: dict = {}
 
 
 def start(paper=s.PAPER):
-    run_id, job_id = agent_review_jobs.enqueue(paper, allowed_document_ids=frozenset({paper}), requested_by=None)
+    run_id, job_id = agent_review_jobs.enqueue(
+        paper, allowed_document_ids=frozenset({paper}), requested_by=None
+    )
     claimed = agent_review_jobs.claim_next("w-test")
     assert claimed == job_id
     return run_id, job_id
@@ -69,7 +75,11 @@ def run_job(job_id):
 
 
 def lines_of(run_id):
-    rows = db.connect().execute("SELECT * FROM agent_review_line WHERE run_id = ?", (run_id,)).fetchall()
+    rows = (
+        db.connect()
+        .execute("SELECT * FROM agent_review_line WHERE run_id = ?", (run_id,))
+        .fetchall()
+    )
     return {r["item_id"]: dict(r) for r in rows}
 
 
@@ -85,15 +95,31 @@ def test_a_full_fake_model_review_writes_lines_both_copies_and_the_record(world)
     }
     assert lines["R-colour"]["reason"] == "not reviewed: no answer from the AI"
     assert lines["R-mark"]["rule_tier"] == "AI approved"
-    run = dict(db.connect().execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone())
-    assert (run["paper_kind"], run["partial"], run["stop_reason"], run["rule_set_changed_by"]) == ("datasheet", 0, None, None)
+    run = dict(
+        db.connect()
+        .execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()
+    )
+    assert (
+        run["paper_kind"],
+        run["partial"],
+        run["stop_reason"],
+        run["rule_set_changed_by"],
+    ) == ("datasheet", 0, None, None)
     assert run["usd"] > 0 and "fake-second-model-2" in run["models_json"]
     folder = agent_review_jobs.run_dir(run_id)
-    internal, contractor = load_workbook(folder / "crs-internal.xlsx"), load_workbook(folder / "crs-contractor.xlsx")
+    internal, contractor = (
+        load_workbook(folder / "crs-internal.xlsx"),
+        load_workbook(folder / "crs-contractor.xlsx"),
+    )
     assert internal.sheetnames and contractor.sheetnames
     trace = [json.loads(x) for x in (folder / "trace.jsonl").read_text().splitlines()]
     assert {t["type"] for t in trace} >= {"prompt", "batch", "item"}
-    status = db.connect().execute("SELECT status FROM review_runs WHERE id = ?", (run_id,)).fetchone()["status"]
+    status = (
+        db.connect()
+        .execute("SELECT status FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()["status"]
+    )
     assert status == "completed"
 
 
@@ -101,7 +127,10 @@ def test_the_contractor_copy_holds_the_proven_fail_only(world):
     run_id, job_id = start()
     run_job(job_id)
     ws = load_workbook(agent_review_jobs.run_dir(run_id) / "crs-contractor.xlsx").active
-    text = "\n".join(" | ".join(str(c) for c in row if c is not None) for row in ws.iter_rows(values_only=True))
+    text = "\n".join(
+        " | ".join(str(c) for c in row if c is not None)
+        for row in ws.iter_rows(values_only=True)
+    )
     assert "red" in text or "marking" in text.lower() or "Marking" in text
     for pass_word in ("Coating layers two", "Frame width 45 mm"):
         assert pass_word not in text  # a Pass never reaches the contractor
@@ -113,18 +142,30 @@ def test_a_pass_or_fail_needs_the_second_model_to_agree(world, monkeypatch):
     run_id, job_id = start()
     run_job(job_id)
     lines = lines_of(run_id)
-    assert lines["R-coat"]["word"] == "AI thinks: met" and lines["R-coat"]["verdict_class"] == "AI opinion, engineer to confirm"
+    assert (
+        lines["R-coat"]["word"] == "AI thinks: met"
+        and lines["R-coat"]["verdict_class"] == "AI opinion, engineer to confirm"
+    )
     assert lines["R-mark"]["word"] == "AI thinks: not met"
-    assert lines["R-frame"]["word"] == "Pass"  # a number line is decided by code, not by the second opinion
-    assert not [r for r in lines.values() if r["word"] in ("Pass", "Fail") and r["verdict_class"] != "Proven by code"]
+    assert (
+        lines["R-frame"]["word"] == "Pass"
+    )  # a number line is decided by code, not by the second opinion
+    assert not [
+        r
+        for r in lines.values()
+        if r["word"] in ("Pass", "Fail") and r["verdict_class"] != "Proven by code"
+    ]
 
 
-def test_a_rule_whose_tier_is_not_approved_now_never_becomes_pass_or_fail_and_buys_no_call(world):
+def test_a_rule_whose_tier_is_not_approved_now_never_becomes_pass_or_fail_and_buys_no_call(
+    world,
+):
     with db.connect() as conn:
-        conn.execute("DELETE FROM rule_label WHERE rule_ref IN ('req-R-coat', 'req-R-mark')") if False else None
         # the label table is the CURRENT tier: take the approval away from two rules (a person declined, the table says so)
         conn.execute("DROP TRIGGER IF EXISTS rule_label_no_delete")
-        conn.execute("DELETE FROM rule_label WHERE rule_ref IN ('req-R-coat', 'req-R-mark')")
+        conn.execute(
+            "DELETE FROM rule_label WHERE rule_ref IN ('req-R-coat', 'req-R-mark')"
+        )
         conn.commit()
     fake = world
     run_id, job_id = start()
@@ -134,12 +175,16 @@ def test_a_rule_whose_tier_is_not_approved_now_never_becomes_pass_or_fail_and_bu
         assert lines[iid]["word"] not in ("Pass", "Fail")
         assert lines[iid]["rule_tier"] == "Not AI approved"
         assert lines[iid]["verdict_class"] == "AI opinion, rule not yet approved"
-    assert fake.kinds.count("second") == 0 and fake.kinds.count("context") == 0  # nothing bought for them
+    assert (
+        fake.kinds.count("second") == 0 and fake.kinds.count("context") == 0
+    )  # nothing bought for them
     ws = load_workbook(agent_review_jobs.run_dir(run_id) / "crs-contractor.xlsx").active
-    assert "Marking blue" not in str([r for r in ws.iter_rows(values_only=True)])
+    assert "Marking blue" not in str(list(ws.iter_rows(values_only=True)))
 
 
-def test_a_cut_off_answer_is_asked_again_per_half_and_what_stays_unanswered_is_not_reviewed(world, monkeypatch):
+def test_a_cut_off_answer_is_asked_again_per_half_and_what_stays_unanswered_is_not_reviewed(
+    world, monkeypatch
+):
     fake = s.FakeModel(cut_first=True)
     monkeypatch.setattr(agent_review_jobs, "lane", lambda: (fake, s.ENV))
     run_id, job_id = start()
@@ -153,21 +198,41 @@ def test_a_cut_off_answer_is_asked_again_per_half_and_what_stays_unanswered_is_n
 
 
 def test_an_unknown_paper_kind_asks_nothing_and_the_run_says_so(world, monkeypatch):
-    monkeypatch.setattr(agent_review_kind, "decide", lambda *_a, **_k: reading(kind="unknown", known=False))
+    monkeypatch.setattr(
+        agent_review_kind,
+        "decide",
+        lambda *_a, **_k: reading(kind="unknown", known=False),
+    )
     run_id, job_id = start()
     assert run_job(job_id) == "done"
     assert world.lead_asked == [] and lines_of(run_id) == {}
-    run = dict(db.connect().execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone())
-    assert run["paper_kind"] == "unknown" and run["stop_reason"].startswith("paper_kind_unknown")
+    run = dict(
+        db.connect()
+        .execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()
+    )
+    assert run["paper_kind"] == "unknown" and run["stop_reason"].startswith(
+        "paper_kind_unknown"
+    )
 
 
-@pytest.mark.parametrize("kind", ["procedure", "contract", "drawing", "calculation", "other"])
-def test_a_kind_the_reviewer_is_not_enabled_for_asks_nothing_even_inside_the_job(world, monkeypatch, kind):
-    monkeypatch.setattr(agent_review_kind, "decide", lambda *_a, **_k: reading(kind=kind))
+@pytest.mark.parametrize(
+    "kind", ["procedure", "contract", "drawing", "calculation", "other"]
+)
+def test_a_kind_the_reviewer_is_not_enabled_for_asks_nothing_even_inside_the_job(
+    world, monkeypatch, kind
+):
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading(kind=kind)
+    )
     run_id, job_id = start()
     run_job(job_id)
     assert world.lead_asked == [] and lines_of(run_id) == {}
-    run = dict(db.connect().execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone())
+    run = dict(
+        db.connect()
+        .execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()
+    )
     assert run["stop_reason"].startswith("kind_not_enabled")
 
 
@@ -177,7 +242,11 @@ def test_a_cap_stop_writes_a_partial_run_with_the_reason(world, monkeypatch):
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.0001)
     run_id, job_id = start()
     assert run_job(job_id) == "done"
-    run = dict(db.connect().execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone())
+    run = dict(
+        db.connect()
+        .execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()
+    )
     assert run["partial"] == 1 and run["stop_reason"].startswith("app_step_cap")
     assert world.lead_asked == []  # nothing was sent: the cap refused before the call
     assert {v["word"] for v in lines_of(run_id).values()} == {"Not reviewed"}
@@ -189,12 +258,19 @@ def test_a_restart_asks_only_the_items_without_a_line(world, monkeypatch):
     first_calls = len(world.lead_asked)
     # the process died after the first pass: the job is claimed again and resumes from the stored lines
     with db.connect() as conn:
-        conn.execute("UPDATE jobs SET state = 'running', claimed_by = 'w-test' WHERE id = ?", (job_id,))
-        conn.execute("UPDATE review_runs SET status = 'running' WHERE id = ?", (run_id,))
+        conn.execute(
+            "UPDATE jobs SET state = 'running', claimed_by = 'w-test' WHERE id = ?",
+            (job_id,),
+        )
+        conn.execute(
+            "UPDATE review_runs SET status = 'running' WHERE id = ?", (run_id,)
+        )
     before = lines_of(run_id)
     run_job(job_id)
     asked_again = [i for batch in world.lead_asked[first_calls:] for i in batch]
-    assert set(asked_again) == {"R-colour"}  # only the item that had no answer; the three decided lines are kept
+    assert set(asked_again) == {
+        "R-colour"
+    }  # only the item that had no answer; the three decided lines are kept
     after = lines_of(run_id)
     for iid in ("R-coat", "R-frame", "R-mark"):
         assert after[iid]["line_json"] == before[iid]["line_json"]
@@ -206,48 +282,84 @@ def test_a_stored_pass_of_a_rule_no_longer_approved_is_capped_on_resume(world):
     with db.connect() as conn:
         conn.execute("DROP TRIGGER IF EXISTS rule_label_no_delete")
         conn.execute("DELETE FROM rule_label WHERE rule_ref = 'req-R-coat'")
-        conn.execute("UPDATE jobs SET state = 'running', claimed_by = 'w-test' WHERE id = ?", (job_id,))
-        conn.execute("UPDATE review_runs SET status = 'running' WHERE id = ?", (run_id,))
+        conn.execute(
+            "UPDATE jobs SET state = 'running', claimed_by = 'w-test' WHERE id = ?",
+            (job_id,),
+        )
+        conn.execute(
+            "UPDATE review_runs SET status = 'running' WHERE id = ?", (run_id,)
+        )
     run_job(job_id)
     line = lines_of(run_id)["R-coat"]
-    assert line["word"] not in ("Pass", "Fail") and line["rule_tier"] == "Not AI approved"
+    assert (
+        line["word"] not in ("Pass", "Fail") and line["rule_tier"] == "Not AI approved"
+    )
 
 
 def test_no_paper_or_rule_book_text_reaches_a_log(world, caplog):
     caplog.set_level(logging.DEBUG)
-    run_id, job_id = start()
+    _run_id, job_id = start()
     run_job(job_id)
     logged = "\n".join(r.getMessage() for r in caplog.records)
-    for secret in ("Coating layers two", "Frame width 45 mm", "Marking blue", "marking shall be in red", "INV-STD-100", "frame width"):
+    for secret in (
+        "Coating layers two",
+        "Frame width 45 mm",
+        "Marking blue",
+        "marking shall be in red",
+        "INV-STD-100",
+        "frame width",
+    ):
         assert secret not in logged, secret
-    assert run_id not in "" and "agent review" in logged  # the run did log, with counts and codes only
+    assert "agent review" in logged  # the run did log, with counts and codes only
 
 
-def test_the_switch_off_claims_no_job_creates_no_table_and_refuses_to_enqueue(tmp_path, monkeypatch):
+def test_the_switch_off_claims_no_job_creates_no_table_and_refuses_to_enqueue(
+    tmp_path, monkeypatch
+):
     s.setup_world(tmp_path, monkeypatch, on=False)
     assert agent_review_schema.has_tables(db.connect()) is False
     agent_review_schema.ensure_schema()
     assert agent_review_schema.has_tables(db.connect()) is False
     with pytest.raises(agent_review_gate.FeatureOff):
-        agent_review_jobs.enqueue(s.PAPER, allowed_document_ids=frozenset({s.PAPER}), requested_by=None)
-    assert agent_review_jobs.claim_next("w") is None and agent_review_jobs.recover_stale() == 0
+        agent_review_jobs.enqueue(
+            s.PAPER, allowed_document_ids=frozenset({s.PAPER}), requested_by=None
+        )
+    assert (
+        agent_review_jobs.claim_next("w") is None
+        and agent_review_jobs.recover_stale() == 0
+    )
     # a queued agent job already in the table stays queued, unclaimed
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, priority) VALUES"
-            " ('j1', ?, 'agent_review', 'queued', 'x', 'x', 0)", (s.PAPER,))
+            " ('j1', ?, 'agent_review', 'queued', 'x', 'x', 0)",
+            (s.PAPER,),
+        )
     assert agent_review_jobs.claim_next("w") is None
-    assert db.connect().execute("SELECT state FROM jobs WHERE id = 'j1'").fetchone()["state"] == "queued"
+    assert (
+        db.connect()
+        .execute("SELECT state FROM jobs WHERE id = 'j1'")
+        .fetchone()["state"]
+        == "queued"
+    )
 
 
-def test_the_worker_claims_a_classic_job_first_and_leaves_the_classic_path_alone(world, monkeypatch):
+def test_the_worker_claims_a_classic_job_first_and_leaves_the_classic_path_alone(
+    world, monkeypatch
+):
     calls = []
     from app import review_jobs
 
     monkeypatch.setattr(review_jobs, "recover_stale", lambda: 0)
-    monkeypatch.setattr(review_jobs, "claim_next", lambda _w: calls.append("classic") or "job-classic")
-    monkeypatch.setattr(review_jobs, "run", lambda *_a, **_k: calls.append("classic-run") or "done")
-    monkeypatch.setattr(agent_review_jobs, "claim_next", lambda _w: calls.append("agent") or None)
+    monkeypatch.setattr(
+        review_jobs, "claim_next", lambda _w: calls.append("classic") or "job-classic"
+    )
+    monkeypatch.setattr(
+        review_jobs, "run", lambda *_a, **_k: calls.append("classic-run") or "done"
+    )
+    monkeypatch.setattr(
+        agent_review_jobs, "claim_next", lambda _w: calls.append("agent") or None
+    )
 
     class W(worker_review.ReviewDrain):
         last_beat = last_progress = 0.0
@@ -256,16 +368,25 @@ def test_the_worker_claims_a_classic_job_first_and_leaves_the_classic_path_alone
         last_error = None
 
     assert W()._drain_review_jobs() is True
-    assert calls == ["classic", "classic-run"]  # the agent stage is not even asked while a classic job is waiting
+    assert calls == [
+        "classic",
+        "classic-run",
+    ]  # the agent stage is not even asked while a classic job is waiting
 
 
-def test_the_approved_list_still_applies_an_unapproved_document_stops_the_run_with_a_code(world, monkeypatch):
+def test_the_approved_list_still_applies_an_unapproved_document_stops_the_run_with_a_code(
+    world, monkeypatch
+):
     from app.config import settings
 
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     monkeypatch.setattr(claude_approved, "approved_hashes", lambda: frozenset())
     run_id, job_id = start()
     run_job(job_id)
-    run = dict(db.connect().execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone())
+    run = dict(
+        db.connect()
+        .execute("SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()
+    )
     assert run["partial"] == 1 and "not_approved" in run["stop_reason"]
     assert world.lead_asked == []  # nothing was sent
