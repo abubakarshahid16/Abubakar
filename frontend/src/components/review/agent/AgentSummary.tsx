@@ -4,7 +4,7 @@
  * percentage. A null cost renders nothing (never 0).
  */
 import type { AgentRunSummary } from "../../../types/api";
-import { CLASS_ORDER, CLASS_STYLE, NOT_REVIEWED_NOTE, isKnownClass } from "./agentWords";
+import { CLASS_ORDER, CLASS_STYLE, NOT_REVIEWED_NOTE, isKnownClass, modeWords } from "./agentWords";
 
 export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
   const counts = summary.counts_by_class;
@@ -17,6 +17,18 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
         <dt className="text-slateish-400">Paper kind</dt>
         <dd className="text-slateish-100">{summary.paper_kind} <span className="text-slateish-400">(decided by: {summary.paper_kind_source})</span></dd>
+        <dt className="text-slateish-400">Review</dt>
+        <dd className="text-slateish-100" data-testid="agent-mode">{modeWords(summary.mode)}</dd>
+        {summary.mode === "general review" && (
+          <>
+            <dt className="text-slateish-400">Project papers</dt>
+            <dd className="text-slateish-100" data-testid="agent-project-papers">
+              {(summary.project_papers_used ?? []).length > 0
+                ? `Project papers used: ${summary.project_papers_used.map((p) => p.name).join(", ")}`
+                : "No project paper was given to check against"}
+            </dd>
+          </>
+        )}
         <dt className="text-slateish-400">Equipment type</dt>
         <dd className="text-slateish-100">{summary.equipment_type ? summary.equipment_type : "not known"}</dd>
         {cost != null && (<><dt className="text-slateish-400">Cost</dt><dd className="text-slateish-100">USD {cost.toFixed(2)}</dd></>)}

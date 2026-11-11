@@ -39,7 +39,10 @@ const UNDECIDED = new Set(["", "unknown", "not decided", "not known"]);
 
 const has = (text: string, needle: string) => text.toLowerCase().includes(needle);
 
-export function RulesUsedView({ data }: { data: AgentRulesUsed }) {
+export const GENERAL_NO_RULES =
+  "General review: no rule was asked. Rule books the paper cites that we do not hold are listed below.";
+
+export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed; general?: boolean }) {
   const [filter, setFilter] = useState("");
   const needle = filter.trim().toLowerCase();
   const asked = useMemo(
@@ -75,13 +78,15 @@ export function RulesUsedView({ data }: { data: AgentRulesUsed }) {
         <p className="text-xs text-slateish-400">View only. The rules are chosen automatically; this page shows what was chosen.</p>
       </header>
 
-      <div>
+      {general && <p data-testid="rules-general" className="text-sm text-slateish-100">{GENERAL_NO_RULES}</p>}
+      {!general && <div>
         <label htmlFor="rules-filter" className="block text-sm text-slateish-200">Filter by rule book, approval or reason</label>
         <input id="rules-filter" type="search" value={filter} onChange={(e) => setFilter(e.target.value)}
           className="mt-1 w-full max-w-md rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 px-2 py-1 text-sm text-slateish-100" />
         <p className="text-xs text-slateish-400">The filter only narrows what is shown below; it changes no rule.</p>
-      </div>
+      </div>}
 
+      {!general && <>
       <section aria-labelledby="rules-books-title" className="space-y-1">
         <h3 id="rules-books-title" className="text-base font-semibold text-slateish-100">Rule books</h3>
         {data.books.length === 0 ? (
@@ -173,6 +178,7 @@ export function RulesUsedView({ data }: { data: AgentRulesUsed }) {
         )}
       </section>
 
+      </>}
       <section aria-labelledby="rules-missing-title" className="space-y-1">
         <h3 id="rules-missing-title" className="text-base font-semibold text-slateish-100">Rule books we do not hold</h3>
         {data.missing_books.length === 0 ? (
@@ -192,14 +198,15 @@ export function RulesUsedView({ data }: { data: AgentRulesUsed }) {
 
 export function RulesUsedPanel({ runId }: { runId: string }) {
   const [data, setData] = useState<AgentRulesUsed | null>(null);
+  const [general, setGeneral] = useState(false);
   const [state, setState] = useState<"loading" | "ok" | "none" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     setState("loading"); setData(null);
-    void agentReview.rulesUsed(runId).then((r) => {
+    void Promise.all([agentReview.rulesUsed(runId), agentReview.summary(runId)]).then(([r, sum]) => {
       if (!live) return;
-      if (r.ok) { setData(r.data); setState("ok"); return; }
+      if (r.ok) { setGeneral(sum.ok && sum.data.mode === "general review"); setData(r.data); setState("ok"); return; }
       if (isFeatureOff(r)) { setState("none"); return; }
       setError(r.error.message); setState("error");
     });
@@ -208,5 +215,5 @@ export function RulesUsedPanel({ runId }: { runId: string }) {
   if (state === "loading") return <p role="status" className="text-sm text-slateish-400">Reading the rules used…</p>;
   if (state === "none") return <p data-testid="rules-not-agent" className="text-sm text-slateish-300">{NOT_AGENT_RULES}</p>;
   if (state === "error" || !data) return <p role="alert" className="text-sm text-red-400">{error}</p>;
-  return <RulesUsedView data={data} />;
+  return <RulesUsedView data={data} general={general} />;
 }

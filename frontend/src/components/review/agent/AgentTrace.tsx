@@ -36,6 +36,7 @@ export function AgentTrace({ runId, itemId, onClose }: { runId: string; itemId: 
             <dt className="text-slateish-400">Page</dt><dd>{trace.page != null ? trace.page : "no single page"}</dd>
             <dt className="text-slateish-400">Paper quote</dt><dd className="break-words">{trace.paper_quote}</dd>
             <dt className="text-slateish-400">Rule quote</dt><dd className="break-words">{trace.rule_quote}</dd>
+            {trace.other_quote && (<><dt className="text-slateish-400">Second quote</dt><dd className="break-words">{trace.other_quote}</dd></>)}
             <dt className="text-slateish-400">Rule book</dt><dd>{trace.rule_book}</dd>
             <dt className="text-slateish-400">Clause</dt><dd>{trace.clause}</dd>
             <dt className="text-slateish-400">Model</dt><dd>{trace.model}</dd>

@@ -12,7 +12,7 @@ function summary(over: Partial<AgentRunSummary> = {}): AgentRunSummary {
   return {
     paper_kind: "datasheet", paper_kind_source: "title page", equipment_type: "pump", counts_by_class: {
       "Proven by code": 4, "AI opinion, engineer to confirm": 2, "AI opinion, rule not yet approved": 1,
-    }, usd: 1.5, models: ["model-a"], stop_reason: null, missing_books: ["Book Z"], equipment_state: null, equipment_notes: [], not_reviewed: 0, ...over,
+    }, usd: 1.5, models: ["model-a"], stop_reason: null, missing_books: ["Book Z"], equipment_state: null, equipment_notes: [], not_reviewed: 0, mode: "rule review", project_papers_used: [], ...over,
   };
 }
 
@@ -64,5 +64,25 @@ describe("AgentSummary: equipment notes", () => {
     expect(screen.getByTestId("equipment-notes")).toHaveTextContent("12 rules were left out for it");
     rerender(<AgentSummary summary={summary()} />);
     expect(screen.queryByTestId("equipment-notes")).toBeNull();
+  });
+});
+
+describe("AgentSummary: mode and project papers", () => {
+  it("a rule review says Rule review and shows no project paper line", () => {
+    render(<AgentSummary summary={summary()} />);
+    expect(screen.getByTestId("agent-mode")).toHaveTextContent(/^Rule review$/);
+    expect(screen.queryByTestId("agent-project-papers")).toBeNull();
+  });
+  it("a general review says so in plain words and names the project papers, or says none was given", () => {
+    const { rerender } = render(<AgentSummary summary={summary({ mode: "general review", project_papers_used: [{ document_id: "d1", name: "Paper A" }, { document_id: "d2", name: "Paper B" }] })} />);
+    expect(screen.getByTestId("agent-mode")).toHaveTextContent("General review: no rule book held; AI notes and queries only, internal");
+    expect(screen.getByTestId("agent-project-papers")).toHaveTextContent("Project papers used: Paper A, Paper B");
+    rerender(<AgentSummary summary={summary({ mode: "general review" })} />);
+    expect(screen.getByTestId("agent-project-papers")).toHaveTextContent("No project paper was given to check against");
+  });
+  it("counts the two general-review classes apart", () => {
+    render(<AgentSummary summary={summary({ mode: "general review", counts_by_class: { "Not checked: rule book not held": 4, "AI note, no rule book": 9 } })} />);
+    expect(screen.getByTestId("count-Not checked: rule book not held")).toHaveTextContent(": 4");
+    expect(screen.getByTestId("count-AI note, no rule book")).toHaveTextContent(": 9");
   });
 });

@@ -12,11 +12,12 @@ import type { AgentRulesUsed } from "../../../types/api";
 import { NOT_AGENT_RULES, RulesUsedPanel, RulesUsedView } from "./RulesUsedPanel";
 
 const rulesUsed = vi.fn();
+const summaryFn = vi.fn();
 vi.mock("../../../api/agentReview", () => ({
-  agentReview: { rulesUsed: (...a: unknown[]) => rulesUsed(...a) },
+  agentReview: { rulesUsed: (...a: unknown[]) => rulesUsed(...a), summary: (...a: unknown[]) => summaryFn(...a) },
   isFeatureOff: (r: { ok: boolean; error?: { code: string } }) => !r.ok && r.error?.code === "not_found",
 }));
-beforeEach(() => rulesUsed.mockReset());
+beforeEach(() => { rulesUsed.mockReset(); summaryFn.mockReset().mockResolvedValue({ ok: true, data: { mode: "rule review" } }); });
 
 function data(over: Partial<AgentRulesUsed> = {}): AgentRulesUsed {
   return {
@@ -180,5 +181,30 @@ describe("RulesUsedView: percentage and warning agree", () => {
     render(<RulesUsedView data={d} />);
     expect(screen.getByTestId("books")).toHaveTextContent("(50%)");
     expect(screen.queryByRole("note")).toBeNull();
+  });
+});
+
+describe("Rules used for a general review", () => {
+  it("says no rule was asked, lists the books not held, and shows no asked or left-out table", () => {
+    render(<RulesUsedView general data={data({ asked: [], left_out: [], left_out_counts: {} })} />);
+    expect(screen.getByTestId("rules-general")).toHaveTextContent("General review: no rule was asked. Rule books the paper cites that we do not hold are listed below.");
+    expect(screen.getByText("Book Q: not in the library")).toBeInTheDocument();
+    expect(screen.queryByTestId("asked-empty")).toBeNull();
+    expect(screen.queryByTestId("left-empty")).toBeNull();
+    expect(screen.queryByTestId("books-empty")).toBeNull();
+    expect(screen.queryByLabelText("Filter by rule book, approval or reason")).toBeNull();
+  });
+  it("the panel picks the general state from the summary's mode", async () => {
+    rulesUsed.mockResolvedValue({ ok: true, data: data({ asked: [] }) });
+    summaryFn.mockResolvedValue({ ok: true, data: { mode: "general review" } });
+    render(<RulesUsedPanel runId="r1" />);
+    expect(await screen.findByTestId("rules-general")).toBeInTheDocument();
+  });
+  it("a rule review keeps the tables", async () => {
+    rulesUsed.mockResolvedValue({ ok: true, data: data() });
+    render(<RulesUsedPanel runId="r1" />);
+    await screen.findByTestId("rules-used");
+    expect(screen.queryByTestId("rules-general")).toBeNull();
+    expect(screen.getByTestId("asked-count")).toBeInTheDocument();
   });
 });

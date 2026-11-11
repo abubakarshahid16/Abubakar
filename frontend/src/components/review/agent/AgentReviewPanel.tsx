@@ -57,7 +57,7 @@ export function AgentReviewPanel({ runId }: { runId: string }) {
         <span className="text-xs text-slateish-400">The contractor copy holds only the failures code proved.</span>
         {fileError && <span role="alert" className="text-xs text-red-400">{fileError}</span>}
       </div>
-      <AgentLines runId={runId} onOpenTrace={setTrace} />
+      <AgentLines runId={runId} onOpenTrace={setTrace} mode={summary.mode} />
       {trace && <AgentTrace runId={runId} itemId={trace} onClose={() => setTrace(null)} />}
     </div>
   );

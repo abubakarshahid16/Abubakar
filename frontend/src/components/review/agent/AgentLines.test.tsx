@@ -46,7 +46,7 @@ describe("AgentLines", () => {
       const block = screen.getByTestId(`block-${klass}`);
       expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${word}$`));
     }
-    expect(CLASS_ORDER).toHaveLength(6);
+    expect(CLASS_ORDER).toHaveLength(8);
     expect(screen.getByRole("table", { name: "AI opinion, rule not yet approved" })).toBeInTheDocument();
   });
 
@@ -66,7 +66,7 @@ describe("AgentLines", () => {
   });
 
   it("an unknown class is a data error and never shows Pass", () => {
-    expect(lineView({ verdict_class: "Made up" as never, word: "Pass" })).toEqual({ klass: null, word: null, dataError: true });
+    expect(lineView({ verdict_class: "Made up", word: "Pass" })).toEqual({ klass: null, word: null, dataError: true });
   });
 
   it("pages by cursor and says what it has loaded", async () => {
@@ -145,5 +145,75 @@ describe("AgentLines: guards both ways, tier words, the not-approved block", () 
     render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
     await screen.findByTestId("word-E1");
     expect(screen.queryByTestId("block-empty-not-approved")).toBeNull();
+  });
+});
+
+describe("AgentLines: general review", () => {
+  const g = (over: Partial<AgentLine>) => line({ rule_tier: null, rule_book: "", clause: "", ...over });
+  const GEN = "general review" as const;
+  /** MUTATION PROOF: drop a class from CLASS_WORDS or the mode check and these fail. */
+  it("each new class renders its exact word, in its own block, in the general order", async () => {
+    lines.mockResolvedValue(ok([
+      g({ item_id: "R1", verdict_class: "Not reviewed", word: "Not reviewed" }),
+      g({ item_id: "Q1", verdict_class: "Query for the engineer", word: "Query" }),
+      g({ item_id: "N1", verdict_class: "AI note, no rule book", word: "AI note", part: "engineering comment" }),
+      g({ item_id: "H1", verdict_class: "Not checked: rule book not held", word: "Not checked", part: "not held" }),
+    ]));
+    render(<AgentLines runId="r1" mode={GEN} onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-H1");
+    expect(screen.getByTestId("word-H1")).toHaveTextContent(/^Not checked$/);
+    expect(screen.getByTestId("word-N1")).toHaveTextContent(/^AI note$/);
+    const order = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent ?? "");
+    const idx = (t: string) => order.findIndex((o) => o.includes(t));
+    expect(idx("Not checked: rule book not held")).toBeLessThan(idx("AI note, no rule book"));
+    expect(idx("AI note, no rule book")).toBeLessThan(idx("Query for the engineer"));
+    expect(idx("Query for the engineer")).toBeLessThan(idx("Not reviewed"));
+    expect(screen.queryByTestId("block-empty-not-approved")).toBeNull();
+  });
+  it("shows the Part column in plain words, sorts notes by part, and marks the model's words", async () => {
+    lines.mockResolvedValue(ok([
+      g({ item_id: "N2", verdict_class: "AI note, no rule book", word: "AI note", part: "engineering comment", text_source: "the model's words" }),
+      g({ item_id: "N1", verdict_class: "AI note, no rule book", word: "AI note", part: "paper against itself", text_source: "quote" }),
+    ]));
+    render(<AgentLines runId="r1" mode={GEN} onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-N1");
+    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
+    expect(screen.getByText("Paper checked against itself")).toBeInTheDocument();
+    expect(screen.getByText("Engineering comment")).toBeInTheDocument();
+    const rows = screen.getAllByRole("row").map((r) => r.textContent ?? "");
+    expect(rows.findIndex((r) => r.includes("N1"))).toBeLessThan(rows.findIndex((r) => r.includes("N2")));
+    expect(screen.getByTestId("model-words-N2")).toHaveTextContent("the model's words, not a quote");
+    expect(screen.queryByTestId("model-words-N1")).toBeNull();
+  });
+  it("a rule review has no Part column", async () => {
+    lines.mockResolvedValue(ok([line({ item_id: "X" })]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-X");
+    expect(screen.queryByRole("columnheader", { name: "Part" })).toBeNull();
+  });
+  it("a general review never shows Pass or Fail, even if the API sent them; no proven styling", async () => {
+    lines.mockResolvedValue(ok([
+      g({ item_id: "P1", verdict_class: "Proven by code", word: "Pass" }),
+      g({ item_id: "P2", verdict_class: "AI note, no rule book", word: "Fail", part: "checklist" }),
+    ]));
+    render(<AgentLines runId="r1" mode={GEN} onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-P1");
+    expect(screen.queryByText("Pass")).toBeNull();
+    expect(screen.queryByText("Fail")).toBeNull();
+    expect(screen.getAllByText(DATA_ERROR_NOTE)).toHaveLength(2);
+  });
+  it("a class the screen does not know shows as unknown class with the data-error note", async () => {
+    lines.mockResolvedValue(ok([g({ item_id: "U1", verdict_class: "Future class" as AgentLine["verdict_class"], word: "Future" as AgentLine["word"] })]));
+    render(<AgentLines runId="r1" mode={GEN} onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-U1");
+    expect(screen.getByTestId("word-U1")).toHaveTextContent("unknown class");
+    expect(screen.getByTestId("word-U1")).toHaveTextContent(DATA_ERROR_NOTE);
+  });
+  it("a new class carrying a word of another class is a data error", async () => {
+    lines.mockResolvedValue(ok([g({ item_id: "B1", verdict_class: "AI note, no rule book", word: "AI thinks: met" })]));
+    render(<AgentLines runId="r1" mode={GEN} onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-B1");
+    expect(screen.queryByText("AI thinks: met")).toBeNull();
+    expect(screen.getByTestId("word-B1")).toHaveTextContent(DATA_ERROR_NOTE);
   });
 });
