@@ -1,0 +1,381 @@
+"""The AI reviewer's routes (#1690). Every route answers 404 "feature_off" while `agent_review_gate.enabled()` is off.
+
+    POST /api/reviews/agent-run                          start an AI review of one datasheet (409 for any other kind)
+    GET  /api/reviews/agent-status                       {enabled, claude_lane_open}
+    GET  /api/reviews/runs/{id}/agent/summary            counts per class, spend, stop reason, missing rule books
+    GET  /api/reviews/runs/{id}/agent/lines              the CRS lines, one page at a time
+    GET  /api/reviews/runs/{id}/agent/lines/{item}/trace page, quote, rule, clause, model, reason, every gate step
+    GET  /api/reviews/runs/{id}/agent/crs?copy=...       the CRS as xlsx: internal, or contractor (proven Fail only)
+    GET  /api/reviews/runs/{id}/rules-used               every rule asked or left out, and the books we do not hold
+
+SCOPE: the same check as the other review routes (`access.current_scope`, `submittal_review.get_review_run`): a run the caller
+may not read is a 404, indistinguishable from one that does not exist. A filter may only NARROW what the caller may read.
+A GET never writes (no table is created by a read; a switch just turned on with no run yet answers 404). Every line is built
+with the contract model's constructor, so its class / word / tier table is validated on the way out.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
+
+from .. import (
+    access,
+    agent_review_coverage,
+    agent_review_gate,
+    agent_review_jobs,
+    agent_review_kind,
+    agent_review_schema,
+    errors,
+    review_jobs,
+    schemas,
+    submittal_review,
+)
+from .. import (
+    admin as admin_mod,
+)
+from ..api_utils import (
+    _require_identity_to_write,
+    reject_unknown_params,
+    require_document,
+)
+from ..db import connect
+from . import agent_review_schemas as contract
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+PAGE_MAX = 500
+
+
+def _require_on() -> None:
+    if not agent_review_gate.enabled():
+        raise HTTPException(status_code=404, detail=agent_review_gate.FEATURE_OFF)
+
+
+router = APIRouter(dependencies=[Depends(_require_on)])
+
+
+def _run_or_404(run_id: str, scope: access.AccessScope) -> dict:
+    """The run row of an AI review the caller may read; 404 otherwise (and when no table exists yet: a read creates none)."""
+    run = submittal_review.get_review_run(
+        run_id, allowed_document_ids=scope.allowed_document_ids
+    )
+    conn = connect()
+    if run is None or not agent_review_schema.has_tables(conn):
+        raise HTTPException(status_code=404, detail="no such AI review")
+    row = conn.execute(
+        "SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such AI review")
+    return dict(row)
+
+
+@router.get("/api/reviews/agent-status", response_model=contract.AgentStatus)
+def agent_status(request: Request):
+    reject_unknown_params(request, set())
+    return contract.AgentStatus(
+        enabled=True, claude_lane_open=agent_review_gate.claude_lane_open()
+    )
+
+
+@router.post(
+    "/api/reviews/agent-run",
+    response_model=schemas.ReviewRunSummary,
+    responses={
+        **schemas.ERRORS_401,
+        **schemas.ERRORS_404,
+        **schemas.ERRORS_409,
+        **schemas.ERRORS_422,
+    },
+)
+def start_agent_run(
+    body: contract.AgentRunRequest,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
+):
+    """Queue an AI review of one submittal. ADMIN-GATED like the classic review. Only a datasheet is accepted (owner, 11 Nov
+    2026): any other kind, or one that is unknown, is a 409 `kind_not_enabled` with no job, no call and no charge."""
+    _require_identity_to_write(scope)
+    reject_unknown_params(request, set())
+    document_id = body.submittal_document_id
+    require_document(document_id, scope)
+    reading = agent_review_kind.decide(document_id, scope.allowed_document_ids)
+    if not (reading.known and agent_review_gate.kind_enabled(reading.kind)):
+        detail = errors.safe_error(
+            errors.INVALID_PARAMETER,
+            agent_review_gate.KIND_NOT_ENABLED_MESSAGE,
+            document_id=document_id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={**detail, "code": agent_review_gate.KIND_NOT_ENABLED},
+        )
+    try:
+        run_id, _job = agent_review_jobs.enqueue(
+            document_id,
+            allowed_document_ids=scope.allowed_document_ids,
+            requested_by=scope.user_id,
+        )
+    except review_jobs.ReviewAlreadyActive as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=errors.safe_error(
+                errors.INVALID_PARAMETER,
+                f"a review of this submittal is already queued or running ({exc.args[0]})",
+            ),
+        ) from exc
+    from .. import main as main_mod  # main imports this module through run_summary
+
+    run = submittal_review.get_review_run(
+        run_id, allowed_document_ids=scope.allowed_document_ids
+    )
+    return main_mod._run_summary(run, scope)
+
+
+@router.get(
+    "/api/reviews/runs/{review_run_id}/agent/summary",
+    response_model=contract.AgentRunSummary,
+)
+def agent_summary(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, set())
+    run = _run_or_404(review_run_id, scope)
+    conn = connect()
+    counts = {
+        r["verdict_class"]: r["n"]
+        for r in conn.execute(
+            "SELECT verdict_class, COUNT(*) AS n FROM agent_review_line WHERE run_id = ? GROUP BY verdict_class",
+            (review_run_id,),
+        )
+    }
+    books = [
+        r["name"]
+        for r in conn.execute(
+            "SELECT name FROM agent_review_missing_book WHERE run_id = ? ORDER BY name",
+            (review_run_id,),
+        )
+    ]
+    return contract.AgentRunSummary(
+        paper_kind=run["paper_kind"],
+        paper_kind_source=run["kind_source"],
+        equipment_type=run["equipment_type"],
+        counts_by_class=counts,
+        usd=run["usd"],
+        models=json.loads(run["models_json"] or "[]"),
+        stop_reason=run["stop_reason"],
+        missing_books=books,
+        not_reviewed=counts.get("Not reviewed", 0),
+    )
+
+
+@router.get(
+    "/api/reviews/runs/{review_run_id}/agent/lines",
+    response_model=contract.AgentLineList,
+)
+def agent_lines(
+    review_run_id: str,
+    request: Request,
+    cursor: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=PAGE_MAX),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, {"cursor", "limit"})
+    _run_or_404(review_run_id, scope)
+    rows = (
+        connect()
+        .execute(
+            "SELECT rowid AS rid, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier"
+            " FROM agent_review_line WHERE run_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+            (review_run_id, cursor, limit + 1),
+        )
+        .fetchall()
+    )
+    page = rows[:limit]
+    lines = [
+        contract.AgentLine.model_validate(
+            {k: v for k, v in dict(r).items() if k != "rid"}
+        )  # the contract's own table checks
+        for r in page
+    ]
+    more = len(rows) > limit
+    return contract.AgentLineList(
+        lines=lines, next=str(page[-1]["rid"]) if more and page else None
+    )
+
+
+def _gate_steps(line: dict) -> list[contract.AgentGateStep]:
+    """What code checked on one line, in order, from the stored line (words only)."""
+    qc = line.get("quotes_checked") or {}
+    steps = [
+        (
+            "paper quote",
+            "verified" if qc.get("paper") else "not verified",
+            str(qc.get("paper_why") or ""),
+        ),
+        (
+            "rule quote",
+            "verified" if qc.get("clause") else "not verified",
+            str(qc.get("clause_why") or ""),
+        ),
+    ]
+    if line.get("compare"):
+        steps.append(
+            (
+                "numbers compared by code",
+                str((line["compare"] or {}).get("decided") or "compared"),
+                "",
+            )
+        )
+    second = line.get("second_opinion")
+    if second:
+        steps.append(
+            (
+                "second opinion (another model)",
+                {True: "agrees", False: "disagrees"}.get(
+                    second.get("agree"), "no answer"
+                ),
+                "",
+            )
+        )
+    if line.get("context_check"):
+        steps.append(
+            (
+                "rule-book page context check",
+                str(line["context_check"]),
+                str(line.get("why") or ""),
+            )
+        )
+    for key, step in (
+        ("conditional_hold", "conditional rule"),
+        ("table_note_hold", "table row or note"),
+        ("unapproved_cap", "rule not approved"),
+    ):
+        if line.get(key):
+            steps.append((step, "held: not proven", str(line.get("why") or "")))
+    steps.append(
+        (
+            "decision",
+            str(line.get("verdict_label") or line.get("verdict") or ""),
+            str(line.get("not_proven_reason") or ""),
+        )
+    )
+    return [contract.AgentGateStep(step=a, outcome=b, reason=c) for a, b, c in steps]
+
+
+@router.get(
+    "/api/reviews/runs/{review_run_id}/agent/lines/{item_id}/trace",
+    response_model=contract.AgentTrace,
+)
+def agent_trace(
+    review_run_id: str,
+    item_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, set())
+    _run_or_404(review_run_id, scope)
+    row = (
+        connect()
+        .execute(
+            "SELECT line_json, reason FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            (review_run_id, item_id),
+        )
+        .fetchone()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such line")
+    line = json.loads(row["line_json"])
+    page = line.get("paper_page")
+    return contract.AgentTrace(
+        item_id=item_id,
+        page=page if isinstance(page, int) and page >= 1 else None,
+        paper_quote=str(line.get("paper_quote") or ""),
+        rule_quote=str(line.get("clause_quote") or line.get("requirement") or ""),
+        rule_book=str(line.get("standard") or ""),
+        clause=str(line.get("clause") or ""),
+        model=str(line.get("model") or ""),
+        reason=str(row["reason"] or ""),
+        gate=_gate_steps(line),
+    )
+
+
+@router.get("/api/reviews/runs/{review_run_id}/agent/crs", response_class=FileResponse)
+def agent_crs(
+    review_run_id: str,
+    request: Request,
+    copy: Literal["internal", "contractor"] = Query(...),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, {"copy"})
+    _run_or_404(review_run_id, scope)
+    path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="the CRS is not written yet")
+    return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")
+
+
+def _coverage_for(rules: list) -> list[contract.AgentBookCoverage]:
+    """One entry per rule book that was asked or left out; numbers from the coverage file, None without a row."""
+    coverage = agent_review_coverage.load()
+    seen: dict[tuple, None] = {}
+    for r in rules:
+        seen.setdefault((r["standard_document_id"], r["rule_book"]), None)
+    return [
+        contract.AgentBookCoverage(
+            **agent_review_coverage.row_for(coverage.get(str(doc)), str(name or ""))
+        )
+        for doc, name in sorted(seen, key=lambda k: (str(k[1]), str(k[0])))
+    ]
+
+
+@router.get(
+    "/api/reviews/runs/{review_run_id}/rules-used",
+    response_model=contract.AgentRulesUsed,
+)
+def rules_used(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    reject_unknown_params(request, set())
+    run = _run_or_404(review_run_id, scope)
+    conn = connect()
+    rules = conn.execute(
+        "SELECT * FROM agent_review_rule WHERE run_id = ? ORDER BY rule_book, clause, rule_key",
+        (review_run_id,),
+    ).fetchall()
+    asked = [
+        contract.AgentAskedRule(
+            rule_book=r["rule_book"] or "", clause=r["clause"] or "", quote=r["quote"] or "",
+            paper_kind=r["paper_kind"] or run["paper_kind"], field=r["field"], equipment=r["equipment"],
+            tier=r["tier"] or "Not AI approved", read_from=r["read_from"],
+        )
+        for r in rules if r["asked"]
+    ]  # fmt: skip
+    left = [
+        contract.AgentLeftOutRule(rule_book=r["rule_book"] or "", clause=r["clause"] or "", reason=r["left_out_reason"])
+        for r in rules if not r["asked"]
+    ]  # fmt: skip
+    counts: dict[str, int] = {}
+    for r in left:
+        counts[r.reason] = counts.get(r.reason, 0) + 1
+    missing = [
+        contract.AgentMissingBook(name=r["name"], why=r["why"])
+        for r in conn.execute(
+            "SELECT name, why FROM agent_review_missing_book WHERE run_id = ? ORDER BY name",
+            (review_run_id,),
+        )
+    ]
+    return contract.AgentRulesUsed(
+        paper_kind=run["paper_kind"], equipment_type=run["equipment_type"], asked=asked, left_out=left,
+        left_out_counts=counts, missing_books=missing, books=_coverage_for(rules),
+        rule_set_changed_by=run["rule_set_changed_by"],
+    )  # fmt: skip
