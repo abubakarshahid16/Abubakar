@@ -257,7 +257,10 @@ def test_not_reviewed_is_its_own_class_and_never_a_query_or_a_verdict():
 
 
 def test_summary_counts_not_reviewed_and_rules_used_carries_coverage_and_read_from():
-    assert ar.AgentRunSummary(paper_kind="datasheet", paper_kind_source="x").not_reviewed == 0
+    assert (
+        ar.AgentRunSummary(paper_kind="datasheet", paper_kind_source="x").not_reviewed
+        == 0
+    )
     book = ar.AgentBookCoverage(rule_book="Book A")
     assert book.model_dump() == {
         "rule_book": "Book A",
@@ -273,10 +276,23 @@ def test_summary_counts_not_reviewed_and_rules_used_carries_coverage_and_read_fr
         rule_book="b", clause="1", quote="q", paper_kind="datasheet", tier="Owner"
     )
     assert rule.read_from == "text"
-    assert ar.AgentAskedRule(
-        rule_book="b", clause="1", quote="q", paper_kind="datasheet", tier="Owner", read_from="scan"
-    ).read_from == "scan"
+    assert (
+        ar.AgentAskedRule(
+            rule_book="b",
+            clause="1",
+            quote="q",
+            paper_kind="datasheet",
+            tier="Owner",
+            read_from="scan",
+        ).read_from
+        == "scan"
+    )
     with pytest.raises(ValidationError):
         ar.AgentAskedRule(
-            rule_book="b", clause="1", quote="q", paper_kind="datasheet", tier="Owner", read_from="photo"
+            rule_book="b",
+            clause="1",
+            quote="q",
+            paper_kind="datasheet",
+            tier="Owner",
+            read_from="photo",
         )
