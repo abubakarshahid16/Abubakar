@@ -194,7 +194,11 @@ def test_every_rule_item_carries_its_tier_and_label(built):
             )
             assert "rule_tier" not in item
             assert V.item_tier(item) == "AI approved"
-    assert V.item_tier(_by_id(doc)["S-K-2"]) == V.NOT_A_RULE
+    skill_ids = {i["item_id"] for i in doc["items"] if i["source"] == "skill"}
+    assert V.item_tier(_by_id(doc)["S-K-2"], None, skill_ids) == V.NOT_A_RULE
+    assert (
+        V.item_tier(_by_id(doc)["S-K-2"]) == V.RULE_NOT_APPROVED
+    )  # an id that is not in the app's checklist data
 
 
 def test_a_rule_of_another_paper_kind_is_left_out_with_one_reason_and_counted(con):

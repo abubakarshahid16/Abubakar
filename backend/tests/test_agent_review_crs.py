@@ -16,6 +16,7 @@ META = {
     "lead_models": ["lead-m"],
     "second_models": ["second-m"],
 }
+SK = {"S-1"}
 OK = {"source": "rule", "rule_label": {"tier": "AI approved"}}
 NO = {
     "source": "rule",
@@ -42,7 +43,7 @@ def mk(iid, verdict, ai=None, item=OK, **kw):
         "field_roles": ["nameplate_material"],
     }
     base.update(kw)
-    return W.final_cap(base, item)
+    return W.final_cap(base, item, skill_ids=SK)
 
 
 def sheet_text(path, title):
@@ -73,7 +74,9 @@ LINES = [
         "R-5", "Fail", "Fail", item=NO
     ),  # proven by the gate but the rule is not approved: capped
     mk("R-6", "Fail", "Fail", rule_kind="advice"),  # a "should" rule
-    mk("S-1", "Fail", "Fail", item={"source": "skill"}),  # a checklist Fail
+    mk(
+        "S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"}
+    ),  # a checklist Fail
     mk("R-7", "Query", None, reason_code="not_applicable"),
 ]
 
@@ -139,7 +142,7 @@ def test_the_passed_list_never_holds_a_stored_pass_of_an_unapproved_rule(tmp_pat
         "decided_by": "decided by code",
         "ai_verdict": "Pass",
     }
-    capped = W.final_cap_all([stored], {"R-9": NO})
+    capped = W.final_cap_all([stored], {"R-9": NO}, skill_ids=SK)
     path = C.write_internal(capped, tmp_path / "i.xlsx", META)
     assert item_ids(path, C.PASSED_SHEET) == []
     contractor = C.write_contractor(capped, tmp_path / "c.xlsx", META)

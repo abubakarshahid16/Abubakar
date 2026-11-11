@@ -14,7 +14,8 @@ RULE_NO = {
     "rule_tier": V.RULE_NOT_APPROVED,
     "rule_unapproved_why": "values",
 }
-SKILL = {"item_id": "S-1", "source": "skill"}
+SKILL = {"item_id": "S-1", "source": "skill", "rule_version_id": None}
+SK = {"S-1"}
 
 
 def line(verdict, ai=None, **kw):
@@ -145,8 +146,21 @@ def test_final_cap_keeps_a_proof_of_an_approved_rule_and_of_a_checklist_item():
         and got["tier"] == "AI approved"
         and got["verdict_class"] == W.CLASS_PROVEN
     )
-    skill = W.final_cap(line("Pass", "Pass", source="skill"), SKILL)
-    assert skill["verdict"] == "Pass" and skill["tier"] is None
+    skill = W.final_cap(line("Pass", "Pass", source="skill"), SKILL, skill_ids=SK)
+    assert (
+        skill["verdict"] == "Pass"
+        and skill["tier"] is None
+        and skill["checklist"] is True
+    )
+    assert W.writer_refusal(skill) is None
+    posing = W.final_cap(
+        line("Pass", "Pass"),
+        {"item_id": "S-1", "source": "skill", "rule_version_id": "r1"},
+        skill_ids=SK,
+    )
+    assert (
+        posing["verdict"] == "Query" and posing["tier"] == V.TIER_NOT_APPROVED
+    )  # a rule item posing as a checklist item
     stale = W.final_cap(
         line("Query", "Fail", rule_tier=V.RULE_NOT_APPROVED), RULE_OK
     )  # the rule is approved now
@@ -161,15 +175,21 @@ def test_final_cap_all_finds_each_lines_own_item():
         line("Pass", item_id="R-2"),
         line("Pass", item_id="S-1", source="skill"),
         line("Pass", item_id="R-9"),
+        line("Pass", item_id="S-9", source="skill"),
     ]
     items = {"R-1": RULE_OK, "R-2": RULE_NO, "S-1": SKILL}
-    out = {ln["item_id"]: ln["verdict"] for ln in W.final_cap_all(lines, items)}
+    out = {
+        ln["item_id"]: ln["verdict"]
+        for ln in W.final_cap_all(lines, items, skill_ids=SK)
+    }
+    # a stored line with NO item is a rule line whose tier is not established, whatever source it claims
     assert out == {
         "R-1": "Pass",
         "R-2": "Query",
         "S-1": "Pass",
         "R-9": "Query",
-    }  # no item: not established
+        "S-9": "Query",
+    }
 
 
 def test_the_writer_refusal_is_a_hard_rule_on_the_tier():
@@ -180,9 +200,13 @@ def test_the_writer_refusal_is_a_hard_rule_on_the_tier():
     assert W.writer_refusal(line("Fail", tier="not AI approved"))
     assert W.writer_refusal(line("Pass"))  # never went through final_cap
     assert W.writer_refusal(line("Pass", tier=None))  # a rule line without a tier
+    assert W.writer_refusal(
+        line("Pass", tier=None, source="skill")
+    )  # a raw line claiming to be a checklist line
     assert (
-        W.writer_refusal(line("Pass", tier=None, source="skill")) is None
-    )  # a checklist line has none
+        W.writer_refusal(line("Pass", tier=None, source="skill", checklist=True))
+        is None
+    )  # set only by final_cap
 
 
 def test_counts_keep_the_classes_apart():

@@ -123,8 +123,11 @@ def decide_rule(
     if kind != want:
         out["reason"], out["needs_kind"] = ANOTHER_PAPER, kind
         return out
-    if got.tier:
+    if got.tier and not (label.get("disagreement") and got.tier == rule_labels.AI_TIER):
         out.update(ask=True, tier=got.tier)
+        return out
+    if got.tier:  # labelled ai_approved but its readings disagree somewhere: a human decides (never asked as approved)
+        out["reason"] = NEEDS_HUMAN
         return out
     parts = _parts(label.get("disagreement"))
     page = label.get("quote_page")

@@ -398,8 +398,17 @@ def test_a_restored_line_is_capped_and_held_again_whatever_the_old_run_said():
 # ---------------------------------------------------------------- the tier of an item and the calls it may buy
 
 
+CHECK = {
+    "item_id": "S-1",
+    "source": "skill",
+    "skill_kind": "x_datasheet",
+    "rule_version_id": None,
+}
+CHECK_IDS = {"S-1"}
+
+
 def test_the_tier_of_an_item_is_derived_never_assumed():
-    assert V.item_tier({"source": "skill"}) == V.NOT_A_RULE
+    assert V.item_tier(CHECK, None, CHECK_IDS) == V.NOT_A_RULE
     for tier in ("owner", "engineer", "AI approved"):
         assert V.item_tier({"source": "rule", "rule_label": {"tier": tier}}) == tier
     assert V.item_tier(UNAPPROVED) == V.RULE_NOT_APPROVED
@@ -425,7 +434,7 @@ def test_the_tier_of_an_item_is_derived_never_assumed():
 
 
 def test_no_call_beyond_the_leads_answer_is_allowed_for_a_rule_not_approved():
-    assert V.calls_allowed(APPROVED) and V.calls_allowed({"source": "skill"})
+    assert V.calls_allowed(APPROVED) and V.calls_allowed(CHECK, None, CHECK_IDS)
     assert not V.calls_allowed(UNAPPROVED)
     assert not V.calls_allowed({"source": "rule"})  # tier not established
     assert not V.calls_allowed(None)
@@ -440,3 +449,240 @@ def test_the_current_label_table_overrides_the_tier_the_item_carried():
     )  # the label was revoked since the item was built
     assert V.item_tier(carried, lambda it: "not AI approved") == V.RULE_NOT_APPROVED
     assert not V.calls_allowed(carried, lambda it: None)
+
+
+# ---------------------------------------------------------------- needs_second_opinion: only when a Pass or Fail could stand
+
+STRONG = V.QuoteCheck(True, True, clause_strong=True)
+
+
+def test_the_second_opinion_is_asked_only_when_a_pass_or_fail_could_still_stand():
+    assert V.needs_second_opinion(V.PASS, STRONG, None) and V.needs_second_opinion(
+        V.FAIL, STRONG, None
+    )
+    assert not V.needs_second_opinion(
+        V.QUERY, STRONG, None
+    ) and not V.needs_second_opinion(None, STRONG, None)
+    assert not V.needs_second_opinion(
+        V.PASS, STRONG, "transport_ReadTimeout"
+    )  # a failed call buys nothing
+    assert not V.needs_second_opinion(
+        V.PASS, V.QuoteCheck(False, True, clause_strong=True), None
+    )
+    assert not V.needs_second_opinion(
+        V.PASS, V.QuoteCheck(True, False, clause_strong=True), None
+    )
+    assert not V.needs_second_opinion(
+        V.PASS, V.QuoteCheck(True, True, clause_strong=False), None
+    )  # a weak clause quote
+    assert not V.needs_second_opinion(
+        V.PASS, STRONG, None, absent=True
+    )  # "not mentioned" is never a Pass
+    assert V.needs_second_opinion(
+        V.FAIL, STRONG, None, absent=True
+    )  # an absence Fail may still stand
+
+
+# ---------------------------------------------------------------- "no figure with its unit inside both quotes"
+
+
+def test_a_figure_without_a_unit_never_decides_a_number_line():
+    bare = {
+        **NUM_ANSWER,
+        "paper_figure": "0.15",
+        "clause_figure": "0.2",
+    }  # both stand inside their quotes, no unit
+    assert "0.15" in bare["paper_quote"] and "0.2" in bare["clause_quote"]
+    assert not V.figures_inside(bare)
+    got = V.number_verdict(
+        {"decided": True, "verdict": "meets"}, V.QuoteCheck(True, True), bare
+    )
+    assert (
+        got["verdict"] == V.QUERY
+        and got["why"] == "no figure with its unit inside both quotes"
+    )
+    one_side = {
+        **NUM_ANSWER,
+        "paper_figure": "0.15",
+    }  # only the clause figure carries a unit
+    assert not V.figures_inside(one_side)
+    assert V.figures_inside(NUM_ANSWER)
+    assert not V.figures_inside({**NUM_ANSWER, "paper_figure": "", "clause_figure": ""})
+
+
+# ---------------------------------------------------------------- figures_by_code: exactly one figure in each verified quote
+
+FIG_ANSWER = {
+    "paper_quote": "Set pressure: 20 barg",
+    "clause_quote": "The set pressure shall not exceed 25 barg",
+}
+
+
+def test_figures_by_code_needs_exactly_one_figure_in_each_quote():
+    got = V.figures_by_code(FIG_ANSWER)
+    assert (
+        got["paper_figure"] == "20 barg"
+        and got["clause_figure"] == "25 barg"
+        and got["figures_by"] == "code"
+    )
+    assert (
+        V.figures_by_code(
+            {**FIG_ANSWER, "paper_quote": "Set pressure: 20 barg / 22 barg"}
+        )
+        is None
+    )  # two
+    assert (
+        V.figures_by_code(
+            {**FIG_ANSWER, "clause_quote": "not above 25 barg and not below 5 barg"}
+        )
+        is None
+    )
+    assert (
+        V.figures_by_code({**FIG_ANSWER, "paper_quote": "Set pressure: see note"})
+        is None
+    )  # none
+    assert (
+        V.figures_by_code(
+            {**FIG_ANSWER, "clause_quote": "The set pressure shall be stated"}
+        )
+        is None
+    )
+    assert V.figures_by_code({}) is None
+    assert V.figures_in("Order 12 and 20 barg") == [
+        "20 barg"
+    ]  # a bare number is no figure
+
+
+def test_compare_quotes_lets_code_compare_the_two_whole_quotes():
+    from app import agent_tools
+
+    box = agent_tools.ToolBox(
+        agent_tools.ToolContext(allowed_document_ids={"d"}, document_id="d"),
+        page_reader=lambda d, n: PAGES.get(n),
+        searcher=lambda q, a: {"hits": []},
+        standard_pages=lambda d: [],
+    )
+    got = V.compare_quotes(
+        box,
+        {
+            "paper_quote": "Coating thickness: 0.15 mm",
+            "clause_quote": "The coating thickness shall be at least 0.2 mm",
+        },
+    )
+    assert got["decided"] is True and got["verdict"] == "does_not_meet"
+    ok = V.compare_quotes(box, FIG_ANSWER)
+    assert ok["decided"] is True and ok["verdict"] == "meets"
+
+
+# ---------------------------------------------------------------- widen_to_sentence: one whole sentence, by code
+
+SENTENCE = (
+    "Nameplates shall be made of stainless steel or aluminium and fixed with screws."
+)
+CLAUSE_TEXT = "4.2 Nameplates. " + SENTENCE + " Other marks may be added."
+SHORT = "made of stainless steel or aluminium"
+
+
+def test_widen_finds_the_one_sentence_and_nothing_else():
+    assert V.widen_to_sentence(SHORT, CLAUSE_TEXT) == SENTENCE
+    assert (
+        V.widen_to_sentence("nameplates   SHALL be made", CLAUSE_TEXT) == SENTENCE
+    )  # the fold: case and spacing only
+    assert (
+        V.widen_to_sentence("Nameplates", CLAUSE_TEXT) is None
+    )  # in two sentences: no single sentence
+    assert V.widen_to_sentence("not in the text", CLAUSE_TEXT) is None
+    assert (
+        V.widen_to_sentence("", CLAUSE_TEXT) is None
+        and V.widen_to_sentence(SHORT, None) is None
+    )
+    assert (
+        V.widen_to_sentence(SENTENCE, CLAUSE_TEXT) is None
+    )  # the quote already IS the whole sentence
+    assert (
+        V.widen_to_sentence(SENTENCE.rstrip("."), "4.2 Nameplates. " + SENTENCE)
+        == SENTENCE
+    )  # missing the full stop
+
+
+def test_widen_refuses_a_sentence_over_600_characters():
+    long_sentence = (
+        "Nameplates shall be made of stainless steel "
+        + ("and fixed with screws " * 40)
+        + "end."
+    )
+    assert len(long_sentence) > V.MAX_SENTENCE_CHARS
+    assert (
+        V.widen_to_sentence("made of stainless steel", "4.2 X. " + long_sentence)
+        is None
+    )
+    ok = (
+        "Nameplates shall be made of stainless steel "
+        + ("and fixed with screws " * 20)
+        + "end."
+    )
+    assert (
+        len(ok) <= V.MAX_SENTENCE_CHARS
+        and V.widen_to_sentence("made of stainless steel", "4.2 X. " + ok) == ok
+    )
+
+
+def test_widen_never_goes_to_a_note_or_an_example():
+    text = "4.3 Marks. NOTE 1 Nameplates may be made of stainless steel or aluminium in practice. Marks shall be cut."
+    assert V.is_note_or_example(
+        "NOTE 1 Nameplates may be made of stainless steel or aluminium in practice."
+    )
+    assert V.is_note_or_example("Example: a plate of steel") and V.is_note_or_example(
+        "e.g. a plate"
+    )
+    assert not V.is_note_or_example(
+        "Nameplates shall be steel."
+    ) and not V.is_note_or_example("Notebooks are steel.")
+    assert V.widen_to_sentence("made of stainless steel or aluminium", text) is None
+
+
+def test_a_checklist_item_is_one_only_when_source_id_and_content_all_say_so():
+    """A rule item posing with source "skill" is a rule: it needs a tier, and without one it is not approved."""
+    assert V.is_checklist_item(CHECK, CHECK_IDS)
+    posing = {
+        "item_id": "R-5",
+        "source": "skill",
+        "rule_version_id": "r5",
+    }  # a rule item with the wrong source word
+    assert (
+        not V.is_checklist_item(posing, CHECK_IDS)
+        and V.item_tier(posing, None, CHECK_IDS) == V.RULE_NOT_APPROVED
+    )
+    assert not V.calls_allowed({"source": "skill"}, None, CHECK_IDS)  # no id at all
+    assert not V.is_checklist_item(
+        {**CHECK, "item_id": "S-99"}, CHECK_IDS
+    )  # an id the checklist data does not hold
+    assert not V.is_checklist_item(
+        {**CHECK, "rule_version_id": "r1"}, CHECK_IDS
+    )  # it names a rule
+    assert not V.is_checklist_item({**CHECK, "rule_quote_ref": "Q-1"}, CHECK_IDS)
+    assert not V.is_checklist_item(
+        {**CHECK, "requirement_type": "statement"}, CHECK_IDS
+    )
+    assert not V.is_checklist_item(
+        {**CHECK, "rule_tier": V.RULE_NOT_APPROVED}, CHECK_IDS
+    )
+    assert not V.is_checklist_item(
+        {**CHECK, "source": "Skill"}, CHECK_IDS
+    ) and not V.is_checklist_item(None)
+    assert (
+        V.item_tier({**CHECK, "item_id": "S-99"}, None, CHECK_IDS)
+        == V.RULE_NOT_APPROVED
+    )
+
+
+def test_the_real_checklist_data_is_the_default_source_of_checklist_ids():
+    ids = V.checklist_ids()
+    assert ids and all(i.startswith("S-") for i in ids)
+    one = sorted(ids)[0]
+    assert V.is_checklist_item(
+        {"item_id": one, "source": "skill", "rule_version_id": None}
+    )
+    assert not V.is_checklist_item(
+        {"item_id": "S-invented-not-in-the-data", "source": "skill"}
+    )

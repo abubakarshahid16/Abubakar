@@ -13,7 +13,7 @@ not approved can never stay Pass or Fail.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 
 from .agent_review_verdict import (
     AI_TIER,
@@ -116,6 +116,7 @@ def final_cap(
     line: Mapping,
     item: Mapping | None,
     lookup: Callable[[Mapping], str | None] | None = None,
+    skill_ids: Collection[str] | None = None,
 ) -> dict:
     """THE exit cap. The line with its item's CURRENT tier written on it (`tier`), the cap applied and the words added.
 
@@ -127,11 +128,13 @@ def final_cap(
     * a checklist item has no tier; its line is unchanged.
     Idempotent. Only makes a line less confident."""
     out = dict(line)
-    tier = item_tier(item, lookup)
+    tier = item_tier(item, lookup, skill_ids)
     if tier == NOT_A_RULE:
         out.pop("rule_tier", None)
         out["tier"] = None
+        out["checklist"] = True
         return apply(out)
+    out["checklist"] = False
     if tier == RULE_NOT_APPROVED:
         out["rule_tier"] = RULE_NOT_APPROVED
         out["tier"] = TIER_NOT_APPROVED
@@ -155,16 +158,14 @@ def final_cap_all(
     lines: Iterable[Mapping],
     items_by_id: Mapping[str, Mapping],
     lookup: Callable[[Mapping], str | None] | None = None,
+    skill_ids: Collection[str] | None = None,
 ) -> list[dict]:
-    """`final_cap` for every line, each with its own item (found by `item_id`; a line with no item is a rule whose tier
-    is not established, unless the line says it is a checklist line)."""
-    out = []
-    for ln in lines:
-        item = items_by_id.get(str(ln.get("item_id")))
-        if item is None and ln.get("source") == "skill":
-            item = {"source": "skill"}
-        out.append(final_cap(ln, item, lookup))
-    return out
+    """`final_cap` for every line, each with its own item (found by `item_id`). A stored line with NO item is a rule line whose
+    tier is not established: capped, whatever source the line claims."""
+    return [
+        final_cap(ln, items_by_id.get(str(ln.get("item_id"))), lookup, skill_ids)
+        for ln in lines
+    ]
 
 
 def writer_refusal(line: Mapping) -> str | None:
@@ -174,7 +175,9 @@ def writer_refusal(line: Mapping) -> str | None:
         return None
     if line.get("tier") in USABLE_TIERS:
         return None
-    if line.get("source") == "skill" and "tier" in line and line.get("tier") is None:
+    if (
+        line.get("checklist") is True and line.get("tier") is None
+    ):  # set only by final_cap for a real checklist item
         return None
     return f"a {line.get('verdict')} line may not be written without an approved rule tier (tier={line.get('tier')!r})"
 

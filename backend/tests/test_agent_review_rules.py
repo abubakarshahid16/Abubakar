@@ -417,3 +417,53 @@ def test_the_tier_lookup_reads_the_label_table_now_and_final_cap_uses_it(conn):
         "UPDATE rule_label SET paper_kind = 'procedure' WHERE rule_ref = 'ok'"
     )  # moved to another kind since
     assert W.final_cap(stored, item, lookup)["verdict"] == "Query"
+
+
+def test_an_ai_approved_label_that_carries_a_disagreement_is_never_asked_as_approved():
+    """#1744's table refuses this row today; a table made another way must not break it (doubt means not approved)."""
+    bare = sqlite3.connect(":memory:")
+    bare.row_factory = sqlite3.Row
+    bare.execute(
+        "CREATE TABLE rule_label (source TEXT, rule_ref TEXT, rule_version_id TEXT, paper_kind TEXT, field TEXT, state TEXT,"
+        " disagreement TEXT, a_model TEXT, a_prompt TEXT, a_answer_sha256 TEXT, b_model TEXT, b_prompt TEXT,"
+        " b_answer_sha256 TEXT, reading_json TEXT, quote_page INTEGER, quote_sha256 TEXT, quote_recovery TEXT,"
+        " a_answer_json TEXT, b_answer_json TEXT, labelled_at TEXT)"
+    )
+    row = {
+        "source": "requirement",
+        "rule_ref": "x",
+        "rule_version_id": "v-x",
+        "paper_kind": "datasheet",
+        "state": "ai_approved",
+        "a_model": s.MODEL_A,
+        "b_model": s.MODEL_B,
+        "a_prompt": rule_labels.PROMPT_VERSION,
+        "b_prompt": rule_labels.PROMPT_VERSION,
+        "a_answer_sha256": H,
+        "b_answer_sha256": H,
+        "quote_sha256": H,
+        "quote_page": 1,
+        "labelled_at": "2026-11-11",
+        "reading_json": '{"comparator": "required", "values": [], "unit": null, "strength": "shall"}',
+    }
+    for ref, disagreement in (("clean", None), ("x", "values")):
+        cols = {
+            **row,
+            "rule_ref": ref,
+            "rule_version_id": f"v-{ref}",
+            "disagreement": disagreement,
+        }
+        bare.execute(
+            f"INSERT INTO rule_label ({', '.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+            tuple(cols.values()),
+        )
+    assert (
+        R.decide_rule(bare, "clean", "datasheet")["tier"] == "AI approved"
+    )  # the same row without the text is asked
+    for mode in ("off", "both"):
+        out = R.decide_rule(bare, "x", "datasheet", ask_unapproved=mode)
+        assert (
+            out["ask"] is False
+            and out["reason"] == R.NEEDS_HUMAN
+            and out["tier"] is None
+        )
