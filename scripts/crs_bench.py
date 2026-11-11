@@ -41,6 +41,10 @@ def _settings_file(given: str | None) -> Path | None:
         return Path(given)
     if (REPO / "backend" / ".env").exists():
         return None  # the app reads it itself
+    import os
+
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return None  # a test never loads a real .env (the main checkout's, from a worktree)
     import subprocess
 
     common = subprocess.run(
