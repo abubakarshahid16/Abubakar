@@ -151,6 +151,28 @@ def _the_suite_does_not_read_the_developers_env():
 
 
 @pytest.fixture(autouse=True)
+def _a_test_cannot_leave_the_process_settings_changed():
+    """Every field of the process-wide `settings` is put back after each test.
+
+    Some tests (and the bench scripts' `main()` through `use_settings_of`) assign
+    `settings.<field>` directly, with no restore; every later test on that worker
+    then ran with other values (upload gate 400, the live database path, switches
+    on that should be off). Snapshot before, restore after, only the fields that
+    changed (by equality), so nothing is copied; no setting holds a list or dict today. `settings`
+    is the one instance (`SettingsExt` is a base class of it).
+    """
+    from app.config import settings as live
+
+    names = list(type(live).model_fields)
+    before = {n: getattr(live, n) for n in names}
+    yield
+    for n in names:
+        now = getattr(live, n)
+        if now != before[n]:
+            setattr(live, n, before[n])
+
+
+@pytest.fixture(autouse=True)
 def _fresh_ollama_probe_state():
     """The Ollama probe answer is cached for 30 s and its HTTP client is shared
     (#626). Neither may leak from one test into the next."""
