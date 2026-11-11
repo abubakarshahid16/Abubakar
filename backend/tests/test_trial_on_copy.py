@@ -21,6 +21,7 @@ from app import agent_review_items as items_mod
 from app import (
     agent_review_jobs,
     agent_review_kind,
+    claude_approved,
     db,
     nothing_read,
 )
@@ -102,6 +103,11 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(items_mod, "build_items", build)
     with db.connect() as conn:
         s.label_rows(conn, [i["item_id"] for i in doc["items"]])
+    from app import classification
+
+    classification.set_role(
+        s.STD, "COMPANY_STANDARD"
+    )  # the rule book is a standard, as the approval hook requires
     db.reset_connection()
     return tmp_path
 
@@ -429,3 +435,95 @@ def test_main_refuses_a_live_path_with_exit_2(tmp_path, monkeypatch, capsys):
         trial.main(["--lane", "closed", "--data-dir", str(tmp_path), "--document", "d"])
         == 2
     )  # neither --copy-to nor --in-place
+
+
+# ----------------------------------------------------------------------------------------- caps, approval proof, ledger
+
+
+def test_max_usd_can_only_lower_the_owners_caps(world, monkeypatch):
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 5.0)
+    monkeypatch.setattr(settings, "claude_budget_usd_total", 20.0)
+    assert trial.effective_cap(100, settings) == 5.0
+    assert trial.effective_cap(1.5, settings) == 1.5
+    cfg = cfg_for(world, max_usd=100)
+    trial.apply_settings(cfg)
+    assert (
+        settings.claude_budget_usd_per_step,
+        settings.claude_budget_usd_total,
+        cfg.max_usd,
+    ) == (5.0, 5.0, 5.0)
+    cfg = cfg_for(world, max_usd=0.5)
+    trial.apply_settings(cfg)
+    assert (settings.claude_budget_usd_per_step, settings.claude_budget_usd_total) == (
+        0.5,
+        0.5,
+    )
+
+
+def _owner_list(sha_by_id, source="owner"):
+    claude_approved.list_path().write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "sha256": sha,
+                        "document_id": i,
+                        "status": "approved",
+                        "source": source,
+                        "approved_by": "owner",
+                    }
+                    for i, sha in sha_by_id.items()
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_an_approval_that_came_from_a_copied_list_does_not_prove_the_hook(
+    world, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", True)
+    claude_approved.block_file_path().write_text(
+        json.dumps({"blocked_sha256": ["0" * 64]}), encoding="utf-8"
+    )
+    from app import agent_review_schema
+
+    agent_review_schema.ensure_schema()
+    db.reset_connection()
+    conn = trial.ro(world / "agent.sqlite")
+    shas = {
+        r["id"]: r["sha256"] for r in conn.execute("SELECT id, sha256 FROM documents")
+    }
+    _owner_list(shas)
+    bad = trial.approval_check(conn, "no-run", s.PAPER, world)
+    assert not bad.ok and "not add in this run" in bad.detail.replace(
+        "did not add", "not add"
+    )
+    _owner_list(shas, source="auto: invented")
+    assert trial.approval_check(conn, "no-run", s.PAPER, world).ok
+
+
+def test_the_copys_list_is_set_aside_so_a_run_proves_the_hook_itself(world):
+    conn = trial.ro(world / "agent.sqlite")
+    _owner_list(
+        {r["id"]: r["sha256"] for r in conn.execute("SELECT id, sha256 FROM documents")}
+    )
+    conn.close()
+    checks = trial.run_trial(cfg_for(world), lane=stub(), log=lambda _m: None)
+    assert (world / "claude_approved_documents.json.from-copy").is_file()
+    assert by_name(checks)[
+        "standing approval: paper and asked rule books approved, register blocked"
+    ].ok
+
+
+def test_the_closed_lane_spend_check_compares_the_ledger_before_and_after(tmp_path):
+    cfg = trial.TrialConfig(data_dir=tmp_path, document="d", lane="closed")
+    (tmp_path / "claude_spend.jsonl").write_text('{"a":1}\n{"a":2}\n{"a":3}\n')
+    assert trial.spend_check(
+        cfg, {"usd": None}, tmp_path, lines_before=3
+    ).ok  # a copied ledger already had its lines
+    assert not trial.spend_check(
+        cfg, {"usd": None}, tmp_path, lines_before=2
+    ).ok  # a line written by this run
+    assert not trial.spend_check(cfg, {"usd": 0.1}, tmp_path, lines_before=3).ok

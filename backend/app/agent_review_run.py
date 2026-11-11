@@ -453,7 +453,7 @@ class Runner(DecideMixin):
         self.restore()
         claude_auto_approve.on_agent_standards(
             self.paper, [i.get("standard_document_id") for i in self.items]
-        )  # owner 16.7 point 3: the books this run asks rules from are approved with the paper (off: nothing)
+        )  # #1584 comment 6806441133 (to be confirmed by the owner): the books this run asks rules from are approved with the paper (off: nothing)
         self.gate = AppStepGate(app_cap(), claude_spend.step_spent(agent_claude.STEP))
         todo = self.todo()
         batches, source = make_batches(todo, self.max_batch)

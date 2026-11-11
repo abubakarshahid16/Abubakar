@@ -144,6 +144,32 @@ def copy_data(src: Path, dest: Path) -> None:
 # ------------------------------------------------------------------------------------------------ settings and server
 
 
+def effective_cap(requested: float, settings) -> float:
+    """`--max-usd` can only LOWER the owner's caps, never raise one."""
+    return min(
+        float(requested),
+        float(settings.claude_budget_usd_per_step),
+        float(settings.claude_budget_usd_total),
+    )
+
+
+def ledger_lines(data_dir: Path) -> int:
+    log = Path(data_dir) / "claude_spend.jsonl"
+    return log.read_text().count("\n") if log.is_file() else 0
+
+
+def empty_approved_list() -> bool:
+    """Set the copy's approved list aside, so every approval after this was made by the app in THIS run (a list copied from the
+    live data proves nothing). Returns whether a list was set aside."""
+    from app import claude_approved
+
+    path = claude_approved.list_path()
+    if not path.is_file():
+        return False
+    path.rename(path.with_name(path.name + ".from-copy"))
+    return True
+
+
 def apply_settings(cfg: TrialConfig) -> dict:
     """Point the app at the copy and set the lane. Returns facts for the report (names and booleans only)."""
     from app import claude_approved
@@ -160,9 +186,7 @@ def apply_settings(cfg: TrialConfig) -> dict:
     settings.host = "127.0.0.1"
     settings.auth_mode = "disabled"
     settings.startup_warmup = False
-    settings.claude_auto_approve_reviews_enabled = (
-        True  # the standing approval, owner 16.7 point 3 (the thing under trial)
-    )
+    settings.claude_auto_approve_reviews_enabled = True  # the standing approval, #1584 comment 6806441133, to be confirmed by the owner (the thing under trial)
     settings.claude_approved_list_enforced = True
     if cfg.skills_dir:
         os.environ["AGENT_SKILLS_DIR"] = cfg.skills_dir
@@ -191,8 +215,14 @@ def apply_settings(cfg: TrialConfig) -> dict:
         os.environ["STANDARDS_READER_ENABLED"] = "false"
         os.environ["STANDARDS_READER_ALLOW_PUBLIC_EGRESS"] = "false"
     else:
-        settings.claude_budget_usd_per_step = float(cfg.max_usd)
-        settings.claude_budget_usd_total = float(cfg.max_usd)
+        cap = effective_cap(cfg.max_usd, settings)
+        cfg.max_usd = cap  # the spend check compares with the cap really in force
+        settings.claude_budget_usd_per_step = min(
+            float(settings.claude_budget_usd_per_step), cap
+        )
+        settings.claude_budget_usd_total = min(
+            float(settings.claude_budget_usd_total), cap
+        )
     return {
         "key_present": bool(
             os.environ.get("ANTHROPIC_API_KEY")
@@ -695,6 +725,19 @@ def approval_check(
             ]
         )
     problems = []
+    by_hook = {
+        str(r.get("sha256") or "").strip().lower()
+        for r in claude_approved._entries()
+        if str(r.get("status") or "").strip().lower() == claude_approved.APPROVED
+        and str(r.get("source") or "").startswith(claude_approved.AUTO_SOURCE)
+    }
+    not_by_hook = [
+        i for i in sorted(ids) if sha.get(i) in approved and sha.get(i) not in by_hook
+    ]
+    if not_by_hook:
+        problems.append(
+            f"{len(not_by_hook)} document(s) approved by a row the app did not add in this run (ids: {', '.join(not_by_hook[:5])})"
+        )
     if missing:
         problems.append(
             f"{len(missing)} of {len(ids)} declared document(s) not approved (ids: {', '.join(missing[:5])})"
@@ -837,10 +880,16 @@ def route_checks(http: Http, run_id: str, ids: list[str]) -> tuple[list[Check], 
     return out, kept
 
 
-def spend_check(cfg: TrialConfig, summary: dict | None, data_dir: Path) -> Check:
+def spend_check(
+    cfg: TrialConfig,
+    summary: dict | None,
+    data_dir: Path,
+    lines_before: int = 0,
+) -> Check:
     usd = (summary or {}).get("usd")
-    log = Path(data_dir) / "claude_spend.jsonl"
-    lines = log.read_text().count("\n") if log.is_file() else 0
+    lines = (
+        ledger_lines(data_dir) - lines_before
+    )  # lines this run added (a copied ledger has lines already)
     counts = (summary or {}).get("counts_by_class") or {}
     answered = sum(v for k, v in counts.items() if k != "Not reviewed")
     if cfg.lane == "closed":
@@ -899,6 +948,11 @@ def run_trial(
             settings.standards_reader_allow_public_egress
         ) = True
         settings.anthropic_api_key = "test-key-not-real"
+    set_aside = empty_approved_list()
+    ledger_before = ledger_lines(data)
+    log(
+        f"approved list of the copy set aside: {set_aside}; ledger lines before: {ledger_before}"
+    )
     registers, sentinel = write_block_file(data, db)
     log(
         f"settings: lane={cfg.lane} provider={facts['provider']} key_present={facts['key_present']} auto_approve={facts['auto_approve']} "
@@ -987,7 +1041,7 @@ def run_trial(
             )
             checks.append(proof_check(conn, run_id))
             checks.append(contractor_check(conn, run_id, kept.get("contractor")))
-            checks.append(spend_check(cfg, kept.get("summary"), data))
+            checks.append(spend_check(cfg, kept.get("summary"), data, ledger_before))
             checks.append(approval_check(conn, run_id, cfg.document, data))
             conn.close()
         if cfg.normal_review and run_id:

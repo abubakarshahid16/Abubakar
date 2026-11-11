@@ -51,7 +51,11 @@ carries the client's name; only the owner can rename it.
    28 Oct, order 277); its caps are those above.** The standards converter
    (order 270.3) sends STANDARDS text only, of the SAES, ISO, API, ASME and NACE
    families (owner, 3 Nov 2026, #1584), and never a datasheet, procedure or CRS. Every other
-   outbound path for document content stays forbidden. In chat, the user may choose Claude and explicitly
+   outbound path for document content stays forbidden. Standing approval (owner decision of
+   12 Nov 2026, #1584 comment 6806441133, to be confirmed there by the owner): with
+   `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED=true` the paper under review and the rule books of the rules the AI
+   reviewer asks join the approved list automatically; the register stays blocked by hash and name; the switch
+   is off by default and needs the block file. In chat, the user may choose Claude and explicitly
    select the documents for that request; that selection is per-request consent
    for only those files. Local sends no file content to Claude; Claude without
    explicit document selection can answer general questions but gets no document
