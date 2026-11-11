@@ -2,6 +2,7 @@
 
 The fake lane cuts chosen lead calls off (stop_reason max_tokens, half a JSON text) and records each call's limit."""
 
+# ruff: noqa: F811
 from __future__ import annotations
 
 import json
@@ -88,7 +89,7 @@ def test_a_batch_cut_off_is_still_split_first_then_a_half_gets_the_larger_retry(
 def test_the_retry_reserves_its_larger_worst_case_and_a_low_cap_refuses_it(w, monkeypatch):
     # a per-item budget above the 4,096 floor the spend module reserves for models that think, so the worst case can differ
     monkeypatch.setattr(run_mod, "TOKENS_PER_ITEM", 3000)
-    lane = use(w, monkeypatch, {0})
+    use(w, monkeypatch, {0})
     seen = []
     real = run_mod.Runner.call
 
