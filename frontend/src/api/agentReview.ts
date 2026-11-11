@@ -7,8 +7,7 @@
 import type {
   AgentLineList, AgentRulesUsed, AgentRunSummary, AgentStatus, AgentTrace, ReviewRunSummary,
 } from "../types/api";
-import { humanMessage, request, type Result } from "./core";
-import { fetchSpreadsheet } from "./review";
+import { BASE, failureOf, humanMessage, markSession, request, type Result } from "./core";
 
 /** What the switch says. `off` also covers any unreadable answer: when in
  *  doubt the screen shows nothing of the feature. */
@@ -63,7 +62,26 @@ export const agentReview = {
   trace: (runId: string, itemId: string) =>
     request<AgentTrace>(`${run(runId)}/agent/lines/${encodeURIComponent(itemId)}/trace`, undefined, hasTraceShape),
   rulesUsed: (runId: string) => request<AgentRulesUsed>(`${run(runId)}/rules-used`, undefined, hasRulesShape),
-  /** The CRS file; the filename is the server's. */
-  exportCrs: (runId: string, copy: "internal" | "contractor") =>
-    fetchSpreadsheet(`${run(runId)}/agent/crs?copy=${copy}`, "GET", `CRS_${runId}_${copy}.xlsx`),
+  /** The AI reviewer's CRS file (its own route, not the old export); the filename is the server's. */
+  crsFile: (runId: string, copy: "internal" | "contractor") =>
+    fetchBlob(`${run(runId)}/agent/crs?copy=${copy}`, `CRS_${runId}_${copy}.xlsx`),
 };
+
+/** Authenticated GET of a file: the session header, never a token in the URL. */
+async function fetchBlob(path: string, fallbackName: string): Promise<Result<{ blob: Blob; filename: string }>> {
+  let response: Response;
+  try {
+    const headers = new Headers();
+    markSession(headers);
+    response = await fetch(`${BASE}${path}`, { headers });
+  } catch (e) {
+    return { ok: false, disconnected: true, error: { code: "internal", message: e instanceof Error ? e.message : "Network request failed." } };
+  }
+  if (!response.ok) return failureOf(response);
+  const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+  try {
+    return { ok: true, data: { blob: await response.blob(), filename: match?.[1] ?? fallbackName } };
+  } catch (e) {
+    return { ok: false, disconnected: true, error: { code: "internal", message: e instanceof Error ? e.message : "The download was interrupted." } };
+  }
+}

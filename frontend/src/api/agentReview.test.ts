@@ -73,12 +73,12 @@ describe("calls", () => {
     const r = await agentReview.lines("r1");
     expect(r.ok).toBe(false);
   });
-  it("exportCrs asks for the copy and returns the server's file name", async () => {
+  it("crsFile asks for the copy and returns the server's file name", async () => {
     const spy = vi.fn((..._a: unknown[]) => Promise.resolve(new Response(new Blob(["x"]), {
       status: 200, headers: { "Content-Disposition": 'attachment; filename="CRS_x.xlsx"' },
     })));
     vi.stubGlobal("fetch", spy);
-    const r = await agentReview.exportCrs("r1", "contractor");
+    const r = await agentReview.crsFile("r1", "contractor");
     expect(spy.mock.calls[0][0]).toBe("/api/reviews/runs/r1/agent/crs?copy=contractor");
     expect(r.ok && r.data.filename).toBe("CRS_x.xlsx");
   });

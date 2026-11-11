@@ -80,7 +80,7 @@ export const analysis = {
 
 /** A spreadsheet from the API, with the bearer token, as a `Result` (the
  *  body is not JSON, so not `request()`). The filename is the server's. */
-export async function fetchSpreadsheet(
+async function fetchSpreadsheet(
   path: string, method: "GET" | "POST", fallbackName: string,
 ): Promise<Result<{ blob: Blob; filename: string }>> {
   let response: Response;

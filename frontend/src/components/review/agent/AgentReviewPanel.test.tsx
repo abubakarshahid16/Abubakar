@@ -9,11 +9,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentReviewPanel, NOT_AGENT_RUN } from "./AgentReviewPanel";
 
-const api = { summary: vi.fn(), lines: vi.fn(), trace: vi.fn(), exportCrs: vi.fn() };
+const api = { summary: vi.fn(), lines: vi.fn(), trace: vi.fn(), crsFile: vi.fn() };
 vi.mock("../../../api/agentReview", () => ({
   agentReview: {
     summary: (...a: unknown[]) => api.summary(...a), lines: (...a: unknown[]) => api.lines(...a),
-    trace: (...a: unknown[]) => api.trace(...a), exportCrs: (...a: unknown[]) => api.exportCrs(...a),
+    trace: (...a: unknown[]) => api.trace(...a), crsFile: (...a: unknown[]) => api.crsFile(...a),
   },
   isFeatureOff: (r: { ok: boolean; error?: { code: string } }) => !r.ok && r.error?.code === "not_found",
 }));
@@ -54,21 +54,21 @@ describe("AgentReviewPanel", () => {
   it("each download button asks for its own copy and hands the file to the browser", async () => {
     api.summary.mockResolvedValue(SUMMARY);
     api.lines.mockResolvedValue(LINES);
-    api.exportCrs.mockResolvedValue({ ok: true, data: { blob: new Blob(["x"]), filename: "f.xlsx" } });
+    api.crsFile.mockResolvedValue({ ok: true, data: { blob: new Blob(["x"]), filename: "f.xlsx" } });
     const create = vi.fn(() => "blob:x");
     const revoke = vi.fn();
     Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
     render(<AgentReviewPanel runId="r1" />);
     await userEvent.click(await screen.findByRole("button", { name: "Download CRS, contractor copy" }));
-    expect(api.exportCrs).toHaveBeenLastCalledWith("r1", "contractor");
+    expect(api.crsFile).toHaveBeenLastCalledWith("r1", "contractor");
     await userEvent.click(screen.getByRole("button", { name: "Download CRS, internal copy" }));
-    expect(api.exportCrs).toHaveBeenLastCalledWith("r1", "internal");
+    expect(api.crsFile).toHaveBeenLastCalledWith("r1", "internal");
     expect(create).toHaveBeenCalledTimes(2);
   });
   it("a failed download shows the server's words", async () => {
     api.summary.mockResolvedValue(SUMMARY);
     api.lines.mockResolvedValue(LINES);
-    api.exportCrs.mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "No file yet." } });
+    api.crsFile.mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "No file yet." } });
     render(<AgentReviewPanel runId="r1" />);
     await userEvent.click(await screen.findByRole("button", { name: "Download CRS, internal copy" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No file yet.");
