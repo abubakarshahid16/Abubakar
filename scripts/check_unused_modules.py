@@ -34,8 +34,11 @@ ENTRY_POINTS = (
     "rule_finish_store",
     "rule_finish_repair",
     "rule_coverage",
-    # contract only until the agent review routes land (#1690); read by scripts/gen_contract_types.py
-    "api.agent_review_schemas",
+    # the AI-approved rule labels' job: started by scripts/run_rule_labels.py, never by the server (it writes a COPY)
+    "rule_label_job",
+    "rule_label_convert",
+    # page pictures of the AI reviewer (drawings and scans): not wired into the job (text pages only)
+    "agent_review_pages",
 )
 
 

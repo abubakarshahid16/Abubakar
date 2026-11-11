@@ -1,0 +1,917 @@
+{
+ "families": [
+  {
+   "id": "rotating",
+   "name": "Rotating equipment",
+   "types": [
+    {
+     "id": "pump",
+     "name": "Pump (kind not stated)",
+     "parts": [
+      "seal",
+      "bearing",
+      "coupling",
+      "casing",
+      "impeller",
+      "baseplate",
+      "shaft"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "centrifugal_pump",
+     "name": "Centrifugal pump",
+     "parts": [
+      "seal",
+      "bearing",
+      "coupling",
+      "casing",
+      "impeller",
+      "baseplate",
+      "shaft"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "pump"
+     ]
+    },
+    {
+     "id": "dosing_pump",
+     "name": "Dosing pump",
+     "parts": [
+      "seal",
+      "coupling",
+      "diaphragm"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "pump"
+     ]
+    },
+    {
+     "id": "compressor",
+     "name": "Compressor (kind not stated)",
+     "parts": [
+      "seal",
+      "bearing",
+      "coupling",
+      "casing",
+      "lube_oil_system"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "centrifugal_compressor",
+     "name": "Centrifugal compressor",
+     "parts": [
+      "seal",
+      "bearing",
+      "coupling",
+      "casing",
+      "impeller",
+      "lube_oil_system"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "compressor"
+     ]
+    },
+    {
+     "id": "reciprocating_compressor",
+     "name": "Reciprocating compressor",
+     "parts": [
+      "seal",
+      "bearing",
+      "coupling",
+      "cylinder",
+      "pulsation_damper"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "compressor"
+     ]
+    },
+    {
+     "id": "air_compressor",
+     "name": "Air compressor",
+     "parts": [
+      "coupling",
+      "lube_oil_system"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "compressor"
+     ]
+    },
+    {
+     "id": "turbine",
+     "name": "Turbine (kind not stated)",
+     "parts": [
+      "casing",
+      "bearing",
+      "seal",
+      "coupling",
+      "governor"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "steam_turbine",
+     "name": "Steam turbine",
+     "parts": [
+      "casing",
+      "bearing",
+      "seal",
+      "coupling",
+      "governor"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "turbine"
+     ]
+    },
+    {
+     "id": "gas_turbine",
+     "name": "Gas turbine",
+     "parts": [
+      "casing",
+      "bearing",
+      "seal",
+      "coupling",
+      "governor"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "turbine"
+     ]
+    },
+    {
+     "id": "motor",
+     "name": "Electric motor",
+     "parts": [
+      "bearing",
+      "coupling",
+      "stator",
+      "rotor",
+      "terminal_box"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "generator",
+     "name": "Generator",
+     "parts": [
+      "bearing",
+      "coupling",
+      "stator",
+      "rotor"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "mixer",
+     "name": "Mixer or agitator",
+     "parts": [
+      "seal",
+      "bearing",
+      "shaft",
+      "impeller"
+     ],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "static",
+   "name": "Static equipment (vessels, tanks, columns)",
+   "types": [
+    {
+     "id": "pressure_vessel",
+     "name": "Pressure vessel",
+     "parts": [
+      "nozzle",
+      "manway",
+      "flange",
+      "support",
+      "internals",
+      "demister"
+     ],
+     "synonyms": [
+      "Drum",
+      "vessel"
+     ]
+    },
+    {
+     "id": "storage_tank",
+     "name": "Storage tank",
+     "parts": [
+      "nozzle",
+      "manway",
+      "roof",
+      "floor",
+      "shell"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "separator",
+     "name": "Separator",
+     "parts": [
+      "demister",
+      "nozzle",
+      "manway",
+      "internals"
+     ],
+     "synonyms": [
+      "Knockout Drum",
+      "KO drum"
+     ]
+    },
+    {
+     "id": "dehydrator_desalter",
+     "name": "Dehydrator or desalter",
+     "parts": [
+      "nozzle",
+      "manway",
+      "internals"
+     ],
+     "synonyms": [
+      "Dehydrator",
+      "Desalter"
+     ]
+    },
+    {
+     "id": "column",
+     "name": "Column (absorber, stripper)",
+     "parts": [
+      "tray",
+      "packing",
+      "nozzle",
+      "manway",
+      "demister",
+      "internals"
+     ],
+     "synonyms": [
+      "Absorber",
+      "Stripper Column",
+      "tower"
+     ]
+    },
+    {
+     "id": "reactor",
+     "name": "Process reactor",
+     "parts": [
+      "nozzle",
+      "manway",
+      "catalyst_bed",
+      "internals"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "filter",
+     "name": "Filter",
+     "parts": [
+      "filter_element",
+      "housing",
+      "nozzle"
+     ],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "heat_transfer",
+   "name": "Heat transfer and fired equipment",
+   "types": [
+    {
+     "id": "heat_exchanger",
+     "name": "Heat exchanger",
+     "parts": [
+      "tube_bundle",
+      "tubesheet",
+      "shell",
+      "nozzle",
+      "baffle",
+      "gasket"
+     ],
+     "synonyms": [
+      "exchanger",
+      "shell and tube exchanger"
+     ]
+    },
+    {
+     "id": "condenser",
+     "name": "Condenser",
+     "parts": [
+      "tube_bundle",
+      "nozzle"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "heat_exchanger"
+     ]
+    },
+    {
+     "id": "reboiler",
+     "name": "Reboiler",
+     "parts": [
+      "tube_bundle",
+      "nozzle"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "heat_exchanger"
+     ]
+    },
+    {
+     "id": "evaporator",
+     "name": "Evaporator",
+     "parts": [
+      "tube_bundle",
+      "nozzle"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "heat_exchanger"
+     ]
+    },
+    {
+     "id": "chiller",
+     "name": "Chiller",
+     "parts": [
+      "tube_bundle",
+      "nozzle"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "heat_exchanger"
+     ]
+    },
+    {
+     "id": "economizer",
+     "name": "Economizer",
+     "parts": [
+      "tube_bundle"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "heat_exchanger"
+     ]
+    },
+    {
+     "id": "air_cooler",
+     "name": "Air-cooled exchanger",
+     "parts": [
+      "tube_bundle",
+      "fan",
+      "header_box"
+     ],
+     "synonyms": [],
+     "also_applies": [
+      "heat_exchanger"
+     ]
+    },
+    {
+     "id": "fired_heater",
+     "name": "Fired heater or furnace",
+     "parts": [
+      "burner",
+      "coil",
+      "stack",
+      "refractory"
+     ],
+     "synonyms": [
+      "Furnace",
+      "heater"
+     ]
+    },
+    {
+     "id": "boiler",
+     "name": "Boiler",
+     "parts": [
+      "burner",
+      "tube_bundle",
+      "stack"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "cooling_tower",
+     "name": "Cooling tower",
+     "parts": [
+      "fan",
+      "fill",
+      "basin"
+     ],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "valves",
+   "name": "Valves",
+   "types": [
+    {
+     "id": "control_valve",
+     "name": "Control valve",
+     "parts": [
+      "actuator",
+      "positioner",
+      "trim",
+      "bonnet",
+      "handwheel"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "ball_valve",
+     "name": "Ball valve",
+     "parts": [
+      "actuator",
+      "stem",
+      "seat",
+      "bonnet"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "butterfly_valve",
+     "name": "Butterfly valve",
+     "parts": [
+      "actuator",
+      "stem",
+      "seat",
+      "bonnet"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "gate_valve",
+     "name": "Gate valve",
+     "parts": [
+      "actuator",
+      "stem",
+      "seat",
+      "bonnet"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "globe_valve",
+     "name": "Globe valve",
+     "parts": [
+      "actuator",
+      "stem",
+      "seat",
+      "bonnet"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "plug_valve",
+     "name": "Plug valve",
+     "parts": [
+      "actuator",
+      "stem",
+      "seat",
+      "bonnet"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "check_valve",
+     "name": "Check valve",
+     "parts": [
+      "seat",
+      "bonnet"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "solenoid_valve",
+     "name": "Solenoid valve",
+     "parts": [
+      "coil"
+     ],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "pressure_relief",
+   "name": "Pressure relief",
+   "types": [
+    {
+     "id": "relief_valve",
+     "name": "Relief valve (PSV, PRV, safety valve)",
+     "parts": [
+      "spring",
+      "pilot",
+      "bonnet",
+      "disc"
+     ],
+     "synonyms": [
+      "Pressure Safety Valve",
+      "PSV",
+      "PRV",
+      "safety valve"
+     ]
+    },
+    {
+     "id": "rupture_disc",
+     "name": "Rupture disc",
+     "parts": [
+      "holder"
+     ],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "piping",
+   "name": "Piping and pipeline",
+   "types": [
+    {
+     "id": "piping",
+     "name": "Piping",
+     "parts": [
+      "flange",
+      "pipe_fitting",
+      "gasket",
+      "bolting",
+      "support"
+     ],
+     "synonyms": [
+      "pipe"
+     ]
+    },
+    {
+     "id": "pipeline",
+     "name": "Pipeline",
+     "parts": [
+      "flange",
+      "pipe_fitting",
+      "coating"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "expansion_joint",
+     "name": "Expansion joint",
+     "parts": [
+      "bellows",
+      "flange"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "strainer",
+     "name": "Strainer",
+     "parts": [
+      "screen_element",
+      "housing"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "manifold",
+     "name": "Manifold",
+     "parts": [
+      "flange",
+      "pipe_fitting"
+     ],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "instrumentation",
+   "name": "Instrumentation and control",
+   "types": [
+    {
+     "id": "transmitter",
+     "name": "Transmitter",
+     "parts": [],
+     "synonyms": [
+      "pressure transmitter",
+      "temperature transmitter",
+      "flow transmitter",
+      "level transmitter"
+     ]
+    },
+    {
+     "id": "analyzer",
+     "name": "Analyzer",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "detector",
+     "name": "Detector (gas, fire)",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "thermocouple",
+     "name": "Thermocouple",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "flowmeter",
+     "name": "Flowmeter",
+     "parts": [],
+     "synonyms": [
+      "turbine meter"
+     ]
+    },
+    {
+     "id": "pressure_gauge",
+     "name": "Pressure gauge",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "temperature_gauge",
+     "name": "Temperature gauge",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "level_gauge",
+     "name": "Level gauge",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "alarm_panel",
+     "name": "Alarm panel",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "dcs",
+     "name": "DCS",
+     "parts": [
+      "hmi",
+      "controller"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "scada_system",
+     "name": "SCADA system",
+     "parts": [
+      "hmi",
+      "controller"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "plc",
+     "name": "PLC",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "esd_system",
+     "name": "ESD system",
+     "parts": [],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "electrical",
+   "name": "Electrical",
+   "types": [
+    {
+     "id": "transformer",
+     "name": "Transformer",
+     "parts": [
+      "bushing",
+      "tap_changer",
+      "conservator"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "shunt_reactor",
+     "name": "Electrical reactor",
+     "parts": [
+      "bushing"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "switchgear",
+     "name": "Switchgear and switchboard",
+     "parts": [
+      "busbar"
+     ],
+     "synonyms": [
+      "Switchboard"
+     ]
+    },
+    {
+     "id": "circuit_breaker",
+     "name": "Circuit breaker",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "relay",
+     "name": "Protection relay",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "battery",
+     "name": "Battery",
+     "parts": [
+      "cell",
+      "rack"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "battery_charger",
+     "name": "Battery charger",
+     "parts": [],
+     "synonyms": [
+      "Charger"
+     ]
+    },
+    {
+     "id": "rectifier",
+     "name": "Rectifier",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "inverter",
+     "name": "Inverter or UPS",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "junction_box",
+     "name": "Junction box",
+     "parts": [
+      "terminal"
+     ],
+     "synonyms": []
+    },
+    {
+     "id": "cable",
+     "name": "Cable",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "cable_tray",
+     "name": "Cable tray",
+     "parts": [],
+     "synonyms": [
+      "Tray"
+     ]
+    },
+    {
+     "id": "conduit",
+     "name": "Conduit",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "lighting_fixture",
+     "name": "Lighting fixture",
+     "parts": [],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "packages",
+   "name": "Packages and systems",
+   "types": [
+    {
+     "id": "wellhead",
+     "name": "Wellhead assembly",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "sampling_system",
+     "name": "Sampling system",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "instrument_air_system",
+     "name": "Instrument air system",
+     "parts": [],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "lifting",
+   "name": "Lifting and material handling",
+   "types": [
+    {
+     "id": "crane",
+     "name": "Crane",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "hoist",
+     "name": "Hoist",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "davit",
+     "name": "Davit",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "elevator",
+     "name": "Elevator",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "conveyor",
+     "name": "Conveyor",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "hopper",
+     "name": "Hopper",
+     "parts": [],
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "id": "safety_fire",
+   "name": "Safety and fire protection",
+   "types": [
+    {
+     "id": "fire_hydrant",
+     "name": "Fire hydrant",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "fire_extinguisher",
+     "name": "Fire extinguisher",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "foam_system",
+     "name": "Foam system",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "sprinkler_system",
+     "name": "Sprinkler system",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "deluge_system",
+     "name": "Deluge system",
+     "parts": [],
+     "synonyms": []
+    },
+    {
+     "id": "flare_stack",
+     "name": "Flare stack",
+     "parts": [],
+     "synonyms": []
+    }
+   ]
+  }
+ ],
+ "general": "applies to all equipment",
+ "not_equipment": [
+  {
+   "name": "Skid",
+   "reason": "a mounting form; the equipment is what sits on it",
+   "maps_to": "general"
+  },
+  {
+   "name": "Amine Unit",
+   "reason": "a process unit made of many items, not one item",
+   "maps_to": "general"
+  }
+ ],
+ "part_ids_shared": "part ids are shared across types; a part id means the same thing wherever it appears"
+}

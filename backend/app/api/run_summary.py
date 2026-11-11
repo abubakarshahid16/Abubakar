@@ -45,8 +45,11 @@ from ..api_utils import (
 )
 from ..db import connect
 from ..paging import ListPage
+from . import agent_review as agent_review_api
 
 router = APIRouter()
+# the AI reviewer's routes: 404 while its one switch is off
+router.include_router(agent_review_api.router)
 
 #: Every count below is over these findings, and no others.
 BOUNDARY = "findings of this run, on the submittal you may read"
