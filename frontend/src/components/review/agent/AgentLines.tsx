@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 
 import { agentReview } from "../../../api/agentReview";
 import type { AgentLine } from "../../../types/api";
-import { CLASS_ORDER, CLASS_STYLE, DATA_ERROR_NOTE, NOT_REVIEWED_NOTE, lineView } from "./agentWords";
+import { CLASS_ORDER, CLASS_STYLE, DATA_ERROR_NOTE, NOT_REVIEWED_NOTE, lineView, tierWords } from "./agentWords";
 
 function Block({ title, mark, border, lines, onOpen }: {
   title: string; mark: string; border: string; lines: AgentLine[]; onOpen: (itemId: string) => void;
@@ -47,7 +47,7 @@ function Block({ title, mark, border, lines, onOpen }: {
                   <td className="pr-3">{line.page != null ? line.page : ""}</td>
                   <td className="pr-3">{line.rule_book}</td>
                   <td className="pr-3">{line.clause}</td>
-                  <td className="pr-3">{line.rule_tier ?? "checklist item"}</td>
+                  <td className="pr-3">{tierWords(line.verdict_class, line.rule_tier)}</td>
                   <td className="break-words">{line.reason}</td>
                 </tr>
               );
@@ -95,6 +95,14 @@ export function AgentLines({ runId, onOpenTrace }: { runId: string; onOpenTrace:
           <Block key={c} title={c} mark={CLASS_STYLE[c].mark} border={CLASS_STYLE[c].border} lines={mine} onOpen={onOpenTrace} />
         );
       })}
+      {loaded && !next && lines.length > 0 && !lines.some((l) => lineView(l).klass === "AI opinion, rule not yet approved") && (
+        <section aria-label="AI opinion, rule not yet approved" data-testid="block-empty-not-approved" className="space-y-1">
+          <h3 className={`pl-2 text-sm font-semibold text-slateish-100 ${CLASS_STYLE["AI opinion, rule not yet approved"].border}`}>
+            <span aria-hidden="true">{CLASS_STYLE["AI opinion, rule not yet approved"].mark} </span>AI opinion, rule not yet approved
+          </h3>
+          <p className="pl-2 text-sm text-slateish-400">No rule was asked that is not AI approved.</p>
+        </section>
+      )}
       {unknown.length > 0 && (
         <Block title="Unknown class (data error)" mark="!" border="border-l-4 border-solid border-red-400" lines={unknown} onOpen={onOpenTrace} />
       )}

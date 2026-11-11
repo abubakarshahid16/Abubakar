@@ -166,3 +166,19 @@ describe("RulesUsedView: equipment notes and new reasons", () => {
     expect(screen.getAllByText("the paper names no equipment").length).toBeGreaterThan(0);
   });
 });
+
+describe("RulesUsedView: percentage and warning agree", () => {
+  /** MUTATION PROOF: use Math.round when below half and "50%" appears with the warning; trust the server flag and the warning vanishes. */
+  it("49.6% below half shows 49% with the warning, whatever the server flag says", () => {
+    const d = { ...data(), books: [{ rule_book: "Book H", requirement_sentences: 500, covered_sentences: 248, below_half: false }] };
+    render(<RulesUsedView data={d} />);
+    expect(screen.getByTestId("books")).toHaveTextContent("248 of 500 requirement sentences stored (49%)");
+    expect(screen.getByRole("note")).toHaveTextContent("less than half");
+  });
+  it("exactly half is not below half and rounds normally", () => {
+    const d = { ...data(), books: [{ rule_book: "Book H", requirement_sentences: 500, covered_sentences: 250, below_half: true }] };
+    render(<RulesUsedView data={d} />);
+    expect(screen.getByTestId("books")).toHaveTextContent("(50%)");
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+});

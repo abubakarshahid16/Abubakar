@@ -39,6 +39,14 @@ export const LEFT_OUT_REASONS: readonly AgentLeftOutReason[] = [
 ];
 export const TIERS: readonly AgentRuleTier[] = ["AI approved", "Engineer", "Owner", "Not AI approved"];
 
+/** What the rule-approval cell says. A null tier is a checklist item by the
+ *  contract (every class except "rule not yet approved", which always has a
+ *  tier); anywhere else a null tier is just "tier not given". */
+export function tierWords(klass: string, tier: string | null): string {
+  if (tier != null) return tier;
+  return klass === "AI opinion, rule not yet approved" ? "tier not given" : "Checklist item";
+}
+
 export function isKnownClass(value: string): value is AgentVerdictClass {
   return (CLASS_ORDER as readonly string[]).includes(value);
 }
@@ -59,9 +67,10 @@ export function lineView(line: { verdict_class: string; word: string }): LineVie
   const known = isKnownClass(klass);
   const provenOnly = line.word === "Pass" || line.word === "Fail";
   if (!known) return { klass: null, word: provenOnly ? null : line.word, dataError: true };
-  if (provenOnly && klass !== PROVEN) return { klass, word: null, dataError: true };
+  // Both ways: Pass/Fail only under "Proven by code", and that class only with them.
+  if (provenOnly !== (klass === PROVEN)) return { klass, word: null, dataError: true };
   return { klass, word: line.word, dataError: false };
 }
 
 export const DATA_ERROR_NOTE =
-  "Data error: the server sent a proven-only word on a line that code did not prove, so the word is not shown.";
+  "Data error: this line's class and word do not belong together (a proven word needs the class Proven by code, and that class needs a proven word), so the word is not shown.";

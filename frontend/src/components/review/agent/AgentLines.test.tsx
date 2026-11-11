@@ -111,7 +111,39 @@ describe("AgentLines: Not reviewed and checklist items", () => {
   it("a null rule tier (checklist item) renders as checklist item, not blank or null", async () => {
     lines.mockResolvedValue(ok([line({ item_id: "C1", rule_tier: null })]));
     render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
-    expect((await screen.findByText("checklist item"))).toBeInTheDocument();
+    expect((await screen.findByText("Checklist item"))).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/null/);
+  });
+});
+
+describe("AgentLines: guards both ways, tier words, the not-approved block", () => {
+  /** MUTATION PROOF: make the guard one-way again and the first test fails. */
+  it("Proven by code with an opinion word is a data error and the word is not shown", async () => {
+    lines.mockResolvedValue(ok([line({ item_id: "W1", verdict_class: "Proven by code", word: "AI thinks: met" })]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-W1");
+    expect(screen.queryByText("AI thinks: met")).toBeNull();
+    expect(screen.getByTestId("word-W1")).toHaveTextContent(DATA_ERROR_NOTE);
+  });
+  it("a null tier is Checklist item only where the contract allows it, else tier not given", async () => {
+    lines.mockResolvedValue(ok([
+      line({ item_id: "T1", rule_tier: null }),
+      line({ item_id: "T2", verdict_class: "AI opinion, rule not yet approved", word: "AI thinks: met", rule_tier: null }),
+    ]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-T1");
+    expect(within(screen.getByTestId("word-T1").closest("tr")!).getByText("Checklist item")).toBeInTheDocument();
+    expect(within(screen.getByTestId("word-T2").closest("tr")!).getByText("tier not given")).toBeInTheDocument();
+  });
+  it("the not-yet-approved block says none was asked when there are none (all pages loaded)", async () => {
+    lines.mockResolvedValue(ok([line({ item_id: "E1" })]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    expect(await screen.findByTestId("block-empty-not-approved")).toHaveTextContent("No rule was asked that is not AI approved.");
+  });
+  it("it makes no such claim while more pages wait", async () => {
+    lines.mockResolvedValue(ok([line({ item_id: "E1" })], "c2"));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    await screen.findByTestId("word-E1");
+    expect(screen.queryByTestId("block-empty-not-approved")).toBeNull();
   });
 });

@@ -13,13 +13,23 @@ export const NOT_MEASURED = "not measured";
 export const LESS_THAN_HALF =
   "less than half of this book's requirement sentences are stored: weak or scanned pages must be re-read";
 
+/** Less than half stored, from the two integers; null when not measured. */
+export function belowHalf(b: AgentBookCoverage): boolean {
+  const total = b.requirement_sentences;
+  const got = b.covered_sentences;
+  return total != null && got != null && total > 0 && got * 2 < total;
+}
+
 /** "412 of 530 requirement sentences stored (78%)", or "not measured" when
  *  either number is missing or the book has no counted sentence. */
 export function coverageWords(b: AgentBookCoverage): string {
   const total = b.requirement_sentences;
   const got = b.covered_sentences;
   if (total == null || got == null || total <= 0) return NOT_MEASURED;
-  return `${got} of ${total} requirement sentences stored (${Math.round((100 * got) / total)}%)`;
+  // Below half is decided from the two numbers, and then the percentage is
+  // rounded DOWN, so a warning never sits next to "50%".
+  const pct = belowHalf(b) ? Math.floor((100 * got) / total) : Math.round((100 * got) / total);
+  return `${got} of ${total} requirement sentences stored (${pct}%)`;
 }
 const pages = (n: number | null | undefined) => (n == null ? NOT_MEASURED : String(n));
 
@@ -84,7 +94,7 @@ export function RulesUsedView({ data }: { data: AgentRulesUsed }) {
                 <span className="block text-xs text-slateish-400">
                   unreadable pages: {pages(b.unreadable_pages)} · weak pages: {pages(b.weak_pages)}
                 </span>
-                {b.below_half === true && (
+                {belowHalf(b) && (
                   <span role="note" className="block text-xs text-warn-500">Warning: {LESS_THAN_HALF}.</span>
                 )}
               </li>
