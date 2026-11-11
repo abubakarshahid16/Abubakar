@@ -1,29 +1,25 @@
-"""The item list for one paper (ported from the experiment's exp11/items.py; no sys.path hack, read only).
+"""The item list for one paper (ported from the experiment's exp11/items.py; read only, no sys.path hack).
 
-items = the checklist items for the paper kind and equipment type + every held rule that fits this paper (its label paper kind
-is the paper's kind and its tier is usable), one item per rule (each applicable rule asked once). General code: no equipment
-name, tag, field label or sheet layout here (rule 13).
-
-Where the rules come from: the rows the classic selection chose (`requirement_rows`), or the stored scope decisions of the
-classic engine's latest completed run on the paper. A rule is in when the run placed it "checked" or "applies, not checked" (a
-raised advice query is not a requirement); rows with the same standard and the same normalised text are one rule.
-
-A checklist item whose every clause reference is already a rule item's (same standard, same clause) is a duplicate: the RULE item
-wins and the checklist guidance is folded into it (`also_skill_ids`) - except into a rule that is not AI approved.
-
-Clause text (standard text) goes ONLY to the caller's cache dict, keyed by `clause_quote_ref`; the item holds the key.
+Items = the checklist items for the paper kind and equipment type + every held rule that fits this paper (its label paper kind
+is the paper's kind and its tier is usable), one item per rule. General code: no equipment name, tag or layout (rule 13).
+A checklist item whose every clause is already a rule's is folded into the rule, except into a rule not AI approved.
+Clause text goes ONLY to the caller's cache dict, keyed by `clause_quote_ref`.
 """
 
 from __future__ import annotations
 
 import hashlib
-import re
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import Any
 
 from . import agent_review_rules as rules_mod
-from . import requirement_split, rule_labels, standard_ids, subject_scope, table_gate
+from . import requirement_split, rule_labels, table_gate
+from .agent_review_standards import (
+    _norm_clause,
+    _paper_pages,
+    _Standards,
+)
 from .agent_review_verdict import RULE_NOT_APPROVED
 
 PAPER_KINDS = (*rule_labels.PAPER_KINDS, "test record")
@@ -65,195 +61,6 @@ class _RowConn:
 
 def _key(*parts: object) -> str:
     return hashlib.sha256("\x00".join(str(p) for p in parts).encode()).hexdigest()[:16]
-
-
-def _label(filename: str | None) -> str | None:
-    """A standard's name from its file name: the stem (no extension)."""
-    if not filename:
-        return None
-    return Path(filename).stem.strip() or None
-
-
-#: A table caption line: "Table <id>" (letters, digits, dashes, dots) at the start of a line.
-_TABLE_CAPTION = re.compile(
-    r"^(?P<cap>Table\s+[A-Z0-9][A-Z0-9.\-]*[A-Z0-9])\b", re.IGNORECASE
-)
-
-
-def _fold_words(text: object) -> str:
-    return re.sub(r"[^0-9a-z]", "", str(text or "").lower())
-
-
-def _norm_clause(clause: object) -> str:
-    return re.sub(r"\s+", "", str(clause or "")).upper().rstrip(".")
-
-
-def _clause_keys(clause: str) -> list[tuple[str, str]]:
-    ident = _norm_clause(clause)
-    return [(k, ident) for k in ("number", "lettered", "appendix")] if ident else []
-
-
-def _paper_pages(conn: sqlite3.Connection, doc: str) -> list[tuple[int, str]]:
-    return [
-        (r["page_no"], r["text"] or "")
-        for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
-            (doc,),
-        )
-    ]
-
-
-class _Standards:
-    """Held standards' text, read once per document (StandardText: the same reader get_clause uses)."""
-
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self.conn = conn
-        self._text: dict[str, subject_scope.StandardText] = {}
-        self._held: list[tuple[str, str]] | None = None
-
-    def text(self, doc: str) -> subject_scope.StandardText:
-        if doc not in self._text:
-            self._text[doc] = subject_scope.StandardText(_paper_pages(self.conn, doc))
-        return self._text[doc]
-
-    def held(self) -> list[tuple[str, str]]:
-        """(document id, name) of every document that holds standard rules."""
-        if self._held is None:
-            self._held = [
-                (r["id"], _label(r["filename"]) or r["id"])
-                for r in self.conn.execute(
-                    "SELECT d.id, d.filename FROM documents d WHERE d.id IN"
-                    " (SELECT DISTINCT standard_document_id FROM standard_requirements)"
-                    " ORDER BY d.filename"
-                )
-            ]
-        return self._held
-
-    def resolve(self, name: str, prefer: set[str]) -> str | None:
-        """The held document for a standard name; one the paper's rules already use wins."""
-        hits = [
-            d for d, label in self.held() if standard_ids.same_standard(name, label)
-        ]
-        for d in hits:
-            if d in prefer:
-                return d
-        return hits[0] if hits else None
-
-    def _page_at(self, text: subject_scope.StandardText, offset: int) -> int | None:
-        for page, (start, end) in text.page_bounds.items():
-            if start <= offset < end or (start == end == offset):
-                return page
-        return None
-
-    def clause(self, doc: str, clause: str) -> tuple[str | None, int | None]:
-        """(clause body, page where it starts), as get_clause reads it; (None, None) when not found."""
-        text = self.text(doc)
-        for key in _clause_keys(clause):
-            spans = text.spans(key)
-            if spans:
-                start, _soft, end = spans[0]
-                lines = [
-                    ln
-                    for ln, off in zip(text.lines, text.offsets, strict=False)
-                    if start <= off < end
-                ]
-                body = "\n".join(lines).strip()
-                if body:
-                    return body, self._page_at(text, start)
-        return None, None
-
-    def page_lines(self, doc: str, page: int | None) -> list[str]:
-        if page is None:
-            return []
-        row = self.conn.execute(
-            "SELECT text FROM pages WHERE document_id = ? AND page_no = ?", (doc, page)
-        ).fetchone()
-        return (
-            [" ".join(x.split()) for x in (row["text"] or "").splitlines() if x.strip()]
-            if row
-            else []
-        )
-
-    def table_clause(
-        self, doc: str, requirement: dict
-    ) -> tuple[str | None, str | None, int | None]:
-        """For a rule read from a table row: (table caption, caption-to-page-end text, page).
-        The caption is the last "Table <id>" line before the row on its page, else the first one on
-        the page, else the last one on the page before (a table carried over). (None,)*3 if none."""
-        page = requirement.get("page")
-        lines = self.page_lines(doc, page)
-        caps = [i for i, ln in enumerate(lines) if _TABLE_CAPTION.match(ln)]
-        row_key = _fold_words(requirement.get("source_text"))[:40]
-        at = None
-        if row_key:
-            for i, ln in enumerate(lines):
-                if row_key[:20] and row_key[:20] in _fold_words(ln):
-                    at = i
-                    break
-        pick = None
-        if caps:
-            before = [i for i in caps if at is not None and i <= at]
-            pick = before[-1] if before else caps[0]
-            body = lines[pick:]
-        else:
-            prev = self.page_lines(doc, (page or 0) - 1)
-            pcaps = [i for i, ln in enumerate(prev) if _TABLE_CAPTION.match(ln)]
-            if not pcaps:
-                return None, None, None
-            pick, page = pcaps[-1], page - 1
-            body = prev[pick:] + lines
-            lines = prev
-        caption = _TABLE_CAPTION.match(lines[pick]).group("cap")
-        return caption, "\n".join(body).strip() or None, page
-
-    def page_clause(self, doc: str, page: int | None) -> str | None:
-        """The clause in force at the top of `page`: the last heading opened before the page starts,
-        else the first heading on the page. A weaker link than a stored or placed clause."""
-        text = self.text(doc)
-        bounds = text.page_bounds.get(page)
-        if bounds is None:
-            return None
-        before = on_page = None
-        for index, head in enumerate(text.heads):
-            if head is None or index in text.bare:
-                continue
-            off = text.offsets[index]
-            if off < bounds[0]:
-                before = head
-            elif off < bounds[1] and on_page is None:
-                on_page = head
-        found = before or on_page
-        return found[1] if found else None
-
-    def before_first_heading(self, doc: str, page: int | None) -> bool:
-        """Does `page` end before the standard's first heading (a cover, foreword or contents page)?"""
-        text = self.text(doc)
-        bounds = text.page_bounds.get(page)
-        if bounds is None:
-            return False
-        first = next(
-            (
-                text.offsets[i]
-                for i, h in enumerate(text.heads)
-                if h is not None and i not in text.bare
-            ),
-            None,
-        )
-        return first is None or bounds[1] <= first
-
-    def placed_clause(self, doc: str, requirement: dict) -> str | None:
-        """The numbered/lettered heading above where the rule's sentence sits, or None."""
-        text = self.text(doc)
-        at = text.place(requirement)
-        if at is None:
-            return None
-        found = None
-        for index, head in enumerate(text.heads):
-            if text.offsets[index] > at:
-                break
-            if head is not None and index not in text.bare:
-                found = head
-        return found[1] if found else None
 
 
 # ---- the old engine's checklist ---------------------------------------------------------------
@@ -420,6 +227,42 @@ def _clause_entry(
     return key, page
 
 
+def _quote_entry(
+    cache: dict, r: dict, doc: Any, label: str | None, clause: str | None
+) -> str | None:
+    """The cache key of the rule's own verbatim quote (None when the rule stores none)."""
+    text = (r.get("source_text") or "").strip()
+    if not text:
+        return None
+    return _put(
+        cache,
+        "Q-" + _key(r["id"]),
+        {
+            "standard_document_id": doc,
+            "standard": label,
+            "clause": clause,
+            "page": r.get("page"),
+            "source": "rule_quote",
+            "text": text[:MAX_CLAUSE_CHARS],
+            "truncated": len(text) > MAX_CLAUSE_CHARS,
+        },
+    )
+
+
+def _question_of(
+    r: dict, label: str | None, clause: str | None, cpage: int | None
+) -> str:
+    figure = ""
+    if r.get("operator") and r.get("value") is not None:
+        rule = f" Rule: {r.get('field') or 'value'} {r['operator']} {r['value']:g} {r.get('unit') or ''}"
+        figure = rule.rstrip() + "."
+    return (
+        f"Does the paper meet {label} clause {clause or '(no clause number)'}"
+        f" (standard page {cpage if cpage is not None else r.get('page')})? Requirement: "
+        f"{(r.get('requirement_text') or '').strip()}{figure}"
+    )
+
+
 def rule_item(
     r: dict, stds: _Standards, cache: dict, label: str | None, pages: list
 ) -> dict:
@@ -453,21 +296,7 @@ def rule_item(
         clause_from = "page_heading" if clause else None
     if ref is None:
         ref, cpage = _clause_entry(stds, cache, doc, label, clause)
-    quote_ref = None
-    if (r.get("source_text") or "").strip():
-        quote_ref = _put(
-            cache,
-            "Q-" + _key(r["id"]),
-            {
-                "standard_document_id": doc,
-                "standard": label,
-                "clause": clause,
-                "page": r.get("page"),
-                "source": "rule_quote",
-                "text": r["source_text"].strip()[:MAX_CLAUSE_CHARS],
-                "truncated": len(r["source_text"].strip()) > MAX_CLAUSE_CHARS,
-            },
-        )
+    quote_ref = _quote_entry(cache, r, doc, label, clause)
     if (
         ref is None
     ):  # the clause body was not found: the rule's own verbatim quote stands in
@@ -475,17 +304,7 @@ def rule_item(
     if clause is None and stds.before_first_heading(doc, r.get("page")):
         clause, clause_from = BEFORE_FIRST_HEADING, "before_first_heading"
     roles = [x for x in (r.get("field"),) if x]
-    figure = ""
-    if r.get("operator") and r.get("value") is not None:
-        figure = (
-            f" Rule: {r.get('field') or 'value'} {r['operator']} {r['value']:g} {r.get('unit') or ''}".rstrip()
-            + "."
-        )
-    question = (
-        f"Does the paper meet {label} clause {clause or '(no clause number)'}"
-        f" (standard page {cpage if cpage is not None else r.get('page')})? Requirement: "
-        f"{(r.get('requirement_text') or '').strip()}{figure}"
-    )
+    question = _question_of(r, label, clause, cpage)
     return {
         "item_id": f"R-{r['id']}",
         "source": "rule",
@@ -609,6 +428,57 @@ def _fold_duplicates(
     return kept, merged
 
 
+def _candidate_rules(
+    ro: _RowConn,
+    document_id: str,
+    paper_kind: str | None,
+    requirement_rows: list[dict] | None,
+    run_id: str | None,
+) -> tuple[list[dict], dict[str, int], str | None]:
+    """(one requirement row per candidate rule, left-out counts, the classic run used). Rows chosen by the caller come with
+    no classic run; otherwise the applicable rules of the stored scope decisions of `run_id` (default: the latest)."""
+    left: dict[str, int] = {}
+    if requirement_rows is None:
+        run_id = run_id or old_engine_run(ro, document_id)
+        if not run_id:
+            return [], left, run_id
+        reqs, left = applicable_rules(
+            ro, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
+        )
+        return reqs, left, run_id
+    seen_keys, reqs = set(), []
+    for r in sorted(
+        requirement_rows,
+        key=lambda r: (r["standard_document_id"], r.get("page") or 0, r["id"]),
+    ):
+        k = requirement_split.requirement_key(r)
+        if k in seen_keys:
+            left["stored_repeat"] = left.get("stored_repeat", 0) + 1
+            continue
+        seen_keys.add(k)
+        reqs.append({**r, "state": "candidate", "reason_code": None})
+    return reqs, left, run_id
+
+
+def _checklist(
+    conn, stds, cache, rules, block, kind, known, skills, document_id, pages
+):
+    """(checklist items, merged records): only for the kind the code reads, F2-filtered by equipment type, and never folded
+    into a rule that is not AI approved (its line would be capped)."""
+    prefer = {r["standard_document_id"] for r in rules}
+    sk: list[dict] = []
+    skill_kind = kind.get("kind") if known else None
+    for skill in load_skills(skill_kind, skills) if skill_kind else []:
+        for it in sorted(skill["items"], key=lambda i: i["order"]):
+            sk.append(skill_item(it, skill["kind"], stds, cache, prefer, pages))
+    types = rules_mod.paper_equipment_types(conn, document_id)
+    sk, dropped = rules_mod.filter_skill_items(conn, sk, types)
+    rules_mod.add_skill_block(block, dropped)
+    return _fold_duplicates(
+        sk, [r for r in rules if r.get("rule_tier") != RULE_NOT_APPROVED]
+    )
+
+
 def build_items(
     conn: sqlite3.Connection,
     document_id: str,
@@ -634,31 +504,10 @@ def build_items(
     ro = _RowConn(conn)
     stds = _Standards(ro)
     pages = _paper_pages(ro, document_id)
-    left: dict[str, int] = {}
     known = bool(kind.get("known")) and paper_kind in PAPER_KINDS
-    if (
-        requirement_rows is not None
-    ):  # chosen by the caller, without an old-engine review run
-        seen_keys, reqs = set(), []
-        for r in sorted(
-            requirement_rows,
-            key=lambda r: (r["standard_document_id"], r.get("page") or 0, r["id"]),
-        ):
-            k = requirement_split.requirement_key(r)
-            if k in seen_keys:
-                left["stored_repeat"] = left.get("stored_repeat", 0) + 1
-                continue
-            seen_keys.add(k)
-            reqs.append({**r, "state": "candidate", "reason_code": None})
-    else:
-        run_id = run_id or old_engine_run(ro, document_id)
-        reqs, left = (
-            applicable_rules(
-                ro, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
-            )
-            if run_id
-            else ([], {})
-        )
+    reqs, left, run_id = _candidate_rules(
+        ro, document_id, paper_kind, requirement_rows, run_id
+    )
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]
     reqs, lab_left, why_kept = rules_mod.filter_rows(
@@ -686,21 +535,8 @@ def build_items(
         why = why_kept[str(rule["rule_version_id"])]
         rule["rule_label"] = rules_mod.rule_label_of(why)
         rule.update(rules_mod.tier_fields(why))
-    prefer = {r["standard_document_id"] for r in rules}
-    sk: list[dict] = []
-    skill_kind = (
-        paper_kind if known else None
-    )  # checklist items only for the kind the code reads
-    for skill in load_skills(skill_kind, skills) if skill_kind else []:
-        for it in sorted(skill["items"], key=lambda i: i["order"]):
-            sk.append(skill_item(it, skill["kind"], stds, cache, prefer, pages))
-    sk, skill_dropped = rules_mod.filter_skill_items(
-        conn, sk, rules_mod.paper_equipment_types(conn, document_id)
-    )
-    rules_mod.add_skill_block(block, skill_dropped)
-    # a checklist item is never folded into a rule that is not AI approved (its line would be capped)
-    sk, merged = _fold_duplicates(
-        sk, [r for r in rules if r.get("rule_tier") != RULE_NOT_APPROVED]
+    sk, merged = _checklist(
+        conn, stds, cache, rules, block, kind, known, skills, document_id, pages
     )
     items = sk + rules
     return {

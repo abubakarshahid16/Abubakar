@@ -476,6 +476,37 @@ def _wb():
     return openpyxl.Workbook()
 
 
+def _rule_summary(ws_crs, block: Mapping | None) -> None:
+    """The rules not asked (counts, one summary line each) and the rule books the library does not hold."""
+    if not block:
+        return
+    ws_crs.append([])
+    for text in block.get("summary_lines") or []:
+        ws_crs.append([_cell(text)])
+    held_books = block.get("missing_rule_books") or []
+    if held_books:
+        ws_crs.append(
+            [
+                _cell(
+                    "Rule books not held by the library (not counted against the system, excluded from "
+                    "every score):"
+                )
+            ]
+        )
+        for b in held_books:
+            ws_crs.append([_cell(f"{b.get('rule_book')} ({b.get('why')})")])
+
+
+def _run_sheet(wb, all_lines: list[Mapping], meta: Mapping) -> None:
+    ws = wb.create_sheet(RUN_SHEET)
+    ws.append([TOP_TEXT])
+    counts = {**run_counts(all_lines), **(meta.get("order12_counts") or {})}
+    for key, value in counts.items():
+        ws.append(
+            [key, _cell(value if not isinstance(value, (dict, list)) else str(value))]
+        )
+
+
 def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
@@ -504,23 +535,7 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
         (internal_row(ln, paper) for ln in problems),
         first=True,
     )
-    block = meta.get("rule_labels")
-    if block:  # order 12: the rules not asked (counts, one summary line each) and the rule books not held
-        ws_crs.append([])
-        for text in block.get("summary_lines") or []:
-            ws_crs.append([_cell(text)])
-        held_books = block.get("missing_rule_books") or []
-        if held_books:
-            ws_crs.append(
-                [
-                    _cell(
-                        "Rule books not held by the library (not counted against the system, excluded from "
-                        "every score):"
-                    )
-                ]
-            )
-            for b in held_books:
-                ws_crs.append([_cell(f"{b.get('rule_book')} ({b.get('why')})")])
+    _rule_summary(ws_crs, meta.get("rule_labels"))
     _sheet(
         wb,
         PASSED_SHEET,
@@ -554,15 +569,7 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
             INTERNAL_HEADERS,
             (internal_row(ln, paper) for ln in unapproved),
         )
-    ws = wb.create_sheet(RUN_SHEET)
-    ws.append([TOP_TEXT])
-    for key, value in {
-        **run_counts(all_lines),
-        **(meta.get("order12_counts") or {}),
-    }.items():
-        ws.append(
-            [key, _cell(value if not isinstance(value, (dict, list)) else str(value))]
-        )
+    _run_sheet(wb, all_lines, meta)
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)

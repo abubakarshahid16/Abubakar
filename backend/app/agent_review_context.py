@@ -166,6 +166,70 @@ class ContextResult:
     fatal: BaseException | None = None
 
 
+def _done(
+    decision: Mapping,
+    fp: str,
+    outcome: Mapping,
+    exchange: dict | None = None,
+    fatal_exc: BaseException | None = None,
+) -> ContextResult:
+    """The result for an outcome: a Fail stays only when the outcome is `proven`; every other outcome holds it."""
+    info = {
+        "context_check": outcome["outcome"],
+        "context_limits": outcome.get("limits"),
+        "context_condition_met": outcome.get("condition_met"),
+        "context_hash": fp,
+    }
+    if outcome["outcome"] == PROVEN:
+        return ContextResult(dict(decision), info, exchange, fatal_exc)
+    held = held_decision(decision, outcome.get("why") or WHY_NOT_DONE)
+    return ContextResult(held, info, exchange, fatal_exc)
+
+
+def _not_done(decision, fp, exchange=None, fatal_exc=None) -> ContextResult:
+    outcome = {
+        "outcome": NOT_COMPLETED,
+        "limits": None,
+        "condition_met": None,
+        "why": WHY_NOT_DONE,
+    }
+    return _done(decision, fp, outcome, exchange, fatal_exc)
+
+
+def _stored_outcome(stored: Mapping | None, fp: str) -> dict | None:
+    """The outcome of an earlier check of the SAME rule quote and paper quote(s) (fingerprint equal), or None."""
+    if not stored or stored.get("context_hash") != fp:
+        return None
+    base = {
+        "limits": stored.get("context_limits"),
+        "condition_met": stored.get("context_condition_met"),
+    }
+    if stored.get("context_check") == PROVEN:
+        return {**base, "outcome": PROVEN, "why": None}
+    if (
+        stored.get("context_check") == HELD
+    ):  # a line held before stays held, no new call
+        return {**base, "outcome": HELD, "why": WHY_LIMITS}
+    return None
+
+
+def _rule_pages(rule_text, rule_doc, rule_page, std_pages) -> dict[int, str] | None:
+    """The rule-book page(s) to send, or None when there is no page or the quote is not on its own page."""
+    first = (
+        std_pages(rule_doc, rule_page)
+        if (std_pages and rule_doc and isinstance(rule_page, int))
+        else None
+    )
+    if not first or not rule_text or not quote_on_page(rule_text, first):
+        return None
+    pages = {}
+    for n in neighbour_pages(rule_page, first, rule_text):
+        text = first if n == rule_page else std_pages(rule_doc, n)
+        if text:
+            pages[n] = text
+    return pages
+
+
 def check_fail(
     decision: Mapping,
     *,
@@ -193,81 +257,16 @@ def check_fail(
     if decision.get("verdict") != "Fail":
         return ContextResult(dict(decision))
     fp = fingerprint(rule_text, paper_quotes)
-    same = bool(stored) and stored.get("context_hash") == fp
-
-    def done(
-        outcome: Mapping,
-        exchange: dict | None = None,
-        fatal_exc: BaseException | None = None,
-    ) -> ContextResult:
-        info = {
-            "context_check": outcome["outcome"],
-            "context_limits": outcome.get("limits"),
-            "context_condition_met": outcome.get("condition_met"),
-            "context_hash": fp,
-        }
-        if outcome["outcome"] == PROVEN:
-            return ContextResult(dict(decision), info, exchange, fatal_exc)
-        return ContextResult(
-            held_decision(decision, outcome.get("why") or WHY_NOT_DONE),
-            info,
-            exchange,
-            fatal_exc,
-        )
-
-    def failed(
-        exchange: dict | None = None, fatal_exc: BaseException | None = None
-    ) -> ContextResult:
-        return done(
-            {
-                "outcome": NOT_COMPLETED,
-                "limits": None,
-                "condition_met": None,
-                "why": WHY_NOT_DONE,
-            },
-            exchange,
-            fatal_exc,
-        )
-
-    if (
-        same and stored.get("context_check") == PROVEN
-    ):  # the same quotes were checked and proven before
-        info = {
-            "context_check": PROVEN,
-            "context_limits": stored.get("context_limits"),
-            "context_condition_met": stored.get("context_condition_met"),
-            "context_hash": fp,
-        }
-        return ContextResult(dict(decision), info)
-    if (
-        same and stored.get("context_check") == HELD
-    ):  # a line held before stays held, no new call
-        return done(
-            {
-                "outcome": HELD,
-                "limits": stored.get("context_limits"),
-                "condition_met": stored.get("context_condition_met"),
-                "why": WHY_LIMITS,
-            }
-        )
+    carried = _stored_outcome(stored, fp)
+    if carried is not None:
+        return _done(decision, fp, carried)
     if (
         not in_scope or ask is None
     ):  # no call is made: a Fail is never proven without the check
-        return failed()
-    first = (
-        std_pages(rule_doc, rule_page)
-        if (std_pages and rule_doc and isinstance(rule_page, int))
-        else None
-    )
-    if (
-        not first or not rule_text or not quote_on_page(rule_text, first)
-    ):  # no page, or the quote is not on its own page
-        return failed()
-    rule_pages = {}
-    for n in neighbour_pages(rule_page, first, rule_text):
-        text = first if n == rule_page else std_pages(rule_doc, n)
-        if text:
-            rule_pages[n] = text
+        return _not_done(decision, fp)
+    rule_pages = _rule_pages(rule_text, rule_doc, rule_page, std_pages)
+    if not rule_pages:  # no page, or the quote is not on its own page
+        return _not_done(decision, fp)
     parts = build_parts(
         rule_text, clause, rule_pages, [str(q) for q in paper_quotes if q], paper_pages
     )
@@ -280,10 +279,13 @@ def check_fail(
         reply = ask(parts)
     except fatal as exc:  # a budget stop: the caller halts; the Fail is held
         exchange["error"] = "run stopped"
-        return failed(exchange, exc)
-    except Exception as exc:  # noqa: BLE001  any other failure of the call holds the Fail; only the class is kept
-        exchange["error"] = type(exc).__name__
-        return failed(exchange)
+        return _not_done(decision, fp, exchange, exc)
+    except Exception as exc:  # noqa: BLE001
+        recorded = (
+            type(exc).__name__
+        )  # any other failure of the call holds the Fail; only the class is recorded
+        exchange["error"] = recorded
+        return _not_done(decision, fp, exchange)
     reply = reply if isinstance(reply, Mapping) else {}
     obj = reply.get("obj")
     if obj is None and reply.get("text"):
@@ -294,9 +296,9 @@ def check_fail(
         [lead_model or ""], model
     ):  # a model of the lead's family cannot check it
         exchange["error"] = "same model family as the lead, or unknown"
-        return failed(exchange)
+        return _not_done(decision, fp, exchange)
     outcome = evaluate(
         obj, list(rule_pages.values()), [t for t in paper_pages.values() if t]
     )
     exchange["code_decision"] = outcome
-    return done(outcome, exchange)
+    return _done(decision, fp, outcome, exchange)

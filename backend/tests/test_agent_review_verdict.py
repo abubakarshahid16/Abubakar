@@ -430,3 +430,13 @@ def test_no_call_beyond_the_leads_answer_is_allowed_for_a_rule_not_approved():
     assert not V.calls_allowed({"source": "rule"})  # tier not established
     assert not V.calls_allowed(None)
     assert V.calls_allowed({"source": "rule"}, lambda it: "AI approved")
+
+
+def test_the_current_label_table_overrides_the_tier_the_item_carried():
+    carried = {"source": "rule", "rule_label": {"tier": "AI approved"}}
+    assert V.item_tier(carried) == "AI approved"
+    assert (
+        V.item_tier(carried, lambda it: None) == V.RULE_NOT_APPROVED
+    )  # the label was revoked since the item was built
+    assert V.item_tier(carried, lambda it: "not AI approved") == V.RULE_NOT_APPROVED
+    assert not V.calls_allowed(carried, lambda it: None)

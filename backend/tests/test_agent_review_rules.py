@@ -382,3 +382,38 @@ def test_missing_rule_books_are_the_cited_and_needed_ones_the_library_lacks(conn
         "needed by the paper kind or type"
     )
     assert not any("ABC-100" in n for n in names)  # a held book is not listed
+
+
+def test_the_tier_lookup_reads_the_label_table_now_and_final_cap_uses_it(conn):
+    from app import agent_review_wording as W
+
+    label(conn, "ok")
+    label(conn, "u", state="needs_human")
+    lookup = R.tier_lookup(conn, "datasheet")
+    assert lookup({"rule_version_id": "ok"}) == "AI approved"
+    assert (
+        lookup({"rule_version_id": "u"}) is None
+        and lookup({"rule_version_id": "gone"}) is None
+    )
+    both = R.tier_lookup(conn, "datasheet", ask_unapproved="both")
+    assert (
+        both({"rule_version_id": "u"}) == V.TIER_NOT_APPROVED
+    )  # asked, but not a usable tier
+    stored = {
+        "item_id": "R-ok",
+        "source": "rule",
+        "verdict": "Fail",
+        "ai_verdict": "Fail",
+        "decided_by": "decided by code",
+    }
+    item = {
+        "item_id": "R-ok",
+        "source": "rule",
+        "rule_version_id": "ok",
+        "rule_label": {"tier": "AI approved"},
+    }
+    assert W.final_cap(stored, item, lookup)["verdict"] == "Fail"
+    conn.execute(
+        "UPDATE rule_label SET paper_kind = 'procedure' WHERE rule_ref = 'ok'"
+    )  # moved to another kind since
+    assert W.final_cap(stored, item, lookup)["verdict"] == "Query"
