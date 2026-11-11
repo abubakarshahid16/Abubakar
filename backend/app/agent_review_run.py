@@ -74,6 +74,8 @@ TOKENS_PER_ITEM = 700
 TOKENS_BASE = 600
 MAX_TOKENS_CAP = 8000
 MAX_RETRIES = 3
+#: a lead answer that stopped at max_tokens, or could not be read: the batch is split in half and asked once more per half
+SPLITTABLE = ("stop_max_tokens", "unparseable_reply")
 RETRY_BASE_SECONDS = 4.0
 CONCURRENCY = 3
 SECOND_MAX_TOKENS = agent_claude.SECOND_MAX_TOKENS
@@ -417,6 +419,25 @@ def stop_reason(exc: BaseException, step_worst: float | None = None) -> tuple[st
     return code, code
 
 
+# ---------------------------------------------------------------- the silent paper
+
+SILENT_CODES = ("sheet_silent", "absent")
+SILENT_WHY = "the paper is silent on this; for this paper kind silence is a question, never a finding"
+
+
+def silence_guard(line: Mapping, paper_kind: str | None) -> dict:
+    """Owner, 11 Nov 2026 (16.3 point 4): when the AI's "not met" rests only on the paper being silent and the paper kind is
+    not a datasheet, the line is a Query, never "AI thinks: not met". The one exit calls this; with the AI reviewer on for
+    datasheets only (`agent_review_gate.AGENT_REVIEW_KINDS`) it cannot fire, and stays wired so widening the kinds is safe.
+    Only makes a line less confident."""
+    out = dict(line)
+    if (str(paper_kind or "").strip().lower() != "datasheet" and out.get("ai_verdict") == verdict.FAIL
+            and out.get("reason_code_ai") in SILENT_CODES and not out.get("error")):
+        out.update(verdict=verdict.QUERY, decided_by=verdict.BY_ENGINEER, why=SILENT_WHY, silent_query=True)
+        return wording.apply({**out, "ai_verdict_was": out.get("ai_verdict"), "ai_verdict": None})
+    return wording.apply(out)
+
+
 # ---------------------------------------------------------------- the runner
 
 
@@ -427,7 +448,8 @@ class Runner:
                  done_lines: Mapping[str, dict] | None = None, paper_kind: str | None = None,
                  equipment_type: str | None = None, absence_check: bool = False,
                  context_check: bool = True, std_pages: Callable[[str, int], str | None] | None = None,
-                 sink: Callable[[dict, dict], None] | None = None, trace_path: Path | None = None) -> None:
+                 sink: Callable[[dict, dict], None] | None = None, trace_path: Path | None = None,
+                 tier_lookup: Callable[[Mapping], str | None] | None = None) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
         self.concurrency, self.max_batch, self.retry_base = max(1, int(concurrency)), max_batch, retry_base
@@ -436,14 +458,16 @@ class Runner:
         self.meter = agent_claude.SpendMeter(app_cap())  # a backstop: the step gate and `metered` are the binding ones
         self.opinion = agent_claude.ClaudeProvider(model=model, send=send, env=env, meter=self.meter)
         self.total_pages = pages.count(paper)
+        self.tier_lookup = tier_lookup  # the CURRENT tier of a rule item, from the label table
         self.items = plan_pages(items, pages, paper, clauses)
-        self.lines: dict[str, dict] = {k: self._kept(v) for k, v in dict(done_lines or {}).items()}
+        self.items_by_id = {str(i.get("item_id")): i for i in self.items}
         self.stopped = ""
         self.stop_text = ""
         self.gate: AppStepGate | None = None
         self.last_app_worst: float | None = None
         self.run_usd = 0.0
         self.paper_kind, self.equipment_type = paper_kind, equipment_type
+        self.lines: dict[str, dict] = {k: self._kept(v) for k, v in dict(done_lines or {}).items()}
         self.absence_check = bool(absence_check)
         self.carried = absence.carried_roles(paper_kind, equipment_type) if absence_check else None
         self._ctx: dict[str, dict] = {}
@@ -458,14 +482,19 @@ class Runner:
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again
     def _kept(self, line: dict) -> dict:
-        capped = verdict.cap_unapproved(line, line)  # the stored line carries `rule_tier` like its item
-        if capped.get("unapproved_cap"):
-            line = {**line, **{k: capped[k] for k in ("verdict", "decided_by", "why")}, "unapproved_cap": True}
-        return {**wording.apply(line), "resumed": True}
+        """A stored line comes back through the SAME exit as a new one: its rule's CURRENT tier decides, so nothing a stored
+        line earned under an old tier survives (a rule no longer approved is capped again)."""
+        return {**self.exit_line(line), "resumed": True}
+
+    def exit_line(self, line: Mapping) -> dict:
+        """THE one exit every line goes through before it is stored or written (table row, xlsx, API): the tier from the
+        CURRENT label table (`final_cap`), then the silent-paper rule. Only ever makes a line less confident."""
+        out = wording.final_cap(line, self.items_by_id.get(str(line.get("item_id"))), self.tier_lookup)
+        return silence_guard(out, self.paper_kind)
 
     # ---- output
     def emit(self, line: dict) -> None:
-        line = wording.apply(line)
+        line = self.exit_line(line)
         with self._lock:
             self.lines[str(line["item_id"])] = line
             trace = self._trace_of(line)
@@ -587,7 +616,8 @@ class Runner:
         ref = item.get("clause_quote_ref")
         held = held_texts(item, self.clauses)
         answer = answer or {}
-        unapproved = item.get("rule_tier") == verdict.RULE_NOT_APPROVED  # its line is capped: no second opinion is bought
+        # a rule whose tier is not Owner / Engineer / AI approved never buys a call beyond the lead's own answer
+        unapproved = not verdict.calls_allowed(item, self.tier_lookup)
 
         def needs_second(*a, **k):
             return (not unapproved) and verdict.needs_second_opinion(*a, **k)
@@ -627,12 +657,9 @@ class Runner:
                 decision, proof, absence_second = self.absence_decision(item, answer, checks, requirement, lead_model)
                 if decision["verdict"] == verdict.FAIL:
                     comment = absence.comment(proof.field_words, item.get("standard"), item.get("clause"))
-        # F1: a conditional rule's Fail is never proven; F3: a table row or a note loses its conditions
-        decision = verdict.hold_conditional_fail(decision, answer.get("clause_quote"), requirement)
-        decision = verdict.hold_table_note_fail(decision, item, requirement,
-                                                [self.clauses.source(h["ref"]) for h in held])
-        # THE cap of a rule that is not AI approved: after the gate, F1 and F3, before F4
-        decision = verdict.cap_unapproved(decision, item)
+        # F1 (conditional rule), F3 (table row or note), then THE cap of a rule that is not approved
+        decision = verdict.apply_holds(decision, item, clause_quote=answer.get("clause_quote"), requirement=requirement,
+                                       clause_sources=[self.clauses.source(h["ref"]) for h in held])
         decision, ctx_info = self.context_check_fail(iid, item, [answer.get("paper_quote")], pages,
                                                      requirement or answer.get("clause_quote"), decision, lead_model)
         label = str(answer.get("field_label") or "").strip()
@@ -839,7 +866,10 @@ class Runner:
         return agent_tools.ToolBox(ctx, page_reader=lambda d, n: self.pages.page(d, n),
                                    searcher=lambda _q, _a: {"hits": []}, standard_pages=lambda _d: [])
 
-    def run_batch(self, batch: list[dict]) -> None:
+    def run_batch(self, batch: list[dict], allow_split: bool = True) -> None:
+        """One lead call for the batch. An answer cut off at max_tokens (or unreadable) is asked again ONCE per half of the batch;
+        items a readable answer left out are asked again once; an item still without an answer is a failed call ("not
+        reviewed"), never a verdict."""
         ids = [str(i.get("item_id")) for i in batch]
         numbers = pages_for(batch, self.total_pages)
         pages = {n: t for n in numbers if (t := self.pages.page(self.paper, n))}
@@ -865,7 +895,7 @@ class Runner:
             if model != "unknown":
                 self.lead_models.add(model)
             answer = parse_answers(raw)
-            if answer is None:  # one retry of the batch; a second unreadable reply stays a failed call
+            if answer is None and not (allow_split and len(batch) > 1):  # one retry; a bigger batch is split instead
                 with self._lock:
                     self.calls["retries"] += 1
                 raw, usd2 = self.call(self.model, parts, max_tokens)
@@ -880,6 +910,12 @@ class Runner:
             error = exc.code
         except Exception as exc:  # noqa: BLE001  a failed call is a Query, never a verdict
             error = "error_" + type(exc).__name__
+        if answer is None and allow_split and len(batch) > 1 and error in SPLITTABLE:
+            self.trace_record({"type": "split", "item_ids": ids, "after": error})
+            mid = (len(batch) + 1) // 2
+            self.run_batch(batch[:mid], False)
+            self.run_batch(batch[mid:], False)
+            return
         share = usd / max(1, len(batch))
         self.trace_record({"type": "batch", "item_ids": ids, "prompt_version": PROMPT_VERSION, "pages_opened": numbers,
                            "pages_read": sorted(pages), "model_answered": model, "usd": usd, "error": error})
@@ -888,9 +924,15 @@ class Runner:
             self._ctx[iid] = {"batch_item_ids": ids, "question": _question(it, held_of.get(iid)),
                               "pages_opened": numbers, "pages_read": sorted(pages), "lead_model": model,
                               "lead_error": error, "lead_answer": (answer or {}).get(iid)}
+        missing = []
         for it in batch:
             got = (answer or {}).get(str(it.get("item_id")))
+            if got is None and answer is not None and allow_split:
+                missing.append(it)  # a readable answer that left this item out: asked once more below
+                continue
             self.emit(self.decide(it, got, pages, model, error if answer is None else None, box, share))
+        if missing:
+            self.run_batch(missing, False)
 
     def pass_guard(self, item: Mapping, label: str) -> tuple[dict, str, int | None] | None:
         """(decision, reason code, deferred page) when a Pass must become a Query, else None. Field words: the item's roles,

@@ -17,6 +17,16 @@ STAGE = "agent_review"
 FEATURE_OFF = "feature_off"
 
 
+#: The paper kinds the AI reviewer accepts. OWNER, 11 Nov 2026 (STATE 16.3 point 4): "In the live app, switch on the AI reviewer
+#: for datasheets only. Keep procedure and contract review off until a re-run shows most opinion lines are right." (The
+#: experiment's procedure and contract runs: most "AI thinks: not met" lines were wrong, because the paper was silent.) One
+#: switch stays one switch; inside it a paper of any other kind, or of an unknown kind, is refused before any job exists.
+#: Widening this tuple is an owner decision.
+AGENT_REVIEW_KINDS = ("datasheet",)
+KIND_NOT_ENABLED = "kind_not_enabled"
+KIND_NOT_ENABLED_MESSAGE = "AI review is on for datasheets only (owner, 11 Nov 2026)"
+
+
 class FeatureOff(RuntimeError):
     """AGENT_REVIEW_ENABLED is off: nothing was created, read or written."""
 
@@ -29,6 +39,11 @@ def enabled() -> bool:
 def require_on() -> None:
     if not enabled():
         raise FeatureOff("AGENT_REVIEW_ENABLED is off")
+
+
+def kind_enabled(kind: str | None) -> bool:
+    """May the AI reviewer take a paper of this decided kind? An unknown kind (None, "unknown") never."""
+    return str(kind or "").strip().lower().replace(" ", "_") in AGENT_REVIEW_KINDS
 
 
 def claude_lane_open() -> bool:

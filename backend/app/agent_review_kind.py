@@ -39,10 +39,31 @@ class PaperReading:
 
 
 def read_kind(conn, document_id: str) -> dict:
-    """{'kind': str | None, 'known', 'method', 'guess'} from the stored pages (reads only)."""
-    from . import agent_review_rules as rules
+    """{'kind': str | None, 'known', 'method', 'guess'} from the stored pages and the stored classification (reads only).
 
-    return rules.paper_kind_of(conn, document_id)
+    An engineer-confirmed kind (`document_kinds`) decides; else `paper_kind.decide_paper_kind` reads the cover and title.
+    No cue found: `known` False and no kind (never "other" by default)."""
+    from . import paper_kind as pk
+
+    held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    confirmed = None
+    if "document_kinds" in held:
+        row = conn.execute("SELECT kind, state FROM document_kinds WHERE document_id = ?", (document_id,)).fetchone()
+        if row is not None and row["state"] == "confirmed":
+            confirmed = row["kind"]
+    pages = [dict(r) for r in conn.execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no", (document_id,))]
+    if not pages and not confirmed:
+        return {"kind": None, "known": False, "method": "no_pages", "guess": False}
+    role = None
+    if "document_classification" in held:
+        row = conn.execute("SELECT document_role FROM document_classification WHERE document_id = ?",
+                           (document_id,)).fetchone()
+        role = row["document_role"] if row else None
+    got = pk.decide_paper_kind(pages, document_role=role, confirmed_kind=confirmed)
+    unknown = got.source_kind == "unknown" and got.method != "engineer_confirmed"
+    return {"kind": None if unknown else got.paper_kind, "known": not unknown, "method": got.method,
+            "guess": bool(got.guess)}
 
 
 def read_equipment(document_id: str, allowed: frozenset[str]) -> tuple[str | None, str | None]:
