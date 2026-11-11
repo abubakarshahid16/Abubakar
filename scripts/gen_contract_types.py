@@ -109,6 +109,7 @@ def modules() -> tuple[Module, ...]:
                 (ar.AgentAskedRule, "AgentAskedRule"),
                 (ar.AgentLeftOutRule, "AgentLeftOutRule"),
                 (ar.AgentMissingBook, "AgentMissingBook"),
+                (ar.AgentBookCoverage, "AgentBookCoverage"),
                 (ar.AgentRulesUsed, "AgentRulesUsed"),
             ),
             unions=(
