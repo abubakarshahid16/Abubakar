@@ -156,8 +156,11 @@ def decide(conn, document_id: str, pages, kind_on: bool, role):
     the engineer (when the document may be a datasheet at all). Switch off: the title block, then
     the body fallback, as before."""
     from . import classification as c
+    from . import paper_kind
     from .config import settings
 
+    if paper_kind.no_main_equipment(document_id, pages):
+        return None  # owner order 11 Nov step 2: a procedure or contract (switch on)
     if settings.equipment_from_title_block_enabled:
         reading = read_title_block(pages)
         if reading.evidence is None and c._body_fallback_ok(

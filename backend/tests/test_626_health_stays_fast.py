@@ -29,6 +29,10 @@ from scripts import measure_health_under_load as tool
 DOCUMENTS = 30
 CHUNKS_EACH = 20
 HEALTH_LIMIT_S = 0.5
+#: ONE call may pass the limit, but never by this much. A shared CI runner can stall one call for
+#: a GC pause or a scheduler slice (seen: 0.504 s on #1726, and on #1727); a job that really
+#: blocks health holds a call for a whole step, which the slowed steps below make longer than this.
+OUTLIER_CEILING_S = 1.0
 
 
 @pytest.fixture(autouse=True)
@@ -80,6 +84,21 @@ def _slow(monkeypatch, module, name, seconds):
     monkeypatch.setattr(module, name, slowed)
 
 
+class _TimedClient:
+    """The test client, keeping every health time (the tool reports only the summary)."""
+
+    def __init__(self, client: TestClient) -> None:
+        self.client = client
+        self.seconds: list[float] = []
+
+    def get(self, url: str):
+        started = time.perf_counter()
+        response = self.client.get(url)
+        if response.status_code == 200:
+            self.seconds.append(time.perf_counter() - started)
+        return response
+
+
 def _acronym_rebuild() -> None:
     acronyms.reset_cache()
     acronyms.warm_all()
@@ -98,11 +117,19 @@ def test_health_stays_under_the_limit_while_the_job_runs(
     _library()
     _slow(monkeypatch, module, step, seconds)
     with TestClient(app, base_url="http://127.0.0.1") as client:
-        out = tool.probe_while(client, job, every=0.05)
+        timed = _TimedClient(client)
+        out = tool.probe_while(timed, job, every=0.05)
+    over = [round(s, 3) for s in timed.seconds if s >= HEALTH_LIMIT_S]
+    out = {**out, "over_limit": over}
     assert out["job_error"] is None, out
-    assert out["job_seconds"] > HEALTH_LIMIT_S, (
-        f"the job was not slower than the limit: {out}"
-    )
-    assert out["calls"] >= 5, f"health was not asked while the job ran: {out}"
+    # Longer than the outlier ceiling, so a job that ran inside (or locked out) one health call
+    # could not hide as the one allowed outlier.
+    assert out["job_seconds"] > OUTLIER_CEILING_S, f"the job was not slow enough: {out}"
     assert out["non_200"] == 0, out
-    assert out["max_s"] < HEALTH_LIMIT_S, f"{name}: {out}"
+    # Not the slowest single call: one call on a shared runner can stall for reasons that are not
+    # the job (#1726, #1727 went red on max_s 0.504 and passed on re-run). The typical call must
+    # be fast, at most ONE may pass the limit, and that one by less than the ceiling.
+    assert out["median_s"] < HEALTH_LIMIT_S, f"{name}: {out}"
+    assert len(over) <= 1, f"{name}: more than one health call over the limit: {out}"
+    assert out["max_s"] < OUTLIER_CEILING_S, f"{name}: {out}"
+    assert out["calls"] >= 5, f"health was not asked while the job ran: {out}"

@@ -110,6 +110,8 @@ _KIND_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("feed", re.compile(r"\bFEED\b|(?i:\bfront[- ]end\s+engineering\s+design\b)")),
     ("datasheet", re.compile(r"\bdata\s?sheets?\b", re.I)),
 )
+#: A title cue list: `_KIND_CUES`, or the paper kind's own (`paper_kind`).
+Cues = Sequence[tuple[str, re.Pattern[str]]]
 _STANDARD_LINE = re.compile(
     r"^(?:SAES|SAEP|SAIC|ISO|IEC|API|ASME|ASTM|NORSOK|NFPA|IEEE|BS|DIN|EN)"
     r"[-\s]?[A-Z]{0,3}[-\s]?\d",
@@ -199,14 +201,17 @@ def _type_code_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | N
     return None
 
 
-def _title_cue_hit(lines: Sequence[tuple[int, str]]) -> tuple[str, int, str] | None:
+def _title_cue_hit(
+    lines: Sequence[tuple[int, str]], cues: Cues = _KIND_CUES
+) -> tuple[str, int, str] | None:
     # #1476: the earliest page first - a document names itself at its start, and
     # an attachment deep inside (a safety data sheet on page 51) is not its title.
+    # `cues`: the paper kind (`paper_kind`) passes its own list; default unchanged.
     for page, line in sorted(lines, key=lambda pl: pl[0]):
         text = line.strip().strip("|").strip()
         if not text or ":" in text or len(text.split()) > _TITLE_WORDS_MAX:
             continue
-        for kind, pattern in _KIND_CUES:
+        for kind, pattern in cues:
             if any(
                 not _REFERENCE_AFTER.match(text, m.end())
                 for m in pattern.finditer(text)
@@ -230,7 +235,7 @@ def _contract_body_hit(pages: Sequence[dict]) -> tuple[int, str] | None:
 
 
 def decide_document_kind(
-    pages: Sequence[dict], *, document_role: str | None = None
+    pages: Sequence[dict], *, document_role: str | None = None, cues: Cues = _KIND_CUES
 ) -> DocumentKindEvidence:
     """The kind of ONE document from its title block and cover; pure, no I/O.
 
@@ -272,7 +277,7 @@ def decide_document_kind(
             if line_shape(ln) == "other" or data_sheet.search(ln)
         ]
     code = _type_code_hit(lines)
-    title = _title_cue_hit(lines)
+    title = _title_cue_hit(lines, cues)
     if code is not None:
         disagree = title is not None and title[0] != code[0]
         return make(

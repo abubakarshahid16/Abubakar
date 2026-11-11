@@ -137,6 +137,7 @@ def test_a_general_answer_outside_a_conversation_is_a_declared_document_free_pro
 #: Every app module that can start a Claude call, and WHO declares for it:
 #: itself (it names `claude_approved`), or the one caller named here.
 DECLARED_BY = {
+    "agent_claude.py": "agent_run.py",  # it refuses to send unless the CALLER (the runner) has declared the carried documents
     "ai_engineering_check.py": "ai_engineering_check.py",
     "answer.py": "answer.py",
     "answerability.py": "answerability.py",

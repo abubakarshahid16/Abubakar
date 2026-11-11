@@ -58,6 +58,20 @@ def could_not_be_checked_text(name: str, reason: str | None) -> str:
     return f"{name}: {could_not_be_checked_sentence(reason)}"
 
 
+def unknown_condition_words(why: str | None) -> str:
+    """What the sheet says about a condition a held check depends on, from the reason
+    `datasheet_checks._one` gave (`hold_reason.unknown_condition` picks the code from
+    the same reason). "absent": the sheet does not state it. Any other reason is
+    several different values: the sheet DOES state it, more than once, so it is never
+    called "not stated"; the engineer confirms which value applies."""
+    if why == "absent":
+        return "which the sheet does not state"
+    return (
+        "for which the sheet gives several different values, and the engineer is to "
+        "confirm which one applies"
+    )
+
+
 def side_state(side: dict, used_passages: list) -> tuple[str, str | None]:
     """(state, reason) for one compared side's own answer.
 

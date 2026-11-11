@@ -20,6 +20,11 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 
 | Module | Job |
 |---|---|
+| `agent_tools` | Agent reviewer tools: open page, search, get clause, compare number, record finding, ask engineer (#1690) |
+| `agent_quote_refs` | Quote by reference: the model names page line ids and clause block ids, code writes the exact quote text (#1690) |
+| `agent_bind` | GREEN and RED only for numbers decided by code: figures inside their quotes, topic overlap, clause quote rules; textual findings are YELLOW (#1690) |
+| `agent_tool_schemas` | Model-facing JSON Schemas of the agent tools, tolerant argument coercion and refusal hints (#1690) |
+| `agent_subject` | Subject check for compare_number: a figure is compared only with the same subject (#1690) |
 | `absence` | ONE RULE FOR ABSENCE (#450, #451): not found is never a positive outcome |
 | `access` | Request-scoped authorisation. Computed once, server-side, per request |
 | `acronyms` | Acronym expansions harvested from the documents themselves |
@@ -33,6 +38,30 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `label_match` | A split abbreviation ("tube o d") is joined before the roles table is read; a reading with no unit beside the same number with one is one value (switch `datasheet_label_join_enabled`) |
 | `scope_type_words` | Does a part's construction already stand in the sheet's own equipment type or title (draft rule, off until the owner says yes) |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
+| `ai_senior_review` | Step 3 of "the best CRS" (Part of #805), off by default: the AI senior review entry point (A's checks plus B's AI rows that A lacks); this part is the switch only |
+| `figure_compare` | One document figure against one clause figure by code (comparison module's own readers; negations, decimal commas, ranges, placeholders, gauge/absolute refused or decided as stated) |
+| `ai_review_pass` | The AI engineering review pass runner (off by default): one model call proposes, code verifies and stores; changes no row |
+| `agent_loop` | The agent proof test loop (off by default, `AGENT_REVIEW_ENABLED`): a provider picks one tool per step, code runs it; ends in a finding checked for the honesty rules |
+| `agent_trace` | Local-only trace, live log, LIVE.md and resume state for the agent proof test; never inside the repository |
+| `agent_run` | The agent proof test runner (off by default, `AGENT_REVIEW_ENABLED`): runs a skill's items on a read-only COPY of the database, applies the second opinion, writes local RESULTS, examples and a workbook the answer-key scorer can read |
+| `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
+| `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |
+| `agent_run_stats` | Honest counts (provider errors, failed tool calls, step-limit items), the 'run unreliable' words and the failure breaker of the agent proof test runner |
+| `agent_run_sweep` | Repeat runner for sweep items of the agent proof test: one skill item run again and again, each run told the quotes already recorded, until nothing new; every finding keeps the normal quote verification and is YELLOW |
+| `rule_finish` | The rule finishing line (steps a to g): limit and unit inside the quote, evidence source, fragments, testable conditions, quote found; may_decide and finish_status; proposals applied to a work copy only |
+| `rule_finish_store` | The finishing line's store (copy only): the `rule_finish_step` table, reading rules from a rulebook copy, applying a proposal |
+| `rule_finish_figures` | The numbers of a quote for step a, fail closed: figures before a unit of the unit table, and every number token (any script, words, fractions) after the repo's reference stripping; no English decides anything |
+| `rule_finish_guard` | Where the finishing line may write: only a marked work copy, never the source, pages, app or live database |
+| `rule_finish_record` | Recording the finishing line's steps bound to the rule version, quote and content: code steps recomputed from the work copy, inputs and sample sheets issued by code, the engineer check and owner sample from files that answer an issued input, stale checks never counting |
+| `rule_finish_repair` | Applying an engineer's repair of a rule to a work copy, each part verified by code against the quote and the standard's page text |
+| `rule_coverage` | Which numeric obligation sentences of a standard no compiled rule covers (counts per standard, local files only) |
+| `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
+| `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
+| `agent_local` | Local second opinion for the agent proof test (off by default): the local Qwen 35B through `model_transport`, heavy lock and unload around a batch, errors are codes only |
+| `agent_local_lead` | Local lead provider for the agent proof test (off by default): the loop on a local Ollama model through `model_transport` only, one tool call per turn, one JSON finding, think off, usd always 0, per-call speed numbers, heavy lock and unload in finally |
+| `ai_review_proposals` | The review pass's proposal schema and code verifier: refuses any unverified value, page or clause; a Pass is never created |
+| `project_specification` | Which specification a person (the owner) marked for a submittal; pinned to the run and reported in every review, or "none held" |
+| `crs_ai_review_view` | What the INTERNAL CRS shows of the accepted AI review proposals: removed rows (restorable), added rows, rewordings, the understanding note, the AI review sheet |
 | `ai_check_drafts` | The AI checks' drafts keep no status, are counted as "AI observations (draft, no verdict)", and an exact repeat is marked |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
 | `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
@@ -101,6 +130,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_datasheet` | Read a contractor datasheet into facts |
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |
+| `claude_image_tokens` | How many input tokens an image block costs for the spend reservation: width x height / 750 after the long-edge scale-down, at most one image's maximum; the size from the PNG/JPEG header; an unreadable size counts the maximum |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more: per review run USD 5 per step, USD 10 for AI clause review and USD 15 in all; USD 25 per standard, USD 100 a day, the total |
 | `claude_spend_report` | What the Claude lane really cost per step, from settled ledger lines, and the USD 100 a day |
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
@@ -119,7 +149,11 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
+| `part_name_roles` | Test B (part of #805): the strict rules by which a part printed alone (IMPELLER: material) or a seal in a sentence fills its material/type field, for the form reader's label gate and the stored-facts check, behind FORM_PART_NAME_ROLES_ENABLED |
+| `section_index` | Test B / HAZOP (part of #805): headings of any kind (attachment/appendix/annex codes, table titles, item titles) indexed at review time in memory for the playbook review, and the generic-title-word rule, behind SECTION_INDEX_ENABLED |
 | `crs_one_row` | #1503: one CRS row per problem, and "did not reference" rows nothing in scope requires, behind CRS_ONE_ROW_PER_PROBLEM_ENABLED |
+| `contractor_scrub` | Item 14c (owner 3 Nov 11:40): the one scrub that keeps the contractor copy free of engineer wording (text we write only; the contractor's own file names, tags and titles stay verbatim), with the code check that counts what is left, behind CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED |
+| `compliance_list` | Owner 3 Nov 11:40 (b): a value only a draft rule checks, with nothing found, is no CRS row; it is on the internal-only sheet "Compliance list", behind CRS_COMPLIANCE_LIST_ENABLED |
 | `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
@@ -168,13 +202,19 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
 | `degraded_read` | A degraded AI reading of a datasheet (mostly refused, timed out, stopped, unavailable) is recorded in counts and holds every checklist pass for the engineer (order 261.2) |
 | `deferred_value` | A value the sheet defers to the contractor (By Contractor, TBA) is a query, never a verdict (owner decision D2, #1475) |
+| `hold_reason` | Why a held datasheet check is held, as a code from a closed set written with its words; stored on the finding; no verdict reads it, only `crs_routing` (which sheet shows a held row, behind its switch) (#805 Cycle 2) |
+| `crs_routing` | Owner order 10 Nov step 4 (#805 Cycle 2): which sheet shows a row, by stored hold reason and the standards check (R1-R4); never a verdict, behind CRS_ROUTING_BY_HOLD_REASON_ENABLED |
+| `crs_tick_sheet` | Owner order 11 Nov step 1 (#805): the internal-only sheet "Passed by a tested rule: engineer to tick" holding the safety-tick rows (not CRS comments); which rows leave the CRS sheet is `crs_export._tick_section`; behind CRS_ROUTING_BY_HOLD_REASON_ENABLED |
+| `crs_by_contractor` | Owner order 11 Nov, owner answer (#805): on the contractor (issue) copy only, the rows held because a value is marked deferred (hold reason `deferred_marker`) are one query row naming every field with its tag, page and number; `crs_mapping.build_crs_rows` marks the rows, `crs_export.build_crs_view` folds them; the internal copy keeps one row per field; behind CRS_BY_CONTRACTOR_ONE_ROW_ENABLED |
 | `impossible_sign` | A value that should not be negative, printed negative, never gives a Pass; it becomes a Query (#1607) |
 | `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
 | `doc_router` | The document-type router (W5b-02, #526) |
 | `document_kind` | The kind of a document (datasheet, procedure, specification, contract...) from its title block and cover (#1474) |
+| `paper_kind` | Paper kind first (owner order 11 Nov step 2, #805): one kind of a closed list (datasheet, procedure, contract, drawing, test record, other) from the paper's cover and title; a procedure or contract keeps an equipment type only as a secondary label; behind PAPER_KIND_FIRST_ENABLED (off) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
+| `kind_standards` | Standards by role and document kind: a procedure or study leaves out equipment design standards, counted in the run note; method standards still needed are named once (off by default) |
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
@@ -221,6 +261,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_crs` | #805 plan change 6: the CRS's note on version 2 rules with their labels, and one internal row per tag for a Pass; off by default |
 | `rulebook_v2_findings` | #805 plan change 6: a review's version 2 rows as findings of the run, each citing its rule, with the safety tier and open tick |
 | `rulebook_v2_signed` | #805 plan change 6: a compiled rule's field role and typed check, and what a tick records of them |
+| `rulebook_v2_book` | #805 STEP 5: the rulebook's numbered book versions, and restoring any one in one verified, logged step (a pin that makes `rulebook_v2` serve that book's versions), on a database copy |
+| `standard_editions` | #805 STEP 5: every edition of a standard with its issue date (append-only, on a database copy), and the pure choice of the edition a contract's cutoff rule applies, strictest of FEED and contract when they differ |
 | `rulebook_v2_stated` | #805 plan change 6: a run's version 2 rows as `coverage_pair` states them, apart, with their denominator |
 | `run_parts` | what a review run states beside its three groups, and its door to the version 2 rulebook, shut with the switch off |
 | `rulebook_v2_ingest` | #805 plan change 6, part A: a compile's verified rows become rows of the version 2 tables, each quote checked again and what fails counted by reason; counts for the version-1-beside-version-2 table |
@@ -234,6 +276,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
 | `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
+| `agent_skills` | Loads the local playbook per document kind for the agent review (#1690); refuses files inside the repo |
 | `highlight` | Locating a quoted answer on the rendered page |
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
 | `ingest` | Background ingestion worker |
@@ -261,12 +304,14 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `model_transport` | The one place in this codebase that may open a socket to the answer model |
 | `notifications` | Fail-closed email notifications for operational EPC events |
 | `numparse` | The one place numbers, signs and exponents are read (W2, issue #445) |
+| `word_fold` | How a reader reads a WORD whatever the spelling: styled, accented, circled, parenthesised, regional-indicator and look-alike letters to plain Latin, marks and invisible characters dropped (the verdict-word and number-word filters; not a number reader) |
 | `ocr` | Step 2b - resumable page-batch recognition for scanned pages |
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `pump_kit` | #1478 preparation: the pump kit's name, data file and public names over `kit_core`; box list and DRAFT pump cards from held standards, read only behind `pump_kit_draft_enabled` (off by default); never decide |
 | `at_limit` | #1475 finding: compares a value with a worked-out limit (factor or percentage) with float noise removed, behind `at_limit_precision_enabled` (off by default); local only, no model or socket |
 | `percent_kind` | #1512: a value printed under a % label with a fraction-sized number ("0.30 %") is not decided on a percent card, it goes to the engineer; behind `percent_kind_check_enabled` (off by default); local only, no model or socket |
+| `draft_items` | Part of #805: a DRAFT checklist item never decides (fluid phase, sour service); read only behind `draft_process_items_enabled` (off by default); local only |
 | `kit_core` | The shared mechanism of an equipment kit (#1478, #1480): data file, loader hook, tests, the held-for-the-engineer rule for every kit row; local only |
 | `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
 | `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |

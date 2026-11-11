@@ -48,6 +48,10 @@ class SettingsExt(BaseModel):
     #: 1 (`rulebook_v2_review.py`). Needs RULEBOOK_V2_ENABLED and the tables, so a database copy today. OFF: a review
     #: reads none of it and is byte-identical. Env: RULEBOOK_V2_REVIEW_ENABLED.
     rulebook_v2_review_enabled: bool = False
+    #: #805 order 3 Nov STEP 5: the register of every edition of a standard with its issue date
+    #: (`standard_editions.py`), on a database COPY. The pure choice of edition needs no switch. OFF: nothing is read,
+    #: created or written. Env: STANDARD_EDITIONS_ENABLED.
+    standard_editions_enabled: bool = False
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
@@ -153,6 +157,10 @@ class SettingsExt(BaseModel):
     #: unknown / undecided keeps today's behaviour, marked. OFF: nothing changes.
     #: Env: KIND_CHOOSES_RULES_ENABLED.
     kind_chooses_rules_enabled: bool = True
+    #: Standards by ROLE and document KIND (`kind_standards.py`, `reference/standard_roles.json`, owner order 3 Nov): a
+    #: procedure or study leaves out equipment design standards and says so in the run note; the method standards it
+    #: needs, when not held, are named once. OFF: nothing changes. Env: STANDARD_ROLES_BY_KIND_ENABLED.
+    standard_roles_by_kind_enabled: bool = False
     #: Rules by equipment scope (`equipment_scope.py`): a rule whose own scope (its single-equipment
     #: standard, or its document kind) names a DIFFERENT equipment type or
     #: kind than the submittal's is left out and counted in a note; unknown scope stays in. Narrowing
@@ -201,6 +209,14 @@ class SettingsExt(BaseModel):
     #: the two switches above merge nothing more. Findings are never touched. OFF: as it was.
     #: Env: CRS_ONE_ROW_PER_PROBLEM_ENABLED.
     crs_one_row_per_problem_enabled: bool = False
+    #: Owner order 3 Nov (item 14): ONE note at the top of the INTERNAL CRS copy, saying the rules used are
+    #: drafts checked by code unless the row's Rule trust text says a person approved it, and that an engineer must confirm. Export text
+    #: only; no row, verdict or number changes. OFF: the sheet is as it was. Env: CRS_RULES_NOTE_ENABLED.
+    crs_rules_note_enabled: bool = False
+    #: Owner 3 Nov 11:40 (a): with the switch above, rows with the same problem, field, value, verdict and page are
+    #: one row whatever the clause or standard; the merged row lists every reference, tag and page. OFF: the
+    #: clause is part of the key, as merged in #1648. Env: CRS_ONE_ROW_IGNORE_CLAUSE_ENABLED.
+    crs_one_row_ignore_clause_enabled: bool = False
     #: #1591: on that export, a row with no page says the section or field it is about and why it
     #: has no page, never "page not found". A page still comes only from a verified quote. Needs
     #: CRS_EXPORT_QUALITY_ENABLED. OFF: nothing changes. Env: CRS_PAGE_CELL_FIELD_ENABLED.
@@ -342,6 +358,50 @@ class SettingsExt(BaseModel):
     #: and the internal copy says in plain words why rows say ENGINEER TO TICK. Words only: no row,
     #: verdict or count changes. OFF: nothing changes. Env: CRS_PLAIN_NOTES_ENABLED.
     crs_plain_notes_enabled: bool = False
+    #: Test B / HAZOP (part of #805): the playbook review indexes attachment, appendix, annex, table and item titles
+    #: at review time (in memory, nothing stored), so an element whose section is an attachment is found; a title
+    #: is about an element only through a cue that is not a generic title word; a partial own-section hit says
+    #: "the closest section", never "a section of its own was found". OFF: as it was. Env: SECTION_INDEX_ENABLED.
+    section_index_enabled: bool = False
+    #: Owner 3 Nov (test B): a part printed alone in a materials list ("IMPELLER: <material>") or a seal stated in a
+    #: sentence fills its field (impeller / shaft / casing material, seal type) when ALL of `part_name_roles`'s
+    #: strict rules hold, in the form reader's label gate and in the stored-facts check. OFF: as it was.
+    #: Env: FORM_PART_NAME_ROLES_ENABLED.
+    form_part_name_roles_enabled: bool = False
+    #: Owner order 3 Nov 11:40 (item 14c): the contractor copy never tells the contractor that an engineer
+    #: must confirm or check anything: wording about the engineer is cut from its comments, and a code check
+    #: (`crs_export_quality.engineer_words_in`) names any left. Internal copy unchanged.
+    #: OFF: as it was. Env: CRS_CONTRACTOR_NO_ENGINEER_WORDS_ENABLED.
+    crs_contractor_no_engineer_words_enabled: bool = False
+    #: Owner 3 Nov 12:20: a cited standard is never called "does not appear to apply" on the table's word
+    #: alone (the table lists what a standard governs, not what its scope clause excludes: a pressure-vessel
+    #: standard can apply to a pump's package). With no scope shown to exclude the equipment, it is a Query for
+    #: the engineer (`declared_check`). OFF: as it was. Env: STANDARD_SCOPE_NOT_NO_ENABLED.
+    standard_scope_not_no_enabled: bool = False
+    #: Owner 3 Nov 11:40 (b): a value the sheet gives that only a DRAFT rule checks, with nothing found, writes no
+    #: CRS row; it is listed on the internal-only sheet "Compliance list" as "No issue found (draft rule)".
+    #: Findings are untouched. OFF: as it was. Env: CRS_COMPLIANCE_LIST_ENABLED.
+    crs_compliance_list_enabled: bool = False
+    #: Owner order 10 Nov, step 4 (#805 Cycle 2): which sheet shows a row, by the stored hold reason (`crs_routing`).
+    #: R1 a "did not reference X" row stays only when the held project specification requires X with a verified quote;
+    #: R2 a check held because its applicability condition is not stated and R3 a check held for two values under a
+    #: draft rule, with a stated value, go to the internal "Compliance list" with the reason; R4 a cited standard that
+    #: does not appear to apply is named in the Review notes, not a comment; a draft-rule Pass held as `rule_not_proven`
+    #: is listed as "No issue found (draft rule)" (`compliance_list._draft_pass`). No verdict changes. OFF: as it was.
+    #: Env: CRS_ROUTING_BY_HOLD_REASON_ENABLED.
+    crs_routing_by_hold_reason_enabled: bool = False
+    #: Owner order 11 Nov (#805), owner answer: on the CONTRACTOR copy only, the rows held because the sheet marks
+    #: a value as deferred ("By Contractor", "TBA"; hold reason `deferred_marker`) are ONE query row asking for the
+    #: confirmed figures, each field still named with its tag and page (`crs_by_contractor`). The internal copy keeps
+    #: one row per field; a row with the engineer's own words, a contractor reply or a closed number keeps its own
+    #: row. Export only, no verdict changes. OFF: as it was. Env: CRS_BY_CONTRACTOR_ONE_ROW_ENABLED.
+    crs_by_contractor_one_row_enabled: bool = False
+    #: Owner order 11 Nov, step 2 (#805): paper kind first. Every paper gets one kind of a closed list (datasheet,
+    #: procedure, contract, drawing, test record, other) from its own cover and title words (`paper_kind`), before
+    #: the equipment type; a procedure or a contract keeps an equipment type only as a SECONDARY label, never the
+    #: main one. Classification only, never access control (rule 5). No model. OFF: as it was.
+    #: Env: PAPER_KIND_FIRST_ENABLED.
+    paper_kind_first_enabled: bool = False
     #: Owner 3 Nov: on the export-quality path, an internal-copy row whose comment is only the "AI suggestion
     #: awaiting an engineer's decision" sentence leaves the CRS sheet; its AI words go to the Review notes.
     #: Needs CRS_EXPORT_QUALITY_ENABLED. OFF: as it was. Env: CRS_DROP_PLACEHOLDER_ROWS_ENABLED.
@@ -369,10 +429,20 @@ class SettingsExt(BaseModel):
     #: code. On with no such rule in a run, and OFF, the run's output is byte-identical.
     #: Env: OWNER_APPROVED_RULES_DECIDE_ENABLED.
     owner_approved_rules_decide_enabled: bool = False
+    #: Owner order 3 Nov (item 14): a rule an ENGINEER approved may decide Pass, Fail or Query like an
+    #: owner-approved one, labelled engineer-approved. Needs the switch above. A draft, a rejected or an
+    #: unsigned rule never decides. OFF: only the owner's approval decides. Env: ENGINEER_APPROVED_RULES_DECIDE_ENABLED.
+    engineer_approved_rules_decide_enabled: bool = False
     #: #1638: a checklist `required` row only asks that a field is stated. ON: it counts for
     #: no approval and is not a decided rule, and is named "stated, not checked". OFF: a
     #: Pass like any other. Env: PRESENCE_NOT_PASS_ENABLED.
     presence_not_pass_enabled: bool = False
+    #: Part of #805, 3 Nov: two DRAFT relief-valve process items (fluid phase, sour service; the
+    #: governing relief case is already PSV-S05) are added to the checklist. They carry status "draft
+    #: (engineer to approve)": a missing value is "Not stated ... Contractor to provide", a stated value
+    #: gives no verdict, sour service stated "yes" is a Query for materials. OFF: the checklist is
+    #: byte-identical. Env: DRAFT_PROCESS_ITEMS_ENABLED.
+    draft_process_items_enabled: bool = False
     #: Order 4c, 2 Nov: the CRS of a procedure or other non-datasheet kind. It never shows or stores an
     #: equipment type (`document_classification` keeps its value: subject gates still read it); a row's page
     #: cell comes from its verified quote; no document id in Item No: the document number or a suggestion
@@ -438,3 +508,14 @@ class SettingsExt(BaseModel):
     claude_budget_usd_per_run: float = Field(15.0, gt=0)
     #: The day cap; it can only narrow the owner's USD 100 (`claude_spend_report.day_cap`). Env: CLAUDE_BUDGET_USD_PER_DAY.
     claude_budget_usd_per_day: float = Field(100.0, gt=0)
+    #: Lane 6 (owner order 3 Nov 2026): the AI engineering review pass PROPOSES removals, additions, rewordings and a
+    #: document-understanding note; code accepts only what it verifies (`ai_review_proposals`). OFF by default.
+    #: Env: AI_ENGINEERING_REVIEW_PASS_ENABLED, AI_ENGINEERING_REVIEW_PASS_ENGINE ("ollama" local, or "claude" only when
+    #: every document of the review is on the approved list), AI_ENGINEERING_REVIEW_PASS_TIMEOUT_S.
+    ai_engineering_review_pass_enabled: bool = False
+    ai_engineering_review_pass_engine: str = "ollama"
+    ai_engineering_review_pass_timeout_s: float = 300.0
+
+    #: Agent proof test (#1690, part of #805): a lead reviewer agent loop (`agent_loop`) with tools. OFF by default.
+    #: Env: AGENT_REVIEW_ENABLED. Claude calls go only through reader_transport and claude_spend.metered.
+    agent_review_enabled: bool = False

@@ -191,10 +191,14 @@ def one_row(
     crs_scope: str,
     allowed: frozenset[str],
 ) -> tuple[list[dict], list[dict]]:
-    """One row per problem (#1503): as they came with the switch off."""
-    from . import crs_one_row
+    """One row per problem (#1503), then the standards rows routed by `crs_routing` (R1, R4;
+    owner order 10 Nov): as they came with both switches off."""
+    from . import crs_one_row, crs_routing
 
-    return crs_one_row.apply(rows, notes, findings, check, run_id, crs_scope, allowed)
+    rows, notes = crs_one_row.apply(
+        rows, notes, findings, check, run_id, crs_scope, allowed
+    )
+    return crs_routing.standards(rows, notes, check, run_id, crs_scope, allowed)
 
 
 def standards_sheet(rows: list[dict], submittal_id: str) -> list[dict]:
@@ -207,8 +211,9 @@ def standards_sheet(rows: list[dict], submittal_id: str) -> list[dict]:
 def equipment_notes(submittal_id: str, run_id: str, allowed: frozenset) -> list[dict]:
     """The Review notes when the equipment type waits for an engineer (the title block
     named none or two types; `equipment_title_block`). Empty with the switch off."""
-    from . import equipment_title_block, procedure_crs
+    from . import equipment_title_block, procedure_crs, project_specification
 
+    spec = project_specification.notes(submittal_id, allowed, run_id)  # lane 6
     if procedure_crs.no_equipment(submittal_id):
-        return []
-    return equipment_title_block.for_submittal(submittal_id, run_id, allowed)
+        return spec
+    return spec + equipment_title_block.for_submittal(submittal_id, run_id, allowed)

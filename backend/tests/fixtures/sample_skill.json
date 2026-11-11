@@ -1,0 +1,9 @@
+{
+  "kind": "equipment_datasheet",
+  "version": "sample-1",
+  "items": [
+    {"id": "W-2", "order": 2, "topic": "Widget colour code", "expected": "A single colour name in the colour row", "acceptable_range": "Blue or green only", "escalate_when": "The colour row is blank or lists two colours", "clause_refs": [{"standard": "WIDGET-STD-9", "clause": "3.2"}]},
+    {"id": "W-1", "order": 1, "topic": "Widget spring count", "expected": "A whole number in the spring row", "acceptable_range": "2 to 6 springs", "escalate_when": "The count is outside the range or not a whole number", "clause_refs": [{"standard": "WIDGET-STD-9", "clause": "3.1"}]},
+    {"id": "W-3", "order": 3, "topic": "Widget test note", "expected": "A dated test note near the foot of the sheet", "acceptable_range": "Any date in the last year", "escalate_when": "No test note is found", "clause_refs": []}
+  ]
+}

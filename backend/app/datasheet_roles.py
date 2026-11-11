@@ -79,7 +79,8 @@ def wanted_roles(equipment_type: str | None, rules: dict) -> frozenset:
                 walk(value)
 
     walk([[i.get("rule"), i.get("condition")] for i in items])
-    return frozenset(found & set(roles))
+    # a DRAFT role (Part of #805) is wanted by the types whose checklist reads draft items
+    return frozenset(found & (set(roles) | set(rules.get("draft_roles") or {})))
 
 
 _JOINERS = re.compile(r"\s*(?:/|,|&|;|\band\b)\s*")
@@ -143,12 +144,34 @@ def _agrees(qualifier: set, others: list[str], pair_words: frozenset) -> bool:
     return any(qualifier <= w for w in named)
 
 
+def file_drafts(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
+    """Part of #805: the facts the DRAFT items read, filed under the draft role (`rules["draft_roles"]`) for the
+    types whose checklist uses it (`wanted`). A draft role never defines a role or a tag: a fact is added only to
+    a tag that already exists (a fact with no tag, to every existing tag), so no approved row is re-attributed.
+    The draft role lists the approved role's own spellings too, so a plain label reaches the draft item as well."""
+    from .datasheet_checks import _fold
+
+    for role, spec in (rules.get("draft_roles") or {}).items():
+        if role not in wanted or role.startswith("_"):
+            continue
+        for fact in facts:
+            name = _fold(fact.get("field_name") or "")
+            if not any(re.search(p, name) for p in spec["names"]):
+                continue
+            tag = fact.get("equipment_tag")
+            for key in [tag] if tag in by_tag else ([] if tag else list(by_tag)):
+                mine = by_tag[key].setdefault(role, [])
+                if not any(f is fact for f in mine):
+                    mine.append(fact)
+
+
 def add_combined(facts: list[dict], by_tag: dict, rules: dict, wanted) -> None:
     """#1472 (switch `datasheet_one_value_enabled`): a combined label ("a / rating / c")
     answers the text attribute it names, for a tag with no value of its own under that
     role. The copy carries `combined_label`; `combined_result` never decides on it."""
     from .config import settings
 
+    file_drafts(facts, by_tag, rules, wanted)
     if not settings.datasheet_one_value_enabled:
         return
     shared = by_tag.get(None, {})
@@ -180,3 +203,11 @@ def combined_result(fact: dict, field: str, res):
         ),
         fact,
     )
+
+
+def with_roles(facts: list[dict], rules: dict, wanted) -> list[dict]:
+    """The facts, each bare part-name fact that strictly satisfies `part_name_roles` renamed to its role (switch off:
+    as given)."""
+    from .part_name_roles import with_roles as renamed
+
+    return renamed(facts, rules, wanted)

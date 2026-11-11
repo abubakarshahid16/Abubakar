@@ -12,6 +12,8 @@ requirement beside it. Absent, it governs, as before.
 
 from __future__ import annotations
 
+from .draft_items import is_draft
+
 
 def governs(entry: dict) -> dict:
     """The `governs` key the checklist carries, from its data entry."""
@@ -23,7 +25,14 @@ def standards(checklist: dict) -> list[str]:
     does not replace them."""
     if not checklist.get("governs", True):
         return []
-    return sorted({item["source"]["standard"] for item in checklist["items"]})
+    # A DRAFT item asks a question and decides nothing: its standard is not governed by it.
+    return sorted(
+        {
+            item["source"]["standard"]
+            for item in checklist["items"]
+            if not is_draft(item)
+        }
+    )
 
 
 def stated_only(checklist: dict) -> list[str]:
@@ -131,12 +140,27 @@ def evaluate(facts: list[dict], classification: dict, page_texts: dict) -> list[
     check DS-R1 must not stop with the checklist)."""
     from . import datasheet_checks
 
-    rules = datasheet_checks.load_rules()
-    if review_type(classification) is None:
-        rules = {**rules, "checklists": {}}
     return datasheet_checks.evaluate(
         facts,
         equipment_type=classification.get("equipment_type"),
         page_texts=page_texts,
-        rules=rules,
+        rules=rules_for(classification),
     )
+
+
+def rules_for(classification: dict) -> dict:
+    """The rules `evaluate` checks one review with: no checklist when `review_type` allows none."""
+    from . import datasheet_checks
+
+    rules = datasheet_checks.load_rules()
+    if review_type(classification) is None:
+        rules = {**rules, "checklists": {}}
+    return rules
+
+
+def wanted(classification: dict) -> frozenset:
+    """The roles a field name is read as when it names several, as `evaluate` reads them
+    (`datasheet_roles.wanted_roles` of the stored type, on the same rules)."""
+    from .datasheet_roles import wanted_roles
+
+    return wanted_roles(classification.get("equipment_type"), rules_for(classification))

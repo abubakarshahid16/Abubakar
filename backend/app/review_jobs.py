@@ -31,6 +31,7 @@ from pathlib import Path
 from . import (
     access,
     ai_call_ledger,
+    ai_review_pass,
     claude_auto_approve,
     claude_spend_report,
     job_progress,
@@ -399,13 +400,14 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 def _checks(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """The review's optional checks, after the comparison. None fails the review."""
-    from . import clause_review, spec_kit, transmittal_kit
+    from . import ai_senior_review, clause_review, spec_kit, transmittal_kit
 
     _ai_check(run_id, scope, missing)
     _web_check(run_id, scope, missing)
     clause_review.for_review(run_id, scope)
     spec_kit.for_review(run_id, scope)  # #1479
     transmittal_kit.for_review(run_id, scope)  # #1482
+    ai_senior_review.for_review(run_id, scope)  # step 3 of #805, off by default
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
@@ -505,7 +507,6 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
-
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         with _phase(conn, job_id, 0, heartbeat, timings, "read"):
             nothing_read.read_phase(submittal, scope, run_id)
@@ -513,9 +514,10 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             submittal_fill.for_review(submittal)
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
-            from . import company_standard_confirm
+            from . import company_standard_confirm, project_specification
 
             held = company_standard_confirm.held_readable(scope)  # #620
+            project_specification.pin(run_id, submittal, scope)  # lane 6
             reread_for_standards.for_review(submittal, scope, run_id, timings)
         with _phase(conn, job_id, 2, heartbeat, timings, "compare"):
             comparison.run_comparison(
@@ -528,11 +530,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             missing = [m["identifier"] for m in selection["missing_references"]]
             _checks_reporting(conn, job_id, heartbeat, run_id, scope, missing)
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
-        # R15 (#779) numbers every CRS row, R26 step 8 (#763) words each comment; neither fails it.
         from .main import number_crs_rows, word_crs_rows
         with _phase(conn, job_id, None, heartbeat, timings, None):
-            number_crs_rows(run_id, requester)
+            number_crs_rows(run_id, requester)  # R15 (#779)
             word_crs_rows(run_id, requester)
+            ai_review_pass.run_for_job(run_id, requester)  # lane 6, off by default
         # #791: the run's stored trace (reads only, never fails the run), then REVIEW_DEBUG prints it.
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)

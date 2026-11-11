@@ -41,7 +41,7 @@ import re
 
 from openpyxl.styles import Alignment, Font
 
-from . import crs_page_words
+from . import crs_by_contractor, crs_page_words
 from .config import settings
 from .crs_mapping import NOTE_MISSING_STANDARD
 from .rule_trust import UNPROVEN_REASON
@@ -490,6 +490,16 @@ def ticked_words(row: dict) -> dict:
     return {**row, "comment": said.replace(TICK_LEAD, "TICKED BY ENGINEER", 1)}
 
 
+from .contractor_scrub import (  # noqa: E402,F401
+    NOTE_LEFT,
+    contractor_words,
+    engineer_words_in,
+    note_left_over,
+    scrub_text,
+    scrub_workbook,
+)
+
+
 def prepare(
     findings: list[dict], copy: str, has_no_text, on: bool
 ) -> tuple[list[dict], int, int]:
@@ -531,7 +541,7 @@ def _finish_rows(rows: list[dict], ref_label: str) -> tuple[set[str], bool]:
             entry.get("standard_reference") or "",
         )
         entry["priority_label"] = priority_label(entry.get("priority"))
-        if entry["comment_missing"]:
+        if entry["comment_missing"] or crs_by_contractor.is_query(entry["comment"]):
             continue
         first, _, tail = entry["comment"].partition("\n")
         prefix = first + "\n" if first.startswith(f"{ref_label}: ") and tail else ""
@@ -639,6 +649,8 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
     internal = view["crs_copy"] == ce.COPY_INTERNAL
     if internal and settings.crs_drop_placeholder_rows_enabled:
         view = park_placeholders(view)
+    if internal and settings.crs_contractor_no_engineer_words_enabled:
+        view = note_left_over(view)
     if not internal:  # a client copy has no Review notes: the withheld count says it
         view["rows_withheld_no_text"] += dropped
         dropped = 0
@@ -705,3 +717,23 @@ def write_internal_sheet(wb, inner: dict, write) -> None:
             write(sheet, r, col, entry[key]).alignment = wrap
     for col, width in zip("ABCD", (30, 22, 70, 70), strict=True):
         sheet.column_dimensions[col].width = width
+
+
+#: Item 14 (owner order 3 Nov, CRS_RULES_NOTE_ENABLED): the ONE note at the top of the CRS, both copies. A draft
+#: row is never labelled one by one; a row marked with a tick uses an approved rule.
+RULES_NOTE = (
+    "Rules used in this review are drafts built from the standards and checked by code, "
+    "unless the Rule trust text of a row says a person approved the rule. An engineer must confirm this CRS."
+)
+
+
+def with_rules_note(meta: dict) -> str:
+    """Row 1's note: the run status as it was, then the one rules note when the switch is on. INTERNAL copy only:
+    the contractor copy never says an engineer must confirm anything (owner 3 Nov 11:40)."""
+    from .config import settings
+
+    said = str(meta.get("run_status_note") or "")
+    copy = meta.get("copy")
+    if not settings.crs_rules_note_enabled or (copy or "internal") != "internal":
+        return said
+    return f"{said}\n{RULES_NOTE}" if said else RULES_NOTE
