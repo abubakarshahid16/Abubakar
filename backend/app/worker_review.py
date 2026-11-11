@@ -89,7 +89,8 @@ class ReviewDrain:
             job_id = review_jobs.claim_next(job_queue.worker_id())
             job_run = review_jobs.run
             if job_id is None:
-                job_id = agent_review_jobs.claim_next(job_queue.worker_id())  # None with the switch off
+                # None with the switch off
+                job_id = agent_review_jobs.claim_next(job_queue.worker_id())
                 job_run = agent_review_jobs.run
             if job_id is None:
                 return False

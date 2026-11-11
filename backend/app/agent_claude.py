@@ -119,7 +119,9 @@ def _env_with_settings() -> dict:
     wanted = {
         "REASONING_PROVIDER": settings.reasoning_provider,
         "STANDARDS_READER_ENABLED": "1" if settings.standards_reader_enabled else "",
-        "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1" if settings.standards_reader_allow_public_egress else "",
+        "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1"
+        if settings.standards_reader_allow_public_egress
+        else "",
     }
     for name, value in wanted.items():
         if not str(out.get(name) or "").strip() and str(value or "").strip():

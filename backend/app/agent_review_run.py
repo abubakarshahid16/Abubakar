@@ -151,7 +151,11 @@ class Runner(DecideMixin):
     def exit_line(self, line: Mapping) -> dict:
         """THE one exit every line goes through before it is stored or written (table row, xlsx, API): the tier from the
         CURRENT label table (`final_cap`), then the silent-paper rule. Only ever makes a line less confident."""
-        out = wording.final_cap(line, self._tiered(self.items_by_id.get(str(line.get("item_id")))), self.tier_lookup)
+        out = wording.final_cap(
+            line,
+            self._tiered(self.items_by_id.get(str(line.get("item_id")))),
+            self.tier_lookup,
+        )
         return silence_guard(out, self.paper_kind)
 
     # ---- output
