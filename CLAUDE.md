@@ -64,7 +64,14 @@ carries the client's name; only the owner can rename it.
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
    off unless `REASONING_PROVIDER=claude` (or `=per_task`, and then only for a
    step whose OWN engine setting says claude: `DATASHEET_AI_READER`,
-   `MATCH_ENGINE` - owner decision 2026-10-12, #501) AND both `STANDARDS_READER_*` egress
+   `MATCH_ENGINE`, `VISION_READER_ENGINE`, `CRS_AI_WORDING_ENGINE`,
+   `REVIEW_AI_CHECK_ENGINE`, `AI_CLAUSE_REVIEW_ENGINE`, `AI_DIVISION_SCOPE_ENGINE`,
+   `AI_ENGINEERING_REVIEW_PASS_ENGINE` and, for the AI reviewer (rule review and
+   general review) alone, `AGENT_REVIEW_ENGINE` - owner decision 2026-10-12, #501;
+   AI reviewer 12 Nov 2026; under per_task a normal review whose own engine
+   settings are all local runs exactly as under ollama, no local-engine bar; owner
+   decision of 12 Nov 2026, recorded on #1584 (comment 6806441133, item 5), to be
+   confirmed there by the owner; no new outbound path) AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
    which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default; in the socket-containment test
