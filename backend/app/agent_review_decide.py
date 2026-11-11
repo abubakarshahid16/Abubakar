@@ -34,12 +34,19 @@ from .reader_api import _fold
 
 class DecideMixin:
     # ---- per item
-    def _tiered(self, item: dict) -> dict:
-        """The item with its tier derived from the CURRENT label table: an item whose tier is not Owner / Engineer / AI
-        approved now (whatever it carried when it was built) is marked not approved, so the cap holds."""
-        if verdict.item_tier(item, self.tier_lookup) == verdict.RULE_NOT_APPROVED:
-            return {**item, "rule_tier": verdict.RULE_NOT_APPROVED}
-        return item
+    def _tiered(self, item: dict | None) -> dict | None:
+        """The item with its tier read from the CURRENT label table (`tier_lookup`), never from what it carried when it was
+        built: an item whose tier is not Owner / Engineer / AI approved now is marked not approved, so the cap holds. Without
+        a lookup the item is returned as it is."""
+        if item is None or item.get("source") != "rule" or self.tier_lookup is None:
+            return item
+        now = self.tier_lookup(item)
+        out = {**item, "rule_label": {**(item.get("rule_label") or {}), "tier": now}}
+        if now in verdict.USABLE_TIERS:
+            out.pop("rule_tier", None)
+        else:
+            out["rule_tier"] = verdict.RULE_NOT_APPROVED
+        return out
 
     def _evidence(
         self, item: dict, answer: Mapping, pages: Mapping[int, str], error: str | None
@@ -89,7 +96,7 @@ class DecideMixin:
         """The decision of the gate for one item, with the second opinion and the absence proof when they are earned."""
         iid, checks, ai = str(item.get("item_id")), ev["checks"], ev["ai"]
         # a rule whose tier is not Owner / Engineer / AI approved never buys a call beyond the lead's own answer
-        allowed = verdict.calls_allowed(item, self.tier_lookup)
+        allowed = verdict.calls_allowed(self._tiered(item), self.tier_lookup)
         out: dict = {
             "second": None,
             "compare": None,

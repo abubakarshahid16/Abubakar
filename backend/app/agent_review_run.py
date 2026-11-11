@@ -151,9 +151,7 @@ class Runner(DecideMixin):
     def exit_line(self, line: Mapping) -> dict:
         """THE one exit every line goes through before it is stored or written (table row, xlsx, API): the tier from the
         CURRENT label table (`final_cap`), then the silent-paper rule. Only ever makes a line less confident."""
-        out = wording.final_cap(
-            line, self.items_by_id.get(str(line.get("item_id"))), self.tier_lookup
-        )
+        out = wording.final_cap(line, self._tiered(self.items_by_id.get(str(line.get("item_id")))), self.tier_lookup)
         return silence_guard(out, self.paper_kind)
 
     # ---- output
@@ -425,6 +423,14 @@ class Runner(DecideMixin):
         if missing:
             self.run_batch(missing, False)
 
+    def restore(self) -> None:
+        """Kept lines went through the exit again in `__init__` (the CURRENT tier); file them again so the table never holds a
+        verdict its rule no longer earns. The stored trace is kept."""
+        if self.sink is None:
+            return
+        for line in self.lines.values():
+            self.sink({k: v for k, v in line.items() if k != "resumed"}, None)
+
     def todo(self) -> list[dict]:
         """The items with no stored line, or whose stored line is a failed call: only these are asked."""
         return [
@@ -437,6 +443,7 @@ class Runner(DecideMixin):
     def run(self) -> dict:
         """Call inside `claude_spend.for_run(...)` and `claude_approved.carrying(...)`: the step gate starts from what this
         review run has already spent (a resumed run keeps counting)."""
+        self.restore()
         self.gate = AppStepGate(app_cap(), claude_spend.step_spent(agent_claude.STEP))
         todo = self.todo()
         batches, source = make_batches(todo, self.max_batch)

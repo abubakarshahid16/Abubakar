@@ -236,7 +236,7 @@ def contract_class_and_word(line: dict) -> tuple[str, str]:
     return line["verdict_class"], WORD_OF_LABEL.get(label, label)
 
 
-def store_line(run_id: str, line: dict, trace: dict) -> None:
+def store_line(run_id: str, line: dict, trace: dict | None) -> None:
     """One line into `agent_review_line` (an upsert: a resumed run replaces its own failed line). The line already went through
     the runner's one exit; the table's CHECK refuses an unproven Pass or Fail again."""
     cls, word = contract_class_and_word(line)
@@ -251,12 +251,17 @@ def store_line(run_id: str, line: dict, trace: dict) -> None:
     page = line.get("paper_page")
     with connect() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book,"
-            " reason, rule_tier, line_json, trace_json, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book,"
+            " reason, rule_tier, line_json, trace_json, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT (run_id, item_id) DO UPDATE SET verdict_class = excluded.verdict_class, word = excluded.word,"
+            " page = excluded.page, clause = excluded.clause, rule_book = excluded.rule_book, reason = excluded.reason,"
+            " rule_tier = excluded.rule_tier, line_json = excluded.line_json,"
+            " trace_json = COALESCE(excluded.trace_json, agent_review_line.trace_json),"
+            " decided_at = excluded.decided_at",
             (run_id, str(line["item_id"]), cls, word, page if isinstance(page, int) and page >= 1 else None,
              str(line.get("clause") or ""), str(line.get("standard") or ""), reason, _line_tier(line),
-             json.dumps(line, ensure_ascii=False, default=str), json.dumps(trace, ensure_ascii=False, default=str),
-             _now()),
+             json.dumps(line, ensure_ascii=False, default=str),
+             None if trace is None else json.dumps(trace, ensure_ascii=False, default=str), _now()),
         )  # fmt: skip
 
 

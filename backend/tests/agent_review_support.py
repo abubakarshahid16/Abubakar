@@ -14,9 +14,9 @@ from app import db, rule_label_schema, rule_labels
 from app.config import settings
 
 PAPER, STD = "doc_paper", "doc_std"
-PAPER_PAGE = "DATA SHEET\nFrame width 45 mm\nMarking blue\nCoating layers two\nSerial invented"
+PAPER_PAGE = "DATA SHEET\nCoating thickness: 0.35 mm\nMarking blue\nCoating layers two\nSerial invented"
 STD_PAGE = (
-    "4.1 Frame\nThe frame width shall be at least 40 mm.\n"
+    "4.1 Frame\nThe coating thickness shall be at least 0.2 mm on every outside surface.\n"
     "4.3 Marking\nThe marking shall be in red for every unit.\n"
     "4.4 Coating\nThe coating shall be applied in two layers of equal depth.\n"
     "4.5 Colour\nThe housing shall be painted in a single colour."
@@ -33,7 +33,7 @@ A_MODEL, B_MODEL = "claude-sonnet-5-5", "claude-opus-5-5"
 #: item id -> (rule quote, clause, rule kind, comparator, value, unit)
 RULES = {
     "R-coat": ("The coating shall be applied in two layers of equal depth.", "4.4", None, None, None, None),
-    "R-frame": ("The frame width shall be at least 40 mm.", "4.1", "limit", ">=", 40.0, "mm"),
+    "R-frame": ("The coating thickness shall be at least 0.2 mm on every outside surface.", "4.1", "limit", ">=", 0.2, "mm"),
     "R-mark": ("The marking shall be in red for every unit.", "4.3", None, None, None, None),
     "R-colour": ("The housing shall be painted in a single colour.", "4.5", None, None, None, None),
 }
@@ -42,9 +42,9 @@ ANSWERS = {
     "R-coat": {"paper_page": 1, "paper_quote": "Coating layers two", "clause_quote": RULES["R-coat"][0],
                "reasoning": "two layers are stated", "comment": "none", "verdict": "Pass", "reason_code": "met",
                "field_label": "Coating layers"},
-    "R-frame": {"paper_page": 1, "paper_quote": "Frame width 45 mm", "clause_quote": RULES["R-frame"][0],
-                "paper_figure": "45 mm", "clause_figure": "40 mm", "reasoning": "width above the minimum",
-                "comment": "none", "verdict": "Pass", "reason_code": "met", "field_label": "Frame width"},
+    "R-frame": {"paper_page": 1, "paper_quote": "Coating thickness: 0.35 mm", "clause_quote": RULES["R-frame"][0],
+                "paper_figure": "Coating thickness: 0.35 mm", "clause_figure": "coating thickness shall be at least 0.2 mm", "reasoning": "width above the minimum",
+                "comment": "none", "verdict": "Pass", "reason_code": "met", "field_label": "Coating thickness"},
     "R-mark": {"paper_page": 1, "paper_quote": "Marking blue", "clause_quote": RULES["R-mark"][0],
                "reasoning": "the marking is blue, not red", "comment": "make the marking red", "verdict": "Fail",
                "reason_code": "not_met", "field_label": "Marking"},
@@ -75,7 +75,9 @@ def item_doc(ids=("R-coat", "R-frame", "R-mark", "R-colour"), left_out=()) -> tu
     block = {"on": True, "paper_kind": "datasheet", "paper_kind_known": True, "counts": {"needs_another_paper": {
         "total": len(left_out), "by_kind": {"procedure": len(left_out)}}}, "left_out": list(left_out),
         "summary_lines": [], "missing_rule_books": [{"rule_book": "INV-MISSING-9", "why": "cited by the paper"}]}
-    return {"items": [item(i) for i in ids], "rule_labels": block}, cache
+    items = [item(i) for i in ids]
+    return {"paper": PAPER, "paper_kind": "datasheet", "made_at": "2026-11-11T00:00:00Z",
+            "counts": {"skill": 0, "rule": len(items)}, "items": items, "rule_labels": block}, cache
 
 
 def label_rows(conn, ids, state="ai_approved") -> None:
