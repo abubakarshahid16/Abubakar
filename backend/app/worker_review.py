@@ -81,11 +81,16 @@ class ReviewDrain:
 
     def _drain_review_jobs(self) -> bool:
         """Run one queued review, if any. True when one was run."""
-        from . import job_queue, review_jobs
+        from . import agent_review_jobs, job_queue, review_jobs
 
         try:
             review_jobs.recover_stale()
+            agent_review_jobs.recover_stale()  # the AI reviewer's own stage; nothing at all with its switch off
             job_id = review_jobs.claim_next(job_queue.worker_id())
+            job_run = review_jobs.run
+            if job_id is None:
+                job_id = agent_review_jobs.claim_next(job_queue.worker_id())  # None with the switch off
+                job_run = agent_review_jobs.run
             if job_id is None:
                 return False
             self.reviewing = True
@@ -94,7 +99,7 @@ class ReviewDrain:
             try:
                 with model_metrics.collect() as bucket:
                     try:
-                        review_jobs.run(
+                        job_run(
                             job_id,
                             job_queue.worker_id(),
                             heartbeat=self._review_activity,
