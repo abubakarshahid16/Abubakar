@@ -580,3 +580,23 @@ table {
 .sheet-card-in {
   animation: sheet-card-in 180ms ease-out;
 }
+
+/* The review's overall bar: the fill grows smoothly, and while the review is working a stripe moves through it so
+   the bar never looks frozen between updates. Stopped when it turns orange; still (not moving) for reduced motion. */
+.progress-fill {
+  transition: width 0.8s ease-out, background-color 0.3s;
+}
+.progress-stripes {
+  background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.28) 25%, transparent 25%, transparent 50%,
+    rgba(255, 255, 255, 0.28) 50%, rgba(255, 255, 255, 0.28) 75%, transparent 75%);
+  background-size: 16px 16px;
+  animation: progress-stripes 0.9s linear infinite;
+}
+@keyframes progress-stripes {
+  from { background-position: 16px 0; }
+  to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-stripes { animation: none; }
+  .progress-fill { transition: none; }
+}

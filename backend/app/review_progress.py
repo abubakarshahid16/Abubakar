@@ -23,6 +23,13 @@ _PAGE_LABEL = re.compile(r", (page|part) (\d+) of (\d+)$")
 #: The label `review_jobs._clause` writes: "checking clause 12 of 60".
 _CLAUSE_LABEL = re.compile(r"^checking clause (\d+) of (\d+)$")
 
+#: The label `review_jobs._requirement` writes: "comparing requirements, 1240 of 5062".
+_REQUIREMENT_LABEL = re.compile(r"^comparing requirements, (\d+) of (\d+)$")
+
+#: The review's steps as the screen counts them: 1 reading, 2 reading pages again for the standards they name,
+#: 3 comparing requirements, 4 writing the review (the AI checks, numbers and wording).
+STEPS_TOTAL = 4
+
 #: The other labels of a running review (`review_jobs.STEPS`, `.FINISHING`): named
 #: as they are, with no claim that a model is being waited on at this moment.
 _STEP_LABEL = re.compile(
@@ -52,6 +59,14 @@ class ReviewProgressDetail(BaseModel):
     clauses_done: int | None = None
     clauses_total: int | None = None
     clauses_elapsed_seconds: int | None = None
+    #: The step the review is on, 1 to `steps_total` (4); null when the row does not say.
+    step: int | None = None
+    steps_total: int = STEPS_TOTAL
+    #: Step 3's own count: requirements the comparison has finished of all it will compare; null outside step 3.
+    requirements_done: int | None = None
+    requirements_total: int | None = None
+    #: Seconds since this sub-step (the page, the requirement batch, the step) last reported; null when unknown.
+    substep_seconds: int | None = None
     elapsed_seconds: int | None = None
     idle_seconds: int | None = None
     stall_amber_seconds: int = 120
@@ -103,9 +118,21 @@ def _waiting(label, on_page, total, unit, c_on, c_total) -> tuple[str | None, in
             f"checking clause {c_on} of {c_total}: waiting for the model",
             base + allowance,
         )
+    if _REQUIREMENT_LABEL.match(label):
+        return "comparing requirements with the document", base + MODEL_CALL_LIMIT_S
     if _STEP_LABEL.match(label):
         return label, base + MODEL_CALL_LIMIT_S
     return None, base
+
+
+def _step_of(row: dict, on_clause: bool) -> int | None:
+    """1 to 4 from the job's own step index (`progress_done`, 0 to 2) and its label; 4 once it is writing the review
+    (the clause review and the AI comments), null when the row does not say."""
+    label = row.get("progress_label") or ""
+    if on_clause or label.startswith("finishing"):
+        return STEPS_TOTAL
+    index = row.get("progress_done")
+    return index + 1 if isinstance(index, int) and 0 <= index <= 2 else None
 
 
 def detail(row: dict) -> dict:
@@ -129,6 +156,10 @@ def detail(row: dict) -> dict:
     c_on = int(cm.group(1)) if cm else None
     c_total = int(cm.group(2)) if cm else None
     c_done = max(0, min(c_on - 1, c_total)) if c_total else None
+    rm = _REQUIREMENT_LABEL.match(row.get("progress_label") or "")
+    r_on = int(rm.group(1)) if rm else None
+    r_total = int(rm.group(2)) if rm else None
+    r_done = max(0, min(r_on - 1, r_total)) if r_total else None
     started = job_progress.CLAUSE_STARTED.get(row.get("id") or "")
     c_elapsed = (
         max(0, int(time.time() - started)) if started and c_done is not None else None
@@ -157,6 +188,10 @@ def detail(row: dict) -> dict:
         "clauses_done": c_done,
         "clauses_total": c_total if c_done is not None else None,
         "clauses_elapsed_seconds": c_elapsed,
+        "step": _step_of(row, c_done is not None),
+        "requirements_done": r_done,
+        "requirements_total": r_total if r_done is not None else None,
+        "substep_seconds": seconds_since(row.get("updated_at")),
         "elapsed_seconds": seconds_since(row.get("started_at")),
         "idle_seconds": idle,
         "stall_amber_seconds": amber,
