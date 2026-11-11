@@ -797,7 +797,7 @@ def test_a_missing_equipment_table_means_equipment_not_known_for_every_rule_neve
     label(conn, "r1")
     got = R.decide_rule(conn, "r1", "datasheet", equipment=ctx)
     assert got["ask"] is True and got["equipment_why"] == "equipment_not_known"
-    kept, left, why = R.filter_rows(
+    kept, _left, why = R.filter_rows(
         conn, [{"id": "r1", "item_id": "R-1"}], "datasheet", equipment=ctx
     )
     assert len(kept) == 1 and R.equipment_block(ctx, why)["asked_by_equipment"] == {
@@ -958,7 +958,7 @@ def test_an_equipment_mode_can_only_remove_checklist_items_never_add_one(conn, t
 def test_a_checklist_item_the_plain_test_dropped_is_never_brought_back(conn, tax):
     items = [skill("S-A", "STD-P-1"), skill("S-B", "STD-V-1")]
     ctx = R.EquipmentCtx(_paper(tax, "centrifugal_pump"), tax, MAP, "type")
-    off, off_dropped = R.filter_skill_items(conn, items, {"pump"}, GOV)
+    off, _dropped = R.filter_skill_items(conn, items, {"pump"}, GOV)
     on, _ = R.filter_skill_items(conn, items, {"pump"}, GOV, ctx)
     assert [i["item_id"] for i in off] == ["S-A"] and [i["item_id"] for i in on] == [
         "S-A"
