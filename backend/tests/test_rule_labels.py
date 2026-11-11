@@ -422,6 +422,7 @@ def test_a_tampered_approved_label_is_not_the_third_tier(book):
         ("See Table 5 and Note 2 of the invented annex.", False),
         ("Use the invented item T-29 where listed.", False),
         ("Class 300 items shall be marked.", False),
+        ("Class 300 flanges shall be used.", True),
         ("The supplier shall provide a written statement.", False),
     ],
 )
@@ -429,3 +430,55 @@ def test_a_quote_states_a_quantity_unless_its_numbers_are_only_references(
     quote, quantity
 ):
     assert rl.quote_states_a_quantity(quote) is quantity
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Class 150 psi flanges shall be used.",
+        "See Note 5 mm minimum.",
+        "Table 10 bar rating.",
+        "Grade 60 ksi steel.",
+        "Type 5 % of the span.",
+        "Section 4 mm thick.",
+        "Table 5mm wide.",
+        'Part 10" pipe.',
+        "Note 5 N/m.",
+        "No 5/mm.",
+        "Item 5 per mm.",
+        "Note 5 kg/h.",
+        "Part 10 Hz.",
+        "Note 5 kW.",
+        "No 5 mm\u00b2.",
+        "Note 5 rpm",
+        "Note 5 dB",
+        "Note 5mm",
+        "Table 5%",
+        "Type 5 \u00b0C",
+        "Item 5 in",
+        "Type 316 stainless plate.",
+        "Note 5 litres of it.",
+        "Note 5 pascals of it.",
+        "Note 5 volts of it.",
+    ],
+)
+def test_a_reference_word_never_hides_a_quantity_when_anything_but_a_plain_word_follows(
+    quote,
+):
+    assert rl.quote_states_a_quantity(quote) is True
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "See Table 5 for details.",
+        "As in Note 2 and Figure 4.",
+        "Refer to Part 4.",
+        "per paragraph 7 of this standard",
+        "Note 5 shall be met.",
+        "Table 2 and Table 3.",
+        "Table 4)",
+    ],
+)
+def test_a_bare_reference_number_is_still_skipped(quote):
+    assert rl.quote_states_a_quantity(quote) is False

@@ -7,10 +7,10 @@ of the boxes its words touch (`align_quote`), and the quote is low when that is 
 `settings.ocr_low_conf_threshold`. Unknown = low: no boxes for the page, the quote's words not found in them exactly, or a
 touched box without a score.
 
-THE ALIGNMENT IS EXACT INSIDE THE QUOTE. A different sign, comparator, percent, degree, bracket, decimal mark, unit case
-or letter inside the quote's own span means no alignment; only plain sentence punctuation at the OUTER edges of the whole
-quote may differ. A word broken by a hyphen at the end of a box is one word standing in both boxes. A quote that stands
-twice gets the lowest of its places.
+THE ALIGNMENT IS EXACT EVERYWHERE. Every word of the quote, the first and last included, must equal the box word: same
+characters, same case (a different sign, comparator, percent, degree, bracket, decimal mark, unit case, letter or edge
+punctuation means no alignment). The only normalisations, on both sides alike: whitespace runs collapsed, and a line-break
+hyphen joined (letter, hyphen, whitespace, letter). A quote that stands twice gets the lowest of its places.
 
 THIS MODULE ONLY READS. The boxes must have been stored at OCR time; nothing here runs OCR. A database with no box table
 keeps the strict page rule: a recognised page whose own lowest confidence is unknown or under the threshold is low. A
@@ -25,9 +25,6 @@ from collections.abc import Mapping, Sequence
 from . import rule_labels
 
 Box = tuple[str, "float | None"]
-
-#: Plain sentence punctuation that may differ at the OUTER edges of the whole quote (and only there).
-_OUTER = "\"'()[]{}.,;:" + "\u201c\u201d\u2018\u2019"
 
 
 def has_boxes_table(conn) -> bool:
@@ -64,60 +61,49 @@ def load_boxes(conn, sdid: str, page: int) -> list[Box]:
     ]
 
 
+_BREAK = re.compile(r"(?<=[^\W\d_])-\s+(?=[^\W\d_])")
+
+
 def _page_words(boxes: Sequence[Box]) -> list[tuple[str, frozenset[int]]]:
-    """(word, indexes of the boxes it stands in) for every whitespace-separated word of the page, in reading order; a
-    word broken by a hyphen at the end of a box and finished in the next is ONE word standing in both boxes."""
+    """(word, indexes of the boxes it stands in) for every whitespace-separated word of the page, in reading order. The
+    ONLY change to the words: a line-break hyphen inside a word (a word ending in "-" with a LETTER before the hyphen,
+    followed by a word that starts with a LETTER, in the same box or the next) is joined into one word standing in both
+    boxes. The quote side does exactly the same (`_BREAK`: letter, hyphen, whitespace, letter)."""
+    flat = [(w, i) for i, (t, _) in enumerate(boxes) for w in str(t).split()]
     words: list[tuple[str, frozenset[int]]] = []
-    toks = [str(t).split() for t, _ in boxes]
-    skip: set[tuple[int, int]] = set()
-    for i, ts in enumerate(toks):
-        for j, w in enumerate(ts):
-            if (i, j) in skip:
-                continue
-            if (
-                j == len(ts) - 1
-                and len(w) > 1
-                and w.endswith("-")
-                and w[-2].isalpha()
-                and i + 1 < len(toks)
-                and toks[i + 1]
-                and toks[i + 1][0][:1].isalpha()
-            ):
-                words.append((w[:-1] + toks[i + 1][0], frozenset({i, i + 1})))
-                skip.add((i + 1, 0))
-                continue
-            words.append((w, frozenset({i})))
+    k = 0
+    while k < len(flat):
+        w, i = flat[k]
+        if (
+            len(w) > 1
+            and w.endswith("-")
+            and w[-2].isalpha()
+            and k + 1 < len(flat)
+            and flat[k + 1][0][:1].isalpha()
+        ):
+            words.append((w[:-1] + flat[k + 1][0], frozenset({i, flat[k + 1][1]})))
+            k += 2
+            continue
+        words.append((w, frozenset({i})))
+        k += 1
     return words
-
-
-def _same_word(page_word: str, q_word: str, first: bool, last: bool) -> bool:
-    """INSIDE the quote a word must match exactly (digits, decimal marks, signs, comparators, %, degree, unit letters,
-    "not", case). Only the OUTER edge of the whole quote may differ by plain sentence punctuation."""
-    if page_word == q_word:
-        return True
-    pw, qw = page_word, q_word
-    if first:
-        pw, qw = pw.lstrip(_OUTER), qw.lstrip(_OUTER)
-    if last:
-        pw, qw = pw.rstrip(_OUTER), qw.rstrip(_OUTER)
-    return bool(qw) and pw == qw
 
 
 def align_quote(quote: str | None, boxes: Sequence[Box]) -> float | None:
     """The MINIMUM score over the boxes the quote touches (over every place the quote stands, the lowest), or None when
-    unknown: no boxes, the quote is not found in their words, or a touched box has no score."""
+    unknown: no boxes, the quote is not found in their words, or a touched box has no score. EVERY word of the quote,
+    the first and the last included, must equal the box word exactly: the same characters in the same case. No edge
+    stripping, no folding: a different character, sign, comparator, %, degree, bracket, case or edge punctuation means no
+    alignment. The only normalisations, the same on both sides: whitespace runs collapsed and a line-break hyphen joined."""
     if not boxes or not str(quote or "").strip():
         return None
-    q = [w for w in re.sub(r"-\s+", "", str(quote)).split() if w]
+    q = _BREAK.sub("", str(quote)).split()
     words = _page_words(boxes)
     if not q or len(q) > len(words):
         return None
     best: float | None = None
     for i in range(len(words) - len(q) + 1):
-        if all(
-            _same_word(words[i + k][0], q[k], k == 0, k == len(q) - 1)
-            for k in range(len(q))
-        ):
+        if all(words[i + k][0] == q[k] for k in range(len(q))):
             touched = set().union(*(words[i + k][1] for k in range(len(q))))
             scores = [boxes[b][1] for b in touched]
             if any(s is None for s in scores):

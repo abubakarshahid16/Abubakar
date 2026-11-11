@@ -21,7 +21,7 @@ BOXES = [
 def test_alignment_is_the_minimum_over_the_boxes_the_quote_touches():
     assert O.align_quote("vessel wall thickness shall be", BOXES) == 0.95
     assert O.align_quote("shall be checked before the test pressure", BOXES) == 0.91
-    assert O.align_quote("pressure is applied to the item", BOXES) == 0.42
+    assert O.align_quote("pressure is applied to the item,", BOXES) == 0.42
     assert (
         O.align_quote("test pressure is applied to the item, and the record", BOXES)
         == 0.42
@@ -31,15 +31,23 @@ def test_alignment_is_the_minimum_over_the_boxes_the_quote_touches():
     )  # even the case must match inside the span
 
 
-def test_alignment_ignores_edge_punctuation_and_joins_a_hyphen_break_across_boxes():
+def test_alignment_joins_a_hyphen_break_across_boxes_and_needs_every_character_to_match():
     boxes = [
         ("The pressure shall be (ten", 0.9),
         ("bar), and the vessel is mea-", 0.8),
         ("sured at the flange.", 0.6),
     ]
-    assert O.align_quote("ten bar), and the vessel", boxes) == 0.8
-    assert O.align_quote("ten bar and the vessel", boxes) is None
-    assert O.align_quote("vessel is measured at the flange", boxes) == 0.6
+    assert O.align_quote("(ten bar), and the vessel", boxes) == 0.8
+    assert (
+        O.align_quote("ten bar), and the vessel", boxes) is None
+    )  # no edge stripping: "(ten" is not "ten"
+    assert (
+        O.align_quote("vessel is measured at the flange.", boxes) == 0.6
+    )  # "mea-" + "sured" is one word
+    assert (
+        O.align_quote("vessel is measured at the flange", boxes) is None
+    )  # the box ends with a full stop
+    assert O.align_quote("is measured at", boxes) == 0.6
 
 
 def test_alignment_is_unknown_when_it_cannot_be_done():
@@ -87,19 +95,86 @@ def test_a_difference_inside_the_quote_span_means_no_alignment(quote, page):
     assert O.align_quote(quote, [(quote, 0.99)]) == 0.99
 
 
-def test_only_plain_sentence_punctuation_at_the_outer_edges_may_differ():
-    box = [('He said: "the gauge shall read >= 5 bar.', 0.9)]
-    assert O.align_quote("the gauge shall read >= 5 bar", box) == 0.9
+@pytest.mark.parametrize(
+    "quote,page",
+    [
+        ("5 mm", ".5 mm"),
+        ("5 mm", ",5 mm"),
+        (".5 mm", "5 mm"),
+        ("is 5", 'is 5"'),
+        ("is 5", "is 5'"),
+        ("is 5", "is 5."),
+        ("is 5.", "is 5"),
+        ("is 5", "is 5,"),
+        ("the gauge shall read >= 5 bar", 'He said: "the gauge shall read >= 5 bar.'),
+        ("(the gauge shall read >= 5 bar)", "the gauge shall read >= 5 bar,"),
+        ("shall be at least 5 %", "shall be at least 5"),
+        ("-5 C or less", "5 C or less"),
+        ("is >=", "is >"),
+        ("The vessel", "the vessel"),
+    ],
+)
+def test_there_is_no_edge_stripping_every_character_of_the_quote_must_match(
+    quote, page
+):
+    assert O.align_quote(quote, [(page, 0.99)]) is None
+    assert O.align_quote(quote, [(quote, 0.99)]) == 0.99
+
+
+def test_edge_symbols_stay_exact_when_the_quote_continues_on_both_sides():
+    assert O.align_quote("is 5 mm", [("it is 5 mm more", 0.9)]) == 0.9
+    assert O.align_quote("is 5 mm", [("it is 5 mm.", 0.9)]) is None
+    assert O.align_quote("is 5 mm", [("it is .5 mm", 0.9)]) is None
+
+
+@pytest.mark.parametrize(
+    "quote,page",
+    [
+        ("5 - 10", "5 10"),
+        ("5- 10", "510"),
+        ("temp - 5", "temp 5"),
+        ("pressure -  5 bar", "pressure 5 bar"),
+        ("5 - 10 mm", "5 10 mm"),
+        ("a 5- 10 b", "a 510 b"),
+        ("range 5 \u2013 10", "range 5 10"),
+    ],
+)
+def test_a_dash_or_minus_or_a_digit_hyphen_is_never_removed_from_the_quote(quote, page):
+    assert O.align_quote(quote, [(page, 0.9)]) is None
+    assert O.align_quote(quote, [(quote, 0.9)]) == 0.9
+
+
+def test_only_a_letter_hyphen_whitespace_letter_break_is_joined_and_on_both_sides_alike():
     assert (
         O.align_quote(
-            "(the gauge shall read >= 5 bar)", [("the gauge shall read >= 5 bar,", 0.9)]
+            "the vessel is mea- sured here", [("the vessel is measured here", 0.9)]
         )
         == 0.9
     )
     assert (
-        O.align_quote("shall be at least 5 %", [("shall be at least 5", 0.9)]) is None
+        O.align_quote(
+            "the vessel is measured here", [("the vessel is mea- sured here", 0.9)]
+        )
+        == 0.9
     )
-    assert O.align_quote("-5 C or less", [("5 C or less", 0.9)]) is None
+    assert (
+        O.align_quote(
+            "the vessel is mea- sured here",
+            [("the vessel is mea-", 0.9), ("sured here", 0.7)],
+        )
+        == 0.7
+    )
+    assert (
+        O.align_quote(
+            "the vessel is measured here",
+            [("the vessel is mea-", 0.9), ("sured here", 0.7)],
+        )
+        == 0.7
+    )
+    assert O.align_quote("grade 5- mm here", [("grade 5- mm here", 0.9)]) == 0.9
+    assert O.align_quote("grade 5- mm here", [("grade 5mm here", 0.9)]) is None
+    assert O.align_quote("a - b c", [("a b c", 0.9)]) is None
+    assert O.align_quote("a -b c", [("a b c", 0.9)]) is None
 
 
 # ---------------------------------------------------------------- the rule that uses it
