@@ -18,6 +18,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 from .agent_review_verdict import (
     AI_TIER,
     BY_ENGINEER,
+    DISAGREE_WHY,
     FAIL,
     NOT_A_RULE,
     PASS,
@@ -54,6 +55,21 @@ RECOMMENDATION = "recommendation"
 KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
+ONE_READER = "One AI reader's view, not confirmed: "
+SECOND_DISAGREED = "The second AI reader disagreed. "
+
+
+def _moved_reason(line: Mapping, unsafe: str) -> str:
+    """THE text the engineer reads for a "met" the guard made a Query (screen reason, workbook comment and verdict cells):
+    the guard's reason first; for two readers who disagree, a plain sentence saying the second reader disagreed; then the
+    first reader's own words ONLY marked as one reader's view that is not confirmed. Never the line's conclusion."""
+    out = unsafe + "."
+    if unsafe == DISAGREE_WHY:
+        out += " " + SECOND_DISAGREED.strip()
+    view = " ".join(str(line.get("comment") or line.get("reasoning") or "").split())
+    return f"{out} {ONE_READER}{view[:400]}" if view else out
+
+
 def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
     """Steps 1, 2 and 2b of `classify`: the AI gave no answer (Not reviewed); a silent paper (Query); an AI "met" whose paper
     defers the value or whose quotes code could not verify (Query, N9). None when none applies."""
@@ -76,11 +92,14 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": SILENCE_WHY + also,
         }
-    if unsafe := met_unsafe_why(line):  # 2b. N9
+    if unsafe := met_unsafe_why(
+        line
+    ):  # 2b. N9: the guard's reason leads; one reader's view follows, marked
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
-            "not_proven_reason": unsafe + (f"; {why}" if unapproved else ""),
+            "not_proven_reason": _moved_reason(line, unsafe)
+            + (f"; {why}" if unapproved else ""),
         }
     return None
 

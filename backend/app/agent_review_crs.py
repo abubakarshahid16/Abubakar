@@ -36,6 +36,7 @@ from .agent_review_verdict import (
     PASS,
     QUERY,
     met_unsafe_why,
+    moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
 
@@ -277,6 +278,10 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
         )
     page = line_page(line)
     where = f"{field_words(line)} (page {page})" if page else field_words(line)
+    if moved_by_guard(
+        line
+    ):  # N9: the guard's reason leads; the first reader's view follows, marked
+        return f"{where}: {line['not_proven_reason']}"
     rule = against(line) or "the requirement"
     ask = asks(line)
     req = f'{rule} asks: "{ask}"' if ask else f"see {rule}"
@@ -362,10 +367,7 @@ def _verdict_cell(line: Mapping) -> str:
     ):  # order 12: never "Pass" or "Fail" for what code did not prove
         return f"{line['verdict_label']} ({line['verdict_class']}); not proven by code: {_clean(line.get('not_proven_reason'))}"
     word = VERDICT_WORDS.get(line.get("verdict"), VERDICT_WORDS[QUERY])
-    why = met_unsafe_why(line)
-    if why and str(line.get("not_proven_reason") or "").startswith(
-        why
-    ):  # N9: the new reason
+    if moved_by_guard(line):  # N9: the new reason
         return f"{word}; not proven by code: {line['not_proven_reason']}"
     if line.get("decided_by") == BY_CODE and line.get("verdict") in (PASS, FAIL):
         return f"{word}, decided by code"

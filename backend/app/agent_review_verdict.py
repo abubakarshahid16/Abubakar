@@ -756,3 +756,9 @@ def met_unsafe_why(line: Mapping) -> str | None:
     if isinstance(second, Mapping) and second.get("agree") is False:
         return DISAGREE_WHY
     return None
+
+
+def moved_by_guard(line: Mapping) -> bool:
+    """The line is a "met" the guard made a Query (its stored `not_proven_reason` leads with the guard's reason)."""
+    why = met_unsafe_why(line)
+    return bool(why and str(line.get("not_proven_reason") or "").startswith(why))

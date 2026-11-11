@@ -46,7 +46,7 @@ def test_met_with_a_deferring_paper_quote_is_a_query(item, quote):
     out = exit_of(met(item_id=item["item_id"], paper_quote=quote), item)
     assert out["verdict_label"] == W.WORD_QUERY
     assert out["verdict_class"] == W.CLASS_QUERY
-    assert out["not_proven_reason"] == V.DEFERRED_WHY
+    assert out["not_proven_reason"].startswith(V.DEFERRED_WHY)
     assert quote not in out["not_proven_reason"]
 
 
@@ -61,7 +61,7 @@ def test_met_with_a_deferring_paper_quote_is_a_query(item, quote):
 def test_met_with_an_unverified_quote_is_a_query(checks, why):
     out = exit_of(met(quotes_checked=checks))
     assert (out["verdict_label"], out["verdict_class"]) == (W.WORD_QUERY, W.CLASS_QUERY)
-    assert out["not_proven_reason"] == why
+    assert out["not_proven_reason"].startswith(why)
 
 
 def test_met_with_verified_plain_quotes_stays_met():
@@ -160,7 +160,7 @@ def test_met_with_a_disagreeing_second_opinion_is_a_query(item):
         item,
     )
     assert (out["verdict_label"], out["verdict_class"]) == (W.WORD_QUERY, W.CLASS_QUERY)
-    assert out["not_proven_reason"] == V.DISAGREE_WHY
+    assert out["not_proven_reason"].startswith(V.DISAGREE_WHY)
 
 
 def test_met_with_an_agreeing_second_opinion_stays_met():
@@ -173,14 +173,14 @@ def test_met_with_no_second_opinion_asked_stays_met_but_other_clauses_apply():
     out = exit_of(
         met(second_opinion=None, quotes_checked={"paper": True, "clause": False})
     )
-    assert out["not_proven_reason"] == V.UNVERIFIED_CLAUSE_WHY
+    assert out["not_proven_reason"].startswith(V.UNVERIFIED_CLAUSE_WHY)
 
 
 def test_met_with_a_failed_second_opinion_is_neither_agreement_nor_disagreement():
     failed = {"agree": None, "model": "unknown"}
     assert exit_of(met(second_opinion=failed))["verdict_label"] == W.THINKS_MET
     out = exit_of(met(second_opinion=failed, paper_quote="Value TBA"))
-    assert out["not_proven_reason"] == V.DEFERRED_WHY
+    assert out["not_proven_reason"].startswith(V.DEFERRED_WHY)
 
 
 def test_a_disagreeing_second_opinion_does_not_move_a_proven_pass_or_not_met():
@@ -224,9 +224,8 @@ def test_a_met_with_no_clause_quote_recorded_is_a_query_by_design():
             },
         )
     )
-    assert (
-        out["verdict_label"] == W.WORD_QUERY
-        and out["not_proven_reason"] == V.UNVERIFIED_CLAUSE_WHY
+    assert out["verdict_label"] == W.WORD_QUERY and out["not_proven_reason"].startswith(
+        V.UNVERIFIED_CLAUSE_WHY
     )
 
 
@@ -364,7 +363,9 @@ def test_a_lone_marker_on_its_own_line_or_cell_defers_the_value(marker):
         f"Seat tightness\t{marker}",
     ):
         assert V.quote_defers(quote), quote
-        assert exit_of(met(paper_quote=quote))["not_proven_reason"] == V.DEFERRED_WHY
+        assert exit_of(met(paper_quote=quote))["not_proven_reason"].startswith(
+            V.DEFERRED_WHY
+        )
 
 
 def test_a_marker_inside_a_longer_line_is_not_a_lone_marker():
@@ -466,3 +467,64 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
         if c is not None
     )
     assert "sheet_rows" in run_text and "held_ai_pass" in run_text
+
+
+def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_view(
+    tmp_path,
+):
+    import openpyxl
+
+    from app import agent_review_crs as C
+
+    view = "The sheet states the requirement is met."
+    ok = {"source": "rule", "rule_label": {"tier": "AI approved"}}
+    base = {
+        "item_id": "R-1",
+        "source": "rule",
+        "standard": "STD-1",
+        "clause": "4.1",
+        "verdict": "Query",
+        "decided_by": "engineer",
+        "ai_verdict": "Pass",
+        "why": "second opinion disagreed",
+        "paper_page": 2,
+        "paper_quote": "Nameplate: steel",
+        "clause_quote": "Nameplates shall be steel and fixed",
+        "quotes_checked": dict(OK),
+        "model": "m",
+        "field_roles": ["nameplate_material"],
+        "reasoning": view,
+    }
+    moved = W.final_cap({**base, "second_opinion": {"agree": False}}, ok)
+    unmoved = W.final_cap({**base, "item_id": "R-2"}, ok)
+    text = moved["not_proven_reason"]
+    assert text.startswith(V.DISAGREE_WHY)
+    assert (
+        text.index(W.SECOND_DISAGREED.strip())
+        < text.index(W.ONE_READER)
+        < text.index(view)
+    )
+    assert (
+        unmoved["verdict_label"] == W.THINKS_MET
+        and unmoved["not_proven_reason"] == "second opinion disagreed"
+    )
+    assert W.ONE_READER not in unmoved["not_proven_reason"]
+    # the workbook comment and verdict cells, and the stored `reason`, all lead with the same text
+    comment = C.company_comment(moved)
+    assert comment.split(": ", 1)[1] == text
+    assert text in C.verdict_cell(moved)
+    meta = {
+        "paper": "P",
+        "run_id": "r",
+        "date": "2026-11-12",
+        "lead_models": [],
+        "second_models": [],
+    }
+    wb = openpyxl.load_workbook(C.write_internal([moved], tmp_path / "i.xlsx", meta))
+    cells = [str(c) for r in wb["CRS"].iter_rows(values_only=True) for c in r if c]
+    assert any(c.split(": ", 1)[-1] == text for c in cells)
+    # a moved line with no first-reader text says only the guard reason
+    bare = W.final_cap(
+        {**base, "reasoning": None, "second_opinion": {"agree": False}}, ok
+    )
+    assert W.ONE_READER not in bare["not_proven_reason"]
