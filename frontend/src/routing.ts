@@ -26,7 +26,7 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
   // page of its own (`HowReviewedView`), not a Behind-the-scenes panel.
   // "workspace" (workspace v2): the one-screen review workspace. Its own
   // address always opens it, whichever value WORKSPACE_IS_DEFAULT has.
-  review: ["cards", "crs-sheet", "findings", "standards", "steps", "numbers", "crs", "how", "workspace"],
+  review: ["cards", "crs-sheet", "findings", "standards", "steps", "numbers", "crs", "how", "workspace", "rules", "agent"],
 };
 
 /**

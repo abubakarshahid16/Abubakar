@@ -1,0 +1,61 @@
+/**
+ * The closed vocabularies of the AI reviewer's screens (owner decision 2 of
+ * 11 Nov 2026; contract contracts/generated/agent_review.ts). One place, so
+ * no screen invents a word.
+ *
+ * Rule: "Pass" and "Fail" may be shown ONLY under the class "Proven by code".
+ * `lineView` enforces it on the way in, even if the API sent otherwise.
+ */
+import type { AgentLine, AgentLeftOutReason, AgentRuleTier, AgentVerdictClass } from "../../../types/api";
+
+export const PROVEN: AgentVerdictClass = "Proven by code";
+
+/** Display order of the class blocks. */
+export const CLASS_ORDER: readonly AgentVerdictClass[] = [
+  "Proven by code",
+  "AI opinion, engineer to confirm",
+  "AI opinion, rule not yet approved",
+  "Query for the engineer",
+  "Not applicable",
+];
+
+/** Colour is never the only signal: each class has its own mark and border. */
+export const CLASS_STYLE: Record<AgentVerdictClass, { mark: string; border: string }> = {
+  "Proven by code": { mark: "■", border: "border-l-4 border-solid border-signal-400" },
+  "AI opinion, engineer to confirm": { mark: "◆", border: "border-l-4 border-dashed border-warn-500" },
+  "AI opinion, rule not yet approved": { mark: "◇", border: "border-l-4 border-dotted border-warn-500" },
+  "Query for the engineer": { mark: "?", border: "border-l-4 border-double border-slateish-400" },
+  "Not applicable": { mark: "–", border: "border-l-4 border-solid border-ink-600" },
+};
+
+export const LEFT_OUT_REASONS: readonly AgentLeftOutReason[] = [
+  "needs another paper", "needs a human", "quote not found", "not labelled yet", "another equipment type",
+  "rule book not held",
+];
+export const TIERS: readonly AgentRuleTier[] = ["AI approved", "Engineer", "Owner", "Not AI approved"];
+
+export function isKnownClass(value: string): value is AgentVerdictClass {
+  return (CLASS_ORDER as readonly string[]).includes(value);
+}
+
+export interface LineView {
+  /** the class block the line belongs to; null when the class is not in the vocabulary */
+  klass: AgentVerdictClass | null;
+  /** the word to show; null when the word may not be shown for this line */
+  word: string | null;
+  dataError: boolean;
+}
+
+/** What may be shown for one line. A "Pass"/"Fail" word on a class other
+ *  than "Proven by code" is NOT shown; the line shows its class and a visible
+ *  data-error note. An unknown class is a data error too. */
+export function lineView(line: Pick<AgentLine, "verdict_class" | "word">): LineView {
+  const known = isKnownClass(line.verdict_class);
+  const provenOnly = line.word === "Pass" || line.word === "Fail";
+  if (!known) return { klass: null, word: provenOnly ? null : line.word, dataError: true };
+  if (provenOnly && line.verdict_class !== PROVEN) return { klass: line.verdict_class, word: null, dataError: true };
+  return { klass: line.verdict_class, word: line.word, dataError: false };
+}
+
+export const DATA_ERROR_NOTE =
+  "Data error: the server sent a proven-only word on a line that code did not prove, so the word is not shown.";

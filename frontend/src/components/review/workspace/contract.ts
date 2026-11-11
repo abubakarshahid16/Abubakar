@@ -30,7 +30,7 @@ export type { CrsRow, CrsDecisions, DecisionState, StandardsState };
 /** Same words CrsSheetView uses when leaving with unsaved decisions. */
 export const LEAVE_WARNING = "Some decisions on this sheet are not saved yet. Leave without saving them?";
 
-export const WORKSPACE_TABS = ["sheet", "how", "findings", "standards", "steps", "numbers", "crs"] as const;
+export const WORKSPACE_TABS = ["sheet", "how", "findings", "standards", "steps", "numbers", "crs", "agent", "rules"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
 /** Plain-English tab names, in display order. */
@@ -44,6 +44,9 @@ export const WORKSPACE_TAB_LABELS: Record<WorkspaceTab, string> = {
   // The comment sheet as issued: the contractor's replies, transmittal
   // numbers, which comments are open or closed (the old "crs" page).
   crs: "CRS preview and replies",
+  // The two tabs of the AI reviewer (#1690); drawn only while its switch is on.
+  agent: "AI review",
+  rules: "Rules used",
 };
 
 /** The right-hand panel. Only the evidence drawer for now. */
@@ -308,6 +311,9 @@ export interface WorkspaceTabsProps {
    *  "Details" tab that holds the engineer tabs in a second small row;
    *  "detailed" (the default here) shows every tab in one strip. */
   mode?: "simple" | "detailed";
+  /** True only while the AI reviewer's switch is on: then "AI review" and
+   *  "Rules used" are tabs. Left out, they are not drawn. */
+  agentTabs?: boolean;
   /** The tab's content (A renders it). */
   children?: ReactNode;
 }

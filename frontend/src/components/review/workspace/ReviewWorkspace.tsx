@@ -43,6 +43,10 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 
 import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
 import { HowReviewedView } from "../../../views/HowReviewedView";
+import { AgentReviewPanel } from "../agent/AgentReviewPanel";
+import { AgentStartButton } from "../agent/AgentStartButton";
+import { RulesUsedPanel } from "../agent/RulesUsedPanel";
+import { useAgentSwitch } from "../agent/useAgentSwitch";
 import { progressLine, runStatusLabel } from "../reviewFormat";
 import { BehindTheScenes } from "../panels/BehindTheScenes";
 import { ReviewProgressBlock } from "../progress/ReviewProgressBlock";
@@ -351,6 +355,8 @@ export function ReviewWorkspace({
     disabled: !run?.submittal_document_id,
   });
 
+  // #1690: the AI reviewer's one switch. Off (or unknown): no start button, no tabs.
+  const agent = useAgentSwitch();
   const tabNow = location.tab;
   useEffect(() => {
     if (pagesAsked === 0 || tabNow !== "sheet") return;
@@ -439,7 +445,8 @@ export function ReviewWorkspace({
 
   const readOnly = numbers.signed;
   const newerAt = newerRun ? dayOf(newerRun.created_at) : "";
-  const tab = location.tab;
+  // An agent tab asked for in the address while the switch is off shows the sheet.
+  const tab = !agent && (location.tab === "agent" || location.tab === "rules") ? "sheet" : location.tab;
   const panelOpen = tab === "sheet" && openRowKey !== null;
   const missingNames = numbers.standardsKnown ? numbers.missingStandards : (missingStandardIds ?? []);
   const missingList = missingNames.map((name) => {
@@ -461,6 +468,10 @@ export function ReviewWorkspace({
         {run.submittal_document_id && isAdmin !== false && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
             beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+        )}
+        {run.submittal_document_id && isAdmin !== false && (
+          <AgentStartButton status={agent} documentId={run.submittal_document_id}
+            onStarted={(started) => openRun(started.review_run_id)} />
         )}
         {run.submittal_document_id && isAdmin === false && (
           <span data-testid="ws-review-again-admin-only" className="text-xs text-slateish-400">
@@ -515,7 +526,7 @@ export function ReviewWorkspace({
           : run?.submittal_document_id && data.documentRuns == null ? "unknown" : null}
       />
 
-      <WorkspaceTabs tab={tab} onTab={onTab} mode={view.mode}>
+      <WorkspaceTabs tab={tab} onTab={onTab} mode={view.mode} agentTabs={agent !== null}>
         {tab === "sheet" && (
           <div className="space-y-2">
             <SheetCountsLine numbers={numbers} />
@@ -571,6 +582,8 @@ export function ReviewWorkspace({
           />
         )}
         {tab === "crs" && <CrsTabPanel runId={runId} beforeCopy={beforeCopy} />}
+        {tab === "agent" && <AgentReviewPanel key={runId} runId={runId} />}
+        {tab === "rules" && <RulesUsedPanel key={runId} runId={runId} />}
         {PANEL_TABS.includes(tab) && (
           <BehindTheScenes
             embedded

@@ -147,6 +147,11 @@ vi.mock("./ReviewAgainButton", async (importOriginal) => {
   ))(props),
   };
 });
+/** #1690: the AI reviewer's one switch, and stand-ins for its panels. */
+let agentStatus: { enabled: boolean; claude_lane_open: boolean } | null = null;
+vi.mock("../agent/useAgentSwitch", () => ({ useAgentSwitch: () => agentStatus }));
+vi.mock("../agent/AgentReviewPanel", () => ({ AgentReviewPanel: ({ runId }: { runId: string }) => <p>{`agent page for ${runId}`}</p> }));
+vi.mock("../agent/RulesUsedPanel", () => ({ RulesUsedPanel: ({ runId }: { runId: string }) => <p>{`rules page for ${runId}`}</p> }));
 vi.mock("../../../views/HowReviewedView", () => ({
   HowReviewedView: ({ runId, onOpenSteps }: { runId: string; onOpenSteps: () => void }) => (
     <div><p>{`how page for ${runId}`}</p><button type="button" onClick={onOpenSteps}>See the steps</button></div>
@@ -209,6 +214,7 @@ beforeEach(() => {
   data.mockReturnValue(ready());
   numbersNow = NUMBERS;
   realHeaderButton = false;
+  agentStatus = null;
   vi.restoreAllMocks();
 });
 
@@ -910,5 +916,39 @@ describe("ReviewWorkspace v2.2: the one-line help", () => {
     unmount();
     render(<Harness initial={{}} />);
     expect(screen.queryByTestId("ws-review-help")).toBeNull();
+  });
+});
+
+/** #1690. MUTATION PROOF: draw the button or the tabs while the switch is off
+ *  and the first test fails; ignore the lane flag and the second fails;
+ *  render the agent page for ?tab=agent while off and the third fails. */
+describe("ReviewWorkspace: the AI reviewer's one switch", () => {
+  it("switch off: no start button, no AI review tab, no Rules used tab", () => {
+    render(<Harness initial={{}} />);
+    expect(screen.queryByRole("button", { name: "Start AI review" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "AI review" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Rules used" })).toBeNull();
+  });
+  it("switch on: the start button, both tabs, and the pages behind them", async () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    window.localStorage.setItem(VIEW_MODE_KEY, "detailed");
+    const user = userEvent.setup();
+    render(<Harness initial={{}} />);
+    expect(screen.getByRole("button", { name: "Start AI review" })).toBeEnabled();
+    await user.click(screen.getByRole("tab", { name: "Rules used" }));
+    expect(changes.at(-1)?.tab).toBe("rules");
+    expect(screen.getByText("rules page for run-1")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "AI review" }));
+    expect(screen.getByText("agent page for run-1")).toBeInTheDocument();
+  });
+  it("switch on, lane closed: the button is disabled", () => {
+    agentStatus = { enabled: true, claude_lane_open: false };
+    render(<Harness initial={{}} />);
+    expect(screen.getByRole("button", { name: "Start AI review" })).toBeDisabled();
+  });
+  it("switch off: an address with ?tab=rules shows the sheet, not the agent page", () => {
+    render(<Harness initial={{ tab: "rules" }} />);
+    expect(screen.queryByText("rules page for run-1")).toBeNull();
+    expect(screen.getByTestId("ws-sheet")).toBeInTheDocument();
   });
 });
