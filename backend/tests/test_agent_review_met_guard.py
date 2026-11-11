@@ -665,3 +665,80 @@ def test_the_gate_sets_the_code_and_never_returns_a_pass_when_not_mentioned():
         "Pass", checks, {"agree": True, "model": "other"}, "lead", absent=False
     )
     assert "not_mentioned" not in ok
+
+
+GUARD_REASONS = {
+    "DEFERRED_WHY": "the quoted paper text defers or leaves open this value",
+    "UNVERIFIED_PAPER_WHY": "the quoted paper text could not be verified by code",
+    "UNVERIFIED_CLAUSE_WHY": "the quoted clause text could not be verified by code",
+    "NOT_STATED_WHY": "the reviewer's code found words, in the AI reader's answer or in the text it quoted, that say this is not stated; its view is not confirmed",
+    "NO_VALUE_WHY": "the AI reader quoted only the field's name, with no value; check the paper",
+    "DISAGREE_WHY": "two AI readers disagree on this line",
+}
+
+
+BANNED = (
+    "the paper gives",
+    "the paper does not",
+    "the paper says",
+    "the paper is",
+    "the paper has",
+)
+#: The owner's own wording for a silent paper (a rule of 16.3, not a guard reason); every other `*_WHY` is checked.
+EXEMPT = {"SILENCE_WHY"}
+
+
+def test_the_guard_reasons_are_exactly_these():
+    for name, text in GUARD_REASONS.items():
+        assert getattr(V, name) == text, name
+
+
+def test_no_reason_constant_of_the_module_asserts_a_fact_about_the_paper():
+    """Every `*_WHY` string of the verdict module is collected by its name, so a new reason cannot escape the check."""
+    found = {
+        n: getattr(V, n)
+        for n in dir(V)
+        if n.endswith("_WHY") and isinstance(getattr(V, n), str)
+    }
+    assert set(GUARD_REASONS) <= set(found)
+    for name, text in found.items():
+        if name not in EXEMPT:
+            assert not any(b in text.lower() for b in BANNED), (name, text)
+    for text in (W.SECOND_DISAGREED, W.ONE_READER):
+        assert not any(b in text.lower() for b in BANNED), text
+
+
+def test_not_stated_is_true_for_both_sources_the_code_reads():
+    from_answer = {"reasoning": "the coating layers are not mentioned on the sheet"}
+    from_quote = {"paper_quote": "Coating layers: not specified"}
+    for line in (from_answer, from_quote):
+        assert V.says_absent(line)
+    assert not V.says_absent(
+        {"reasoning": "two layers are stated", "paper_quote": "Coating layers two"}
+    )
+    assert "answer" in V.NOT_STATED_WHY and "text it quoted" in V.NOT_STATED_WHY
+
+
+def test_a_deferral_is_stated_only_for_a_quote_code_verified():
+    unverified = exit_of(
+        met(paper_quote="Value TBA", quotes_checked={"paper": False, "clause": True})
+    )
+    assert unverified["not_proven_reason"].startswith(V.UNVERIFIED_PAPER_WHY)
+    verified = exit_of(met(paper_quote="Value TBA"))
+    assert verified["not_proven_reason"].startswith(V.DEFERRED_WHY)
+
+
+def test_every_clause_returns_its_own_constant():
+    cases = [
+        (met(quotes_checked={"paper": False, "clause": True}), V.UNVERIFIED_PAPER_WHY),
+        (met(paper_quote="Value TBA"), V.DEFERRED_WHY),
+        (met(quotes_checked={"paper": True, "clause": False}), V.UNVERIFIED_CLAUSE_WHY),
+        (met(not_mentioned_hold=True), V.NOT_STATED_WHY),
+        (
+            met(paper_quote="Lifting lever", field_label_ai="Lifting lever"),
+            V.NO_VALUE_WHY,
+        ),
+        (met(second_opinion={"agree": False}), V.DISAGREE_WHY),
+    ]
+    for line, why in cases:
+        assert V.met_unsafe_why(line) == why

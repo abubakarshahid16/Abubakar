@@ -472,9 +472,12 @@ def test_the_second_opinion_is_asked_only_when_a_pass_or_fail_could_still_stand(
     assert not V.needs_second_opinion(
         V.PASS, V.QuoteCheck(True, False, clause_strong=True), None
     )
-    assert not V.needs_second_opinion(
+    assert V.needs_second_opinion(
         V.PASS, V.QuoteCheck(True, True, clause_strong=False), None
-    )  # a weak clause quote
+    )  # N9b: an AI "met" with a weak clause quote is shown as met, so the second reader is asked
+    assert not V.needs_second_opinion(
+        V.FAIL, V.QuoteCheck(True, True, clause_strong=False), None
+    )  # a Fail still needs the strong clause quote
     assert not V.needs_second_opinion(
         V.PASS, STRONG, None, absent=True
     )  # "not mentioned" is never a Pass
