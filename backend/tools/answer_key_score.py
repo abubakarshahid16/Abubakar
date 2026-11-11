@@ -462,9 +462,9 @@ def own_point(k: KeyRow, line: Line) -> bool:
         k.clause is not None
         and line.clause is not None
         and line.clause[0] == k.clause[0]
+        and (k.clause[1] is None or line.clause[1] == k.clause[1])
     ):
-        if k.clause[1] is None or line.clause[1] == k.clause[1]:
-            return True
+        return True
     words = _words(line.label)
     return any(_spelling_names(s, words) for s in k.spellings)
 
