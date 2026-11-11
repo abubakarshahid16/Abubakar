@@ -34,6 +34,10 @@ def _line(**over):
         "rule_tier": "Owner",
     }
     base.update(over)
+    if base["verdict_class"] in ar.GENERAL_ONLY and "part" not in base:
+        base["part"] = (
+            "engineering comment"  # a general review line always names its part
+        )
     return ar.AgentLine(**base)
 
 
@@ -45,6 +49,8 @@ def test_vocabularies_are_exactly_the_owner_words():
         "Query for the engineer",
         "Not applicable",
         "Not reviewed",
+        "Not checked: rule book not held",
+        "AI note, no rule book",
     ]
     assert WORDS == [
         "Pass",
@@ -54,6 +60,8 @@ def test_vocabularies_are_exactly_the_owner_words():
         "Query",
         "Not applicable",
         "Not reviewed",
+        "Not checked",
+        "AI note",
     ]
     assert TIERS == ["Owner", "Engineer", "AI approved", "Not AI approved"]
     assert REASONS == [
@@ -84,6 +92,9 @@ ALLOWED = {
     "Query for the engineer": ({"Query"}, {*TIERS, None}),
     "Not applicable": ({"Not applicable"}, {*TIERS, None}),
     "Not reviewed": ({"Not reviewed"}, {*TIERS, None}),
+    # general review: no rule, so the tier is null only
+    "Not checked: rule book not held": ({"Not checked"}, {None}),
+    "AI note, no rule book": ({"AI note"}, {None}),
 }
 
 
@@ -312,3 +323,102 @@ def test_summary_and_rules_used_carry_the_equipment_state_and_notes():
     assert ar.AgentLeftOutRule(
         rule_book="b", clause="1", reason="the paper names no equipment"
     )
+
+
+# ---------------------------------------------------------------- general review (procedures and contracts, #781)
+
+PARTS = list(ar.Part.__args__)
+SOURCES = [*ar.TextSource.__args__, None]
+
+
+def test_general_review_vocabularies_are_the_owner_words():
+    assert PARTS == [
+        "not held",
+        "checklist",
+        "paper against itself",
+        "against project papers",
+        "engineering comment",
+    ]
+    assert list(ar.TextSource.__args__) == ["quote", "the model's words"]
+    assert list(ar.Mode.__args__) == ["rule review", "general review"]
+
+
+@pytest.mark.parametrize(
+    "klass,part,source", list(itertools.product(CLASSES, [None, *PARTS], SOURCES))
+)
+def test_part_and_text_source_go_with_the_classes_of_a_general_review_only(
+    klass, part, source
+):
+    word = sorted(ALLOWED[klass][0])[0]
+    tier = "Not AI approved" if klass == "AI opinion, rule not yet approved" else None
+    build = lambda: ar.AgentLine(  # noqa: E731
+        item_id="i",
+        verdict_class=klass,
+        word=word,
+        clause="",
+        rule_book="",
+        reason="r",
+        rule_tier=tier,
+        part=part,
+        text_source=source,
+    )
+    rule_only = klass in ar.RULE_REVIEW_ONLY
+    needs_part = klass in ar.GENERAL_ONLY
+    ok = not ((rule_only and (part or source)) or (needs_part and part is None))
+    if ok:
+        assert build().part == part
+    else:
+        with pytest.raises(ValidationError):
+            build()
+
+
+def test_a_rule_review_line_is_unchanged_and_carries_no_part():
+    line = json.loads(_line().model_dump_json())
+    assert line["part"] is None and line["text_source"] is None
+    assert (line["verdict_class"], line["word"], line["rule_tier"]) == (
+        "Proven by code",
+        "Pass",
+        "Owner",
+    )
+
+
+def test_a_general_review_line_never_carries_pass_fail_or_a_tier():
+    for word in ("Pass", "Fail", "AI thinks: met", "AI thinks: not met"):
+        for klass in ar.GENERAL_ONLY:
+            with pytest.raises(ValidationError):
+                _line(verdict_class=klass, word=word)
+    for klass in ar.GENERAL_ONLY:
+        for tier in TIERS:
+            with pytest.raises(ValidationError):
+                _line(
+                    verdict_class=klass, word=ar.LINE_TABLE[klass][0][0], rule_tier=tier
+                )
+
+
+def test_the_summary_says_its_mode_and_the_project_papers_used():
+    base = {"paper_kind": "procedure", "paper_kind_source": "s"}
+    assert ar.AgentRunSummary(**base).mode == "rule review"
+    assert ar.AgentRunSummary(**base).project_papers_used == []
+    got = ar.AgentRunSummary(
+        **base,
+        mode="general review",
+        project_papers_used=[{"document_id": "d", "name": "n"}],
+        counts_by_class={
+            "AI note, no rule book": 2,
+            "Not checked: rule book not held": 1,
+        },
+    )
+    assert got.project_papers_used[0].name == "n"
+    with pytest.raises(ValidationError):
+        ar.AgentRunSummary(**base, mode="guess")
+
+
+def test_the_run_request_takes_an_optional_short_list_of_project_papers():
+    assert ar.AgentRunRequest(submittal_document_id="d").project_document_ids == []
+    assert ar.AgentRunRequest(
+        submittal_document_id="d", project_document_ids=["a"]
+    ).project_document_ids == ["a"]
+    with pytest.raises(ValidationError):
+        ar.AgentRunRequest(
+            submittal_document_id="d", project_document_ids=[str(i) for i in range(11)]
+        )
