@@ -77,6 +77,21 @@ def _parts(disagreement: Any) -> set[str]:
     return {p.strip() for p in str(disagreement or "").split(",") if p.strip()}
 
 
+def _blank_decision() -> dict[str, Any]:
+    return {
+        "ask": False,
+        "reason": None,
+        "tier": None,
+        "label_paper_kind": None,
+        "field": None,
+        "state": None,
+        "label_key": None,
+        "needs_kind": None,
+        "disagreement": None,
+        "unapproved_why": None,
+    }
+
+
 def _decide_label(
     conn: sqlite3.Connection,
     requirement_id: str,
@@ -93,18 +108,7 @@ def _decide_label(
     paper). `tier` is "owner", "engineer", "AI approved" or "not AI approved"."""
     if ask_unapproved not in ASK_UNAPPROVED_MODES:
         raise ValueError(f"ask_unapproved is one of {ASK_UNAPPROVED_MODES}")
-    out: dict[str, Any] = {
-        "ask": False,
-        "reason": None,
-        "tier": None,
-        "label_paper_kind": None,
-        "field": None,
-        "state": None,
-        "label_key": None,
-        "needs_kind": None,
-        "disagreement": None,
-        "unapproved_why": None,
-    }
+    out = _blank_decision()
     want = norm_kind(paper_kind)
     if not kind_known or not want:
         out["reason"] = KIND_UNKNOWN

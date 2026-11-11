@@ -76,7 +76,7 @@ def test_switch_off_creates_no_table_and_on_creates_both(monkeypatch):
 def test_an_agreed_row_needs_two_different_models_a_prompt_and_a_list_hash_in_the_table_itself(
     conn,
 ):
-    cols = [k for k in row() if k not in ()]
+    cols = list(row())
     sql = f"INSERT INTO rule_equipment_label ({', '.join(cols)}) VALUES ({','.join('?' * len(cols))})"
     for bad in (
         {"model_b": "claude-sonnet-5-5"}, {"model_b": None}, {"prompt_version": ""}, {"list_sha": "zz"},

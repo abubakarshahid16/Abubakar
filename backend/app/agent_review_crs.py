@@ -512,6 +512,18 @@ def _run_sheet(wb, all_lines: list[Mapping], meta: Mapping) -> None:
         )
 
 
+def _extra_sheets(
+    wb, meta: Mapping, paper: str, not_reviewed: list, unapproved: list
+) -> None:
+    """The sheets that exist only when they have lines: Not reviewed, and the rules not yet approved."""
+    if not_reviewed:
+        _sheet(wb, NOT_REVIEWED_SHEET, meta, NOT_REVIEWED_NOTE, INTERNAL_HEADERS,
+               (internal_row(ln, paper) for ln in not_reviewed))  # fmt: skip
+    if unapproved:
+        _sheet(wb, UNAPPROVED_SHEET, meta, UNAPPROVED_NOTE, INTERNAL_HEADERS,
+               (internal_row(ln, paper) for ln in unapproved))  # fmt: skip
+
+
 def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
     _refuse_unproven(lines)
     paper = str(meta.get("paper") or "")
@@ -574,24 +586,7 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
         INTERNAL_HEADERS,
         (held_row(ln, paper) for ln in held),
     )
-    if not_reviewed:
-        _sheet(
-            wb,
-            NOT_REVIEWED_SHEET,
-            meta,
-            NOT_REVIEWED_NOTE,
-            INTERNAL_HEADERS,
-            (internal_row(ln, paper) for ln in not_reviewed),
-        )
-    if unapproved:
-        _sheet(
-            wb,
-            UNAPPROVED_SHEET,
-            meta,
-            UNAPPROVED_NOTE,
-            INTERNAL_HEADERS,
-            (internal_row(ln, paper) for ln in unapproved),
-        )
+    _extra_sheets(wb, meta, paper, not_reviewed, unapproved)
     _run_sheet(wb, all_lines, meta)
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
