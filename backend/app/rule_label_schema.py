@@ -23,7 +23,6 @@ hash and the page the quote stands on: the guard lives in the table as well as i
 
 from __future__ import annotations
 
-from .config import settings
 from .db import schema_once
 
 PAPER_KINDS = ("datasheet", "procedure", "drawing", "calculation", "contract", "other")
@@ -43,8 +42,10 @@ class SwitchedOff(RuntimeError):
 
 
 def switch_on() -> bool:
-    """The one place this feature reads its switch (`settings.agent_review_enabled`, default off)."""
-    return bool(settings.agent_review_enabled)
+    """The same switch as the AI reviewer's (`agent_review_gate.enabled`, `settings.agent_review_enabled`, default off)."""
+    from . import agent_review_gate
+
+    return agent_review_gate.enabled()
 
 
 def require_on() -> None:

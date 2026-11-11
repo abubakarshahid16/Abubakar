@@ -6,8 +6,11 @@
 gate and the ledger apply as on every other Claude lane. This module opens no socket, adds no flag and never reads
 `backend/.env`. KEY: the process environment first (ANTHROPIC_API_KEY), then the app's own settings fallback exactly as
 `reader_api` does it (`settings.anthropic_api_key`, loaded from backend/.env by the settings model; this module reads no
-file). SWITCHES: process environment only (REASONING_PROVIDER and both STANDARDS_READER_* flags); `.env` never opens the
-lane. The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
+file). SWITCHES (REASONING_PROVIDER and both STANDARDS_READER_* flags): an `env` a caller injects is obeyed exactly; otherwise the process
+environment decides, and for any of those three names the environment does NOT say at all, the app settings (loaded from
+`backend/.env` by the settings model, which the server does not copy into `os.environ`) stand in (`_env_with_settings`). The
+environment wins whenever it says anything, including "0". This module reads no file.
+The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
 the provider, in a module global, the ledger, a trace or an error (codes only).
 
 THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consent(ids)` / `claude_approved.carrying(ids)`
@@ -107,9 +110,33 @@ class AgentTransportError(AgentClaudeError):
 # ------------------------------------------------------------------ request
 
 
+def _env_with_settings() -> dict:
+    """The process environment, plus the app settings' value for each gate flag the environment does not say at all.
+
+    The server does not copy `backend/.env` into `os.environ` (config.py), so a deployment that switches the lane on
+    in `.env` was invisible here. The environment still WINS when it says anything, including "0" (the same rule as
+    `reader_api._flag_or`): one shell line keeps every document on the machine. A key is read by `_resolve_key`."""
+    from app.config import settings
+
+    out = dict(os.environ)
+    wanted = {
+        "REASONING_PROVIDER": settings.reasoning_provider,
+        "STANDARDS_READER_ENABLED": "1" if settings.standards_reader_enabled else "",
+        "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1"
+        if settings.standards_reader_allow_public_egress
+        else "",
+    }
+    for name, value in wanted.items():
+        if not str(out.get(name) or "").strip() and str(value or "").strip():
+            out[name] = str(value).strip()
+    return out
+
+
 def gate_open(env: dict | None = None) -> bool:
-    """True only when the PROCESS environment opens the lane (switches: process env only; `.env` never opens it)."""
-    env = os.environ if env is None else env
+    """True only when the lane's provider switch is open: in the given `env` (obeyed exactly), else in the process
+    environment with the app settings behind it (`_env_with_settings`). The two egress flags and the key are checked again
+    where the request is built and where it is sent."""
+    env = _env_with_settings() if env is None else env
     return str(env.get("REASONING_PROVIDER") or "").strip().lower() in _OPEN_PROVIDERS
 
 
@@ -138,7 +165,7 @@ def _request(model: str, max_tokens: int, env: dict | None) -> dict:
     """url, headers, timeout and a body shell from `reader_api.build_request` (both flags, https, host, key)."""
     from app import reader_api
 
-    env = dict(os.environ) if env is None else env
+    env = _env_with_settings() if env is None else env
     if not gate_open(env):
         raise AgentGateClosed
     key = _resolve_key(env, reader_api)

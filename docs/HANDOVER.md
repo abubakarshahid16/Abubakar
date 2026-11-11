@@ -426,3 +426,67 @@ holds the package against it → sends it back same day instead of a month later
 - Send the client the three open questions (deliverables register scope,
   escalation ladder definition, news/media privacy expectations).
 - Delete old `oldname.sqlite*` after verifying document counts match.
+
+
+---
+
+## 10. The AI reviewer in the app (#1690, 11 Nov 2026) - what the one switch turns on
+
+**Switch.** `AGENT_REVIEW_ENABLED` (`settings.agent_review_enabled`, default OFF; read only by
+`agent_review_gate.enabled()`). Off: no table, every `/api/reviews/agent-*`, `.../agent/*` and `.../rules-used` route answers
+404 `feature_off`, no `agent_review` job is claimed, no Claude call, the classic review is unchanged. The Claude lane gate is
+not replaced: `REASONING_PROVIDER`, both `STANDARDS_READER_*` flags and a key (read from the process env, else from the app
+settings), the owner-approved document list and the USD caps in `claude_spend` (step `agent_review`: USD 5 per step, USD 15
+per run) all still apply. A cap stops the run with a PARTIAL result and a stop reason.
+
+**Datasheets only (owner, 11 Nov 2026).** The reviewer accepts a paper only when its decided kind is "datasheet"
+(`AGENT_REVIEW_KINDS`). Any other kind, or an unknown one, is refused with 409 `kind_not_enabled` ("AI review is on for
+datasheets only (owner, 11 Nov 2026)"): no job, no call, no charge. Reason: in the experiment's procedure and contract runs most
+"AI thinks: not met" lines were wrong because the paper was silent. Widening the tuple is the owner's decision; the silent-paper
+rule (`silence_guard`: a "not met" that rests only on silence is a Query for any kind but a datasheet) is already wired at the
+one exit.
+
+**What it does.** Paper kind first, then the right rules only (kind equal, tier usable, equipment fits), batches by page through
+the Claude lane, code verifies every quote and compares every number, a second model of another family must agree, a Fail is
+proven only after the rule-book page context check. One exit (`Runner.exit_line`) caps every line by its rule's CURRENT tier
+(label table) before it is stored, written to the CRS or served. Tables: `agent_review_run`, `_rule`, `_line`, `_missing_book`.
+CRS internal and contractor copies (xlsx) and the trace file go to `<data dir>/agent_reviews/<run id>/`.
+
+**Wording classes (owner decision 2).** "Proven by code" (Pass / Fail), "AI opinion, engineer to confirm" (AI thinks: met / not
+met, with the reason it is not proven), "AI opinion, rule not yet approved", "Query for the engineer", "Not applicable", and
+"Not reviewed" (the AI gave no answer even after the batch was split: never a Query about the paper). The contractor copy holds
+the proven Fail only.
+
+**NOT proven / not in this PR.** No frontend. No run on live data. Not run with a real model (every test uses an invented fake).
+Page pictures (drawings, scans) are not wired: a page with no text yields no Pass or Fail. The absence proof is built and off.
+The Rules used page's coverage numbers come from a coverage file the lead places under the data dir (`coverage/coverage.json`);
+without it every number is null. Checklist lines show no rule tier (null).
+
+**Guards left out on purpose.** There is no final check / tiebreak: no path in the runner calls a third model, so a line whose
+second opinion disagrees stays "AI thinks" (never a Pass or Fail). A short clause quote is never widened: a line whose clause
+quote is verified but weak simply stays held (a Query or an AI opinion), so no path needs the widen conditions.
+
+**Order for step H (live update).** 1. Update the code and start the server with the switch still off; check the table list is
+unchanged. 2. Switch on (`AGENT_REVIEW_ENABLED`, then `REASONING_PROVIDER`, `STANDARDS_READER_ENABLED`,
+`STANDARDS_READER_ALLOW_PUBLIC_EGRESS` in `backend/.env`, names only, after saving a copy). 3. Import the rule labels
+(`POST /api/admin/rule-labels/import`, #1744). 4. Import the equipment labels (`POST /api/admin/rule-equipment/import`, the
+core's route). 5. Place `coverage.json` under `<data dir>/coverage/` (the Rules used page shows nothing for coverage without it).
+6. One datasheet review through the app; save the CRS and the Rules used page.
+
+**Equipment.** The paper's equipment is read by the app's own reader and passed to the rule choice with
+`equipment_filter="type"`: a rule whose agreed label names another type or family is left out ("another equipment type"); the
+paper's equipment state (names none / not in the list / unreadable) is said on the summary and Rules used routes
+(`equipment_state`, `equipment_notes`).
+
+**Known gaps (plainly).** (a) The reuse of the classic standards selection (`agent_review_jobs._scope_run_id`: a finished classic
+run of the same code version, else `applicability.select` inline) is untested; the tests replace it. (b) Page pictures (drawings
+and scans) are not wired. (c) The general review mode for procedures and contracts (owner correction 16.4) is not in the app;
+the reviewer is on for datasheets only. (d) The reviewer has never been run with a real model or on live data. Rules that are
+not AI approved are not asked in the app (`ASK_UNAPPROVED = "off"`: measured 11 Nov, no key row gained, more wrong opinions);
+the cap and the class stay in the code and tests.
+
+**Checklist data.** Checklist content (the skill files of `agent_skills`) is local only and never committed: it lives in
+`~/project/mirror/skills` (or `AGENT_SKILLS_DIR`). On a machine with none (a clean checkout, CI) `checklist_ids()` is empty: no
+line can be a checklist line, so any line of an item that is not a stored rule is capped as not approved (safe, never a Pass or
+Fail), and the job logs "agent review: no checklist data found". An empty list is never remembered, so adding the files needs no
+restart. Step H must check that the live Mac has the skill files.

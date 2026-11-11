@@ -44,6 +44,7 @@ def test_vocabularies_are_exactly_the_owner_words():
         "AI opinion, rule not yet approved",
         "Query for the engineer",
         "Not applicable",
+        "Not reviewed",
     ]
     assert WORDS == [
         "Pass",
@@ -52,6 +53,7 @@ def test_vocabularies_are_exactly_the_owner_words():
         "AI thinks: not met",
         "Query",
         "Not applicable",
+        "Not reviewed",
     ]
     assert TIERS == ["Owner", "Engineer", "AI approved", "Not AI approved"]
     assert REASONS == [
@@ -61,6 +63,9 @@ def test_vocabularies_are_exactly_the_owner_words():
         "not labelled yet",
         "another equipment type",
         "rule book not held",
+        "the paper names no equipment",
+        "the paper names equipment the equipment list does not know",
+        "the paper's equipment could not be read",
     ]
 
 
@@ -78,6 +83,7 @@ ALLOWED = {
     ),
     "Query for the engineer": ({"Query"}, {*TIERS, None}),
     "Not applicable": ({"Not applicable"}, {*TIERS, None}),
+    "Not reviewed": ({"Not reviewed"}, {*TIERS, None}),
 }
 
 
@@ -241,3 +247,68 @@ def test_generated_typescript_drifts_when_a_word_is_added(tmp_path):
     assert stale != gen.render(module)
     (tmp_path / "agent_review.ts").write_text(stale)
     assert gen.drift(module, tmp_path) != []
+
+
+def test_not_reviewed_is_its_own_class_and_never_a_query_or_a_verdict():
+    line = _line(verdict_class="Not reviewed", word="Not reviewed", rule_tier=None)
+    assert line.word == "Not reviewed"
+    for word in ("Query", "Pass", "Fail", "AI thinks: not met"):
+        with pytest.raises(ValidationError):
+            _line(verdict_class="Not reviewed", word=word)
+    with pytest.raises(ValidationError):
+        _line(verdict_class="Query for the engineer", word="Not reviewed")
+
+
+def test_summary_counts_not_reviewed_and_rules_used_carries_coverage_and_read_from():
+    assert (
+        ar.AgentRunSummary(paper_kind="datasheet", paper_kind_source="x").not_reviewed
+        == 0
+    )
+    book = ar.AgentBookCoverage(rule_book="Book A")
+    assert book.model_dump() == {
+        "rule_book": "Book A",
+        "requirement_sentences": None,
+        "covered_sentences": None,
+        "unreadable_pages": None,
+        "weak_pages": None,
+        "below_half": None,
+    }  # no coverage row: null, never 0
+    rules = ar.AgentRulesUsed(paper_kind="datasheet", books=[book])
+    assert rules.books[0].rule_book == "Book A"
+    rule = ar.AgentAskedRule(
+        rule_book="b", clause="1", quote="q", paper_kind="datasheet", tier="Owner"
+    )
+    assert rule.read_from == "text"
+    assert (
+        ar.AgentAskedRule(
+            rule_book="b",
+            clause="1",
+            quote="q",
+            paper_kind="datasheet",
+            tier="Owner",
+            read_from="scan",
+        ).read_from
+        == "scan"
+    )
+    with pytest.raises(ValidationError):
+        ar.AgentAskedRule(
+            rule_book="b",
+            clause="1",
+            quote="q",
+            paper_kind="datasheet",
+            tier="Owner",
+            read_from="photo",
+        )
+
+
+def test_summary_and_rules_used_carry_the_equipment_state_and_notes():
+    assert (
+        ar.AgentRunSummary(paper_kind="d", paper_kind_source="x").equipment_notes == []
+    )
+    got = ar.AgentRulesUsed(
+        paper_kind="d", equipment_state="usable", equipment_notes=["a"]
+    )
+    assert (got.equipment_state, got.equipment_notes) == ("usable", ["a"])
+    assert ar.AgentLeftOutRule(
+        rule_book="b", clause="1", reason="the paper names no equipment"
+    )

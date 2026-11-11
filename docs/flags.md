@@ -17,7 +17,7 @@ does not make one.
 
 | Flag | Default | Kind | Since | Decide by | Note |
 |---|---|---|---|---|---|
-| `agent_review_enabled` | `False` | rollout | 2026-11-11 | 2026-11-25 | AI reviewer in the app (#1690): upload, CRS copies, trace, Rules used page; the rule labels and the `ai_approved` tier (#1719, #1625: tables `rule_label` and `rule_label_event`, POST /api/admin/rule-labels/import) are made only when it is on; off until the owner proves it on the approved test documents |
+| `agent_review_enabled` | `False` | rollout | 2026-11-11 | 2026-11-25 | AI reviewer in the app (#1690): upload, CRS copies, trace, Rules used page, for DATASHEETS ONLY (owner, 11 Nov 2026: procedure and contract review stay off until a re-run shows most opinion lines are right; `agent_review_gate.AGENT_REVIEW_KINDS`); the rule labels and the `ai_approved` tier (#1719, #1625: tables `rule_label` and `rule_label_event`, POST /api/admin/rule-labels/import) are made only when it is on; off until the owner proves it on the approved test documents |
 | `ai_senior_review_enabled` | `False` | rollout | 2026-11-03 | 2026-11-17 | AI senior review (step 3 of the best CRS, #805): A's checks plus B's AI rows A lacks; off until the scores prove it |
 | `ai_engineering_review_pass_enabled` | `False` | rollout | 2026-11-03 | 2026-11-17 | AI engineering review pass (lane 6): proposes, code verifies; off until the owner proves it |
 | `allow_unauthenticated_network_bind` | `False` | permanent | | | Safety override: serving the network with nobody signing in |

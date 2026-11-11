@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -448,7 +449,7 @@ def test_budget_and_gate_stops_are_fatal_and_bad_replies_are_not():
     assert not ac.AgentBadReply.fatal and not ac.AgentTransportError.fatal
 
 
-# ---- the key: process env first, then the app settings; switches process env only; never printed
+# ---- the key: process env first, then the app settings; lane switches: the env wins, settings stand in only for a name it lacks; never printed
 
 
 SENTINEL = "sk-ant-api03-Zq7Xv9Lm2Bn4Cr8Tw3Kd6Hf1Jg5Ps0Ye"
@@ -716,3 +717,74 @@ def _frame_locals(exc):
         out += [(k, repr(v)) for k, v in tb.tb_frame.f_locals.items()]
         tb = tb.tb_next
     return out
+
+
+# ---- `_env_with_settings`: each of the three lane names, one at a time
+
+LANE_NAMES = {
+    "REASONING_PROVIDER": ("reasoning_provider", "claude", "ollama"),
+    "STANDARDS_READER_ENABLED": ("standards_reader_enabled", True, False),
+    "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": (
+        "standards_reader_allow_public_egress",
+        True,
+        False,
+    ),
+}
+OPEN_VALUE = {
+    "REASONING_PROVIDER": "claude",
+    "STANDARDS_READER_ENABLED": "1",
+    "STANDARDS_READER_ALLOW_PUBLIC_EGRESS": "1",
+}
+
+
+def _clean(monkeypatch):
+    for name, (attr, _open, closed) in LANE_NAMES.items():
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(settings, attr, closed)
+
+
+@pytest.mark.parametrize("name", list(LANE_NAMES))
+def test_a_lane_name_settings_stand_in_only_when_the_env_lacks_that_same_name(
+    monkeypatch, name
+):
+    attr, opened, _closed = LANE_NAMES[name]
+    _clean(monkeypatch)
+    assert (
+        ac._env_with_settings().get(name) != OPEN_VALUE[name]
+    )  # closed in both: stays closed
+    monkeypatch.setattr(settings, attr, opened)
+    assert ac._env_with_settings()[name] == OPEN_VALUE[name]  # the settings stand in
+    for other in LANE_NAMES:  # ...and only for that name: the other two stay closed
+        if other != name:
+            assert ac._env_with_settings().get(other) != OPEN_VALUE[other], other
+
+
+@pytest.mark.parametrize("name", list(LANE_NAMES))
+def test_a_lane_name_the_env_says_wins_even_when_it_says_closed(monkeypatch, name):
+    attr, opened, _closed = LANE_NAMES[name]
+    _clean(monkeypatch)
+    monkeypatch.setattr(settings, attr, opened)
+    monkeypatch.setenv(name, "0" if name != "REASONING_PROVIDER" else "ollama")
+    assert ac._env_with_settings()[name] in ("0", "ollama")
+    monkeypatch.setenv(name, "5")  # set to anything: the env value is kept as it is
+    assert ac._env_with_settings()[name] == "5"
+
+
+def test_no_other_name_is_read_from_the_settings(monkeypatch):
+    _clean(monkeypatch)
+    monkeypatch.setattr(settings, "anthropic_api_key", "settings-key-value")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    env = ac._env_with_settings()
+    assert "ANTHROPIC_API_KEY" not in env and not any(
+        v == "settings-key-value" for v in env.values()
+    )
+    assert set(env) - set(os.environ) <= set(LANE_NAMES)
+
+
+def test_the_gate_follows_each_name_separately(monkeypatch):
+    _clean(monkeypatch)
+    assert ac.gate_open() is False
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    assert ac.gate_open() is True
+    monkeypatch.setenv("REASONING_PROVIDER", "ollama")
+    assert ac.gate_open() is False
