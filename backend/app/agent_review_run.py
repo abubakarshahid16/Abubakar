@@ -199,6 +199,7 @@ class Runner(DecideMixin):
                 "context_check": line.get("context_check"),
                 "absence_check": line.get("absence_check"),
                 "conditional_hold": line.get("conditional_hold"),
+                "not_mentioned_hold": line.get("not_mentioned_hold"),
                 "table_note_hold": line.get("table_note_hold"),
                 "unapproved_cap": line.get("unapproved_cap"),
                 "verdict_label": line.get("verdict_label"),

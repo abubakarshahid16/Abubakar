@@ -251,7 +251,11 @@ def textual_verdict(
             second_opinion="not asked",
         )
     if ai_verdict == PASS and absent:
-        return _query("not mentioned is never a pass", second_opinion="not asked")
+        return _query(
+            "not mentioned is never a pass",
+            second_opinion="not asked",
+            not_mentioned=True,  # the CODE the line carries (`not_mentioned_hold`); never matched on the sentence
+        )
     if second is None:
         return _query("no second opinion", second_opinion="not asked")
     agree = second.get("agree")
@@ -705,6 +709,7 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
 DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stand"
 UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
 UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
+NOT_STATED_WHY = "the paper does not state this; the AI reader's view is not confirmed"
 NO_VALUE_WHY = "the paper gives no value for this field"
 DISAGREE_WHY = "two AI readers disagree on this line"
 _GENERIC_BY = re.compile(
@@ -764,6 +769,10 @@ def met_unsafe_why(line: Mapping) -> str | None:
         return None
     if quote_defers(line.get("paper_quote")):
         return DEFERRED_WHY
+    if line.get(
+        "not_mentioned_hold"
+    ):  # the gate's own code: "not mentioned" is never compliant (standing rule 4)
+        return NOT_STATED_WHY
     checks = line.get("quotes_checked")
     checks = checks if isinstance(checks, Mapping) else {}
     if not checks.get("paper"):

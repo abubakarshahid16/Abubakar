@@ -265,6 +265,7 @@ class DecideMixin:
             "rule_label": item.get("rule_label"),
             "unapproved_cap": bool(decision.get("unapproved_cap")),
             "conditional_hold": bool(decision.get("conditional")),
+            "not_mentioned_hold": bool(decision.get("not_mentioned")),
             "table_note_hold": decision.get("table_note"),
             "context_hold": bool(decision.get("context_hold")),
             "context_check": None,

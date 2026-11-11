@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from app import agent_review_verdict as V
@@ -256,13 +258,12 @@ def test_the_only_change_the_guard_can_make_is_met_to_query():
                     {"paper": True, "clause": False},
                     dict(OK),
                 ):
-                    for second in (
-                        None,
-                        {"agree": False},
-                        {"agree": None},
-                        {"agree": True},
+                    for second, nm in itertools.product(
+                        (None, {"agree": False}, {"agree": None}, {"agree": True}),
+                        (False, True),
                     ):
                         line = met(
+                            not_mentioned_hold=nm,
                             verdict=verdict,
                             ai_verdict=ai,
                             paper_quote=quote,
@@ -274,6 +275,7 @@ def test_the_only_change_the_guard_can_make_is_met_to_query():
                             "paper_quote": "carbon steel",
                             "quotes_checked": dict(OK),
                             "second_opinion": None,
+                            "not_mentioned_hold": False,
                         }
                         got, ref = W.classify(line), W.classify(base)
                         if got["verdict_label"] != ref["verdict_label"]:
@@ -618,3 +620,48 @@ def test_met_with_a_value_beside_the_label_stays_met():
     assert (
         exit_of(met(paper_quote="Lifting lever"))["verdict_label"] == W.THINKS_MET
     )  # no label known: unchanged
+
+
+def test_met_with_the_gates_not_mentioned_code_is_a_query():
+    for item in (CHECKLIST, RULE_OK):
+        out = exit_of(
+            met(
+                item_id=item["item_id"],
+                not_mentioned_hold=True,
+                reasoning="Sheet 3 is blank.",
+            ),
+            item,
+        )
+        assert (out["verdict_label"], out["verdict_class"]) == (
+            W.WORD_QUERY,
+            W.CLASS_QUERY,
+        )
+        assert out["not_proven_reason"].startswith(V.NOT_STATED_WHY)
+        assert W.ONE_READER in out["not_proven_reason"]
+    assert exit_of(met(not_mentioned_hold=False))["verdict_label"] == W.THINKS_MET
+    assert exit_of(met())["verdict_label"] == W.THINKS_MET
+
+
+def test_the_code_is_matched_not_the_sentence():
+    # the English sentence alone, without the code, is not a trigger
+    assert (
+        exit_of(met(why="not mentioned is never a pass"))["verdict_label"]
+        == W.THINKS_MET
+    )
+
+
+def test_the_gate_sets_the_code_and_never_returns_a_pass_when_not_mentioned():
+    checks = V.QuoteCheck(True, True, None, None, True)
+    for ai in ("Pass", "Fail"):
+        out = V.textual_verdict(
+            ai, checks, {"agree": True, "model": "other"}, "lead", absent=True
+        )
+        assert (out["verdict"] == V.QUERY) == (ai == "Pass")
+    out = V.textual_verdict(
+        "Pass", checks, {"agree": True, "model": "other"}, "lead", absent=True
+    )
+    assert out["verdict"] != V.PASS and out["not_mentioned"] is True
+    ok = V.textual_verdict(
+        "Pass", checks, {"agree": True, "model": "other"}, "lead", absent=False
+    )
+    assert "not_mentioned" not in ok
