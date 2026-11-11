@@ -665,3 +665,53 @@ def test_the_gate_sets_the_code_and_never_returns_a_pass_when_not_mentioned():
         "Pass", checks, {"agree": True, "model": "other"}, "lead", absent=False
     )
     assert "not_mentioned" not in ok
+
+
+GUARD_REASONS = {
+    "DEFERRED_WHY": "the quoted paper text defers or leaves open this value",
+    "UNVERIFIED_PAPER_WHY": "the quoted paper text could not be verified by code",
+    "UNVERIFIED_CLAUSE_WHY": "the quoted clause text could not be verified by code",
+    "NOT_STATED_WHY": "the reviewer's code found the AI reader's own words say this is not stated; its view is not confirmed",
+    "NO_VALUE_WHY": "the AI reader quoted only the field's name, with no value; check the paper",
+    "DISAGREE_WHY": "two AI readers disagree on this line",
+}
+
+
+def test_the_guard_reasons_are_exactly_these_and_assert_nothing_about_the_paper():
+    for name, text in GUARD_REASONS.items():
+        assert getattr(V, name) == text, name
+    banned = (
+        "the paper gives",
+        "the paper does not",
+        "the paper says",
+        "the paper is",
+        "the paper has",
+    )
+    texts = [*GUARD_REASONS.values(), W.SECOND_DISAGREED, W.ONE_READER]
+    for text in texts:
+        assert not any(b in text.lower() for b in banned), text
+
+
+def test_a_deferral_is_stated_only_for_a_quote_code_verified():
+    unverified = exit_of(
+        met(paper_quote="Value TBA", quotes_checked={"paper": False, "clause": True})
+    )
+    assert unverified["not_proven_reason"].startswith(V.UNVERIFIED_PAPER_WHY)
+    verified = exit_of(met(paper_quote="Value TBA"))
+    assert verified["not_proven_reason"].startswith(V.DEFERRED_WHY)
+
+
+def test_every_clause_returns_its_own_constant():
+    cases = [
+        (met(quotes_checked={"paper": False, "clause": True}), V.UNVERIFIED_PAPER_WHY),
+        (met(paper_quote="Value TBA"), V.DEFERRED_WHY),
+        (met(quotes_checked={"paper": True, "clause": False}), V.UNVERIFIED_CLAUSE_WHY),
+        (met(not_mentioned_hold=True), V.NOT_STATED_WHY),
+        (
+            met(paper_quote="Lifting lever", field_label_ai="Lifting lever"),
+            V.NO_VALUE_WHY,
+        ),
+        (met(second_opinion={"agree": False}), V.DISAGREE_WHY),
+    ]
+    for line, why in cases:
+        assert V.met_unsafe_why(line) == why

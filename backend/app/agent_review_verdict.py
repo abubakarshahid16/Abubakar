@@ -205,14 +205,15 @@ def is_number_item(item: Mapping) -> bool:
 def needs_second_opinion(
     ai_verdict: str | None, checks: QuoteCheck, error: str | None, absent: bool = False
 ) -> bool:
-    """Ask the second opinion only when a Pass or Fail could still stand (saves money; the rule is the same)."""
-    if (
-        error
-        or ai_verdict not in (PASS, FAIL)
-        or not (checks.both and checks.clause_strong)
-    ):
+    """Ask the second reader when a Pass or Fail could still stand (saves money; the rule is the same), AND for every AI
+    "met" that would be SHOWN as "AI thinks: met": a Pass with both quotes verified by code but a clause quote too short to
+    prove (`clause_strong` false). That reader's disagreement turns the line into a Query (`met_unsafe_why`); its agreement
+    leaves it a "met" (the gate still refuses to prove it); no answer leaves it as it was. A Fail needs the strong clause."""
+    if error or ai_verdict not in (PASS, FAIL) or not checks.both:
         return False
-    return not (ai_verdict == PASS and absent)
+    if ai_verdict == PASS:
+        return not absent
+    return checks.clause_strong
 
 
 def _query(why: str, by: str = BY_ENGINEER, **extra: Any) -> dict:
@@ -706,11 +707,13 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
 
 # ---------------------------------------------------------------- N9: an "AI thinks: met" the code cannot stand behind is a Query
 
-DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stand"
+DEFERRED_WHY = "the quoted paper text defers or leaves open this value"
 UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
 UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
-NOT_STATED_WHY = "the paper does not state this; the AI reader's view is not confirmed"
-NO_VALUE_WHY = "the paper gives no value for this field"
+NOT_STATED_WHY = "the reviewer's code found the AI reader's own words say this is not stated; its view is not confirmed"
+NO_VALUE_WHY = (
+    "the AI reader quoted only the field's name, with no value; check the paper"
+)
 DISAGREE_WHY = "two AI readers disagree on this line"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
@@ -767,18 +770,19 @@ def met_unsafe_why(line: Mapping) -> str | None:
         line.get("ai_verdict") != PASS or line.get("verdict") != QUERY
     ):  # a proven Pass or Fail is never touched
         return None
+    checks = line.get("quotes_checked")
+    checks = checks if isinstance(checks, Mapping) else {}
+    # THE ORDER makes every reason literally true: a statement about a quote is made only when code verified that quote
+    if not checks.get("paper"):
+        return UNVERIFIED_PAPER_WHY
     if quote_defers(line.get("paper_quote")):
         return DEFERRED_WHY
+    if not checks.get("clause"):
+        return UNVERIFIED_CLAUSE_WHY
     if line.get(
         "not_mentioned_hold"
     ):  # the gate's own code: "not mentioned" is never compliant (standing rule 4)
         return NOT_STATED_WHY
-    checks = line.get("quotes_checked")
-    checks = checks if isinstance(checks, Mapping) else {}
-    if not checks.get("paper"):
-        return UNVERIFIED_PAPER_WHY
-    if not checks.get("clause"):
-        return UNVERIFIED_CLAUSE_WHY
     if quote_is_label_only(line):
         return NO_VALUE_WHY
     # The line field `second_opinion` tells the three apart: None = not asked; {"agree": True} = agreed;

@@ -24,6 +24,7 @@ from app import (
     worker_review,
 )
 from app import agent_review_items as items_mod
+from app import agent_review_verdict as V
 from tests import agent_review_support as s
 
 
@@ -418,9 +419,7 @@ def test_a_not_mentioned_pass_is_stored_as_a_query_with_the_not_stated_reason(
     row = lines_of(run_id)["R-coat"]
     assert line["not_mentioned_hold"] is True and line["verdict"] == "Query"
     assert (row["word"], row["verdict_class"]) == ("Query", "Query for the engineer")
-    assert row["reason"].startswith(
-        "the paper does not state this; the AI reader's view is not confirmed"
-    )
+    assert row["reason"].startswith(V.NOT_STATED_WHY)
     assert "not confirmed: " in row["reason"]  # the first reader's words follow, marked
 
 
@@ -437,3 +436,46 @@ def test_a_disagreeing_second_reader_is_stored_as_a_query_with_the_disagreement_
     assert line["second_opinion"]["agree"] is False and line["ai_verdict"] == "Pass"
     assert row["word"] == "Query"
     assert row["reason"].startswith("two AI readers disagree on this line")
+
+
+WEAK = {
+    **s.ANSWERS["R-coat"],
+    "clause_quote": "applied in two layers",
+}  # verified word for word in the clause, but too short to prove a Pass
+
+
+def _run_with(monkeypatch, answers, agree):
+    fake = s.FakeModel(answers={**s.ANSWERS, **answers}, agree=agree)
+    monkeypatch.setattr(agent_review_jobs, "lane", lambda: (fake, s.ENV))
+    run_id, job_id = start()
+    run_job(job_id)
+    return fake, run_id
+
+
+def test_a_met_line_gets_one_extra_second_reader_call(world, monkeypatch):
+    strong, _ = _run_with(monkeypatch, {}, True)
+    weak, run_id = _run_with(monkeypatch, {"R-coat": WEAK}, True)
+    line = _stored_json(run_id, "R-coat")
+    assert (
+        line["quotes_checked"]["both"] and not line["quotes_checked"]["clause_strong"]
+    )
+    assert line["second_opinion"] and line["second_opinion"]["agree"] is True
+    # the weak line used to buy no second call; now it buys exactly the one the strong line always bought
+    assert weak.kinds.count("second") == strong.kinds.count("second")
+
+
+def test_a_weak_met_the_second_reader_disagrees_on_is_stored_as_a_query(
+    world, monkeypatch
+):
+    _, run_id = _run_with(monkeypatch, {"R-coat": WEAK}, False)
+    row = lines_of(run_id)["R-coat"]
+    assert row["word"] == "Query" and row["reason"].startswith(V.DISAGREE_WHY)
+
+
+def test_a_weak_met_stays_met_when_the_second_reader_agrees_or_gives_no_answer(
+    world, monkeypatch
+):
+    for agree in (True, None):
+        _, run_id = _run_with(monkeypatch, {"R-coat": WEAK}, agree)
+        row = lines_of(run_id)["R-coat"]
+        assert row["word"] == "AI thinks: met", agree
