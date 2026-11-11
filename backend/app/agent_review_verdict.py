@@ -676,7 +676,7 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
     if (
         line.get("reason_code") in SILENCE_CODES
         and silence_is_query(paper_kind)
-        and line.get("verdict") in (PASS, FAIL, QUERY)
+        and line.get("verdict") in (FAIL, QUERY)  # a Pass is never touched
     ):
         return {
             **dict(line),

@@ -268,3 +268,22 @@ def test_a_not_reviewed_line_is_off_the_crs_the_comment_only_copy_and_the_contra
             C.write_internal([lines[2]], tmp_path / "j.xlsx", META)
         ).sheetnames
     )
+
+
+def test_a_not_reviewed_line_of_an_unapproved_rule_and_an_unclassified_error_line_are_only_on_the_not_reviewed_sheet(
+    tmp_path,
+):
+    cut = mk("R-U", "Query", "Pass", item=NO, error="stop_max_tokens")
+    assert cut["verdict_class"] == W.CLASS_NOT_REVIEWED
+    raw = {
+        **mk("R-Q", "Query", None),
+        "error": "timeout",
+    }  # a line whose class was never recomputed
+    raw.pop("verdict_class")
+    internal = C.write_internal(
+        [cut, raw, mk("R-1", "Fail", "Fail")], tmp_path / "i.xlsx", META
+    )
+    assert item_ids(internal, "CRS") == ["R-1"]
+    assert sorted(item_ids(internal, C.NOT_REVIEWED_SHEET)) == ["R-Q", "R-U"]
+    assert C.UNAPPROVED_SHEET not in openpyxl.load_workbook(internal).sheetnames
+    assert item_ids(C.write_comment_only([cut, raw], tmp_path / "o.xlsx", META)) == []

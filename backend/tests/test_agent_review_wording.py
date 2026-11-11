@@ -264,13 +264,15 @@ def test_an_item_the_ai_gave_no_answer_for_is_not_reviewed_never_a_query_about_t
     assert (counts["not_reviewed"], counts["not_reviewed_answer_cut_off"]) == (2, 1)
 
 
-def test_an_unapproved_rule_with_an_error_stays_a_query_not_a_not_reviewed_line():
+def test_an_unapproved_rule_whose_answer_was_cut_off_is_not_reviewed():
     got = W.classify(
-        line("Query", "Pass", rule_tier=V.RULE_NOT_APPROVED, error="timeout")
+        line("Query", "Pass", rule_tier=V.RULE_NOT_APPROVED, error="stop_max_tokens")
     )
     assert (
-        got["verdict_class"] == W.CLASS_QUERY
-    )  # the experiment's order: the unapproved branch first
+        got["verdict_label"] == "Not reviewed"
+        and got["verdict_class"] == W.CLASS_NOT_REVIEWED
+    )
+    assert got["not_proven_reason"] == "no answer from the AI: answer cut off"
 
 
 # ---------------------------------------------------------------- owner 16.3: silence is a Query, applied at the one exit
@@ -281,7 +283,7 @@ def test_an_unapproved_rule_with_an_error_stays_a_query_not_a_not_reviewed_line(
     "kind", ["procedure", "contract", "drawing", "calculation", "other", None, ""]
 )
 def test_a_silent_paper_is_a_query_for_every_kind_but_a_datasheet(code, kind):
-    for verdict in ("Fail", "Pass", "Query"):
+    for verdict in ("Fail", "Query"):
         out = W.final_cap(
             line(verdict, "Fail", reason_code=code), RULE_OK, paper_kind=kind
         )
@@ -338,3 +340,84 @@ def test_the_silence_switch_point_is_one_function():
         ]
         == V.FAIL
     )
+
+
+# ---------------------------------------------------------------- THE EXIT ORDER: every pair of conditions
+
+
+def case(error=None, silent=False, unapproved=False, verdict="Query", ai="Fail"):
+    base = line(verdict, ai, reason_code="absent" if silent else None, error=error)
+    item = RULE_NO if unapproved else RULE_OK
+    kind = "procedure" if silent else "datasheet"
+    return W.final_cap(base, item, paper_kind=kind)
+
+
+def test_not_reviewed_beats_silence_and_the_cap():
+    for silent in (False, True):
+        for unapproved in (False, True):
+            got = case(error="stop_max_tokens", silent=silent, unapproved=unapproved)
+            assert (
+                got["verdict_class"] == W.CLASS_NOT_REVIEWED
+                and got["verdict_label"] == "Not reviewed"
+            ), (silent, unapproved)
+            assert W.is_not_reviewed(got)
+
+
+def test_silence_beats_the_cap_and_says_both_reasons_for_an_unapproved_rule():
+    got = case(silent=True, unapproved=True, verdict="Fail")
+    assert (
+        got["verdict"] == "Query" and got["verdict_label"] == "Query for the engineer"
+    )  # never "AI thinks: not met"
+    assert got["verdict_class"] == W.CLASS_QUERY
+    assert (
+        got["not_proven_reason"] == V.SILENCE_WHY + "; the rule is also not AI approved"
+    )
+    only = case(silent=True, unapproved=False, verdict="Fail")
+    assert (
+        only["not_proven_reason"] == V.SILENCE_WHY
+        and only["verdict_class"] == W.CLASS_QUERY
+    )
+
+
+def test_the_cap_beats_a_proof_and_a_proof_beats_an_opinion_when_nothing_above_applies():
+    capped = case(unapproved=True, verdict="Fail")
+    assert (
+        capped["verdict_class"] == W.CLASS_UNAPPROVED
+        and capped["verdict_label"] == "AI thinks: not met"
+    )
+    proven = case(verdict="Fail")
+    assert (
+        proven["verdict_label"] == "Fail" and proven["verdict_class"] == W.CLASS_PROVEN
+    )
+    opinion = case(verdict="Query")
+    assert (
+        opinion["verdict_class"] == W.CLASS_OPINION
+        and opinion["verdict_label"] == "AI thinks: not met"
+    )
+
+
+def test_a_pass_is_never_touched_by_silence():
+    got = W.final_cap(
+        line("Pass", "Pass", reason_code="absent"), RULE_OK, paper_kind="procedure"
+    )
+    assert (
+        got["verdict"] == "Pass"
+        and "silence_query" not in got
+        and got["verdict_class"] == W.CLASS_PROVEN
+    )
+    assert (
+        V.hold_silence({"verdict": "Pass", "reason_code": "absent"}, "contract")[
+            "verdict"
+        ]
+        == V.PASS
+    )
+
+
+def test_a_line_with_an_error_is_not_reviewed_even_without_a_stored_class():
+    stored = {
+        "item_id": "R-1",
+        "verdict": "Query",
+        "error": "timeout",
+    }  # an old line: no verdict_class on it
+    assert W.is_not_reviewed(stored)
+    assert not W.is_not_reviewed({"item_id": "R-1", "verdict": "Query"})

@@ -20,10 +20,25 @@ from __future__ import annotations
 import sqlite3
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from . import rule_equipment, rule_labels
+from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment filter lives in its own module
+    ANOTHER_EQUIPMENT,
+    EQUIPMENT_MODES,
+    NO_EQUIPMENT,
+    NOT_IN_LIST,
+    PAPER_EQUIPMENT_REASONS,
+    UNREADABLE,
+    EquipmentCtx,
+    PaperEquipment,
+    equipment_block,
+    equipment_decision,
+    equipment_skill_fits,
+    load_equipment,
+    norm_mode,
+    paper_equipment,
+)
 from .agent_review_verdict import RULE_NOT_APPROVED, TIER_NOT_APPROVED
 
 ANOTHER_PAPER = "needs_another_paper"
@@ -31,8 +46,6 @@ NEEDS_HUMAN = "needs_a_human"
 QUOTE_NOT_FOUND = "quote_not_found"
 NOT_LABELLED = "not_labelled_yet"
 KIND_UNKNOWN = "paper_kind_unknown"
-ANOTHER_EQUIPMENT = "another_equipment_type"
-NO_EQUIPMENT = "paper_names_no_equipment"
 REASONS = (
     ANOTHER_PAPER,
     NEEDS_HUMAN,
@@ -40,7 +53,7 @@ REASONS = (
     NOT_LABELLED,
     KIND_UNKNOWN,
     ANOTHER_EQUIPMENT,
-    NO_EQUIPMENT,
+    *PAPER_EQUIPMENT_REASONS,
 )
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
@@ -50,6 +63,8 @@ REASON_WORDS = {
     KIND_UNKNOWN: "paper kind unknown",
     ANOTHER_EQUIPMENT: "another equipment type",
     NO_EQUIPMENT: "the paper names no equipment",
+    NOT_IN_LIST: "the paper names equipment the equipment list does not know",
+    UNREADABLE: "the paper's equipment could not be read",
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = ("off", "both")
@@ -229,174 +244,6 @@ def tier_lookup(
     return lookup
 
 
-# ---- the equipment filter: only ever REMOVES rules ------------------------------------------------------------------------
-
-EQUIPMENT_MODES = ("off", "on", "type", "family")  # "on" is an alias of "type"
-
-
-class EquipmentLabelsMissing(ValueError):
-    """The equipment filter is on but the database holds no equipment labels table."""
-
-
-def norm_mode(mode: Any) -> str | None:
-    """None (filter off), "type" ("on" or "type") or "family"."""
-    m = str(mode or "off").strip().lower()
-    if m not in EQUIPMENT_MODES:
-        raise ValueError(f"the equipment filter is one of {EQUIPMENT_MODES}")
-    return None if m == "off" else ("type" if m == "on" else m)
-
-
-@dataclass(frozen=True)
-class PaperEquipment:
-    """What the paper is about, in taxonomy ids. `named`: the reader found equipment; `types` is empty when it found some the
-    mapping does not know (then the paper's equipment is not usable)."""
-
-    types: frozenset[str] = frozenset()
-    families: frozenset[str] = frozenset()
-    named: bool = False
-    app_names: tuple[str, ...] = ()
-
-    @property
-    def usable(self) -> bool:
-        return bool(self.types)
-
-
-@dataclass(frozen=True)
-class EquipmentCtx:
-    """Everything the filter needs for one paper: its equipment, the taxonomy, the mapping and the mode."""
-
-    eq: PaperEquipment
-    tax: rule_equipment.Taxonomy
-    mapping: Mapping
-    mode: str = "type"
-
-
-def paper_equipment(
-    conn: sqlite3.Connection,
-    document_id: str,
-    tax: rule_equipment.Taxonomy,
-    mapping: Mapping,
-) -> PaperEquipment:
-    """The paper's equipment: the app's reader (`subject_scope.read_equipment`: stored classification, then title) gives app
-    names; the mapping data turns them into taxonomy type ids; a more specific taxonomy type named by the classification text
-    whose `also_applies` lists a mapped type is added; optional `related` data adds equipment a type is also read against. A type
-    also stands for everything it lists under `also_applies`."""
-    from . import subject_scope
-
-    names = mapping.get("map") or {}
-    try:
-        row = conn.execute(
-            "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
-            (document_id,),
-        ).fetchone()
-    except sqlite3.Error:
-        row = None
-    record = {"equipment_type": row[0], "title": row[1]} if row else {}
-    found, _source, _doubt = subject_scope.read_equipment(
-        record, [], subject_scope.vocabulary()
-    )
-    types = {names[n] for n in found if n in names}
-    text = rule_equipment._norm(record.get("equipment_type"))
-    if text and types:
-        for label, tid in tax.names.items():
-            if (
-                label
-                and f"_{label}_" in f"_{text}_"
-                and set(tax.also.get(tid, ())) & tax.expand(types)
-            ):
-                types.add(tid)
-    related_map = mapping.get("related") or {}
-    related = {
-        r for t in list(types) for r in related_map.get(t, []) if r in tax.type_family
-    }
-    every = types | related
-    return PaperEquipment(
-        frozenset(tax.expand(every)) if every else frozenset(),
-        frozenset(tax.type_family[t] for t in every if t in tax.type_family),
-        bool(found),
-        tuple(sorted(found)),
-    )
-
-
-def equipment_decision(
-    label: Mapping, eq: PaperEquipment, tax: rule_equipment.Taxonomy, mode: str = "type"
-) -> tuple[bool, str, str | None]:
-    """(keep, reason, family left out). A rule is left out ONLY when its equipment label is `agreed` and names another type
-    (mode "family": another FAMILY; a sibling type of the paper's family is asked). Kept: general, same_equipment,
-    equipment_not_known (the label is not agreed, or names nothing: no ground to remove it). Removed: another_equipment_type;
-    paper_names_no_equipment (the paper names no usable equipment: every rule that names a type or a family goes)."""
-    if str(label.get("equip_state") or "") != rule_equipment.AGREED:
-        return True, "equipment_not_known", None
-    if int(label.get("equip_general") or 0) == 1:
-        return True, "general", None
-    rtype, rfam = label.get("equip_type") or None, label.get("equip_family") or None
-    if not eq.usable:
-        return False, NO_EQUIPMENT, rfam or tax.type_family.get(rtype or "")
-    if mode == "family":
-        fam = rfam or tax.type_family.get(rtype or "")
-        if fam is None:
-            return True, "equipment_not_known", None
-        return (
-            (True, "same_equipment", None)
-            if fam in eq.families
-            else (False, ANOTHER_EQUIPMENT, fam)
-        )
-    if rtype:
-        if rtype in eq.types:
-            return True, "same_equipment", None
-        return False, ANOTHER_EQUIPMENT, rfam or tax.type_family.get(rtype)
-    if rfam:
-        return (
-            (True, "same_equipment", None)
-            if rfam in eq.families
-            else (False, ANOTHER_EQUIPMENT, rfam)
-        )
-    return True, "equipment_not_known", None
-
-
-def load_equipment(
-    conn: sqlite3.Connection, document_id: str, mode: Any = "type"
-) -> EquipmentCtx | None:
-    """The equipment context of one paper, or None when the filter is off. Refuses (EquipmentLabelsMissing) when the filter is
-    on and the database holds no equipment labels table: a filter on nothing is not a filter."""
-    m = norm_mode(mode)
-    if m is None:
-        return None
-    if not rule_equipment.has_tables(conn):
-        raise EquipmentLabelsMissing(
-            "the equipment filter needs the rule_equipment_label table"
-        )
-    tax, mapping = rule_equipment.Taxonomy.load(), rule_equipment.load_mapping()
-    return EquipmentCtx(
-        paper_equipment(conn, document_id, tax, mapping), tax, mapping, m
-    )
-
-
-def equipment_skill_fits(types_app: set[str], ctx: EquipmentCtx) -> bool:
-    """The same notion of "same equipment" for a checklist item: its app equipment names, mapped, meet the paper's types."""
-    names = ctx.mapping.get("map") or {}
-    return (
-        bool({names[n] for n in types_app if n in names} & ctx.eq.types)
-        if ctx.eq.usable
-        else False
-    )
-
-
-def equipment_block(ctx: EquipmentCtx, why_kept: Mapping[str, Mapping]) -> dict:
-    """The equipment facts of one list for the Rules used record and the CRS: the paper's equipment and how the asked rules
-    matched (counts only)."""
-    kept = Counter(
-        w.get("equipment_why") for w in why_kept.values() if w.get("equipment_why")
-    )
-    return {
-        "paper_types": sorted(ctx.eq.types),
-        "paper_families": sorted(ctx.eq.families),
-        "paper_named_equipment": ctx.eq.named,
-        "paper_usable": ctx.eq.usable,
-        "asked_by_equipment": dict(kept),
-    }
-
-
 # ---- filtering ----------------------------------------------------------------------------------------------------------
 
 
@@ -482,6 +329,20 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
         "total": c.get(ANOTHER_EQUIPMENT, 0),
         "by_family": dict(sorted(by_family.items())),
     }
+    # the removed rules' family counts when the paper's equipment is not usable (rules-used record)
+    out["paper_equipment_left_out_by_family"] = {
+        reason: dict(
+            sorted(
+                Counter(
+                    r.get("equipment_family") or "unnamed"
+                    for r in left
+                    if r["reason"] == reason
+                ).items()
+            )
+        )
+        for reason in PAPER_EQUIPMENT_REASONS
+        if c.get(reason)
+    }
     return out
 
 
@@ -506,11 +367,20 @@ def summary_lines(
         lines.append(
             f"another equipment type: {eq_other['total']} rules not asked ({parts})"
         )
-    if counts.get(NO_EQUIPMENT):
-        lines.append(
-            f"the paper names no equipment: {counts[NO_EQUIPMENT]} rules about a named equipment not asked; "
-            "only general rules and rules of unknown equipment are asked"
-        )
+    for reason, text in (
+        (NO_EQUIPMENT, "the paper names no equipment"),
+        (NOT_IN_LIST, "the paper names equipment the equipment list does not know"),
+        (UNREADABLE, "the paper's equipment could not be read"),
+    ):
+        if counts.get(reason):
+            lines.append(
+                f"{text}: {counts[reason]} rules that name an equipment were not asked"
+                + (
+                    "; only general rules and rules of unknown equipment are asked"
+                    if reason == NO_EQUIPMENT
+                    else ""
+                )
+            )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"
         for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED)
@@ -752,27 +622,27 @@ def filter_skill_items(
     governing: Mapping | None = None,
     equipment: EquipmentCtx | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """F2: (kept, dropped records). With an `equipment` context the ONE notion of "same equipment" is the taxonomy mapping. A checklist item about equipment types is kept only when the paper's type is among them;
-    a paper of unknown type gets no type-specific checklist item. An item about no type stays (it is general)."""
+    """F2: (kept, dropped records). A checklist item about equipment types is kept only when the paper's type is among them; a
+    paper of unknown type gets no type-specific checklist item; an item about no type stays (it is general). With an `equipment`
+    context the taxonomy test can only REMOVE an item the plain test kept."""
     kept, dropped = [], []
     for it in items:
         types = skill_types(conn, it, governing)
-        if equipment is not None:
-            if not types or equipment_skill_fits(types, equipment):
-                kept.append(it)
-            else:
+        plain_keep = not types or bool(
+            paper_types and types & paper_types
+        )  # the plain F2 test (filter off)
+        reason = ANOTHER_TYPE if paper_types else TYPE_UNKNOWN
+        if plain_keep and equipment is not None and types:
+            # an equipment mode may only REMOVE an item the plain test kept: never add one (the `related` data is for rules only,
+            # so the paper's core types are used), and a name the mapping does not know leaves the plain decision standing
+            names = equipment.mapping.get("map") or {}
+            if all(n in names for n in types):
+                plain_keep = equipment_skill_fits(types, equipment)
                 reason = ANOTHER_TYPE if equipment.eq.usable else TYPE_UNKNOWN
-                dropped.append({"item_id": it.get("item_id"), "reason": reason})
-            continue
-        if not types or (paper_types and types & paper_types):
+        if plain_keep:
             kept.append(it)
         else:
-            dropped.append(
-                {
-                    "item_id": it.get("item_id"),
-                    "reason": ANOTHER_TYPE if paper_types else TYPE_UNKNOWN,
-                }
-            )
+            dropped.append({"item_id": it.get("item_id"), "reason": reason})
     return kept, dropped
 
 

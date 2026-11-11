@@ -54,13 +54,35 @@ KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
 def classify(line: Mapping) -> dict:
-    """verdict_label, verdict_class, not_proven_reason (None when proven) for one line."""
+    """verdict_label, verdict_class, not_proven_reason (None when proven) for one line.
+
+    THE ORDER at the exit (the first that applies wins): 1. Not reviewed (the AI gave no answer); 2. silence (a non-datasheet
+    paper that is silent: Query, and when the rule is also not AI approved the reason says both); 3. the cap of a rule that is
+    not AI approved; 4. proven Pass / Fail, then the AI opinions, then Query."""
     verdict, ai = line.get("verdict"), line.get("ai_verdict")
-    if (
-        line.get("rule_tier") == RULE_NOT_APPROVED
-    ):  # never proven, whatever the stored verdict says
-        why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
-        if ai in (PASS, FAIL) and not line.get("error"):
+    unapproved = line.get("rule_tier") == RULE_NOT_APPROVED
+    why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
+    if line.get(
+        "error"
+    ):  # 1. the AI call failed: not reviewed, never a Query about the paper, whatever the rule's tier
+        return {
+            "verdict_label": WORD_NOT_REVIEWED,
+            "verdict_class": CLASS_NOT_REVIEWED,
+            "not_proven_reason": ERROR_WORDS.get(
+                str(line["error"]), f"no answer from the AI: {line['error']}"
+            ),
+        }
+    if line.get(
+        "silence_query"
+    ):  # 2. the owner's rule: a silent paper is a Query, never "not met"
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": SILENCE_WHY
+            + ("; the rule is also not AI approved" if unapproved else ""),
+        }
+    if unapproved:  # 3. never proven, whatever the stored verdict says
+        if ai in (PASS, FAIL):
             return {
                 "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
                 "verdict_class": CLASS_UNAPPROVED,
@@ -71,29 +93,11 @@ def classify(line: Mapping) -> dict:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": why,
         }
-    if line.get(
-        "silence_query"
-    ):  # the owner's rule: a silent paper is a Query, never "not met"
-        return {
-            "verdict_label": WORD_QUERY,
-            "verdict_class": CLASS_QUERY,
-            "not_proven_reason": SILENCE_WHY,
-        }
-    if verdict in (PASS, FAIL):
+    if verdict in (PASS, FAIL):  # 4. proven, then the AI opinions, then Query
         return {
             "verdict_label": verdict,
             "verdict_class": CLASS_PROVEN,
             "not_proven_reason": None,
-        }
-    if line.get(
-        "error"
-    ):  # the AI call failed: not reviewed, never a Query about the paper
-        return {
-            "verdict_label": WORD_NOT_REVIEWED,
-            "verdict_class": CLASS_NOT_REVIEWED,
-            "not_proven_reason": ERROR_WORDS.get(
-                str(line["error"]), f"no answer from the AI: {line['error']}"
-            ),
         }
     if (
         verdict == QUERY and line.get("reason_code") == "not_applicable"
@@ -217,7 +221,8 @@ def is_opinion(line: Mapping) -> bool:
 
 
 def is_not_reviewed(line: Mapping) -> bool:
-    return line.get("verdict_class") == CLASS_NOT_REVIEWED
+    """The AI gave no answer for the item. Computed from the line itself (`classify`), never trusted from a stored class."""
+    return classify(line)["verdict_class"] == CLASS_NOT_REVIEWED
 
 
 def is_unapproved(line: Mapping) -> bool:

@@ -529,13 +529,13 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
     paper = str(meta.get("paper") or "")
     all_lines = lines
     unapproved = [
-        ln for ln in lines if wording.is_unapproved(ln)
-    ]  # their own sheet, off the CRS and off every Pass list
-    not_reviewed = [
         ln
         for ln in lines
-        if wording.is_not_reviewed(ln) and not wording.is_unapproved(ln)
-    ]  # their own sheet: never a CRS comment, never a verdict
+        if wording.is_unapproved(ln) and not wording.is_not_reviewed(ln)
+    ]  # their own sheet, off the CRS and off every Pass list
+    not_reviewed = [
+        ln for ln in lines if wording.is_not_reviewed(ln)
+    ]  # their own sheet, whatever the rule's tier: never a CRS comment, never a verdict
     lines = [
         ln
         for ln in lines

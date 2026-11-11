@@ -514,8 +514,21 @@ def test_the_equipment_filter_only_removes_rules_and_is_counted_and_off_keeps_th
     assert on["items"][-1]["rule_label"]["equipment"] is not None
 
 
-def test_the_equipment_filter_without_the_labels_table_is_refused(con):
-    from app import agent_review_rules as R
-
-    with pytest.raises(R.EquipmentLabelsMissing):
-        it.build_items(con, PAPER, KIND, skills=[], cache={}, equipment_filter="on")
+def test_the_equipment_filter_without_the_labels_table_asks_every_rule_as_today_and_counts_not_known(
+    con,
+):
+    con.execute(
+        "CREATE TABLE document_classification (document_id TEXT, equipment_type TEXT, title TEXT)"
+    )
+    con.execute(
+        "INSERT INTO document_classification VALUES (?, 'Pressure Safety Valve', NULL)",
+        (PAPER,),
+    )
+    off = it.build_items(con, PAPER, KIND, skills=[], cache={})
+    on = it.build_items(
+        con, PAPER, KIND, skills=[], cache={}, equipment_filter="on"
+    )  # no exception
+    ids = lambda d: {i["rule_version_id"] for i in d["items"] if i["source"] == "rule"}  # noqa: E731
+    assert ids(on) == ids(off) and on["rule_labels"]["equipment"][
+        "asked_by_equipment"
+    ] == {"equipment_not_known": len(ids(on))}

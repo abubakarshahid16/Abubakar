@@ -503,7 +503,12 @@ def tax(tmp_path):
 def _paper(tax, *types, named=True):
     ids = tax.expand(set(types))
     return R.PaperEquipment(
-        frozenset(ids), frozenset(tax.type_family[t] for t in types), named, ()
+        frozenset(ids),
+        frozenset(tax.type_family[t] for t in types),
+        named,
+        (),
+        "read",
+        frozenset(ids),
     )
 
 
@@ -776,23 +781,28 @@ def test_the_filter_never_asks_a_rule_the_label_decision_left_out(conn, tax):
     )
 
 
-def test_the_filter_needs_the_equipment_table_and_is_off_by_default(conn):
+def test_a_missing_equipment_table_means_equipment_not_known_for_every_rule_never_an_exception(
+    conn,
+):
     assert R.load_equipment(conn, "paper", "off") is None
-    with pytest.raises(
-        R.EquipmentLabelsMissing
-    ):  # the filter is on, the table is not there: refused, not silently skipped
-        R.load_equipment(conn, "paper", "on")
-    assert R.load_equipment(conn, "paper", "off") is None
-    REQ.create_tables(conn)
     _classified(conn, [("paper", "Pressure Safety Valve", None)])
     ctx = R.load_equipment(
         conn, "paper", "on"
-    )  # the real taxonomy and mapping data files
+    )  # the table is not there: no error; the real taxonomy and mapping data files
     assert (
         ctx.mode == "type"
         and ctx.eq.usable
         and R.load_equipment(conn, "paper", "family").mode == "family"
     )
+    label(conn, "r1")
+    got = R.decide_rule(conn, "r1", "datasheet", equipment=ctx)
+    assert got["ask"] is True and got["equipment_why"] == "equipment_not_known"
+    kept, left, why = R.filter_rows(
+        conn, [{"id": "r1", "item_id": "R-1"}], "datasheet", equipment=ctx
+    )
+    assert len(kept) == 1 and R.equipment_block(ctx, why)["asked_by_equipment"] == {
+        "equipment_not_known": 1
+    }
 
 
 def test_checklist_items_use_the_same_taxonomy_notion_of_same_equipment(conn, tax):
@@ -810,3 +820,153 @@ def test_checklist_items_use_the_same_taxonomy_notion_of_same_equipment(conn, ta
     assert [i["item_id"] for i in kept] == ["S-N"] and {
         d["reason"] for d in dropped
     } == {R.TYPE_UNKNOWN}
+
+
+# ---------------------------------------------------------------- R11: the equipment decide order and the three true sentences
+
+
+def _state(tax, state):
+    return R.PaperEquipment(
+        frozenset(), frozenset(), state in ("unmapped",), (), state, frozenset()
+    )
+
+
+@pytest.mark.parametrize(
+    "state,reason",
+    [
+        ("none", R.NO_EQUIPMENT),
+        ("unmapped", R.NOT_IN_LIST),
+        ("unreadable", R.UNREADABLE),
+    ],
+)
+def test_when_the_papers_equipment_is_not_usable_only_a_rule_that_names_an_equipment_is_removed(
+    tax, state, reason
+):
+    eq = _state(tax, state)
+    d = lambda row: R.equipment_decision(row, eq, tax)  # noqa: E731
+    assert d(_erow(general=1))[:2] == (True, "general")
+    assert d(_erow())[:2] == (
+        True,
+        "equipment_not_known",
+    )  # agreed, general 0, names nothing: asked
+    assert d(_erow(state="needs_human", type_="pump"))[:2] == (
+        True,
+        "equipment_not_known",
+    )
+    assert d(_erow(type_="pump")) == (False, reason, "rotating")
+    assert d(_erow(family="rotating")) == (False, reason, "rotating")
+
+
+def test_the_paper_equipment_state_is_read_as_none_unmapped_unreadable_or_read(
+    conn, tax
+):
+    _classified(
+        conn,
+        [
+            ("cp", "Centrifugal Pump", None),
+            ("none", None, None),
+            ("um", "Heat Exchanger", None),
+        ],
+    )
+    assert R.paper_equipment(conn, "cp", tax, MAP).state == "read"
+    assert R.paper_equipment(conn, "none", tax, MAP).state == "none"
+    um = R.paper_equipment(conn, "um", tax, MAP)
+    assert um.state == "unmapped" and um.named and not um.usable
+
+
+def test_each_paper_equipment_state_gets_its_own_true_sentence_and_family_counts():
+    left = [
+        {"reason": R.NO_EQUIPMENT, "equipment_family": "rotating"}, {"reason": R.NO_EQUIPMENT, "equipment_family": None},
+        {"reason": R.NOT_IN_LIST, "equipment_family": "rotating"}, {"reason": R.UNREADABLE, "equipment_family": "valves"},
+        {"reason": R.UNREADABLE, "equipment_family": "valves"},
+    ]  # fmt: skip
+    counts = R.count_left_out(left)
+    assert counts["paper_equipment_left_out_by_family"] == {
+        R.NO_EQUIPMENT: {"rotating": 1, "unnamed": 1}, R.NOT_IN_LIST: {"rotating": 1}, R.UNREADABLE: {"valves": 2},
+    }  # fmt: skip
+    lines = R.summary_lines(counts, "datasheet")
+    assert (
+        "the paper names no equipment: 2 rules that name an equipment were not asked; only general rules and rules of unknown equipment are asked"
+        in lines
+    )
+    assert (
+        "the paper names equipment the equipment list does not know: 1 rules that name an equipment were not asked"
+        in lines
+    )
+    assert (
+        "the paper's equipment could not be read: 2 rules that name an equipment were not asked"
+        in lines
+    )
+    only = R.summary_lines(R.count_left_out(left[2:3]), "datasheet")
+    assert (
+        len(only) == 1 and "names no equipment" not in only[0]
+    )  # the unmapped state never says "names no equipment"
+
+
+def test_the_equipment_block_names_the_state(conn, tax):
+    _classified(conn, [("um", "Heat Exchanger", None)])
+    ctx = R.EquipmentCtx(R.paper_equipment(conn, "um", tax, MAP), tax, MAP, "type")
+    block = R.equipment_block(ctx, {})
+    assert (
+        block["paper_equipment_state"] == "unmapped"
+        and block["paper_named_equipment"]
+        and not block["paper_usable"]
+    )
+
+
+GOV = {
+    "equipment_types": {
+        "pump": ["STD-P-1"],
+        "relief valve": ["STD-V-1"],
+        "other thing": ["STD-O-1"],
+    }
+}
+
+
+def test_an_equipment_mode_can_only_remove_checklist_items_never_add_one(conn, tax):
+    items = [
+        skill("S-A", "STD-P-1"),
+        skill("S-B", "STD-V-1"),
+        skill("S-O", "STD-O-1"),
+        skill("S-N"),
+    ]
+    related_map = {
+        **MAP,
+        "related": {"relief_valve": ["pump"]},
+    }  # rules may read a relief-valve paper against a pump
+    _classified(conn, [("p", "Pressure Safety Valve", None)])
+    eq = R.paper_equipment(conn, "p", tax, related_map)
+    assert (
+        "pump" in eq.types and "pump" not in eq.core_types
+    )  # related applies to rules only
+    ctx = R.EquipmentCtx(eq, tax, related_map, "type")
+    plain = {"relief valve", "other thing"}
+    off, _ = R.filter_skill_items(conn, items, plain, GOV)
+    on, dropped = R.filter_skill_items(conn, items, plain, GOV, ctx)
+    assert {i["item_id"] for i in on} <= {
+        i["item_id"] for i in off
+    }  # on is a subset of off
+    assert "S-A" not in {
+        i["item_id"] for i in on
+    }  # the related map never ADDS a pump checklist item
+    assert "S-O" in {
+        i["item_id"] for i in on
+    }  # an unmapped name leaves the plain decision standing
+    assert {d["item_id"] for d in dropped} <= {"S-A", "S-B", "S-O"}
+
+
+def test_a_checklist_item_the_plain_test_dropped_is_never_brought_back(conn, tax):
+    items = [skill("S-A", "STD-P-1"), skill("S-B", "STD-V-1")]
+    ctx = R.EquipmentCtx(_paper(tax, "centrifugal_pump"), tax, MAP, "type")
+    off, off_dropped = R.filter_skill_items(conn, items, {"pump"}, GOV)
+    on, _ = R.filter_skill_items(conn, items, {"pump"}, GOV, ctx)
+    assert [i["item_id"] for i in off] == ["S-A"] and [i["item_id"] for i in on] == [
+        "S-A"
+    ]
+    off2, _ = R.filter_skill_items(
+        conn, items, {"relief valve"}, GOV
+    )  # the paper is a relief valve for the plain test
+    on2, _ = R.filter_skill_items(
+        conn, items, {"relief valve"}, GOV, ctx
+    )  # but the taxonomy says it is a pump paper
+    assert {i["item_id"] for i in on2} <= {i["item_id"] for i in off2}
