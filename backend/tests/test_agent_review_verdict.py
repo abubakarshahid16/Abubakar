@@ -677,6 +677,7 @@ def test_a_checklist_item_is_one_only_when_source_id_and_content_all_say_so():
 
 
 def test_the_real_checklist_data_is_the_default_source_of_checklist_ids():
+    V._CHECKLIST_IDS.clear()  # independent of test order
     ids = V.checklist_ids()
     assert ids and all(i.startswith("S-") for i in ids)
     one = sorted(ids)[0]
@@ -686,3 +687,19 @@ def test_the_real_checklist_data_is_the_default_source_of_checklist_ids():
     assert not V.is_checklist_item(
         {"item_id": "S-invented-not-in-the-data", "source": "skill"}
     )
+
+
+def test_a_failed_checklist_load_is_never_remembered_as_an_empty_set(monkeypatch):
+    from app import agent_skills
+
+    V._CHECKLIST_IDS.clear()
+    real = agent_skills.load_skill
+
+    def broken(_kind):
+        raise agent_skills.SkillError("invented failure")
+
+    monkeypatch.setattr(agent_skills, "load_skill", broken)
+    assert V.checklist_ids() == frozenset()
+    monkeypatch.setattr(agent_skills, "load_skill", real)
+    assert V.checklist_ids()  # the failure was not kept
+    V._CHECKLIST_IDS.clear()

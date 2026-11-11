@@ -477,3 +477,10 @@ core's route). 5. Place `coverage.json` under `<data dir>/coverage/` (the Rules 
 `equipment_filter="type"`: a rule whose agreed label names another type or family is left out ("another equipment type"); the
 paper's equipment state (names none / not in the list / unreadable) is said on the summary and Rules used routes
 (`equipment_state`, `equipment_notes`).
+
+**Known gaps (plainly).** (a) The reuse of the classic standards selection (`agent_review_jobs._scope_run_id`: a finished classic
+run of the same code version, else `applicability.select` inline) is untested; the tests replace it. (b) Page pictures (drawings
+and scans) are not wired. (c) The general review mode for procedures and contracts (owner correction 16.4) is not in the app;
+the reviewer is on for datasheets only. (d) The reviewer has never been run with a real model or on live data. Rules that are
+not AI approved are not asked in the app (`ASK_UNAPPROVED = "off"`: measured 11 Nov, no key row gained, more wrong opinions);
+the cap and the class stay in the code and tests.

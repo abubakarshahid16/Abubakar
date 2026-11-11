@@ -6,8 +6,11 @@
 gate and the ledger apply as on every other Claude lane. This module opens no socket, adds no flag and never reads
 `backend/.env`. KEY: the process environment first (ANTHROPIC_API_KEY), then the app's own settings fallback exactly as
 `reader_api` does it (`settings.anthropic_api_key`, loaded from backend/.env by the settings model; this module reads no
-file). SWITCHES: process environment only (REASONING_PROVIDER and both STANDARDS_READER_* flags); `.env` never opens the
-lane. The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
+file). SWITCHES (REASONING_PROVIDER and both STANDARDS_READER_* flags): an `env` a caller injects is obeyed exactly; otherwise the process
+environment decides, and for any of those three names the environment does NOT say at all, the app settings (loaded from
+`backend/.env` by the settings model, which the server does not copy into `os.environ`) stand in (`_env_with_settings`). The
+environment wins whenever it says anything, including "0". This module reads no file.
+The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
 the provider, in a module global, the ledger, a trace or an error (codes only).
 
 THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consent(ids)` / `claude_approved.carrying(ids)`

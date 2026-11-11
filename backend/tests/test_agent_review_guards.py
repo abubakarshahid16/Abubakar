@@ -243,6 +243,7 @@ def test_9_the_papers_equipment_type_goes_to_the_rule_choice(w):
     run_review()
     assert w["build_kwargs"]["equipment_type"] == "invented_type"
     assert w["build_kwargs"]["equipment_filter"] == "type"
+    assert w["build_kwargs"]["ask_unapproved"] == "off"  # a rule not AI approved is not asked in the app
 
 
 def test_the_silent_paper_rule_is_the_cores_at_the_exit_for_any_kind_but_a_datasheet():

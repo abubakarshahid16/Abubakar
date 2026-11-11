@@ -62,7 +62,6 @@ line shows it. A failure can only make a line LESS confident, never more.
 
 from __future__ import annotations
 
-import functools
 import re
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
@@ -523,19 +522,32 @@ def unapproved_why(item: Mapping) -> str:
     )
 
 
-@functools.cache
+_CHECKLIST_IDS: list[
+    frozenset[str]
+] = []  # filled only by a COMPLETE load: a failed load is never remembered
+
+
 def checklist_ids() -> frozenset[str]:
-    """The item ids ("S-<id>") of every checklist the app holds (`agent_skills`): the data a checklist item must come from."""
+    """The item ids ("S-<id>") of every checklist the app holds (`agent_skills`): the data a checklist item must come from.
+    Remembered only when every checklist loaded; a load that failed (a missing file, a test's patch) is asked again next time,
+    never kept as an empty set."""
+    if _CHECKLIST_IDS:
+        return _CHECKLIST_IDS[0]
     from . import agent_skills
 
     ids: set[str] = set()
+    complete = True
     for kind in agent_skills.KINDS:
         try:
             skill = agent_skills.load_skill(kind)
         except agent_skills.SkillError:
+            complete = False
             continue
         ids |= {f"S-{it['id']}" for it in skill["items"]}
-    return frozenset(ids)
+    found = frozenset(ids)
+    if complete and found:
+        _CHECKLIST_IDS.append(found)
+    return found
 
 
 def is_checklist_item(

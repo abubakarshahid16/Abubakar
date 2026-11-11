@@ -58,6 +58,9 @@ STEPS = (
     "writing the CRS and the record",
 )
 ACTIVE_RUN = review_jobs.ACTIVE_RUN
+#: Rules that are not AI approved are NOT asked in the app (lead decision, 11 Nov 2026 night): "measured 11 Nov: no key row
+#: gained, more wrong opinions". The cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
+ASK_UNAPPROVED = "off"
 
 #: Words of the contract (`api/agent_review_schemas.py`).
 WORD_OF_LABEL = {"Query for the engineer": "Query"}
@@ -466,7 +469,8 @@ def _plan(
     )  # a cited standard joins the list too (when auto-approve is on)
     cache: dict = {}
     doc = items_mod.build_items(conn, submittal, kind.as_dict(), run_id=scope_run, cache=cache,
-                                equipment_type=kind.equipment_type, equipment_filter="type")  # fmt: skip
+                                equipment_type=kind.equipment_type, equipment_filter="type",
+        ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache)
     if refused:

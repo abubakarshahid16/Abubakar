@@ -162,6 +162,9 @@ DECLARED_BY = {
     "datasheet_ai.py": "datasheets.py",  # read per document from extract_facts
     "field_naming.py": "comparison.py",  # inside run_comparison
     "vision_reader.py": "datasheets.py",  # read per page from extract_facts
+    # AI reviewer in the app: owner order of 11 Nov 2026 night (step F), recorded on #1584. The job declares exactly the paper
+    # under review and the rule books of its asked items (`claude_approved.carrying`), then runs the runner inside it.
+    "agent_review_run.py": "agent_review_jobs.py",
 }
 #: The lane itself and its plumbing: they send what a caller declared.
 THE_LANE = {"reasoning_provider.py", "claude_spend.py", "reader_transport.py", "reader_api.py",
