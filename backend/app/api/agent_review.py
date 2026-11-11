@@ -277,7 +277,9 @@ def _read_line(row: dict) -> contract.AgentLine:
             item_id=str(row.get("item_id") or ""),
             verdict_class="Not reviewed",
             word="Not reviewed",
-            page=row.get("page") if isinstance(row.get("page"), int) and row["page"] >= 1 else None,
+            page=row.get("page")
+            if isinstance(row.get("page"), int) and row["page"] >= 1
+            else None,
             clause=str(row.get("clause") or ""),
             rule_book=str(row.get("rule_book") or ""),
             reason="a stored line could not be read: its class, word or tier is not allowed by the contract",

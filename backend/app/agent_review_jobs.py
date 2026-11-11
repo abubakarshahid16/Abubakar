@@ -46,11 +46,14 @@ from . import (
     rule_labels,
 )
 from . import agent_review_items as items_mod
+from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
-from . import agent_review_wording as wording
-from .api import agent_review_schemas as contract
+from .agent_review_pair import (  # noqa: F401 - re-exported
+    IllegalLine,
+    contract_class_and_word,
+)
 from .config import config_version, settings
 from .db import connect
 
@@ -236,40 +239,10 @@ def _line_tier(line: dict) -> str | None:
     return TIER_WORDS.get(line.get("tier")) or "Not AI approved"
 
 
-class IllegalLine(ValueError):
-    """The contract refuses this line's class, word or tier. The line is never stored as it is."""
-
-
-def contract_class_and_word(line: dict) -> tuple[str, str]:
-    """The contract's class and word of one line, as the core's `wording.classify` gives them (the "Not reviewed" class, the
-    silent-paper Query and the caps are the core's). The class/word table is `api.agent_review_schemas.LINE_TABLE`; a pair it
-    refuses raises `IllegalLine` (never stored)."""
-    got = wording.apply(line)
-    cls, label = got["verdict_class"], got["verdict_label"]
-    word = contract.legal_word(cls, label)
-    if word is None:
-        raise IllegalLine(f'class "{cls}" cannot carry the word "{label}"')
-    return cls, word
-
-
-def _refuse_at_write(line: dict, exc: IllegalLine) -> tuple[str, str]:
-    """A line the contract refuses is not stored as it is: it is stored as "Not reviewed" with the refusal as its reason
-    (the least confident class; the run shows it), and the passed line is changed the same way so the CRS agrees."""
-    log.warning("agent review: a line was refused at write (%s)", type(exc).__name__)
-    line["error"] = f"refused at write: {exc}"
-    line["not_proven_reason"] = str(exc)
-    return contract_class_and_word(line)
-
-
 def store_line(run_id: str, line: dict, trace: dict | None) -> None:
     """One line into `agent_review_line` (an upsert: a resumed run replaces its own failed line). The line already went through
     the runner's one exit; the table's CHECK refuses an unproven Pass or Fail again."""
-    try:
-        cls, word = contract_class_and_word(line)
-        if not contract.legal_tier(cls, _line_tier(line)):
-            raise IllegalLine(f'class "{cls}" cannot have rule tier {_line_tier(line)!r}')
-    except IllegalLine as exc:
-        cls, word = _refuse_at_write(line, exc)
+    cls, word = pair_mod.class_and_word_for_write(line, _line_tier(line))
     reason = str(
         line.get("not_proven_reason") or line.get("reasoning") or line.get("why") or ""
     )
@@ -504,13 +477,8 @@ def _plan(
     cache: dict = {}
     # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
     # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
-    by_book = not items_mod.has_scope_decisions(conn, scope_run)
-    rows = items_mod.selected_book_rows(conn, scope_run, scope) if by_book else None
-    doc = items_mod.build_items(conn, submittal, kind.as_dict(), run_id=scope_run, cache=cache,
-                                equipment_type=kind.equipment_type, equipment_filter="type",
-        ask_unapproved=ASK_UNAPPROVED, requirement_rows=rows)  # fmt: skip
-    if by_book:
-        _say_book_choice(conn, doc, scope_run, scope, len(rows or []))
+    doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
+                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache)
     if refused:
@@ -531,17 +499,6 @@ def _plan(
         "cache": cache,
         "stop": None,
     }
-
-
-def _say_book_choice(conn, doc: dict, scope_run: str, scope, n_rows: int) -> None:
-    """Say in the Rules used block where the candidates came from, with counts only (never silent)."""
-    block = doc.setdefault("rule_labels", {})
-    other = items_mod.books_not_selected(conn, scope_run, doc.get("paper_kind"), scope)
-    block["candidates"] = {"source": "selected_books", "rows": n_rows, "books_not_selected": other}
-    block.setdefault("summary_lines", []).append(
-        f"rules came from the rule books this review selected ({n_rows} stored rules; no per-rule scope decision exists);"
-        f" AI-approved rules of this paper kind in {other['books']} other books were not considered: {other['ai_approved_of_this_kind']}"
-    )
 
 
 def _tier_lookup(kind: agent_review_kind.PaperReading):

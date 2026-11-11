@@ -92,7 +92,10 @@ LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
 #: for this paper "Query for the engineer" (its class is "Not applicable"); the contract's only word for that class is its own.
 WORD_FIXES: dict[tuple[str, str], str] = {
     ("Not applicable", "Query for the engineer"): "Not applicable",
-    ("Not applicable", "Query"): "Not applicable",  # a row stored by 71e9f625 (issue 1749)
+    (
+        "Not applicable",
+        "Query",
+    ): "Not applicable",  # a row stored by 71e9f625 (issue 1749)
     ("Query for the engineer", "Query for the engineer"): "Query",
 }
 

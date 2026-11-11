@@ -555,6 +555,39 @@ def _checklist(
     )
 
 
+def build_items_for_run(
+    conn,
+    document_id: str,
+    kind: dict,
+    scope_run: str,
+    allowed,
+    *,
+    cache: dict,
+    equipment_type,
+    ask_unapproved,
+) -> dict:
+    """`build_items` for the AI reviewer's job. With no per-rule scope decision stored for `scope_run` (the inline selection
+    stores books only), the candidates are the rules of the selected books; the Rules used block says so, counts only."""
+    by_book = not has_scope_decisions(conn, scope_run)
+    rows = selected_book_rows(conn, scope_run, allowed) if by_book else None
+    doc = build_items(conn, document_id, kind, run_id=scope_run, cache=cache, equipment_type=equipment_type,
+                      equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows)  # fmt: skip
+    if by_book:
+        block = doc.setdefault("rule_labels", {})
+        other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
+        block["candidates"] = {
+            "source": "selected_books",
+            "rows": len(rows or []),
+            "books_not_selected": other,
+        }
+        block.setdefault("summary_lines", []).append(
+            f"rules came from the rule books this review selected ({len(rows or [])} stored rules; no per-rule scope decision"
+            f" exists); AI-approved rules of this paper kind in {other['books']} other books were not considered:"
+            f" {other['ai_approved_of_this_kind']}"
+        )
+    return doc
+
+
 def build_items(
     conn: sqlite3.Connection,
     document_id: str,
