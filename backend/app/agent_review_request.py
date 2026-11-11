@@ -45,6 +45,8 @@ RETRY_TOKEN_FACTOR = 2
 RETRY_MAX_TOKENS = 12000
 #: the line's error when the retry was cut off too (shown as "no answer from the AI: <this>")
 CUT_OFF_TWICE = "answer cut off twice (the second try had twice the limit)"
+#: the line's error when the larger-limit retry came back whole but unreadable (no third call is made)
+SECOND_UNREADABLE = "the second answer could not be read (after a cut-off)"
 RETRY_BASE_SECONDS = 4.0
 CONCURRENCY = 3
 SECOND_MAX_TOKENS = agent_claude.SECOND_MAX_TOKENS

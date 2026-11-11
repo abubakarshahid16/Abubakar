@@ -10,16 +10,17 @@ import json
 from app import agent_review_request as request_mod
 from app import agent_review_run as run_mod
 from tests import agent_review_support as s
-from tests.test_agent_review_guards import run_review, w  # noqa: F401
+from tests.test_agent_review_guards import run_review, run_row, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
 
 
 class CutLane(s.FakeModel):
     """Lead call n (0-based) is cut off when n is in `cut`; `limits` holds the max_tokens of every lead call."""
 
-    def __init__(self, cut, **kw):
+    def __init__(self, cut, garbage=(), boom=(), **kw):
         super().__init__(**kw)
         self.cut, self.limits = set(cut), []
+        self.garbage, self.boom = set(garbage), set(boom)
 
     def __call__(self, url, *, headers, body, timeout):
         system = json.dumps(body.get("system"))
@@ -31,6 +32,18 @@ class CutLane(s.FakeModel):
             return super().__call__(url, headers=headers, body=body, timeout=timeout)
         n = len(self.lead_asked)
         self.limits.append(body["max_tokens"])
+        if n in self.boom:
+            self.lead_asked.append(self._ids(body))
+            self.kinds.append("lead")
+            raise TimeoutError("invented timeout")
+        if n in self.garbage:
+            self.lead_asked.append(self._ids(body))
+            self.kinds.append("lead")
+            return self._reply(
+                self.LEAD,
+                {"input_tokens": 3000, "output_tokens": 50},
+                "not json at all",
+            )
         if n in self.cut:
             self.lead_asked.append(self._ids(body))
             self.kinds.append("lead")
@@ -46,10 +59,10 @@ class CutLane(s.FakeModel):
         return [q["item_id"] for q in json.loads(last.split("\n\n")[0])["items"]]
 
 
-def use(w, monkeypatch, cut, ids=("R-coat",)):
+def use(w, monkeypatch, cut, ids=("R-coat",), **kw):
     from app import agent_review_jobs
 
-    lane = CutLane(cut)
+    lane = CutLane(cut, **kw)
     w["fake"] = lane
     w["doc"], w["cache"] = s.item_doc(ids)
     monkeypatch.setattr(agent_review_jobs, "lane", lambda: (lane, s.ENV))
@@ -112,7 +125,7 @@ def test_the_retry_reserves_its_larger_worst_case_and_a_low_cap_refuses_it(
     seen = []
     real = run_mod.Runner.call
 
-    def call(self, model, parts, max_tokens):
+    def call(self, model, parts, max_tokens, **kw):
         seen.append(
             (
                 model == self.model,
@@ -120,7 +133,7 @@ def test_the_retry_reserves_its_larger_worst_case_and_a_low_cap_refuses_it(
                 request_mod.app_worst_usd(model, parts, max_tokens),
             )
         )
-        return real(self, model, parts, max_tokens)
+        return real(self, model, parts, max_tokens, **kw)
 
     monkeypatch.setattr(run_mod.Runner, "call", call)
     run_review()
@@ -138,3 +151,49 @@ def test_the_retry_reserves_its_larger_worst_case_and_a_low_cap_refuses_it(
     line = lines_of(run_id)["R-coat"]
     assert len(lane2.limits) == 1  # the retry was never sent
     assert line["word"] == "Not reviewed"
+    stopped = run_row(run_id)["stop_reason"]
+    assert (
+        stopped.startswith("app_step_cap") and "cap USD" in stopped
+    )  # the run states the cap with its numbers
+    assert (
+        "app_step_cap" in line["reason"]
+    )  # and the line names the cap that refused (the app's own code)
+
+
+def test_an_unreadable_retry_is_not_reviewed_with_no_third_call(w, monkeypatch):
+    lane = use(w, monkeypatch, {0}, garbage={1, 2, 3})
+    line = lines_of(run_review())["R-coat"]
+    assert len(lane.limits) == 2  # the bound: first + one retry, never a third
+    assert line["word"] == "Not reviewed" and "could not be read" in line["reason"]
+
+
+def test_a_timed_out_retry_is_not_reviewed_and_not_sent_again(w, monkeypatch):
+    lane = use(w, monkeypatch, {0}, boom={1, 2, 3})
+    line = lines_of(run_review())["R-coat"]
+    assert len(lane.limits) == 2
+    assert line["word"] == "Not reviewed"
+
+
+def test_the_wait_grows_with_the_limit_and_is_120_s_for_ordinary_calls():
+    from app import agent_claude
+
+    assert agent_claude.request_timeout(400) == 120.0
+    assert agent_claude.request_timeout(request_mod.RETRY_MAX_TOKENS) == 300.0
+
+
+def test_the_groups_cost_is_the_sum_of_every_lead_call_including_the_cut_off_one(
+    w, monkeypatch
+):
+    use(w, monkeypatch, {0})
+    got = []
+    real = run_mod.Runner._ask_lead
+
+    def ask(self, batch, parts, split_ok):
+        out = real(self, batch, parts, split_ok)
+        got.append((out[1], request_mod.app_worst_usd(self.model, parts, 1300)))
+        return out
+
+    monkeypatch.setattr(run_mod.Runner, "_ask_lead", ask)
+    run_review()
+    usd, first_worst = got[0]
+    assert usd > first_worst  # the cut-off call's charge plus the retry's real cost
