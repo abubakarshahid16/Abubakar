@@ -778,13 +778,21 @@ def test_the_filter_never_asks_a_rule_the_label_decision_left_out(conn, tax):
 
 def test_the_filter_needs_the_equipment_table_and_is_off_by_default(conn):
     assert R.load_equipment(conn, "paper", "off") is None
-    with pytest.raises(R.EquipmentLabelsMissing):  # the filter is on, the table is not there: refused, not silently skipped
+    with pytest.raises(
+        R.EquipmentLabelsMissing
+    ):  # the filter is on, the table is not there: refused, not silently skipped
         R.load_equipment(conn, "paper", "on")
     assert R.load_equipment(conn, "paper", "off") is None
     REQ.create_tables(conn)
     _classified(conn, [("paper", "Pressure Safety Valve", None)])
-    ctx = R.load_equipment(conn, "paper", "on")  # the real taxonomy and mapping data files
-    assert ctx.mode == "type" and ctx.eq.usable and R.load_equipment(conn, "paper", "family").mode == "family"
+    ctx = R.load_equipment(
+        conn, "paper", "on"
+    )  # the real taxonomy and mapping data files
+    assert (
+        ctx.mode == "type"
+        and ctx.eq.usable
+        and R.load_equipment(conn, "paper", "family").mode == "family"
+    )
 
 
 def test_checklist_items_use_the_same_taxonomy_notion_of_same_equipment(conn, tax):
