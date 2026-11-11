@@ -139,8 +139,11 @@ def _clean(row: dict) -> str | None:
         return "paper_kind"
     if not _HEX64.match(str(row.get("quote_sha256") or "")):
         return "quote_hash"
-    if row.get("quote_recovery") is not None:
-        return "recovery_not_accepted"  # a quote found by a recovery is not re-provable here: never imported
+    if row.get("quote_recovery") not in (None, "page") or (
+        row.get("quote_recovery") == "page"
+        and row.get("origin") != rule_labels.LAB_ORIGIN
+    ):
+        return "recovery_not_accepted"  # only a lab row's "page" recovery is re-provable here
     if not isinstance(row.get("labelled_at"), str) or not row["labelled_at"]:
         return "labelled_at"
     return None
@@ -164,7 +167,7 @@ def _as_stored(row: dict, version_id: str | None) -> dict:
         "b_answer_json": None,
         "quote_page": row.get("quote_page"),
         "quote_sha256": row["quote_sha256"],
-        "quote_recovery": None,
+        "quote_recovery": row.get("quote_recovery"),
         "reading_json": json.dumps(reading, sort_keys=True) if reading else None,
         "labelled_at": row["labelled_at"],
     }
@@ -214,12 +217,19 @@ def import_labels(conn: sqlite3.Connection, rows: list[Any]) -> dict:
         )
         stored = _as_stored(raw, version_id)
         if raw["state"] == AI_APPROVED:
-            if raw.get("quote_page") != rule["page"]:
+            lab = raw.get("origin") == rule_labels.LAB_ORIGIN
+            page = raw.get("quote_page")
+            if page != rule["page"] and not (
+                lab and raw.get("quote_recovery") == "page"
+            ):
                 counts["refused"] += (
                     1  # the page the row names is not the page the rule cites
                 )
                 continue
-            if rule_labels.approval_guard(stored, quote) is not None:
+            accepted = rule_labels.ACCEPTED_PROMPTS + (
+                rule_labels.LAB_PROMPTS if lab else ()
+            )
+            if rule_labels.approval_guard(stored, quote, accepted=accepted) is not None:
                 counts["refused"] += 1
                 continue
             if rule["sdid"] not in pages:
@@ -230,10 +240,10 @@ def import_labels(conn: sqlite3.Connection, rows: list[Any]) -> dict:
             text, origin = pages[rule["sdid"]]
             from .compiled_rule_proof import quote_verified
 
-            if not quote_verified(quote, text.get(rule["page"])):
+            if not quote_verified(quote, text.get(page)):
                 counts["skipped_changed_quote"] += 1
                 continue
-            if rule_labels.page_is_low_confidence_ocr(origin.get(rule["page"])):
+            if rule_labels.page_is_low_confidence_ocr(origin.get(page)):
                 counts["refused"] += 1
                 continue
         elif raw.get("quote_page") is not None and not isinstance(

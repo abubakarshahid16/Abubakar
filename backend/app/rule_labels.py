@@ -42,6 +42,10 @@ from .rule_label_schema import (
 PROMPT_VERSION = "rule-label-v3"
 #: What an import accepts. Never a version this code does not know how to check.
 ACCEPTED_PROMPTS = (PROMPT_VERSION,)
+#: The lab labeller's prompt of 11 Nov 2026 (no first-words echo). Accepted ONLY from a label file whose rows say
+#: `origin: "lab-order12"` (`rule_label_convert`, `rule_label_import`) and then read by `usable_tier` from the table.
+LAB_PROMPTS = ("rule-label-v2",)
+LAB_ORIGIN = "lab-order12"
 
 OWNER, ENGINEER, AI_TIER = "owner", "engineer", "AI approved"
 
@@ -374,7 +378,12 @@ def decide(
     )
 
 
-def approval_guard(row: Mapping, quote_text: str | None = None) -> str | None:
+def approval_guard(
+    row: Mapping,
+    quote_text: str | None = None,
+    *,
+    accepted: Sequence[str] = ACCEPTED_PROMPTS,
+) -> str | None:
     """Why a row that CLAIMS `ai_approved` may not be trusted, or None. For rows that arrive (an import) and for a read
     (`usable_tier`): the same conditions `decide` and the table's CHECK hold, from the row's own columns. With the
     rule's current quote text it also re-proves the reading against it."""
@@ -384,8 +393,7 @@ def approval_guard(row: Mapping, quote_text: str | None = None) -> str | None:
     if family(a) == family(b):
         return "same_model"
     if not (
-        row.get("a_prompt") == row.get("b_prompt")
-        and row.get("a_prompt") in ACCEPTED_PROMPTS
+        row.get("a_prompt") == row.get("b_prompt") and row.get("a_prompt") in accepted
     ):
         return "prompt_version"
     hexed = re.compile(r"^[0-9a-f]{64}$")
@@ -549,7 +557,7 @@ def usable_tier(
         )
     state = label.get("state")
     if state == AI_APPROVED:
-        cause = approval_guard(label)
+        cause = approval_guard(label, accepted=ACCEPTED_PROMPTS + LAB_PROMPTS)
         return (
             Tier(AI_TIER, None, label)
             if cause is None

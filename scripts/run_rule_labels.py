@@ -5,6 +5,7 @@
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py run --pass a --db <copy> --book <standard> --max-usd 5
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py run --pass b --db <copy> --book <standard> --max-usd 5
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py report --db <copy>
+    AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py convert-lab --lab-db <lab copy> --out <file.json>
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py export --db <copy> --out <file.json>
 
 Refuses a live-shaped database path. Writes only the copy (the tables `rule_label` and `rule_label_event`). The paid pass
@@ -47,13 +48,35 @@ def _ledger(a: argparse.Namespace):
     )
 
 
+def _convert_lab(a: argparse.Namespace) -> int:
+    from app import compiled_rule_report, rule_label_convert
+
+    if not a.lab_db or not a.out:
+        raise job.LabelError("convert-lab needs --lab-db and --out")
+    require_on()
+    conn = job.open_copy(a.lab_db, read_only=True)
+    rows, counts = rule_label_convert.convert(
+        conn,
+        lambda sdid: compiled_rule_report.pages_of(conn, sdid),
+        lambda sdid: compiled_rule_report.page_origin(conn, sdid),
+    )
+    rule_label_convert.write(rows, a.out)
+    print("CONVERTED " + json.dumps(counts, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("command", choices=("estimate", "run", "report", "export"))
     ap.add_argument(
-        "--db", required=True, help="the database COPY (a live-shaped path is refused)"
+        "command", choices=("estimate", "run", "report", "export", "convert-lab")
+    )
+    ap.add_argument(
+        "--db", default=None, help="the database COPY (a live-shaped path is refused)"
+    )
+    ap.add_argument(
+        "--lab-db", default=None, help="convert-lab: the lab labeller's database COPY"
     )
     ap.add_argument("--source", choices=job.SOURCES, default="requirement")
     ap.add_argument(
@@ -75,6 +98,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=None)
     a = ap.parse_args(argv)
     try:
+        if a.command == "convert-lab":
+            return _convert_lab(a)
+        if not a.db:
+            raise job.LabelError("--db is needed")
         if a.command in ("report", "export"):
             conn = job.open_copy(a.db, read_only=True)
             if a.command == "report":
