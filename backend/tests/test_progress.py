@@ -117,7 +117,7 @@ def test_a_real_ask_reports_every_stage_it_passed_through(monkeypatch):
     import pymupdf
 
     from app import answer as answer_mod
-    from app import chat
+    from app import chat, db, fts_index
     from app.config import settings
 
     doc = pymupdf.open()

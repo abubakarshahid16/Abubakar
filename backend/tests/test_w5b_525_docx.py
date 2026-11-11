@@ -14,17 +14,7 @@ import zipfile
 import pymupdf
 import pytest
 
-from app import (
-    access,
-    chunker,
-    db,
-    docx_chunks,
-    docx_reader,
-    extract,
-    fts_index,
-    search,
-    upload,
-)
+from app import access, chunker, db, docx_chunks, docx_reader, extract, fts_index, search, upload
 from app.config import settings
 from tests import docx_builder as d
 from tests.fake_tokenizer import install_if_missing

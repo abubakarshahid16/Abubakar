@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools import datasheet_offline
-
 from app import datasheets
+from tools import datasheet_offline
 
 DATA = Path(__file__).parent / "fixtures" / "synthetic" / "datasheets"
 

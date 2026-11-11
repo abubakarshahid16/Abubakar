@@ -36,6 +36,7 @@ import pytest
 
 from app import comparison, datasheets, db, submittal_review
 
+
 # ==================================================== compound labels
 
 @pytest.mark.parametrize("label,value,expected", [

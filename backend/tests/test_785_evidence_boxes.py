@@ -21,11 +21,7 @@ from app import evidence_boxes
 from app.db import connect
 from app.main import app
 from tests.test_508_finding_evidence_image import _get, _pdf, _reviewed
-from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
-    _user,
-    temp_storage,
-    world,
-)
+from tests.test_p3_review_jobs import _user, temp_storage, world  # noqa: F401 - fixtures
 
 
 def _evidence(finding_id, headers):

@@ -15,12 +15,7 @@ from app.config import settings
 from app.field_naming import LABEL, REQUIREMENT, label_key
 from app.main import app
 from tests.test_crs_submittal_delete_orphan_guard import (  # noqa: F401 - fixtures and helpers
-    NOW,
-    _finding_against,
-    _requirement,
-    _uploaded,
-    temp_storage,
-)
+    NOW, _finding_against, _requirement, _uploaded, temp_storage)
 
 _TABLE = """CREATE TABLE IF NOT EXISTS canonical_field_names (
     subject_kind TEXT NOT NULL, subject_key TEXT NOT NULL, dictionary_sha256 TEXT NOT NULL,

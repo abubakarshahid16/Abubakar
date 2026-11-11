@@ -21,13 +21,7 @@ import pytest
 from app import claims, claude_datasheet, datasheets, geometry_reader, match_rules
 from app import datasheet_inputs as di
 from tests.test_datasheet_inputs import (  # noqa: F401 - the autouse fixture
-    _extract,
-    _facts,
-    _ingest_office,
-    _xlsx,
-    flag_on,
-    temp_storage,
-)
+    _extract, _facts, _ingest_office, _xlsx, flag_on, temp_storage)
 
 # ====================================================== 1. the vocabulary
 

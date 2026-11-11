@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import statistics
 import time
-from datetime import UTC
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,8 +46,8 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def make_user(email, password, *, active=True, role="engineer"):
-    from datetime import datetime
-    now = datetime.now(UTC).isoformat(timespec="seconds")
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn = db.connect()
     user_id = f"user_{email.split('@')[0]}"
     role_id = f"role_{role}"
@@ -69,8 +68,8 @@ def make_user(email, password, *, active=True, role="engineer"):
 
 
 def grant_document(role_id, doc_id):
-    from datetime import datetime
-    now = datetime.now(UTC).isoformat(timespec="seconds")
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn = db.connect()
     with conn:
         conn.execute(

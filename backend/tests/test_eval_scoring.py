@@ -22,9 +22,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "eval"))
 
-from run_eval import score_one, summarise
+from run_eval import score_one, summarise  # noqa: E402
 
 
 def _q(qid="Q1", answerable=True):

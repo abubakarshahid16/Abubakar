@@ -27,7 +27,6 @@ avoids them:
 from __future__ import annotations
 
 import secrets
-from datetime import UTC
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,9 +78,9 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def _now() -> str:
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    return datetime.now(UTC).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def make_role(name: str, kind: str = "discipline") -> str:

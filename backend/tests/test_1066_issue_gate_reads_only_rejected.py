@@ -11,18 +11,12 @@ Invented runs and findings only.
 """
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
-from app import main as main_mod
-from app import submittal_review
-from tests.test_crs_endpoint import (  # noqa: F401 - fixture
-    NOW,
-    _client,
-    _finding,
-    _run,
-    _submittal,
-    temp_db,
-)
+from app import main as main_mod, submittal_review
+from tests.test_crs_endpoint import NOW, _client, _finding, _run, _submittal, temp_db  # noqa: F401 - fixture
 
 
 def _rejected_by_scanning_every_run(submittal: str, allowed: frozenset[str]) -> list[dict]:

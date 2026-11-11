@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from app import deliverables, risks
 from app.db import connect
+
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
+
 
 RISK = sorted(risks.RISK_TYPES)[0]
 

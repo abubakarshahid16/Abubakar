@@ -45,7 +45,10 @@ Mutations: M174-M179, `python scripts/mutation_check.py --phase 13`.
 
 from __future__ import annotations
 
+import pytest
+
 from app import datasheets, page_reason_words
+
 
 TITLE_BLOCK = ("DOCUMENT NO.", "DS-0000-DAS-I-01")
 FOOTER = ("Company General Use", "")

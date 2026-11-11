@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from app import comparison, datasheets, db, standards, subject_scope, submittal_review
+from app import comparison, datasheets, db, standards, submittal_review, subject_scope
 from app.config import settings
 
 

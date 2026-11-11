@@ -22,11 +22,7 @@ from fastapi.testclient import TestClient
 
 from app import chat_comparison, chat_presentation
 from app.main import app
-from tests.test_chat_comparison import (  # noqa: F401
-    PWHT_TEMPERATURE,
-    temp_storage,
-    upload,
-)
+from tests.test_chat_comparison import PWHT_TEMPERATURE, temp_storage, upload  # noqa: F401
 
 A_DOC, B_DOC = "doc-a", "doc-b"
 _STANDARD = {"document_role": "COMPANY_STANDARD"}

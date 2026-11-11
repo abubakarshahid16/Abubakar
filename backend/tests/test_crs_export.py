@@ -8,14 +8,9 @@ import io
 
 import openpyxl
 
-from app.crs_export import (
-    COLUMN_HEADER_ROW,
-    EMPTY_COMMENT_TEXT,
-    FIRST_DATA_ROW,
-    HEADER_FIELDS,
-    HEADERS,
-    build_crs,
-)
+from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
+                            HEADER_FIELDS, HEADERS, build_crs)
+from app.crs_export import EMPTY_COMMENT_TEXT
 
 META = {"project": "EXAMPLE PROJECT", "document_title": "Doc T",
         "date_issued": "2026-09-19"}

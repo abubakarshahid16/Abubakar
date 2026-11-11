@@ -12,12 +12,7 @@ planned reindex, not here.
 from __future__ import annotations
 
 from app import fts_index, numparse
-from tests.test_keyword_tokenizer import (  # noqa: F401
-    FILLER,
-    _hits,
-    _indexed,
-    temp_storage,
-)
+from tests.test_keyword_tokenizer import FILLER, _hits, _indexed, temp_storage  # noqa: F401
 
 
 def test_a_decimal_comma_after_a_leading_zero_is_not_aliased_as_a_thousands_number():

@@ -15,13 +15,7 @@ from fastapi.testclient import TestClient
 from app import review_jobs, scope_ledger
 from app.db import connect
 from app.main import app
-from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
-    W,
-    _enqueue,
-    _user,
-    temp_storage,
-    world,
-)
+from tests.test_p3_review_jobs import W, _enqueue, _user, temp_storage, world  # noqa: F401 - fixtures
 
 
 def _reviewed(world):

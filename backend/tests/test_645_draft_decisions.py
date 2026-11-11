@@ -17,11 +17,7 @@ from app.config import settings
 from app.db import connect
 from app.main import app
 from tests.test_645_clause_checks import SENTENCE, proposal
-from tests.test_w5_677_scope_ledger import (  # noqa: F401 - fixtures
-    _req,
-    review_run,
-    temp_storage,
-)
+from tests.test_w5_677_scope_ledger import _req, review_run, temp_storage  # noqa: F401 - fixtures
 
 
 @pytest.fixture
@@ -137,5 +133,5 @@ def test_listing_writes_nothing(drafted):
     assert standards  # the module that owns the versioned rows
 
 
-def test_listing_before_any_draft_exists_is_empty_not_an_error():
+def test_listing_before_any_draft_exists_is_empty_not_an_error():  # noqa: F811 - temp_storage
     assert TestClient(app).get("/api/standards/clause-checks").json() == []

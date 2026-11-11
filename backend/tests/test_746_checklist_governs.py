@@ -11,15 +11,7 @@ import uuid
 
 import pytest
 
-from app import (
-    absence,
-    comparison,
-    datasheets,
-    db,
-    scope_ledger,
-    standards,
-    submittal_review,
-)
+from app import absence, comparison, datasheets, db, scope_ledger, standards, submittal_review
 from app.config import settings
 
 NOW = "2026-10-10T00:00:00Z"

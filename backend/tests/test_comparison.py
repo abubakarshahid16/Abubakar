@@ -18,15 +18,7 @@ import uuid
 
 import pytest
 
-from app import (
-    applicability,
-    comparison,
-    datasheets,
-    db,
-    review,
-    standards,
-    submittal_review,
-)
+from app import applicability, comparison, datasheets, db, review, standards, submittal_review
 from app.config import settings
 
 

@@ -45,6 +45,7 @@ import os
 import pytest
 
 from app.config import settings
+
 from tests import env_isolation
 
 #: At import, not in a fixture: a test module imported during collection must
@@ -280,6 +281,7 @@ def _never_the_developers_database(tmp_path_factory):
        `temp_storage` override this per test and are unaffected.
     """
     from app import db
+    from app import access
 
     session_dir = tmp_path_factory.mktemp("ragintel-session")
     settings.data_dir = session_dir

@@ -27,16 +27,8 @@ import json
 
 import pytest
 
-from app import (
-    claude_datasheet,
-    claude_spend,
-    datasheet_ai,
-    datasheets,
-    db,
-    model_transport,
-    reader_transport,
-    submittal_review,
-)
+from app import (claude_datasheet, claude_spend, datasheet_ai, datasheets, db,
+                 model_transport, reader_transport, submittal_review)
 from app.config import settings
 
 KEY = "sk-ant-test-NEVER-IN-A-LOG-0000"

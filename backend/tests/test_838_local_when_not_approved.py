@@ -23,22 +23,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import ai_engineering_check as aic
-from app import claude_api, claude_approved, claude_spend, crs_wording, reader_transport
+from app import claude_api, claude_approved, claude_spend, crs_wording
+from app import reader_transport
 from app import reasoning_provider as rp
 from app.config import settings
 from app.main import app
 from tests.test_763_crs_ai_wording import GOOD as GOOD_WORDING
 from tests.test_763_crs_ai_wording import ROW
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
-from tests.test_review_ai_check import (  # noqa: F401  # noqa: F401 - fixtures
-    ASKS_A_BLANK,
-    BLANK_FIELD,
-    GOOD,
-    _ai_rows,
-    _blank_fields,
-    _resolver,
-    world,
-)
+from tests.test_review_ai_check import ASKS_A_BLANK, BLANK_FIELD, GOOD, _ai_rows, _blank_fields  # noqa: F401
+from tests.test_review_ai_check import _resolver, world  # noqa: F401 - fixtures
 
 SHEET, STANDARD = "sha-doc_sheet", "sha-std"      # the hashes test_b3_page_ledger gives its documents
 

@@ -13,13 +13,7 @@ from fastapi.testclient import TestClient
 from app import pageimage, review_jobs
 from app.db import connect
 from app.main import app
-from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
-    W,
-    _enqueue,
-    _user,
-    temp_storage,
-    world,
-)
+from tests.test_p3_review_jobs import W, _enqueue, _user, temp_storage, world  # noqa: F401 - fixtures
 
 SUB_TEXT = "Pump shall comply with API 610. Noise level 95 dB(A)"
 

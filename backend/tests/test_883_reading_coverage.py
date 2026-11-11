@@ -17,13 +17,7 @@ import uuid
 import pytest
 
 from app import comparison, crs_issue, db, page_ledger
-from tests.test_885_crs_issue_gate import (  # noqa: F401 - fixture
-    _client,
-    _finding,
-    _gate,
-    _submittal,
-    temp_db,
-)
+from tests.test_885_crs_issue_gate import _client, _finding, _gate, _submittal, temp_db  # noqa: F401 - fixture
 from tests.test_crs_endpoint import NOW
 
 COVERAGE = {"pages_total": 5, "pages_not_read_into_fields": [], "fact_pages": [1, 2, 3, 4, 5]}

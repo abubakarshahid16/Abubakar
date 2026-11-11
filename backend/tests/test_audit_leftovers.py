@@ -15,14 +15,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app import (
-    chat_stream,
-    claude_recheck,
-    comparison,
-    datasheets,
-    db,
-    submittal_review,
-)
+from app import chat_stream, claude_recheck, comparison, datasheets, db, submittal_review
 from app.main import app
 from app.market_phrase import market_phrase, vouched_for
 from tests.test_audit_crs_fixes import _noise_run, _noise_status

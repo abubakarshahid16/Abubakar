@@ -9,14 +9,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import fts_index, glossary, search
+from app import glossary, fts_index, search
 from app.main import app
-from tests.test_correctness_fixes import (  # noqa: F401
-    AMBIENT,
-    INSPECTION,
-    temp_storage,
-    upload,
-)
+from tests.test_correctness_fixes import AMBIENT, INSPECTION, temp_storage, upload  # noqa: F401
 
 SOLUBLE = [
     "6.3",

@@ -11,9 +11,9 @@ import logging
 from pathlib import Path
 
 import pytest
-from tools import scope_records
 
 from app import access, classification, db, ingest, progress, rule_eval, telemetry
+from tools import scope_records
 from app.config import settings
 
 APP = Path(__file__).resolve().parents[1] / "app"

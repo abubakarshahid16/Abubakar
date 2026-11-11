@@ -219,7 +219,7 @@ def test_a_client_mistake_is_not_reported_as_an_internal_failure(client):
 def test_no_client_error_ever_uses_the_internal_code(client):
     doc_id = upload(client)
     probes = [
-        ("GET", "/api/documents/doc_zzzzzzzzzzzz/chunks"),
+        ("GET", f"/api/documents/doc_zzzzzzzzzzzz/chunks"),
         ("GET", f"/api/documents/{doc_id}/chunks?retrievable=maybe"),
         ("GET", f"/api/documents/{doc_id}/chunks?bogus=1"),
         ("GET", f"/api/documents/{doc_id}/pages/99999/image"),

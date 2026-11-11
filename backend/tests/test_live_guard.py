@@ -106,7 +106,7 @@ def test_the_server_process_may_open_the_live_database(tmp_path, monkeypatch):
 
 def test_run_py_marks_the_server_before_it_starts(monkeypatch):
     sys.path.insert(0, str(REPO / "backend"))
-    import run
+    import run  # noqa: PLC0415
     seen = {}
     monkeypatch.setattr(run.uvicorn, "run",
                         lambda *a, **k: seen.update(env=live_guard.is_server_process()))

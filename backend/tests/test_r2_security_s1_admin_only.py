@@ -11,6 +11,7 @@ import pytest
 
 from app import chunker, extract, fts_index
 from app.db import connect
+
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
 
 PIPELINE = ("extract", "chunk", "embed", "index-keyword")

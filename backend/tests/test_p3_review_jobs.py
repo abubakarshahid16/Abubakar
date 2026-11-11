@@ -14,18 +14,8 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app import (
-    access,
-    auth,
-    comparison,
-    datasheets,
-    db,
-    fts_index,
-    job_queue,
-    review_jobs,
-    standards,
-    submittal_review,
-)
+from app import (access, auth, comparison, datasheets, db, job_queue, fts_index, review_jobs,
+                 standards, submittal_review)
 from app.config import config_version, settings
 from app.main import app
 

@@ -125,7 +125,7 @@ def test_a_failed_first_claude_call_gives_its_own_cause(monkeypatch, tmp_path):
         kwargs["on_fallback_reason"](chat_model.fallback_words(
             claude_spend.BudgetExceeded("a cap, USD 5.0000")))
         monkeypatch.setattr(settings, "reasoning_provider", "ollama")  # the lane then runs local
-        return
+        return None
     monkeypatch.setattr(chat_claude_first, "answer", refused_first_call)
     body = _ask_general(TestClient(app), model="claude")
     assert body["provider"] == rp.OLLAMA

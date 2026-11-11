@@ -21,15 +21,9 @@ import httpx
 
 from app import absence, datasheet_ai, datasheets, model_transport
 from app.config import Settings, settings
-from tests.test_datasheet_ai import (  # noqa: F401
-    AGREE,
-    ROWS,
-    FakeModel,
-    _datasheet_pdf,
-    _ingest,
-    _use,
-    temp_storage,
-)
+from tests.test_datasheet_ai import (AGREE, ROWS, FakeModel, _datasheet_pdf, _ingest,  # noqa: F401
+                                     _use, temp_storage)
+
 
 # ---------------------------------------------------------------- the default
 

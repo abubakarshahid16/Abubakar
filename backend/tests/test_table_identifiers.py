@@ -230,8 +230,7 @@ def empty_db(tmp_path, monkeypatch):
 
 
 def _serve(monkeypatch, response: str) -> None:
-    from app import lexical
-    from app import passages as passages_mod
+    from app import lexical, passages as passages_mod
 
     monkeypatch.setattr(search_mod, "search", lambda *a, **k: {
         "hits": [dict(CLAUSE, score=5.0, rerank_score=5.0, separation=0.0, rrf=0.03, context=None),

@@ -32,6 +32,7 @@ import pytest
 from app import ligatures
 from app.quality import normalise_text
 
+
 # ---------------------------------------------------------------- repairs
 
 

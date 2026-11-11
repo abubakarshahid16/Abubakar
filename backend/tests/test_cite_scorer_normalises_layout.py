@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 """The review scorer's citation check reads a quote as the PDF's text layer may
 have written it: a ligature glyph and a word broken by a line-break hyphen are
 layout, not wording. A real mismatch still fails. Invented sentences only."""
 from __future__ import annotations
 
 import pytest
+
 from tools import review_score as rs
 
 FI = "ﬁ"           # the single "fi" ligature glyph

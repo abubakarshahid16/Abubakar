@@ -10,12 +10,7 @@ import uuid
 from app import db
 from app.chunker import chunk_document
 from tests.test_b38_orphan_guard import (  # noqa: F401 - temp_storage is autouse
-    NOW,
-    _finding_citing,
-    _requirement,
-    _standard,
-    temp_storage,
-)
+    NOW, _finding_citing, _requirement, _standard, temp_storage)
 
 SENTENCE = ("The noise level of rotating equipment shall not exceed 90 dB(A) at one metre "
             "from the equipment surface under rated operating conditions.")

@@ -13,11 +13,8 @@ import pytest
 
 from app import comparison, db, market_providers, web_standards
 from app.config import settings
-from tests.test_b3_page_ledger import (  # noqa: F401 - autouse
-    _review,
-    _sheet,
-    temp_storage,
-)
+from tests.test_b3_page_ledger import _review, _sheet, temp_storage  # noqa: F401 - autouse
+
 
 # --------------------------------------------------------- identifier gate
 

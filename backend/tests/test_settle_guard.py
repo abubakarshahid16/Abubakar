@@ -9,12 +9,10 @@ named OCR.
 """
 import pymupdf
 from fastapi.testclient import TestClient
-
-from app import db, states
-from app import ocr as ocr_mod
+from app import db, states, ocr as ocr_mod
 from app.config import settings
-from app.db import connect
 from app.main import app
+from app.db import connect
 
 
 def make(tmp):
@@ -38,8 +36,8 @@ def test_ocr_rounds_are_progress_not_churn(tmp_path, monkeypatch):
                         files={"file": ("s.pdf", fh, "application/pdf")}
                         ).json()["document"]["id"]
 
-    from app.chunker import chunk_document
     from app.extract import extract_document
+    from app.chunker import chunk_document
     extract_document(doc_id); chunk_document(doc_id)
 
     calls = {"n": 0}
@@ -97,8 +95,8 @@ def test_a_genuinely_stuck_loop_is_still_caught_and_says_what_stopped(
         doc_id = c.post("/api/documents",
                         files={"file": ("s2.pdf", fh, "application/pdf")}
                         ).json()["document"]["id"]
-    from app.chunker import chunk_document
     from app.extract import extract_document
+    from app.chunker import chunk_document
     extract_document(doc_id); chunk_document(doc_id)
 
     spins = {"n": 0}

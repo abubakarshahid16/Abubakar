@@ -60,9 +60,8 @@ def test_a_moved_pdf_is_found_through_the_path_map():
 
 
 def test_the_scan_estimate_changes_the_image():
-    import io
-
     from PIL import Image
+    import io
     buf = io.BytesIO()
     Image.new("RGB", (200, 100), "white").save(buf, format="PNG")
     out = m.degrade(buf.getvalue(), seed=3)

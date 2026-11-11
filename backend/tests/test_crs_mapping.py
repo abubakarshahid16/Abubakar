@@ -1,11 +1,8 @@
 """Mapping rules: which findings enter a CRS. Standalone, no db."""
-from app.crs_mapping import (
-    ROW_KIND_MISSING_INFORMATION,
-    ROW_KIND_NEEDS_ENGINEER_REVIEW,
-    ROW_KIND_NON_COMPLIANT,
-    build_crs_rows,
-    build_review_notes,
-)
+from app.crs_mapping import (ROW_KIND_MISSING_INFORMATION,
+                             ROW_KIND_NEEDS_ENGINEER_REVIEW,
+                             ROW_KIND_NON_COMPLIANT,
+                             build_crs_rows, build_review_notes)
 
 NC = {"compliance_status": "NON_COMPLIANT", "standard_name": "SAES-X-001.pdf",
       "standard_clause": "5.1", "standard_page": 7, "contractor_page": 4,

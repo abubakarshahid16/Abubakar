@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app import heavy_lock
 from app.config import BACKEND_DIR, Settings
 

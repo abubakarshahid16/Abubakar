@@ -17,10 +17,7 @@ from fastapi.testclient import TestClient
 from app import answer as answer_mod
 from app import applicability, chat_comparison, db, family_search
 from app.main import app
-from tests.test_chat_comparison import (  # noqa: F401  (autouse fixture)
-    temp_storage,
-    upload,
-)
+from tests.test_chat_comparison import temp_storage, upload  # noqa: F401  (autouse fixture)
 
 
 def _std(client, blocks, name, *, scope_activity=None, role="COMPANY_STANDARD") -> str:

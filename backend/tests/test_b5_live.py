@@ -31,15 +31,8 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
-from app import (
-    access,
-    applicability,
-    comparison,
-    db,
-    fts_index,
-    standards,
-    submittal_review,
-)
+from app import (access, applicability, comparison, db, fts_index, standards,
+                 submittal_review)
 from app.config import settings
 from app.crs_export import STANDARDS_SHEET
 from app.main import app
@@ -493,5 +486,5 @@ def test_the_applicability_list_reports_a_possible_citation_as_unknown_not_appli
 def test_an_empty_taxonomy_setting_is_no_taxonomy(monkeypatch, tmp_path):
     """`APPLICABILITY_TAXONOMY_PATH=` in .env parses as Path("."), a directory."""
     from pathlib import Path
-    monkeypatch.setattr(settings, "applicability_taxonomy_path", Path())
+    monkeypatch.setattr(settings, "applicability_taxonomy_path", Path("."))
     assert applicability.load_taxonomy() is None

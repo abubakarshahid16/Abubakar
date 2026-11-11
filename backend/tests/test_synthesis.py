@@ -28,6 +28,7 @@ from app import context_budget as cb
 from app import synthesis
 from app.config import settings
 
+
 #: The window the BUDGET tests in this file pin themselves to.
 #:
 #: Only the three tests about overflow need it, and they say so by using the

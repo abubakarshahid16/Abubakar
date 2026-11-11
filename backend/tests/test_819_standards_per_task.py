@@ -34,15 +34,8 @@ from tests.test_763_crs_ai_wording import GOOD as GOOD_WORDING
 from tests.test_763_crs_ai_wording import ROW
 from tests.test_838_local_when_not_approved import SHEET, STANDARD, Local, _approve
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
-from tests.test_review_ai_check import (  # noqa: F401  # noqa: F401 - fixtures
-    ASKS_A_BLANK,
-    BLANK_FIELD,
-    GOOD,
-    _ai_rows,
-    _blank_fields,
-    _resolver,
-    world,
-)
+from tests.test_review_ai_check import ASKS_A_BLANK, BLANK_FIELD, GOOD, _ai_rows, _blank_fields  # noqa: F401
+from tests.test_review_ai_check import _resolver, world  # noqa: F401 - fixtures
 
 
 @pytest.fixture

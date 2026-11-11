@@ -44,7 +44,7 @@ def test_no_tracked_file_is_a_stray():
 
     def stray(path: str) -> bool:
         name = path.rsplit("/", 1)[-1]
-        top = "/" not in path or (path.startswith("backend/") and path.count("/") == 1)
+        top = "/" not in path or path.startswith("backend/") and path.count("/") == 1
         return (name.endswith("_elapsed.txt")
                 or (top and name.startswith("rehearsal") and name.rsplit(".", 1)[-1] in ("py", "json", "txt"))
                 or path in ("frontend/dash-body.txt", "docs/review-command.md"))

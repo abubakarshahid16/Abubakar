@@ -2,7 +2,7 @@
 import pytest
 
 from app import states
-from app.chunker import Block, build_chunks, content_quality, reads_like_language
+from app.chunker import build_chunks, content_quality, reads_like_language, Block
 from app.config import settings
 
 GOOD = (

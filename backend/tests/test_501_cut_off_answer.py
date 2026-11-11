@@ -18,14 +18,9 @@ import json
 
 import pytest
 
-from app import absence, datasheets
-from app import claude_datasheet as cd
-from tests.test_claude_datasheet import (  # noqa: F401 - autouse
-    PAGE,
-    _answer,
-    _fact,
-    temp_storage,
-)
+from app import absence, claude_datasheet as cd
+from app import datasheets
+from tests.test_claude_datasheet import PAGE, _answer, _fact, temp_storage  # noqa: F401 - autouse
 
 SET = _fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig")
 TEMP = _fact("Relieving temperature", "121", "9 | Relieving temperature | 121 C", unit="C")

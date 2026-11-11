@@ -16,13 +16,7 @@ Mutations: M4941-M4949, `python scripts/mutation_check.py --phase 4941`.
 from __future__ import annotations
 
 from app import requirements_3b, standards, tables
-from tests.test_standards_3b import (  # noqa: F401
-    _chunk,
-    _doc,
-    _ruled_table_pdf,
-    _scope,
-    temp_storage,
-)
+from tests.test_standards_3b import _chunk, _doc, _ruled_table_pdf, _scope, temp_storage  # noqa: F401
 
 
 def _rows(doc_id, doc):

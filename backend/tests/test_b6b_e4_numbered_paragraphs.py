@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from app import chunker as ch
 
+
 _NOUNS = ["housing", "bearing", "coupling", "gasket", "impeller", "casing", "shaft",
           "seal", "flange", "nozzle", "baseplate", "guard", "lining", "vent", "drain",
           "sensor", "valve", "cover"]
@@ -73,7 +74,7 @@ def test_a_repeated_top_of_page_prefixed_number_is_not_stripped_as_a_running_hea
     for b in blocks:
         if b.kind == "prose":
             first_on_page.setdefault(b.page_start, b.section)
-    assert first_on_page == dict.fromkeys(range(1, 7), "A.1.1"), first_on_page
+    assert first_on_page == {p: "A.1.1" for p in range(1, 7)}, first_on_page
 
 
 def test_the_clause_number_is_the_label_nothing_is_invented():

@@ -25,6 +25,7 @@ import re
 import pytest
 
 from app import claims, db, fts_index
+from app.config import settings
 from app.claims import (
     POSSIBLE_CONFLICT_NOTE,
     cluster,
@@ -33,7 +34,6 @@ from app.claims import (
     question_terms,
     to_api,
 )
-from app.config import settings
 
 VALID_LABELS = {"agreement", "addition", "possible_conflict", "unresolved"}
 

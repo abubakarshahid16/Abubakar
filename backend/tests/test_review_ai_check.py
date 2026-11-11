@@ -24,16 +24,12 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, claude_spend, comparison, crs_export, db, review_jobs
-from app import ai_engineering_check as aic
+from app import access, ai_engineering_check as aic, claude_spend, comparison, crs_export, db
 from app import reasoning_provider as rp
+from app import review_jobs
 from app.config import Settings, settings
 from app.main import app
-from tests.test_b3_page_ledger import (  # noqa: F401 - autouse
-    _review,
-    _sheet,
-    temp_storage,
-)
+from tests.test_b3_page_ledger import _review, _sheet, temp_storage  # noqa: F401 - autouse
 from tests.test_model_matching import _signed_in
 
 GOOD = {"topic": "Hydrotest pressure", "page": 1, "field": "Design pressure",

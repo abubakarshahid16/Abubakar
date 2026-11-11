@@ -31,17 +31,8 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import (
-    access,
-    classification,
-    comparison,
-    datasheets,
-    db,
-    page_ledger,
-    standards,
-    states,
-    submittal_review,
-)
+from app import (access, classification, comparison, datasheets, db, page_ledger,
+                 standards, states, submittal_review)
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app

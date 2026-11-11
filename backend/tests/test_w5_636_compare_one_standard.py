@@ -14,11 +14,7 @@ from fastapi.testclient import TestClient
 
 from app import chat_comparison, standard_ids
 from app.main import app
-from tests.test_chat_comparison import (  # noqa: F401
-    PWHT_TEMPERATURE,
-    temp_storage,
-    upload,
-)
+from tests.test_chat_comparison import PWHT_TEMPERATURE, temp_storage, upload  # noqa: F401
 
 QUESTION = ("Compare ASME B16.5 and ASME B16.47: which flange size range does each "
             "standard cover?")

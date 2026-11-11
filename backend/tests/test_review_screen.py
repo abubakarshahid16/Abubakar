@@ -20,11 +20,7 @@ from fastapi.testclient import TestClient
 
 from app import comparison, db, submittal_review
 from app.main import app
-from tests.test_b3_page_ledger import (  # noqa: F401 - autouse
-    _review,
-    _sheet,
-    temp_storage,
-)
+from tests.test_b3_page_ledger import _review, _sheet, temp_storage  # noqa: F401 - autouse
 from tests.test_model_matching import _signed_in
 
 FUTURE = "2999-01-01T00:00:00+00:00"

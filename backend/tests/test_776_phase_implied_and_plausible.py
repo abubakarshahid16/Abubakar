@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app import datasheet_checks as dc
-from tests.test_746_relief_valve_checklist import fact, results
+from tests.test_746_relief_valve_checklist import PSV, fact, results
 
 GAS_ITEMS = ("PSV-19", "PSV-20", "PSV-21")      # molecular weight, Z, k: gas or vapour only
 LIQUID_ITEMS = ("PSV-22", "PSV-23")              # density, viscosity: liquid only

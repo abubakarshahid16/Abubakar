@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 
 import openpyxl
+import pytest
 from fastapi.testclient import TestClient
 
 from app import comparison, crs_export, crs_mapping, crs_numbers, db

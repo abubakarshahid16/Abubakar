@@ -11,13 +11,7 @@ Mutations: M6301-M6308 (scripts/mutations/w2b_617_range_cells.py).
 from __future__ import annotations
 
 from app import comparison, db, requirements_3b, standards
-from tests.test_standards_3b import (  # noqa: F401
-    _chunk,
-    _doc,
-    _ruled_table_pdf,
-    _scope,
-    temp_storage,
-)
+from tests.test_standards_3b import _chunk, _doc, _ruled_table_pdf, _scope, temp_storage  # noqa: F401
 
 
 def _extract(tmp_path, header, rows):

@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 
 from app.chunker import count_tokens
-from app.config import settings
 from app.embedder import (
     EMBEDDING_DIM,
     MODEL_MAX_TOKENS,
@@ -13,6 +12,8 @@ from app.embedder import (
     l2_normalise,
     mean_pool,
 )
+from app.config import settings
+
 
 # ------------------------------------------------------------- pure maths
 

@@ -26,10 +26,12 @@ from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
 from app import chat_answers, chat_model, db, intent
+from app import reasoning_provider as rp
 from app.config import settings
 from app.main import app
 from tests.test_chat import temp_storage, upload  # noqa: F401 - the fixture is autouse
 from tests.test_chat_pr1_model_lane import _claude_on, _claude_on_tool_use
+
 
 # ------------------------------------------------------------------ routing
 

@@ -11,7 +11,6 @@ import re
 from pathlib import Path
 
 import run
-
 from app.config import settings
 
 RUNTIME_TS = Path(__file__).resolve().parents[2] / "contracts" / "runtime.ts"

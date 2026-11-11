@@ -308,7 +308,6 @@ def test_criterion_4_no_live_caller_passes_a_model_opinion_into_the_review_run_r
     `quotes.py`'s reachability: read the one call site rather than assume.
     """
     import inspect
-
     from app import main as main_mod
     from app.api import run_standards as run_standards_mod
 
@@ -335,7 +334,6 @@ def test_criterion_4_a_model_reason_naming_an_unchosen_candidate_is_rejected(mon
     it was given. Already covered in depth by `test_model_matching.py`; this
     is the issue-164-scoped regression."""
     import json as json_mod
-
     from app import model_transport
 
     def fake_post_json(path, body, timeout=None):

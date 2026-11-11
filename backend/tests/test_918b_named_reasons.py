@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app import chunker as ch
 from app import datasheets, db, extract, page_ledger
 from app.config import settings

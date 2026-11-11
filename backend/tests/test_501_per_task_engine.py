@@ -26,14 +26,8 @@ import pytest
 from app import claude_spend, comparison, datasheet_ai
 from app import reasoning_provider as rp
 from app.config import Settings, settings
-from tests.test_model_matching import (  # noqa: F401
-    CANDIDATES,
-    MODEL_SUBJECT,
-    _claude_matcher,
-    requirement,
-    stub,
-    temp_storage,
-)
+from tests.test_model_matching import CANDIDATES, MODEL_SUBJECT, _claude_matcher, requirement, stub  # noqa: F401
+from tests.test_model_matching import temp_storage  # noqa: F401 - autouse
 
 
 @pytest.fixture

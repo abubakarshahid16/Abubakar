@@ -26,6 +26,7 @@ import pytest
 from app.applicability import library_identifier, normalise_identifier
 from app.datasheets import referenced_standards
 
+
 # ------------------------------------------------------- citation: shapes
 
 @pytest.mark.parametrize("text,expected", [

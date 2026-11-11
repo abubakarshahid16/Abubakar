@@ -35,10 +35,11 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app import access, db, submittal_review
-from app import main as main_mod
 from app.config import settings
-from app.crs_export import COLUMN_HEADER_ROW, FIRST_DATA_ROW, HEADER_FIELDS, HEADERS
+from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
+                            HEADER_FIELDS, HEADERS)
 from app.main import app
+from app import main as main_mod
 
 NOW = "2026-09-19T00:00:00Z"
 

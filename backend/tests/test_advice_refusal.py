@@ -280,7 +280,7 @@ def test_a_spec_shaped_either_question_never_reaches_general_knowledge(monkeypat
 
     def _claude_first_would_have_guessed(*args, **kwargs):
         called.append("claude_first")
-        return  # the assertion below must be what fails, not a schema error
+        return None  # the assertion below must be what fails, not a schema error
 
     def _general_would_have_guessed(question, **kwargs):
         called.append("general_fallback")
@@ -320,7 +320,7 @@ def test_a_spec_shaped_document_question_never_reaches_general_knowledge(monkeyp
 
     def _claude_first_would_have_guessed(*args, **kwargs):
         called.append("claude_first")
-        return  # the assertion below must be what fails, not a schema error
+        return None  # the assertion below must be what fails, not a schema error
 
     def _general_would_have_guessed(question, **kwargs):
         called.append("general_fallback")

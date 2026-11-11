@@ -9,9 +9,8 @@ import uuid
 
 import pytest
 
+from app import comparison, datasheets, db, requirements_3b as r, rule_eval, standards, submittal_review
 import tests.test_b3_page_ledger as ledger_tests
-from app import comparison, datasheets, db, standards, submittal_review
-from app import requirements_3b as r
 from tests.test_b3_page_ledger import NOW, temp_storage  # noqa: F401 - autouse
 
 

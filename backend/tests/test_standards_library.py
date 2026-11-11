@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import db, standards, submittal_review
+from app import access, db, standards, submittal_review
 from app.config import settings
 
 

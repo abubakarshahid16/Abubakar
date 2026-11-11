@@ -17,12 +17,7 @@ import uuid
 import pytest
 
 from app import db, standards
-from tests.test_w6_640_requirements_supersede import (  # noqa: F401
-    NOW,
-    _standard,
-    _user,
-    temp_storage,
-)
+from tests.test_w6_640_requirements_supersede import NOW, _standard, _user, temp_storage  # noqa: F401
 
 LINES = [
     "5.3.3 Noise",

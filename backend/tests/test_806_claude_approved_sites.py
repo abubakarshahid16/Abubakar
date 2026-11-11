@@ -14,14 +14,8 @@ import pytest
 
 from app import claude_approved, claude_spend, datasheets, db
 from app.config import settings
-from tests.test_datasheet_ai import (  # noqa: F401
-    AGREE,
-    ROWS,
-    _claude_env,
-    _datasheet_pdf,
-    _ingest,
-    temp_storage,
-)
+from tests.test_datasheet_ai import (AGREE, ROWS, _claude_env, _datasheet_pdf, _ingest,  # noqa: F401
+                                     temp_storage)
 
 APP = Path(__file__).resolve().parents[1] / "app"
 

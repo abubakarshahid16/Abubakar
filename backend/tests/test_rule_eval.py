@@ -21,9 +21,9 @@ import uuid
 
 import pytest
 
-import tests.test_b3_page_ledger as ledger_tests
 from app import comparison, datasheets, db, rule_eval, standards, submittal_review
 from app import reasoning_provider as rp
+import tests.test_b3_page_ledger as ledger_tests
 from tests.test_b3_page_ledger import NOW, temp_storage  # noqa: F401 - autouse
 
 TABLE = """Design pressure shall be according to the following table.

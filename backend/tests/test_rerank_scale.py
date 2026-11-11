@@ -19,8 +19,8 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import answer as answer_mod
 from app import db, fts_index, scores, search
+from app import answer as answer_mod
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -291,7 +291,7 @@ def test_a_genuinely_two_part_question_still_gets_two_passages(monkeypatch):
     # a constant. Nothing is called and nothing is admitted or rejected. Found
     # by ruff F841; left in place rather than deleted because `primary` is the
     # only remaining evidence of what the test was meant to check.
-    primary = _hit("c11", "11 Inspection and testing", 16, "check frequency", 0.0, False)
+    primary = _hit("c11", "11 Inspection and testing", 16, "check frequency", 0.0, False)  # noqa: F841
     co_answer = _hit(
         "c44", "4.4 Ambient conditions", 7,
         "the relative humidity limit is 85 %",

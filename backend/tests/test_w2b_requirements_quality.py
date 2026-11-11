@@ -8,21 +8,13 @@ fails when its fix is removed: `scripts/mutations/w2b_requirements_quality.py`
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 
-from app import (
-    claims,
-    comparison,
-    datasheets,
-    db,
-    requirement_quality,
-    requirements_3b,
-    schemas,
-    standards,
-    submittal_review,
-)
+from app import (claims, comparison, datasheets, db, requirement_quality,
+                 requirements_3b, schemas, standards, submittal_review)
 from app.config import settings
 
 STD = "doc_std"

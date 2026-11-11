@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import comparison
-from app import requirements_3b as r
+from app import comparison, requirements_3b as r
 
 
 def _parse(sentence):

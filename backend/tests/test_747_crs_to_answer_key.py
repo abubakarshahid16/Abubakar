@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
-from tools import review_score as rs
 
 from app import crs_export
+from tools import review_score as rs
 
 REPO = Path(__file__).resolve().parents[2]
 

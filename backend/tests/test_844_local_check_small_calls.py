@@ -21,21 +21,9 @@ from app import ai_engineering_check as aic
 from app import comparison, datasheets, review_jobs
 from app import reasoning_provider as rp
 from app.config import settings
-from tests.test_b3_page_ledger import (  # noqa: F401 - autouse
-    _review,
-    _sheet,
-    temp_storage,
-)
-from tests.test_review_ai_check import (  # noqa: F401  # noqa: F401
-    ASKS_A_BLANK,
-    BLANK_FIELD,
-    GOOD,
-    Fake,
-    _ai_rows,
-    _blank_fields,
-    _local,
-    _resolver,
-)
+from tests.test_b3_page_ledger import _review, _sheet, temp_storage  # noqa: F401 - autouse
+from tests.test_review_ai_check import ASKS_A_BLANK, BLANK_FIELD, GOOD, Fake, _ai_rows, _blank_fields  # noqa: F401
+from tests.test_review_ai_check import _local, _resolver  # noqa: F401
 
 #: A question about page 2's blank field (the prose note page of the synthetic sheet).
 NOTE_FIELD = "Inspection hold points"

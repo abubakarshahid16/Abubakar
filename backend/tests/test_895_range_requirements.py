@@ -14,12 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import comparison, db, standards
-from app import requirements_3b as r
-from tests.test_w6_640_requirements_supersede import (  # noqa: F401
-    _standard,
-    temp_storage,
-)
+from app import comparison, db, requirements_3b as r, standards
+from tests.test_w6_640_requirements_supersede import _standard, temp_storage  # noqa: F401
 
 
 def _parse(sentence):

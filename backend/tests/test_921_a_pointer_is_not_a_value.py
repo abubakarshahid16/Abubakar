@@ -7,13 +7,7 @@ from __future__ import annotations
 import pytest
 
 from app import comparison, field_links
-from tests.test_893_named_values import (  # noqa: F401 - autouse
-    BODY,
-    STATED,
-    _fact,
-    _judge,
-    fresh,
-)
+from tests.test_893_named_values import BODY, STATED, _judge, _fact, fresh  # noqa: F401 - autouse
 
 POINTERS = ["See note 3", "refer to drawing 12", "As per datasheet", "N/A", "Not applicable", "to follow",
             "By others", "Various", "TBD", "By vendor", "-"]

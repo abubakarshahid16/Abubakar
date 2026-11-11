@@ -6,8 +6,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, db
-from app import classification as classification_mod
+from app import access, classification as classification_mod, db
 from app.config import settings
 from app.db import connect
 from app.main import app
