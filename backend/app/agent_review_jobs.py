@@ -585,6 +585,7 @@ def _equipment_facts(block: dict) -> dict:
         "state": eq.get("paper_equipment_state"),
         "types": eq.get("paper_types") or [],
         "notes": notes,
+        "candidates": block.get("candidates"),
     }
 
 

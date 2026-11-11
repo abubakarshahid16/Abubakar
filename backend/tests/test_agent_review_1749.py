@@ -9,7 +9,7 @@ import itertools
 import pytest
 
 from app import agent_review_items as it
-from app import agent_review_jobs, agent_review_schema, db
+from app import agent_review_jobs, agent_review_schema, db, submittal_review
 from app import agent_review_wording as wording
 from app.agent_review_verdict import RULE_NOT_APPROVED
 from app.api import agent_review_schemas as contract
@@ -144,7 +144,7 @@ def test_plan_asks_the_selected_books_rules_when_no_scope_decisions_exist(
     assert (
         seen["requirement_rows"] == []
     )  # by book: the list is passed (not None), here the book holds no rule
-    assert plan["block"]["candidates"]["source"] == "selected_books"
+    assert plan["block"]["candidates"]["source"] == "the rules of the selected books"
     assert "no per-rule scope decision exists" in plan["block"]["summary_lines"][-1]
 
 
@@ -277,3 +277,165 @@ def test_the_line_list_reads_a_row_stored_with_the_old_pair_and_one_bad_row_does
         (run_id,),
     ).fetchone()
     assert stored["word"] == "Query"  # old rows are not rewritten
+
+
+# ---- review round R19: the page, the repeats, the real build, the narrowing, the two tables ---------------------------
+
+
+def _real_plan_world(tmp_path, monkeypatch, *, with_decisions=False):
+    """_plan on the REAL build_items over an invented library: 5 stored rules of one selected book (2 are the same rule),
+    3 of them labelled AI approved for a datasheet; one more labelled rule sits in a book the run did not select."""
+    s.setup_world(tmp_path, monkeypatch)
+    submittal_review.ensure_schema()
+    agent_review_schema.ensure_schema()
+    conn = db.connect()
+    s.add_document(conn, "doc_other", "INV-OTHER.pdf", s.STD_PAGE)
+    run = "rr-real"
+    with conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at) VALUES (?,?, 'running','x','x')",
+            (run, s.PAPER),
+        )
+        for rid, book, text in (
+            ("req-a", s.STD, "frame width at least 40 mm"),
+            ("req-b", s.STD, "coating in two layers"),
+            ("req-c", s.STD, "marking colour blue"),
+            ("req-d", s.STD, "an unlabelled statement"),
+            ("req-a-twin", s.STD, "Frame width at least 40 mm."),
+            ("req-z", "doc_other", "a rule in another book"),
+        ):
+            conn.execute(
+                "INSERT INTO standard_requirements (id, standard_document_id, clause, page, requirement_text, source_text,"
+                " requirement_type, created_at, updated_at) VALUES (?,?,?,?,?,?,?,'x','x')",
+                (rid, book, "1", 1, text, text, "statement"),
+            )
+        for n, (book, inc) in enumerate(((s.STD, 1), ("doc_other", 0))):
+            conn.execute(
+                "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, included, created_at)"
+                " VALUES (?,?,?,?,'x')",
+                (f"ras-{n}", run, book, inc),
+            )
+    s.label_rows(conn, ["a", "b", "c", "z"])
+    if with_decisions:
+        from app import scope_ledger
+
+        scope_ledger.ensure_schema()
+        with conn:
+            for rid in ("req-a", "req-b"):
+                conn.execute(
+                    "INSERT INTO review_scope_decisions VALUES (?,?,'checked','reached','x','code','x')",
+                    (run, rid),
+                )
+    monkeypatch.setattr(agent_review_jobs, "_scope_run_id", lambda *_a: run)
+    monkeypatch.setattr(agent_review_jobs, "preflight", lambda *_a: None)
+    monkeypatch.setattr(
+        agent_review_jobs.claude_auto_approve, "on_review_start", lambda *_a: None
+    )
+    kind = agent_review_jobs.agent_review_kind.PaperReading(
+        "datasheet", True, "r", "t", False, None, None
+    )
+    plan = agent_review_jobs._plan(
+        conn, run, s.PAPER, frozenset({s.PAPER, s.STD, "doc_other"}), kind, lambda: None
+    )
+    return conn, run, plan
+
+
+def test_plan_with_the_real_builder_asks_rules_and_accounts_for_every_candidate(
+    tmp_path, monkeypatch
+):
+    conn, run, plan = _real_plan_world(tmp_path, monkeypatch)
+    asked = {i["rule_version_id"] for i in plan["items"] if i["source"] == "rule"}
+    block = plan["block"]
+    cand = block["candidates"]
+    left = {str(x["rule_version_id"]) for x in block["left_out"]}
+    assert asked == {"req-a", "req-b", "req-c"}
+    assert cand["source"] == "the rules of the selected books" and cand["rows"] == 5
+    assert cand["repeats"] == 1  # the twin
+    assert (
+        len(asked) + len(left) + cand["repeats"] == cand["rows"]
+    )  # exactly: nothing lost, nothing counted twice
+    assert not asked & left
+    assert cand["books_not_selected"] == {"books": 1, "ai_approved_of_this_kind": 1}
+    rows = conn.execute(
+        "SELECT asked, COUNT(*) FROM agent_review_rule WHERE run_id = ? GROUP BY asked",
+        (run,),
+    ).fetchall()
+    assert {r[0]: r[1] for r in rows}[1] == 3
+
+
+def test_with_per_rule_scope_decisions_the_candidates_are_those_decisions_as_before(
+    tmp_path, monkeypatch
+):
+    _conn, _run, plan = _real_plan_world(tmp_path, monkeypatch, with_decisions=True)
+    asked = {i["rule_version_id"] for i in plan["items"] if i["source"] == "rule"}
+    assert asked == {
+        "req-a",
+        "req-b",
+    }  # only the rules the stored decisions name, not the whole book
+    assert plan["block"]["candidates"]["source"] == "per-rule scope decisions"
+    assert not any(
+        "rules came from the rule books" in x for x in plan["block"]["summary_lines"]
+    )
+
+
+def test_books_not_selected_counts_only_books_the_caller_may_read(con):
+    con.execute("INSERT INTO documents VALUES ('doc_other', 'other.pdf')")
+    con.execute(
+        "INSERT INTO standard_requirements (id, standard_document_id, requirement_text, source_text, requirement_type)"
+        " VALUES ('r-else', 'doc_other', 'x', 'x', 'statement')"
+    )
+    _label(con, "r-else")
+    run = _fresh_run(con)
+    assert (
+        it.books_not_selected(con, run, "datasheet", {STD})["ai_approved_of_this_kind"]
+        == 0
+    )
+    assert (
+        it.books_not_selected(con, run, "datasheet", {STD, "doc_other"})[
+            "ai_approved_of_this_kind"
+        ]
+        == 1
+    )
+
+
+def test_the_rules_used_route_says_where_the_rules_came_from_and_keeps_it_after_a_restart(
+    client,
+):
+    run_id = finished_run(client)
+    body = client.get(f"/api/reviews/runs/{run_id}/rules-used").json()
+    assert body["candidates_from"] == "the rules of the selected books"
+    assert body["same_rule_repeats"] == 0
+    assert body["other_books"] == {
+        "books": 0,
+        "ai_approved_rules": 0,
+        "boundary": "only rule books you may read",
+    }
+    db.reset_connection()  # a restart: only what the run row stored is left
+    again = client.get(f"/api/reviews/runs/{run_id}/rules-used").json()
+    assert (
+        again["candidates_from"] == body["candidates_from"]
+        and again["other_books"] == body["other_books"]
+    )
+
+
+def test_an_old_run_without_it_shows_null_never_zero(client):
+    run_id = finished_run(client)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_run SET equipment_json = '{}' WHERE run_id = ?",
+            (run_id,),
+        )
+    body = client.get(f"/api/reviews/runs/{run_id}/rules-used").json()
+    assert (
+        body["candidates_from"],
+        body["same_rule_repeats"],
+        body["other_books"],
+    ) == (None, None, None)
+
+
+def test_the_database_copy_of_the_class_word_tier_table_equals_the_contracts():
+    assert set(agent_review_schema.CLASSES) == set(contract.LINE_TABLE)
+    words = {w for ws, _t in contract.LINE_TABLE.values() for w in ws}
+    tiers = {t for _w, ts in contract.LINE_TABLE.values() for t in ts if t is not None}
+    assert set(agent_review_schema.WORDS) == words
+    assert set(agent_review_schema.TIERS) == tiers

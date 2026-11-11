@@ -168,6 +168,23 @@ describe("RulesUsedView: equipment notes and new reasons", () => {
   });
 });
 
+describe("RulesUsedView: where the rules came from", () => {
+  it("says the source, the repeats, and the other-book count with its boundary", () => {
+    render(<RulesUsedView data={data({
+      candidates_from: "the rules of the selected books", same_rule_repeats: 3,
+      other_books: { books: 3, ai_approved_rules: 100, boundary: "only rule books you may read" },
+    })} />);
+    expect(screen.getByTestId("candidates-from")).toHaveTextContent("taken from: the rules of the selected books");
+    expect(screen.getByTestId("candidates-from")).toHaveTextContent("3 stored rules are the same rule");
+    expect(screen.getByTestId("other-books")).toHaveTextContent("100 in 3 books (counted over only rule books you may read)");
+  });
+  it("shows nothing for a run stored before this was kept (null, never 0)", () => {
+    render(<RulesUsedView data={data({ candidates_from: null, same_rule_repeats: null, other_books: null })} />);
+    expect(screen.queryByTestId("candidates-from")).toBeNull();
+    expect(screen.queryByTestId("other-books")).toBeNull();
+  });
+});
+
 describe("RulesUsedView: percentage and warning agree", () => {
   /** MUTATION PROOF: use Math.round when below half and "50%" appears with the warning; trust the server flag and the warning vanishes. */
   it("49.6% below half shows 49% with the warning, whatever the server flag says", () => {

@@ -555,6 +555,11 @@ def _checklist(
     )
 
 
+#: Where the candidate rules came from (the words the contract and the screen use).
+SOURCE_DECISIONS = "per-rule scope decisions"
+SOURCE_BOOKS = "the rules of the selected books"
+
+
 def build_items_for_run(
     conn,
     document_id: str,
@@ -572,14 +577,15 @@ def build_items_for_run(
     rows = selected_book_rows(conn, scope_run, allowed) if by_book else None
     doc = build_items(conn, document_id, kind, run_id=scope_run, cache=cache, equipment_type=equipment_type,
                       equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows)  # fmt: skip
+    block = doc.setdefault("rule_labels", {})
+    other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
+    block["candidates"] = {
+        "source": SOURCE_BOOKS if by_book else SOURCE_DECISIONS,
+        "rows": len(rows) if rows is not None else None,
+        "repeats": (doc.get("rules_left_out") or {}).get("stored_repeat", 0),
+        "books_not_selected": other,
+    }
     if by_book:
-        block = doc.setdefault("rule_labels", {})
-        other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
-        block["candidates"] = {
-            "source": "selected_books",
-            "rows": len(rows or []),
-            "books_not_selected": other,
-        }
         block.setdefault("summary_lines", []).append(
             f"rules came from the rule books this review selected ({len(rows or [])} stored rules; no per-rule scope decision"
             f" exists); AI-approved rules of this paper kind in {other['books']} other books were not considered:"

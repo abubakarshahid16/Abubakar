@@ -110,6 +110,7 @@ def modules() -> tuple[Module, ...]:
                 (ar.AgentAskedRule, "AgentAskedRule"),
                 (ar.AgentLeftOutRule, "AgentLeftOutRule"),
                 (ar.AgentMissingBook, "AgentMissingBook"),
+                (ar.AgentOtherBooks, "AgentOtherBooks"),
                 (ar.AgentBookCoverage, "AgentBookCoverage"),
                 (ar.AgentRulesUsed, "AgentRulesUsed"),
             ),

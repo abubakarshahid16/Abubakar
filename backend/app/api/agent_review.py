@@ -65,6 +65,10 @@ def _require_on() -> None:
 router = APIRouter(dependencies=[Depends(_require_on)])
 
 
+#: whose books the count of other-book rules covers (rule 4: every count states its boundary).
+OTHER_BOOKS_BOUNDARY = "only rule books you may read"
+
+
 def _equipment(run: dict) -> dict:
     try:
         return json.loads(run.get("equipment_json") or "{}")
@@ -517,10 +521,15 @@ def rules_used(
             (review_run_id,),
         )
     ]
+    cand = _equipment(run).get("candidates") or {}
+    other = cand.get("books_not_selected")
     return contract.AgentRulesUsed(
         paper_kind=run["paper_kind"], equipment_type=run["equipment_type"], asked=asked, left_out=left,
         left_out_counts=counts, missing_books=missing, books=_coverage_for(rules),
         rule_set_changed_by=run["rule_set_changed_by"],
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        candidates_from=cand.get("source"), same_rule_repeats=cand.get("repeats") if cand else None,
+        other_books=None if not other else contract.AgentOtherBooks(
+            books=other["books"], ai_approved_rules=other["ai_approved_of_this_kind"], boundary=OTHER_BOOKS_BOUNDARY),
     )  # fmt: skip

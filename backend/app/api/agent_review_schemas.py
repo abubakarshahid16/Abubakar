@@ -313,6 +313,19 @@ class AgentBookCoverage(BaseModel):
     below_half: bool | None = None
 
 
+#: Where the candidate rules of a run came from.
+CandidatesFrom = Literal["per-rule scope decisions", "the rules of the selected books"]
+
+
+class AgentOtherBooks(BaseModel):
+    """AI-approved rules of the paper's kind that sit in rule books the run did NOT select (counts only)."""
+
+    books: Count
+    ai_approved_rules: Count
+    #: whose books these counts cover, in words.
+    boundary: str
+
+
 class AgentRulesUsed(BaseModel):
     """GET /api/reviews/runs/{id}/rules-used (view only)."""
 
@@ -330,3 +343,9 @@ class AgentRulesUsed(BaseModel):
     books: list[AgentBookCoverage] = []
     #: null unless a person changed the rule set (then their name).
     rule_set_changed_by: str | None = None
+    #: where the candidate rules came from; null on a run stored before this was kept (shown as nothing).
+    candidates_from: CandidatesFrom | None = None
+    #: rules that were the same rule as another candidate (not asked twice, not in either list); null when not kept.
+    same_rule_repeats: Count | None = None
+    #: AI-approved rules of this paper kind in rule books the run did not select; null when not kept.
+    other_books: AgentOtherBooks | None = None
