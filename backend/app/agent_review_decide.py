@@ -34,6 +34,13 @@ from .reader_api import _fold
 
 class DecideMixin:
     # ---- per item
+    def _tiered(self, item: dict) -> dict:
+        """The item with its tier derived from the CURRENT label table: an item whose tier is not Owner / Engineer / AI
+        approved now (whatever it carried when it was built) is marked not approved, so the cap holds."""
+        if verdict.item_tier(item, self.tier_lookup) == verdict.RULE_NOT_APPROVED:
+            return {**item, "rule_tier": verdict.RULE_NOT_APPROVED}
+        return item
+
     def _evidence(
         self, item: dict, answer: Mapping, pages: Mapping[int, str], error: str | None
     ) -> dict:
@@ -151,7 +158,7 @@ class DecideMixin:
         # F1 (conditional rule), F3 (table row or note), then THE cap of a rule that is not approved
         decision = verdict.apply_holds(
             g["decision"],
-            item,
+            self._tiered(item),
             clause_quote=answer.get("clause_quote"),
             requirement=ev["requirement"],
             clause_sources=[self.clauses.source(h["ref"]) for h in ev["held"]],

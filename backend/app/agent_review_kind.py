@@ -32,6 +32,15 @@ class PaperReading:
     equipment_type: str | None
     equipment_source: str | None
 
+    def as_dict(self) -> dict:
+        """The kind as the item builder takes it: {'kind', 'known', 'method', 'guess'} (kind None when unknown)."""
+        return {
+            "kind": self.kind if self.known else None,
+            "known": self.known,
+            "method": self.method,
+            "guess": self.guess,
+        }
+
     @property
     def item_kind(self) -> str | None:
         """The kind in the item builder's spelling ("test record"); None when unknown."""
@@ -45,34 +54,55 @@ def read_kind(conn, document_id: str) -> dict:
     No cue found: `known` False and no kind (never "other" by default)."""
     from . import paper_kind as pk
 
-    held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    held = {
+        r[0]
+        for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
     confirmed = None
     if "document_kinds" in held:
-        row = conn.execute("SELECT kind, state FROM document_kinds WHERE document_id = ?", (document_id,)).fetchone()
+        row = conn.execute(
+            "SELECT kind, state FROM document_kinds WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
         if row is not None and row["state"] == "confirmed":
             confirmed = row["kind"]
-    pages = [dict(r) for r in conn.execute(
-        "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no", (document_id,))]
+    pages = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    ]
     if not pages and not confirmed:
         return {"kind": None, "known": False, "method": "no_pages", "guess": False}
     role = None
     if "document_classification" in held:
-        row = conn.execute("SELECT document_role FROM document_classification WHERE document_id = ?",
-                           (document_id,)).fetchone()
+        row = conn.execute(
+            "SELECT document_role FROM document_classification WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
         role = row["document_role"] if row else None
     got = pk.decide_paper_kind(pages, document_role=role, confirmed_kind=confirmed)
     unknown = got.source_kind == "unknown" and got.method != "engineer_confirmed"
-    return {"kind": None if unknown else got.paper_kind, "known": not unknown, "method": got.method,
-            "guess": bool(got.guess)}
+    return {
+        "kind": None if unknown else got.paper_kind,
+        "known": not unknown,
+        "method": got.method,
+        "guess": bool(got.guess),
+    }
 
 
-def read_equipment(document_id: str, allowed: frozenset[str]) -> tuple[str | None, str | None]:
+def read_equipment(
+    document_id: str, allowed: frozenset[str]
+) -> tuple[str | None, str | None]:
     """(equipment type, where it was read) by the app's one reader; (None, None) when unknown or doubtful."""
     from . import classification, datasheets, subject_scope
 
     facts = datasheets.list_facts(document_id, allowed_document_ids=allowed)
     record = classification.of_document(document_id) or {}
-    found, source, _doubt = subject_scope.read_equipment(record, facts, subject_scope.vocabulary())
+    found, source, _doubt = subject_scope.read_equipment(
+        record, facts, subject_scope.vocabulary()
+    )
     if not found:
         return None, source
     return sorted(found)[0], source
@@ -89,6 +119,15 @@ def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:
         kind, source = str(got["kind"]), SOURCE_GUESS
     else:
         kind, source = str(got["kind"]), SOURCE_READ
-    equipment, equipment_source = read_equipment(document_id, allowed) if known else (None, None)
-    return PaperReading(kind, known, source, str(got.get("method") or ""), bool(got.get("guess")), equipment,
-                        equipment_source)
+    equipment, equipment_source = (
+        read_equipment(document_id, allowed) if known else (None, None)
+    )
+    return PaperReading(
+        kind,
+        known,
+        source,
+        str(got.get("method") or ""),
+        bool(got.get("guess")),
+        equipment,
+        equipment_source,
+    )

@@ -6,14 +6,16 @@ when the one switch is on (`agent_review_gate.enabled`); with the switch off not
 
 JOB ORDER
   1. read the paper (`nothing_read.read_phase`, as the classic review does);
-  2. the paper's KIND first (`agent_review_kind`); unknown stays unknown: no rule is asked and the run says so;
+  2. the paper's KIND first (`agent_review_kind`); unknown stays unknown, and a kind the reviewer is not enabled for
+     (`agent_review_gate.AGENT_REVIEW_KINDS`, datasheets only) asks nothing: the run says so;
   3. the standards: a finished classic run of the same code version is reused, else the classic selection runs inline;
-  4. the RIGHT rules only (`agent_review_items.build_items`, rule labels on): kind must equal the paper's, tier usable;
+  4. the RIGHT rules only (`agent_review_items.build_items`): kind must equal the paper's, tier usable, equipment type fits;
      everything else is counted with one reason and stored as "left out";
-  5. batches by page through the Claude lane, code verifies quotes and numbers (`agent_review_run.Runner`);
-  6. lines, rules and missing rule books are written to the tables as they are decided (a restart resumes: a stored line is
+  5. PREFLIGHT: the run is refused before any call when its inputs are inconsistent (`preflight`);
+  6. batches by page through the Claude lane, code verifies quotes and numbers (`agent_review_run.Runner`);
+  7. lines, rules and missing rule books are written to the tables as they are decided (a restart resumes: a stored line is
      kept and never asked, or paid for, again);
-  7. CRS internal and contractor copies (xlsx) are written under `<data dir>/agent_reviews/<run id>/`, with the trace file.
+  8. CRS internal and contractor copies (xlsx) are written under `<data dir>/agent_reviews/<run id>/`, with the trace file.
 
 Money goes ONLY through `claude_spend` (USD 5 per step, USD 15 per run); a cap stops the run with a PARTIAL result and a stop
 reason. No paper or rule-book text is logged.
@@ -36,8 +38,10 @@ from . import (
     job_queue,
     nothing_read,
     review_jobs,
+    rule_labels,
 )
 from . import agent_review_items as items_mod
+from . import agent_review_request as request_mod
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_wording as wording
@@ -58,16 +62,22 @@ ACTIVE_RUN = review_jobs.ACTIVE_RUN
 #: Words of the contract (`api/agent_review_schemas.py`).
 WORD_OF_LABEL = {"Query for the engineer": "Query"}
 NOT_APPLICABLE = "Not applicable"
-TIER_WORDS = {rules.TIER_AI: "AI approved", rules.TIER_ENGINEER: "Engineer", rules.TIER_OWNER: "Owner",
-              rules.TIER_NOT_APPROVED: "Not AI approved"}
+NOT_REVIEWED = "Not reviewed"
+NOT_REVIEWED_REASON = "not reviewed: no answer from the AI"
+#: The label table's tier words -> the contract's. A tier we cannot name is never shown as approved.
+TIER_WORDS = {
+    "owner": "Owner",
+    "engineer": "Engineer",
+    "AI approved": "AI approved",
+    "not AI approved": "Not AI approved",
+}
 LEFT_OUT_WORDS = {
     rules.ANOTHER_PAPER: "needs another paper",
     rules.NEEDS_HUMAN: "needs a human",
     rules.QUOTE_NOT_FOUND: "quote not found",
     rules.NOT_LABELLED: "not labelled yet",
+    "another_equipment_type": "another equipment type",
 }
-#: A checklist item (a skill) has no rule-book rule; its tier is the approved checklist's.
-CHECKLIST_TIER = "Engineer"
 
 
 class _Cancelled(Exception):
@@ -81,12 +91,17 @@ def _now() -> str:
 # ---------------------------------------------------------------- enqueue, claim, recover
 
 
-def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
-            requested_by: str | None) -> tuple[str, str]:
+def enqueue(
+    submittal_document_id: str,
+    *,
+    allowed_document_ids: frozenset[str],
+    requested_by: str | None,
+) -> tuple[str, str]:
     """Create the run and its job together. Returns (run_id, job_id).
 
     Raises ReviewAlreadyActive when ANY review (classic or AI) of this submittal is queued or running, and ValueError when
-    the caller may not read the submittal. Off: raises FeatureOff and creates nothing."""
+    the caller may not read the submittal. Off: raises FeatureOff and creates nothing. (The paper's kind is checked by the
+    caller first: `agent_review_gate.kind_enabled`.)"""
     agent_review_gate.require_on()
     from . import submittal_review
 
@@ -100,23 +115,33 @@ def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
         active = conn.execute(
             f"SELECT id FROM review_runs WHERE submittal_document_id = ?"
             f" AND status IN ({','.join('?' * len(ACTIVE_RUN))}) LIMIT 1",
-            (submittal_document_id, *ACTIVE_RUN)).fetchone()
+            (submittal_document_id, *ACTIVE_RUN),
+        ).fetchone()
         if active is not None:
             raise review_jobs.ReviewAlreadyActive(active["id"])
         conn.execute(
             "INSERT INTO review_runs (id, submittal_document_id, status, started_by,"
             " started_at, created_at, updated_at) VALUES (?,?,'queued',?,?,?,?)",
-            (run_id, submittal_document_id, requested_by, now, now, now))
+            (run_id, submittal_document_id, requested_by, now, now, now),
+        )
         conn.execute(
             """INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at,
                                  priority, created_by, code_version, config_version,
                                  review_run_id, progress_done, progress_total, progress_label)
                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, 0, ?, 'queued')""",
-            (job_id, submittal_document_id, STAGE, now, now, job_queue.PRIORITY_INTERACTIVE,
-             requested_by, review_jobs.review_code_version(), config_version(), run_id, len(STEPS)))
-        job_queue.audit(conn, "job.queued", job_id, actor_user_id=requested_by,
-                        detail=f"stage={STAGE} run={run_id}")
-    claude_auto_approve.on_review_start(run_id)  # #1584: the subject joins the approved list, unless blocked
+            (job_id, submittal_document_id, STAGE, now, now, job_queue.PRIORITY_INTERACTIVE, requested_by,
+             review_jobs.review_code_version(), config_version(), run_id, len(STEPS)),
+        )  # fmt: skip
+        job_queue.audit(
+            conn,
+            "job.queued",
+            job_id,
+            actor_user_id=requested_by,
+            detail=f"stage={STAGE} run={run_id}",
+        )
+    claude_auto_approve.on_review_start(
+        run_id
+    )  # #1584: the subject joins the approved list, unless blocked
     return run_id, job_id
 
 
@@ -134,11 +159,14 @@ def claim_next(worker_id: str) -> str | None:
                   AND {review_jobs._CLAIMABLE} AND {job_queue.under_limit_sql()}
                 RETURNING id, review_run_id""",
             {"me": worker_id, "now": now, "stage": STAGE, "stale": job_queue.stale_cutoff(),
-             "limit": settings.job_max_running}).fetchone()
+             "limit": settings.job_max_running},
+        ).fetchone()  # fmt: skip
         if row is None:
             return None
-        conn.execute("UPDATE review_runs SET status = 'running', updated_at = ? WHERE id = ?",
-                     (now, row["review_run_id"]))
+        conn.execute(
+            "UPDATE review_runs SET status = 'running', updated_at = ? WHERE id = ?",
+            (now, row["review_run_id"]),
+        )
     return row["id"]
 
 
@@ -152,7 +180,7 @@ def recover_stale(*, at_startup: bool = False) -> int:
     return review_recovery.recover(STAGE, at_startup=at_startup)
 
 
-# ---------------------------------------------------------------- the job
+# ---------------------------------------------------------------- lines
 
 
 def _progress(conn, job_id: str, done: int, heartbeat=None) -> None:
@@ -160,77 +188,84 @@ def _progress(conn, job_id: str, done: int, heartbeat=None) -> None:
     if heartbeat is not None:
         heartbeat()
     with conn:
-        row = conn.execute("SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute(
+            "SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
         if row and row["cancel_requested"]:
             raise _Cancelled()
-        conn.execute("UPDATE jobs SET progress_done = ?, progress_label = ?, claimed_at = ?, updated_at = ? WHERE id = ?",
-                     (done, STEPS[min(done, len(STEPS) - 1)], _now(), _now(), job_id))
+        conn.execute(
+            "UPDATE jobs SET progress_done = ?, progress_label = ?, claimed_at = ?, updated_at = ? WHERE id = ?",
+            (done, STEPS[min(done, len(STEPS) - 1)], _now(), _now(), job_id),
+        )
 
 
 def run_dir(run_id: str) -> Path:
     return Path(settings.data_dir) / "agent_reviews" / run_id
 
 
-def _scope_run_id(conn, submittal: str, run_id: str, scope: frozenset[str], heartbeat) -> str:
-    """The run whose stored scope decisions name the rules to ask: this run's own (a resumed run), else a finished classic
-    run of the SAME review code version, else the classic selection runs inline under this run's id."""
-    from . import applicability, submittal_fill
-
-    own = conn.execute("SELECT 1 FROM review_scope_decisions WHERE review_run_id = ? LIMIT 1", (run_id,)).fetchone()
-    if own:
-        return run_id
-    reuse = conn.execute(
-        "SELECT r.id FROM review_runs r JOIN jobs j ON j.review_run_id = r.id"
-        " WHERE r.submittal_document_id = ? AND r.status = 'completed' AND j.stage = ? AND j.code_version = ?"
-        " AND EXISTS (SELECT 1 FROM review_scope_decisions s WHERE s.review_run_id = r.id)"
-        " ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
-        (submittal, review_jobs.STAGE, review_jobs.review_code_version())).fetchone()
-    if reuse:
-        return reuse["id"]
-    submittal_fill.for_review(submittal)
-    applicability.select(submittal, allowed_document_ids=scope, review_run_id=run_id, persist=True, heartbeat=heartbeat)
-    return run_id
-
-
-def _tier_word(item: dict) -> str:
-    """The tier of a rule item or of a stored line (both carry `rule_tier`, `source` and `rule_label`)."""
-    if item.get("rule_tier") == rules.RULE_TIER_NOT_APPROVED:
-        return "Not AI approved"
+def _tier_word(item: dict) -> str | None:
+    """The tier of a rule ITEM as asked (a checklist item has none: None)."""
     if item.get("source") != "rule":
-        return CHECKLIST_TIER
-    tier = (item.get("rule_label") or {}).get("tier")
-    return TIER_WORDS.get(tier) or "Not AI approved"  # a tier we cannot name is never shown as approved
+        return None
+    if item.get("rule_tier") == rules.RULE_NOT_APPROVED:
+        return "Not AI approved"
+    return (
+        TIER_WORDS.get((item.get("rule_label") or {}).get("tier")) or "Not AI approved"
+    )
+
+
+def _line_tier(line: dict) -> str | None:
+    """The tier of a stored LINE: the one the exit wrote from the CURRENT label table (`tier`)."""
+    if line.get("source") != "rule" and line.get("tier") is None:
+        return None
+    return TIER_WORDS.get(line.get("tier")) or "Not AI approved"
 
 
 def contract_class_and_word(line: dict) -> tuple[str, str]:
-    """The contract's class and word of one line (`api/agent_review_schemas.py`). "Pass" / "Fail" only for a line proven by code."""
+    """The contract's class and word of one line. A line with no answer from the AI is "Not reviewed", never a Query about the
+    paper; "Pass" / "Fail" only for a line proven by code (the class table of the contract and of the table's own CHECK)."""
     line = wording.apply(line)
-    if crs_lines.is_not_applicable(line) and line["verdict_class"] == wording.CLASS_QUERY:
+    if line.get("error"):
+        return NOT_REVIEWED, NOT_REVIEWED
+    if (
+        crs_lines.is_not_applicable(line)
+        and line["verdict_class"] == wording.CLASS_QUERY
+    ):
         return "Not applicable", NOT_APPLICABLE
     label = line["verdict_label"]
     return line["verdict_class"], WORD_OF_LABEL.get(label, label)
 
 
 def store_line(run_id: str, line: dict, trace: dict) -> None:
-    """One line into `agent_review_line` (an upsert: a resumed run replaces its own failed line)."""
-    line = wording.apply(line)
+    """One line into `agent_review_line` (an upsert: a resumed run replaces its own failed line). The line already went through
+    the runner's one exit; the table's CHECK refuses an unproven Pass or Fail again."""
     cls, word = contract_class_and_word(line)
-    reason = str(line.get("not_proven_reason") or line.get("reasoning") or line.get("why") or "")
-    page = line.get("paper_page") or None
+    reason = str(
+        NOT_REVIEWED_REASON
+        if word == NOT_REVIEWED
+        else line.get("not_proven_reason")
+        or line.get("reasoning")
+        or line.get("why")
+        or ""
+    )
+    page = line.get("paper_page")
     with connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book,"
             " reason, rule_tier, line_json, trace_json, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, str(line["item_id"]), cls, word, page if isinstance(page, int) and page >= 1 else None,
-             str(line.get("clause") or ""), str(line.get("standard") or ""), reason, _tier_word(line),
+             str(line.get("clause") or ""), str(line.get("standard") or ""), reason, _line_tier(line),
              json.dumps(line, ensure_ascii=False, default=str), json.dumps(trace, ensure_ascii=False, default=str),
-             _now()))
+             _now()),
+        )  # fmt: skip
 
 
 def stored_lines(run_id: str) -> dict[str, dict]:
     """The lines already decided for this run (the resume set), by item id."""
     out: dict[str, dict] = {}
-    for r in connect().execute("SELECT item_id, line_json FROM agent_review_line WHERE run_id = ?", (run_id,)):
+    for r in connect().execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ?", (run_id,)
+    ):
         try:
             out[r["item_id"]] = json.loads(r["line_json"])
         except ValueError:
@@ -238,37 +273,70 @@ def stored_lines(run_id: str) -> dict[str, dict]:
     return out
 
 
-def _write_rules(run_id: str, doc: dict, cache: dict, equipment: str | None, kind: str) -> None:
+# ---------------------------------------------------------------- rules and books
+
+
+def _equipment_of(label: dict | None) -> str | None:
+    """The equipment (type, else family) a rule's label AGREES on; None when the label has none or it is not agreed."""
+    label = label or {}
+    if str(label.get("equip_state") or "") != "agreed":
+        return None
+    return label.get("equip_type") or label.get("equip_family") or None
+
+
+def _asked_row(run_id: str, it: dict, cache: dict, kind: str) -> tuple:
+    lab = it.get("rule_label") or {}
+    ref = it.get("rule_quote_ref") or it.get("clause_quote_ref")
+    entry = cache.get(ref) if isinstance(ref, str) else None
+    quote = (
+        entry.get("text")
+        if isinstance(entry, dict)
+        else (entry if isinstance(entry, str) else None)
+    )
+    full = (
+        rule_labels.label_for(connect(), requirement_id=str(it.get("rule_version_id")))
+        or {}
+    )
+    read_from = "scan" if str(full.get("read_from") or "") == "scan" else "text"
+    return (run_id, str(it.get("item_id")), 1, None, str(it.get("standard") or ""), str(it.get("clause") or ""), quote,
+            it.get("clause_page"), it.get("standard_document_id"), read_from, lab.get("paper_kind") or kind,
+            lab.get("field"), _equipment_of(full), _tier_word(it))  # fmt: skip
+
+
+def _write_rules(run_id: str, doc: dict, cache: dict, kind: str) -> None:
     """Every rule of the run: asked, or left out with its one reason. Idempotent (a resumed run writes the same rows)."""
     block = doc.get("rule_labels") or {}
-    rows = []
-    for it in doc.get("items") or []:
-        if it.get("source") != "rule":
-            continue
-        lab = it.get("rule_label") or {}
-        ref = it.get("rule_quote_ref") or it.get("clause_quote_ref")
-        entry = cache.get(ref) if isinstance(ref, str) else None
-        quote = entry.get("text") if isinstance(entry, dict) else (entry if isinstance(entry, str) else None)
-        rows.append((run_id, str(it.get("item_id")), 1, None, str(it.get("standard") or ""), str(it.get("clause") or ""),
-                     quote, it.get("clause_page"), lab.get("paper_kind") or kind, lab.get("field"), equipment,
-                     _tier_word(it)))
+    rows = [
+        _asked_row(run_id, it, cache, kind)
+        for it in doc.get("items") or []
+        if it.get("source") == "rule"
+    ]
     for rec in block.get("left_out") or []:
         reason = LEFT_OUT_WORDS.get(rec.get("reason"))
         if reason is None:
             continue  # "paper kind unknown": said once on the run, not once per rule
         rows.append((run_id, str(rec.get("rule_version_id") or rec.get("item_id")), 0, reason,
                      str(rec.get("rule_book") or ""), str(rec.get("clause") or ""), None, rec.get("page"),
-                     rec.get("needs_paper_kind"), None, None, None))
+                     rec.get("standard_document_id"), "text", rec.get("needs_paper_kind"), None, None, None))  # fmt: skip
     with connect() as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO agent_review_rule (run_id, rule_key, asked, left_out_reason, rule_book, clause, quote,"
-            " quote_page, paper_kind, field, equipment, tier) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            " quote_page, standard_document_id, read_from, paper_kind, field, equipment, tier)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
 
 
 def _write_missing(run_id: str, missing: list[dict]) -> None:
     with connect() as conn:
-        conn.executemany("INSERT OR REPLACE INTO agent_review_missing_book (run_id, name, why) VALUES (?,?,?)",
-                         [(run_id, str(m.get("rule_book")), str(m.get("why") or "")) for m in missing if m.get("rule_book")])
+        conn.executemany(
+            "INSERT OR REPLACE INTO agent_review_missing_book (run_id, name, why) VALUES (?,?,?)",
+            [
+                (run_id, str(m.get("rule_book")), str(m.get("why") or ""))
+                for m in missing
+                if m.get("rule_book")
+            ],
+        )
 
 
 def lane() -> tuple:
@@ -277,64 +345,388 @@ def lane() -> tuple:
 
 
 def _document_name(submittal: str) -> str:
-    row = connect().execute("SELECT filename FROM documents WHERE id = ?", (submittal,)).fetchone()
+    row = (
+        connect()
+        .execute("SELECT filename FROM documents WHERE id = ?", (submittal,))
+        .fetchone()
+    )
     return (row["filename"] if row else None) or submittal
 
 
-def _finish(run_id: str, submittal: str, kind: agent_review_kind.PaperReading, block: dict, runner,
-            items: list[dict], started: str, scope_run: str | None) -> dict:
-    """The run row, the CRS copies and the status of the run. Called also for a partial run (a cap, a refusal)."""
-    lines = [runner.lines[str(i["item_id"])] for i in items if str(i["item_id"]) in runner.lines] if runner else []
-    lines = [wording.apply(ln) for ln in lines]
-    counts = runner_mod.counts_of(lines)
-    models = sorted((runner.lead_models | runner.second_models) if runner else set())
-    partial = bool(runner and runner.stopped)
-    stop = None
-    if runner and runner.stopped:
-        stop = f"{runner.stopped}: {runner.stop_text}" if runner.stop_text and runner.stop_text != runner.stopped else runner.stopped
-    elif not kind.known:
-        stop = "paper_kind_unknown: no rule was asked; an engineer names the paper kind and the review runs again"
-    usd = round(runner.run_usd, 6) if runner and (runner.calls["lead"] or runner.calls["second"]
-                                                  or runner.calls["context"]) else None
+# ---------------------------------------------------------------- plan, preflight, execute, finish
+
+
+def _scope_run_id(
+    conn, submittal: str, run_id: str, scope: frozenset[str], heartbeat
+) -> str:
+    """The run whose stored scope decisions name the rules to ask: this run's own (a resumed run), else a finished classic
+    run of the SAME review code version, else the classic selection runs inline under this run's id."""
+    from . import applicability, submittal_fill
+
+    own = conn.execute(
+        "SELECT 1 FROM review_scope_decisions WHERE review_run_id = ? LIMIT 1",
+        (run_id,),
+    ).fetchone()
+    if own:
+        return run_id
+    reuse = conn.execute(
+        "SELECT r.id FROM review_runs r JOIN jobs j ON j.review_run_id = r.id"
+        " WHERE r.submittal_document_id = ? AND r.status = 'completed' AND j.stage = ? AND j.code_version = ?"
+        " AND EXISTS (SELECT 1 FROM review_scope_decisions s WHERE s.review_run_id = r.id)"
+        " ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+        (submittal, review_jobs.STAGE, review_jobs.review_code_version()),
+    ).fetchone()
+    if reuse:
+        return reuse["id"]
+    submittal_fill.for_review(submittal)
+    applicability.select(
+        submittal,
+        allowed_document_ids=scope,
+        review_run_id=run_id,
+        persist=True,
+        heartbeat=heartbeat,
+    )
+    return run_id
+
+
+def _no_rules_block(conn, submittal: str, why: str) -> dict:
+    """The rules-used block of a paper no rule is asked of (unknown kind, or a kind the reviewer is not enabled for)."""
+    return {"on": True, "paper_kind": None, "paper_kind_known": False, "summary_lines": [why], "left_out": [],
+            "counts": {}, "missing_rule_books": rules.missing_rule_books(conn, submittal)}  # fmt: skip
+
+
+def _nothing_asked(conn, submittal: str, why: str, stop: str) -> dict:
+    return {
+        "block": _no_rules_block(conn, submittal, why),
+        "items": [],
+        "cache": {},
+        "stop": stop,
+    }
+
+
+def preflight(
+    conn, submittal: str, kind: agent_review_kind.PaperReading, doc: dict, cache: dict
+) -> str | None:
+    """Why this run must be REFUSED before any call, or None. Inconsistent inputs are never asked of the model:
+    the switch off, a kind the reviewer is not enabled for, a paper with no stored page, an item list that fails its own
+    validation, a paper kind that differs from the one the rule filter used, rule-book pages missing for the context check,
+    and a lead and a second model of the same family."""
+    from . import agent_claude, agent_run_second
+
+    block = doc.get("rule_labels") or {}
+    if not agent_review_gate.enabled():
+        return "the AI reviewer is switched off"
+    if not (kind.known and agent_review_gate.kind_enabled(kind.kind)):
+        return agent_review_gate.KIND_NOT_ENABLED_MESSAGE
+    if not conn.execute(
+        "SELECT 1 FROM pages WHERE document_id = ? AND TRIM(text) <> '' LIMIT 1",
+        (submittal,),
+    ).fetchone():
+        return "the paper has no stored page text"
+    problems = items_mod.validate(doc, cache)
+    if problems:
+        return f"the item list failed its checks ({len(problems)} problem(s))"
+    if rules.norm_kind(block.get("paper_kind")) != rules.norm_kind(kind.kind):
+        return "the paper kind of the run differs from the kind the rule filter used"
+    docs = sorted(
+        {
+            str(i["standard_document_id"])
+            for i in doc.get("items") or []
+            if i.get("standard_document_id")
+        }
+    )
+    for d in docs:
+        if not conn.execute(
+            "SELECT 1 FROM pages WHERE document_id = ? LIMIT 1", (d,)
+        ).fetchone():
+            return "a rule book of the item list has no stored pages (the context check needs them)"
+    if not agent_run_second.models_differ(
+        [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
+    ):
+        return "the lead and the second model are of the same family"
+    return None
+
+
+def _plan(
+    conn,
+    run_id: str,
+    submittal: str,
+    scope: frozenset[str],
+    kind: agent_review_kind.PaperReading,
+    heartbeat,
+) -> dict:
+    """The items of the run: the right rules only for a paper whose kind the reviewer is enabled for, else none."""
+    if not kind.known:
+        why = "paper kind unknown: no rule was asked of this paper; an engineer names the paper kind and the review runs again"
+        return _nothing_asked(conn, submittal, why, f"paper_kind_unknown: {why}")
+    if not agent_review_gate.kind_enabled(kind.kind):
+        why = f"{agent_review_gate.KIND_NOT_ENABLED_MESSAGE}: no rule was asked of this {kind.kind.replace('_', ' ')}"
+        return _nothing_asked(
+            conn, submittal, why, f"{agent_review_gate.KIND_NOT_ENABLED}: {why}"
+        )
+    scope_run = _scope_run_id(conn, submittal, run_id, scope, heartbeat)
+    claude_auto_approve.on_review_start(
+        scope_run
+    )  # a cited standard joins the list too (when auto-approve is on)
+    cache: dict = {}
+    doc = items_mod.build_items(conn, submittal, kind.as_dict(), run_id=scope_run, cache=cache,
+                                equipment_type=kind.equipment_type)  # fmt: skip
+    _write_rules(run_id, doc, cache, kind.kind)
+    refused = preflight(conn, submittal, kind, doc, cache)
+    if refused:
+        out = _nothing_asked(
+            conn,
+            submittal,
+            f"refused before any call: {refused}",
+            f"refused: {refused}",
+        )
+        out["block"]["left_out"], out["block"]["counts"] = (
+            (doc.get("rule_labels") or {}).get("left_out", []),
+            (doc.get("rule_labels") or {}).get("counts", {}),
+        )
+        return out
+    return {
+        "block": doc.get("rule_labels") or {},
+        "items": list(doc.get("items") or []),
+        "cache": cache,
+        "stop": None,
+    }
+
+
+def _tier_lookup(equipment: str | None):
+    """The CURRENT tier of a rule item from the label table (read on the calling thread's own connection)."""
+
+    def lookup(item) -> str | None:
+        rid = item.get("rule_version_id")
+        if not rid:
+            return None
+        return rule_labels.usable_tier(
+            connect(), requirement_id=str(rid), equipment_type=equipment
+        ).tier
+
+    return lookup
+
+
+def _make_runner(
+    run_id: str, submittal: str, kind: agent_review_kind.PaperReading, plan: dict
+):
+    """The runner for this run: kept lines from an earlier attempt are not asked again (no second charge)."""
+    from . import agent_claude
+
+    send, env = lane()
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
-    meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10], "lead_models": sorted(
-        runner.lead_models) if runner else [], "second_models": sorted(runner.second_models) if runner else [],
-        "rule_labels": block or None, "order12_counts": {"rules_left_out": (block or {}).get("counts"),
-                                                         "rule_books_not_held": len((block or {}).get("missing_rule_books") or [])}}
+    done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error")}
+    return runner_mod.Runner(
+        paper=submittal, items=plan["items"], pages=request_mod.DbPages(connect(), submittal),
+        clauses=request_mod.ClauseCache(plan["cache"]), model=agent_claude.LEAD_MODEL, send=send, env=env,
+        done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type, std_pages=request_mod.StdPages(),
+        sink=lambda line, trace: store_line(run_id, line, trace), trace_path=folder / "trace.jsonl",
+        tier_lookup=_tier_lookup(kind.equipment_type),
+        retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS,
+    )  # fmt: skip
+
+
+def _ask(
+    run_id: str,
+    submittal: str,
+    kind: agent_review_kind.PaperReading,
+    plan: dict,
+    holder: dict,
+) -> None:
+    """Run the reviewer over the items. The lines decided so far are kept whatever happens; a stop is said, then re-raised."""
+    from . import claude_spend
+
+    runner = holder["runner"] = _make_runner(run_id, submittal, kind, plan)
+    declared = {submittal} | {
+        str(i["standard_document_id"])
+        for i in plan["items"]
+        if i.get("standard_document_id")
+    }
+    try:
+        with claude_approved.carrying(sorted(declared)), claude_spend.for_run(run_id):
+            runner.run()
+    except BaseException as exc:
+        if not runner.stopped:
+            runner.stopped, runner.stop_text = request_mod.stop_reason(
+                exc, runner.last_app_worst
+            )
+        raise
+
+
+def _stop_text(runner, plan: dict) -> str | None:
+    if runner is not None and runner.stopped:
+        same = not runner.stop_text or runner.stop_text == runner.stopped
+        return runner.stopped if same else f"{runner.stopped}: {runner.stop_text}"
+    return plan.get("stop")
+
+
+def _finish(
+    run_id: str,
+    submittal: str,
+    kind: agent_review_kind.PaperReading,
+    plan: dict,
+    runner,
+    started: str,
+) -> dict:
+    """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
+    items = plan["items"]
+    lines = (
+        [
+            runner.lines[str(i["item_id"])]
+            for i in items
+            if str(i["item_id"]) in runner.lines
+        ]
+        if runner
+        else []
+    )
+    counts = runner_mod.counts_of(lines)
+    models = sorted(runner.lead_models | runner.second_models) if runner else []
+    spent = runner and (
+        runner.calls["lead"] or runner.calls["second"] or runner.calls["context"]
+    )
+    usd = round(runner.run_usd, 6) if spent else None
+    stop = _stop_text(runner, plan)
+    meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
+            "lead_models": sorted(runner.lead_models) if runner else [],
+            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
+            "order12_counts": {"rules_left_out": plan["block"].get("counts"),
+                               "rule_books_not_held": len(plan["block"].get("missing_rule_books") or [])}}  # fmt: skip
+    folder = run_dir(run_id)
+    folder.mkdir(parents=True, exist_ok=True)
     crs_lines.write_internal(lines, folder / "crs-internal.xlsx", meta)
     crs_lines.write_contractor(lines, folder / "crs-contractor.xlsx", meta)
+    partial = bool(runner and runner.stopped) or bool(counts.get("not_run"))
     with connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
             " usd, models_json, stop_reason, counts_json, items_total, partial, rule_set_changed_by, started_at, finished_at)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)",
             (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
-             json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now()))
-    return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial, "scope_run": scope_run}
+             json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now()),
+        )  # fmt: skip
+    return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial}
+
+
+def _write_run_start(
+    run_id: str, submittal: str, kind: agent_review_kind.PaperReading, started: str
+) -> None:
+    """A first row of the run, so its summary can be read while it runs (spend unknown: NULL, never 0)."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
+            " started_at) VALUES (?,?,?,?,?,?)",
+            (run_id, submittal, kind.kind, kind.source, kind.equipment_type, started),
+        )
+
+
+def _execute(
+    run_id: str,
+    submittal: str,
+    kind: agent_review_kind.PaperReading,
+    plan: dict,
+    started: str,
+) -> dict:
+    _write_missing(run_id, plan["block"].get("missing_rule_books") or [])
+    holder: dict = {}
+    try:
+        if plan["items"]:
+            _ask(run_id, submittal, kind, plan, holder)
+    finally:  # the CRS and the run row are written for a partial run too
+        result = _finish(run_id, submittal, kind, plan, holder.get("runner"), started)
+    return result
+
+
+def _fail(conn, job_id: str, run_id: str, submittal: str, exc: Exception) -> str:
+    from . import errors
+
+    safe = errors.record_failure(exc, document_id=submittal, stage=STAGE)
+    with conn:
+        state = job_queue.fail(
+            conn, job_id, code=type(exc).__name__, message=safe["message"]
+        )
+        if state == job_queue.POISONED:
+            outcome = {
+                "error": safe["message"],
+                "agent_review": True,
+                "partial": bool(stored_lines(run_id)),
+            }
+            conn.execute("UPDATE review_runs SET status = 'failed', outcome_json = ?, updated_at = ? WHERE id = ?",
+                         (json.dumps(outcome), _now(), run_id))  # fmt: skip
+        else:
+            conn.execute(
+                "UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
+                (_now(), run_id),
+            )
+    return state
+
+
+def _cancelled(conn, job_id: str, run_id: str) -> str:
+    with conn:
+        conn.execute(
+            "UPDATE review_runs SET status = 'cancelled', outcome_json = ?, updated_at = ? WHERE id = ?",
+            (
+                json.dumps({"error": "cancelled by an engineer before it finished"}),
+                _now(),
+                run_id,
+            ),
+        )
+        conn.execute(
+            "UPDATE jobs SET state = ?, updated_at = ? WHERE id = ?",
+            (job_queue.CANCELLED, _now(), job_id),
+        )
+        job_queue.audit(
+            conn, "job.cancelled", job_id, detail=f"run={run_id} while running"
+        )
+    return job_queue.CANCELLED
+
+
+def _done(conn, job_id: str, run_id: str, result: dict) -> str:
+    outcome = {"agent_review": True, "partial": result["partial"], "stop_reason": result["stop_reason"],
+               "counts": {k: v for k, v in result["counts"].items() if isinstance(v, int)}}  # fmt: skip
+    with conn:
+        conn.execute(
+            "UPDATE review_runs SET status = 'completed', outcome_json = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(outcome), _now(), _now(), run_id),
+        )
+        conn.execute(
+            "UPDATE jobs SET state = 'done', progress_done = ?, progress_label = 'done', error_code = NULL,"
+            " error_message = NULL, next_attempt_at = NULL, updated_at = ? WHERE id = ?",
+            (len(STEPS), _now(), job_id),
+        )
+        job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
+    return "done"
+
+
+def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
+    """The switch went off while the job waited: nothing is sent, the job goes back to the queue."""
+    with conn:
+        conn.execute(
+            "UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?",
+            (_now(), job_id),
+        )
+        conn.execute(
+            "UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
+            (_now(), run_id),
+        )
+    return "queued"
 
 
 @review_jobs._review_scope  # the bar on the local engine; ledger lines carry the run's id; spend in the run's record
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed AI review job to its end. Returns the job's final state."""
-    from . import errors
-
     conn = connect()
-    job = conn.execute("SELECT * FROM jobs WHERE id = ? AND state = 'running' AND claimed_by = ?",
-                       (job_id, worker_id)).fetchone()
+    job = conn.execute(
+        "SELECT * FROM jobs WHERE id = ? AND state = 'running' AND claimed_by = ?",
+        (job_id, worker_id),
+    ).fetchone()
     if job is None:
         return "not_claimed"
-    if not agent_review_gate.enabled():  # the switch went off while the job waited: nothing is sent, the job goes back
-        with conn:
-            conn.execute("UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?",
-                         (_now(), job_id))
-            conn.execute("UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-                         (_now(), job["review_run_id"]))
-        return "queued"
-    agent_review_schema.ensure_schema()
     run_id, submittal = job["review_run_id"], job["document_id"]
-    scope = review_jobs._scope_of(job["created_by"])
-    started = _now()
+    if not agent_review_gate.enabled():
+        return _requeue_switched_off(conn, job_id, run_id)
+    agent_review_schema.ensure_schema()
+    scope, started = review_jobs._scope_of(job["created_by"]), _now()
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
@@ -342,86 +734,18 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         nothing_read.read_phase(submittal, scope, run_id)
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
-        block: dict = {}
-        items: list[dict] = []
-        runner = None
-        scope_run = None
-        if kind.known:
-            scope_run = _scope_run_id(conn, submittal, run_id, scope, heartbeat)
-            claude_auto_approve.on_review_start(scope_run)  # a cited standard joins the list too (when auto-approve is on)
-            cache: dict = {}
-            doc = items_mod.build_items(settings.db_path, submittal, kind.item_kind, run_id=scope_run, cache=cache,
-                                        rule_labels=True, equipment_type=kind.equipment_type)
-            block, items = doc.get("rule_labels") or {}, list(doc.get("items") or [])
-            _write_rules(run_id, doc, cache, kind.equipment_type, kind.kind)
-        else:
-            cache, doc = {}, {}
-            block = {"on": True, "paper_kind": None, "paper_kind_known": False,
-                     "summary_lines": ["paper kind unknown: no rule was asked of this paper; an engineer names the paper "
-                                       "kind and the review runs again"],
-                     "left_out": [], "counts": {}, "missing_rule_books": rules.missing_rule_books(conn, submittal)}
-        _write_missing(run_id, block.get("missing_rule_books") or [])
+        _write_run_start(run_id, submittal, kind, started)
+        plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
         _progress(conn, job_id, 2, heartbeat)
-        if items:
-            runner = _make_runner(run_id, submittal, kind, items, cache)
-            declared = {submittal} | {str(i["standard_document_id"]) for i in items if i.get("standard_document_id")}
-            from . import claude_spend
-
-            try:
-                with claude_approved.carrying(sorted(declared)), claude_spend.for_run(run_id):
-                    runner.run()
-            except BaseException as exc:  # the lines decided so far are kept; the stop is said, then re-raised
-                if not runner.stopped:
-                    runner.stopped, runner.stop_text = runner_mod.stop_reason(exc, runner.last_app_worst)
-                raise
-            finally:
-                result = _finish(run_id, submittal, kind, block, runner, items, started, scope_run)
-        else:
-            result = _finish(run_id, submittal, kind, block, None, items, started, scope_run)
+        result = _execute(run_id, submittal, kind, plan, started)
         _progress(conn, job_id, 3, heartbeat)
     except nothing_read.StoredFileAbsent as exc:
         return nothing_read.fail_run(job_id, run_id, exc)
     except _Cancelled:
-        with conn:
-            conn.execute("UPDATE review_runs SET status = 'cancelled', outcome_json = ?, updated_at = ? WHERE id = ?",
-                         (json.dumps({"error": "cancelled by an engineer before it finished"}), _now(), run_id))
-            conn.execute("UPDATE jobs SET state = ?, updated_at = ? WHERE id = ?", (job_queue.CANCELLED, _now(), job_id))
-            job_queue.audit(conn, "job.cancelled", job_id, detail=f"run={run_id} while running")
-        return job_queue.CANCELLED
+        return _cancelled(conn, job_id, run_id)
     except Exception as exc:  # noqa: BLE001 - a failed review must not kill the worker
-        safe = errors.record_failure(exc, document_id=submittal, stage=STAGE)
-        with conn:
-            state = job_queue.fail(conn, job_id, code=type(exc).__name__, message=safe["message"])
-            if state == job_queue.POISONED:
-                conn.execute("UPDATE review_runs SET status = 'failed', outcome_json = ?, updated_at = ? WHERE id = ?",
-                             (json.dumps({"error": safe["message"], "agent_review": True,
-                                          "partial": bool(stored_lines(run_id))}), _now(), run_id))
-            else:
-                conn.execute("UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?", (_now(), run_id))
-        return state
-    outcome = {"agent_review": True, "partial": result["partial"], "stop_reason": result["stop_reason"],
-               "counts": {k: v for k, v in result["counts"].items() if isinstance(v, int)}}
-    with conn:
-        conn.execute("UPDATE review_runs SET status = 'completed', outcome_json = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-                     (json.dumps(outcome), _now(), _now(), run_id))
-        conn.execute("UPDATE jobs SET state = 'done', progress_done = ?, progress_label = 'done', error_code = NULL,"
-                     " error_message = NULL, next_attempt_at = NULL, updated_at = ? WHERE id = ?",
-                     (len(STEPS), _now(), job_id))
-        job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
-    return "done"
-
-
-def _make_runner(run_id: str, submittal: str, kind: agent_review_kind.PaperReading, items: list[dict], cache: dict):
-    """The runner for this run: kept lines from an earlier attempt are not asked again (no second charge)."""
-    from . import agent_claude
-
-    send, env = lane()
-    pages = runner_mod.DbPages(connect(), submittal)
-    folder = run_dir(run_id)
-    folder.mkdir(parents=True, exist_ok=True)
-    done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error")}
-    return runner_mod.Runner(
-        paper=submittal, items=items, pages=pages, clauses=runner_mod.ClauseCache(cache), model=agent_claude.LEAD_MODEL,
-        send=send, env=env, done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type,
-        std_pages=runner_mod.StdPages(), sink=lambda line, trace: store_line(run_id, line, trace),
-        trace_path=folder / "trace.jsonl", retry_base=0.0 if send is not None else runner_mod.RETRY_BASE_SECONDS)
+        log.warning(
+            "agent review failed: %s", type(exc).__name__
+        )  # the class only, never a text
+        return _fail(conn, job_id, run_id, submittal, exc)
+    return _done(conn, job_id, run_id, result)

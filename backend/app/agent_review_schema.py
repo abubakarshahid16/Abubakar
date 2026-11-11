@@ -26,10 +26,24 @@ CLASSES = (
     "AI opinion, rule not yet approved",
     "Query for the engineer",
     "Not applicable",
+    "Not reviewed",
 )
-WORDS = ("Pass", "Fail", "AI thinks: met", "AI thinks: not met", "Query", "Not applicable")
+WORDS = (
+    "Pass",
+    "Fail",
+    "AI thinks: met",
+    "AI thinks: not met",
+    "Query",
+    "Not applicable",
+    "Not reviewed",
+)
 TIERS = ("Owner", "Engineer", "AI approved", "Not AI approved")
-TABLES = ("agent_review_run", "agent_review_rule", "agent_review_line", "agent_review_missing_book")
+TABLES = (
+    "agent_review_run",
+    "agent_review_rule",
+    "agent_review_line",
+    "agent_review_missing_book",
+)
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -62,6 +76,8 @@ _STATEMENTS = (
         clause TEXT,
         quote TEXT,
         quote_page INTEGER,
+        standard_document_id TEXT,
+        read_from TEXT NOT NULL DEFAULT 'text' CHECK (read_from IN ('text', 'scan')),
         paper_kind TEXT,
         field TEXT,
         equipment TEXT,
@@ -102,7 +118,10 @@ _STATEMENTS = (
 
 
 def has_tables(conn) -> bool:
-    held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    held = {
+        r[0]
+        for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
     return set(TABLES) <= held
 
 
