@@ -35,6 +35,7 @@ from .agent_review_verdict import (
     FAIL,
     PASS,
     QUERY,
+    met_unsafe_why,
 )
 from .agent_run_crs import _cell, _page_cell
 
@@ -209,10 +210,15 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
 def is_held_pass(line: Mapping) -> bool:
     """An AI Pass the gate held (quote, length, second opinion, ...): not a comment, ticked by the engineer on its own
     sheet. A Pass held because the value is marked deferred on the sheet IS a comment and stays on the CRS."""
+    label = line.get("verdict_label")
+    shown_as_met = (
+        label == wording.THINKS_MET if label is not None else not met_unsafe_why(line)
+    )  # N9: a "met" the exit turned into a Query is a Query line, not an AI-met line
     return (
         line.get("ai_verdict") == PASS
         and line.get("verdict") == QUERY
         and line.get("reason_code") != "value_deferred"
+        and shown_as_met
     )
 
 
@@ -318,6 +324,11 @@ def _verdict_cell(line: Mapping) -> str:
     ):  # order 12: never "Pass" or "Fail" for what code did not prove
         return f"{line['verdict_label']} ({line['verdict_class']}); not proven by code: {_clean(line.get('not_proven_reason'))}"
     word = VERDICT_WORDS.get(line.get("verdict"), VERDICT_WORDS[QUERY])
+    why = met_unsafe_why(line)
+    if why and str(line.get("not_proven_reason") or "").startswith(
+        why
+    ):  # N9: the new reason
+        return f"{word}; not proven by code: {line['not_proven_reason']}"
     if line.get("decided_by") == BY_CODE and line.get("verdict") in (PASS, FAIL):
         return f"{word}, decided by code"
     if line.get("decided_by") == BY_AI and line.get("verdict") in (PASS, FAIL):

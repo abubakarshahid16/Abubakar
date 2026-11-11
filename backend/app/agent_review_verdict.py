@@ -706,28 +706,42 @@ DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stan
 UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
 UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
 DISAGREE_WHY = "two AI readers disagree on this line"
-_CELL_SPLIT = re.compile(r"[\r\n|\t]+")
+_GENERIC_BY = re.compile(
+    r"by\s", re.IGNORECASE
+)  # "by calculation ...": running text; real "by contractor" is a phrase
+_CELL_SPLIT = re.compile(
+    r"[|\t]+"
+)  # a table cell ends at | or a tab; a PDF line wrap does not end a cell
 
 
 def quote_defers(quote: Any) -> bool:
-    """The paper quote defers or leaves open the value: a deferral phrase anywhere in it ("by contractor", "to be confirmed",
-    "TBA", "vendor to advise") or a cell of it that is wholly a marker ("later", "hold", "-", "*", "by others"). ONE word list:
+    """The paper quote defers or leaves open the value: a whole deferral phrase anywhere in it ("by contractor", "to be
+    confirmed", "TBA", "vendor to advise": word boundaries) or one cell of it that is wholly a marker ("later", "hold", "-",
+    "*"). A cell ends at a bar or a tab, NOT at a line wrap: a wrapped line that merely starts with "by ..." or is a "Note 3"
+    reference, or "by ..." with no named party, is running text, not a value, and is not a deferral. The helper cannot tell a value from running text, so a
+    marker alone on a wrapped line ("Seat tightness" / "later") is NOT caught: the stricter reading is kept. ONE word list:
     `blank_markers` (rule 8); this adds no words of its own."""
     text = str(quote or "")
     if blank_markers.names_a_marker(text):
         return True
     return any(
         blank_markers.is_marker(cell)
+        and not _GENERIC_BY.match(cell.strip())
+        and not is_note_start(cell)
         for cell in _CELL_SPLIT.split(text)
         if cell.strip()
     )
 
 
 def met_unsafe_why(line: Mapping) -> str | None:
-    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict not Pass) must be a Query, else None. (a) the paper quote
+    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None. (a) the paper quote
     it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (a line with no record of
-    the check counts as not verified). Never touches a proven Pass or any other AI word: it only makes a line less confident."""
-    if line.get("ai_verdict") != PASS or line.get("verdict") == PASS:
+    the check counts as not verified; a "met" with NO clause quote recorded, for example a checklist item whose clause was
+    not quoted, is therefore a Query BY DESIGN: the gate already refuses a Pass without a verified clause quote). Acts ONLY
+    on a line whose verdict is Query (the lines shown as "AI thinks: met"); a proven Fail or Pass passes through. Never touches a proven Pass or any other AI word: it only makes a line less confident."""
+    if (
+        line.get("ai_verdict") != PASS or line.get("verdict") != QUERY
+    ):  # a proven Pass or Fail is never touched
         return None
     if quote_defers(line.get("paper_quote")):
         return DEFERRED_WHY
