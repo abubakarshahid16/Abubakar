@@ -167,9 +167,60 @@ def test_a_good_run_with_a_not_applicable_answer_and_a_cut_off_answer_passes_eve
     assert got["spend under the cap and real answers"].ok
 
 
-def test_a_wrong_class_word_pair_is_caught_by_the_table_the_lines_route_and_the_stored_rows(
-    world, monkeypatch
+def _illegal_rows(path):
+    """The stored rows the contract refuses, read straight from the database (not through any route)."""
+    from pydantic import ValidationError
+
+    from app.api import agent_review_schemas as contract
+
+    bad = []
+    for r in trial.ro(path).execute(
+        "SELECT item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier, part, text_source FROM agent_review_line"
+    ):
+        try:
+            contract.AgentLine.model_validate(dict(r))
+        except ValidationError:
+            bad.append(r["item_id"])
+    return bad
+
+
+def test_an_illegal_pair_planted_as_a_stored_row_is_reported_whatever_the_route_does(
+    world,
 ):
+    """The live database holds one from the 12 Nov run: class "Not applicable" with the word "Query"."""
+    from app import agent_review_schema
+
+    agent_review_schema.ensure_schema()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier,"
+            " line_json, decided_at) VALUES ('r','S-EQ-17','Not applicable','Query',1,'4.1','B','',NULL,'{}','2026-11-12')"
+        )
+        conn.execute(
+            "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier,"
+            " line_json, decided_at) VALUES ('r','S-EQ-18','Not reviewed','Not reviewed',1,'4.1','B','',NULL,'{}','2026-11-12')"
+        )
+    check = trial.legal_rows_check(trial.ro(world / "agent.sqlite"), "r")
+    assert not check.ok and '"Not applicable"+"Query"' in check.detail
+    assert "1 of 2 lines illegal" in check.detail
+
+
+def test_the_table_check_reports_a_pair_only_when_the_table_itself_is_wrong(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        agent_review_jobs,
+        "contract_class_and_word",
+        lambda _line: ("Not applicable", "Query"),
+    )
+    assert not trial.static_pair_check().ok  # a wrong table
+    monkeypatch.setattr(agent_review_jobs, "contract_class_and_word", pair_fixed)
+    assert trial.static_pair_check().ok  # a right table, whatever the stored rows hold
+
+
+def test_the_lines_route_check_follows_what_the_rows_really_are(world, monkeypatch):
+    """With a wrong table a run may store the bad pair (the route then answers 500) or refuse to store it, or map it at read
+    (the route answers 200): the trial must say exactly what is true, by behaviour, in either world."""
     monkeypatch.setattr(
         agent_review_jobs,
         "contract_class_and_word",
@@ -181,11 +232,13 @@ def test_a_wrong_class_word_pair_is_caught_by_the_table_the_lines_route_and_the_
     )
     checks = trial.run_trial(cfg_for(world), lane=stub(), log=lambda _m: None)
     bad = failed(checks)
+    stored_bad = _illegal_rows(world / "agent.sqlite")
     assert (
         "class/word table legal for every core line" in bad
     )  # the grid reaches the same patched function
-    assert "stored lines legal by the contract" in bad
-    assert "route lines 200" in bad  # the very 500 of the live run
+    assert ("stored lines legal by the contract" in bad) == bool(stored_bad)
+    if "route lines 200" in bad:  # the old 500: only a stored illegal row can cause it
+        assert stored_bad
     assert "route summary 200" not in bad  # the rest of the routes still answer
 
 
