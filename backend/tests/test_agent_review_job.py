@@ -388,3 +388,52 @@ def test_the_approved_list_still_applies_an_unapproved_document_stops_the_run_wi
     )
     assert run["partial"] == 1 and "not_approved" in run["stop_reason"]
     assert world.lead_asked == []  # nothing was sent
+
+
+def _stored_json(run_id, item_id):
+    return json.loads(
+        db.connect()
+        .execute(
+            "SELECT line_json FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            (run_id, item_id),
+        )
+        .fetchone()["line_json"]
+    )
+
+
+def test_a_not_mentioned_pass_is_stored_as_a_query_with_the_not_stated_reason(
+    world, monkeypatch
+):
+    """N9, the whole chain: the lead says Pass but its own words say the paper does not mention the field -> the real gate
+    sets its code -> `_line`/`_holds` store it -> the single exit -> the table. The stored line is a Query, never met."""
+    absent = {
+        **s.ANSWERS["R-coat"],
+        "reasoning": "the coating layers are not mentioned on the sheet",
+    }
+    fake = s.FakeModel(answers={**s.ANSWERS, "R-coat": absent})
+    monkeypatch.setattr(agent_review_jobs, "lane", lambda: (fake, s.ENV))
+    run_id, job_id = start()
+    run_job(job_id)
+    line = _stored_json(run_id, "R-coat")
+    row = lines_of(run_id)["R-coat"]
+    assert line["not_mentioned_hold"] is True and line["verdict"] == "Query"
+    assert (row["word"], row["verdict_class"]) == ("Query", "Query for the engineer")
+    assert row["reason"].startswith(
+        "the paper does not state this; the AI reader's view is not confirmed"
+    )
+    assert "not confirmed: " in row["reason"]  # the first reader's words follow, marked
+
+
+def test_a_disagreeing_second_reader_is_stored_as_a_query_with_the_disagreement_reason(
+    world, monkeypatch
+):
+    """N9, the whole chain for a code set by the runner: the stubbed second reader disagrees."""
+    monkeypatch.setattr(
+        agent_review_jobs, "lane", lambda: (s.FakeModel(agree=False), s.ENV)
+    )
+    run_id, job_id = start()
+    run_job(job_id)
+    line, row = _stored_json(run_id, "R-coat"), lines_of(run_id)["R-coat"]
+    assert line["second_opinion"]["agree"] is False and line["ai_verdict"] == "Pass"
+    assert row["word"] == "Query"
+    assert row["reason"].startswith("two AI readers disagree on this line")
