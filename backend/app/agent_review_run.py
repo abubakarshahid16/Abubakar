@@ -35,7 +35,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from . import agent_claude, agent_run_second, agent_tools, claude_spend
+from . import (
+    agent_claude,
+    agent_run_second,
+    agent_tools,
+    claude_auto_approve,
+    claude_spend,
+)
 from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
 from . import agent_review_verdict as verdict
@@ -445,6 +451,9 @@ class Runner(DecideMixin):
         """Call inside `claude_spend.for_run(...)` and `claude_approved.carrying(...)`: the step gate starts from what this
         review run has already spent (a resumed run keeps counting)."""
         self.restore()
+        claude_auto_approve.on_agent_standards(
+            self.paper, [i.get("standard_document_id") for i in self.items]
+        )  # #1584 comment 6806441133 (to be confirmed by the owner): the books this run asks rules from are approved with the paper (off: nothing)
         self.gate = AppStepGate(app_cap(), claude_spend.step_spent(agent_claude.STEP))
         todo = self.todo()
         batches, source = make_batches(todo, self.max_batch)

@@ -70,6 +70,8 @@ BLOCKED = "blocked"
 WITHDRAWN = "withdrawn"
 AUTO_SOURCE = "auto"
 REVIEW_ROLE = "CONTRACTOR_SUBMITTAL"
+#: A rule book (a company standard): the only kind of document the AI reviewer's rule books may be (`claude_auto_approve`).
+STANDARD_ROLE = "COMPANY_STANDARD"
 BLOCK_FILE_NAME = "claude_blocked_hashes.json"
 #: The register file of CLAUDE.md rule 3, letters and digits only, lower case.
 REGISTER_NAME_KEY = "engineeringdeliverables"

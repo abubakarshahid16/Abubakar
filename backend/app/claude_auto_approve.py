@@ -11,6 +11,10 @@ WHAT GETS AN ENTRY, AND WHEN
   * the subject of a review, when the review starts, so documents uploaded
     earlier are covered. A subject with no role is listed: it is being reviewed.
     A subject whose role says standard, contract, supporting or template is not;
+  * a rule book the AI reviewer ASKS rules from (`on_agent_standards`, order 12 N3; issue #1584, comment 6806441133, owner decision of 12 Nov 2026, to be confirmed there by the owner): the books of the
+    rules it declares to the Claude gate (`agent_review_jobs._ask` declares the paper and these books), whatever method chose
+    them. Before this, a book chosen by equipment type or service, not cited, never joined the list and every call of the
+    run was refused `not_approved`. Only a document that is a rule book (role COMPANY_STANDARD) inside the scope of the caller who started the review, and only when the paper itself qualifies (role none or CONTRACTOR_SUBMITTAL);
   * a standard a review CITES, or the standard that GOVERNS its equipment type,
     labelled apart (`LISTED_METHODS`), when the review starts or records it: a
     review chooses its standards after it starts, so "at the start" alone would
@@ -56,7 +60,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import claude_approved
+from . import claude_approved, claude_spend
 from .claude_approved import APPROVED, BLOCKED, REVIEW_ROLE, WITHDRAWN
 from .db import connect
 
@@ -327,6 +331,61 @@ def on_review_start(review_run_id: str) -> None:
         return out
 
     _run("review", review_run_id, build)
+
+
+def _scope_of_run(review_run_id: str | None):
+    """The documents the caller who STARTED this review may read (None: not established, so nothing is approved)."""
+    if not review_run_id:
+        return None
+    row = (
+        connect()
+        .execute(
+            "SELECT created_by FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
+            (review_run_id,),
+        )
+        .fetchone()
+    )
+    if row is None:
+        return None
+    from . import review_jobs  # lazy: review_jobs imports this module
+
+    return review_jobs._scope_of(row["created_by"])
+
+
+def on_agent_standards(
+    subject_document_id: str,
+    standard_document_ids,
+    review_run_id: str | None = None,
+) -> None:
+    """The AI reviewer is about to ask rules of these rule books for this paper: they join the list, labelled apart, when the
+    paper itself qualifies. Only a document that IS a rule book (role `claude_approved.STANDARD_ROLE`, the project's own notion
+    of a standard) and lies inside the scope of the caller who started THIS review (rule 5: intersection, never union; the
+    items may come from a reused run chosen under another caller's scope). Anything else is left to the gate, which refuses it.
+    The register and a blocked hash never join (`_apply`). Never raises; nothing with the switch off."""
+
+    def build():
+        subject = _document(subject_document_id)
+        if subject is None or subject["document_role"] not in (None, REVIEW_ROLE):
+            return []
+        scope = _scope_of_run(review_run_id or claude_spend.current_run())
+        if scope is None or subject_document_id not in scope:
+            return []
+        out = []
+        for sid in sorted({str(d) for d in standard_document_ids or () if d}):
+            standard = _document(sid)
+            if (
+                standard is not None
+                and standard["document_role"] == claude_approved.STANDARD_ROLE
+                and sid in scope
+            ):
+                out.append(
+                    _want(
+                        standard, f"auto: asked by AI review of {subject_document_id}"
+                    )
+                )
+        return out
+
+    _run("agent review", subject_document_id, build)
 
 
 def on_standard_cited(
