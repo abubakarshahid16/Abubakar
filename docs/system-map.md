@@ -55,6 +55,15 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rule_finish_record` | Recording the finishing line's steps bound to the rule version, quote and content: code steps recomputed from the work copy, inputs and sample sheets issued by code, the engineer check and owner sample from files that answer an issued input, stale checks never counting |
 | `rule_finish_repair` | Applying an engineer's repair of a rule to a work copy, each part verified by code against the quote and the standard's page text |
 | `rule_coverage` | Which numeric obligation sentences of a standard no compiled rule covers (counts per standard, local files only) |
+| `rule_label_schema` | Owner decision 1 (11 Nov 2026): the tables `rule_label` and `rule_label_event` (an AI-approved tier beside the rule book's owner and engineer tiers, which stay untouched), their guards, made only when `agent_review_enabled` is on |
+| `rule_labels` | Owner decision 1: a rule's paper kind, field and state, and `decide`, the one code decision (two different models, one prompt version, numbers and quote checked by code, no AI word); the read side that says whether the reviewer may use a rule (owner, engineer, AI approved, or one reason it may not) |
+| `rule_label_job` | Owner decision 1: the label job, pass a and pass b with two different Claude models on a database COPY only, money through the app's lane and an injected order ledger, the label file export (no quote text); started by `scripts/run_rule_labels.py` |
+| `rule_label_prompt` | Owner decision 1: the label job's prompt (rule-book text only, the paper kinds, the app's fixed field list) and the reading of a model's answers, each tied to its own rule by an echo of the quote's first words |
+| `rule_label_lane` | Owner decision 1: the label job's one call through the app's Claude lane, reserved and settled on an injected order ledger (a hard stop before anything is sent) |
+| `rule_label_convert` | Converts the lab labeller's table into a product label file: every row decided again by `rule_labels.decide` from the lab's stored answers, the quote found again by the app's own check, the lab's prompt version accepted only here and marked `origin: lab-order12`; nothing promoted |
+| `rule_label_quantity` | Owner decision 1: whether a rule's quote states a quantity (a number that is not a clause number, a name part or a reference), the strict rule that stops two empty readings approving a numeric rule |
+| `rule_label_ocr` | Owner decision 1: the confidence of a rule's quote at quote level (the minimum score of the stored OCR boxes its words touch, exact inside the quote), read only; without stored boxes the strict page rule stays |
+| `rule_label_import` | Owner decision 1: the server's import of a label file, every row re-checked by code against the stored rule, quote and page; counts only |
 | `agent_edition` | Which document is a standard at the contract's edition, with the printed page and line as evidence, or 'edition not confirmed'; shared by the agent tools and runner |
 | `agent_claude` | Claude provider for the agent proof test (off by default): every call through `reader_transport` and `claude_spend.metered`, cached system and first block, a second opinion from a different model, a cost projector; errors are codes only |
 | `agent_local` | Local second opinion for the agent proof test (off by default): the local Qwen 35B through `model_transport`, heavy lock and unload around a batch, errors are codes only |
@@ -91,6 +100,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.agent_review_schemas` | The AI reviewer's request and response shapes (#1690): status, summary, lines, trace and Rules used, with closed word lists; contract only, no route yet, no behaviour; read by the TypeScript generator |
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
+| `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
