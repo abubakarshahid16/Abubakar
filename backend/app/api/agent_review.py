@@ -65,6 +65,10 @@ def _require_on() -> None:
 router = APIRouter(dependencies=[Depends(_require_on)])
 
 
+#: whose books the count of other-book rules covers (rule 4: every count states its boundary).
+OTHER_BOOKS_BOUNDARY = "rule books the person who started this review may read"
+
+
 def _equipment(run: dict) -> dict:
     try:
         return json.loads(run.get("equipment_json") or "{}")
@@ -255,16 +259,36 @@ def agent_lines(
         .fetchall()
     )
     page = rows[:limit]
-    lines = [
-        contract.AgentLine.model_validate(
-            {k: v for k, v in dict(r).items() if k != "rid"}
-        )  # the contract's own table checks
-        for r in page
-    ]
+    lines = [_read_line(dict(r)) for r in page]
     more = len(rows) > limit
     return contract.AgentLineList(
         lines=lines, next=str(page[-1]["rid"]) if more and page else None
     )
+
+
+def _read_line(row: dict) -> contract.AgentLine:
+    """One stored line as the contract's line. A pair the contract refuses but that maps by its own one table
+    (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
+    still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
+    row = {k: v for k, v in row.items() if k != "rid"}
+    word = contract.legal_word(str(row.get("verdict_class")), str(row.get("word")))
+    if word is not None:
+        row["word"] = word
+    try:
+        return contract.AgentLine.model_validate(row)  # the contract's own table checks
+    except ValueError:
+        return contract.AgentLine(
+            item_id=str(row.get("item_id") or ""),
+            verdict_class="Not reviewed",
+            word="Not reviewed",
+            page=row.get("page")
+            if isinstance(row.get("page"), int) and row["page"] >= 1
+            else None,
+            clause=str(row.get("clause") or ""),
+            rule_book=str(row.get("rule_book") or ""),
+            reason="a stored line could not be read: its class, word or tier is not allowed by the contract",
+            rule_tier=None,
+        )
 
 
 def _mode_of(conn, run_id: str) -> dict:
@@ -497,10 +521,15 @@ def rules_used(
             (review_run_id,),
         )
     ]
+    cand = _equipment(run).get("candidates") or {}
+    other = cand.get("books_not_selected")
     return contract.AgentRulesUsed(
         paper_kind=run["paper_kind"], equipment_type=run["equipment_type"], asked=asked, left_out=left,
         left_out_counts=counts, missing_books=missing, books=_coverage_for(rules),
         rule_set_changed_by=run["rule_set_changed_by"],
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        candidates_from=cand.get("source"), same_rule_repeats=cand.get("repeats") if cand else None,
+        other_books=None if not other else contract.AgentOtherBooks(
+            books=other["books"], ai_approved_rules=other["ai_approved_of_this_kind"], boundary=OTHER_BOOKS_BOUNDARY),
     )  # fmt: skip
