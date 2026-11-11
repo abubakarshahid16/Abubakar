@@ -64,33 +64,32 @@ def lab_row(
     field="a_field",
     b_kind=None,
 ):
-    ans = lambda k: (
-        k,
-        field if k == "datasheet" else None,
-        cmp_,
-        values,
-        unit,
-        "shall",
-        "the item",
-    )
-    return (
-        (
-            "requirement",
-            ref,
-            state,
-            a_model,
-            b_model,
-            prompt,
-            prompt,
-            prompt,
-            1,
-            page,
-            recovery,
-            "2026-11-11T00:00:00Z",
+    def ans(k):
+        return (
+            k,
+            field if k == "datasheet" else None,
+            cmp_,
+            values,
+            unit,
+            "shall",
+            "the item",
         )
-        + ans(kind)
-        + ans(b_kind or kind)
+
+    head = (
+        "requirement",
+        ref,
+        state,
+        a_model,
+        b_model,
+        prompt,
+        prompt,
+        prompt,
+        1,
+        page,
+        recovery,
+        "2026-11-11T00:00:00Z",
     )
+    return (*head, *ans(kind), *ans(b_kind or kind))
 
 
 _N = [0]

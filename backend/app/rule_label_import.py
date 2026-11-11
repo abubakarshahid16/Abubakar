@@ -173,13 +173,42 @@ def _as_stored(row: dict, version_id: str | None) -> dict:
     }
 
 
+def _approval_failure(
+    conn, raw: dict, rule: dict, stored: dict, pages: dict
+) -> str | None:
+    """The count key a claimed approval fails under, or None when every check holds: the page the row names, the
+    approval guard (with the lab prompt only for a lab row), the quote on its page, the page's OCR confidence."""
+    from . import compiled_rule_report
+    from .compiled_rule_proof import quote_verified
+
+    lab = raw.get("origin") == rule_labels.LAB_ORIGIN
+    page = raw.get("quote_page")
+    if page != rule["page"] and not (lab and raw.get("quote_recovery") == "page"):
+        return "refused"  # the page the row names is not the page the rule cites
+    accepted = (
+        *rule_labels.ACCEPTED_PROMPTS,
+        *(rule_labels.LAB_PROMPTS if lab else ()),
+    )
+    if rule_labels.approval_guard(stored, rule["quote"], accepted=accepted) is not None:
+        return "refused"
+    if rule["sdid"] not in pages:
+        pages[rule["sdid"]] = (
+            compiled_rule_report.pages_of(conn, rule["sdid"]),
+            compiled_rule_report.page_origin(conn, rule["sdid"]),
+        )
+    text, origin = pages[rule["sdid"]]
+    if not quote_verified(rule["quote"], text.get(page)):
+        return "skipped_changed_quote"
+    if rule_labels.page_is_low_confidence_ocr(origin.get(page)):
+        return "refused"
+    return None
+
+
 def import_labels(conn: sqlite3.Connection, rows: list[Any]) -> dict:
     """Check and store `rows` on `conn` (the server's own connection). Returns
     {read, stored, skipped_changed_quote, unknown_rule, refused}: counts only. Switch off: raises `SwitchedOff`."""
     require_on()
     create_tables(conn)
-    from . import compiled_rule_report
-
     counts = {
         "read": 0,
         "stored": 0,
@@ -217,34 +246,9 @@ def import_labels(conn: sqlite3.Connection, rows: list[Any]) -> dict:
         )
         stored = _as_stored(raw, version_id)
         if raw["state"] == AI_APPROVED:
-            lab = raw.get("origin") == rule_labels.LAB_ORIGIN
-            page = raw.get("quote_page")
-            if page != rule["page"] and not (
-                lab and raw.get("quote_recovery") == "page"
-            ):
-                counts["refused"] += (
-                    1  # the page the row names is not the page the rule cites
-                )
-                continue
-            accepted = rule_labels.ACCEPTED_PROMPTS + (
-                rule_labels.LAB_PROMPTS if lab else ()
-            )
-            if rule_labels.approval_guard(stored, quote, accepted=accepted) is not None:
-                counts["refused"] += 1
-                continue
-            if rule["sdid"] not in pages:
-                pages[rule["sdid"]] = (
-                    compiled_rule_report.pages_of(conn, rule["sdid"]),
-                    compiled_rule_report.page_origin(conn, rule["sdid"]),
-                )
-            text, origin = pages[rule["sdid"]]
-            from .compiled_rule_proof import quote_verified
-
-            if not quote_verified(quote, text.get(page)):
-                counts["skipped_changed_quote"] += 1
-                continue
-            if rule_labels.page_is_low_confidence_ocr(origin.get(page)):
-                counts["refused"] += 1
+            failed = _approval_failure(conn, raw, rule, stored, pages)
+            if failed:
+                counts[failed] += 1
                 continue
         elif raw.get("quote_page") is not None and not isinstance(
             raw["quote_page"], int

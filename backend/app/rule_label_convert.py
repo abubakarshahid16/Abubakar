@@ -71,6 +71,44 @@ def _pass(row, p: str, quote: str, fallback_prompt: str | None):
     )
 
 
+def _file_row(lab, a, b, d, page, quote: str, recovery) -> dict:
+    """One label row in the file shape; marked as the lab's only when its prompt is the lab's."""
+    return {
+        "source": lab["source"],
+        "rule_ref": lab["rule_ref"],
+        "rule_version_id": None,
+        "paper_kind": d.paper_kind,
+        "field": d.field,
+        "state": d.state,
+        "disagreement": d.disagreement,
+        "a_model": a.model,
+        "a_prompt": a.prompt,
+        "a_answer_sha256": a.answer_sha256,
+        "b_model": b.model if b else None,
+        "b_prompt": b.prompt if b else None,
+        "b_answer_sha256": b.answer_sha256 if b else None,
+        "quote_page": page,
+        "quote_sha256": rule_labels.quote_hash(quote),
+        "quote_recovery": recovery if page is not None and recovery == "page" else None,
+        "labelled_at": lab["labelled_at"],
+        "reading": dict(d.reading) if d.reading else None,
+        "origin": rule_labels.LAB_ORIGIN
+        if a.prompt in rule_labels.LAB_PROMPTS
+        else None,
+    }
+
+
+def _located(rule: dict, lab, text: dict) -> tuple[bool, int | None]:
+    """(the quote is found by the product's own check, the page it was found on). Only the cited page, or the page a lab
+    row names with `quote_recovery = "page"`; every other recovery is not found."""
+    recovery, page = lab["quote_recovery"], rule["page"]
+    if recovery == "page" and lab["quote_page"] is not None:
+        page = lab["quote_page"]
+    elif recovery is not None:
+        return False, page
+    return bool(quote_verified(rule["quote"], text.get(page))), page
+
+
 def convert(conn: sqlite3.Connection, pages_of, page_origin) -> tuple[list[dict], dict]:
     """(label rows in the product's file shape, counts). `pages_of(sdid)` and `page_origin(sdid)` give the page text and
     origin as the app cites them."""
@@ -89,14 +127,7 @@ def convert(conn: sqlite3.Connection, pages_of, page_origin) -> tuple[list[dict]
         rule = held[0]
         quote = rule["quote"]
         recovery = lab["quote_recovery"]
-        page = rule["page"]
-        found = False
-        text = pages_of(rule["sdid"])
-        if recovery is None:
-            found = bool(quote_verified(quote, text.get(page)))
-        elif recovery == "page" and lab["quote_page"] is not None:
-            page = lab["quote_page"]
-            found = bool(quote_verified(quote, text.get(page)))
+        found, page = _located(rule, lab, pages_of(rule["sdid"]))
         a = _pass(lab, "a", quote, lab["prompt_version"])
         b = _pass(lab, "b", quote, lab["prompt_version"])
         if a is None:
@@ -136,30 +167,7 @@ def convert(conn: sqlite3.Connection, pages_of, page_origin) -> tuple[list[dict]
         counts["product_" + d.state] += 1
         if d.state == "labelled_a":
             continue
-        accepted = (a.prompt if a else None) in rule_labels.LAB_PROMPTS
-        rows.append(
-            {
-                "source": lab["source"],
-                "rule_ref": lab["rule_ref"],
-                "rule_version_id": None,
-                "paper_kind": d.paper_kind,
-                "field": d.field,
-                "state": d.state,
-                "disagreement": d.disagreement,
-                "a_model": a.model if a else None,
-                "a_prompt": a.prompt if a else None,
-                "a_answer_sha256": a.answer_sha256 if a else None,
-                "b_model": b.model if b else None,
-                "b_prompt": b.prompt if b else None,
-                "b_answer_sha256": b.answer_sha256 if b else None,
-                "quote_page": page if found else None,
-                "quote_sha256": rule_labels.quote_hash(quote),
-                "quote_recovery": recovery if found and recovery == "page" else None,
-                "labelled_at": lab["labelled_at"],
-                "reading": dict(d.reading) if d.reading else None,
-                "origin": rule_labels.LAB_ORIGIN if accepted else None,
-            }
-        )
+        rows.append(_file_row(lab, a, b, d, page if found else None, quote, recovery))
     return rows, {**counts, "lost_reasons": dict(+lost)}
 
 
