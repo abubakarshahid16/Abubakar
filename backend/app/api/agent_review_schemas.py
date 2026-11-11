@@ -88,6 +88,29 @@ LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
     "AI note, no rule book": (("AI note",), (None,)),
 }
 
+#: The ONE place a core word is turned into the contract's word when the two differ: the core words a line the AI judged not
+#: for this paper "Query for the engineer" (its class is "Not applicable"); the contract's only word for that class is its own.
+WORD_FIXES: dict[tuple[str, str], str] = {
+    ("Not applicable", "Query for the engineer"): "Not applicable",
+    ("Not applicable", "Query"): "Not applicable",  # a row stored by 71e9f625 (issue 1749)
+    ("Query for the engineer", "Query for the engineer"): "Query",
+}
+
+
+def legal_word(verdict_class: str, word: str) -> str | None:
+    """The contract's word for a (class, word) pair, or None when the contract refuses the pair. Reads `LINE_TABLE`."""
+    row = LINE_TABLE.get(verdict_class)
+    if row is None:
+        return None
+    word = WORD_FIXES.get((verdict_class, word), word)
+    return word if word in row[0] else None
+
+
+def legal_tier(verdict_class: str, tier: str | None) -> bool:
+    row = LINE_TABLE.get(verdict_class)
+    return row is not None and tier in row[1]
+
+
 #: Which part of a general review a line belongs to (null on every line of a rule review).
 Part = Literal[
     "not held",
