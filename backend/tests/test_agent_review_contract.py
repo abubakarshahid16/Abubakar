@@ -64,13 +64,66 @@ def test_vocabularies_are_exactly_the_owner_words():
     ]
 
 
-@pytest.mark.parametrize("word,klass", list(itertools.product(WORDS, CLASSES)))
-def test_pass_and_fail_only_when_proven_by_code(word, klass):
-    if word in ("Pass", "Fail") and klass != "Proven by code":
-        with pytest.raises(ValidationError):
-            _line(word=word, verdict_class=klass)
+TIERS_OR_NONE = [*TIERS, None]
+OK_TIERS = ("Owner", "Engineer", "AI approved")
+ALLOWED = {
+    "Proven by code": ({"Pass", "Fail"}, {*OK_TIERS, None}),
+    "AI opinion, engineer to confirm": (
+        {"AI thinks: met", "AI thinks: not met"},
+        {*OK_TIERS, None},
+    ),
+    "AI opinion, rule not yet approved": (
+        {"AI thinks: met", "AI thinks: not met"},
+        {"Not AI approved"},
+    ),
+    "Query for the engineer": ({"Query"}, {*TIERS, None}),
+    "Not applicable": ({"Not applicable"}, {*TIERS, None}),
+}
+
+
+@pytest.mark.parametrize(
+    "klass,word,tier", list(itertools.product(CLASSES, WORDS, TIERS_OR_NONE))
+)
+def test_only_the_closed_table_of_class_word_tier_can_be_built(klass, word, tier):
+    words, tiers = ALLOWED[klass]
+    if word in words and tier in tiers:
+        assert _line(verdict_class=klass, word=word, rule_tier=tier).word == word
     else:
-        assert _line(word=word, verdict_class=klass).word == word
+        with pytest.raises(ValidationError):
+            _line(verdict_class=klass, word=word, rule_tier=tier)
+
+
+def test_pass_fail_and_proven_class_go_together_both_ways():
+    for word in ("Pass", "Fail"):
+        for klass in CLASSES[1:]:
+            with pytest.raises(ValidationError):
+                _line(verdict_class=klass, word=word)
+    with pytest.raises(ValidationError):
+        _line(verdict_class="Proven by code", word="Query")
+    with pytest.raises(ValidationError):
+        _line(verdict_class="Proven by code", rule_tier="Not AI approved")
+
+
+def test_a_checklist_line_has_a_null_tier_but_an_unapproved_rule_does_not():
+    assert _line(rule_tier=None).rule_tier is None
+    assert json.loads(_line(rule_tier=None).model_dump_json())["rule_tier"] is None
+    with pytest.raises(ValidationError):
+        _line(
+            verdict_class="AI opinion, rule not yet approved",
+            word="AI thinks: met",
+            rule_tier=None,
+        )
+    with pytest.raises(ValidationError):
+        ar.AgentLine.model_validate(
+            {
+                "item_id": "i",
+                "verdict_class": "Not applicable",
+                "word": "Not applicable",
+                "clause": "c",
+                "rule_book": "b",
+                "reason": "r",
+            }
+        )
 
 
 def test_pass_cannot_be_built_from_an_ai_opinion_even_via_validate():
