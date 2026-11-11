@@ -45,6 +45,8 @@ def lane(monkeypatch):
     """The lane open; ledger and cache in this test's data folder (`temp_storage`)."""
     data = Path(settings.data_dir)
     monkeypatch.setattr(settings, "reasoning_provider", "per_task")
+    # per_task bars a review only when a step of it has its own engine on claude (12 Nov 2026).
+    monkeypatch.setattr(settings, "datasheet_ai_reader", "claude")
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-invented")
     monkeypatch.setattr(settings, "standards_reader_enabled", True)
     monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)

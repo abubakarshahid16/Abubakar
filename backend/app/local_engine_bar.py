@@ -81,11 +81,42 @@ def at_least(step: str, count: int) -> None:
         skipped[step] = max(skipped[step], count)
 
 
-def is_claude_lane_run() -> bool:
-    """REASONING_PROVIDER says claude or per_task, and the lane itself is open."""
-    from . import reasoning_provider as rp
+#: THE per-step engine settings a normal review reads (each: "ollama" = local, "claude" = that step may go to Claude). The
+#: ONE list: `is_claude_lane_run` reads it, and no other place names them. The AI reviewer's own `agent_review_engine` is not
+#: here: it is a separate job (`agent_review`), not a step of a normal review.
+REVIEW_ENGINE_SETTINGS = (
+    "match_engine",
+    "vision_reader_engine",
+    "datasheet_ai_reader",
+    "crs_ai_wording_engine",
+    "review_ai_check_engine",
+    "ai_clause_review_engine",
+    "ai_division_scope_engine",
+    "ai_engineering_review_pass_engine",
+)
 
-    return rp._provider_setting() in (rp.CLAUDE, rp.PER_TASK) and rp.claude_lane_open()
+
+def is_claude_lane_run() -> bool:
+    """True when a step of THIS review can really go to Claude, and the lane itself is open.
+
+    * `claude`: every reasoning step may, so any review is one (as before).
+    * `per_task`: only when one of `REVIEW_ENGINE_SETTINGS` says claude. With every engine local the review runs exactly as
+      under `ollama`: no bar, nothing skipped (owner, 12 Nov 2026: the AI reviewer and normal reviews work together).
+    * anything else: never."""
+    from . import reasoning_provider as rp
+    from .config import settings
+
+    provider = rp._provider_setting()
+    if provider == rp.CLAUDE:
+        return rp.claude_lane_open()
+    if provider != rp.PER_TASK:
+        return False
+    if not any(
+        str(getattr(settings, name, "") or "").strip().lower() == rp.CLAUDE
+        for name in REVIEW_ENGINE_SETTINGS
+    ):
+        return False
+    return rp.claude_lane_open()
 
 
 @contextmanager
