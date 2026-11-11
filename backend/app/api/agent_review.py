@@ -56,6 +56,10 @@ PAGE_MAX = 500
 def _require_on() -> None:
     if not agent_review_gate.enabled():
         raise HTTPException(status_code=404, detail=agent_review_gate.FEATURE_OFF)
+    try:  # an older line table is upgraded (data kept) here; a table that cannot be upgraded answers 503 on every route
+        agent_review_schema.upgrade_if_old()
+    except agent_review_schema.UpgradeFailed as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 router = APIRouter(dependencies=[Depends(_require_on)])

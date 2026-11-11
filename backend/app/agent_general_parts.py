@@ -350,6 +350,11 @@ class GeneralRun(FindingsMixin):
         elif status == "partial":
             text = f"checklist: {topic}: partly covered: {note or 'what is missing was not said'}"
             reason = "partly covered"
+        elif (
+            status == "absent" and self.unread
+        ):  # the place to look may be a page of pictures: never "not found"
+            text = f"checklist: {topic}: could not be checked: {core.unread_words(self.unread)}"
+            reason = "pictures not read"
         elif status == "absent":
             text = f"checklist: {topic}: not found in the paper; silence is a Query, not a failure"
             reason = "not found"

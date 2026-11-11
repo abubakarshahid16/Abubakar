@@ -22,7 +22,13 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from . import agent_claude, claude_approved, claude_spend, job_queue
+from . import (
+    agent_claude,
+    agent_review_schema,
+    claude_approved,
+    claude_spend,
+    job_queue,
+)
 from . import agent_general_crs as crs
 from . import agent_general_parts as parts
 from . import agent_general_prompts as prompts
@@ -53,13 +59,17 @@ def record_request(conn, run_id: str, project_ids: Iterable[str]) -> None:
     )
 
 
-def preflight(decision: dict, problems: list[str]) -> str | None:
+def preflight(
+    decision: dict, problems: list[str], shape: str | None = None
+) -> str | None:
     """Why this run is refused before any call, or None: the switch off, the paper or its kind refused by `decide_mode`, a project
     paper the requester may not use, a lead and a second model of the same family."""
     from . import agent_run_second
 
     if not gate.enabled():
         return "the AI reviewer is switched off"
+    if shape:  # the table shape, before the first Claude call: never pay, then fail at the write
+        return shape
     if not decision.get("ok"):
         return str(decision.get("message") or "refused").removeprefix("REFUSED | ")
     if problems:
@@ -261,11 +271,17 @@ def run(
     """The whole general review of one paper. Returns what the job's `_done` needs (counts, stop reason, USD, partial)."""
     conn = connect()
     folder.mkdir(parents=True, exist_ok=True)
+    if agent_review_schema.shape_problem(
+        conn
+    ):  # before anything is read, asked or paid
+        raise agent_review_schema.UpgradeFailed(
+            "the older table shape is still in place"
+        )
     decision = core.decide_mode(conn, submittal, kind.kind, kind.known)
     accepted, problems = core.check_project_papers(
         conn, submittal, requested_papers(conn, run_id), scope
     )
-    refused = preflight(decision, problems)
+    refused = preflight(decision, problems, agent_review_schema.shape_problem(conn))
     if refused:
         return _finish(
             conn,

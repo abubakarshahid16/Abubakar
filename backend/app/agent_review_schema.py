@@ -19,6 +19,8 @@ table: `has_tables` says whether they exist.
 
 from __future__ import annotations
 
+import sqlite3
+
 from .agent_review_gate import enabled, require_on
 from .db import schema_once
 
@@ -143,25 +145,113 @@ _STATEMENTS = (
 )
 
 
+LINE_TABLE = "agent_review_line"
+NEW_LINE_COLUMNS = frozenset({"part", "text_source"})
+UPGRADE_ACTION = "agent_review_tables_upgraded"
+
+
+class UpgradeFailed(RuntimeError):
+    """The older `agent_review_line` table could not be upgraded: nothing was changed (the transaction rolled back), no run may
+    start, no Claude call may be made."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"the AI review tables could not be upgraded: {reason}")
+
+
+def _columns(conn, table: str) -> set[str]:
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def line_shape_is_old(conn) -> bool:
+    """True when `agent_review_line` exists WITHOUT the general-review columns (the table as the first AI reviewer PR made it)."""
+    cols = _columns(conn, LINE_TABLE)
+    return bool(cols) and bool(NEW_LINE_COLUMNS - cols)
+
+
 def has_tables(conn) -> bool:
     held = {
         r[0]
         for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
-    return set(TABLES) <= held
+    return set(TABLES) <= held and not line_shape_is_old(conn)
+
+
+def shape_problem(conn) -> str | None:
+    """Why no run may start before the first Claude call: the line table is still of the older shape (the upgrade did not
+    happen or failed). None when the tables are usable or do not exist yet (they are made on the first run)."""
+    if line_shape_is_old(conn):
+        return "the AI review tables could not be upgraded: the older table shape is still in place"
+    return None
+
+
+def _rename_old_line_table(conn) -> str:
+    """Move the older table out of the way under a dated name (nothing is deleted). Its indexes and triggers are dropped so the
+    new table can have them again; they hold no data."""
+    from datetime import UTC, datetime
+
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    old = f"{LINE_TABLE}_before_general_{stamp}"
+    n = 1
+    while conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (old,)).fetchone():
+        n += 1
+        old = f"{LINE_TABLE}_before_general_{stamp}_{n}"
+    for name, kind in conn.execute(
+        "SELECT name, type FROM sqlite_master WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL",
+        (LINE_TABLE,),
+    ).fetchall():
+        conn.execute(f'DROP {kind.upper()} "{name}"')
+    conn.execute(f'ALTER TABLE {LINE_TABLE} RENAME TO "{old}"')
+    return old
+
+
+def _copy_old_rows(conn, old: str, old_columns: set[str]) -> int:
+    """Every old row into the new table (new columns NULL); the counts must agree."""
+    cols = ", ".join(sorted(_columns(conn, LINE_TABLE) & old_columns))
+    conn.execute(f'INSERT INTO {LINE_TABLE} ({cols}) SELECT {cols} FROM "{old}"')
+    n_old = conn.execute(f'SELECT COUNT(*) FROM "{old}"').fetchone()[0]
+    if conn.execute(f"SELECT COUNT(*) FROM {LINE_TABLE}").fetchone()[0] != n_old:
+        raise sqlite3.IntegrityError("the copy holds a different number of rows")
+    return n_old
+
+
+def _record_upgrade(conn, old: str, rows: int) -> None:
+    from . import job_queue
+
+    conn.execute(
+        "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
+        " VALUES (?, NULL, 'system', ?, 'agent_review_line', ?, 'ok', ?)",
+        (
+            job_queue.now_iso(),
+            UPGRADE_ACTION,
+            old,
+            f"rows copied: {rows}; the older table is kept under this name",
+        ),
+    )
 
 
 def create_tables(conn) -> None:
-    """Create what is missing, all or none. Switch off: raises `FeatureOff` and creates nothing. No existing table is touched."""
+    """Create what is missing, all or none. Switch off: raises `FeatureOff` and creates nothing. No existing table is touched,
+    except that an `agent_review_line` of the OLDER shape is upgraded in ONE transaction: renamed to
+    `agent_review_line_before_general_<time>` (kept, never dropped), the new table made, every row copied, the event recorded in
+    `audit_events`. A failure rolls everything back and raises `UpgradeFailed`."""
     require_on()
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
     try:
+        old = old_columns = None
+        if line_shape_is_old(conn):
+            old_columns = _columns(conn, LINE_TABLE)
+            old = _rename_old_line_table(conn)
         for statement in _STATEMENTS:
             conn.execute(statement)
-    except BaseException:
+        if old is not None:
+            _record_upgrade(conn, old, _copy_old_rows(conn, old, old_columns))
+    except BaseException as exc:
         conn.rollback()
+        if old is not None and isinstance(exc, sqlite3.Error):
+            raise UpgradeFailed(str(exc)) from exc
         raise
     conn.commit()
 
@@ -174,7 +264,24 @@ def _ensure(conn=None) -> None:
 
 
 def ensure_schema(conn=None) -> None:
-    """Switch off: does nothing, creates nothing, does not raise. On: the tables exist afterwards."""
+    """Switch off: does nothing, creates nothing, does not raise. On: the tables exist afterwards (an older line table is
+    upgraded first; `UpgradeFailed` when that is not possible)."""
     if not enabled():
         return
     _ensure(conn)
+
+
+def upgrade_if_old(quiet: bool = False) -> None:
+    """Switch on only: upgrade an older line table where one exists. Creates nothing where no table exists (a GET never creates
+    a table). Raises `UpgradeFailed`."""
+    from .db import connect
+
+    if enabled() and line_shape_is_old(connect()):
+        from .db import reset_schema_memo
+
+        reset_schema_memo()
+        try:
+            _ensure(None)
+        except UpgradeFailed:
+            if not quiet:
+                raise

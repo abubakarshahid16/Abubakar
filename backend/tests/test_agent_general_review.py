@@ -1057,7 +1057,7 @@ def test_part_four_quotes_both_papers_and_marks_a_second_quote_that_does_not_rel
     assert (
         note["subkind"] == core.SUB_ENGINEERING
         and note["quote_other"] is None
-        and "does not relate" in note["text"]
+        and "do not relate" in note["text"]
     )
     ok_g, ok_runner = build(world, full_fake(), run_name="r2")
     ok = next(
@@ -1617,13 +1617,25 @@ def test_the_gate_names_procedure_and_contract_for_general_review_behind_the_sam
     ) and not agent_review_gate.any_kind_enabled("drawing")
 
 
-def test_the_new_call_site_is_declared_like_the_reviewers_own():
-    from tests import test_806_claude_approved_sites as sites
+def test_the_general_modules_never_call_claude_themselves_they_go_through_the_declared_runner():
+    """No entry in test_806's list is needed: no general module starts a call (the runner does, under the declaration of
+    `agent_general_job`, which names the paper and the project papers through `claude_approved.carrying`)."""
+    from pathlib import Path
 
-    assert sites.DECLARED_BY["agent_general_job.py"] == "agent_general_job.py"
-    assert "claude_approved" in (sites.APP / "agent_general_job.py").read_text(
-        encoding="utf-8"
-    )
+    root = Path(agent_general_review.__file__).parent
+    for n in ("review", "parts", "findings", "prompts", "job", "crs"):
+        text = (root / f"agent_general_{n}.py").read_text(encoding="utf-8")
+        for pattern in (
+            "agent_claude._call(",
+            "get_provider(",
+            "ClaudeProvider(",
+            "metered(",
+            "transport(",
+        ):
+            assert pattern not in text, (n, pattern)
+    assert "claude_approved.carrying(carrier)" in (
+        root / "agent_general_job.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_the_tables_refuse_a_general_line_with_a_tier_a_verdict_word_or_no_part(world):
@@ -1738,3 +1750,321 @@ def test_a_run_made_a_general_review_by_the_decided_kind_alone_still_says_genera
         for ln in lines_of(run_id).values()
         if ln["part"] == "against project papers"
     ] == ["no project paper was given to check against"]
+
+
+# ---------------------------------------------------------------- R17: wording on unread pages, quotes_relate, the unrelated comment
+
+
+def test_a_silent_checklist_item_or_project_paper_on_a_paper_with_unread_pages_is_could_not_be_checked(
+    world,
+):
+    g, runner = build(world, full_fake(), unread=[3])
+    lines = go(g, runner)
+    [q2] = by_part(lines, 2)
+    assert (
+        q2["text"]
+        == "checklist: Closure: could not be checked: page 3 holds pictures that were not read"
+    )
+    assert "not found" not in q2["text"]
+    silent = next(ln for ln in lines if ln.get("subkind") == core.SUB_SILENT)
+    assert silent["text"].startswith(
+        "could not be checked: page 3 holds pictures that were not read"
+    )
+    assert "is silent" not in silent["text"]
+
+
+def test_a_missing_quotes_relate_answer_counts_as_not_related(world):
+    g, runner = build(
+        world, full_fake(review=lambda _l: {"decision": "keep", "reason": "ok"})
+    )
+    lines = go(g, runner)
+    assert not [
+        ln
+        for ln in by_part(lines, 3)
+        if ln["subkind"] in (core.SUB_SELF, core.SUB_COUNT)
+    ]
+    assert g.dropped.as_json()["3"]["second model: the two quotes do not relate"] == 2
+    note = next(
+        ln for ln in by_part(lines, 4) if ln["verdict_class"] == core.CLASS_NOTE
+    )
+    assert note["subkind"] == core.SUB_ENGINEERING and note["quote_other"] is None
+
+
+def test_the_unrelated_comment_does_not_show_the_models_sentence_about_the_other_paper(
+    world,
+):
+    reply = {
+        "decision": "keep",
+        "reason": "SENTENCE-ABOUT-OTHER",
+        "quotes_relate": "no",
+    }
+    g, runner = build(world, full_fake(review=lambda _l: reply))
+    note = next(
+        ln for ln in by_part(go(g, runner), 4) if ln["verdict_class"] == core.CLASS_NOTE
+    )
+    assert "Actions lack the owner and date" not in json.dumps(note)
+    assert (
+        "SENTENCE-ABOUT-OTHER" not in json.dumps(note)
+        and note["quote_paper"]["text"] == Q_ACTIONS
+    )
+
+
+# ---------------------------------------------------------------- R17 blocking: an older table shape is upgraded, data kept
+
+OLD_LINE_SQL = """CREATE TABLE agent_review_line (
+    run_id TEXT NOT NULL, item_id TEXT NOT NULL CHECK (length(item_id) > 0),
+    verdict_class TEXT NOT NULL CHECK (verdict_class IN {classes}), word TEXT NOT NULL CHECK (word IN {words}),
+    page INTEGER CHECK (page IS NULL OR page >= 1), clause TEXT, rule_book TEXT, reason TEXT,
+    rule_tier TEXT CHECK (rule_tier IS NULL OR rule_tier IN ('Owner','Engineer','AI approved','Not AI approved')),
+    line_json TEXT NOT NULL, trace_json TEXT, decided_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, item_id),
+    CHECK (word NOT IN ('Pass', 'Fail') OR verdict_class = 'Proven by code'),
+    CHECK (word NOT IN ('Pass', 'Fail') OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'))"""
+OLD_CLASSES = (
+    "Proven by code",
+    "AI opinion, engineer to confirm",
+    "AI opinion, rule not yet approved",
+    "Query for the engineer",
+    "Not applicable",
+    "Not reviewed",
+)
+OLD_WORDS = (
+    "Pass",
+    "Fail",
+    "AI thinks: met",
+    "AI thinks: not met",
+    "Query",
+    "Not applicable",
+    "Not reviewed",
+)
+OLD_ROWS = [
+    (
+        "old-run",
+        "R-1",
+        "Proven by code",
+        "Pass",
+        2,
+        "4.1",
+        "Book",
+        "met",
+        "AI approved",
+    ),
+    (
+        "old-run",
+        "R-2",
+        "Query for the engineer",
+        "Query",
+        None,
+        "4.2",
+        "Book",
+        "why",
+        None,
+    ),
+    (
+        "old-run",
+        "R-3",
+        "Not reviewed",
+        "Not reviewed",
+        None,
+        "",
+        "Book",
+        "no answer",
+        "Owner",
+    ),
+]
+
+
+def _old_shape(conn):
+    """The line table exactly as the reviewer job PR made it (no part, no text_source, the narrow CHECKs), with rows."""
+    quote = lambda t: "(" + ",".join("'" + x.replace("'", "''") + "'" for x in t) + ")"  # noqa: E731
+    conn.execute(
+        OLD_LINE_SQL.format(classes=quote(OLD_CLASSES), words=quote(OLD_WORDS))
+    )
+    conn.execute(
+        "CREATE INDEX agent_review_line_run ON agent_review_line (run_id, item_id)"
+    )
+    for r in OLD_ROWS:
+        conn.execute(
+            "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book, reason,"
+            " rule_tier, line_json, decided_at) VALUES (?,?,?,?,?,?,?,?,?,'{}','2026-11-11')",
+            r,
+        )
+    conn.commit()
+
+
+def _rows(conn, table):
+    return [
+        tuple(r)
+        for r in conn.execute(
+            f'SELECT run_id, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier FROM "{table}" ORDER BY item_id'
+        )
+    ]
+
+
+def test_an_older_line_table_is_upgraded_in_one_step_with_every_row_kept_and_the_old_table_kept(
+    job_world,
+):
+    from app import agent_review_schema as sch
+
+    conn = db.connect()
+    _old_shape(conn)
+    assert (
+        sch.line_shape_is_old(conn)
+        and not sch.has_tables(conn)
+        and sch.shape_problem(conn)
+    )
+    sch.ensure_schema()
+    assert (
+        not sch.line_shape_is_old(conn)
+        and sch.has_tables(conn)
+        and sch.shape_problem(conn) is None
+    )
+    assert _rows(conn, "agent_review_line") == [tuple(r) for r in OLD_ROWS]
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM agent_review_line WHERE part IS NOT NULL OR text_source IS NOT NULL"
+        ).fetchone()[0]
+        == 0
+    )
+    [old] = [
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'agent_review_line_before_general_%'"
+        )
+    ]
+    assert _rows(conn, old) == [tuple(r) for r in OLD_ROWS]  # nothing was deleted
+    assert conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'agent_review_line_run' AND tbl_name = 'agent_review_line'"
+    ).fetchone()
+    event = conn.execute(
+        "SELECT resource_id, detail FROM audit_events WHERE action = 'agent_review_tables_upgraded'"
+    ).fetchone()
+    assert event["resource_id"] == old and "rows copied: 3" in event["detail"]
+    sch.ensure_schema()  # a second call changes nothing
+    assert conn.execute("SELECT COUNT(*) FROM agent_review_line").fetchone()[0] == 3
+
+
+def test_after_the_upgrade_the_routes_serve_old_and_new_runs_and_a_general_run_stores_its_lines(
+    client,
+):
+    conn = db.connect()
+    _old_shape(conn)
+    conn.execute(
+        "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at) VALUES ('old-run', ?, 'completed', 'x', 'x')",
+        (PAPER,),
+    )
+    conn.commit()
+    got = client.get(
+        "/api/reviews/runs/old-run/agent/lines"
+    )  # the first request upgrades the table (data kept)
+    assert (
+        got.status_code == 404
+    )  # no agent_review_run row for it yet: but no 500, and the table is upgraded
+    from app import agent_review_schema as sch
+
+    assert sch.has_tables(db.connect())
+    db.connect().execute(
+        "INSERT INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, started_at) VALUES ('old-run', ?, 'datasheet', 'k', 'x')",
+        (PAPER,),
+    )
+    db.connect().commit()
+    old = client.get("/api/reviews/runs/old-run/agent/lines").json()["lines"]
+    assert [(ln["item_id"], ln["word"], ln["part"]) for ln in old] == [
+        ("R-1", "Pass", None),
+        ("R-2", "Query", None),
+        ("R-3", "Not reviewed", None),
+    ]
+    assert (
+        client.get("/api/reviews/runs/old-run/agent/summary").json()["mode"]
+        == "rule review"
+    )
+    r = post(client, project_document_ids=[PROJ])
+    assert r.status_code == 200
+    job_id = agent_review_jobs.claim_next("w")
+    assert agent_review_jobs.run(job_id, "w") == "done"
+    new_id = r.json()["id"] if "id" in r.json() else r.json()["review_run_id"]
+    got = client.get(f"/api/reviews/runs/{new_id}/agent/lines").json()["lines"]
+    assert got and {ln["part"] for ln in got} >= {"not held", "paper against itself"}
+    assert (
+        client.get(f"/api/reviews/runs/{new_id}/agent/summary").json()["mode"]
+        == "general review"
+    )
+
+
+def _failing_copy(monkeypatch):
+    from app import agent_review_schema as sch
+
+    def boom(*_a, **_k):
+        raise sqlite3.IntegrityError("boom")
+
+    monkeypatch.setattr(sch, "_copy_old_rows", boom)
+
+
+def test_a_copy_that_fails_rolls_back_and_every_route_answers_503(client, monkeypatch):
+    conn = db.connect()
+    _old_shape(conn)
+    _failing_copy(monkeypatch)
+    for url in (
+        "/api/reviews/runs/x/agent/lines",
+        "/api/reviews/runs/x/agent/summary",
+        "/api/reviews/agent-status",
+    ):
+        r = client.get(url)
+        assert (
+            r.status_code == 503
+            and r.json()["detail"] == "the AI review tables could not be upgraded: boom"
+        )
+    assert post(client).status_code == 503
+    names = [
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'agent_review%'"
+        )
+    ]
+    assert names == ["agent_review_line"] and _rows(conn, "agent_review_line") == [
+        tuple(r) for r in OLD_ROWS
+    ]
+    assert not conn.execute(
+        "SELECT 1 FROM audit_events WHERE action = 'agent_review_tables_upgraded'"
+    ).fetchone()
+
+
+@pytest.mark.parametrize("kind", ["procedure", "datasheet"])
+def test_a_queued_run_on_a_table_that_cannot_be_upgraded_is_refused_before_any_call(
+    job_world, monkeypatch, kind
+):
+    """The shape is checked before the first Claude call: the fake model is asked nothing, nothing is paid."""
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading(kind=kind)
+    )
+    from app import agent_review_schema as sch
+
+    with (
+        monkeypatch.context() as quiet
+    ):  # queued before the tables exist: the old shape appears afterwards
+        quiet.setattr(sch, "ensure_schema", lambda *_a: None)
+        _run_id, job_id = agent_review_jobs.enqueue(
+            PAPER, allowed_document_ids=frozenset({PAPER}), requested_by=None
+        )
+    assert agent_review_jobs.claim_next("w") == job_id
+    _old_shape(db.connect())
+    _failing_copy(monkeypatch)
+    agent_review_jobs.run(job_id, "w")
+    assert job_world.bodies == []
+    assert (
+        db.connect().execute("SELECT COUNT(*) FROM agent_review_line").fetchone()[0]
+        == 3
+    )
+
+
+def test_the_preflights_of_both_reviews_refuse_an_old_shape_before_any_call(job_world):
+    from app import agent_review_schema as sch
+
+    conn = db.connect()
+    _old_shape(conn)
+    problem = sch.shape_problem(conn)
+    assert agent_general_job.preflight({"ok": True}, [], problem) == problem
+    assert (
+        agent_review_jobs.preflight(conn, PAPER, reading(kind="datasheet"), {}, {})
+        == problem
+    )

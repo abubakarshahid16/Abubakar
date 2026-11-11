@@ -190,6 +190,9 @@ def recover_stale(*, at_startup: bool = False) -> int:
         return 0
     from . import review_recovery
 
+    agent_review_schema.upgrade_if_old(
+        quiet=True
+    )  # an older line table is upgraded at the worker's start
     return review_recovery.recover(STAGE, at_startup=at_startup)
 
 
@@ -424,6 +427,9 @@ def preflight(
     block = doc.get("rule_labels") or {}
     if not agent_review_gate.enabled():
         return "the AI reviewer is switched off"
+    shape = agent_review_schema.shape_problem(conn)  # before the first Claude call
+    if shape:
+        return shape
     if not (kind.known and agent_review_gate.kind_enabled(kind.kind)):
         return agent_review_gate.KIND_NOT_ENABLED_MESSAGE
     if not conn.execute(
@@ -754,7 +760,12 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     run_id, submittal = job["review_run_id"], job["document_id"]
     if not agent_review_gate.enabled():
         return _requeue_switched_off(conn, job_id, run_id)
-    agent_review_schema.ensure_schema()
+    try:
+        agent_review_schema.ensure_schema()
+    except (
+        agent_review_schema.UpgradeFailed
+    ) as exc:  # nothing is asked, nothing is paid
+        return _fail(conn, job_id, run_id, job["document_id"], exc)
     scope, started = review_jobs._scope_of(job["created_by"]), _now()
     try:
         if submittal not in scope:

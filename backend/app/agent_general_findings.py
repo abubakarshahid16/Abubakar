@@ -153,9 +153,9 @@ class FindingsMixin:
                 else "second model gave no decision",
             )
             return False, str(got.get("reason") or decision or "no decision"), None
-        relate = {"yes": True, "no": False}.get(
-            str(got.get("quotes_relate") or "").strip().lower()
-        )
+        relate = (
+            str(got.get("quotes_relate") or "").strip().lower() == "yes"
+        )  # a missing answer is "not related": the stricter side
         return True, str(got.get("reason") or ""), relate
 
     def review_many(self, jobs: list[Callable[[], Any]]) -> list[Any]:
@@ -380,13 +380,23 @@ class FindingsMixin:
                 "quote_paper": {"document": self.paper, **qp} if qp else None, "quote_other": {"document": d, **qo},
                 "second_model_reason": reason, "second_model": sorted(self.second_models)}  # fmt: skip
         if s["kind"] == "silent":  # silence is a Query, never "not met"
-            self.add({**base, "verdict_class": CLASS_QUERY, "subkind": core.SUB_SILENT,
-                      "text": f"the paper is silent on this requirement of {d}: {s['what']}"})  # fmt: skip
+            text = f"the paper is silent on this requirement of {d}: {s['what']}"
+            if self.unread:  # the place to look may be a page of pictures: not "silent"
+                text = f"could not be checked: {core.unread_words(self.unread)}; the requirement of {d} may be met there: {s['what']}"
+            self.add(
+                {
+                    **base,
+                    "verdict_class": CLASS_QUERY,
+                    "subkind": core.SUB_SILENT,
+                    "text": text,
+                }
+            )
         elif (
             relate is False
         ):  # kept, but the second model says the two quotes are not about one thing: never "disagrees with"
-            self.add({**base, "quote_other": None, "verdict_class": CLASS_NOTE, "subkind": core.SUB_ENGINEERING,
-                      "text": f"the second quote does not relate to this one; as a comment on the paper: {s['what']}"})  # fmt: skip
+            self.add({**base, "quote_other": None, "second_model_reason": None, "verdict_class": CLASS_NOTE,
+                      "subkind": core.SUB_ENGINEERING,
+                      "text": f"a possible conflict with {d} was raised, but the two quotes do not relate; the paper quote is shown for the engineer to look"})  # fmt: skip
         else:
             self.add(
                 {

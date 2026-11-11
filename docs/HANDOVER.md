@@ -467,8 +467,7 @@ reviewed" (a cut-off or failed answer). No Pass, Fail, "AI thinks" or "Proven by
 finalize_line`, and no rule item is ever built; the contractor and comment-only copies are written EMPTY. Code: `agent_general_
 review.py` (exit, decision), `_parts.py`, `_prompts.py`, `_job.py`, `_crs.py`. Money: the existing step caps through the runner;
 nothing new. Tables: `agent_review_line` has two new columns and classes and `agent_review_general` is new (created by
-CREATE IF NOT EXISTS: a database that already holds the `agent_review_*` tables from before this change must have them dropped
-first; none is live). Three defects of the lab scoring are fixed and tested: the stored text is whole (it was cut at 200
+CREATE IF NOT EXISTS; a line table of the older shape is UPGRADED in one transaction by the server with the switch on (renamed to `agent_review_line_before_general_<time>` and kept, every row copied, the event written to `audit_events`); if that fails the transaction rolls back, every AI-review route answers 503 "the AI review tables could not be upgraded: <reason>" and no run starts: the shape is checked before the first Claude call). Three defects of the lab scoring are fixed and tested: the stored text is whole (it was cut at 200
 characters), a checklist Query says whether the answer was "partly covered" or "not found" and a "present" answer that carries
 a concern becomes an AI note, and a claim that something is MISSING on a page whose pictures or formulas were not read as text
 is a Query ("could not be checked").

@@ -237,6 +237,17 @@ def unread_pages(conn: sqlite3.Connection, document_id: str) -> list[int]:
     ]
 
 
+def unread_words(pages: Iterable[int]) -> str:
+    """ "page 3 holds" / "pages 3, 5 hold", for a line that could not be checked."""
+    numbers = sorted(set(pages))
+    which = ", ".join(str(n) for n in numbers)
+    return (
+        f"page {which} holds pictures that were not read"
+        if len(numbers) == 1
+        else f"pages {which} hold pictures that were not read"
+    )
+
+
 def claims_missing(flag: Any, *words: Any) -> bool:
     """Does a finding claim that something is MISSING? The model's own flag, or the plain words of its sentence."""
     return flag is True or any(_MISSING.search(str(w or "")) for w in words)
