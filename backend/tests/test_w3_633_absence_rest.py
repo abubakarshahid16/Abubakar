@@ -10,11 +10,27 @@ import json
 import secrets
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app import (absence, access, ai_engineering_check, analysis, auth, comparison, crs_export,
-                 datasheet_checks, datasheets, db, job_queue, fts_index, main as main_mod,
-                 review, review_jobs, standards, submittal_review, web_standards)
+from app import (
+    absence,
+    access,
+    ai_engineering_check,
+    analysis,
+    auth,
+    comparison,
+    crs_export,
+    datasheet_checks,
+    datasheets,
+    db,
+    fts_index,
+    job_queue,
+    review,
+    review_jobs,
+    standards,
+    submittal_review,
+    web_standards,
+)
+from app import main as main_mod
 from app.config import settings
 
 NOW = "2026-09-26T00:00:00Z"
@@ -168,6 +184,7 @@ def test_unchecked_parts_names_every_part_and_a_clean_run_has_none():
 
 def test_the_workbook_prints_the_incomplete_notice_above_the_code():
     import io
+
     import openpyxl
     meta = {"incomplete_notice": absence.notice_for([{"part": "x", "line": "y"}]),
             "recommended_code": "Manual Review Required", "unchecked_parts": ["y"]}

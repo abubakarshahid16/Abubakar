@@ -27,7 +27,6 @@ from pathlib import Path
 import pytest
 
 from app import blank_markers, datasheets
-from tools import datasheet_offline
 from app import claude_datasheet as cd
 from app.config import settings
 

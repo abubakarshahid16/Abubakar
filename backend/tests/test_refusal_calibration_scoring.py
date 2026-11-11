@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "eval"))
 
-import refusal_calibration as rc  # noqa: E402
+import refusal_calibration as rc
 
 
 class _NullLog:

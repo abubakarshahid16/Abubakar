@@ -33,6 +33,7 @@ from . import (
     agent_review_gate,
     agent_review_kind,
     agent_review_schema,
+    agent_review_verdict,
     claude_approved,
     claude_auto_approve,
     job_queue,
@@ -534,6 +535,12 @@ def _ask(
     """Run the reviewer over the items. The lines decided so far are kept whatever happens; a stop is said, then re-raised."""
     from . import claude_spend
 
+    if (
+        not agent_review_verdict.checklist_ids()
+    ):  # no checklist data on this machine: every checklist line is capped (safe)
+        log.warning(
+            "agent review: no checklist data found; no line can be a checklist line"
+        )
     runner = holder["runner"] = _make_runner(run_id, submittal, kind, plan)
     declared = {submittal} | {
         str(i["standard_document_id"])

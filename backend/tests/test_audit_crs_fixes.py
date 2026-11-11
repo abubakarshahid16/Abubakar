@@ -16,8 +16,18 @@ import openpyxl
 import pymupdf
 from fastapi.testclient import TestClient
 
-from app import (comparison, crs_export, crs_numbers, datasheet_checks, datasheets, db,
-                 field_links, requirements_3b, standards, submittal_review)
+from app import (
+    comparison,
+    crs_export,
+    crs_numbers,
+    datasheet_checks,
+    datasheets,
+    db,
+    field_links,
+    requirements_3b,
+    standards,
+    submittal_review,
+)
 from app.main import app
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
 from tests.test_comparison import _chunk, _doc, _fact, _requirement, _run, _scope

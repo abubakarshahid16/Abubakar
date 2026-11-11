@@ -15,7 +15,7 @@ Names are invented (STD-A-001); no real document or client appears anywhere.
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,12 +25,11 @@ from app.config import settings
 from app.db import connect
 from app.main import app
 
-
 RAISE = False
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def h(user_id: str) -> dict:

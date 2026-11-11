@@ -21,7 +21,7 @@ import secrets
 import subprocess
 import sys
 import tomllib
-import zipfile
+from datetime import UTC
 from pathlib import Path
 
 import httpx
@@ -30,7 +30,11 @@ from fastapi.testclient import TestClient
 
 from app import access, admin, auth, db, deliverables, model_transport, upload
 from app.config import (
-    ModelHostRefused, Settings, UnsafeBindRefused, settings, trusted_host_names,
+    ModelHostRefused,
+    Settings,
+    UnsafeBindRefused,
+    settings,
+    trusted_host_names,
 )
 from app.db import connect
 from app.main import app
@@ -39,9 +43,9 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _now() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 @pytest.fixture(autouse=True)

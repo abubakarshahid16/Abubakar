@@ -212,8 +212,8 @@ def test_the_heading_decides_which_designator_a_passage_is_about():
     # property worth asserting. What matters is that A.1 outranks A.4.
     ordered = sorted(pool, key=lambda c: (-c.score, not c.heading_declares))
     assert ordered[0] is a1, (
-        f"the passage headed 'system no. 4' outranked the one headed "
-        f"'system no. 1' - system 4's figures would be quoted as system 1's"
+        "the passage headed 'system no. 4' outranked the one headed "
+        "'system no. 1' - system 4's figures would be quoted as system 1's"
     )
     assert a1.heading_declares and not a4.heading_declares
     assert a1.score >= a4.score, (

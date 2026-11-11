@@ -12,8 +12,8 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import chunker, db, fts_index, lexical
 from app import answer as answer_mod
+from app import chunker, db, fts_index, lexical
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app

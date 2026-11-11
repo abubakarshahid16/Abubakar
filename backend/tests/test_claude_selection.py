@@ -20,8 +20,8 @@ import uuid
 
 import pytest
 
-from app import claude_selection as cs
 from app import applicability, db, submittal_review
+from app import claude_selection as cs
 from app.config import settings
 
 # ------------------------------------------------------------- fixtures

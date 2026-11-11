@@ -17,7 +17,6 @@ from app import chat_answers, chat_model, claude_spend
 from app import reasoning_provider as rp
 from app.config import settings
 from app.main import app
-from app.rates import Timer
 from tests.test_chat import temp_storage, upload  # noqa: F401 - autouse fixture
 from tests.test_chat_claude_first import _ask, _on, _tool_use
 from tests.test_chat_pr1_model_lane import _stream_events

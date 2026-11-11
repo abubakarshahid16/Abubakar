@@ -315,3 +315,19 @@ def test_the_claude_lane_gate_reads_the_settings_when_the_process_env_lacks_the_
     assert (
         agent_claude.gate_open({"REASONING_PROVIDER": "claude"}) is True
     )  # an injected env is obeyed exactly
+
+
+def test_the_job_logs_a_plain_warning_when_there_is_no_checklist_data(
+    w, monkeypatch, tmp_path, caplog
+):
+    import logging
+
+    monkeypatch.setenv("AGENT_SKILLS_DIR", str(tmp_path / "none"))
+    V._CHECKLIST_IDS.clear()
+    caplog.set_level(logging.WARNING)
+    run_review()
+    msgs = [r.getMessage() for r in caplog.records]
+    assert (
+        "agent review: no checklist data found; no line can be a checklist line" in msgs
+    )
+    assert not [m for m in msgs if "Marking blue" in m]

@@ -16,7 +16,13 @@ import pytest
 
 from app import datasheets, db, page_ledger, vision_reader
 from app.config import settings
-from tests.test_b4_quality import NOW, VisionFake, _facts, _with_vision, world  # noqa: F401
+from tests.test_b4_quality import (  # noqa: F401
+    NOW,
+    VisionFake,
+    _facts,
+    _with_vision,
+    world,
+)
 
 READABLE = [(50, 100, "DESIGN PRESSURE:"), (180, 100, "10 barg")]     # rule reader reads it
 UNREAD = [(50, 100, "VOLTAGE"), (220, 100, "440")]                     # no reader records it

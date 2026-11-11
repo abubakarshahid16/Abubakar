@@ -16,7 +16,7 @@ import sqlite3
 
 import pytest
 
-from app import access, ai_task_runner as runner, db
+from app import access, db
 from app import ai_requirements as air
 from app.config import settings
 from app.reasoning_provider import Response

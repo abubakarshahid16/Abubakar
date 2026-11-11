@@ -15,7 +15,6 @@ import json
 
 from app import document_refs, reports
 from app.db import connect
-
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
 
 FILE = "SUBMITTAL-A-001.pdf"

@@ -24,12 +24,18 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, ai_requirements as air, ai_task_runner, comparison, rule_trust
+from app import access, ai_task_runner, comparison, rule_trust
+from app import ai_requirements as air
 from app.config import settings
 from app.db import connect
 from app.main import app
 from tests.test_645_clause_checks import SENTENCE, proposal
-from tests.test_w5_677_scope_ledger import NOW, _req, review_run, temp_storage  # noqa: F401 - fixtures
+from tests.test_w5_677_scope_ledger import (  # noqa: F401 - fixtures
+    NOW,
+    _req,
+    review_run,
+    temp_storage,
+)
 
 SPEC, SUB = "spec", "sub"
 

@@ -26,7 +26,6 @@ import pytest
 
 from app import claims, datasheets
 
-
 # ------------------------------------------------------------- furniture
 
 def test_a_label_on_three_pages_is_furniture():

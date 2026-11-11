@@ -13,7 +13,8 @@ Invented values only.
 """
 from __future__ import annotations
 
-from app import absence, datasheet_checks as dc
+from app import absence
+from app import datasheet_checks as dc
 
 PSV = "Pressure Safety Valve"
 

@@ -6,7 +6,8 @@ import logging
 
 import pytest
 
-from app import claude_spend, reasoning_provider as rp
+from app import claude_spend
+from app import reasoning_provider as rp
 from app.config import settings
 
 KEY = "sk-ant-test-THIS-MUST-NEVER-APPEAR-0123456789"

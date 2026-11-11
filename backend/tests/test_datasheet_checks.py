@@ -15,7 +15,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import comparison, datasheet_checks as dc, db
+from app import comparison, db
+from app import datasheet_checks as dc
 from app.main import app
 
 VESSEL = "Pressure Vessel"

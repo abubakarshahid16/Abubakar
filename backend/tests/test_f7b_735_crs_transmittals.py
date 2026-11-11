@@ -15,7 +15,13 @@ from fastapi.testclient import TestClient
 from app import access
 from app.crs_export import HEADER_FIELDS
 from app.main import app
-from tests.test_crs_endpoint import _client, _run, _sheet, _submittal, temp_db  # noqa: F401
+from tests.test_crs_endpoint import (  # noqa: F401
+    _client,
+    _run,
+    _sheet,
+    _submittal,
+    temp_db,
+)
 
 
 def _row(key):

@@ -2,8 +2,15 @@
 lexicon and scope records - no client documents."""
 import pytest
 
-from app.applicability_v2 import (APPLICABLE, APPLICABLE_CANDIDATE, NOT_APPLICABLE, UNKNOWN,
-                                  Profile, decide, nodes_for)
+from app.applicability_v2 import (
+    APPLICABLE,
+    APPLICABLE_CANDIDATE,
+    NOT_APPLICABLE,
+    UNKNOWN,
+    Profile,
+    decide,
+    nodes_for,
+)
 
 LEX = {
     "centrifugal pump": ("type", "Centrifugal Pump"),

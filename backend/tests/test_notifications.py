@@ -1,7 +1,7 @@
 """SMTP notification regressions: delivery is real, disabled is inert, and audited."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -87,7 +87,7 @@ def test_enabled_smtp_sends_and_writes_audit_event(monkeypatch):
 
 def test_overdue_and_escalation_events_send_once_per_level(monkeypatch):
     _enable_smtp(monkeypatch)
-    due = datetime.now(timezone.utc).date().isoformat()
+    due = datetime.now(UTC).date().isoformat()
     item = deliverables.create({
         "wbs_code": "1.1", "title": "Design submittal", "deliverable_type": "PDF",
         "due_date": due,
@@ -109,7 +109,7 @@ def test_overdue_and_escalation_events_send_once_per_level(monkeypatch):
 
 def test_escalation_level_change_uses_escalation_trigger(monkeypatch):
     _enable_smtp(monkeypatch)
-    due = (datetime.now(timezone.utc).date() - timedelta(days=8)).isoformat()
+    due = (datetime.now(UTC).date() - timedelta(days=8)).isoformat()
     deliverables.create({
         "wbs_code": "1.2", "title": "Late design", "deliverable_type": "PDF",
         "due_date": due,

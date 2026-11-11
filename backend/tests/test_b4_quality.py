@@ -20,10 +20,12 @@ from app import (
     db,
     field_naming,
     reader_api,
-    reasoning_provider as rp,
     row_noise,
     submittal_review,
     vision_reader,
+)
+from app import (
+    reasoning_provider as rp,
 )
 from app.config import settings
 from app.reasoning_provider import PageImage, Response
@@ -458,7 +460,7 @@ def test_a_blank_field_pairs_and_one_filled_value_beats_blanks():
     """THE MUTATION TARGET (M655): a blank field under the name pairs; one
     filled value among blanks is not a tie; two filled values still are."""
     req = _speed_req()
-    names = lambda ids: {"requirements": {"r1": "speed"}, "facts": {i: "speed" for i in ids}}  # noqa: E731
+    names = lambda ids: {"requirements": {"r1": "speed"}, "facts": dict.fromkeys(ids, "speed")}  # noqa: E731
     blank = comparison.match_by_field_name(req, [_fact("f1", None, None, blank=1)], names(["f1"]))
     assert blank["fact"]["id"] == "f1" and blank["method"] == comparison.METHOD_FIELD_NAME
     mixed = comparison.match_by_field_name(

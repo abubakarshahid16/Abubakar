@@ -30,7 +30,6 @@ import pytest
 from app import claims
 from app.datasheets import measure_value, split_label_value
 
-
 # ------------------------------------------- layout A: unit in its own column
 #
 #   | Design pressure | 3.5 | barg |

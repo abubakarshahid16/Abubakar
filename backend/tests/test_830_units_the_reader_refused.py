@@ -18,7 +18,11 @@ import pytest
 
 from app import claims, comparison, datasheets
 from app import claude_datasheet as cd
-from tests.test_claude_datasheet import _answer, _fact, temp_storage  # noqa: F401 - autouse
+from tests.test_claude_datasheet import (  # noqa: F401 - autouse
+    _answer,
+    _fact,
+    temp_storage,
+)
 
 PAGE = """PUMP DATASHEET                                   Page 2 of 7
 Viscosity at pumping temperature : 0.85 cP

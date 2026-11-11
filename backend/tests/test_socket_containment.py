@@ -37,7 +37,13 @@ import httpx
 import pytest
 
 from app import analysis, answer, metrics, model_transport
-from app.config import ModelHostRefused, Settings, check_model_url, model_host_of, settings
+from app.config import (
+    ModelHostRefused,
+    Settings,
+    check_model_url,
+    model_host_of,
+    settings,
+)
 
 APP = Path(model_transport.__file__).resolve().parent
 

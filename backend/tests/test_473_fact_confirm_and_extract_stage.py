@@ -21,7 +21,9 @@ from app import access, auth, comparison, db, extract, submittal_review
 from app.config import settings
 from app.main import app
 from tests.test_crs_submittal_delete_orphan_guard import (  # noqa: F401 - fixture
-    NOW, temp_storage)
+    NOW,
+    temp_storage,
+)
 
 
 def _engineer(monkeypatch, *, documents: tuple[str, ...]) -> tuple[TestClient, dict]:

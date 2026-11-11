@@ -33,7 +33,13 @@ from app import reasoning_provider as rp
 from app.config import Settings, settings
 from tests.test_838_local_when_not_approved import SHEET, STANDARD, _approve
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
-from tests.test_review_ai_check import GOOD, _ai_rows, _blank_fields, _resolver, world  # noqa: F401
+from tests.test_review_ai_check import (  # noqa: F401
+    GOOD,
+    _ai_rows,
+    _blank_fields,
+    _resolver,
+    world,
+)
 
 
 class Lane:
@@ -163,8 +169,8 @@ def test_a_draft_already_raised_is_not_stored_twice(world, lane):  # noqa: F811
 def test_the_review_job_runs_the_local_check_and_then_the_opinion(world, lane, monkeypatch):  # noqa: F811
     """The check is not replaced: it runs on the local model as before (the
     standards are not approved), and its drafts say which engine wrote them."""
-    from tests.test_review_ai_check import ASKS_A_BLANK, BLANK_FIELD
     from tests.test_838_local_when_not_approved import Local
+    from tests.test_review_ai_check import ASKS_A_BLANK, BLANK_FIELD
     _sub, run, scope = world
     _approve(SHEET)
     _blank_fields(monkeypatch, {1: [BLANK_FIELD]})

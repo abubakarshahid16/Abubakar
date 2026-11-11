@@ -12,6 +12,8 @@ that gets skipped on the machine where it matters.
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pymupdf
 import pytest
 from fastapi.testclient import TestClient
@@ -141,8 +143,8 @@ def test_the_span_is_the_documents_own_text_not_a_reflow():
 
 
 def _user(email, role_id, doc_ids):
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    from datetime import datetime
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     conn = db.connect()
     uid = f"user_{email.split('@')[0]}"
     with conn:

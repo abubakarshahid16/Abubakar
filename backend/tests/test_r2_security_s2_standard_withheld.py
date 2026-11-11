@@ -18,7 +18,6 @@ from openpyxl import load_workbook
 
 from app.db import connect
 from app.review import STANDARD_WITHHELD
-
 from tests.r2_security_support import h, now, temp_storage, world  # noqa: F401
 
 #: Every string that exists only because the standard was read.

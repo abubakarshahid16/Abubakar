@@ -27,9 +27,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-import crs_planted_defects as gold  # noqa: E402
+import crs_planted_defects as gold
 
-from app.config import settings  # noqa: E402
+from app.config import settings
 
 pytestmark = pytest.mark.skipif(
     not (Path(__file__).parents[1] / "models" / "e5-small").exists(),
@@ -38,7 +38,8 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def pipeline(tmp_path, monkeypatch):
-    from app import db, submittal_review, fts_index, standards, datasheets as ds_mod, page_ledger
+    from app import datasheets as ds_mod
+    from app import db, fts_index, page_ledger, standards, submittal_review
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "crs_gold.sqlite")
@@ -58,8 +59,16 @@ def pipeline(tmp_path, monkeypatch):
 
 
 def _run(tmp_path):
-    from app import (classification, comparison, crs_export, crs_mapping,
-                     datasheets, db, ingest, standards, submittal_review, upload)
+    from app import (
+        classification,
+        comparison,
+        crs_export,
+        crs_mapping,
+        ingest,
+        standards,
+        submittal_review,
+        upload,
+    )
 
     docs = tmp_path / "docs"
     docs.mkdir()

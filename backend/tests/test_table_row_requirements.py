@@ -23,7 +23,6 @@ import pytest
 
 from app import comparison, requirements_3b
 
-
 # ------------------------------------------------- deferring to a table
 
 @pytest.mark.parametrize("sentence", [

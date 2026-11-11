@@ -23,7 +23,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import chat, chat_model, chat_stream, claude_spend, db, model_transport
+from app import chat, chat_stream, claude_spend, db, model_transport
 from app import reasoning_provider as rp
 from app.config import settings
 from app.main import app
@@ -191,7 +191,7 @@ def _slow_ollama_server():
     """A loopback server that accepts the request and never answers - a model
     still reading a long prompt."""
     class Handler(http.server.BaseHTTPRequestHandler):
-        def do_POST(self):  # noqa: N802
+        def do_POST(self):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             time.sleep(30)
 

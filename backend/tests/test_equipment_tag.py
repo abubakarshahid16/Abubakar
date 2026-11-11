@@ -36,7 +36,6 @@ import pytest
 from app import comparison, datasheets, db, submittal_review
 from app.config import settings
 
-
 # ========================================================== the reader
 
 @pytest.mark.parametrize("label,value,expected", [

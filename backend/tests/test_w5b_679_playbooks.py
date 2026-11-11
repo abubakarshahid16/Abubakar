@@ -6,7 +6,6 @@ Mutations: M4701-M4732 (scripts/mutations/w5b_679_playbooks.py).
 """
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 
@@ -14,7 +13,8 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, ai_task_runner as runner, chunker, db, extract, fts_index, playbooks, upload
+from app import access, chunker, db, extract, fts_index, playbooks, upload
+from app import ai_task_runner as runner
 from app.config import settings
 from app.main import app
 from app.reasoning_provider import Response
@@ -483,6 +483,7 @@ def test_the_review_route_returns_the_report_and_refuses_an_unknown_playbook(tmp
 
 def test_a_caller_who_may_not_read_the_document_cannot_review_it(tmp_path, monkeypatch):
     import secrets
+
     from app import auth
     monkeypatch.setattr(settings, "auth_secret", secrets.token_urlsafe(48))
     doc = ingest_docx(tmp_path, HAZOP_SECTIONS)

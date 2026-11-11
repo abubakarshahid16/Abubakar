@@ -14,8 +14,6 @@ that cannot be defended.
 
 from __future__ import annotations
 
-import pytest
-
 from app import comparison
 
 

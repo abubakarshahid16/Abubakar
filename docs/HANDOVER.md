@@ -484,3 +484,9 @@ and scans) are not wired. (c) The general review mode for procedures and contrac
 the reviewer is on for datasheets only. (d) The reviewer has never been run with a real model or on live data. Rules that are
 not AI approved are not asked in the app (`ASK_UNAPPROVED = "off"`: measured 11 Nov, no key row gained, more wrong opinions);
 the cap and the class stay in the code and tests.
+
+**Checklist data.** Checklist content (the skill files of `agent_skills`) is local only and never committed: it lives in
+`~/project/mirror/skills` (or `AGENT_SKILLS_DIR`). On a machine with none (a clean checkout, CI) `checklist_ids()` is empty: no
+line can be a checklist line, so any line of an item that is not a stored rule is capped as not approved (safe, never a Pass or
+Fail), and the job logs "agent review: no checklist data found". An empty list is never remembered, so adding the files needs no
+restart. Step H must check that the live Mac has the skill files.

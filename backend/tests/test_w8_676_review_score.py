@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from tools import review_score as rs
 
 from app import db, review
-from tools import review_score as rs
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]

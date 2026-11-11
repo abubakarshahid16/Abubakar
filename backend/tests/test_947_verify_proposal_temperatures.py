@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """#947: `verify_proposal` refused a correct temperature limit ("shall not
 exceed 60 C" -> "model value disagreed"): `read_figures` lower-cases a unit and
 `_hints_agree` wrote it out and read it again, where a lone lower-case letter is

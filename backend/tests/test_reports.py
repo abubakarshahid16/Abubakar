@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from datetime import UTC
 from html import escape
 
 import pymupdf
@@ -560,8 +561,8 @@ def test_the_download_name_is_the_report_id_and_the_response_is_private():
 
 
 def _user(email, role_id, doc_ids):
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    from datetime import datetime
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     conn = db.connect()
     uid = f"user_{email.split('@')[0]}"
     with conn:

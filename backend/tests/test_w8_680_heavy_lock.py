@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from app import access, ai_task_runner as runner, db, heavy_lock, progress
+from app import access, db, heavy_lock, progress
+from app import ai_task_runner as runner
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]

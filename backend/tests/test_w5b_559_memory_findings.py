@@ -12,11 +12,20 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import ai_engineering_check as aic, db
+from app import ai_engineering_check as aic
+from app import db
 from app.main import app
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
 from tests.test_model_matching import _signed_in
-from tests.test_review_ai_check import GOOD, TEXT, Fake, _ai_rows, _preview, _resolver, world  # noqa: F401
+from tests.test_review_ai_check import (  # noqa: F401
+    GOOD,
+    TEXT,
+    Fake,
+    _ai_rows,
+    _preview,
+    _resolver,
+    world,
+)
 
 HELD_ITEM = {**GOOD, "relates_to": "std", "observation": "The hydrotest pressure is not stated beside "
                                                           "the design pressure of 23.5 barg."}

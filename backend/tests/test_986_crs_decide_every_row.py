@@ -15,7 +15,12 @@ from openpyxl import load_workbook
 from app import db
 from app import main as main_mod
 from tests.test_885_crs_issue_gate import _gate, _issue, _run
-from tests.test_crs_endpoint import _client, _finding, _submittal, temp_db  # noqa: F401 - fixture
+from tests.test_crs_endpoint import (  # noqa: F401 - fixture
+    _client,
+    _finding,
+    _submittal,
+    temp_db,
+)
 
 CHECK = {"required_not_cited": [{"identifier": "API 520", "reason": "the sheet is a relief valve"}],
          "cited_not_applicable": [{"identifier": "ISO 9999", "reason": "it covers pumps"}]}

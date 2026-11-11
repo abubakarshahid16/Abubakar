@@ -24,8 +24,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
-from app import chat, chat_claude_first, chat_model, chat_tools, chat_web, db, intent
-from app import market_providers, market_transport
+from app import (
+    chat,
+    chat_claude_first,
+    chat_model,
+    chat_tools,
+    chat_web,
+    db,
+    intent,
+    market_providers,
+    market_transport,
+)
 from app.config import settings
 from app.main import app
 from tests.test_chat import temp_storage, upload  # noqa: F401 - the fixture is autouse

@@ -28,9 +28,9 @@ def _scope(world):
 
 
 def _findings(run_id):
-    return sorted((tuple(str(x) for x in r) for r in db.connect().execute(
+    return sorted(tuple(str(x) for x in r) for r in db.connect().execute(
         "SELECT requirement_id, compliance_status, fact_id FROM review_findings"
-        " WHERE review_run_id = ?", (run_id,))))
+        " WHERE review_run_id = ?", (run_id,)))
 
 
 class _Capture(logging.Handler):

@@ -18,7 +18,12 @@ import pytest
 
 from app import access, crs_export, crs_wording, main, review_jobs
 from app.config import settings
-from tests.test_p3_review_jobs import W, _enqueue, temp_storage, world  # noqa: F401 - fixtures
+from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
+    W,
+    _enqueue,
+    temp_storage,
+    world,
+)
 
 TEMPLATE = ("API 610 cl. 6.1.14: requires noise level not more than 85 dB(A). Datasheet p.3, "
             "Noise level states 92. Contractor to revise Noise level to meet the requirement, "

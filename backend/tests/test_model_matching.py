@@ -26,8 +26,16 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app import (access, comparison, datasheets, db, model_transport,
-                 requirements_3b, standards, submittal_review)
+from app import (
+    access,
+    comparison,
+    datasheets,
+    db,
+    model_transport,
+    requirements_3b,
+    standards,
+    submittal_review,
+)
 from app.config import settings
 from app.main import app
 

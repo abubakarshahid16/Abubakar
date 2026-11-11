@@ -32,7 +32,7 @@ mutation-proven by reverting the fix.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pymupdf
 import pytest
@@ -105,7 +105,7 @@ def answered_message(doc_id: str, question: str, owner: str | None = None) -> di
 
 
 def user(email: str, role_id: str, doc_ids) -> str:
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     conn = db.connect()
     uid = f"user_{email.split('@')[0]}"
     with conn:

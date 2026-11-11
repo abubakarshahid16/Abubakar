@@ -13,7 +13,11 @@ from fastapi.testclient import TestClient
 
 from app import comparison, db
 from app.main import app
-from tests.test_b3_page_ledger import _review, _sheet, temp_storage  # noqa: F401 - autouse
+from tests.test_b3_page_ledger import (  # noqa: F401 - autouse
+    _review,
+    _sheet,
+    temp_storage,
+)
 
 DEVELOPER_WORDS = ("NOMINAL", "denominator", "MISSING_LOCALLY", "NEEDS_ENGINEER_REVIEW",
                    "NOT_IN_DOCUMENT_SCOPE")

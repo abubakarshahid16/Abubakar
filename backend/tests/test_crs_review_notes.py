@@ -21,8 +21,14 @@ from openpyxl import load_workbook
 
 from app import access, db
 from app import main as main_mod
-from tests.test_crs_endpoint import (NOW, _client, _finding, _run, _submittal,  # noqa: F401
-                                     temp_db)
+from tests.test_crs_endpoint import (  # noqa: F401
+    NOW,
+    _client,
+    _finding,
+    _run,
+    _submittal,
+    temp_db,
+)
 
 ROD = {"ai_rationale": ("requires_other_document: this requirement names its own evidence "
                         "- a calibration certificate")}

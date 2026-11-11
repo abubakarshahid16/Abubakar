@@ -14,7 +14,12 @@ from __future__ import annotations
 import pytest
 
 from app import watcher as watcher_mod
-from tests.test_watch_folder import drop_folder, events, pdf_bytes, temp_storage  # noqa: F401
+from tests.test_watch_folder import (  # noqa: F401
+    drop_folder,
+    events,
+    pdf_bytes,
+    temp_storage,
+)
 
 
 @pytest.fixture

@@ -28,7 +28,7 @@ import sqlite3
 import numpy as np
 import pytest
 
-from app import db, embedder, fts_index, metrics, schemas, vector_store, vectorcache
+from app import db, embedder, fts_index, metrics, schemas, vector_store
 from app.config import settings
 from app.db import connect
 from app.embedder import EMBEDDING_DIM, embedding_tag

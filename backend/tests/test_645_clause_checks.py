@@ -16,7 +16,11 @@ from app import ai_task_runner, comparison
 from app.config import settings
 from app.db import connect
 from app.reasoning_provider import Response
-from tests.test_w5_677_scope_ledger import _req, review_run, temp_storage  # noqa: F401 - fixtures
+from tests.test_w5_677_scope_ledger import (  # noqa: F401 - fixtures
+    _req,
+    review_run,
+    temp_storage,
+)
 
 SENTENCE = "The cold differential test pressure shall not exceed 12 barg."
 
@@ -179,6 +183,7 @@ def test_the_review_proposes_drafts_and_no_verdict_changes(review_run, monkeypat
     assert comparison.run_outcome(run, allowed_document_ids=scope)[
         "requirement_split"]["clause_checks"] == on["clause_checks"]
     from fastapi.testclient import TestClient
+
     from app.main import app
     card = TestClient(app).get(f"/api/reviews/runs/{run}/ai-numbers").json()["clause_checks"]
     assert card["lines"] == [air.report_line(on["clause_checks"])]

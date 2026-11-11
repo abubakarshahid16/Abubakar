@@ -13,12 +13,22 @@ from __future__ import annotations
 
 import io
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app import (datasheets, db, ingest, job_queue, fts_index, metrics,
-                 standards, states, submittal_review, upload)
+from app import (
+    datasheets,
+    db,
+    fts_index,
+    ingest,
+    job_queue,
+    metrics,
+    standards,
+    states,
+    submittal_review,
+    upload,
+)
 from app import watcher as watcher_mod
 from app.config import settings
 from app.db import connect
@@ -46,7 +56,7 @@ def temp_storage(tmp_path, monkeypatch):
 
 
 def _iso(delta_seconds: float = 0.0) -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=delta_seconds)
+    return (datetime.now(UTC) + timedelta(seconds=delta_seconds)
             ).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 

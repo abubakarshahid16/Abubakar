@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from app import clause_coverage as cov
 from app import db, scope_ledger
-from tests.test_crs_endpoint import _client, _run, _submittal, temp_db  # noqa: F401 - fixture
+from tests.test_crs_endpoint import (  # noqa: F401 - fixture
+    _client,
+    _run,
+    _submittal,
+    temp_db,
+)
 from tests.test_w5_677_scope_ledger import review_run  # noqa: F401 - fixture
 
 

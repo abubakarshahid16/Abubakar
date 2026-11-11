@@ -32,7 +32,13 @@ import httpx
 import pytest
 
 from app import market_transport, notifications, reader_transport, reasoning_provider
-from app.config import BACKEND_DIR, NotificationConfigError, Settings, check_model_url, settings
+from app.config import (
+    BACKEND_DIR,
+    NotificationConfigError,
+    Settings,
+    check_model_url,
+    settings,
+)
 from tests import env_isolation
 
 FAKE_KEY = "sk-ant-test-not-a-real-key-000"

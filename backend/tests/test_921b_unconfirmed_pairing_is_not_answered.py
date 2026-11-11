@@ -4,8 +4,6 @@ engineer) or the AI matcher's low-confidence pairing is a question. Invented
 findings only."""
 from __future__ import annotations
 
-import pytest
-
 from app import comparison
 
 

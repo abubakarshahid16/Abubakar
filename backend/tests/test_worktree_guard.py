@@ -11,8 +11,12 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts"))
-from worktree_guard import (WorktreeMismatch, assert_worktree, live_checkout_violation,
-                            resolve_worktree)
+from worktree_guard import (
+    WorktreeMismatch,
+    assert_worktree,
+    live_checkout_violation,
+    resolve_worktree,
+)
 
 
 def _init_repo(path: pathlib.Path, branch: str) -> None:

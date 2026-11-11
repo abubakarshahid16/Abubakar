@@ -41,7 +41,6 @@ import pytest
 
 from app import datasheets
 
-
 # ----------------------------------------- a bracket-only cell continues
 
 def test_a_bracket_only_line_is_part_of_the_label_above_it():

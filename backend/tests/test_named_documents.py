@@ -16,10 +16,7 @@ model ever sees the list.
 
 from __future__ import annotations
 
-import pytest
-
 from app import access, analysis
-
 
 # ------------------------------------------------------- naming detection
 

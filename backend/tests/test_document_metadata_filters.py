@@ -117,12 +117,12 @@ def test_confirm_writes_every_metadata_field():
 def test_metadata_is_replaced_not_merged():
     """A PUT sends the whole record, so a cleared field is actually cleared."""
     doc = _doc("doc_r", "r.pdf", "sha-r")
-    full = {name: "x" for name in classification.METADATA_FIELDS}
+    full = dict.fromkeys(classification.METADATA_FIELDS, "x")
     full["document_role"] = "COMPANY_STANDARD"
     classification.confirm(doc, doc_type=None, discipline=None, doc_class=None,
                            subject_ids=[], confirmed_by=_user(), metadata=full)
     assert classification.of_document(doc)["title"] == "x"
-    cleared = {name: None for name in classification.METADATA_FIELDS}
+    cleared = dict.fromkeys(classification.METADATA_FIELDS)
     classification.confirm(doc, doc_type=None, discipline=None, doc_class=None,
                            subject_ids=[], confirmed_by=_user(), metadata=cleared)
     row = classification.of_document(doc)

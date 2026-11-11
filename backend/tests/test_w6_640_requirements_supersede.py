@@ -28,7 +28,14 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import ai_engineering_check, comparison, db, fts_index, standards, submittal_review
+from app import (
+    ai_engineering_check,
+    comparison,
+    db,
+    fts_index,
+    standards,
+    submittal_review,
+)
 from app.chunker import chunk_document
 from app.config import settings
 from app.extract import extract_document

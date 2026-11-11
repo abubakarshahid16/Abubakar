@@ -8,9 +8,10 @@ import threading
 
 import pytest
 
-from app import access, ai_task_runner as runner, db, model_transport, progress
+from app import access, db, model_transport, progress
+from app import ai_task_runner as runner
 from app.config import settings
-from app.reasoning_provider import Response, ProviderRefused
+from app.reasoning_provider import ProviderRefused, Response
 
 SCHEMA = {"type": "object", "required": ["quote", "kind"],
           "properties": {"quote": {"type": "string"},

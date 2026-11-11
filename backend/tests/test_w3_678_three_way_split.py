@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from app import absence, comparison, db, requirement_split as rs, submittal_review, subject_scope, table_gate
+from app import absence, comparison, db, subject_scope, submittal_review, table_gate
+from app import requirement_split as rs
 from app.config import settings
-from tests.test_w2b_598_review_table_filter import GRADES, _setup as table_setup
+from tests.test_w2b_598_review_table_filter import GRADES
+from tests.test_w2b_598_review_table_filter import _setup as table_setup
 from tests.test_w3_453_applicability_by_subject import GENERAL, TURBINE, _review
 
 
@@ -196,6 +198,7 @@ def test_the_reasons_on_the_sheet_are_the_top_three_and_say_how_many_more():
 
 def test_a_real_run_counts_unreadable_text_as_applies_but_not_checked(monkeypatch):
     import json
+
     from app import standards
     monkeypatch.setattr(standards, "is_reviewable", lambda r: r["clause"] != "4.2")
     _review([("g", GENERAL, "4.1"), ("h", "The relief valve shall be stamped.", "4.2")])
@@ -254,7 +257,8 @@ def test_a_real_run_counts_stored_repeats_once():
 
 
 def _summary_of_the_only_run():
-    from app import access, main as main_mod
+    from app import access
+    from app import main as main_mod
     run = dict(db.connect().execute("SELECT * FROM review_runs").fetchone())
     return main_mod._run_summary(run, access.unrestricted_scope())
 

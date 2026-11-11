@@ -3,8 +3,6 @@ say what was running. Mutations M3001-M3008."""
 from __future__ import annotations
 
 import logging
-import threading
-import time
 
 import httpx
 import pytest

@@ -8,7 +8,6 @@ provider pattern in test_scope_records.py and test_applicability_reasoning.py.""
 from __future__ import annotations
 
 import json
-import uuid
 
 import pytest
 

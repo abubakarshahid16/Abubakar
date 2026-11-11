@@ -15,10 +15,7 @@ import json
 import pytest
 
 from app import claims, db, fts_index
-from app.config import settings
 from app.claims import (
-    Claim,
-    Measurement,
     UnknownUnit,
     cluster,
     extract_claims,
@@ -30,7 +27,7 @@ from app.claims import (
     split_sentences,
     to_api,
 )
-
+from app.config import settings
 
 
 @pytest.fixture(autouse=True)

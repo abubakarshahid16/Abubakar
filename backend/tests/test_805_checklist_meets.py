@@ -15,7 +15,8 @@ import uuid
 
 import pytest
 
-from app import access, crs_mapping, datasheet_checks as dc, db, review_trace, submittal_review
+from app import access, crs_mapping, db, review_trace, submittal_review
+from app import datasheet_checks as dc
 from app.config import settings
 from tests.test_746_relief_valve_checklist import PSV, SHEET
 

@@ -20,7 +20,13 @@ from openpyxl import load_workbook
 
 from app import access, crs_issue, db
 from app.main import app
-from tests.test_crs_endpoint import NOW, _client, _finding, _submittal, temp_db  # noqa: F401 - fixture
+from tests.test_crs_endpoint import (  # noqa: F401 - fixture
+    NOW,
+    _client,
+    _finding,
+    _submittal,
+    temp_db,
+)
 
 
 def _run(doc_id: str, *, unread: list[int] | None = None, total: int | None = 4,

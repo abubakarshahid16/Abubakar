@@ -9,7 +9,9 @@ import uuid
 
 import pytest
 
-from app import db, form_reader_fields as ff, form_reader_run as fr, requirements_3b as r3, submittal_review
+from app import db, submittal_review
+from app import form_reader_fields as ff
+from app import form_reader_run as fr
 from app.config import settings
 
 NOW = "2026-10-14T00:00:00Z"

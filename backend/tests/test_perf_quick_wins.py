@@ -24,8 +24,17 @@ from pathlib import Path
 
 import pytest
 
-from app import acronyms, comparison, datasheets, db, deliverables, review, standards
-from app import submittal_review, warmup
+from app import (
+    acronyms,
+    comparison,
+    datasheets,
+    db,
+    deliverables,
+    review,
+    standards,
+    submittal_review,
+    warmup,
+)
 from app.config import Settings, settings
 
 REPO = Path(__file__).resolve().parents[2]
