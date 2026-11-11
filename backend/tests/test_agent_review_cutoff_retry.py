@@ -174,10 +174,11 @@ def test_a_timed_out_retry_is_not_reviewed_and_not_sent_again(w, monkeypatch):
     assert line["word"] == "Not reviewed"
 
 
-def test_the_wait_grows_with_the_limit_and_is_120_s_for_ordinary_calls():
+def test_the_wait_is_at_least_120_s_and_grows_with_the_limit_as_limit_over_40():
     from app import agent_claude
 
     assert agent_claude.request_timeout(400) == 120.0
+    assert agent_claude.request_timeout(6200) == 155.0
     assert agent_claude.request_timeout(request_mod.RETRY_MAX_TOKENS) == 300.0
 
 
@@ -197,3 +198,28 @@ def test_the_groups_cost_is_the_sum_of_every_lead_call_including_the_cut_off_one
     run_review()
     usd, first_worst = got[0]
     assert usd > first_worst  # the cut-off call's charge plus the retry's real cost
+
+
+def test_a_failed_retry_leaves_the_group_a_cost_equal_to_what_the_run_was_charged(
+    w, monkeypatch
+):
+    use(w, monkeypatch, {0}, boom={1, 2, 3})
+    got, charged = [], []
+    real_ask, real_add = run_mod.Runner._ask_lead, run_mod.Runner._add_usd
+
+    def ask(self, batch, parts, split_ok):
+        out = real_ask(self, batch, parts, split_ok)
+        got.append(out[1])
+        return out
+
+    def add(self, usd):
+        charged.append(usd)
+        real_add(self, usd)
+
+    monkeypatch.setattr(run_mod.Runner, "_ask_lead", ask)
+    monkeypatch.setattr(run_mod.Runner, "_add_usd", add)
+    line = lines_of(run_review())["R-coat"]
+    assert line["word"] == "Not reviewed"
+    assert (
+        got[0] > 0 and abs(got[0] - sum(charged)) < 1e-9
+    )  # both calls, at what the run was charged

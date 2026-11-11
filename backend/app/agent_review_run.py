@@ -338,13 +338,16 @@ class Runner(DecideMixin):
         BOUND of lead calls for one asked group (a single item, or a half already split): at most 2 (first + one retry, whether
         the retry is for a cut-off at twice the limit or for an unreadable reply at the same limit); a retry after a
         cut-off is never followed by a third call, and is never re-sent after a transport failure or timeout (a lead call
-        waits `agent_claude.request_timeout(limit)`: 120 s, 300 s at the 12,000-token ceiling). A batch of N > 1 that is cut
+        waits `agent_claude.request_timeout(limit)` = max(120 s, limit / 40 tokens a second): at least 120 s, longer as the limit grows, 300 s at the 12,000-token ceiling). A batch of N > 1 that is cut
         off is 1 call, then at most 2 per half (<= 5 calls), plus <= 2 per re-asked group of items a readable answer left
         out. COST: the returned usd is the sum of every lead call made for the group (a cut-off call at its reserved worst
         case, as the run is charged); `run_batch` shares it equally over the group's items. The cut-off call of a batch that
         is then split is charged to the run, not to any line."""
         max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
         answer, usd, error, model = None, 0.0, None, None
+        spent = retry_worst = (
+            0.0  # what the run was charged for the cut-off call, and for the retry if it was sent
+        )
         cut_retry = False  # the larger-limit retry was made: nothing more is asked for this item
         try:
             with self._lock:
@@ -359,18 +362,20 @@ class Runner(DecideMixin):
                 # The cut-off call's own cost is not returned; the line carries what the run was charged for it (its
                 # reserved worst case), so the line never understates.
                 spent = app_worst_usd(self.model, parts, max_tokens)
+                retry_worst = 0.0
                 bigger = min(RETRY_MAX_TOKENS, max_tokens * RETRY_TOKEN_FACTOR)
                 with self._lock:
                     self.calls["lead"] += 1
                     self.calls["retries"] += 1
                 cut_retry = True
+                retry_worst = app_worst_usd(self.model, parts, bigger)
                 try:  # once: a failed or timed-out retry is not sent again
                     raw, usd2 = self.call(self.model, parts, bigger, once=True)
                 except agent_claude.AgentBadReply as exc2:
                     if exc2.code == "stop_max_tokens":
                         return (
                             None,
-                            spent + app_worst_usd(self.model, parts, bigger),
+                            spent + retry_worst,
                             CUT_OFF_TWICE,
                             None,
                         )
@@ -393,11 +398,16 @@ class Runner(DecideMixin):
             if answer is None:
                 error = "unparseable_reply"
         except FATAL as exc:
+            usd = spent  # refused before sending: only the cut-off call was charged
             self._halt(exc)
             error = f"not run: {self.stopped}"
         except agent_claude.AgentClaudeError as exc:
+            usd = (
+                spent + retry_worst
+            )  # a failed retry may have been billed: the run was charged its worst case
             error = exc.code
         except Exception as exc:  # noqa: BLE001  a failed call is "not reviewed", never a verdict
+            usd = spent
             log.warning("agent review lead call failed: %s", type(exc).__name__)
             error = "error_" + type(exc).__name__
         return answer, usd, error, model
