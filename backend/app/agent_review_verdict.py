@@ -705,6 +705,7 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
 DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stand"
 UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
 UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
+NO_VALUE_WHY = "the paper gives no value for this field"
 DISAGREE_WHY = "two AI readers disagree on this line"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
@@ -731,6 +732,26 @@ def quote_defers(quote: Any) -> bool:
     )
 
 
+def quote_is_label_only(line: Mapping) -> bool:
+    """The paper quote holds the asked field's own label and NOTHING else: every word of the quote (stemmed, none dropped as
+    generic) is a word of the field's label (`field_label_ai`, `field`, `field_roles`) and the quote has no digit. A label
+    names the field; it is no value for it. Conservative: any extra word ("required", "yes", a figure) means a value may be
+    there, and the line is left alone."""
+    quote = str(line.get("paper_quote") or "")
+    label = " ".join(
+        str(x)
+        for x in (
+            line.get("field_label_ai"),
+            line.get("field"),
+            *(line.get("field_roles") or []),
+        )
+        if x
+    )
+    words = {agent_bind._stem(w) for w in re.findall(r"[a-z]+", quote.lower())}
+    have = {agent_bind._stem(w) for w in re.findall(r"[a-z]+", label.lower())}
+    return bool(words) and not re.search(r"\d", quote) and words <= have
+
+
 def met_unsafe_why(line: Mapping) -> str | None:
     """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None. (a) the paper quote
     it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (a line with no record of
@@ -749,6 +770,8 @@ def met_unsafe_why(line: Mapping) -> str | None:
         return UNVERIFIED_PAPER_WHY
     if not checks.get("clause"):
         return UNVERIFIED_CLAUSE_WHY
+    if quote_is_label_only(line):
+        return NO_VALUE_WHY
     # The line field `second_opinion` tells the three apart: None = not asked; {"agree": True} = agreed;
     # {"agree": False} = DISAGREED; {"agree": None} = asked but no usable answer (failed / not run). Only an explicit
     # False moves the line; "not asked" and "failed" are neither agreement nor disagreement.

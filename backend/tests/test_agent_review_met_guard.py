@@ -584,3 +584,37 @@ def test_the_contractor_visible_copy_carries_none_of_the_guard_words(tmp_path):
                     for word in ("AI reader", "not confirmed", "AI thinks", "disagree"):
                         assert word not in str(cell or ""), (name, word)
     assert "AI reader" not in C.company_comment(moved, contractor=True)
+
+
+@pytest.mark.parametrize("item", [CHECKLIST, RULE_OK])
+def test_met_on_a_label_with_no_value_is_a_query(item):
+    for quote in ("Lifting lever", "Lifting lever:", "LIFTING LEVER"):
+        out = exit_of(
+            met(
+                item_id=item["item_id"],
+                paper_quote=quote,
+                field_label_ai="Lifting lever",
+            ),
+            item,
+        )
+        assert (out["verdict_label"], out["verdict_class"]) == (
+            W.WORD_QUERY,
+            W.CLASS_QUERY,
+        )
+        assert out["not_proven_reason"].startswith(V.NO_VALUE_WHY)
+    roles = exit_of(met(paper_quote="Test gag", field_roles=["test_gag"]))
+    assert roles["not_proven_reason"].startswith(V.NO_VALUE_WHY)
+
+
+def test_met_with_a_value_beside_the_label_stays_met():
+    for quote in (
+        "Lifting lever Required",
+        "Lifting lever: Yes",
+        "Lifting lever 2",
+        "Lifting lever, packed type",
+    ):
+        out = exit_of(met(paper_quote=quote, field_label_ai="Lifting lever"))
+        assert out["verdict_label"] == W.THINKS_MET, quote
+    assert (
+        exit_of(met(paper_quote="Lifting lever"))["verdict_label"] == W.THINKS_MET
+    )  # no label known: unchanged
