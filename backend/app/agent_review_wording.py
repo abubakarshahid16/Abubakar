@@ -54,6 +54,37 @@ RECOMMENDATION = "recommendation"
 KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
+def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
+    """Steps 1, 2 and 2b of `classify`: the AI gave no answer (Not reviewed); a silent paper (Query); an AI "met" whose paper
+    defers the value or whose quotes code could not verify (Query, N9). None when none applies."""
+    if line.get(
+        "error"
+    ):  # 1. not reviewed, never a Query about the paper, whatever the rule's tier
+        return {
+            "verdict_label": WORD_NOT_REVIEWED,
+            "verdict_class": CLASS_NOT_REVIEWED,
+            "not_proven_reason": ERROR_WORDS.get(
+                str(line["error"]), f"no answer from the AI: {line['error']}"
+            ),
+        }
+    also = "; the rule is also not AI approved" if unapproved else ""
+    if line.get(
+        "silence_query"
+    ):  # 2. the owner's rule: a silent paper is a Query, never "not met"
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": SILENCE_WHY + also,
+        }
+    if unsafe := met_unsafe_why(line):  # 2b. N9
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": unsafe + (f"; {why}" if unapproved else ""),
+        }
+    return None
+
+
 def classify(line: Mapping) -> dict:
     """verdict_label, verdict_class, not_proven_reason (None when proven) for one line.
 
@@ -63,37 +94,10 @@ def classify(line: Mapping) -> dict:
     verdict, ai = line.get("verdict"), line.get("ai_verdict")
     unapproved = line.get("rule_tier") == RULE_NOT_APPROVED
     why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
-    if line.get(
-        "error"
-    ):  # 1. the AI call failed: not reviewed, never a Query about the paper, whatever the rule's tier
-        return {
-            "verdict_label": WORD_NOT_REVIEWED,
-            "verdict_class": CLASS_NOT_REVIEWED,
-            "not_proven_reason": ERROR_WORDS.get(
-                str(line["error"]), f"no answer from the AI: {line['error']}"
-            ),
-        }
-    if line.get(
-        "silence_query"
-    ):  # 2. the owner's rule: a silent paper is a Query, never "not met"
-        return {
-            "verdict_label": WORD_QUERY,
-            "verdict_class": CLASS_QUERY,
-            "not_proven_reason": SILENCE_WHY
-            + ("; the rule is also not AI approved" if unapproved else ""),
-        }
-    unsafe = met_unsafe_why(line)
-    if unsafe:  # 2b. N9: an AI "met" whose paper defers the value, or whose quotes code could not verify, is a Query
-        return {
-            "verdict_label": WORD_QUERY,
-            "verdict_class": CLASS_QUERY,
-            "not_proven_reason": unsafe
-            + (
-                f"; the rule is also not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
-                if unapproved
-                else ""
-            ),
-        }
+    if early := _early(
+        line, unapproved, why
+    ):  # 1. no answer, 2. silence, 2b. an unsafe "met"
+        return early
     if unapproved:  # 3. never proven, whatever the stored verdict says
         if ai in (PASS, FAIL):
             return {
