@@ -77,6 +77,72 @@ def old_engine_run(conn: sqlite3.Connection, document_id: str) -> str | None:
     return row["id"] if row else None
 
 
+def has_scope_decisions(conn: sqlite3.Connection, run_id: str | None) -> bool:
+    """True when the run stored per-rule scope decisions (only a full classic review writes them)."""
+    if not run_id:
+        return False
+    try:
+        return (
+            conn.execute(
+                "SELECT 1 FROM review_scope_decisions WHERE review_run_id = ? LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            is not None
+        )
+    except sqlite3.OperationalError:  # no ledger table at all: no decisions
+        return False
+
+
+def selected_book_rows(
+    conn: sqlite3.Connection, run_id: str, allowed: frozenset[str] | set[str]
+) -> list[dict]:
+    """Every stored rule of the rule books the run's selection INCLUDED (`review_applicable_standards`, `included = 1`),
+    limited to books the caller may read (rule 5: an intersection). Used when the run has no per-rule scope decisions: the
+    candidates are then the rules of the selected books, and the label filter (paper kind, tier, equipment) narrows them."""
+    try:
+        cur = conn.execute(
+            "SELECT sr.* FROM standard_requirements sr JOIN review_applicable_standards a"
+            " ON a.standard_document_id = sr.standard_document_id"
+            " WHERE a.review_run_id = ? AND a.included = 1",
+            (run_id,),
+        )
+    except sqlite3.OperationalError:  # no selection table: no selected book
+        return []
+    names = [c[0] for c in cur.description]
+    rows = [dict(zip(names, r, strict=True)) for r in cur.fetchall()]
+    return [r for r in rows if r["standard_document_id"] in allowed]
+
+
+def books_not_selected(
+    conn: sqlite3.Connection,
+    run_id: str,
+    paper_kind: str | None,
+    allowed: frozenset[str] | set[str],
+) -> dict:
+    """Counts only: how many AI-approved rules of this paper kind sit in rule books the selection did NOT include."""
+    if not paper_kind:
+        return {"books": 0, "ai_approved_of_this_kind": 0}
+    try:
+        chosen = {
+            r[0]
+            for r in conn.execute(
+                "SELECT standard_document_id FROM review_applicable_standards WHERE review_run_id = ? AND included = 1",
+                (run_id,),
+            )
+        }
+        per_book: dict[str, int] = {}
+        for (d,) in conn.execute(
+            "SELECT sr.standard_document_id FROM rule_label l JOIN standard_requirements sr ON sr.id = l.rule_ref"
+            " WHERE l.source = 'requirement' AND l.state = 'ai_approved' AND l.paper_kind = ?",
+            (paper_kind,),
+        ):
+            if d in allowed and d not in chosen:
+                per_book[d] = per_book.get(d, 0) + 1
+    except sqlite3.OperationalError:  # no selection or label table: nothing to count
+        return {"books": 0, "ai_approved_of_this_kind": 0}
+    return {"books": len(per_book), "ai_approved_of_this_kind": sum(per_book.values())}
+
+
 def applicable_rules(
     conn: sqlite3.Connection,
     run_id: str,
@@ -487,6 +553,45 @@ def _checklist(
     return _fold_duplicates(
         sk, [r for r in rules if r.get("rule_tier") != RULE_NOT_APPROVED]
     )
+
+
+#: Where the candidate rules came from (the words the contract and the screen use).
+SOURCE_DECISIONS = "per-rule scope decisions"
+SOURCE_BOOKS = "the rules of the selected books"
+
+
+def build_items_for_run(
+    conn,
+    document_id: str,
+    kind: dict,
+    scope_run: str,
+    allowed,
+    *,
+    cache: dict,
+    equipment_type,
+    ask_unapproved,
+) -> dict:
+    """`build_items` for the AI reviewer's job. With no per-rule scope decision stored for `scope_run` (the inline selection
+    stores books only), the candidates are the rules of the selected books; the Rules used block says so, counts only."""
+    by_book = not has_scope_decisions(conn, scope_run)
+    rows = selected_book_rows(conn, scope_run, allowed) if by_book else None
+    doc = build_items(conn, document_id, kind, run_id=scope_run, cache=cache, equipment_type=equipment_type,
+                      equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows)  # fmt: skip
+    block = doc.setdefault("rule_labels", {})
+    other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
+    block["candidates"] = {
+        "source": SOURCE_BOOKS if by_book else SOURCE_DECISIONS,
+        "rows": len(rows) if rows is not None else None,
+        "repeats": (doc.get("rules_left_out") or {}).get("stored_repeat", 0),
+        "books_not_selected": other,
+    }
+    if by_book:
+        block.setdefault("summary_lines", []).append(
+            f"rules came from the rule books this review selected ({len(rows or [])} stored rules; no per-rule scope decision"
+            f" exists); AI-approved rules of this paper kind in {other['books']} other books were not considered:"
+            f" {other['ai_approved_of_this_kind']}"
+        )
+    return doc
 
 
 def build_items(
