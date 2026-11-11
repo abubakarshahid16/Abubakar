@@ -108,8 +108,11 @@ model call and that no model output reached a finding; both are no longer true:
 `agent_review_engine` (`AGENT_REVIEW_ENGINE`, default ollama): `agent_claude.gate_open` and
 `agent_review_gate.claude_lane_open` (the agent-status route) are open under `claude`, or under `per_task` only when that
 setting says claude; `ollama` closes both. `local_engine_bar.is_claude_lane_run` is true under `claude`, and under `per_task`
-only when one of `REVIEW_ENGINE_SETTINGS` says claude: a normal review with every engine local is not barred. The reviewer's
-own setting does not bar a normal review (its job, `agent_review`, never runs under `review_jobs.run`'s bar).
+only when one of `REVIEW_ENGINE_SETTINGS` says claude: a normal review with every engine local is not barred. The bar is decided per job by
+`is_claude_lane_run(agent_job)`: the AI reviewer's job (`jobs.stage = agent_review`, it carries `review_jobs._review_scope`) is
+barred exactly when its own gate is open; a normal review by the rule above. The reviewer's own setting does not bar a
+normal review. The app's second opinion on a Claude review is Claude (`agent_review_run`); the local second opinion exists
+only in `scripts/run_agent_review.py`.
 
 Section 2's line references above are still those of `1b445af`.
 

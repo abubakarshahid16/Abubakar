@@ -69,7 +69,9 @@ carries the client's name; only the owner can rename it.
    `AI_ENGINEERING_REVIEW_PASS_ENGINE` and, for the AI reviewer (rule review and
    general review) alone, `AGENT_REVIEW_ENGINE` - owner decision 2026-10-12, #501;
    AI reviewer 12 Nov 2026; under per_task a normal review whose own engine
-   settings are all local runs exactly as under ollama, no local-engine bar) AND both `STANDARDS_READER_*` egress
+   settings are all local runs exactly as under ollama, no local-engine bar; owner
+   decision of 12 Nov 2026, recorded on #1584 (comment 6806441133, item 5), to be
+   confirmed there by the owner; no new outbound path) AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
    which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default; in the socket-containment test

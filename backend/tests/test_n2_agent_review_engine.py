@@ -117,3 +117,107 @@ def test_an_injected_env_is_obeyed_exactly_for_the_reviewer_gate():
         )
         is False
     )
+
+
+# ---- the bar is decided PER JOB: the AI reviewer's real job function --------------------------------------------------
+from tests.test_agent_review_job import run_job, start, world  # noqa: E402,F401 - fixture
+from app import agent_review_kind  # noqa: E402
+
+
+def _watch_bar(monkeypatch):
+    """Record, from inside the real agent job, whether the bar is up and whether a local-engine step is refused."""
+    seen = {}
+
+    def decide(*_a, **_k):
+        seen["active"] = local_engine_bar.active()
+        seen["refused"] = local_engine_bar.refuses("probe-local-step")
+        seen["stated"] = [r["step"] for r in local_engine_bar.stated()]
+        from tests.test_agent_review_job import reading
+
+        return reading()
+
+    monkeypatch.setattr(agent_review_kind, "decide", decide)
+    return seen
+
+
+def _lane(monkeypatch, provider, own):
+    monkeypatch.setattr(settings, "reasoning_provider", provider)
+    monkeypatch.setattr(settings, "agent_review_engine", own)
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-invented")
+    monkeypatch.setattr(settings, "standards_reader_enabled", True)
+    monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
+    for name in local_engine_bar.REVIEW_ENGINE_SETTINGS:
+        monkeypatch.setattr(settings, name, "ollama")
+
+
+def test_the_real_agent_job_is_barred_when_its_own_gate_is_open_and_every_other_engine_is_local(
+    world, monkeypatch
+):
+    seen = _watch_bar(monkeypatch)
+    _lane(monkeypatch, "per_task", "claude")
+    _run_id, job_id = start()
+    run_job(job_id)
+    assert seen["active"] is True and seen["refused"] is True
+    assert "probe-local-step" in seen["stated"]
+
+
+def test_the_real_agent_job_is_not_barred_when_its_own_gate_is_closed(
+    world, monkeypatch
+):
+    seen = _watch_bar(monkeypatch)
+    _lane(monkeypatch, "per_task", "ollama")
+    _run_id, job_id = start()
+    run_job(job_id)
+    assert seen["active"] is False and seen["refused"] is False
+
+
+def test_the_real_agent_job_under_ollama_is_not_barred_whatever_its_setting_says(
+    world, monkeypatch
+):
+    seen = _watch_bar(monkeypatch)
+    _lane(monkeypatch, "ollama", "claude")
+    _run_id, job_id = start()
+    run_job(job_id)
+    assert seen["active"] is False
+
+
+def test_every_engine_setting_given_to_the_lane_gate_is_in_the_one_list():
+    """A new per-step engine setting passed to `claude_for_task` / `claude_unavailable_for_task` must be in
+    `REVIEW_ENGINE_SETTINGS`, or a review that uses it would run unbarred. Scans the source."""
+    import re
+    from pathlib import Path
+
+    app = Path(__file__).resolve().parents[1] / "app"
+    call = re.compile(
+        r"(?:claude_for_task|claude_unavailable_for_task)\(\s*([^,)]+(?:\([^)]*\))?)"
+    )
+    names, helpers = set(), set()
+    for path in app.rglob("*.py"):
+        if path.name == "reasoning_provider.py":
+            continue
+        for arg in call.findall(path.read_text()):
+            m = re.fullmatch(r"(?:settings\.)([a-z_]+)", arg.strip())
+            if m:
+                names.add(m.group(1))
+            else:
+                helpers.add((path.name, arg.strip()))
+    # a helper such as `engine_setting()` / `_engine()` / `opinion_engine()` reads one setting: resolve by its body
+    for fname, arg in helpers:
+        helper = arg.rstrip("()").split(".")[-1]
+        if not helper or not helper.isidentifier():
+            continue
+        for path in app.rglob("*.py"):
+            m = re.search(
+                rf"def {helper}\(\)[^\n]*:\n(?:\s+\"\"\".*?\"\"\"\n)?\s+return[^\n]*?settings\.([a-z_]+)",
+                path.read_text(),
+                re.S,
+            )
+            if m:
+                names.add(m.group(1))
+    names.discard(
+        "agent_review_engine"
+    )  # the AI reviewer's own job, decided separately per job
+    assert names, "the scan found nothing: the test is vacuous"
+    assert names <= set(local_engine_bar.REVIEW_ENGINE_SETTINGS), sorted(
+        names - set(local_engine_bar.REVIEW_ENGINE_SETTINGS)
+    )

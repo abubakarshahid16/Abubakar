@@ -96,16 +96,20 @@ REVIEW_ENGINE_SETTINGS = (
 )
 
 
-def is_claude_lane_run() -> bool:
-    """True when a step of THIS review can really go to Claude, and the lane itself is open.
+def is_claude_lane_run(agent_job: bool = False) -> bool:
+    """True when THIS job can really go to Claude, and the lane itself is open. Decided per job, by ONE function.
 
-    * `claude`: every reasoning step may, so any review is one (as before).
-    * `per_task`: only when one of `REVIEW_ENGINE_SETTINGS` says claude. With every engine local the review runs exactly as
-      under `ollama`: no bar, nothing skipped (owner, 12 Nov 2026: the AI reviewer and normal reviews work together).
+    * the AI reviewer's job (`agent_job`, rule review and general review): when its own gate is open
+      (`claude_unavailable_for_task(agent_review_engine)`: claude, or per_task with `agent_review_engine` = claude).
+    * a normal review, `claude`: every reasoning step may, so any review is one (as before).
+    * a normal review, `per_task`: only when one of `REVIEW_ENGINE_SETTINGS` says claude. With every engine local the
+      review runs exactly as under `ollama`: no bar, nothing skipped (owner, 12 Nov 2026).
     * anything else: never."""
     from . import reasoning_provider as rp
     from .config import settings
 
+    if agent_job:
+        return rp.claude_unavailable_for_task(settings.agent_review_engine)[0] is None
     provider = rp._provider_setting()
     if provider == rp.CLAUDE:
         return rp.claude_lane_open()
@@ -117,6 +121,22 @@ def is_claude_lane_run() -> bool:
     ):
         return False
     return rp.claude_lane_open()
+
+
+def _is_agent_job(job_id) -> bool:
+    """The kind of job, from its row (`jobs.stage`): the AI reviewer's job or not."""
+    from . import agent_review_gate
+    from .db import connect
+
+    try:
+        row = (
+            connect()
+            .execute("SELECT stage FROM jobs WHERE id = ?", (job_id,))
+            .fetchone()
+        )
+    except Exception:  # noqa: BLE001 - no table or row: a normal review
+        return False
+    return row is not None and row["stage"] == agent_review_gate.STAGE
 
 
 @contextmanager
@@ -133,7 +153,7 @@ def barring_local_engine(job):
 
     @functools.wraps(job)
     def wrapper(*args, **kwargs):
-        if not is_claude_lane_run():
+        if not is_claude_lane_run(agent_job=bool(args) and _is_agent_job(args[0])):
             return job(*args, **kwargs)
         with bar():
             return job(*args, **kwargs)
