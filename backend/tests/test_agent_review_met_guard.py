@@ -446,9 +446,7 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
     assert sum(rows.values()) == len(lines)
     counts = C.run_counts(lines)
     assert counts["sheet_rows"] == rows
-    assert (
-        counts["held_ai_pass"] == rows[C.HELD_PASS_SHEET] == 1
-    )  # only L-met
+    assert counts["held_ai_pass"] == rows[C.HELD_PASS_SHEET] == 1  # only L-met
     assert (
         counts["query_not_applicable"]
         == rows[C.NOT_APPLICABLE_SHEET]
