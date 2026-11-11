@@ -346,7 +346,9 @@ def on_agent_standards(subject_document_id: str, standard_document_ids) -> None:
             standard = _document(sid)
             if standard is not None:
                 out.append(
-                    _want(standard, f"auto: asked by AI review of {subject_document_id}")
+                    _want(
+                        standard, f"auto: asked by AI review of {subject_document_id}"
+                    )
                 )
         return out
 

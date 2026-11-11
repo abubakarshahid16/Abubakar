@@ -72,7 +72,9 @@ def write(data_dir: str, found: set[str]) -> tuple[int, int]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--db", default=None)
     ap.add_argument("--file", action="append", default=[])

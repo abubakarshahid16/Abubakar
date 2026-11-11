@@ -91,9 +91,14 @@ def load(
     if not Path(settings.db_path).is_file():
         raise Refused("no such database")
     backed_up = False
-    if live_guard.is_live_shaped(settings.db_path) and not live_guard.is_server_process():
+    if (
+        live_guard.is_live_shaped(settings.db_path)
+        and not live_guard.is_server_process()
+    ):
         try:
-            live_guard.prepare_live_write(settings.db_path, reason=REASON, backup_dir=backup_dir)
+            live_guard.prepare_live_write(
+                settings.db_path, reason=REASON, backup_dir=backup_dir
+            )
         except live_guard.LiveWriteRefused as exc:
             raise Refused(f"live guard: {exc}") from None
         backed_up = True
@@ -111,17 +116,45 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--labels", required=True, help="the rule label file, inside the data directory")
-    ap.add_argument("--equipment", required=True, help="the equipment label file, inside the data directory")
-    ap.add_argument("--db", default=None, help="the database (default: the configured one)")
-    ap.add_argument("--data-dir", default=None, help="the data directory the label files must be inside (default: the configured one)")
-    ap.add_argument("--port", type=int, default=None, help="the server's port to check is silent (default: the configured one)")
-    ap.add_argument("--backup-dir", default=None, help="live database only: the folder for the verified backup (must exist; default <checkout>-backups)")
+    ap.add_argument(
+        "--labels", required=True, help="the rule label file, inside the data directory"
+    )
+    ap.add_argument(
+        "--equipment",
+        required=True,
+        help="the equipment label file, inside the data directory",
+    )
+    ap.add_argument(
+        "--db", default=None, help="the database (default: the configured one)"
+    )
+    ap.add_argument(
+        "--data-dir",
+        default=None,
+        help="the data directory the label files must be inside (default: the configured one)",
+    )
+    ap.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="the server's port to check is silent (default: the configured one)",
+    )
+    ap.add_argument(
+        "--backup-dir",
+        default=None,
+        help="live database only: the folder for the verified backup (must exist; default <checkout>-backups)",
+    )
     ap.add_argument("--expect-labels-stored", type=int, default=None)
     ap.add_argument("--expect-equipment-stored", type=int, default=None)
     a = ap.parse_args(argv)
     try:
-        got = load(a.labels, a.equipment, db_path=a.db, data_dir=a.data_dir, port=a.port, backup_dir=a.backup_dir)
+        got = load(
+            a.labels,
+            a.equipment,
+            db_path=a.db,
+            data_dir=a.data_dir,
+            port=a.port,
+            backup_dir=a.backup_dir,
+        )
     except Refused as exc:
         print(f"REFUSED | {exc}", flush=True)
         return 1
