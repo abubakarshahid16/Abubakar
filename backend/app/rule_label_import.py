@@ -17,6 +17,10 @@ EVERY ROW IS CHECKED AGAIN, BY CODE, AGAINST THE RULE AS THIS DATABASE HOLDS IT 
 A row that is not `ai_approved` is stored as the file says (a `needs_human` or `quote_not_found` label approves nothing).
 The file's `rule_version_id` is not trusted: it is derived again here from the stored rule.
 
+TRUST. `origin: "lab-order12"` is declared by the file itself, and so is the file: the import trusts the ADMIN who places
+it in the data directory (the route is admin only). It cannot tell a converter's file from a hand-written one. What the
+file cannot do is skip a check: every row is still re-checked by code, as above, with or without the origin.
+
 IDEMPOTENT. A row identical to the stored one is counted as stored and not written again (no new event); a changed row
 updates the stored one (the table's trigger appends the event). Nothing is deleted. `rulebook_approval` and every other
 existing table are never written.

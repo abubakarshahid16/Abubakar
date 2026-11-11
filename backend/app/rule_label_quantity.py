@@ -7,6 +7,7 @@ reference word AND followed by nothing but the end of the text, punctuation, a c
 
 from __future__ import annotations
 
+import itertools
 import re
 
 from . import claims, numparse
@@ -400,6 +401,44 @@ def _unit_follows(text: str, end: int) -> bool:
     return not (word in COMMON_WORDS or word in SHORT_WORDS)
 
 
+#: Numbers written in words; one of them followed by a unit is a quantity ("ten bar", "half an inch" is not caught: a word
+#: between them breaks the pair, the safe side being the numeric forms).
+NUMBER_WORDS = frozenset(
+    [
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "twenty",
+        "thirty",
+        "fifty",
+        "hundred",
+        "thousand",
+        "half",
+        "double",
+        "twice",
+    ]
+)
+
+
+def _word_quantity(text: str) -> bool:
+    toks = [t.strip(".,;:!?()[]{}\"'").lower() for t in text.split()]
+    for cur, nxt in itertools.pairwise(toks):
+        if cur in NUMBER_WORDS and (
+            nxt in EXTRA_UNIT_WORDS or claims.unit_dimension(nxt) is not None
+        ):
+            return True
+    return False
+
+
 def quote_states_a_quantity(quote: str | None) -> bool:
     """True when the quote states a quantity, by the project's own number code (`numparse.find_numbers`). A number
     counts unless it is (1) a leading clause or paragraph number ("4.2.1 ...", "(1) The ..."; "5 mm minimum" is not one),
@@ -421,4 +460,4 @@ def quote_states_a_quantity(quote: str | None) -> bool:
         ):
             continue
         return True
-    return False
+    return _word_quantity(text)

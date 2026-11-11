@@ -25,20 +25,9 @@ TOKENS_PER_RULE_OUT = 100
 THINKING_ALLOWANCE_TOKENS = 600
 
 
-def field_list() -> dict[str, str]:
-    """{role: kind}: every role any equipment type's checklist wants (the app's fixed field lists, as data)."""
-    from . import datasheet_checks, datasheet_roles
-
-    rules = datasheet_checks.load_rules()
-    roles = rules.get("roles") or {}
-    out: dict[str, str] = {}
-    for equipment_type in rules.get("checklists") or {}:
-        if str(equipment_type).startswith("_"):
-            continue
-        for role in datasheet_roles.wanted_roles(equipment_type, rules):
-            if role in roles:
-                out[role] = str(roles[role].get("kind") or "text")
-    return dict(sorted(out.items()))
+field_list = (
+    rule_labels.field_list
+)  # the one fixed list, also read by `rule_labels.decide`
 
 
 SYSTEM_HEAD = (
@@ -116,18 +105,30 @@ def _start_key(text: Any) -> str:
     return " ".join(re.sub(r"\W+", " ", str(text or "")).casefold().split())
 
 
+def batch_structure_ok(rows: Any, n_rules: int) -> bool:
+    """As many answers as rules in the batch, each a JSON object with an integer n, and the indexes exactly 1..N, each
+    once. Anything else (a missing, extra, repeated or out-of-range answer) and the WHOLE batch is unreadable."""
+    if not isinstance(rows, list) or len(rows) != n_rules:
+        return False
+    ns = [a.get("n") if isinstance(a, dict) else None for a in rows]
+    return all(isinstance(n, int) and not isinstance(n, bool) for n in ns) and sorted(
+        ns
+    ) == list(range(1, n_rules + 1))
+
+
 def parse_answers(
-    text: str, batch: Sequence[Rule], fields: dict[str, str], model: str
+    text: str, batch: Sequence[Rule], model: str
 ) -> dict[int, rule_labels.PassAnswer]:
-    """{n: PassAnswer} for the answers that are readable AND belong to their rule. Left out (the rule stays unlabelled
-    for this pass): not JSON; an `n` out of range, repeated or not an integer; a paper kind or field outside its fixed
-    list; a reading of the wrong shape; a `start` that is not the first three words of THAT rule's quote (an answer
+    """{n: PassAnswer} for the answers that are readable AND belong to their rule. The WHOLE batch is left out unless the answers are exactly
+    n = 1..N, each once (`batch_structure_ok`). Left out (the rule stays unlabelled for this pass): not JSON; an `n` out of range, repeated or not an integer; a paper kind outside its closed list or a field that is no text; a reading of the wrong shape; a `start` that is not the first three words of THAT rule's quote (an answer
     attached to the wrong rule). A readable answer whose numbers or unit the quote does not hold is kept with
     valid=False (code decides: the rule goes to a human)."""
     obj = agent_claude.parse_json_object(text)
     rows = obj.get("answers") if isinstance(obj, dict) else None
     out: dict[int, rule_labels.PassAnswer] = {}
-    for a in rows if isinstance(rows, list) else []:
+    if not batch_structure_ok(rows, len(batch)):
+        return out  # the whole batch is unreadable: nothing attached by guesswork, the rules stay unlabelled
+    for a in rows:
         if not isinstance(a, dict):
             continue
         n, kind, fld = a.get("n"), a.get("paper_kind"), a.get("field")
@@ -145,8 +146,8 @@ def parse_answers(
             continue
         if kind != "datasheet":
             fld = None
-        elif fld is not None and (not isinstance(fld, str) or fld not in fields):
-            continue
+        elif fld is not None and not isinstance(fld, str):
+            continue  # a field NOT ON THE LIST is kept: `rule_labels.decide` makes that row needs_human
         valid, reading = rule_labels.check_reading(a, quote)
         content = {"paper_kind": kind, "field": fld, "reading": reading, "valid": valid}
         out[n] = rule_labels.PassAnswer(

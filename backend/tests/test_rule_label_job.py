@@ -439,3 +439,44 @@ def test_a_quote_in_weak_boxes_goes_to_a_human_whatever_the_page_says(
     _boxes(copy, 0.3)
     conn, _c, _l = both_passes(copy)
     assert set(states(conn).values()) == {"needs_human"}
+
+
+def _mis_counted(kind):
+    def build(rules):
+        good = [s.FakeModel.good(r) for r in rules]
+        if kind == "extra":  # three answers for two rules
+            return [*good, {**good[0], "n": 3}]
+        if kind == "duplicate":  # n = 1 twice with different readings, n = 2 missing
+            return [good[0], {**good[0], "comparator": "ge"}]
+        if kind == "out_of_range":
+            return [good[0], {**good[1], "n": 3}]
+        if kind == "missing":
+            return good[:1]
+        return good
+
+    return build
+
+
+@pytest.mark.parametrize("kind", ["extra", "duplicate", "out_of_range", "missing"])
+def test_a_mis_counted_batch_answer_attaches_to_no_rule(copy, kind):
+    conn, counts, _l = run(copy, "a", s.MODEL_A, s.RawModel(_mis_counted(kind)))
+    assert states(conn) == {} and counts["unlabelled_unreadable_or_wrong_rule"] == 2
+    # the same batch, answered right, is read (the guard is the count and the indexes, nothing else)
+    conn, _c, _l = run(copy, "a", s.MODEL_A, s.RawModel(_mis_counted("fine")))
+    assert set(states(conn).values()) == {"labelled_a"}
+
+
+def test_a_field_not_on_the_list_is_needs_human_through_the_job(copy):
+    def unlisted(rule):
+        a = s.FakeModel.good(rule)
+        if "10 bar" in rule["quote"]:
+            a["field"] = "zzz_not_listed"
+        return a
+
+    conn, _c, _l = both_passes(
+        copy, fake_a=s.FakeModel(unlisted), fake_b=s.FakeModel(unlisted)
+    )
+    row = conn.execute(
+        "SELECT state, disagreement, field FROM rule_label WHERE rule_ref = 'r1'"
+    ).fetchone()
+    assert (row[0], row[1], row[2]) == ("needs_human", "field_not_listed", None)

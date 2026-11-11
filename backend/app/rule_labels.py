@@ -5,7 +5,7 @@ datasheet rule its field, and a state: `labelled_a` (one model answered), `ai_ap
 kind, field and reading under ONE prompt version, and code found the quote word for word on the rule-book page),
 `needs_human` (they differ, or code cannot prove a reading), `quote_not_found` (never sent to a model).
 
-`decide` is THE decision and it holds every guard itself, so no caller can approve around one: the quote was found; both
+`decide` is THE decision and it holds every guard itself (no caller's flag is trusted: the readings and the field are checked again here): the quote was found; both
 passes answered; the two models are not one family; both passes ran the SAME prompt version, the current one; each
 reading is valid by code (every number it writes stands in the quote, its unit is written in the quote); a quote that
 states a quantity is not approved on two readings that hold no number; the kind, field and reading agree by code.
@@ -20,11 +20,12 @@ reason word. This replaces the engineer sample for now (owner decision 1); an en
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -255,6 +256,34 @@ class Decision:
     reading: Mapping | None = None
 
 
+@functools.cache
+def field_list() -> dict[str, str]:
+    """{role: kind}: every role any equipment type's checklist wants (the app's fixed field lists, as data). The one list a
+    datasheet rule's field must be on, for the prompt and for `decide`."""
+    from . import datasheet_checks, datasheet_roles
+
+    rules = datasheet_checks.load_rules()
+    roles = rules.get("roles") or {}
+    out: dict[str, str] = {}
+    for equipment_type in rules.get("checklists") or {}:
+        if str(equipment_type).startswith("_"):
+            continue
+        for role in datasheet_roles.wanted_roles(equipment_type, rules):
+            if role in roles:
+                out[role] = str(roles[role].get("kind") or "text")
+    return dict(sorted(out.items()))
+
+
+def _valid_here(p: PassAnswer, quote_text: str | None) -> bool:
+    """A pass's reading is valid by code HERE: the caller's `valid` flag must say so AND the reading has the right shape,
+    a count of numbers that fits its comparator, every number and the unit in the quote."""
+    return (
+        bool(p.valid)
+        and shape_ok(p.reading)
+        and check_reading(p.reading, quote_text)[0]
+    )
+
+
 def decide(
     a: PassAnswer | None,
     b: PassAnswer | None,
@@ -263,6 +292,7 @@ def decide(
     quote_text: str | None,
     quote_ocr_low: bool = False,
     prompt_version: str = PROMPT_VERSION,
+    fields: Collection[str] | None = None,
 ) -> Decision | None:
     """THE state of a rule, by code only. None when no pass answered and the quote was found (no row to write yet).
 
@@ -273,7 +303,10 @@ def decide(
       invalid_reading                a model's numbers or unit are not in the quote, or its count does not fit
       numbers_unread                 the quote states a quantity and a reading holds no number
       ocr_low_confidence             the quote stands on a recognised (OCR) page of low or unknown confidence
-      kind / field                   the paper kinds differ; a datasheet's fields differ or are not on the fixed list
+      kind / field                   the paper kinds differ; a datasheet's two fields differ
+      field_not_listed               a datasheet field is named that is not on the fixed field list (`fields`, default
+                                     `field_list()`): never approved, whoever supplied the answer
+      (`valid` of a PassAnswer is NOT trusted: each reading is checked again here against the quote)
       comparator / values / unit / strength   the two readings differ (numbers compared by code)"""
     if not quote_found:
         return Decision(QUOTE_NOT_FOUND)
@@ -292,7 +325,7 @@ def decide(
         diff.append("prompt_version")
     if quote_ocr_low:
         diff.append("ocr_low_confidence")
-    if not (a.valid and b.valid):
+    if not all(_valid_here(p, quote_text) for p in (a, b)):
         diff.append("invalid_reading")
     else:
         for p in (a, b):
@@ -305,11 +338,21 @@ def decide(
             diff.append("kind")
         elif a.paper_kind == "datasheet" and a.field != b.field:
             diff.append("field")
+        listed = set(field_list() if fields is None else fields)
+        if any(
+            p.paper_kind == "datasheet"
+            and p.field is not None
+            and p.field not in listed
+            for p in (a, b)
+        ):
+            diff.append("field_not_listed")
         diff += readings_agree(a.reading, b.reading)
     kind = a.paper_kind if a.paper_kind == b.paper_kind else None
     field = a.field if kind == "datasheet" and a.field == b.field else None
+    if "field_not_listed" in diff:
+        field = None
     # the agreed reading is kept whenever the two readings agree, also when only the kind or field is in doubt
-    agreed = a.valid and b.valid and not readings_agree(a.reading, b.reading)
+    agreed = "invalid_reading" not in diff and not readings_agree(a.reading, b.reading)
     reading = {**a.reading, "subject_b": b.reading.get("subject")} if agreed else None
     return Decision(
         NEEDS_HUMAN if diff else AI_APPROVED,
@@ -347,6 +390,8 @@ def approval_guard(
     kind, field = row.get("paper_kind"), row.get("field")
     if kind not in PAPER_KINDS or (field is not None and kind != "datasheet"):
         return "kind_or_field"
+    if field is not None and field not in field_list():
+        return "field_not_listed"
     if not isinstance(row.get("quote_page"), int) or isinstance(
         row.get("quote_page"), bool
     ):

@@ -510,7 +510,7 @@ class _Pass:
                 n_rules  # the answering model is pass a's: never pass b
             )
             return
-        got = parse_answers(_text_of(answer), [g[0] for g in batch], self.fields, used)
+        got = parse_answers(_text_of(answer), [g[0] for g in batch], used)
         for n, group in enumerate(batch, 1):
             if got.get(n) is None:
                 self.counts["unlabelled_unreadable_or_wrong_rule"] += len(group)

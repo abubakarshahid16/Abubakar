@@ -61,7 +61,7 @@ def lab_row(
     values="[10.0]",
     unit="bar",
     kind="datasheet",
-    field="a_field",
+    field=s.FIELD(),
     b_kind=None,
     b_field="same",
 ):
@@ -139,7 +139,7 @@ def test_the_lab_approval_is_decided_again_and_marked_lab(tmp_path):
     "kw,cause",
     [
         ({"b_model": s.MODEL_A}, "same_model"),
-        ({"b_field": "other_field"}, "field"),
+        ({"b_field": s.FIELD2()}, "field"),
         ({"values": "[99.0]"}, "invalid_reading"),
         ({"b_kind": "procedure"}, "kind"),
         ({"prompt": "rule-label-v9"}, "prompt_version"),
@@ -236,4 +236,12 @@ def test_the_import_takes_a_lab_row_only_with_its_origin_and_the_tier_reads_it(
     assert (
         imp.import_labels(server, bad)["refused"] == 1
         or server.execute("SELECT quote_page FROM rule_label").fetchone()[0] == 2
+    )
+
+
+def test_a_lab_field_not_on_the_list_is_needs_human_in_the_converter(tmp_path):
+    rows, _c = run(lab_db(tmp_path, [lab_row("r1", field="zzz_not_listed")]))
+    assert (
+        rows[0]["state"] == "needs_human"
+        and rows[0]["disagreement"] == "field_not_listed"
     )

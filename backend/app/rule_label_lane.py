@@ -224,10 +224,12 @@ class Lane:
             except agent_claude.AgentBadReply:
                 self._settle_bad_reply(model, worst, n_rules, rid)
                 raise
-            except Exception:
+            except (
+                Exception
+            ):  # after a send the call may have been billed: booked at its worst case
                 self.ledger.settle(
                     worst,
-                    usd=0.0,
+                    usd=worst,
                     model="no answer",
                     kind="label",
                     ok=False,

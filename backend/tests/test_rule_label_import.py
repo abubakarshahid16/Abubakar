@@ -345,3 +345,13 @@ def test_the_route_is_admin_only_404_when_off_and_the_server_writes(
     )
     again = world.post(url, json=body, headers=h("u_admin"))
     assert again.json() == ok.json()  # idempotent
+
+
+def test_an_approval_naming_a_field_not_on_the_list_is_refused_by_the_import(
+    tmp_path, monkeypatch, server
+):
+    rows = _rows(_label_file(tmp_path, monkeypatch))
+    row = next(r for r in rows if r["paper_kind"] == "datasheet")
+    row["field"] = "zzz_not_listed"
+    counts = imp.import_labels(server, [row])
+    assert counts["refused"] == 1 and counts["stored"] == 0

@@ -132,11 +132,12 @@ def reading(
 def answer(
     model=MODEL_A,
     kind="datasheet",
-    field="a_field",
+    field="LISTED",
     rd=None,
     valid=True,
     prompt=rule_labels.PROMPT_VERSION,
 ):
+    field = FIELD() if field == "LISTED" else field
     rd = rd if rd is not None else reading()
     content = {
         "paper_kind": kind,
@@ -209,9 +210,9 @@ class FakeModel:
 
 
 def FIELD() -> str:
-    from app import rule_label_job
+    from app import rule_labels
 
-    return next(iter(rule_label_job.field_list()))
+    return next(iter(rule_labels.field_list()))
 
 
 def declared():
@@ -220,3 +221,30 @@ def declared():
 
 def switch(monkeypatch, on=True):
     monkeypatch.setattr(settings, "agent_review_enabled", on)
+
+
+def FIELD2() -> str:
+    from app import rule_labels
+
+    return list(rule_labels.field_list())[1]
+
+
+class RawModel(FakeModel):
+    """A sender whose reply is built from the whole batch: `batch_fn(rules) -> list of answers` (any shape)."""
+
+    def __init__(self, batch_fn, model_id=None):
+        super().__init__(model_id=model_id)
+        self.batch_fn = batch_fn
+
+    def __call__(self, url, *, headers, body, timeout):
+        self.calls += 1
+        self.bodies.append(body)
+        rules = json.loads(body["messages"][0]["content"][0]["text"])["rules"]
+        return {
+            "model": self.model_id or body["model"],
+            "stop_reason": "end_turn",
+            "content": [
+                {"type": "text", "text": json.dumps({"answers": self.batch_fn(rules)})}
+            ],
+            "usage": USAGE,
+        }

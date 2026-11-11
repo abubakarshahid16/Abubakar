@@ -6,8 +6,10 @@ quote word for word on the rule-book page. That is a state of `rule_label`, a ta
 tier.
 
 BEHIND ONE SWITCH. `agent_review_enabled` (default off): off, no table is created and nothing here answers. On,
-`ensure_schema` creates what is missing (CREATE ... IF NOT EXISTS only; no existing table is altered), once per
-schema version through `db.schema_once`, the way every module's schema is made.
+`create_tables` creates what is missing (CREATE ... IF NOT EXISTS only; no existing table is altered). In this PR it is
+called by the label job and by the import, and by nothing at server start: `ensure_schema` (memoised through
+`db.schema_once`, the way a module's schema is made) is ready for the app's schema walk but NOTHING CALLS IT YET; the
+reviewer PR wires it.
 
 `rule_label` is keyed by (source, rule_ref): source 'requirement' (rule_ref = `standard_requirements.id`, the rule the
 reviewer asks) or 'rulebook' (rule_ref = a `rulebook_version` id). `rule_version_id` is the rule-book version carrying
@@ -157,7 +159,7 @@ def _ensure(conn=None) -> None:
 
 
 def ensure_schema(conn=None) -> None:
-    """The app's schema walk calls this for every module. Switch off: does nothing, creates nothing, does not raise."""
+    """For the app's schema walk (not wired yet, see the module docstring). Switch off: does nothing, creates nothing, does not raise."""
     if not switch_on():
         return
     _ensure(conn)

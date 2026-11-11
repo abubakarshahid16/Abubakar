@@ -27,7 +27,7 @@ def test_two_different_models_that_agree_approve():
     assert (d.state, d.paper_kind, d.field, d.disagreement) == (
         "ai_approved",
         "datasheet",
-        "a_field",
+        s.FIELD(),
         None,
     )
     assert d.reading["values"] == [10.0]
@@ -117,7 +117,7 @@ def test_two_models_that_both_find_no_field_on_the_list_agree_but_one_named_fiel
         == "ai_approved"
     )
     one_null = decide(s.answer(s.MODEL_A, field=None), s.answer(s.MODEL_B))
-    other = decide(s.answer(s.MODEL_A), s.answer(s.MODEL_B, field="b_field"))
+    other = decide(s.answer(s.MODEL_A), s.answer(s.MODEL_B, field=s.FIELD2()))
     for d in (one_null, other):
         assert (
             d.state == "needs_human" and "field" in d.disagreement and d.field is None
@@ -482,3 +482,59 @@ def test_a_reference_word_never_hides_a_quantity_when_anything_but_a_plain_word_
 )
 def test_a_bare_reference_number_is_still_skipped(quote):
     assert rl.quote_states_a_quantity(quote) is False
+
+
+def test_a_field_not_on_the_fixed_list_is_needs_human_whoever_supplied_it():
+    d = decide(
+        s.answer(s.MODEL_A, field="zzz_not_listed"),
+        s.answer(s.MODEL_B, field="zzz_not_listed"),
+    )
+    assert (
+        d.state == "needs_human"
+        and d.disagreement == "field_not_listed"
+        and d.field is None
+    )
+    assert (
+        decide(
+            s.answer(s.MODEL_A, field="zzz"), s.answer(s.MODEL_B, field=s.FIELD())
+        ).state
+        == "needs_human"
+    )
+    # a caller-supplied list wins, and the real fields still approve
+    assert (
+        decide(s.answer(s.MODEL_A), s.answer(s.MODEL_B), fields=[s.FIELD()]).state
+        == "ai_approved"
+    )
+    assert (
+        "field_not_listed"
+        in decide(
+            s.answer(s.MODEL_A), s.answer(s.MODEL_B), fields=["other"]
+        ).disagreement
+    )
+    row = _approved_row(paper_kind="datasheet", field="zzz_not_listed")
+    assert rl.approval_guard(row) == "field_not_listed"
+
+
+def test_decide_does_not_trust_a_callers_valid_flag():
+    lie = s.answer(
+        s.MODEL_A, rd=s.reading(values=(99.0,)), valid=True
+    )  # 99 is not in the quote
+    d = decide(lie, s.answer(s.MODEL_B))
+    assert d.state == "needs_human" and "invalid_reading" in d.disagreement
+    unit_lie = s.answer(s.MODEL_A, rd=s.reading(unit="MPa"), valid=True)
+    assert decide(unit_lie, s.answer(s.MODEL_B)).state == "needs_human"
+
+
+@pytest.mark.parametrize(
+    "quote,quantity",
+    [
+        ("The item shall be ten bar at most.", True),
+        ("It shall hold twice mm of margin.", True),
+        ("A hundred mm gap shall remain.", True),
+        ("Provide one of the following.", False),
+        ("Half the supplier shall sign.", False),
+        ("The supplier shall provide three copies.", False),
+    ],
+)
+def test_a_quantity_written_in_words_followed_by_a_unit_is_a_quantity(quote, quantity):
+    assert rl.quote_states_a_quantity(quote) is quantity
