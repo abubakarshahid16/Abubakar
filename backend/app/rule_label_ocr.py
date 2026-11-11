@@ -4,8 +4,8 @@ A page of a standard read by OCR (recognised text) carries one confidence per pa
 box anywhere says nothing about a quote elsewhere on the page. WHEN THE DATABASE HOLDS THE BOXES (`ocr_box`: one row per
 recognised box with its score; `ocr_box_page`: one row per stored page), the confidence of a QUOTE is the MINIMUM score
 of the boxes its words touch (`align_quote`), and the quote is low when that is unknown or under
-`settings.ocr_low_conf_threshold`. Unknown = low: no boxes for the page, the quote's words not found in them exactly, or a
-touched box without a score.
+`settings.ocr_low_conf_threshold`. Unknown = low: the quote's words not found in the page's boxes exactly, or a touched box
+without a score. A page with NO stored boxes keeps the strict page rule (below).
 
 THE ALIGNMENT IS EXACT EVERYWHERE. Every word of the quote, the first and last included, must equal the box word: same
 characters, same case (a different sign, comparator, percent, degree, bracket, decimal mark, unit case, letter or edge
@@ -35,6 +35,17 @@ def has_boxes_table(conn) -> bool:
         is not None
         and conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ocr_box_page'"
+        ).fetchone()
+        is not None
+    )
+
+
+def has_page_boxes(conn, sdid: str, page: int) -> bool:
+    """The database holds the boxes of THIS page (a row in `ocr_box_page`). A page without one keeps the strict page rule."""
+    return (
+        conn.execute(
+            "SELECT 1 FROM ocr_box_page WHERE document_id = ? AND page_no = ?",
+            (sdid, int(page)),
         ).fetchone()
         is not None
     )
@@ -118,14 +129,14 @@ def quote_is_low(
 ) -> bool:
     """Whether the quote may not be approved for the quality of its text. `origin` is the page's entry of
     `compiled_rule_report.page_origin` (None: no entry, the source is unknown). A text-layer ('native') page is never
-    low. Any other page: with the box table in this database, the quote-level rule above; without it, the strict page
-    rule (`rule_labels.page_is_low_confidence_ocr`, and an unknown source is low)."""
+    low. Any other page: with the boxes of THIS page in this database, the quote-level rule above; without them (no box
+    table, or none for this page), the strict page rule (`rule_labels.page_is_low_confidence_ocr`, and an unknown source is low)."""
     from .config import settings
 
     source = (origin or {}).get("page_source")
     if source == "native":
         return False
-    if page is not None and has_boxes_table(conn):
+    if page is not None and has_boxes_table(conn) and has_page_boxes(conn, sdid, page):
         conf = align_quote(quote, load_boxes(conn, sdid, page))
         return conf is None or conf < float(settings.ocr_low_conf_threshold)
     return source != "recognised" or rule_labels.page_is_low_confidence_ocr(origin)

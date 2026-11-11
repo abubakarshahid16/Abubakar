@@ -6,6 +6,7 @@
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py run --pass b --db <copy> --book <standard> --max-usd 5
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py report --db <copy>
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py convert-lab --lab-db <lab copy> --out <file.json>
+    AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py convert-boxes --lab-db <lab copy> --data-dir <data dir> --out <data dir>/labels/ocr-boxes.json
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_labels.py export --db <copy> --out <file.json>
 
 Refuses a live-shaped database path. Writes only the copy (the tables `rule_label` and `rule_label_event`). The paid pass
@@ -65,15 +66,38 @@ def _convert_lab(a: argparse.Namespace) -> int:
     return 0
 
 
+def _convert_boxes(a: argparse.Namespace) -> int:
+    from app import ocr_box_convert
+
+    if not a.lab_db or not a.out:
+        raise job.LabelError("convert-boxes needs --lab-db and --out")
+    require_on()
+    try:
+        out = ocr_box_convert.check_out(a.out, a.data_dir)
+    except ValueError as exc:
+        raise job.LabelError(str(exc)) from None
+    conn = job.open_copy(a.lab_db, read_only=True)
+    pages, counts = ocr_box_convert.convert(conn)
+    ocr_box_convert.write(pages, out)
+    print("CONVERTED " + json.dumps(counts, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument(
-        "command", choices=("estimate", "run", "report", "export", "convert-lab")
+        "command",
+        choices=("estimate", "run", "report", "export", "convert-lab", "convert-boxes"),
     )
     ap.add_argument(
         "--db", default=None, help="the database COPY (a live-shaped path is refused)"
+    )
+    ap.add_argument(
+        "--data-dir",
+        default=None,
+        help="convert-boxes: the data directory the box file must be written inside",
     )
     ap.add_argument(
         "--lab-db", default=None, help="convert-lab: the lab labeller's database COPY"
@@ -100,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.command == "convert-lab":
             return _convert_lab(a)
+        if a.command == "convert-boxes":
+            return _convert_boxes(a)
         if not a.db:
             raise job.LabelError("--db is needed")
         if a.command in ("report", "export"):
