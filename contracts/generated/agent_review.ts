@@ -42,7 +42,8 @@ export interface AgentLine {
   clause: string;
   rule_book: string;
   reason: string;
-  rule_tier: AgentRuleTier;
+  /** null for a checklist item, which has no rule tier. */
+  rule_tier: AgentRuleTier | null;
 }
 
 /** GET /api/reviews/runs/{id}/agent/lines: one page of lines. */

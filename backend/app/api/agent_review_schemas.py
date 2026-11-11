@@ -51,9 +51,22 @@ LeftOutReason = Literal[
     "rule book not held",
 ]
 
-#: The only class allowed to carry "Pass" or "Fail".
-PROVEN_CLASS = "Proven by code"
-PROVEN_WORDS = ("Pass", "Fail")
+#: The closed table every line must match: class -> (allowed words, allowed
+#: tiers). A tier of None (a checklist item has no rule tier) is allowed for
+#: every class except "AI opinion, rule not yet approved". "Pass" and "Fail"
+#: appear only under "Proven by code", and that class only with them.
+_APPROVED_TIERS = ("Owner", "Engineer", "AI approved")
+_AI_WORDS = ("AI thinks: met", "AI thinks: not met")
+LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
+    "Proven by code": (("Pass", "Fail"), (*_APPROVED_TIERS, None)),
+    "AI opinion, engineer to confirm": (_AI_WORDS, (*_APPROVED_TIERS, None)),
+    "AI opinion, rule not yet approved": (_AI_WORDS, ("Not AI approved",)),
+    "Query for the engineer": (("Query",), (*_APPROVED_TIERS, "Not AI approved", None)),
+    "Not applicable": (
+        ("Not applicable",),
+        (*_APPROVED_TIERS, "Not AI approved", None),
+    ),
+}
 
 Count = Annotated[int, Field(ge=0)]
 
@@ -100,14 +113,19 @@ class AgentLine(BaseModel):
     clause: str
     rule_book: str
     reason: str
-    rule_tier: RuleTier
+    #: null for a checklist item, which has no rule tier.
+    rule_tier: RuleTier | None
 
     @model_validator(mode="after")
-    def _nothing_unproven_is_pass_or_fail(self) -> AgentLine:
-        if self.word in PROVEN_WORDS and self.verdict_class != PROVEN_CLASS:
+    def _class_word_and_tier_agree(self) -> AgentLine:
+        words, tiers = LINE_TABLE[self.verdict_class]
+        if self.word not in words:
             raise ValueError(
-                f'the word "{self.word}" needs class "{PROVEN_CLASS}", '
-                f'not "{self.verdict_class}"'
+                f'class "{self.verdict_class}" cannot carry the word "{self.word}"'
+            )
+        if self.rule_tier not in tiers:
+            raise ValueError(
+                f'class "{self.verdict_class}" cannot have rule tier {self.rule_tier!r}'
             )
         return self
 
