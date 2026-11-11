@@ -11,6 +11,10 @@ WHAT GETS AN ENTRY, AND WHEN
   * the subject of a review, when the review starts, so documents uploaded
     earlier are covered. A subject with no role is listed: it is being reviewed.
     A subject whose role says standard, contract, supporting or template is not;
+  * a rule book the AI reviewer ASKS rules from (`on_agent_standards`, order 12 N3, owner 16.7 point 3): the books of the
+    rules it declares to the Claude gate (`agent_review_jobs._ask` declares the paper and these books), whatever method chose
+    them. Before this, a book chosen by equipment type or service, not cited, never joined the list and every call of the
+    run was refused `not_approved`. Only when the paper itself qualifies (role none or CONTRACTOR_SUBMITTAL);
   * a standard a review CITES, or the standard that GOVERNS its equipment type,
     labelled apart (`LISTED_METHODS`), when the review starts or records it: a
     review chooses its standards after it starts, so "at the start" alone would
@@ -327,6 +331,26 @@ def on_review_start(review_run_id: str) -> None:
         return out
 
     _run("review", review_run_id, build)
+
+
+def on_agent_standards(subject_document_id: str, standard_document_ids) -> None:
+    """The AI reviewer is about to ask rules of these rule books for this paper: they join the list, labelled apart, when the
+    paper itself qualifies. The register and a blocked hash never do (`_apply`). Never raises; nothing with the switch off."""
+
+    def build():
+        subject = _document(subject_document_id)
+        if subject is None or subject["document_role"] not in (None, REVIEW_ROLE):
+            return []
+        out = []
+        for sid in sorted({str(d) for d in standard_document_ids or () if d}):
+            standard = _document(sid)
+            if standard is not None:
+                out.append(
+                    _want(standard, f"auto: asked by AI review of {subject_document_id}")
+                )
+        return out
+
+    _run("agent review", subject_document_id, build)
 
 
 def on_standard_cited(
