@@ -41,13 +41,13 @@ from typing import Any
 
 from . import compiled_rule_report, rule_label_import
 from .ai_requirements import _squash
+from .claude_approved import STANDARD_ROLE
 from .compiled_rule_pages import join_hyphens
 from .rule_label_schema import require_on
 
 EXPORT_FORMAT = "ocr-boxes-v1"
 AGREEMENT_MIN = 0.95
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-STANDARD_ROLE = "COMPANY_STANDARD"
 CAUSES = (
     "malformed",
     "unknown_document",

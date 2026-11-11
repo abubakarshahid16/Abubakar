@@ -393,3 +393,172 @@ def test_the_command_line_refuses_with_the_switch_off_a_running_server_or_a_file
         == 3
     )
     db.reset_connection()
+
+
+# ------------------------------------------------------------------ review follow-ups (R22)
+
+
+def _long_text(n=100):
+    return " ".join(f"word{i}" for i in range(n))
+
+
+def _with_text(monkeypatch, text):
+    s.patch_pages(monkeypatch, pages={1: text}, origin=RECOGNISED)
+
+
+def test_agreement_must_hold_on_both_sides_a_subset_of_the_page_and_a_superset_are_both_refused(
+    tmp_path, monkeypatch
+):
+    text = _long_text(100)
+    _with_text(monkeypatch, text)
+    subset = _page(
+        text=" ".join(text.split()[:30])
+    )  # every box word is on the page, 30 % of the page is
+    superset = _page(
+        text=text + " " + " ".join(f"extra{i}" for i in range(100))
+    )  # the whole page, half the boxes
+    assert box.agreement([" ".join(text.split()[:30])], text)[0] < box.AGREEMENT_MIN
+    for name, page in (("sub", subset), ("sup", superset)):
+        conn = _server(_sub(tmp_path, name))
+        got = box.import_pages(conn, [page], "f" * 64)
+        assert got["refused"]["text_mismatch"] == 1 and got["stored"] == 0
+
+
+def test_the_agreement_boundary_just_under_is_refused_and_at_the_constant_is_accepted(
+    tmp_path, monkeypatch
+):
+    n = 100
+    text = _long_text(n)
+    _with_text(monkeypatch, text)
+    words = text.split()
+    allowed = round(
+        n * (1 - box.AGREEMENT_MIN)
+    )  # words that may differ at the boundary
+
+    def with_changed(k):
+        return " ".join(f"changed{i}" if i < k else w for i, w in enumerate(words))
+
+    assert box.agreement([with_changed(allowed)], text)[0] >= box.AGREEMENT_MIN
+    assert box.agreement([with_changed(allowed + 1)], text)[0] < box.AGREEMENT_MIN
+    at = box.import_pages(
+        _server(_sub(tmp_path, "at")), [_page(text=with_changed(allowed))], "f" * 64
+    )
+    under = box.import_pages(
+        _server(_sub(tmp_path, "un")), [_page(text=with_changed(allowed + 1))], "f" * 64
+    )
+    assert at["stored"] == 1 and under["refused"]["text_mismatch"] == 1
+
+
+def test_the_rule_book_role_is_the_one_literal_of_the_approved_list():
+    from app import claude_approved
+
+    assert box.STANDARD_ROLE is claude_approved.STANDARD_ROLE
+    assert ocr_box_convert.STANDARD_ROLE is claude_approved.STANDARD_ROLE
+
+
+def test_the_converter_writes_only_inside_a_data_directory(tmp_path):
+    data = tmp_path / "data"
+    (data / "labels").mkdir(parents=True)
+    ok = ocr_box_convert.check_out(data / "labels" / "b.json", data)
+    assert ok == (data / "labels" / "b.json").resolve()
+    for bad_out, bad_dir in (
+        (tmp_path / "elsewhere" / "b.json", data),
+        (data / ".." / "b.json", data),
+        (data / "b.txt", data),
+        (data / "b.json", None),
+    ):
+        with pytest.raises(ValueError):
+            ocr_box_convert.check_out(bad_out, bad_dir)
+
+
+def test_the_convert_command_refuses_an_out_path_outside_the_data_directory(
+    tmp_path, monkeypatch, capsys
+):
+    spec = importlib.util.spec_from_file_location(
+        "run_rule_labels_n7",
+        Path(__file__).resolve().parents[2] / "scripts" / "run_rule_labels.py",
+    )
+    run = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(run)
+    s.switch(monkeypatch)
+    data = tmp_path / "data"
+    data.mkdir()
+    lab = tmp_path / "lab.sqlite"
+    sqlite3.connect(str(lab)).close()
+    rc = run.main(
+        [
+            "convert-boxes",
+            "--lab-db",
+            str(lab),
+            "--data-dir",
+            str(data),
+            "--out",
+            str(tmp_path / "out.json"),
+        ]
+    )
+    assert rc == 1 and "outside the data directory" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_boxes_of_one_document_never_serve_a_page_of_another_even_with_identical_text(
+    tmp_path, monkeypatch
+):
+    other = "d2"
+    for target in ("pages_of", "page_origin"):
+        from app import compiled_rule_report
+
+        real = getattr(compiled_rule_report, target)
+        monkeypatch.setattr(
+            compiled_rule_report,
+            target,
+            lambda conn, sdid, _real=real: (
+                _real(conn, "d1") if sdid in ("d1", other) else {}
+            ),
+        )
+    conn = _server(tmp_path)
+    conn.execute(
+        "INSERT INTO documents (id, filename, sha256) VALUES ('d2', 'ZZZ.pdf', ?)",
+        (OTHER_SHA,),
+    )
+    conn.execute(
+        "INSERT INTO document_classification VALUES ('d2', 'COMPANY_STANDARD')"
+    )
+    conn.commit()
+    # A's boxes presented as B's page: refused by the revision check, nothing stored for B
+    got = box.import_pages(conn, [_page(document_id=other)], "f" * 64)
+    assert got["refused"]["revision_mismatch"] == 1 and _stored(conn) == 0
+    # A's boxes stored for A: a quote on B's identical page is NOT judged by them (the strict page rule decides)
+    assert box.import_pages(conn, [_page()], "f" * 64)["stored"] == 1
+    low = {"page_source": "recognised", "page_min_conf": 0.2}
+    assert O.quote_is_low(conn, "d1", 1, s.QUOTE_NUM, low) is False
+    assert O.quote_is_low(conn, other, 1, s.QUOTE_NUM, low) is True
+
+
+def test_the_command_line_prints_how_many_pages_were_refused_per_reason(
+    tmp_path, monkeypatch, capsys
+):
+    path = Path(_server(tmp_path).execute("PRAGMA database_list").fetchone()[2])
+    data = tmp_path / "data"
+    data.mkdir()
+    pages = [
+        _page(),
+        _page(sha=OTHER_SHA, page=1),
+        _page(text="entirely other words here and there"),
+    ]
+    (data / "b.json").write_text(
+        json.dumps({"format": box.EXPORT_FORMAT, "pages": pages})
+    )
+    monkeypatch.delenv(live_guard.SERVER_ENV, raising=False)
+    monkeypatch.setattr(live_guard, "known_live_files", lambda: ())
+    monkeypatch.setattr(cli.base, "server_answers", lambda *a, **k: False)
+    db.reset_connection()
+    assert (
+        cli.main(["--boxes", "b.json", "--db", str(path), "--data-dir", str(data)]) == 0
+    )
+    db.reset_connection()
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if ln.startswith("REFUSED BY REASON "))
+    assert json.loads(line.removeprefix("REFUSED BY REASON ")) == {
+        "revision_mismatch": 1,
+        "text_mismatch": 1,
+    }

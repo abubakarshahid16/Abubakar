@@ -125,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REFUSED | {exc}", flush=True)
         return 1
     print("BOXES " + json.dumps(got["boxes"], sort_keys=True))
+    by_reason = {k: n for k, n in got["boxes"]["refused"].items() if n}
+    print("REFUSED BY REASON " + json.dumps(by_reason, sort_keys=True))
     print(f"BACKUP verified before the write: {got['backup']}")
     have = got["boxes"]["stored"] + got["boxes"]["unchanged"]
     if a.expect_stored is not None and a.expect_stored != have:

@@ -14,7 +14,8 @@ import sqlite3
 from collections import Counter
 from pathlib import Path
 
-from .ocr_box_import import EXPORT_FORMAT, STANDARD_ROLE, boxes_sha256
+from .claude_approved import STANDARD_ROLE
+from .ocr_box_import import EXPORT_FORMAT, boxes_sha256
 
 
 def convert(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
@@ -62,6 +63,22 @@ def convert(conn: sqlite3.Connection) -> tuple[list[dict], dict]:
         )
         counts["written"] += 1
     return pages, dict(counts)
+
+
+def check_out(out: str | Path, data_dir: str | Path | None) -> Path:
+    """`out` resolved, only when it is a .json path INSIDE the data directory given (like the import insists), so the box
+    file cannot land in a git checkout by accident. Anything else raises ValueError (a cause word, never a path)."""
+    if not data_dir:
+        raise ValueError(
+            "--data-dir is needed: the box file is written inside a data directory"
+        )
+    root = Path(data_dir).resolve()
+    target = Path(out).resolve()
+    if root not in target.parents:
+        raise ValueError("--out is outside the data directory")
+    if target.suffix.lower() != ".json":
+        raise ValueError("--out is not a .json file")
+    return target
 
 
 def write(pages: list[dict], out: str | Path) -> None:
