@@ -705,6 +705,7 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
 DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stand"
 UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
 UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
+DISAGREE_WHY = "two AI readers disagree on this line"
 _CELL_SPLIT = re.compile(r"[\r\n|\t]+")
 
 
@@ -736,4 +737,10 @@ def met_unsafe_why(line: Mapping) -> str | None:
         return UNVERIFIED_PAPER_WHY
     if not checks.get("clause"):
         return UNVERIFIED_CLAUSE_WHY
+    # The line field `second_opinion` tells the three apart: None = not asked; {"agree": True} = agreed;
+    # {"agree": False} = DISAGREED; {"agree": None} = asked but no usable answer (failed / not run). Only an explicit
+    # False moves the line; "not asked" and "failed" are neither agreement nor disagreement.
+    second = line.get("second_opinion")
+    if isinstance(second, Mapping) and second.get("agree") is False:
+        return DISAGREE_WHY
     return None

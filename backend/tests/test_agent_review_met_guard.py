@@ -151,3 +151,47 @@ def test_the_deferral_word_list_is_the_one_in_blank_markers():
         )
     for plain in ("carbon steel", "N/A", "not required", "Required", "340 psig", ""):
         assert not V.quote_defers(plain), plain
+
+
+@pytest.mark.parametrize("item", [CHECKLIST, RULE_OK])
+def test_met_with_a_disagreeing_second_opinion_is_a_query(item):
+    out = exit_of(
+        met(item_id=item["item_id"], second_opinion={"agree": False, "model": "m"}),
+        item,
+    )
+    assert (out["verdict_label"], out["verdict_class"]) == (W.WORD_QUERY, W.CLASS_QUERY)
+    assert out["not_proven_reason"] == V.DISAGREE_WHY
+
+
+def test_met_with_an_agreeing_second_opinion_stays_met():
+    out = exit_of(met(second_opinion={"agree": True, "model": "m"}))
+    assert out["verdict_label"] == W.THINKS_MET
+
+
+def test_met_with_no_second_opinion_asked_stays_met_but_other_clauses_apply():
+    assert exit_of(met(second_opinion=None))["verdict_label"] == W.THINKS_MET
+    out = exit_of(
+        met(second_opinion=None, quotes_checked={"paper": True, "clause": False})
+    )
+    assert out["not_proven_reason"] == V.UNVERIFIED_CLAUSE_WHY
+
+
+def test_met_with_a_failed_second_opinion_is_neither_agreement_nor_disagreement():
+    failed = {"agree": None, "model": "unknown"}
+    assert exit_of(met(second_opinion=failed))["verdict_label"] == W.THINKS_MET
+    out = exit_of(met(second_opinion=failed, paper_quote="Value TBA"))
+    assert out["not_proven_reason"] == V.DEFERRED_WHY
+
+
+def test_a_disagreeing_second_opinion_does_not_move_a_proven_pass_or_not_met():
+    d = {"agree": False, "model": "m"}
+    assert (
+        exit_of(met(verdict="Pass", decided_by="AI verdict", second_opinion=d))[
+            "verdict_label"
+        ]
+        == "Pass"
+    )
+    assert (
+        exit_of(met(ai_verdict="Fail", second_opinion=d))["verdict_label"]
+        == W.THINKS_NOT_MET
+    )

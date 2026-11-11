@@ -142,9 +142,9 @@ def test_a_pass_or_fail_needs_the_second_model_to_agree(world, monkeypatch):
     run_id, job_id = start()
     run_job(job_id)
     lines = lines_of(run_id)
-    assert (
-        lines["R-coat"]["word"] == "AI thinks: met"
-        and lines["R-coat"]["verdict_class"] == "AI opinion, engineer to confirm"
+    assert (  # N9: a "met" the second model disagreed on is a Query
+        lines["R-coat"]["word"] == "Query"
+        and lines["R-coat"]["verdict_class"] == "Query for the engineer"
     )
     assert lines["R-mark"]["word"] == "AI thinks: not met"
     assert (
