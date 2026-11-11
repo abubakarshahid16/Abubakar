@@ -21,7 +21,7 @@ import json
 import sqlite3
 from collections import Counter
 
-from . import rule_label_import, rule_labels
+from . import rule_label_import, rule_label_ocr, rule_labels
 from .compiled_rule_proof import quote_verified
 from .rule_label_schema import AI_APPROVED, QUOTE_NOT_FOUND
 
@@ -133,10 +133,8 @@ def convert(conn: sqlite3.Connection, pages_of, page_origin) -> tuple[list[dict]
         if a is None:
             counts["lab_pass_b_only_skipped"] += 1
             continue
-        low = (
-            rule_labels.page_is_low_confidence_ocr(page_origin(rule["sdid"]).get(page))
-            if found
-            else False
+        low = found and rule_label_ocr.quote_is_low(
+            conn, rule["sdid"], page, quote, page_origin(rule["sdid"]).get(page)
         )
         d = rule_labels.decide(
             a,

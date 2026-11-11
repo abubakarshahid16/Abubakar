@@ -296,7 +296,11 @@ def test_the_route_is_admin_only_404_when_off_and_the_server_writes(
 
     page = f"{s.QUOTE_NUM}\n{s.QUOTE_TXT}\nA closing line of the invented page."
     monkeypatch.setattr(compiled_rule_report, "pages_of", lambda conn, sdid: {1: page})
-    monkeypatch.setattr(compiled_rule_report, "page_origin", lambda conn, sdid: {})
+    monkeypatch.setattr(
+        compiled_rule_report,
+        "page_origin",
+        lambda conn, sdid: {1: {"page_source": "native"}},
+    )
     file = _label_file(tmp_path, monkeypatch)
     rows = _rows(file)
     file.write_text(json.dumps({"format": "rule-labels-v1", "rows": rows}))

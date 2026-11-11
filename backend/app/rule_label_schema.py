@@ -81,7 +81,7 @@ _STATEMENTS = (
             AND a_prompt IS NOT NULL AND length(trim(a_prompt)) > 0 AND a_prompt = b_prompt
             AND a_answer_sha256 IS NOT NULL AND b_answer_sha256 IS NOT NULL
             AND {_HEX64.format(c="a_answer_sha256")} AND {_HEX64.format(c="b_answer_sha256")}
-            AND paper_kind IS NOT NULL AND (paper_kind = 'datasheet') = (field IS NOT NULL)
+            AND paper_kind IS NOT NULL AND (field IS NULL OR paper_kind = 'datasheet')
             AND quote_sha256 IS NOT NULL AND {_HEX64.format(c="quote_sha256")}
             AND quote_page IS NOT NULL AND reading_json IS NOT NULL AND disagreement IS NULL)),
         CHECK (state <> '{LABELLED_A}' OR (a_model IS NOT NULL AND b_model IS NULL)),

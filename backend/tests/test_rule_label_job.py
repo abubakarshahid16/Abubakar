@@ -400,3 +400,42 @@ def test_the_bridge_to_the_rule_book_is_stored_by_quote_and_page(copy):
         ).fetchone()[0]
         is None
     )
+
+
+def _boxes(path, score):
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        "CREATE TABLE ocr_box (document_id TEXT, page_no INTEGER, seq INTEGER, text TEXT, score REAL)"
+    )
+    conn.execute(
+        "CREATE TABLE ocr_box_page (document_id TEXT, page_no INTEGER, engine TEXT, extracted_at TEXT, matches_page INTEGER)"
+    )
+    conn.execute("INSERT INTO ocr_box_page VALUES ('d1', 1, 'e', 't', 1)")
+    for i, line in enumerate([s.QUOTE_NUM, s.QUOTE_TXT]):
+        conn.execute("INSERT INTO ocr_box VALUES ('d1', 1, ?, ?, ?)", (i, line, score))
+    conn.commit()
+    conn.close()
+
+
+def test_the_quote_level_ocr_rule_decides_when_the_copy_holds_the_boxes(
+    copy, monkeypatch
+):
+    s.patch_pages(
+        monkeypatch, origin={1: {"page_source": "recognised", "page_min_conf": 0.1}}
+    )
+    _boxes(
+        copy, 0.95
+    )  # the page has a weak box elsewhere, but the quotes stand in strong ones
+    conn, _c, _l = both_passes(copy)
+    assert set(states(conn).values()) == {"ai_approved"}
+
+
+def test_a_quote_in_weak_boxes_goes_to_a_human_whatever_the_page_says(
+    copy, monkeypatch
+):
+    s.patch_pages(
+        monkeypatch, origin={1: {"page_source": "recognised", "page_min_conf": 0.99}}
+    )
+    _boxes(copy, 0.3)
+    conn, _c, _l = both_passes(copy)
+    assert set(states(conn).values()) == {"needs_human"}

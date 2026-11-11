@@ -111,9 +111,17 @@ def test_a_number_the_quote_does_not_hold_or_a_unit_it_does_not_write_is_an_inva
     assert rl.check_reading({**s.reading(), "values": [10]}, s.QUOTE_NUM)[0] is True
 
 
-def test_a_datasheet_rule_with_no_field_goes_to_a_human():
-    d = decide(s.answer(s.MODEL_A, field=None), s.answer(s.MODEL_B, field=None))
-    assert d.state == "needs_human" and "field" in d.disagreement
+def test_two_models_that_both_find_no_field_on_the_list_agree_but_one_named_field_does_not():
+    assert (
+        decide(s.answer(s.MODEL_A, field=None), s.answer(s.MODEL_B, field=None)).state
+        == "ai_approved"
+    )
+    one_null = decide(s.answer(s.MODEL_A, field=None), s.answer(s.MODEL_B))
+    other = decide(s.answer(s.MODEL_A), s.answer(s.MODEL_B, field="b_field"))
+    for d in (one_null, other):
+        assert (
+            d.state == "needs_human" and "field" in d.disagreement and d.field is None
+        )
 
 
 def test_one_pass_is_labelled_a_and_pass_b_alone_is_refused():
@@ -151,7 +159,7 @@ def _approved_row(**over):
         ({"a_answer_sha256": "zz"}, "hash_missing"),
         ({"quote_page": None}, "quote_page_missing"),
         ({"reading_json": None}, "reading_missing"),
-        ({"paper_kind": "datasheet", "field": None}, "kind_or_field"),
+        ({"paper_kind": "contract", "field": "a_field"}, "kind_or_field"),
     ],
 )
 def test_a_row_that_claims_approval_is_refused_when_any_guard_fails(mutate, cause):
@@ -243,7 +251,7 @@ def test_the_table_itself_refuses_an_approval_without_two_different_models(label
         {"quote_sha256": None},
         {"quote_page": None},
         {"paper_kind": None},
-        {"paper_kind": "datasheet", "field": None},
+        {"paper_kind": "contract", "field": "a_field"},
     ):
         sql, args = _row_sql(**_approved_cols(**bad))
         with pytest.raises(sqlite3.IntegrityError):

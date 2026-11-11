@@ -63,11 +63,12 @@ def lab_row(
     kind="datasheet",
     field="a_field",
     b_kind=None,
+    b_field="same",
 ):
-    def ans(k):
+    def ans(k, f=None):
         return (
             k,
-            field if k == "datasheet" else None,
+            (f or field) if k == "datasheet" else None,
             cmp_,
             values,
             unit,
@@ -89,7 +90,11 @@ def lab_row(
         recovery,
         "2026-11-11T00:00:00Z",
     )
-    return (*head, *ans(kind), *ans(b_kind or kind))
+    return (
+        *head,
+        *ans(kind),
+        *ans(b_kind or kind, field if b_field == "same" else b_field),
+    )
 
 
 _N = [0]
@@ -134,7 +139,7 @@ def test_the_lab_approval_is_decided_again_and_marked_lab(tmp_path):
     "kw,cause",
     [
         ({"b_model": s.MODEL_A}, "same_model"),
-        ({"field": None}, "field"),
+        ({"b_field": "other_field"}, "field"),
         ({"values": "[99.0]"}, "invalid_reading"),
         ({"b_kind": "procedure"}, "kind"),
         ({"prompt": "rule-label-v9"}, "prompt_version"),

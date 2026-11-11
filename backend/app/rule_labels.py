@@ -361,7 +361,7 @@ def decide(
                 diff.append("numbers_unread")
         if a.paper_kind != b.paper_kind:
             diff.append("kind")
-        elif a.paper_kind == "datasheet" and (a.field != b.field or a.field is None):
+        elif a.paper_kind == "datasheet" and a.field != b.field:
             diff.append("field")
         diff += readings_agree(a.reading, b.reading)
     kind = a.paper_kind if a.paper_kind == b.paper_kind else None
@@ -403,7 +403,7 @@ def approval_guard(
     ):
         return "hash_missing"
     kind, field = row.get("paper_kind"), row.get("field")
-    if kind not in PAPER_KINDS or (kind == "datasheet") != (field is not None):
+    if kind not in PAPER_KINDS or (field is not None and kind != "datasheet"):
         return "kind_or_field"
     if not isinstance(row.get("quote_page"), int) or isinstance(
         row.get("quote_page"), bool

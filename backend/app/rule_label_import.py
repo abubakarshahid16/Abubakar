@@ -31,7 +31,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import rule_labels
+from . import rule_label_ocr, rule_labels
 from .config import settings
 from .rule_label_schema import (
     AI_APPROVED,
@@ -199,7 +199,9 @@ def _approval_failure(
     text, origin = pages[rule["sdid"]]
     if not quote_verified(rule["quote"], text.get(page)):
         return "skipped_changed_quote"
-    if rule_labels.page_is_low_confidence_ocr(origin.get(page)):
+    if rule_label_ocr.quote_is_low(
+        conn, rule["sdid"], page, rule["quote"], origin.get(page)
+    ):
         return "refused"
     return None
 

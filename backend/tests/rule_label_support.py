@@ -94,7 +94,17 @@ def patch_pages(monkeypatch, pages=None, origin=None):
     monkeypatch.setattr(
         compiled_rule_report,
         "page_origin",
-        lambda conn, sdid: dict(origin or {}) if sdid == "d1" else {},
+        lambda conn, sdid: (
+            dict(
+                origin
+                if origin is not None
+                else {
+                    n: {"page_source": "native", "page_min_conf": None} for n in pages
+                }
+            )
+            if sdid == "d1"
+            else {}
+        ),
     )
 
 

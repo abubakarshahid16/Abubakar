@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote as urlquote
 
-from . import agent_claude, claude_spend, live_guard, rule_labels
+from . import agent_claude, claude_spend, live_guard, rule_label_ocr, rule_labels
 from .compiled_rule_proof import quote_verified
 from .rule_label_lane import (  # noqa: F401 - CapLedger: the script's name for it
     CapLedger,
@@ -225,13 +225,11 @@ class PageText:
             self._origin[sdid] = compiled_rule_report.page_origin(self.conn, sdid)
         return self._pages[sdid].get(int(page)) if page is not None else None
 
-    def low_confidence_ocr(self, sdid: str, page: int | None) -> bool:
+    def low_confidence_ocr(self, sdid: str, page: int | None, quote: str) -> bool:
+        """The quote-level OCR rule (`rule_label_ocr`), by the boxes this database holds, else the strict page rule."""
         self.get(sdid, page)
-        return (
-            rule_labels.page_is_low_confidence_ocr(self._origin[sdid].get(int(page)))
-            if page is not None
-            else False
-        )
+        origin = self._origin[sdid].get(int(page)) if page is not None else None
+        return rule_label_ocr.quote_is_low(self.conn, sdid, page, quote, origin)
 
 
 def quote_found(rule: Rule, pages: PageText) -> bool:
@@ -528,7 +526,7 @@ class _Pass:
         if a is None:
             self.counts["unlabelled_pass_a_unreadable"] += 1
             return
-        low = self.pages.low_confidence_ocr(r.sdid, r.page)
+        low = self.pages.low_confidence_ocr(r.sdid, r.page, r.quote)
         state = _store(
             self.conn,
             r,
