@@ -93,7 +93,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _I,
         '        return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")\n',
         '        return int.from_bytes(raw[20:24], "big"), int.from_bytes(raw[16:20], "big")\n',
-        "png_header",
+        "read_from_a_png_header",
     ),
     _m(
         "09",
