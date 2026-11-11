@@ -67,7 +67,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from . import agent_bind, agent_run_second, agent_tools
+from . import agent_bind, agent_run_second, agent_tools, blank_markers
 from .reader_api import _fold
 
 PASS, FAIL, QUERY = "Pass", "Fail", "Query"
@@ -698,3 +698,42 @@ def hold_silence(line: Mapping, paper_kind: Any) -> dict:
             "silence_query": True,
         }
     return dict(line)
+
+
+# ---------------------------------------------------------------- N9: an "AI thinks: met" the code cannot stand behind is a Query
+
+DEFERRED_WHY = "the paper defers or leaves open this value, so 'met' cannot stand"
+UNVERIFIED_PAPER_WHY = "the quoted paper text could not be verified by code"
+UNVERIFIED_CLAUSE_WHY = "the quoted clause text could not be verified by code"
+_CELL_SPLIT = re.compile(r"[\r\n|\t]+")
+
+
+def quote_defers(quote: Any) -> bool:
+    """The paper quote defers or leaves open the value: a deferral phrase anywhere in it ("by contractor", "to be confirmed",
+    "TBA", "vendor to advise") or a cell of it that is wholly a marker ("later", "hold", "-", "*", "by others"). ONE word list:
+    `blank_markers` (rule 8); this adds no words of its own."""
+    text = str(quote or "")
+    if blank_markers.names_a_marker(text):
+        return True
+    return any(
+        blank_markers.is_marker(cell)
+        for cell in _CELL_SPLIT.split(text)
+        if cell.strip()
+    )
+
+
+def met_unsafe_why(line: Mapping) -> str | None:
+    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict not Pass) must be a Query, else None. (a) the paper quote
+    it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (a line with no record of
+    the check counts as not verified). Never touches a proven Pass or any other AI word: it only makes a line less confident."""
+    if line.get("ai_verdict") != PASS or line.get("verdict") == PASS:
+        return None
+    if quote_defers(line.get("paper_quote")):
+        return DEFERRED_WHY
+    checks = line.get("quotes_checked")
+    checks = checks if isinstance(checks, Mapping) else {}
+    if not checks.get("paper"):
+        return UNVERIFIED_PAPER_WHY
+    if not checks.get("clause"):
+        return UNVERIFIED_CLAUSE_WHY
+    return None

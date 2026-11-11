@@ -29,6 +29,7 @@ from .agent_review_verdict import (
     USABLE_TIERS,
     hold_silence,
     item_tier,
+    met_unsafe_why,
 )
 
 CLASS_PROVEN = "Proven by code"
@@ -80,6 +81,18 @@ def classify(line: Mapping) -> dict:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": SILENCE_WHY
             + ("; the rule is also not AI approved" if unapproved else ""),
+        }
+    unsafe = met_unsafe_why(line)
+    if unsafe:  # 2b. N9: an AI "met" whose paper defers the value, or whose quotes code could not verify, is a Query
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": unsafe
+            + (
+                f"; the rule is also not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
+                if unapproved
+                else ""
+            ),
         }
     if unapproved:  # 3. never proven, whatever the stored verdict says
         if ai in (PASS, FAIL):

@@ -24,6 +24,8 @@ def line(verdict, ai=None, **kw):
         "verdict": verdict,
         "decided_by": "decided by code",
         "ai_verdict": ai,
+        "paper_quote": "Body material: carbon steel",
+        "quotes_checked": {"paper": True, "clause": True},
         **kw,
     }
 
