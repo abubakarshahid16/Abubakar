@@ -33,6 +33,7 @@ from typing import Any
 
 from app import claude_spend
 from app.agent_trace import words
+from app.claude_image_tokens import json_counts
 
 STEP = "agent_review"
 LEAD_MODEL = "claude-sonnet-5-5"
@@ -281,11 +282,11 @@ def _usd(model: str, answer: dict, body: dict) -> float:
     usage = answer.get("usage")
     if isinstance(usage, dict) and usage:
         return float(claude_spend.cost_usd(model, usage))
-    chars = len(json.dumps(body.get("messages"), default=str)) + len(
-        json.dumps(body.get("system"), default=str)
-    )
+    chars, images = json_counts([body.get("messages"), body.get("system")])
     return float(
-        claude_spend.worst_case_usd(model, chars, int(body.get("max_tokens") or 0))
+        claude_spend.worst_case_usd(
+            model, chars, int(body.get("max_tokens") or 0), image_tokens=images
+        )
     )
 
 
@@ -336,11 +337,13 @@ def _call(
         not declared
     ):  # absent or empty: we cannot tell what a prompt carries, so nothing is sent
         raise AgentGateClosed("undeclared_documents")
-    chars = sum(
-        len(json.dumps(body_parts.get(k), default=str))
-        for k in ("messages", "system", "tools")
+    # An image block counts by the published image rule, not as its base64 text.
+    chars, images = json_counts(
+        body_parts.get(k) for k in ("messages", "system", "tools")
     )
-    worst = claude_spend.worst_case_usd(model, chars, int(max_tokens))
+    worst = claude_spend.worst_case_usd(
+        model, chars, int(max_tokens), image_tokens=images
+    )
     if meter is not None:
         meter.check(worst)
     raw = _transport(send)

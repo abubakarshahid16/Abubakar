@@ -39,6 +39,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from . import claude_image_tokens as image_rule
 from . import local_engine_bar, model_metrics, model_transport, worker_review
 from .ai.json_reply import unfenced
 from .config import settings
@@ -100,8 +101,8 @@ class PageImage:
 
     @property
     def tokens(self) -> int:
-        """Anthropic's published estimate: width x height / 750."""
-        return self.width * self.height // 750 + 1
+        """Anthropic's published estimate (`claude_image_tokens.image_tokens`)."""
+        return image_rule.image_tokens(self.width, self.height)
 
 
 @dataclass(frozen=True)
@@ -625,9 +626,7 @@ class ClaudeProvider:
         stored, key = _stored_answer(step, body, packet)
         if stored is not None:
             return self._response(stored, packet, 0.0, 0.0)
-        image_tokens = sum(i.tokens for i in packet.images)
-        prompt_chars = len(packet.system) + len(prompt) + sum(
-            len(json.dumps(m, default=str)) for m in (packet.messages or ()))
+        prompt_chars, image_tokens = image_rule.packet_counts(packet, prompt)
         max_tokens = packet.num_predict + (packet.thinking_budget or 0)
         send = self._send()     # egress off refuses here, before anything is held
         held = claude_spend.reserve(
@@ -700,8 +699,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
         response = provider._response(stored, packet, 0.0, 0.0)
         on_text(response.text)
         return response
-    prompt_chars = len(packet.system) + len(prompt) + sum(
-        len(json.dumps(m, default=str)) for m in (packet.messages or ()))
+    prompt_chars, image_tokens = image_rule.packet_counts(packet, prompt)
     max_tokens = packet.num_predict + (packet.thinking_budget or 0)
     send = provider._stream_transport
     if send is None:
@@ -711,7 +709,7 @@ def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) 
                                   "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
         send = reader_transport.stream
     held = claude_spend.reserve(
-        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens),
+        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens, image_tokens),
         model=provider.requested_model, prompt_sha256=packet.sha256)
     started = time.time()
     parts: list[str] = []

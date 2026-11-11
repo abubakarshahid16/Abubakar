@@ -130,6 +130,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_datasheet` | Read a contractor datasheet into facts |
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |
+| `claude_image_tokens` | How many input tokens an image block costs for the spend reservation: width x height / 750 after the long-edge scale-down, at most one image's maximum; the size from the PNG/JPEG header; an unreadable size counts the maximum |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more: per review run USD 5 per step, USD 10 for AI clause review and USD 15 in all; USD 25 per standard, USD 100 a day, the total |
 | `claude_spend_report` | What the Claude lane really cost per step, from settled ledger lines, and the USD 100 a day |
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
