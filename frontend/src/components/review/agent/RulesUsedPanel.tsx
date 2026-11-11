@@ -75,6 +75,20 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
             {data.equipment_notes.map((n) => <li key={n}>{n}</li>)}
           </ul>
         )}
+        {data.candidates_from != null && (
+          <p data-testid="candidates-from" className="text-sm text-slateish-100">
+            The rules to ask were taken from: {data.candidates_from}.
+            {data.same_rule_repeats != null && data.same_rule_repeats > 0 && (
+              <> {data.same_rule_repeats} stored rule{data.same_rule_repeats === 1 ? " is" : "s are"} the same rule as another one in the list and {data.same_rule_repeats === 1 ? "is" : "are"} not listed twice.</>
+            )}
+          </p>
+        )}
+        {data.other_books != null && (
+          <p data-testid="other-books" className="text-sm text-slateish-100">
+            AI-approved rules of this paper kind in rule books this review did not select: {data.other_books.ai_approved_rules} in{" "}
+            {data.other_books.books} book{data.other_books.books === 1 ? "" : "s"} (counted over {data.other_books.boundary}). They were not asked.
+          </p>
+        )}
         <p className="text-xs text-slateish-400">View only. The rules are chosen automatically; this page shows what was chosen.</p>
       </header>
 
