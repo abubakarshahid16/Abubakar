@@ -970,3 +970,26 @@ def test_a_checklist_item_the_plain_test_dropped_is_never_brought_back(conn, tax
         conn, items, {"relief valve"}, GOV, ctx
     )  # but the taxonomy says it is a pump paper
     assert {i["item_id"] for i in on2} <= {i["item_id"] for i in off2}
+
+
+def test_the_related_map_never_keeps_a_checklist_item_for_a_related_equipment(
+    conn, tax
+):
+    """The plain test keeps a pump item for this paper; the paper's OWN types do not include a pump, so the filter removes it."""
+    related_map = {**MAP, "related": {"relief_valve": ["pump"]}}
+    _classified(conn, [("p", "Pressure Safety Valve", None)])
+    eq = R.paper_equipment(conn, "p", tax, related_map)
+    assert "pump" in eq.types and "pump" not in eq.core_types
+    ctx = R.EquipmentCtx(eq, tax, related_map, "type")
+    items = [skill("S-A", "STD-P-1"), skill("S-B", "STD-V-1")]
+    plain = {"relief valve", "pump"}
+    off, _ = R.filter_skill_items(conn, items, plain, GOV)
+    on, dropped = R.filter_skill_items(conn, items, plain, GOV, ctx)
+    assert [i["item_id"] for i in off] == ["S-A", "S-B"] and [
+        i["item_id"] for i in on
+    ] == ["S-B"]
+    assert dropped == [{"item_id": "S-A", "reason": R.ANOTHER_TYPE}]
+    assert R.equipment_decision(_erow(type_="pump"), eq, tax)[:2] == (
+        True,
+        "same_equipment",
+    )  # rules DO use related
