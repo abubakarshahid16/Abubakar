@@ -273,8 +273,9 @@ def _add_image(
     except PageImageUnavailable as exc:
         out["result"]["image"] = f"not_available:{exc.reason}"
         return out
-    except Exception as exc:  # noqa: BLE001  the text result still stands; only the class is reported
-        out["result"]["image"] = f"not_available:error_{type(exc).__name__}"
+    except Exception as exc:  # noqa: BLE001  the text result still stands
+        recorded = type(exc).__name__  # only the class is recorded
+        out["result"]["image"] = f"not_available:error_{recorded}"
         return out
     out["result"]["image"] = "attached"
     out[IMAGE_KEY] = {"media_type": MEDIA_TYPE, "png": data, "doc": doc, "page": number}

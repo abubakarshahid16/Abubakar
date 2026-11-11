@@ -21,6 +21,7 @@ import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from . import agent_review_rules as rules_mod
 from . import requirement_split, rule_labels, standard_ids, subject_scope, table_gate
@@ -420,6 +421,42 @@ def _clause_entry(
     return key, page
 
 
+def _quote_entry(
+    cache: dict, r: dict, doc: Any, label: str | None, clause: str | None
+) -> str | None:
+    """The cache key of the rule's own verbatim quote (None when the rule stores none)."""
+    text = (r.get("source_text") or "").strip()
+    if not text:
+        return None
+    return _put(
+        cache,
+        "Q-" + _key(r["id"]),
+        {
+            "standard_document_id": doc,
+            "standard": label,
+            "clause": clause,
+            "page": r.get("page"),
+            "source": "rule_quote",
+            "text": text[:MAX_CLAUSE_CHARS],
+            "truncated": len(text) > MAX_CLAUSE_CHARS,
+        },
+    )
+
+
+def _question_of(
+    r: dict, label: str | None, clause: str | None, cpage: int | None
+) -> str:
+    figure = ""
+    if r.get("operator") and r.get("value") is not None:
+        rule = f" Rule: {r.get('field') or 'value'} {r['operator']} {r['value']:g} {r.get('unit') or ''}"
+        figure = rule.rstrip() + "."
+    return (
+        f"Does the paper meet {label} clause {clause or '(no clause number)'}"
+        f" (standard page {cpage if cpage is not None else r.get('page')})? Requirement: "
+        f"{(r.get('requirement_text') or '').strip()}{figure}"
+    )
+
+
 def rule_item(
     r: dict, stds: _Standards, cache: dict, label: str | None, pages: list
 ) -> dict:
@@ -453,21 +490,7 @@ def rule_item(
         clause_from = "page_heading" if clause else None
     if ref is None:
         ref, cpage = _clause_entry(stds, cache, doc, label, clause)
-    quote_ref = None
-    if (r.get("source_text") or "").strip():
-        quote_ref = _put(
-            cache,
-            "Q-" + _key(r["id"]),
-            {
-                "standard_document_id": doc,
-                "standard": label,
-                "clause": clause,
-                "page": r.get("page"),
-                "source": "rule_quote",
-                "text": r["source_text"].strip()[:MAX_CLAUSE_CHARS],
-                "truncated": len(r["source_text"].strip()) > MAX_CLAUSE_CHARS,
-            },
-        )
+    quote_ref = _quote_entry(cache, r, doc, label, clause)
     if (
         ref is None
     ):  # the clause body was not found: the rule's own verbatim quote stands in
@@ -475,17 +498,7 @@ def rule_item(
     if clause is None and stds.before_first_heading(doc, r.get("page")):
         clause, clause_from = BEFORE_FIRST_HEADING, "before_first_heading"
     roles = [x for x in (r.get("field"),) if x]
-    figure = ""
-    if r.get("operator") and r.get("value") is not None:
-        figure = (
-            f" Rule: {r.get('field') or 'value'} {r['operator']} {r['value']:g} {r.get('unit') or ''}".rstrip()
-            + "."
-        )
-    question = (
-        f"Does the paper meet {label} clause {clause or '(no clause number)'}"
-        f" (standard page {cpage if cpage is not None else r.get('page')})? Requirement: "
-        f"{(r.get('requirement_text') or '').strip()}{figure}"
-    )
+    question = _question_of(r, label, clause, cpage)
     return {
         "item_id": f"R-{r['id']}",
         "source": "rule",
@@ -609,6 +622,38 @@ def _fold_duplicates(
     return kept, merged
 
 
+def _candidate_rules(
+    ro: _RowConn,
+    document_id: str,
+    paper_kind: str | None,
+    requirement_rows: list[dict] | None,
+    run_id: str | None,
+) -> tuple[list[dict], dict[str, int], str | None]:
+    """(one requirement row per candidate rule, left-out counts, the classic run used). Rows chosen by the caller come with
+    no classic run; otherwise the applicable rules of the stored scope decisions of `run_id` (default: the latest)."""
+    left: dict[str, int] = {}
+    if requirement_rows is None:
+        run_id = run_id or old_engine_run(ro, document_id)
+        if not run_id:
+            return [], left, run_id
+        reqs, left = applicable_rules(
+            ro, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
+        )
+        return reqs, left, run_id
+    seen_keys, reqs = set(), []
+    for r in sorted(
+        requirement_rows,
+        key=lambda r: (r["standard_document_id"], r.get("page") or 0, r["id"]),
+    ):
+        k = requirement_split.requirement_key(r)
+        if k in seen_keys:
+            left["stored_repeat"] = left.get("stored_repeat", 0) + 1
+            continue
+        seen_keys.add(k)
+        reqs.append({**r, "state": "candidate", "reason_code": None})
+    return reqs, left, run_id
+
+
 def build_items(
     conn: sqlite3.Connection,
     document_id: str,
@@ -634,31 +679,10 @@ def build_items(
     ro = _RowConn(conn)
     stds = _Standards(ro)
     pages = _paper_pages(ro, document_id)
-    left: dict[str, int] = {}
     known = bool(kind.get("known")) and paper_kind in PAPER_KINDS
-    if (
-        requirement_rows is not None
-    ):  # chosen by the caller, without an old-engine review run
-        seen_keys, reqs = set(), []
-        for r in sorted(
-            requirement_rows,
-            key=lambda r: (r["standard_document_id"], r.get("page") or 0, r["id"]),
-        ):
-            k = requirement_split.requirement_key(r)
-            if k in seen_keys:
-                left["stored_repeat"] = left.get("stored_repeat", 0) + 1
-                continue
-            seen_keys.add(k)
-            reqs.append({**r, "state": "candidate", "reason_code": None})
-    else:
-        run_id = run_id or old_engine_run(ro, document_id)
-        reqs, left = (
-            applicable_rules(
-                ro, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
-            )
-            if run_id
-            else ([], {})
-        )
+    reqs, left, run_id = _candidate_rules(
+        ro, document_id, paper_kind, requirement_rows, run_id
+    )
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]
     reqs, lab_left, why_kept = rules_mod.filter_rows(
