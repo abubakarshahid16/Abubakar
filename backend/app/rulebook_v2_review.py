@@ -35,6 +35,7 @@ from . import (
     degraded_read,
     field_links,
     kind_rules,
+    kit_core,
     match_rules,
     material_reference,
     requirements_3b,
@@ -420,7 +421,7 @@ def _scope_reason(
 def _owner_approved(requirement: dict) -> bool:
     return (
         rule_trust.tier_for_approved(requirement.get("approval"), requirement)
-        == rule_trust.OWNER_APPROVED
+        in rule_trust.APPROVED_RULE_LABELS
     )
 
 
@@ -438,6 +439,15 @@ class Row:
     fact_ids: set = field(default_factory=set)
     rule_said: str | None = None
     trust_label: str = rule_trust.OWNER_APPROVED
+
+    def __post_init__(self) -> None:
+        """An engineer's approval is labelled as the engineer's, never the owner's (item 14)."""
+        approval = self.rule.get("approval")
+        if (
+            isinstance(approval, dict)
+            and approval.get("tier") == rule_trust.ENGINEER_TIER
+        ):
+            self.trust_label = rule_trust.ENGINEER_APPROVED
 
 
 def _query(rule: dict, reason: str, found: Pair | None = None, words: str = "") -> Row:
@@ -532,8 +542,12 @@ def _judge(
     if held["status"] != row.status:
         return _query(rule, VALUE_NOT_TRUSTED, found, held["rationale"])
     if row.status in DECIDED and _context_dependent(rule):
-        row.trust_label = rule_trust.OWNER_NOTE_CONTEXT
         note = rule["approval"]["note"]
+        if rule["approval"].get("tier") == rule_trust.ENGINEER_TIER:
+            # an engineer's note keeps the engineer's label and says so; the owner's words are the owner's alone
+            row.words = f"{row.words}. engineer note: context confirmed: {note}"
+            return row
+        row.trust_label = rule_trust.OWNER_NOTE_CONTEXT
         row.words = f"{row.words}. {rule_trust.OWNER_NOTE_CONTEXT_WORDS}: {note}"
     return row
 
@@ -779,5 +793,7 @@ def settle_with_checks(review: Review, results: list[dict]) -> list[dict]:
                     "rule_said": status,
                     "detail": f"{V1_DISAGREES}: the rulebook said {said} on this field. {result.get('detail') or ''}",
                 }
+            elif kit_core.contradicted(result, said, row.fact_ids):  # PR 1733 review
+                result = kit_core.without_code(result)
         out.append(result)
     return out

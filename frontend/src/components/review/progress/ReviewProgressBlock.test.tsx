@@ -106,7 +106,7 @@ describe("the timer", () => {
   });
 });
 
-describe("colours (#1494, live I-06: the fill was invisible)", () => {
+describe("colours (#1494, live Datasheet 1: the fill was invisible)", () => {
   it("every colour class the block draws, bar and stall lights too, is defined by the theme", () => {
     const defined = definedColours();
     const used: string[] = [];
@@ -125,7 +125,7 @@ describe("colours (#1494, live I-06: the fill was invisible)", () => {
   });
 });
 
-describe("Word files (live I-06: a .docx has no pages)", () => {
+describe("Word files (live Datasheet 1: a .docx has no pages)", () => {
   it("says parts, never pages, when the server reads parts", () => {
     render(<ReviewProgressBlock job={job(detail({ pages_done: 2, pages_unit: "part" }))} />);
     const text = screen.getByTestId("review-progress-detail").textContent ?? "";
@@ -139,7 +139,7 @@ describe("Word files (live I-06: a .docx has no pages)", () => {
   });
 });
 
-describe("the stall light names what it waits on (live I-06: one slow page)", () => {
+describe("the stall light names what it waits on (live Datasheet 1: one slow page)", () => {
   it("names the sub-step in the amber line", () => {
     const s = shown(detail({ idle_seconds: 600, stall_amber_seconds: 480,
       waiting_on: "reading page 3 of 5: waiting for the model" })).stall;

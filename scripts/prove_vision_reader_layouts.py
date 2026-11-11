@@ -51,9 +51,9 @@ sys.path.insert(0, str(REPO / "backend"))
 #: (filename, 1-based page). Add a row for every extra real layout dropped
 #: into --bench-dir; a missing file skips only that one layout.
 LAYOUTS: dict[str, tuple[str, int]] = {
-    "heat_exchanger_datasheet": ("216400C-heat-exchanger.pdf", 5),
-    "psv_datasheet": ("EF1975-DAS-I-06-psv.pdf", 2),
-    "pump_datasheet": ("EF1975-DAS-M-03-pump.pdf", 2),
+    "heat_exchanger_datasheet": ("specification-1-heat-exchanger.pdf", 5),
+    "psv_datasheet": ("DS-0000-DAS-I-01-psv.pdf", 2),
+    "pump_datasheet": ("DS-0000-DAS-M-01-pump.pdf", 2),
 }
 
 #: Portable (#498): DOCLING_BENCH_DIR when set (the PC: D:\docling-bench\input),

@@ -1,4 +1,4 @@
-"""Order 236 (owner report, M-03): a run is "completed" only when its job is done.
+"""Order 236 (owner report, Datasheet 2): a run is "completed" only when its job is done.
 
 `comparison._store_run_outcome` stores status "completed" before the review job
 has written the AI engineering-check drafts, the CRS numbers, the CRS wording

@@ -51,6 +51,7 @@ from . import datasheets, errors, fts_index, standard_ids, standards, submittal_
 from .claude_auto_approve import lists_cited
 from .db import connect
 from .held_standards import mark_rows
+from .standard_judgment import route_cited_other as route
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -347,8 +348,7 @@ def _cited_other_type(
             why = f"{why}; it is also a code for a {others}"
             declared.append({"identifier": c, "reason": f"{why} - {_WHICH_CLAUSES}"})
         elif equipment:
-            why = f"it governs {others}, and this submittal is a {this}"
-            not_applicable.append({"identifier": c, "reason": f"{why} (read from its {source})"})
+            route(c, others, this, source, declared, not_applicable)
     return not_applicable, declared
 
 
@@ -1257,7 +1257,7 @@ def select(
     standard those sheets cite is absent, and a system that found some anyway
     would be lying.
     """
-    from . import equipment_subtype, kind_rules, standard_judgment
+    from . import equipment_subtype, kind_rules, kind_standards, standard_judgment
     from .equipment_title_block import keep_without_type as keep_no_type
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
@@ -1357,7 +1357,7 @@ def select(
             row["scope_decision"] = verdict
     _hold_on_unsure_type(selected, check, library, profile)  # order 142
     standard_judgment.hold(selected, check, library, find_standard)
-
+    kind_standards.apply(selected, submittal_document_id, library)
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
                  scope_not_run=scope_not_run)

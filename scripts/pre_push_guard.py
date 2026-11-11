@@ -11,7 +11,10 @@ so a machine now refuses the push. Only what the branch changed against
     `check_lint_baseline.py check`, `check_mutation_anchors.py`,
     `check_system_map.py` (Python changes);
   * `gen_contract_types.py --check` when contract files or models changed;
-  * the frontend type check when frontend files changed.
+  * the frontend type check when frontend files changed;
+  * no second number reader or text fold outside `numparse` (`check_second_number_reader.py`, the CI test
+    `test_w2_number_parser`: three PRs of one batch were sent back for it);
+  * no client data added (`check_client_identifiers.py`), on every push.
 
 It also WARNS (never blocks) when the branch is behind `origin/main` (R2).
 
@@ -186,6 +189,15 @@ def plan(
         )
         steps.append(
             (
+                "no second number reader",
+                [python, str(scripts / "check_second_number_reader.py")],
+                root,
+                "rename the digit-run pattern, or call app.word_fold.fold_compat instead of an NFKC fold; "
+                "read numbers only through app.numparse",
+            )
+        )
+        steps.append(
+            (
                 "mutation anchors",
                 [python, str(scripts / "check_mutation_anchors.py")],
                 root,
@@ -221,6 +233,20 @@ def plan(
                     "fix the type error it names",
                 )
             )
+    steps.append(
+        (
+            "no client data added",
+            [
+                sys.executable,
+                str(scripts / "check_client_identifiers.py"),
+                "--base",
+                "origin/main",
+                "--commits",
+            ],
+            root,
+            "write the role or an invented value instead; never paste the hit anywhere public",
+        )
+    )
     return steps
 
 

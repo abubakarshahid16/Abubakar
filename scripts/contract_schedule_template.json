@@ -1,0 +1,10 @@
+{
+  "_note": "TEMPLATE with placeholders only. Copy it to a LOCAL file OUTSIDE the repository, fill in the contract's own wording there, and load it with scripts/load_contract_schedule.py. These are completeness checks on a submittal (present / not present), never equipment limits: do not add a value, unit or comparator. The real wording must never be committed.",
+  "contract": "<contract label>",
+  "items": [
+    {"id": "<item id 1>", "clause": "<clause number>", "kind": "calculations_with_datasheets", "text": "<the contract's wording: calculations are submitted with datasheets>"},
+    {"id": "<item id 2>", "clause": "<clause number>", "kind": "old_comments_closed", "text": "<the contract's wording: earlier comments are closed on resubmission>"},
+    {"id": "<item id 3>", "clause": "<clause number>", "kind": "holds_listed", "text": "<the contract's wording: holds are listed>"},
+    {"id": "<item id 4>", "clause": "<clause number>", "kind": "deviation_waiver_form", "text": "<the contract's wording: a deviation needs a waiver form>"}
+  ]
+}

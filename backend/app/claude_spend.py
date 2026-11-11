@@ -56,6 +56,7 @@ from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
 from . import claude_spend_report as report_mod
+from .claude_image_tokens import json_counts
 from .config import settings
 
 #: (input, output, 5-minute cache write, cache read) USD per million tokens.
@@ -738,9 +739,9 @@ def metered(send, step: str, *, unbilled=None, version: str = "", keep_if=None):
     BEFORE it leaves (`reserve`) and is settled to its cost AFTER it returns.
 
     The worst case is `worst_case_usd` - the one estimator - on the request body itself: the model it names, every
-    character of `messages` and `system` as serialised (image data included, which errs toward refusing), and its
-    `max_tokens`. A refusal raises `BudgetExceeded` and `send` is never called. The ledger line carries counts and a
-    digest of the body, never its text. `.usage` of the wrapped transport is carried over.
+    character of `messages` and `system` as serialised but an image block by the published image rule (`json_counts`),
+    and its `max_tokens`. A refusal raises `BudgetExceeded` and `send` is never called. The ledger line carries counts
+    and a digest of the body, never its text. `.usage` of the wrapped transport is carried over.
 
     A CALL THAT RAISES MAY STILL HAVE BEEN BILLED - a read timeout after the API did the work, an answer refused
     locally for its size. So a failure is charged at that same worst case, marked `"estimated": true`, unless
@@ -758,9 +759,10 @@ def metered(send, step: str, *, unbilled=None, version: str = "", keep_if=None):
 
     def _metered(url, *, headers, body, timeout):
         model = str(body.get("model") or "")
-        prompt_chars = (len(json.dumps(body.get("messages") or [], ensure_ascii=False, default=str))
-                        + len(json.dumps(body.get("system") or "", ensure_ascii=False, default=str)))
-        worst = worst_case_usd(model, prompt_chars, int(body.get("max_tokens") or 0))
+        parts = [body.get("messages") or [], body.get("system") or ""]
+        prompt_chars, images = json_counts(parts, ensure_ascii=False)
+        cap = int(body.get("max_tokens") or 0)
+        worst = worst_case_usd(model, prompt_chars, cap, image_tokens=images)
         digest = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
                                            default=str).encode("utf-8")).hexdigest()
         nth = asked.get(digest, 0)

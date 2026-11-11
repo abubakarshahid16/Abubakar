@@ -1,6 +1,6 @@
 """Order 267.1: a list of cited documents is not a requirement. Invented standards only.
 
-M-03 row 352 was a sentence that began with a references title, listed two standard identifiers and
+Datasheet 2 row 352 was a sentence that began with a references title, listed two standard identifiers and
 paired with the sheet field "Other (see below)" as if it were a requirement. The chunker marks only a
 BACK-matter references page; a list near the front reached the extractor as ordinary text."""
 

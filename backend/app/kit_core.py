@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import hold_reason
+
 REFERENCE = Path(__file__).resolve().parent / "reference"
 
 
@@ -157,10 +159,19 @@ def _kits() -> list[Kit]:
 
 def with_kit(key: str, items: list[dict]) -> list[dict]:
     """`items` plus the draft kit cards of every kit for this type (none while its switch is off)."""
+    from .draft_items import read
+
     out = list(items)
     for kit in _kits():
         out += kit.loader_items(key, out)
-    return out
+    return read(key, out)
+
+
+def without_stated(results: list[dict]) -> list[dict]:
+    """`results` less a draft item's stated value (it gives no verdict and no row; see `draft_items`)."""
+    from .draft_items import without_stated as keep
+
+    return keep(results)
 
 
 def held(result: dict, item: dict) -> dict:
@@ -178,10 +189,29 @@ def held(result: dict, item: dict) -> dict:
     if result["status"] in ("COMPLIANT", "NON_COMPLIANT"):
         out["status"] = "NEEDS_ENGINEER_REVIEW"
         out["rule_said"] = result["status"]
+        # held only because a draft card is not a proven rule: that is its hold reason
+        out[hold_reason.KEY] = hold_reason.RULE_NOT_PROVEN
         out["detail"] = (
             f"The numbers read: {result['detail']} (held for the engineer: draft kit card)"
         )
     return out
+
+
+def contradicted(result: dict, said: str | None, fact_ids) -> bool:
+    """A kit card's verdict, held by `held`, that another check of the same value contradicts
+    (`rulebook_v2_review.settle_with_checks` holds a plain verdict there): that hold, not "rule not proven"."""
+    verdict = result.get("rule_said") if result.get("kit") else None
+    return bool(
+        said is not None
+        and verdict in ("COMPLIANT", "NON_COMPLIANT")
+        and verdict != said
+        and result.get("fact_id") in fact_ids
+    )
+
+
+def without_code(result: dict) -> dict:
+    """`result` less its hold code: stored as `other`, the hold another step made (`hold_reason.stored`)."""
+    return {k: v for k, v in result.items() if k != hold_reason.KEY}
 
 
 def _with_bounds(item: dict, rules: dict) -> dict:
@@ -190,6 +220,10 @@ def _with_bounds(item: dict, rules: dict) -> dict:
     the committed role table is not touched."""
     bounds = item.get("plausible")
     field = (item.get("rule") or {}).get("field")
+    draft = (rules.get("draft_roles") or {}).get(field)
+    if draft:
+        # A DRAFT item's own role is known to this item only (Part of #805): not to any other reader of the roles.
+        rules = {**rules, "roles": {**rules["roles"], field: draft}}
     if not bounds or not field:
         return rules
     role = (rules.get("roles") or {}).get(field) or {}
@@ -199,17 +233,21 @@ def _with_bounds(item: dict, rules: dict) -> dict:
 def rows(checklist, roles, common, tag, rules, page_texts) -> list[dict]:
     """The checklist's results for one tag, kit cards held (see `held`)."""
     from .datasheet_checks import evaluate_item
+    from .draft_items import hold as hold_draft_item
 
     return [
         held(
-            evaluate_item(
+            hold_draft_item(
+                evaluate_item(
+                    item,
+                    roles,
+                    common,
+                    tag,
+                    _with_bounds(item, rules),
+                    draft=checklist["draft"],
+                    page_texts=page_texts,
+                ),
                 item,
-                roles,
-                common,
-                tag,
-                _with_bounds(item, rules),
-                draft=checklist["draft"],
-                page_texts=page_texts,
             ),
             item,
         )

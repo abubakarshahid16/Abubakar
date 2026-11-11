@@ -206,7 +206,7 @@ def test_a_hyphen_named_held_file_is_used_by_the_review(temp_storage):
 
 @pytest.mark.parametrize("text", [
     "HVAC per CMP", "the P&ID and PSV list", "HVAC, CMP, P&ID, PSV, MCC, VFD and UPS",
-    "PSV set at 10 barg per P&ID", "CMP 25 and HVAC 30 units", "PSV 4303 and MCC 12",
+    "PSV set at 10 barg per P&ID", "CMP 25 and HVAC 30 units", "PSV 9903 and MCC 12",
 ])
 def test_plain_words_and_abbreviations_are_not_citations(text):
     assert datasheets.referenced_standards(text) == []

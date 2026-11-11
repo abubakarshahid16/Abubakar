@@ -146,6 +146,7 @@ EGRESS_SAFE: dict[str, object] = {
     "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,  # a model call per answer
+    "ai_senior_review_enabled": False,  # a model call per review item
     "applicability_reasoning_enabled": False,  # a model call per standard per review
     "crs_ai_wording_enabled": False,  # a model call per CRS row per review
     # --- the market lane (market_transport)
@@ -164,6 +165,7 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
     "match_ask_max_per_run": 0,  # #882: two local-model calls per question
+    "pairing_subject_gate_enabled": False,  # owner order 3 Nov: off unless its own tests turn it on
     # the datasheet AI reader (`datasheet_ai`): local Ollama by default, or
     # Claude through reader_transport - two model calls per page
     "datasheet_ai_reader": "off",
@@ -171,6 +173,9 @@ EGRESS_SAFE: dict[str, object] = {
     "review_ai_check_engine": "ollama",  # #501: "claude" sends datasheet pages out
     "ai_clause_review_engine": "ollama",  # "claude" sends requirement text and small passages out
     "crs_ai_wording_engine": "ollama",  # #819: "claude" sends CRS rows (standard references) out
+    "ai_engineering_review_pass_engine": "ollama",  # lane 6: "claude" sends the draft CRS and the pages out
+    "ai_engineering_review_pass_enabled": False,  # lane 6: off unless a test turns it on
+    "agent_review_enabled": False,  # #1690: agent loop, off unless a test turns it on
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
@@ -266,6 +271,8 @@ EGRESS_SAFE: dict[str, object] = {
     "transmittal_required_list_document_ids": "",
     # --- local only, no model or socket: the document kind chooses the rule set (#1474, off by default)
     "kind_chooses_rules_enabled": False,
+    # --- local only, no model or socket: standards by role and document kind (off by default)
+    "standard_roles_by_kind_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)
@@ -281,6 +288,8 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_export_quality_enabled": False,
     "crs_export_quality_strict_enabled": False,
     "crs_one_row_per_problem_enabled": False,
+    "crs_rules_note_enabled": False,
+    "crs_one_row_ignore_clause_enabled": False,
     # --- local only, no model or socket: a row with no page says its section or field (#1591, off by default)
     "crs_page_cell_field_enabled": False,
     # --- local only, no model or socket: draft vessel kit cards join the vessel checklist (#1480, off by default)
@@ -303,6 +312,15 @@ EGRESS_SAFE: dict[str, object] = {
     "session_expired_notice_enabled": False,
     # --- local only, no model or socket: the CRS notice names its parts and says why rows await a tick (#1592, off by default)
     "crs_plain_notes_enabled": False,
+    "section_index_enabled": False,
+    "form_part_name_roles_enabled": False,
+    "crs_contractor_no_engineer_words_enabled": False,
+    "standard_scope_not_no_enabled": False,
+    "crs_compliance_list_enabled": False,
+    "crs_routing_by_hold_reason_enabled": False,  # owner order 10 Nov step 4: which sheet shows a row, no model or socket
+    "paper_kind_first_enabled": False,  # owner order 11 Nov step 2: paper kind first, no model or socket
+    "crs_by_contractor_one_row_enabled": False,  # owner order 11 Nov: one By Contractor row on the contractor copy, no model or socket
+    "crs_drop_placeholder_rows_enabled": False,
     "run_record_enabled": False,
     # --- local only, no model or socket: one meaning of "checked" on screen and CRS (plan change 6 B, off by default)
     "one_checked_definition_enabled": False,
@@ -310,8 +328,12 @@ EGRESS_SAFE: dict[str, object] = {
     "ocr_file_error_hold_enabled": False,
     # --- local only, no model or socket: the rulebook tables on a database copy (plan change 6 A, off by default)
     "rulebook_v2_enabled": False,
+    # --- local only, no model or socket: the edition register on a database copy (STEP 5, off by default)
+    "standard_editions_enabled": False,
     "owner_approved_rules_decide_enabled": False,
+    "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,
+    "draft_process_items_enabled": False,
     "rulebook_v2_review_enabled": False,
     "owner_note_lifts_context_flag_enabled": False,
     "material_reference_enabled": False,
