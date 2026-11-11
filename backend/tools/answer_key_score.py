@@ -7,8 +7,12 @@ where the hand check found 0. A word in a reasoning cell is not the same problem
 
 THE RULE. A CRS line answers a key row only when BOTH hold:
   field - one of the key row's field roles is a role the line's field label names; and
-  page  - one of the key row's paper pages is one of the line's pages. A key row with no page (the field is
-          absent from every page of the paper) is held to the field alone.
+  page  - one of the key row's paper pages is one of the line's pages. A key row whose page is "absent"
+          (the field is on no page of the paper) is held to the field alone. An EMPTY page column makes the
+          row not scorable: it is reported, never matched on the field alone.
+ONE LINE, SEVERAL ROWS. A line that answers several problem or complies rows on field and page counts for
+the rows whose own point it also matches (the row's standard and clause, or its printed label); if it
+matches none, it counts for ONE row only (the most specific). Field and page alone never give a second row.
 A WRONG (or disputed) key row is one comment the key rejects: a field and page raised against one clause.
 A line repeats it only when it answers the row AND cites the same clause (the key's own "Standard
 Reference"); a line on that field and page under another clause is a different comment the key has not
@@ -22,7 +26,7 @@ row holds these columns; any other columns are kept for people and ignored here:
                   `app/reference/datasheet_checks.json` (the field registry), or a procedure element
                   "<playbook id>:<element id>" of `app/reference/playbooks/`. Empty: the row is about no
                   field (it can never be matched, and is counted as such).
-  Paper page      the paper's own page numbers ("3", "1-4", "1-2, 4"); empty when the field is absent.
+  Paper page      the paper's own page numbers ("3", "1-4", "1-2, 4"), or "absent".
   Scored as       problem | complies | wrong | disputed | not scored.
   Printed label   optional: how this paper prints the field when the registry does not name it, ";"-separated.
 The row number is the sheet's own row number, as people quote it ("key row 56").
@@ -30,7 +34,10 @@ The row number is the sheet's own row number, as people quote it ("key row 56").
 THE CRS. The product's CRS layout: a header row starting "Item No" with "Page No./Section" and
 "COMPANY Comments". Lines on the sheet "CRS" are comment lines; a CRS line carrying the tick marker or the
 verdict Pass, and every line on a sheet whose name starts with "Passed" (or whose title is the tick-sheet
-title), is a pass line. Other sheets (internal notes, not applicable, unproven AI passes) are not read.
+title), is a pass line. A Verdict cell must be one of the closed set (Pass, Fail, Query, "Query for the
+engineer", each optionally followed by ", <who decided>"); any other verdict, or a Fail or Query on the pass
+sheet, is an unknown verdict: the line is not counted and the count is reported.
+Other sheets (internal notes, not applicable, unproven AI passes) are not read.
 
 THE NUMBERS (each with its denominator, rows by sheet row number):
   problems found          problem rows a comment line answers            of the problem rows
@@ -38,9 +45,11 @@ THE NUMBERS (each with its denominator, rows by sheet row number):
   clear wrong             wrong rows a comment line repeats              of the wrong rows
   disputed raised         disputed rows a comment line repeats           reported apart, never scored
   other clause            wrong or disputed rows only answered under another clause (not judged)
-  wrong passes            problem rows no comment line answers but a pass line does
+  wrong passes            problem rows no comment line answers but a pass line does    of the pass lines
   word only (fallback)    rows the old word match would have counted that field and page do not
 
+Every output carries the fixed line SOURCE: these are a scorer's numbers, not a hand score. With a hand
+score's found rows, `overlap` gives the rows in both, scorer only and hand only.
 No document text is printed: counts, row numbers, roles and pages only. Pure: no database, no network.
 """
 
@@ -66,7 +75,15 @@ KEY_FIELD, KEY_PAGE, KEY_KIND, KEY_LABEL = (
 CRS_SHEET = "CRS"
 TICK_TITLE = "passed by a tested rule: engineer to tick"
 TICK_MARKERS = ("ENGINEER TO TICK", "TICKED BY ENGINEER")
-PASS_VERDICTS = ("pass",)
+#: The closed set of verdict cells the product writes (its first words, before a comma). Anything else is
+#: an unknown verdict: the line is not counted at all, and is reported.
+VERDICTS = {
+    "pass": "pass",
+    "fail": "comment",
+    "query": "comment",
+    "query for the engineer": "comment",
+}
+SOURCE = "SCORER (field role + paper page), not a hand score"
 
 _PAGE_PART = re.compile(r"^\s*(p\.\s*[0-9]|page not found|pages? [0-9])", re.I)
 _NOT_READ = re.compile(r"^\s*not read from the (data ?sheet|paper)", re.I)
@@ -92,6 +109,9 @@ class KeyRow:
     clause: tuple | None = (
         None  # (standard, clause) of the key row's own Standard Reference
     )
+    absent: bool = (
+        False  # Paper page says "absent": the field is on no page of the paper
+    )
 
 
 @dataclass(frozen=True)
@@ -104,6 +124,7 @@ class Line:
     is_pass: bool
     roles: frozenset = field(default=frozenset())
     clause: tuple | None = None
+    unknown_verdict: bool = False
 
 
 def fold(text) -> str:
@@ -125,21 +146,30 @@ def parse_pages(text) -> frozenset:
 
 
 def clause_ref(text) -> tuple | None:
-    """'API 520-I 5.5', 'API-520-I clause 5.5', 'SAES-J-600 6.1 (p.9)', 'X-1 (edition not recorded) cl. 5'
-    -> (standard, clause) with the standard folded to letters and digits and a trailing year dropped.
-    'API 610 datasheet annex' -> ('API610', None): a standard named with no clause number. None: no standard."""
+    """'API 520-I 5.5', 'API-520-I clause 5.5', 'SAES-J-600 6.1 (p.9)', 'X-1 (edition not recorded) cl. 5',
+    'API 520-I \u00a75.5' -> (standard, clause), the standard folded to letters and digits.
+    'API 610', 'API 2000' -> (standard, None): a number right after a bare family name is the standard's own.
+    'API 526 2017', 'X-1-2023 6.1' -> the edition year is dropped, never read as a clause.
+    'API 610 datasheet annex' -> ('API610', None): a standard with no clause number. None: no standard."""
     t = re.sub(r"\((?:p\.|pages?|edition)[^)]*\)", " ", str(text or ""), flags=re.I)
-    t = " " + re.sub(r"\.pdf\b|\bclause\b|\bcl\.", " ", t, flags=re.I).strip()
+    t = re.sub(r"\.pdf\b|\bclause\b|\bcl\.|\u00a7", " ", t, flags=re.I)
+    t = " " + " ".join(t.split())
+    head, clause = t, None
     m = _CLAUSE.search(t)
-    head, clause = (t[: m.start()], m.group(1).upper().lstrip("-")) if m else (t, None)
+    if m:
+        before, number = t[: m.start()], m.group(1).upper().lstrip("-")
+        if re.search(r"\d", before) and not re.fullmatch(r"(19|20)\d\d", number):
+            head, clause = before, number
     std_tokens = []
     for token in head.split():
         if not re.search(r"[A-Z0-9]", token):
             break  # the standard's id ends at the first plain word ('datasheet annex')
         std_tokens.append(token)
-    std = re.sub(
-        r"(19|20)\d\d$", "", re.sub(r"[^A-Z0-9]", "", "".join(std_tokens).upper())
-    )
+    raw = " ".join(std_tokens)
+    trimmed = re.sub(r"[-:\s](19|20)\d\d$", "", raw)
+    if re.search(r"\d", trimmed):
+        raw = trimmed  # an edition year after the standard's own number
+    std = re.sub(r"[^A-Z0-9]", "", raw.upper())
     return (std, clause) if std else None
 
 
@@ -200,14 +230,11 @@ def known_role(role: str, rules: dict) -> bool:
 
 
 def _spelling_names(spelling: str, label_words: list[str]) -> bool:
-    """Every word of the key's printed label is a word of the line's label (a shared 4-letter stem counts)."""
+    """Every word of the key's printed label is a whole word of the line's label."""
     want = _words(spelling)
     if not want or not label_words:
         return False
-    return all(
-        any(w == lw or (len(w) >= 4 and lw[:4] == w[:4]) for lw in label_words)
-        for w in want
-    )
+    return all(w in label_words for w in want)
 
 
 def _span(pattern: re.Pattern, folded: str) -> tuple | None:
@@ -303,11 +330,14 @@ def read_key(path, rules: dict | None = None, sheet: str | None = None) -> list[
                 f"row {number}: not a role of the field registry: {', '.join(unknown)}"
             )
         page_text = str(cells[col[KEY_PAGE]] or "").strip()
-        if page_text and not re.fullmatch(
-            r"[0-9,\s\-\u2013]+|[0-9,\s]+and\s+[0-9]+", page_text
+        absent = fold(page_text) == "absent"
+        if (
+            page_text
+            and not absent
+            and not re.fullmatch(r"[0-9,\s\-\u2013]+|[0-9,\s]+and\s+[0-9]+", page_text)
         ):
             raise AnswerKeyError(
-                f"row {number}: {KEY_PAGE!r} must be page numbers ('3', '1-4', '1-2, 4')"
+                f"row {number}: {KEY_PAGE!r} must be page numbers ('3', '1-4', '1-2, 4') or 'absent'"
             )
         spellings = (
             tuple(
@@ -325,7 +355,14 @@ def read_key(path, rules: dict | None = None, sheet: str | None = None) -> list[
         clause = clause_ref(cells[std_col]) if std_col is not None else None
         out.append(
             KeyRow(
-                number, kind, roles, parse_pages(page_text), spellings, words, clause
+                number,
+                kind,
+                roles,
+                frozenset() if absent else parse_pages(page_text),
+                spellings,
+                words,
+                clause,
+                absent,
             )
         )
     return out
@@ -384,12 +421,14 @@ def read_crs(path) -> list[Line]:
             row = row + [None] * (len(head) - len(row))
             text = _text(row)
             comment = row[ci] if ci is not None else ""
-            verdict = fold(row[vi]) if vi is not None else ""
-            is_pass = (
-                pass_sheet
-                or any(m in text for m in TICK_MARKERS)
-                or verdict in PASS_VERDICTS
-            )
+            verdict = fold(row[vi]).split(",", 1)[0].strip() if vi is not None else ""
+            if verdict:
+                kind = VERDICTS.get(verdict, "unknown")
+                if pass_sheet and kind != "pass":
+                    kind = "unknown"  # a Fail or Query on the pass sheet: not read either way
+            else:
+                marked = any(m in text for m in TICK_MARKERS)
+                kind = "pass" if pass_sheet or marked else "comment"
             out.append(
                 Line(
                     ws.title,
@@ -397,8 +436,9 @@ def read_crs(path) -> list[Line]:
                     line_label(row[pi], comment),
                     line_pages(row[pi], comment),
                     text,
-                    is_pass,
+                    kind == "pass",
                     clause=clause_ref(row[si]) if si is not None else None,
+                    unknown_verdict=kind == "unknown",
                 )
             )
     return out
@@ -408,8 +448,44 @@ def read_crs(path) -> list[Line]:
 
 
 def answers(k: KeyRow, line: Line) -> bool:
-    """The rule: a shared field role AND (a shared page, or a key row with no page)."""
-    return bool(k.roles & line.roles) and (not k.pages or bool(k.pages & line.pages))
+    """The rule: a shared field role AND (a shared page, or a key row whose page is 'absent'). A key row with
+    an empty page column answers nothing (it is reported as not scorable)."""
+    if not (k.roles & line.roles):
+        return False
+    return bool(k.pages & line.pages) if k.pages else k.absent
+
+
+def own_point(k: KeyRow, line: Line) -> bool:
+    """The key row's own point, beyond field and page: the line cites the row's standard and clause (the
+    standard alone when the row names no clause), or prints the row's printed label."""
+    if (
+        k.clause is not None
+        and line.clause is not None
+        and line.clause[0] == k.clause[0]
+    ):
+        if k.clause[1] is None or line.clause[1] == k.clause[1]:
+            return True
+    words = _words(line.label)
+    return any(_spelling_names(s, words) for s in k.spellings)
+
+
+def _specificity(k: KeyRow) -> tuple:
+    return (len(k.roles), len(k.pages) if k.pages else 10**6, k.row)
+
+
+def credit(rows: list[KeyRow], pool: list[Line]) -> dict:
+    """Which key rows each line counts for. A line answering several rows on field and page counts for the
+    rows whose own point it also matches; if it matches none, for ONE row only (the most specific: fewest
+    roles, fewest pages, then the first). One line never counts for a second row on field and page alone."""
+    out: dict[int, list] = {}
+    for ln in pool:
+        cand = [k for k in rows if answers(k, ln)]
+        if not cand:
+            continue
+        pointed = [k for k in cand if own_point(k, ln)]
+        for k in pointed or [min(cand, key=_specificity)]:
+            out.setdefault(k.row, []).append(ln)
+    return out
 
 
 def repeats(k: KeyRow, line: Line) -> bool:
@@ -422,7 +498,7 @@ def repeats(k: KeyRow, line: Line) -> bool:
         return False
     if k.clause is None:
         return True
-    std, clause = k.clause
+    std, clause = k.clause  # (same test as own_point's clause part)
     return (
         line.clause is not None
         and line.clause[0] == std
@@ -446,15 +522,18 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
     lines = [
         replace(ln, roles=roles_named(ln.label, patterns, spellings)) for ln in lines
     ]
-    comments = [ln for ln in lines if not ln.is_pass]
+    unknown = [ln for ln in lines if ln.unknown_verdict]
+    comments = [ln for ln in lines if not ln.is_pass and not ln.unknown_verdict]
     passes = [ln for ln in lines if ln.is_pass]
     of = {kind: [k.row for k in key if k.scored_as == kind] for kind in SCORED_AS}
     res = {
+        "source": SOURCE,
         "problems_found": [],
         "complies_confirmed": [],
         "clear_wrong": [],
         "disputed_raised": [],
         "wrong_passes": [],
+        "wrong_pass_lines": 0,
         "complies_raised_as_comment": [],
         "word_only": {
             kind: [] for kind in ("problem", "complies", "wrong", "disputed")
@@ -465,45 +544,72 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
             for kind in SCORED_AS
             if kind != "not scored"
         },
+        "key_rows_without_page": {
+            kind: [
+                k.row
+                for k in key
+                if k.scored_as == kind and k.roles and not k.pages and not k.absent
+            ]
+            for kind in SCORED_AS
+            if kind != "not scored"
+        },
         "of": {kind: len(rows) for kind, rows in of.items()},
         "comment_lines": len(comments),
         "pass_lines": len(passes),
+        "lines_unknown_verdict": len(unknown),
         "lines_without_field_role": sum(1 for ln in lines if not ln.roles),
         "lines_without_page": sum(1 for ln in lines if not ln.pages),
         "matched_lines": {},
     }
+    found_rows = [k for k in key if k.scored_as in ("problem", "complies")]
+    on_crs = credit(found_rows, comments)
+    on_pass = credit(found_rows, passes)
+    hidden_by_pass: set = set()
     for k in key:
         if k.scored_as == "not scored":
             continue
-        test = repeats if k.scored_as in ("wrong", "disputed") else answers
-        hit = [ln for ln in comments if test(k, ln)]
-        hit_pass = [ln for ln in passes if test(k, ln)]
-        on_crs = bool(hit)
-        if test is repeats and not on_crs and any(answers(k, ln) for ln in comments):
-            res["other_clause_not_judged"][k.scored_as].append(k.row)
+        if k.scored_as in ("wrong", "disputed"):
+            hit = [ln for ln in comments if repeats(k, ln)]
+            if not hit and any(answers(k, ln) for ln in comments):
+                res["other_clause_not_judged"][k.scored_as].append(k.row)
+            if hit:
+                res[
+                    "clear_wrong" if k.scored_as == "wrong" else "disputed_raised"
+                ].append(k.row)
+            hit_pass: list = []
+        else:
+            hit, hit_pass = on_crs.get(k.row, []), on_pass.get(k.row, [])
         if k.scored_as == "problem":
-            if on_crs:
+            if hit:
                 res["problems_found"].append(k.row)
             elif hit_pass:
                 res["wrong_passes"].append(k.row)
+                hidden_by_pass.update(id(ln) for ln in hit_pass)
         elif k.scored_as == "complies":
             if hit_pass:
                 res["complies_confirmed"].append(k.row)
-            if on_crs:
+            if hit:
                 res["complies_raised_as_comment"].append(k.row)
-        elif k.scored_as == "wrong" and on_crs:
-            res["clear_wrong"].append(k.row)
-        elif k.scored_as == "disputed" and on_crs:
-            res["disputed_raised"].append(k.row)
         pool = passes if k.scored_as == "complies" else comments
-        counted = bool(hit_pass) if k.scored_as == "complies" else on_crs
+        counted = bool(hit_pass) if k.scored_as == "complies" else bool(hit)
         if not counted and any(_word_match(k, ln) for ln in pool):
             res["word_only"][k.scored_as].append(k.row)
         if hit or hit_pass:
             res["matched_lines"][k.row] = sorted(
                 {f"{ln.sheet}!{ln.row}" for ln in hit + hit_pass}
             )
+    res["wrong_pass_lines"] = len(hidden_by_pass)
     return res
+
+
+def overlap(found: list, hand: list) -> dict:
+    """The found rows against a hand score's found rows: in both, scorer only, hand only."""
+    f, h = set(found), set(hand)
+    return {
+        "both": sorted(f & h),
+        "scorer_only": sorted(f - h),
+        "hand_only": sorted(h - f),
+    }
 
 
 def score_files(key_path, crs_path, sheet: str | None = None) -> dict:
@@ -512,14 +618,16 @@ def score_files(key_path, crs_path, sheet: str | None = None) -> dict:
 
 
 def summary(res: dict) -> dict:
-    """The counts only, each with its denominator."""
+    """The counts only, each with its denominator, under the fixed source line."""
     of = res["of"]
     return {
+        "source": SOURCE,
         "problems_found": f"{len(res['problems_found'])} of {of['problem']}",
         "complies_confirmed": f"{len(res['complies_confirmed'])} of {of['complies']}",
         "clear_wrong": f"{len(res['clear_wrong'])} of {of['wrong']}",
         "disputed_raised": f"{len(res['disputed_raised'])} of {of['disputed']}",
-        "wrong_passes": len(res["wrong_passes"]),
+        "wrong_passes": f"{len(res['wrong_passes'])} problem rows, from "
+        f"{res['wrong_pass_lines']} of {res['pass_lines']} pass lines",
         "other_clause_not_judged": {
             k: len(v) for k, v in res["other_clause_not_judged"].items()
         },
@@ -527,4 +635,9 @@ def summary(res: dict) -> dict:
         "comment_lines": res["comment_lines"],
         "pass_lines": res["pass_lines"],
         "lines_without_field_role": res["lines_without_field_role"],
+        "lines_unknown_verdict_not_counted": res["lines_unknown_verdict"],
+        "key_rows_not_scorable": {
+            "no field": sum(len(v) for v in res["key_rows_without_field"].values()),
+            "no page": sum(len(v) for v in res["key_rows_without_page"].values()),
+        },
     }

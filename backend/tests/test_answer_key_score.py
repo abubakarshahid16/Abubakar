@@ -186,7 +186,12 @@ def test_field_and_page_both_decide_and_words_alone_never_count(tmp_path):
 def test_line_pages_include_the_key_page_and_absent_rows_need_the_field_only(tmp_path):
     key = [
         {"kind": "problem", "role": "set_pressure", "page": "3"},
-        {"kind": "problem", "role": "cdtp", "page": ""},
+        {"kind": "problem", "role": "cdtp", "page": "absent"},
+        {
+            "kind": "problem",
+            "role": "cdtp",
+            "page": "",
+        },  # empty: not scorable, never field-only
     ]
     lines = [
         ("p.1-4 - Set pressure (TAG-1 A/B (for X))", "c", "XS-100 4.2", "Query", ""),
@@ -200,6 +205,7 @@ def test_line_pages_include_the_key_page_and_absent_rows_need_the_field_only(tmp
     ]
     res = _score(tmp_path, key, lines)
     assert res["problems_found"] == [2, 3]
+    assert res["key_rows_without_page"]["problem"] == [4]
 
 
 def test_agent_comment_lead_gives_label_and_page(tmp_path):
@@ -413,3 +419,149 @@ def test_the_cli_prints_counts_and_rows_never_text(tmp_path, capsys):
     assert got["problems_found"] == "1 of 1" and got["rows"]["problems_found"] == [2]
     bad = _key(tmp_path, [{"kind": "maybe"}], name="bad.xlsx")
     assert cli.main(["--key", str(bad), "--crs", str(crs)]) == 2
+
+
+def test_one_line_never_counts_for_a_second_row_on_field_and_page_alone(tmp_path):
+    key = [
+        {"kind": "problem", "role": "set_pressure", "page": "2", "std": "XS-100 4.1"},
+        {"kind": "problem", "role": "set_pressure", "page": "2", "std": "XS-100 4.2"},
+        {"kind": "problem", "role": "set_pressure", "page": "2", "std": "XS-100 4.3"},
+    ]
+    # a line under an unrelated clause counts for ONE row only
+    res = _score(tmp_path, key, [("p.2 - Set pressure", "c", "YS-9 1.1", "Query", "")])
+    assert res["problems_found"] == [2]
+    # a line citing one row's own clause counts for that row, not for the others
+    res = _score(
+        tmp_path, key, [("p.2 - Set pressure", "c", "XS-100 clause 4.2", "Query", "")]
+    )
+    assert res["problems_found"] == [3]
+    # two lines with two rows' own clauses find those two rows
+    res = _score(
+        tmp_path,
+        key,
+        [
+            ("p.2 - Set pressure", "c", "XS-100 4.1", "Query", ""),
+            ("p.2 - Set pressure", "c", "XS-100 4.3", "Query", ""),
+        ],
+    )
+    assert res["problems_found"] == [2, 4]
+
+
+def test_a_printed_label_is_a_row_point_too(tmp_path):
+    key = [
+        {"kind": "problem", "role": "built_up_back_pressure", "page": "3"},
+        {
+            "kind": "problem",
+            "role": "built_up_back_pressure",
+            "page": "3",
+            "label": "back press variable",
+        },
+    ]
+    res = _score(
+        tmp_path,
+        key,
+        [("p.3 - Back press. Constant/Variable", "c", "YS-9 1", "Query", "")],
+    )
+    assert res["problems_found"] == [3]
+
+
+def test_a_complies_row_raised_as_a_comment_is_not_confirmed(tmp_path):
+    key = [{"kind": "complies", "role": "body_material", "page": "1"}]
+    res = _score(tmp_path, key, [("p.1 - Body", "c", "XS-100 6.1", "Query", "")])
+    assert res["complies_confirmed"] == []
+    assert res["complies_raised_as_comment"] == [2]
+
+
+def test_a_one_word_printed_label_needs_the_whole_word():
+    _, patterns = aks._registry()
+    spell = {"bearing_type": ("bear",)}
+    assert "bearing_type" not in aks.roles_named("Bearing temperature", patterns, spell)
+    assert "bearing_type" in aks.roles_named("Bear (x)", patterns, spell)
+    spell = {"seal_plan": ("plant",)}
+    assert "seal_plan" not in aks.roles_named("Plan view", patterns, spell)
+
+
+def test_an_unknown_verdict_is_not_counted_and_is_reported(tmp_path):
+    key = [
+        {"kind": "problem", "role": "set_pressure", "page": "2"},
+        {"kind": "complies", "role": "body_material", "page": "1"},
+    ]
+    lines = [
+        ("p.2 - Set pressure", "c", "XS-1 1", "Maybe later", ""),
+        ("p.2 - Set pressure", "c", "XS-1 1", "Passed?", ""),
+        ("p.1", "Body (page 1): x", "XS-1 1", "Pass, AI verdict (model-x)", ""),
+    ]
+    res = _score(
+        tmp_path, key, lines, [("p.1", "Body (page 1): x", "XS-1 1", "Fail", "")]
+    )
+    assert res["problems_found"] == [] and res["lines_unknown_verdict"] == 3
+    assert res["complies_confirmed"] == [3]  # "Pass, AI verdict (...)" is a pass
+    res = _score(
+        tmp_path,
+        key,
+        [("p.2 - Set pressure", "c", "XS-1 1", "Query for the engineer", "")],
+    )
+    assert res["problems_found"] == [2] and res["lines_unknown_verdict"] == 0
+
+
+@pytest.mark.parametrize(
+    "text, ref",
+    [
+        ("API 610", ("API610", None)),
+        ("API 2000", ("API2000", None)),
+        ("API 526 2017", ("API526", None)),
+        ("API 610 6.1.2", ("API610", "6.1.2")),
+        ("API 2000 5.1", ("API2000", "5.1")),
+        ("API 520-I \u00a75.5", ("API520I", "5.5")),
+        ("API 520-I \u00a7 5.5", ("API520I", "5.5")),
+        ("XS-1-2023 clause 6.1", ("XS1", "6.1")),
+        ("XS-1 (edition not recorded) cl. 5", ("XS1", "5")),
+        ("XS 610 datasheet annex", ("XS610", None)),
+        ("ASME-Sec-VIII-Div1-2023 clause UG-99", ("ASMESECVIIIDIV1", "UG-99")),
+        ("", None),
+    ],
+)
+def test_clause_ref_reads_the_standard_and_the_clause(text, ref):
+    assert aks.clause_ref(text) == ref
+
+
+def test_every_output_says_it_is_a_scorer_and_wrong_passes_have_a_denominator(
+    tmp_path, capsys
+):
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "aks_cli2",
+        Path(__file__).resolve().parents[2] / "scripts" / "answer_key_score.py",
+    )
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    key = _key(tmp_path, [{"kind": "problem", "role": "spring_material", "page": "1"}])
+    crs = _crs(
+        tmp_path,
+        [("p.1 - Body", "c", "XS-1 1", "Query", "")],
+        [
+            ("p.1", "Spring (page 1): meets", "XS-1 6.2", "Pass", ""),
+            ("p.1", "Body (page 1): meets", "XS-1 6.1", "Pass", ""),
+        ],
+    )
+    assert cli.main(["--key", str(key), "--crs", str(crs), "--hand-found", "2,9"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        out.splitlines()[0]
+        == aks.SOURCE
+        == "SCORER (field role + paper page), not a hand score"
+    )
+    assert "wrong passes 1 problem rows, from 1 of 2 pass lines" in out
+    assert "'both': [], 'scorer_only': [], 'hand_only': [2, 9]" in out
+    assert cli.main(["--key", str(key), "--crs", str(crs), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["source"] == aks.SOURCE
+
+
+def test_overlap_names_rows_in_both_scorer_only_and_hand_only():
+    assert aks.overlap([2, 3, 12], [2, 3, 10]) == {
+        "both": [2, 3],
+        "scorer_only": [12],
+        "hand_only": [10],
+    }
