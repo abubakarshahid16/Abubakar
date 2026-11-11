@@ -73,6 +73,8 @@ def lane(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "standards_reader_allow_public_egress", True)
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "claude_cache_dir", settings.data_dir / tmp_path.name)
+    # per_task is a Claude-lane run only when a step of the run has its own engine on claude (12 Nov 2026).
+    monkeypatch.setattr(settings, "datasheet_ai_reader", "claude")
     monkeypatch.setattr(settings, "review_ai_check_enabled", True)
     monkeypatch.setattr(settings, "crs_ai_wording_enabled", True)
     monkeypatch.setattr(settings, "clause_review_enabled", True)

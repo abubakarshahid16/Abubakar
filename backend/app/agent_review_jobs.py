@@ -46,10 +46,14 @@ from . import (
     rule_labels,
 )
 from . import agent_review_items as items_mod
+from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
-from . import agent_review_wording as wording
+from .agent_review_pair import (  # noqa: F401 - re-exported
+    IllegalLine,
+    contract_class_and_word,
+)
 from .config import config_version, settings
 from .db import connect
 
@@ -68,8 +72,6 @@ ACTIVE_RUN = review_jobs.ACTIVE_RUN
 ASK_UNAPPROVED = "off"
 
 #: Words of the contract (`api/agent_review_schemas.py`).
-WORD_OF_LABEL = {"Query for the engineer": "Query"}
-NOT_APPLICABLE = "Not applicable"
 #: The label table's tier words -> the contract's. A tier we cannot name is never shown as approved.
 TIER_WORDS = {
     "owner": "Owner",
@@ -237,20 +239,10 @@ def _line_tier(line: dict) -> str | None:
     return TIER_WORDS.get(line.get("tier")) or "Not AI approved"
 
 
-def contract_class_and_word(line: dict) -> tuple[str, str]:
-    """The contract's class and word of one line, as the core's `wording.classify` gives them (the "Not reviewed" class, the
-    silent-paper Query and the caps are the core's): only the word "Query for the engineer" is shortened to "Query"."""
-    got = wording.apply(line)
-    if crs_lines.is_not_applicable(got) and got["verdict_class"] == wording.CLASS_QUERY:
-        return "Not applicable", NOT_APPLICABLE
-    label = got["verdict_label"]
-    return got["verdict_class"], WORD_OF_LABEL.get(label, label)
-
-
 def store_line(run_id: str, line: dict, trace: dict | None) -> None:
     """One line into `agent_review_line` (an upsert: a resumed run replaces its own failed line). The line already went through
     the runner's one exit; the table's CHECK refuses an unproven Pass or Fail again."""
-    cls, word = contract_class_and_word(line)
+    cls, word = pair_mod.class_and_word_for_write(line, _line_tier(line))
     reason = str(
         line.get("not_proven_reason") or line.get("reasoning") or line.get("why") or ""
     )
@@ -483,9 +475,10 @@ def _plan(
         scope_run
     )  # a cited standard joins the list too (when auto-approve is on)
     cache: dict = {}
-    doc = items_mod.build_items(conn, submittal, kind.as_dict(), run_id=scope_run, cache=cache,
-                                equipment_type=kind.equipment_type, equipment_filter="type",
-        ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
+    # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
+    # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
+    doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
+                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache)
     if refused:
@@ -592,6 +585,7 @@ def _equipment_facts(block: dict) -> dict:
         "state": eq.get("paper_equipment_state"),
         "types": eq.get("paper_types") or [],
         "notes": notes,
+        "candidates": block.get("candidates"),
     }
 
 

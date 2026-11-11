@@ -66,6 +66,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_pages` | Page pictures for the AI reviewer (core): rendering and the image block; not wired into the first job (text pages only) |
 | `agent_review_absence` | The AI reviewer's absence proof (core): an absence Fail only when code proves it; off by default in the job |
 | `agent_review_wording` | The AI reviewer's words (core): Pass/Fail only when proven, else AI thinks met / not met; the one exit cap by current tier; counts per class |
+| `agent_review_pair` | The AI reviewer line's class and word in the contract's words, asked of the one table (`LINE_TABLE`); a refused pair is never stored |
 | `agent_review_crs` | The AI reviewer's CRS writers (core): internal and contractor xlsx; refuse an unproven Pass or Fail; contractor copy holds the proven Fail only |
 | `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
 | `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |

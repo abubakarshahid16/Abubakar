@@ -130,6 +130,14 @@ export interface AgentMissingBook {
   why: string;
 }
 
+/** AI-approved rules of the paper's kind that sit in rule books the run did NOT select (counts only). */
+export interface AgentOtherBooks {
+  books: number;
+  ai_approved_rules: number;
+  /** whose books these counts cover, in words. */
+  boundary: string;
+}
+
 /** How much of one rule book the stored rules cover (free coverage check). The screen computes the percentage from the two integers, so the denominator is always shown; a book with no row in the coverage file has every number null. */
 export interface AgentBookCoverage {
   rule_book: string;
@@ -156,4 +164,10 @@ export interface AgentRulesUsed {
   books: AgentBookCoverage[];
   /** null unless a person changed the rule set (then their name). */
   rule_set_changed_by?: string | null;
+  /** where the candidate rules came from; null on a run stored before this was kept (shown as nothing). */
+  candidates_from?: "per-rule scope decisions" | "the rules of the selected books" | null;
+  /** rules that were the same rule as another candidate (not asked twice, not in either list); null when not kept. */
+  same_rule_repeats?: number | null;
+  /** AI-approved rules of this paper kind in rule books the run did not select; null when not kept. */
+  other_books?: AgentOtherBooks | null;
 }
