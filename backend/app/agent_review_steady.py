@@ -47,7 +47,11 @@ def class_key(line: Mapping) -> tuple[str, str] | None:
 
 
 def is_decision(key: tuple[str, str]) -> bool:
-    return key[0] == PROVEN or (key[0] == OPINION and key[1] in OPINION_WORDS)
+    """Proven by code, an AI verdict of the class "AI verdict, two readers agree" (owner, 12 Nov 2026: it counts as a decision), or
+    "AI thinks: met / not met"."""
+    return key[0] in (PROVEN, "AI verdict, two readers agree") or (
+        key[0] == OPINION and key[1] in OPINION_WORDS
+    )
 
 
 def compare(before: Mapping[str, Mapping], after: Mapping[str, Mapping]) -> dict:

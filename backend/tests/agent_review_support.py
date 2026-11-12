@@ -65,6 +65,13 @@ RULES = {
         None,
     ),
 }
+#: the rule label's field per item (a Pass needs the quoted page line to carry it)
+FIELDS = {
+    "R-coat": "coating_layers",
+    "R-frame": "coating_thickness",
+    "R-mark": "marking",
+    "R-colour": "colour",
+}
 #: what the invented lead says per item (a missing key: the lead leaves the item out of its answer)
 ANSWERS = {
     "R-coat": {
@@ -124,7 +131,7 @@ def item(item_id: str, *, tier: str = "AI approved", kind: str = "datasheet") ->
         "rule_quote_ref": f"Q-{item_id}",
         "rule_label": {
             "paper_kind": kind,
-            "field": None,
+            "field": FIELDS.get(item_id),
             "tier": tier,
             "state": "ai_approved",
         },

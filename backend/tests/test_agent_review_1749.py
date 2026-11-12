@@ -169,6 +169,7 @@ def _lines():
         yield {
             "item_id": "S-1", "verdict": verdict, "ai_verdict": ai, "reason_code": code, "rule_tier": tier,
             "error": err, "silence_query": silent, "conditional_hold": held, "why": "w",
+            **({"decided_by": "decided by code", "compare": {"decided": True, "verdict": "meets" if verdict == "Pass" else "does_not_meet"}} if verdict != "Query" else {}),
         }  # fmt: skip
 
 
@@ -271,7 +272,9 @@ def test_the_line_list_reads_a_row_stored_with_the_old_pair_and_one_bad_row_does
         "Not reviewed",
     )
     assert "could not be read" in by_id["R-frame"]["reason"]
-    assert by_id["R-mark"]["word"] == "Fail"  # the other lines are untouched
+    assert (
+        by_id["R-mark"]["word"] == "AI verdict: not met"
+    )  # a textual not met: no failed comparison, no absence proof  # the other lines are untouched
     stored = conn.execute(
         "SELECT word FROM agent_review_line WHERE run_id = ? AND item_id = 'R-coat'",
         (run_id,),

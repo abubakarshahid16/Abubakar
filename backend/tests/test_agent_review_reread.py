@@ -184,7 +184,9 @@ def test_the_lead_is_asked_again_with_the_page_and_the_pointer_and_no_other_page
 def test_a_recovered_text_line_gets_the_normal_second_opinion_and_may_then_be_proven(w):
     answers = {**s.ANSWERS, "R-coat": SILENT}
     lines, fake = review(w, answers, FOUND_TEXT, AGAIN_TEXT)
-    assert lines["R-coat"]["word"] == "Pass"
+    assert (
+        lines["R-coat"]["word"] == "AI verdict: met"
+    )  # no code comparison: not "Proven by code"
     assert fake.kinds.count("second") == 2  # R-mark's Fail and the recovered R-coat
     assert fake.kinds.count("lead_again") == 1
 
