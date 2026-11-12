@@ -1671,6 +1671,10 @@ def start_review_run(
         run_id, allowed_document_ids=scope.allowed_document_ids), scope)
 
 
+#: V1b: the page `GET /api/reviews/findings` returns when no limit is asked for. It used to be every finding (357 MB on one copy).
+FINDINGS_DEFAULT_PAGE_SIZE = 200
+
+
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
          responses=schemas.ERRORS_422)
 def list_review_findings(
@@ -1679,7 +1683,8 @@ def list_review_findings(
     status: schemas.ReviewStatus | None = Query(None),
     review_run_id: str | None = Query(
         None, description="only this comparison run's findings"),
-    limit: int | None = Query(None, ge=1, le=1000, description="page size; omit for all"),
+    limit: int = Query(FINDINGS_DEFAULT_PAGE_SIZE, ge=1, le=1000,
+                       description="page size (default 200, most severe first); `total` says how many there are, so a caller that needs every finding pages"),
     offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -1698,7 +1703,7 @@ def list_review_findings(
     where = {"document_id": document_id, "status": status, "review_run_id": review_run_id,
              "allowed_document_ids": scope.allowed_document_ids}
     findings = review_mod.list_findings(**where, limit=limit, offset=offset)
-    total = len(findings) if limit is None and not offset else finding_query.count_findings(**where)
+    total = len(findings) if len(findings) < limit and not offset else finding_query.count_findings(**where)
     return {"findings": findings, "total": total, "limit": limit, "offset": offset}
 
 

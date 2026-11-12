@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { auth, onSignedOut, setCookieSession, setToken } from "./api/client";
 import {
@@ -8,20 +8,15 @@ import {
   type ThemeMode,
   type ViewId,
 } from "./components/Shell";
-import { DisconnectedState } from "./components/states";
+import { DisconnectedState, Spinner } from "./components/states";
 import { CommandPalette } from "./components/CommandPalette";
-import { AdminScreen } from "./views/AdminScreen";
-import { ChatView } from "./views/ChatView";
 import { RecentChats } from "./components/chat/RecentChats";
+import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
-import { StandardsView } from "./views/StandardsView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { useSessionExpiry } from "./hooks/useSessionExpiry";
-import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
-import { ReportsScreen } from "./views/ReportsScreen";
-import { DeliverablesView } from "./views/DeliverablesView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { FinishedReviewNotice } from "./components/review/workspace/FinishedReviewNotice";
@@ -34,6 +29,13 @@ import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/
 import { CrsDraftContext, clearDecisionDrafts, keepOnlyDraftsOf, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
+
+// V1b: the pages the reader opens less often are loaded when first opened, not with the first screen.
+const AdminScreen = lazy(() => import("./views/AdminScreen").then((m) => ({ default: m.AdminScreen })));
+const StandardsView = lazy(() => import("./views/StandardsView").then((m) => ({ default: m.StandardsView })));
+const AnalysisModeScreen = lazy(() => import("./views/AnalysisModeScreen").then((m) => ({ default: m.AnalysisModeScreen })));
+const ReportsScreen = lazy(() => import("./views/ReportsScreen").then((m) => ({ default: m.ReportsScreen })));
+const DeliverablesView = lazy(() => import("./views/DeliverablesView").then((m) => ({ default: m.DeliverablesView })));
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -483,7 +485,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           </p>
         </section>
       ) : (
-        <>
+        <Suspense fallback={<Spinner />}>
           <CommandPalette onNavigate={guardedNavigate} auth={authStatus} connection={connection} />
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
@@ -540,7 +542,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               boundary (every /api/admin route 404s a non-admin), and this is
               the UI keeping the same answer. */}
           {view === "admin" && canAdmin && <AdminScreen tokenProvider={readToken} />}
-        </>
+        </Suspense>
       )}
     </Shell>
     </NavigationContext.Provider>

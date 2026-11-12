@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from .. import access, errors, schemas
 from .. import admin as admin_mod
 from .. import deliverables as deliverables_mod
+from .. import finding_query
 from .. import notifications as notifications_mod
 from .. import review as review_mod
 from ..api_utils import (
@@ -201,17 +202,13 @@ def acknowledge_management_reminder(reminder_id: str, scope: access.AccessScope 
 def management_summary(scope: access.AccessScope = Depends(access.current_scope)):
     items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
     alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
-    findings = review_mod.list_findings(allowed_document_ids=scope.allowed_document_ids)
+    review_mod.ensure_schema()
+    counts = finding_query.summary_counts(scope.allowed_document_ids)
     by_status = {status: sum(1 for item in items if item["status"] == status)
                  for status in {item["status"] for item in items}}
-    by_severity = {severity: sum(1 for item in findings if item["severity"] == severity)
-                   for severity in {item["severity"] for item in findings}}
-    by_review_status = {status: sum(1 for item in findings if item["status"] == status)
-                        for status in {item["status"] for item in findings}}
-    escalated = sum(1 for item in findings if item["escalation_level"] > 0)
     return {"deliverables_total": len(items), "deliverables_by_status": by_status,
-            "review_findings_total": len(findings), "findings_by_severity": by_severity,
-            "findings_by_status": by_review_status, "escalated_findings": escalated,
+            "review_findings_total": counts["total"], "findings_by_severity": counts["by_severity"],
+            "findings_by_status": counts["by_status"], "escalated_findings": counts["escalated"],
             "overdue_alerts": len(alerts), "alerts": alerts}
 
 

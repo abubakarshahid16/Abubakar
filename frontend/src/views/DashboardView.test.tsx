@@ -280,6 +280,14 @@ describe("unmeasured values", () => {
     expect(within(section).getAllByText(/not measured yet/i).length).toBe(4);
   });
 
+  it("V1b: the headline names what it measures, the search, never 'answer'", async () => {
+    mockApi();
+    await openDashboard();
+    expect(await screen.findByText("Typical search time")).toBeInTheDocument();
+    expect(screen.queryByText("Typical answer")).toBeNull();
+    expect(screen.getByText(/time to find the passages for a question, not to write an answer/)).toBeInTheDocument();
+  });
+
   it("shows real latency percentiles when they exist", async () => {
     mockApi();
     await openDashboard();
