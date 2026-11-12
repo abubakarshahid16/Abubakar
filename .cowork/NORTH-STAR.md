@@ -77,7 +77,7 @@ explicitly named by a contractor.
 - Uncertainty produces an explicit safe outcome. In review workflows this is
   `NEEDS_ENGINEER_REVIEW`; in Q&A or analysis it is `INSUFFICIENT_EVIDENCE` or an
   equivalent visible limitation. Uncertainty can never produce automatic approval.
-- The AI reviews and judges like a senior engineer. Code verifies every quote and does every number comparison. An authorized engineer signs. (Owner, 3 Nov 2026, #1584.)
+- The AI reviewer is the reviewer, on Claude or on the local model: same design, same steps, same sheet; only the engine changes. Code is its calculator: code verifies every quote and does every number and unit comparison. A decision is either (a) Pass or Fail, only when code compared a value, or (b) Met / Not met by two readers who agree, with quotes verified by code (internal copy; a kind of paper moves to the contractor copy when two-reader verdicts are right 95 of 100 on its key). Everything else is an AI opinion or a question for the engineer. 0 wrong decisions. The engineer signs. (Owner, 3 Nov 2026, changed 12 Nov 2026, #1584.)
 
 ### 2.3 Retrieval, reasoning and deterministic validation
 
