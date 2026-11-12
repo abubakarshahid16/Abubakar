@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
-from . import equipment_scope as eqs, intake, kind_rules, kind_words as kw, page_not_read, procedure_text
+from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
 from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from . import job_progress, presence_check
@@ -1804,7 +1804,7 @@ def completeness_for_run(
         extraction = round(answered / required, 3) if required else None
         basis = {"basis": BASIS_REQUIRED_FIELDS, "fields_required": required,
                  "fields_answered": answered, "fields_estimated": None}
-        basis.update(kind_rules.unknown_type_words(submittal_document_id), **kw.run_words(submittal_document_id, required))
+        basis.update(kind_rules.unknown_type_words(submittal_document_id))
     else:
         # No findings yet (applicability screen): the NOMINAL figure, labelled nominal.
         fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
@@ -1915,10 +1915,10 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             plain += " Also: " + "; ".join(also) + "."
         if missing:
             plain += " " + _standards_sentence(missing, _not_checked(missing))
-        return kw.in_noun({**result, "details": result["reason"], "reason": plain}, completeness)
-    return kw.in_noun({**result, "details": result["reason"],
+        return {**result, "details": result["reason"], "reason": plain}
+    return {**result, "details": result["reason"],
             "reason": plain_reason(result["code"], result["reason"], completeness,
-                                   page_coverage, missing, codes=codes)}, completeness)
+                                   page_coverage, missing, codes=codes)}
 
 
 def pages_read_with_reading(submittal_id: str) -> dict:
@@ -2018,9 +2018,9 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
         return reason, outcome.get("details")
     missing = [m.get("identifier") for m in (outcome.get("missing_references") or [])
                if isinstance(m, dict) and m.get("identifier")]
-    return kw.in_noun(plain_reason(outcome.get("recommended_code") or "", reason,
+    return plain_reason(outcome.get("recommended_code") or "", reason,
                         outcome.get("completeness"), outcome.get("page_coverage"),
-                        missing), outcome.get("completeness")), reason
+                        missing), reason
 
 
 @presence_check.not_a_pass  # #1638

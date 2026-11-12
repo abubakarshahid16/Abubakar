@@ -192,3 +192,36 @@ def run_words(document_id: str, required: int) -> dict:
     if not required:
         out["not_checked_plain"] = not_checked_sentence(kind)
     return out
+
+
+def refresh_outcome(run_id: str) -> None:
+    """After a run's comparison: a run on a paper that is not a datasheet records its decided noun and, when no requirement was asked
+    of it, the plain not-checked sentence in its completeness, and its stored reason and details name the paper by that noun.
+    A datasheet's run is not touched (its stored outcome stays byte for byte). Reads and writes this one run's outcome only."""
+    import json
+
+    from .db import connect
+
+    conn = connect()
+    row = conn.execute(
+        "SELECT submittal_document_id, outcome_json FROM review_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    if row is None or not row["outcome_json"]:
+        return
+    outcome = json.loads(row["outcome_json"])
+    comp = outcome.get("completeness")
+    if not isinstance(comp, dict):
+        return
+    extra = run_words(
+        row["submittal_document_id"], int(comp.get("fields_required") or 0)
+    )
+    if not extra:
+        return
+    comp = {**comp, **extra}
+    outcome = in_noun({**outcome, "completeness": comp}, comp)
+    with conn:
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+            (json.dumps(outcome), run_id),
+        )

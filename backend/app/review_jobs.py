@@ -36,6 +36,7 @@ from . import (
     claude_spend_report,
     job_progress,
     job_queue,
+    kind_words,
     local_engine_bar,
     nothing_read,
     provenance,
@@ -65,8 +66,6 @@ def document_words(document_id: str) -> tuple[str, str]:
     """(noun, unit) for the progress lines of a review of `document_id`. The
     unit is "part" for a Word file read in parts (`pagination = 'flow'`), else "page".
     WORD_PAGE_MARKERS_ENABLED: a Word file shows pages, "part" only with no page marks."""
-    from . import kind_words
-
     noun = kind_words.noun_of_document(document_id)  # the DECIDED kind's noun, "document" when unknown (`kind_words`, one home)
     row = (
         connect()
@@ -558,6 +557,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                 reference_coverage=selection.get("reference_coverage"),
                 missing_references=[m["identifier"] for m in selection["missing_references"]])
             company_standard_confirm.record_on_run(run_id, held)
+            kind_words.refresh_outcome(run_id)  # K2: the paper's noun and the not-checked sentence, non-datasheet runs only
         _label(conn, job_id, FINISHING)
         with _phase(conn, job_id, None, heartbeat, timings, "checks"):
             missing = [m["identifier"] for m in selection["missing_references"]]

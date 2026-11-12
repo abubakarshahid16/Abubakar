@@ -61,29 +61,40 @@ def test_a_datasheet_keeps_its_exact_old_sentences():
 
 
 @pytest.mark.parametrize("noun", ["contract", "procedure", "transmittal"])
-def test_no_sentence_of_the_review_calls_another_kind_a_datasheet(noun):
-    """Through the two doors every stored or shown reason leaves by: the recommendation and the stored outcome."""
+def test_no_sentence_the_review_writes_calls_another_kind_a_datasheet(noun):
+    """The REAL sentences of `comparison` (written for a datasheet) go through `in_noun` with the run's recorded noun."""
     comp = {**BASE, "paper_noun": noun, "fields_required": 12, "fields_answered": 3}
     zero = {**BASE, "paper_noun": noun}
-    got = [
-        comparison.recommend_code([], comp, missing_references=["IEC 1"]),
-        comparison.recommend_code([], zero, missing_references=["IEC 1"]),
-        comparison.recommend_code([], {**zero, "extraction_coverage": 0.1}),
-    ]
-    stored = [
-        {"recommended_code": "Manual Review Required", "reason": TECH, "completeness": c, "missing_references": [{"identifier": "IEC 1"}]}
-        for c in (comp, zero)
-    ] + [
-        {"recommended_code": "Manual Review Required", "reason": "Manual review: no requirement was evaluated", "completeness": zero},
-        {"recommended_code": "Manual Review Required", "reason": "NOMINAL ESTIMATE", "completeness": {**comp, "fields_read": 4}},
+    old = {
+        k: v for k, v in comp.items() if k != "paper_noun"
+    }  # as comparison sees a run
+    old0 = {k: v for k, v in zero.items() if k != "paper_noun"}
+    real = [
+        comparison.plain_reason("Manual Review Required", TECH, old, None, ["IEC 1"]),
+        comparison.plain_reason("Manual Review Required", TECH, old0, None, ["IEC 1"]),
+        comparison.plain_reason("Manual Review Required", "NOMINAL ESTIMATE", {**old, "fields_read": 4}, None, ["IEC 1"]),
+        comparison.plain_reason("Manual Review Required", "Manual review: no requirement was evaluated", old0, None, []),
+        comparison._insufficient_reason(old0),
+        comparison._insufficient_reason(old),
+        comparison.recommend_code([], old0)["reason"],
+        comparison.recommend_code([], old0)["details"],
     ]  # fmt: skip
-    texts = [r[k] for r in got for k in ("reason", "details")] + [
-        t for o in stored for t in comparison.plain_outcome(o) if t
-    ]
-    assert texts
-    for text in texts:
-        assert "datasheet" not in text.lower(), text
-    assert any(noun in t for t in texts)
+    assert all(
+        "datasheet" in t.lower() for t in real
+    )  # the sentences are written for a datasheet...
+    out = [kind_words.in_noun(t, comp) for t in real]
+    for text in out:
+        assert "datasheet" not in text.lower() and noun in text, text
+    assert (
+        kind_words.in_noun("the datasheet cites 2 standards", {})
+        == "the datasheet cites 2 standards"
+    )  # a datasheet: unchanged
+    assert (
+        kind_words.in_noun(
+            {"reason": "No datasheet", "details": "x", "code": "C"}, comp
+        )["reason"]
+        == f"No {noun}"
+    )
 
 
 def test_a_review_that_checked_nothing_says_what_was_not_checked_and_why():
@@ -92,9 +103,8 @@ def test_a_review_that_checked_nothing_says_what_was_not_checked_and_why():
         "paper_noun": "contract",
         "not_checked_plain": kind_words.not_checked_sentence("contract"),
     }
-    text = comparison.plain_outcome(
-        {"recommended_code": "Manual Review Required", "reason": TECH, "completeness": comp}
-    )[0]
+    said = comparison.plain_reason("Manual Review Required", TECH, BASE, None, [])
+    text = kind_words.in_noun(said, comp)
     assert text.startswith(
         "No contract checklist is held, so no point of this contract was checked;"
     )
@@ -115,27 +125,52 @@ def _world(tmp_path, monkeypatch, text):
     return conn
 
 
-def test_the_run_records_the_decided_noun_and_the_sentence_only_for_a_paper_that_is_not_a_datasheet(
+def _stored_run(conn, doc, outcome):
+    from app import submittal_review
+
+    submittal_review.ensure_schema()
+    with conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, outcome_json, created_at, updated_at)"
+            " VALUES (?,?,'completed',?,'t','t')",
+            (f"run-{doc}", doc, json.dumps(outcome)),
+        )
+
+
+def test_a_stored_run_of_a_contract_gets_its_noun_and_the_sentence_a_datasheets_run_is_not_touched(
     tmp_path, monkeypatch
 ):
-    _world(
+    conn = _world(
         tmp_path, monkeypatch, "SUPPLY CONTRACT FOR WIDGET SKIDS\nArticle 1 Definitions"
     )
-    comp = comparison.completeness_for_run(
-        "doc_k2", allowed_document_ids=frozenset({"doc_k2"}), findings=[]
+    s.add_document(conn, "doc_ds", "ds.pdf", "PUMP DATA SHEET\nflow 10 m3/h")
+    conn.commit()
+    outcome = {
+        "recommended_code": "Manual Review Required", "completeness": dict(BASE),
+        "reason": "No applicable standard asks this datasheet for a value that was checked. That is not enough to suggest a review code yet.",
+        "details": "no requirement of an applicable standard asks this datasheet for a value",
+    }  # fmt: skip
+    _stored_run(conn, "doc_k2", outcome)
+    _stored_run(conn, "doc_ds", outcome)
+    for doc in ("doc_k2", "doc_ds"):
+        kind_words.refresh_outcome(f"run-{doc}")
+    got = {
+        d: json.loads(
+            conn.execute(
+                "SELECT outcome_json FROM review_runs WHERE id = ?", (f"run-{d}",)
+            ).fetchone()[0]
+        )
+        for d in ("doc_k2", "doc_ds")
+    }
+    assert got["doc_k2"]["completeness"]["paper_noun"] == "contract"
+    assert got["doc_k2"]["reason"].startswith(
+        "No contract checklist is held, so no point of this contract was checked;"
     )
     assert (
-        comp["paper_noun"] == "contract"
-        and "No contract checklist is held" in comp["not_checked_plain"]
+        "datasheet" not in got["doc_k2"]["details"]
+        and "contract" in got["doc_k2"]["details"]
     )
-    s.add_document(db.connect(), "doc_ds", "ds.pdf", "PUMP DATA SHEET\nflow 10 m3/h")
-    db.connect().commit()
-    comp2 = comparison.completeness_for_run(
-        "doc_ds", allowed_document_ids=frozenset({"doc_ds"}), findings=[]
-    )
-    assert (
-        "paper_noun" not in comp2 and "not_checked_plain" not in comp2
-    )  # a datasheet's record is unchanged
+    assert got["doc_ds"] == outcome  # a datasheet's stored run is the same, key for key
 
 
 def test_the_progress_words_use_the_decided_kind(tmp_path, monkeypatch):
