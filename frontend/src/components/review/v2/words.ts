@@ -14,17 +14,8 @@ export const TILE_LABELS: Record<(typeof TILE_ORDER)[number], string> = {
 
 const usd = (n: number) => `USD ${Number.isInteger(n) ? n : n.toFixed(2)}`;
 
-/** U5: Claude cannot run now (the spend ledger holds a standing refusal): the plain reason, or null when nothing stands in the way. */
-export function claudeDownWords(plan: ReviewPlan): string | null {
-  const r = plan.claude_standing_refusal;
-  return r && r.words ? `Claude is not available now (${r.words})` : null;
-}
-
 /** "Engine: Claude. Text of this paper and of 4 rule books will leave this computer." The first line of the engine line. */
 export function engineWords(plan: ReviewPlan): string {
-  const down = claudeDownWords(plan);
-  if (down && plan.choice === "automatic") return `${down}, so Automatic runs on this computer.`;
-  if (down && plan.choice === "claude") return `${down}, so this choice cannot run now.`;
   if (plan.refused) return plan.refused.endsWith(".") ? plan.refused : `${plan.refused}.`;
   const onClaude = plan.parts.filter((p) => p.engine === "claude");
   const name = onClaude.length ? "Claude" : "this computer";
@@ -37,7 +28,7 @@ export function engineWords(plan: ReviewPlan): string {
 /** "Cost: about USD 0.50, limit USD 15" (the last review's real cost, when there is one) or "Cost: limit USD 15". Null: nothing is sent. */
 export function costWords(plan: ReviewPlan): string | null {
   const limit = plan.cost.at_most_usd;
-  if (limit == null || (claudeDownWords(plan) && plan.choice === "automatic")) return null;
+  if (limit == null) return null;
   const last = plan.cost.last_review_usd;
   return last != null ? `Cost: about ${usd(last)}, limit ${usd(limit)}` : `Cost: limit ${usd(limit)}`;
 }

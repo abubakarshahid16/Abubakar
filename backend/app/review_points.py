@@ -491,6 +491,7 @@ def counts(
             seen.add(b["id"])
             named[b["id"]] += 1
             names[b["id"]] = b["name"]
+    several = sum(1 for p in points if len({b["id"] for b in p.get("books") or []}) > 1)
     unnamed = sum(
         1 for p in points if not p.get("books") and (p.get("_book_docs") or p.get("_book_doc"))
     )
@@ -506,6 +507,7 @@ def counts(
             for i, c in sorted(named.items(), key=lambda kv: (-kv[1], names[kv[0]], kv[0]))
         ],
         "no_rule_book_points": no_book,
+        "several_books_points": several,  # counted under EACH of its books, so the chips can add up to more than the total
         "other_rule_books_points": unnamed,
         "other_rule_books_note": "points on rule books you may not read: counted, not named"
         if unnamed

@@ -31,8 +31,6 @@ export interface ReviewPlan {
   };
   notes: string[];
   sentence: string;
-  /** The Claude lane's standing refusal (no credit, usage limit reached) as the spend ledger holds it; null when none is known. */
-  claude_standing_refusal?: { cause: string; words: string; at: string } | null;
   contract_yes: { document_id?: string; status?: string; approved_by?: string; approved_on?: string } | null;
 }
 
@@ -107,6 +105,8 @@ export interface PointsListing {
     total: number;
     rule_books: { id?: string; name: string; points: number }[];
     no_rule_book_points?: number;
+    /** Points that cite more than one readable rule book: each is counted under every one of its books. */
+    several_books_points?: number;
     other_rule_books_points: number;
     other_rule_books_note: string | null;
     not_held: { names: string[]; more: number; total: number; note: string | null };

@@ -467,7 +467,7 @@ describe("no code words", () => {
   });
 });
 
-describe("U5 polish: chips by book, names without tags, groups with pages, Claude not available", () => {
+describe("U5 polish: chips by book, names without tags, groups with pages, books counted once or said twice", () => {
   const withBooks = (over: Partial<ReviewPoint>, ids: string[]) => point({ books: ids.map((id) => ({ id, name: id === "d1" ? "Book One" : "Book Two" })), no_book: ids.length === 0, ...over });
   const bookListing = () => listing({
     points: [
@@ -508,21 +508,16 @@ describe("U5 polish: chips by book, names without tags, groups with pages, Claud
     expect(screen.getByTestId("v2-group-place")).toHaveTextContent("pages 3, 4, 5, 6");
   });
 
-  it("when Claude is not available the engine line says so, the Claude choice is disabled with the reason, and no cost is promised", async () => {
-    api.plan.mockResolvedValue(ok(plan({ claude_standing_refusal: { cause: "usage_limit", words: "the Claude account's usage limit is reached", at: "2026-11-12T14:00:00+00:00" } })));
+  it("says that a point citing two books is counted under each", async () => {
+    const l = bookListing();
+    l.counts = { ...l.counts, several_books_points: 1 };
+    api.list.mockResolvedValue(ok(l));
     mount(); await loaded();
-    const line = await screen.findByTestId("v2-engine-line");
-    expect(line).toHaveTextContent("Claude is not available now (the Claude account's usage limit is reached), so Automatic runs on this computer.");
-    expect(line.textContent).not.toMatch(/leave this computer|Cost:/);
-    const claude = screen.getByRole("radio", { name: "Claude" });
-    expect(claude).toBeDisabled();
-    expect(claude).toHaveAttribute("title", "Claude is not available now (the Claude account's usage limit is reached)");
-    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
+    expect(screen.getByTestId("v2-several-books")).toHaveTextContent("1 point cites more than one rule book and is counted under each.");
   });
-
-  it("with Claude available the engine line is as before", async () => {
+  it("says nothing of it when no point cites two books", async () => {
+    api.list.mockResolvedValue(ok(bookListing()));
     mount(); await loaded();
-    expect(screen.getByRole("radio", { name: "Claude" })).toBeEnabled();
-    expect(await screen.findByTestId("v2-engine-line")).toHaveTextContent("will leave this computer");
+    expect(screen.queryByTestId("v2-several-books")).toBeNull();
   });
 });

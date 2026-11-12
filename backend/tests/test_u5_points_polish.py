@@ -65,6 +65,7 @@ def test_a_point_that_cites_two_books_counts_once_for_each_and_one_with_none_goe
         {"id": "d2", "name": "Book Two", "points": 1},
     ]
     assert c["no_rule_book_points"] == 1
+    assert c["several_books_points"] == 1  # the chips add up to 3 for 3 points only because one point is counted twice
 
 
 def test_books_resolve_by_document_and_an_unreadable_one_is_not_named():

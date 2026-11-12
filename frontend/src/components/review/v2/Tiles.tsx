@@ -51,6 +51,11 @@ export function BookChips({ counts, selected, onSelect }: { counts: PointsListin
           No rule book ({counts.no_rule_book_points})
         </button>
       )}
+      {(counts.several_books_points ?? 0) > 0 && (
+        <span data-testid="v2-several-books" className="basis-full px-1 text-xs text-slateish-400">
+          {counts.several_books_points} {counts.several_books_points === 1 ? "point cites" : "points cite"} more than one rule book and {counts.several_books_points === 1 ? "is" : "are"} counted under each.
+        </span>
+      )}
       {counts.other_rule_books_points > 0 && (
         <span className="px-1 text-xs text-slateish-400" title={counts.other_rule_books_note ?? undefined}>
           {counts.other_rule_books_points} on rule books you may not read

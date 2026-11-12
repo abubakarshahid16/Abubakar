@@ -1,9 +1,9 @@
 /** SPEC 1 and 2: ONE engine choice and ONE Review button, and the engine line that says, before anything starts, which engine runs,
  *  whether text leaves this computer, what it costs and what will not run. */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ENGINE_CHOICES, type EngineChoice, reviewPoints } from "../../../api/reviewPoints";
-import { ENGINE_LABELS, NEEDS_YES, claudeDownWords, costWords, engineWords, wontRunWords } from "./words";
+import { ENGINE_LABELS, NEEDS_YES, costWords, engineWords, wontRunWords } from "./words";
 import { usePlan } from "./usePoints";
 
 export function EngineBar({ documentId, isAdmin, onStarted }: {
@@ -14,9 +14,6 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const ready = plan.state === "ok" ? plan.data : null;
-  const claudeDown = ready ? claudeDownWords(ready) : null;
-  // A choice that cannot run now is not left selected.
-  useEffect(() => { if (claudeDown && engine === "claude") setEngine("automatic"); }, [claudeDown, engine]);
 
   async function start() {
     if (!documentId) return;
@@ -40,8 +37,7 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
         <div role="radiogroup" aria-label="Which engine reads this paper" className="inline-flex overflow-hidden rounded-[var(--radius-sm)] border border-ink-500">
           {ENGINE_CHOICES.map((c) => (
             <button key={c} type="button" role="radio" aria-checked={engine === c} onClick={() => setEngine(c)}
-              disabled={c === "claude" && claudeDown != null} title={c === "claude" && claudeDown ? claudeDown : undefined}
-              className={`px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${engine === c ? "bg-signal-500 text-ink-950" : "text-slateish-200 hover:bg-ink-700"}`}>
+              className={`px-3 py-1.5 text-sm ${engine === c ? "bg-signal-500 text-ink-950" : "text-slateish-200 hover:bg-ink-700"}`}>
               {ENGINE_LABELS[c]}
             </button>
           ))}

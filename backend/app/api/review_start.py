@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 
 from .. import (
     access,
-    claude_standing_refusal,
     contract_yes,
     errors,
     review_engine,
@@ -119,8 +118,6 @@ def review_plan(
     if record is not None and not _is_admin(request):  # who approved is for admins; anyone sees that a yes stands
         record = {k: v for k, v in record.items() if k in ("document_id", "status")}
     got["contract_yes"] = record
-    # U5: the Claude lane's standing refusal (no credit, usage limit reached), so the screen never promises Claude when every call would be refused.
-    got["claude_standing_refusal"] = claude_standing_refusal.standing_refusal()
     return got
 
 
