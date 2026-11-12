@@ -99,27 +99,62 @@ def available() -> bool:
     return bool(cfg.enabled and cfg.allow_public_egress)
 
 
-#: How much of the API's own error message a log line or a screen may carry.
-ERROR_MESSAGE_CHARS = 200
+#: THE API'S MESSAGE IS NEVER SHOWN. A 4xx message is free text that can echo request content (a quoted field value) or a
+#: credential, and rule 1 forbids document text in a log. So a rejection is reported as its TYPE plus, only for a closed list,
+#: OUR OWN fixed sentence; the one pattern-matched case fills it with the numbers or the date parsed from the message. Anything
+#: else is the type alone. (A 400 with no readable cause cost a day: 12 Nov 2026.)
+_NUMBER = r"(\d{1,9})"
+#: (error types that may carry a sentence, anchored regex of the API's message or None, OUR sentence with {0} {1} for the
+#: parsed numbers/date). `None`: the type alone decides and nothing is read from the message.
+_SAFE: tuple[tuple[tuple[str, ...], str | None, str], ...] = (
+    (("rate_limit_error",), None, "The Claude API is limiting the request rate; try again shortly."),
+    (("overloaded_error",), None, "The Claude API is overloaded; try again shortly."),
+    (("api_error",), None, "The Claude API had an internal error; try again shortly."),
+    (("request_too_large",), None, "The request was too large for the Claude API."),
+    (("not_found_error",), None, "The Claude model was not found (its id may be wrong or retired)."),
+    (("invalid_request_error",), r"Your credit balance is too low to access the Anthropic API\.(?: Please go to Plans & Billing to upgrade or purchase credits\.)?",
+     "The Claude account has no credit (the owner tops it up in the Anthropic console)."),
+    (("invalid_request_error",), r"You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})(?: at [0-9:]{4,8} UTC)?\.?",
+     "The Claude account's usage limit is reached; access returns on {0}."),
+    (("invalid_request_error",), rf"max_tokens: {_NUMBER} > {_NUMBER}(?:, which is the maximum allowed number of output tokens for [A-Za-z0-9._\-]{{1,60}})?\.?",
+     "max_tokens {0} is above the model's limit {1}."),
+    (("invalid_request_error",), rf"prompt is too long: {_NUMBER} tokens > {_NUMBER} maximum",
+     "The prompt is too long: {0} tokens, the model's maximum is {1}."),
+)
+#: Our own sentences as patterns, so a later layer can tell one from free text.
+_SENTENCES = tuple(
+    re.compile(re.sub(r"\\\{\d\\\}", r"[0-9-]{1,10}", re.escape(template))) for _, _, template in _SAFE
+)
+
+
+def is_fixed_sentence(text: str) -> bool:
+    """True when `text` is one of OUR fixed sentences (never the API's own words)."""
+    return any(p.fullmatch(text) for p in _SENTENCES)
 
 
 def api_error(payload: object, status: int = 400) -> tuple[str, str]:
-    """(error type, short message) from a 4xx body already parsed as JSON; ("", "") when it is not the API's error shape.
+    """(error type, OUR fixed sentence or "") from a 4xx body already parsed as JSON; ("", "") when it is not the API's error shape.
 
-    The MESSAGE is free text the API writes about a PARAMETER ("max_tokens: ..."), never the request body. It is cut to
-    `ERROR_MESSAGE_CHARS`, control characters become spaces, anything shaped like a key (`sk-...`) is removed, and a 401 or 403
-    (authentication, permission) never carries it at all: those messages can echo a credential. The type must have the shape
-    of the API's own enum, else it is dropped. (A 400 with no readable cause cost a day: 12 Nov 2026.)"""
+    The API's message is only MATCHED against the closed patterns above, never passed on: no free text of the API reaches a
+    log, an exception or the screen. 401 and 403 (authentication, permission) never get a sentence. The type must have the
+    shape of the API's own enum, else it is dropped."""
     err = payload.get("error", {}) if isinstance(payload, dict) else {}
     if not isinstance(err, dict):
         return "", ""
     kind = str(err.get("type") or "")
     kind = kind if re.fullmatch(r"[a-z][a-z_]{0,39}", kind) else ""
-    if status in (401, 403):
+    if status in (401, 403) or not kind:
         return kind, ""
-    message = re.sub(r"[\x00-\x1f\x7f]", " ", str(err.get("message") or ""))
-    message = re.sub(r"sk-[A-Za-z0-9_\-]+", "[key removed]", message)
-    return kind, " ".join(message.split())[:ERROR_MESSAGE_CHARS]
+    message = " ".join(str(err.get("message") or "").split())
+    for types, pattern, sentence in _SAFE:
+        if kind not in types:
+            continue
+        if pattern is None:
+            return kind, sentence
+        found = re.fullmatch(pattern, message)
+        if found:
+            return kind, sentence.format(*found.groups())
+    return kind, ""
 
 
 def _rejection(status: int, host: str, payload: object) -> str:

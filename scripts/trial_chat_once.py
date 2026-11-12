@@ -14,8 +14,7 @@ PRINTS first, before anything is sent: the model id the chat lane uses (setting 
 CLAUDE_REASONING_MODEL; pass `--model` to use the live value, it is only a model id) and the ones the AI reviewer uses
 (constants in `agent_claude`), and says so when they differ.
 
-WRITES `--out` (JSON): http_status, error_type, error_message (the API's own short message as `reader_transport` reports it:
-at most 200 characters, never the request, never a key), model, calls, bytes_sent, answered, answer_chars (a length, never the
+WRITES `--out` (JSON): http_status, error_type, error_message (OUR fixed sentence for a known cause, as `reader_transport` reports it: never the API's own words, never the request, never a key), model, calls, bytes_sent, answered, answer_chars (a length, never the
 text), cost_usd.
 
 EXIT: 0 an answer came | 3 the API refused the request | 2 refused to start | 1 anything else.
@@ -34,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 sys.path.insert(0, str(BACKEND))
 
+MAX_QUESTION_CHARS = 300
 DEFAULT_QUESTION = "What is the difference between gauge pressure and absolute pressure?"
 EXIT_ANSWERED, EXIT_OTHER, EXIT_REFUSED_TO_START, EXIT_API_REFUSED = 0, 1, 2, 3
 _SHAPE = re.compile(r"^(?P<status>\d{3}) from \S+(?: \((?P<kind>[a-z_]+)(?:: (?P<message>.*))?\))?$")
@@ -142,6 +142,8 @@ def run(args, *, stream=None) -> tuple[int, dict]:
     from app import chat_claude_first, claude_approved, claude_spend, reader_transport
 
     refuse_live(Path(args.data_dir))
+    if len(args.question) > MAX_QUESTION_CHARS:
+        raise Refused(f"the question is longer than {MAX_QUESTION_CHARS} characters")
     if getattr(args, "document", None):
         raise Refused("no document may be selected: this trial sends a general question only")
     if stream is None and not os.environ.get("ANTHROPIC_API_KEY"):

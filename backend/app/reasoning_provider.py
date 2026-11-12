@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -916,13 +917,22 @@ def claude_for_task(engine: str | None, role: str = "reasoning", *, step: str | 
     return ClaudeProvider(model, step=step)
 
 
+_REJECTED = re.compile(r"(?P<status>\d{3}) from [A-Za-z0-9.\-]{1,80} \((?P<kind>[a-z][a-z_]{0,39})(?:: (?P<sentence>.{1,200}))?\)")
+
+
 def refused_words(exc: BaseException) -> str:
-    """The screen reason for a provider that would not answer: its own short cause (for an API rejection: the HTTP
-    status, the error type and the API's short message about a parameter), at most 200 characters, never the request. It
-    used to be only the provider's name ("claude"), which named nothing."""
-    text = str(exc)
-    detail = text.split(": ", 1)[1] if ": " in text else text
-    detail = " ".join(detail.split())[:200]
+    """The screen reason for a provider that would not answer. NEVER the exception's own text: a `ProviderRefused` wraps every
+    kind of exception, and its text can hold anything. It shows only what `reader_transport` reports for an API rejection (the
+    status, the error TYPE and, for a closed list, one of OUR fixed sentences), else a generic line."""
+    from . import reader_transport
+
+    found = _REJECTED.search(str(exc))
+    if not found:
+        return "the answer model would not answer (the provider refused the request)"
+    detail = f"{found['status']}, {found['kind']}"
+    sentence = found["sentence"]
+    if sentence and reader_transport.is_fixed_sentence(sentence):
+        detail += f"; {sentence}"
     return f"the answer model would not answer ({detail})"
 
 

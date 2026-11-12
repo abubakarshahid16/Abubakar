@@ -127,3 +127,13 @@ def test_the_spend_cap_holds_before_anything_is_sent(lane, tmp_path):
     seen: list = []
     code, record = lane.run(_args(lane, tmp_path, max_usd=0.0001), stream=_answer_stream(seen))
     assert seen == [] and code == 1 and record["answered"] is False
+
+
+def test_a_question_over_300_characters_is_refused(lane, tmp_path):
+    with pytest.raises(lane.Refused, match="longer than 300"):
+        lane.run(_args(lane, tmp_path, question="q" * 301), stream=_answer_stream([]))
+
+
+def test_the_trials_spend_lands_in_the_copys_own_ledger_the_paid_trials_read(lane, tmp_path):
+    lane.run(_args(lane, tmp_path), stream=_answer_stream([]))
+    assert (tmp_path / "copy" / "claude_spend.jsonl").exists()  # trial_on_copy.ledger_spent reads <data>/claude_spend.jsonl
