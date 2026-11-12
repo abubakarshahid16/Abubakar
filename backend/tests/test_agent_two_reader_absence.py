@@ -24,7 +24,7 @@ from tests import agent_review_support as s
 from tests.test_agent_review_crs import META, OK, SK, rows_of
 from tests.test_agent_review_guards import run_review, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
-from tests.test_agent_two_reader import CLASS, TwoLane, step_of, stored
+from tests.test_agent_two_reader import CLASS, TwoLane, stored
 
 ROLE = "design_pressure"
 FILL = " Invented filler line about the casing material, carbon steel to an invented grade, for the test."
@@ -382,18 +382,18 @@ def test_the_contractor_copy_never_holds_the_word_or_its_sentence(w, both):
 
 
 def _line(**over):
-    base = dict(
-        item_id="R-9", source="rule", standard="STD-1", clause="4.1", verdict="Query", decided_by="engineer",
-        ai_verdict="Fail", reason_code="absent", pages_searched=[1, 2], model="lead-m", paper_page=1, paper_quote=None,
-        clause_quote="Nameplates shall be steel and fixed", field_roles=["design_pressure"], field="Design pressure",
-        quotes_checked={"paper": False, "clause": True, "clause_strong": True}, reasoning="The sheet gives none.",
-        two_reader_absence={
+    base = {
+        "item_id": "R-9", "source": "rule", "standard": "STD-1", "clause": "4.1", "verdict": "Query", "decided_by": "engineer",
+        "ai_verdict": "Fail", "reason_code": "absent", "pages_searched": [1, 2], "model": "lead-m", "paper_page": 1, "paper_quote": None,
+        "clause_quote": "Nameplates shall be steel and fixed", "field_roles": ["design_pressure"], "field": "Design pressure",
+        "quotes_checked": {"paper": False, "clause": True, "clause_strong": True}, "reasoning": "The sheet gives none.",
+        "two_reader_absence": {
             "verdict": "not stated", "model": "second-m", "paper_quote": None, "paper_page": None,
             "clause_quote": "Nameplates shall be steel and fixed",
             "quotes_checked": {"paper": False, "clause": True, "clause_strong": True, "both": False},
             "code_search": {"proven": True, "pages_checked": 3}, "pages_total": 3,
         },
-    )  # fmt: skip
+    }  # fmt: skip
     base.update(over)
     return W.final_cap(base, OK, skill_ids=SK, paper_kind="datasheet")
 
@@ -414,7 +414,9 @@ def test_a_not_stated_line_in_the_crs_has_the_status_priority_and_only_establish
         not words.has_banned(row[3])
         and "the paper does not state" not in row[3].lower()
     )
-    assert view["evidence"]["rows"][0][14] == "not stated"  # the independent reader's verdict on the Evidence sheet
+    assert (
+        view["evidence"]["rows"][0][14] == "not stated"
+    )  # the independent reader's verdict on the Evidence sheet
     assert (
         W.counts([ln])["ai_verdict_not_stated"] == 1
         and WB.layout_view([ln], META, "contractor")["rows"] == []
