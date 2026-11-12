@@ -14,6 +14,7 @@ from . import agent_claude, agent_run_second
 from . import agent_review_absence as absence
 from . import agent_review_context as ctxc
 from . import agent_review_crs as crs_lines
+from . import agent_review_pass_guards as pass_guards
 from . import agent_review_verdict as verdict
 from .agent_review_request import (
     ABSENCE_SECOND_MAX_TOKENS,
@@ -191,6 +192,8 @@ class DecideMixin:
             decision["verdict"] == verdict.PASS
         ):  # deferral guard: a value marked 'By Contractor' is not confirmed
             guard = self.pass_guard(item, label if label_ok else "")
+            if guard is None and (why := pass_guards.check(item, answer, pages, ev["requirement"])):
+                guard = ({"verdict": verdict.QUERY, "decided_by": verdict.BY_ENGINEER, "why": why[1]}, why[0], None)
             if guard is not None:
                 decision, reason_code, deferred_page = guard
         self._ctx.setdefault(iid, {}).update(

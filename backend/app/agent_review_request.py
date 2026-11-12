@@ -81,12 +81,14 @@ SYSTEM = (
     "is one, else from its clause block. A silent paper is never Pass. When the item's rule is a limit, also give "
     "paper_figure and clause_figure: the exact words holding each number with its unit, taken from inside your two "
     "quotes; code compares the numbers, not you. reasoning: at most two plain sentences. comment: one sentence for the "
-    "contractor saying what to correct or provide, without your reasoning. Never state confidence."
+    "contractor saying what to correct or provide, without your reasoning. When the requirement holds a condition (for a "
+    "service, 'when', 'where', 'if', 'unless'), a Pass also needs condition_quote and condition_page: the paper words that "
+    "state the condition holds; leave them empty when the paper does not state it. Never state confidence."
 )
 ANSWER_SHAPE = (
     'Reply with ONE JSON object and nothing else: {"answers": [{"item_id": "...", "field_label": "the field name as '
     'printed on the paper", "paper_page": 1, "paper_quote": "...", "clause_quote": "...", "paper_figure": "...", '
-    '"clause_figure": "...", "pages_searched": [1, 2], "reasoning": "...", "comment": "...", "verdict": "Pass or Fail '
+    '"clause_figure": "...", "condition_quote": "...", "condition_page": 1, "pages_searched": [1, 2], "reasoning": "...", "comment": "...", "verdict": "Pass or Fail '
     'or Query", "reason_code": "met | not_met | absent | not_applicable | needs_drawing_or_calc | sheet_silent | '
     'unclear_clause | other"}]}. One answer per item, in the key order shown: quotes first, verdict last. Leave a key '
     "empty when you have nothing for it."
