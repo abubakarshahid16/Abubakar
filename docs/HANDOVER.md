@@ -176,13 +176,13 @@ an unapproved document: the Claude-first path answers with the local model and s
 chat paths say the document is not approved and ask the reader to choose the Local model.
 
 **Automatic list entries (#1584, owner decision, `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED`, off).** With the
-switch on, `claude_auto_approve` lists a contractor submittal, the subject of a review and a standard
-that review cites or that governs its equipment type; the register file (rule 3) and any blocked hash
-never. To block a file: a `status: blocked` row on the list, or its hash in
-`backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"]}`, outside git). The hash is
-the block; the name check is a backstop, and a re-saved copy needs its own hash. Before the switch is
-turned on that file must hold the owner's real register hash: absent, unreadable or empty, nothing
-carrying a document is sent. Blocks apply with the switch off too; off, an automatic row does not count.
+switch on, `claude_auto_approve` approves documents by The routes are exactly these four: (1) a file uploaded as a contractor submittal, or given that role later, is approved when it is uploaded or when the role is set; (2) the paper a review is started on is approved when the review starts, if its role is none or contractor submittal; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. Any other document a review cites (a specification, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register file (rule 3) and any blocked hash or name never. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. To block a file: a `status: blocked` row on the list, its hash in
+`backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"], "blocked_names": ["<file name>"]}`, outside
+git), or its name there; `scripts/write_block_file.py --name <file name>` / `--file` / `--sha256` adds an entry and never drops
+one. Owner decision of 12 Nov 2026 afternoon (#1584): the register is blocked by its file name, built in (any case, spacing,
+extension, copy or date suffix; a longer name that contains it too), so the switch needs no block file; one that exists but
+cannot be read: nothing carrying a document is sent. A marked name matches the same way (at least 5 letters and digits).
+Blocks apply with the switch off too; off, an automatic row does not count.
 Sends are in the spend ledger (`sent_documents`), list changes in `audit_events`
 (`claude_auto_approved`, `claude_auto_blocked`, `claude_auto_withdrawn`). No route shows the list; read the file.
 

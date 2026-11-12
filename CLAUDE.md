@@ -52,10 +52,12 @@ carries the client's name; only the owner can rename it.
    (order 270.3) sends STANDARDS text only, of the SAES, ISO, API, ASME and NACE
    families (owner, 3 Nov 2026, #1584), and never a datasheet, procedure or CRS. Every other
    outbound path for document content stays forbidden. Standing approval (owner decision of
-   12 Nov 2026, #1584 comment 6806441133, to be confirmed there by the owner): with
+   12 Nov 2026 afternoon, recorded on #1584): with
    `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED=true` the paper under review and the rule books of the rules the AI
-   reviewer asks join the approved list automatically; the register stays blocked by hash and name; the switch
-   is off by default and needs the block file. In chat, the user may choose Claude and explicitly
+   reviewer asks join the approved list automatically. The routes are exactly these four: (1) a file uploaded as a contractor submittal, or given that role later, is approved when it is uploaded or when the role is set; (2) the paper a review is started on is approved when the review starts, if its role is none or contractor submittal; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. Any other document a review cites (a specification, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register is blocked by its file name
+   (built in, any case, spacing, extension or copy suffix) and by checksum when the file is held. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. the block list
+   (`claude_blocked_hashes.json`) also holds the files, by name or checksum, that the owner marks; the switch needs no
+   block file, but a block file that cannot be read turns it off; the switch is off by default. In chat, the user may choose Claude and explicitly
    select the documents for that request; that selection is per-request consent
    for only those files. Local sends no file content to Claude; Claude without
    explicit document selection can answer general questions but gets no document
@@ -139,6 +141,22 @@ carries the client's name; only the owner can rename it.
     it also helps, or does not hurt, sheets it was not built on (invented +
     held-out totals).
 
+14. **Less waste (owner order, 12 Nov 2026, standing).**
+    (a) Related PRs are combined into ONE branch and tested once: GitHub checks and the bench gate run once on the
+    combined head, and the main tree after the merge must equal the tested tree.
+    (b) ONE light review (one reviewer, one pass, no hand reverts) for layout, wording, docs and tests. A FULL fresh review
+    (attack, hand reverts, mutation entries where the danger zone is touched) for anything on the verdict path. The PR
+    text says which depth was used and why.
+    A FULL fresh review for anything that can change a verdict or a CRS cell, spend money, change the live data, or change what leaves the machine, whether or not the file is on the list; the list only decides where style stops block.
+    The lead runs the mutation check of ALL changed danger-zone modules on the COMBINED head before the merge (a per-PR
+    run cannot see stale entries that only the combination causes).
+    (c) The Windows test job (`tests-windows.yml`) is off: it runs only by hand (`workflow_dispatch`).
+    (d) Style stops (formatting of touched lines, file over 800 lines / function over 80 / complexity, the ruff lint
+    baseline) stop only for files on the verdict path, the one list in `scripts/verdict_path.py` (rule 6's danger zone
+    plus the code that decides or words a verdict or decides what leaves the machine). For every other file they print a
+    WARNING naming the file and the number. Tests, mutation anchors, system map, unused modules, flag register, no client
+    data, no test-sheet names, no second number reader, gitleaks and contract types stop everywhere.
+
 ## Mistakes not to repeat
 
 One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat". Read it before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
@@ -170,7 +188,8 @@ it is stale after 3 hours or when its process is gone. `run_p1.py`,
 ```
 Never write a second waiter.
 
-1. GitHub CI is the first gate for every PR.
+1. GitHub CI is the first gate for every PR. The Windows job is manual (rule 14c). Related PRs ride one branch and
+   are checked once on the combined head (rule 14a).
 2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
    of green PRs, plus per PR only when it touches retrieval, answer, review or
    eval code.

@@ -178,18 +178,44 @@ def test_a_review_whose_scope_cannot_be_found_approves_nothing(monkeypatch):
     assert _approved(SHA_B) == []
 
 
-@pytest.mark.parametrize("block_file", ["missing", "empty"])
-def test_switch_on_with_no_block_file_or_an_empty_one_refuses_every_call_and_approves_nothing(
+@pytest.mark.parametrize("block_file", ["missing", "empty", "no hash"])
+def test_switch_on_with_no_block_file_the_paper_and_the_asked_books_are_approved(
     block_file,
+):
+    """Owner, 12 Nov 2026 afternoon: no block file is needed; the register is blocked by its file name."""
+    paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
+    book = _doc("doc_book", SHA_B, role=STANDARD)
+    register = _doc(
+        "doc_reg",
+        SHA_C,
+        role=STANDARD,
+        filename=f"{claude_approved.REGISTER_NAME_KEY}.pdf",
+    )
+    path = claude_approved.block_file_path()
+    if block_file == "missing":
+        path.unlink()
+    elif block_file == "empty":
+        path.write_text("{}", encoding="utf-8")
+    else:
+        path.write_text(json.dumps({"blocked_sha256": []}), encoding="utf-8")
+    claude_auto_approve.on_agent_standards(paper, [book, register])
+    assert len(_approved(SHA_A)) == 1 and len(_approved(SHA_B)) == 1
+    assert _approved(SHA_C) == []
+    with claude_approved.carrying([paper, book]):
+        assert claude_approved.refusal() is None
+    assert _refused_code([paper, register]) == "not_approved"
+
+
+@pytest.mark.parametrize(
+    "content", ["{not json", "[]", '{"blocked_sha256": "aa"}', '{"blocked_names": [1]}']
+)
+def test_switch_on_with_a_broken_block_file_nothing_is_approved_and_nothing_is_sent(
+    content,
 ):
     paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
     book = _doc("doc_book", SHA_B, role=STANDARD)
     _set_list((SHA_A, "approved"), (SHA_B, "approved"))  # even an owner-approved list
-    path = claude_approved.block_file_path()
-    if block_file == "missing":
-        path.unlink()
-    else:
-        path.write_text(json.dumps({"blocked_sha256": []}), encoding="utf-8")
+    claude_approved.block_file_path().write_text(content, encoding="utf-8")
     other = _doc("doc_other", SHA_C, role=STANDARD)
     claude_auto_approve.on_agent_standards(paper, [other])
     assert _approved(SHA_C) == []  # fail closed: nothing added

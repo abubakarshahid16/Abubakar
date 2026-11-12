@@ -33,6 +33,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verdict_path
+
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "eval" / "quality" / "lint_baseline.json"
 CONFIG = ROOT / "ruff.toml"
@@ -106,13 +109,17 @@ def main(argv: list[str] | None = None) -> int:
               " counts differ between versions - pin ruff or re-record on main")
         return 1
     new, fixed = compare(stored["counts"], current)
+    new, warned = verdict_path.split(new)
     for line in new:
         print(f"NEW: {line}")
+    for line in warned:
+        verdict_path.warn(f"NEW ruff finding {line}")
     for line in fixed:
         print(f"fixed: {line}")
     total = sum(current.values())
     print(f"ruff.toml findings: {total} (baseline {stored['total']});"
-          f" {len(new)} new, {len(fixed)} fewer")
+          f" {len(new)} new on the verdict path (stop), {len(warned)} new elsewhere (warning),"
+          f" {len(fixed)} fewer")
     if fixed and not new:
         print("the count went down: run `python scripts/check_lint_baseline.py record`"
               " in this PR so it cannot come back")
