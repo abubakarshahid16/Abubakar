@@ -2294,6 +2294,7 @@ def run_comparison(
     from . import claude_approved
     with (
         claude_approved.carrying(claude_approved.review_documents(review_run_id)),
+        claude_approved.reviewing(review_run_id),
         procedure_text.reading(review_run_id),  # #1476
     ):
         return _run_comparison(
