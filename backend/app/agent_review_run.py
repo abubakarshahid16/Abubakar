@@ -318,6 +318,12 @@ class Runner(DecideMixin, RereadMixin):
         return got
 
     def _halt(self, exc: BaseException) -> None:
+        if (
+            self.in_optional_step()
+        ):  # C4: the optional page re-read never stops the review; it only ends itself
+            self._reread_off = True
+            self._optional.refused = True
+            return
         with self._lock:
             if self._stop.is_set():
                 return
@@ -345,7 +351,7 @@ class Runner(DecideMixin, RereadMixin):
     # case, as the run is charged); `run_batch` shares it equally over the group's items. The cut-off call of a batch that
     # is then split is charged to the run, not to any line.
     def _ask_lead(
-        self, batch: list[dict], parts: dict, split_ok: bool
+        self, batch: list[dict], parts: dict, split_ok: bool, once: bool = False
     ) -> tuple[dict | None, float, str | None, str | None]:
         """(answers by item id or None, usd, error code or None, answering model); the bound and the cost rule are above."""
         max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
@@ -358,7 +364,7 @@ class Runner(DecideMixin, RereadMixin):
             with self._lock:
                 self.calls["lead"] += 1
             try:
-                raw, usd = self.call(self.model, parts, max_tokens)
+                raw, usd = self.call(self.model, parts, max_tokens, once=once)
             except agent_claude.AgentBadReply as exc:
                 if exc.code != "stop_max_tokens" or (split_ok and len(batch) > 1):
                     raise  # a bigger batch is split by the caller instead
@@ -397,7 +403,7 @@ class Runner(DecideMixin, RereadMixin):
             ):  # one retry; a bigger batch is split instead
                 with self._lock:
                     self.calls["retries"] += 1
-                raw, usd2 = self.call(self.model, parts, max_tokens)
+                raw, usd2 = self.call(self.model, parts, max_tokens, once=once)
                 usd += usd2
                 answer = parse_answers(raw)
             if answer is None:

@@ -56,7 +56,7 @@ KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
 REREAD_NO_VALUE_WHY = "two AI readers found no value for this in the stored text of the pages they were given"  # C4: said only after a second reader answered
-REREAD_QUOTE_NOT_FOUND_WHY = "a second AI reader pointed to text that code could not find on the page; it was not used"
+REREAD_QUOTE_NOT_FOUND_WHY = "a second AI reader pointed to text that code did not accept as a quote from the stored page text; it was not used"
 REREAD_NOT_CONFIRMED_WHY = "one AI reader pointed to text on page {page}, the other AI reader did not confirm it"
 REREAD_OUTCOME_WHY = {
     "no_value": REREAD_NO_VALUE_WHY,

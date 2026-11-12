@@ -17,7 +17,7 @@ the pages code already selected for the item (its page hint), the ones with most
 THE ANSWER IS NOT TRUSTED, AND ONE READER NEVER DECIDES: its quote must stand word for word on one of those pages (code). If
 it does, the FIRST (lead) model is asked the item once more on that page with the quote pointed out, and its answer goes
 through the normal `decide` (gate, holds, caps and the normal second opinion). Per silent line at most: 1 re-read + 1 lead
-re-ask (the cut-off retry rule of main applies) + the normal second opinion + the context check of a Fail. If the lead again
+re-ask (`once`: a transport failure is not re-sent; main's cut-off and unreadable-reply retry apply) + the normal second opinion + the context check of a Fail. If the lead again
 finds nothing, or the second opinion disagrees, the line stays what it was and says one reader pointed to text on page N
 and the other did not confirm it. Three other outcomes, three sets of words: the reader says no value (`no_value`: two
 readers found none), its quote is not on the page (`quote_not_found`: not used), the call failed, was refused or unreadable
@@ -27,6 +27,7 @@ readers found none), its quote is not on the page (`quote_not_found`: not used),
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -96,6 +97,8 @@ class RereadMixin:
     """A mixin of `agent_review_run.Runner`; needs `pages`, `paper`, `total_pages`, `call`, `decide`, `emit`'s state."""
 
     reread_enabled = False
+    #: True on the calling thread while the optional step runs: a cap refusal then ends the step, never the review
+    _optional = threading.local()
     _reread_off = False  # a refused call (a cap, a closed lane) ends the optional step for the rest of the run
 
     # ---- which pages
@@ -182,12 +185,25 @@ class RereadMixin:
             out["usd"] = round(float(line.get("usd") or 0.0) + usd, 6)
         return out
 
+    def in_optional_step(self) -> bool:
+        return bool(getattr(self._optional, "on", False))
+
     def reread_silent_line(
-        self,
-        item: Mapping,
-        line: dict,
-        lead_model: str | None,
-        box: Any,
+        self, item: Mapping, line: dict, lead_model: str | None, box: Any
+    ) -> dict:
+        """The step, guarded. Every paid call inside it (re-read, lead re-ask, the second opinion and the context check of
+        the recovered line) runs with `_optional` set on this thread: `Runner._halt` then only switches the step off and
+        records `refused`, and the line comes back EXACTLY as it was (no claim). A cap stop of an item's NORMAL calls
+        (outside the step) halts the review as before: the two are told apart by that flag."""
+        self._optional.on, self._optional.refused = True, False
+        try:
+            out = self._step(item, line, lead_model, box)
+            return line if self._optional.refused else out
+        finally:
+            self._optional.on = False
+
+    def _step(
+        self, item: Mapping, line: dict, lead_model: str | None, box: Any
     ) -> dict:
         """`line` unchanged unless the step is on and the line is silent. THE FLOW (per silent line at most: 1 page re-read by
         the second model + 1 lead re-ask + the normal second opinion + the context check of a Fail, all through `Runner.call`):
@@ -258,7 +274,13 @@ class RereadMixin:
         iid = str(item.get("item_id"))
         one = dict(item, page_hint=[page])
         pointer = {
-            "a_second_reader_points_to": {"page": page, "quote": got.get("paper_quote")}
+            "a_second_reader_points_to": {
+                "page": page,
+                "quote": got.get("paper_quote"),
+            },
+            "note": "A second reader says a value for this item may stand at that quote. Check the page yourself and "
+            "decide only from the page text; quote what you find word for word; if those words are not a value for "
+            "this field, say so (reason_code sheet_silent).",
         }
         clauses = {
             h["ref"]: {
@@ -273,7 +295,7 @@ class RereadMixin:
         )
         last = parts["messages"][0]["content"][-1]
         last["text"] = json.dumps(pointer, ensure_ascii=False) + "\n\n" + last["text"]
-        answers, lead_usd, error, model = self._ask_lead([one], parts, False)
+        answers, lead_usd, error, model = self._ask_lead([one], parts, False, once=True)
         spent = usd + lead_usd
         base = {**record, "page": page, "lead_usd": lead_usd}
         again_answer = (answers or {}).get(iid)
@@ -290,6 +312,7 @@ class RereadMixin:
             silent_cause(again) is not None
             or disagreed
             or again.get("ai_verdict") not in (verdict.PASS, verdict.FAIL)
+            or not (again.get("quotes_checked") or {}).get("paper")
         ):
             return self._unchanged(
                 line, cause, {**base, "outcome": "not_confirmed"}, spent

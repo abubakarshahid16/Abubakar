@@ -496,3 +496,87 @@ def test_a_page_choice_is_bounded_cited_first_then_the_best_hint_pages():
         5,
         7,
     ]  # a page the paper does not have is not cited
+
+
+# ---------------------------------------------------------------- the optional step never stops the review
+
+
+def _line_dicts(rows):
+    return {k: json.loads(v["line_json"]) for k, v in rows.items()}
+
+
+def _refuse_in_step(monkeypatch, where):
+    """A cap refusal on one paid call inside the optional step ("lead": the re-ask; "second": the recovered line's second opinion)."""
+    real_call, real_second = (
+        run_mod.Runner.call,
+        agent_claude.ClaudeProvider.second_opinion,
+    )
+
+    def call(self, model, parts, max_tokens, once=False):
+        if where == "lead" and "a_second_reader_points_to" in json.dumps(
+            parts["messages"]
+        ):
+            raise agent_claude.AgentBudgetStop("cap")
+        return real_call(self, model, parts, max_tokens, once)
+
+    def second(self, *a, **k):
+        if where == "second" and run_mod.Runner._optional.on:
+            raise agent_claude.AgentBudgetStop("cap")
+        return real_second(self, *a, **k)
+
+    monkeypatch.setattr(run_mod.Runner, "call", call)
+    monkeypatch.setattr(agent_claude.ClaudeProvider, "second_opinion", second)
+
+
+@pytest.mark.parametrize(("where", "item_id", "found", "again"), [
+    ("lead", "R-frame", FOUND_NUMBER, AGAIN_NUMBER),
+    ("second", "R-coat", FOUND_TEXT, AGAIN_TEXT),
+])  # fmt: skip
+def test_a_cap_refusal_inside_the_step_leaves_the_old_query_and_the_review_completes(
+    w, monkeypatch, where, item_id, found, again
+):
+    answers = {**s.ANSWERS, item_id: SILENT}
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    off, _ = review(w, answers, found, again)
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
+    db.reset_connection()
+    _refuse_in_step(monkeypatch, where)
+    on, _ = review(w, answers, found, again)
+    assert _line_dicts(on) == _line_dicts(
+        off
+    )  # every line, the silent one too, exactly as with the switch off
+    assert {k: r["verdict_class"] for k, r in on.items()} == {
+        k: r["verdict_class"] for k, r in off.items()
+    }
+
+
+def test_a_lead_answer_that_repeats_a_quote_not_on_the_page_is_refused(w):
+    again = {
+        "R-frame": {**s.ANSWERS["R-frame"], "paper_quote": "Coating thickness: 9.99 mm"}
+    }
+    lines, fake = review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, again)
+    row = lines["R-frame"]
+    assert row["word"] == "Query"
+    assert W.REREAD_NOT_CONFIRMED_WHY.format(page=1) in row["reason"]
+    assert fake.kinds.count("lead_again") == 1
+
+
+def test_the_lead_is_told_to_check_the_page_itself(w):
+    seen = []
+    real = run_mod.Runner._ask_lead
+
+    def spy(self, batch, parts, split_ok, once=False):
+        seen.append((json.dumps(parts["messages"]), once))
+        return real(self, batch, parts, split_ok, once)
+
+    import pytest as _p
+
+    mp = _p.MonkeyPatch()
+    mp.setattr(run_mod.Runner, "_ask_lead", spy)
+    try:
+        review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, AGAIN_NUMBER)
+    finally:
+        mp.undo()
+    again = [t for t, o in seen if "a_second_reader_points_to" in t]
+    assert len(again) == 1 and "Check the page yourself" in again[0]
+    assert [o for t, o in seen if "a_second_reader_points_to" in t] == [True]
