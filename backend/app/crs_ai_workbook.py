@@ -215,7 +215,10 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     ):
         return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
     what, ref = field_name(line) or "the item", against(line)
-    if line.get("verdict_label") == two.WORD_NOT_STATED and status == words.STATUS_AI_VERDICT:
+    if (
+        line.get("verdict_label") == two.WORD_NOT_STATED
+        and status == words.STATUS_AI_VERDICT
+    ):
         return f"Contractor to state {what}, or the page where it is shown."
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."

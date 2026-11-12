@@ -575,9 +575,13 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
         replace(ln, roles=roles_named(ln.label, patterns, spellings)) for ln in lines
     ]
     unknown = [ln for ln in lines if ln.unknown_verdict]
-    ai_lines = [ln for ln in lines if ln.ai_kind]  # two-reader verdicts: their own columns below
+    ai_lines = [
+        ln for ln in lines if ln.ai_kind
+    ]  # two-reader verdicts: their own columns below
     comments = [
-        ln for ln in lines if not ln.is_pass and not ln.unknown_verdict and not ln.ai_kind
+        ln
+        for ln in lines
+        if not ln.is_pass and not ln.unknown_verdict and not ln.ai_kind
     ]
     passes = [ln for ln in lines if ln.is_pass]
     of = {kind: [k.row for k in key if k.scored_as == kind] for kind in SCORED_AS}
@@ -678,7 +682,11 @@ def _score_ai_verdicts(res: dict, key: list[KeyRow], ai_lines: list[Line]) -> No
             continue
         hits = [ln for ln in ai_lines if answers(k, ln)]
         if k.scored_as in ("wrong", "disputed"):
-            if any(ln.ai_kind != "met" and repeats(k, ln) for ln in hits) and k.row not in res["clear_wrong"] and k.scored_as == "wrong":
+            if (
+                any(ln.ai_kind != "met" and repeats(k, ln) for ln in hits)
+                and k.row not in res["clear_wrong"]
+                and k.scored_as == "wrong"
+            ):
                 res["clear_wrong"].append(k.row)
             continue
         negative = [ln for ln in hits if ln.ai_kind in ("not met", "not stated")]
@@ -726,7 +734,11 @@ def summary(res: dict) -> dict:
         "problems_found": f"{len(res['problems_found'])} of {of['problem']}",
         "complies_confirmed": f"{len(res['complies_confirmed'])} of {of['complies']}",
         "clear_wrong": f"{len([r for r in res['clear_wrong'] if r not in res['ai_verdict_wrong']])} of {of['wrong']}"
-        + (f", plus {len(res['ai_verdict_wrong'])} wrong two-reader verdicts" if res["ai_verdict_wrong"] else ""),
+        + (
+            f", plus {len(res['ai_verdict_wrong'])} wrong two-reader verdicts"
+            if res["ai_verdict_wrong"]
+            else ""
+        ),
         "disputed_raised": f"{len(res['disputed_raised'])} of {of['disputed']}",
         "wrong_passes": f"{len(res['wrong_passes'])} problem rows, from "
         f"{res['wrong_pass_lines']} of {res['pass_lines']} pass lines",

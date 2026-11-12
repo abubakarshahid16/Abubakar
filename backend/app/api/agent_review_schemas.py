@@ -204,6 +204,8 @@ class AgentTwoReaderStep(BaseModel):
     #: absence step only: lines not asked because the first reader was not given every page of the paper.
     skipped: Count = 0
     off: str | None = None
+
+
 #: What the library holds for the paper to read (order 13, C2). "no text", "not indexed" and "still reading" stop the run before any rule is
 #: chosen or any call is made; "partly readable" runs and lists the pages with no stored text.
 PaperTextState = Literal[

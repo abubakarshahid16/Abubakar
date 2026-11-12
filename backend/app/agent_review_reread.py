@@ -388,3 +388,8 @@ class RereadMixin:
         if named in hits:
             return named
         return hits[0] if len(hits) == 1 else None
+
+
+def facts_of(runner: Any, lines: Any) -> dict | None:
+    """`reread_facts` of a runner (None without one)."""
+    return reread_facts(runner.reread_enabled, runner.reread_stopped, lines) if runner else None
