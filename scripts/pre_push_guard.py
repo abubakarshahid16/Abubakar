@@ -296,10 +296,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             # style stops outside the verdict path are warnings: show every one
             # (a passing step prints nothing else), with its file and number
-            warnings.extend(ln.strip() for ln in out.splitlines() if "WARNING (not a stop" in ln)
+            warnings.extend(
+                ln.strip() for ln in out.splitlines() if "WARNING (not a stop" in ln
+            )
     total = time.monotonic() - started
     if warnings:
-        print(f"\n  {len(warnings)} style warning(s), not stops (the files are off the verdict path, scripts/verdict_path.py):")
+        print(
+            f"\n  {len(warnings)} style warning(s), not stops (the files are off the verdict path, scripts/verdict_path.py):"
+        )
         for line in warnings:
             print(f"    {line}")
     if total > BUDGET_SECONDS:
