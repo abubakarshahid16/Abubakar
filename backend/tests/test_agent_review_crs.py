@@ -1116,3 +1116,58 @@ def test_the_second_reading_row_is_on_notes_exactly_once_when_the_step_stopped_a
     }
     assert len(rows(stopped)) == 1
     assert rows(META) == [] and rows({**META, "order12_counts": {}}) == []
+
+
+# ---------------------------------------------------------------- the three parts are three lines in the cell
+
+
+@pytest.mark.parametrize("copy", ["internal", "contractor"])
+def test_the_comment_cell_holds_the_three_parts_on_three_lines_each_ending_with_a_full_stop(
+    copy, tmp_path
+):
+    writer = C.write_internal if copy == "internal" else C.write_contractor
+    path = writer(LINES, tmp_path / "x.xlsx", META)
+    ws = openpyxl.load_workbook(path)["CRS"]
+    top = next(r for r in range(1, 40) if ws.cell(r, 1).value == "Item No")
+    checked = 0
+    for r in range(top + 1, ws.max_row + 1):
+        cell = ws.cell(r, 4)
+        if cell.value is None:
+            continue
+        parts = cell.value.split("\n")
+        assert len(parts) == 3 and all(p.endswith((".", "!", "?")) for p in parts), (
+            cell.value
+        )
+        assert (
+            cell.alignment.wrap_text and ws.row_dimensions[r].height >= 3 * 13
+        )  # a row height that shows the three lines
+        checked += 1
+    assert checked >= 2
+
+
+def test_the_comment_cell_is_still_cleaned_no_formula_no_tab_no_control_character():
+    got = WB.comment_cell("=HYPERLINK(1)\tpart  one\n\n  part\ttwo \r\n part three")
+    assert not got.startswith("=") and "\t" not in got and "\r" not in got
+    assert got == " =HYPERLINK(1) part one.\npart two.\npart three."
+    assert WB.comment_cell(None) is None
+    assert WB.comment_cell("+1 a\nb").startswith(" +1 a.")
+    # a control character is dropped by the exporter's cell writer (`crs_export.safe_cell_text`), as for every cell
+    from app import crs_export
+
+    assert "\x00" not in crs_export.safe_cell_text("a\x00b")
+
+
+def test_every_other_cell_is_still_one_line(tmp_path):
+    line = mk("R-1", "Fail", "Fail", paper_quote="two\nlines", reasoning="a\nb")
+    path = C.write_internal([line], tmp_path / "i.xlsx", META)
+    wb = openpyxl.load_workbook(path)
+    for sheet in ("Evidence", "Notes", "Not reviewed or not applicable"):
+        for row in wb[sheet].iter_rows(min_row=2, values_only=True):
+            assert all("\n" not in str(c) for c in row if c is not None), (sheet, row)
+    ws = wb["CRS"]
+    for row in ws.iter_rows(
+        min_row=14, values_only=True
+    ):  # every column but the comment (column D)
+        assert all(
+            "\n" not in str(c) for i, c in enumerate(row) if c is not None and i != 3
+        ), row
