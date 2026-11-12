@@ -77,6 +77,8 @@ LISTED_METHODS = {
     "governing_standard": "auto: governing standard for",
 }
 RUN_KEY = "claude_unlisted_standards"
+#: Specifications a review cites that were not on the list shown before the start, so were not sent (`review_shown`).
+SHOWN_KEY = "claude_unshown_specifications"
 SOURCE = "auto"
 
 _THREAD_LOCK = threading.Lock()
@@ -453,10 +455,41 @@ def on_standard_cited(
     _run("citation", standard_document_id, build)
 
 
+def _note_unshown(review_run_id: str) -> None:
+    """Put on the run how many cited specifications the gate holds because no list shown before the start names them."""
+    from . import review_shown
+
+    try:
+        conn = connect()
+        count = review_shown.cited_unshown(conn, review_run_id)
+        row = conn.execute(
+            "SELECT outcome_json FROM review_runs WHERE id = ?", (review_run_id,)
+        ).fetchone()
+        if row is None:
+            return
+        outcome = json.loads(row["outcome_json"] or "{}")
+        if count:
+            outcome[SHOWN_KEY] = {"not_sent": count}
+        elif SHOWN_KEY in outcome:
+            del outcome[SHOWN_KEY]
+        else:
+            return
+        with conn:
+            conn.execute(
+                "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+                (json.dumps(outcome), review_run_id),
+            )
+    except Exception as exc:  # noqa: BLE001 - a note must not fail a finished review
+        log.warning(
+            "claude shown-list run note %s: %s", review_run_id, type(exc).__name__
+        )
+
+
 def record_on_run(review_run_id: str) -> None:
     """Put on the run's stored outcome how many of its standards nothing cited and
     so stayed off the list: `absence.unchecked_parts` says so. Counts only. Never
     raises; nothing is written with the switch off or when there are none."""
+    _note_unshown(review_run_id)  # a hold of the gate, whatever the switch says
     if not _on():
         return
     try:
@@ -510,6 +543,17 @@ def run_lines(outcome: dict) -> list[dict]:
     check still read those standards, so the sheet is not called incomplete."""
     unlisted = outcome.get(RUN_KEY) or {}
     out = []
+    held = (outcome.get(SHOWN_KEY) or {}).get("not_sent")
+    if held:
+        out.append(
+            {
+                "part": SHOWN_KEY,
+                "line": f"Not sent: {held} specification(s) this review cites were not on the list shown before "
+                "the start, so the cloud model did not read them.",
+                "note": "Not read by the cloud model",
+                "detail": True,
+            }
+        )
     if unlisted.get("not_listed"):
         line = (
             f"{unlisted['not_listed']} of {unlisted['of']} standard(s) applied to this review "

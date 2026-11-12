@@ -96,6 +96,9 @@ UNKNOWN_DOCUMENT = "unknown_document"
 #: anything (refused); an empty set = declared to carry no document content.
 _CARRIED: ContextVar[frozenset[str] | None] = ContextVar("claude_carried_documents", default=None)
 _REQUEST_CONSENT: ContextVar[bool] = ContextVar("claude_request_consent", default=False)
+#: The review run whose documents the calls inside `reviewing()` carry. With `claude_spend.current_run()` it is how the gate
+#: knows a prompt belongs to a review run (so which document is the paper under review). None = not a review run.
+_REVIEW_RUN: ContextVar[str | None] = ContextVar("claude_review_run", default=None)
 
 
 @contextlib.contextmanager
@@ -130,6 +133,31 @@ def per_request_consent(document_ids):
     finally:
         _REQUEST_CONSENT.reset(token_consent)
         _CARRIED.reset(token_ids)
+
+
+@contextlib.contextmanager
+def reviewing(review_run_id):
+    """Name the review run the calls inside this block belong to, so the gate can tell the paper under review from a
+    cited specification (`review_shown`). It declares no document: `carrying` does."""
+    token = _REVIEW_RUN.set(str(review_run_id) if review_run_id else None)
+    try:
+        yield
+    finally:
+        _REVIEW_RUN.reset(token)
+
+
+@contextlib.contextmanager
+def review_declaration(review_run_id):
+    """`carrying` the review's documents (`review_documents`) and `reviewing` that run: what a review route declares."""
+    with carrying(review_documents(review_run_id)), reviewing(review_run_id):
+        yield
+
+
+def review_run() -> str | None:
+    """The review run this call belongs to: `reviewing`, else the spend ledger's `for_run`."""
+    from . import claude_spend
+
+    return _REVIEW_RUN.get() or claude_spend.current_run()
 
 
 def carried() -> frozenset[str] | None:
@@ -421,7 +449,7 @@ def for_review(fn):
 
     @functools.wraps(fn)
     def declared(review_run_id, *args, **kwargs):
-        with carrying(review_documents(review_run_id)):
+        with carrying(review_documents(review_run_id)), reviewing(review_run_id):
             return fn(review_run_id, *args, **kwargs)
     return declared
 
@@ -494,6 +522,25 @@ def contracts_without_yes(ids) -> frozenset[str]:
     )
 
 
+def _unshown_specifications(ids) -> frozenset[str]:
+    """Owner, 12 Nov 2026 (#1584): the screen lists every document that will leave before the review starts. Inside a review
+    run, a SPECIFICATION that is not the paper under review goes only if the run's stored list names it (`review_shown`);
+    no list stored = none goes. Outside a review run (chat, a standalone reader) nothing changes. Only NARROWS. A library
+    that cannot be read holds every declared document (fail closed)."""
+    run = review_run()
+    if not run or not ids:
+        return frozenset()
+    import sqlite3
+
+    from . import review_shown
+    from .db import connect
+
+    try:
+        return review_shown.unshown_specifications(connect(), run, ids)
+    except sqlite3.Error:
+        return frozenset(ids)
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
@@ -526,6 +573,13 @@ def refusal() -> tuple[str, str] | None:
     # egress flags, API-key checks and spend limits remain enforced downstream.
     if _REQUEST_CONSENT.get():
         return None
+    held = _unshown_specifications(ids)
+    if held:
+        return NOT_APPROVED, (
+            f"{len(held)} of {len(ids)} document(s) in this prompt are specifications this review cites "
+            f"that were not on the list shown before the start (ids: {', '.join(sorted(held))}), "
+            f"so nothing is sent"
+        )
     approved = approved_hashes()
     lapsed = _lapsed_ids(hashes) | contracts_without_yes(ids)
     missing = sorted(d for d, h in hashes.items() if h not in approved or d in lapsed)
@@ -539,6 +593,10 @@ def refusal() -> tuple[str, str] | None:
 #: documents are not on the list. `{n}` and `{of}` are counts, never a title.
 LOCAL_INSTEAD = ("ran on the local model: {n} of {of} document(s) in its prompt are not approved "
                  "for the cloud model")
+LOCAL_INSTEAD_NOT_SHOWN = (
+    "ran on the local model: {n} of {of} document(s) in its prompt are specifications "
+    "that were not on the list shown before the start"
+)
 
 
 def local_instead() -> str | None:
@@ -556,6 +614,9 @@ def local_instead() -> str | None:
     if found is None or found[0] != NOT_APPROVED:
         return None
     ids = carried() or frozenset()
+    held = _unshown_specifications(ids)
+    if held:
+        return LOCAL_INSTEAD_NOT_SHOWN.format(n=len(held), of=len(ids))
     approved = approved_hashes()
     hashes = _hashes_of(ids)
     try:
