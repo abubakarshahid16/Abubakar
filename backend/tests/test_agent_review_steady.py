@@ -832,7 +832,10 @@ def test_a_decision_is_code_pass_fail_or_a_two_reader_met_or_not_met_never_ai_th
         ("Proven by code", "Fail"),
         ("AI verdict, two readers agree", "AI verdict: met"),
         ("AI verdict, two readers agree", "AI verdict: not met"),
-        ("AI verdict, two readers agree", "AI verdict: not stated"),  # lead, 12 Nov 2026: two readers each read every page and found no value
+        (
+            "AI verdict, two readers agree",
+            "AI verdict: not stated",
+        ),  # lead, 12 Nov 2026: two readers each read every page and found no value
     ]
     no = [("AI opinion, engineer to confirm", "AI thinks: met"), ("AI opinion, engineer to confirm", "AI thinks: not met"),
           ("Query for the engineer", ""), ("Not applicable", ""), ("Not reviewed", ""), ("Not checked on this paper", "Needs a drawing or a calculation")]  # fmt: skip

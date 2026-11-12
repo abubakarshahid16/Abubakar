@@ -121,13 +121,17 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
         line
     ):  # 2d. both readers: needs a drawing or a calculation, not checked here
         return got
-    if two_reader.absence_disagrees(line):  # 2c'. the second reader found a value on a page code verified: the place is named
+    if two_reader.absence_disagrees(
+        line
+    ):  # 2c'. the second reader found a value on a page code verified: the place is named
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": two_reader.absence_disagree_why(line),
         }
-    if two_reader.disagrees(line) or two_reader.other_disagrees(line):  # 2c. the independent second reader reached the opposite verdict: a Query
+    if two_reader.disagrees(line) or two_reader.other_disagrees(
+        line
+    ):  # 2c. the independent second reader reached the opposite verdict: a Query
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
@@ -390,7 +394,12 @@ def decisions_of(pairs: Iterable[tuple[str, str]]) -> dict:
         ):
             two_reader_n += 1
             stated_n += word == two_reader.WORD_NOT_STATED
-    return {"code": code, "two_reader": two_reader_n, "not_stated": stated_n, "total": code + two_reader_n}
+    return {
+        "code": code,
+        "two_reader": two_reader_n,
+        "not_stated": stated_n,
+        "total": code + two_reader_n,
+    }
 
 
 def counts(lines: Iterable[Mapping]) -> dict:

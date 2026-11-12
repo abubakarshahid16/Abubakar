@@ -38,6 +38,8 @@ WORD_NOT_STATED = "AI verdict: not stated"
 WORDS = (WORD_MET, WORD_NOT_MET, WORD_NOT_STATED)
 ABSENCE_FIELD = "two_reader_absence"
 #: what the line's reason says, and only what was established (no bare "the paper does not state")
+#: an absence line whose second reader quoted a value the code verified on its page: the reason names the place
+DISAGREE_ONE_FOUND = "the readers disagree: one found"
 ABSENCE_WHY = "not stated on the paper"
 #: the second reader's absence answers
 A_NOT_STATED, A_FOUND, A_CANNOT_TELL = "not stated", "found a value", "cannot tell"
@@ -526,7 +528,7 @@ def absence_disagree_why(line: Mapping) -> str:
         if isinstance(page, int) and not isinstance(page, bool)
         else "a value on the paper"
     )
-    return f"{verdict.DISAGREE_ONE_FOUND} {where}"
+    return f"{DISAGREE_ONE_FOUND} {where}"
 
 
 def textual_pass_agreed(line: Mapping) -> bool:

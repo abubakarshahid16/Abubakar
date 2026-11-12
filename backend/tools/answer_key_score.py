@@ -468,7 +468,10 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                     from app.crs_ai_words import ABSENCE_OPENER
 
                     said = fold(comment)
-                    if fold(f"{ABSENCE_OPENER}: two AI readers each read every page") in said:
+                    if (
+                        fold(f"{ABSENCE_OPENER}: two AI readers each read every page")
+                        in said
+                    ):
                         ai_kind = "not stated"
                     elif re.search(
                         r"(?<!not )met \(ai, two readers agree|the requirement is met",

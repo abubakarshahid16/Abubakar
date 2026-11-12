@@ -178,7 +178,8 @@ def test_the_contractor_flag_is_false_for_every_paper_kind_and_names_every_kind(
     assert set(rule_labels.PAPER_KINDS) <= set(table)
     assert all(row["contractor_copy_ai_verdict"] is False for row in table.values())
     assert not any(
-        kind_review_table.contractor_copy_ai_verdict(k) for k in (*table, "no-such-kind", None)
+        kind_review_table.contractor_copy_ai_verdict(k)
+        for k in (*table, "no-such-kind", None)
     )
 
 
@@ -233,7 +234,9 @@ def test_no_ai_verdict_reaches_the_contractor_copy_while_the_flag_is_false(tmp_p
 @pytest.fixture
 def flagged(monkeypatch):
     monkeypatch.setattr(
-        kind_review_table, "contractor_copy_ai_verdict", lambda kind: kind == "datasheet"
+        kind_review_table,
+        "contractor_copy_ai_verdict",
+        lambda kind: kind == "datasheet",
     )
 
 

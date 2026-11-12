@@ -16,10 +16,10 @@ import re
 from collections.abc import Mapping
 
 from . import agent_review_absence as absence
+from .agent_review_two_reader import DISAGREE_ONE_FOUND
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
     DEFERRED_WHY,
-    DISAGREE_ONE_FOUND,
     DISAGREE_WHY,
     NO_VALUE_WHY,
     NOT_STATED_WHY,
@@ -264,7 +264,9 @@ def has_banned(text: object) -> bool:
 
 
 def _one_why(raw: str) -> str | None:
-    if raw.startswith(DISAGREE_ONE_FOUND):  # built by code from a page number it verified (`absence_disagree_why`): said as it is
+    if raw.startswith(
+        DISAGREE_ONE_FOUND
+    ):  # built by code from a page number it verified (`absence_disagree_why`): said as it is
         return raw
     for known, phrase in WHY_PHRASES.items():
         if raw == known.rstrip("."):

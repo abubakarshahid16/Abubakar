@@ -152,7 +152,9 @@ class AbsenceMixin:
 
     def _skip_absence(self, iid: str, why: str) -> None:
         self.two_reader_absence_state["skipped"] += 1
-        self.trace_record({"type": "two_reader_absence_skip", "item_id": iid, "why": why})
+        self.trace_record(
+            {"type": "two_reader_absence_skip", "item_id": iid, "why": why}
+        )
 
     def absence_candidates(self, texts: dict[int, str]) -> list[dict]:
         """The lines worth asking: first-reader absence lines (a verified clause, a held rule or an approved checklist item, a plain
@@ -167,12 +169,20 @@ class AbsenceMixin:
         out = []
         for iid, line in sorted(self.lines.items()):
             item = self.items_by_id.get(iid)
-            if item is None or two.ABSENCE_FIELD in line or not two.is_absence_candidate(line):
+            if (
+                item is None
+                or two.ABSENCE_FIELD in line
+                or not two.is_absence_candidate(line)
+            ):
                 continue
-            if not agent_run_second.models_differ([str(line.get("model") or "")], agent_claude.SECOND_MODEL):
+            if not agent_run_second.models_differ(
+                [str(line.get("model") or "")], agent_claude.SECOND_MODEL
+            ):
                 continue
             if sorted(set(line.get("pages_searched") or [])) != every:
-                self._skip_absence(iid, "the first reader was not given every page of the paper")  # not awarded
+                self._skip_absence(
+                    iid, "the first reader was not given every page of the paper"
+                )  # not awarded
                 continue
             requirement = self._absence_requirement(line)
             plain = absence.plain_requirement_code(item, requirement)
@@ -183,15 +193,26 @@ class AbsenceMixin:
                 item, requirement, texts, self.total_pages, ledger, facts, carried,
                 deferred=lambda w: deferred_mark(w, self.pages, self.paper, self.total_pages),
             )  # fmt: skip
-            self.trace_record({"type": "two_reader_absence_search", "item_id": iid, "proven": proof.proven, "code": proof.code})
+            self.trace_record(
+                {
+                    "type": "two_reader_absence_search",
+                    "item_id": iid,
+                    "proven": proof.proven,
+                    "code": proof.code,
+                }
+            )
             if proof.proven:
                 check = two.CHECK_SEARCHED
             elif proof.code in absence.CANNOT_SEARCH:
                 check = two.CHECK_COULD_NOT
             else:
-                self._skip_absence(iid, "the code's search vetoed it: " + str(proof.code))
+                self._skip_absence(
+                    iid, "the code's search vetoed it: " + str(proof.code)
+                )
                 continue
-            out.append({"line": line, "item": item, "proof": proof.to_json(), "check": check})
+            out.append(
+                {"line": line, "item": item, "proof": proof.to_json(), "check": check}
+            )
         return out
 
     def _absence_pass(self) -> None:
@@ -200,8 +221,13 @@ class AbsenceMixin:
             n: self.pages.page(self.paper, n) or ""
             for n in range(1, self.total_pages + 1)
         }
-        if self.total_pages > two.ABSENCE_MAX_PAGES or sum(len(t) for t in texts.values()) > two.ABSENCE_MAX_PAGE_CHARS:
-            self.record_absence_off(two.OFF_PAPER_TOO_LONG)  # not awarded: nothing is asked, the lines say nothing
+        if (
+            self.total_pages > two.ABSENCE_MAX_PAGES
+            or sum(len(t) for t in texts.values()) > two.ABSENCE_MAX_PAGE_CHARS
+        ):
+            self.record_absence_off(
+                two.OFF_PAPER_TOO_LONG
+            )  # not awarded: nothing is asked, the lines say nothing
             return
         cands = self.absence_candidates(texts)
         st["candidates"] = len(cands)

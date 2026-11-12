@@ -115,7 +115,11 @@ class Proof:
             "role_source": self.role_source,
             "pages_checked": self.pages_checked,
             "facts_checked": self.facts_checked,
-            **({"empty_label_pages": self.extra["empty_label_pages"]} if self.extra.get("empty_label_pages") else {}),
+            **(
+                {"empty_label_pages": self.extra["empty_label_pages"]}
+                if self.extra.get("empty_label_pages")
+                else {}
+            ),
         }
 
 
@@ -358,7 +362,9 @@ def page_naming(texts: Mapping[int, str], total: int, words: FieldWords) -> int 
     return None
 
 
-def empty_label_pages(texts: Mapping[int, str], total: int, words: FieldWords) -> list[int] | None:
+def empty_label_pages(
+    texts: Mapping[int, str], total: int, words: FieldWords
+) -> list[int] | None:
     """THE definition of "the field's label is present and its value cell is empty" (order 13): the pages where the field's words stand,
     when EVERY line of EVERY page that carries them is such an empty label, else None (the field has a value, or the code cannot show the
     cell is empty, and the line stays "AI thinks"). An empty label line: it names the field by the registry's own patterns or spellings
@@ -404,15 +410,30 @@ def prove(
     code = required(item, requirement)
     if code:
         return Proof(False, code)
-    return prove_field(item, requirement, texts, total, ledger, facts, carried, deferred, rules)
+    return prove_field(
+        item, requirement, texts, total, ledger, facts, carried, deferred, rules
+    )
 
 
 #: the proof stopped because the code cannot search this rule (nothing found, nothing broken): the two-reader absence verdict still
 #: stands on the readers and says so. Every other failing code is a VETO (a value found, a deferral, an unreadable page).
-CANNOT_SEARCH = frozenset({"absence_field_unknown", "absence_field_ambiguous", "absence_no_field_list", "absence_not_carried"})
+CANNOT_SEARCH = frozenset(
+    {
+        "absence_field_unknown",
+        "absence_field_ambiguous",
+        "absence_no_field_list",
+        "absence_not_carried",
+    }
+)
 #: the rule itself does not bind as a plain requirement: never a two-reader absence verdict
 NOT_PLAIN_REQUIREMENT = frozenset(
-    {"absence_advice", "absence_not_binding", "absence_exception", "absence_conditional", "absence_rule_not_found"}
+    {
+        "absence_advice",
+        "absence_not_binding",
+        "absence_exception",
+        "absence_conditional",
+        "absence_rule_not_found",
+    }
 )
 
 
@@ -427,13 +448,18 @@ def plain_requirement_code(item: Mapping, requirement: str | None) -> str | None
     sentence = " ".join(str(requirement or "").lower().split())
     if not sentence:
         return "absence_rule_not_found"
-    if item.get("rule_kind") == "advice" or item.get("requirement_type") == "recommendation":
+    if (
+        item.get("rule_kind") == "advice"
+        or item.get("requirement_type") == "recommendation"
+    ):
         return "absence_advice"
     if str(item.get("rule_exceptions") or "").strip() not in ("", "[]", "{}", "null"):
         return "absence_exception"
     if _CONDITION.search(sentence) or str(item.get("rule_condition") or "").strip():
         return "absence_conditional"
-    if strength_of(sentence) in ("should", "may"):  # a checklist point's plain text ("stated") is a requirement; "should"/"may" is advice
+    if (
+        strength_of(sentence) in ("should", "may")
+    ):  # a checklist point's plain text ("stated") is a requirement; "should"/"may" is advice
         return "absence_not_binding"
     return None
 
@@ -474,7 +500,9 @@ def prove_field(
     bad = unreadable_page(texts, total, ledger)
     if bad is not None:
         return Proof(False, "absence_page_unreadable", bad, **base)
-    empty_pages: set[int] = set()  # pages where the label stands with an EMPTY value cell (`empty_label_pages`)
+    empty_pages: set[int] = (
+        set()
+    )  # pages where the label stands with an EMPTY value cell (`empty_label_pages`)
     for words in known:
         page = fact_naming(facts, words, rules)
         if page is not None:
