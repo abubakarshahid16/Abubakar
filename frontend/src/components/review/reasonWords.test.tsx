@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ReasonText } from "./ReasonText";
-import { REASON_CODE_WORDS, SENSE_CHECK_RULE, isSenseCheck, splitReason } from "./reasonWords";
+import { REASON_CODE_WORDS, SENSE_CHECK_RULE, inPaperNoun, isSenseCheck, splitReason } from "./reasonWords";
 
 describe("reason words (order 120 item 3)", () => {
   it("splits a known code off and gives its sentence", () => {
@@ -37,5 +37,13 @@ describe("reason words (order 120 item 3)", () => {
     expect(isSenseCheck({ origin: "ai_engineering_check", standard_document_id: null, standard_clause: "4.1" })).toBe(false);
     expect(isSenseCheck({ origin: null, standard_document_id: null, standard_clause: null })).toBe(false);
     expect(SENSE_CHECK_RULE).toMatch(/sense check/);
+  });
+
+  it("K2: a sentence written for a datasheet names the paper by its decided kind, and a datasheet stays as it was", () => {
+    expect(inPaperNoun(REASON_CODE_WORDS.no_field_matched, "contract")).toBe("No field read from this contract answers this requirement.");
+    expect(inPaperNoun("Datasheets differ", "procedure")).toBe("Procedures differ");
+    expect(inPaperNoun("No datasheet field", "datasheet")).toBe("No datasheet field");
+    expect(inPaperNoun("No datasheet field", null)).toBe("No datasheet field");
+    expect(inPaperNoun("No datasheet field")).toBe("No datasheet field");
   });
 });

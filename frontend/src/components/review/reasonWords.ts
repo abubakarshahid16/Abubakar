@@ -55,6 +55,14 @@ export function splitReason(text: string | null | undefined): SplitReason {
   return { code: lead[1], words: REASON_CODE_WORDS[lead[1]] ?? "", rest: value.slice(lead[0].length) };
 }
 
+/** K2: a sentence written for a datasheet, said of the paper it is about. The backend's `kind_words` is the one home of the noun
+ *  (the decided kind: contract, procedure, transmittal; "document" when unknown); a datasheet or no noun leaves the text as it was. */
+export function inPaperNoun(text: string, noun?: string | null): string {
+  if (!noun || noun === "datasheet") return text;
+  return text.replace(/\bdatasheet(s?)\b/gi, (m, plural: string) => (m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase()
+    ? noun.charAt(0).toUpperCase() + noun.slice(1) : noun) + plural);
+}
+
 /** Order 120 item 3: an AI engineering check that names no standard is the
  *  computer's own sense check; its "rule" is that, not the model's topic. */
 export const SENSE_CHECK_RULE = "No standard clause - this is the computer's sense check.";

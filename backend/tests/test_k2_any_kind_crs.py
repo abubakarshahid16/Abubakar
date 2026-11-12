@@ -196,7 +196,11 @@ def test_the_crs_meta_of_a_contract_says_not_checked_and_counts_the_held_finding
         {"compliance_status": "OK"}
     ]
     got = kind_words.crs_meta(
-        {"review_notes": [{"note": "x"}]}, "doc_k2", out, findings, [{}, {}]
+        {"review_notes": [{"note": "x"}], "copy": "internal"},
+        "doc_k2",
+        out,
+        findings,
+        [{}, {}],
     )
     notes = {n["note"]: n for n in got["review_notes"]}
     assert (
@@ -290,33 +294,78 @@ def test_a_transmittal_does_not_list_its_own_number(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- the label set reaches the CRS the engineer reads
 
 
-def test_the_exported_crs_view_carries_one_label_set_with_the_quality_export_on():
-    from app import crs_export
-
-    def row(by, ref):
+def _view_rows():
+    def row(by, ref, comment=None):
         return {
-            "document_name": "P-1.pdf", "page_section": "p.2", "comment": f"A problem {ref}.", "comment_by": by,
+            "document_name": "P-1.pdf", "page_section": "p.2", "comment": comment or f"A problem {ref}.", "comment_by": by,
             "standard_reference": f"STD-1 {ref}", "row_kind": "datasheet_check", "engineer_confirmed": False,
             "priority": 3, "reasoning": "",
         }  # fmt: skip
 
-    meta = {"review_run_id": "run-k2", "export_quality": True, "copy": "internal"}
-    rows = [
-        row("AI Review", "1"),
+    return [
+        row("AI Review", "1", "Not read from the datasheet (5 pages) - Rated capacity"),
         row("AI - engineer to confirm", "2"),
         row("AI clause review - engineer to confirm", "3"),
         row("Playbook check (draft)", "4"),
     ]
-    view = crs_export.build_crs_view(rows, meta)
+
+
+def test_a_non_datasheet_internal_view_names_the_paper_and_carries_one_label_set():
+    from app import crs_export
+
+    meta = {
+        "review_run_id": "run-k2",
+        "export_quality": True,
+        "copy": "internal",
+        "paper_noun": "contract",
+    }
+    view = crs_export.build_crs_view(_view_rows(), meta)
     assert sorted({r["comment_by"] for r in view["rows"]}) == [
         "AI reviewer - engineer to confirm",
         "Playbook check (draft)",
     ]
-    off = crs_export.build_crs_view(rows, {**meta, "export_quality": False})
-    assert {r["comment_by"] for r in off["rows"]} >= {
-        "AI Review",
-        "AI clause review - engineer to confirm",
-    }  # unchanged when off
+    assert view["rows"][0]["comment"].startswith("Not read from the contract (5 pages)")
+
+
+def test_a_datasheet_view_is_the_same_with_the_quality_flag_on_or_off_labels_and_words_alike():
+    from app import crs_export
+
+    meta = {
+        "review_run_id": "run-k2",
+        "copy": "internal",
+    }  # no paper_noun: a datasheet (or an unknown kind)
+    on = crs_export.build_crs_view(_view_rows(), {**meta, "export_quality": True})
+    off = crs_export.build_crs_view(_view_rows(), {**meta, "export_quality": False})
+    labels = lambda v: {r["comment_by"] for r in v["rows"]}  # noqa: E731
+    assert (
+        labels(on)
+        == labels(off)
+        == {
+            "AI Review",
+            "AI - engineer to confirm",
+            "AI clause review - engineer to confirm",
+            "Playbook check (draft)",
+        }
+    )
+    assert on["rows"][0]["comment"].startswith("Not read from the datasheet")
+
+
+def test_the_contractor_copy_of_a_non_datasheet_stays_as_it_was(tmp_path, monkeypatch):
+    _world(tmp_path, monkeypatch, "SUPPLY CONTRACT FOR WIDGET SKIDS\nArticle 1")
+    out = {"completeness": {"fields_required": 0}}
+    findings = [{"compliance_status": "NEEDS_ENGINEER_REVIEW"}]
+    meta = {
+        "review_notes": [],
+        "copy": "issue",
+        "recommended_code_reason": "No applicable standard asks this datasheet for a value.",
+    }
+    assert (
+        kind_words.crs_meta(meta, "doc_k2", out, findings, [{}]) is meta
+    )  # the same object: no change at all
+    internal = kind_words.crs_meta(
+        {**meta, "copy": "internal"}, "doc_k2", out, findings, [{}]
+    )
+    assert internal["paper_noun"] == "contract" and internal["export_quality"] is True
 
 
 def test_a_run_stored_before_this_change_is_shown_with_the_decided_noun_on_the_crs(
@@ -325,7 +374,7 @@ def test_a_run_stored_before_this_change_is_shown_with_the_decided_noun_on_the_c
     _world(tmp_path, monkeypatch, "SUPPLY CONTRACT FOR WIDGET SKIDS\nArticle 1")
     old_reason = "No applicable standard asks this datasheet for a value that was checked. That is not enough to suggest a review code yet."
     got = kind_words.crs_meta(
-        {"recommended_code_reason": old_reason, "review_notes": []},
+        {"recommended_code_reason": old_reason, "review_notes": [], "copy": "internal"},
         "doc_k2",
         {"completeness": {"fields_required": 0}},
         [],
@@ -335,3 +384,56 @@ def test_a_run_stored_before_this_change_is_shown_with_the_decided_noun_on_the_c
         "No contract checklist is held, so no point of this contract was checked;"
     )
     assert "datasheet" not in got["recommended_code_reason"]
+
+
+# ---- the two guards that failed no test, and the cut of a comment
+
+
+def test_a_strong_first_line_heading_beats_the_data_sheet_and_calculation_lines_below_it():
+    for first, want in (
+        ("HAZOP STUDY PROCEDURE", "procedure"),
+        ("DOCUMENT TRANSMITTAL", "transmittal"),
+    ):
+        got = _kind(first, "Pump Data Sheet", "Relief Valve Sizing Calculation")
+        assert (got.paper_kind, got.method) == (want, "title_cue"), first
+    both = _kind(
+        "Scope of supply", "Pump Data Sheet", "Relief Valve Sizing Calculation"
+    )
+    assert (both.paper_kind, both.method) == (
+        "datasheet",
+        "cues_conflict",
+    )  # without a strong first line it is "not sure"
+
+
+def test_the_noun_swap_leaves_a_datasheet_sentence_exactly_as_it_was_in_any_case():
+    for text in (
+        "DATASHEET",
+        "DataSheet values",
+        "No applicable standard asks this Datasheet.",
+    ):
+        assert (
+            kind_words.in_noun(text, {}) == text
+        )  # no recorded noun: untouched, whatever the case
+        assert kind_words.in_noun(text, {"paper_noun": "datasheet"}) == text
+    assert (
+        kind_words.in_noun("the datasheets cite 3", {"paper_noun": "contract"})
+        == "the contracts cite 3"
+    )
+
+
+@pytest.mark.parametrize("tail", ["N/mm2 limit", "Scope of supply", "shall apply"])
+def test_a_comment_is_never_cut_after_a_bare_number_or_a_clause_number(tail):
+    from app import crs_export_quality as q
+
+    pad = "word " * 60
+    for text in (pad + "design pressure 10 " + tail + " " + "x " * 40, pad + "see clause 4.1.2. " + tail + " " + "x " * 40,
+                 pad + "tag PSV-101 " + tail + " " + "x " * 40):  # fmt: skip
+        for limit in range(len(pad) + 10, len(pad) + 50):
+            head, rest = q.split_comment(text, limit)
+            assert (
+                head + " " + rest == text
+                or head + rest == text
+                or (head + " " + rest).split() == text.split()
+            )
+            last = head.split()[-1] if head.split() else ""
+            assert not q._BARE_NUMBER.fullmatch(last), (limit, head[-20:], rest[:12])

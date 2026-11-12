@@ -254,11 +254,22 @@ _ACTION = re.compile(
 )
 
 
+_BARE_NUMBER = re.compile(r"[(\[]?\d+(?:[.,]\d+)*[.)\]:;,]?")
+_CLAUSE_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+
+
+def _bad_stop(text: str, at: int) -> bool:
+    """Is the full stop at `at` the end of a CLAUSE NUMBER ("4.1.2. Scope")? A cut there would end the head on the number."""
+    return bool(_CLAUSE_NUMBER.fullmatch(text[:at].split(" ")[-1].split("\n")[-1]))
+
+
 def _bad_space(text: str, at: int) -> bool:
     """Is the space at `at` between a number and its unit, or a clause word and
     its id? A cut there would part "10" from "mm" or "clause" from "4.1"."""
     before = text[:at].split(" ")[-1]
     after = text[at + 1 :].split(" ")[0]
+    if _BARE_NUMBER.fullmatch(before):  # a cut never ends on a bare number or a clause number: it falls before the number
+        return True
     if any(ch.isdigit() for ch in before) and after[:1] and not after[:1].isupper():
         return True
     return before.lower() in _UNIT_LEADERS and any(ch.isdigit() for ch in after)
@@ -275,7 +286,10 @@ def split_comment(text: str, limit: int = COMMENT_LIMIT) -> tuple[str, str]:
     cut = 0
     for marker, keep in (("\n", 0), (". ", 1), (" ", 0)):
         at = text.rfind(marker, 0, limit + 1)
-        while at > 0 and marker == " " and _bad_space(text, at):
+        while at > 0 and (
+            (marker == " " and _bad_space(text, at))
+            or (marker == ". " and _bad_stop(text, at))
+        ):
             at = text.rfind(marker, 0, at)
         if at > 0:
             cut = at + keep
@@ -671,7 +685,6 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
         view["rows_withheld_no_text"] += dropped
         dropped = 0
     flagged, overflowed = _finish_rows(view["rows"], ce.ROW_REF_LABEL)
-    one_label_set(view["rows"])
     standards, considered = split_standards(
         view["applicable_standards"], ce.STATUS_CONSIDERED
     )

@@ -114,7 +114,9 @@ def crs_meta(
     (one row per problem, a page or its reason, comments cut between words), a Review notes line that says what was NOT checked
     and why (never a silent empty CRS), and the count of findings held for an engineer with its boundary."""
     kind = decided_kind(document_id)
-    if is_datasheet_like(kind):
+    # a datasheet keeps every word it had; and a CONTRACTOR copy of a paper that is not a datasheet stays as it was until the kind
+    # is scored (owner: no new kind on a contractor copy before it is scored): only the internal copy changes
+    if is_datasheet_like(kind) or meta.get("copy") != "internal":
         return meta
     comp = (outcome or {}).get("completeness") or {}
     sentence = comp.get("not_checked_plain") or (
@@ -152,16 +154,44 @@ def crs_meta(
                 "detail": held_sentence(held, len(rows)),
             }
         )
-    return {**meta, "review_notes": notes, "export_quality": True}
+    return {
+        **meta,
+        "review_notes": notes,
+        "export_quality": True,
+        "paper_noun": said["paper_noun"],
+    }
 
 
-_WORD = re.compile(r"\bdatasheet\b", re.I)
+_WORD = re.compile(r"\bdatasheet(s?)\b", re.I)
+_ROW_TEXT = ("comment", "page_section", "ai_review_comment", "reasoning")
 
 
 def _swap(text: str, noun: str) -> str:
     return _WORD.sub(
-        lambda m: noun.capitalize() if m.group(0)[0].isupper() else noun, text
+        lambda m: (noun.capitalize() if m.group(0)[0].isupper() else noun) + m.group(1),
+        text,
     )
+
+
+def name_the_paper(view: dict, meta: dict) -> None:
+    """The internal CRS VIEW of a paper that is not a datasheet (`meta["paper_noun"]`, set by `crs_meta` for the internal copy only)
+    names the paper by its decided kind in every sentence the row builders wrote for a datasheet (`crs_mapping`, `crs_page_words`,
+    `held_findings`, `recommendations`, `crs_blank_fields`, `absence`): ONE home reads the noun, none of those files changes. The
+    Comment By machine-draft labels become one set. Done on the BUILT view, never on the rows a numbering or an issue reads."""
+    from . import crs_export_quality
+
+    noun = meta.get("paper_noun")
+    if not noun:
+        return
+    rows, notes = view.get("rows") or [], view.get("review_notes") or []
+    for row in rows:
+        for key in _ROW_TEXT:
+            if isinstance(row.get(key), str):
+                row[key] = _swap(row[key], noun)
+    for note in notes:
+        if isinstance(note.get("detail"), str):
+            note["detail"] = _swap(note["detail"], noun)
+    crs_export_quality.one_label_set(rows)
 
 
 def in_noun(thing, completeness: dict | None):
