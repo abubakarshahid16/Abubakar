@@ -109,6 +109,12 @@ def test_two_readers_agree_and_every_quote_of_both_is_verified_gives_the_class(w
         and line["two_reader"]["quotes_checked"]["both"] is True
     )
     assert len(fake.reader2) == 1  # both candidates in ONE call
+    for iid in (
+        "R-coat",
+        "R-mark",
+    ):  # the reason beside the word names the TRUE route (the word cell holds the owner's words only)
+        assert got[iid]["reason"].endswith(f"({two.ROUTE_INDEPENDENTLY})")
+        assert two.ROUTE_SAW_FIRST not in got[iid]["reason"]
     assert step_of(run_id) == {
         "candidates": 2,
         "asked": 2,
@@ -285,6 +291,9 @@ def test_a_textual_pass_and_fail_with_the_old_agreement_are_ai_verdicts_and_buy_
         CLASS,
         CLASS,
     )
+    for iid in ("R-coat", "R-mark"):
+        assert got[iid]["reason"].endswith(f"({two.ROUTE_SAW_FIRST})")
+        assert two.ROUTE_INDEPENDENTLY not in got[iid]["reason"]
     assert fake.reader2 == []
 
 

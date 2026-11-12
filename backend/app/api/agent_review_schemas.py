@@ -294,6 +294,7 @@ class AgentRunSummary(BaseModel):
     #: the same for the other-paper class ("Not checked on this paper"); null when that step was off.
     two_reader_other_step: AgentTwoReaderStep | None = None
     #: the one count of decisions: code Pass/Fail plus two-reader verdicts (class "AI verdict, two readers agree", word met or not met).
+    #: A steadiness number of a run stored before this change keeps its old meaning ("AI thinks" counted as a decision then).
     decisions: AgentDecisions | None = None
     #: the paper's stored-text state; null on a run stored before it was kept (shown as nothing).
     paper_text: AgentPaperText | None = None
