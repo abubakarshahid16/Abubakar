@@ -441,3 +441,100 @@ def test_7_the_exit_asks_again_a_flipped_comparator_on_a_stored_line_is_demoted(
     assert (
         exit_of({**ln, "clause_quote": "Noise level 90 dB(A)."})["verdict"] == "Query"
     )
+
+
+# ---------------------------------------------------------------------------------------- 8 (R48f): no flag is trusted: the label test is asked again at the exit
+
+
+def test_8_a_quote_of_another_field_with_the_flag_true_is_demoted_at_the_exit():
+    good = line("85")
+    assert proven(good) and "noise level" in good["paper_context"]
+    forged = {
+        **good,
+        "paper_quote": "Operating pressure 85 dB(A)",
+        "paper_context": "Operating pressure 85 dB(A)",
+    }  # the reviewer's case
+    assert forged["quotes_checked"]["paper"] is True
+    assert (
+        exit_of(forged)["verdict"] == "Query"
+        and exit_of(forged)["verdict_class"] != "Proven by code"
+    )
+
+
+@pytest.mark.parametrize(
+    "context", [None, "", 5, ["Noise level"], "Design pressure 85 dB(A)"]
+)
+def test_8_without_the_fields_own_lines_nothing_is_proven(context):
+    forged = {**line("85"), "paper_context": context}
+    assert exit_of(forged)["verdict_class"] != "Proven by code"
+
+
+def test_8_the_label_line_directly_above_still_proves_through_the_stored_lines():
+    ok = line(
+        "85",
+        page_text="Noise level\n85 dB(A)\nOperating pressure 12 bar",
+        source_text="85 dB(A)",
+    )
+    assert proven(ok) and ok["paper_context"].splitlines()[0].startswith("noise level")
+
+
+# ---------------------------------------------------------------------------------------- 9 (R48f low): tokens, on both sides, and the basis of a unit
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Noise level x85 dB(A)",
+        "Noise level PN85 dB(A)",
+        "Noise level 85x dB(A)",
+        "Noise level A85 dB(A)",
+        "Noise level 85dB(A)",
+    ],
+)
+def test_9_a_number_glued_to_a_letter_is_not_the_value(quote):
+    ln = line("85", page_text=quote, source_text=quote)
+    assert query(ln, "paper_value_not_in_quote")
+
+
+def test_9_the_number_helpers_use_token_boundaries():
+    assert (
+        proof.number_stated("85", "Noise level 85 dB(A)")
+        and proof.number_stated("85", "Noise level 85.")
+        and proof.number_stated("85", "(85)")
+    )
+    assert (
+        not proof.number_stated("85", "x85")
+        and not proof.number_stated("5", "15 bar")
+        and not proof.number_stated("85", "85.5")
+    )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Design pressure 10 bar(g)",
+        "Design pressure 10 barg",
+        "Design pressure 10 bar/h",
+    ],
+)
+def test_9_a_unit_that_is_the_start_of_a_longer_unit_or_basis_is_a_query(quote):
+    ln = line(
+        "10",
+        unit="bar",
+        page_text=quote,
+        source_text=quote,
+        field_label="Design pressure",
+    )
+    assert ln["verdict"] == "Query"
+    assert not proof.unit_stated("bar", quote)
+
+
+def test_9_a_unit_as_its_own_token_is_stated_and_case_is_kept():
+    assert (
+        proof.unit_stated("bar", "Design pressure 10 bar.")
+        and proof.unit_stated("dB(A)", "85 dB(A)")
+        and proof.unit_stated("", "x")
+    )
+    assert not proof.unit_stated("MPa", "5 mPa") and not proof.unit_stated(
+        "bar", "10 barg"
+    )

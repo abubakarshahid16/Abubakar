@@ -104,13 +104,41 @@ def _bound_next_to(quote: str, number: str) -> bool:
     return False
 
 
-def states(number: object, unit: object, quote: object) -> bool:
-    """The quote states the number (on number boundaries) and, when there is one, its unit."""
-    num = stored_text(number)
-    if not num or not numparse.value_in_text(num, quote):
+def number_stated(number: object, quote: object) -> bool:
+    """The quote states the number as its own token: the code's number reader finds it, and no letter or digit is glued to it on either side ("85" is not in
+    "x85", "PN85" or "85x"). A glued unit ("85dB") is therefore not found: a Query, never a proof."""
+    wanted = numparse.as_number(number)
+    if wanted is None:
         return False
+    text = numparse.fold(quote)
+    for n in numparse.find_numbers(text):
+        before = text[n.start - 1 : n.start] if n.start else ""
+        after = text[n.end : n.end + 1]
+        if (
+            n.value == wanted
+            and not n.joined
+            and not before.isalnum()
+            and not after.isalnum()
+        ):
+            return True
+    return False
+
+
+def unit_stated(unit: object, quote: object) -> bool:
+    """The quote states the unit as its own token: not the start of a longer unit or a basis mark ("bar" is not in "bar(g)", "barg" or "bar/h"). Case is kept
+    ("mPa" is not "MPa"). The unit's own brackets ("dB(A)") are part of the token."""
     u = stored_text(unit)
-    return not u or numparse.value_in_text(u, quote)
+    if not u:
+        return True
+    return (
+        re.search(rf"(?<![A-Za-z0-9]){re.escape(u)}(?![A-Za-z0-9(/])", str(quote or ""))
+        is not None
+    )
+
+
+def states(number: object, unit: object, quote: object) -> bool:
+    """The quote states the number and, when there is one, its unit, each as its own token."""
+    return number_stated(number, quote) and unit_stated(unit, quote)
 
 
 def paper_reason(observed: Mapping | None, quote: object) -> str | None:
@@ -296,6 +324,21 @@ def _flags(line: Mapping) -> Mapping:
     return got if isinstance(got, Mapping) else {}
 
 
+def context_of(page_text: object, quote: object) -> str:
+    """The lines the quote lies on and the line directly above the first of them, as the page holds them: what the exit needs to ask the label test again."""
+    own, above = guards._own_and_above(page_text, quote)
+    return "\n".join(([above] if above else []) + own)
+
+
+def field_ok(line: Mapping) -> bool:
+    """The label test asked again from the line's own stored lines: the fact's field label stands on the quote's own line or the label line directly
+    above it (`agent_review_pass_guards.belongs`, the Pass guard's own rule)."""
+    label, context = str(line.get("field") or "").strip(), line.get("paper_context")
+    if not (label and isinstance(context, str) and context.strip()):
+        return False
+    return guards.belongs({"field_roles": [label]}, line.get("paper_quote"), context)[0]
+
+
 def numeric_proven(line: Mapping) -> bool:
     checked = _flags(line)
     req, obs = line.get("proof_requirement"), line.get("proof_fact")
@@ -306,6 +349,7 @@ def numeric_proven(line: Mapping) -> bool:
         and checked.get("clause") is True
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
+        and field_ok(line)
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
         and _verdict_matches(line, recompute(req, obs))

@@ -176,6 +176,7 @@ def numeric_line(
         "clause_quote": clause_quote or "",
         "paper_quote": _paper_quote(fact) if fact else "",
         "paper_page": f.get("page"),
+        "paper_context": proof.context_of(page_text, _paper_quote(fact)) if fact else "",
         "paper_page_count": page_count,
         "quotes_checked": {"paper": False, "clause": False},
         "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
