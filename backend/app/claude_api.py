@@ -408,7 +408,7 @@ def claude_recheck_findings(
     model_call, transport = _model_call_or_409(STEP_RECHECK)
     # #838: this review's documents are not approved for the cloud model ->
     # the local model re-checks, nothing leaves, and the answer says so.
-    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
+    with claude_approved.review_declaration(review_run_id):
         local_instead = claude_approved.local_instead()
     if local_instead:
         model_call, transport = _local_recheck_call(), None

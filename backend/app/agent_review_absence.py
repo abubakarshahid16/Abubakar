@@ -115,6 +115,11 @@ class Proof:
             "role_source": self.role_source,
             "pages_checked": self.pages_checked,
             "facts_checked": self.facts_checked,
+            **(
+                {"empty_label_pages": self.extra["empty_label_pages"]}
+                if self.extra.get("empty_label_pages")
+                else {}
+            ),
         }
 
 
@@ -357,6 +362,39 @@ def page_naming(texts: Mapping[int, str], total: int, words: FieldWords) -> int 
     return None
 
 
+def empty_label_pages(
+    texts: Mapping[int, str], total: int, words: FieldWords
+) -> list[int] | None:
+    """THE definition of "the field's label is present and its value cell is empty" (order 13): the pages where the field's words stand,
+    when EVERY line of EVERY page that carries them is such an empty label, else None (the field has a value, or the code cannot show the
+    cell is empty, and the line stays "AI thinks"). An empty label line: it names the field by the registry's own patterns or spellings
+    (not by one shared word), holds nothing else but a unit column header, no digit; and the next non-empty line of the page is the label of
+    ANOTHER known field (or the page ends): the value cell between them is empty."""
+    from . import agent_review_pass_guards as G
+
+    names = [x for x in (words.role, words.canonical) if x]
+    pages: list[int] = []
+    for n in range(1, total + 1):
+        pieces = G._page_lines(texts.get(n))
+        lines = [p[2] for p in pieces]
+        for i, folded in enumerate(lines):
+            if not _line_has(folded, words, any_word=True):
+                continue
+            nxt = lines[i + 1] if i + 1 < len(lines) else None
+            empty = (
+                bool(names)
+                and not re.search(r"\d", folded)
+                and G._hit(folded, words)
+                and G._label_only(folded, names)
+                and (nxt is None or G._other_field_words(nxt, names))
+            )
+            if not empty:
+                return None
+            if n not in pages:
+                pages.append(n)
+    return pages or None
+
+
 def prove(
     item: Mapping,
     requirement: str | None,
@@ -372,6 +410,76 @@ def prove(
     code = required(item, requirement)
     if code:
         return Proof(False, code)
+    return prove_field(
+        item, requirement, texts, total, ledger, facts, carried, deferred, rules
+    )
+
+
+#: the proof stopped because the code cannot search this rule (nothing found, nothing broken): the two-reader absence verdict still
+#: stands on the readers and says so. Every other failing code is a VETO (a value found, a deferral, an unreadable page).
+CANNOT_SEARCH = frozenset(
+    {
+        "absence_field_unknown",
+        "absence_field_ambiguous",
+        "absence_no_field_list",
+        "absence_not_carried",
+    }
+)
+#: the rule itself does not bind as a plain requirement: never a two-reader absence verdict
+NOT_PLAIN_REQUIREMENT = frozenset(
+    {
+        "absence_advice",
+        "absence_not_binding",
+        "absence_exception",
+        "absence_conditional",
+        "absence_rule_not_found",
+    }
+)
+
+
+def plain_requirement_code(item: Mapping, requirement: str | None) -> str | None:
+    """None when the item (a rule line or an approved checklist item) is a plain, binding, unconditional requirement with no stored
+    exception and no advice mark; else the why code. A checklist item has no stored rule row: only what it carries is checked."""
+    from .compiled_rule_proof import strength_of
+
+    if item.get("source") == "rule":
+        code = required(item, requirement)
+        return code if code in NOT_PLAIN_REQUIREMENT else None
+    sentence = " ".join(str(requirement or "").lower().split())
+    if not sentence:
+        return "absence_rule_not_found"
+    if (
+        item.get("rule_kind") == "advice"
+        or item.get("requirement_type") == "recommendation"
+    ):
+        return "absence_advice"
+    if str(item.get("rule_exceptions") or "").strip() not in ("", "[]", "{}", "null"):
+        return "absence_exception"
+    if _CONDITION.search(sentence) or str(item.get("rule_condition") or "").strip():
+        return "absence_conditional"
+    if (
+        strength_of(sentence) in ("should", "may")
+    ):  # a checklist point's plain text ("stated") is a requirement; "should"/"may" is advice
+        return "absence_not_binding"
+    return None
+
+
+def prove_field(
+    item: Mapping,
+    requirement: str | None,
+    texts: Mapping[int, str],
+    total: int,
+    ledger: Mapping[int, Mapping] | None,
+    facts: list[Mapping],
+    carried: frozenset | None,
+    deferred: Callable[[str], int | None] | None = None,
+    rules: Mapping | None = None,
+) -> Proof:
+    """Steps 2-6 of `prove`: every page readable (decided FIRST, before any early return: a page the code could not read vetoes on every
+    path), the field, the paper kind, no field read, no field words, no deferral."""
+    bad = unreadable_page(texts, total, ledger)
+    if bad is not None:
+        return Proof(False, "absence_page_unreadable", bad)
     if carried is None:
         return Proof(False, "absence_no_field_list")
     candidates = candidates_of(item)
@@ -393,9 +501,9 @@ def prove(
     for words in known:
         if words.role is None or words.role not in carried:
             return Proof(False, "absence_not_carried", **base)
-    bad = unreadable_page(texts, total, ledger)
-    if bad is not None:
-        return Proof(False, "absence_page_unreadable", bad, **base)
+    empty_pages: set[int] = (
+        set()
+    )  # pages where the label stands with an EMPTY value cell (`empty_label_pages`)
     for words in known:
         page = fact_naming(facts, words, rules)
         if page is not None:
@@ -408,14 +516,17 @@ def prove(
             )
         page = page_naming(texts, total, words)
         if page is not None:
-            return Proof(
-                False,
-                "absence_field_words_on_page",
-                page,
-                pages_checked=total,
-                facts_checked=len(facts),
-                **base,
-            )
+            empty = empty_label_pages(texts, total, words)
+            if empty is None:
+                return Proof(
+                    False,
+                    "absence_field_words_on_page",
+                    page,
+                    pages_checked=total,
+                    facts_checked=len(facts),
+                    **base,
+                )
+            empty_pages.update(empty)
         if deferred is not None:
             for name in words.names():
                 page = deferred(name)
@@ -428,8 +539,9 @@ def prove(
                         **base,
                     )
     return Proof(
-        True, None, None, pages_checked=total, facts_checked=len(facts), **base
-    )
+        True, None, None, pages_checked=total, facts_checked=len(facts),
+        **{**base, "extra": {"empty_label_pages": sorted(empty_pages)} if empty_pages else {}},
+    )  # fmt: skip
 
 
 def comment(words: tuple[str, ...], standard: Any, clause: Any) -> str:
