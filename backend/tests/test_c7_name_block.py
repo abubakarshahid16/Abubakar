@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from app import absence, classification, claude_approved, claude_auto_approve, db
+from app import absence, classification, claude_approved, claude_auto_approve, contract_yes, db
 from app.config import settings
 from tests.test_1584_claude_auto_approve import (  # noqa: F401  (the autouse world is the one of #1584's tests)
     SHA_A,
@@ -18,10 +18,12 @@ from tests.test_1584_claude_auto_approve import (  # noqa: F401  (the autouse wo
     SHA_C,
     STANDARD,
     SUBMITTAL,
+    _cite,
     _doc,
     _refused_code,
     _rows_for,
     _set_list,
+    _start_review,
     world,
 )
 
@@ -341,3 +343,76 @@ def test_a_too_short_marked_name_gets_its_own_reason_and_still_refuses():
 def test_an_unreadable_block_file_blocks_every_name_at_the_precheck():
     claude_approved.block_file_path().write_text("{broken", encoding="utf-8")
     assert claude_approved.blocked_by_name("an invented ordinary name.pdf") is True
+
+
+# ------------------------------------------- R47c: a cited specification, and a contract by kind labelled a paper for review
+
+SPEC = "SPECIFICATION"
+CONTRACT_ROLE = "CONTRACT_DOCUMENT"
+
+
+def test_the_four_roles_named_by_the_reviewer_are_in_the_cited_document_cases():
+    # a cited document with one of these roles (or none) is never approved BY CITATION; the parametrized case above runs them
+    for role in (CONTRACT_ROLE, "SUPPORTING_DOCUMENT", "CRS_TEMPLATE", None):
+        assert role in ROLES_NOT_RULE_BOOKS
+
+
+@pytest.mark.parametrize("method", ["referenced", "governing_standard"])
+def test_a_cited_specification_that_is_not_on_the_list_is_not_approved_by_citation(
+    method, monkeypatch
+):
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", False)
+    spec = _doc("doc_spec", SHA_B, role=SPEC)  # the role is set with the switch off: no list row
+    monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", True)
+    paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
+    run_id = _start_review(paper)
+    _cite(run_id, spec, method=method)
+    claude_auto_approve.on_review_start(run_id)
+    assert _rows_for(SHA_B) == []  # the citation route approves rule books only
+    assert _refused_code([paper, spec]) == claude_approved.NOT_APPROVED
+
+
+@pytest.mark.parametrize("method", ["referenced", "governing_standard"])
+def test_a_cited_specification_that_is_on_the_list_through_its_role_is_sent_when_cited(
+    method,
+):
+    paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
+    spec = _doc("doc_spec", SHA_B, role=SPEC)  # role set, switch on: on the list through its role
+    assert [r["status"] for r in _rows_for(SHA_B)] == ["approved"]
+    run_id = _start_review(paper)
+    _cite(run_id, spec, method=method)
+    claude_auto_approve.on_review_start(run_id)
+    with claude_approved.carrying([paper, spec]):
+        assert claude_approved.refusal() is None  # the effect, stated in the docs: another review's citation can carry it
+
+
+@pytest.mark.parametrize("role", [SPEC, SUBMITTAL])
+def test_a_paper_the_kind_decision_reads_as_a_contract_is_not_approved_at_upload_or_role_set(
+    role, monkeypatch
+):
+    monkeypatch.setattr(claude_auto_approve, "is_contract_paper", lambda d: d == "doc_k")
+    _doc("doc_k", SHA_B, role=role)
+    assert [r for r in _rows_for(SHA_B) if r["status"] == "approved"] == []
+    _doc("doc_ok", SHA_C, role=role)  # the same role, not a contract: approved as before
+    assert [r["status"] for r in _rows_for(SHA_C)] == ["approved"]
+
+
+@pytest.mark.parametrize("route", ["own paper", "cited by another review", "role contract"])
+def test_the_send_time_check_refuses_a_contract_without_the_recorded_yes_on_every_route(
+    route, monkeypatch
+):
+    paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
+    if route == "role contract":
+        con = _doc("doc_con", SHA_B, role=CONTRACT_ROLE)
+        _set_list((SHA_A, "approved"), (SHA_B, "approved"))  # an owner's hand-written row is not the recorded yes
+    else:
+        con = _doc("doc_con", SHA_B, role=SPEC)  # approved at role set: the kind was not yet decided
+        assert [r["status"] for r in _rows_for(SHA_B)] == ["approved"]
+        monkeypatch.setattr(claude_auto_approve, "is_contract_paper", lambda d: d == "doc_con")
+    ids = [con] if route == "own paper" else [paper, con]
+    assert _refused_code(ids) == claude_approved.NOT_APPROVED
+    contract_yes.grant(con, "owner")  # the recorded yes: now it may go
+    with claude_approved.carrying(ids):
+        assert claude_approved.refusal() is None
+    contract_yes.withdraw(con, "owner")
+    assert _refused_code(ids) == claude_approved.NOT_APPROVED
