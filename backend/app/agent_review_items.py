@@ -561,6 +561,28 @@ def _checklist(
 #: Where the candidate rules came from (the words the contract and the screen use).
 SOURCE_DECISIONS = "per-rule scope decisions"
 SOURCE_BOOKS = "the rules of the selected books"
+SOURCE_BOTH = "the rules of the selected books and per-rule scope decisions"
+_DECISION_KEYS = ("state", "reason_code", "_rank")
+
+
+def decision_rows(conn, run_id: str, paper_kind: str | None, allowed) -> list[dict]:
+    """The rules a stored classic review judged applicable (`applicable_rules`), limited to books the caller may read (rule 5:
+    an intersection), without the old engine's state: they join the candidates, the label filter decides each."""
+    rows, _left = applicable_rules(
+        conn, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
+    )
+    return [
+        {k: v for k, v in r.items() if k not in _DECISION_KEYS}
+        for r in rows
+        if r["standard_document_id"] in allowed
+    ]
+
+
+def merged_candidates(book_rows: list[dict], from_decisions: list[dict]) -> list[dict]:
+    """The rules of the selected books, then every decision rule the books do not already hold (by rule id). Decisions only
+    ADD: a run that carries a classic review's decisions never asks fewer rules than a run that carries none (#1778)."""
+    seen = {r["id"] for r in book_rows}
+    return book_rows + [r for r in from_decisions if r["id"] not in seen]
 
 
 def build_items_for_run(
@@ -574,28 +596,42 @@ def build_items_for_run(
     equipment_type,
     ask_unapproved,
 ) -> dict:
-    """`build_items` for the AI reviewer's job. With no per-rule scope decision stored for `scope_run` (the inline selection
-    stores books only), the candidates are the rules of the selected books; the Rules used block says so, counts only."""
-    by_book = not has_scope_decisions(conn, scope_run)
-    rows = selected_book_rows(conn, scope_run, allowed) if by_book else None
+    """`build_items` for the AI reviewer's job. The candidates are ALWAYS the rules of the books the selection included, the
+    path a fresh run takes; stored per-rule scope decisions (a finished classic review of the paper, reused by the job) ADD
+    their applicable rules and never shrink the set. The Rules used block says which, counts only."""
+    by_decisions = has_scope_decisions(conn, scope_run)
+    book_rows = selected_book_rows(conn, scope_run, allowed)
+    rows = book_rows
+    if by_decisions:
+        rows = merged_candidates(
+            book_rows, decision_rows(conn, scope_run, kind.get("kind"), allowed)
+        )
     doc = build_items(conn, document_id, kind, run_id=scope_run, cache=cache, equipment_type=equipment_type,
                       equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows)  # fmt: skip
     block = doc.setdefault("rule_labels", {})
     other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
+    books = agent_review_text.books_included(conn, scope_run, allowed)
+    source = SOURCE_BOOKS
+    if by_decisions:
+        source = SOURCE_BOTH if book_rows else SOURCE_DECISIONS
     block["candidates"] = {
-        "source": SOURCE_BOOKS if by_book else SOURCE_DECISIONS,
-        "rows": len(rows) if rows is not None else None,
+        "source": source,
+        "rows": len(rows),
         "repeats": (doc.get("rules_left_out") or {}).get("stored_repeat", 0),
         "books_not_selected": other,
-        "books_included": agent_review_text.books_included(conn, scope_run, allowed)
-        if by_book
-        else None,
+        "books_included": books if source != SOURCE_DECISIONS else None,
     }
-    if by_book:
+    if source == SOURCE_BOOKS:
         block.setdefault("summary_lines", []).append(
-            f"rules came from the rule books this review selected ({len(rows or [])} stored rules; no per-rule scope decision"
+            f"rules came from the rule books this review selected ({len(rows)} stored rules; no per-rule scope decision"
             f" exists); AI-approved rules of this paper kind in {other['books']} other books were not considered:"
             f" {other['ai_approved_of_this_kind']}"
+        )
+    elif source == SOURCE_BOTH:
+        block.setdefault("summary_lines", []).append(
+            f"rules came from the rule books this review selected plus the rules its per-rule scope decisions name"
+            f" ({len(rows)} stored rules in all); AI-approved rules of this paper kind in {other['books']} other books"
+            f" were not considered: {other['ai_approved_of_this_kind']}"
         )
     return doc
 
