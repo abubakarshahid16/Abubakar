@@ -117,7 +117,8 @@ class DecideMixin:
         else:
             if (
                 allowed
-                and self.local is None  # a local run asks its second reader as a staged step after the first (run_two_readers)
+                and self.local
+                is None  # a local run asks its second reader as a staged step after the first (run_two_readers)
                 and verdict.needs_second_opinion(ai, checks, error, ev["absent"])
                 and not self._stop.is_set()
             ):

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sqlite3
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -46,9 +47,7 @@ FIRST, SECOND = "first", "second"
 LOCAL_TOO_LONG = "not asked: too long for the local model"
 #: The one code of the second-reader step when it was switched off because model B could not be a second reader.
 OFF_SECOND_UNAVAILABLE = "second_reader_not_available_on_this_computer"
-SECOND_UNAVAILABLE_WORDS = (
-    "a second reader was not available on this computer (no second local model of another family): lines stay 'AI thinks'"
-)
+SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (no second local model of another family): lines stay 'AI thinks'"
 GENERAL_REFUSED = (
     "the general review (a procedure or a contract with no rule book) does not run on the local model yet; "
     "nothing was asked"
@@ -98,7 +97,25 @@ def switch_on() -> bool:
     from . import agent_review_gate
     from .config import settings
 
-    return bool(settings.agent_review_local_engine_enabled) and agent_review_gate.enabled()
+    return (
+        bool(settings.agent_review_local_engine_enabled) and agent_review_gate.enabled()
+    )
+
+
+def local_run(run_id: str) -> bool:
+    """True when this run's stored plan puts the AI review on the LOCAL model and the switch is on. A run with no stored plan (the
+    older routes), a plan on Claude, or the switch off is a Claude-path run, exactly as before."""
+    from . import review_engine
+    from .db import connect
+
+    if not switch_on():
+        return False
+    return review_engine.ai_review_engine(connect(), run_id) == review_engine.ON_LOCAL
+
+
+def engine_for(run_id: str) -> LocalEngine | None:
+    """The local engine of this run (models from the settings), or None for a Claude-path run."""
+    return LocalEngine(*models_from_settings()) if local_run(run_id) else None
 
 
 def second_ready_for(a: str, b: str, installed: bool | None = None) -> tuple[bool, str]:
@@ -121,7 +138,11 @@ def _installed(model: str) -> bool | None:
         return None
     if not isinstance(got, dict):
         return None
-    names = {str(m.get("name") or m.get("model") or "") for m in got.get("models") or [] if isinstance(m, dict)}
+    names = {
+        str(m.get("name") or m.get("model") or "")
+        for m in got.get("models") or []
+        if isinstance(m, dict)
+    }
     wanted = model if ":" in model else model + ":latest"
     return model in names or wanted in names
 
@@ -130,7 +151,9 @@ def _text_of_blocks(content: Any) -> str:
     if isinstance(content, str):
         return content
     return "\n\n".join(
-        str(b.get("text") or "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"
+        str(b.get("text") or "")
+        for b in content or []
+        if isinstance(b, dict) and b.get("type") == "text"
     )
 
 
@@ -143,7 +166,12 @@ def chat_messages(parts: dict) -> list[dict]:
     if system:
         out.append({"role": "system", "content": system})
     for m in parts.get("messages") or []:
-        out.append({"role": str(m.get("role") or "user"), "content": _text_of_blocks(m.get("content"))})
+        out.append(
+            {
+                "role": str(m.get("role") or "user"),
+                "content": _text_of_blocks(m.get("content")),
+            }
+        )
     return out
 
 
@@ -187,13 +215,20 @@ class LocalEngine:
 
     def fits(self, parts: dict, max_tokens: int) -> bool:
         chars = sum(len(m["content"]) for m in chat_messages(parts))
-        return chars // CHARS_PER_TOKEN + 1 + int(max_tokens) + WINDOW_MARGIN_TOKENS <= self.window()
+        return (
+            chars // CHARS_PER_TOKEN + 1 + int(max_tokens) + WINDOW_MARGIN_TOKENS
+            <= self.window()
+        )
 
     def first_tokens(self, n_items: int) -> int:
-        return min(FIRST_TOKENS_CAP, FIRST_TOKENS_BASE + FIRST_TOKENS_PER_ITEM * n_items)
+        return min(
+            FIRST_TOKENS_CAP, FIRST_TOKENS_BASE + FIRST_TOKENS_PER_ITEM * n_items
+        )
 
     def second_tokens(self, n_items: int) -> int:
-        return min(SECOND_TOKENS_CAP, SECOND_TOKENS_BASE + SECOND_TOKENS_PER_ITEM * n_items)
+        return min(
+            SECOND_TOKENS_CAP, SECOND_TOKENS_BASE + SECOND_TOKENS_PER_ITEM * n_items
+        )
 
     # ---- stages
     def to_second(self) -> None:
@@ -214,7 +249,9 @@ class LocalEngine:
     @contextlib.contextmanager
     def session(self, wait_seconds: float | None = None):
         """The one heavy lock around the run; both models are unloaded in `finally`, even when the run raises."""
-        wait = heavy_lock.wait_seconds_from_env() if wait_seconds is None else wait_seconds
+        wait = (
+            heavy_lock.wait_seconds_from_env() if wait_seconds is None else wait_seconds
+        )
         with heavy_lock.held(LOCK_KIND, wait_seconds=wait):
             try:
                 yield self
@@ -273,7 +310,9 @@ class LocalEngine:
         answered = answer.get("model")
         return {
             "content": [{"type": "text", "text": text}],
-            "model": answered.strip() if isinstance(answered, str) and answered.strip() else "unknown",
+            "model": answered.strip()
+            if isinstance(answered, str) and answered.strip()
+            else "unknown",
             "stop_reason": "end_turn",
             "usage": {},
         }, 0.0
@@ -285,4 +324,42 @@ class LocalEngine:
         except (model_transport.ModelHostRefused, model_transport.LocalEngineNotLoaded):
             raise LocalGateClosed from None
         except Exception as exc:  # noqa: BLE001 - the type name only; the text may carry a host or a status
-            raise agent_claude.AgentTransportError("transport_" + type(exc).__name__) from None
+            raise agent_claude.AgentTransportError(
+                "transport_" + type(exc).__name__
+            ) from None
+
+
+#: Honest time words: nothing has been measured on this install, so the number is a labelled guess (rule 4).
+SECONDS_GUESS_PER_REQUEST = 60
+
+
+def local_time(conn, document_id: str) -> dict:
+    """The time of the AI review on the local model, in honest words: the number of requests from the rules the paper's last AI review
+    asked (None when there is none), and a labelled GUESS of the minutes (nothing is measured on this install yet; CLAUDE.md rule 4)."""
+    try:
+        row = conn.execute(
+            "SELECT a.items_total FROM agent_review_run a JOIN review_runs r ON r.id = a.run_id"
+            " WHERE r.submittal_document_id = ? AND a.items_total IS NOT NULL ORDER BY r.started_at DESC LIMIT 1",
+            (document_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        row = None
+    if row is None or not row["items_total"]:
+        return {
+            "requests": None,
+            "minutes_guess": None,
+            "basis": "the rules to ask are chosen when the review starts, so the time is not known yet; each request to the local model is one"
+            " at a time and the review needs a few minutes for every ten rules or more (a guess, not measured on this install)",
+        }
+    n = int(row["items_total"])
+    first = -(-n // FIRST_BATCH_MAX)
+    second = -(
+        -n // (2 * SECOND_BATCH_MAX)
+    )  # at most about half the lines are asked a second time
+    requests = first + second
+    return {
+        "requests": requests,
+        "minutes_guess": round(requests * SECONDS_GUESS_PER_REQUEST / 60),
+        "basis": f"up to about {requests} requests to the local model, one at a time, if the same {n} rules are asked again; the minutes are a"
+        f" guess of {SECONDS_GUESS_PER_REQUEST} seconds a request, not measured on this install",
+    }

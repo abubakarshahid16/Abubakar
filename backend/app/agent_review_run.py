@@ -125,20 +125,15 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
-        # the LOCAL engine (`agent_review_local.LocalEngine`): None = the Claude path, exactly as before. With one, every request goes
-        # to the one local model socket, one request at a time, in smaller batches, and costs USD 0.
-        self.local = local
-        if local is not None:
-            self.model, concurrency, max_batch = local.model_a, 1, min(max_batch, local_mod.FIRST_BATCH_MAX)
+        self.local = local  # the local engine (`agent_review_local`): None = the Claude path, exactly as before
+        self.model, concurrency, max_batch = self._local_limits(
+            model, concurrency, max_batch
+        )
         self.concurrency, self.max_batch = max(1, int(concurrency)), max_batch
         self.retry_base = retry_base
         self.context_check, self.std_pages = bool(context_check), std_pages
         self.sink, self.trace_path = sink, trace_path
-        # a backstop: the step gate and `metered` are the binding ones
-        self.meter = agent_claude.SpendMeter(app_cap())
-        self.opinion = agent_claude.ClaudeProvider(
-            model=model, send=send, env=env, meter=self.meter
-        )
+        self._claude_provider(model, send, env)
         self.total_pages = pages.count(paper)
         # the CURRENT tier of a rule item, from the label table
         self.tier_lookup = tier_lookup
@@ -178,6 +173,19 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self._two_reader_other = two_reader_other
         self.two_reader_other_state = two_reader_mod.stats_template()
         self.two_reader_absence_state = two_reader_mod.stats_template()
+
+    def _claude_provider(self, model, send, env) -> None:
+        # a backstop: the step gate and `metered` are the binding ones
+        self.meter = agent_claude.SpendMeter(app_cap())
+        self.opinion = agent_claude.ClaudeProvider(
+            model=model, send=send, env=env, meter=self.meter
+        )
+
+    def _local_limits(self, model: str, concurrency: int, max_batch: int) -> tuple:
+        """With the local engine: model A, one request at a time, small batches; else exactly what was given."""
+        if self.local is None:
+            return model, concurrency, max_batch
+        return self.local.model_a, 1, min(max_batch, local_mod.FIRST_BATCH_MAX)
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again
     def _kept(self, line: dict) -> dict:
@@ -386,7 +394,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
 
     def _worst(self, model: str, parts: dict, max_tokens: int) -> float:
         """The worst case the run is charged for a request: the Claude estimate, and 0.0 on the local engine (it costs nothing)."""
-        return 0.0 if self.local is not None else app_worst_usd(model, parts, max_tokens)
+        return (
+            0.0 if self.local is not None else app_worst_usd(model, parts, max_tokens)
+        )
 
     @contextlib.contextmanager
     def charged_scope(self):
@@ -419,8 +429,15 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
 
     # ---- the second opinion (agent_run_second.ask_second_opinion through the same lane and the step gate)
     def second_opinion(self, item_id: str, ai_verdict: str, answer: Mapping) -> dict:
-        if self.local is not None:  # never Claude here; the local second reader is the staged step after the first (run_two_readers)
-            return {"agree": None, "model": agent_run_second.UNKNOWN, "usd": 0.0, "reason": "second reader runs after the first"}
+        if (
+            self.local is not None
+        ):  # never Claude here; the local second reader is the staged step after the first (run_two_readers)
+            return {
+                "agree": None,
+                "model": agent_run_second.UNKNOWN,
+                "usd": 0.0,
+                "reason": "second reader runs after the first",
+            }
         finding = {
             "item": item_id,
             "color": verdict.COLOUR_OF[ai_verdict],
@@ -691,7 +708,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             claude_auto_approve.on_agent_standards(
                 self.paper, [i.get("standard_document_id") for i in self.items]
             )  # #1584 comment 6806441133 (to be confirmed by the owner): the books this run asks rules from are approved with the paper (off: nothing)
-            self.gate = AppStepGate(app_cap(), claude_spend.step_spent(agent_claude.STEP))
+            self.gate = AppStepGate(
+                app_cap(), claude_spend.step_spent(agent_claude.STEP)
+            )
         else:  # a local run approves nothing for Claude, reserves nothing and reads no ledger
             self.gate = AppStepGate(float("inf"), 0.0)
         todo = self.todo()

@@ -28,8 +28,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from . import agent_claude, agent_run_second
-from . import agent_review_local as local_mod
 from . import agent_review_crs as crs_lines
+from . import agent_review_local as local_mod
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_two_reader as two
 from . import agent_review_verdict as verdict

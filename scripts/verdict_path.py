@@ -63,7 +63,6 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
-    (APP + "agent_review_local.py", "the local seam of the AI reviewer: which model answers, the staging, USD 0"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
     (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
@@ -140,6 +139,8 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_review_job_facts.py": "pure helpers moved out of the job file (stop sentence, equipment facts); decides nothing",
+    "agent_review_local.py": "the local transport seam of the AI reviewer; every verdict rule it feeds is the Claude path's own (a FULL review still applies: rule 14b)",
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",

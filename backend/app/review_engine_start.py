@@ -126,7 +126,9 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
     ):
         _note(conn, run_id, f"not started: {ai['why']}")
         return None
-    on_local = ai["engine"] == review_engine.ON_LOCAL  # a local AI review is barred from Claude for its whole length
+    on_local = (
+        ai["engine"] == review_engine.ON_LOCAL
+    )  # a local AI review is barred from Claude for its whole length
     plan = got["plan"]
     general = agent_review_gate.general_kind_enabled(again.get("kind"))
     projects = tuple(plan.get("project_document_ids") or ()) if general else None

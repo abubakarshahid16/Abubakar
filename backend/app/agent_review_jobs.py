@@ -56,6 +56,11 @@ from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
 from . import crs_ai_header as crs_header
+from .agent_review_job_facts import (  # noqa: F401
+    EQUIPMENT_LINES,
+    _equipment_facts,
+    _stop_text,
+)
 from .agent_review_page_record import (  # noqa: F401 - moved unchanged, re-exported
     _requeue_switched_off,
     _with_page_record,
@@ -91,13 +96,6 @@ ACTIVE_RUN = review_jobs.ACTIVE_RUN
 #: Rules that are not AI approved are NOT asked in the app (lead decision, 11 Nov 2026 night): "measured 11 Nov: no key row
 #: gained, more wrong opinions". The cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
 ASK_UNAPPROVED = "off"
-
-EQUIPMENT_LINES = (
-    "another equipment type",
-    "the paper names no equipment",
-    "the paper names equipment the equipment list does not know",
-    "the paper's equipment could not be read",
-)
 
 
 class _Cancelled(Exception):
@@ -280,14 +278,6 @@ def lane() -> tuple:
     return None, None
 
 
-def local_run(run_id: str) -> bool:
-    """True when this run's stored plan puts the AI review on the LOCAL model and the switch is on (`agent_review_local`). A run with
-    no stored plan (the older routes), a plan on Claude, or the switch off is a Claude-path run, exactly as before."""
-    if not local_mod.switch_on():
-        return False
-    return review_engine.ai_review_engine(connect(), run_id) == review_engine.ON_LOCAL
-
-
 def _document_name(submittal: str) -> str:
     row = (
         connect()
@@ -392,8 +382,11 @@ def preflight(
             "SELECT 1 FROM pages WHERE document_id = ? LIMIT 1", (d,)
         ).fetchone():
             return "a rule book of the item list has no stored pages (the context check needs them)"
-    if not local and not agent_run_second.models_differ(
-        [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
+    if (
+        not local
+        and not agent_run_second.models_differ(
+            [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
+        )
     ):  # a local run checks its two models at the engine (`LocalEngine.second_ready`): the second reader is never asked if they match
         return "the lead and the second model are of the same family"
     return None
@@ -417,7 +410,7 @@ def _plan(
             conn, submittal, why, f"{agent_review_gate.KIND_NOT_ENABLED}: {why}"
         )
     scope_run = _scope_run_id(conn, submittal, run_id, scope, heartbeat)
-    local = local_run(run_id)
+    local = local_mod.local_run(run_id)
     if not local:  # a local run approves nothing for Claude
         claude_auto_approve.on_review_start(
             scope_run
@@ -475,7 +468,9 @@ def _make_runner(
     folder.mkdir(parents=True, exist_ok=True)
     done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error")}
     answers = None
-    if local is None and reuse_mod.enabled():  # point E (a local run stores and reuses no Claude answers): off = no table, no read, no write
+    if (
+        local is None and reuse_mod.enabled()
+    ):  # point E (a local run stores and reuses no Claude answers): off = no table, no read, no write
         conn = connect()
         reuse_mod.ensure_tables(conn)
         answers = reuse_mod.AnswerStore(
@@ -511,13 +506,11 @@ def _ask(
         log.warning(
             "agent review: no checklist data found; no line can be a checklist line"
         )
-    local = (
-        local_mod.LocalEngine(*local_mod.models_from_settings())
-        if local_run(run_id)
-        else None
-    )
+    local = local_mod.engine_for(run_id)  # None = the Claude path
     runner = holder["runner"] = _make_runner(run_id, submittal, kind, plan, local)
-    if local is not None:  # nothing here reaches Claude: no approval list, no spend context, no ledger line; one big model at a time
+    if (
+        local is not None
+    ):  # nothing here reaches Claude: no approval list, no spend, no ledger; one big model at a time
         try:
             with local.session():
                 runner.run()
@@ -542,34 +535,10 @@ def _ask(
         raise
 
 
-def _stop_text(runner, plan: dict) -> str | None:
-    if runner is not None and runner.stopped:
-        same = not runner.stop_text or runner.stop_text == runner.stopped
-        return runner.stopped if same else f"{runner.stopped}: {runner.stop_text}"
-    return plan.get("stop")
-
-
 def _header_facts(submittal: str, equipment_type: str | None) -> dict:
     """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
     with connect() as conn:
         return crs_header.document_header(conn, submittal, equipment_type)
-
-
-def _equipment_facts(block: dict) -> dict:
-    """What the paper's equipment state means for the rules: the state word, and the summary sentences about equipment (counts
-    only, no document text) that the summary and Rules used routes show."""
-    eq = block.get("equipment") or {}
-    notes = [
-        ln
-        for ln in block.get("summary_lines") or []
-        if str(ln).startswith(EQUIPMENT_LINES)
-    ]
-    return {
-        "state": eq.get("paper_equipment_state"),
-        "types": eq.get("paper_types") or [],
-        "notes": notes,
-        "candidates": block.get("candidates"),
-    }
 
 
 def _finish(
@@ -756,7 +725,7 @@ def _rules_then_general(
     ):  # only a stop AFTER spending (a cap) skips the general parts
         general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
                                   name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
-                                  combined=True, refuse=local_mod.GENERAL_REFUSED if local_run(run_id) else None)  # fmt: skip
+                                  combined=True, refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
         result = general_job.merge_results(result, general)
     else:
         general_job.note_skipped(run_id, result["stop_reason"])
@@ -804,7 +773,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat,
-                                     refuse=local_mod.GENERAL_REFUSED if local_run(run_id) else None)  # fmt: skip
+                                     refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
             agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)

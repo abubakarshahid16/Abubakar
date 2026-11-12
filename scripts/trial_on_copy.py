@@ -1178,13 +1178,21 @@ def engine_follow(
     checks.append(Check("rule check completed", final == "completed", final))
     follow = None
     deadline = time.time() + cfg.timeout
-    while time.time() < deadline:  # "local" too: with AGENT_REVIEW_LOCAL_ENGINE_ENABLED on its plan runs the AI review locally
+    while (
+        time.time() < deadline
+    ):  # "local" too: with AGENT_REVIEW_LOCAL_ENGINE_ENABLED on its plan runs the AI review locally
         conn = ro(db)
         try:
             row = conn.execute(
                 "SELECT followed_by, then_ai FROM review_engine_choice WHERE run_id = ?",
                 (first,),
             ).fetchone()
+        except (
+            sqlite3.OperationalError
+        ):  # no choice table: nothing was started from the one button
+            row = None
+            if cfg.engine == "local":
+                break
         finally:
             conn.close()
         if row is not None and not row["then_ai"]:
@@ -1219,10 +1227,14 @@ def engine_follow(
             )
         finally:
             conn.close()
-        if follow is None:  # the switch is off: Local only runs the rule check, as before
+        if (
+            follow is None
+        ):  # the switch is off: Local only runs the rule check, as before
             checks.append(Check("no AI review ran (Local only)", not ai))
         else:  # the switch is on: the AI review ran on the local model, and still not one Claude call (the check above)
-            checks.append(Check("the AI review ran on the local model (switch on)", bool(ai)))
+            checks.append(
+                Check("the AI review ran on the local model (switch on)", bool(ai))
+            )
     return follow, checks
 
 

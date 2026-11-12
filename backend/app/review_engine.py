@@ -54,9 +54,11 @@ BARRED_WORDS = (
 AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
-AI_ON_LOCAL = "the AI review reads the paper on the local model: nothing leaves this computer"
+AI_ON_LOCAL = (
+    "the AI review reads the paper on the local model: nothing leaves this computer"
+)
 #: Honest time words: nothing has been measured on this install, so the number is a labelled guess (rule 4).
-LOCAL_SECONDS_GUESS_PER_REQUEST = 60
+
 NEEDS_YES = "needs the owner's yes for this upload"
 CHECKLISTS_EMPTY = (
     ("contract checklist", "empty; an engineer must write it"),
@@ -282,7 +284,9 @@ def decide(choice: str, f: Facts) -> Plan:
         ai = Part(AI_REVIEW, ON_CLAUDE, "the AI review reads the paper on Claude")
     elif choice == AUTOMATIC and _local_ai_ok(f):
         # Claude is not allowed for this paper: the local model reads it (said with the reason), never a silent Claude call
-        ai = Part(AI_REVIEW, ON_LOCAL, f"{AI_ON_LOCAL} (Claude is not used: {blocker[1]})")
+        ai = Part(
+            AI_REVIEW, ON_LOCAL, f"{AI_ON_LOCAL} (Claude is not used: {blocker[1]})"
+        )
     else:
         ai = Part(AI_REVIEW, NOT_RUN, blocker[1])
     plan.parts = [rc, ai]
@@ -519,43 +523,15 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
     }
     if plan.part(AI_REVIEW).engine == ON_LOCAL:
         out["cost"]["local_usd"] = 0.0
-        out["cost"]["local_basis"] = "the AI review on the local model costs USD 0: no Claude call, no spend line"
-        out["time"] = _local_time(conn, document_id)
+        out["cost"]["local_basis"] = (
+            "the AI review on the local model costs USD 0: no Claude call, no spend line"
+        )
+        from .agent_review_local import local_time
+
+        out["time"] = local_time(conn, document_id)
     out["notes"] = _notes(facts, plan, settings)
     out["sentence"] = sentence_of(out)
     return out
-
-
-def _local_time(conn, document_id: str) -> dict:
-    """The time of the AI review on the local model, in honest words: the number of requests from the rules the paper's last AI review
-    asked (None when there is none), and a labelled GUESS of the minutes (nothing is measured on this install yet; CLAUDE.md rule 4)."""
-    try:
-        row = conn.execute(
-            "SELECT a.items_total FROM agent_review_run a JOIN review_runs r ON r.id = a.run_id"
-            " WHERE r.submittal_document_id = ? AND a.items_total IS NOT NULL ORDER BY r.started_at DESC LIMIT 1",
-            (document_id,),
-        ).fetchone()
-    except sqlite3.Error:
-        row = None
-    from . import agent_review_local as local
-
-    if row is None or not row["items_total"]:
-        return {
-            "requests": None,
-            "minutes_guess": None,
-            "basis": "the rules to ask are chosen when the review starts, so the time is not known yet; each request to the local model is one"
-            " at a time and the review needs a few minutes for every ten rules or more (a guess, not measured on this install)",
-        }
-    n = int(row["items_total"])
-    first = -(-n // local.FIRST_BATCH_MAX)
-    second = -(-n // (2 * local.SECOND_BATCH_MAX))  # at most about half the lines are asked a second time
-    requests = first + second
-    return {
-        "requests": requests,
-        "minutes_guess": round(requests * LOCAL_SECONDS_GUESS_PER_REQUEST / 60),
-        "basis": f"up to about {requests} requests to the local model, one at a time, if the same {n} rules are asked again; the minutes are a"
-        f" guess of {LOCAL_SECONDS_GUESS_PER_REQUEST} seconds a request, not measured on this install",
-    }
 
 
 def sentence_of(plan: dict) -> str:
@@ -761,88 +737,12 @@ def note_on_run(job_id, why: str) -> None:
         log.warning("review engine: the note was not written (%s)", type(exc).__name__)
 
 
-def claude_steps_from_ledger(run_id: str) -> list[str]:
-    """The steps of this run that reached Claude (a ledger line under its id, not a refusal). Step names only."""
-    from . import claude_spend
-
-    return sorted(
-        {
-            str(e.get("step") or "")
-            for e in claude_spend.entries()
-            if e.get("run") == run_id and not e.get("refused")
-        }
-        - {""}
-    )
-
-
-def save_ran(run_id: str | None) -> None:
-    """At the END of a run, save what it really did: the steps that reached Claude. The sheet header reads this stored fact, so an
-    export made later says what the first one said. Never raises."""
-    from .db import connect
-
-    if not run_id:
-        return
-    try:
-        steps = claude_steps_from_ledger(run_id)
-        conn = connect()
-        got = conn.execute(
-            "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
-        ).fetchone()
-        if got is None:
-            return
-        outcome = json.loads(got["outcome_json"] or "{}")
-        outcome["engine_ran"] = {"claude_steps": steps}
-        with conn:
-            conn.execute(
-                "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
-                (json.dumps(outcome), run_id),
-            )
-    except (OSError, ValueError, sqlite3.Error) as exc:
-        log.warning(
-            "review engine: what the run did was not saved (%s)", type(exc).__name__
-        )
-
-
-def ran_steps(run_id: str) -> list[str]:
-    """The Claude steps of a finished run: the SAVED fact when there is one, else (an older or unfinished run) the ledger's."""
-    from .db import connect
-
-    try:
-        got = (
-            connect()
-            .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
-            .fetchone()
-        )
-        saved = json.loads((got["outcome_json"] if got else None) or "{}").get(
-            "engine_ran"
-        )
-    except (sqlite3.Error, ValueError):
-        saved = None
-    if isinstance(saved, dict) and isinstance(saved.get("claude_steps"), list):
-        return [str(x) for x in saved["claude_steps"]]
-    return claude_steps_from_ledger(run_id)
-
-
-def note_web_check_skipped(run_id: str) -> None:
-    """The run was kept on this computer, so its public web check did not run: say so on the run. Best effort; never raises."""
-    from . import absence
-    from .db import connect
-
-    status = absence.check_failed_status(
-        "Web standards check",
-        "this review was kept on this computer, so nothing was sent out",
-    )
-    try:
-        conn = connect()
-        with conn:
-            conn.execute(
-                "UPDATE review_runs SET web_check_status = ? WHERE id = ?",
-                (json.dumps(status), run_id),
-            )
-    except sqlite3.Error as exc:
-        log.warning(
-            "review engine: the web check note was not written (%s)", type(exc).__name__
-        )
+from .review_engine_ran import (  # noqa: E402,F401 - moved unchanged, re-exported
+    claude_steps_from_ledger,
+    note_web_check_skipped,
+    ran_steps,
+    save_ran,
+)
 
 
 def honouring_choice(job):
