@@ -168,6 +168,17 @@ describe("RulesUsedView: equipment notes and new reasons", () => {
   });
 });
 
+describe("RulesUsedView: a rule left out for a part the paper's equipment does not have", () => {
+  it("shows the part reason in its contract word in the counts and on the row", () => {
+    render(<RulesUsedView data={data({
+      left_out: [{ rule_book: "Book A", clause: "5.5", reason: "a part the paper's equipment does not have" }],
+      left_out_counts: { "a part the paper's equipment does not have": 4 },
+    })} />);
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("a part the paper's equipment does not have: 4");
+    expect(screen.getByText("a part the paper's equipment does not have", { selector: "td" })).toBeInTheDocument();
+  });
+});
+
 describe("RulesUsedView: where the rules came from", () => {
   it("says the source, the repeats, and the other-book count with its boundary", () => {
     render(<RulesUsedView data={data({

@@ -9,10 +9,11 @@ removed, each with its own true reason. A missing equipment table or label is "e
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from . import rule_equipment
@@ -24,6 +25,8 @@ NOT_IN_LIST = (
 )
 UNREADABLE = "paper_equipment_unreadable"  # the app's reader could not decide what the paper is about
 PAPER_EQUIPMENT_REASONS = (NO_EQUIPMENT, NOT_IN_LIST, UNREADABLE)
+#: a rule about a part (the label's `equip_part`) that the paper's own facts and pages show its equipment does not have
+PART_ABSENT = "part_not_on_paper"
 
 # ---- the equipment filter: only ever REMOVES rules ------------------------------------------------------------------------
 
@@ -51,6 +54,9 @@ class PaperEquipment:
     core_types: frozenset[str] = (
         frozenset()
     )  # the paper's own types WITHOUT the `related` data (rules only use `related`)
+    #: related type id -> the approved label fields whose rules are kept (None: every rule of that type). Types that are
+    #: the paper's own are never in it.
+    related_fields: Mapping[str, frozenset[str] | None] = field(default_factory=dict)
 
     @property
     def usable(self) -> bool:
@@ -58,13 +64,26 @@ class PaperEquipment:
 
 
 @dataclass(frozen=True)
+class PaperEvidence:
+    """What code can read about one paper's parts: per part-stating role the stored facts (value, label and quote text), whether
+    every such fact is complete and trusted, and the words on the paper's stored pages. Words only, never shown."""
+
+    role_words: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    role_complete: Mapping[str, bool] = field(default_factory=dict)
+    page_words: frozenset[str] = frozenset()
+    pages_readable: bool = False
+
+
+@dataclass(frozen=True)
 class EquipmentCtx:
-    """Everything the filter needs for one paper: its equipment, the taxonomy, the mapping and the mode."""
+    """Everything the filter needs for one paper: its equipment, the taxonomy, the mapping and the mode. `evidence` (the
+    paper's facts and page words) is optional: without it no rule is left out for a part."""
 
     eq: PaperEquipment
     tax: rule_equipment.Taxonomy
     mapping: Mapping
     mode: str = "type"
+    evidence: PaperEvidence | None = None
 
 
 def paper_equipment(
@@ -102,9 +121,24 @@ def paper_equipment(
             ):
                 types.add(tid)
     related_map = mapping.get("related") or {}
-    related = {
-        r for t in list(types) for r in related_map.get(t, []) if r in tax.type_family
-    }
+    related: set[str] = set()
+    only: dict[str, frozenset[str] | None] = {}
+    core = tax.expand(types)
+    for t in list(types):
+        entry = related_map.get(t) or []
+        # a list names types whose every rule counts; a {type: [fields]} object names the fields whose rules count
+        wanted = dict.fromkeys(entry) if isinstance(entry, list) else dict(entry)
+        for r, fields in wanted.items():
+            if r not in tax.type_family:
+                continue
+            related.add(r)
+            for stands_for in tax.expand({r}) - core:
+                if only.get(stands_for, frozenset()) is None or fields is None:
+                    only[stands_for] = None
+                else:
+                    only[stands_for] = only.get(stands_for, frozenset()) | frozenset(
+                        fields
+                    )
     every = types | related
     state = (
         "read"
@@ -117,17 +151,46 @@ def paper_equipment(
         bool(found),
         tuple(sorted(found)),
         state,
-        frozenset(tax.expand(types)),
+        frozenset(core),
+        only,
     )
 
 
+def _related_only_blocks(
+    eq: PaperEquipment,
+    tax: rule_equipment.Taxonomy,
+    rtype: str | None,
+    rfam: str | None,
+    rule_field: str | None,
+) -> bool:
+    """True when the rule's type (or, with no type, its family) is in the paper's equipment ONLY through the `related` data and
+    that data names fields the rule's approved label field is not among. A rule with no field is not named, so it is blocked
+    too (the data line is an allow-list). The paper's own types and families are never gated."""
+    if rtype:
+        if rtype in eq.core_types or rtype not in eq.related_fields:
+            return False
+        allowed = eq.related_fields[rtype]
+        return allowed is not None and rule_field not in allowed
+    if not rfam or rfam in {tax.type_family.get(t) for t in eq.core_types}:
+        return False
+    ours = [v for t, v in eq.related_fields.items() if tax.type_family.get(t) == rfam]
+    if not ours or any(v is None for v in ours):
+        return False
+    return rule_field not in frozenset().union(*ours)
+
+
 def equipment_decision(
-    label: Mapping, eq: PaperEquipment, tax: rule_equipment.Taxonomy, mode: str = "type"
+    label: Mapping,
+    eq: PaperEquipment,
+    tax: rule_equipment.Taxonomy,
+    mode: str = "type",
+    rule_field: str | None = None,
 ) -> tuple[bool, str, str | None]:
     """(keep, reason, family left out). A rule is left out ONLY when its equipment label is `agreed` and names another type
     (mode "family": another FAMILY; a sibling type of the paper's family is asked). Kept: general, same_equipment,
-    equipment_not_known (the label is not agreed, or names nothing: no ground to remove it). Removed: another_equipment_type;
-    paper_names_no_equipment (the paper names no usable equipment: every rule that names a type or a family goes)."""
+    equipment_not_known (the label is not agreed, or names nothing: no ground to remove it). Removed: another_equipment_type
+    (also a related type's rule whose field the data line does not name); paper_names_no_equipment (the paper names no usable
+    equipment: every rule that names a type or a family goes). `rule_field` is the rule's approved label field."""
     if str(label.get("equip_state") or "") != rule_equipment.AGREED:
         return True, "equipment_not_known", None
     if int(label.get("equip_general") or 0) == 1:
@@ -142,26 +205,105 @@ def equipment_decision(
             eq.state, NO_EQUIPMENT
         )
         return False, reason, rfam or tax.type_family.get(rtype or "")
+    fam_of_rule = rfam or tax.type_family.get(rtype or "")
     if mode == "family":
-        fam = rfam or tax.type_family.get(rtype or "")
-        if fam is None:
+        if fam_of_rule is None:
             return True, "equipment_not_known", None
-        return (
-            (True, "same_equipment", None)
-            if fam in eq.families
-            else (False, ANOTHER_EQUIPMENT, fam)
-        )
+        if fam_of_rule not in eq.families:
+            return False, ANOTHER_EQUIPMENT, fam_of_rule
+        if _related_only_blocks(eq, tax, None, fam_of_rule, rule_field):
+            return False, ANOTHER_EQUIPMENT, fam_of_rule
+        return True, "same_equipment", None
     if rtype:
-        if rtype in eq.types:
-            return True, "same_equipment", None
-        return False, ANOTHER_EQUIPMENT, rfam or tax.type_family.get(rtype)
+        if rtype not in eq.types or _related_only_blocks(
+            eq, tax, rtype, None, rule_field
+        ):
+            return False, ANOTHER_EQUIPMENT, fam_of_rule
+        return True, "same_equipment", None
     if rfam:
-        return (
-            (True, "same_equipment", None)
-            if rfam in eq.families
-            else (False, ANOTHER_EQUIPMENT, rfam)
-        )
+        if rfam not in eq.families or _related_only_blocks(
+            eq, tax, None, rfam, rule_field
+        ):
+            return False, ANOTHER_EQUIPMENT, rfam
+        return True, "same_equipment", None
     return True, "equipment_not_known", None
+
+
+# ---- a part the paper's equipment does not have (only facts code can read; in doubt the rule is asked) ---------------------
+
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _words(*texts: Any) -> frozenset[str]:
+    return frozenset(w for t in texts for w in _WORD.findall(str(t or "").lower()))
+
+
+def load_evidence(
+    conn: sqlite3.Connection, document_id: str, mapping: Mapping
+) -> PaperEvidence | None:
+    """The paper's stored facts of the roles the data line `part_roles` names, and the words of its stored pages. None when
+    the data names no role, a table is missing, or anything cannot be read (then no rule is left out for a part)."""
+    roles = {str(r) for r in (mapping.get("part_roles") or [])}
+    if not roles:
+        return None
+    from . import datasheet_checks
+    from .datasheets import normalise_field_name
+
+    rules = datasheet_checks.load_rules()
+    words: dict[str, set[str]] = {r: set() for r in roles}
+    complete: dict[str, bool] = dict.fromkeys(roles, True)
+    seen: set[str] = set()
+    try:
+        facts = conn.execute(
+            "SELECT field_name, field_label, field_value, source_text, is_blank "
+            "FROM submittal_facts WHERE submittal_document_id = ? AND superseded_at IS NULL",
+            (document_id,),
+        ).fetchall()
+        pages = conn.execute(
+            "SELECT text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    for f in facts:
+        role = datasheet_checks.role_of(normalise_field_name(f[1] or f[0] or ""), rules)
+        if role not in roles:
+            continue
+        seen.add(role)
+        words[role] |= _words(f[0], f[1], f[2], f[3])
+        # a value code reads with a stored quote counts even when its geometry check disagrees: the NEGATIVE proof rests on the
+        # words of the stored pages (below), which no reader's value can hide
+        if f[4] or not str(f[2] or "").strip() or not str(f[3] or "").strip():
+            complete[role] = False
+    texts = [str(p[0] or "") for p in pages]
+    return PaperEvidence(
+        {r: frozenset(w) for r, w in words.items() if r in seen},
+        {r: complete[r] for r in seen},
+        _words(*texts),
+        bool(texts) and all(t.strip() for t in texts),
+    )
+
+
+def part_absent(label: Mapping, rule_field: str | None, ctx: EquipmentCtx) -> bool:
+    """True only when ALL hold: the rule's approved equipment label names a part; its approved field is one the data line
+    `part_roles` says states a sheet's parts; the paper holds at least one stored fact of that field and every one is a
+    non-blank value with a quote; every page of the paper has stored text; and no word of the part (or of an alias the data line
+    `part_aliases` gives it) is in any such fact or on any page. Anything less is doubt: the rule is asked."""
+    ev = ctx.evidence
+    part = str(label.get("equip_part") or "")
+    if ev is None or not part or not rule_field:
+        return False
+    if rule_field not in {str(r) for r in (ctx.mapping.get("part_roles") or [])}:
+        return False
+    if str(label.get("equip_state") or "") != rule_equipment.AGREED:
+        return False
+    if not ev.pages_readable or not ev.role_complete.get(rule_field):
+        return False
+    aliases = (ctx.mapping.get("part_aliases") or {}).get(part) or []
+    wanted = _words(part.replace("_", " "), *aliases)
+    return bool(wanted) and not (
+        wanted & ev.role_words.get(rule_field, frozenset()) or wanted & ev.page_words
+    )
 
 
 def load_equipment(
@@ -174,7 +316,11 @@ def load_equipment(
         return None
     tax, mapping = rule_equipment.Taxonomy.load(), rule_equipment.load_mapping()
     return EquipmentCtx(
-        paper_equipment(conn, document_id, tax, mapping), tax, mapping, m
+        paper_equipment(conn, document_id, tax, mapping),
+        tax,
+        mapping,
+        m,
+        load_evidence(conn, document_id, mapping),
     )
 
 

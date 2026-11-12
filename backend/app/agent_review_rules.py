@@ -29,6 +29,7 @@ from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment 
     NO_EQUIPMENT,
     NOT_IN_LIST,
     PAPER_EQUIPMENT_REASONS,
+    PART_ABSENT,
     UNREADABLE,
     EquipmentCtx,
     PaperEquipment,
@@ -36,8 +37,10 @@ from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment 
     equipment_decision,
     equipment_skill_fits,
     load_equipment,
+    load_evidence,
     norm_mode,
     paper_equipment,
+    part_absent,
 )
 from .agent_review_verdict import RULE_NOT_APPROVED, TIER_NOT_APPROVED
 
@@ -54,6 +57,7 @@ REASONS = (
     KIND_UNKNOWN,
     ANOTHER_EQUIPMENT,
     *PAPER_EQUIPMENT_REASONS,
+    PART_ABSENT,
 )
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
@@ -65,6 +69,7 @@ REASON_WORDS = {
     NO_EQUIPMENT: "the paper names no equipment",
     NOT_IN_LIST: "the paper names equipment the equipment list does not know",
     UNREADABLE: "the paper's equipment could not be read",
+    PART_ABSENT: "a part the paper's equipment does not have",
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = ("off", "both")
@@ -210,11 +215,19 @@ def decide_rule(
         for k in ("equip_family", "equip_type", "equip_state", "equip_general")
     }
     keep, why, family = equipment_decision(
-        label, equipment.eq, equipment.tax, equipment.mode
+        label, equipment.eq, equipment.tax, equipment.mode, out.get("field")
     )
     out["equipment_why"] = why
     if not keep:
         out.update(ask=False, reason=why, tier=None, equipment_family=family)
+    elif part_absent(label, out.get("field"), equipment):
+        out.update(
+            ask=False,
+            reason=PART_ABSENT,
+            tier=None,
+            equipment_family=label.get("equip_family"),
+        )
+        out["equipment_why"] = PART_ABSENT
     return out
 
 
@@ -381,6 +394,11 @@ def summary_lines(
                     else ""
                 )
             )
+    if counts.get(PART_ABSENT):
+        lines.append(
+            f"a part the paper's equipment does not have: {counts[PART_ABSENT]} rules not asked"
+            " (the paper's own facts and pages do not name the part)"
+        )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"
         for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED)

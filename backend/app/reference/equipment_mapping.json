@@ -1,5 +1,5 @@
 {
- "about": "the app's equipment names mapped to taxonomy type ids by name; edit freely",
+ "about": "the app's equipment names mapped to taxonomy type ids by name; edit freely. related: a type is also read against another type, either a list of types (all their rules) or {type: [fields]} (only their rules whose approved label field is listed). part_roles: roles whose value on a sheet states which optional parts the equipment has; part_aliases: other words a sheet uses for a part",
  "map": {
   "steam turbine": "steam_turbine",
   "gas turbine": "gas_turbine",
@@ -30,8 +30,19 @@
   "nozzle"
  ],
  "related": {
-  "relief_valve": [
-   "pressure_vessel"
+  "relief_valve": {
+   "pressure_vessel": [
+    "overpressure",
+    "set_pressure"
+   ]
+  }
+ },
+ "part_roles": [
+  "valve_type"
+ ],
+ "part_aliases": {
+  "pilot": [
+   "posrv"
   ]
  }
 }

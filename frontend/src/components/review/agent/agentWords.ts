@@ -84,7 +84,7 @@ export const CLASS_STYLE: Record<AgentVerdictClass, { mark: string; border: stri
 export const LEFT_OUT_REASONS: readonly AgentLeftOutReason[] = [
   "needs another paper", "needs a human", "quote not found", "not labelled yet", "another equipment type",
   "rule book not held", "the paper names no equipment", "the paper names equipment the equipment list does not know",
-  "the paper's equipment could not be read",
+  "the paper's equipment could not be read", "a part the paper's equipment does not have",
 ];
 export const TIERS: readonly AgentRuleTier[] = ["AI approved", "Engineer", "Owner", "Not AI approved"];
 
