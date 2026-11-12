@@ -565,3 +565,16 @@ integer setting `REVIEW_CODE_RESUBMIT_AT_KEPT_MANDATORY_NOT_MET` (default 0 = of
 rules; with points undecided the line reads "So far: <code>, N points still to decide"; Manual Review Required is only for unread pages.
 Rule-check points show a passage only when code finds it in the stored text of the cited page.
 
+
+## 13. The redesigned review page: the screen (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
+
+`GET /api/reviews/page-v2` says whether it is on (the page reads it once; unreadable = off, the old page stays). On, `ReviewWorkspace`
+draws `components/review/v2/ReviewPageV2` in place of its header, bar and tabs: the header (the paper, the kind line with who decided and
+Change), ONE engine choice (Automatic default, Claude, Local only) and ONE Review button with the engine line (`GET /api/reviews/plan`),
+the review code box (proposed code, one line of reason, "x of N decided", recording the final code), four filter tiles, rule book chips,
+the rule books not held, three tabs (Points, CRS sheet, How it was reviewed), the list of points (Keep / Edit / Remove, grouped questions,
+two quote boxes with only verified text, View page), Add a point, and the bottom row (Sign and issue is greyed with its reason). Today's
+sheet, CRS preview and replies sit under "CRS sheet"; today's Details under "How it was reviewed" (each part is read when opened). The sign
+flow is the workspace's own (`useSignOff` and the confirm step); the contractor copy of the rule check is still made only by it (the app's
+one issuing path), the page's "CRS for the contractor" button downloads the AI review's contractor copy. The points routes answer 404
+`feature_off` while the switch is off.

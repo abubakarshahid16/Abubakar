@@ -36,8 +36,17 @@ from ..api_utils import (
     reject_unknown_params,
     require_document,
 )
+from ..config import settings
+
+
+def _require_on() -> None:
+    """The redesigned page's routes answer 404 `feature_off` while `REVIEW_PAGE_V2_ENABLED` is off (nothing is read or written)."""
+    if not settings.review_page_v2_enabled:
+        raise HTTPException(status_code=404, detail="feature_off")
+
 
 router = APIRouter()
+ON = [Depends(_require_on)]
 
 
 class DecisionRequest(BaseModel):
@@ -120,7 +129,18 @@ def _decide(listing: dict, paper_id: str, body: DecisionRequest, actor: str) -> 
         ) from exc
 
 
-@router.get("/api/reviews/papers/{document_id}/points", response_model=dict)
+@router.get("/api/reviews/page-v2", response_model=dict)
+def page_v2_status(
+    request: Request, _scope: access.AccessScope = Depends(access.current_scope)
+):
+    """{enabled}: whether the redesigned review page is switched on. An answer, never an error, either way."""
+    reject_unknown_params(request, set())
+    return {"enabled": bool(settings.review_page_v2_enabled)}
+
+
+@router.get(
+    "/api/reviews/papers/{document_id}/points", response_model=dict, dependencies=ON
+)
 def points(
     document_id: str,
     request: Request,
@@ -131,7 +151,11 @@ def points(
     return svc.assemble(document_id, scope)
 
 
-@router.post("/api/reviews/papers/{document_id}/points/decision", response_model=dict)
+@router.post(
+    "/api/reviews/papers/{document_id}/points/decision",
+    response_model=dict,
+    dependencies=ON,
+)
 def decide_point(
     document_id: str,
     body: DecisionRequest,
@@ -146,7 +170,11 @@ def decide_point(
     return svc.assemble(document_id, scope)
 
 
-@router.post("/api/reviews/papers/{document_id}/points/decisions", response_model=dict)
+@router.post(
+    "/api/reviews/papers/{document_id}/points/decisions",
+    response_model=dict,
+    dependencies=ON,
+)
 def keep_points(
     document_id: str,
     body: BulkKeepRequest,
@@ -169,7 +197,9 @@ def keep_points(
     return svc.assemble(document_id, scope)
 
 
-@router.post("/api/reviews/papers/{document_id}/points/add", response_model=dict)
+@router.post(
+    "/api/reviews/papers/{document_id}/points/add", response_model=dict, dependencies=ON
+)
 def add_point(
     document_id: str,
     body: AddPointRequest,
