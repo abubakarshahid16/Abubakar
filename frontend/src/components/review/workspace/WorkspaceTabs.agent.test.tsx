@@ -3,7 +3,7 @@
  * MUTATION PROOF: draw them regardless of `agentTabs` and the first test
  * fails; leave them out of the detailed strip when on and the second fails.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { WorkspaceTabs } from "./WorkspaceTabs";
@@ -26,6 +26,14 @@ describe("agent tabs", () => {
     render(<WorkspaceTabs tab="rules" mode="simple" onTab={() => {}} agentTabs />);
     expect(screen.getByRole("tab", { name: "Rules used" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "AI review" })).toBeInTheDocument();
+  });
+  it("U2, Simple view: AI review is a top-level tab; Rules used stays under Details", () => {
+    render(<WorkspaceTabs tab="sheet" mode="simple" onTab={() => {}} agentTabs />);
+    expect(within(screen.getByRole("tablist", { name: "Review sections" })).getByRole("tab", { name: "AI review" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Rules used" })).toBeNull();
+    render(<WorkspaceTabs tab="rules" mode="simple" onTab={() => {}} agentTabs />);
+    expect(within(screen.getByTestId("ws-details-row")).getByRole("tab", { name: "Rules used" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("ws-details-row")).queryByRole("tab", { name: "AI review" })).toBeNull();
   });
   it("the addresses of the two tabs are understood", () => {
     expect(parseWorkspaceQuery("?tab=rules").tab).toBe("rules");

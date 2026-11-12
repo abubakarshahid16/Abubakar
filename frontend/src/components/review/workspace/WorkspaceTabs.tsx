@@ -8,7 +8,7 @@
  * address keeps the place.
  *
  * v2.2: in Simple view the strip shows "Comment sheet", "CRS preview and
- * replies" and one "Details" tab. Details holds the engineer tabs in a
+ * replies", "AI review" (when the AI reviewer is on) and one "Details" tab. Details holds the engineer tabs in a
  * second small row (its own tab list, same keys). The Details row is open,
  * and Details selected, exactly when the current tab is one of those, so a
  * link to ?tab=steps opens on the steps tab with the row open. Every tab
@@ -26,7 +26,9 @@ const DETAILS_ID = "ws-tab-details";
 export const SIMPLE_TABS: readonly WorkspaceTab[] = ["sheet", "crs"];
 /** The engineer tabs, under "Details" in Simple view. */
 export const DETAIL_TABS: readonly WorkspaceTab[] = ["how", "findings", "standards", "steps", "numbers"];
-/** The AI reviewer's tabs (#1690): only while its switch is on. */
+/** The AI reviewer's tabs (#1690): only while its switch is on. In Simple
+ *  view "AI review" is a top-level tab (U2); "Rules used" is reached from it
+ *  and from Details. */
 export const AGENT_TABS: readonly WorkspaceTab[] = ["agent", "rules"];
 
 type Slot = WorkspaceTab | "details";
@@ -55,7 +57,7 @@ export function WorkspaceTabs({ tab, onTab, mode = "detailed", agentTabs = false
   // The engineer tab Details goes back to (the last one seen; first "how").
   const lastDetail = useRef<WorkspaceTab>(DETAIL_TABS[0]);
   const simple = mode === "simple";
-  const detailTabs = agentTabs ? [...DETAIL_TABS, ...AGENT_TABS] : DETAIL_TABS;
+  const detailTabs: readonly WorkspaceTab[] = agentTabs ? [...DETAIL_TABS, "rules"] : DETAIL_TABS;
   const allTabs = agentTabs ? WORKSPACE_TABS : WORKSPACE_TABS.filter((t) => !AGENT_TABS.includes(t));
   const inDetails = detailTabs.includes(tab);
   if (inDetails) lastDetail.current = tab;
@@ -65,7 +67,7 @@ export function WorkspaceTabs({ tab, onTab, mode = "detailed", agentTabs = false
     refs.current[slot]?.focus();
   };
 
-  const mainSlots: readonly Slot[] = simple ? [...SIMPLE_TABS, "details"] : allTabs;
+  const mainSlots: readonly Slot[] = simple ? [...SIMPLE_TABS, ...(agentTabs ? ["agent" as const] : []), "details"] : allTabs;
   const mainCurrent: Slot = simple && inDetails ? "details" : tab;
 
   function onKeys(list: readonly Slot[], current: Slot) {

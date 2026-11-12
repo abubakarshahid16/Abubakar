@@ -48,8 +48,9 @@ vi.mock("./numbers", () => ({
 }));
 vi.mock("./ActionBar", () => ({
   // As the real bar: Sign calls signOff.sign(), every other step onAction.
-  ActionBar: ({ steps, onAction, signOff, autosave }: ActionBarProps) => (
+  ActionBar: ({ steps, onAction, signOff, autosave, aiReview }: ActionBarProps) => (
     <div role="region" aria-label="What you need to do">
+      {aiReview && <p data-testid="ws-ai-headline">{`${aiReview.headline} ${aiReview.next}`}</p>}
       {steps.map((s) => (
         <button key={s.id} type="button" disabled={!s.enabled}
           onClick={() => (s.id === "sign" ? void signOff.sign() : onAction(s.id))}>{s.label}</button>
@@ -92,7 +93,11 @@ vi.mock("./standards/MissingStandardsPanel", () => ({
 vi.mock("./crs/CrsTabPanel", () => ({ CrsTabPanel: ({ runId }: { runId: string }) => <p>{`crs page for ${runId}`}</p> }));
 vi.mock("./SheetCountsLine", () => ({ SheetCountsLine: () => <p data-testid="ws-sheet-counts">counts</p> }));
 vi.mock("./SignOffPanel", () => ({
-  SignOffPanel: ({ folded }: { folded?: boolean }) => <div data-testid="ws-sign-off" data-folded={String(Boolean(folded))}>sign-off<div data-testid="sign-pages">tick boxes</div></div>,
+  SignOffPanel: ({ folded, signGuard }: { folded?: boolean; signGuard?: { acked: boolean; onAck: (v: boolean) => void } | null }) => (
+    <div data-testid="ws-sign-off" data-folded={String(Boolean(folded))}>sign-off<div data-testid="sign-pages">tick boxes</div>
+      {signGuard && <label><input type="checkbox" checked={signGuard.acked} onChange={(e) => signGuard.onAck(e.target.checked)} />I have read the AI review&apos;s points</label>}
+    </div>
+  ),
 }));
 /** As the real hook: sign() runs the checks (rawSign) and opens the one
  *  confirm step; nothing here ever issues. */
@@ -150,6 +155,8 @@ vi.mock("./ReviewAgainButton", async (importOriginal) => {
 /** #1690: the AI reviewer's one switch, and stand-ins for its panels. */
 let agentStatus: { enabled: boolean; claude_lane_open: boolean } | null = null;
 vi.mock("../agent/useAgentSwitch", () => ({ useAgentSwitch: () => agentStatus }));
+let overviewNow: import("../agent/useAgentOverview").AgentOverview = { state: "off" };
+vi.mock("../agent/useAgentOverview", () => ({ useAgentOverview: () => overviewNow }));
 vi.mock("../agent/AgentReviewPanel", () => ({ AgentReviewPanel: ({ runId }: { runId: string }) => <p>{`agent page for ${runId}`}</p> }));
 vi.mock("../agent/RulesUsedPanel", () => ({ RulesUsedPanel: ({ runId }: { runId: string }) => <p>{`rules page for ${runId}`}</p> }));
 vi.mock("../../../views/HowReviewedView", () => ({
@@ -215,6 +222,7 @@ beforeEach(() => {
   numbersNow = NUMBERS;
   realHeaderButton = false;
   agentStatus = null;
+  overviewNow = { state: "off" };
   vi.restoreAllMocks();
 });
 
@@ -950,5 +958,71 @@ describe("ReviewWorkspace: the AI reviewer's one switch", () => {
     render(<Harness initial={{ tab: "rules" }} />);
     expect(screen.queryByText("rules page for run-1")).toBeNull();
     expect(screen.getByTestId("ws-sheet")).toBeInTheDocument();
+  });
+});
+
+/** U2: the AI review comes first, speaks for the page, and holds signing.
+ *  MUTATION PROOF: draw the panel without an AI review and the first test
+ *  fails; leave the headline off and the second fails; ignore the guard
+ *  and the third fails. */
+const SUMMARY = {
+  paper_kind: "datasheet", paper_kind_source: "title", counts_by_class: { "Query for the engineer": 1 }, models: [], missing_books: [],
+  equipment_notes: [], not_reviewed: 0, mode: "rule review", project_papers_used: [],
+} as unknown as import("../../../types/api").AgentRunSummary;
+const LINE = { item_id: "S-EQ-04", verdict_class: "Query for the engineer", word: "Query", clause: "4.1", rule_book: "Book A", reason: "r", rule_tier: null } as import("../../../types/api").AgentLine;
+describe("ReviewWorkspace: the AI review first (U2)", () => {
+  it("the panel appears only when the run has an AI review", () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    const { unmount } = render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ai-review-panel")).toBeNull();
+    unmount();
+    overviewNow = { state: "none" };
+    const second = render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ai-review-panel")).toBeNull();
+    second.unmount();
+    overviewNow = { state: "ok", summary: SUMMARY, lines: [LINE], openPoints: 1 };
+    render(<Harness initial={{}} />);
+    expect(screen.getByTestId("ai-review-panel")).toBeInTheDocument();
+  });
+  it("the panel is above the steps block, and the two reviewers are named next to their buttons", () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    overviewNow = { state: "ok", summary: SUMMARY, lines: [LINE], openPoints: 1 };
+    render(<Harness initial={{}} />);
+    const panel = screen.getByTestId("ai-review-panel");
+    const bar = screen.getByRole("region", { name: "What you need to do" });
+    expect(panel.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(screen.getByTestId("ws-rule-check-start")).getByText("Rule check (on this computer, no AI cost)")).toBeInTheDocument();
+    expect(within(screen.getByTestId("ws-ai-review-start")).getByText("AI review (Claude, costs money)")).toBeInTheDocument();
+  });
+  it("the headline follows the AI review when it has open points, and the old help line is not shown", () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    numbersNow = { ...NUMBERS, comments: 0, undecided: 0, undecidedKeys: [], finalCodeRecorded: false };
+    overviewNow = { state: "ok", summary: SUMMARY, lines: [LINE], openPoints: 1 };
+    render(<Harness initial={{}} />);
+    expect(screen.getByTestId("ws-ai-headline")).toHaveTextContent("AI review: 1 point is still open. Next: read the AI review's points, then download the internal CRS.");
+    expect(screen.queryByTestId("ws-review-help")).toBeNull();
+  });
+  it("no open points: no AI headline, the rule check speaks as before", () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    overviewNow = { state: "ok", summary: SUMMARY, lines: [], openPoints: 0 };
+    render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ws-ai-headline")).toBeNull();
+  });
+  it("Sign waits for the tick: disabled before, enabled after", async () => {
+    const user = userEvent.setup();
+    agentStatus = { enabled: true, claude_lane_open: true };
+    overviewNow = { state: "ok", summary: SUMMARY, lines: [LINE], openPoints: 1 };
+    render(<Harness initial={{}} />);
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "I have read the AI review's points" }));
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeEnabled();
+    await user.click(screen.getByRole("checkbox", { name: "I have read the AI review's points" }));
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+  });
+  it("no AI review: Sign is not held and no tick is drawn", () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    render(<Harness initial={{}} />);
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeEnabled();
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 });

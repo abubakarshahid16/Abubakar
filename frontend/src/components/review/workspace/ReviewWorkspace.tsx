@@ -47,6 +47,10 @@ import { AgentReviewPanel } from "../agent/AgentReviewPanel";
 import { AgentStartButton } from "../agent/AgentStartButton";
 import { RulesUsedPanel } from "../agent/RulesUsedPanel";
 import { useAgentSwitch } from "../agent/useAgentSwitch";
+import { AiReviewPanel } from "../agent/AiReviewPanel";
+import { useAgentOverview } from "../agent/useAgentOverview";
+import { AI_REVIEW_NAME, RULE_CHECK_NAME, aiHeadline } from "../agent/plainWords";
+import { SIGN_GUARD_WAITS } from "../agent/signGuardWords";
 import { progressLine, runStatusLabel } from "../reviewFormat";
 import { BehindTheScenes } from "../panels/BehindTheScenes";
 import { ReviewProgressBlock } from "../progress/ReviewProgressBlock";
@@ -80,7 +84,7 @@ import { PastReviewsButton } from "./PastReviewsButton";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import {
   LEAVE_WARNING, WORKSPACE_TABS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
-  type SignOff, type WorkspaceLocation, type WorkspaceTab,
+  type SignGuard, type SignOff, type WorkspaceLocation, type WorkspaceTab,
 } from "./contract";
 
 /** How long "Undo" stays on offer after "Keep all remaining comments";
@@ -357,6 +361,20 @@ export function ReviewWorkspace({
 
   // #1690: the AI reviewer's one switch. Off (or unknown): no start button, no tabs.
   const agent = useAgentSwitch();
+  // U2: the run's AI review, read once for the top panel, the headline and
+  // the signing guard. Nothing is read while the switch is off.
+  const overview = useAgentOverview(runId, agent !== null && run?.status === "completed");
+  const [aiRead, setAiRead] = useState(false);
+  useEffect(() => { setAiRead(false); }, [runId]);
+  const aiOpen = overview.state === "ok" ? overview.openPoints : 0;
+  const aiHasOpen = overview.state === "ok" && (aiOpen === null || aiOpen > 0);
+  const signGuard: SignGuard | null = useMemo(
+    () => (aiHasOpen ? { open: aiOpen, acked: aiRead, onAck: setAiRead } : null),
+    [aiHasOpen, aiOpen, aiRead],
+  );
+  const stepsShown = useMemo(() => (signGuard && !signGuard.acked
+    ? steps.map((s) => (s.id === "sign" && !s.done ? { ...s, enabled: false, detail: s.detail ?? SIGN_GUARD_WAITS } : s))
+    : steps), [steps, signGuard]);
   const tabNow = location.tab;
   useEffect(() => {
     if (pagesAsked === 0 || tabNow !== "sheet") return;
@@ -376,11 +394,13 @@ export function ReviewWorkspace({
     ...signOffRaw,
     save: autosave.saveNow,
     sign: async () => {
+      // The AI review's open points must have been read (the tick).
+      if (signGuard && !signGuard.acked) return;
       // The preview is a dialog of its own: the evidence panel closes first.
       if (location.panel) onLocationChange({ ...location, row: null, panel: null });
       await signOffRaw.sign();
     },
-  }), [signOffRaw, autosave.saveNow, location, onLocationChange]);
+  }), [signOffRaw, autosave.saveNow, location, onLocationChange, signGuard]);
 
   const onAction = (id: ActionStepId) => {
     if (id === "standards") {
@@ -466,12 +486,18 @@ export function ReviewWorkspace({
         </h1>
         <ViewModeSwitch mode={view.mode} onMode={view.setMode} />
         {run.submittal_document_id && isAdmin !== false && (
-          <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-            beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+          <span className="inline-flex flex-col items-start gap-1" data-testid="ws-rule-check-start">
+            <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
+              beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+            {agent && <span className="text-xs text-slateish-400">{RULE_CHECK_NAME}</span>}
+          </span>
         )}
-        {run.submittal_document_id && isAdmin !== false && (
-          <AgentStartButton status={agent} documentId={run.submittal_document_id}
-            onStarted={(started) => openRun(started.review_run_id)} />
+        {run.submittal_document_id && isAdmin !== false && agent && (
+          <span className="inline-flex flex-col items-start gap-1" data-testid="ws-ai-review-start">
+            <AgentStartButton status={agent} documentId={run.submittal_document_id}
+              onStarted={(started) => openRun(started.review_run_id)} />
+            <span className="text-xs text-slateish-400">{AI_REVIEW_NAME}</span>
+          </span>
         )}
         {run.submittal_document_id && isAdmin === false && (
           <span data-testid="ws-review-again-admin-only" className="text-xs text-slateish-400">
@@ -479,7 +505,9 @@ export function ReviewWorkspace({
           </span>
         )}
       </header>
-      <ReviewHelpLine words={reviewHelpWords(numbers, steps)} />
+      {/* U2: ONE place to look. When the run has an AI review, it comes first. */}
+      <AiReviewPanel runId={runId} overview={overview} onSeeEvery={() => onTab("agent")} />
+      <ReviewHelpLine words={aiHasOpen ? null : reviewHelpWords(numbers, steps)} />
       {run.submittal_document_id && data.documentRuns && data.documentRuns.length > 1 && (
         <div data-testid="ws-past-reviews">
           <PastReviewsButton documentId={run.submittal_document_id} runs={data.documentRuns}
@@ -497,7 +525,8 @@ export function ReviewWorkspace({
         </p>
       )}
 
-      <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff}
+      <ActionBar run={run} numbers={numbers} steps={stepsShown} onAction={onAction} signOff={signOff}
+        aiReview={aiHasOpen ? aiHeadline(aiOpen) : null}
         autosave={autosave} onCodeRecorded={() => { void refresh(); void issueGate.reload(); }}
         draftWaiting={draftWaiting} />
       {refreshLine}
@@ -542,7 +571,7 @@ export function ReviewWorkspace({
                 <>
                   <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
                     onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)}
-                    folded={view.mode === "simple"} />
+                    folded={view.mode === "simple"} signGuard={signGuard} />
                   {/* #1171 review, item 6: a standards list that could not be
                       loaded is a problem with this review, not a detail, so
                       Simple view says it outside the fold too. */}
@@ -582,7 +611,7 @@ export function ReviewWorkspace({
           />
         )}
         {tab === "crs" && <CrsTabPanel runId={runId} beforeCopy={beforeCopy} />}
-        {tab === "agent" && <AgentReviewPanel key={runId} runId={runId} />}
+        {tab === "agent" && <AgentReviewPanel key={runId} runId={runId} onOpenRules={() => onTab("rules")} />}
         {tab === "rules" && <RulesUsedPanel key={runId} runId={runId} />}
         {PANEL_TABS.includes(tab) && (
           <BehindTheScenes

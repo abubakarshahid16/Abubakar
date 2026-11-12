@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { agentReview, isFeatureOff } from "../../../api/agentReview";
 import type { AgentBookCoverage, AgentRulesUsed } from "../../../types/api";
 import { LEFT_OUT_REASONS } from "./agentWords";
+import { humanizeCode } from "./plainWords";
 import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
 
 export const NOT_MEASURED = "not measured";
@@ -66,7 +67,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         <h2 className="text-lg font-semibold text-slateish-100">Rules used</h2>
         <p className="text-sm text-slateish-100">
           Paper kind: <span className="font-medium">{undecided ? "not decided" : data.paper_kind}</span>
-          {data.equipment_type ? <> · Equipment type: <span className="font-medium">{data.equipment_type}</span></> : null}
+          {data.equipment_type ? <> · Equipment type: <span className="font-medium">{humanizeCode(data.equipment_type)}</span></> : null}
         </p>
         <PaperTextNotice paperText={data.paper_text} />
         {data.rule_set_changed_by != null && (
@@ -74,7 +75,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         )}
         {(data.equipment_notes ?? []).length > 0 && (
           <ul data-testid="equipment-notes" className="list-disc pl-5 text-sm text-slateish-100">
-            {data.equipment_notes.map((n) => <li key={n}>{n}</li>)}
+            {data.equipment_notes.map((n) => <li key={n}>{humanizeCode(n)}</li>)}
           </ul>
         )}
         {data.candidates_from != null && (
@@ -155,7 +156,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
                   <tr key={`${r.rule_book}-${r.clause}-${i}`} className="border-t border-ink-700 align-top">
                     <td className="py-1 pr-3">{r.rule_book}</td><td className="pr-3">{r.clause}</td>
                     <td className="break-words pr-3">{r.quote}</td><td className="pr-3">{r.paper_kind}</td>
-                    <td className="pr-3">{r.field ?? ""}</td><td className="pr-3">{r.equipment ?? ""}</td>
+                    <td className="pr-3">{r.field ?? ""}</td><td className="pr-3">{r.equipment ? humanizeCode(r.equipment) : ""}</td>
                     <td>{r.tier}{r.read_from === "scan" && <span className="block text-xs text-warn-500">read from a scan</span>}</td>
                   </tr>
                 ))}
