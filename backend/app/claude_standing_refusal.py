@@ -16,7 +16,6 @@ from datetime import UTC, datetime, timedelta
 
 log = logging.getLogger(__name__)
 
-WORDS = "Claude is not available now, so this review runs on this computer"
 WINDOW = timedelta(hours=24)
 _REFUSAL = re.compile(r"HTTPStatusError:http_(?:400|402|403|429)\b")
 

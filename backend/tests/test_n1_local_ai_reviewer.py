@@ -1167,12 +1167,12 @@ def test_automatic_resolves_to_local_with_one_plain_sentence_when_claude_refuses
         ai.engine == E.ON_LOCAL and plan.refused is None and plan.text_leaves is False
     )
     assert ai.why.startswith(
-        "Claude is not available now, so this review runs on this computer"
+        "Claude cannot be used now, so this review runs on this computer"
     )
     assert plan.part(E.RULE_CHECK).engine == E.ON_LOCAL
     sentence = E.sentence_of({**plan.as_dict(), "kind": "datasheet"})
     assert (
-        "Claude is not available now, so this review runs on this computer" in sentence
+        "Claude cannot be used now, so this review runs on this computer" in sentence
     )
 
 
@@ -1181,7 +1181,7 @@ def test_a_refusing_claude_never_yields_a_failed_start_for_automatic_and_still_r
         "automatic", open_facts(claude_refused=True)
     )  # the local switch is off: the rule check runs, the AI review does not, no refusal
     assert off.refused is None and off.part(E.AI_REVIEW).engine == E.NOT_RUN
-    assert "Claude is not available now" in off.part(E.AI_REVIEW).why
+    assert "Claude cannot be used now" in off.part(E.AI_REVIEW).why
     chosen = E.decide(
         "claude",
         open_facts(claude_refused=True, step_engine_claude=False, local_ai=True),
