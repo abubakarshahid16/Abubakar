@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import re
 import sqlite3
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -73,24 +74,61 @@ def asked_in_run_db(db_path: str | Path, run_id: str | None = None) -> set[str]:
         conn.close()
 
 
+def fresh_plan(data_dir: str | Path, document: str, work_dir: str | Path) -> set[str]:
+    """The plan the CURRENT code makes: a free closed-lane trial (`scripts.trial_on_copy`) on a clone of `data_dir` written to the
+    new folder `work_dir`; returns the keys it asked. Nothing is sent anywhere; the source folder is never written."""
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    subprocess.run(
+        [sys.executable, "-m", "scripts.trial_on_copy", "--lane", "closed", "--data-dir", str(data_dir),
+         "--copy-to", str(work_dir), "--document", document],
+        cwd=root, check=False, capture_output=True,
+    )  # fmt: skip
+    return asked_in_run_db(Path(work_dir) / "rag_intelligence.sqlite")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ids", required=True)
-    ap.add_argument("--run-db", required=True)
+    ap.add_argument(
+        "--run-db",
+        help="check the plan stored in this run (a second check: it proves the code that made it)",
+    )
     ap.add_argument("--run-id")
+    ap.add_argument(
+        "--data-dir",
+        help="check the plan the CURRENT code makes on a clone of this data folder",
+    )
+    ap.add_argument("--document")
+    ap.add_argument("--work-dir", help="a new folder for the clone (with --data-dir)")
     args = ap.parse_args(argv)
     try:
         known = read_ids(args.ids)
     except ValueError as exc:
         print(f"refused: {exc}")
         return 2
-    lost = missing(known, asked_in_run_db(args.run_db, args.run_id))
+    if bool(args.data_dir) == bool(args.run_db):
+        print(
+            "refused: give --data-dir with --document and --work-dir (current code), or --run-db (a stored run)"
+        )
+        return 2
+    if args.data_dir:
+        if not args.document or not args.work_dir:
+            print("refused: --data-dir needs --document and --work-dir")
+            return 2
+        asked = fresh_plan(args.data_dir, args.document, args.work_dir)
+        source = "current code"
+    else:
+        asked = asked_in_run_db(args.run_db, args.run_id)
+        source = "stored run"
+    lost = missing(known, asked)
     print(
-        f"checked {len(known)}, still asked {len(known) - len(lost)}, dropped {len(lost)}"
+        f"[{source}] checked {len(known)}, still asked {len(known) - len(lost)}, dropped {len(lost)}"
     )
     for k in lost:
         print(f"dropped: {k}")
-    return 1 if lost else 0
+    return 1 if lost or not asked else 0
 
 
 if __name__ == "__main__":

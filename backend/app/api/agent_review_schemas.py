@@ -62,8 +62,8 @@ LeftOutReason = Literal[
     "the paper names no equipment",
     "the paper names equipment the equipment list does not know",
     "the paper's equipment could not be read",
-    "a part the paper's equipment does not have",
-    "the two labelling readers named different other equipment",
+    "a part excluded by a value the paper states",
+    "both labelling readers named other equipment",
 ]
 
 #: The closed table every line must match: class -> (allowed words, allowed

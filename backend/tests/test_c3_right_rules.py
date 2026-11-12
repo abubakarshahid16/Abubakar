@@ -14,6 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app import agent_review_equipment as E
 from app import agent_review_rules as R
 from app import rule_equipment as REQ
 from app import rule_label_schema as schema
@@ -33,12 +34,21 @@ TAX = {
 }  # fmt: skip
 
 
+EXCLUSION = {
+    "role": "valve_type",
+    "type": "widget_valve",
+    "ignore": ["safety"],
+    "values": ["conventional", "balanced bellows"],
+    "excludes": ["pilot"],
+}
+
+
 def _mapping(related):
     return {
         "map": {"relief valve": "widget_valve", "pressure vessel": "vessel"},
         "unmapped": [],
         "related": related,
-        "part_roles": ["valve_type"],
+        "part_exclusions": [EXCLUSION],
     }
 
 
@@ -69,10 +79,15 @@ def conn(monkeypatch):
     c.execute(
         "INSERT INTO document_classification VALUES ('paper', 'Pressure Safety Valve', NULL)"
     )
-    c.execute("CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT)")
+    c.execute(
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT, needs_ocr INTEGER DEFAULT 0)"
+    )
+    c.execute(
+        "CREATE TABLE page_ledger (document_id TEXT, page_no INTEGER, native_status TEXT, ocr_status TEXT)"
+    )
     c.execute(
         "CREATE TABLE submittal_facts (submittal_document_id TEXT, field_name TEXT, field_label TEXT, field_value TEXT,"
-        " source_text TEXT, is_blank INTEGER, validation_state TEXT, confirmed_by TEXT, superseded_at TEXT)"
+        " page INTEGER, source_text TEXT, is_blank INTEGER, validation_state TEXT, confirmed_by TEXT, superseded_at TEXT)"
     )
     REQ.create_tables(c)
     return c
@@ -202,116 +217,152 @@ def test_the_core_types_never_enter_the_related_table(conn, tax):
     assert eq.related_fields["vessel"] == frozenset({"overpressure", "set_pressure"})
 
 
-# ---------------------------------------------------------------- (b) a part the paper's own facts and pages do not name
+# ---------------------------------------------------------------- (b) a part a STATED value excludes (positive evidence only)
+
+FILLER = " Body material is carbon steel. Set pressure is stated in the table. Notes follow on the next line."
 
 
-def _fact(c, label_, value, quote, **over):
-    row = {"submittal_document_id": "paper", "field_name": label_, "field_label": label_, "field_value": value,
-           "source_text": quote, "is_blank": 0, "validation_state": None, "confirmed_by": None, "superseded_at": None,
-           **over}  # fmt: skip
+def _page(c, n, text, *, needs_ocr=0, native="text", ocr="not_required", ledger=True):
+    c.execute(
+        "INSERT INTO pages (document_id, page_no, text, needs_ocr) VALUES ('paper', ?, ?, ?)",
+        (n, text, needs_ocr),
+    )
+    if ledger:
+        c.execute("INSERT INTO page_ledger VALUES ('paper', ?, ?, ?)", (n, native, ocr))
+
+
+def _fact(c, value, *, page=1, quote=None, **over):
+    row = {"submittal_document_id": "paper", "field_name": "Valve type", "field_label": "Valve type", "field_value": value,
+           "page": page, "source_text": value if quote is None else quote, "is_blank": 0, "validation_state": None,
+           "confirmed_by": None, "superseded_at": None, **over}  # fmt: skip
     c.execute(
         f"INSERT INTO submittal_facts ({', '.join(row)}) VALUES ({','.join('?' * len(row))})",
         tuple(row.values()),
     )
 
 
-def _page(c, n, text):
-    c.execute("INSERT INTO pages VALUES ('paper', ?, ?)", (n, text))
-
-
-def _part_world(conn, *, type_text="Safety, balanced bellows"):
-    _page(conn, 1, "Sheet one. Body WCB. Set 10 barg.")
-    _page(conn, 2, "Sheet two. Notes: none.")
-    _fact(conn, "Valve type", type_text, f"Valve type {type_text}")
+def _part_world(conn, stated="Safety, balanced bellows"):
+    _page(conn, 1, f"Sheet one. Valve type {stated}." + FILLER)
+    _page(conn, 2, "Sheet two. Notes: none." + FILLER)
+    _fact(conn, stated)
     _rule(conn, "pilot", "valve_type", typ="widget_valve", fam="valves", part="pilot")
     _rule(conn, "nopart", "valve_type", typ="widget_valve", fam="valves")
-    return REQ
 
 
-def test_a_rule_about_a_part_is_left_out_when_the_sheets_state_the_type_and_name_no_such_part(
+def test_a_rule_about_a_part_is_left_out_only_on_a_stated_value_the_data_line_says_excludes_it(
     conn, tax
 ):
     _part_world(conn)
-    ctx = _ctx(conn, tax, NARROW)
-    got = _asked(conn, ctx, "pilot")
-    assert got["ask"] is False and got["reason"] == R.PART_ABSENT
-    assert _asked(conn, ctx, "nopart")["ask"] is True  # no part named: nothing to check
+    got = _asked(conn, _ctx(conn, tax, NARROW), "pilot")
+    assert got["ask"] is False and got["reason"] == R.PART_EXCLUDED
+    assert got["part_note"] == {
+        "part": "pilot",
+        "role": "valve_type",
+        "stated": [("Safety, balanced bellows", 1)],
+    }
+    assert (
+        _asked(conn, _ctx(conn, tax, NARROW), "nopart")["ask"] is True
+    )  # no part named: nothing to check
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [
+        "POPRV",
+        "Pilots",
+        "Piloted",
+        "PO",
+        "Safety, balanced bellows PO",
+        "Pilot operated",
+        "Spring",
+    ],
+)
+def test_a_value_that_is_not_in_the_table_or_says_more_never_leaves_the_rule_out(
+    conn, tax, stated
+):
+    _part_world(conn, stated)
+    assert _asked(conn, _ctx(conn, tax, NARROW), "pilot")["ask"] is True
 
 
 @pytest.mark.parametrize(
     "doubt",
-    [
-        "fact_names_the_part", "page_names_the_part", "a_blank_value", "no_quote", "an_empty_page",
-        "no_page_at_all", "no_fact_of_the_role", "field_not_a_part_role", "label_not_agreed", "no_evidence",
-    ],
+    ["needs_ocr_page", "ledger_not_text", "ocr_pending", "no_ledger_row", "empty_page", "a_gap_in_the_pages", "no_page_at_all",
+     "quote_not_on_page", "no_quote", "blank_value", "one_fact_unlisted", "no_fact_of_the_role", "role_not_in_a_line",
+     "part_not_excluded_by_the_line", "type_differs", "label_not_agreed", "field_differs", "no_evidence", "malformed_line"],
 )  # fmt: skip
 def test_in_any_doubt_the_part_rule_is_asked(conn, tax, doubt):
     _part_world(conn)
     mapping = NARROW
-    if doubt == "fact_names_the_part":
-        _fact(conn, "Valve type", "Pilot operated", "Valve type Pilot operated")
-    elif doubt == "page_names_the_part":
-        _page(conn, 3, "Note: a pilot line is fitted.")
-    elif doubt == "a_blank_value":
-        _fact(conn, "Valve type", "", "Valve type: By Contractor", is_blank=1)
-    elif doubt == "no_quote":
-        _fact(conn, "Valve type", "Safety", "")
-    elif doubt == "an_empty_page":
-        _page(conn, 3, "   ")
+    if doubt == "needs_ocr_page":
+        conn.execute("UPDATE pages SET needs_ocr = 1 WHERE page_no = 2")
+    elif doubt == "ledger_not_text":
+        conn.execute("UPDATE page_ledger SET native_status = 'image' WHERE page_no = 2")
+    elif doubt == "ocr_pending":
+        conn.execute("UPDATE page_ledger SET ocr_status = 'pending' WHERE page_no = 2")
+    elif doubt == "no_ledger_row":
+        conn.execute("DELETE FROM page_ledger WHERE page_no = 2")
+    elif doubt == "empty_page":
+        conn.execute("UPDATE pages SET text = '  ' WHERE page_no = 2")
+    elif doubt == "a_gap_in_the_pages":
+        _page(conn, 4, "Sheet four." + FILLER)
     elif doubt == "no_page_at_all":
         conn.execute("DELETE FROM pages")
+    elif doubt == "quote_not_on_page":
+        conn.execute(
+            "UPDATE submittal_facts SET source_text = 'Safety, balanced bellows and more words'"
+        )
+    elif doubt == "no_quote":
+        conn.execute("UPDATE submittal_facts SET source_text = ''")
+    elif doubt == "blank_value":
+        conn.execute("UPDATE submittal_facts SET is_blank = 1")
+    elif doubt == "one_fact_unlisted":
+        _fact(conn, "Safety, Pilot", page=2, quote="Safety, Pilot")
     elif doubt == "no_fact_of_the_role":
         conn.execute("DELETE FROM submittal_facts")
-    elif doubt == "field_not_a_part_role":
-        mapping = {**NARROW, "part_roles": ["something_else"]}
+    elif doubt == "role_not_in_a_line":
+        mapping = {
+            **NARROW,
+            "part_exclusions": [{**EXCLUSION, "role": "something_else"}],
+        }
+    elif doubt == "part_not_excluded_by_the_line":
+        mapping = {**NARROW, "part_exclusions": [{**EXCLUSION, "excludes": ["spring"]}]}
+    elif doubt == "type_differs":
+        mapping = {**NARROW, "part_exclusions": [{**EXCLUSION, "type": "gadget_valve"}]}
     elif doubt == "label_not_agreed":
         conn.execute("UPDATE rule_equipment_label SET equip_state = 'needs_human', model_a = NULL, model_b = NULL,"
                      " prompt_version = NULL, list_sha = NULL, equip_disagreement = 'type' WHERE rule_ref = 'pilot'")  # fmt: skip
+    elif doubt == "field_differs":
+        conn.execute(
+            "UPDATE rule_label SET field = 'set_pressure' WHERE rule_ref = 'pilot'"
+        )
     elif doubt == "no_evidence":
         ctx = R.EquipmentCtx(
             R.paper_equipment(conn, "paper", tax, NARROW), tax, NARROW, "type"
         )
         assert _asked(conn, ctx, "pilot")["ask"] is True
         return
-    got = _asked(conn, _ctx(conn, tax, mapping), "pilot")
-    assert got["ask"] is True, doubt
+    elif doubt == "malformed_line":
+        mapping = {
+            **NARROW,
+            "part_exclusions": [{"role": "valve_type", "type": "widget_valve"}],
+        }
+    assert _asked(conn, _ctx(conn, tax, mapping), "pilot")["ask"] is True, doubt
 
 
-def test_a_value_whose_geometry_check_disagrees_does_not_block_a_negative_proof_the_pages_carry(
+def test_a_superseded_fact_is_not_read_and_a_geometry_conflict_does_not_matter(
     conn, tax
 ):
     _part_world(conn)
     _fact(
-        conn, "Valve type", "Safety", "Valve type Safety", validation_state="conflict"
+        conn, "Safety, Pilot", page=2, quote="Safety, Pilot", superseded_at="2026-01-01"
     )
-    assert _asked(conn, _ctx(conn, tax, NARROW), "pilot")["reason"] == R.PART_ABSENT
-
-
-def test_a_word_the_data_line_gives_as_an_alias_of_the_part_counts_as_naming_it(
-    conn, tax
-):
-    _part_world(conn)
-    _fact(conn, "Valve type", "POSRV", "Valve type POSRV")
-    mapping = {**NARROW, "part_aliases": {"pilot": ["posrv"]}}
-    assert _asked(conn, _ctx(conn, tax, mapping), "pilot")["ask"] is True
-    assert (
-        _asked(conn, _ctx(conn, tax, NARROW), "pilot")["reason"] == R.PART_ABSENT
-    )  # without the alias the word is not seen
-
-
-def test_a_superseded_fact_is_not_read(conn, tax):
-    _part_world(conn)
-    _fact(
-        conn,
-        "Valve type",
-        "Pilot operated",
-        "Valve type Pilot operated",
-        superseded_at="2026-01-01",
+    conn.execute(
+        "UPDATE submittal_facts SET validation_state = 'conflict' WHERE superseded_at IS NULL"
     )
-    assert _asked(conn, _ctx(conn, tax, NARROW), "pilot")["ask"] is False
+    assert _asked(conn, _ctx(conn, tax, NARROW), "pilot")["reason"] == R.PART_EXCLUDED
 
 
-def test_the_part_reason_is_counted_worded_and_in_the_summary(conn, tax):
+def test_the_left_out_words_are_a_true_sentence_built_from_the_fact(conn, tax):
     _part_world(conn)
     ctx = _ctx(conn, tax, NARROW)
     kept, left, _ = R.filter_rows(
@@ -323,14 +374,43 @@ def test_the_part_reason_is_counted_worded_and_in_the_summary(conn, tax):
         "datasheet",
         equipment=ctx,
     )
-    assert [k["id"] for k in kept] == ["nopart"] and left[0]["reason"] == R.PART_ABSENT
-    counts = R.count_left_out(left)
-    assert counts[R.PART_ABSENT] == 1
-    assert R.REASON_WORDS[R.PART_ABSENT] == "a part the paper's equipment does not have"
-    assert any(
-        line.startswith("a part the paper's equipment does not have: 1 rules not asked")
-        for line in R.summary_lines(counts, "datasheet")
+    assert [k["id"] for k in kept] == ["nopart"] and left[0][
+        "reason"
+    ] == R.PART_EXCLUDED
+    assert R.count_left_out(left)[R.PART_EXCLUDED] == 1
+    assert (
+        R.REASON_WORDS[R.PART_EXCLUDED] == "a part excluded by a value the paper states"
     )
+    block = R.label_block(
+        R.count_left_out(left), left, {"kind": "datasheet", "known": True}, []
+    )
+    assert (
+        "the paper states valve type = Safety, balanced bellows (page 1), which has no pilot: 1 rules about that part were not asked"
+        in block["summary_lines"]
+    )
+
+
+def test_the_real_data_line_is_well_formed_and_every_excluded_part_is_on_the_taxonomy():
+    mapping = REQ.load_mapping()
+    taxonomy = json.loads(REQ.TAXONOMY.read_text())
+    parts = {
+        t["id"]: set(t.get("parts") or [])
+        for f in taxonomy["families"]
+        for t in f["types"]
+    }
+    rows = mapping["part_exclusions"]
+    assert rows and len(E.exclusion_rows(mapping)) == len(rows)  # none is malformed
+    for row in rows:
+        assert set(row) <= {"role", "type", "ignore", "values", "excludes"}
+        assert row["type"] in parts and set(row["excludes"]) <= parts[row["type"]]
+        assert all(
+            isinstance(v, str) and v.strip()
+            for v in [*row["values"], *row.get("ignore", [])]
+        )
+        assert not (
+            {w for v in row["values"] for w in E._tokens(v)}
+            & {w for p in row["excludes"] for w in E._tokens(p)}
+        )
 
 
 # ---------------------------------------------------------------- the proof that no known-finding rule is dropped
@@ -398,19 +478,30 @@ def test_a_dropped_known_rule_fails_the_check_on_a_plan_made_by_the_filter(conn,
     assert K.missing(["keep", "drop"], [k["id"] for k in kept]) == ["drop"]
 
 
-def test_on_a_local_trial_copy_no_known_finding_rule_is_left_out():
-    """Runs only on the Mac that holds the local ids file and a closed-lane trial copy (never in CI, never vacuous there:
-    the mechanism above is tested with invented data). KNOWN_RULES_FILE: ids only; KNOWN_RULES_RUN_DB: the trial's database."""
+def test_with_the_current_code_on_a_local_data_copy_no_known_finding_rule_is_left_out(
+    tmp_path,
+):
+    """Local only (never CI; the mechanism above is tested with invented data). KNOWN_RULES_FILE: ids only;
+    KNOWN_RULES_DATA_DIR + KNOWN_RULES_DOCUMENT: a data folder and a paper; the plan is made now, by this code, on a clone.
+    KNOWN_RULES_RUN_DB alone checks a stored run instead (it proves the code that made that run)."""
     import os
 
-    ids, db = os.environ.get("KNOWN_RULES_FILE"), os.environ.get("KNOWN_RULES_RUN_DB")
-    if not ids or not db:
-        pytest.skip(
-            "set KNOWN_RULES_FILE and KNOWN_RULES_RUN_DB to run the check on a local trial copy"
-        )
-    lost = K.missing(
-        K.read_ids(ids), K.asked_in_run_db(db, os.environ.get("KNOWN_RULES_RUN_ID"))
+    ids = os.environ.get("KNOWN_RULES_FILE")
+    data, doc, db = (
+        os.environ.get(k)
+        for k in ("KNOWN_RULES_DATA_DIR", "KNOWN_RULES_DOCUMENT", "KNOWN_RULES_RUN_DB")
     )
+    if not ids or not ((data and doc) or db):
+        pytest.skip(
+            "set KNOWN_RULES_FILE and KNOWN_RULES_DATA_DIR + KNOWN_RULES_DOCUMENT (or KNOWN_RULES_RUN_DB)"
+        )
+    asked = (
+        K.fresh_plan(data, doc, tmp_path / "clone")
+        if data and doc
+        else K.asked_in_run_db(db)
+    )
+    assert asked, "the plan asked nothing"
+    lost = K.missing(K.read_ids(ids), asked)
     assert lost == [], f"known-finding rules no longer asked: {lost}"
 
 
@@ -434,12 +525,12 @@ def test_both_readers_name_other_equipment_so_the_rule_is_left_out_with_its_own_
     assert got["ask"] is False and got["reason"] == R.TWO_READERS_OTHER
     assert (
         R.REASON_WORDS[R.TWO_READERS_OTHER]
-        == "the two labelling readers named different other equipment"
+        == "both labelling readers named other equipment"
     )
     counts = R.count_left_out([{"reason": R.TWO_READERS_OTHER}])
     assert counts[R.TWO_READERS_OTHER] == 1
     assert any(
-        x.startswith("the two labelling readers named different other equipment: 1")
+        x.startswith("both labelling readers named other equipment: 1")
         for x in R.summary_lines(counts, "datasheet")
     )
 
@@ -501,3 +592,19 @@ def test_the_answers_are_kept_by_the_import_and_a_paper_without_usable_equipment
     conn.execute("UPDATE document_classification SET equipment_type = NULL")
     _disagree(conn, "z", OTHER_A, OTHER_A)
     assert _asked(conn, _ctx(conn, tax, NARROW), "z")["ask"] is True
+
+
+def test_importing_an_older_file_with_no_answers_keeps_the_answers_already_stored(
+    conn, tax
+):
+    row = {"source": "requirement", "rule_ref": "keep", "equip_state": "needs_human", "equip_disagreement": "type",
+           "answer_a": {"family": "valves", "type": "gadget_valve", "part": None, "general": 0, "valid": 1},
+           "answer_b": {"family": "static", "type": "vessel", "part": None, "general": 0, "valid": 1}}  # fmt: skip
+    REQ.import_rows(conn, [row], tax)
+    old = {k: v for k, v in row.items() if not k.startswith("answer_")}
+    REQ.import_rows(conn, [old], tax)
+    stored = REQ.label_for(conn, "requirement", "keep")
+    assert (
+        REQ.answer_of(stored, "a")["type"] == "gadget_valve"
+        and REQ.answer_of(stored, "b")["type"] == "vessel"
+    )

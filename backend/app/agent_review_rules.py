@@ -29,7 +29,7 @@ from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment 
     NO_EQUIPMENT,
     NOT_IN_LIST,
     PAPER_EQUIPMENT_REASONS,
-    PART_ABSENT,
+    PART_EXCLUDED,
     TWO_READERS_OTHER,
     UNREADABLE,
     EquipmentCtx,
@@ -41,7 +41,8 @@ from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment 
     load_evidence,
     norm_mode,
     paper_equipment,
-    part_absent,
+    part_exclusion,
+    part_lines,
 )
 from .agent_review_verdict import RULE_NOT_APPROVED, TIER_NOT_APPROVED
 
@@ -58,7 +59,7 @@ REASONS = (
     KIND_UNKNOWN,
     ANOTHER_EQUIPMENT,
     *PAPER_EQUIPMENT_REASONS,
-    PART_ABSENT,
+    PART_EXCLUDED,
     TWO_READERS_OTHER,
 )
 REASON_WORDS = {
@@ -71,8 +72,8 @@ REASON_WORDS = {
     NO_EQUIPMENT: "the paper names no equipment",
     NOT_IN_LIST: "the paper names equipment the equipment list does not know",
     UNREADABLE: "the paper's equipment could not be read",
-    PART_ABSENT: "a part the paper's equipment does not have",
-    TWO_READERS_OTHER: "the two labelling readers named different other equipment",
+    PART_EXCLUDED: "a part excluded by a value the paper states",
+    TWO_READERS_OTHER: "both labelling readers named other equipment",
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = ("off", "both")
@@ -223,14 +224,15 @@ def decide_rule(
     out["equipment_why"] = why
     if not keep:
         out.update(ask=False, reason=why, tier=None, equipment_family=family)
-    elif part_absent(label, out.get("field"), equipment):
+    elif (note := part_exclusion(label, out.get("field"), equipment)) is not None:
+        out["part_note"] = note
         out.update(
             ask=False,
-            reason=PART_ABSENT,
+            reason=PART_EXCLUDED,
             tier=None,
             equipment_family=label.get("equip_family"),
         )
-        out["equipment_why"] = PART_ABSENT
+        out["equipment_why"] = PART_EXCLUDED
     return out
 
 
@@ -276,6 +278,7 @@ def left_out_record(row: Mapping, why: Mapping, key: str) -> dict:
         "equipment_family": why.get("equipment_family"),
         "needs_paper_kind": why.get("needs_kind"),
         "label_state": why.get("state"),
+        "part_note": why.get("part_note"),
     }
 
 
@@ -399,12 +402,7 @@ def summary_lines(
             )
     if counts.get(TWO_READERS_OTHER):
         lines.append(
-            f"the two labelling readers named different other equipment: {counts[TWO_READERS_OTHER]} rules not asked"
-        )
-    if counts.get(PART_ABSENT):
-        lines.append(
-            f"a part the paper's equipment does not have: {counts[PART_ABSENT]} rules not asked"
-            " (the paper's own facts and pages do not name the part)"
+            f"both labelling readers named other equipment: {counts[TWO_READERS_OTHER]} rules not asked"
         )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"
@@ -508,6 +506,7 @@ def label_block(
         "summary_lines": summary_lines(
             counts, kind.get("kind"), bool(kind.get("known"))
         )
+        + part_lines(left)
         + (
             [
                 f"rules asked though not AI approved: {unapproved} (shown as AI opinion, rule not yet approved)"

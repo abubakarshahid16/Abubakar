@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,8 +25,8 @@ NOT_IN_LIST = (
 )
 UNREADABLE = "paper_equipment_unreadable"  # the app's reader could not decide what the paper is about
 PAPER_EQUIPMENT_REASONS = (NO_EQUIPMENT, NOT_IN_LIST, UNREADABLE)
-#: a rule about a part (the label's `equip_part`) that the paper's own facts and pages show its equipment does not have
-PART_ABSENT = "part_not_on_paper"
+#: a rule about a part (the label's `equip_part`) that a value the paper states excludes (a reviewed data line)
+PART_EXCLUDED = "part_excluded_by_stated_value"
 #: the two labelling readers disagreed with each other, and BOTH named equipment that is not the paper's
 TWO_READERS_OTHER = "two_readers_other_equipment"
 
@@ -67,13 +67,11 @@ class PaperEquipment:
 
 @dataclass(frozen=True)
 class PaperEvidence:
-    """What code can read about one paper's parts: per part-stating role the stored facts (value, label and quote text), whether
-    every such fact is complete and trusted, and the words on the paper's stored pages. Words only, never shown."""
+    """What code can prove about one paper's parts: its stored facts per part-stating role (`StatedValue`) and whether every
+    page counts as read."""
 
-    role_words: Mapping[str, frozenset[str]] = field(default_factory=dict)
-    role_complete: Mapping[str, bool] = field(default_factory=dict)
-    page_words: frozenset[str] = frozenset()
-    pages_readable: bool = False
+    role_facts: Mapping[str, tuple] = field(default_factory=dict)
+    readable: bool = False
 
 
 @dataclass(frozen=True)
@@ -274,81 +272,166 @@ def equipment_decision(
     return True, "equipment_not_known", None
 
 
-# ---- a part the paper's equipment does not have (only facts code can read; in doubt the rule is asked) ---------------------
+# ---- a part excluded by a value the paper states (positive evidence only; in any doubt the rule is asked) --------------------
 
 _WORD = re.compile(r"[a-z0-9]+")
 
 
-def _words(*texts: Any) -> frozenset[str]:
-    return frozenset(w for t in texts for w in _WORD.findall(str(t or "").lower()))
+def _tokens(text: Any) -> tuple[str, ...]:
+    return tuple(_WORD.findall(str(text or "").lower()))
+
+
+@dataclass(frozen=True)
+class StatedValue:
+    """One stored fact of a part-stating role: the value as printed, its page, and whether code found the quote on that page."""
+
+    value: str
+    page: int | None
+    verified: bool
+
+
+def exclusion_rows(mapping: Mapping) -> list[dict]:
+    """The reviewed data lines `part_exclusions`: {role, type, ignore, values, excludes}. A malformed row is skipped (asked)."""
+    out = []
+    for row in mapping.get("part_exclusions") or []:
+        if (
+            isinstance(row, dict)
+            and isinstance(row.get("role"), str)
+            and isinstance(row.get("type"), str)
+            and isinstance(row.get("values"), list)
+            and row["values"]
+            and isinstance(row.get("excludes"), list)
+            and row["excludes"]
+        ):
+            out.append(row)
+    return out
 
 
 def load_evidence(
     conn: sqlite3.Connection, document_id: str, mapping: Mapping
 ) -> PaperEvidence | None:
-    """The paper's stored facts of the roles the data line `part_roles` names, and the words of its stored pages. None when
-    the data names no role, a table is missing, or anything cannot be read (then no rule is left out for a part)."""
-    roles = {str(r) for r in (mapping.get("part_roles") or [])}
+    """What code can prove about the paper's parts: whether EVERY page counts as read by the reviewer's own notion
+    (`agent_review_absence.unreadable_page`: text layer, not needing OCR, the page ledger, no OCR pending or failed), and the
+    stored live facts of the roles the data lines name, each with its page and whether its quote is on that page. None when the
+    data names no role or anything cannot be read (then no rule is left out for a part)."""
+    roles = {r["role"] for r in exclusion_rows(mapping)}
     if not roles:
         return None
     from . import datasheet_checks
+    from .agent_review_absence import unreadable_page
     from .datasheets import normalise_field_name
 
     rules = datasheet_checks.load_rules()
-    words: dict[str, set[str]] = {r: set() for r in roles}
-    complete: dict[str, bool] = dict.fromkeys(roles, True)
-    seen: set[str] = set()
     try:
-        facts = conn.execute(
-            "SELECT field_name, field_label, field_value, source_text, is_blank "
-            "FROM submittal_facts WHERE submittal_document_id = ? AND superseded_at IS NULL",
+        pages = conn.execute(
+            "SELECT page_no, text, needs_ocr FROM pages WHERE document_id = ?",
             (document_id,),
         ).fetchall()
-        pages = conn.execute(
-            "SELECT text FROM pages WHERE document_id = ? ORDER BY page_no",
+        held = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        ledger_rows = (
+            conn.execute(
+                "SELECT page_no, native_status, ocr_status FROM page_ledger WHERE document_id = ?",
+                (document_id,),
+            ).fetchall()
+            if "page_ledger" in held
+            else []
+        )
+        facts = conn.execute(
+            "SELECT field_name, field_label, field_value, page, source_text, is_blank "
+            "FROM submittal_facts WHERE submittal_document_id = ? AND superseded_at IS NULL",
             (document_id,),
         ).fetchall()
     except sqlite3.Error:
         return None
+    texts = {int(p[0]): str(p[1] or "") for p in pages}
+    needs = {int(p[0]): bool(p[2]) for p in pages}
+    ledger = {
+        int(r[0]): {
+            "native_status": r[1],
+            "ocr_status": r[2],
+            "needs_ocr": needs.get(int(r[0]), True),
+        }
+        for r in ledger_rows
+    }
+    readable = bool(texts) and unreadable_page(texts, max(texts), ledger) is None
+    folded = {n: " ".join(_tokens(t)) for n, t in texts.items()}
+    got: dict[str, list[StatedValue]] = {r: [] for r in roles}
     for f in facts:
         role = datasheet_checks.role_of(normalise_field_name(f[1] or f[0] or ""), rules)
         if role not in roles:
             continue
-        seen.add(role)
-        words[role] |= _words(f[0], f[1], f[2], f[3])
-        # a value code reads with a stored quote counts even when its geometry check disagrees: the NEGATIVE proof rests on the
-        # words of the stored pages (below), which no reader's value can hide
-        if f[4] or not str(f[2] or "").strip() or not str(f[3] or "").strip():
-            complete[role] = False
-    texts = [str(p[0] or "") for p in pages]
-    return PaperEvidence(
-        {r: frozenset(w) for r, w in words.items() if r in seen},
-        {r: complete[r] for r in seen},
-        _words(*texts),
-        bool(texts) and all(t.strip() for t in texts),
-    )
+        page = f[3] if isinstance(f[3], int) and not isinstance(f[3], bool) else None
+        value, quote = " ".join(_tokens(f[2])), " ".join(_tokens(f[4]))
+        ok = bool(
+            not f[5]
+            and value
+            and quote
+            and value in quote
+            and page in folded
+            and quote in folded[page]
+        )
+        got[role].append(StatedValue(str(f[2] or ""), page, ok))
+    return PaperEvidence({r: tuple(v) for r, v in got.items() if v}, readable)
 
 
-def part_absent(label: Mapping, rule_field: str | None, ctx: EquipmentCtx) -> bool:
-    """True only when ALL hold: the rule's approved equipment label names a part; its approved field is one the data line
-    `part_roles` says states a sheet's parts; the paper holds at least one stored fact of that field and every one is a
-    non-blank value with a quote; every page of the paper has stored text; and no word of the part (or of an alias the data line
-    `part_aliases` gives it) is in any such fact or on any page. Anything less is doubt: the rule is asked."""
+def part_exclusion(
+    label: Mapping, rule_field: str | None, ctx: EquipmentCtx
+) -> dict | None:
+    """{part, role, stated: [(value, page)]} when a rule about a part is left out, else None (asked). ALL must hold: the rule's
+    agreed label names a type and a part; a reviewed data line (`part_exclusions`) for that type and the rule's approved field
+    lists that part as excluded; EVERY page of the paper counts as read; the paper holds at least one stored fact of that role
+    and EVERY such fact has its quote verified on its page; and each stated value, minus the line's ignorable words, is exactly
+    one of the line's values. A value that is not in the table, or says more, is doubt."""
     ev = ctx.evidence
-    part = str(label.get("equip_part") or "")
-    if ev is None or not part or not rule_field:
-        return False
-    if rule_field not in {str(r) for r in (ctx.mapping.get("part_roles") or [])}:
-        return False
+    part, typ = str(label.get("equip_part") or ""), str(label.get("equip_type") or "")
+    if ev is None or not ev.readable or not part or not typ or not rule_field:
+        return None
     if str(label.get("equip_state") or "") != rule_equipment.AGREED:
-        return False
-    if not ev.pages_readable or not ev.role_complete.get(rule_field):
-        return False
-    aliases = (ctx.mapping.get("part_aliases") or {}).get(part) or []
-    wanted = _words(part.replace("_", " "), *aliases)
-    return bool(wanted) and not (
-        wanted & ev.role_words.get(rule_field, frozenset()) or wanted & ev.page_words
-    )
+        return None
+    for row in exclusion_rows(ctx.mapping):
+        if (
+            row["role"] != rule_field
+            or row["type"] != typ
+            or part not in row["excludes"]
+        ):
+            continue
+        facts = ev.role_facts.get(rule_field) or ()
+        known = {_tokens(v) for v in row["values"]}
+        ignore = set(_tokens(" ".join(map(str, row.get("ignore") or []))))
+        if not facts or not all(
+            f.verified
+            and tuple(t for t in _tokens(f.value) if t not in ignore) in known
+            for f in facts
+        ):
+            continue
+        return {
+            "part": part,
+            "role": rule_field,
+            "stated": [(f.value, f.page) for f in facts],
+        }
+    return None
+
+
+def part_lines(left: Iterable[Mapping]) -> list[str]:
+    """One true sentence per (role, stated values, part) of the rules left out for a part, built from the stored facts."""
+    groups: dict[tuple, int] = {}
+    for r in left:
+        note = r.get("part_note")
+        if r.get("reason") == PART_EXCLUDED and note:
+            key = (note["role"], tuple(map(tuple, note["stated"])), note["part"])
+            groups[key] = groups.get(key, 0) + 1
+    out = []
+    for (role, stated, part), n in groups.items():
+        said = "; ".join(
+            f"{v} (page {p})" if p is not None else str(v) for v, p in stated
+        )
+        out.append(
+            f"the paper states {role.replace('_', ' ')} = {said}, which has no {part.replace('_', ' ')}: {n} rules about that part were not asked"
+        )
+    return out
 
 
 def load_equipment(

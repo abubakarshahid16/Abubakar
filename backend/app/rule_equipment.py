@@ -393,6 +393,11 @@ def import_rows(conn, rows: Iterable[Any], tax: Taxonomy | None = None) -> dict:
             "SELECT * FROM rule_equipment_label WHERE source = ? AND rule_ref = ?",
             (row["source"], row["rule_ref"]),
         ).fetchone()
+        for column in (
+            ANSWER_COLUMNS
+        ):  # a file with no answer (an older file) never wipes an answer already stored
+            if values[column] is None and held is not None and held[column]:
+                values[column] = held[column]
         try:
             if held is None:
                 conn.execute(

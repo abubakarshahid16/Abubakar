@@ -168,25 +168,25 @@ describe("RulesUsedView: equipment notes and new reasons", () => {
   });
 });
 
-describe("RulesUsedView: a rule left out for a part the paper's equipment does not have", () => {
+describe("RulesUsedView: a rule left out for a part excluded by a value the paper states", () => {
   it("shows the part reason in its contract word in the counts and on the row", () => {
     render(<RulesUsedView data={data({
-      left_out: [{ rule_book: "Book A", clause: "5.5", reason: "a part the paper's equipment does not have" }],
-      left_out_counts: { "a part the paper's equipment does not have": 4 },
+      left_out: [{ rule_book: "Book A", clause: "5.5", reason: "a part excluded by a value the paper states" }],
+      left_out_counts: { "a part excluded by a value the paper states": 4 },
     })} />);
-    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("a part the paper's equipment does not have: 4");
-    expect(screen.getByText("a part the paper's equipment does not have", { selector: "td" })).toBeInTheDocument();
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("a part excluded by a value the paper states: 4");
+    expect(screen.getByText("a part excluded by a value the paper states", { selector: "td" })).toBeInTheDocument();
   });
 });
 
-describe("RulesUsedView: two labelling readers named different other equipment", () => {
+describe("RulesUsedView: both labelling readers named other equipment", () => {
   it("shows the reason in its contract words", () => {
     render(<RulesUsedView data={data({
-      left_out: [{ rule_book: "Book A", clause: "7", reason: "the two labelling readers named different other equipment" }],
-      left_out_counts: { "the two labelling readers named different other equipment": 2 },
+      left_out: [{ rule_book: "Book A", clause: "7", reason: "both labelling readers named other equipment" }],
+      left_out_counts: { "both labelling readers named other equipment": 2 },
     })} />);
-    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("the two labelling readers named different other equipment: 2");
-    expect(screen.getByText("the two labelling readers named different other equipment", { selector: "td" })).toBeInTheDocument();
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("both labelling readers named other equipment: 2");
+    expect(screen.getByText("both labelling readers named other equipment", { selector: "td" })).toBeInTheDocument();
   });
 });
 
