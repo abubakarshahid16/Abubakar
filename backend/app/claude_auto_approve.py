@@ -313,10 +313,14 @@ def on_upload(document_id: str, uploaded_name: str | None = None) -> None:
         except claude_approved.BlockListUnreadable:
             # _apply approves nothing then; the register name is still caught
             marked = frozenset()
-        if role in REVIEW_ROLES or any(
+        named = any(
             claude_approved.name_is_blocked(n, marked)
             for n in (row["filename"], *names)
-        ):
+        )
+        if role in REVIEW_ROLES and not named and is_contract_paper(document_id):
+            # a contract by the code's own kind decision, labelled a submittal or a specification: the owner's yes is needed
+            return [_want(row, SOURCE, withdraw=True)]
+        if role in REVIEW_ROLES or named:
             return [_want(row, SOURCE, *names)]
         return [_want(row, SOURCE, withdraw=True)] if role else []
 

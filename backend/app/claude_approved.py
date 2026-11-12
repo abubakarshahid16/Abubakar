@@ -480,6 +480,20 @@ def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
     return None
 
 
+def contracts_without_yes(ids) -> frozenset[str]:
+    """The declared documents that are a CONTRACT (by role, or by the code's own kind decision; unreadable counts as a contract) and
+    have no standing recorded yes (`contract_yes`). Owner, 12 Nov 2026 (#1584): a contract goes to Claude only with the owner's yes
+    for that upload. Asked on EVERY route to the gate (a review's paper, a cited document, an AI reviewer's book), never narrowed
+    by how the document came onto the list."""
+    from . import claude_auto_approve, contract_yes
+
+    return frozenset(
+        d
+        for d in ids
+        if claude_auto_approve.is_contract_paper(d) and not contract_yes.has_yes(d)
+    )
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
@@ -513,7 +527,7 @@ def refusal() -> tuple[str, str] | None:
     if _REQUEST_CONSENT.get():
         return None
     approved = approved_hashes()
-    lapsed = _lapsed_ids(hashes)
+    lapsed = _lapsed_ids(hashes) | contracts_without_yes(ids)
     missing = sorted(d for d, h in hashes.items() if h not in approved or d in lapsed)
     if missing:
         return NOT_APPROVED, (f"{len(missing)} of {len(ids)} document(s) in this prompt are not approved "
@@ -548,7 +562,7 @@ def local_instead() -> str | None:
         blocked = _blocked_ids(hashes)
     except BlockListUnreadable:
         blocked = ids
-    blocked = blocked | _lapsed_ids(hashes)
+    blocked = blocked | _lapsed_ids(hashes) | contracts_without_yes(ids)
     missing = sum(1 for d, h in hashes.items() if h not in approved or d in blocked)
     return LOCAL_INSTEAD.format(n=missing, of=len(ids))
 
