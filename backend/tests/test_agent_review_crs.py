@@ -322,15 +322,35 @@ def test_a_comment_is_three_parts_the_rule_the_paper_and_what_the_contractor_mus
         two
         == 'The paper states "Nameplate: steel", page 2, which does not meet the requirement.'
     )
-    assert three == f"{WB.FIXED_TO['Fail']} Replace the nameplate with a steel one."
-
-
-def test_a_number_in_the_readers_action_that_no_checked_quote_holds_is_not_printed():
-    line = mk(
-        "R-1", "Fail", "Fail", comment="Raise the set pressure to 99 bar and re-issue."
+    assert (
+        three
+        == "Contractor to revise Field R1 to meet STD-1 clause 4.1 and resubmit the paper."
     )
-    third = WB.layout_comment(line, *WB.status_of(line)).split("\n")[2]
-    assert "99" not in third and third == WB.FIXED_TO["Fail"]
+
+
+def test_no_free_text_of_the_ai_reader_reaches_line_three_on_either_copy(tmp_path):
+    said = "Raise it to 99 bar. Nothing further, looks fine, may proceed."
+    lines = [
+        mk("R-1", "Fail", "Fail", comment=said),
+        mk("R-2", "Query", "Fail", why="x", comment=said),
+        mk("R-3", "Query", None, why="x", comment=said),
+        mk("R-4", "Query", "Pass", why="x", comment=said),
+        mk("R-5", "Pass", "Pass", comment=said),
+    ]
+    for ln in lines:
+        assert said.split(".")[0] not in WB.layout_comment(ln, *WB.status_of(ln))
+    for copy, writer in (
+        ("internal", C.write_internal),
+        ("contractor", C.write_contractor),
+    ):
+        text = all_text(writer(lines, tmp_path / f"{copy}.xlsx", META))
+        if copy == "contractor":
+            assert "Nothing further" not in text and "99 bar" not in text
+        else:  # internal: only on the Evidence sheet, in its own column
+            main = all_text_of(tmp_path / "internal.xlsx", "CRS")
+            assert "Nothing further" not in main and "99 bar" not in main
+            ev = rows_of(tmp_path / "internal.xlsx", "Evidence")
+            assert ev[0]["AI reader's suggested action"] == said
 
 
 def test_the_rule_books_not_held_and_the_rules_not_asked_are_on_the_notes_sheet(
@@ -792,23 +812,73 @@ def test_line_three_always_agrees_with_the_status(verdict, ai):
         assert third.startswith("No action")
 
 
-def test_the_readers_action_is_appended_only_where_it_agrees_with_the_status():
-    line = mk("R-1", "Fail", "Fail", comment="Replace the nameplate with a steel one.")
-    assert WB.layout_comment(line, *WB.status_of(line)).endswith(
-        "Replace the nameplate with a steel one."
-    )
-    moved = mk(
-        "R-9",
+FALLBACK = "The AI reviewer holds no verified quote from the paper for this point."
+PAPER_CLAIMS = (
+    "the paper gives",
+    "the paper does not",
+    "is missing",
+    "not shown",
+    "not given",
+    "no value",
+)
+
+
+def test_the_fallback_is_a_statement_about_the_reviewer_and_makes_no_claim_about_the_paper():
+    """R27b B1: brute force over the stored shapes that reach the fallback (no verified quote, any verdict, any reason): line 2 holds
+    none of the paper claims unless the line carries the code's absence proof, and never the empty 'it could not be confirmed'."""
+    reasons = ["", "zz_unknown reason", *_reason_constants()]
+    for verdict, ai in (
+        ("Query", None),
+        ("Query", "Fail"),
+        ("Query", "Pass"),
+        ("Fail", "Fail"),
+    ):
+        for code in (None, "other", "unclear_clause", "met", "not_met"):
+            for reason in reasons:
+                line = mk("R-1", verdict, ai, reason_code=code, why=reason or None, paper_quote=None,
+                          quotes_checked={"paper": False, "clause": True}, decided_by="engineer")  # fmt: skip
+                got = WB.status_of(line)
+                if got is None:
+                    continue
+                line2 = WB.layout_comment(line, *got).split("\n")[1].lower()
+                assert "not confirmed: it could not be confirmed" not in line2, (
+                    verdict,
+                    ai,
+                    code,
+                    reason,
+                    line2,
+                )
+                if "does not state" in line2:
+                    continue
+                assert not any(c in line2 for c in PAPER_CLAIMS), (
+                    verdict,
+                    ai,
+                    code,
+                    reason,
+                    line2,
+                )
+    bare = mk(
+        "R-1",
         "Query",
-        "Pass",
-        why="x",
-        comment="Replace the nameplate with a steel one.",
-        second_opinion={"agree": False},
+        None,
+        paper_quote=None,
+        quotes_checked={"paper": False, "clause": True},
     )
-    assert (
-        "Replace the nameplate"
-        not in WB.layout_comment(moved, *WB.status_of(moved)).split("\n")[2]
-    )
+    assert WB.layout_comment(bare, *WB.status_of(bare)).split("\n")[1] == FALLBACK
+
+
+def test_no_phrase_of_the_table_is_a_tautology_of_its_own_label():
+    assert words.UNKNOWN_WHY == "it could not be confirmed"
+    for text, phrase in words.WHY_PHRASES.items():
+        assert (
+            phrase != words.UNKNOWN_WHY
+            and phrase.strip(". ")
+            and len(phrase.split()) >= 4
+        ), text
+        assert (
+            f"Not confirmed: {phrase}".lower()
+            != "not confirmed: it could not be confirmed"
+        )
 
 
 def test_the_contractor_header_lists_only_the_books_of_the_rows_shown(tmp_path):

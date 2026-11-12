@@ -327,7 +327,7 @@ def test_a_guarded_line_is_on_the_query_side_of_the_workbook_with_its_new_reason
     path = C.write_internal([held, moved], tmp_path / "i.xlsx", meta)
     wb = openpyxl.load_workbook(path)
     evidence = list(wb["Evidence"].iter_rows(min_row=2, values_only=True))
-    status_of = {r[12]: r[1] for r in evidence}  # internal item id -> Status
+    status_of = {r[13]: r[1] for r in evidence}  # internal item id -> Status
     assert status_of == {
         "R-4": "AI opinion",
         "R-9": "Query",
@@ -448,9 +448,9 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
         )
     }
     evidence = list(wb["Evidence"].iter_rows(min_row=2, values_only=True))
-    assert sorted(r[12] for r in evidence) == sorted(ids)  # every line once
+    assert sorted(r[13] for r in evidence) == sorted(ids)  # every line once
     for r in evidence:
-        place[r[12]] = (
+        place[r[13]] = (
             "CRS" if r[0] in on_main else "other" if r[0] in on_other else None
         )
     assert None not in place.values() and not on_main & on_other

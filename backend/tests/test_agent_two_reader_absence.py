@@ -416,7 +416,10 @@ def test_a_not_stated_line_in_the_crs_has_the_status_priority_and_only_establish
         and "the paper does not state" not in row[3].lower()
     )
     assert (
-        view["evidence"]["rows"][0][14] == "not stated"
+        view["evidence"]["rows"][0][
+            view["evidence"]["columns"].index("Independent reader: verdict")
+        ]
+        == "not stated"
     )  # the independent reader's verdict on the Evidence sheet
     assert (
         W.counts([ln])["ai_verdict_not_stated"] == 1

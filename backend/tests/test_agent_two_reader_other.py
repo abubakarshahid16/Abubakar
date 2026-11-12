@@ -357,5 +357,5 @@ def test_the_record_keeps_the_line_before_the_step(w, on):
     run_id = run_review()
     assert stored(run_id, "R-coat")["two_reader_other"]["base"] == {
         "verdict_class": "Query for the engineer",
-        "verdict_label": "Query",
+        "verdict_label": "Query for the engineer",
     }
