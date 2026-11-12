@@ -420,15 +420,64 @@ def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
 #
 # Pure: it reads the reader's own stored summary, never a database.
 
-def skipped_on_purpose(reason: object) -> bool:
-    """True when an AI reader's recorded reason says the step was NOT RUN on purpose (the local engine is barred in a Claude-lane run),
-    not that it ran and failed. A page the AI reader never tried is not a page nobody read: the code readers' reading stands, and the
-    skip is said once (`pages_ai_skipped`), never as an unread page to tick (K3, owner 12 Nov: "a false statement about reading")."""
-    return local_engine_bar.NOTE in str(reason or "")
-
-
 READING_COMPLETE = "complete"
 READING_INCOMPLETE = "incomplete"
+
+
+LITTLE_TEXT = "little text on this page and the AI page reader did not run"
+NOT_RUN_WORDS = "The AI page reader did not run on {n} page{s} in this review ({why}); {they} read from their own text."
+
+
+def _ai_pages(reader: dict, total: int, pages: dict) -> tuple[dict, dict]:
+    """(pages the AI reader failed on or left thin, pages it was never run on), each page -> why, in words.
+
+    A page the reader was NEVER RUN on (the bar, on purpose; the writer marks it `skipped_on_purpose`, and a record stored before
+    the marker is told apart by the bar's own words, `local_engine_bar.is_bar_note`, in this one place) is read from its own text:
+    it is not unread. It counts as not fully read only when that text is thin by a stated measure (`pages_thin`: under
+    `OCR_MIN_USABLE_CHARS`, the app's own minimum for a usable text layer) or the code readers found no field on it.
+    A scan stays unread by the ledger. A page the reader tried and failed on is a failure, whatever else was skipped."""
+    engine = reader.get("engine") or "AI"
+    failed: dict[int, str] = {}
+    for page in reader.get("timed_out") or []:
+        failed[int(page)] = f"the {engine} reader timed out on this page"
+    raw: dict[int, object] = {}
+    code_only = reader.get("code_only")
+    for page, why in code_only.items() if isinstance(code_only, dict) else ():
+        raw[int(page)] = why
+    for page in reader.get("cut_off") or []:
+        failed.setdefault(int(page), f"the {engine} reader was cut off before this page")
+    for page, why in (reader.get("partly_read") or {}).items():
+        failed.setdefault(int(page), f"the {engine} reader read this page in part ({why})")
+    for key, word in (("unavailable", "unavailable"), ("stopped", "stopped")):
+        if reader.get(key) and (key == "unavailable" or int(reader.get("pages_read") or 0) < total):
+            for page in range(1, total + 1):
+                raw.setdefault(page, reader[key])
+                if key == "stopped" or not local_engine_bar.is_bar_note(reader[key]):
+                    failed.setdefault(page, f"the {engine} reader was {word} ({reader[key]})")
+    marked = {int(p) for p in reader.get("skipped_on_purpose") or []}
+    skipped = {
+        p: f"the {engine} reader was not run on this page ({why})"
+        for p, why in sorted(raw.items())
+        if (p in marked or local_engine_bar.is_bar_note(why)) and p not in failed
+    }
+    for page, why in raw.items():
+        if page not in skipped and page not in failed:
+            failed[page] = f"the {engine} reader did not read this page ({why})"
+    thin = {int(p) for p in pages.get("pages_thin") or []} | {int(p) for p in pages.get("pages_read_no_field") or []}
+    for page in [p for p in skipped if p in thin]:
+        failed[page] = LITTLE_TEXT
+        del skipped[page]
+    keep = {p: w for p, w in failed.items() if 1 <= p <= total}
+    return dict(sorted(keep.items())), {p: w for p, w in skipped.items() if 1 <= p <= total}
+
+
+def skipped_line(skipped: dict) -> str:
+    """The pages line, once, in plain words: how many pages the AI page reader did not run on, and why (the reasons are the
+    writer's own; one reason is named, a second distinct one says 'other reasons')."""
+    n = len(skipped)
+    whys = {w.rsplit("(", 1)[-1].rstrip(")") for w in skipped.values()}
+    why = next(iter(whys)) if len(whys) == 1 else "different reasons"
+    return NOT_RUN_WORDS.format(n=n, s="" if n == 1 else "s", why=why, they="it was" if n == 1 else "they were")
 
 
 def reading_gaps(reader: dict | None, pages: dict) -> dict:
@@ -447,33 +496,7 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
     ai_missing: dict[int, str] = {}
     skipped: dict[int, str] = {}
     if reader and total:
-        engine = reader.get("engine") or "AI"
-        reasons: dict[int, str] = {}
-        for page in reader.get("timed_out") or []:
-            reasons[int(page)] = f"the {engine} reader timed out on this page"
-        code_only = reader.get("code_only")
-        if isinstance(code_only, dict):
-            for page, why in code_only.items():
-                if skipped_on_purpose(why):
-                    skipped[int(page)] = f"the {engine} reader was not run on this page ({why})"
-                    continue
-                reasons.setdefault(int(page), f"the {engine} reader did not read this page ({why})")
-        for page in reader.get("cut_off") or []:
-            reasons.setdefault(int(page), f"the {engine} reader was cut off before this page")
-        # order 139: a page the AI read only in part is not a clean page.
-        for page, why in (reader.get("partly_read") or {}).items():
-            reasons.setdefault(
-                int(page), f"the {engine} reader read this page in part ({why})"
-            )
-        if reader.get("unavailable"):
-            for page in range(1, int(total) + 1):
-                reasons.setdefault(page, f"the {engine} reader was unavailable ({reader['unavailable']})")
-        if reader.get("stopped"):
-            read = int(reader.get("pages_read") or 0)
-            if read < int(total):
-                for page in range(1, int(total) + 1):
-                    reasons.setdefault(page, f"the {engine} reader was stopped ({reader['stopped']})")
-        ai_missing = {p: why for p, why in sorted(reasons.items()) if 1 <= p <= int(total)}
+        ai_missing, skipped = _ai_pages(reader, int(total), pages)
     # #918: a page a CODE reader failed on, or something the office reader left
     # out, makes the reading incomplete whatever the AI did.
     failed: dict[int, str] = {}
@@ -485,7 +508,15 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
         "pages_ai_not_read": sorted(ai_missing),
         "ai_not_read_reasons": {str(p): why for p, why in ai_missing.items()},
         # only when something was skipped on purpose: the shape without it is unchanged
-        **({"pages_ai_skipped": sorted(skipped), "ai_skipped_reasons": {str(p): w for p, w in sorted(skipped.items())}} if skipped else {}),
+        **(
+            {
+                "pages_ai_skipped": sorted(skipped),
+                "ai_skipped_reasons": {str(p): w for p, w in skipped.items()},
+                "ai_skipped_line": skipped_line(skipped),
+            }
+            if skipped
+            else {}
+        ),
         "reading": {
             "status": READING_INCOMPLETE if incomplete or notes or not total else READING_COMPLETE,
             "pages_total": total,
@@ -518,11 +549,14 @@ def every_page_read(pages: dict, where: str, total: int) -> str:
     read and found no field on is named as that, never counted as a page
     fields were read from."""
     none = pages.get("pages_read_no_field") or []
-    if not none:
-        return f"fields were read from every page ({where} of {total})"
-    return (f"every page was read: fields from {where} of {total}; "
+    said = f"fields were read from every page ({where} of {total})"
+    if none:
+        said = (
+            f"every page was read: fields from {where} of {total}; "
             f"page{'s' if len(none) != 1 else ''} {page_list(none)} "
-            "read, no checklist field found")
+            "read, no checklist field found"
+        )
+    return f"{said}. {pages['ai_skipped_line']}" if pages.get("ai_skipped_line") else said
 
 
 def run_reader(outcome: dict | None) -> dict | None:
@@ -551,7 +585,11 @@ def run_unread_pages(
     # a page the AI reader was never run on (barred on purpose) is not unread: runs stored before `pages_ai_skipped` carry it in
     # `pages_ai_not_read` with the skip's own reason (K3), so it is told apart by that reason
     ai_reasons = cov.get("ai_not_read_reasons") or {}
-    pages |= {int(p) for p in cov.get("pages_ai_not_read") or [] if int(p) in pages or not skipped_on_purpose(ai_reasons.get(str(p)))}
+    pages |= {
+        int(p)
+        for p in cov.get("pages_ai_not_read") or []
+        if int(p) in pages or not local_engine_bar.is_bar_note(ai_reasons.get(str(p)))
+    }
     if isinstance(reader, dict):
         timed_out = {int(p) for p in reader.get("timed_out") or []}
         total = cov.get("pages_total")
@@ -631,6 +669,14 @@ def _pages_dropped_with_content(document_id: str) -> set[int]:
     return out
 
 
+def _thin_part(ledger: list) -> dict:
+    """`pages_thin`: the pages whose text layer is under the app's own minimum for a usable one (`OCR_MIN_USABLE_CHARS`, the
+    measure `ocr.route_decision` uses). Only when there are some: the shape without it is unchanged."""
+    floor = settings.ocr_min_usable_chars
+    thin = [r["page_no"] for r in ledger if r["native_status"] == "text" and (r["native_chars"] or 0) < floor]
+    return {"pages_thin": thin} if thin else {}
+
+
 def coverage(document_id: str) -> dict:
     """The per-document summary a review states, WITH ITS DENOMINATOR.
 
@@ -699,6 +745,7 @@ def coverage(document_id: str) -> dict:
         "pages_read_no_field": no_field,
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
+        **_thin_part(ledger),
     }
 
 

@@ -93,7 +93,7 @@ def test_a_function_suffix_and_a_dot_slash_still_match_and_other_files_do_not():
 
 def test_the_list_is_short_enough_to_be_honest():
     # raised on 12 Nov: every file here decides a verdict, money or what leaves the machine; trim by merging modules, not by leaving files off
-    assert len(vp.VERDICT_PATH) <= 52
+    assert len(vp.VERDICT_PATH) <= 53  # raised by one (K3): page_ledger.py decides the sign gate and the Pass hold; trim before raising again
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

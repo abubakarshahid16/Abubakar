@@ -675,6 +675,12 @@ def read_page_text_with_ai(page_text: str, page_no: int, engine_or_callable) -> 
     return _read(page_text, page_no, call, engine)
 
 
+def _bar_note(reason) -> bool:
+    from . import local_engine_bar
+
+    return local_engine_bar.is_bar_note(reason)
+
+
 def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     """Every page of one document through the reader, in page order.
 
@@ -696,6 +702,7 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     pages: dict[int, dict] = {}
     reasons: dict[int, str] = {}
     partly: dict[int, str] = {}
+    skipped_on_purpose: list[int] = []
     stopped = None
     timed_out: list[int] = []
     budget = float(settings.datasheet_ai_max_seconds)
@@ -705,6 +712,8 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
         text = page_texts[page_no] or ""
         if call is None:
             reasons[page_no] = why
+            if _bar_note(why):
+                skipped_on_purpose.append(page_no)  # the structured marker `page_ledger.reading_gaps` reads
             continue
         if stopped is not None:
             reasons[page_no] = (OUT_OF_TIME.format(seconds=_seconds(budget)) if stopped == "time_budget"
@@ -734,6 +743,7 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
         "engine": engine,
         "model": output_limits.model_used(call),
         "unavailable": why,
+        "skipped_on_purpose": skipped_on_purpose,
         "pages": pages,
         "reasons": reasons,
         "partly_read": partly,
