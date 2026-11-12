@@ -218,7 +218,7 @@ def test_switch_off_no_block_file_is_asked_for(monkeypatch):
 
 def test_switch_off_is_a_rollback_an_auto_row_does_not_count(monkeypatch):
     doc = _doc("doc_a", SHA_A)
-    cited = _doc("doc_b", SHA_B)
+    cited = _doc("doc_b", SHA_B, STANDARD)
     classification.set_role(doc, SUBMITTAL)
     run_id = _start_review(doc)
     _cite(run_id, cited)

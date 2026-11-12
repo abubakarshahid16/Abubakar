@@ -177,13 +177,21 @@ def is_register_name(filename: str | None) -> bool:
     return REGISTER_NAME_KEY in name_key(filename)
 
 
+def _present(path: Path) -> bool:
+    """Is there a file here? An operating-system refusal is `BlockListUnreadable`, never a crash."""
+    try:
+        return path.exists()
+    except OSError as exc:
+        raise BlockListUnreadable("the block file cannot be read") from exc
+
+
 def marked_name_keys() -> frozenset[str]:
     """The keys of the file NAMES the owner marked in the block file
     (`"blocked_names": [...]`). Raises `BlockListUnreadable` for a block file that is
     damaged, and for a name with too few letters and digits (it would block nearly
     everything: fail closed). An absent file marks nothing."""
     path = block_file_path()
-    if not path.exists():
+    if not _present(path):
         return frozenset()
     names = _read_block_file(path).get("blocked_names")
     if names is None:
@@ -231,9 +239,9 @@ def read_list_strict() -> dict:
     Unlike `_entries`, a damaged file is an answer of its own: it can hold a block
     that could not be seen, so it must not read as "nothing is blocked"."""
     path = list_path()
-    if not path.is_file():
-        return {"documents": []}
     try:
+        if not path.is_file():
+            return {"documents": []}
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise BlockListUnreadable("the approved list cannot be read") from exc
@@ -251,7 +259,7 @@ def blocked_hashes() -> frozenset[str]:
     exists and cannot be read raises."""
     path = block_file_path()
     listed: list = []
-    if path.exists():
+    if _present(path):
         listed = _read_block_file(path).get("blocked_sha256")
         if listed is None:
             listed = []
@@ -444,10 +452,11 @@ def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
 
     try:
         blocked = sorted(_blocked_ids(_hashes_of(ids)))
-    except BlockListUnreadable:
+    except BlockListUnreadable as exc:
+        why = str(exc)
         return (
             NOT_APPROVED,
-            "the approved list or the block file cannot be read, so nothing is sent (fail closed)",
+            f"the approved list or the block file has a fault ({why}), so nothing is sent (fail closed)",
         )
     except sqlite3.OperationalError:
         # Guard off and no library at all: nothing is there to be blocked.

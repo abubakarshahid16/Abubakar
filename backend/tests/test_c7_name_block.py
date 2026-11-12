@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from app import claude_approved, claude_auto_approve, db
+from app import absence, classification, claude_approved, claude_auto_approve, db
 from app.config import settings
 from tests.test_1584_claude_auto_approve import (  # noqa: F401  (the autouse world is the one of #1584's tests)
     SHA_A,
@@ -32,6 +32,12 @@ _A, _B = (
 )  # the two words of the register's name, built from the one list
 REG = f"{_A} {_B}.pdf"
 MARKED = "Invented Marked Sheet.pdf"
+# a document with the submittal role is approved by route 1 (a paper uploaded for review), not by citation
+ROLES_NOT_RULE_BOOKS = [
+    r
+    for r in classification.ROLES
+    if r not in ("COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL")
+] + [None]
 
 _spec = importlib.util.spec_from_file_location(
     "write_block_file_c7",
@@ -256,3 +262,81 @@ def test_the_script_refuses_a_short_name_and_does_not_overwrite_a_damaged_file(
     assert cli.main(["--data-dir", str(tmp_path), "--name", MARKED]) == 1
     assert (tmp_path / claude_approved.BLOCK_FILE_NAME).read_text() == "{broken"
     assert "REFUSED" in capsys.readouterr().out
+
+
+# ------------------------------------------------ B1: only rule books are approved when cited
+
+
+@pytest.mark.parametrize(
+    "role",
+    ROLES_NOT_RULE_BOOKS,
+)
+@pytest.mark.parametrize("method", ["referenced", "governing_standard"])
+def test_a_cited_document_that_is_not_a_rule_book_is_not_approved_and_the_review_says_so(
+    role, method
+):
+    from tests.test_1584_claude_auto_approve import (
+        _cite,
+        _outcome,
+        _start_review,
+        _store_outcome,
+    )
+
+    paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
+    other = _doc("doc_other", SHA_B)
+    if role:
+        classification.set_role(other, role)
+    book = _doc("doc_book", SHA_C, role=STANDARD)
+    run_id = _start_review(paper)
+    _cite(run_id, other, method=method)
+    _cite(run_id, book, method=method)
+    claude_auto_approve.on_review_start(run_id)
+    assert _rows_for(SHA_B) == []  # left for the owner
+    assert [r["status"] for r in _rows_for(SHA_C)] == [
+        "approved"
+    ]  # the rule book it cites is
+    assert _refused_code([paper, other]) == claude_approved.NOT_APPROVED
+    _store_outcome(run_id, {})
+    claude_auto_approve.record_on_run(run_id)
+    parts = absence.unchecked_parts(run_status="completed", outcome=_outcome(run_id))
+    lines = [p["line"] for p in parts if p["part"] == "claude_unlisted_standards"]
+    assert any(
+        "Not sent: 1 document(s)" in x
+        and "not rule books" in x
+        and "owner approves" in x
+        for x in lines
+    )
+
+
+# ------------------------------------------------ smaller items of the review
+
+
+def test_an_os_refusal_on_the_block_file_is_the_plain_refusal_not_a_crash(monkeypatch):
+    doc = _doc("doc_x", SHA_A)
+    _set_list((SHA_A, "approved"))
+    real = Path.exists
+
+    def refuse(self):
+        if self.name == claude_approved.BLOCK_FILE_NAME:
+            raise PermissionError("denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "exists", refuse)
+    assert _refused_code([doc]) == claude_approved.NOT_APPROVED
+    assert claude_approved.approved_hashes() == frozenset()
+    assert claude_approved.blocked_by_name("any name.pdf") is True
+
+
+def test_a_too_short_marked_name_gets_its_own_reason_and_still_refuses():
+    _mark("ab.pdf")
+    doc = _doc("doc_x", SHA_A)
+    _set_list((SHA_A, "approved"))
+    with claude_approved.carrying([doc]):
+        code, reason = claude_approved.refusal()
+    assert code == claude_approved.NOT_APPROVED
+    assert "too short" in reason and "fail closed" in reason
+
+
+def test_an_unreadable_block_file_blocks_every_name_at_the_precheck():
+    claude_approved.block_file_path().write_text("{broken", encoding="utf-8")
+    assert claude_approved.blocked_by_name("an invented ordinary name.pdf") is True

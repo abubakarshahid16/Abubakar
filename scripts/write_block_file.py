@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Write `<data dir>/claude_blocked_hashes.json`: the hashes that may NEVER go to Claude (CLAUDE.md rule 3: the register).
+"""Write `<data dir>/claude_blocked_hashes.json`: the files the owner blocks from Claude: by checksum, and by file name (CLAUDE.md rule 3: the register is blocked by its name without this file; a renamed copy is recognised only by checksum).
 
     python scripts/write_block_file.py --data-dir <dir> --db <database> [--file <path>] [--sha256 <hex>] [--name <file name>]
 
