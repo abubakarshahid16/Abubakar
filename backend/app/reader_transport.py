@@ -99,6 +99,43 @@ def available() -> bool:
     return bool(cfg.enabled and cfg.allow_public_egress)
 
 
+#: How much of the API's own error message a log line or a screen may carry.
+ERROR_MESSAGE_CHARS = 200
+
+
+def api_error(payload: object, status: int = 400) -> tuple[str, str]:
+    """(error type, short message) from a 4xx body already parsed as JSON; ("", "") when it is not the API's error shape.
+
+    The MESSAGE is free text the API writes about a PARAMETER ("max_tokens: ..."), never the request body. It is cut to
+    `ERROR_MESSAGE_CHARS`, control characters become spaces, anything shaped like a key (`sk-...`) is removed, and a 401 or 403
+    (authentication, permission) never carries it at all: those messages can echo a credential. The type must have the shape
+    of the API's own enum, else it is dropped. (A 400 with no readable cause cost a day: 12 Nov 2026.)"""
+    err = payload.get("error", {}) if isinstance(payload, dict) else {}
+    if not isinstance(err, dict):
+        return "", ""
+    kind = str(err.get("type") or "")
+    kind = kind if re.fullmatch(r"[a-z][a-z_]{0,39}", kind) else ""
+    if status in (401, 403):
+        return kind, ""
+    message = re.sub(r"[\x00-\x1f\x7f]", " ", str(err.get("message") or ""))
+    message = re.sub(r"sk-[A-Za-z0-9_\-]+", "[key removed]", message)
+    return kind, " ".join(message.split())[:ERROR_MESSAGE_CHARS]
+
+
+def _rejection(status: int, host: str, payload: object) -> str:
+    kind, message = api_error(payload, status)
+    detail = ": ".join(part for part in (kind, message) if part)
+    return f"{status} from {host}" + (f" ({detail})" if detail else "")
+
+
+def _json_or_none(parse):
+    """`parse()` -> the parsed JSON body, or None when the body is not JSON (the status alone is reported, #655)."""
+    try:
+        return parse()
+    except (ValueError, TypeError):
+        return None
+
+
 def _digest(body: Mapping) -> str:
     """A fingerprint of what left, for the audit line. Not the text."""
     return hashlib.sha256(
@@ -159,15 +196,9 @@ def transport():
             # `rate_limit_error`...) and is what a reader of the log needs:
             # the first real call failed with a bare "400" that took a second
             # probe to read as "credit balance too low".
-            kind = ""
-            try:
-                err = response.json().get("error", {})
-                kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-            except ValueError as exc:  # #655: the status alone is reported
-                log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
-            raise httpx.HTTPStatusError(
-                f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
-                request=response.request, response=response)
+            said = _rejection(response.status_code, host, _json_or_none(response.json))
+            log.warning("standards reader: rejected, %s model=%s digest=%s", said, body.get("model"), _digest(body))
+            raise httpx.HTTPStatusError(said, request=response.request, response=response)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(
                 f"response from {host} is {len(response.content)} bytes, over "
@@ -253,15 +284,9 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                            extensions={"trace": _trace}) as response:
             status = response.status_code
             if status >= 400:
-                kind = ""
-                try:
-                    err = json.loads(response.read()).get("error", {})
-                    kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-                except ValueError as exc:  # #655: the status alone is reported
-                    log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
-                raise httpx.HTTPStatusError(
-                    f"{status} from {host}" + (f" ({kind})" if kind else ""),
-                    request=response.request, response=response)
+                said = _rejection(status, host, _json_or_none(lambda: json.loads(response.read())))
+                log.warning("standards reader: rejected, %s model=%s digest=%s", said, body.get("model"), _digest(body))
+                raise httpx.HTTPStatusError(said, request=response.request, response=response)
             for line in response.iter_lines():
                 if cancel is not None and cancel.is_set():
                     cancelled = True

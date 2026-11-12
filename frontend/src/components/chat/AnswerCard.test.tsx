@@ -532,3 +532,29 @@ describe("the retry is labelled as a retry", () => {
     ).toBeInTheDocument();
   });
 });
+
+// 12 Nov 2026: a Claude answer that failed with NO passages said "The quoted answer above is unaffected" - there was none.
+describe("a failed answer does not point at a quoted answer that is not there", () => {
+  const failed = (provider: "claude" | "ollama", passages: AnswerView["passages"]): AnswerView => ({
+    ...extractView(),
+    answer_type: "model_unavailable",
+    provider,
+    answer: null,
+    passage: null,
+    passages,
+    reason: "the answer model would not answer (400 from api.anthropic.com (invalid_request_error: max_tokens))",
+  } as AnswerView);
+
+  it.each(["claude", "ollama"] as const)("%s, no passages: says no answer was written", (provider) => {
+    render(<AnswerCard view={failed(provider, [])} onSelectSource={() => {}} activeSource={null} upgradeFailure={null} />);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/No answer was written for this question/);
+    expect(alert).not.toHaveTextContent(/quoted answer above/i);
+    expect(alert).toHaveTextContent(/invalid_request_error/);
+  });
+
+  it("with passages shown, the quoted-answer sentence stays", () => {
+    render(<AnswerCard view={failed("claude", [P2])} onSelectSource={() => {}} activeSource={null} upgradeFailure={null} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(/quoted answer above is unaffected/i);
+  });
+});

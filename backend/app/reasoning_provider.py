@@ -916,6 +916,16 @@ def claude_for_task(engine: str | None, role: str = "reasoning", *, step: str | 
     return ClaudeProvider(model, step=step)
 
 
+def refused_words(exc: BaseException) -> str:
+    """The screen reason for a provider that would not answer: its own short cause (for an API rejection: the HTTP
+    status, the error type and the API's short message about a parameter), at most 200 characters, never the request. It
+    used to be only the provider's name ("claude"), which named nothing."""
+    text = str(exc)
+    detail = text.split(": ", 1)[1] if ": " in text else text
+    detail = " ".join(detail.split())[:200]
+    return f"the answer model would not answer ({detail})"
+
+
 #: #870: what a review step says when it ran on the local model because the
 #: cloud model's call FAILED (an API error, a time-out). Not a budget cap -
 #: that is the owner's limit and stays a stop.

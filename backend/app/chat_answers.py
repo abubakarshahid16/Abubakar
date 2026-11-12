@@ -61,7 +61,7 @@ def _failed(base: dict, exc: Exception, timer: Timer, preference: str | None = N
         reason = claude_spend.refusal_words(
             exc, "the Claude spending cap would be exceeded, so no answer was generated")
     elif isinstance(exc, rp.ProviderRefused):
-        reason = f"the answer model would not answer ({str(exc).split(':')[0]})"
+        reason = rp.refused_words(exc)
     else:
         reason = f"the answer model could not be reached ({type(exc).__name__})"
     engine = rp.CLAUDE if isinstance(exc, claude_spend.BudgetExceeded) else chat_model.engine_name(preference)
