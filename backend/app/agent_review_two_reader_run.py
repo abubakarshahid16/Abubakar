@@ -246,8 +246,16 @@ class TwoReaderMixin:
                 )
             )
         ):  # a "not met" must pass what a code Fail passes (F1, F3, F4) before it earns the class
+            before = (self.calls["context"], self.run_usd)
             try:
                 second["fail_guards"] = self._fail_guards(item, line, answer, pages)
+                extra = round(
+                    self.run_usd - before[1], 6
+                )  # the F4 call is this step's too: counted in its calls and cost
+                st["calls"] += self.calls["context"] - before[0]
+                st["usd"] = round(st["usd"] + extra, 6)
+                second["fail_guards"]["usd"] = extra
+                share += extra
             except FATAL as exc:
                 self.record_two_reader_off(
                     two.OFF_CAP, cause=str(getattr(exc, "code", type(exc).__name__))

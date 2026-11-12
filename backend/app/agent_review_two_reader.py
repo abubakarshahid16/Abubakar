@@ -203,18 +203,31 @@ def span_in(page_text: Any, quote: Any) -> list[int] | None:
 
 def evidence_spans(page_text: Any, first_quote: Any, second_quote: Any) -> dict | None:
     """The two verified quote spans on one page, for `same_evidence`; None when either quote is not on the page. A quote that stands
-    in several places is read where it meets the other quote, if anywhere (a figure printed twice is not two pieces of evidence)."""
+    in more than one place is pinned only when the code need not choose: the OTHER quote stands in exactly one place and exactly one
+    occurrence of the repeated quote lies inside or across it. Otherwise the spans are None and `why` says so in plain words (the
+    line then stays what it was)."""
     firsts, seconds = (
         _spans_in(page_text, first_quote),
         _spans_in(page_text, second_quote),
     )
     if not (firsts and seconds):
         return None
-    for a in firsts:
-        for b in seconds:
-            if a[0] < b[1] and b[0] < a[1]:
-                return {"first": a, "second": b}
-    return {"first": firsts[0], "second": seconds[0]}
+    if len(firsts) == 1 and len(seconds) == 1:
+        return {"first": firsts[0], "second": seconds[0]}
+    one, many = (firsts, seconds) if len(firsts) == 1 else (seconds, firsts)
+    if len(one) == 1 and len(many) > 1:
+        meet = [m for m in many if one[0][0] < m[1] and m[0] < one[0][1]]
+        if len(meet) == 1:
+            return (
+                {"first": one[0], "second": meet[0]}
+                if one is firsts
+                else {"first": meet[0], "second": one[0]}
+            )
+    return {
+        "first": None,
+        "second": None,
+        "why": "a quote stands in more than one place on the page and the code cannot tell which one the other reader meant",
+    }
 
 
 def _figure_keys(text: Any) -> tuple[frozenset, frozenset]:

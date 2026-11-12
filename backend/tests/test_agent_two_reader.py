@@ -25,7 +25,7 @@ from app import crs_ai_workbook as WB
 from app.api import agent_review_schemas as contract
 from app.config import settings
 from tests import agent_review_support as s
-from tests.test_agent_review_crs import META, OK, mk, rows_of
+from tests.test_agent_review_crs import META, OK, SK, mk, rows_of
 from tests.test_agent_review_guards import run_review, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
 
@@ -112,7 +112,7 @@ def test_two_readers_agree_and_every_quote_of_both_is_verified_gives_the_class(w
     assert step_of(run_id) == {
         "candidates": 2,
         "asked": 2,
-        "calls": 1,
+        "calls": 2,
         "agreed": 2,
         "disagreed": 0,
         "unconfirmed": 0,
@@ -774,9 +774,10 @@ def test_a_not_met_runs_the_fail_guards_and_each_guard_objecting_keeps_the_line(
 
     fake = lane(w)
     run_id = run_review()
-    assert fake.kinds.count("context") >= 1 and stored(run_id, "R-mark")["two_reader"][
-        "fail_guards"
-    ] == {"ok": True, "why": None}
+    assert (
+        fake.kinds.count("context") >= 1
+        and stored(run_id, "R-mark")["two_reader"]["fail_guards"].get("ok") is True
+    )
     assert lines_of(run_id)["R-mark"]["verdict_class"] == CLASS
     # the context check (F4) holds the Fail: the line stays "AI thinks: not met"
     monkeypatch.setattr(
@@ -1159,7 +1160,9 @@ def test_a_smaller_batch_limit_means_one_call_per_batch_and_each_call_stays_with
     monkeypatch.setattr(two, "MAX_BATCH", 1)
     fake = lane(w)
     run_id = run_review()
-    assert len(fake.reader2) == 2 == step_of(run_id)["calls"]
+    assert len(fake.reader2) == 2 and step_of(run_id)["calls"] == 2 + fake.kinds.count(
+        "context"
+    )  # + the F4 call
     for body in fake.reader2:
         assert (
             len(
@@ -1169,3 +1172,125 @@ def test_a_smaller_batch_limit_means_one_call_per_batch_and_each_call_stays_with
             )
             == 1
         )
+
+
+def test_the_f4_call_of_an_agreeing_not_met_is_counted_in_the_steps_calls_and_cost_and_the_line(
+    w, on
+):
+    fake = lane(w)
+    run_id = run_review()
+    step = step_of(run_id)
+    assert (
+        step["calls"] == len(fake.reader2) + fake.kinds.count("context") == 2
+    )  # the reader call and the F4 call
+    mark = stored(run_id, "R-mark")
+    assert (
+        mark["usd"]
+        >= mark["two_reader"]["usd"] + mark["two_reader"]["fail_guards"]["usd"]
+        > 0
+    )  # a line never understates its cost
+
+
+def test_a_figure_standing_in_two_rows_is_not_pinned_unless_the_other_quote_pins_it():
+    page = "Row A design pressure (barg) 10\nRow B design pressure (barg) 10\nRow C set pressure 10 barg\n"
+    dup = "design pressure (barg) 10"
+    spans = two.evidence_spans(
+        page, dup, dup
+    )  # both readers quote a figure that stands in two rows
+    assert spans["first"] is None and "more than one place" in spans["why"]
+    line = {"paper_page": 2, "paper_quote": dup}
+    assert not two.same_evidence(
+        line, {"paper_page": 2, "paper_quote": dup, "spans": spans}
+    )
+    # the other reader's quote stands in exactly one place and holds exactly one occurrence: pinned without choosing
+    pinned = two.evidence_spans(page, dup, "Row B design pressure (barg) 10")
+    assert (
+        pinned["first"] is not None
+        and pinned["second"][0] < pinned["first"][0] < pinned["second"][1]
+    )
+    assert two.same_evidence(
+        {"paper_page": 2, "paper_quote": dup},
+        {
+            "paper_page": 2,
+            "paper_quote": "Row B design pressure (barg) 10",
+            "spans": pinned,
+        },
+    )
+    # a short value-only quote in several rows against a quote that spans two rows: two occurrences meet it, so nothing is chosen
+    assert (
+        two.evidence_spans(
+            page, "design pressure (barg) 10\nRow B design pressure (barg) 10", "10"
+        )["first"]
+        is None
+    )
+
+
+def test_the_second_readers_label_only_quote_never_earns_the_class():
+    """Revert `_guards_ok`'s label probe and this fails: the quotes overlap, the numbers agree, every check is verified."""
+    page = "Coating layers two\nMarking blue\n"
+    first = "Coating layers two"
+    second = "Coating layers"  # only the field's own label
+    base = {"item_id": "R-9", "source": "rule", "standard": "S", "clause": "1", "verdict": "Query", "ai_verdict": "Pass", "reason_code": "met",
+            "model": "lead-m", "paper_page": 1, "paper_quote": first, "field_label_ai": "Coating layers", "field": "Coating layers",
+            "quotes_checked": {"paper": True, "clause": True}, "reasoning": "r", "second_opinion": None}  # fmt: skip
+    rec = {"verdict": "met", "model": "second-m", "reason_code": "met", "paper_page": 1, "paper_quote": second, "field_label": "Coating layers",
+           "spans": two.evidence_spans(page, first, second), "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "says_absent": False}  # fmt: skip
+    ok = W.apply(
+        W.final_cap(
+            {
+                **base,
+                "two_reader": {
+                    **rec,
+                    "paper_quote": "Coating layers two",
+                    "spans": two.evidence_spans(page, first, first),
+                },
+            },
+            OK,
+            skill_ids=SK,
+            paper_kind="datasheet",
+        )
+    )
+    assert (
+        ok["verdict_class"] == CLASS
+    )  # the same line with a real second quote earns it
+    got = W.apply(
+        W.final_cap(
+            {**base, "two_reader": rec}, OK, skill_ids=SK, paper_kind="datasheet"
+        )
+    )
+    assert got["verdict_class"] != CLASS
+
+
+def test_the_second_readers_label_only_quote_never_earns_a_not_met_either():
+    """For a Fail the second reader's label probe in `_guards_ok` is the only guard of this kind: revert it and this fails."""
+    page = "Marking blue\nCoating layers two\n"
+    first, second = "Marking blue", "Marking"
+    base = {"item_id": "R-9", "source": "rule", "standard": "S", "clause": "1", "verdict": "Query", "ai_verdict": "Fail", "reason_code": "not_met",
+            "model": "lead-m", "paper_page": 1, "paper_quote": first, "field_label_ai": "Marking", "field": "Marking", "clause_quote": "x",
+            "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "reasoning": "r", "second_opinion": None}  # fmt: skip
+
+    def rec(quote):
+        return {"verdict": "not met", "model": "second-m", "reason_code": "not_met", "paper_page": 1, "paper_quote": quote, "field_label": "Marking",
+                "clause_quote": "The marking shall be red", "spans": two.evidence_spans(page, first, quote), "fail_guards": {"ok": True},
+                "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "says_absent": False}  # fmt: skip
+
+    ok = W.apply(
+        W.final_cap(
+            {**base, "two_reader": rec("Marking blue")},
+            OK,
+            skill_ids=SK,
+            paper_kind="datasheet",
+        )
+    )
+    assert ok["verdict_class"] == CLASS
+    assert (
+        W.apply(
+            W.final_cap(
+                {**base, "two_reader": rec(second)},
+                OK,
+                skill_ids=SK,
+                paper_kind="datasheet",
+            )
+        )["verdict_class"]
+        != CLASS
+    )
