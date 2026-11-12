@@ -51,6 +51,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_decide` | The AI reviewer's per-item decision (mixin of the runner): evidence, gate, holds, absence proof, the context check; every guard only lowers confidence |
 | `agent_review_run` | The AI reviewer's runner: one Claude call per page batch through the app's lane and caps, one exit that caps every line by its rule's CURRENT tier, split batches, resume without paying twice, a partial run on a stop |
 | `agent_review_jobs` | The AI reviewer as a job of the review worker (stage `agent_review`): enqueue, claim, preflight, run, resume after a restart, lines and rules into the tables, CRS xlsx and trace into the run's folder |
+| `agent_review_rule_rows` | The AI reviewer's stored rule rows (asked or left out, with words and tiers), moved unchanged out of `agent_review_jobs` |
 | `agent_general_review` | The GENERAL review mode of the AI reviewer (procedures and contracts, no rule book; #781): the mode decision (kind first, held books recorded), the ONE exit of its lines (four classes only, never Pass / Fail / AI thinks, never a rule item), the checklist of the kind, the project-paper checks, figures compared by code |
 | `agent_general_prompts` | The prompts of the general review: text only, no logic, no document text, every one forbids a verdict |
 | `agent_general_parts` | The general review run: parts 1 and 2 (rule books not held, the checklist), the one stored-reply call, and the exit of each line; calls only through the review runner |
