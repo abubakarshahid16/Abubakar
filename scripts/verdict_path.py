@@ -97,6 +97,12 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_general_crs.py": "places a general review's lines and draws them through crs_layout; fixed words come from crs_ai_words (listed); no Pass or Fail exists in this mode (agent_general_review refuses them)",
+    "agent_general_findings.py": "parts 3 to 5: every quote is verified by code and a second model keeps or drops; no verdict word exists in this mode",
+    "agent_general_job.py": "job plumbing: plan, store, files",
+    "agent_general_parts.py": "parts 1 and 2 of a mode with no Pass or Fail",
+    "agent_general_review.py": "the exit that REFUSES every verdict word of the rule review; the mode has no verdict",
+    "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
     "agent_review_coverage.py": "counts coverage for display",
