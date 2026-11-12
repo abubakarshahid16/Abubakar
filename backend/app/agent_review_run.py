@@ -79,11 +79,12 @@ from .agent_review_request import (
     plan_pages,
     stop_reason,
 )
+from .agent_review_reread import RereadMixin
 
 log = logging.getLogger(__name__)
 
 
-class Runner(DecideMixin):
+class Runner(DecideMixin, RereadMixin):
     def __init__(
         self,
         *,
@@ -101,6 +102,7 @@ class Runner(DecideMixin):
         paper_kind: str | None = None,
         equipment_type: str | None = None,
         absence_check: bool = False,
+        reread_silent: bool = False,
         context_check: bool = True,
         std_pages: Callable[[str, int], str | None] | None = None,
         sink: Callable[[dict, dict], None] | None = None,
@@ -138,6 +140,7 @@ class Runner(DecideMixin):
             k: self._kept(v) for k, v in dict(done_lines or {}).items()
         }
         self.absence_check = bool(absence_check)
+        self.reread_enabled = bool(reread_silent)  # C4: off unless the job passes the switch
         self.carried = (
             absence.carried_roles(paper_kind, equipment_type) if absence_check else None
         )
@@ -148,7 +151,7 @@ class Runner(DecideMixin):
         self._warmed = False
         self.lead_models: set[str] = set()
         self.second_models: set[str] = set()
-        self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0}
+        self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0, "reread": 0}
         self.counts: dict[str, int] = {}
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again
@@ -476,11 +479,10 @@ class Runner(DecideMixin):
                     it
                 )  # a readable answer that left this item out: asked once more below
                 continue
-            self.emit(
-                self.decide(
-                    it, got, pages, model, error if answer is None else None, box, share
-                )
+            line = self.decide(
+                it, got, pages, model, error if answer is None else None, box, share
             )
+            self.emit(self.reread_silent_line(it, line, got, model, box))
         if missing:
             self.run_batch(missing, False)
 

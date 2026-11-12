@@ -55,6 +55,7 @@ RECOMMENDATION = "recommendation"
 KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
+REREAD_NO_VALUE_WHY = "two AI readers found no value for this in the stored text of the pages they were given"  # C4: said only after a second reader answered
 ONE_READER = "One AI reader's view, not confirmed: "
 SECOND_DISAGREED = "The second AI reader disagreed. "
 
@@ -172,8 +173,20 @@ def classify(line: Mapping) -> dict:
 
 
 def apply(line: Mapping) -> dict:
-    """The line with the words added (idempotent). A 'should' rule is marked a recommendation."""
-    return {**line, **classify(line), RECOMMENDATION: line.get("rule_kind") == "advice"}
+    """The line with the words added (idempotent). A 'should' rule is marked a recommendation. A line the second reader
+    re-read and found no value for (`reread.found` is False) says so after its reason; a failed re-read says nothing."""
+    out = {**line, **classify(line), RECOMMENDATION: line.get("rule_kind") == "advice"}
+    reread = line.get("reread")
+    if (
+        isinstance(reread, Mapping)
+        and reread.get("found") is False
+        and out["verdict_class"] in (CLASS_QUERY, CLASS_OPINION, CLASS_UNAPPROVED)
+    ):
+        base = str(out.get("not_proven_reason") or "").rstrip(" .;")
+        out["not_proven_reason"] = (
+            f"{base}; {REREAD_NO_VALUE_WHY}" if base else REREAD_NO_VALUE_WHY
+        )
+    return out
 
 
 def final_cap(

@@ -526,6 +526,7 @@ def _make_runner(
         paper=submittal, items=plan["items"], pages=request_mod.DbPages(connect(), submittal),
         clauses=request_mod.ClauseCache(plan["cache"]), model=agent_claude.LEAD_MODEL, send=send, env=env,
         done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type, std_pages=request_mod.StdPages(),
+        reread_silent=settings.agent_review_reread_silent_enabled,
         sink=lambda line, trace: store_line(run_id, line, trace), trace_path=folder / "trace.jsonl",
         tier_lookup=_tier_lookup(kind),
         retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS,
