@@ -128,7 +128,7 @@ def test_on_a_stored_fact_against_a_numeric_rule_is_a_proven_line_of_the_run_and
 
 
 def test_a_breach_is_a_proven_fail_on_the_contractor_copy(world, on):
-    frame_item(value=0.5)  # the limit is now at least 0.5 mm: 0.35 breaks it
+    frame_item(comparator="<=")  # the limit stays 0.2 (its clause quote must state it); read as a maximum, the 0.35 on the page breaks it
     fact()
     run_id, job_id = start()
     run_job(job_id)
