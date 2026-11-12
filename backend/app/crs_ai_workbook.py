@@ -7,13 +7,14 @@ is the length of the rows written, taken from the same lists. No new AI call: on
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
-from . import crs_export, crs_layout, rule_labels
+from . import crs_export, crs_layout, kind_review_table
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
@@ -329,6 +330,7 @@ def _header_pairs(meta: Mapping, books: list[str], label: str) -> list[tuple[str
         ("Date:", _clean(h.get("date"))),
         ("Discipline:", _clean(meta.get("discipline") or h.get("discipline"))),
         (label, "; ".join(books)),
+        *crs_layout.engine_rows(h),
     ]
 
 
@@ -624,12 +626,6 @@ def _clean(text) -> str:
     return " ".join(str(text or "").split())
 
 
-#: PER PAPER KIND (owner, 12 Nov 2026): do "AI verdict: not met" rows go on the CONTRACTOR copy? False for every kind. Nothing switches it on
-#: by itself: a person sets a kind to True after the scorer shows two-reader verdicts right 95 of 100 on that kind's key. Read ONLY by
-#: `_contractor_items`. It moves into the kind table (`kind_review_table.json`, PR #1787) when that is on main.
-CONTRACTOR_COPY_AI_VERDICT: dict[str, bool] = dict.fromkeys(
-    rule_labels.PAPER_KINDS, False
-)
 CONTRACTOR_COMMENT = (
     "Comment"  # the Status cell of such a row on the contractor copy: no AI word
 )
@@ -650,7 +646,7 @@ def _guarded_not_met(ln: Mapping) -> bool:
 
 def _contractor_items(items: list, kind: str | None = None) -> list:
     """The proven Fail rows only: a 'should' never, an opinion never, a rule not yet approved never. When the run's paper kind is flagged
-    in `CONTRACTOR_COPY_AI_VERDICT` (false for every kind today) the guarded "AI verdict: not met" rows are added."""
+    in the kind table's `contractor_copy_ai_verdict` (false for every kind today) the guarded "AI verdict: not met" rows are added."""
     out = [
         (ln, st, o)
         for ln, st, o in items
@@ -660,7 +656,7 @@ def _contractor_items(items: list, kind: str | None = None) -> list:
         and not ln.get("recommendation")
         and not wording.is_unapproved(ln)
     ]
-    if CONTRACTOR_COPY_AI_VERDICT.get(str(kind or ""), False):
+    if kind_review_table.contractor_copy_ai_verdict(kind):
         out += [
             (ln, st, o)
             for ln, st, o in items
@@ -731,6 +727,21 @@ def _evidence_sheet(items: list, others: list) -> dict:
         "statuses": [st for _l, st, _o in items] + [None] * len(others),
         "widths": EVIDENCE_WIDTHS,
     }
+
+
+def screen_text(line_json: str | None) -> str:
+    """The AI review tab's text for a stored line: the SAME three lines the file's COMPANY Comments cell holds (one source), for a line
+    that is an item row; '' for any other line (the screen keeps its stored reason) or a line that cannot be read."""
+    try:
+        line = json.loads(line_json or "")
+    except ValueError:
+        return ""
+    ruled = isinstance(line, dict) and line.get("source") in (
+        "rule",
+        "skill",
+    )  # a general review's line is not an item row
+    got = status_of(line) if ruled else None
+    return comment_cell(layout_comment(line, *got)) or "" if got else ""
 
 
 def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:

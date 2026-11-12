@@ -60,3 +60,34 @@ def count_findings(
         .execute("SELECT COUNT(*) FROM review_findings" + sql, args)
         .fetchone()[0]
     )
+
+
+def summary_counts(allowed_document_ids: frozenset[str] | None) -> dict:
+    """The management summary's finding numbers, counted in SQL (V1b).
+
+    The same numbers `review.list_findings` + a Python loop gave, without reading every finding row: one GROUP BY over the
+    four columns the numbers depend on, then the severity word the screen shows (`severity_rule.effective_severity`) is
+    applied to each group, so a group of old rows lands under the word it is displayed with. Scope is the one `where`.
+    """
+    from . import severity_rule
+
+    found = where(None, None, None, allowed_document_ids)
+    out = {"total": 0, "by_severity": {}, "by_status": {}, "escalated": 0}
+    if found is None:
+        return out
+    sql, args = found
+    rows = connect().execute(
+        "SELECT severity, compliance_status, status, COALESCE(escalation_level, 0) > 0 AS esc, COUNT(*) AS n"
+        " FROM review_findings" + sql + " GROUP BY severity, compliance_status, status, esc",
+        args,
+    ).fetchall()
+    for row in rows:
+        n = row["n"]
+        word = severity_rule.effective_severity(
+            {"severity": row["severity"], "compliance_status": row["compliance_status"]})
+        out["total"] += n
+        out["by_severity"][word] = out["by_severity"].get(word, 0) + n
+        out["by_status"][row["status"]] = out["by_status"].get(row["status"], 0) + n
+        if row["esc"]:
+            out["escalated"] += n
+    return out

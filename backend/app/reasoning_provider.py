@@ -840,6 +840,9 @@ UNAVAILABLE_KEY_MISSING = "KEY_MISSING"
 #: #501: the provider switch says "per task" and this step's own engine
 #: setting does not say claude.
 UNAVAILABLE_TASK_LOCAL = "TASK_ENGINE_LOCAL"
+#: 12 Nov 2026 (owner, #1584): this run's plan keeps it on this computer (Local only, or a part the plan put on the local
+#: model): `review_engine.barring`.
+UNAVAILABLE_RUN_LOCAL = "RUN_LOCAL_ONLY"
 
 #: #501 (owner decision, 12 Oct 2026): REASONING_PROVIDER=per_task. The Claude
 #: lane may open ONLY for a step whose OWN engine setting says "claude"
@@ -920,8 +923,12 @@ CLOUD_CALL_FAILED = "ran on the local model: the cloud model's call failed"
 
 
 def _lane_unavailable() -> tuple[str | None, str]:
-    """The lane's own two conditions: both egress flags, and a key."""
-    from . import reader_api
+    """The lane's own two conditions: both egress flags, and a key. First: a run whose plan keeps it on this computer
+    (`review_engine.barring`) has no lane at all."""
+    from . import reader_api, review_engine
+
+    if review_engine.claude_barred():
+        return UNAVAILABLE_RUN_LOCAL, review_engine.BARRED_WORDS
 
     cfg = reader_api.ReaderSettings.from_env()
     if not (cfg.enabled and cfg.allow_public_egress):

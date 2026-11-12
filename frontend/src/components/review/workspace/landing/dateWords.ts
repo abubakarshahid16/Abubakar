@@ -5,12 +5,12 @@
  * browser's locale) so every screen and every machine says it the same way.
  * Unknown or unreadable values give "" (nothing), never a made-up date.
  */
+import { parseWhen } from "../../../../format/when";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function parsed(value: string | null | undefined): Date | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
+  return value ? parseWhen(value) : null;
 }
 
 function pad(n: number): string {

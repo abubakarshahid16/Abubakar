@@ -65,6 +65,15 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
+    (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
+    (
+        APP + "review_engine_start.py",
+        "queues a review with its engine choice and its bar: what leaves the machine",
+    ),
+    (
+        APP + "contract_yes.py",
+        "records the owner's yes that lets a contract go to Claude",
+    ),
     (APP + "claude_approved.py", "the approved-document list and block list"),
     (APP + "claude_auto_approve.py", "automatic approval of what may be sent"),
     (APP + "crs_normal.py", "the normal reviewer's Status and Priority words"),
@@ -93,22 +102,52 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
     (
+        APP + "agent_review_jobs.py",
+        "decides which review a paper gets and what it asks, and writes the run",
+    ),
+    (
+        APP + "agent_general_review.py",
+        "the single exit of a general review's lines (no verdict word), the mode decision",
+    ),
+    (
+        APP + "agent_general_crs.py",
+        "what the cells of a general review's CRS say (comment, Status, header)",
+    ),
+    (
+        APP + "agent_general_findings.py",
+        "which findings of parts 3 to 5 become lines; sends the paper's text to Claude",
+    ),
+    (
+        APP + "kind_review_table.py",
+        "the one table of what each kind of paper is asked: review, rules, checklist, page split",
+    ),
+    (
+        APP + "agent_general_parts.py",
+        "runs parts 1 and 2 of a general review and sends the paper's text to Claude",
+    ),
+    (
+        APP + "agent_general_job.py",
+        "plans a general review, declares what may be sent, stores its lines and run row",
+    ),
+    (
         APP + "agent_review_reuse.py",
         "stands in for a reader's call: what is reused, and that no call is made",
     ),
+    (APP + "agent_review_open_points.py", "decides whether a sign is refused while the AI review has open points"),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
     "agent_review_coverage.py": "counts coverage for display",
     "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
     "agent_review_gate.py": "the on/off switch only",
     "agent_review_items.py": "builds the item list",
-    "agent_review_jobs.py": "job plumbing",
     "agent_review_kind.py": "names the paper kind",
+    "agent_review_page_record.py": "the page record kept on a run's row, and the requeue; moved unchanged out of agent_review_jobs; decides no verdict",
     "agent_review_pages.py": "page lookup",
     "agent_review_request.py": "request and reason-code shapes",
     "agent_review_rule_rows.py": "reads rule rows from the database",

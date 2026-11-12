@@ -94,7 +94,6 @@ VERDICT_KEYS = (
 _VERDICT_START = re.compile(
     r"^\s*(pass|fail|ai thinks|proven by code|not met)\b\s*(:|$)", re.I
 )
-INTERNAL_ONLY = "general review: internal only"
 NO_CHECKLIST = "no completeness checklist for this kind of paper"
 NO_PROJECT_PAPER = "no project paper was given to check against"
 HELD_FIT_LINE = "rule books we hold that fit this paper were not used: rule review for this kind is switched off"

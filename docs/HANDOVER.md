@@ -526,3 +526,24 @@ the cap and the class stay in the code and tests.
 line can be a checklist line, so any line of an item that is not a stored rule is capped as not approved (safe, never a Pass or
 Fail), and the job logs "agent review: no checklist data found". An empty list is never remembered, so adding the files needs no
 restart. Step H must check that the live Mac has the skill files.
+
+## 11. One Review button: Automatic, Claude, Local only (12 Nov 2026, #1584 comment 6820183348)
+
+Backend (PR 1): `review_engine.decide` is the one resolver (pure; a brute force walks every combination); `review_engine.plan_for`
+and `GET /api/reviews/plan` give the pre-start answer (no side effect, no call); `POST /api/reviews/start` queues the rule check
+and, when the plan runs it, the AI review follows on the same worker (`review_engine_start.follow_up`, checked again). Local only
+and any part the plan keeps local are barred from Claude for the whole run (`review_engine.barring`). The AI reviewer has NO local
+reader on the job path (`agent_local_lead` is used only by the experiment loop), so Local only means: rule check on the local
+model, AI review not run, said in plain words. Approvals: role SPECIFICATION (approved like a submittal, behind the existing
+auto-approve switch); a contract needs `contract_yes` per file (checksum, who, when, audit, withdrawable). Unscored kinds:
+`agent_review_gate.SCORED_KINDS` (datasheet ONLY; owner, 12 Nov) and `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` (off). The CRS header names the engine
+("Reviewed by:", `crs_layout.engine_rows`). The screen (PR 2) waits for the owner's picture. Trial: `scripts/trial_on_copy.py --engine`.
+
+Review R47 (12 Nov): the engine choice is written in the SAME transaction as the job (`review_jobs.enqueue(in_transaction=...)`;
+a job of the new route has an id starting `job_x`), and the bar FAILS CLOSED: an unreadable choice, or a marked job with no choice
+row, keeps the run on this computer and says why on the run (`outcome_json.engine_choice_note`); a job of the older routes (no mark,
+no row) behaves as before. "Local only" (any run kept on this computer) also bars the public web check of standards
+(`REVIEW_WEB_STANDARDS_ENABLED`). The cost line gives the bound per part and in total (each review has its own USD 15 per-run cap).
+The header's engine is saved at the end of the run (`outcome_json.engine_ran`). With only datasheets scored, a contract with a
+recorded yes is still NOT offered for Claude on a default install: that path wakes up when contracts are scored or
+`REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` is on.

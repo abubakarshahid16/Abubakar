@@ -169,7 +169,7 @@ class FindingsMixin:
 
     # ---- PART 3
     def _p3_collect(self) -> tuple[list[dict], int]:
-        windows = core.window_pages(self.pages, self.window_tokens)
+        windows = self.windows()
         seen: set[tuple[str, str]] = set()
         survivors: list[dict] = []
         for w, window in enumerate(windows):
@@ -311,7 +311,7 @@ class FindingsMixin:
         return groups
 
     def _p4_collect(self) -> tuple[list[dict], int]:
-        windows = core.window_pages(self.pages, self.window_tokens)
+        windows = self.windows()
         survivors: list[dict] = []
         seen: set[tuple] = set()
         calls = 0
@@ -502,7 +502,7 @@ class FindingsMixin:
         return True
 
     def part5(self, known: list[str]) -> None:
-        windows = core.window_pages(self.pages, self.window_tokens)
+        windows = self.windows()
         shown = 0
         seen: set[str] = set()
         for w, window in enumerate(windows):

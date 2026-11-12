@@ -61,7 +61,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import claude_approved, claude_spend
-from .claude_approved import APPROVED, BLOCKED, REVIEW_ROLE, WITHDRAWN
+from .claude_approved import APPROVED, BLOCKED, REVIEW_ROLES, WITHDRAWN
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -247,6 +247,27 @@ def _is_rule_book(row) -> bool:
     return row["document_role"] == claude_approved.STANDARD_ROLE
 
 
+def is_contract_paper(document_id: str) -> bool:
+    """Is this paper a CONTRACT by its decided kind (or by its role, a contract document)? Owner, 12 Nov 2026 (#1584, comment
+    6820183348): a contract is allowed on the local model without asking, and goes to Claude only with the owner's yes for
+    that upload (`contract_yes`), so it never joins the list by itself. Unreadable = treated as a contract (the safe side)."""
+    try:
+        row = _document(document_id)
+        if row is not None and row["document_role"] == "CONTRACT_DOCUMENT":
+            return True
+        from . import agent_review_kind
+
+        got = agent_review_kind.read_kind(connect(), document_id)
+        return bool(got.get("known")) and got.get("kind") == "contract"
+    except Exception as exc:  # noqa: BLE001 - the safe side: not listed
+        log.warning(
+            "contract check of %s unreadable (%s): treated as a contract",
+            document_id,
+            type(exc).__name__,
+        )
+        return True
+
+
 def _want(row, source: str, *extra_names, withdraw: bool = False) -> dict | None:
     sha = (row["sha256"] or "").strip().lower()
     if not sha:
@@ -292,7 +313,7 @@ def on_upload(document_id: str, uploaded_name: str | None = None) -> None:
         except claude_approved.BlockListUnreadable:
             # _apply approves nothing then; the register name is still caught
             marked = frozenset()
-        if role == REVIEW_ROLE or any(
+        if role in REVIEW_ROLES or any(
             claude_approved.name_is_blocked(n, marked)
             for n in (row["filename"], *names)
         ):
@@ -336,7 +357,10 @@ def on_review_start(review_run_id: str) -> None:
         subject = _document(subject_id)
         out = []
         if subject is not None:
-            qualifies = subject["document_role"] in (None, REVIEW_ROLE)
+            qualifies = subject["document_role"] in (
+                None,
+                *REVIEW_ROLES,
+            ) and not is_contract_paper(subject_id)
             out.append(_want(subject, SOURCE, withdraw=not qualifies))
         for row in _standards_on(review_run_id):
             label = LISTED_METHODS.get(row["selection_method"])
@@ -380,7 +404,11 @@ def on_agent_standards(
 
     def build():
         subject = _document(subject_document_id)
-        if subject is None or subject["document_role"] not in (None, REVIEW_ROLE):
+        if (
+            subject is None
+            or subject["document_role"] not in (None, *REVIEW_ROLES)
+            or is_contract_paper(subject_document_id)
+        ):
             return []
         scope = _scope_of_run(review_run_id or claude_spend.current_run())
         if scope is None or subject_document_id not in scope:

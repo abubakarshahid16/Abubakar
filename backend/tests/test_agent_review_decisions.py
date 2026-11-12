@@ -14,7 +14,7 @@ from app import agent_review_two_reader as two
 from app import agent_review_wording as W
 from app import crs_ai_words as words
 from app import crs_ai_workbook as WB
-from app import rule_labels
+from app import kind_review_table, rule_labels
 from app.api import agent_review_schemas as contract
 from tests.test_agent_review_crs import META, mk, rows_of
 from tests.test_agent_review_routes import client, finished_run  # noqa: F401
@@ -174,8 +174,12 @@ def test_counts_carry_the_decisions_the_notes_say_them_and_the_summary_route_ret
 
 
 def test_the_contractor_flag_is_false_for_every_paper_kind_and_names_every_kind():
-    assert set(WB.CONTRACTOR_COPY_AI_VERDICT) == set(rule_labels.PAPER_KINDS)
-    assert not any(WB.CONTRACTOR_COPY_AI_VERDICT.values())
+    table = kind_review_table.table()["kinds"]
+    assert set(rule_labels.PAPER_KINDS) <= set(table)
+    assert all(row["contractor_copy_ai_verdict"] is False for row in table.values())
+    assert not any(
+        kind_review_table.contractor_copy_ai_verdict(k) for k in (*table, "no-such-kind", None)
+    )
 
 
 def _all_shapes():
@@ -228,7 +232,9 @@ def test_no_ai_verdict_reaches_the_contractor_copy_while_the_flag_is_false(tmp_p
 
 @pytest.fixture
 def flagged(monkeypatch):
-    monkeypatch.setitem(WB.CONTRACTOR_COPY_AI_VERDICT, "datasheet", True)
+    monkeypatch.setattr(
+        kind_review_table, "contractor_copy_ai_verdict", lambda kind: kind == "datasheet"
+    )
 
 
 def test_a_flagged_kind_adds_only_guarded_not_met_rows_worded_for_the_contractor(
@@ -273,11 +279,11 @@ def test_the_flag_is_read_only_by_the_contractor_item_filter():
     users = [
         p.name
         for p in root.glob("*.py")
-        if "CONTRACTOR_COPY_AI_VERDICT" in p.read_text(encoding="utf-8")
+        if "contractor_copy_ai_verdict(" in p.read_text(encoding="utf-8")
     ]
-    assert users == ["crs_ai_workbook.py"]
+    assert sorted(users) == ["crs_ai_workbook.py", "kind_review_table.py"]
     src = inspect.getsource(WB)
     assert (
-        src.count("CONTRACTOR_COPY_AI_VERDICT.get(") == 1
+        src.count("kind_review_table.contractor_copy_ai_verdict(") == 1
         and "def _contractor_items" in src
     )

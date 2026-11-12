@@ -15,6 +15,7 @@
  *  - a nominal estimate says it is nominal.
  */
 import type { ComplianceStatus, ReviewRunSummary } from "../../types/api";
+import { formatWhen } from "../../format/when";
 
 /**
  * The order a reviewer's attention should travel in.
@@ -296,10 +297,7 @@ export function pageCoverageLine(run: ReviewRunSummary): string {
 
 /** A timestamp as a person reads it, or nothing when there is none. */
 export function whenLabel(value: string | null | undefined): string {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString();
+  return formatWhen(value);
 }
 
 /** 2e: why the in-scope count moved since the previous run.

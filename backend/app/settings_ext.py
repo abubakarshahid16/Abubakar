@@ -537,12 +537,31 @@ class SettingsExt(BaseModel):
     #: that are not item rows. Never a decision, never in the contractor copy. OFF: as the first switch alone.
     #: Env: AGENT_REVIEW_TWO_READER_OTHER_PAPER_ENABLED.
     agent_review_two_reader_other_paper_enabled: bool = False
+    #: K1b (12 Nov 2026): the GENERAL review of a procedure or contract ALSO asks the held rules of its paper kind (the kinds whose
+    #: row in `reference/kind_review_table.json` is `rule_and_general`) through the same first reader, quote check and second
+    #: reader as the datasheet review, then runs the general parts (checklist, paper against itself, project papers, comments).
+    #: Needs the AI reviewer on. OFF (owner, 11 Nov 2026: procedure and contract rule lines were mostly wrong when the paper was
+    #: silent; switch on only after a scored run): the general review runs alone, as before. Env: AGENT_REVIEW_GENERAL_RULES_ENABLED.
+    agent_review_general_rules_enabled: bool = False
     #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
     #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
     #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with
     #: both egress flags and a key; the approved-document list and the USD caps still apply on every call. Under
     #: REASONING_PROVIDER=ollama it changes nothing (the master switch is checked first). Env: AGENT_REVIEW_ENGINE.
     agent_review_engine: str = "ollama"
+    #: The chat's OWN engine (owner, 12 Nov 2026: "selecting local and Claude both models"), named like its siblings. It only
+    #: says whether Claude MAY BE OFFERED in chat under REASONING_PROVIDER=per_task; the reader still picks per request, and a
+    #: request that does not say "claude" stays local. "ollama" (default): chat stays local under per_task, exactly as before.
+    #: "claude": the picker offers Claude; with no document selected a question sends no document content, with documents
+    #: selected only those documents' passages go (per-request consent, the block list and the USD caps still apply on every
+    #: call). Under REASONING_PROVIDER=claude it changes nothing (as before); under ollama nothing leaves, whatever this says.
+    #: It is NOT a review engine: it never bars a review's local engine. Env: CHAT_MODEL_ENGINE.
+    chat_model_engine: str = "ollama"
+    #: Owner decision 12 Nov 2026 (#1584, comment 6820183348): "No new kind goes live until scored against a key." A kind not
+    #: with `scored` false in the kind table is NOT offered for Claude or the AI review while this is False (default): the
+    #: Review plan says so and runs the rule check on the local model. True = offered, every line marked a draft.
+    #: Env: REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED.
+    review_unscored_kinds_for_claude_enabled: bool = False
     #: Owner order 13, C4 (12 Nov 2026): before the AI reviewer closes a line as "the paper does not state this", a second,
     #: different model reads the whole stored text of the page(s) where the field would stand (per silent line at most 1 re-read, 1 lead re-ask, the normal second opinion and the context check of a Fail
     #: line, same spend reservation and caps); a quote that code verifies on that page is decided again by the same gate.

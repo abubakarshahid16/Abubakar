@@ -111,17 +111,22 @@ def _now() -> str:
 
 
 def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
-            requested_by: str | None) -> tuple[str, str]:
+            requested_by: str | None, in_transaction=None) -> tuple[str, str]:
     """Create the run and its job together. Returns (run_id, job_id).
 
     Raises ReviewAlreadyActive when a review of this submittal is queued or
-    running, and ValueError when the caller may not read the submittal."""
+    running, and ValueError when the caller may not read the submittal.
+
+    `in_transaction(conn, run_id)` (the ONE Review button, `review_engine_start`): called inside the SAME transaction that makes
+    the run and its job, so the run's engine choice exists the moment the job can be claimed; the job's id then carries
+    `review_engine.JOB_MARK`, which tells a job of the new route from one of the older routes."""
     from . import submittal_review
     submittal_review.ensure_schema()
     if submittal_document_id not in allowed_document_ids:
         raise ValueError("no submittal with that id")
     conn = connect()
-    run_id, job_id, now = str(uuid.uuid4()), f"job_{uuid.uuid4().hex[:12]}", _now()
+    from . import review_engine
+    run_id, job_id, now = str(uuid.uuid4()), review_engine.new_job_id(in_transaction is not None), _now()
     with job_queue.immediate(conn):
         active = conn.execute(
             f"SELECT id FROM review_runs WHERE submittal_document_id = ?"
@@ -142,6 +147,8 @@ def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
              requested_by, review_code_version(), config_version(), run_id, len(STEPS)))
         job_queue.audit(conn, "job.queued", job_id, actor_user_id=requested_by,
                         detail=f"stage={STAGE} run={run_id}")
+        if in_transaction is not None:
+            in_transaction(conn, run_id)  # the engine choice, in the same transaction as the job
     claude_auto_approve.on_review_start(run_id)  # #1584
     return run_id, job_id
 
@@ -447,8 +454,11 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     here (no transport, a fetch error, an unverifiable quote) never fails
     the review - it is logged by kind, never with text or the identifier
     that failed."""
-    from . import web_standards
+    from . import review_engine, web_standards
     if not settings.review_web_standards_enabled:
+        return
+    if review_engine.claude_barred():  # "Local only": nothing leaves, not even a public web search (12 Nov 2026, owner)
+        review_engine.note_web_check_skipped(run_id)
         return
     try:
         from . import market_transport
@@ -465,7 +475,9 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 def _review_scope(job):
     """A Claude-lane run never loads the local engine, its spend lines name the run, and its spend goes in its record."""
-    barred = local_engine_bar.barring_local_engine(job)
+    from . import review_engine
+
+    barred = review_engine.honouring_choice(local_engine_bar.barring_local_engine(job))
 
     @functools.wraps(job)
     def wrapper(job_id, *args, **kwargs):
@@ -479,6 +491,7 @@ def _review_scope(job):
                 return barred(job_id, *args, **kwargs)
         finally:
             claude_spend_report.record_run(run_id)
+            review_engine.save_ran(run_id)  # what the run really did, saved for the sheet header
 
     return wrapper
 

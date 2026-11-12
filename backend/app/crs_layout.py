@@ -157,6 +157,25 @@ def _below(ws, below, last_row: int, ncols: int) -> None:
         ws.print_area = f"A1:{get_column_letter(ncols)}{end}"
 
 
+def engine_rows(facts) -> list[tuple[str, str]]:
+    """The header facts that name the ENGINE (12 Nov 2026, owner decision, #1584) and, for a kind not scored against a key, the draft
+    sentence, as (label, value). ONE home for both reviewers' sheets and both copies; a fact that is not there adds nothing. The AI
+    reviewer's sheet prints them as header rows (`engine_rows`); the normal reviewer's sheet, whose row geometry is pinned, as
+    lines of its title cell (`engine_lines`): the same words."""
+    got = facts or {}
+    rows = []
+    if got.get("reviewed_by"):
+        rows.append(("Reviewed by:", str(got["reviewed_by"])))
+    if got.get("draft_note"):
+        rows.append(("Note:", str(got["draft_note"])))
+    return rows
+
+
+def engine_lines(facts) -> list[str]:
+    """`engine_rows` as one line each ("Reviewed by: rule check on the local model")."""
+    return [f"{label} {value}" for label, value in engine_rows(facts)]
+
+
 def _header_block(ws, view: dict, ncols: int) -> int:
     """Rows 1 and 2 (title, subtitle), the header facts, the generated-by sentence; returns the row of the table's header."""
     last = get_column_letter(ncols)

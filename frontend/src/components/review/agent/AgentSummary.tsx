@@ -5,6 +5,7 @@
  */
 import type { AgentRunSummary } from "../../../types/api";
 import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
+import { humanizeCode } from "./plainWords";
 import { CLASS_ORDER, CLASS_STYLE, NOT_REVIEWED_NOTE, isKnownClass, modeWords } from "./agentWords";
 
 export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
@@ -31,13 +32,12 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           </>
         )}
         <dt className="text-slateish-400">Equipment type</dt>
-        <dd className="text-slateish-100">{summary.equipment_type ? summary.equipment_type : "not known"}</dd>
+        <dd className="text-slateish-100">{summary.equipment_type ? humanizeCode(summary.equipment_type) : "not known"}</dd>
         {cost != null && (<><dt className="text-slateish-400">Cost</dt><dd className="text-slateish-100">USD {cost.toFixed(2)}</dd></>)}
-        {summary.models.length > 0 && (<><dt className="text-slateish-400">Models</dt><dd className="text-slateish-100">{summary.models.join(", ")}</dd></>)}
       </dl>
       {(summary.equipment_notes ?? []).length > 0 && (
         <ul data-testid="equipment-notes" className="list-disc pl-5 text-sm text-slateish-100">
-          {summary.equipment_notes.map((n) => <li key={n}>{n}</li>)}
+          {summary.equipment_notes.map((n) => <li key={n}>{humanizeCode(n)}</li>)}
         </ul>
       )}
       {summary.decisions && (

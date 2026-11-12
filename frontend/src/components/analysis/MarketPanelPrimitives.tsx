@@ -65,6 +65,7 @@
  * documented requirements. A snippet is preliminary evidence; the
  * verification column says in words whether the underlying page was read.
  */
+import { formatWhen } from "../../format/when";
 import type { MarketRow, MarketSearchResult } from "../../api/client";
 import type { EgressState, MarketFinding } from "../../types/analysis";
 
@@ -231,11 +232,11 @@ export function FindingRow({ f }: { f: MarketFinding }) {
         {f.published_at !== null && (
           <>
             <dt className="text-slateish-500">published</dt>
-            <dd className="text-slateish-300">{f.published_at}</dd>
+            <dd className="text-slateish-300">{formatWhen(f.published_at)}</dd>
           </>
         )}
         <dt className="text-slateish-500">retrieved</dt>
-        <dd className="text-slateish-300">{f.retrieved_at}</dd>
+        <dd className="text-slateish-300">{formatWhen(f.retrieved_at)}</dd>
         <dt className="text-slateish-500">verification</dt>
         <dd className="text-slateish-300">{verificationWords(f.verification)}</dd>
         <dt className="text-slateish-500">url</dt>

@@ -77,15 +77,36 @@ def mask_row(columns: list[str], row: list) -> list:
     ]
 
 
-def list_tables(conn) -> list[dict]:
-    """Every user table with its row count. sqlite internals excluded."""
+#: How long a table's row count is reused by the table list (seconds). The list counted every table on every call: 3.6 s on
+#: a copy with large tables. The names are always read fresh; only the counts are up to this old. `table_info` (one table,
+#: opened on purpose) always counts fresh.
+COUNT_CACHE_SECONDS = 30.0
+_COUNT_CACHE: dict[tuple[str, str], tuple[float, int]] = {}
+
+
+def _db_key(conn) -> str:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    return str(row[2]) if row is not None else ""
+
+
+def list_tables(conn, *, now=None) -> list[dict]:
+    """Every user table with its row count (a count up to `COUNT_CACHE_SECONDS` old). sqlite internals excluded."""
+    import time
+
+    clock = time.monotonic() if now is None else now
+    key = _db_key(conn)
     names = [r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'"
         " AND name NOT LIKE 'sqlite_%' ORDER BY name")]
     out = []
     for name in names:
-        count = conn.execute(
-            f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+        hit = _COUNT_CACHE.get((key, name))
+        if hit is not None and 0 <= clock - hit[0] < COUNT_CACHE_SECONDS:
+            count = hit[1]
+        else:
+            count = conn.execute(
+                f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+            _COUNT_CACHE[(key, name)] = (clock, count)
         out.append({"name": name, "row_count": count})
     return out
 

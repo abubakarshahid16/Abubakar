@@ -35,7 +35,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              # re-anchored (#456): the cap comes from the one route table
              anchor="            num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CHAT), temperature=temperature,\n",
              replacement="            num_predict=settings.max_output_tokens, temperature=temperature,\n",
-             target=_T, keyword="claude_answers_the_chat", tags=("chat",)),
+             target="tests/test_u3b_chat_model_direct.py", keyword="claude_answer_uses_the_chat_cap", tags=("chat",)),
     Mutation(id="M917", phase=80, description="chat: document answers lose their own temperature",
              path=APP / "answer.py",
              anchor="                               temperature=settings.chat_temperature_document,\n",

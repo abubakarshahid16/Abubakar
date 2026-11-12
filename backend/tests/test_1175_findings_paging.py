@@ -28,6 +28,32 @@ def _ids(body: dict) -> list[str]:
     return [f["id"] for f in body["findings"]]
 
 
+def test_a_list_longer_than_the_default_page_is_cut_and_total_says_so():
+    """V1b: no limit = 200 findings, never every finding; `total` is the denominator, so a caller can see it was cut."""
+    doc = _submittal()
+    run = _run(doc)
+    for _ in range(205):
+        _finding(doc, run, "COMPLIANT")
+    client = _client(doc)
+    body = client.get("/api/reviews/findings").json()
+    assert len(body["findings"]) == 200 and body["total"] == 205
+    rest = client.get("/api/reviews/findings?offset=200").json()
+    assert len(rest["findings"]) == 5 and rest["total"] == 205
+
+
+def test_the_default_page_is_200_and_a_whole_list_is_a_few_pages():
+    from app import main as main_mod
+
+    assert main_mod.FINDINGS_DEFAULT_PAGE_SIZE == 200
+    doc = _submittal()
+    run = _run(doc)
+    for _ in range(3):
+        _finding(doc, run, "COMPLIANT")
+    body = _client(doc).get("/api/reviews/findings").json()
+    assert len(body["findings"]) == 3 and body["total"] == 3
+    assert body["limit"] == 200 and body["offset"] == 0
+
+
 def test_without_a_page_every_finding_comes_back_with_its_total():
     doc = _submittal()
     run = _run(doc)
@@ -35,7 +61,7 @@ def test_without_a_page_every_finding_comes_back_with_its_total():
         _finding(doc, run, "COMPLIANT")
     body = _client(doc).get("/api/reviews/findings").json()
     assert len(body["findings"]) == 3 and body["total"] == 3
-    assert body["limit"] is None and body["offset"] == 0
+    assert body["limit"] == 200 and body["offset"] == 0
 
 
 def test_pages_cover_every_finding_once_in_list_order():

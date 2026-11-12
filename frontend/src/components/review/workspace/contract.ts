@@ -358,6 +358,21 @@ export interface ActionBarProps {
   /** Order 141 D: decisions in a draft from an earlier visit still waiting
    *  for "Bring them back" / "Discard" (absent or 0 when none). */
   draftWaiting?: number;
+  /** The run's AI review has open points: the page's headline is its state
+   *  and next step, and the rule check's own verdict is said as the rule
+   *  check's. Absent: the rule check speaks alone, as before. */
+  aiReview?: { headline: string; next: string } | null;
+}
+
+/** Signing waits for the AI review's open points to be read (screen side). */
+export interface SignGuard {
+  /** Lines of the AI review that are not Pass and not applicable; null when they could not be counted. */
+  open: number | null;
+  /** "I have read the AI review's points" is ticked. */
+  acked: boolean;
+  onAck: (acked: boolean) => void;
+  /** The AI review's state is not known (still being read, or the read failed): Sign is not available and no tick is offered. */
+  blocked?: "loading" | "error" | null;
 }
 
 export interface SheetCountsLineProps {
@@ -376,6 +391,8 @@ export interface SignOffPanelProps {
   onRunChanged: () => void;
   /** Open a comment row's evidence on the sheet. */
   onJump: (row: CrsRow) => void;
+  /** The AI review of this run has open points: Sign and export waits for one tick. */
+  signGuard?: SignGuard | null;
 }
 
 export interface UseSignOffArgs {
@@ -390,6 +407,8 @@ export interface UseSignOffArgs {
    *  decisions on screen and answers null, or plain words why the copy
    *  would leave decisions out (then nothing is downloaded). */
   beforeCopy?: () => Promise<string | null>;
+  /** U2: read when the copy is issued: true only after the engineer ticked "I have read the AI review's points". It becomes the request's `ai_review_read` flag. */
+  aiReviewRead?: () => boolean;
 }
 
 export interface WorkspaceSheetProps {
