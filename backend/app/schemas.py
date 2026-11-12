@@ -2452,6 +2452,9 @@ class CrsIssuedCopy(BaseModel):
     size_bytes: int
     issued_by: str
     issued_at: str
+    #: U2: the run's AI review at that moment: how many lines were open, and whether the signer said they had read them. Null for a run with no AI review (and for a copy issued before this was kept).
+    ai_open_points: int | None = None
+    ai_review_acknowledged: bool | None = None
 
 
 class CrsIssuedCopyList(ListPage):

@@ -96,3 +96,18 @@ def test_a_run_with_no_ai_review_is_unaffected():
     doc = _submittal()
     run = _ready(doc)
     assert _client(doc).post(f"/api/reviews/runs/{run}/crs/issue").status_code == 200
+
+
+def test_the_issued_copy_records_the_acknowledgement_and_the_open_count():
+    doc = _submittal()
+    run = _ready(doc)
+    _ai_review(run, doc, [("Query for the engineer", "Query", ""), ("Query for the engineer", "Query", "")])
+    client = _client(doc)
+    assert client.post(f"/api/reviews/runs/{run}/crs/issue?ai_review_read=true").status_code == 200
+    copy = client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"][0]
+    assert (copy["ai_open_points"], copy["ai_review_acknowledged"]) == (2, True)
+    doc2 = _submittal("doc_two", "Second.pdf")
+    run2 = _ready(doc2)
+    assert _client(doc2).post(f"/api/reviews/runs/{run2}/crs/issue").status_code == 200
+    plain = _client(doc2).get(f"/api/reviews/runs/{run2}/crs/issued").json()["copies"][0]
+    assert (plain["ai_open_points"], plain["ai_review_acknowledged"]) == (None, None)
