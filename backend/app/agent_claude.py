@@ -104,6 +104,9 @@ class AgentBudgetStop(AgentClaudeError):
 
 class AgentBadReply(AgentClaudeError):
     code = "bad_reply"
+    usd: float | None = (
+        None  # what the call cost (its own usage, else the worst case), when known
+    )
 
 
 class AgentTransportError(AgentClaudeError):
@@ -370,6 +373,13 @@ def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | N
     return None, recorded_failure
 
 
+def _bad_reply(code: str, usd: float) -> AgentBadReply:
+    """A bad reply that carries what the call cost: the answer's own usage when it came back, else the worst case."""
+    exc = AgentBadReply(code)
+    exc.usd = float(usd)
+    return exc
+
+
 def _call(
     model: str,
     body_parts: dict,
@@ -414,9 +424,9 @@ def _call(
     if meter is not None:
         meter.add(usd)  # a paid bad reply still counts toward the cap
     if not isinstance(answer, dict) or not isinstance(answer.get("content"), list):
-        raise AgentBadReply("bad_shape")
+        raise _bad_reply("bad_shape", usd)
     if answer.get("stop_reason") in ("refusal", "max_tokens"):
-        raise AgentBadReply("stop_" + str(answer.get("stop_reason")))
+        raise _bad_reply("stop_" + str(answer.get("stop_reason")), usd)
     return answer, usd
 
 

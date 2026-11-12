@@ -63,6 +63,13 @@ class ReLane(s.FakeModel):
     def __init__(self, reread=None, again=None, **kw):
         super().__init__(**kw)
         self.reread = reread
+        self.script: list[
+            str
+        ] = []  # one action per re-read call: cut / refusal / boom / ok
+        self.reread_cut: set[int] = (
+            set()
+        )  # max_tokens limits at which the re-read answer is cut off
+        self.reread_limits: list[int] = []
         self.again = (
             again or {}
         )  # the lead's answer per item when it is asked again with the pointer
@@ -79,11 +86,28 @@ class ReLane(s.FakeModel):
             text = (
                 self.reread if isinstance(self.reread, str) else json.dumps(self.reread)
             )
+            self.reread_limits.append(body["max_tokens"])
+            act = self.script.pop(0) if self.script else "ok"
+            if act == "boom":
+                raise RuntimeError("invented transport failure")
+            if act in ("cut", "refusal"):
+                usage = {"input_tokens": 1500, "output_tokens": body["max_tokens"]}
+                bad = self._reply(self.second_name, usage, '{"found": tr')
+                bad["stop_reason"] = "max_tokens" if act == "cut" else "refusal"
+                return bad
+            if body["max_tokens"] in self.reread_cut:
+                usage = {"input_tokens": 1500, "output_tokens": body["max_tokens"]}
+                cut = self._reply(self.second_name, usage, '{"found": tr')
+                cut["stop_reason"] = "max_tokens"
+                return cut
             usage = {"input_tokens": 1500, "output_tokens": 120}
             return self._reply(self.second_name, usage, text)
         last = (
             body["messages"][0]["content"][-1]["text"] if body.get("messages") else ""
         )
+        if "a_second_reader_points_to" in last and getattr(self, "again_boom", False):
+            self.kinds.append("lead_again")
+            raise RuntimeError("invented transport failure")
         if "a_second_reader_points_to" in last:
             ids = [
                 q["item_id"]
@@ -718,3 +742,206 @@ def test_calls_already_paid_in_a_refused_step_are_charged_to_the_line(w, monkeyp
     lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, AGAIN_NUMBER)
     stored = line_json(lines["R-frame"])
     assert stored["reread"]["outcome"] == "step_off" and stored["usd"] > 0
+
+
+# ---------------------------------------------------------------- a cut-off re-read is retried once and charged what it cost
+
+
+def _review_cut(w, cut, reread=None, answers=None):
+    w["fake"] = ReLane(
+        reread=reread or {"found": False},
+        answers=answers or {**s.ANSWERS, "R-frame": SILENT},
+    )
+    w["fake"].reread_cut = set(cut)
+    run_id, job_id = start()
+    run_job(job_id)
+    return lines_of(run_id), w["fake"], run_id
+
+
+def test_a_cut_off_re_read_is_asked_once_more_at_twice_the_limit_and_then_used(w):
+    lines, fake, _ = _review_cut(w, {rr.REREAD_MAX_TOKENS})
+    assert (
+        fake.reread_limits == [600, 1200]
+        and rr.REREAD_RETRY_TOKENS == 2 * rr.REREAD_MAX_TOKENS
+    )
+    assert line_json(lines["R-frame"])["reread"]["outcome"] == "no_value"
+
+
+def test_a_second_cut_off_ends_as_cut_off_with_no_claim_and_no_third_call(w):
+    lines, fake, _ = _review_cut(w, {600, 1200})
+    row = lines["R-frame"]
+    rec = line_json(row)["reread"]
+    assert rec["outcome"] == "cut_off" and rec["failure"] == "cut_off"
+    assert fake.reread_limits == [600, 1200] and fake.kinds.count("reread") == 2
+    assert row["word"] == "Query" and "two AI readers" not in row["reason"]
+    assert "answer" not in rec and "found" not in json.dumps(
+        rec
+    )  # a cause word, never the answer
+
+
+def test_a_cut_off_line_is_charged_what_the_calls_cost_not_the_worst_case(
+    w, monkeypatch
+):
+    from app import claude_spend
+
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    off, _, _ = _review_cut(w, set())
+    base = line_json(off["R-frame"])["usd"]
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
+    db.reset_connection()
+    lines, _fake, _ = _review_cut(w, {600, 1200})
+    real = claude_spend.cost_usd(
+        agent_claude.SECOND_MODEL, {"input_tokens": 1500, "output_tokens": 600}
+    ) + claude_spend.cost_usd(
+        agent_claude.SECOND_MODEL, {"input_tokens": 1500, "output_tokens": 1200}
+    )
+    charged = line_json(lines["R-frame"])["usd"] - base
+    assert charged == pytest.approx(real, rel=0.01) and charged > 0
+    worst = claude_spend.worst_case_usd(agent_claude.SECOND_MODEL, 6000, 600)
+    assert charged < worst * 2
+
+
+def test_the_failure_cause_words_are_stored_never_the_answer(w):
+    lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, "not json at all")
+    assert line_json(lines["R-frame"])["reread"]["failure"] == "unreadable"
+    lines, _ = review(
+        w, {**s.ANSWERS, "R-frame": SILENT}, agent_claude.AgentTransportError("boom")
+    )
+    assert line_json(lines["R-frame"])["reread"]["failure"] == "call_error"
+
+
+def test_the_notes_count_the_cut_off_re_reads_in_plain_words(w):
+    import openpyxl
+
+    _, _, run_id = _review_cut(w, {600, 1200})
+    wb = openpyxl.load_workbook(agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx")
+    cells = [
+        str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value
+    ]
+    assert any(rr.cut_off_sentence(1) in c for c in cells)
+    assert (
+        rr.cut_off_count(
+            [{"reread": {"outcome": "cut_off"}}, {"reread": {"outcome": "failed"}}, {}]
+        )
+        == 1
+    )
+
+
+# ---------------------------------------------------------------- what the step paid stays on the line and equals the run
+
+
+def _scripted(w, script, answers, reread=None, again_boom=False):
+    w["fake"] = ReLane(
+        reread=reread or {"found": False}, answers=answers, again=AGAIN_NUMBER
+    )
+    w["fake"].script, w["fake"].again_boom = list(script), again_boom
+    run_id, job_id = start()
+    run_job(job_id)
+    return lines_of(run_id), run_id
+
+
+def _totals(lines, run_id):
+    usd = (
+        db.connect()
+        .execute("SELECT usd FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()["usd"]
+    )
+    return usd, sum(line_json(r).get("usd") or 0.0 for r in lines.values())
+
+
+def _delta(w, monkeypatch, script, answers, reread=None, again_boom=False):
+    """(run total, summed line costs) of a run with the step on, minus the same of a run with it off."""
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    off, off_id = _scripted(w, [], answers)
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
+    db.reset_connection()
+    on, on_id = _scripted(w, script, answers, reread, again_boom)
+    (run_off, lines_off), (run_on, lines_on) = _totals(off, off_id), _totals(on, on_id)
+    return run_on - run_off, lines_on - lines_off
+
+
+def test_the_run_total_equals_the_line_costs_for_a_cut_off_retry_a_bad_reply_and_a_transport_error(
+    w, monkeypatch
+):
+    answers = {**s.ANSWERS, "R-frame": SILENT, "R-coat": SILENT, "R-colour": SILENT}
+    script = [
+        "cut",
+        "ok",
+        "refusal",
+        "boom",
+    ]  # R-frame: cut then retried; R-coat: bad reply; R-colour: transport error
+    run_extra, line_extra = _delta(w, monkeypatch, script, answers)
+    assert run_extra > 0 and run_extra == pytest.approx(line_extra, rel=1e-3)
+
+
+def test_a_bad_reply_with_no_usage_is_charged_the_worst_case_on_the_line_and_the_run(
+    w, monkeypatch
+):
+    real = agent_claude._bad_reply
+    monkeypatch.setattr(
+        agent_claude, "_bad_reply", lambda code, usd: _no_usage(real(code, usd))
+    )
+    run_extra, line_extra = _delta(
+        w, monkeypatch, ["refusal"], {**s.ANSWERS, "R-frame": SILENT}
+    )
+    assert (
+        run_extra == pytest.approx(line_extra, rel=1e-3) and line_extra > 0.05
+    )  # the worst case, not a real 0.02
+
+
+def _no_usage(exc):
+    exc.usd = None
+    return exc
+
+
+def test_a_refusal_on_the_retry_leaves_the_first_calls_cost_on_the_line(w, monkeypatch):
+    real = run_mod.Runner.call
+
+    def call(self, model, parts, max_tokens, once=False):
+        if max_tokens == rr.REREAD_RETRY_TOKENS:
+            raise agent_claude.AgentBudgetStop("cap")
+        return real(self, model, parts, max_tokens, once)
+
+    answers = {**s.ANSWERS, "R-frame": SILENT}
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    off, _ = _scripted(w, [], answers)
+    base = line_json(off["R-frame"])["usd"]
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
+    db.reset_connection()
+    monkeypatch.setattr(run_mod.Runner, "call", call)
+    on, _ = _scripted(w, ["cut"], answers)
+    first = claude_spend_cost(1200 // 2)
+    assert line_json(on["R-frame"])["usd"] - base == pytest.approx(first, rel=1e-3)
+    assert line_json(on["R-frame"])["reread"]["outcome"] == "step_off"
+
+
+def claude_spend_cost(out_tokens):
+    from app import claude_spend
+
+    return claude_spend.cost_usd(
+        agent_claude.SECOND_MODEL, {"input_tokens": 1500, "output_tokens": out_tokens}
+    )
+
+
+def test_a_transport_error_on_the_retry_costs_the_first_call_plus_the_retrys_worst_case(
+    w, monkeypatch
+):
+    run_extra, line_extra = _delta(
+        w, monkeypatch, ["cut", "boom"], {**s.ANSWERS, "R-frame": SILENT}
+    )
+    assert run_extra == pytest.approx(line_extra, rel=1e-3)
+    assert line_extra > claude_spend_cost(600) + 0.05
+
+
+def test_a_transport_error_on_the_lead_re_ask_is_on_the_line_as_the_run_was_charged(
+    w, monkeypatch
+):
+    run_extra, line_extra = _delta(
+        w,
+        monkeypatch,
+        [],
+        {**s.ANSWERS, "R-frame": SILENT},
+        reread=FOUND_NUMBER,
+        again_boom=True,
+    )  # the ninth case: the re-read answered, the lead re-ask failed in transport
+    assert line_extra > 0.05 and run_extra == pytest.approx(line_extra, rel=1e-3)

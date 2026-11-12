@@ -22,6 +22,7 @@ and records the code on the run (`two_reader_state["off"]`, counted in the summa
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from . import agent_claude, agent_run_second
@@ -53,6 +54,66 @@ def base_of(line: dict) -> dict:
 
 
 class TwoReaderMixin:
+    def call_for_batch(
+        self,
+        batch: list[dict],
+        model: str,
+        parts: dict,
+        max_tokens: int,
+        once: bool = False,
+    ):
+        """`self.call` for one batch of lines. When it fails, what the run was charged for it (a transport failure is charged at
+        the worst case) goes onto the batch's lines, a share each (as a good call's cost does), so no line understates."""
+        with self.charged_scope() as charged:
+            try:
+                return self.call(model, parts, max_tokens, once=once)
+            except BaseException:
+                self._charge_batch(batch, charged[0])
+                raise
+
+    #: tests set this True: a batch element that yields no stored line then raises instead of being skipped with a warning
+    strict_charge = False
+
+    @staticmethod
+    def batch_item_id(element: Mapping) -> str | None:
+        """The item id of one batch element: the element is an item (verdict, other-paper steps) or a wrapper holding the
+        item or the line (absence step: {"line", "item", "proof"}). ONE home for the lookup."""
+        for holder in (element, element.get("item"), element.get("line")):
+            if isinstance(holder, Mapping) and holder.get("item_id") is not None:
+                return str(holder["item_id"])
+        return None
+
+    def _charge_batch(self, batch: list, usd: float) -> None:
+        total = round(float(usd), 6)
+        if total <= 0 or not batch:
+            return
+        base = round(total / len(batch), 6)
+        shares = [base] * (len(batch) - 1) + [
+            round(total - base * (len(batch) - 1), 6)
+        ]  # they add up exactly
+        for element, share in zip(batch, shares, strict=True):
+            iid = self.batch_item_id(element)
+            line = self.lines.get(iid) if iid else None
+            if line is None:
+                if self.strict_charge:
+                    raise LookupError(
+                        "a batch element has no stored line to carry its charge"
+                    )
+                log.warning(
+                    "agent review: a batch element has no stored line for its cost note"
+                )
+                continue
+            new = self.exit_line(
+                {**line, "usd": round(float(line.get("usd") or 0.0) + share, 6)}
+            )
+            with self._lock:
+                self.lines[iid] = new
+            try:
+                if self.sink is not None:
+                    self.sink(new, None)
+            except Exception:  # noqa: BLE001  the cost note is not worth a run: the run total already holds it
+                log.warning("agent review: a line's cost note was not stored")
+
     def _counted_fail_guards(
         self, item: dict, line: dict, answer: dict, pages: dict, second: dict
     ) -> float:
@@ -186,8 +247,8 @@ class TwoReaderMixin:
         st["asked"] += len(batch)
         st["calls"] += 1
         try:
-            raw, usd = self.call(
-                agent_claude.SECOND_MODEL, parts, max_tokens, once=True
+            raw, usd = self.call_for_batch(
+                batch, agent_claude.SECOND_MODEL, parts, max_tokens, once=True
             )
         except FATAL as exc:
             code = two.OFF_RUN_STOPPED if self._stop.is_set() else two.OFF_CAP

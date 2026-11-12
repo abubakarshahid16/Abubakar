@@ -25,6 +25,7 @@ The absence proof (`absence_check`) is built but OFF by default: an "absent" ans
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import json
 import logging
@@ -89,6 +90,8 @@ log = logging.getLogger(__name__)
 
 
 class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
+    _scope = threading.local()  # per-thread charge scope (`charged_scope`)
+
     def __init__(
         self,
         *,
@@ -262,9 +265,13 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                     time.sleep(self.retry_base * (2**attempt))
                     continue
                 raise
-            except agent_claude.AgentBadReply:
-                self._release(app, app)
-                self._add_usd(app)
+            except agent_claude.AgentBadReply as exc:
+                # the optional page re-read is charged what the call cost (its own usage); every other call at the worst case
+                charge = (
+                    exc.usd if self.in_optional_step() and exc.usd is not None else app
+                )
+                self._release(app, charge)
+                self._add_usd(charge)
                 raise
             except Exception:
                 self._release(app, 0.0)
@@ -274,9 +281,26 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             return answer, usd
         raise agent_claude.AgentTransportError("retries_exhausted")
 
+    @contextlib.contextmanager
+    def charged_scope(self):
+        """Yields a one-item list that sums what THIS thread's calls were charged to the run inside the block (a step that
+        keeps its own cost fact uses it, so a failed call's charge is not lost from the step)."""
+        acc = [0.0]
+        self._scope.acc = acc
+        try:
+            yield acc
+        finally:
+            self._scope.acc = None
+
     def _add_usd(self, usd: float) -> None:
         with self._lock:
             self.run_usd += float(usd)
+        if getattr(self._scope, "acc", None) is not None:
+            self._scope.acc[0] += float(usd)
+        if self.in_optional_step():  # what the run was charged inside the optional step (this thread): the line carries it
+            self._optional.charged = getattr(self._optional, "charged", 0.0) + float(
+                usd
+            )
 
     def _admit(self, app: float) -> None:
         if self.gate is not None:
