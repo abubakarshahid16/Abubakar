@@ -242,7 +242,7 @@ def test_small_talk_does_not_claim_claude_writes_it_when_the_request_is_not_clau
     from app import chat_answers
 
     _lane(monkeypatch, tmp_path)
-    said = chat_answers.small_talk("greeting", examples=[], model=None)["answer"]
+    said = chat_answers.small_talk("about_the_assistant", examples=[], model=None)["answer"]
     assert "nothing you type leaves it" in said and "sent to it" not in said
-    said = chat_answers.small_talk("greeting", examples=[], model="claude")["answer"]
+    said = chat_answers.small_talk("about_the_assistant", examples=[], model="claude")["answer"]
     assert "sent to it" in said
