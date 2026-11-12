@@ -52,6 +52,18 @@ def base_of(line: dict) -> dict:
 
 
 class TwoReaderMixin:
+    def _counted_fail_guards(
+        self, item: dict, line: dict, answer: dict, pages: dict, second: dict
+    ) -> float:
+        """Run the Fail-side guards and count the F4 call as this step's own (its calls and cost); returns the extra cost."""
+        st, before = self.two_reader_state, (self.calls["context"], self.run_usd)
+        second["fail_guards"] = self._fail_guards(item, line, answer, pages)
+        extra = round(self.run_usd - before[1], 6)
+        st["calls"] += self.calls["context"] - before[0]
+        st["usd"] = round(st["usd"] + extra, 6)
+        second["fail_guards"]["usd"] = extra
+        return extra
+
     def _fail_guards(self, item: dict, line: dict, answer: dict, pages: dict) -> dict:
         """The Fail-side guards of the ONE home: F1 and F3 (`verdict.apply_holds`) on the second reader's clause quote and F4 (the
         rule-book context check, `context_check_fail`, a budget stop raised to the step instead of stopping the run)."""
@@ -246,16 +258,8 @@ class TwoReaderMixin:
                 )
             )
         ):  # a "not met" must pass what a code Fail passes (F1, F3, F4) before it earns the class
-            before = (self.calls["context"], self.run_usd)
             try:
-                second["fail_guards"] = self._fail_guards(item, line, answer, pages)
-                extra = round(
-                    self.run_usd - before[1], 6
-                )  # the F4 call is this step's too: counted in its calls and cost
-                st["calls"] += self.calls["context"] - before[0]
-                st["usd"] = round(st["usd"] + extra, 6)
-                second["fail_guards"]["usd"] = extra
-                share += extra
+                share += self._counted_fail_guards(item, line, answer, pages, second)
             except FATAL as exc:
                 self.record_two_reader_off(
                     two.OFF_CAP, cause=str(getattr(exc, "code", type(exc).__name__))
