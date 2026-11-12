@@ -101,6 +101,7 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
     "agent_review_coverage.py": "counts coverage for display",
     "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
