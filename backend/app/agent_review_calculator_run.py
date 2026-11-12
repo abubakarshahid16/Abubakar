@@ -87,9 +87,9 @@ def pair(
     from . import match_rules, subject_pairing
 
     why = Counter() if why is None else why
-    field = (guards.field_names(item) or [None])[
-        0
-    ]  # the label's own field first, then the item's roles (the Pass guard's reading)
+    # the label's own field first, then the item's roles (the Pass guard's reading)
+    names = guards.field_names(item)
+    field = names[0] if names else None
     wanted = subject_pairing.quantity_words(field, sheet)
     if not wanted:
         why["the rule names no field the code can match"] += 1

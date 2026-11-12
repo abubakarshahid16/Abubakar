@@ -128,7 +128,9 @@ def test_on_a_stored_fact_against_a_numeric_rule_is_a_proven_line_of_the_run_and
 
 
 def test_a_breach_is_a_proven_fail_on_the_contractor_copy(world, on):
-    frame_item(comparator="<=")  # the limit stays 0.2 (its clause quote must state it); read as a maximum, the 0.35 on the page breaks it
+    frame_item(
+        comparator="<="
+    )  # the limit stays 0.2 (its clause quote must state it); read as a maximum, the 0.35 on the page breaks it
     fact()
     run_id, job_id = start()
     run_job(job_id)
@@ -338,3 +340,27 @@ def test_trial_report_names_the_calculator():
         0
     ].ok  # not run and no reason: not an all-fine
     assert mod.calculator_check({"counts_json": "{}"}) == []
+
+
+def test_a_rule_with_no_field_roles_is_paired_by_its_labels_own_field_label_field(
+    world, on
+):
+    frame_item(
+        roles=(), rule_label={"field": "coating thickness", "tier": "AI approved"}
+    )  # the plan keeps the field in the rule's label
+    fact()
+    run_id, job_id = start()
+    run_job(job_id)
+    got = [v for k, v in code_lines(run_id).items() if k.startswith("C-R-frame")]
+    assert got and outcome(run_id)["calculator"]["pairs"] == 1
+
+
+def test_a_rule_that_names_no_field_says_why_it_did_not_pair(world, on):
+    frame_item(roles=(), rule_label={"tier": "AI approved"})
+    fact()
+    run_id, job_id = start()
+    run_job(job_id)
+    got = outcome(run_id)["calculator"]
+    assert got["pairs"] == 0 and got["not_paired"] == {
+        "the rule names no field the code can match": 1
+    }
