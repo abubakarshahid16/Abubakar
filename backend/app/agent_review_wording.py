@@ -55,6 +55,13 @@ RECOMMENDATION = "recommendation"
 KEYS = ("verdict_label", "verdict_class", "not_proven_reason", "recommendation")
 
 
+REREAD_NO_VALUE_WHY = "two AI readers found no value for this in the stored text of the pages they were given"  # C4: said only after a second reader answered
+REREAD_QUOTE_NOT_FOUND_WHY = "a second AI reader pointed to text that code did not accept as a quote from the stored page text; it was not used"
+REREAD_NOT_CONFIRMED_WHY = "one AI reader pointed to text on page {page}, the other AI reader did not confirm it"
+REREAD_OUTCOME_WHY = {
+    "no_value": REREAD_NO_VALUE_WHY,
+    "quote_not_found": REREAD_QUOTE_NOT_FOUND_WHY,
+}
 ONE_READER = "One AI reader's view, not confirmed: "
 SECOND_DISAGREED = "The second AI reader disagreed. "
 
@@ -172,8 +179,21 @@ def classify(line: Mapping) -> dict:
 
 
 def apply(line: Mapping) -> dict:
-    """The line with the words added (idempotent). A 'should' rule is marked a recommendation."""
-    return {**line, **classify(line), RECOMMENDATION: line.get("rule_kind") == "advice"}
+    """The line with the words added (idempotent). A 'should' rule is marked a recommendation. A line the second reader
+    re-read says what the code saw after its reason (`reread.outcome`: no_value, quote_not_found or not_confirmed); a failed
+    re-read and a recovered line say nothing."""
+    out = {**line, **classify(line), RECOMMENDATION: line.get("rule_kind") == "advice"}
+    reread = line.get("reread")
+    outcome = reread.get("outcome") if isinstance(reread, Mapping) else None
+    words = (
+        REREAD_NOT_CONFIRMED_WHY.format(page=reread.get("page"))
+        if outcome == "not_confirmed"
+        else REREAD_OUTCOME_WHY.get(outcome)
+    )
+    if words and out["verdict_class"] in (CLASS_QUERY, CLASS_OPINION, CLASS_UNAPPROVED):
+        base = str(out.get("not_proven_reason") or "").rstrip(" .;")
+        out["not_proven_reason"] = f"{base}; {words}" if base else words
+    return out
 
 
 def final_cap(

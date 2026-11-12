@@ -7,6 +7,7 @@ export type AgentRuleTier = "Owner" | "Engineer" | "AI approved" | "Not AI appro
 export type AgentPart = "not held" | "checklist" | "paper against itself" | "against project papers" | "engineering comment";
 export type AgentTextSource = "quote" | "the model's words";
 export type AgentMode = "rule review" | "general review";
+export type AgentPaperTextState = "readable" | "partly readable" | "no text" | "not indexed" | "still reading";
 export type AgentLeftOutReason = "needs another paper" | "needs a human" | "quote not found" | "not labelled yet" | "another equipment type" | "rule book not held" | "the paper names no equipment" | "the paper names equipment the equipment list does not know" | "the paper's equipment could not be read";
 
 /** POST /api/reviews/agent-run body. */
@@ -28,6 +29,24 @@ export interface AgentStatus {
   claude_lane_open: boolean;
 }
 
+export interface AgentPaperText {
+  state: AgentPaperTextState;
+  /** null when the library holds no page count for the paper. */
+  pages_total?: number | null;
+  /** page numbers with no stored text (every page when state is "no text"). */
+  pages_not_read: number[];
+  /** the one plain sentence for a state other than "readable"; null when readable. */
+  sentence?: string | null;
+}
+
+/** The optional second reading of pages ended early in this run (a cap or an error inside it, never the review). */
+export interface AgentPageRereadStop {
+  /** plain words for the reason, no document text. */
+  why: string;
+  /** silent lines that were not re-read because it had ended (the lines carrying the marker; counts equal lines). */
+  not_reread: number;
+}
+
 /** GET /api/reviews/runs/{id}/agent/summary. Counts are per class, over the lines of this run only; there is no percentage. */
 export interface AgentRunSummary {
   paper_kind: string;
@@ -45,12 +64,16 @@ export interface AgentRunSummary {
   equipment_state?: string | null;
   /** the sentences about the paper's equipment and the rules left out for it (counts only, no document text). */
   equipment_notes: string[];
+  /** null when the second reading of pages is off or ran fully (shown as nothing, never 0). */
+  page_reread_stopped?: AgentPageRereadStop | null;
   /** lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class. */
   not_reviewed: number;
   /** "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise. */
   mode: AgentMode;
   /** the project papers a general review was checked against (empty for a rule review, or when none was named). */
   project_papers_used: AgentProjectPaper[];
+  /** the paper's stored-text state; null on a run stored before it was kept (shown as nothing). */
+  paper_text?: AgentPaperText | null;
 }
 
 /** One CRS line of the AI reviewer. */
@@ -170,4 +193,8 @@ export interface AgentRulesUsed {
   same_rule_repeats?: number | null;
   /** AI-approved rules of this paper kind in rule books the run did not select; null when not kept. */
   other_books?: AgentOtherBooks | null;
+  /** why the run stopped early, or why no rule was asked (the same words as the summary); null when it ran to its end. */
+  stop_reason?: string | null;
+  /** the paper's stored-text state; null on a run stored before it was kept. */
+  paper_text?: AgentPaperText | null;
 }

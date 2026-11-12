@@ -4,6 +4,7 @@
  * percentage. A null cost renders nothing (never 0).
  */
 import type { AgentRunSummary } from "../../../types/api";
+import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
 import { CLASS_ORDER, CLASS_STYLE, NOT_REVIEWED_NOTE, isKnownClass, modeWords } from "./agentWords";
 
 export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
@@ -39,10 +40,16 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           {summary.equipment_notes.map((n) => <li key={n}>{n}</li>)}
         </ul>
       )}
-      {summary.stop_reason && (
+      <PaperTextNotice paperText={summary.paper_text} />
+      {summary.page_reread_stopped && (
+        <p role="status" data-testid="agent-page-reread-stopped" className="text-sm text-slateish-100">
+          The second reading of pages stopped early: {summary.page_reread_stopped.not_reread} lines were not re-read ({summary.page_reread_stopped.why}).
+        </p>
+      )}
+      {summary.stop_reason && !paperTextStopped(summary.paper_text) && (
         <p role="status" data-testid="agent-stop-reason"
           className="rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
-          This review stopped early: {summary.stop_reason}. The lines below are the ones finished before it stopped.
+          This review stopped early: {plainStop(summary.stop_reason)}. The lines below are the ones finished before it stopped.
         </p>
       )}
       <div>

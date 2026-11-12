@@ -33,6 +33,7 @@ from .. import (
     agent_review_jobs,
     agent_review_kind,
     agent_review_schema,
+    agent_review_text,
     errors,
     review_jobs,
     schemas,
@@ -125,7 +126,11 @@ def start_agent_run(
     document_id = body.submittal_document_id
     require_document(document_id, scope)
     reading = agent_review_kind.decide(document_id, scope.allowed_document_ids)
-    if not (reading.known and agent_review_gate.any_kind_enabled(reading.kind)):
+    no_text = agent_review_text.read(connect(), document_id).state == "no text"
+    # a paper with no stored text is queued whatever its kind: the run stops before any call and says why (never a 409 about kind)
+    if not no_text and not (
+        reading.known and agent_review_gate.any_kind_enabled(reading.kind)
+    ):
         detail = errors.safe_error(
             errors.INVALID_PARAMETER,
             agent_review_gate.KIND_NOT_ENABLED_MESSAGE,
@@ -135,7 +140,7 @@ def start_agent_run(
             status_code=409,
             detail={**detail, "code": agent_review_gate.KIND_NOT_ENABLED},
         )
-    general = agent_review_gate.general_kind_enabled(reading.kind)
+    general = reading.known and agent_review_gate.general_kind_enabled(reading.kind)
     project = _checked_project_papers(body, document_id, scope, general)
     try:
         run_id, _job = agent_review_jobs.enqueue(
@@ -233,7 +238,20 @@ def agent_summary(
         **_mode_of(conn, review_run_id),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        paper_text=_paper_text(run),
+        page_reread_stopped=_equipment(run).get("page_reread"),
     )
+
+
+def _paper_text(run: dict) -> contract.AgentPaperText | None:
+    """The paper's stored-text state the run recorded; None for a run stored before it was kept (shown as nothing)."""
+    got = _equipment(run).get("paper_text")
+    if not isinstance(got, dict):
+        return None
+    try:
+        return contract.AgentPaperText.model_validate(got)
+    except ValueError:
+        return None
 
 
 @router.get(
@@ -529,6 +547,7 @@ def rules_used(
         rule_set_changed_by=run["rule_set_changed_by"],
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        stop_reason=run["stop_reason"], paper_text=_paper_text(run),
         candidates_from=cand.get("source"), same_rule_repeats=cand.get("repeats") if cand else None,
         other_books=None if not other else contract.AgentOtherBooks(
             books=other["books"], ai_approved_rules=other["ai_approved_of_this_kind"], boundary=OTHER_BOOKS_BOUNDARY),
