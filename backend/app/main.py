@@ -3379,11 +3379,6 @@ def issue_review_crs(
     review's points". The issued file is the same either way."""
     _require_identity_to_write(scope)
     gate = _crs_issue_gate(review_run_id, scope)
-    if not ai_review_read:
-        open_count = agent_open_points_mod.open_points(connect(), review_run_id)
-        if open_count:
-            raise HTTPException(status_code=409, detail=errors.safe_error(
-                errors.CRS_NOT_FINISHED, agent_open_points_mod.refusal(open_count)))
     if not gate["final_code_recorded"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.CODE_NOT_DECIDED,
@@ -3392,6 +3387,11 @@ def issue_review_crs(
     if not gate["issuable"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+    if not ai_review_read:
+        open_count = agent_open_points_mod.open_points(connect(), review_run_id)
+        if open_count:
+            raise HTTPException(status_code=409, detail=errors.safe_error(
+                errors.CRS_NOT_FINISHED, agent_open_points_mod.refusal(open_count)))
     workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
     record = crs_issue_mod.archive(review_run_id, workbook, filename,
                                    actor=scope.user_id or "unrestricted")
