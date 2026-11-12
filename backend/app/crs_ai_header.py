@@ -44,11 +44,3 @@ def document_header(
         "date": _text(got.get("effective_date")),
         "discipline": discipline,
     }
-
-
-def header_of(submittal: str, equipment_type: str | None) -> dict:
-    """`document_header` on the calling thread's own connection (the job's)."""
-    from .db import connect
-
-    with connect() as conn:
-        return document_header(conn, submittal, equipment_type)

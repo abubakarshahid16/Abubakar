@@ -492,6 +492,12 @@ def _stop_text(runner, plan: dict) -> str | None:
     return plan.get("stop")
 
 
+def _header_facts(submittal: str, equipment_type: str | None) -> dict:
+    """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
+    with connect() as conn:
+        return crs_header.document_header(conn, submittal, equipment_type)
+
+
 def _equipment_facts(block: dict) -> dict:
     """What the paper's equipment state means for the rules: the state word, and the summary sentences about equipment (counts
     only, no document text) that the summary and Rules used routes show."""
@@ -521,7 +527,11 @@ def _finish(
     items = plan["items"]
     lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
     counts = runner_mod.counts_of(lines, runner)
-    reread = reread_mod.facts_of(runner, lines)  # C4: stopped re-read
+    reread = (  # C4: a stopped page re-read is stated, never dropped (null when off or ran fully)
+        reread_mod.reread_facts(runner.reread_enabled, runner.reread_stopped, lines)
+        if runner
+        else None
+    )
     models = sorted(runner.lead_models | runner.second_models) if runner else []
     spent = runner and (
         runner.calls["lead"] or runner.calls["second"] or runner.calls["context"]
@@ -531,7 +541,7 @@ def _finish(
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
-            "usd": usd, "header": crs_header.header_of(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
+            "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
                                **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {})}}  # fmt: skip
