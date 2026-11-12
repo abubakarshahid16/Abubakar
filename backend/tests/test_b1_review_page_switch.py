@@ -12,7 +12,12 @@ def test_off_the_points_routes_do_not_exist_and_the_status_says_off(monkeypatch)
     client = _client(doc)
     assert client.get("/api/reviews/page-v2").json() == {"enabled": False}
     assert client.get(f"/api/reviews/papers/{doc}/points").status_code == 404
-    assert client.post(f"/api/reviews/papers/{doc}/points/add", json={"text": "x"}).status_code == 404
+    assert (
+        client.post(
+            f"/api/reviews/papers/{doc}/points/add", json={"text": "x"}
+        ).status_code
+        == 404
+    )
 
 
 def test_on_the_status_says_on_and_the_list_answers(monkeypatch):

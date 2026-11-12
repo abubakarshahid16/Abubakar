@@ -49,6 +49,22 @@ def runs_of_paper(conn, paper_id: str) -> tuple[str | None, str | None]:
     return (rc_row["id"] if rc_row else None), ai
 
 
+def _mandatory(finding: dict | None) -> bool:
+    """Is the rule behind this finding MANDATORY ("shall"), read from the rule itself (its stored requirement type)? A rule whose strength
+    cannot be read is NOT taken as mandatory: no rejection is proposed on a strength nobody read."""
+    rid = (finding or {}).get("requirement_id")
+    if not rid:
+        return False
+    row = (
+        connect()
+        .execute(
+            "SELECT requirement_type FROM standard_requirements WHERE id = ?", (rid,)
+        )
+        .fetchone()
+    )
+    return bool(row) and row["requirement_type"] != "recommendation"
+
+
 def _fold(text) -> str:
     return " ".join(str(text or "").lower().split())
 
@@ -109,7 +125,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
         if finding is not None and not scope.may_read(finding["document_id"]):
             finding = None
         sides = _sides(finding, scope) if finding else {}
-        p = rp.rule_point(row, ctx, finding, sides)
+        p = rp.rule_point(row, ctx, finding, sides, shall=_mandatory(finding))
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
             bool(row.get("engineer_rejected")),
@@ -131,7 +147,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
                 and finding.get("review_run_id") == run_id
                 and scope.may_read(finding["document_id"])
             ):
-                out.append(rp.removed_stub(finding, ctx))
+                out.append(rp.removed_stub(finding, ctx, shall=_mandatory(finding)))
     return out
 
 
@@ -188,6 +204,7 @@ def assemble(paper_id: str, scope) -> dict:
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),
         resubmit_at=int(settings.review_code_resubmit_at_kept_mandatory_not_met or 0),
+        reviews_ran=bool(rc_run or ai_run),
     )
     final = (
         conn.execute(

@@ -27,6 +27,7 @@ from app import (
     review_point_decisions,
     review_point_sync,
     review_points,
+    review_points_service,
 )
 from app import agent_review_crs as C
 from app.config import settings
@@ -594,6 +595,9 @@ def test_a_kept_proven_fail_on_a_shall_rule_always_proposes_the_rejection_even_w
 )
 def test_the_ai_not_met_count_setting_at_n_minus_one_and_n(n_kept, expect):
     points = [pt(3 if i % 2 else 2, "keep", source="ai_review") for i in range(n_kept)]
+    points.append(
+        pt(7, "keep")
+    )  # a kept met point keeps the list from being empty (an empty list proposes nothing)
     got = review_code_proposal.propose(points, resubmit_at=3)
     assert got["code"] == expect
     if expect == comparison.CODE_REJECTED:
@@ -1006,3 +1010,417 @@ def test_a_point_decided_only_in_the_old_record_is_a_decided_point_on_the_page()
     assert old_door(client, run, _fid(run), "accept").status_code == 200
     p = points_of(client, doc)["points"][0]
     assert p["decision"]["state"] == "keep"
+
+
+# ------------------------------------------------------------------------------------------ review R48 (findings 1 to 12)
+
+
+def _requirement(req_id, kind):
+    with db.connect() as conn:
+        cols = [
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(standard_requirements)")
+            if r["notnull"] and r["dflt_value"] is None and not r["pk"]
+        ]
+        vals = {
+            "standard_document_id": "doc_std",
+            "requirement_text": "A requirement.",
+            "requirement_type": kind,
+        }
+        row = {
+            "id": req_id,
+            **{c: vals.get(c, "x" if c not in ("page",) else 1) for c in cols},
+            "requirement_type": kind,
+        }
+        conn.execute(
+            f"INSERT INTO standard_requirements ({','.join(row)}) VALUES ({','.join('?' * len(row))})",
+            list(row.values()),
+        )
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_the_older_decision_route_answers_as_it_always_did_with_the_switch_off_and_on(
+    monkeypatch, switch
+):
+    """R48 finding 1: the same four requests, the same status and body as before the redesigned page, whatever the switch says."""
+    monkeypatch.setattr(settings, "review_page_v2_enabled", switch)
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    for i in range(3):
+        _finding(
+            doc,
+            run,
+            "NON_COMPLIANT",
+            requirement=f"r{i}",
+            equipment_tag=f"T{i}",
+            contractor_page=i + 1,
+            contractor_evidence_text=f"v{i}",
+        )
+    client = _client(doc, "doc_std")
+    ids = [
+        r["id"]
+        for r in db.connect().execute(
+            "SELECT id FROM review_findings WHERE review_run_id = ? ORDER BY id", (run,)
+        )
+    ]
+    ids = [i for i in ids]
+    keys = [p for p in ids]
+    needs_reason = "a decision needs the engineer's reason (10 characters minimum)"
+
+    def post(fid, **body):
+        return client.post(
+            f"/api/reviews/runs/{run}/crs/open-items/findings/{fid}/decision", json=body
+        )
+
+    r1 = post(keys[0], decision="accept")  # no reason: refused, as before
+    assert r1.status_code == 422 and r1.json()["detail"]["message"] == needs_reason, (
+        r1.text
+    )
+    r2 = post(
+        keys[0], decision="reject", reason="short"
+    )  # a short reason: the same sentence
+    assert r2.status_code == 422 and r2.json()["detail"]["message"] == needs_reason, (
+        r2.text
+    )
+    r3 = post(
+        keys[0], decision="accept", reason="breach confirmed against clause 6.2.2"
+    )
+    assert (
+        r3.status_code == 200
+        and r3.json()["reason"] == "breach confirmed against clause 6.2.2"
+        and r3.json()["reason_code"] is None
+    )
+    r4 = post(keys[1], decision="reject", reason_code="duplicate")
+    assert (
+        r4.status_code == 200
+        and r4.json()["reason"] == crs_issue.REMOVAL_REASONS["duplicate"]
+    )
+    assert post(keys[2], decision="maybe").status_code == 422
+    stored = [
+        d["reason"]
+        for d in db.connect().execute("SELECT reason FROM crs_issue_decisions")
+    ]
+    assert (
+        "Kept in the review page" not in stored
+        and "Edited in the review page" not in stored
+    )  # no silent default through the old door
+    if not switch:  # OFF: the older route never touches the new records
+        assert not _has("review_point_decision")
+
+
+def test_with_the_switch_off_the_sheets_and_the_routes_do_not_know_the_page_exists(
+    monkeypatch,
+):
+    """R48 finding 8. The page's own records are written straight into its tables (not through the write-through, which would also reject
+    the finding itself): with the switch ON the sheet holds them, OFF it is the sheet as it was before any of them."""
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(doc, run, "NON_COMPLIANT")
+    client = _client(doc, "doc_std")
+    before = sheet_text(client.get(f"/api/reviews/runs/{run}/crs").content)
+    review_point_decisions.decide(
+        doc,
+        f"rc:{_fid(run)}",
+        "remove",
+        actor="eng",
+        reason="the paper states it on page 9",
+    )
+    review_point_decisions.add_point(doc, "Engineer's added comment.", actor="eng")
+    on = sheet_text(client.get(f"/api/reviews/runs/{run}/crs").content)
+    assert (
+        on != before and "Engineer's added comment." in on
+    )  # ON: the sheet holds the page's records
+    monkeypatch.setattr(settings, "review_page_v2_enabled", False)
+    assert (
+        sheet_text(client.get(f"/api/reviews/runs/{run}/crs").content) == before
+    )  # OFF: not applied at all
+    assert client.get(f"/api/reviews/papers/{doc}/points").status_code == 404
+    assert (
+        client.post(
+            f"/api/reviews/papers/{doc}/points/add", json={"text": "x"}
+        ).status_code
+        == 404
+    )
+
+
+def test_a_gate_that_cannot_read_the_ai_lines_refuses_and_never_counts_zero(
+    monkeypatch,
+):
+    """R48 finding 2: the reviewer's case. Only the rule-check points are decided; the AI lines table is unreadable."""
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(doc, run, "NON_COMPLIANT")
+    ai_run(doc, [mk("R-1", "Fail", "Fail")])
+    client = _client(doc, "doc_std")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = 'Approved' WHERE id = ?",
+            (run,),
+        )
+    for p in points_of(client, doc)["points"]:
+        if p["source"] == "rule_check":
+            decide(client, doc, p["id"], "keep")
+    with db.connect() as conn:
+        conn.execute("ALTER TABLE agent_review_line RENAME TO agent_review_line_gone")
+    gate = _gate(client, run)
+    assert gate["issuable"] is False
+    assert any("could not be read" in b for b in gate["blockers"]), gate["blockers"]
+    refused = _issue(client, run)
+    assert (
+        refused.status_code == 409
+        and "could not be read" in refused.json()["detail"]["message"]
+    )
+    with pytest.raises(Exception):  # the list itself does not pretend: it raises
+        review_points_service.assemble(
+            doc,
+            access.AccessScope(
+                user_id="eng", allowed_document_ids=frozenset({doc, "doc_std"})
+            ),
+        )
+
+
+def test_the_ai_review_points_are_not_read_as_read_unless_the_list_was_built(
+    monkeypatch,
+):
+    doc = _submittal()
+    run = _run(doc)
+    client = _client(doc)
+    assert _gate(client, run)[
+        "blockers"
+    ]  # a run with no page record still blocks, as before
+    monkeypatch.setattr(
+        review_points_service,
+        "undecided",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    assert any("could not be read" in b for b in _gate(client, run)["blockers"])
+
+
+def test_the_signed_ai_copy_holds_every_decision_made_before_signing():
+    """R48 finding 3: an edited point's words, a removed point absent, an added point present: in the archived AI contractor copy."""
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc, recommended="Approved with Comments")
+    _finding(doc, run, "NON_COMPLIANT")
+    ai = ai_run(doc, [mk("R-1", "Fail", "Fail"), mk("R-4", "Fail", "Fail")])
+    client = _client(doc, "doc_std")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = 'Approved' WHERE id = ?",
+            (run,),
+        )
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+            (
+                json.dumps(
+                    {
+                        "page_coverage": {
+                            "pages_total": 4,
+                            "fact_pages": [1, 2, 3, 4],
+                            "pages_not_read_into_fields": [],
+                        }
+                    }
+                ),
+                run,
+            ),
+        )
+    pts = {
+        p["id"].split(":")[-1]: p
+        for p in points_of(client, doc)["points"]
+        if p["source"] == "ai_review"
+    }
+    decide(client, doc, pts["R-1"]["id"], "edit", text="Edited words before signing.")
+    decide(
+        client, doc, pts["R-4"]["id"], "remove", reason="the paper states it on page 9"
+    )
+    client.post(
+        f"/api/reviews/papers/{doc}/points/add",
+        json={"text": "Added before signing.", "page": 3},
+    )
+    for p in points_of(client, doc)["points"]:
+        if not p["decision"]["state"]:
+            decide(client, doc, p["id"], "keep")
+    assert _issue(client, run).status_code == 200
+    copies = client.get(f"/api/reviews/runs/{ai}/crs/issued").json()["copies"]
+    text = sheet_text(
+        client.get(f"/api/reviews/runs/{ai}/crs/issued/{copies[0]['id']}").content
+    )
+    assert "Edited words before signing." in text and "Added before signing." in text
+    assert "Field R4" not in text  # the removed proven Fail is not on the signed copy
+    stored = sheet_text(
+        (agent_review_jobs.run_dir(ai) / "crs-contractor.xlsx").read_bytes()
+    )
+    assert (
+        "Field R4" in stored
+    )  # (the stored sheet, written at the end of the run, still holds it: so this test is not vacuous)
+
+
+def test_keep_all_is_stored_as_a_bulk_keep_and_is_no_spot_check_for_rule_trust(
+    monkeypatch,
+):
+    """R48 finding 5."""
+    from app import rule_trust
+
+    calls = []
+    monkeypatch.setattr(
+        rule_trust, "record_engineer_decision", lambda *a, **k: calls.append(a)
+    )
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(doc, run, "NON_COMPLIANT")
+    client = _client(doc, "doc_std")
+    rc = next(
+        p for p in points_of(client, doc)["points"] if p["source"] == "rule_check"
+    )
+    assert (
+        client.post(
+            f"/api/reviews/papers/{doc}/points/decisions",
+            json={"point_ids": [rc["id"]]},
+        ).status_code
+        == 200
+    )
+    reasons = [
+        d["reason_code"]
+        for d in db.connect().execute("SELECT reason_code FROM crs_issue_decisions")
+    ]
+    assert reasons == ["kept_in_bulk"] and calls == []
+    assert (
+        decide(client, doc, rc["id"], "keep").status_code == 200
+    )  # a single keep IS a spot check
+    assert len(calls) == 1
+
+
+def test_a_kept_proven_fail_on_a_should_rule_does_not_propose_the_rejection():
+    """R48 finding 6: strength comes from the rule."""
+    should = {
+        "rank": 1,
+        "shall": False,
+        "source": "rule_check",
+        "decision": {"state": "keep"},
+    }
+    shall = {
+        "rank": 1,
+        "shall": True,
+        "source": "rule_check",
+        "decision": {"state": "keep"},
+    }
+    assert (
+        review_code_proposal.propose([should])["code"]
+        == comparison.CODE_APPROVED_WITH_COMMENTS
+    )
+    assert review_code_proposal.propose([shall])["code"] == comparison.CODE_REJECTED
+
+
+def test_the_strength_of_a_rule_check_point_is_read_from_its_rule():
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    _requirement("req-shall", "numeric_limit")
+    _requirement("req-should", "recommendation")
+    assert review_points_service._mandatory({"requirement_id": "req-shall"}) is True
+    assert review_points_service._mandatory({"requirement_id": "req-should"}) is False
+    assert (
+        review_points_service._mandatory({"requirement_id": "nope"}) is False
+    )  # a strength nobody read is not "mandatory"
+    assert review_points_service._mandatory({}) is False and doc
+
+
+def test_a_removed_proven_fail_is_said_in_the_reason_and_on_the_audit():
+    """R48 finding 7."""
+    gone = {
+        "rank": 1,
+        "shall": True,
+        "source": "rule_check",
+        "decision": {"state": "remove", "by": "Sana", "reason": "stated on page 9"},
+    }
+    kept = {
+        "rank": 4,
+        "shall": True,
+        "source": "rule_check",
+        "decision": {"state": "keep"},
+    }
+    got = review_code_proposal.propose([gone, kept])
+    assert got["code"] == comparison.CODE_APPROVED_WITH_COMMENTS
+    assert "1 code-proven Fail removed by Sana: stated on page 9." in got["reason"]
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(doc, run, "NON_COMPLIANT")
+    client = _client(doc, "doc_std")
+    rc = next(
+        p for p in points_of(client, doc)["points"] if p["source"] == "rule_check"
+    )
+    decide(client, doc, rc["id"], "remove", reason="the paper states it on page 9")
+    detail = [
+        json.loads(a["detail"])
+        for a in db.connect().execute(
+            "SELECT detail FROM audit_events WHERE action = ?",
+            (review_point_decisions.AUDIT,),
+        )
+    ]
+    assert detail[-1]["reason"] == "the paper states it on page 9"
+
+
+def test_an_empty_list_never_proposes_approved_unless_a_review_truly_ran_and_found_nothing():
+    """R48 finding 9."""
+    none = review_code_proposal.propose([], reviews_ran=False)
+    assert none["code"] is None and "No review has run on this paper" in none["line"]
+    ran = review_code_proposal.propose([], reviews_ran=True)
+    assert (
+        ran["code"] == comparison.CODE_APPROVED
+        and "The review ran and found no points" in ran["reason"]
+    )
+    doc = _submittal()
+    assert (
+        points_of(_client(doc), doc)["proposed_code"]["code"] is None
+    )  # a paper with no review at all
+
+
+def test_a_removed_point_shows_no_rule_book_text_to_someone_who_may_not_read_the_book():
+    """R48 finding 10 (rule 5)."""
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(
+        doc,
+        run,
+        "NON_COMPLIANT",
+        requirement="Secret rule book requirement words here",
+        required_action="Secret clause action words",
+        matched_phrase=None,
+    )
+    owner = _client(doc, "doc_std")
+    rc = next(p for p in points_of(owner, doc)["points"] if p["source"] == "rule_check")
+    decide(owner, doc, rc["id"], "remove", reason="the paper states it on page 9")
+    blind = points_of(_client(doc), doc)
+    stub = next(p for p in blind["points"] if p["id"] == rc["id"])
+    assert "Secret" not in json.dumps(blind)
+    assert stub["action"] is None and stub["name"] == "A point of the rule check"
+
+
+def test_the_nothing_decided_sentence_is_one_function_and_names_a_proven_fail():
+    """R48 finding 12."""
+    assert (
+        review_code_proposal.nothing_decided_sentence(37, 0)
+        == "Nothing is decided yet: 37 points still to decide."
+    )
+    one = review_code_proposal.nothing_decided_sentence(37, 1)
+    assert (
+        one
+        == "Nothing is decided yet: 37 points still to decide; 1 is a code-proven Fail on a mandatory rule."
+    )
+    assert (
+        "2 are code-proven Fails on mandatory rules"
+        in review_code_proposal.nothing_decided_sentence(5, 2)
+    )
+    pts = [
+        {"rank": 1, "shall": True, "source": "ai_review", "decision": {"state": None}},
+        {"rank": 4, "shall": True, "source": "ai_review", "decision": {"state": None}},
+    ]
+    assert (
+        review_code_proposal.propose(pts)["line"]
+        == "Nothing is decided yet: 2 points still to decide; 1 is a code-proven Fail on a mandatory rule."
+    )

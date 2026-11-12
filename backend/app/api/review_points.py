@@ -12,7 +12,7 @@ identified engineer (not only an admin, like the other decision routes), and onl
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ from .. import (
     access,
     crs_issue,
     errors,
+    schemas,
 )
 from .. import (
     review_point_decisions as dec,
@@ -47,6 +48,60 @@ def _require_on() -> None:
 
 router = APIRouter()
 ON = [Depends(_require_on)]
+
+
+class PointDecisionOut(BaseModel):
+    model_config = {"extra": "allow"}
+    state: str | None = None
+    words: str = ""
+
+
+class PointOut(BaseModel):
+    """One point of the list (`review_points`): plain words and facts; the other keys it carries pass through."""
+
+    model_config = {"extra": "allow"}
+    id: str
+    source: str
+    rank: int
+    tile: str
+    name: str
+    pill: str
+    page: int | None = None
+    rule_book: str | None = None
+    clause: str | None = None
+    action: str | None = None
+    paper_quote: str | None = None
+    clause_quote: str | None = None
+    paper_quote_note: str = ""
+    clause_quote_note: str = ""
+    decision: PointDecisionOut
+
+
+class ProposedCodeOut(BaseModel):
+    model_config = {"extra": "allow"}
+    code: str | None = None
+    reason: str
+    line: str
+    so_far: bool
+    undecided: int
+
+
+class PointsListingOut(BaseModel):
+    model_config = {"extra": "allow"}
+    paper_document_id: str
+    runs: dict[str, str | None]
+    points: list[PointOut]
+    counts: dict[str, Any]
+    proposed_code: ProposedCodeOut
+    final_code: str | None = None
+    code_run_id: str | None = None
+    decided: int
+    of: int
+    removed: list[PointOut]
+
+
+class PageV2Status(BaseModel):
+    enabled: bool
 
 
 class DecisionRequest(BaseModel):
@@ -89,7 +144,14 @@ def _point(listing: dict, point_id: str) -> dict:
     )
 
 
-def _decide(listing: dict, paper_id: str, body: DecisionRequest, actor: str) -> dict:
+def _decide(
+    listing: dict,
+    paper_id: str,
+    body: DecisionRequest,
+    actor: str,
+    *,
+    bulk: bool = False,
+) -> dict:
     point = _point(listing, body.point_id)
     if point["source"] == "added":
         raise HTTPException(
@@ -111,6 +173,9 @@ def _decide(listing: dict, paper_id: str, body: DecisionRequest, actor: str) -> 
                 finding_ids=point.get("finding_ids"),
                 text=body.text,
                 reason=body.reason,
+                reason_code="kept_in_bulk"
+                if bulk
+                else None,  # a bulk keep is no spot check for rule_trust (the older rule)
                 original=original,
             )
         return dec.decide(
@@ -129,7 +194,7 @@ def _decide(listing: dict, paper_id: str, body: DecisionRequest, actor: str) -> 
         ) from exc
 
 
-@router.get("/api/reviews/page-v2", response_model=dict)
+@router.get("/api/reviews/page-v2", response_model=PageV2Status)
 def page_v2_status(
     request: Request, _scope: access.AccessScope = Depends(access.current_scope)
 ):
@@ -139,7 +204,10 @@ def page_v2_status(
 
 
 @router.get(
-    "/api/reviews/papers/{document_id}/points", response_model=dict, dependencies=ON
+    "/api/reviews/papers/{document_id}/points",
+    response_model=PointsListingOut,
+    dependencies=ON,
+    responses={**schemas.ERRORS_404},
 )
 def points(
     document_id: str,
@@ -153,8 +221,9 @@ def points(
 
 @router.post(
     "/api/reviews/papers/{document_id}/points/decision",
-    response_model=dict,
+    response_model=PointsListingOut,
     dependencies=ON,
+    responses={**schemas.ERRORS_404},
 )
 def decide_point(
     document_id: str,
@@ -172,8 +241,9 @@ def decide_point(
 
 @router.post(
     "/api/reviews/papers/{document_id}/points/decisions",
-    response_model=dict,
+    response_model=PointsListingOut,
     dependencies=ON,
+    responses={**schemas.ERRORS_404},
 )
 def keep_points(
     document_id: str,
@@ -193,12 +263,16 @@ def keep_points(
             document_id,
             DecisionRequest(point_id=pid, state="keep", reason="Kept in bulk"),
             actor,
+            bulk=True,
         )
     return svc.assemble(document_id, scope)
 
 
 @router.post(
-    "/api/reviews/papers/{document_id}/points/add", response_model=dict, dependencies=ON
+    "/api/reviews/papers/{document_id}/points/add",
+    response_model=PointsListingOut,
+    dependencies=ON,
+    responses={**schemas.ERRORS_404},
 )
 def add_point(
     document_id: str,

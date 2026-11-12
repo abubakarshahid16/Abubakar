@@ -29,16 +29,60 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
+def nothing_decided_sentence(undecided: int, proven_fails: int) -> str:
+    """THE one sentence for a review with nothing decided yet (the owner may change its words: it changes here only). It names any
+    code-proven Fail on a mandatory rule that exists, so a proven failure is never hidden behind a count."""
+    base = f"Nothing is decided yet: {_plural(undecided, 'point', 'points')} still to decide"
+    if proven_fails:
+        base += f"; {_plural(proven_fails, 'is a code-proven Fail', 'are code-proven Fails')} on {'a mandatory rule' if proven_fails == 1 else 'mandatory rules'}"
+    return base + "."
+
+
+def removed_fail_sentence(points: list[dict]) -> str:
+    """A removed code-proven Fail on a mandatory rule is said, with who removed it and why: the code never drops silently."""
+    gone = [
+        p
+        for p in points
+        if (p.get("decision") or {}).get("state") == "remove"
+        and p["rank"] == 1
+        and p.get("shall", True)
+    ]
+    if not gone:
+        return ""
+    d = gone[0]["decision"]
+    who = d.get("by") or "an engineer"
+    why = f": {d['reason']}" if d.get("reason") else ""
+    if len(gone) == 1:
+        return f"1 code-proven Fail removed by {who}{why}."
+    return f"{len(gone)} code-proven Fails removed (the first by {who}{why})."
+
+
 def propose(
-    points: list[dict], *, unread_pages: int | None = None, resubmit_at: int = 0
+    points: list[dict],
+    *,
+    unread_pages: int | None = None,
+    resubmit_at: int = 0,
+    reviews_ran: bool = False,
 ) -> dict:
     """{code, reason, line, so_far, undecided, rule, proposed_by}. `points`: the list's points with their `decision` ({state}). A point
     of source "added" is kept by definition. `unread_pages`: pages not read (None: the review holds no page record: said, never 0).
-    `resubmit_at`: the setting N (0 = off)."""
+    `resubmit_at`: the setting N (0 = off). `reviews_ran`: a review of this paper really ran (an empty list proposes Approved only then)."""
     if unread_pages:
         return _out(
             comparison.CODE_MANUAL,
             f"{_plural(unread_pages, 'page was', 'pages were')} not read.",
+            0,
+        )
+    if not points:
+        if reviews_ran:
+            return _out(
+                comparison.CODE_APPROVED,
+                "The review ran and found no points to decide.",
+                0,
+            )
+        return _out(
+            None,
+            "No review has run on this paper, so there are no points to decide.",
             0,
         )
     undecided = sum(
@@ -54,11 +98,8 @@ def propose(
     ]
     decided = len(points) - undecided
     if undecided and not decided:
-        return _out(
-            None,
-            f"Nothing is decided yet: {_plural(undecided, 'point', 'points')} still to decide.",
-            undecided,
-        )
+        proven = sum(1 for p in points if p["rank"] == 1 and p.get("shall", True))
+        return _out(None, nothing_decided_sentence(undecided, proven), undecided)
     proven = [p for p in kept if p["rank"] == 1 and p.get("shall", True)]
     ai_not_met = [p for p in kept if p["rank"] in (2, 3) and p.get("shall", True)]
     comments = [p for p in kept if p["rank"] <= 4 or p.get("source") == "added"]
@@ -75,7 +116,8 @@ def propose(
         why = f"{_plural(len(comments), 'kept comment', 'kept comments')}; none is proven by code to fail a 'shall' rule."
     else:
         code, why = comparison.CODE_APPROVED, "No comment is kept."
-    return _out(code, why, undecided)
+    gone = removed_fail_sentence(points)
+    return _out(code, f"{why} {gone}".strip(), undecided)
 
 
 def _out(code: str | None, reason: str, undecided: int) -> dict:

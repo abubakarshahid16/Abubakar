@@ -565,6 +565,16 @@ integer setting `REVIEW_CODE_RESUBMIT_AT_KEPT_MANDATORY_NOT_MET` (default 0 = of
 rules; with points undecided the line reads "So far: <code>, N points still to decide"; Manual Review Required is only for unread pages.
 Rule-check points show a passage only when code finds it in the stored text of the cited page.
 
+Review R48 of the points backend (12 Nov): with the switch OFF the older finding-decision route, the sheets' apply and every new route are
+exactly as before (the page's routes answer 404 `feature_off`); with it ON the older route still keeps its own reason rules and words
+(`review_point_sync.record_rule_decision(old_door=True)`). The sign gate FAILS CLOSED: if the points cannot be read (a missing table, a locked
+database) signing is refused ("the points of this review could not be read"), and the AI open-points acknowledgement is treated as given only
+when the list was really built. "Keep all" is stored as a bulk keep (no rule_trust spot check). A rule-check point is "shall" only when its rule's
+stored type is not a recommendation; an unread strength is never mandatory. A removed code-proven Fail is said in the reason line (who and why)
+and its reason is on the audit event. An empty list proposes no code unless a review ran and found nothing. One sentence
+(`review_code_proposal.nothing_decided_sentence`) says "nothing decided yet" and names any code-proven Fail on a mandatory rule.
+
+
 
 ## 13. The redesigned review page: the screen (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
 

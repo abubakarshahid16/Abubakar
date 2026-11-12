@@ -43,7 +43,8 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    conn = conn if conn is not None else connect()
     conn.execute(
         """CREATE TABLE IF NOT EXISTS review_point_decision (
             id TEXT PRIMARY KEY,
@@ -132,7 +133,12 @@ def insert_row(
         " VALUES (:id, :paper_document_id, :point_id, :state, :text, :original, :reason, :decided_by, :decided_at)",
         row,
     )
-    _audit(conn, AUDIT, actor, paper_id, {"point": point_id, "state": state})
+    detail = {
+        "point": point_id,
+        "state": state,
+        **({"reason": reason} if state == REMOVE else {}),
+    }  # a removal's reason is on the audit
+    _audit(conn, AUDIT, actor, paper_id, detail)
     return row
 
 
