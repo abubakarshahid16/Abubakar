@@ -112,7 +112,7 @@ def available_models() -> dict:
     models = [
         {"id": CLAUDE, "label": "Claude", "model": settings.claude_reasoning_model,
          "available": ok,
-         "reason": None if ok else _PICKER_WORDS.get(code, "Claude is not available on this computer.")},
+         "reason": None if ok else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
         {"id": LOCAL, "label": "Local model", "model": settings.answer_model,
          "available": True, "reason": None},
     ]
