@@ -30,6 +30,14 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 NOTE = "skipped: local engine not loaded in a Claude-lane run"
+
+
+def is_bar_note(reason: object) -> bool:
+    """True when a recorded reason is the bar's own note. The FALLBACK for a record stored before the writer marked its pages
+    `skipped_on_purpose` (`datasheet_ai.read_pages`): the one place the text is matched, with a test that pins `NOTE`."""
+    return NOTE in str(reason or "")
+
+
 #: The run's `outcome_json` key.
 OUTCOME_KEY = "ai_steps_skipped"
 #: What the CRS and the review notes print for a skipped step.

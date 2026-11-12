@@ -379,6 +379,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `vessel_kit` | #1480 preparation (parked kit, milestone 58): box list and DRAFT vessel cards from held standards (SAES-D-001), read only behind `vessel_kit_draft_enabled` (off by default); every row held, never decide |
 | `exchanger_kit` | #1481 preparation (parked kit, milestone 58): box list and DRAFT heat exchanger cards from the held standard SAES-E-004, read only behind `exchanger_kit_draft_enabled` (off by default); every row held, never decide |
 | `nothing_read` | #1495: a review that read no value and no page text ends failed "nothing read" (switch off by default) |
+| `page_reading` | The reading record of a run, moved unchanged out of `page_ledger`: what the AI page reader did not do (a step skipped on purpose is read from the page's own text, not unread; a thin page is not fully read), the run's one unread-pages definition (sign gate, Pass hold, page lines) |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
 | `page_not_read` | Why a page has no reading in plain words, and the CRS note that names it (#1473) |
 | `pairing_head` | A field is a clause's field only when the label stands in the subject's head, not in a complement (audit C5) |
