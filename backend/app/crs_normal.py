@@ -154,7 +154,8 @@ def decorate(view: dict, meta: dict) -> dict:
     view["title"] = "\n".join(
         p for p in (view["title"], *crs_layout.engine_lines(meta.get("header"))) if p
     )
-    kind_words.name_the_paper(view, meta)  # K2: the paper's decided noun, internal copy of a non-datasheet only
+    # K2: the paper's decided noun, internal copy of a non-datasheet only
+    kind_words.name_the_paper(view, meta)
     return view
 
 

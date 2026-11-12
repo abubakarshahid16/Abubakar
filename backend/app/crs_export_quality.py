@@ -286,10 +286,9 @@ def split_comment(text: str, limit: int = COMMENT_LIMIT) -> tuple[str, str]:
     cut = 0
     for marker, keep in (("\n", 0), (". ", 1), (" ", 0)):
         at = text.rfind(marker, 0, limit + 1)
-        while at > 0 and (
-            (marker == " " and _bad_space(text, at))
-            or (marker == ". " and _bad_stop(text, at))
-        ):
+        while at > 0 and marker == " " and _bad_space(text, at):
+            at = text.rfind(marker, 0, at)
+        while at > 0 and marker == ". " and _bad_stop(text, at):
             at = text.rfind(marker, 0, at)
         if at > 0:
             cut = at + keep
