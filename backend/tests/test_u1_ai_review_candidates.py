@@ -81,3 +81,81 @@ def test_the_taken_from_sentence_is_true_in_each_case(tmp_path, monkeypatch):
     assert fresh["block"]["candidates"]["source"] == it.SOURCE_BOOKS
     assert existing["block"]["candidates"]["source"] == it.SOURCE_BOTH
     assert agent_review_jobs  # imported for the monkeypatched _plan
+
+
+# ---- the page record: a run that reads no page never replaces a good reading (owner, 12 Nov) -------------------------
+
+
+def _page_world(tmp_path, monkeypatch, *, ledger_pages):
+    import json
+
+    from app import comparison, db, submittal_review
+
+    s.setup_world(tmp_path, monkeypatch)
+    submittal_review.ensure_schema()
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at, completed_at, outcome_json)"
+            " VALUES ('old-normal', ?, 'completed', '2026-11-01', '2026-11-01', '2026-11-01T10:00:00Z', ?)",
+            (
+                s.PAPER,
+                json.dumps(
+                    {"page_coverage": {"pages_total": 5, "pages_read": [1, 2, 3, 4, 5]}}
+                ),
+            ),
+        )
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at)"
+            " VALUES ('ai-run', ?, 'running', '2026-11-11', '2026-11-11')",
+            (s.PAPER,),
+        )
+    monkeypatch.setattr(
+        comparison,
+        "pages_read_with_reading",
+        lambda _d: {"pages_total": ledger_pages or None},
+    )
+    return conn
+
+
+def _outcome(conn, run="ai-run"):
+    import json
+
+    row = conn.execute(
+        "SELECT outcome_json FROM review_runs WHERE id = ?", (run,)
+    ).fetchone()
+    return json.loads(row["outcome_json"])
+
+
+def test_a_stored_reading_with_pages_survives_an_ai_review_that_reads_none(
+    tmp_path, monkeypatch
+):
+    conn = _page_world(tmp_path, monkeypatch, ledger_pages=0)
+    agent_review_jobs._done(
+        conn, "job-x", "ai-run", {"partial": False, "stop_reason": None, "counts": {}}
+    )
+    cov = _outcome(conn)["page_coverage"]
+    assert cov["pages_total"] == 5
+    assert (
+        cov["carried_from_run"] == "old-normal"
+        and cov["carried_from_at"] == "2026-11-01T10:00:00Z"
+    )
+
+
+def test_the_papers_current_ledger_is_used_when_it_holds_pages(tmp_path, monkeypatch):
+    conn = _page_world(tmp_path, monkeypatch, ledger_pages=7)
+    agent_review_jobs._done(
+        conn, "job-x", "ai-run", {"partial": False, "stop_reason": None, "counts": {}}
+    )
+    cov = _outcome(conn)["page_coverage"]
+    assert cov["pages_total"] == 7 and "carried_from_run" not in cov
+
+
+def test_with_no_reading_anywhere_no_page_record_is_invented(tmp_path, monkeypatch):
+    conn = _page_world(tmp_path, monkeypatch, ledger_pages=0)
+    with conn:
+        conn.execute("DELETE FROM review_runs WHERE id = 'old-normal'")
+    agent_review_jobs._done(
+        conn, "job-x", "ai-run", {"partial": False, "stop_reason": None, "counts": {}}
+    )
+    assert "page_coverage" not in _outcome(conn)
