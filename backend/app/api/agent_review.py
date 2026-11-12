@@ -35,6 +35,8 @@ from .. import (
     agent_review_kind,
     agent_review_schema,
     agent_review_text,
+    crs_ai_workbook,
+    agent_review_wording,
     errors,
     review_jobs,
     schemas,
@@ -134,7 +136,7 @@ def start_agent_run(
     ):
         detail = errors.safe_error(
             errors.INVALID_PARAMETER,
-            agent_review_gate.KIND_NOT_ENABLED_MESSAGE,
+            agent_review_gate.refusal_reason(),
             document_id=document_id,
         )
         raise HTTPException(
@@ -239,6 +241,13 @@ def agent_summary(
             (review_run_id,),
         )
     }
+    pairs = [
+        (r["verdict_class"], r["word"])
+        for r in conn.execute(
+            "SELECT verdict_class, word FROM agent_review_line WHERE run_id = ?",
+            (review_run_id,),
+        )
+    ]
     books = [
         r["name"]
         for r in conn.execute(
@@ -262,6 +271,7 @@ def agent_summary(
         two_reader_step=_two_reader_step(run),
         two_reader_absence_step=_two_reader_step(run, "two_reader_absence_step"),
         two_reader_other_step=_two_reader_step(run, "two_reader_other_step"),
+        decisions=contract.AgentDecisions(**agent_review_wording.decisions_of(pairs)),
         paper_text=_paper_text(run),
         page_reread_stopped=_equipment(run).get("page_reread"),
         answers_reused=_counts_of(run).get("answers_reused"),
@@ -296,8 +306,8 @@ def agent_lines(
     rows = (
         connect()
         .execute(
-            "SELECT rowid AS rid, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier, part, text_source"
-            " FROM agent_review_line WHERE run_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+            "SELECT rowid AS rid, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier, part, text_source,"
+            " line_json FROM agent_review_line WHERE run_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
             (review_run_id, cursor, limit + 1),
         )
         .fetchall()
@@ -315,6 +325,9 @@ def _read_line(row: dict) -> contract.AgentLine:
     (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
     still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
     row = {k: v for k, v in row.items() if k != "rid"}
+    row["reason"] = crs_ai_workbook.screen_text(row.pop("line_json", None)) or row.get(
+        "reason"
+    )  # the file's three lines
     word = contract.legal_word(str(row.get("verdict_class")), str(row.get("word")))
     if word is not None:
         row["word"] = word

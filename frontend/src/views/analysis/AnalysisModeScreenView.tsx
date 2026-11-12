@@ -125,6 +125,8 @@ export function AnalysisModeScreen() {
   const [pendingQuery, setPendingQuery] = useState<PublicMarketQuery | null>(null);
   const [queryOutcome, setQueryOutcome] = useState<string | null>(null);
   const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
+  // How many findings exist, when only the first page is shown (the panel says so).
+  const [reviewFindingsTotal, setReviewFindingsTotal] = useState<number | null>(null);
   const [reviewTemplates, setReviewTemplates] = useState<ReviewTemplate[]>([]);
 
   // A ticking counter rather than a bare spinner, exactly as ChatView does it:
@@ -189,8 +191,10 @@ export function AnalysisModeScreen() {
   useEffect(() => {
     if (gapsSlot.s !== "ready") return;
     let cancelled = false;
-    void reviewsApi.list().then((result) => {
-      if (!cancelled && result.ok) setReviewFindings(result.data.findings);
+    void reviewsApi.listPage(undefined, 0, 200).then((result) => {
+      if (cancelled || !result.ok) return;
+      setReviewFindings(result.data.findings);
+      setReviewFindingsTotal(typeof result.data.total === "number" ? result.data.total : null);
     });
     void reviewsApi.templates().then((result) => {
       if (!cancelled && result.ok) setReviewTemplates(result.data.templates);
@@ -302,6 +306,7 @@ export function AnalysisModeScreen() {
             createReviewFinding,
             reviewTemplates,
             reviewFindings,
+            reviewFindingsTotal,
             updateReviewFinding,
             queryOutcome,
             previewQuery,

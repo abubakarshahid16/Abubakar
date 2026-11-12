@@ -116,3 +116,14 @@ describe("AgentSummary: two readers agree", () => {
     expect(screen.queryByTestId("two-reader-step")).toBeNull();
   });
 });
+
+describe("AgentSummary: decisions", () => {
+  it("states the one count of decisions: code Pass/Fail plus two-reader verdicts", () => {
+    render(<AgentSummary summary={summary({ decisions: { code: 2, two_reader: 5, total: 7 } })} />);
+    expect(screen.getByTestId("agent-decisions")).toHaveTextContent("Decisions: 7 = code Pass/Fail 2 + two-reader verdicts 5");
+  });
+  it("shows nothing for a run stored before it", () => {
+    render(<AgentSummary summary={summary()} />);
+    expect(screen.queryByTestId("agent-decisions")).toBeNull();
+  });
+});

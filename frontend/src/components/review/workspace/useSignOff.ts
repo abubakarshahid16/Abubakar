@@ -56,7 +56,7 @@ export async function issueConfirmed(runId: string): Promise<IssueOutcome> {
   return issue();
 }
 
-export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy }: UseSignOffArgs): WorkspaceSignOff {
+export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy, aiReviewRead }: UseSignOffArgs): WorkspaceSignOff {
   const [status, setStatus] = useState<Status>({ busy: false, message: null, error: null });
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -84,7 +84,9 @@ export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCop
     unopenedNeedsYou: numbers ? numbers.unopenedNeedsYou : 0,
     // Not loaded yet is never "nothing left".
     signLeft: numbers ? numbers.signLeft : ["what is left could not be checked"],
-  }), [decisions.unsaved.length, draftWaiting, numbers]);
+    // U2: the tick for the AI review's open points, read when the copy is issued.
+    aiReviewRead: aiReviewRead?.() === true,
+  }), [decisions.unsaved.length, draftWaiting, numbers, aiReviewRead]);
 
   /** Opens the confirm step; issues nothing. */
   const sign = useCallback(async () => {

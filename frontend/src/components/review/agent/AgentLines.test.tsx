@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentLine } from "../../../types/api";
 import { AgentLines } from "./AgentLines";
-import { CLASS_ORDER, DATA_ERROR_NOTE, lineView } from "./agentWords";
+import { CLASS_ORDER, DATA_ERROR_NOTE, displayWord, lineView } from "./agentWords";
 
 const lines = vi.fn();
 vi.mock("../../../api/agentReview", () => ({ agentReview: { lines: (...a: unknown[]) => lines(...a) } }));
@@ -23,6 +23,17 @@ function line(over: Partial<AgentLine>): AgentLine {
   };
 }
 const ok = (ls: AgentLine[], next: string | null = null) => ({ ok: true, data: { lines: ls, next } });
+
+describe("AgentLines three-line text (order 13)", () => {
+  it("shows the three lines of the file's comment, one per line", async () => {
+    const three = "Rule requires X.\nThe paper states Y.\nContractor to revise Z.";
+    lines.mockResolvedValue(ok([line({ item_id: "T1", reason: three })]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    const cell = await screen.findByTestId("reason-T1");
+    expect(cell.textContent).toContain("Rule requires X.\nThe paper states Y.\nContractor to revise Z.");
+    expect(cell.className).toContain("whitespace-pre-line");
+  });
+});
 
 describe("AgentLines", () => {
   it("renders every class and word exactly, each class in its own block", async () => {
@@ -46,7 +57,7 @@ describe("AgentLines", () => {
     };
     for (const [id, [klass, word]] of Object.entries(expected)) {
       const block = screen.getByTestId(`block-${klass}`);
-      expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${word}$`));
+      expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${displayWord(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     }
     expect(CLASS_ORDER).toHaveLength(10);
     expect(screen.getByRole("table", { name: "AI opinion, rule not yet approved" })).toBeInTheDocument();
@@ -99,7 +110,7 @@ describe("AgentLines", () => {
     lines.mockResolvedValueOnce(ok([line({ item_id: "T1" })]));
     const onOpen = vi.fn();
     render(<AgentLines runId="r1" onOpenTrace={onOpen} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Open the trace of line T1" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Open the trace of Point/ }));
     expect(onOpen).toHaveBeenCalledWith("T1");
   });
 });
@@ -225,5 +236,14 @@ describe("AgentLines: general review", () => {
     await screen.findByTestId("word-B1");
     expect(screen.queryByText("AI thinks: met")).toBeNull();
     expect(screen.getByTestId("word-B1")).toHaveTextContent(DATA_ERROR_NOTE);
+  });
+});
+
+describe("the owner's words for a two-reader verdict", () => {
+  it("shows Met / Not met (AI, two readers agree, quotes verified) and every other word as stored", () => {
+    expect(displayWord("AI verdict: met")).toBe("Met (AI, two readers agree, quotes verified)");
+    expect(displayWord("AI verdict: not met")).toBe("Not met (AI, two readers agree, quotes verified)");
+    expect(displayWord("AI verdict: not stated")).toBe("AI verdict: not stated");
+    expect(displayWord("Pass")).toBe("Pass");
   });
 });

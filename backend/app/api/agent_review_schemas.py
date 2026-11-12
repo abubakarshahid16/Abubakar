@@ -245,6 +245,15 @@ class AgentPageRereadStop(BaseModel):
     not_reread: Count
 
 
+class AgentDecisions(BaseModel):
+    """Decisions of one run (owner, 12 Nov 2026): lines the code proved (class "Proven by code") plus two-reader verdicts (class "AI verdict,
+    two readers agree" with the word met or not met). "AI thinks", "not stated" and Queries are not decisions."""
+
+    code: Count = 0
+    two_reader: Count = 0
+    total: Count = 0
+
+
 class AgentRunSummary(BaseModel):
     """GET /api/reviews/runs/{id}/agent/summary. Counts are per class, over the
     lines of this run only; there is no percentage."""
@@ -282,6 +291,9 @@ class AgentRunSummary(BaseModel):
     two_reader_absence_step: AgentTwoReaderStep | None = None
     #: the same for the other-paper class ("Not checked on this paper"); null when that step was off.
     two_reader_other_step: AgentTwoReaderStep | None = None
+    #: the one count of decisions: code Pass/Fail plus two-reader verdicts (class "AI verdict, two readers agree", word met or not met).
+    #: A steadiness number of a run stored before this change keeps its old meaning ("AI thinks" counted as a decision then).
+    decisions: AgentDecisions | None = None
     #: the paper's stored-text state; null on a run stored before it was kept (shown as nothing).
     paper_text: AgentPaperText | None = None
 

@@ -238,6 +238,9 @@ def test_every_engine_setting_given_to_the_lane_gate_is_in_the_one_list():
     names.discard(
         "agent_review_engine"
     )  # the AI reviewer's own job, decided separately per job
+    names.discard(
+        "chat_model_engine"
+    )  # the chat's own engine: a chat request is not a review step and never runs in a review job
     assert {"vision_reader_engine", "match_engine"} <= names, (
         "the scan misses known steps: vacuous"
     )

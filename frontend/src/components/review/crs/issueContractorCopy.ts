@@ -32,6 +32,8 @@ export interface IssueChecks {
   unopenedNeedsYou: number;
   /** What the issue gate still wants (`signLeft`); empty when nothing. */
   signLeft: string[];
+  /** U2: the engineer said they read the AI review's open points; sent as `ai_review_read`. */
+  aiReviewRead?: boolean;
 }
 
 export const ISSUED_MESSAGE = "Signed and exported. The issued copy was downloaded and kept on record.";
@@ -69,6 +71,7 @@ export type IssueOutcome = { ok: true } | { ok: false; message: string };
 export async function issueContractorCopy(runId: string, checks: IssueChecks): Promise<IssueOutcome> {
   const waits = issueWaitsFor(checks);
   if (waits) return { ok: false, message: waits };
-  const problem = await downloadCrs(runId, "issue");
+  const extra = checks.aiReviewRead ? [{ aiReviewRead: true }] : [];
+  const problem = await downloadCrs(runId, "issue", ...extra);
   return problem ? { ok: false, message: problem } : { ok: true };
 }

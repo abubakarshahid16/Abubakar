@@ -55,6 +55,11 @@ from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
 from . import crs_ai_header as crs_header
+from .agent_review_page_record import (  # noqa: F401 - moved unchanged, re-exported
+    _requeue_switched_off,
+    _with_page_record,
+    page_record,
+)
 from .agent_review_pair import (  # noqa: F401 - re-exported
     IllegalLine,
     contract_class_and_word,
@@ -128,7 +133,7 @@ def enqueue(
     if submittal_document_id not in allowed_document_ids:
         raise ValueError("no submittal with that id")
     conn = connect()
-    run_id, job_id, now = str(uuid.uuid4()), review_engine.new_job_id(in_transaction is not None), _now()
+    run_id, job_id, now = str(uuid.uuid4()), review_engine.new_job_id(in_transaction is not None), _now()  # fmt: skip
     with job_queue.immediate(conn):
         active = conn.execute(
             f"SELECT id FROM review_runs WHERE submittal_document_id = ?"
@@ -152,9 +157,9 @@ def enqueue(
         )  # fmt: skip
         if project_document_ids is not None:
             general_job.record_request(conn, run_id, project_document_ids)
-        reuse_mod.record_fresh(conn, run_id, fresh)  # point E: this run ignores stored answers (switch off: nothing)
+        reuse_mod.record_fresh(conn, run_id, fresh)  # point E: this run ignores stored answers (switch off: nothing)  # fmt: skip
         if in_transaction is not None:
-            in_transaction(conn, run_id)  # the engine choice, in the same transaction as the job
+            in_transaction(conn, run_id)  # the engine choice, in the same transaction as the job  # fmt: skip
         job_queue.audit(
             conn,
             "job.queued",
@@ -349,8 +354,8 @@ def preflight(
     shape = agent_review_schema.shape_problem(conn)  # before the first Claude call
     if shape:
         return shape
-    if not (kind.known and agent_review_gate.kind_enabled(kind.kind)):
-        return agent_review_gate.KIND_NOT_ENABLED_MESSAGE
+    if not (kind.known and agent_review_gate.rules_kind_enabled(kind.kind)):
+        return agent_review_gate.refusal_reason()
     if not conn.execute(
         "SELECT 1 FROM pages WHERE document_id = ? AND TRIM(text) <> '' LIMIT 1",
         (submittal,),
@@ -392,8 +397,8 @@ def _plan(
     if not kind.known:
         why = "paper kind unknown: no rule was asked of this paper; an engineer names the paper kind and the review runs again"
         return _nothing_asked(conn, submittal, why, f"paper_kind_unknown: {why}")
-    if not agent_review_gate.kind_enabled(kind.kind):
-        why = f"{agent_review_gate.KIND_NOT_ENABLED_MESSAGE}: no rule was asked of this {kind.kind.replace('_', ' ')}"
+    if not agent_review_gate.rules_kind_enabled(kind.kind):
+        why = f"{agent_review_gate.refusal_reason()}: no rule was asked of this {kind.kind.replace('_', ' ')}"
         return _nothing_asked(
             conn, submittal, why, f"{agent_review_gate.KIND_NOT_ENABLED}: {why}"
         )
@@ -575,7 +580,7 @@ def _finish(
     stop = _stop_text(runner, plan)
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
-            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
+            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None, "paper_kind": kind.kind,
             "usd": usd, "header": {**_header_facts(submittal, kind.equipment_type), **crs_header.engine_facts_of(run_id, submittal, usd)}, **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
@@ -678,44 +683,6 @@ def _cancelled(conn, job_id: str, run_id: str) -> str:
     return job_queue.CANCELLED
 
 
-def page_record(conn, run_id: str) -> dict | None:
-    """The page reading to keep on an AI run's row (#1780). The AI review reads no page itself, so its row used to carry
-    none, and a paper whose normal reviews held a good reading showed "no page record". Now: the paper's current page
-    ledger when it holds pages; else the newest earlier run's stored reading that has pages, marked with the run and date it
-    came from ("carried_from_run", "carried_from_at"); else None (the screen says so plainly). A skipped, failed or empty
-    reading never replaces a stored one that has pages."""
-    from . import comparison
-
-    row = conn.execute(
-        "SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)
-    ).fetchone()
-    if row is None:
-        return None
-    try:
-        now = comparison.pages_read_with_reading(row["submittal_document_id"])
-    except Exception:  # noqa: BLE001 - a missing record must not fail the run
-        now = None
-    if isinstance(now, dict) and now.get("pages_total"):
-        return now
-    for old in conn.execute(
-        "SELECT id, outcome_json, COALESCE(completed_at, updated_at) AS at FROM review_runs"
-        " WHERE submittal_document_id = ? AND id <> ? AND outcome_json IS NOT NULL ORDER BY created_at DESC, id DESC",
-        (row["submittal_document_id"], run_id),
-    ):
-        try:
-            cov = (json.loads(old["outcome_json"]) or {}).get("page_coverage")
-        except (ValueError, TypeError):
-            continue
-        if isinstance(cov, dict) and cov.get("pages_total"):
-            return {**cov, "carried_from_run": old["id"], "carried_from_at": old["at"]}
-    return None
-
-
-def _with_page_record(conn, run_id: str, outcome: dict) -> dict:
-    cov = page_record(conn, run_id)
-    return {**outcome, "page_coverage": cov} if cov else outcome
-
-
 def _done(conn, job_id: str, run_id: str, result: dict) -> str:
     outcome = {"agent_review": True, "partial": result["partial"], "stop_reason": result["stop_reason"],
                "counts": {k: v for k, v in result["counts"].items() if isinstance(v, int)}}  # fmt: skip
@@ -734,18 +701,33 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
     return "done"
 
 
-def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
-    """The switch went off while the job waited: nothing is sent, the job goes back to the queue."""
-    with conn:
-        conn.execute(
-            "UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?",
-            (_now(), job_id),
-        )
-        conn.execute(
-            "UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-            (_now(), run_id),
-        )
-    return "queued"
+def _rules_then_general(
+    conn, job_id, run_id, submittal, scope, kind, started, text, heartbeat
+) -> dict:
+    """A procedure or contract with `agent_review_general_rules_enabled` on (K1b): FIRST the held rules of the paper's kind through the
+    datasheet review's path (items, first reader, quote check, second reader; the checklist is left to the general review, so no
+    item is asked twice), THEN the general parts. The rule review's CRS stays `crs-internal.xlsx` / `crs-contractor.xlsx`; the
+    general review's one-layout workbook is `general/crs-internal.xlsx`. One run id, one cap (`claude_spend`: USD 15 a run). The
+    general parts are skipped only when the rule part stopped AFTER spending (a cap): the run says so. A refusal before any call (lane closed, approval missing, preflight) still lets the general part run and say why it did not."""
+    plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
+    plan["items"] = [
+        i for i in plan["items"] if i.get("source") != "skill"
+    ]  # the checklist is the general review's part 2
+    agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)
+    _progress(conn, job_id, 2, heartbeat)
+    result = _execute(run_id, submittal, kind, plan, started)
+    agent_review_text.record(conn, run_id, text)
+    if not (
+        result["stop_reason"] and (result["usd"] or 0) > 0
+    ):  # only a stop AFTER spending (a cap) skips the general parts
+        general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
+                                  name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
+                                  combined=True)  # fmt: skip
+        result = general_job.merge_results(result, general)
+    else:
+        general_job.note_skipped(run_id, result["stop_reason"])
+    _progress(conn, job_id, 3, heartbeat)
+    return result
 
 
 @review_jobs._review_scope  # the bar on the local engine; ledger lines carry the run's id; spend in the run's record
@@ -778,6 +760,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         _write_run_start(run_id, submittal, kind, started)
         general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
         stops = text.stops_run(general)
+        if general and not stops and agent_review_gate.rules_kind_enabled(kind.kind):
+            result = _rules_then_general(
+                conn, job_id, run_id, submittal, scope, kind, started, text, heartbeat
+            )
+            return _done(conn, job_id, run_id, result)
         if general and not stops:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),

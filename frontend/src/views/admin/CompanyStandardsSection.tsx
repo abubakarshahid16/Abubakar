@@ -14,14 +14,11 @@
  * route (`POST /api/admin/company-standards/{id}/confirm`). The list is read
  * again after every confirm, so the screen shows the server's answer.
  */
+import { formatWhen } from "../../format/when";
 import { useCallback, useEffect, useState } from "react";
 
 import type { AdminClient, HeldCompanyStandard, LoadFailure } from "../../types/admin";
 
-/** "2026-10-18T00:00:00" -> "2026-10-18"; "" for nothing. */
-function day(value: string | null | undefined): string {
-  return value ? value.slice(0, 10) : "";
-}
 
 export function CompanyStandardsSection({ client }: { client: AdminClient }) {
   const [rows, setRows] = useState<HeldCompanyStandard[] | null>(null);
@@ -74,7 +71,8 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
 
   if (!client.heldCompanyStandards) return null;
 
-  const cutoff = day(confirmFrom);
+  // A boundary is a calendar day, not a moment: say the day only.
+  const cutoff = formatWhen(confirmFrom?.slice(0, 10));
   return (
     <section aria-labelledby="admin-held-standards-heading" className="space-y-2" data-testid="admin-held-standards">
       <h2 id="admin-held-standards-heading" className="text-sm font-semibold text-slateish-200">
@@ -110,7 +108,7 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
               {rows.map((row) => (
                 <li key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm" data-testid={`admin-held-${row.id}`}>
                   <span className="font-medium text-slateish-100">{row.filename ?? row.id}</span>
-                  {row.uploaded_at && <span className="text-xs text-slateish-400">uploaded {day(row.uploaded_at)}</span>}
+                  {row.uploaded_at && <span className="text-xs text-slateish-400">uploaded {formatWhen(row.uploaded_at)}</span>}
                   <button type="button" disabled={busy !== null || !client.confirmCompanyStandard}
                     onClick={() => void confirm(row)}
                     className="ml-auto rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-100 disabled:opacity-50">

@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from . import agent_claude
+from . import agent_claude, kind_review_table
 from . import agent_general_prompts as prompts
 from . import agent_general_review as core
 from . import agent_review_verdict as verdict
@@ -70,7 +70,7 @@ class GeneralRun(FindingsMixin):
         unread: Iterable[int] = (),
         lead_model: str = LEAD_MODEL,
         second_model: str = SECOND_MODEL,
-        window_tokens: int = WINDOW_TOKENS,
+        window_tokens: int | None = None,
         concurrency: int = 3,
     ) -> None:
         self.paper, self.docs, self.kind = paper, docs, kind
@@ -85,11 +85,10 @@ class GeneralRun(FindingsMixin):
             list(project),
         )
         self.run_dir, self.runner = Path(run_dir), runner
-        self.lead_model, self.second_model, self.window_tokens = (
-            lead_model,
-            second_model,
-            window_tokens,
-        )
+        table_tokens, self.overlap_pages = kind_review_table.window_settings(kind)
+        self.lead_model, self.second_model = lead_model, second_model
+        # the page split comes from the ONE table (`kind_review_table`); a caller (a test) may force a window size
+        self.window_tokens = window_tokens or table_tokens or WINDOW_TOKENS
         self.concurrency = max(1, int(concurrency))
         self.pages = docs.pages(paper)
         self.unread = sorted({int(n) for n in unread})
@@ -103,6 +102,10 @@ class GeneralRun(FindingsMixin):
         self.stopped = ""
         self._lock = threading.Lock()
         (self.run_dir / "steps").mkdir(parents=True, exist_ok=True)
+
+    def windows(self) -> list[list[int]]:
+        """The deterministic page split of the paper (`kind_review_table.page_rule()`): kind's window size and overlap."""
+        return core.window_pages(self.pages, self.window_tokens, self.overlap_pages)
 
     # ---- trace and stored replies
     def trace(self, rec: Mapping) -> None:
@@ -263,7 +266,7 @@ class GeneralRun(FindingsMixin):
     def _p2_collect(self) -> tuple[dict[str, dict], dict[str, str]]:
         found: dict[str, dict] = {}
         failed: dict[str, str] = {}
-        windows = core.window_pages(self.pages, self.window_tokens)
+        windows = self.windows()
         batches = [
             self.items[i : i + MAX_BATCH_P2]
             for i in range(0, len(self.items), MAX_BATCH_P2)
@@ -321,6 +324,7 @@ class GeneralRun(FindingsMixin):
             "document": self.paper,
             "item_id": item["item_id"],
             "checklist_item": item["item_id"],
+            "topic": topic,
         }
         quote = {"quote_a": {"document": self.paper, "page": verdict._page_no(a.get("paper_page")), "text": str(a.get("paper_quote") or "").strip()},
                  "quotes_verified_by_code": True} if f["verified"] else {}  # fmt: skip

@@ -22,6 +22,34 @@ SOURCE_GUESS = "guessed by code (until an engineer confirms it)"
 SOURCE_NONE = "no cue found: unknown"
 
 
+#: How a kind was decided, in plain words for the screen: the method code of `paper_kind` -> words. Words only, never a quote.
+DECIDED_BY = {
+    "engineer_confirmed": "an engineer confirmed the kind",
+    "number_type_code": "the type code in the document number",
+    "title_cue": "a heading on the cover or title page",
+    "cover_contract_words": "the opening words of a contract on the first page",
+    "title_equipment": "an equipment name in the title (a guess)",
+    "blank_form": "a form with labels and no values (a guess)",
+    "document_role": "the stored document role (a guess)",
+    "cues_conflict": "two different headings on the cover (a data-sheet heading and a calculation or contract heading): not sure, choose (a guess)",
+    "earlier_review": "the kind the earlier review of this paper used (a heading cue never changes it; an engineer may correct it)",
+    "no_cue": "no cue found on the cover or title page",
+    "no_pages": "the paper has no stored pages",
+}
+
+
+def decided_by(method: str | None, page: int | None = None, guess: bool = False) -> str:
+    """'decided by: <words>[, page N][ (a guess until an engineer confirms it)]' from the method code. Words and a page number only."""
+    words = DECIDED_BY.get(str(method or ""), "a cue the code could not name")
+    where = f", page {page}" if isinstance(page, int) and page >= 1 else ""
+    tail = (
+        " (a guess until an engineer confirms it)"
+        if guess and "guess" not in words
+        else ""
+    )
+    return f"decided by: {words}{where}{tail}"
+
+
 @dataclass(frozen=True)
 class PaperReading:
     kind: str  # "datasheet", "procedure", ... or "unknown"
@@ -31,6 +59,12 @@ class PaperReading:
     guess: bool
     equipment_type: str | None
     equipment_source: str | None
+    page: int | None = None
+    candidates: tuple[str, ...] = ()
+
+    @property
+    def decided_by(self) -> str:
+        return decided_by(self.method, self.page, self.guess)
 
     def as_dict(self) -> dict:
         """The kind as the item builder takes it: {'kind', 'known', 'method', 'guess'} (kind None when unknown)."""
@@ -45,6 +79,21 @@ class PaperReading:
     def item_kind(self) -> str | None:
         """The kind in the item builder's spelling ("test record"); None when unknown."""
         return self.kind.replace("_", " ") if self.known else None
+
+
+def _earlier_review_kind(conn, held: set[str], document_id: str) -> str | None:
+    """The paper kind of the paper's latest FINISHED AI review (a kind in the closed list), or None."""
+    if "agent_review_run" not in held:
+        return None
+    row = conn.execute(
+        "SELECT paper_kind FROM agent_review_run WHERE submittal_document_id = ? AND finished_at IS NOT NULL"
+        " AND paper_kind IS NOT NULL ORDER BY finished_at DESC LIMIT 1",
+        (document_id,),
+    ).fetchone()
+    from . import paper_kind as pk
+
+    kind = row[0] if row else None
+    return kind if kind in pk.PAPER_KINDS else None
 
 
 def read_kind(conn, document_id: str) -> dict:
@@ -82,6 +131,17 @@ def read_kind(conn, document_id: str) -> dict:
             (document_id,),
         ).fetchone()
         role = row["document_role"] if row else None
+    earlier = None if confirmed else _earlier_review_kind(conn, held, document_id)
+    if (
+        earlier is not None
+    ):  # (a) a paper that already has a finished review keeps that review's kind: a cue never changes it
+        return {
+            "kind": earlier,
+            "known": True,
+            "method": "earlier_review",
+            "guess": True,
+            "page": None,
+        }
     got = pk.decide_paper_kind(pages, document_role=role, confirmed_kind=confirmed)
     unknown = got.source_kind == "unknown" and got.method != "engineer_confirmed"
     return {
@@ -89,6 +149,8 @@ def read_kind(conn, document_id: str) -> dict:
         "known": not unknown,
         "method": got.method,
         "guess": bool(got.guess),
+        "page": got.page,
+        "candidates": list(got.candidates),
     }
 
 
@@ -130,4 +192,35 @@ def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:
         bool(got.get("guess")),
         equipment,
         equipment_source,
+        got.get("page"),
+        tuple(got.get("candidates") or ()),
     )
+
+
+def describe(document_id: str, allowed: frozenset[str]) -> dict:
+    """What the review page shows BEFORE a review starts (words, ids and counts only, no paper text): the kind the code decides,
+    how it decided it, whether that is a guess, which review that kind gets (from the one table, `kind_review_table`), the
+    checklist slot (an empty slot says so) and the kinds a person may choose to correct it. A correction is the existing
+    route `PUT /api/documents/{id}/kind` (an engineer confirms a kind); the next review reads the confirmed kind."""
+    from . import doc_router, kind_review_table
+
+    reading = decide(document_id, allowed)
+    key = reading.kind if reading.known else kind_review_table.UNKNOWN
+    row = kind_review_table.row(key)
+    return {
+        "document_id": document_id,
+        "kind": reading.kind,
+        "known": reading.known,
+        "source": reading.source,
+        "decided_by": reading.decided_by,
+        "guess": reading.guess,
+        "candidates": list(reading.candidates),
+        "not_sure_choose": reading.method == "cues_conflict",
+        "confirmed": reading.method == "engineer_confirmed",
+        "review": row["review"],
+        "rules_of_kind": list(row["rules_of_kind"]),
+        "checklist": row["checklist_slot"],
+        "equipment_type": reading.equipment_type,
+        "choices": doc_router.kinds(),
+        "correct_with": f"PUT /api/documents/{document_id}/kind",
+    }

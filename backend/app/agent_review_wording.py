@@ -373,6 +373,21 @@ def is_unapproved(line: Mapping) -> bool:
     return line.get("rule_tier") == RULE_NOT_APPROVED
 
 
+def decisions_of(pairs: Iterable[tuple[str, str]]) -> dict:
+    """THE one count of decisions (owner, 12 Nov 2026) from (class, word) pairs: "Proven by code" (Pass or Fail: the code compared a value or
+    proved an absence) plus "AI verdict, two readers agree" with the word met or not met. "Not stated" and every "AI thinks" are not decisions."""
+    code = two_reader_n = 0
+    for cls, word in pairs:
+        if cls == CLASS_PROVEN:
+            code += 1
+        elif cls == CLASS_TWO_READERS and word in (
+            two_reader.WORD_MET,
+            two_reader.WORD_NOT_MET,
+        ):
+            two_reader_n += 1
+    return {"code": code, "two_reader": two_reader_n, "total": code + two_reader_n}
+
+
 def counts(lines: Iterable[Mapping]) -> dict:
     """The classes counted apart: proven pass/fail, AI thinks met/not met (approved and not-yet-approved rules apart), query."""
     ls = [apply(ln) for ln in lines]
@@ -384,7 +399,11 @@ def counts(lines: Iterable[Mapping]) -> dict:
             if ln["verdict_label"] == label and ln["verdict_class"] == cls
         )
 
+    dec = decisions_of((ln["verdict_class"], ln["verdict_label"]) for ln in ls)
     return {
+        "decisions": dec["total"],
+        "decisions_code": dec["code"],
+        "decisions_two_reader": dec["two_reader"],
         "proven_pass": n(PASS, CLASS_PROVEN),
         "proven_fail": n(FAIL, CLASS_PROVEN),
         "ai_thinks_met": n(THINKS_MET, CLASS_OPINION),
@@ -429,6 +448,7 @@ __all__ = [
     "apply",
     "classify",
     "counts",
+    "decisions_of",
     "final_cap",
     "final_cap_all",
     "is_not_reviewed",

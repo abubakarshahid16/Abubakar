@@ -121,6 +121,13 @@ export interface LineView {
 /** What may be shown for one line. A "Pass"/"Fail" word on a class other
  *  than "Proven by code" is NOT shown; the line shows its class and a visible
  *  data-error note. An unknown class is a data error too. */
+/** The owner's words (12 Nov 2026) for the two stored words of the class "AI verdict, two readers agree"; every other word shows as stored. */
+export function displayWord(word: string): string {
+  if (word === "AI verdict: met") return "Met (AI, two readers agree, quotes verified)";
+  if (word === "AI verdict: not met") return "Not met (AI, two readers agree, quotes verified)";
+  return word;
+}
+
 export function lineView(line: { verdict_class: string; word: string }, mode: AgentMode = "rule review"): LineView {
   const klass = line.verdict_class;
   // A class the screen does not know: shown as "unknown class", never a word.

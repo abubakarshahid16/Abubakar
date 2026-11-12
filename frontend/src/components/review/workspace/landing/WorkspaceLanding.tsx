@@ -42,6 +42,7 @@ import { startRefusal } from "../newReview";
 import { watchRun } from "../reviewWatch";
 import { AllReviewsList } from "./AllReviewsList";
 import { LandingDocumentRow } from "./LandingDocumentRow";
+import { useAgentSwitch } from "../../agent/useAgentSwitch";
 import { StartReviewBar } from "./StartReviewBar";
 import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
@@ -119,6 +120,7 @@ export function WorkspaceLanding({
   }, [simple]);
   const onOpenCrs = onOpenRunTab ? (runId: string) => onOpenRunTab(runId, "crs") : undefined;
 
+  const agentOn = useAgentSwitch() !== null;
   const rows = useMemo(() => landingRowsOf(documents, runs), [documents, runs]);
   const allItems = useMemo(() => allRunsOf(documents, runs), [documents, runs]);
   const shownRows = rows.filter((row) => matchesName(row.filename, query));
@@ -275,6 +277,11 @@ export function WorkspaceLanding({
         <h2 id="landing-list-title" className="text-lg font-semibold text-slateish-100">
           {showAll ? "All reviews" : "Your submittals"}
         </h2>
+        {rows.length > 0 && !showAll && (
+          <p className="text-sm text-slateish-300" data-testid="landing-first-line">
+            Open the newest review of a file, or start a new one. Older reviews stay folded under each file.
+          </p>
+        )}
         {rows.length === 0 ? (
           <div className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850 p-6" data-testid="landing-empty">
             <p className="font-semibold text-slateish-100">No documents from contractors yet</p>
@@ -325,6 +332,7 @@ export function WorkspaceLanding({
                     onOpenRun={onOpenRun}
                     onOpenCrs={onOpenCrs}
                     simple={simple}
+                    aiMark={agentOn}
                     onChanged={() => void onReload()}
                   />
                 ))}

@@ -647,8 +647,8 @@ def test_a_two_reader_verdict_is_a_decision_of_its_own_kind_and_a_wrong_one_is_a
         {"kind": "complies", "role": "body_material", "page": "1"},
         {"kind": "problem", "role": "set_pressure", "page": "3"},
     ]
-    not_met = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is not met."
-    met = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is met."
+    not_met = "Not met (AI, two readers agree, quotes verified): reached independently by two AI readers, engineer to confirm."
+    met = "Met (AI, two readers agree, quotes verified): one AI reader's verdict, checked by a second AI reader that saw the first answer, engineer to confirm."
     crs = _ai_verdict_crs(
         tmp_path,
         [
@@ -671,3 +671,68 @@ def test_a_two_reader_verdict_is_a_decision_of_its_own_kind_and_a_wrong_one_is_a
         and res["complies_confirmed"] == []
     )  # never mixed into the proven counts
     assert "wrong two-reader verdicts" in aks.summary(res)["clear_wrong"]
+
+
+def test_decisions_are_code_pass_fail_plus_two_reader_verdicts_right_wrong_and_not_on_the_key(
+    tmp_path,
+):
+    key = [
+        {"kind": "problem", "role": "set_pressure", "page": "2"},
+        {"kind": "complies", "role": "body_material", "page": "1"},
+        {"kind": "problem", "role": "design_pressure", "page": "3"},
+        {"kind": "complies", "role": "operating_temperature", "page": "4"},
+    ]
+    met = "Met (AI, two readers agree, quotes verified): one AI reader's verdict, checked by a second AI reader that saw the first answer, engineer to confirm."
+    not_met = "Not met (AI, two readers agree, quotes verified): reached independently by two AI readers, engineer to confirm."
+    absent = "The AI reviewer's verdict, to be confirmed by an engineer: Two AI readers each read every page and found no value for this; the reviewer's code found none either."
+    crs = _ai_verdict_crs(
+        tmp_path,
+        [
+            ("p.2 - Set pressure", "c", "Fail"),  # a code Fail on a problem row: right
+            (
+                "p.1 - Body material",
+                met,
+                "AI verdict",
+            ),  # a two-reader met on a complies row: right
+            (
+                "p.3 - Design pressure",
+                met,
+                "AI verdict",
+            ),  # a two-reader met on a problem row: wrong
+            ("p.9 - Tag number", not_met, "AI verdict"),  # not on the key
+            (
+                "p.4 - Operating temperature",
+                absent,
+                "AI verdict",
+            ),  # not stated: not a decision
+            (
+                "p.4 - Operating temperature",
+                "c",
+                "AI opinion",
+            ),  # AI thinks: not a decision
+            ("p.4 - Operating temperature", "c", "Query"),  # a Query: not a decision
+        ],
+    )
+    res = aks.score_files(_key(tmp_path, key), crs)
+    assert res["decisions"] == {
+        "n": 4,
+        "code": 1,
+        "two_reader": 3,
+        "right": 2,
+        "wrong": 1,
+        "not_on_key": 1,
+    }
+    assert res["ai_verdict_wrong"] and set(res["ai_verdict_wrong"]) <= set(
+        res["clear_wrong"]
+    )  # a wrong two-reader verdict is a clear wrong
+    assert (
+        "decisions = code Pass/Fail + two-reader verdicts: right 2 of 4, wrong 1, not on the key 1"
+        in aks.summary(res)["decisions"]
+    )
+
+
+def test_a_code_pass_on_a_complies_row_is_a_right_decision(tmp_path):
+    key = [{"kind": "complies", "role": "body_material", "page": "1"}]
+    crs = _crs(tmp_path, [], [("p.1", "Body (page 1): x", "XS-1 1", "Pass", "")])
+    res = aks.score_files(_key(tmp_path, key), crs)
+    assert res["decisions"]["right"] == 1 and res["decisions"]["n"] == 1

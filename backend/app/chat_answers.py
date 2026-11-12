@@ -224,8 +224,8 @@ def records(query: str, *, allowed_document_ids: frozenset[str], include_unowned
             "records": found[:10], "seconds": timer.seconds()}
 
 
-def small_talk(kind: str, *, examples: list[str]) -> dict:
-    ok, _ = chat_model.claude_ready()
+def small_talk(kind: str, *, examples: list[str], model: str | None = None) -> dict:
+    ok = chat_model.claude_will_answer(model)
     who = ("Answers are written by Claude: your question and the passages it needs are sent to it, "
            "within the spending caps set for this system." if ok else
            "Answers are written by the local model on this machine; nothing you type leaves it.")

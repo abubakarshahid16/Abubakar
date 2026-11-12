@@ -69,4 +69,16 @@ MUTATIONS: tuple[Mutation, ...] = (
              target="tests/test_crs_endpoint.py",
              keyword="issue_copy_is_refused_until_an_engineer_decides",
              tags=("safety", "critical")),
+    # ---- U2 (#1781): signing waits for the AI review's open points ---------
+    Mutation(id="M1781-01", phase=1781,
+             description="safety: the sign route no longer refuses while the run's AI review has open points "
+                         "(a contractor copy could be issued with the AI reviewer's points unread)",
+             path=APP / "main.py",
+             anchor='    if not ai_review_read:\n'
+                    '        if open_count:\n',
+             replacement='    if not ai_review_read:\n'
+                         '        if False:\n',
+             target="tests/test_u2_sign_waits_for_ai_review.py",
+             keyword="a_sign_is_refused_with_a_plain_reason",
+             tags=("safety", "critical")),
 )

@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Respo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from . import agent_review_open_points as agent_open_points_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
@@ -1676,6 +1677,10 @@ def start_review_run(
         run_id, allowed_document_ids=scope.allowed_document_ids), scope)
 
 
+#: V1b: the page `GET /api/reviews/findings` returns when no limit is asked for. It used to be every finding (357 MB on one copy).
+FINDINGS_DEFAULT_PAGE_SIZE = 200
+
+
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
          responses=schemas.ERRORS_422)
 def list_review_findings(
@@ -1684,7 +1689,8 @@ def list_review_findings(
     status: schemas.ReviewStatus | None = Query(None),
     review_run_id: str | None = Query(
         None, description="only this comparison run's findings"),
-    limit: int | None = Query(None, ge=1, le=1000, description="page size; omit for all"),
+    limit: int = Query(FINDINGS_DEFAULT_PAGE_SIZE, ge=1, le=1000,
+                       description="page size (default 200, most severe first); `total` says how many there are, so a caller that needs every finding pages"),
     offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -1703,7 +1709,7 @@ def list_review_findings(
     where = {"document_id": document_id, "status": status, "review_run_id": review_run_id,
              "allowed_document_ids": scope.allowed_document_ids}
     findings = review_mod.list_findings(**where, limit=limit, offset=offset)
-    total = len(findings) if limit is None and not offset else finding_query.count_findings(**where)
+    total = len(findings) if len(findings) < limit and not offset else finding_query.count_findings(**where)
     return {"findings": findings, "total": total, "limit": limit, "offset": offset}
 
 
@@ -3384,6 +3390,7 @@ def decide_crs_open_finding(
                      **schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409})
 def issue_review_crs(
     review_run_id: str,
+    ai_review_read: bool = False,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """PF5 (#885): ISSUE THE CONTRACTOR'S COPY - only a finished one.
@@ -3392,7 +3399,13 @@ def issue_review_crs(
     submittal is unread, or any finding on the sheet has no engineer's
     decision; the reply names each blocker in words. When it is issued, the
     exact workbook is kept with its sha256 and the run (`crs_issue.archive`)
-    and the reply carries both. The internal copy is not gated."""
+    and the reply carries both. The internal copy is not gated.
+
+    U2: refused (409) while the run's AI review has open lines (anything not
+    Pass and not "Not applicable") unless the request says `ai_review_read=true`,
+    which the screen sends only after the engineer ticked "I have read the AI
+    review's points". The issued file is the same either way; the issued-copy
+    row records the open count and the acknowledgement."""
     _require_identity_to_write(scope)
     gate = _crs_issue_gate(review_run_id, scope)
     if not gate["final_code_recorded"]:
@@ -3403,9 +3416,18 @@ def issue_review_crs(
     if not gate["issuable"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+    open_count = agent_open_points_mod.open_points(connect(), review_run_id)
+    # the redesigned page: every point is decided (the gate above refused otherwise), so the AI review's points ARE read
+    ai_review_read = ai_review_read or settings.review_page_v2_enabled
+    if not ai_review_read:
+        if open_count:
+            raise HTTPException(status_code=409, detail=errors.safe_error(
+                errors.CRS_NOT_FINISHED, agent_open_points_mod.refusal(open_count)))
     workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
     record = crs_issue_mod.archive(review_run_id, workbook, filename,
-                                   actor=scope.user_id or "unrestricted")
+                                   actor=scope.user_id or "unrestricted",
+                                   ai_open_points=open_count,
+                                   ai_review_acknowledged=None if open_count is None else ai_review_read)
     if settings.review_page_v2_enabled:  # the AI review's contractor copy is signed with it, and frozen the same way
         from . import review_points_service
 

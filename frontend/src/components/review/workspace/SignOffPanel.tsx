@@ -20,6 +20,7 @@ import { BeforeYouSign } from "../crs/BeforeYouSign";
 import { downloadIssuedCopy } from "./sign/issuedCopy";
 import type { ReviewNumbers, SignOffPanelProps as PanelContractProps } from "./contract";
 import { actionSteps, signedDate } from "./numbers";
+import { signGuardWarning, SIGN_GUARD_TICK } from "../agent/signGuardWords";
 
 export type SignOffPanelProps = PanelContractProps & {
   /** v2.2 round 2 (Simple view): "Before you sign" folds behind one line
@@ -37,9 +38,10 @@ export function beforeYouSignSummary(numbers: Pick<ReviewNumbers, "signLeft">): 
 
 const BUTTON = "rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm disabled:cursor-not-allowed";
 
-export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, onJump, folded = false }: SignOffPanelProps) {
+export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, onJump, folded = false, signGuard = null }: SignOffPanelProps) {
   const signStep = actionSteps(numbers).find((s) => s.id === "sign");
-  const canSign = Boolean(signStep?.enabled) && !signOff.busy;
+  const guarded = !numbers.signed && signGuard != null && (!signGuard.acked || Boolean(signGuard.blocked));
+  const canSign = Boolean(signStep?.enabled) && !signOff.busy && !guarded;
   const when = signedDate(numbers.signedAt);
   const [copy, setCopy] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const getCopy = async () => {
@@ -104,6 +106,15 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
           </button>
         </div>
       </div>
+      {!numbers.signed && signGuard && (
+        <div data-testid="ws-sign-guard" className="space-y-1 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 p-2 text-slateish-100">
+          <p>{signGuardWarning(signGuard.open, signGuard.blocked ?? null)}</p>
+          {!signGuard.blocked && <label className="flex items-center gap-2">
+            <input type="checkbox" checked={signGuard.acked} onChange={(e) => signGuard.onAck(e.target.checked)} />
+            <span>{SIGN_GUARD_TICK}</span>
+          </label>}
+        </div>
+      )}
       {copy.error && <p role="alert" data-testid="ws-issued-copy-error" className="text-danger-500">{copy.error}</p>}
       {/* The working copy is built from what is saved, so a copy taken now
           would leave out the decisions on screen. */}

@@ -146,3 +146,23 @@ describe("a report's title (order 88c, #1097)", () => {
     expect(screen.queryByText(/Read as/)).toBeNull();
   });
 });
+
+describe("V1: one date format and a plain word for a document with no passage", () => {
+  it("shows the time as '4 Sep 2026, HH:MM', not a raw UTC string", () => {
+    renderView([makeReport()]);
+    expect(screen.queryByText(/2026-09-04/)).toBeNull();
+    expect(screen.getByText(/4 Sep 2026, \d{2}:\d{2}/)).toBeInTheDocument();
+  });
+
+  it("does not print '0 passages' for a cited document; it says no passage is quoted", () => {
+    const doc = makeReport().documents[0];
+    renderView([makeReport({ documents: [{ ...doc, passages_cited: 0 }] })]);
+    expect(screen.queryByText(/\b0 passages?\b/)).toBeNull();
+    expect(screen.getByText(/no passage of it is quoted in this report/)).toBeInTheDocument();
+  });
+
+  it("still counts passages when there are some", () => {
+    renderView([makeReport()]);
+    expect(screen.getByText(/· 2 passages/)).toBeInTheDocument();
+  });
+});

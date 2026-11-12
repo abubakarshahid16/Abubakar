@@ -583,25 +583,34 @@ def is_independent(line: Mapping) -> bool:
     return not (textual_pass_agreed(line) or textual_fail_agreed(line))
 
 
+ROUTE_SAW_FIRST = "the second reader saw the first answer"
+ROUTE_INDEPENDENTLY = "reached independently by two readers"
+
+
+def _with_route(reason: str, route: str) -> str:
+    """The reason shown beside the word on the screen, with the TRUE route clause (the word cell carries the owner's words only)."""
+    return f"{reason} ({route})" if reason else route
+
+
 def class_of(line: Mapping, reason: str) -> dict | None:
     """The class entry of a line that earned it (both rules above), else None: the word and the reason shown."""
     if textual_fail_agreed(line):
         return {
             "verdict_label": WORD_NOT_MET,
             "verdict_class": CLASS_TWO_READERS,
-            "not_proven_reason": reason,
+            "not_proven_reason": _with_route(reason, ROUTE_SAW_FIRST),
         }
     if textual_pass_agreed(line):
         return {
             "verdict_label": WORD_MET,
             "verdict_class": CLASS_TWO_READERS,
-            "not_proven_reason": reason,
+            "not_proven_reason": _with_route(reason, ROUTE_SAW_FIRST),
         }
     if agrees(line):
         return {
             "verdict_label": word_of(line),
             "verdict_class": CLASS_TWO_READERS,
-            "not_proven_reason": reason,
+            "not_proven_reason": _with_route(reason, ROUTE_INDEPENDENTLY),
         }
     if absence_agrees(line):
         return {

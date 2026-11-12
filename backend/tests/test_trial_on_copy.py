@@ -607,3 +607,32 @@ def test_the_closed_lane_spend_check_compares_the_ledger_before_and_after(tmp_pa
         cfg, {"usd": None}, tmp_path, lines_before=2
     ).ok  # a line written by this run
     assert not trial.spend_check(cfg, {"usd": 0.1}, tmp_path, lines_before=3).ok
+
+
+def test_a_general_review_asks_no_rule_by_design_and_the_trial_says_so(monkeypatch):
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE agent_review_rule (run_id, asked, left_out_reason)")
+    conn.execute(
+        "CREATE TABLE agent_review_run (run_id, stop_reason, items_total, paper_kind, equipment_json, counts_json)"
+    )
+    conn.execute(
+        "INSERT INTO agent_review_run VALUES ('r', NULL, 23, 'procedure', '{}', ?)",
+        (json.dumps({"mode": "general review"}),),
+    )
+    monkeypatch.setattr(trial, "stop_is_true_check", lambda *_a: [])
+    got = next(
+        c
+        for c in trial.rules_check(conn, "r", None, False)
+        if c.name == "rules asked > 0, or the plan says why none"
+    )
+    assert got.ok and "general review" in got.detail
+    conn.execute("UPDATE agent_review_run SET counts_json = '{}'")
+    again = next(
+        c
+        for c in trial.rules_check(conn, "r", None, False)
+        if c.name == "rules asked > 0, or the plan says why none"
+    )
+    assert not again.ok  # a rule review with an empty plan and no word stays a failure

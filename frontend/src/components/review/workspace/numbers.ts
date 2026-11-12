@@ -8,6 +8,7 @@
  * `summary?.counts.removed ?? splitRejected(findings).rejected`), so the old
  * screen and the workspace never disagree.
  */
+import { formatDay } from "../../../format/when";
 import type { ActionStep, ReviewNumbers, ReviewNumbersInput } from "./contract";
 import type { ReviewRunSummary } from "../../../types/api";
 import { headlineFieldsOf, sheetCountsOf, splitRejected } from "../crs/crsRows";
@@ -209,14 +210,9 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   ];
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /** "19 Oct 2026"; "" when there is no readable date. */
 export function signedDate(value: string | null): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return formatDay(value);
 }
 
 function known(n: number | null | undefined): n is number {

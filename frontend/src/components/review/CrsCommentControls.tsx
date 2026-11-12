@@ -12,6 +12,7 @@
  * server rather than patched here, so the table always shows what the file
  * will say.
  */
+import { formatWhen } from "../../format/when";
 import { useState } from "react";
 
 import { reviews as reviewsApi } from "../../api/client";
@@ -236,7 +237,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
         <ol className="space-y-0.5 text-left text-xs text-slateish-300">
           {events.map((e, i) => (
             <li key={i}>
-              {e.at.slice(0, 16).replace("T", " ")} - {e.event}
+              {formatWhen(e.at)} - {e.event}
               {e.detail ? ` (${e.detail})` : ""}{e.by ? ` - ${e.by}` : ""}
             </li>
           ))}

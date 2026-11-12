@@ -274,3 +274,41 @@ describe("#609: documents no discipline can see are listed first", () => {
     expect(items[1]).toHaveTextContent("NORSOKM501Rev5.pdf");
   });
 });
+
+describe("V1: the grant list is searched and paged", () => {
+  const many: AdminGrantDocument[] = Array.from({ length: 60 }, (_, i) => ({
+    document_id: `doc_${i}`, filename: `file-${String(i).padStart(2, "0")}.pdf`,
+    disciplines: ["Civil Engineering"], warning: null,
+  }));
+  const section = () => screen.getByRole("heading", { name: "Documents and who can see them" })
+    .closest("section") as HTMLElement;
+
+  it("draws one page of 25, not all 60, and says how many there are", () => {
+    render(<AdminView {...props({ documents: many })} />);
+    expect(within(section()).getAllByRole("listitem")).toHaveLength(25);
+    expect(screen.getByTestId("admin-grant-shown")).toHaveTextContent("60 documents");
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+  });
+
+  it("moves to the next page and back", async () => {
+    const user = userEvent.setup();
+    render(<AdminView {...props({ documents: many })} />);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
+    expect(within(section()).getAllByRole("listitem")[0]).toHaveTextContent("file-25.pdf");
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(within(section()).getAllByRole("listitem")[0]).toHaveTextContent("file-00.pdf");
+  });
+
+  it("filters by file name, starts again from page 1, and a grant still goes to the document it names", async () => {
+    const user = userEvent.setup();
+    const onGrant = vi.fn();
+    render(<AdminView {...props({ documents: many.map((d) => ({ ...d, disciplines: [] })), onGrant })} />);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.type(screen.getByLabelText("Search documents"), "file-07");
+    expect(screen.getByTestId("admin-grant-shown")).toHaveTextContent("1 of 60 documents match");
+    expect(within(section()).getAllByRole("listitem")).toHaveLength(1);
+    await user.click(within(section()).getByRole("button", { name: "Grant IT" }));
+    expect(onGrant).toHaveBeenCalledWith({ document_id: "doc_7", discipline: "IT" });
+  });
+});

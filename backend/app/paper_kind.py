@@ -27,7 +27,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from . import document_kind
+from . import document_kind, kind_review_table
 from .classification import _now, suggest_equipment_type_from_title, title_block_lines
 from .db import connect, schema_once
 
@@ -40,14 +40,25 @@ PAPER_KINDS: tuple[str, ...] = (
     "datasheet",
     "procedure",
     "contract",
+    "calculation",
+    "specification",
+    "transmittal",
     "drawing",
     "test_record",
     "other",
 )
+
+
+def __getattr__(name: str):
+    """`NO_MAIN_EQUIPMENT`: the kinds whose main label is never an equipment type, read from the one table at each ask."""
+    if name == "NO_MAIN_EQUIPMENT":
+        return frozenset(kind_review_table.no_main_equipment_kinds())
+    raise AttributeError(name)
+
+
 #: Plain words for each kind (the owner's words).
 WORDS: dict[str, str] = {k: k.replace("_", " ") for k in PAPER_KINDS}
-#: Kinds whose MAIN label is never an equipment type.
-NO_MAIN_EQUIPMENT: frozenset[str] = frozenset({"procedure", "contract"})
+#: Kinds whose MAIN label is never an equipment type: `NO_MAIN_EQUIPMENT` above, read from the one table.
 
 #: A record of a test or inspection that was done (its result), named in the
 #: title. A test PLAN or test PROCEDURE says how a test is done: a procedure.
@@ -60,14 +71,53 @@ _TEST_RECORD = re.compile(
 )
 #: `document_kind`'s title cues with the test-record cue after "procedure", so
 #: a "test report procedure" is a procedure and a "test report" a test record.
-PAPER_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    document_kind._KIND_CUES[0],
-    ("test_record", _TEST_RECORD),
-    *document_kind._KIND_CUES[1:],
+#: A calculation names itself by a HEADING: the line ends with the word ("Pressure Safety Valve Sizing Calculation", "Calculation
+#: Sheet", "... Calculation Report"). A word inside a longer title ("thermal calculation basis", "calcs by vendor") is NOT enough:
+#: such a paper stays what it was (K1b, R46 block 3). It is read before the data-sheet cue only when the data-sheet cue is absent
+#: from the cover; with both on the cover the kind is "not sure" (`decide_paper_kind`).
+_CALCULATION = re.compile(
+    r"^(?=(?:\S+\s+){0,9}\S+\W*$).*\bcalculations?(?:\s+(?:sheets?|reports?|notes?|packages?|summary|book))?\W*$",
+    re.I,
 )
+#: A contract names itself by a heading that STARTS with the word ("Contract for ...", "Supply Contract", "Subcontract"). "Contract
+#: No." is a label naming a number, never the title; a contract word inside a longer line is not a heading.
+_CONTRACT_HEADING = re.compile(
+    r"^\W*(?:the\s+)?(?:(?:supply|service|construction|master|sub-?)\s*)?contract(?!\s+(?:no\b|number|nr\b|ref))\b",
+    re.I,
+)
+_DATASHEET = re.compile(r"\bdata\s?sheets?\b", re.I)
+
+
+#: A transmittal is identified by its own number ("Transmittal No. TR-7"). The router's reading skips a kind word followed by
+#: "No." (a label naming ANOTHER document, "P&ID No."); a transmittal's own number is consumed here, so the line is read.
+_TRANSMITTAL_NUMBER = re.compile(
+    r"\btransmittal\s+(?:no\b\.?|number|nr\b\.?|#)\s*[A-Z0-9][\w/.-]*", re.I
+)
+
+
+def _paper_cues() -> tuple[tuple[str, re.Pattern[str]], ...]:
+    out: list[tuple[str, re.Pattern[str]]] = []
+    for kind, pattern in document_kind._KIND_CUES:
+        if kind == "contract":
+            pattern = re.compile(
+                pattern.pattern + "|" + _CONTRACT_HEADING.pattern, re.I
+            )
+        if kind == "datasheet":
+            out.append(("calculation", _CALCULATION))
+        if kind == "transmittal":
+            pattern = re.compile(
+                _TRANSMITTAL_NUMBER.pattern + "|" + pattern.pattern, re.I
+            )
+        out.append((kind, pattern))
+        if kind == "procedure":
+            out.append(("test_record", _TEST_RECORD))
+    return tuple(out)
+
+
+PAPER_CUES: tuple[tuple[str, re.Pattern[str]], ...] = _paper_cues()
 #: `document_kind` kinds (and the router's, `reference/document_kinds.json`, which
 #: an engineer may confirm) that are kinds of the closed list.
-_SAME = {"datasheet", "procedure", "contract", "drawing", "test_record"}
+_SAME = set(PAPER_KINDS) - {"other"}
 #: Every other kind is `other`, on purpose: specification, transmittal, FEED,
 #: standard, study, report, letter and unknown. The owner's list is closed (order
 #: 11 Nov step 2); none of them is a datasheet, procedure, contract, drawing or
@@ -90,6 +140,8 @@ class PaperKind:
     guess: bool
     source_kind: str | None
     version: str = PAPER_KIND_VERSION
+    #: When the cover carries a data-sheet heading AND a calculation or contract heading: the kinds in doubt (never a fact).
+    candidates: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -100,7 +152,53 @@ class PaperKind:
             "guess": self.guess,
             "source_kind": self.source_kind,
             "version": self.version,
+            "candidates": list(self.candidates),
         }
+
+
+def _cover_headings(pages: Sequence[dict]) -> dict[str, tuple[int, str]]:
+    """Which of the three heading kinds the cover shows: {kind: (page, line)} for data sheet, calculation, contract. The same lines
+    and limits as the title cue reading (short lines, no label lines)."""
+    out: dict[str, tuple[int, str]] = {}
+    for page, line in sorted(document_kind._cover_lines(pages), key=lambda pl: pl[0]):
+        text = line.strip().strip("|").strip()
+        if (
+            not text
+            or ":" in text
+            or len(text.split()) > document_kind._TITLE_WORDS_MAX
+        ):
+            continue
+        for kind, pattern in (
+            ("datasheet", _DATASHEET),
+            ("calculation", _CALCULATION),
+            ("contract", _CONTRACT_HEADING),
+        ):
+            if pattern.search(text) and not document_kind._REFERENCE_AFTER.match(
+                text, pattern.search(text).end()
+            ):
+                out.setdefault(kind, (page, text))
+    return out
+
+
+def _conflict(pages: Sequence[dict], document_role: str | None) -> PaperKind | None:
+    """A cover with a data-sheet heading AND a calculation or contract heading is "not sure: choose": the kind stays the datasheet
+    (a datasheet review is never refused for a paper that carries a data-sheet heading) and is a GUESS with both candidates; the
+    person chooses before the review starts (PUT /api/documents/{id}/kind). Nothing is decided by one of the two cues alone."""
+    if document_role == "COMPANY_STANDARD":
+        return None
+    heads = _cover_headings(pages)
+    if "datasheet" in heads and set(heads) & {"calculation", "contract"}:
+        page, quote = heads["datasheet"]
+        return PaperKind(
+            "datasheet",
+            page,
+            quote,
+            "cues_conflict",
+            True,
+            "datasheet",
+            candidates=tuple(sorted(heads)),
+        )
+    return None
 
 
 def decide_paper_kind(
@@ -123,12 +221,18 @@ def decide_paper_kind(
             False,
             confirmed_kind,
         )
+    unsure = _conflict(pages, document_role)
+    if unsure is not None:
+        return unsure
     found = document_kind.decide_document_kind(
         pages, document_role=document_role, cues=PAPER_CUES
     )
     kind = to_paper_kind(found.kind)
     guess = found.guess
-    if kind == "other" and to_paper_kind(found.conflict) != "other":
+    if kind in ("other", "specification") and to_paper_kind(found.conflict) not in (
+        "other",
+        "specification",
+    ):
         # The number names a kind outside the list, the title one inside it:
         # the title's kind, a guess.
         kind, guess = to_paper_kind(found.conflict), True
@@ -263,7 +367,10 @@ def hold_main_equipment(document_id: str, pages: Sequence[dict]) -> str | None:
     if not settings.paper_kind_first_enabled:
         return None
     decided = classify_paper_kind(document_id)
-    if decided is None or decided.paper_kind not in NO_MAIN_EQUIPMENT:
+    if (
+        decided is None
+        or decided.paper_kind not in kind_review_table.no_main_equipment_kinds()
+    ):
         return None
     conn = connect()
     old = conn.execute(
@@ -343,6 +450,6 @@ def main_label(document_id: str) -> str | None:
         .fetchone()
     )
     equipment = row["equipment_type"] if row is not None else None
-    if kind in NO_MAIN_EQUIPMENT or not equipment:
+    if kind in kind_review_table.no_main_equipment_kinds() or not equipment:
         return WORDS[kind]
     return equipment
