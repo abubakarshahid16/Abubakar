@@ -454,7 +454,7 @@ def _make_runner(
     send, env = lane()
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
-    done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error") and v.get("source") != "code"}  # code lines are not the runner's
+    done = calculator_run.runner_done(stored_lines(run_id))
     answers = None
     if reuse_mod.enabled():  # point E: off = no table, no read, no write
         conn = connect()
@@ -550,10 +550,8 @@ def _finish(
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
     lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
-    lines += plan.get("code_lines") or []  # the calculator's lines (none with its setting off)
-    counts = runner_mod.counts_of(lines, runner)
-    if plan.get("calculator"):
-        counts["calculator"] = plan["calculator"]
+    lines += plan.get("code_lines") or []  # the calculator's lines (none: setting off)
+    counts = calculator_run.counts_with(runner_mod.counts_of(lines, runner), plan)
     n_cut = reread_mod.cut_off_count(lines)
     if (
         runner is not None and runner.answers is not None
@@ -629,10 +627,8 @@ def _execute(
     _write_missing(run_id, plan["block"].get("missing_rule_books") or [])
     holder: dict = {}
     try:
-        # the calculator (owner, 12 Nov 2026): off, nothing happens here; on, its lines are stored before the first reader call
-        calculator_run.step(
-            connect(), run_id, submittal, kind, plan,
-            store=lambda line, trace: store_line(run_id, line, trace), tier_lookup=_tier_lookup(kind))  # fmt: skip
+        # the calculator: off, nothing happens; on, its lines are stored before the first reader call
+        calculator_run.step(connect(), run_id, submittal, kind, plan, store=lambda ln, t: store_line(run_id, ln, t), tier_lookup=_tier_lookup(kind))  # fmt: skip
         if plan["items"]:
             _ask(run_id, submittal, kind, plan, holder)
     finally:  # the CRS and the run row are written for a partial run too

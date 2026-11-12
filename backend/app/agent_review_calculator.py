@@ -117,6 +117,14 @@ def requirement_from_item(item: Mapping) -> dict:
     }
 
 
+def _undecided(base: dict, why: str, code: str, reason: str | None = None) -> dict:
+    """The line when the code did not decide: a Query with the reason in words, never a Pass or Fail."""
+    note = (
+        {"decided": False} if reason is None else {"decided": False, "reason": reason}
+    )
+    return {**base, **_query(why, code), "compare": note}
+
+
 def numeric_line(
     item: Mapping,
     requirement: Mapping,
@@ -152,17 +160,11 @@ def numeric_line(
     )
     status = got.get("status")
     if fact is None:
-        return {
-            **base,
-            **_query("no value read from the paper answers this rule", "no_fact"),
-            "compare": {"decided": False},
-        }
+        return _undecided(
+            base, "no value read from the paper answers this rule", "no_fact"
+        )
     if fact.get("is_blank"):
-        return {
-            **base,
-            **_query("the value on the paper is blank", "blank_value"),
-            "compare": {"decided": False},
-        }
+        return _undecided(base, "the value on the paper is blank", "blank_value")
     base["quotes_checked"] = {
         "paper": bool(
             _is_page(fact.get("page")) and quote_found(base["paper_quote"], page_text)
@@ -174,23 +176,25 @@ def numeric_line(
     if status not in (COMPLIANT, NON_COMPLIANT) or not (
         got.get("limit") and got.get("observed")
     ):
-        return {
-            **base,
-            **_query(reason or "the code could not decide", "not_decided"),
-            "compare": {"decided": False, "reason": reason},
-        }
+        return _undecided(
+            base, reason or "the code could not decide", "not_decided", reason
+        )
     if got.get(hold_reason.KEY):
-        return {
-            **base,
-            **_query(reason or "held for an engineer", "held"),
-            "compare": {"decided": False, "reason": reason},
-        }
+        return _undecided(base, reason or "held for an engineer", "held", reason)
     if not base["quotes_checked"]["paper"]:
-        return {**base, **_query("the value's quote was not found on its page, so it was not compared into a Pass or Fail", "paper_quote_unverified"),
-                "compare": {"decided": False, "reason": reason}}  # fmt: skip
+        return _undecided(
+            base,
+            "the value's quote was not found on its page, so it was not compared into a Pass or Fail",
+            "paper_quote_unverified",
+            reason,
+        )
     if not base["quotes_checked"]["clause"]:
-        return {**base, **_query("the rule's quote was not found in its clause, so it was not compared into a Pass or Fail", "clause_quote_unverified"),
-                "compare": {"decided": False, "reason": reason}}  # fmt: skip
+        return _undecided(
+            base,
+            "the rule's quote was not found in its clause, so it was not compared into a Pass or Fail",
+            "clause_quote_unverified",
+            reason,
+        )
     met = status == COMPLIANT
     return {
         **base,

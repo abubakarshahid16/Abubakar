@@ -40,6 +40,18 @@ def enabled() -> bool:
     return bool(settings.ai_review_calculator_enabled)
 
 
+def runner_done(stored: dict) -> dict:
+    """The stored lines the runner may resume from: a code line has no plan item, so the runner never re-caps it."""
+    return {k: v for k, v in stored.items() if not v.get("error") and v.get("source") != calc.SOURCE}
+
+
+def counts_with(counts: dict, plan: dict) -> dict:
+    """The run's counts plus the calculator's summary (nothing added with its setting off)."""
+    if plan.get("calculator"):
+        counts["calculator"] = plan["calculator"]
+    return counts
+
+
 def _note(reason: str) -> dict:
     return {"ran": False, "reason": f"{NOT_RUN}: {reason}", "lines": 0}
 
