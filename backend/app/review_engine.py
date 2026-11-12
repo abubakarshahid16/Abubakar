@@ -44,7 +44,9 @@ ON_CLAUDE, ON_LOCAL, NOT_RUN = "claude", "local", "not_run"
 #: A run barred from Claude: the id of its choice, for the log. None = not barred.
 _BARRED: ContextVar[bool] = ContextVar("review_engine_barred", default=False)
 BARRED_CODE = "RUN_LOCAL_ONLY"
-BARRED_WORDS = "this part of the review was set to run on this computer only, so nothing is sent"
+BARRED_WORDS = (
+    "this part of the review was set to run on this computer only, so nothing is sent"
+)
 
 # Plain sentences. One home: the screen and the refusal read these.
 AI_NEEDS_CLAUDE_LOCAL = (
@@ -89,13 +91,17 @@ class Facts:
     step_engine_claude: bool = False  # any normal-review step's OWN engine says claude
     lane_open: bool = False  # both egress flags and a key
     blocked: bool = False  # the paper's hash or name is on the block list
-    paper_approved: bool = False  # the paper may go to Claude (list, or the automatic route for its role)
+    paper_approved: bool = (
+        False  # the paper may go to Claude (list, or the automatic route for its role)
+    )
     is_contract: bool = False
     contract_yes: bool = False  # the owner's yes for THIS file
     scored_allowed: bool = True  # kind scored, or the setting offers unscored kinds
     kind_scored: bool = True
     caps_ok: bool = True  # the USD caps leave room
-    books_ok: bool = True  # the rule books may go (approved or joining by the automatic route)
+    books_ok: bool = (
+        True  # the rule books may go (approved or joining by the automatic route)
+    )
 
 
 @dataclass
@@ -147,14 +153,25 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
     if not f.agent_enabled:
         return "AI_OFF", "the AI review is switched off on this install"
     if f.kind is None:
-        return "KIND_UNKNOWN", "the kind of this paper is not known; an engineer names it first"
+        return (
+            "KIND_UNKNOWN",
+            "the kind of this paper is not known; an engineer names it first",
+        )
     if f.kind not in ("datasheet", "procedure", "contract"):
         word = f.kind.replace("_", " ")
         return "KIND_NOT_OFFERED", f"the AI review does not take a {word} yet"
-    if not (f.provider == "claude" or (f.provider == "per_task" and f.agent_engine_claude)):
-        return "CLAUDE_NOT_SET", "Claude is not switched on for the AI review on this install"
+    if not (
+        f.provider == "claude" or (f.provider == "per_task" and f.agent_engine_claude)
+    ):
+        return (
+            "CLAUDE_NOT_SET",
+            "Claude is not switched on for the AI review on this install",
+        )
     if not f.lane_open:
-        return "LANE_CLOSED", "the connection to Claude is closed on this install (flags or key)"
+        return (
+            "LANE_CLOSED",
+            "the connection to Claude is closed on this install (flags or key)",
+        )
     if f.blocked:
         return "BLOCKED", "this file is blocked for Claude by name or checksum"
     if f.is_contract and not f.contract_yes:
@@ -172,10 +189,15 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
 
 def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     """Would the rule check's own AI steps be allowed on Claude? (They follow each step's OWN engine setting.) (yes, reason when not)"""
-    if not (f.provider == "claude" or (f.provider == "per_task" and f.step_engine_claude)):
+    if not (
+        f.provider == "claude" or (f.provider == "per_task" and f.step_engine_claude)
+    ):
         return False, "no step of the rule check is set to Claude on this install"
     if not f.lane_open:
-        return False, "the connection to Claude is closed on this install (flags or key)"
+        return (
+            False,
+            "the connection to Claude is closed on this install (flags or key)",
+        )
     if f.blocked:
         return False, "this file is blocked for Claude by name or checksum"
     if f.is_contract and not f.contract_yes:
@@ -210,7 +232,11 @@ def decide(choice: str, f: Facts) -> Plan:
 
     if choice == LOCAL:
         plan.parts = [
-            Part(RULE_CHECK, ON_LOCAL, "you chose Local only: nothing leaves this computer"),
+            Part(
+                RULE_CHECK,
+                ON_LOCAL,
+                "you chose Local only: nothing leaves this computer",
+            ),
             Part(AI_REVIEW, NOT_RUN, AI_NEEDS_CLAUDE_LOCAL),
         ]
         return plan
@@ -249,7 +275,6 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         agent_review_gate,
         agent_review_kind,
         claude_approved,
-        claude_auto_approve,
         claude_spend,
         contract_yes,
         local_engine_bar,
@@ -269,33 +294,36 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
     role = row["document_role"] if row else None
     try:
         blocked_hashes = claude_approved.blocked_hashes()
-        blocked = (
-            sha in blocked_hashes
-            or claude_approved.name_is_blocked(
-                row["filename"] if row else None, claude_approved.marked_name_keys()
-            )
+        blocked = sha in blocked_hashes or claude_approved.name_is_blocked(
+            row["filename"] if row else None, claude_approved.marked_name_keys()
         )
     except claude_approved.BlockListUnreadable:
         blocked = True  # fail closed
     is_contract = kind == "contract" or role == "CONTRACT_DOCUMENT"
     yes = is_contract and contract_yes.has_yes(document_id)
-    approved = _paper_approved(sha, role, is_contract, yes, claude_approved, claude_auto_approve, settings)
+    approved = _paper_approved(sha, role, is_contract, yes, claude_approved, settings)
     lane_open = reasoning_provider.claude_lane_open()
     scored = agent_review_gate.kind_scored(kind)
     steps_claude = any(
-        str(getattr(settings, name, "") or "").strip().lower() == reasoning_provider.CLAUDE
+        str(getattr(settings, name, "") or "").strip().lower()
+        == reasoning_provider.CLAUDE
         for name in local_engine_bar.REVIEW_ENGINE_SETTINGS
     )
     try:
         room = claude_spend.spent() < claude_spend.total_cap()
-    except Exception:  # noqa: BLE001 - an unreadable ledger leaves no room: the safe side
+    except Exception as exc:  # noqa: BLE001 - an unreadable ledger leaves no room: the safe side
+        log.warning(
+            "review plan: spend ledger unreadable (%s); no room is claimed",
+            type(exc).__name__,
+        )
         room = False
     facts = Facts(
         kind=kind,
         kind_guess=bool(reading.guess),
         agent_enabled=agent_review_gate.enabled(),
         provider=provider,
-        agent_engine_claude=str(settings.agent_review_engine or "").strip().lower() == "claude",
+        agent_engine_claude=str(settings.agent_review_engine or "").strip().lower()
+        == "claude",
         step_engine_claude=steps_claude,
         lane_open=lane_open,
         blocked=blocked,
@@ -304,7 +332,9 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         contract_yes=yes,
         # An unknown kind is not a kind that went live: nothing new is offered for it, and what ran before runs as before (the
         # AI review refuses it on its own: KIND_UNKNOWN). A KNOWN kind not scored against a key is held unless the setting says so.
-        scored_allowed=kind is None or scored or bool(settings.review_unscored_kinds_for_claude_enabled),
+        scored_allowed=kind is None
+        or scored
+        or bool(settings.review_unscored_kinds_for_claude_enabled),
         kind_scored=scored,
         caps_ok=room,
         books_ok=bool(
@@ -316,7 +346,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
     return facts, reading
 
 
-def _paper_approved(sha, role, is_contract, yes, claude_approved, claude_auto_approve, settings) -> bool:
+def _paper_approved(sha, role, is_contract, yes, claude_approved, settings) -> bool:
     if is_contract:
         return bool(yes)
     if not settings.claude_approved_list_enforced:
@@ -349,7 +379,11 @@ def _earlier_books(conn, document_id: str) -> list[dict]:
     if run is None:
         return []
     return [
-        {"id": r["standard_document_id"], "filename": r["filename"], "sha256": (r["sha256"] or "").strip().lower()}
+        {
+            "id": r["standard_document_id"],
+            "filename": r["filename"],
+            "sha256": (r["sha256"] or "").strip().lower(),
+        }
         for r in conn.execute(
             "SELECT s.standard_document_id, d.filename, d.sha256 FROM review_applicable_standards s"
             " JOIN documents d ON d.id = s.standard_document_id"
@@ -380,7 +414,7 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
     the engine of each part, whether text leaves this computer and which documents, the estimated cost, what will not run."""
     from .config import settings
 
-    facts, reading = read_facts(conn, document_id, allowed)
+    facts, _reading = read_facts(conn, document_id, allowed)
     plan = decide(choice, facts)
     out = plan.as_dict()
     out["kind"] = facts.kind
@@ -405,9 +439,13 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
     last = _last_cost(conn, document_id)
     out["cost"] = {
         "at_most_usd": cap if leaves else None,
-        "basis": "the cap for one review (never exceeded); the real cost is usually lower" if leaves else None,
+        "basis": "the cap for one review (never exceeded); the real cost is usually lower"
+        if leaves
+        else None,
         "last_review_usd": last if leaves else None,
-        "last_review_note": "the measured cost of the last AI review of this paper" if (leaves and last is not None) else None,
+        "last_review_note": "the measured cost of the last AI review of this paper"
+        if (leaves and last is not None)
+        else None,
         "exact": False,
     }
     out["sentence"] = sentence_of(out)
@@ -433,7 +471,9 @@ def sentence_of(plan: dict) -> str:
         else "The rule check runs on this computer."
     )
     bits.append(
-        "Text of this paper leaves this computer." if plan["text_leaves"] else "No text leaves this computer."
+        "Text of this paper leaves this computer."
+        if plan["text_leaves"]
+        else "No text leaves this computer."
     )
     return " ".join(bits)
 
@@ -458,13 +498,30 @@ def ensure_schema(conn) -> None:
     )
 
 
-def record(conn, run_id: str, plan: dict, requested_by: str | None, *, then_ai: bool, bar_claude: bool, now: str) -> None:
+def record(
+    conn,
+    run_id: str,
+    plan: dict,
+    requested_by: str | None,
+    *,
+    then_ai: bool,
+    bar_claude: bool,
+    now: str,
+) -> None:
     ensure_schema(conn)
     with conn:
         conn.execute(
             f"INSERT OR REPLACE INTO {TABLE} (run_id, choice, plan_json, requested_by, bar_claude, then_ai, decided_at)"
             " VALUES (?,?,?,?,?,?,?)",
-            (run_id, plan["choice"], json.dumps(plan, sort_keys=True), requested_by, int(bar_claude), int(then_ai), now),
+            (
+                run_id,
+                plan["choice"],
+                json.dumps(plan, sort_keys=True),
+                requested_by,
+                int(bar_claude),
+                int(then_ai),
+                now,
+            ),
         )
 
 
@@ -473,7 +530,9 @@ def stored(conn, run_id: str | None) -> dict | None:
     if not run_id:
         return None
     try:
-        row = conn.execute(f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,)).fetchone()
+        row = conn.execute(
+            f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,)
+        ).fetchone()
     except sqlite3.OperationalError:
         return None
     if row is None:
@@ -490,7 +549,9 @@ def bar_for_job(conn, job_id) -> bool:
     """True when the run of this job must stay on this computer: its stored plan says so. A job with no stored choice (the old two
     buttons) is not barred here: the installed switches decide, as before."""
     try:
-        row = conn.execute("SELECT review_run_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute(
+            "SELECT review_run_id FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
     except sqlite3.Error:
         return False
     got = stored(conn, row["review_run_id"] if row else None)

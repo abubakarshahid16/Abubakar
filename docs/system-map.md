@@ -141,6 +141,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.run_summary` | Routes: GET /api/reviews/runs/{id}/summary - the CRS-first screen's tiers, counts and "How this was reviewed" (order 95); GET /api/reviews/runs/{id} - one run (order 109); GET /api/reviews/runs - every run or one page, with its total (order 117 item 5); GET /api/reviews/runs/counts - the tier counts of many runs in one call, the same as each run's summary counts (order 117 item 5) |
 | `api.agent_review_schemas` | The AI reviewer's request and response shapes (#1690): status, summary, lines, trace and Rules used, with closed word lists; contract only, no route yet, no behaviour; read by the TypeScript generator |
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
+| `api.review_start` | Routes: GET /api/reviews/plan (what a Review would do, no side effect), POST /api/reviews/start (admin), POST and DELETE /api/reviews/contract-yes (admin): the ONE Review button's three choices (12 Nov 2026, #1584) |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
 | `api.rule_equipment` | Route: POST /api/admin/rule-equipment/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores an equipment label file after checking each row again |
@@ -409,6 +410,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
 | `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
+| `review_engine` | The one resolver of the Review button's choice (Automatic, Claude, Local only): which part runs on which engine and why, whether text leaves, the pre-start answer, the stored choice, and the run-wide bar that keeps a run on this computer (12 Nov 2026) |
+| `review_engine_start` | Starting a review from the plan: queues the rule check, then the AI review the plan runs, checked again before it starts |
+| `contract_yes` | The owner's yes to send ONE contract upload to Claude: recorded by checksum on the approved list with who and when, audited, withdrawable |
 | `review_progress` | #1494: the progress block of a running review (pages, elapsed, stall) from the jobs row; read-only, behind a switch |
 | `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |
 | `review_audit` | One local AUDIT.md + AUDIT.json per finished review (pages, standards, rules, AI use, gates, CRS), behind REVIEW_AUDIT_REPORT_ENABLED (#1525) |

@@ -15,7 +15,13 @@ from __future__ import annotations
 
 import logging
 
-from . import agent_review_gate, agent_review_jobs, job_queue, review_engine, review_jobs
+from . import (
+    agent_review_gate,
+    agent_review_jobs,
+    job_queue,
+    review_engine,
+    review_jobs,
+)
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -47,7 +53,9 @@ def start(
     parts = {p["name"]: p for p in plan["parts"]}
     plan["project_document_ids"] = list(project_document_ids)
     plan["fresh"] = bool(fresh)
-    run_id, _job = review_jobs.enqueue(document_id, allowed_document_ids=allowed, requested_by=requested_by)
+    run_id, _job = review_jobs.enqueue(
+        document_id, allowed_document_ids=allowed, requested_by=requested_by
+    )
     review_engine.record(
         conn,
         run_id,
@@ -67,7 +75,10 @@ def follow_up(job_id: str, state: str) -> str | None:
         return None
     conn = connect()
     try:
-        row = conn.execute("SELECT review_run_id, created_by, document_id, stage FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute(
+            "SELECT review_run_id, created_by, document_id, stage FROM jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
         if row is None or row["stage"] != review_jobs.STAGE:
             return None
         got = review_engine.stored(conn, row["review_run_id"])
@@ -81,7 +92,10 @@ def follow_up(job_id: str, state: str) -> str | None:
 
 def _note(conn, run_id: str, text: str) -> None:
     with conn:
-        conn.execute(f"UPDATE {review_engine.TABLE} SET followed_by = ? WHERE run_id = ?", (text, run_id))
+        conn.execute(
+            f"UPDATE {review_engine.TABLE} SET followed_by = ? WHERE run_id = ?",
+            (text, run_id),
+        )
 
 
 def _enqueue_ai(conn, got: dict, job) -> str | None:
@@ -109,10 +123,18 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
             fresh=bool(plan.get("fresh")),
         )
     except review_jobs.ReviewAlreadyActive:
-        _note(conn, run_id, "not started: another review of this paper is already running")
+        _note(
+            conn, run_id, "not started: another review of this paper is already running"
+        )
         return None
     review_engine.record(
-        conn, ai_run, again, job["created_by"], then_ai=False, bar_claude=False, now=job_queue.now_iso()
+        conn,
+        ai_run,
+        again,
+        job["created_by"],
+        then_ai=False,
+        bar_claude=False,
+        now=job_queue.now_iso(),
     )
     _note(conn, run_id, ai_run)
     return ai_run

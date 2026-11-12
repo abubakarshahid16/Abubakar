@@ -33,7 +33,9 @@ class YesRefused(Exception):
 def _row(document_id: str):
     return (
         connect()
-        .execute("SELECT id, filename, sha256 FROM documents WHERE id = ?", (document_id,))
+        .execute(
+            "SELECT id, filename, sha256 FROM documents WHERE id = ?", (document_id,)
+        )
         .fetchone()
     )
 
@@ -71,8 +73,7 @@ def has_yes(document_id: str) -> bool:
     if not sha:
         return False
     return sha in claude_approved.approved_hashes() and any(
-        r.get("status") == APPROVED
-        for r in _yes_rows(sha, claude_approved._entries())
+        r.get("status") == APPROVED for r in _yes_rows(sha, claude_approved._entries())
     )
 
 
@@ -82,7 +83,9 @@ def grant(document_id: str, actor: str) -> dict:
     row = _row(document_id)
     sha = ((row["sha256"] if row else "") or "").strip().lower()
     if row is None or not sha:
-        raise YesRefused("this document has no stored checksum, so a yes cannot be recorded for it")
+        raise YesRefused(
+            "this document has no stored checksum, so a yes cannot be recorded for it"
+        )
     today = datetime.now(UTC).date().isoformat()
     with claude_auto_approve._locked():
         try:
@@ -90,9 +93,13 @@ def grant(document_id: str, actor: str) -> dict:
             blocks = claude_approved.blocked_hashes()
             marked = claude_approved.marked_name_keys()
         except claude_approved.BlockListUnreadable as exc:
-            raise YesRefused(f"the approved list or the block file has a fault ({exc}); nothing was recorded") from exc
+            raise YesRefused(
+                f"the approved list or the block file has a fault ({exc}); nothing was recorded"
+            ) from exc
         if sha in blocks or claude_approved.name_is_blocked(row["filename"], marked):
-            raise YesRefused("this file is blocked for the cloud model by name or checksum; a yes cannot lift a block")
+            raise YesRefused(
+                "this file is blocked for the cloud model by name or checksum; a yes cannot lift a block"
+            )
         rows = data["documents"]
         mine = _yes_rows(sha, rows)
         standing = [r for r in mine if r.get("status") == APPROVED]
@@ -122,7 +129,9 @@ def withdraw(document_id: str, actor: str) -> bool:
     today = datetime.now(UTC).date().isoformat()
     with claude_auto_approve._locked():
         data = claude_approved.read_list_strict()
-        standing = [r for r in _yes_rows(sha, data["documents"]) if r.get("status") == APPROVED]
+        standing = [
+            r for r in _yes_rows(sha, data["documents"]) if r.get("status") == APPROVED
+        ]
         for r in standing:
             r.update(status=WITHDRAWN, withdrawn_by=actor, withdrawn_on=today)
         if standing:
@@ -142,5 +151,12 @@ def record_of(document_id: str) -> dict | None:
     if not mine:
         return None
     pick = next((r for r in mine if r.get("status") == APPROVED), mine[-1])
-    keys = ("document_id", "status", "approved_by", "approved_on", "withdrawn_by", "withdrawn_on")
+    keys = (
+        "document_id",
+        "status",
+        "approved_by",
+        "approved_on",
+        "withdrawn_by",
+        "withdrawn_on",
+    )
     return {k: pick.get(k) for k in keys if pick.get(k) is not None}

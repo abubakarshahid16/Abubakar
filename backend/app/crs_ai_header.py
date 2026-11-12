@@ -6,6 +6,7 @@ run number here: those live on the Notes sheet of the internal copy only.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 
 FIELDS = ("project", "document_number", "title", "revision", "date", "discipline")
@@ -55,16 +56,20 @@ def header_for_run(conn, review_run_id: str) -> dict[str, str]:
     ).fetchone()
     if not row:
         return dict.fromkeys(FIELDS, "")
-    return {**document_header(conn, row[0]), **engine_facts(conn, review_run_id, row[0], ai=False)}
+    return {
+        **document_header(conn, row[0]),
+        **engine_facts(conn, review_run_id, row[0], ai=False),
+    }
 
 
-def reviewed_by(conn, review_run_id: str, *, ai: bool, usd: float | None = None) -> str:
+def reviewed_by(review_run_id: str, *, ai: bool, usd: float | None = None) -> str:
     """The ENGINE that ran, in plain words, for the header of both copies of a sheet. `ai`: the AI reviewer's sheet. Read from what
     the run really did, not from what was planned: the AI reviewer's own cost figure (`usd`, None when no model was asked) and, for the
     rule check, the spend ledger's lines for THIS run (a step that went to Claude left one; none means it all ran on the local
     model). A mixed run names each part. No model id, no run number."""
     if ai:
-        if usd is not None:  # `usd` is None when no model was asked (the run's own record says so)
+        # `usd` is None when no model was asked (the run's own record says so)
+        if usd is not None:
             return "AI reviewer on Claude"
         return "AI reviewer (no model was asked on this run)"
     from . import claude_spend, local_engine_bar
@@ -73,7 +78,9 @@ def reviewed_by(conn, review_run_id: str, *, ai: bool, usd: float | None = None)
         {
             str(e.get("step") or "")
             for e in claude_spend.entries()
-            if e.get("run") == review_run_id and not e.get("refused") and not e.get("estimated_refusal")
+            if e.get("run") == review_run_id
+            and not e.get("refused")
+            and not e.get("estimated_refusal")
         }
         - {""}
     )
@@ -89,7 +96,16 @@ def draft_note(conn, document_id: str) -> str:
 
     got = agent_review_kind.read_kind(conn, document_id)
     kind = got.get("kind") if got.get("known") else None
-    return "" if not kind or agent_review_gate.kind_scored(kind) else agent_review_gate.UNSCORED_WORDS + "."
+    if not kind or agent_review_gate.kind_scored(kind):
+        return ""
+    return agent_review_gate.UNSCORED_WORDS + "."
+
+
+def engine_facts_of(run_id: str, document_id: str, usd: float | None) -> dict[str, str]:
+    """`engine_facts` for the AI reviewer's sheet, on the calling thread's own connection."""
+    from .db import connect
+
+    return engine_facts(connect(), run_id, document_id, ai=True, usd=usd)
 
 
 def engine_facts(
@@ -98,8 +114,11 @@ def engine_facts(
     """{reviewed_by, draft_note} for a header; each '' when it cannot be read (never invented)."""
     try:
         return {
-            REVIEWED_BY: reviewed_by(conn, review_run_id, ai=ai, usd=usd),
+            REVIEWED_BY: reviewed_by(review_run_id, ai=ai, usd=usd),
             DRAFT_NOTE: draft_note(conn, document_id),
         }
-    except Exception:  # noqa: BLE001 - a header never breaks an export
+    except Exception as exc:  # noqa: BLE001 - a header never breaks an export
+        logging.getLogger(__name__).warning(
+            "sheet header: engine facts unreadable (%s)", type(exc).__name__
+        )
         return {REVIEWED_BY: "", DRAFT_NOTE: ""}

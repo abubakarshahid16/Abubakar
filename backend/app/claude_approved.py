@@ -374,7 +374,9 @@ def _lapsed_ids(hashes: dict[str, str | None]) -> frozenset[str]:
         .fetchall()
     )
     return frozenset(
-        r["document_id"] for r in rows if r["document_role"] not in (None, *REVIEW_ROLES)
+        r["document_id"]
+        for r in rows
+        if r["document_role"] not in (None, *REVIEW_ROLES)
     )
 
 

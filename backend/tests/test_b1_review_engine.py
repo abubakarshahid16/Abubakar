@@ -1,3 +1,4 @@
+# ruff: noqa: F811, C408
 """ONE Review button: Automatic, Claude, Local only (owner decision, 12 Nov 2026, #1584 comment 6820183348).
 
 Synthetic documents only. The resolver is pure; the bar, the approvals, the header and the routes are checked end to end with a fake
@@ -15,10 +16,10 @@ from fastapi.testclient import TestClient
 from app import (
     agent_claude,
     agent_review_gate,
+    classification,
     claude_approved,
     claude_auto_approve,
     claude_spend,
-    classification,
     contract_yes,
     crs_ai_header,
     crs_layout,
@@ -69,7 +70,10 @@ def test_local_only_runs_the_rule_check_and_says_the_ai_review_needs_claude():
     assert plan.part(E.RULE_CHECK).engine == E.ON_LOCAL
     ai = plan.part(E.AI_REVIEW)
     assert ai.engine == E.NOT_RUN
-    assert ai.why == "The AI review needs Claude and will not run; the rule check runs on this computer"
+    assert (
+        ai.why
+        == "The AI review needs Claude and will not run; the rule check runs on this computer"
+    )
     assert not plan.text_leaves and plan.refused is None
 
 
@@ -78,7 +82,11 @@ def test_local_only_runs_the_rule_check_and_says_the_ai_review_needs_claude():
     [
         (dict(agent_enabled=False), "switched off", E.ON_CLAUDE),
         (dict(kind=None), "not known", E.ON_CLAUDE),
-        (dict(kind="drawing", kind_scored=True), "does not take a drawing", E.ON_CLAUDE),
+        (
+            dict(kind="drawing", kind_scored=True),
+            "does not take a drawing",
+            E.ON_CLAUDE,
+        ),
         (dict(provider="ollama"), "not switched on", E.ON_LOCAL),
         (dict(agent_engine_claude=False), "not switched on", E.ON_CLAUDE),
         (dict(lane_open=False), "connection to Claude is closed", E.ON_LOCAL),
@@ -89,7 +97,9 @@ def test_local_only_runs_the_rule_check_and_says_the_ai_review_needs_claude():
         (dict(caps_ok=False), "cap", E.ON_LOCAL),
     ],
 )
-def test_automatic_falls_back_to_local_with_one_plain_sentence(closed, words, rule_check):
+def test_automatic_falls_back_to_local_with_one_plain_sentence(
+    closed, words, rule_check
+):
     plan = E.decide("automatic", open_facts(**closed))
     assert plan.refused is None
     ai = plan.part(E.AI_REVIEW)
@@ -119,13 +129,18 @@ def test_a_contract_needs_the_owners_yes_on_claude_and_nothing_on_local():
     assert refused.refused and E.NEEDS_YES in refused.refused and refused.needs_yes
     auto = E.decide("automatic", f)
     assert auto.part(E.AI_REVIEW).why == E.NEEDS_YES and not auto.text_leaves
-    yes = E.decide("claude", open_facts(kind="contract", is_contract=True, contract_yes=True))
+    yes = E.decide(
+        "claude", open_facts(kind="contract", is_contract=True, contract_yes=True)
+    )
     assert yes.refused is None and yes.text_leaves
 
 
 def test_a_contract_says_its_checklists_are_empty():
     plan = E.decide("automatic", open_facts(kind="contract", is_contract=True))
-    assert {w["part"] for w in plan.wont_run} == {"contract checklist", "calculation checklist"}
+    assert {w["part"] for w in plan.wont_run} == {
+        "contract checklist",
+        "calculation checklist",
+    }
     assert all("empty" in w["why"] for w in plan.wont_run)
     assert E.decide("automatic", open_facts()).wont_run == []
 
@@ -135,7 +150,10 @@ def test_an_unscored_kind_is_not_offered_unless_the_setting_says_so():
     plan = E.decide("automatic", f)
     assert plan.unscored and plan.part(E.AI_REVIEW).engine == E.NOT_RUN
     assert agent_review_gate.UNSCORED_WORDS in plan.part(E.AI_REVIEW).why
-    on = E.decide("automatic", open_facts(kind="procedure", kind_scored=False, scored_allowed=True))
+    on = E.decide(
+        "automatic",
+        open_facts(kind="procedure", kind_scored=False, scored_allowed=True),
+    )
     assert on.unscored and on.part(E.AI_REVIEW).engine == E.ON_CLAUDE
 
 
@@ -148,7 +166,15 @@ def test_every_choice_by_every_kind_table():
     """The resolver table of the PR: rows are choices, columns are kinds, all doors open."""
     got = {}
     for choice in E.CHOICES:
-        for kind in ("datasheet", "procedure", "contract", "drawing", "test_record", "other", None):
+        for kind in (
+            "datasheet",
+            "procedure",
+            "contract",
+            "drawing",
+            "test_record",
+            "other",
+            None,
+        ):
             scored = kind in agent_review_gate.SCORED_KINDS
             plan = E.decide(
                 choice,
@@ -167,8 +193,13 @@ def test_every_choice_by_every_kind_table():
         assert got[("local", kind)] == (False, E.ON_LOCAL, E.NOT_RUN)
     for kind in ("drawing", "test_record", "other", None):
         assert got[("automatic", kind)][0] is False
-        assert got[("automatic", kind)][1:] == (E.ON_LOCAL, E.NOT_RUN)  # unscored: nothing goes out
-        assert got[("claude", kind)][0] is True  # Claude asked for, nothing may go: refused
+        assert got[("automatic", kind)][1:] == (
+            E.ON_LOCAL,
+            E.NOT_RUN,
+        )  # unscored: nothing goes out
+        assert (
+            got[("claude", kind)][0] is True
+        )  # Claude asked for, nothing may go: refused
 
 
 # --------------------------------------------------------------------------------------------- the brute force
@@ -192,7 +223,13 @@ def _allowed_to_leave(f: F) -> bool:
     """The rules of CLAUDE.md rule 1 and the owner's decision, written again from the outside."""
     if not (f.provider == "claude" or f.provider == "per_task"):
         return False
-    if not (f.lane_open and not f.blocked and f.paper_approved and f.scored_allowed and f.caps_ok):
+    if not (
+        f.lane_open
+        and not f.blocked
+        and f.paper_approved
+        and f.scored_allowed
+        and f.caps_ok
+    ):
         return False
     if f.is_contract and not f.contract_yes:
         return False
@@ -206,25 +243,43 @@ def test_brute_force_no_combination_sends_text_out_when_the_answer_says_it_would
             plan = E.decide(choice, f)
             seen += 1
             if choice == E.LOCAL:
-                assert not plan.text_leaves and all(p.engine != E.ON_CLAUDE for p in plan.parts)
-            if plan.text_leaves:  # an answer that says text leaves must be one the rules allow
+                assert not plan.text_leaves and all(
+                    p.engine != E.ON_CLAUDE for p in plan.parts
+                )
+            if (
+                plan.text_leaves
+            ):  # an answer that says text leaves must be one the rules allow
                 assert _allowed_to_leave(f), (choice, f)
                 assert choice != E.LOCAL
             for p in plan.parts:  # a part is on Claude only through the lane its own installed switch opens
                 if p.engine == E.ON_CLAUDE and p.name == E.AI_REVIEW:
-                    assert f.provider == "claude" or (f.provider == "per_task" and f.agent_engine_claude)
-                    assert f.agent_enabled and f.kind in ("datasheet", "procedure", "contract")
+                    assert f.provider == "claude" or (
+                        f.provider == "per_task" and f.agent_engine_claude
+                    )
+                    assert f.agent_enabled and f.kind in (
+                        "datasheet",
+                        "procedure",
+                        "contract",
+                    )
                 if p.engine == E.ON_CLAUDE and p.name == E.RULE_CHECK:
-                    assert f.provider == "claude" or (f.provider == "per_task" and f.step_engine_claude)
+                    assert f.provider == "claude" or (
+                        f.provider == "per_task" and f.step_engine_claude
+                    )
             if choice == E.AUTOMATIC:
-                assert plan.refused is None  # Automatic never refuses: it falls back, with a reason
+                assert (
+                    plan.refused is None
+                )  # Automatic never refuses: it falls back, with a reason
                 assert all(p.why for p in plan.parts)
             if choice == E.CLAUDE:
-                assert plan.refused is not None or plan.text_leaves  # never a silent local run
+                assert (
+                    plan.refused is not None or plan.text_leaves
+                )  # never a silent local run
             if plan.refused:
                 assert plan.runs == []
             if f.is_contract and not f.contract_yes:
-                assert not plan.text_leaves  # a contract never goes without the owner's yes
+                assert (
+                    not plan.text_leaves
+                )  # a contract never goes without the owner's yes
     assert seen == len(KINDS) * 4 * 2**10 * 3
 
 
@@ -247,7 +302,11 @@ def lane(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "crs_ai_wording_enabled", True)
     monkeypatch.setattr(settings, "crs_ai_wording_engine", "claude")
     monkeypatch.setattr(settings, "clause_review_enabled", True)
-    for name in ("STANDARDS_READER_ENABLED", "STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "ANTHROPIC_API_KEY"):
+    for name in (
+        "STANDARDS_READER_ENABLED",
+        "STANDARDS_READER_ALLOW_PUBLIC_EGRESS",
+        "ANTHROPIC_API_KEY",
+    ):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -262,12 +321,16 @@ def test_the_bar_closes_every_door_the_lane_has(lane):
         assert agent_claude.gate_open({"REASONING_PROVIDER": "claude"}) is False
         assert agent_claude.gate_open() is False
         assert claude_approved.refusal()[0] == E.BARRED_CODE
-        assert local_engine_bar.is_claude_lane_run(False) is False  # no Claude lane: no bar on the local engine either
+        assert (
+            local_engine_bar.is_claude_lane_run(False) is False
+        )  # no Claude lane: no bar on the local engine either
         with claude_approved.carrying(()):
             with pytest.raises(claude_spend.DocumentNotApproved) as caught:
                 claude_spend.reserve("t", 0.01, model="claude-sonnet-5")
         assert caught.value.code == E.BARRED_CODE
-    assert rp.claude_unavailable_for_task("claude")[0] is None  # the bar is per run: gone after
+    assert (
+        rp.claude_unavailable_for_task("claude")[0] is None
+    )  # the bar is per run: gone after
 
 
 def _fake_claude():
@@ -294,37 +357,59 @@ def no_local_engine(monkeypatch):
         monkeypatch.setattr(model_transport, name, gone)
 
 
-def _run_started(world, choice):  # noqa: F811
-    run_id, plan = review_engine_start.start(world["sub"], world["scope"], "adm", choice)
+def _run_started(world, choice):
+    run_id, plan = review_engine_start.start(
+        world["sub"], world["scope"], "adm", choice
+    )
     review_jobs.claim_next(W)
-    job = db.connect().execute("SELECT id FROM jobs WHERE review_run_id = ?", (run_id,)).fetchone()["id"]
+    job = (
+        db.connect()
+        .execute("SELECT id FROM jobs WHERE review_run_id = ?", (run_id,))
+        .fetchone()["id"]
+    )
     return run_id, plan, review_jobs.run(job, W)
 
 
-def test_local_only_reaches_reader_transport_zero_times_with_the_lane_wide_open(world, lane, no_local_engine):  # noqa: F811
+def test_local_only_reaches_reader_transport_zero_times_with_the_lane_wide_open(
+    world, lane, no_local_engine
+):
     fake = _fake_claude()
     lane.setattr(reader_transport, "transport", lambda: fake)
-    lane.setattr(reader_transport, "stream", lambda *a, **k: pytest.fail("a call reached reader_transport"))
+    lane.setattr(
+        reader_transport,
+        "stream",
+        lambda *a, **k: pytest.fail("a call reached reader_transport"),
+    )
     run_id, plan, state = _run_started(world, "local")
     assert state == "done"
     assert fake.calls == [], "Local only sent something to Claude"
     assert plan["text_leaves"] is False and plan["choice"] == "local"
-    assert [r["step"] for r in claude_spend.entries() if r.get("run") == run_id and not r.get("refused")] == []
+    assert [
+        r["step"]
+        for r in claude_spend.entries()
+        if r.get("run") == run_id and not r.get("refused")
+    ] == []
 
 
-def test_a_plan_on_claude_is_not_barred_and_does_call_claude(world, lane, no_local_engine):  # noqa: F811
+def test_a_plan_on_claude_is_not_barred_and_does_call_claude(
+    world, lane, no_local_engine
+):
     """The bar follows the plan, never more: with the approvals met the same run does reach Claude (the test above is not vacuous)."""
     fake = _fake_claude()
     lane.setattr(reader_transport, "transport", lambda: fake)
     run_id, plan, state = _run_started(world, "automatic")
     assert plan["parts"][0]["engine"] == "claude", plan["parts"][0]
     assert state == "done"
-    assert fake.calls, "a plan that said Claude never reached Claude: the Local-only test above proves nothing"
+    assert fake.calls, (
+        "a plan that said Claude never reached Claude: the Local-only test above proves nothing"
+    )
     stored = review_engine.stored(db.connect(), run_id)
     assert stored["bar_claude"] == 0
 
 
-def test_automatic_with_an_unapproved_paper_is_kept_local_and_barred(world, lane, no_local_engine):  # noqa: F811
+def test_automatic_with_an_unapproved_paper_is_kept_local_and_barred(
+    world, lane, no_local_engine
+):
     lane.setattr(settings, "claude_approved_list_enforced", True)
     lane.setattr(settings, "claude_auto_approve_reviews_enabled", False)
     fake = _fake_claude()
@@ -335,8 +420,8 @@ def test_automatic_with_an_unapproved_paper_is_kept_local_and_barred(world, lane
     assert review_engine.stored(db.connect(), run_id)["bar_claude"] == 1
 
 
-def test_the_old_start_has_no_stored_choice_and_is_not_barred(world, lane):  # noqa: F811
-    run_id, job_id = _enqueue(world)
+def test_the_old_start_has_no_stored_choice_and_is_not_barred(world, lane):
+    _run_id, job_id = _enqueue(world)
     assert review_engine.bar_for_job(db.connect(), job_id) is False
 
 
@@ -350,10 +435,19 @@ def _rows(table):
         return None
 
 
-def test_the_pre_start_route_has_no_side_effect_and_makes_no_call(world, lane, monkeypatch):  # noqa: F811
+def test_the_pre_start_route_has_no_side_effect_and_makes_no_call(
+    world, lane, monkeypatch
+):
     monkeypatch.setattr(reader_transport, "transport", lambda: pytest.fail("a call"))
-    monkeypatch.setattr(model_transport, "post_json_retrying", lambda *a, **k: pytest.fail("a local call"))
-    before = {t: _rows(t) for t in ("review_runs", "jobs", "audit_events", "review_engine_choice")}
+    monkeypatch.setattr(
+        model_transport,
+        "post_json_retrying",
+        lambda *a, **k: pytest.fail("a local call"),
+    )
+    before = {
+        t: _rows(t)
+        for t in ("review_runs", "jobs", "audit_events", "review_engine_choice")
+    }
     ledger = claude_spend.entries()
     client = TestClient(app)
     for choice in ("automatic", "claude", "local"):
@@ -372,55 +466,95 @@ def test_the_pre_start_route_has_no_side_effect_and_makes_no_call(world, lane, m
     assert after == before and claude_spend.entries() == ledger
 
 
-def test_the_plan_names_documents_cost_and_what_will_not_run(world, lane):  # noqa: F811
+def test_the_plan_names_documents_cost_and_what_will_not_run(world, lane):
     lane.setattr(settings, "claude_approved_list_enforced", False)
-    got = TestClient(app).get(
-        "/api/reviews/plan", params={"submittal_document_id": world["sub"], "engine": "automatic"}, headers=world["admin"]
-    ).json()
+    got = (
+        TestClient(app)
+        .get(
+            "/api/reviews/plan",
+            params={"submittal_document_id": world["sub"], "engine": "automatic"},
+            headers=world["admin"],
+        )
+        .json()
+    )
     assert got["text_leaves"] is True and got["documents"]["paper"] is True
     assert got["cost"]["at_most_usd"] == float(settings.claude_budget_usd_per_run)
     assert got["cost"]["exact"] is False and got["cost"]["last_review_usd"] is None
     ai = next(p for p in got["parts"] if p["name"] == "ai_review")
-    assert ai["engine"] == "not_run" and ai["why"]  # the paper's kind is not known: said, not hidden
+    assert (
+        ai["engine"] == "not_run" and ai["why"]
+    )  # the paper's kind is not known: said, not hidden
 
 
-def test_the_plan_of_a_paper_the_caller_cannot_read_is_a_404(world, lane):  # noqa: F811
+def test_the_plan_of_a_paper_the_caller_cannot_read_is_a_404(world, lane):
     r = TestClient(app).get(
-        "/api/reviews/plan", params={"submittal_document_id": "nope", "engine": "local"}, headers=world["admin"]
+        "/api/reviews/plan",
+        params={"submittal_document_id": "nope", "engine": "local"},
+        headers=world["admin"],
     )
     assert r.status_code == 404
 
 
-def test_start_refuses_claude_with_a_plain_sentence_and_queues_nothing(world, monkeypatch):  # noqa: F811
+def test_start_refuses_claude_with_a_plain_sentence_and_queues_nothing(
+    world, monkeypatch
+):
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
     before = _rows("review_runs")
     r = TestClient(app).post(
-        "/api/reviews/start", json={"submittal_document_id": world["sub"], "engine": "claude"}, headers=world["admin"]
+        "/api/reviews/start",
+        json={"submittal_document_id": world["sub"], "engine": "claude"},
+        headers=world["admin"],
     )
     assert r.status_code == 409
-    assert "Claude cannot be used" in json.dumps(r.json()) and _rows("review_runs") == before
+    assert (
+        "Claude cannot be used" in json.dumps(r.json())
+        and _rows("review_runs") == before
+    )
 
 
-def test_start_local_queues_the_rule_check_and_stores_the_choice(world, monkeypatch):  # noqa: F811
+def test_start_local_queues_the_rule_check_and_stores_the_choice(world, monkeypatch):
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
     r = TestClient(app).post(
-        "/api/reviews/start", json={"submittal_document_id": world["sub"], "engine": "local"}, headers=world["admin"]
+        "/api/reviews/start",
+        json={"submittal_document_id": world["sub"], "engine": "local"},
+        headers=world["admin"],
     )
     assert r.status_code == 200, r.text
     stored = review_engine.stored(db.connect(), r.json()["review_run_id"])
-    assert stored["choice"] == "local" and stored["bar_claude"] == 1 and stored["then_ai"] == 0
+    assert (
+        stored["choice"] == "local"
+        and stored["bar_claude"] == 1
+        and stored["then_ai"] == 0
+    )
 
 
-def test_start_needs_an_admin(world, monkeypatch):  # noqa: F811
-    r = TestClient(app).post("/api/reviews/start", json={"submittal_document_id": world["sub"], "engine": "local"})
+def test_start_needs_an_admin(world, monkeypatch):
+    r = TestClient(app).post(
+        "/api/reviews/start",
+        json={"submittal_document_id": world["sub"], "engine": "local"},
+    )
     assert r.status_code in (401, 404)
 
 
-def test_the_ai_review_follows_the_rule_check_and_is_checked_again(world, lane, monkeypatch):  # noqa: F811
+def test_the_ai_review_follows_the_rule_check_and_is_checked_again(
+    world, lane, monkeypatch
+):
     run_id, _job = _enqueue(world)
     plan = {"choice": "automatic", "project_document_ids": [], "fresh": False}
-    review_engine.record(db.connect(), run_id, plan, "adm", then_ai=True, bar_claude=False, now="2026-11-12T00:00:00Z")
-    job_id = db.connect().execute("SELECT id FROM jobs WHERE review_run_id = ?", (run_id,)).fetchone()["id"]
+    review_engine.record(
+        db.connect(),
+        run_id,
+        plan,
+        "adm",
+        then_ai=True,
+        bar_claude=False,
+        now="2026-11-12T00:00:00Z",
+    )
+    job_id = (
+        db.connect()
+        .execute("SELECT id FROM jobs WHERE review_run_id = ?", (run_id,))
+        .fetchone()["id"]
+    )
     ai_plan = {"choice": "automatic", "refused": None, "kind": "datasheet",
                "parts": [{"name": "rule_check", "engine": "local", "why": "x"},
                          {"name": "ai_review", "engine": "claude", "why": "y"}]}  # fmt: skip
@@ -428,9 +562,13 @@ def test_the_ai_review_follows_the_rule_check_and_is_checked_again(world, lane, 
     monkeypatch.setattr(review_engine, "plan_for", lambda *a, **k: ai_plan)
     monkeypatch.setattr(review_engine_start.agent_review_gate, "enabled", lambda: True)
     monkeypatch.setattr(
-        review_engine_start.agent_review_jobs, "enqueue", lambda doc, **k: queued.append((doc, k)) or ("ai-run", "ai-job")
+        review_engine_start.agent_review_jobs,
+        "enqueue",
+        lambda doc, **k: queued.append((doc, k)) or ("ai-run", "ai-job"),
     )
-    assert review_engine_start.follow_up(job_id, "running") is None and not queued  # only after a finished rule check
+    assert (
+        review_engine_start.follow_up(job_id, "running") is None and not queued
+    )  # only after a finished rule check
     assert review_engine_start.follow_up(job_id, "done") == "ai-run"
     assert queued[0][0] == world["sub"] and queued[0][1]["requested_by"] == "adm"
     assert review_engine.stored(db.connect(), run_id)["followed_by"] == "ai-run"
@@ -440,8 +578,20 @@ def test_the_ai_review_follows_the_rule_check_and_is_checked_again(world, lane, 
     with db.connect() as conn:
         conn.execute("UPDATE review_runs SET status='complete' WHERE id = ?", (run_id,))
     run_b, job_b = _enqueue(world)
-    review_engine.record(db.connect(), run_b, plan, "adm", then_ai=True, bar_claude=False, now="2026-11-12T00:00:00Z")
-    ai_plan["parts"][1] = {"name": "ai_review", "engine": "not_run", "why": "the spending cap leaves no room today"}
+    review_engine.record(
+        db.connect(),
+        run_b,
+        plan,
+        "adm",
+        then_ai=True,
+        bar_claude=False,
+        now="2026-11-12T00:00:00Z",
+    )
+    ai_plan["parts"][1] = {
+        "name": "ai_review",
+        "engine": "not_run",
+        "why": "the spending cap leaves no room today",
+    }
     queued.clear()
     assert review_engine_start.follow_up(job_b, "done") is None and not queued
     assert "spending cap" in review_engine.stored(db.connect(), run_b)["followed_by"]
@@ -456,7 +606,13 @@ def _doc(doc_id, sha, role=None, filename=None):
         conn.execute(
             "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
             " VALUES (?,?,?,1,?,'ready',1,?)",
-            (doc_id, filename or f"{doc_id}.pdf", sha, f"{doc_id}.pdf", "2026-11-12T00:00:00Z"),
+            (
+                doc_id,
+                filename or f"{doc_id}.pdf",
+                sha,
+                f"{doc_id}.pdf",
+                "2026-11-12T00:00:00Z",
+            ),
         )
     if role:
         classification.set_role(doc_id, role)
@@ -464,7 +620,7 @@ def _doc(doc_id, sha, role=None, filename=None):
 
 
 @pytest.fixture
-def approvals(world, monkeypatch):  # noqa: F811
+def approvals(world, monkeypatch):
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", True)
     monkeypatch.setattr(settings, "claude_spend_log", settings.data_dir / "spend.jsonl")
@@ -477,21 +633,29 @@ def _approved(sha) -> bool:
 
 def test_a_specification_for_review_is_approved_for_claude(approvals):
     spec = _doc("spec_1", "11" * 32, "SPECIFICATION")
-    run_id, _ = review_jobs.enqueue(spec, allowed_document_ids=frozenset({spec}), requested_by=None)
+    run_id, _ = review_jobs.enqueue(
+        spec, allowed_document_ids=frozenset({spec}), requested_by=None
+    )
     assert _approved("11" * 32), "a specification uploaded for review was not approved"
     claude_auto_approve.on_upload(spec)
     assert claude_approved.SPECIFICATION_ROLE in claude_approved.REVIEW_ROLES and run_id
 
 
-def test_a_specification_role_is_a_real_role_and_a_standard_is_not_a_review_paper(approvals):
+def test_a_specification_role_is_a_real_role_and_a_standard_is_not_a_review_paper(
+    approvals,
+):
     assert classification.ROLES.count("SPECIFICATION") == 1
     std = _doc("std_1", "22" * 32, "COMPANY_STANDARD")
     review_jobs.enqueue(std, allowed_document_ids=frozenset({std}), requested_by=None)
     assert not _approved("22" * 32)
 
 
-def test_a_contract_paper_is_not_approved_by_the_automatic_route(approvals, monkeypatch):
-    monkeypatch.setattr(claude_auto_approve, "is_contract_paper", lambda d: d == "contract_1")
+def test_a_contract_paper_is_not_approved_by_the_automatic_route(
+    approvals, monkeypatch
+):
+    monkeypatch.setattr(
+        claude_auto_approve, "is_contract_paper", lambda d: d == "contract_1"
+    )
     con = _doc("contract_1", "33" * 32, "CONTRACTOR_SUBMITTAL")
     review_jobs.enqueue(con, allowed_document_ids=frozenset({con}), requested_by=None)
     assert not _approved("33" * 32)
@@ -501,27 +665,40 @@ def test_a_contract_paper_is_not_approved_by_the_automatic_route(approvals, monk
 def test_the_contract_kind_is_read_from_the_papers_own_decided_kind(approvals):
     con = _doc("c_kind", "34" * 32, "CONTRACTOR_SUBMITTAL")
     with db.connect() as conn:
-        conn.execute("UPDATE document_classification SET document_role='CONTRACT_DOCUMENT' WHERE document_id=?", (con,))
+        conn.execute(
+            "UPDATE document_classification SET document_role='CONTRACT_DOCUMENT' WHERE document_id=?",
+            (con,),
+        )
     assert claude_auto_approve.is_contract_paper(con) is True
     other = _doc("not_contract", "35" * 32, "CONTRACTOR_SUBMITTAL")
     assert claude_auto_approve.is_contract_paper(other) is False
 
 
-def test_the_yes_is_recorded_per_file_with_who_when_and_the_document_and_can_be_withdrawn(approvals):
+def test_the_yes_is_recorded_per_file_with_who_when_and_the_document_and_can_be_withdrawn(
+    approvals,
+):
     con = _doc("contract_2", "44" * 32, "CONTRACT_DOCUMENT")
     assert contract_yes.has_yes(con) is False and not _approved("44" * 32)
     row = contract_yes.grant(con, "owner@example.test")
-    assert row["approved_by"] == "owner@example.test" and row["document_id"] == con and row["approved_on"]
+    assert (
+        row["approved_by"] == "owner@example.test"
+        and row["document_id"] == con
+        and row["approved_on"]
+    )
     assert contract_yes.has_yes(con) and _approved("44" * 32)
     assert contract_yes.record_of(con)["approved_by"] == "owner@example.test"
-    audit = [r["action"] for r in db.connect().execute("SELECT action FROM audit_events")]
+    audit = [
+        r["action"] for r in db.connect().execute("SELECT action FROM audit_events")
+    ]
     assert contract_yes.AUDIT_GRANTED in audit
     # the gate honours it
     with claude_approved.carrying([con]):
         assert claude_approved.refusal() is None
     assert contract_yes.withdraw(con, "owner@example.test") is True
     assert not contract_yes.has_yes(con) and not _approved("44" * 32)
-    assert contract_yes.AUDIT_WITHDRAWN in [r["action"] for r in db.connect().execute("SELECT action FROM audit_events")]
+    assert contract_yes.AUDIT_WITHDRAWN in [
+        r["action"] for r in db.connect().execute("SELECT action FROM audit_events")
+    ]
     assert contract_yes.record_of(con)["status"] == "withdrawn"
     with claude_approved.carrying([con]):
         assert claude_approved.refusal()[0] == claude_approved.NOT_APPROVED
@@ -536,25 +713,42 @@ def test_a_changed_file_asks_again(approvals):
 
 def test_a_block_wins_over_a_yes(approvals):
     con = _doc("contract_4", "66" * 32, "CONTRACT_DOCUMENT")
-    claude_approved.block_file_path().write_text(json.dumps({"blocked_sha256": ["66" * 32]}))
+    claude_approved.block_file_path().write_text(
+        json.dumps({"blocked_sha256": ["66" * 32]})
+    )
     with pytest.raises(contract_yes.YesRefused):
         contract_yes.grant(con, "owner")
-    named = _doc("reg", "67" * 32, "CONTRACT_DOCUMENT", filename="Engineering Deliverables (1).pdf")
+    named = _doc(
+        "reg",
+        "67" * 32,
+        "CONTRACT_DOCUMENT",
+        filename=f"{claude_approved.REGISTER_NAME_KEY} (1).pdf",
+    )
     with pytest.raises(contract_yes.YesRefused):
         contract_yes.grant(named, "owner")
 
 
-def test_the_yes_routes_are_admin_only_and_scoped(world, monkeypatch):  # noqa: F811
+def test_the_yes_routes_are_admin_only_and_scoped(world, monkeypatch):
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     client = TestClient(app)
-    assert client.post("/api/reviews/contract-yes", json={"document_id": world["sub"]}).status_code in (401, 404)
-    ok = client.post("/api/reviews/contract-yes", json={"document_id": world["sub"]}, headers=world["admin"])
+    assert client.post(
+        "/api/reviews/contract-yes", json={"document_id": world["sub"]}
+    ).status_code in (401, 404)
+    ok = client.post(
+        "/api/reviews/contract-yes",
+        json={"document_id": world["sub"]},
+        headers=world["admin"],
+    )
     assert ok.status_code == 200 and ok.json()["document_id"] == world["sub"]
     plan = client.get(
-        "/api/reviews/plan", params={"submittal_document_id": world["sub"], "engine": "local"}, headers=world["admin"]
+        "/api/reviews/plan",
+        params={"submittal_document_id": world["sub"], "engine": "local"},
+        headers=world["admin"],
     ).json()
     assert plan["contract_yes"]["approved_by"]
-    gone = client.delete(f"/api/reviews/contract-yes/{world['sub']}", headers=world["admin"])
+    gone = client.delete(
+        f"/api/reviews/contract-yes/{world['sub']}", headers=world["admin"]
+    )
     assert gone.json() == {"withdrawn": True}
 
 
@@ -562,82 +756,134 @@ def test_the_yes_routes_are_admin_only_and_scoped(world, monkeypatch):  # noqa: 
 
 
 def test_only_scored_kinds_are_scored():
-    assert agent_review_gate.kind_scored("datasheet") and agent_review_gate.kind_scored("contract")
-    assert not agent_review_gate.kind_scored("drawing") and not agent_review_gate.kind_scored(None)
-    assert not settings.review_unscored_kinds_for_claude_enabled  # the default: not offered
+    assert agent_review_gate.kind_scored("datasheet") and agent_review_gate.kind_scored(
+        "contract"
+    )
+    assert not agent_review_gate.kind_scored(
+        "drawing"
+    ) and not agent_review_gate.kind_scored(None)
+    assert (
+        not settings.review_unscored_kinds_for_claude_enabled
+    )  # the default: not offered
 
 
 # --------------------------------------------------------------------------------------------- the header
 
 
 def test_engine_rows_are_one_home_and_name_the_engine_not_a_model():
-    rows = crs_layout.engine_rows({"reviewed_by": "AI reviewer on Claude", "draft_note": "A draft."})
+    rows = crs_layout.engine_rows(
+        {"reviewed_by": "AI reviewer on Claude", "draft_note": "A draft."}
+    )
     assert rows == [("Reviewed by:", "AI reviewer on Claude"), ("Note:", "A draft.")]
-    assert crs_layout.engine_rows({"reviewed_by": ""}) == [] and crs_layout.engine_rows(None) == []
+    assert (
+        crs_layout.engine_rows({"reviewed_by": ""}) == []
+        and crs_layout.engine_rows(None) == []
+    )
 
 
 def test_the_ai_header_names_the_engine_on_both_copies():
     from app import crs_ai_workbook
 
-    meta = {"header": {"project": "P", "reviewed_by": "AI reviewer on Claude", "draft_note": ""}, "paper": "x.pdf"}
+    meta = {
+        "header": {
+            "project": "P",
+            "reviewed_by": "AI reviewer on Claude",
+            "draft_note": "",
+        },
+        "paper": "x.pdf",
+    }
     for copy in ("internal", "contractor"):
         view = crs_ai_workbook.layout_view([], meta, copy)
-        assert ("Reviewed by:", "AI reviewer on Claude") in [tuple(p) for p in view["header"]]
-        assert "claude-" not in json.dumps(view["header"]) and "run" not in json.dumps(view["header"]).lower().replace("review", "")
+        assert ("Reviewed by:", "AI reviewer on Claude") in [
+            tuple(p) for p in view["header"]
+        ]
+        assert "claude-" not in json.dumps(view["header"]) and "run" not in json.dumps(
+            view["header"]
+        ).lower().replace("review", "")
 
 
 def test_the_normal_header_names_the_engine():
     from app import crs_normal
 
     view = {"header": [], "applicable_standards": []}
-    pairs = crs_normal._pairs(view, {"header": {"reviewed_by": "rule check on the local model"}})
+    pairs = crs_normal._pairs(
+        view, {"header": {"reviewed_by": "rule check on the local model"}}
+    )
     assert ("Reviewed by:", "rule check on the local model") in pairs
 
 
-def test_reviewed_by_reads_what_the_run_did(world, lane):  # noqa: F811
+def test_reviewed_by_reads_what_the_run_did(world, lane):
     conn = db.connect()
-    assert crs_ai_header.reviewed_by(conn, "r", ai=False) == "rule check on the local model"
-    assert crs_ai_header.reviewed_by(conn, "r", ai=True, usd=0.5) == "AI reviewer on Claude"
-    assert "no model was asked" in crs_ai_header.reviewed_by(conn, "r", ai=True, usd=None)
-    claude_spend.record(step="crs_wording", model="claude-sonnet-5", usage={"input_tokens": 1, "output_tokens": 1},
-                        prompt_sha256="x", wall_time_s=0.1, finish_reason="end_turn")  # not under a run: not counted
+    assert crs_ai_header.reviewed_by("r", ai=False) == "rule check on the local model"
+    assert crs_ai_header.reviewed_by("r", ai=True, usd=0.5) == "AI reviewer on Claude"
+    assert "no model was asked" in crs_ai_header.reviewed_by(
+        conn, "r", ai=True, usd=None
+    )
+    claude_spend.record(
+        step="crs_wording",
+        model="claude-sonnet-5",
+        usage={"input_tokens": 1, "output_tokens": 1},
+        prompt_sha256="x",
+        wall_time_s=0.1,
+        finish_reason="end_turn",
+    )  # not under a run: not counted
     with claude_spend.for_run("r"):
-        claude_spend.record(step="crs_wording", model="claude-sonnet-5", usage={"input_tokens": 1, "output_tokens": 1},
-                            prompt_sha256="x", wall_time_s=0.1, finish_reason="end_turn")
-    mixed = crs_ai_header.reviewed_by(conn, "r", ai=False)
-    assert mixed.startswith("rule check on the local model, with Claude for:") and "wording" in mixed
+        claude_spend.record(
+            step="crs_wording",
+            model="claude-sonnet-5",
+            usage={"input_tokens": 1, "output_tokens": 1},
+            prompt_sha256="x",
+            wall_time_s=0.1,
+            finish_reason="end_turn",
+        )
+    mixed = crs_ai_header.reviewed_by("r", ai=False)
+    assert (
+        mixed.startswith("rule check on the local model, with Claude for:")
+        and "wording" in mixed
+    )
     assert "claude-sonnet" not in mixed
 
 
-def test_an_unscored_kind_carries_the_draft_sentence_in_the_header(world):  # noqa: F811
+def test_an_unscored_kind_carries_the_draft_sentence_in_the_header(world):
     conn = db.connect()
     with conn:
         conn.execute(
             "INSERT INTO document_kinds (document_id, kind, state, routed_at) VALUES (?, 'drawing', 'confirmed', 'x')",
             (world["sub"],),
         )
-    assert crs_ai_header.draft_note(conn, world["sub"]) == agent_review_gate.UNSCORED_WORDS + "."
+    assert (
+        crs_ai_header.draft_note(conn, world["sub"])
+        == agent_review_gate.UNSCORED_WORDS + "."
+    )
     with conn:
-        conn.execute("UPDATE document_kinds SET kind = 'datasheet' WHERE document_id = ?", (world["sub"],))
+        conn.execute(
+            "UPDATE document_kinds SET kind = 'datasheet' WHERE document_id = ?",
+            (world["sub"],),
+        )
     assert crs_ai_header.draft_note(conn, world["sub"]) == ""
-
 
 
 # --------------------------------------------------------------------------------------------- the trial script
 
 
-def test_the_trial_takes_an_engine_and_local_checks_the_ledger_and_that_no_ai_review_ran(world, tmp_path, monkeypatch):  # noqa: F811
+def test_the_trial_takes_an_engine_and_local_checks_the_ledger_and_that_no_ai_review_ran(
+    world, tmp_path, monkeypatch
+):
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
     import trial_on_copy as t
 
-    assert t.TrialConfig(data_dir=tmp_path, document="d").engine is None  # the old start stays the default
+    assert (
+        t.TrialConfig(data_dir=tmp_path, document="d").engine is None
+    )  # the old start stays the default
     monkeypatch.setattr(t, "wait_for", lambda *a, **k: "completed")
     import sqlite3
 
-    def own_connection(_db):  # the script closes what it opens: give it its own, not the app's
+    def own_connection(
+        _db,
+    ):  # the script closes what it opens: give it its own, not the app's
         conn = sqlite3.connect(settings.db_path)
         conn.row_factory = sqlite3.Row
         return conn
@@ -645,10 +891,18 @@ def test_the_trial_takes_an_engine_and_local_checks_the_ledger_and_that_no_ai_re
     monkeypatch.setattr(t, "ro", own_connection)
 
     cfg = t.TrialConfig(data_dir=tmp_path, document=world["sub"], engine="local")
-    follow, checks = t.engine_follow(None, cfg, "run-1", tmp_path / "x.sqlite", tmp_path, 0)
+    follow, checks = t.engine_follow(
+        None, cfg, "run-1", tmp_path / "x.sqlite", tmp_path, 0
+    )
     names = {c.name: c.ok for c in checks}
-    assert follow is None and names["rule check completed"] and names["no Claude call (ledger unchanged)"]
+    assert (
+        follow is None
+        and names["rule check completed"]
+        and names["no Claude call (ledger unchanged)"]
+    )
     assert names["no AI review ran (Local only)"]
-    (tmp_path / "claude_spend.jsonl").write_text("{}\n")  # a line appeared: the check must fail
+    (tmp_path / "claude_spend.jsonl").write_text(
+        "{}\n"
+    )  # a line appeared: the check must fail
     _f, bad = t.engine_follow(None, cfg, "run-1", tmp_path / "x.sqlite", tmp_path, 0)
     assert not {c.name: c.ok for c in bad}["no Claude call (ledger unchanged)"]

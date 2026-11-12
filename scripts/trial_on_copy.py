@@ -1139,7 +1139,9 @@ def steadiness_check(summary: dict | None) -> Check:
     )
 
 
-def engine_follow(http, cfg: TrialConfig, first: str, db: Path, data: Path, ledger_before: int):
+def engine_follow(
+    http, cfg: TrialConfig, first: str, db: Path, data: Path, ledger_before: int
+):
     """After a start from the ONE Review button: wait for the rule check, then for the AI review that follows it (its run id is
     on the first run's stored choice). Returns (the AI review's run id or None, the checks of the choice). For "local": no AI review
     runs and the Claude ledger gets no new line."""
@@ -1152,7 +1154,8 @@ def engine_follow(http, cfg: TrialConfig, first: str, db: Path, data: Path, ledg
         conn = ro(db)
         try:
             row = conn.execute(
-                "SELECT followed_by FROM review_engine_choice WHERE run_id = ?", (first,)
+                "SELECT followed_by FROM review_engine_choice WHERE run_id = ?",
+                (first,),
             ).fetchone()
         finally:
             conn.close()
@@ -1164,16 +1167,25 @@ def engine_follow(http, cfg: TrialConfig, first: str, db: Path, data: Path, ledg
             break
         time.sleep(2.0)
     if cfg.engine == "local":
-        checks.append(Check("no Claude call (ledger unchanged)", ledger_lines(data) == ledger_before,
-                            f"lines {ledger_before} -> {ledger_lines(data)}"))
+        checks.append(
+            Check(
+                "no Claude call (ledger unchanged)",
+                ledger_lines(data) == ledger_before,
+                f"lines {ledger_before} -> {ledger_lines(data)}",
+            )
+        )
         conn = ro(db)
         try:
-            ai = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE name = 'agent_review_run'"
-            ).fetchone() and conn.execute(
-                "SELECT 1 FROM agent_review_run WHERE submittal_document_id = ? AND run_id != ? AND started_at >= "
-                "(SELECT started_at FROM review_runs WHERE id = ?)", (cfg.document, first, first)
-            ).fetchone()
+            ai = (
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name = 'agent_review_run'"
+                ).fetchone()
+                and conn.execute(
+                    "SELECT 1 FROM agent_review_run WHERE submittal_document_id = ? AND run_id != ? AND started_at >= "
+                    "(SELECT started_at FROM review_runs WHERE id = ?)",
+                    (cfg.document, first, first),
+                ).fetchone()
+            )
         finally:
             conn.close()
         checks.append(Check("no AI review ran (Local only)", not ai))
@@ -1301,10 +1313,14 @@ def run_trial(
         run_id = started.get("review_run_id")
         first_run = run_id
         if cfg.engine and run_id:
-            run_id, engine_checks = engine_follow(http, cfg, run_id, db, data, ledger_before)
+            run_id, engine_checks = engine_follow(
+                http, cfg, run_id, db, data, ledger_before
+            )
         checks.append(
             Check(
-                "AI review started" if not cfg.engine else f"review started (engine: {cfg.engine})",
+                "AI review started"
+                if not cfg.engine
+                else f"review started (engine: {cfg.engine})",
                 code == 200 and bool(first_run),
                 f"HTTP {code}" + ("" if first_run else f" {str(started)[:120]}"),
             )
