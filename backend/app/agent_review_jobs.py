@@ -543,6 +543,7 @@ def _finish(
     items = plan["items"]
     lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
     counts = runner_mod.counts_of(lines, runner)
+    n_cut = reread_mod.cut_off_count(lines)
     if (
         runner is not None and runner.answers is not None
     ):  # point E: said only when the switch is on
@@ -576,7 +577,8 @@ def _finish(
             "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
-                               **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {})}}  # fmt: skip
+                               **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {}),
+                               **({"page_reread_cut_off": reread_mod.cut_off_sentence(n_cut)} if n_cut else {})}}  # fmt: skip
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
     crs_lines.write_internal(lines, folder / "crs-internal.xlsx", meta)

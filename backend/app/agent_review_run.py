@@ -25,6 +25,7 @@ The absence proof (`absence_check`) is built but OFF by default: an "absent" ans
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import json
 import logging
@@ -90,6 +91,8 @@ log = logging.getLogger(__name__)
 
 
 class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
+    _scope = threading.local()  # per-thread charge scope (`charged_scope`)
+
     def __init__(
         self,
         *,
@@ -282,11 +285,19 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
     #: the key of the last reader answer this thread asked for or reused, until `settle_reuse` looks at its quotes
     _keys = threading.local()
 
-    def settle_reuse(self, checks: Iterable[Mapping | None]) -> None:
-        """After a batch is decided: an answer in which ANY item's quote failed the code's quote check is dropped, kept or stored, so
-        the next run asks again (never frozen)."""
+    def take_key(self) -> str | None:
+        """The key of the reader answer this thread just got (and forget it): a batch takes it BEFORE its lines are decided, because
+        the optional page re-read inside that loop asks the lead again and would overwrite it."""
         key = getattr(self._keys, "last", None)
         self._keys.last = None
+        return key
+
+    def settle_reuse(
+        self, checks: Iterable[Mapping | None], key: str | None = None
+    ) -> None:
+        """After a batch is decided: an answer in which ANY item's quote failed the code's quote check is dropped, kept or stored, so
+        the next run asks again (never frozen). `key`: the one `take_key` gave; none = take it now."""
+        key = key or self.take_key()
         if (
             key is not None
             and self.answers is not None
@@ -330,9 +341,13 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                     time.sleep(self.retry_base * (2**attempt))
                     continue
                 raise
-            except agent_claude.AgentBadReply:
-                self._release(app, app)
-                self._add_usd(app)
+            except agent_claude.AgentBadReply as exc:
+                # the optional page re-read is charged what the call cost (its own usage); every other call at the worst case
+                charge = (
+                    exc.usd if self.in_optional_step() and exc.usd is not None else app
+                )
+                self._release(app, charge)
+                self._add_usd(charge)
                 raise
             except Exception:
                 self._release(app, 0.0)
@@ -342,9 +357,26 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             return answer, usd
         raise agent_claude.AgentTransportError("retries_exhausted")
 
+    @contextlib.contextmanager
+    def charged_scope(self):
+        """Yields a one-item list that sums what THIS thread's calls were charged to the run inside the block (a step that
+        keeps its own cost fact uses it, so a failed call's charge is not lost from the step)."""
+        acc = [0.0]
+        self._scope.acc = acc
+        try:
+            yield acc
+        finally:
+            self._scope.acc = None
+
     def _add_usd(self, usd: float) -> None:
         with self._lock:
             self.run_usd += float(usd)
+        if getattr(self._scope, "acc", None) is not None:
+            self._scope.acc[0] += float(usd)
+        if self.in_optional_step():  # what the run was charged inside the optional step (this thread): the line carries it
+            self._optional.charged = getattr(self._optional, "charged", 0.0) + float(
+                usd
+            )
 
     def _admit(self, app: float) -> None:
         if self.gate is not None:
@@ -543,6 +575,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 )
         parts = build_parts(self.paper, pages, clauses, batch, held_of)
         answer, usd, error, model = self._ask_lead(batch, parts, allow_split)
+        key = self.take_key()
         with self._lock:
             note = self._reuse_note.pop(tuple(ids), None)
         said = reuse_mod.sentence(note) if note else None
@@ -592,7 +625,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 line["reused_answer"] = {**note, "text": said}
             checks.append(line.get("quotes_checked") if got is not None else None)
             self.emit(self.reread_silent_line(it, line, model, box))
-        self.settle_reuse(checks)
+        self.settle_reuse(checks, key)
         if missing:
             self.run_batch(missing, False)
 

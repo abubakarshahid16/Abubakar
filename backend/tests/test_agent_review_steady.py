@@ -17,6 +17,7 @@ from app import agent_review_request as request_mod
 from app import agent_review_reuse as reuse_mod
 from app import agent_review_run as run_mod
 from app import agent_review_steady as steady
+from app import agent_review_two_reader_run as step_run
 from app.api import agent_review_schemas as contract
 from app.config import settings
 from tests import agent_review_support as s
@@ -789,3 +790,33 @@ def test_reuse_freezes_the_first_answer_until_a_fresh_run_the_stated_trade_off(
     assert lines_of(fresh)["R-coat"]["word"] != "Pass"
     assert counts_of(fresh)["changed_since_previous"]["changed"] >= 1
     assert lines_of(run_review())["R-coat"]["word"] != "Pass"
+
+
+def test_a_reused_lead_answer_charges_zero_and_a_failed_second_reader_call_still_charges_the_lines(
+    w, reuse_on, monkeypatch
+):
+    """Main's `call_for_batch` / `_charge_batch` with reuse and with stable batches: the run's charge lands on the batch's lines."""
+    from tests.test_agent_two_reader_charge import Breaker, _totals
+
+    def batch_call(body):  # the reader's batch request, not the per-item second opinion
+        return request_mod.SYSTEM[:60] in json.dumps(body["system"])
+
+    monkeypatch.setattr(step_run.TwoReaderMixin, "strict_charge", True)
+    w["fake"] = TwoLane()
+    run_review()  # the first reader's answers are stored (the second reader is off)
+    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
+    w["fake"] = Breaker(w["fake"], "transport", batch_call)
+    asked = len(w["fake"].lead_asked)
+    run_id = run_review()
+    assert (
+        w["fake"].hit == 1 and len(w["fake"].lead_asked) == asked
+    )  # the lead was reused, the second reader failed
+    run_usd, line_usd = _totals(run_id)
+    assert run_usd > 0 and line_usd == pytest.approx(
+        run_usd, abs=1e-9
+    )  # the failed call's charge is on the lines
+    assert not any(
+        "reused_answer" in json.dumps(t) and t.get("usd")
+        for t in trace_of(run_id)
+        if t["type"] == "batch"
+    )

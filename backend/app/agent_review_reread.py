@@ -35,6 +35,8 @@ from . import agent_claude, agent_run_second
 from . import agent_review_verdict as verdict
 from .agent_review_request import (
     FATAL,
+    RETRY_MAX_TOKENS,
+    RETRY_TOKEN_FACTOR,
     _hints,
     _text_of,
     app_worst_usd,
@@ -46,6 +48,22 @@ from .reader_api import _fold
 
 REREAD_MAX_PAGES = 3
 REREAD_MAX_TOKENS = 600
+#: an answer cut off at the limit is asked ONCE more at the first reader's factor (`RETRY_TOKEN_FACTOR`, one home)
+REREAD_RETRY_TOKENS = min(RETRY_MAX_TOKENS, REREAD_MAX_TOKENS * RETRY_TOKEN_FACTOR)
+FAIL_CUT_OFF, FAIL_CALL_ERROR, FAIL_UNREADABLE, FAIL_SAME_MODEL = (
+    "cut_off",
+    "call_error",
+    "unreadable",
+    "same_model",
+)
+
+
+class RereadFailed(Exception):
+    def __init__(self, word: str, paid: float) -> None:
+        super().__init__(word)
+        self.word, self.paid = word, paid
+
+
 REREAD_MAX_REQUIREMENT_CHARS = 1500
 SILENT_CODES = ("absent", "absent_pages_not_named", "sheet_silent")
 REREAD_SYSTEM = (
@@ -101,6 +119,20 @@ def reread_facts(enabled: bool, stopped: str | None, lines: Any) -> dict | None:
         and ln["reread"].get("outcome") == "step_off"
     )
     return {"why": stopped, "not_reread": n}
+
+
+def cut_off_count(lines: Any) -> int:
+    """Silent lines whose page re-read was cut off twice (stored `reread.outcome == "cut_off"`); counts equal lines."""
+    return sum(
+        1
+        for ln in lines
+        if isinstance(ln.get("reread"), Mapping)
+        and ln["reread"].get("outcome") == "cut_off"
+    )
+
+
+def cut_off_sentence(n: int) -> str:
+    return f"Page re-reads whose answer was cut off twice at the token limit (the line stays as it was): {n}"
 
 
 def stopped_sentence(facts: Mapping) -> str:
@@ -202,16 +234,65 @@ class RereadMixin:
         }
 
     def _ask_reread(self, parts: dict) -> tuple[dict | None, str | None, float]:
-        """(parsed answer or None, answering model, usd). ONE call: `once` = never sent again after a transport failure."""
-        with self._lock:
-            self.calls["reread"] = self.calls.get("reread", 0) + 1
-        raw, usd = self.call(
-            agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS, once=True
+        """(parsed answer or None, answering model, usd). At most TWO calls: the second only when the first was cut off at
+        the limit (then at `REREAD_RETRY_TOKENS`); each `once` (a transport failure is never re-sent). A second cut-off or any
+        other bad reply raises `RereadFailed(cause word, what the calls cost)`; the cost is each call's own usage."""
+        paid = 0.0
+        for limit in (REREAD_MAX_TOKENS, REREAD_RETRY_TOKENS):
+            with self._lock:
+                self.calls["reread"] = self.calls.get("reread", 0) + 1
+            try:
+                raw, usd = self.call(agent_claude.SECOND_MODEL, parts, limit, once=True)
+            except agent_claude.AgentBadReply as exc:
+                # what the call cost (its own usage); the worst case at THIS limit when none came back: as the run is charged
+                worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, limit)
+                paid += float(exc.usd if exc.usd is not None else worst)
+                self._optional.paid = paid
+                if exc.code == "stop_max_tokens" and limit == REREAD_MAX_TOKENS:
+                    continue
+                word = (
+                    FAIL_CUT_OFF if exc.code == "stop_max_tokens" else FAIL_CALL_ERROR
+                )
+                raise RereadFailed(word, paid) from None
+            except (
+                agent_claude.AgentTransportError
+            ):  # it may have been billed: the run is charged this limit's worst case
+                paid += app_worst_usd(agent_claude.SECOND_MODEL, parts, limit)
+                self._optional.paid = paid
+                raise RereadFailed(FAIL_CALL_ERROR, paid) from None
+            except FATAL:
+                self._optional.paid = paid  # a refusal on the retry: the first call's cost stays on the line
+                raise
+            paid += float(usd or 0.0)
+            self._optional.paid = paid
+            model = agent_claude._answered_model(raw)
+            if model != "unknown":
+                self.second_models.add(model)
+            return parse_reread(_text_of(raw)), model, paid
+        raise RereadFailed(FAIL_CUT_OFF, paid)  # not reached
+
+    def _failed_read(
+        self, line: dict, cause: str, parts: dict, exc: BaseException
+    ) -> dict:
+        """The line after a re-read call that gave no answer: the cause word and what was paid, never any answer text."""
+        if isinstance(exc, FATAL):
+            self.note_reread_stop(
+                exc
+            )  # optional step: the lead's own calls decide whether the run stops
+            paid = getattr(
+                self._optional, "paid", 0.0
+            )  # what the step had already paid stays on the line
+            return self._unchanged(line, cause, {"outcome": "step_off"}, paid)
+        if isinstance(exc, RereadFailed):
+            outcome = "cut_off" if exc.word == FAIL_CUT_OFF else "failed"
+            return self._unchanged(
+                line, cause, {"outcome": outcome, "failure": exc.word}, exc.paid
+            )
+        # a transport failure: it may have been billed, so the worst case
+        worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS)
+        return self._unchanged(
+            line, cause, {"outcome": "failed", "failure": FAIL_CALL_ERROR}, worst
         )
-        model = agent_claude._answered_model(raw)
-        if model != "unknown":
-            self.second_models.add(model)
-        return parse_reread(_text_of(raw)), model, float(usd or 0.0)
 
     # ---- the step
     def _unchanged(self, line: dict, cause: str, extra: Mapping, usd: float) -> dict:
@@ -231,6 +312,7 @@ class RereadMixin:
         the recovered line) runs with `_optional` set on this thread: `Runner._halt` then only switches the step off and
         records `refused`, and the line comes back EXACTLY as it was (no claim). A cap stop of an item's NORMAL calls
         (outside the step) halts the review as before: the two are told apart by that flag."""
+        self._optional.charged = 0.0
         self._optional.on, self._optional.refused, self._optional.paid = (
             True,
             False,
@@ -287,17 +369,15 @@ class RereadMixin:
         parts = self.reread_parts(item, texts, held)
         try:
             got, model, usd = self._ask_reread(parts)
-        except FATAL as exc:
-            self.note_reread_stop(
-                exc
-            )  # optional step: the lead's own calls decide whether the run stops
-            return self._unchanged(line, cause, {"outcome": "step_off"}, 0.0)
-        except agent_claude.AgentClaudeError:
-            worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS)
-            return self._unchanged(line, cause, {"outcome": "failed"}, worst)
+        except (*FATAL, RereadFailed, agent_claude.AgentClaudeError) as exc:
+            return self._failed_read(line, cause, parts, exc)
         self._optional.paid = usd
+        failure = FAIL_UNREADABLE
         if model and not agent_run_second.models_differ([lead_model], model):
-            got = None  # the lane answered with the lead's own family: not a second reader
+            got, failure = (
+                None,
+                FAIL_SAME_MODEL,
+            )  # the lane answered with the lead's own family: not a second reader
         record = {"pages": sorted(texts), "model": model, "reread_usd": usd}
         iid = str(item.get("item_id"))
         self._ctx.setdefault(iid, {})["reread_exchange"] = {
@@ -309,7 +389,9 @@ class RereadMixin:
             },
         }
         if got is None:
-            return self._unchanged(line, cause, {**record, "outcome": "failed"}, usd)
+            return self._unchanged(
+                line, cause, {**record, "outcome": "failed", "failure": failure}, usd
+            )
         if got.get("found") is False:
             return self._unchanged(line, cause, {**record, "outcome": "no_value"}, usd)
         page = self._verified_page(got, texts)
@@ -355,6 +437,9 @@ class RereadMixin:
         base = {**record, "page": page, "lead_usd": lead_usd}
         again_answer = (answers or {}).get(iid)
         if error or again_answer is None or not model:
+            # whatever the run was charged inside this step stays on the line (a failed lead call is charged by the run
+            # at its worst case even when `_ask_lead` reports no cost)
+            spent = max(spent, getattr(self._optional, "charged", 0.0))
             return self._unchanged(line, cause, {**base, "outcome": "failed"}, spent)
         self._ctx.setdefault(iid, {})["reread_lead_answer"] = again_answer
         again = self.decide(

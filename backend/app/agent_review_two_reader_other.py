@@ -110,7 +110,8 @@ class OtherPaperMixin:
         st["asked"] += len(batch)
         st["calls"] += 1
         try:
-            raw, usd = self.call(
+            raw, usd = self.call_for_batch(
+                batch,
                 agent_claude.SECOND_MODEL,
                 parts,
                 min(two.TOKENS_CAP, two.TOKENS_BASE + two.TOKENS_PER_ITEM * len(batch)),
