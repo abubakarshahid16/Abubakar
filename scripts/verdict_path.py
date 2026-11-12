@@ -142,6 +142,8 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
+    "agent_review_calculator.py": "pure and not wired until PR 3 of ONE-REVIEWER.md; every Pass or Fail it makes is asked again by the exit (agent_review_wording, on the list); it moves to the list when wired",
+    "agent_review_approved_code.py": "names which approved checklist ids may stand as an owner-tier item; the exit (agent_review_wording, on the list) decides the cap",
     "agent_review_coverage.py": "counts coverage for display",
     "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
     "agent_review_gate.py": "the on/off switch only",
