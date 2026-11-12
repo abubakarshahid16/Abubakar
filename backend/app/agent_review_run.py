@@ -140,7 +140,9 @@ class Runner(DecideMixin, RereadMixin):
             k: self._kept(v) for k, v in dict(done_lines or {}).items()
         }
         self.absence_check = bool(absence_check)
-        self.reread_enabled = bool(reread_silent)  # C4: off unless the job passes the switch
+        self.reread_enabled = bool(
+            reread_silent
+        )  # C4: off unless the job passes the switch
         self.carried = (
             absence.carried_roles(paper_kind, equipment_type) if absence_check else None
         )
