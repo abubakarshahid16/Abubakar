@@ -1096,3 +1096,18 @@ def test_no_cell_of_the_contractor_copy_names_an_internal_judgement_a_model_or_a
         if c.value is not None and c.row > 14
     ]
     assert all(c.fill.fill_type is None for c in body)  # plain: no Status colour
+
+
+def test_the_second_reading_row_is_on_notes_exactly_once_when_the_step_stopped_and_never_when_it_did_not():
+    def rows(meta):
+        view = WB.layout_view([mk("R-1", "Fail", "Fail")], meta, "internal")
+        return [r for r in view["notes"]["rows"] if r[0] == "Second reading of pages"]
+
+    stopped = {
+        **META,
+        "order12_counts": {
+            "page_reread_stopped": "The second reading of pages stopped early: 3 lines were not re-read"
+        },
+    }
+    assert len(rows(stopped)) == 1
+    assert rows(META) == [] and rows({**META, "order12_counts": {}}) == []
