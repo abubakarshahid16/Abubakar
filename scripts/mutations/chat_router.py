@@ -68,7 +68,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="withheld_answer_is_never", tags=("privacy", "critical")),
     Mutation(id="M938", phase=81, description="small talk: always claims nothing leaves the machine",
              path=APP / "chat_answers.py",
-             anchor="    ok, _ = chat_model.claude_ready()\n    who = (",
+             anchor="    ok = chat_model.claude_will_answer(model)\n    who = (",
              replacement="    ok = False\n    who = (",
              target=_T, keyword="says_honestly_who_answers", tags=("honesty", "privacy")),
     Mutation(id="M939", phase=81, description="general: the reader's style never reaches the model",
