@@ -615,7 +615,7 @@ def _finish(
         if runner
         else []
     )
-    counts = {**runner_mod.counts_of(lines), **(runner.two_reader_counts() if runner else {})}  # + the second-reader step
+    counts = runner_mod.counts_of(lines, runner)
     models = sorted(runner.lead_models | runner.second_models) if runner else []
     spent = runner and (
         runner.calls["lead"] or runner.calls["second"] or runner.calls["context"]

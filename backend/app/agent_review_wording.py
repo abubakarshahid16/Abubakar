@@ -104,7 +104,9 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "not_proven_reason": _moved_reason(line, unsafe)
             + (f"; {why}" if unapproved else ""),
         }
-    if two_reader.disagrees(line):  # 2c. the independent second reader reached the opposite verdict: a Query
+    if two_reader.disagrees(
+        line
+    ):  # 2c. the independent second reader reached the opposite verdict: a Query
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
@@ -176,7 +178,9 @@ def classify(line: Mapping) -> dict:
         reason = str(
             line.get("why") or line.get("reason_code") or "the gate did not accept it"
         ).strip()
-        if two_reader.agrees(line):  # 4b. two independent readers, every quote verified, no guard
+        if two_reader.agrees(
+            line
+        ):  # 4b. two independent readers, every quote verified, no guard
             return _two_readers(line, reason)
         return {
             "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,

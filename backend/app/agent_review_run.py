@@ -44,11 +44,10 @@ from . import (
 )
 from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
-from . import agent_review_verdict as verdict
 from . import agent_review_two_reader as two_reader_mod
+from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
 from .agent_review_decide import DecideMixin
-from .agent_review_two_reader_run import TwoReaderMixin
 from .agent_review_request import (
     ABSENCE_SECOND_SYSTEM,
     ANSWER_SHAPE,
@@ -81,6 +80,7 @@ from .agent_review_request import (
     plan_pages,
     stop_reason,
 )
+from .agent_review_two_reader_run import TwoReaderMixin
 
 log = logging.getLogger(__name__)
 
@@ -542,16 +542,19 @@ class Runner(DecideMixin, TwoReaderMixin):
             ]
             for f in futures:
                 f.result()
-        if self.two_reader_on():  # optional, off by default: nothing below runs and no call is made when off
+        if (
+            self.two_reader_on()
+        ):  # optional, off by default: nothing below runs and no call is made when off
             self.run_two_readers()
         return {"batches": len(batches), "batch_source": source}
 
 
-def counts_of(lines: Iterable[Mapping]) -> dict:
-    """Counts per class of the stored lines, with the not-run lines counted apart. No text."""
+def counts_of(lines: Iterable[Mapping], runner: Runner | None = None) -> dict:
+    """Counts per class of the stored lines, with the not-run lines counted apart. No text. With the runner: what its optional
+    second-reader step did (`two_reader_step`, counts and one code), only when the step ran or was switched off."""
     ls = [wording.apply(ln) for ln in lines]
     out = crs_lines.run_counts(ls)
     out["not_run"] = sum(
         1 for ln in ls if str(ln.get("error") or "").startswith("not run")
     )
-    return out
+    return {**out, **(runner.two_reader_counts() if runner else {})}
