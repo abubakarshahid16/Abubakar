@@ -49,20 +49,71 @@ def runs_of_paper(conn, paper_id: str) -> tuple[str | None, str | None]:
     return (rc_row["id"] if rc_row else None), ai
 
 
-def _mandatory(finding: dict | None) -> bool:
-    """Is the rule behind this finding MANDATORY ("shall"), read from the rule itself (its stored requirement type)? A rule whose strength
-    cannot be read is NOT taken as mandatory: no rejection is proposed on a strength nobody read."""
-    rid = (finding or {}).get("requirement_id")
-    if not rid:
-        return False
-    row = (
-        connect()
-        .execute(
-            "SELECT requirement_type FROM standard_requirements WHERE id = ?", (rid,)
+SHALL, SHOULD, UNKNOWN = "shall", "should", "unknown"
+UNKNOWN_STRENGTH_WORDS = (
+    "the rule's strength is not recorded, so it is treated as mandatory"
+)
+
+
+def _checklist_entry(rule_id: str) -> dict | None:
+    """The approved checklist entry (`reference/datasheet_checks.json`) with this id, or None."""
+    import json
+
+    path = Path(__file__).parent / "reference" / "datasheet_checks.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("id") == rule_id:
+                return node
+            for v in node.values():
+                if (got := walk(v)) is not None:
+                    return got
+        elif isinstance(node, list):
+            for v in node:
+                if (got := walk(v)) is not None:
+                    return got
+        return None
+
+    return walk(data)
+
+
+def _strength(finding: dict | None) -> str:
+    """ "shall", "should" or "unknown", read from EVERY home that knows the rule's strength: the stored requirement (its type is a
+    recommendation or not), and for a datasheet-check finding the approved checklist entry (mandatory unless the entry says it is a
+    recommendation). Nothing known: "unknown", and the proposal treats it as mandatory and says so (the stricter code, never a silent
+    softer one)."""
+    f = finding or {}
+    rid = f.get("requirement_id")
+    if rid:
+        row = (
+            connect()
+            .execute(
+                "SELECT requirement_type FROM standard_requirements WHERE id = ?",
+                (rid,),
+            )
+            .fetchone()
         )
-        .fetchone()
-    )
-    return bool(row) and row["requirement_type"] != "recommendation"
+        if row:
+            return SHOULD if row["requirement_type"] == "recommendation" else SHALL
+    if f.get("origin") == "datasheet_check":
+        import re
+
+        m = re.search(
+            r"\b([A-Z][A-Z0-9]*-[A-Z0-9]+):",
+            str(f.get("requirement_source_text") or ""),
+        )  # "<label> DS-C1: <text>"
+        entry = _checklist_entry(m.group(1)) if m else None
+        if entry is not None:
+            soft = entry.get("recommendation") is True or str(
+                entry.get("strength") or ""
+            ).lower() in ("should", "recommendation")
+            return SHOULD if soft else SHALL
+        return SHALL  # an approved checklist check: mandatory unless its entry says otherwise
+    return UNKNOWN
 
 
 def _fold(text) -> str:
@@ -125,7 +176,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
         if finding is not None and not scope.may_read(finding["document_id"]):
             finding = None
         sides = _sides(finding, scope) if finding else {}
-        p = rp.rule_point(row, ctx, finding, sides, shall=_mandatory(finding))
+        p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding))
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
             bool(row.get("engineer_rejected")),
@@ -147,7 +198,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
                 and finding.get("review_run_id") == run_id
                 and scope.may_read(finding["document_id"])
             ):
-                out.append(rp.removed_stub(finding, ctx, shall=_mandatory(finding)))
+                out.append(rp.removed_stub(finding, ctx, strength=_strength(finding)))
     return out
 
 
@@ -229,6 +280,7 @@ def assemble(paper_id: str, scope) -> dict:
             for p in points
             if p["decision"]["state"] == decisions_mod.REMOVE
         ],
+        "contractor_copy": _contractor_copy(conn, ai_run),
     }
 
 
@@ -328,3 +380,33 @@ def archive_ai_contractor_copy(rule_check_run_id: str, *, actor: str) -> dict | 
     return crs_issue.archive(
         ai, path.read_bytes(), "ai-review-contractor.xlsx", actor=actor
     )
+
+
+CONTRACTOR_COPY_PLAIN = "The contractor file holds only what code proved, or your own words. It never carries an AI wording."
+CONTRACTOR_COPY_WITH_VERDICTS = (
+    'The contractor file holds what code proved, your own words, and the AI\'s "not met" verdicts that two readers agreed on and code '
+    "checked, which this kind of paper allows."
+)
+
+
+def contractor_copy_words(kind: str | None) -> str:
+    """What the AI review's contractor copy holds for this paper's kind, from the backend's own answer (the kind table's
+    `contractor_copy_ai_verdict`), never a fixed claim."""
+    from . import kind_review_table
+
+    return (
+        CONTRACTOR_COPY_WITH_VERDICTS
+        if kind_review_table.contractor_copy_ai_verdict(kind)
+        else CONTRACTOR_COPY_PLAIN
+    )
+
+
+def _contractor_copy(conn, ai_run: str | None) -> dict:
+    """{kind, words}: what the AI review's contractor copy holds for this paper's kind (the kind of its AI run)."""
+    kind = None
+    if ai_run:
+        row = conn.execute(
+            "SELECT paper_kind FROM agent_review_run WHERE run_id = ?", (ai_run,)
+        ).fetchone()
+        kind = row["paper_kind"] if row else None
+    return {"kind": kind, "words": contractor_copy_words(kind)}

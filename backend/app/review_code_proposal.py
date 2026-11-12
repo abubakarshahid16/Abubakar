@@ -108,6 +108,10 @@ def propose(
             comparison.CODE_REJECTED,
             f"{_plural(len(proven), 'kept point is', 'kept points are')} proven by code not to meet a 'shall' rule.",
         )
+        if any(
+            p.get("strength_unknown") for p in proven
+        ):  # the stricter code, said, never silent
+            why += " For at least one, the rule's strength is not recorded, so it is treated as mandatory."
     elif resubmit_at > 0 and len(ai_not_met) >= resubmit_at:
         code = comparison.CODE_REJECTED
         why = f"{_plural(len(ai_not_met), 'kept AI not-met point', 'kept AI not-met points')} on 'shall' rules (the company's limit is {resubmit_at})."

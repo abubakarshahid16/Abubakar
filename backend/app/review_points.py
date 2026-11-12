@@ -262,7 +262,12 @@ _PAGE = re.compile(r"\b(?:page|p\.?)\s*(\d{1,4})", re.I)
 
 
 def rule_point(
-    row: dict, ctx: dict, finding: dict | None, sides: dict, *, shall: bool = False
+    row: dict,
+    ctx: dict,
+    finding: dict | None,
+    sides: dict,
+    *,
+    strength: str = "unknown",
 ) -> dict:
     """One CRS row of the rule check as a point. `finding`: its stored finding (or None); `sides`: {"submittal": .., "standard": ..}
     as `evidence_boxes.side` answered (document None when the side cannot be shown)."""
@@ -338,7 +343,8 @@ def rule_point(
         "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else NO_CLAUSE_QUOTE,
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
-        "shall": shall,
+        "shall": strength != "should",
+        "strength_unknown": strength == "unknown",
         "group_key": group_key(SOURCE_RULE_CHECK, rank, book_name, None, str(reason)),
         "added_by": added_by,
         "finding_ids": list(
@@ -486,7 +492,7 @@ def by_rule_book(points: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
-def removed_stub(finding: dict, ctx: dict, *, shall: bool = False) -> dict:
+def removed_stub(finding: dict, ctx: dict, *, strength: str = "unknown") -> dict:
     """A rule-check point an engineer removed: its row has left the sheet, so the list keeps it from the finding (name, page, the
     required action), with no quote. The record of a removal is never dropped."""
     page = finding.get("contractor_page")
@@ -509,6 +515,6 @@ def removed_stub(finding: dict, ctx: dict, *, shall: bool = False) -> dict:
         "name": _plain(finding.get("matched_phrase")) or "A point of the rule check",
         "page": page, "rule_book": None, "clause": None, "action": (_plain(finding.get("required_action")) or None) if book_ok else None,
         "paper_quote": None, "clause_quote": None, "paper_quote_note": NO_PAPER_QUOTE, "clause_quote_note": NO_CLAUSE_QUOTE,
-        "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": shall, "group_key": None,
+        "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": strength != "should", "strength_unknown": strength == "unknown", "group_key": None,
         "added_by": None, "finding_ids": [finding["id"]], "_book_doc": finding.get("standard_document_id"),
     }  # fmt: skip

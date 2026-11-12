@@ -1315,17 +1315,107 @@ def test_a_kept_proven_fail_on_a_should_rule_does_not_propose_the_rejection():
     assert review_code_proposal.propose([shall])["code"] == comparison.CODE_REJECTED
 
 
-def test_the_strength_of_a_rule_check_point_is_read_from_its_rule():
-    doc = _submittal()
+def test_the_strength_of_a_rule_check_point_is_read_from_every_home_that_knows_it():
+    """R48b: the rule row, and for a datasheet-check finding the approved checklist entry (mandatory unless the entry says otherwise)."""
+    _submittal()
     _submittal("doc_std", "STD-A-001.pdf")
     _requirement("req-shall", "numeric_limit")
     _requirement("req-should", "recommendation")
-    assert review_points_service._mandatory({"requirement_id": "req-shall"}) is True
-    assert review_points_service._mandatory({"requirement_id": "req-should"}) is False
+    S = review_points_service
+    assert S._strength({"requirement_id": "req-shall"}) == "shall"
     assert (
-        review_points_service._mandatory({"requirement_id": "nope"}) is False
-    )  # a strength nobody read is not "mandatory"
-    assert review_points_service._mandatory({}) is False and doc
+        S._strength({"requirement_id": "req-should"}) == "should"
+    )  # a rule known to be a "should" stays one
+    # no requirement_id, but an approved checklist check: mandatory (no entry of the approved file says it is a recommendation)
+    assert (
+        S._strength(
+            {
+                "origin": "datasheet_check",
+                "requirement_source_text": "Datasheet check DS-C1: The design pressure should be...",
+            }
+        )
+        == "shall"
+    )
+    assert (
+        S._strength(
+            {"origin": "datasheet_check", "requirement_source_text": "no rule id here"}
+        )
+        == "shall"
+    )
+    # truly unknown: said as unknown (the proposal treats it as mandatory and says so)
+    assert (
+        S._strength({"requirement_id": "nope"}) == "unknown"
+        and S._strength({}) == "unknown"
+    )
+    assert S._strength({"origin": "clause_review"}) == "unknown"
+
+
+def test_a_checklist_entry_can_say_it_is_only_a_recommendation(monkeypatch):
+    monkeypatch.setattr(
+        review_points_service,
+        "_checklist_entry",
+        lambda rid: {"id": rid, "strength": "should"},
+    )
+    assert (
+        review_points_service._strength(
+            {
+                "origin": "datasheet_check",
+                "requirement_source_text": "Datasheet check DS-X: text",
+            }
+        )
+        == "should"
+    )
+
+
+def test_the_approved_checklist_file_is_read_and_its_entries_found_by_id():
+    entry = review_points_service._checklist_entry("DS-C1")
+    assert (
+        entry
+        and entry["id"] == "DS-C1"
+        and review_points_service._checklist_entry("DS-NOPE") is None
+    )
+
+
+def test_a_kept_proven_fail_of_a_checklist_check_proposes_the_rejection_and_an_unknown_strength_says_so():
+    shall = pt(1, "keep")
+    got = review_code_proposal.propose([shall])
+    assert (
+        got["code"] == comparison.CODE_REJECTED
+        and "treated as mandatory" not in got["reason"]
+    )
+    unknown = {**pt(1, "keep"), "strength_unknown": True}
+    got = review_code_proposal.propose([unknown])
+    assert got["code"] == comparison.CODE_REJECTED  # the stricter code
+    assert (
+        "the rule's strength is not recorded, so it is treated as mandatory"
+        in got["reason"]
+    )
+    should = {**pt(1, "keep", shall=False), "strength_unknown": False}
+    assert (
+        review_code_proposal.propose([should])["code"]
+        == comparison.CODE_APPROVED_WITH_COMMENTS
+    )
+
+
+def test_the_page_proposes_the_rejection_for_a_kept_checklist_fail_with_no_requirement_id():
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(
+        doc,
+        run,
+        "NON_COMPLIANT",
+        origin="datasheet_check",
+        requirement_source_text="Datasheet check DS-C1: The design pressure should be at least the operating pressure.",
+        requirement_id=None,
+    )
+    client = _client(doc, "doc_std")
+    rc = next(
+        p for p in points_of(client, doc)["points"] if p["source"] == "rule_check"
+    )
+    assert rc["shall"] is True and rc["strength_unknown"] is False
+    got = decide(client, doc, rc["id"], "keep").json()
+    assert got["proposed_code"]["code"] == comparison.CODE_REJECTED
 
 
 def test_a_removed_proven_fail_is_said_in_the_reason_and_on_the_audit():
@@ -1424,3 +1514,66 @@ def test_the_nothing_decided_sentence_is_one_function_and_names_a_proven_fail():
         review_code_proposal.propose(pts)["line"]
         == "Nothing is decided yet: 2 points still to decide; 1 is a code-proven Fail on a mandatory rule."
     )
+
+
+def test_a_locked_database_while_reading_the_ai_lines_refuses_the_signing(monkeypatch):
+    """R48b: the locked-database case of the sign gate: refused with the plain reason, never "nothing undecided"."""
+    import sqlite3
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    run = _run(doc)
+    _finding(doc, run, "NON_COMPLIANT")
+    ai_run(doc, [mk("R-1", "Fail", "Fail")])
+    client = _client(doc, "doc_std")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_runs SET engineer_final_code = 'Approved' WHERE id = ?",
+            (run,),
+        )
+
+    def locked(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(review_points, "ai_points_of_run", locked)
+    gate = _gate(client, run)
+    assert gate["issuable"] is False and any(
+        "could not be read" in b for b in gate["blockers"]
+    )
+    refused = _issue(client, run)
+    assert (
+        refused.status_code == 409
+        and "could not be read" in refused.json()["detail"]["message"]
+    )
+
+
+def test_the_contractor_copy_line_comes_from_the_kind_table_in_both_states(monkeypatch):
+    """R48c: what the contractor copy holds is said from the backend's own answer for the paper's kind, never a fixed claim."""
+    from app import kind_review_table
+
+    doc = _submittal()
+    ai_run(doc, [mk("R-1", "Fail", "Fail")])
+    client = _client(doc, "doc_std")
+    plain = points_of(client, doc)["contractor_copy"]
+    assert (
+        plain["kind"] == "datasheet"
+        and plain["words"] == review_points_service.CONTRACTOR_COPY_PLAIN
+    )
+    assert "never carries an AI wording" in plain["words"]
+    monkeypatch.setattr(
+        kind_review_table,
+        "contractor_copy_ai_verdict",
+        lambda kind: kind == "datasheet",
+    )
+    flagged = points_of(client, doc)["contractor_copy"]
+    assert flagged["words"] == review_points_service.CONTRACTOR_COPY_WITH_VERDICTS
+    assert (
+        "never carries an AI wording" not in flagged["words"]
+        and "two readers agreed" in flagged["words"]
+    )
+    assert (
+        points_of(_client(_submittal("doc_other", "o.pdf")), "doc_other")[
+            "contractor_copy"
+        ]["kind"]
+        is None
+    )  # no AI review: no kind
