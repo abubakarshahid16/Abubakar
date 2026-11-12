@@ -355,6 +355,9 @@ class Runner(DecideMixin, RereadMixin):
     ) -> tuple[dict | None, float, str | None, str | None]:
         """(answers by item id or None, usd, error code or None, answering model); the bound and the cost rule are above."""
         max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
+        once_kw = (
+            {"once": True} if once else {}
+        )  # the normal path calls exactly as before
         answer, usd, error, model = None, 0.0, None, None
         spent = retry_worst = (
             0.0  # what the run was charged for the cut-off call, and for the retry if it was sent
@@ -364,7 +367,7 @@ class Runner(DecideMixin, RereadMixin):
             with self._lock:
                 self.calls["lead"] += 1
             try:
-                raw, usd = self.call(self.model, parts, max_tokens, once=once)
+                raw, usd = self.call(self.model, parts, max_tokens, **once_kw)
             except agent_claude.AgentBadReply as exc:
                 if exc.code != "stop_max_tokens" or (split_ok and len(batch) > 1):
                     raise  # a bigger batch is split by the caller instead
@@ -403,7 +406,7 @@ class Runner(DecideMixin, RereadMixin):
             ):  # one retry; a bigger batch is split instead
                 with self._lock:
                     self.calls["retries"] += 1
-                raw, usd2 = self.call(self.model, parts, max_tokens, once=once)
+                raw, usd2 = self.call(self.model, parts, max_tokens, **once_kw)
                 usd += usd2
                 answer = parse_answers(raw)
             if answer is None:
