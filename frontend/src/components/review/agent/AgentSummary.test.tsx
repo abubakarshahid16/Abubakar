@@ -43,6 +43,14 @@ describe("AgentSummary", () => {
     render(<AgentSummary summary={summary({ stop_reason: "spend cap reached" })} />);
     expect(screen.getByTestId("agent-stop-reason")).toHaveTextContent("stopped early: spend cap reached");
   });
+  it("states that the second reading of pages stopped early, with the count; null renders nothing, never 0", () => {
+    const { rerender } = render(<AgentSummary summary={summary({ page_reread_stopped: { why: "a spending cap refused a call", not_reread: 3 } })} />);
+    expect(screen.getByTestId("agent-page-reread-stopped")).toHaveTextContent("The second reading of pages stopped early: 3 lines were not re-read");
+    rerender(<AgentSummary summary={summary({ page_reread_stopped: null })} />);
+    expect(screen.queryByTestId("agent-page-reread-stopped")).toBeNull();
+    rerender(<AgentSummary summary={summary()} />);
+    expect(screen.queryByText(/second reading/)).toBeNull();
+  });
   it("honest empty states", () => {
     render(<AgentSummary summary={summary({ counts_by_class: {}, missing_books: [] })} />);
     expect(screen.getByText("No lines were written for this review.")).toBeInTheDocument();

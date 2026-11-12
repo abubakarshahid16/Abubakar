@@ -80,6 +80,34 @@ def silent_cause(line: Mapping) -> str | None:
     return None
 
 
+def stop_word(exc: BaseException) -> str:
+    """Plain words for why the optional step ended: what the code saw, no detail from any document."""
+    if isinstance(exc, agent_claude.AgentGateClosed):
+        return "the Claude lane was closed"
+    if isinstance(exc, agent_claude.AgentBudgetStop):
+        return "a spending cap refused a call"
+    return f"an error ({type(exc).__name__})"
+
+
+def reread_facts(enabled: bool, stopped: str | None, lines: Any) -> dict | None:
+    """The run's record of the optional step: None when it is off or ran fully (null renders as nothing, never 0); else
+    {"why", "not_reread"}, `not_reread` = the lines whose stored `reread.outcome` is `step_off` (counts equal lines)."""
+    if not enabled or not stopped:
+        return None
+    n = sum(
+        1
+        for ln in lines
+        if isinstance(ln.get("reread"), Mapping)
+        and ln["reread"].get("outcome") == "step_off"
+    )
+    return {"why": stopped, "not_reread": n}
+
+
+def stopped_sentence(facts: Mapping) -> str:
+    """The one sentence the screen and the workbook notes show (the screen builds it from the same two fields)."""
+    return f"The second reading of pages stopped early: {facts['not_reread']} lines were not re-read ({facts['why']})"
+
+
 def parse_reread(text: str) -> dict | None:
     """The reader's JSON object with a boolean `found`, else None (unusable)."""
     obj = agent_claude.parse_json_object(text)
@@ -100,6 +128,14 @@ class RereadMixin:
     #: True on the calling thread while the optional step runs: a cap refusal then ends the step, never the review
     _optional = threading.local()
     _reread_off = False  # a refused call (a cap, a closed lane) ends the optional step for the rest of the run
+    reread_stopped: str | None = (
+        None  # why it ended, in plain words (`stop_word`); None while it has not ended
+    )
+
+    def note_reread_stop(self, exc: BaseException) -> None:
+        """The optional step ends for the rest of the run, and the run says so (`reread_facts`)."""
+        self._reread_off = True
+        self.reread_stopped = self.reread_stopped or stop_word(exc)
 
     # ---- which pages
     def reread_pages(self, item: Mapping, line: Mapping) -> list[int]:
@@ -195,10 +231,23 @@ class RereadMixin:
         the recovered line) runs with `_optional` set on this thread: `Runner._halt` then only switches the step off and
         records `refused`, and the line comes back EXACTLY as it was (no claim). A cap stop of an item's NORMAL calls
         (outside the step) halts the review as before: the two are told apart by that flag."""
-        self._optional.on, self._optional.refused = True, False
+        self._optional.on, self._optional.refused, self._optional.paid = (
+            True,
+            False,
+            0.0,
+        )
         try:
             out = self._step(item, line, lead_model, box)
-            return line if self._optional.refused else out
+            if (
+                self._optional.refused
+            ):  # as it was, marked as not read, charged what was already paid
+                return self._unchanged(
+                    line,
+                    silent_cause(line) or "",
+                    {"outcome": "step_off"},
+                    self._optional.paid,
+                )
+            return out
         finally:
             self._optional.on = False
 
@@ -216,7 +265,6 @@ class RereadMixin:
         cause = silent_cause(line)
         if (
             not self.reread_enabled
-            or self._reread_off
             or cause is None
             or self._stop.is_set()
             or not verdict.calls_allowed(item, self.tier_lookup)
@@ -226,6 +274,11 @@ class RereadMixin:
             [lead_model], agent_claude.SECOND_MODEL
         ):
             return line  # unknown, or the same family: one reader twice, never counted as two
+        if self._reread_off:  # the step ended earlier in this run: this silent line was not re-read, and it says so
+            return {
+                **line,
+                "reread": {"asked": False, "cause": cause, "outcome": "step_off"},
+            }
         numbers = self.reread_pages(item, line)
         texts = {n: self.pages.page(self.paper, n) or "" for n in numbers}
         if not texts:
@@ -234,14 +287,15 @@ class RereadMixin:
         parts = self.reread_parts(item, texts, held)
         try:
             got, model, usd = self._ask_reread(parts)
-        except FATAL:
-            self._reread_off = (
-                True  # optional step: the lead's own calls decide whether the run stops
-            )
-            return self._unchanged(line, cause, {"outcome": "failed"}, 0.0)
+        except FATAL as exc:
+            self.note_reread_stop(
+                exc
+            )  # optional step: the lead's own calls decide whether the run stops
+            return self._unchanged(line, cause, {"outcome": "step_off"}, 0.0)
         except agent_claude.AgentClaudeError:
             worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS)
             return self._unchanged(line, cause, {"outcome": "failed"}, worst)
+        self._optional.paid = usd
         if model and not agent_run_second.models_differ([lead_model], model):
             got = None  # the lane answered with the lead's own family: not a second reader
         record = {"pages": sorted(texts), "model": model, "reread_usd": usd}
@@ -297,6 +351,7 @@ class RereadMixin:
         last["text"] = json.dumps(pointer, ensure_ascii=False) + "\n\n" + last["text"]
         answers, lead_usd, error, model = self._ask_lead([one], parts, False, once=True)
         spent = usd + lead_usd
+        self._optional.paid = spent
         base = {**record, "page": page, "lead_usd": lead_usd}
         again_answer = (answers or {}).get(iid)
         if error or again_answer is None or not model:

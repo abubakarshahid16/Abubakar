@@ -166,6 +166,15 @@ class AgentStatus(BaseModel):
     claude_lane_open: bool
 
 
+class AgentPageRereadStop(BaseModel):
+    """The optional second reading of pages ended early in this run (a cap or an error inside it, never the review)."""
+
+    #: plain words for the reason, no document text.
+    why: str
+    #: silent lines that were not re-read because it had ended (the lines carrying the marker; counts equal lines).
+    not_reread: Count
+
+
 class AgentRunSummary(BaseModel):
     """GET /api/reviews/runs/{id}/agent/summary. Counts are per class, over the
     lines of this run only; there is no percentage."""
@@ -185,6 +194,8 @@ class AgentRunSummary(BaseModel):
     equipment_state: str | None = None
     #: the sentences about the paper's equipment and the rules left out for it (counts only, no document text).
     equipment_notes: list[str] = []
+    #: null when the second reading of pages is off or ran fully (shown as nothing, never 0).
+    page_reread_stopped: AgentPageRereadStop | None = None
     #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
     not_reviewed: Count = 0
     #: "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise.

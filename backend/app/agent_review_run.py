@@ -321,7 +321,7 @@ class Runner(DecideMixin, RereadMixin):
         if (
             self.in_optional_step()
         ):  # C4: the optional page re-read never stops the review; it only ends itself
-            self._reread_off = True
+            self.note_reread_stop(exc)
             self._optional.refused = True
             return
         with self._lock:

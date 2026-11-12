@@ -233,6 +233,7 @@ def agent_summary(
         **_mode_of(conn, review_run_id),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        page_reread_stopped=_equipment(run).get("page_reread"),
     )
 
 

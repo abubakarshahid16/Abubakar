@@ -502,7 +502,12 @@ def test_a_page_choice_is_bounded_cited_first_then_the_best_hint_pages():
 
 
 def _line_dicts(rows):
-    return {k: json.loads(v["line_json"]) for k, v in rows.items()}
+    """Stored lines without the step's own marker (`reread`) and the cost of calls the refused step had already paid."""
+    out = {k: json.loads(v["line_json"]) for k, v in rows.items()}
+    for ln in out.values():
+        ln.pop("reread", None)
+        ln.pop("usd", None)
+    return out
 
 
 def _refuse_in_step(monkeypatch, where):
@@ -580,3 +585,134 @@ def test_the_lead_is_told_to_check_the_page_itself(w):
     again = [t for t, o in seen if "a_second_reader_points_to" in t]
     assert len(again) == 1 and "Check the page yourself" in again[0]
     assert [o for t, o in seen if "a_second_reader_points_to" in t] == [True]
+
+
+# ---------------------------------------------------------------- a step that ended early is stated, never dropped
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app import access  # noqa: E402
+from app.main import app  # noqa: E402
+
+
+@pytest.fixture
+def five(w, monkeypatch):
+    monkeypatch.setitem(
+        s.RULES,
+        "R-x",
+        ("The marking shall be in red for every unit.", "4.3", None, None, None, None),
+    )
+    ids = ("R-coat", "R-frame", "R-mark", "R-colour", "R-x")
+    w["doc"], w["cache"] = s.item_doc(ids)
+    with db.connect() as conn:
+        s.label_rows(conn, ["R-x"])
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    w.update(ids=ids, answers=dict.fromkeys(ids, SILENT))
+    return w
+
+
+def _routed(five, reread, refuse_after=None, monkeypatch=None):
+    five["fake"] = ReLane(reread=reread, answers=five["answers"])
+    if refuse_after is not None:
+        real, seen = run_mod.Runner.call, []
+
+        def call(self, model, parts, max_tokens, once=False):
+            if "PAGE RE-READ" in json.dumps(parts.get("system")):
+                seen.append(1)
+                if len(seen) > refuse_after:
+                    raise agent_claude.AgentBudgetStop("cap")
+            return real(self, model, parts, max_tokens, once)
+
+        monkeypatch.setattr(run_mod.Runner, "call", call)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    r = client.post("/api/reviews/agent-run", json={"submittal_document_id": s.PAPER})
+    run_id = r.json().get("run_id") or r.json()["review_run_id"]
+    assert (
+        agent_review_jobs.run(agent_review_jobs.claim_next("w-test"), "w-test")
+        == "done"
+    )
+    return client, run_id
+
+
+def test_a_step_that_stops_after_two_of_five_silent_lines_is_stated_with_three_not_re_read(
+    five, monkeypatch
+):
+    client, run_id = _routed(
+        five, {"found": False}, refuse_after=2, monkeypatch=monkeypatch
+    )
+    summary = client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()
+    assert summary["page_reread_stopped"] == {
+        "why": "a spending cap refused a call",
+        "not_reread": 3,
+    }
+    lines = _line_dicts_with_marks(run_id)
+    assert sorted(o for o in lines.values() if o) == [
+        "no_value",
+        "no_value",
+        "step_off",
+        "step_off",
+        "step_off",
+    ]
+    assert rr.reread_facts(True, "x", [{"reread": {"outcome": "step_off"}}, {}]) == {
+        "why": "x",
+        "not_reread": 1,
+    }
+    import openpyxl
+
+    wb = openpyxl.load_workbook(agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx")
+    cells = [
+        str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value
+    ]
+    assert any(
+        "The second reading of pages stopped early: 3 lines were not re-read" in c
+        for c in cells
+    )
+    contractor = openpyxl.load_workbook(
+        agent_review_jobs.run_dir(run_id) / "crs-contractor.xlsx"
+    )
+    assert not any(
+        "second reading" in str(c.value)
+        for ws in contractor
+        for row in ws.iter_rows()
+        for c in row
+    )
+
+
+def _line_dicts_with_marks(run_id):
+    rows = db.connect().execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ?", (run_id,)
+    )
+    return {
+        r["item_id"]: (json.loads(r["line_json"]).get("reread") or {}).get("outcome")
+        for r in rows
+    }
+
+
+def test_the_field_is_null_when_the_step_is_off_and_when_it_ran_fully(
+    five, monkeypatch
+):
+    client, run_id = _routed(five, {"found": False})
+    assert (
+        client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()[
+            "page_reread_stopped"
+        ]
+        is None
+    )
+    assert set(_line_dicts_with_marks(run_id).values()) == {"no_value"}
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    db.reset_connection()
+    client, run_id = _routed(five, {"found": False})
+    assert (
+        client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()[
+            "page_reread_stopped"
+        ]
+        is None
+    )
+    assert set(_line_dicts_with_marks(run_id).values()) == {None}
+
+
+def test_calls_already_paid_in_a_refused_step_are_charged_to_the_line(w, monkeypatch):
+    _refuse_in_step(monkeypatch, "lead")
+    lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, AGAIN_NUMBER)
+    stored = line_json(lines["R-frame"])
+    assert stored["reread"]["outcome"] == "step_off" and stored["usd"] > 0
