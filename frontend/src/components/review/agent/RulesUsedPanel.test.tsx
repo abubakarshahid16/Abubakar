@@ -8,7 +8,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentRulesUsed } from "../../../types/api";
+import type { AgentBookTable, AgentRulesUsed } from "../../../types/api";
 import { NOT_AGENT_RULES, RulesUsedPanel, RulesUsedView } from "./RulesUsedPanel";
 
 const rulesUsed = vi.fn();
@@ -245,5 +245,44 @@ describe("Rules used for a general review", () => {
     await screen.findByTestId("rules-used");
     expect(screen.queryByTestId("rules-general")).toBeNull();
     expect(screen.getByTestId("asked-count")).toBeInTheDocument();
+  });
+});
+
+
+describe("BookTable", () => {
+  const table: AgentBookTable = {
+    boundary: "rule books in the library the person viewing this may read",
+    hidden_books: 2,
+    note: null,
+    books: [
+      { rule_book: "Book A", in_review: true, method: "named in the paper", stored_rules: 40, asked: 3, left_out: { "needs a human": 2, "needs another paper": 1 } },
+      { rule_book: "Book Z", in_review: false, method: "similar text only: a reason to look, not evidence that it governs", stored_rules: 9, asked: 0, left_out: {} },
+    ],
+  };
+  it("shows candidates with why, stored, asked and left-out counts, the boundary, and the considered-not-included books", () => {
+    render(<RulesUsedView data={data({ book_table: table })} />);
+    const t = screen.getByRole("table", { name: "Rule books that were candidates for this review" });
+    const row = within(t).getByText("Book A").closest("tr")!;
+    expect(within(row).getAllByRole("cell").map((c) => c.textContent)).toEqual(["Book A", "named in the paper", "40", "3", "needs a human 2, needs another paper 1"]);
+    expect(screen.getByTestId("book-table-boundary")).toHaveTextContent("Counted over: rule books in the library the person viewing this may read");
+    expect(screen.getByTestId("book-table-count")).toHaveTextContent("1 book were candidates; 1 were considered and not included.");
+    expect(screen.getByTestId("book-table-out")).toHaveTextContent("Book Z: not included. similar text only");
+  });
+  it("says how many books are not listed because the person may not read them, without naming any", () => {
+    render(<RulesUsedView data={data({ book_table: table })} />);
+    expect(screen.getByTestId("book-table-count")).toHaveTextContent("2 more books of this review are not listed because you may not read them.");
+  });
+  it("a missing count renders as nothing, never 0, and no table at all renders no section", () => {
+    const t = { ...table, books: [{ ...table.books[0], stored_rules: null }], hidden_books: 0 };
+    const { unmount } = render(<RulesUsedView data={data({ book_table: t })} />);
+    const row = within(screen.getByRole("table", { name: "Rule books that were candidates for this review" })).getByText("Book A").closest("tr")!;
+    expect(within(row).getAllByRole("cell")[2].textContent).toBe("");
+    unmount();
+    render(<RulesUsedView data={data({ book_table: null })} />);
+    expect(screen.queryByTestId("book-table")).toBeNull();
+  });
+  it("shows the note when no book selection was stored", () => {
+    render(<RulesUsedView data={data({ book_table: { ...table, note: "No book selection was stored for this review" } })} />);
+    expect(screen.getByTestId("book-table-note")).toHaveTextContent("No book selection was stored");
   });
 });
