@@ -501,20 +501,25 @@ def proof_check(conn: sqlite3.Connection, run_id: str) -> Check:
 
 
 def contractor_rows(blob: bytes) -> list[str]:
-    """The item ids on the contractor copy's comment sheet (the rows under the 'Item No' header)."""
+    """The Status of every row on the contractor copy's comment sheet (the rows under the 'Item No' header). Since order 13 the
+    sheet shows no item id: its columns are the company columns plus Status."""
     from openpyxl import load_workbook
 
     wb = load_workbook(io.BytesIO(blob), read_only=True)
     ws = wb.worksheets[0]
-    ids, seen_header = [], False
+    out: list[str] = []
+    status_col: int | None = None
     for row in ws.iter_rows(values_only=True):
         first = row[0] if row else None
-        if not seen_header:
-            seen_header = first == "Item No"
+        if status_col is None:
+            if first == "Item No" and "Status" in row:
+                status_col = list(row).index("Status")
             continue
         if first not in (None, ""):
-            ids.append(str(first))
-    return ids
+            out.append(str(row[status_col] or ""))
+    if status_col is None:
+        raise ValueError("no Item No / Status header row")
+    return out
 
 
 def contractor_check(
@@ -525,31 +530,28 @@ def contractor_check(
             "contractor copy holds proven Fail only", False, "the copy was not read"
         )
     try:
-        ids = contractor_rows(blob)
+        statuses = contractor_rows(blob)
     except Exception as exc:  # noqa: BLE001
         return Check(
             "contractor copy holds proven Fail only",
             False,
             f"not a readable workbook ({type(exc).__name__})",
         )
-    proven_fail = {
-        r["item_id"]
-        for r in conn.execute(
-            "SELECT item_id FROM agent_review_line WHERE run_id = ? AND verdict_class = 'Proven by code' AND word = 'Fail'",
-            (run_id,),
-        )
-    }
-    extra = [i for i in ids if i not in proven_fail]
-    if extra:
+    proven_fail = conn.execute(
+        "SELECT COUNT(*) FROM agent_review_line WHERE run_id = ? AND verdict_class = 'Proven by code' AND word = 'Fail'",
+        (run_id,),
+    ).fetchone()[0]
+    extra = [s for s in statuses if s != "Fail"]
+    if extra or len(statuses) > proven_fail:
         return Check(
             "contractor copy holds proven Fail only",
             False,
-            f"{len(extra)} row(s) that are not a proven Fail",
+            f"{len(extra) or len(statuses) - proven_fail} row(s) that are not a proven Fail",
         )
     return Check(
         "contractor copy holds proven Fail only",
         True,
-        f"{len(ids)} row(s) of {len(proven_fail)} proven Fail",
+        f"{len(statuses)} row(s) of {proven_fail} proven Fail",
     )
 
 

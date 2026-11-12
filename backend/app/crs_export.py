@@ -727,9 +727,8 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                 cell.fill = fill
         ws.row_dimensions[row].height = row_height(comment)
 
-    # THE REPLY CONVENTION, ON THE SHEET ITSELF: a tip on every Contractor's
-    # Response cell asks for a response code first (`crs_numbers.parse_response`
-    # reads it). A prompt, not a restriction: any text is accepted.
+    # THE REPLY CONVENTION: a tip on every Contractor's Response cell asks for a response code first
+    # (`crs_numbers.parse_response` reads it). A prompt, not a restriction.
     if view["rows"]:
         from openpyxl.worksheet.datavalidation import DataValidation
         tip = DataValidation(type="textLength", operator="greaterThanOrEqual",
@@ -740,10 +739,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         tip.add(f"F{first}:F{COLUMN_HEADER_ROW + len(view['rows'])}")
         ws.add_data_validation(tip)
 
-    # Recommended review code, when supplied: a bold merged summary row two
-    # rows below the table (the template's seven columns are untouched), its
-    # reason beside it verbatim. #633: the incomplete-review notice sits
-    # directly under the table, above the code.
+    # Recommended review code: a bold merged row two rows below the table. #633: the incomplete notice sits above it.
     if view["incomplete_notice"]:
         notice_row = COLUMN_HEADER_ROW + len(view["rows"]) + 1
         ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
@@ -794,7 +790,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
             notes_sheet.column_dimensions[col].width = width
 
     _later_sheets(wb, view, meta, internal)
+    from . import crs_layout  # order 13: the one layout's header row and print setup
 
+    crs_layout.style_header_and_print(ws, COLUMN_HEADER_ROW, len(view["columns"]))
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

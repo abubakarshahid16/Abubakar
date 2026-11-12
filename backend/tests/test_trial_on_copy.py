@@ -377,14 +377,15 @@ def test_the_proof_check_reads_the_stored_lines(world):
     assert not check.ok and "rule quote not verified by code" in check.detail
 
 
-def sheet(ids):
+def sheet(statuses):
+    """A contractor copy as the app writes it since order 13: no item id, a Status column."""
     wb = Workbook()
     ws = wb.active
     ws.append(["COMMENT RESOLUTION SHEET"])
     ws.append([])
-    ws.append(["Item No", "Document Name"])
-    for i in ids:
-        ws.append([i, "paper"])
+    ws.append(["Item No", "Document Name", "Status"])
+    for n, status in enumerate(statuses, start=1):
+        ws.append([n, "paper", status])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -405,8 +406,8 @@ def test_the_contractor_copy_may_hold_only_proven_fail_rows(world):
                 (item, cls, word),
             )
     ro = trial.ro(world / "agent.sqlite")
-    assert trial.contractor_check(ro, "r", sheet(["F1"])).ok
-    bad = trial.contractor_check(ro, "r", sheet(["F1", "P1"]))
+    assert trial.contractor_check(ro, "r", sheet(["Fail"])).ok
+    bad = trial.contractor_check(ro, "r", sheet(["Fail", "Pass"]))
     assert not bad.ok and "1 row(s) that are not a proven Fail" in bad.detail
     assert not trial.contractor_check(ro, "r", None).ok
 

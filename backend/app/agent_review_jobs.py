@@ -50,6 +50,7 @@ from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
+from . import crs_ai_header as crs_header
 from .agent_review_pair import (  # noqa: F401 - re-exported
     IllegalLine,
     contract_class_and_word,
@@ -572,6 +573,12 @@ def _stop_text(runner, plan: dict) -> str | None:
     return plan.get("stop")
 
 
+def _header_facts(submittal: str, equipment_type: str | None) -> dict:
+    """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
+    with connect() as conn:
+        return crs_header.document_header(conn, submittal, equipment_type)
+
+
 def _equipment_facts(block: dict) -> dict:
     """What the paper's equipment state means for the rules: the state word, and the summary sentences about equipment (counts
     only, no document text) that the summary and Rules used routes show."""
@@ -618,6 +625,7 @@ def _finish(
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
+            "usd": usd, "header": _header_facts(submittal, kind.equipment_type),
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or [])}}  # fmt: skip
     folder = run_dir(run_id)

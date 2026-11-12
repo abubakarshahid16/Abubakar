@@ -326,19 +326,19 @@ def test_a_guarded_line_is_on_the_query_side_of_the_workbook_with_its_new_reason
     }
     path = C.write_internal([held, moved], tmp_path / "i.xlsx", meta)
     wb = openpyxl.load_workbook(path)
-
-    def ids(title):
-        return [
-            r[0]
-            for r in wb[title].iter_rows(values_only=True)
-            if r[0] in ("R-4", "R-9")
-        ]
-
-    assert ids(C.HELD_PASS_SHEET) == ["R-4"] and ids("CRS") == ["R-9"]
+    evidence = list(wb["Evidence"].iter_rows(min_row=2, values_only=True))
+    status_of = {r[12]: r[1] for r in evidence}  # internal item id -> Status
+    assert status_of == {
+        "R-4": "AI opinion",
+        "R-9": "Query",
+    }  # the moved line is on the Query side
     text = "\n".join(
         str(c) for r in wb["CRS"].iter_rows(values_only=True) for c in r if c
     )
-    assert V.DEFERRED_WHY in text
+    assert (
+        "the paper leaves the value open" in text
+    )  # the guard's reason, in plain words
+    assert V.DEFERRED_WHY not in text  # never the stored words
     counts = C.run_counts([held, moved])
     assert counts["held_ai_pass"] == 1 and counts["query"] == 2
 
@@ -384,6 +384,7 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
     import openpyxl
 
     from app import agent_review_crs as C
+    from app import crs_ai_workbook as WB
 
     ok = {"source": "rule", "rule_label": {"tier": "AI approved"}}
     no = {
@@ -434,15 +435,30 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
     path = C.write_internal(lines, tmp_path / "i.xlsx", meta)
     wb = openpyxl.load_workbook(path)
     ids = {ln["item_id"] for ln in lines}
-    seen: dict[str, list[str]] = {i: [] for i in ids}
-    for title in wb.sheetnames:
-        for row in wb[title].iter_rows(values_only=True):
-            if row and row[0] in ids and title != C.RUN_SHEET:
-                seen[row[0]].append(title)
-    assert all(len(v) == 1 for v in seen.values()), seen
-    assert {i: v[0] for i, v in seen.items()} == {
-        i: C.sheet_of(ln) for ln in lines for i in [ln["item_id"]]
+    place = {}  # item id -> the sheet it is a row of (Evidence has one row per item, same Item No)
+    on_main = {
+        r[0]
+        for r in wb["CRS"].iter_rows(min_row=1, values_only=True)
+        if isinstance(r[0], int)
     }
+    on_other = {
+        r[0]
+        for r in wb["Not reviewed or not applicable"].iter_rows(
+            min_row=2, values_only=True
+        )
+    }
+    evidence = list(wb["Evidence"].iter_rows(min_row=2, values_only=True))
+    assert sorted(r[12] for r in evidence) == sorted(ids)  # every line once
+    for r in evidence:
+        place[r[12]] = (
+            "CRS" if r[0] in on_main else "other" if r[0] in on_other else None
+        )
+    assert None not in place.values() and not on_main & on_other
+    by_line = {ln["item_id"]: ln for ln in lines}
+    assert {i: p == "CRS" for i, p in place.items()} == {
+        i: WB.status_of(by_line[i]) is not None for i in ids
+    }  # the one decision (`sheet_of`, read by `status_of`) is where each line stands
+    seen = {i: [C.sheet_of(by_line[i])] for i in ids}
     rows = C.sheet_rows(lines)
     for title, n in rows.items():
         assert n == sum(1 for v in seen.values() if v[0] == title), title
@@ -462,13 +478,12 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
         "unapproved_ai_thinks_not_met query_for_the_engineer not_applicable not_reviewed"
     ).split()
     assert sum(by_class[k] for k in classes) == len(lines)
-    run_text = "\n".join(
-        str(c)
-        for r in wb[C.RUN_SHEET].iter_rows(values_only=True)
-        for c in r
-        if c is not None
-    )
-    assert "sheet_rows" in run_text and "held_ai_pass" in run_text
+    notes = {r[0]: r[1] for r in wb["Notes"].iter_rows(min_row=2, values_only=True)}
+    assert int(notes["Count: rows on the CRS sheet"]) == len(on_main)
+    assert int(
+        notes["Count: rows on the sheet 'Not reviewed or not applicable'"]
+    ) == len(on_other)
+    assert len(on_main) + len(on_other) == len(lines)
 
 
 def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_view(
@@ -477,6 +492,7 @@ def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_vi
     import openpyxl
 
     from app import agent_review_crs as C
+    from app import crs_ai_workbook as WB
 
     view = "The sheet states the requirement is met."
     ok = {"source": "rule", "rule_label": {"tier": "AI approved"}}
@@ -514,7 +530,14 @@ def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_vi
     # the workbook comment and verdict cells, and the stored `reason`, all lead with the same text
     comment = C.company_comment(moved)
     assert comment.split(": ", 1)[1] == text
-    assert text in C.verdict_cell(moved)
+    _one, two, three = WB.layout_comment(moved, *WB.status_of(moved)).split("\n")
+    assert (
+        "Not confirmed: the two AI readers disagreed." in two
+    )  # the guard's reason leads, in plain words
+    assert (
+        two.index("Not confirmed") < two.index(W.ONE_READER) < two.index(view)
+    )  # then the view, marked
+    assert "met" not in three  # the first reader's conclusion is not the action
     meta = {
         "paper": "P",
         "run_id": "r",
@@ -524,7 +547,7 @@ def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_vi
     }
     wb = openpyxl.load_workbook(C.write_internal([moved], tmp_path / "i.xlsx", meta))
     cells = [str(c) for r in wb["CRS"].iter_rows(values_only=True) for c in r if c]
-    assert any(c.split(": ", 1)[-1] == text for c in cells)
+    assert any(W.ONE_READER + view in c for c in cells)
     # a moved line with no first-reader text says only the guard reason
     bare = W.final_cap(
         {**base, "reasoning": None, "second_opinion": {"agree": False}}, ok
