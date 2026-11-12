@@ -57,11 +57,10 @@ UNKNOWN_STRENGTH_WORDS = (
 
 def _checklist_entry(rule_id: str) -> dict | None:
     """The approved checklist entry (`reference/datasheet_checks.json`) with this id, or None."""
-    import json
+    from . import datasheet_checks
 
-    path = Path(__file__).parent / "reference" / "datasheet_checks.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = datasheet_checks.load_rules()  # the ONE reader of the approved checklist
     except (OSError, ValueError):
         return None
 

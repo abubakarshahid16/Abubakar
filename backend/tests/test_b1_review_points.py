@@ -1577,3 +1577,30 @@ def test_the_contractor_copy_line_comes_from_the_kind_table_in_both_states(monke
         ]["kind"]
         is None
     )  # no AI review: no kind
+
+
+def test_the_checklist_has_one_reader_the_checks_loader(monkeypatch):
+    """Rule 8: the strength of a checklist check is read through `datasheet_checks.load_rules`, not a second reader of the file."""
+    from app import datasheet_checks
+
+    calls = []
+
+    def loader(*_a, **_k):
+        calls.append(1)
+        return {"lists": [{"checks": [{"id": "ZZ-9", "strength": "should"}]}]}
+
+    monkeypatch.setattr(datasheet_checks, "load_rules", loader)
+    assert review_points_service._checklist_entry("ZZ-9") == {
+        "id": "ZZ-9",
+        "strength": "should",
+    }
+    assert calls
+    assert (
+        review_points_service._strength(
+            {
+                "origin": "datasheet_check",
+                "requirement_source_text": "Datasheet check ZZ-9: a recommendation",
+            }
+        )
+        == "should"
+    )

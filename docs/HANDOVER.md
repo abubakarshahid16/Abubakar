@@ -362,6 +362,22 @@ required for "enterprise", explicitly deferred by Ali.
 
 ---
 
+### Standing decisions of 12 Nov 2026 (owner, #1584; the words are in CLAUDE.md: the top rule, "The goal decides", "One reviewer only")
+
+- **The design.** The AI reviewer is the reviewer, on Claude or on the local model: same design, same steps, same sheet; only the engine
+  changes. Code is its calculator: code verifies every quote and does every number and unit comparison. A decision is either (a) Pass or
+  Fail, only when code compared a value, or (b) Met / Not met by two readers who agree, with quotes verified by code (internal copy; a
+  kind of paper moves to the contractor copy when two-reader verdicts are right 95 of 100 on its key). Everything else is an AI opinion
+  or a question for the engineer. 0 wrong decisions. The engineer signs.
+- **The goal decides.** Review like a senior engineer or better, any document, best CRS. A rule, an old design line or an old part of the
+  app that works against the goal: the lead changes it and tells the owner afterwards in one line. Ask first only for: raising a money
+  cap; deleting data; and the third item the owner has not yet restated (until then: his password sign-in and sending a NEW kind of
+  paper to Claude stay his). Rules 1 to 5 and #806 keep their own approval line.
+- **One reviewer only.** The old rule check stops being a separate review: its number and unit checks become a tool inside the AI review
+  and show as normal points; its separate button, "No comments" box, six steps and sheet go from the page (old reviews stay readable),
+  together with the new page, not before; before it is switched off the AI reviewer on the local model is measured against the same key
+  and shown beside Claude's; "5 of 5 pages were not fully read" is fixed on the current page too.
+
 ## 7. Demo — what works and what to say
 
 **Start:** Terminal 1 `cd backend && ..\.venv\Scripts\activate && python run.py`

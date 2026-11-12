@@ -7,13 +7,32 @@
 > else here, in `docs/` or in `.cowork/` differs from it, #805 wins.
 >
 > **Top rule - AI-first (owner, 11 Oct 2026; changed 3 Nov 2026 17:55 PKT, #1584;
-> #805 rule 1):** AI reviews and judges like a senior engineer; code verifies
-> every quote and does every number comparison; the engineer signs. A verdict
-> (Pass, Fail, Missing) counts as decided only with evidence: a quote from the
-> document AND from the clause, both verified by code, numbers compared by code,
-> 0 wrong verdicts. Switching any AI step off by default, or replacing an AI
-> step with a rules-only path, needs the owner's written approval on #692 and
-> #1584.
+> changed 12 Nov 2026, owner, #1584; #805 rule 1):** The AI reviewer is the reviewer, on Claude or on the local model: same design,
+> same steps, same sheet; only the engine changes. Code is its calculator: code verifies every quote and does every number and unit
+> comparison. A decision is either (a) Pass or Fail, only when code compared a value, or (b) Met / Not met by two readers who agree,
+> with quotes verified by code (internal copy; a kind of paper moves to the contractor copy when two-reader verdicts are right 95 of
+> 100 on its key). Everything else is an AI opinion or a question for the engineer. 0 wrong decisions. The engineer signs. Switching
+> any AI step off by default, or replacing an AI step with a rules-only path, needs the owner's written approval on #692 and #1584.
+
+## The goal decides (owner, 12 Nov 2026, standing)
+
+The goal: review like a senior engineer or better, any document, best CRS. If a written rule, an old design line or an old part of the
+app works against the goal, the lead changes it and tells the owner afterwards in one line. Ask the owner first only for: raising a
+money cap; deleting data; and the third item the owner has not yet restated (until he does: signing in with his password and sending
+a NEW kind of paper to Claude stay his). Everything else is the lead's decision: design, screens, wording, removing old parts, order
+of work. This section does not change the privacy and safety rules 1 to 5 or #806: those keep their own approval line above.
+
+## One reviewer only (owner, 12 Nov 2026)
+
+1. The AI reviewer is the reviewer, on Claude or on the local model. Same design, same steps, same sheet. Only the engine changes.
+2. The old rule check stops being a separate review. Its number comparisons and unit checks become a tool inside the AI review and
+   appear as normal points in the one list.
+3. Remove from the page: its separate button, its "No comments" box, its six steps and its separate sheet. Old reviews stay readable
+   in history.
+4. Do it together with the new page, not before. Do not break the current page tonight.
+5. Before the old rule check is switched off, measure the AI reviewer on the local model against the same answer key and show me the
+   score next to Claude's.
+6. Fix "5 of 5 pages were not fully read" on the current page too. It is a false statement about reading.
 
 ## Where we are (pointers only)
 
