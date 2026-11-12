@@ -55,7 +55,6 @@ AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
 AI_ON_LOCAL = "the AI review runs on the local model: nothing leaves this computer"
-CLAUDE_REFUSED_WORDS = "Claude cannot be used now, so this review runs on this computer"
 AI_ON_LOCAL_RULES_ONLY = (
     "the AI review asks the rules of this kind on the local model: nothing leaves this computer; the general review (the paper against "
     "itself, the checklist) does not run on the local model yet"
@@ -112,7 +111,6 @@ class Facts:
     books_ok: bool = (
         True  # the rule books may go (approved or joining by the automatic route)
     )
-    claude_refused: bool = False  # Claude refuses every call right now (the account limit: `claude_standing_refusal`)
     local_ai: bool = False  # AGENT_REVIEW_LOCAL_ENGINE_ENABLED (and the AI reviewer is on): the AI review may run on the local model
     rules_for_kind: bool = False  # the reviewer asks the held rules of this paper's kind (a datasheet always; a procedure or contract only with its switch)
 
@@ -165,8 +163,6 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
     """The first reason the AI review cannot go to Claude for this paper: (code, one plain sentence), else None."""
     if not f.agent_enabled:
         return "AI_OFF", "the AI review is switched off on this install"
-    if f.claude_refused:
-        return "CLAUDE_REFUSED", CLAUDE_REFUSED_WORDS
     if f.is_contract and not f.contract_yes:
         # by ROLE or by kind, asked before the kind: a contract is never "unknown"
         return "NEEDS_YES", NEEDS_YES
@@ -205,8 +201,6 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
 
 def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     """Would the rule check's own AI steps be allowed on Claude? (They follow each step's OWN engine setting.) (yes, reason when not)"""
-    if f.claude_refused:
-        return False, CLAUDE_REFUSED_WORDS
     if not (
         f.provider == "claude" or (f.provider == "per_task" and f.step_engine_claude)
     ):
@@ -302,12 +296,9 @@ def decide(choice: str, f: Facts) -> Plan:
         ai = Part(AI_REVIEW, ON_CLAUDE, "the AI review reads the paper on Claude")
     elif choice == AUTOMATIC and local_ok:
         # Claude is not allowed for this paper: the local model reads it (said with the reason), never a silent Claude call
-        said = (
-            f"{blocker[1]}; {local_why}"
-            if blocker[0] == "CLAUDE_REFUSED"
-            else f"{local_why} (Claude is not used: {blocker[1]})"
+        ai = Part(
+            AI_REVIEW, ON_LOCAL, f"{local_why} (Claude is not used: {blocker[1]})"
         )
-        ai = Part(AI_REVIEW, ON_LOCAL, said)
     else:
         ai = Part(AI_REVIEW, NOT_RUN, blocker[1])
     plan.parts = [rc, ai]
@@ -325,7 +316,6 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         agent_review_local,
         claude_approved,
         claude_spend,
-        claude_standing_refusal,
         contract_yes,
         local_engine_bar,
         reasoning_provider,
@@ -387,7 +377,6 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         or bool(settings.review_unscored_kinds_for_claude_enabled),
         kind_scored=scored,
         caps_ok=room,
-        claude_refused=claude_standing_refusal.standing(),
         local_ai=agent_review_local.switch_on(),
         rules_for_kind=agent_review_gate.rules_kind_enabled(kind),
         books_ok=bool(
