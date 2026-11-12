@@ -244,7 +244,9 @@ def test_the_internal_crs_shows_the_trust_and_the_safety_tick_and_the_issue_copy
     _rerun(world)
     client = _client(world["scope"])
     internal = client.get(f"/api/reviews/runs/{world['run']}/crs/preview").json()
-    assert "Rule trust (internal)" in internal["columns"]
+    # #1767: the trust text moved off the CRS sheet to the Evidence sheet; the rows still carry it (internal copy only)
+    assert "Rule trust (internal)" not in internal["columns"]
+    assert all("rule_trust" in r for r in internal["rows"])
     ticks = [r for r in internal["rows"] if r["row_kind"] == "safety_tick"]
     assert len(ticks) == 1
     assert "ENGINEER TO TICK (safety field)" in ticks[0]["comment"]

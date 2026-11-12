@@ -3704,7 +3704,7 @@
     ],
     [
      "B2",
-     "Priority is set by one rule. Fail = High. AI opinion (not met) = High when the rule is mandatory, otherwise Medium. Query = Medium when the rule is mandatory, otherwise Low. AI opinion (met) and Pass = blank. Mandatory means a held rule that is not marked as a recommendation ('should'); a checklist item has no stored strength and counts as not mandatory.",
+     "Priority is set by one rule. Fail = High. AI verdict (not met) and AI opinion (not met) = High when the rule is mandatory, otherwise Medium. Query = Medium when the rule is mandatory, otherwise Low. AI verdict (met), AI opinion (met) and Pass = blank. Mandatory means a held rule that is not marked as a recommendation ('should'); a checklist item has no stored strength and counts as not mandatory.",
      null,
      "top",
      true,
@@ -8104,7 +8104,7 @@
     ],
     [
      "B2",
-     "Priority is set by one rule. Fail = High. AI opinion (not met) = High when the rule is mandatory, otherwise Medium. Query = Medium when the rule is mandatory, otherwise Low. AI opinion (met) and Pass = blank. Mandatory means a held rule that is not marked as a recommendation ('should'); a checklist item has no stored strength and counts as not mandatory.",
+     "Priority is set by one rule. Fail = High. AI verdict (not met) and AI opinion (not met) = High when the rule is mandatory, otherwise Medium. Query = Medium when the rule is mandatory, otherwise Low. AI verdict (met), AI opinion (met) and Pass = blank. Mandatory means a held rule that is not marked as a recommendation ('should'); a checklist item has no stored strength and counts as not mandatory.",
      null,
      "top",
      true,
