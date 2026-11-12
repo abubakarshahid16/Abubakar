@@ -94,16 +94,11 @@ def note_web_check_skipped(run_id: str) -> None:
         )
 
 
-def _notes(facts, plan, settings) -> list[str]:
+def _notes(plan, settings) -> list[str]:
     """Plain notes the panel shows below the plan."""
     from .review_engine import ON_CLAUDE, RULE_CHECK
 
     notes = []
-    if facts.is_contract and not facts.scored_allowed:
-        notes.append(
-            "A recorded yes does not offer a contract for Claude while contracts are not scored against an answer key; it counts "
-            "once contracts are scored, or when this install turns on the setting for unscored kinds."
-        )
     if settings.review_web_standards_enabled:
         kept = not plan.text_leaves or plan.part(RULE_CHECK).engine != ON_CLAUDE
         notes.append(
@@ -112,3 +107,36 @@ def _notes(facts, plan, settings) -> list[str]:
             else "This install turns on the public web check of standards the library lacks; it can send those standard names out."
         )
     return notes
+
+
+def _last_cost(conn, document_id: str) -> float | None:
+    """The real cost of the paper's last AI review (its stored `usd`); None when there is none or it was not measured."""
+    try:
+        row = conn.execute(
+            "SELECT a.usd FROM agent_review_run a JOIN review_runs r ON r.id = a.run_id"
+            " WHERE r.submittal_document_id = ? AND a.usd IS NOT NULL ORDER BY r.started_at DESC LIMIT 1",
+            (document_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    return float(row["usd"]) if row and row["usd"] is not None else None
+
+
+def _usd(value: float) -> str:
+    return f"USD {value:g}"
+
+
+def _cost_words(each: dict, total: float, per_run: float) -> str:
+    """The true upper bound per part and in total, from the caps in code: the rule check and the AI review are two runs, each with
+    its own per-run cap. The day and month caps still apply on top. Never an exact figure."""
+    bits = []
+    if each["rule_check"] is not None:
+        bits.append(f"rule check: at most {_usd(each['rule_check'])}")
+    if each["ai_review"] is not None:
+        bits.append(f"AI review: at most {_usd(each['ai_review'])}")
+    together = f"; together at most {_usd(total)}" if len(bits) > 1 else ""
+    return (
+        "; ".join(bits)
+        + together
+        + f" (each review has its own cap of {_usd(per_run)}, the day and month caps still apply; the real cost is usually lower)"
+    )
