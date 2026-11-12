@@ -382,25 +382,6 @@ def archive_ai_contractor_copy(rule_check_run_id: str, *, actor: str) -> dict | 
     )
 
 
-CONTRACTOR_COPY_PLAIN = "The contractor file holds only what code proved, or your own words. It never carries an AI wording."
-CONTRACTOR_COPY_WITH_VERDICTS = (
-    'The contractor file holds what code proved, your own words, and the AI\'s "not met" verdicts that two readers agreed on and code '
-    "checked, which this kind of paper allows."
-)
-
-
-def contractor_copy_words(kind: str | None) -> str:
-    """What the AI review's contractor copy holds for this paper's kind, from the backend's own answer (the kind table's
-    `contractor_copy_ai_verdict`), never a fixed claim."""
-    from . import kind_review_table
-
-    return (
-        CONTRACTOR_COPY_WITH_VERDICTS
-        if kind_review_table.contractor_copy_ai_verdict(kind)
-        else CONTRACTOR_COPY_PLAIN
-    )
-
-
 def _contractor_copy(conn, ai_run: str | None) -> dict:
     """{kind, words}: what the AI review's contractor copy holds for this paper's kind (the kind of its AI run)."""
     kind = None
@@ -409,4 +390,6 @@ def _contractor_copy(conn, ai_run: str | None) -> dict:
             "SELECT paper_kind FROM agent_review_run WHERE run_id = ?", (ai_run,)
         ).fetchone()
         kind = row["paper_kind"] if row else None
-    return {"kind": kind, "words": contractor_copy_words(kind)}
+    from . import kind_review_table
+
+    return {"kind": kind, "words": kind_review_table.contractor_copy_words(kind)}
