@@ -98,6 +98,7 @@ class PointsListingOut(BaseModel):
     decided: int
     of: int
     removed: list[PointOut]
+    contractor_copy: dict[str, Any] = {}
 
 
 class PageV2Status(BaseModel):
