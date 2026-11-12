@@ -40,7 +40,11 @@ def decided_by(method: str | None, page: int | None = None, guess: bool = False)
     """'decided by: <words>[, page N][ (a guess until an engineer confirms it)]' from the method code. Words and a page number only."""
     words = DECIDED_BY.get(str(method or ""), "a cue the code could not name")
     where = f", page {page}" if isinstance(page, int) and page >= 1 else ""
-    tail = " (a guess until an engineer confirms it)" if guess and "guess" not in words else ""
+    tail = (
+        " (a guess until an engineer confirms it)"
+        if guess and "guess" not in words
+        else ""
+    )
     return f"decided by: {words}{where}{tail}"
 
 

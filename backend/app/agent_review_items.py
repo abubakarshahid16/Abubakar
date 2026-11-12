@@ -218,7 +218,9 @@ def skill_kinds_for(paper_kind: str, kinds: tuple[str, ...] | None = None) -> li
 
         kinds = agent_skills.KINDS
     tail = paper_kind.replace(" ", "_")
-    if kind_review_table.has_row(tail):  # the one table says which checklist ending a kind has (None: the slot is empty)
+    if kind_review_table.has_row(
+        tail
+    ):  # the one table says which checklist ending a kind has (None: the slot is empty)
         tail = kind_review_table.checklist_ending(tail)
         if not tail:
             return []

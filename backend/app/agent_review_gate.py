@@ -23,7 +23,9 @@ FEATURE_OFF = "feature_off"
 #: experiment's procedure and contract runs: most "AI thinks: not met" lines were wrong, because the paper was silent.) One
 #: switch stays one switch; inside it a paper of any other kind, or of an unknown kind, is refused before any job exists.
 #: Widening this tuple is an owner decision.
-AGENT_REVIEW_KINDS = kind_review_table.rule_review_kinds()  # read from the one table (`reference/kind_review_table.json`)
+AGENT_REVIEW_KINDS = (
+    kind_review_table.rule_review_kinds()
+)  # read from the one table (`reference/kind_review_table.json`)
 #: GENERAL REVIEW kinds, behind the SAME switch. OWNER, 11 Nov 2026 (STATE 16.4, word for word): "Do not switch them off. Review
 #: them in GENERAL REVIEW mode when we hold no rule book for the paper: ... Never ask equipment rules of a paper they do not
 #: belong to. Silence is a "Query", never "not met". No "Pass" or "Fail" in this mode. All lines internal only." ... "Switch it
@@ -91,7 +93,8 @@ def rules_kind_enabled(kind: str | None) -> bool:
         return False
     review = kind_review_table.row(kind)["review"]
     return review == "rule" or (
-        review == "rule_and_general" and bool(settings.agent_review_general_rules_enabled)
+        review == "rule_and_general"
+        and bool(settings.agent_review_general_rules_enabled)
     )
 
 

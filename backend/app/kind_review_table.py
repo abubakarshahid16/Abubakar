@@ -37,12 +37,21 @@ def _check(data: dict) -> dict:
         if missing:
             raise TableError(f"kind {name}: missing {missing}")
         if row["review"] not in REVIEWS:
-            raise TableError(f"kind {name}: review {row['review']!r} is not one of {REVIEWS}")
+            raise TableError(
+                f"kind {name}: review {row['review']!r} is not one of {REVIEWS}"
+            )
         if row["ask_rules"] != bool(row["rules_of_kind"]):
             raise TableError(f"kind {name}: ask_rules and rules_of_kind disagree")
-        if row["review"] in ("rule", "rule_and_general", "general") and row["window_tokens"] < 1000:
-            raise TableError(f"kind {name}: a reviewed kind needs window_tokens of at least 1000")
-        if row["review"] == "none" and (row["ask_rules"] or row["checklist_skill_ending"]):
+        if (
+            row["review"] in ("rule", "rule_and_general", "general")
+            and row["window_tokens"] < 1000
+        ):
+            raise TableError(
+                f"kind {name}: a reviewed kind needs window_tokens of at least 1000"
+            )
+        if row["review"] == "none" and (
+            row["ask_rules"] or row["checklist_skill_ending"]
+        ):
             raise TableError(f"kind {name}: review none asks nothing")
     return data
 

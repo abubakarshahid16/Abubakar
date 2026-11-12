@@ -50,7 +50,9 @@ PAPER_KINDS: tuple[str, ...] = (
 #: Plain words for each kind (the owner's words).
 WORDS: dict[str, str] = {k: k.replace("_", " ") for k in PAPER_KINDS}
 #: Kinds whose MAIN label is never an equipment type.
-NO_MAIN_EQUIPMENT: frozenset[str] = frozenset(kind_review_table.no_main_equipment_kinds())  # the one table
+NO_MAIN_EQUIPMENT: frozenset[str] = frozenset(
+    kind_review_table.no_main_equipment_kinds()
+)  # the one table
 
 #: A record of a test or inspection that was done (its result), named in the
 #: title. A test PLAN or test PROCEDURE says how a test is done: a procedure.
@@ -78,18 +80,24 @@ _CONTRACT_HEADING = re.compile(
 
 #: A transmittal is identified by its own number ("Transmittal No. TR-7"). The router's reading skips a kind word followed by
 #: "No." (a label naming ANOTHER document, "P&ID No."); a transmittal's own number is consumed here, so the line is read.
-_TRANSMITTAL_NUMBER = re.compile(r"\btransmittal\s+(?:no\b\.?|number|nr\b\.?|#)\s*[A-Z0-9][\w/.-]*", re.I)
+_TRANSMITTAL_NUMBER = re.compile(
+    r"\btransmittal\s+(?:no\b\.?|number|nr\b\.?|#)\s*[A-Z0-9][\w/.-]*", re.I
+)
 
 
 def _paper_cues() -> tuple[tuple[str, re.Pattern[str]], ...]:
     out: list[tuple[str, re.Pattern[str]]] = []
     for kind, pattern in document_kind._KIND_CUES:
         if kind == "contract":
-            pattern = re.compile(pattern.pattern + "|" + _CONTRACT_HEADING.pattern, re.I)
+            pattern = re.compile(
+                pattern.pattern + "|" + _CONTRACT_HEADING.pattern, re.I
+            )
         if kind == "datasheet":
             out.append(("calculation", _CALCULATION))
         if kind == "transmittal":
-            pattern = re.compile(_TRANSMITTAL_NUMBER.pattern + "|" + pattern.pattern, re.I)
+            pattern = re.compile(
+                _TRANSMITTAL_NUMBER.pattern + "|" + pattern.pattern, re.I
+            )
         out.append((kind, pattern))
         if kind == "procedure":
             out.append(("test_record", _TEST_RECORD))

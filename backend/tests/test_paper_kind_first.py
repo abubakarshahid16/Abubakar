@@ -448,4 +448,8 @@ def test_switch_off_the_confirm_list_is_as_on_main(monkeypatch):
     with pytest.raises(doc_router.UnknownKind):
         doc_router.confirm("d1", "test_record", _confirmer())
     monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
-    assert [k["id"] for k in doc_router.kinds()] == [*MAIN_KINDS, "test_record", "calculation"]
+    assert [k["id"] for k in doc_router.kinds()] == [
+        *MAIN_KINDS,
+        "test_record",
+        "calculation",
+    ]
