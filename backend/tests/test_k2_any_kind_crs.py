@@ -437,3 +437,54 @@ def test_a_comment_is_never_cut_after_a_bare_number_or_a_clause_number(tail):
             )
             last = head.split()[-1] if head.split() else ""
             assert not q._BARE_NUMBER.fullmatch(last), (limit, head[-20:], rest[:12])
+
+
+# ---- R52b: quotes, titles and field labels are never rewritten; only the system's own sentences change
+
+
+def test_the_noun_changes_only_the_systems_own_words_never_a_quote_a_title_or_a_field_label():
+    quote = "the Datasheet governs where it conflicts with the Specification (clause 2)"
+    label = "Datasheet number (field)"
+    title = "Datasheet Requirements for Pumps (rule book title)"
+    row = {
+        "comment": f'Not read from the datasheet (5 pages) - {label}. The rule says: "{quote}". Rule book: {title}. Held, not compared with the datasheet.',
+        "page_section": "Not read from the datasheet (5 pages)",
+        "ai_review_comment": f'The AI read: "{quote}"',
+        "reasoning": f"Read: {label} = 12 (p.2). Datasheet field not identified - engineer to check",
+        "comment_by": "AI Review",
+    }
+    before = dict(row)
+    view = {
+        "rows": [row],
+        "review_notes": [{"detail": "No datasheet field found - engineer to check"}],
+    }
+    kind_words.name_the_paper(view, {"paper_noun": "contract"})
+    got = view["rows"][0]
+    for text in (quote, label, title):
+        assert all(
+            text in got[k]
+            for k in ("comment", "ai_review_comment", "reasoning")
+            if text in before[k]
+        )  # every quote, title and label identical
+    assert (
+        "Not read from the contract (5 pages)" in got["comment"]
+        and got["page_section"] == "Not read from the contract (5 pages)"
+    )
+    assert (
+        "Held, not compared with the contract." in got["comment"]
+        and "Contract field not identified" in got["reasoning"]
+    )
+    assert (
+        view["review_notes"][0]["detail"]
+        == "No contract field found - engineer to check"
+    )
+    assert got["comment_by"] == "AI reviewer - engineer to confirm"
+    # a datasheet word outside the system's templates survives: counted by what is left, not by a rewrite
+    assert got["comment"].count("Datasheet") == before["comment"].count("Datasheet")
+
+
+def test_a_short_generic_fragment_of_a_template_is_never_a_swap_key():
+    keys = kind_words.templates()
+    assert keys and all(len(k) >= 20 for k in keys)
+    assert "The datasheet " not in keys and "Datasheet states " not in keys
+    assert "Not read from the datasheet" in keys  # a whole system sentence is

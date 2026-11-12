@@ -15,6 +15,8 @@ Reads only; no model, no network.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+from pathlib import Path
 
 from . import kind_review_table, paper_kind
 
@@ -173,11 +175,70 @@ def _swap(text: str, noun: str) -> str:
     )
 
 
+_TEMPLATE_FILES = (
+    "crs_mapping",
+    "crs_page_words",
+    "held_findings",
+    "recommendations",
+    "crs_blank_fields",
+    "absence",
+)
+_MIN_TEMPLATE = 20
+
+
+@lru_cache(maxsize=1)
+def templates() -> tuple[str, ...]:
+    """The system's OWN sentence fragments that name the paper "datasheet", read from the string constants of the six row-builder files
+    (the places they are written), longest first. Only these exact fragments are ever rewritten for another kind: a quote from the
+    paper or the rule book, a standard's or a file's title and a field label are never an exact copy of one, so they pass through
+    untouched. No identifier ("datasheet_check") and nothing shorter than twenty characters qualifies (a short generic fragment such as "The datasheet " would also open a quote)."""
+    import ast
+    import importlib.util
+
+    found: set[str] = set()
+    for name in _TEMPLATE_FILES:
+        spec = importlib.util.find_spec(f"{__package__}.{name}")
+        if spec is None or not spec.origin:
+            continue
+        tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+        docs = {
+            id(n.body[0].value)
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
+            and n.body
+            and isinstance(n.body[0], ast.Expr)
+            and isinstance(n.body[0].value, ast.Constant)
+        }
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docs
+            ):
+                text = node.value
+                if (
+                    len(text) >= _MIN_TEMPLATE
+                    and _WORD.search(text)
+                    and not re.fullmatch(r"[a-z0-9_ ]+_[a-z0-9_ ]*", text)
+                ):
+                    found.add(text)
+    return tuple(sorted(found, key=len, reverse=True))
+
+
+def in_templates(text: str, noun: str) -> str:
+    """`text` with the system's own datasheet-worded sentence fragments (`templates`) said of this paper's kind; everything else, quotes
+    and titles and labels included, is returned as it was."""
+    for fragment in templates():
+        if fragment in text:
+            text = text.replace(fragment, _swap(fragment, noun))
+    return text
+
+
 def name_the_paper(view: dict, meta: dict) -> None:
     """The internal CRS VIEW of a paper that is not a datasheet (`meta["paper_noun"]`, set by `crs_meta` for the internal copy only)
-    names the paper by its decided kind in every sentence the row builders wrote for a datasheet (`crs_mapping`, `crs_page_words`,
-    `held_findings`, `recommendations`, `crs_blank_fields`, `absence`): ONE home reads the noun, none of those files changes. The
-    Comment By machine-draft labels become one set. Done on the BUILT view, never on the rows a numbering or an issue reads."""
+    names the paper by its decided kind in the system's own sentences (`in_templates`: exact template fragments only; a quote, a title
+    or a field label is never rewritten). The Comment By machine-draft labels become one set. Done on the BUILT view, never on the
+    rows a numbering or an issue reads (a confirmed number keeps comparing its words with the rows as they were built)."""
     from . import crs_export_quality
 
     noun = meta.get("paper_noun")
@@ -187,10 +248,10 @@ def name_the_paper(view: dict, meta: dict) -> None:
     for row in rows:
         for key in _ROW_TEXT:
             if isinstance(row.get(key), str):
-                row[key] = _swap(row[key], noun)
+                row[key] = in_templates(row[key], noun)
     for note in notes:
         if isinstance(note.get("detail"), str):
-            note["detail"] = _swap(note["detail"], noun)
+            note["detail"] = in_templates(note["detail"], noun)
     crs_export_quality.one_label_set(rows)
 
 
