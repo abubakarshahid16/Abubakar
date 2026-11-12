@@ -30,6 +30,7 @@ interface RenderContext {
   createReviewFinding: (draft: ReviewFindingCreate) => Promise<void>;
   reviewTemplates: ReviewTemplate[];
   reviewFindings: ReviewFinding[];
+  reviewFindingsTotal: number | null;
   updateReviewFinding: (id: string, update: ReviewFindingUpdate) => Promise<void>;
   queryOutcome: string | null;
   previewQuery: (query: PublicMarketQuery) => void;
@@ -61,7 +62,7 @@ export function SlotBody<T>({ slot, loadingLabel, emptyTitle, emptyHint, onRetry
 export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
   const { engines, summarySlot, gapsSlot, recSlot, marketSlot, documents, selected,
     onCite, retry, filteredEmptyHint, hasBody, store, createReviewFinding, reviewTemplates,
-    reviewFindings, updateReviewFinding, queryOutcome, previewQuery, pendingQuery,
+    reviewFindings, reviewFindingsTotal, updateReviewFinding, queryOutcome, previewQuery, pendingQuery,
     confirmQuery, cancelQuery, notImplemented } = ctx;
   return <>
     {summarySlot.s === "idle" && gapsSlot.s === "idle" && <EmptyState title="Nothing has been run yet." hint="Choose the sections you need, then run the selected analysis. The frontend will not silently change the selected mode." />}
@@ -84,7 +85,7 @@ export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
       {d.truncatedReason !== null && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">Partial result: {d.truncatedReason}. Narrow the scope with the type filter, or ask a more specific question.</p>}
       <NamedNotRead names={d.namedNotRead} what="gap analysis" />
       <GapAnalysisCard gaps={d.gaps} documents={documents} onCite={onCite} onNominateBaseline={store.nominateBaseline} ledger={d.ledger} onCreateFinding={createReviewFinding} templates={reviewTemplates} />
-      <ReviewWorkflowPanel findings={reviewFindings} documents={documents} onUpdate={updateReviewFinding} />
+      <ReviewWorkflowPanel findings={reviewFindings} total={reviewFindingsTotal} documents={documents} onUpdate={updateReviewFinding} />
       {(d.gaps.applicability === "applicable" && d.gaps.baseline !== null) && <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />}
     </div>}</SlotBody></Section>}
     {engines.market && hasBody(marketSlot) && <Section title="Public market intelligence" eyebrow="isolated egress"><SlotBody<MarketSlotData> slot={marketSlot} loadingLabel="Loading the market sample" emptyTitle="No market sample is loaded." emptyHint="No market sample is loaded and no search has returned rows, so there is nothing to show, sample or otherwise." onRetry={retry}>{(d: MarketSlotData) => <div className="space-y-3">

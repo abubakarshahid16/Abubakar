@@ -238,7 +238,7 @@ export function DashboardView({
           }
         />
         <Headline
-          label="Typical answer"
+          label="Typical search time"
           value={retrieval?.p50 != null ? (retrieval.p50 / 1000).toFixed(1) : null}
           unit="s"
           tone={
@@ -247,7 +247,7 @@ export function DashboardView({
           note={
             retrieval?.p50 == null
               ? "No question has been asked on this machine yet, so there is nothing to average."
-              : `Half of answers arrive faster than this. The slowest one in twenty takes ${(
+              : `This is the time to find the passages for a question, not to write an answer. Half of searches are faster than this. The slowest one in twenty takes ${(
                   (retrieval.p95 ?? retrieval.p50) / 1000
                 ).toFixed(1)}s. Taken from ${nf.format(
                   retrieval.samples,

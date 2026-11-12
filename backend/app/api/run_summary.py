@@ -57,6 +57,9 @@ BOUNDARY = "findings of this run, on the submittal you may read"
 #: the largest page `GET /api/reviews/runs` returns (order 117 item 5)
 RUNS_MAX_PAGE_SIZE = 200
 
+#: the page `GET /api/reviews/runs` returns when no limit is asked for (V1b: it used to be every run, 753 KB and 1.1 s on one copy)
+RUNS_DEFAULT_PAGE_SIZE = 100
+
 #: the most runs one `GET /api/reviews/runs/counts` asks for (order 117 item 5)
 RUN_COUNTS_MAX_IDS = 200
 
@@ -407,8 +410,9 @@ def review_run_summary(
 def list_review_runs(
     request: Request,
     document_id: str | None = Query(None, description="only this submittal's runs"),
-    limit: int | None = Query(
-        None, ge=1, le=RUNS_MAX_PAGE_SIZE, description="page size; omit for every run"
+    limit: int = Query(
+        RUNS_DEFAULT_PAGE_SIZE, ge=1, le=RUNS_MAX_PAGE_SIZE,
+        description="page size (default 100); `total` says how many runs there are, so a caller that needs every run pages",
     ),
     offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
@@ -431,7 +435,7 @@ def list_review_runs(
         allowed_document_ids=scope.allowed_document_ids,
         submittal_document_id=document_id,
     )
-    page = runs[offset:] if limit is None else runs[offset : offset + limit]
+    page = runs[offset : offset + limit]
     from .. import main as main_mod  # main imports this module
 
     return {
