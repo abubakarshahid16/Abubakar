@@ -235,7 +235,8 @@ class AbsenceMixin:
         st["asked"] += len(batch)
         st["calls"] += 1
         try:
-            raw, usd = self.call(
+            raw, usd = self.call_for_batch(
+                batch,
                 agent_claude.SECOND_MODEL,
                 parts,
                 MAX_TOKENS_BASE + MAX_TOKENS_PER_ITEM * len(batch),

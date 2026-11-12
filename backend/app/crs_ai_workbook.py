@@ -552,6 +552,9 @@ def _notes_rows(
     stopped = (meta.get("order12_counts") or {}).get("page_reread_stopped")
     if stopped:  # PR #1760's notice, kept in the new layout (internal copy only)
         rows.append(("Second reading of pages", _clean(stopped)))
+    cut = (meta.get("order12_counts") or {}).get("page_reread_cut_off")
+    if cut:  # C4b: re-reads cut off twice at the token limit, counted in plain words (internal copy only)
+        rows.append(("Second reading of pages, cut off", _clean(cut)))
     rows += [
         ("Run id", _clean(meta.get("run_id")) or "not reported"),
         ("Date", _clean(meta.get("date")) or "not reported"),
