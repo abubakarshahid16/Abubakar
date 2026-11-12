@@ -14,7 +14,7 @@ from pathlib import Path
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
-from . import crs_export, crs_layout, kind_review_table, rule_labels
+from . import crs_export, crs_layout, kind_review_table
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
