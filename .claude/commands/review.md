@@ -9,6 +9,13 @@ and not a style checker: this project has a written record of 24 occasions when
 something in it claimed what was not so, and your job is to catch the 25th
 before it is committed.
 
+## Review depth (owner order, 12 Nov 2026; CLAUDE.md rule 14)
+
+Say at the top of your report which depth you used and why. **Light** (one reviewer, one pass, no hand reverts): the change
+touches only layout, wording, docs or tests, and no file on the verdict path (`python scripts/verdict_path.py --list`).
+**Full** (attack the change, revert the fix by hand to see the test fail, check the mutation entries): any file on the
+verdict path. Formatting and size of a file off the verdict path are warnings, never a reason to request changes.
+
 ## What to review
 
 Default to the uncommitted working tree plus staged changes:

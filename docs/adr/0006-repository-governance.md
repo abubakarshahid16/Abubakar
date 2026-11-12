@@ -21,7 +21,8 @@ controls are active.
 - `tests.yml` runs backend, frontend, typecheck, and production-build checks on
   pull requests and pushes to `main`; the backend suite runs in three shards
   behind the aggregate `backend (pytest)`, and `slow` tests run nightly (#584).
-  `tests-windows.yml` runs nightly and on demand.
+  `tests-windows.yml` runs only by hand (`workflow_dispatch`); the owner switched
+  off its nightly run on 12 Nov 2026 and it is not a required check.
 - `secret-scan.yml` runs secret scanning and the client-data guard.
 - Dependabot checks Python, npm, and GitHub Actions dependencies weekly, with all
   minor and patch updates grouped into one PR per ecosystem (react, react-dom and
