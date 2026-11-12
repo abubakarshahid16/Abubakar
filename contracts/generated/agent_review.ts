@@ -47,10 +47,11 @@ export interface AgentTwoReaderStep {
   off?: string | null;
 }
 
-/** Decisions of one run (owner, 12 Nov 2026): lines the code proved (class "Proven by code") plus two-reader verdicts (class "AI verdict, two readers agree" with the word met or not met). "AI thinks", "not stated" and Queries are not decisions. */
+/** Decisions of one run (owner, 12 Nov 2026): lines the code proved (class "Proven by code") plus two-reader verdicts (class "AI verdict, two readers agree" with the word met, not met or not stated). "AI thinks" and Queries are not decisions. `not_stated`: how many of the two-reader figure are "not stated on the paper" (two readers each read every page and found no value). */
 export interface AgentDecisions {
   code: number;
   two_reader: number;
+  not_stated: number;
   total: number;
 }
 

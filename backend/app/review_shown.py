@@ -97,6 +97,12 @@ def held_documents(conn, run_id: str, document_ids) -> frozenset[str]:
     return frozenset(specs)
 
 
+def unshown_specifications(conn, run_id: str, document_ids) -> frozenset[str]:
+    """The name the gate and the integrator's tests use: what `held_documents` says (a run with a stored list holds every document
+    it does not name; a run without one holds the specifications that are not its paper)."""
+    return held_documents(conn, run_id, document_ids)
+
+
 def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
     """THE UPSTREAM DROP of the AI reviewer: with a stored list, the items of any rule book the list does not name are removed from
     the plan BEFORE a request is built, so their rules are not asked and none of their text is sent, and the run goes on with
@@ -112,16 +118,50 @@ def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
     return dropped
 
 
-def held_applied(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
-    """The documents applied to this run (or to `applied_run`, the run the AI reviewer's standards were chosen on) that the list
-    shown before the start left out: what the gate holds. Empty on a database error."""
-    try:
-        rows = conn.execute(
+def _cited_ids(conn, run_id: str) -> set[str]:
+    """Every document the run may carry beside its paper: the standards applied to it, the rules the AI reviewer asked (its plan
+    items) and the project papers of a general review (requested and accepted). A source whose table does not exist adds none."""
+    ids: set[str] = set()
+    queries = (
+        (
             "SELECT standard_document_id FROM review_applicable_standards"
-            " WHERE review_run_id = ? AND COALESCE(included, 1) = 1",
-            (applied_run or run_id,),
-        ).fetchall()
-        return sorted(held_documents(conn, run_id, [*(r["standard_document_id"] for r in rows), *extra]))
+            " WHERE review_run_id = ? AND COALESCE(included, 1) = 1"
+        ),
+        (
+            "SELECT standard_document_id FROM agent_review_rule"
+            " WHERE run_id = ? AND asked = 1 AND standard_document_id IS NOT NULL"
+        ),
+    )
+    for sql in queries:
+        try:
+            ids |= {str(r[0]) for r in conn.execute(sql, (run_id,)) if r[0]}
+        except sqlite3.OperationalError:
+            continue
+    try:
+        row = conn.execute(
+            "SELECT requested_json, project_json FROM agent_review_general WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    for raw in (row or ()):
+        try:
+            got = json.loads(raw or "[]")
+        except ValueError:
+            continue
+        ids |= {str(d) for d in got if isinstance(d, str) and d} if isinstance(got, list) else set()
+    return ids
+
+
+def held_applied(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
+    """The documents this run carries beside its paper (`_cited_ids`: the applied standards, the rules the AI reviewer asked, the
+    project papers of a general review; also those of `applied_run`, the run the AI reviewer's standards were chosen on, and
+    `extra`) that the list shown before the start left out: what the gate holds. Empty on a database error."""
+    try:
+        ids = _cited_ids(conn, run_id)
+        if applied_run:
+            ids |= _cited_ids(conn, applied_run)
+        ids |= {str(e) for e in extra}
+        return sorted(held_documents(conn, run_id, ids))
     except sqlite3.Error:
         return []
 

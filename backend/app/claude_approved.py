@@ -552,6 +552,11 @@ def _in_library(ids) -> frozenset[str]:
         return frozenset()
 
 
+def unshown_specifications(ids) -> frozenset[str]:
+    """The declared specifications the review run in force holds because no list shown before the start names them."""
+    return _unshown_specifications(ids)
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
@@ -567,8 +572,9 @@ def refusal() -> tuple[str, str] | None:
         stopped = _block_stop(ids)
         if stopped is not None:
             return stopped
+    # The list the screen showed is a cap of its own, whether or not the owner's list is enforced.
     held = frozenset() if _REQUEST_CONSENT.get() else _unshown_specifications(ids)
-    if held:  # the list the screen showed is a cap of its own, whether or not the owner's list is enforced
+    if held:
         return NOT_APPROVED, (
             f"{len(held)} of {len(ids)} document(s) in this prompt were not on the list shown before the start "
             f"(ids: {', '.join(sorted(held))}), so nothing is sent"
