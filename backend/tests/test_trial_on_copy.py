@@ -495,6 +495,12 @@ def test_the_open_lane_needs_the_callers_key_and_a_secret_looking_setting_is_ref
         trial.run_trial(cfg_for(world, normal_review=True))
 
 
+def test_a_local_ai_trial_needs_the_flag_to_load_local_models(world, monkeypatch):
+    on = {"AGENT_REVIEW_LOCAL_ENGINE_ENABLED": "true"}
+    with pytest.raises(trial.Refused, match="loads local models"):
+        trial.run_trial(cfg_for(world, engine="local", sets=on))
+
+
 def test_main_refuses_a_live_path_with_exit_2(tmp_path, monkeypatch, capsys):
     live = tmp_path / "Abubakar"
     (live / "backend" / "data").mkdir(parents=True)

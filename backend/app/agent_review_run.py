@@ -45,6 +45,7 @@ from . import (
 )
 from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
+from . import agent_review_local as local_mod
 from . import agent_review_reuse as reuse_mod
 from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_verdict as verdict
@@ -120,18 +121,19 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         two_reader_absence: bool | None = None,
         two_reader_other: bool | None = None,
         answers: reuse_mod.AnswerStore | None = None,
+        local: Any = None,
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
+        self.local = local  # the local engine (`agent_review_local`): None = the Claude path, exactly as before
+        self.model, concurrency, max_batch = self._local_limits(
+            model, concurrency, max_batch
+        )
         self.concurrency, self.max_batch = max(1, int(concurrency)), max_batch
         self.retry_base = retry_base
         self.context_check, self.std_pages = bool(context_check), std_pages
         self.sink, self.trace_path = sink, trace_path
-        # a backstop: the step gate and `metered` are the binding ones
-        self.meter = agent_claude.SpendMeter(app_cap())
-        self.opinion = agent_claude.ClaudeProvider(
-            model=model, send=send, env=env, meter=self.meter
-        )
+        self._claude_provider(model, send, env)
         self.total_pages = pages.count(paper)
         # the CURRENT tier of a rule item, from the label table
         self.tier_lookup = tier_lookup
@@ -171,6 +173,19 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self._two_reader_other = two_reader_other
         self.two_reader_other_state = two_reader_mod.stats_template()
         self.two_reader_absence_state = two_reader_mod.stats_template()
+
+    def _claude_provider(self, model, send, env) -> None:
+        # a backstop: the step gate and `metered` are the binding ones
+        self.meter = agent_claude.SpendMeter(app_cap())
+        self.opinion = agent_claude.ClaudeProvider(
+            model=model, send=send, env=env, meter=self.meter
+        )
+
+    def _local_limits(self, model: str, concurrency: int, max_batch: int) -> tuple:
+        """With the local engine: model A, one request at a time, small batches; else exactly what was given."""
+        if self.local is None:
+            return model, concurrency, max_batch
+        return self.local.model_a, 1, min(max_batch, local_mod.FIRST_BATCH_MAX)
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again
     def _kept(self, line: dict) -> dict:
@@ -318,6 +333,8 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
     def _metered_call(
         self, model: str, parts: dict, max_tokens: int, once: bool = False
     ) -> tuple[dict, float]:
+        if self.local is not None:
+            return self._local_call(model, parts, max_tokens, once)
         app = app_worst_usd(model, parts, max_tokens)
         self.last_app_worst = app
         for attempt in range(MAX_RETRIES + 1):
@@ -357,6 +374,30 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             return answer, usd
         raise agent_claude.AgentTransportError("retries_exhausted")
 
+    def _local_call(
+        self, model: str, parts: dict, max_tokens: int, once: bool = False
+    ) -> tuple[dict, float]:
+        """The seam of the local engine: ONE request to the local model socket, never `agent_claude._call`, never `claude_spend`. No
+        step gate, no reservation, no charge: the cost is 0.0 and nothing is added to the run's total. A transport failure is
+        retried like the Claude path (MAX_RETRIES, no wait: the local engine is not rate limited)."""
+        for attempt in range(MAX_RETRIES + 1):
+            if self._stop.is_set():
+                raise agent_claude.AgentBudgetStop(self.stopped or "run_stopped")
+            try:
+                return self.local.call(model, parts, max_tokens)
+            except agent_claude.AgentTransportError:
+                if attempt < MAX_RETRIES and not once:
+                    self.calls["retries"] += 1
+                    continue
+                raise
+        raise agent_claude.AgentTransportError("retries_exhausted")
+
+    def _worst(self, model: str, parts: dict, max_tokens: int) -> float:
+        """The worst case the run is charged for a request: the Claude estimate, and 0.0 on the local engine (it costs nothing)."""
+        return (
+            0.0 if self.local is not None else app_worst_usd(model, parts, max_tokens)
+        )
+
     @contextlib.contextmanager
     def charged_scope(self):
         """Yields a one-item list that sums what THIS thread's calls were charged to the run inside the block (a step that
@@ -388,6 +429,15 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
 
     # ---- the second opinion (agent_run_second.ask_second_opinion through the same lane and the step gate)
     def second_opinion(self, item_id: str, ai_verdict: str, answer: Mapping) -> dict:
+        if (
+            self.local is not None
+        ):  # never Claude here; the local second reader is the staged step after the first (run_two_readers)
+            return {
+                "agree": None,
+                "model": agent_run_second.UNKNOWN,
+                "usd": 0.0,
+                "reason": "second reader runs after the first",
+            }
         finding = {
             "item": item_id,
             "color": verdict.COLOUR_OF[ai_verdict],
@@ -475,7 +525,11 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self, batch: list[dict], parts: dict, split_ok: bool, once: bool = False
     ) -> tuple[dict | None, float, str | None, str | None]:
         """(answers by item id or None, usd, error code or None, answering model); the bound and the cost rule are above."""
-        max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
+        max_tokens = (
+            self.local.first_tokens(len(batch))
+            if self.local is not None
+            else min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
+        )
         # the normal path calls exactly as before (no `reuse=` while stored answers are off)
         once_kw = {**({"once": True} if once else {}), **self.reuse_kw("lead")}
         answer, usd, error, model = None, 0.0, None, None
@@ -495,14 +549,14 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 # limit and the run's caps apply as to any call. Still cut off: "not reviewed", never a guessed verdict.
                 # The cut-off call's own cost is not returned; the line carries what the run was charged for it (its
                 # reserved worst case), so the line never understates.
-                spent = app_worst_usd(self.model, parts, max_tokens)
+                spent = self._worst(self.model, parts, max_tokens)
                 retry_worst = 0.0
                 bigger = min(RETRY_MAX_TOKENS, max_tokens * RETRY_TOKEN_FACTOR)
                 with self._lock:
                     self.calls["lead"] += 1
                     self.calls["retries"] += 1
                 cut_retry = True
-                retry_worst = app_worst_usd(self.model, parts, bigger)
+                retry_worst = self._worst(self.model, parts, bigger)
                 once_kw["once"] = True  # a failed or timed-out retry is not sent again
                 try:
                     raw, usd2 = self.call(self.model, parts, bigger, **once_kw)
@@ -650,10 +704,15 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         """Call inside `claude_spend.for_run(...)` and `claude_approved.carrying(...)`: the step gate starts from what this
         review run has already spent (a resumed run keeps counting)."""
         self.restore()
-        claude_auto_approve.on_agent_standards(
-            self.paper, [i.get("standard_document_id") for i in self.items]
-        )  # #1584 comment 6806441133 (to be confirmed by the owner): the books this run asks rules from are approved with the paper (off: nothing)
-        self.gate = AppStepGate(app_cap(), claude_spend.step_spent(agent_claude.STEP))
+        if self.local is None:
+            claude_auto_approve.on_agent_standards(
+                self.paper, [i.get("standard_document_id") for i in self.items]
+            )  # #1584 comment 6806441133 (to be confirmed by the owner): the books this run asks rules from are approved with the paper (off: nothing)
+            self.gate = AppStepGate(
+                app_cap(), claude_spend.step_spent(agent_claude.STEP)
+            )
+        else:  # a local run approves nothing for Claude, reserves nothing and reads no ledger
+            self.gate = AppStepGate(float("inf"), 0.0)
         todo = self.todo()
         batches, source = make_batches(todo, self.max_batch)
         self.trace_record(

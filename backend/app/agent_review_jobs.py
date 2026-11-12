@@ -47,6 +47,7 @@ from . import (
     review_jobs,
 )
 from . import agent_review_items as items_mod
+from . import agent_review_local as local_mod
 from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
 from . import agent_review_reread as reread_mod
@@ -55,6 +56,11 @@ from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
 from . import crs_ai_header as crs_header
+from .agent_review_job_facts import (  # noqa: F401
+    EQUIPMENT_LINES,
+    _equipment_facts,
+    _stop_text,
+)
 from .agent_review_page_record import (  # noqa: F401 - moved unchanged, re-exported
     _requeue_switched_off,
     _with_page_record,
@@ -90,13 +96,6 @@ ACTIVE_RUN = review_jobs.ACTIVE_RUN
 #: Rules that are not AI approved are NOT asked in the app (lead decision, 11 Nov 2026 night): "measured 11 Nov: no key row
 #: gained, more wrong opinions". The cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
 ASK_UNAPPROVED = "off"
-
-EQUIPMENT_LINES = (
-    "another equipment type",
-    "the paper names no equipment",
-    "the paper names equipment the equipment list does not know",
-    "the paper's equipment could not be read",
-)
 
 
 class _Cancelled(Exception):
@@ -340,7 +339,12 @@ def _nothing_asked(conn, submittal: str, why: str, stop: str) -> dict:
 
 
 def preflight(
-    conn, submittal: str, kind: agent_review_kind.PaperReading, doc: dict, cache: dict
+    conn,
+    submittal: str,
+    kind: agent_review_kind.PaperReading,
+    doc: dict,
+    cache: dict,
+    local: bool = False,
 ) -> str | None:
     """Why this run must be REFUSED before any call, or None. Inconsistent inputs are never asked of the model:
     the switch off, a kind the reviewer is not enabled for, a paper with no stored page, an item list that fails its own
@@ -378,9 +382,12 @@ def preflight(
             "SELECT 1 FROM pages WHERE document_id = ? LIMIT 1", (d,)
         ).fetchone():
             return "a rule book of the item list has no stored pages (the context check needs them)"
-    if not agent_run_second.models_differ(
-        [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
-    ):
+    if (
+        not local
+        and not agent_run_second.models_differ(
+            [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
+        )
+    ):  # a local run checks its two models at the engine (`LocalEngine.second_ready`): the second reader is never asked if they match
         return "the lead and the second model are of the same family"
     return None
 
@@ -403,16 +410,18 @@ def _plan(
             conn, submittal, why, f"{agent_review_gate.KIND_NOT_ENABLED}: {why}"
         )
     scope_run = _scope_run_id(conn, submittal, run_id, scope, heartbeat)
-    claude_auto_approve.on_review_start(
-        scope_run
-    )  # a cited standard joins the list too (when auto-approve is on)
+    local = local_mod.local_run(run_id)
+    if not local:  # a local run approves nothing for Claude
+        claude_auto_approve.on_review_start(
+            scope_run
+        )  # a cited standard joins the list too (when auto-approve is on)
     cache: dict = {}
     # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
     # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
                                         equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
     _write_rules(run_id, doc, cache, kind.kind)
-    refused = preflight(conn, submittal, kind, doc, cache)
+    refused = preflight(conn, submittal, kind, doc, cache, local)
     if refused:
         out = _nothing_asked(
             conn,
@@ -445,7 +454,11 @@ def _tier_lookup(kind: agent_review_kind.PaperReading):
 
 
 def _make_runner(
-    run_id: str, submittal: str, kind: agent_review_kind.PaperReading, plan: dict
+    run_id: str,
+    submittal: str,
+    kind: agent_review_kind.PaperReading,
+    plan: dict,
+    local: local_mod.LocalEngine | None = None,
 ):
     """The runner for this run: kept lines from an earlier attempt are not asked again (no second charge)."""
     from . import agent_claude
@@ -455,7 +468,9 @@ def _make_runner(
     folder.mkdir(parents=True, exist_ok=True)
     done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error")}
     answers = None
-    if reuse_mod.enabled():  # point E: off = no table, no read, no write
+    if (
+        local is None and reuse_mod.enabled()
+    ):  # point E (a local run stores and reuses no Claude answers): off = no table, no read, no write
         conn = connect()
         reuse_mod.ensure_tables(conn)
         answers = reuse_mod.AnswerStore(
@@ -468,10 +483,10 @@ def _make_runner(
         paper=submittal, items=plan["items"], pages=request_mod.DbPages(connect(), submittal),
         clauses=request_mod.ClauseCache(plan["cache"]), model=agent_claude.LEAD_MODEL, send=send, env=env,
         done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type, std_pages=request_mod.StdPages(),
-        reread_silent=settings.agent_review_reread_silent_enabled,
+        reread_silent=settings.agent_review_reread_silent_enabled and local is None,
         sink=lambda line, trace: store_line(run_id, line, trace), trace_path=folder / "trace.jsonl",
         tier_lookup=_tier_lookup(kind), answers=answers,
-        retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS,
+        retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS, local=local,
     )  # fmt: skip
 
 
@@ -491,7 +506,19 @@ def _ask(
         log.warning(
             "agent review: no checklist data found; no line can be a checklist line"
         )
-    runner = holder["runner"] = _make_runner(run_id, submittal, kind, plan)
+    local = local_mod.engine_for(run_id)  # None = the Claude path
+    runner = holder["runner"] = _make_runner(run_id, submittal, kind, plan, local)
+    if (
+        local is not None
+    ):  # nothing here reaches Claude: no approval list, no spend, no ledger; one big model at a time
+        try:
+            with local.session():
+                runner.run()
+        except BaseException as exc:
+            if not runner.stopped:
+                runner.stopped, runner.stop_text = request_mod.stop_reason(exc, None)
+            raise
+        return
     declared = {submittal} | {
         str(i["standard_document_id"])
         for i in plan["items"]
@@ -508,34 +535,10 @@ def _ask(
         raise
 
 
-def _stop_text(runner, plan: dict) -> str | None:
-    if runner is not None and runner.stopped:
-        same = not runner.stop_text or runner.stop_text == runner.stopped
-        return runner.stopped if same else f"{runner.stopped}: {runner.stop_text}"
-    return plan.get("stop")
-
-
 def _header_facts(submittal: str, equipment_type: str | None) -> dict:
     """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
     with connect() as conn:
         return crs_header.document_header(conn, submittal, equipment_type)
-
-
-def _equipment_facts(block: dict) -> dict:
-    """What the paper's equipment state means for the rules: the state word, and the summary sentences about equipment (counts
-    only, no document text) that the summary and Rules used routes show."""
-    eq = block.get("equipment") or {}
-    notes = [
-        ln
-        for ln in block.get("summary_lines") or []
-        if str(ln).startswith(EQUIPMENT_LINES)
-    ]
-    return {
-        "state": eq.get("paper_equipment_state"),
-        "types": eq.get("paper_types") or [],
-        "notes": notes,
-        "candidates": block.get("candidates"),
-    }
 
 
 def _finish(
@@ -581,7 +584,7 @@ def _finish(
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None, "paper_kind": kind.kind,
-            "usd": usd, "header": {**_header_facts(submittal, kind.equipment_type), **crs_header.engine_facts_of(run_id, submittal, usd)}, **{k: v for k, v in counts.items() if k.startswith("two_reader")},
+            "usd": usd, "header": {**_header_facts(submittal, kind.equipment_type), **crs_header.engine_facts_of(run_id, submittal, usd, local=bool(runner and runner.local))}, **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
                                **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {}),
@@ -722,7 +725,7 @@ def _rules_then_general(
     ):  # only a stop AFTER spending (a cap) skips the general parts
         general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
                                   name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
-                                  combined=True)  # fmt: skip
+                                  combined=True, refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
         result = general_job.merge_results(result, general)
     else:
         general_job.note_skipped(run_id, result["stop_reason"])
@@ -769,7 +772,8 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
-                                     heartbeat=heartbeat)  # fmt: skip
+                                     heartbeat=heartbeat,
+                                     refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
             agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)

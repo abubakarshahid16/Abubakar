@@ -29,6 +29,7 @@ from typing import Any
 
 from . import agent_claude, agent_run_second
 from . import agent_review_crs as crs_lines
+from . import agent_review_local as local_mod
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_two_reader as two
 from . import agent_review_verdict as verdict
@@ -170,6 +171,12 @@ class TwoReaderMixin:
     def run_two_readers(self) -> None:
         """The whole step. Never raises (a failure inside it is recorded, the lines stay as they were)."""
         self.two_reader_state["enabled"] = True
+        if self.local is not None:
+            self.local.to_second()  # the first reader's model is unloaded; only the second reader's model is loaded from here
+            ready, why = self.local.second_ready()
+            if not ready:  # never "two readers agree" without a second model of another family: lines stay "AI thinks"
+                self.record_two_reader_off(local_mod.OFF_SECOND_UNAVAILABLE, why=why)
+                return
         try:
             if self._stop.is_set():
                 self.record_two_reader_off(two.OFF_RUN_STOPPED)
@@ -223,7 +230,9 @@ class TwoReaderMixin:
             self.record_two_reader_off(two.OFF_LEAD_UNKNOWN)
             return
         items = [self.items_by_id[str(ln["item_id"])] for ln in ask]
-        batches = stable_batches(items, two.MAX_BATCH)
+        batches = stable_batches(
+            items, two.MAX_BATCH if self.local is None else local_mod.SECOND_BATCH_MAX
+        )
         for batch in batches:
             if st["off"] is not None:
                 break
@@ -244,8 +253,10 @@ class TwoReaderMixin:
                     {**h, "standard": it.get("standard"), "clause": it.get("clause")},
                 )
         parts = build_parts(self.paper, pages, clauses, batch, held_of)
-        max_tokens = min(
-            two.TOKENS_CAP, two.TOKENS_BASE + two.TOKENS_PER_ITEM * len(batch)
+        max_tokens = (
+            self.local.second_tokens(len(batch))
+            if self.local is not None
+            else min(two.TOKENS_CAP, two.TOKENS_BASE + two.TOKENS_PER_ITEM * len(batch))
         )
         st["asked"] += len(batch)
         st["calls"] += 1
