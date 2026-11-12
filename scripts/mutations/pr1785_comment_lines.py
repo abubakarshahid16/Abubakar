@@ -26,7 +26,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "a part keeps no full stop (part three runs on)",
         '    lines = [ln if ln[-1] in ".!?" else ln + "." for ln in lines if ln]\n',
         "    lines = [ln for ln in lines if ln]\n",
-        "three_lines",
+        "still_cleaned",
     ),
     _m(
         "03",
