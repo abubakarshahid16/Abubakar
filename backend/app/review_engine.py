@@ -35,6 +35,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
+from . import review_leaving
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -450,7 +451,9 @@ def _notes(facts: Facts, plan: Plan, settings) -> list[str]:
     return notes
 
 
-def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str, project_ids=()) -> dict:
+def plan_for(
+    conn, document_id: str, allowed: frozenset[str], choice: str, project_ids=()
+) -> dict:
     """The pre-start answer. No side effect: nothing is written, no call is made, no model is loaded. A dict of plain facts:
     the engine of each part, whether text leaves this computer and which documents, the estimated cost, what will not run."""
     from .config import settings
@@ -464,30 +467,9 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str, proje
         from . import agent_review_gate
 
         out["unscored_note"] = agent_review_gate.UNSCORED_WORDS
+    ctx = (conn, document_id, allowed, facts, reading)
+    out["documents"] = review_leaving.documents_block(ctx, plan, project_ids)
     leaves = plan.text_leaves
-    docs: dict = {"paper": bool(leaves), "rule_books": [], "rule_books_note": None}
-    if leaves:
-        books = [b for b in _earlier_books(conn, document_id) if b["id"] in allowed]
-        docs["rule_books"] = sorted(b["filename"] for b in books)
-        docs["rule_books_note"] = (
-            "named from this paper's last review, only the books you may read; the books are chosen again when the review starts"
-            if books
-            else "the rule books are chosen when the review starts"
-        )
-    from . import review_leaving
-
-    docs.update(
-        review_leaving.leaving_for(
-            conn,
-            document_id,
-            allowed,
-            facts,
-            equipment_type=getattr(reading, "equipment_type", None),
-            leaves=bool(leaves),
-            project_ids=tuple(project_ids),
-        )
-    )
-    out["documents"] = docs
     out["boundary"] = "documents you may read"
     per_run = float(settings.claude_budget_usd_per_run)
     last = _last_cost(conn, document_id)

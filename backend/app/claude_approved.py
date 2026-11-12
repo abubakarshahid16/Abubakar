@@ -592,9 +592,7 @@ def refusal() -> tuple[str, str] | None:
 #: documents are not on the list. `{n}` and `{of}` are counts, never a title.
 LOCAL_INSTEAD = ("ran on the local model: {n} of {of} document(s) in its prompt are not approved "
                  "for the cloud model")
-LOCAL_INSTEAD_NOT_SHOWN = (
-    "ran on the local model: {n} of {of} document(s) in its prompt were not on the list shown before the start"
-)
+LOCAL_INSTEAD_NOT_SHOWN = "ran on the local model: {n} of {of} document(s) in its prompt were not on the list shown before the start"
 
 
 def local_instead() -> str | None:

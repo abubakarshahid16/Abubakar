@@ -137,7 +137,9 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
     general = agent_review_gate.general_kind_enabled(again.get("kind"))
     projects = tuple(plan.get("project_document_ids") or ()) if general else None
 
-    shown = review_shown.shown_ids(conn, run_id)  # the AI run sends what the same screen showed, no more
+    shown = review_shown.shown_ids(
+        conn, run_id
+    )  # the AI run sends what the same screen showed, no more
 
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
         if shown is not None:

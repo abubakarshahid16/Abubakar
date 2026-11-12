@@ -255,3 +255,33 @@ def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -
                 else PROJECT_PAPER
             )
             put(row, kind, WHY_CHOSEN)
+
+
+def documents_block(ctx, plan, project_ids) -> dict:
+    """`documents` of the plan: the older keys (the last review's rule book names) and the list of what would leave.
+    `ctx` is `(conn, document_id, allowed, facts, reading)`."""
+    from .review_engine import _earlier_books
+
+    conn, document_id, allowed, facts, reading = ctx
+    leaves = bool(plan.text_leaves)
+    docs: dict = {"paper": leaves, "rule_books": [], "rule_books_note": None}
+    if leaves:
+        books = [b for b in _earlier_books(conn, document_id) if b["id"] in allowed]
+        docs["rule_books"] = sorted(b["filename"] for b in books)
+        docs["rule_books_note"] = (
+            "named from this paper's last review, only the books you may read; the books are chosen again when the review starts"
+            if books
+            else "the rule books are chosen when the review starts"
+        )
+    docs.update(
+        leaving_for(
+            conn,
+            document_id,
+            allowed,
+            facts,
+            equipment_type=getattr(reading, "equipment_type", None),
+            leaves=leaves,
+            project_ids=tuple(project_ids),
+        )
+    )
+    return docs
