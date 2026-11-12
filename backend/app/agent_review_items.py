@@ -580,7 +580,7 @@ def decision_rows(conn, run_id: str, paper_kind: str | None, allowed) -> list[di
 
 def merged_candidates(book_rows: list[dict], from_decisions: list[dict]) -> list[dict]:
     """The rules of the selected books, then every decision rule the books do not already hold (by rule id). Decisions only
-    ADD: a run that carries a classic review's decisions never asks fewer rules than a run that carries none (#1778)."""
+    ADD: a run that carries a classic review's decisions never asks fewer rules than a run that carries none (#1780)."""
     seen = {r["id"] for r in book_rows}
     return book_rows + [r for r in from_decisions if r["id"] not in seen]
 

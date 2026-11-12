@@ -366,7 +366,7 @@ def test_plan_with_the_real_builder_asks_rules_and_accounts_for_every_candidate(
 def test_with_per_rule_scope_decisions_the_candidates_are_the_books_rules_plus_those_decisions(
     tmp_path, monkeypatch
 ):
-    """#1778: decisions add to the selected books' rules; they never shrink the set (they used to replace it)."""
+    """#1780: decisions add to the selected books' rules; they never shrink the set (they used to replace it)."""
     _conn, _run, plan = _real_plan_world(tmp_path, monkeypatch, with_decisions=True)
     asked = {i["rule_version_id"] for i in plan["items"] if i["source"] == "rule"}
     assert asked == {"req-a", "req-b", "req-c"}  # the same as a run with no decisions

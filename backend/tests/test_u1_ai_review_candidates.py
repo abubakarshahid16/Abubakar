@@ -1,4 +1,4 @@
-"""#1778 on INVENTED data: an AI review started on a paper that already has a normal review (stored per-rule scope decisions)
+"""#1780 on INVENTED data: an AI review started on a paper that already has a normal review (stored per-rule scope decisions)
 asks the same rules as a fresh run; the decisions only ADD candidates, never shrink them."""
 
 from __future__ import annotations
