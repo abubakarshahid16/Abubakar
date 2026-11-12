@@ -160,6 +160,7 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
             line = calc.numeric_line(
                 item, req, fact, submittal_facts=facts, page_text=pages.get(fact.get("page")),
                 clause_quote=cache.text(item.get("rule_quote_ref")), clause_text=cache.text(item.get("clause_quote_ref")),
+                page_count=max((k for k in pages if isinstance(k, int)), default=None),
             )  # fmt: skip
             made.append(
                 wording.final_cap(line, item, tier_lookup, paper_kind=kind.kind)

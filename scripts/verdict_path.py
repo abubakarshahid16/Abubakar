@@ -62,12 +62,22 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_pair.py", "asks the class and word table"),
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
+    (
+        APP + "agent_review_calculator.py",
+        "makes a proven Pass or Fail of the one reviewer from a compared value",
+    ),
+    (
+        APP + "agent_review_code_proof.py",
+        "the proof behind a proven Pass or Fail: recomputed from the line's own texts and values",
+    ),
+    (
+        APP + "agent_review_approved_code.py",
+        "which approved checklist ids stand as an owner-tier item",
+    ),
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
-    (APP + "agent_review_calculator.py", "the one reviewer's calculator: a code comparison that can be a proven Pass or Fail"),
     (APP + "agent_review_calculator_run.py", "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass"),
-    (APP + "agent_review_approved_code.py", "which approved checklist id may stand as an owner-tier item"),
     (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
     (
         APP + "review_engine_start.py",
@@ -136,7 +146,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "agent_review_reuse.py",
         "stands in for a reader's call: what is reused, and that no call is made",
     ),
-    (APP + "agent_review_open_points.py", "decides whether a sign is refused while the AI review has open points"),
+    (
+        APP + "agent_review_open_points.py",
+        "decides whether a sign is refused while the AI review has open points",
+    ),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
