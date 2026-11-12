@@ -19,6 +19,7 @@ from . import agent_review_absence as absence
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
     DEFERRED_WHY,
+    DISAGREE_ONE_FOUND,
     DISAGREE_WHY,
     NO_VALUE_WHY,
     NOT_STATED_WHY,
@@ -105,6 +106,19 @@ ROUTE_CHECKED = (
 )
 VERDICT_PREFIX_INDEPENDENT = f"{OWNER_MET}: {ROUTE_INDEPENDENT}, engineer to confirm."
 VERDICT_PREFIX_CHECKED = f"{OWNER_MET}: {ROUTE_CHECKED}, engineer to confirm."
+
+
+ABSENCE_CHECK_SEARCHED = "the code searched for this field and found no value"
+ABSENCE_CHECK_COULD_NOT = "the code could not check this itself"
+ABSENCE_OPENER = "Not met (AI, two readers agree)"
+
+
+def absence_verdict_sentence(item: str, clause_quote: str, code_checked: bool) -> str:
+    """ONE home of the sentence of an "AI verdict: not stated" line (lead, 12 Nov 2026, from the owner's rule). It never says the paper
+    side is "quotes verified": there is no paper quote, the readers found nothing. The clause quote is the verified one."""
+    check = ABSENCE_CHECK_SEARCHED if code_checked else ABSENCE_CHECK_COULD_NOT
+    ask = f' The rule requires: "{clause_quote}".' if clause_quote else ""
+    return f"{ABSENCE_OPENER}: two AI readers each read every page of the paper and found no {item}.{ask} Code check: {check}. Engineer to confirm."
 
 
 def verdict_prefix(independent: bool, met: bool = True) -> str:
@@ -250,6 +264,8 @@ def has_banned(text: object) -> bool:
 
 
 def _one_why(raw: str) -> str | None:
+    if raw.startswith(DISAGREE_ONE_FOUND):  # built by code from a page number it verified (`absence_disagree_why`): said as it is
+        return raw
     for known, phrase in WHY_PHRASES.items():
         if raw == known.rstrip("."):
             return phrase

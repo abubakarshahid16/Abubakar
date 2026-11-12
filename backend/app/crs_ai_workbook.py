@@ -168,7 +168,10 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return f"The AI reviewer's verdict, to be confirmed by an engineer: {two.ABSENCE_WHY}."  # only what was established
+        rec = line.get(two.ABSENCE_FIELD)
+        checked = isinstance(rec, Mapping) and rec.get("code_check") == two.CHECK_SEARCHED
+        quote = words.plain(" ".join(str(line.get("clause_quote") or "").split())[:300])
+        return words.absence_verdict_sentence(field_name(line) or _item_ask(line) or "value for this item", quote, checked)
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -561,6 +564,8 @@ def _notes_rows(
             f"Decisions: {dec['total']} = code Pass/Fail {dec['code']} + two-reader verdicts {dec['two_reader']}",
         )
     )
+    if dec["not_stated"]:  # the absence decisions, counted apart inside the two-reader figure (lead, 12 Nov 2026)
+        rows.append(("Decisions, of which", f"of which: not stated on the paper {dec['not_stated']}"))
     rows.append(("Count: rows on the CRS sheet", len(items)))
     rows += [(f"Count: {k}", kinds[k]) for k in words.OTHER_KINDS]
     rows.append(

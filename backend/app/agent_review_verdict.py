@@ -715,6 +715,8 @@ NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )
 DISAGREE_WHY = "two AI readers disagree on this line"
+#: an absence line whose second reader quoted a value the code verified on its page (lead, 12 Nov 2026): the reason names the place
+DISAGREE_ONE_FOUND = "the readers disagree: one found"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase

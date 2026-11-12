@@ -150,53 +150,48 @@ class AbsenceMixin:
             line.get("clause_quote") if q.get("clause") else None
         )
 
+    def _skip_absence(self, iid: str, why: str) -> None:
+        self.two_reader_absence_state["skipped"] += 1
+        self.trace_record({"type": "two_reader_absence_skip", "item_id": iid, "why": why})
+
     def absence_candidates(self, texts: dict[int, str]) -> list[dict]:
-        """The lines worth asking: first-reader absence lines code's OWN search (`absence.prove`) could not break, whose first-reader
-        model is of another family than the second reader's. Not proven = not a candidate, nothing said."""
+        """The lines worth asking: first-reader absence lines (a verified clause, a held rule or an approved checklist item, a plain
+        binding requirement) whose first reader was given EVERY page and whose model is of another family than the second reader's.
+        The code's own field search (`absence.prove_field`) is a VETO and evidence, never a gate on knowing the field: a value found,
+        a deferral or an unreadable page ends it (nothing asked); a rule the code cannot search (no known field) stays a candidate
+        and the verdict says "the code could not check this itself"."""
         carried = absence.carried_roles(self.paper_kind, self.equipment_type)
         ledger = getattr(self.pages, "ledger_rows", None)
         facts = list(getattr(self.pages, "facts", []) or [])
+        every = list(range(1, self.total_pages + 1))
         out = []
         for iid, line in sorted(self.lines.items()):
             item = self.items_by_id.get(iid)
-            if (
-                item is None
-                or two.ABSENCE_FIELD in line
-                or not two.is_absence_candidate(line)
-            ):
+            if item is None or two.ABSENCE_FIELD in line or not two.is_absence_candidate(line):
                 continue
-            if not agent_run_second.models_differ(
-                [str(line.get("model") or "")], agent_claude.SECOND_MODEL
-            ):
+            if not agent_run_second.models_differ([str(line.get("model") or "")], agent_claude.SECOND_MODEL):
                 continue
-            if sorted(set(line.get("pages_searched") or [])) != list(
-                range(1, self.total_pages + 1)
-            ):
-                self.two_reader_absence_state["skipped"] += (
-                    1  # not awarded: the first reader was not given every page
-                )
-                self.trace_record(
-                    {
-                        "type": "two_reader_absence_skip",
-                        "item_id": iid,
-                        "why": "the first reader was not given every page of the paper",
-                    }
-                )
+            if sorted(set(line.get("pages_searched") or [])) != every:
+                self._skip_absence(iid, "the first reader was not given every page of the paper")  # not awarded
                 continue
-            proof = absence.prove(
-                item, self._absence_requirement(line), texts, self.total_pages, ledger, facts, carried,
+            requirement = self._absence_requirement(line)
+            plain = absence.plain_requirement_code(item, requirement)
+            if plain:
+                self._skip_absence(iid, "not a plain binding requirement: " + plain)
+                continue
+            proof = absence.prove_field(
+                item, requirement, texts, self.total_pages, ledger, facts, carried,
                 deferred=lambda w: deferred_mark(w, self.pages, self.paper, self.total_pages),
             )  # fmt: skip
-            self.trace_record(
-                {
-                    "type": "two_reader_absence_search",
-                    "item_id": iid,
-                    "proven": proof.proven,
-                    "code": proof.code,
-                }
-            )
+            self.trace_record({"type": "two_reader_absence_search", "item_id": iid, "proven": proof.proven, "code": proof.code})
             if proof.proven:
-                out.append({"line": line, "item": item, "proof": proof.to_json()})
+                check = two.CHECK_SEARCHED
+            elif proof.code in absence.CANNOT_SEARCH:
+                check = two.CHECK_COULD_NOT
+            else:
+                self._skip_absence(iid, "the code's search vetoed it: " + str(proof.code))
+                continue
+            out.append({"line": line, "item": item, "proof": proof.to_json(), "check": check})
         return out
 
     def _absence_pass(self) -> None:
@@ -205,14 +200,12 @@ class AbsenceMixin:
             n: self.pages.page(self.paper, n) or ""
             for n in range(1, self.total_pages + 1)
         }
+        if self.total_pages > two.ABSENCE_MAX_PAGES or sum(len(t) for t in texts.values()) > two.ABSENCE_MAX_PAGE_CHARS:
+            self.record_absence_off(two.OFF_PAPER_TOO_LONG)  # not awarded: nothing is asked, the lines say nothing
+            return
         cands = self.absence_candidates(texts)
         st["candidates"] = len(cands)
         if not cands:
-            return
-        if sum(len(t) for t in texts.values()) > two.ABSENCE_MAX_PAGE_CHARS:
-            self.record_absence_off(
-                two.OFF_PAPER_TOO_LONG
-            )  # no candidate: nothing is sent, the lines say nothing
             return
         for k in range(0, len(cands), two.MAX_BATCH):
             if st["off"] is not None:
@@ -318,7 +311,7 @@ class AbsenceMixin:
             found=answer.get("found"), quote=answer.get("paper_quote"), page=answer.get("page"),
             clause_quote=answer.get("clause_quote"), paper_ok=paper_ok, clause_ok=clause_ok, strong=strong,
             open_=answer.get("open") is True, model=model, usd=share, code_search=b["proof"], pages_total=self.total_pages,
-            first_pages=b["line"].get("pages_searched"), second_pages=texts, base=base_of(b["line"]),
+            first_pages=b["line"].get("pages_searched"), second_pages=texts, base=base_of(b["line"]), code_check=b["check"],
         )  # fmt: skip
         line = self.lines[iid]
         new = self.exit_line(

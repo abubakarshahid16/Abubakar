@@ -38,12 +38,16 @@ WORD_NOT_STATED = "AI verdict: not stated"
 WORDS = (WORD_MET, WORD_NOT_MET, WORD_NOT_STATED)
 ABSENCE_FIELD = "two_reader_absence"
 #: what the line's reason says, and only what was established (no bare "the paper does not state")
-ABSENCE_WHY = "Two AI readers each read every page and found no value for this; the reviewer's code found none either"
+ABSENCE_WHY = "not stated on the paper"
 #: the second reader's absence answers
 A_NOT_STATED, A_FOUND, A_CANNOT_TELL = "not stated", "found a value", "cannot tell"
 #: the most paper text (characters of every page together) sent whole to the absence reader; a longer paper has no candidate
 ABSENCE_MAX_PAGE_CHARS = 60_000
 OFF_PAPER_TOO_LONG = "paper_over_size_limit"
+#: the absence verdict needs BOTH readers given EVERY page: for a paper of more pages the class is not awarded (until the whole-paper work lands)
+ABSENCE_MAX_PAGES = 8
+#: the code's own check of an absence line: it searched the field and found no value, or it could not check (no known field)
+CHECK_SEARCHED, CHECK_COULD_NOT = "searched", "could_not"
 #: the second reader's own verdict words
 V_MET, V_NOT_MET, V_CANNOT_TELL, V_NOT_APPLICABLE = (
     "met",
@@ -412,19 +416,16 @@ def stored_absence(line: Mapping) -> Mapping | None:
 
 
 def is_absence_candidate(line: Mapping) -> bool:
-    """May the second reader be asked whether the paper states a value at all (pure on the stored line)? The first reader said
-    the paper should state it and does not (reason "absent", the pages it searched named), nothing was proven, no hold, a held
-    RULE (a checklist item has no stored obligation: `agent_review_absence`), approved, with a verified strong clause quote."""
+    """May the second reader be asked whether the paper states the item at all (pure on the stored line)? The first reader said the paper
+    should state it and does not (reason "absent", the pages it searched named), nothing was proven, no hold, a held rule or an approved
+    checklist item that is approved, with a verified strong clause quote (a checklist point's own text for a checklist item)."""
     if line.get("ai_verdict") != verdict.FAIL or line.get("verdict") != verdict.QUERY:
         return False
     if line.get("reason_code") != "absent" or not line.get("pages_searched"):
         return False
-    if line.get("source") != "rule" or line.get("checklist") is True or _holds(line):
+    if _holds(line) or line.get("rule_tier") == verdict.RULE_NOT_APPROVED:
         return False
-    if (
-        line.get("rule_tier") == verdict.RULE_NOT_APPROVED
-        or line.get("tier") not in verdict.USABLE_TIERS
-    ):
+    if not (line.get("checklist") is True or line.get("tier") in verdict.USABLE_TIERS):
         return False
     q = _checks(line)
     return bool(q.get("clause") and q.get("clause_strong"))
@@ -433,7 +434,7 @@ def is_absence_candidate(line: Mapping) -> bool:
 def absence_answer(
     *, found: Any, quote: Any, page: Any, clause_quote: Any, paper_ok: bool, clause_ok: bool, strong: bool,
     open_: bool, model: str, usd: float, code_search: Mapping, pages_total: int,
-    first_pages: Any = (), second_pages: Any = (), base: Mapping | None = None,
+    first_pages: Any = (), second_pages: Any = (), base: Mapping | None = None, code_check: str = CHECK_COULD_NOT,
 ) -> dict:  # fmt: skip
     """The stored absence answer of the second reader. `verdict`: found a value (its quote verified on its page, not a deferral),
     not stated (it says no value anywhere and its clause quote is verified), else cannot tell. `first_pages` / `second_pages`: the
@@ -448,47 +449,40 @@ def absence_answer(
         "verdict": word, "model": model, "paper_quote": quote or None, "paper_page": verdict._page_no(page),
         "clause_quote": clause_quote or None,
         "quotes_checked": {"paper": bool(paper_ok), "clause": bool(clause_ok), "clause_strong": bool(strong), "both": bool(paper_ok and clause_ok)},
-        "code_search": dict(code_search), "pages_total": int(pages_total),
+        "code_search": dict(code_search), "code_check": code_check, "pages_total": int(pages_total),
         "first_pages": sorted({int(p) for p in first_pages or ()}), "second_pages": sorted({int(p) for p in second_pages or ()}),
         "base": dict(base) if base else None, "usd": round(float(usd), 6),
     }  # fmt: skip
 
 
 def absence_agrees(line: Mapping) -> bool:
-    """The absence verdict: the first reader said absent, the second reader (another family) read EVERY page and found no value,
-    its clause quote is verified and strong, and the code's own absence search (`agent_review_absence.prove`) found nothing on any
-    page, every page being read. Read from the stored line alone."""
+    """The absence verdict "AI verdict: not stated" (lead's application of the owner's rule, to be confirmed): the first reader said
+    absent on a verified strong clause (or approved checklist point), and the second reader (another family) was asked on the WHOLE
+    paper and also says "not stated" without a verified value. BOTH readers were given EVERY page of a paper of at most
+    `ABSENCE_MAX_PAGES` pages (proved by the stored page lists, never assumed). The code's own search never found a value
+    (`code_check` "searched": the field is known and its words are on no page; "could_not": the code cannot search this rule, said
+    so in the sentence); a code veto (a value found, a deferral, an unreadable page) never reaches this record. Read from the stored
+    line alone."""
     rec = stored_absence(line)
-    if (
-        rec is None
-        or not is_absence_candidate(line)
-        or rec.get("verdict") != A_NOT_STATED
-    ):
+    if rec is None or not is_absence_candidate(line) or rec.get("verdict") != A_NOT_STATED:
         return False
-    q = (
-        rec.get("quotes_checked")
-        if isinstance(rec.get("quotes_checked"), Mapping)
-        else {}
-    )
+    q = rec.get("quotes_checked") if isinstance(rec.get("quotes_checked"), Mapping) else {}
     if not (q.get("clause") and q.get("clause_strong")):
         return False
+    check = rec.get("code_check")
     code = rec.get("code_search") if isinstance(rec.get("code_search"), Mapping) else {}
-    total = rec.get("pages_total")
-    if not (
-        code.get("proven") is True
-        and isinstance(total, int)
-        and total >= 1
-        and code.get("pages_checked") == total
-    ):
+    if check == CHECK_SEARCHED:
+        if code.get("proven") is not True:
+            return False
+    elif check != CHECK_COULD_NOT or code.get("veto") is True:
         return False
-    every = list(
-        range(1, total + 1)
-    )  # "each read every page" is true only when the stored lists prove it
+    total = rec.get("pages_total")
+    if not (isinstance(total, int) and 1 <= total <= ABSENCE_MAX_PAGES):
+        return False
+    every = list(range(1, total + 1))  # "each read every page" is true only when the stored lists prove it
     if rec.get("first_pages") != every or rec.get("second_pages") != every:
         return False
-    return agent_run_second.models_differ(
-        [str(line.get("model") or "")], rec.get("model")
-    )
+    return agent_run_second.models_differ([str(line.get("model") or "")], rec.get("model"))
 
 
 def absence_disagrees(line: Mapping) -> bool:
@@ -506,6 +500,15 @@ def absence_disagrees(line: Mapping) -> bool:
         else {}
     )
     return rec.get("verdict") == A_FOUND and bool(q.get("paper"))
+
+
+def absence_disagree_why(line: Mapping) -> str:
+    """The reason of an absence line the two readers disagree on: "the readers disagree: one found a value on page N" (the page is the
+    one code verified the second reader's quote on)."""
+    rec = stored_absence(line) or {}
+    page = rec.get("paper_page")
+    where = f"a value on page {page}" if isinstance(page, int) and not isinstance(page, bool) else "a value on the paper"
+    return f"{verdict.DISAGREE_ONE_FOUND} {where}"
 
 
 def textual_pass_agreed(line: Mapping) -> bool:

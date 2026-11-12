@@ -332,13 +332,13 @@ def plan_pages(
     out = []
     for it in items:
         it = dict(it)
-        if _hints(it):
-            it["page_hint_source"] = "items"
-        elif 0 < total <= SMALL_PAPER_PAGES:
+        if 0 < total <= SMALL_PAPER_PAGES:  # a short paper goes WHOLE for every item, a checklist item's own page hint too (order 13)
             it["page_hint"], it["page_hint_source"] = (
                 list(range(1, total + 1)),
                 "short paper: all pages",
             )
+        elif _hints(it):
+            it["page_hint_source"] = "items"
         else:
             roles = " ".join(
                 str(r).replace("_", " ") for r in it.get("field_roles") or []
