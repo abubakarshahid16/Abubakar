@@ -42,7 +42,11 @@ def enabled() -> bool:
 
 def runner_done(stored: dict) -> dict:
     """The stored lines the runner may resume from: a code line has no plan item, so the runner never re-caps it."""
-    return {k: v for k, v in stored.items() if not v.get("error") and v.get("source") != calc.SOURCE}
+    return {
+        k: v
+        for k, v in stored.items()
+        if not v.get("error") and v.get("source") != calc.SOURCE
+    }
 
 
 def counts_with(counts: dict, plan: dict) -> dict:
