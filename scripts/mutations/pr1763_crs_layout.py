@@ -75,7 +75,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         '    "AI opinion": PatternFill("solid", fgColor="FFEFE8F7"),\n',
         '    "AI opinion": PatternFill("solid", fgColor="FFF5D6D6"),\n',
         _T,
-        "four_colours or styled_by_code",
+        "five_colours or styled_by_code",
     ),
     _m(
         "07",

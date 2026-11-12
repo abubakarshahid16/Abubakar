@@ -263,6 +263,16 @@ def test_the_internal_crs_shows_the_trust_and_the_safety_tick_and_the_issue_copy
     assert notes["Spot-check automatic findings"]["count"] == 1
 
 
+def test_the_internal_workbook_carries_the_rule_trust_on_its_evidence_sheet_and_the_issue_copy_has_none():
+    """#1767 moved the Rule trust column from the CRS sheet to the Evidence sheet (internal copy only)."""
+    from tests.test_crs_one_layout import _book
+
+    evidence = list(_book("internal")["Evidence"].iter_rows(values_only=True))
+    col = evidence[0].index("Rule trust (internal)")
+    assert any(row[col] for row in evidence[1:])
+    assert "Evidence" not in _book("issue").sheetnames
+
+
 def test_the_safety_tick_gates_issue_until_ticked_and_a_tick_is_a_correct_audit(world, monkeypatch):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
     key = _prove(world)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import itertools
 
 import openpyxl
 import pytest
@@ -608,7 +609,10 @@ def test_every_other_sheet_is_styled_the_same_way(tmp_path):
 
 def test_the_status_fills_are_defined_once_with_five_colours():
     assert set(crs_layout.STATUS_FILLS) == set(words.STATUSES)
-    assert len({f.fgColor.rgb for f in crs_layout.STATUS_FILLS.values()}) == 5
+    fills = {name: f.fgColor.rgb for name, f in crs_layout.STATUS_FILLS.items()}
+    assert len(fills) == 5
+    for first, second in itertools.combinations(fills, 2):  # every pair of Statuses has two different fills
+        assert fills[first] != fills[second], (first, second)
 
 
 def test_a_cell_that_starts_with_an_equals_sign_is_text_not_a_formula():
