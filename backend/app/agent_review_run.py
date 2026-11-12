@@ -90,6 +90,8 @@ log = logging.getLogger(__name__)
 
 
 class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
+    _scope = threading.local()  # per-thread charge scope (`charged_scope`)
+
     def __init__(
         self,
         *,
@@ -161,7 +163,6 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self._warmed = False
         self.lead_models: set[str] = set()
         self.second_models: set[str] = set()
-        self._scope = threading.local()
         self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0, "reread": 0}
         self.counts: dict[str, int] = {}
         # the optional second-reader step (owner order 13): None = read the switch when the run starts
