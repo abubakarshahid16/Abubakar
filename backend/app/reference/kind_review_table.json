@@ -16,7 +16,8 @@
       "overlap_pages": 1,
       "crs_discipline": "",
       "label": "Datasheet",
-      "scored": true
+      "scored": true,
+      "contractor_copy_ai_verdict": false
     },
     "procedure": {
       "review": "rule_and_general",
@@ -31,7 +32,8 @@
       "overlap_pages": 1,
       "crs_discipline": "Procedures",
       "label": "Procedure",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "contract": {
       "review": "rule_and_general",
@@ -46,7 +48,8 @@
       "overlap_pages": 1,
       "crs_discipline": "Contracts",
       "label": "Contract",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "calculation": {
       "review": "none",
@@ -59,7 +62,8 @@
       "overlap_pages": 0,
       "crs_discipline": "Calculations",
       "label": "Calculation",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "transmittal": {
       "review": "completeness",
@@ -72,7 +76,8 @@
       "overlap_pages": 0,
       "crs_discipline": "Document control",
       "label": "Transmittal",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "specification": {
       "review": "none",
@@ -85,7 +90,8 @@
       "overlap_pages": 0,
       "crs_discipline": "",
       "label": "Specification",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "drawing": {
       "review": "none",
@@ -98,7 +104,8 @@
       "overlap_pages": 0,
       "crs_discipline": "",
       "label": "Drawing",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "test_record": {
       "review": "none",
@@ -111,7 +118,8 @@
       "overlap_pages": 0,
       "crs_discipline": "",
       "label": "Test record",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "other": {
       "review": "none",
@@ -124,7 +132,8 @@
       "overlap_pages": 0,
       "crs_discipline": "",
       "label": "Other",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     },
     "unknown": {
       "review": "none",
@@ -137,7 +146,8 @@
       "overlap_pages": 0,
       "crs_discipline": "",
       "label": "Unknown",
-      "scored": false
+      "scored": false,
+      "contractor_copy_ai_verdict": false
     }
   }
 }

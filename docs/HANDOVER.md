@@ -176,7 +176,7 @@ an unapproved document: the Claude-first path answers with the local model and s
 chat paths say the document is not approved and ask the reader to choose the Local model.
 
 **Automatic list entries (#1584, owner decision, `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED`, off).** With the
-switch on, `claude_auto_approve` approves documents by The routes are exactly these four: (1) a file uploaded as a contractor submittal, or given that role later, is approved when it is uploaded or when the role is set; (2) the paper a review is started on is approved when the review starts, if its role is none or contractor submittal; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. Any other document a review cites (a specification, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register file (rule 3) and any blocked hash or name never. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. To block a file: a `status: blocked` row on the list, its hash in
+switch on, `claude_auto_approve` approves documents by The routes are exactly these four: (1) a file uploaded as a contractor submittal or a specification, or given either role later, is approved when it is uploaded or when the role is set, unless the code's own kind decision reads it as a contract (a contract needs the owner's recorded yes); (2) the paper a review is started on is approved when the review starts, if its role is none, contractor submittal or specification and it is not a contract; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. The citation route approves rule books only; a cited specification goes out only if it is already on the list through its role. Any other document a review cites (a contract, a supporting document, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". A specification on the approved list may be sent to Claude when it is the paper under review and also when another paper's review cites it. At send time a document that is a contract by role or by the code's kind decision is refused on every route, including "cited by another review", unless the owner's yes for that file is recorded (`contract_yes`). Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register file (rule 3) and any blocked hash or name never. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. To block a file: a `status: blocked` row on the list, its hash in
 `backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"], "blocked_names": ["<file name>"]}`, outside
 git), or its name there; `scripts/write_block_file.py --name <file name>` / `--file` / `--sha256` adds an entry and never drops
 one. Owner decision of 12 Nov 2026 afternoon (#1584): the register is blocked by its file name, built in (any case, spacing,
@@ -526,3 +526,24 @@ the cap and the class stay in the code and tests.
 line can be a checklist line, so any line of an item that is not a stored rule is capped as not approved (safe, never a Pass or
 Fail), and the job logs "agent review: no checklist data found". An empty list is never remembered, so adding the files needs no
 restart. Step H must check that the live Mac has the skill files.
+
+## 11. One Review button: Automatic, Claude, Local only (12 Nov 2026, #1584 comment 6820183348)
+
+Backend (PR 1): `review_engine.decide` is the one resolver (pure; a brute force walks every combination); `review_engine.plan_for`
+and `GET /api/reviews/plan` give the pre-start answer (no side effect, no call); `POST /api/reviews/start` queues the rule check
+and, when the plan runs it, the AI review follows on the same worker (`review_engine_start.follow_up`, checked again). Local only
+and any part the plan keeps local are barred from Claude for the whole run (`review_engine.barring`). The AI reviewer has NO local
+reader on the job path (`agent_local_lead` is used only by the experiment loop), so Local only means: rule check on the local
+model, AI review not run, said in plain words. Approvals: role SPECIFICATION (approved like a submittal, behind the existing
+auto-approve switch); a contract needs `contract_yes` per file (checksum, who, when, audit, withdrawable). Unscored kinds:
+`agent_review_gate.SCORED_KINDS` (datasheet ONLY; owner, 12 Nov) and `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` (off). The CRS header names the engine
+("Reviewed by:", `crs_layout.engine_rows`). The screen (PR 2) waits for the owner's picture. Trial: `scripts/trial_on_copy.py --engine`.
+
+Review R47 (12 Nov): the engine choice is written in the SAME transaction as the job (`review_jobs.enqueue(in_transaction=...)`;
+a job of the new route has an id starting `job_x`), and the bar FAILS CLOSED: an unreadable choice, or a marked job with no choice
+row, keeps the run on this computer and says why on the run (`outcome_json.engine_choice_note`); a job of the older routes (no mark,
+no row) behaves as before. "Local only" (any run kept on this computer) also bars the public web check of standards
+(`REVIEW_WEB_STANDARDS_ENABLED`). The cost line gives the bound per part and in total (each review has its own USD 15 per-run cap).
+The header's engine is saved at the end of the run (`outcome_json.engine_ran`). With only datasheets scored, a contract with a
+recorded yes is still NOT offered for Claude on a default install: that path wakes up when contracts are scored or
+`REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` is on.

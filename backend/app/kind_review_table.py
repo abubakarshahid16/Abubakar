@@ -19,7 +19,7 @@ TABLE_PATH = Path(__file__).parent / "reference" / "kind_review_table.json"
 REVIEWS = ("rule", "rule_and_general", "general", "completeness", "none")
 ROW_KEYS = (
     "review", "rules_of_kind", "ask_rules", "checklist_skill_ending", "checklist_slot", "no_main_equipment",
-    "window_tokens", "overlap_pages", "crs_discipline", "label", "scored",
+    "window_tokens", "overlap_pages", "crs_discipline", "label", "scored", "contractor_copy_ai_verdict",
 )  # fmt: skip
 UNKNOWN = "unknown"
 
@@ -42,6 +42,10 @@ def _check(data: dict) -> dict:
             )
         if not isinstance(row["scored"], bool):
             raise TableError(f"kind {name}: scored must be true or false")
+        if not isinstance(row["contractor_copy_ai_verdict"], bool):
+            raise TableError(
+                f"kind {name}: contractor_copy_ai_verdict must be true or false"
+            )
         if row["ask_rules"] != bool(row["rules_of_kind"]):
             raise TableError(f"kind {name}: ask_rules and rules_of_kind disagree")
         if (
@@ -90,6 +94,7 @@ NO_REVIEW = {
     "review": "none", "rules_of_kind": [], "ask_rules": False, "checklist_skill_ending": None,
     "checklist_slot": "none: the kind has no row in the table (or the table is unusable)", "no_main_equipment": False,
     "window_tokens": 0, "overlap_pages": 0, "crs_discipline": "", "label": "Unknown", "scored": False,
+    "contractor_copy_ai_verdict": False,
 }  # fmt: skip
 
 
@@ -150,6 +155,17 @@ def checklist_slot(kind: str | None) -> str:
 
 def discipline(kind: str | None) -> str:
     return str(row(kind)["crs_discipline"] or "")
+
+
+def contractor_copy_ai_verdict(kind: str | None) -> bool:
+    """Do guarded "AI verdict: not met" rows go on the CONTRACTOR copy of this kind? False for every kind (owner, 12 Nov 2026):
+    a person sets a kind to true after the scorer shows two-reader verdicts right 95 of 100 on that kind's key."""
+    return bool(row(kind)["contractor_copy_ai_verdict"])
+
+
+def scored_kinds() -> tuple[str, ...]:
+    """The kinds whose `scored` field is true (the ONE home of "scored against an answer key")."""
+    return tuple(k for k in kinds() if row(k)["scored"])
 
 
 def scored(kind: str | None) -> bool:

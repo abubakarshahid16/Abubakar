@@ -40,6 +40,11 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           {summary.equipment_notes.map((n) => <li key={n}>{humanizeCode(n)}</li>)}
         </ul>
       )}
+      {summary.decisions && (
+        <p data-testid="agent-decisions" className="text-sm text-slateish-100">
+          Decisions: {summary.decisions.total} = code Pass/Fail {summary.decisions.code} + two-reader verdicts {summary.decisions.two_reader}
+        </p>
+      )}
       {summary.two_reader_step && (
         <p data-testid="two-reader-step" className="text-sm text-slateish-100">
           Second AI reader (internal): {summary.two_reader_step.candidates} lines were candidates, {summary.two_reader_step.asked} asked in{" "}

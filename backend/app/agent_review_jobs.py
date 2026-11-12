@@ -43,6 +43,7 @@ from . import (
     claude_auto_approve,
     job_queue,
     nothing_read,
+    review_engine,
     review_jobs,
 )
 from . import agent_review_items as items_mod
@@ -116,8 +117,9 @@ def enqueue(
     requested_by: str | None,
     project_document_ids: tuple[str, ...] | None = None,
     fresh: bool = False,
+    in_transaction=None,
 ) -> tuple[str, str]:
-    """Create the run and its job together. Returns (run_id, job_id).
+    """Create the run and its job together. Returns (run_id, job_id). `in_transaction(conn, run_id)`: see `review_jobs.enqueue`.
 
     Raises ReviewAlreadyActive when ANY review (classic or AI) of this submittal is queued or running, and ValueError when
     the caller may not read the submittal. Off: raises FeatureOff and creates nothing. (The paper's kind is checked by the
@@ -131,7 +133,7 @@ def enqueue(
     if submittal_document_id not in allowed_document_ids:
         raise ValueError("no submittal with that id")
     conn = connect()
-    run_id, job_id, now = str(uuid.uuid4()), f"job_{uuid.uuid4().hex[:12]}", _now()
+    run_id, job_id, now = str(uuid.uuid4()), review_engine.new_job_id(in_transaction is not None), _now()  # fmt: skip
     with job_queue.immediate(conn):
         active = conn.execute(
             f"SELECT id FROM review_runs WHERE submittal_document_id = ?"
@@ -155,9 +157,9 @@ def enqueue(
         )  # fmt: skip
         if project_document_ids is not None:
             general_job.record_request(conn, run_id, project_document_ids)
-        reuse_mod.record_fresh(
-            conn, run_id, fresh
-        )  # point E: this run ignores stored answers (switch off: nothing)
+        reuse_mod.record_fresh(conn, run_id, fresh)  # point E: this run ignores stored answers (switch off: nothing)  # fmt: skip
+        if in_transaction is not None:
+            in_transaction(conn, run_id)  # the engine choice, in the same transaction as the job  # fmt: skip
         job_queue.audit(
             conn,
             "job.queued",
@@ -578,8 +580,8 @@ def _finish(
     stop = _stop_text(runner, plan)
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
-            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
-            "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
+            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None, "paper_kind": kind.kind,
+            "usd": usd, "header": {**_header_facts(submittal, kind.equipment_type), **crs_header.engine_facts_of(run_id, submittal, usd)}, **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
                                **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {}),

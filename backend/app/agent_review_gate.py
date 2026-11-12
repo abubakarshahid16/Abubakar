@@ -28,6 +28,9 @@ FEATURE_OFF = "feature_off"
 #: belong to. Silence is a "Query", never "not met". No "Pass" or "Fail" in this mode. All lines internal only." ... "Switch it
 #: on in the app only if that score is clearly better than tonight's." (Scored 11 Nov: wrong lines 26 to 2 on a procedure, 18 to 1
 #: on a contract; planted errors caught 0 to 5 of 10 on each.) A paper of any other kind stays refused (409).
+#: The kinds SCORED against an answer key (owner, 12 Nov 2026, #1584 comment 6820183348: "No new kind goes live until scored
+#: against a key") are read from the `scored` field of the one table (`kind_review_table.scored`); adding a kind there is an
+#: owner decision after a score against a key. `SCORED_KINDS` below is served from that table, never a tuple here.
 #: (`AGENT_REVIEW_KINDS` and `AGENT_GENERAL_REVIEW_KINDS` are read from the one table, `reference/kind_review_table.json`.)
 def __getattr__(name: str):
     """`AGENT_REVIEW_KINDS` / `AGENT_GENERAL_REVIEW_KINDS`: read from the one table (`kind_review_table`) each time they are asked,
@@ -36,9 +39,14 @@ def __getattr__(name: str):
         return kind_review_table.rule_review_kinds()
     if name == "AGENT_GENERAL_REVIEW_KINDS":
         return kind_review_table.general_kinds()
+    if name == "SCORED_KINDS":
+        return kind_review_table.scored_kinds()
     raise AttributeError(name)
 
 
+UNSCORED_WORDS = (
+    "This kind of paper has not been scored against an answer key yet: treat every line as a draft"
+)
 KIND_NOT_ENABLED = "kind_not_enabled"
 KIND_NOT_ENABLED_MESSAGE = (
     "AI review is on for datasheets (rule review) and for procedures and contracts "
@@ -111,6 +119,11 @@ def rules_kind_enabled(kind: str | None) -> bool:
         review == "rule_and_general"
         and bool(settings.agent_review_general_rules_enabled)
     )
+
+
+def kind_scored(kind: str | None) -> bool:
+    """Has this kind been scored against an answer key? An unknown kind never."""
+    return kind_review_table.scored(kind)
 
 
 def any_kind_enabled(kind: str | None) -> bool:

@@ -65,6 +65,15 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
+    (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
+    (
+        APP + "review_engine_start.py",
+        "queues a review with its engine choice and its bar: what leaves the machine",
+    ),
+    (
+        APP + "contract_yes.py",
+        "records the owner's yes that lets a contract go to Claude",
+    ),
     (APP + "claude_approved.py", "the approved-document list and block list"),
     (APP + "claude_auto_approve.py", "automatic approval of what may be sent"),
     (APP + "crs_normal.py", "the normal reviewer's Status and Priority words"),
