@@ -16,6 +16,7 @@ import re
 from collections.abc import Mapping
 
 from . import agent_review_absence as absence
+from . import agent_review_two_reader as two
 from .agent_review_two_reader import DISAGREE_ONE_FOUND
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
@@ -119,6 +120,33 @@ def absence_verdict_sentence(item: str, clause_quote: str, code_checked: bool) -
     check = ABSENCE_CHECK_SEARCHED if code_checked else ABSENCE_CHECK_COULD_NOT
     ask = f' The rule requires: "{clause_quote}".' if clause_quote else ""
     return f"{ABSENCE_OPENER}: two AI readers each read every page of the paper and found no {item}.{ask} Code check: {check}. Engineer to confirm."
+
+
+def absence_cell(line: Mapping, item: str) -> str:
+    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's verified clause quote and its stored
+    code check (searched or could not)."""
+    rec = line.get(two.ABSENCE_FIELD)
+    checked = isinstance(rec, Mapping) and rec.get("code_check") == two.CHECK_SEARCHED
+    quote = plain(" ".join(str(line.get("clause_quote") or "").split())[:300])
+    return absence_verdict_sentence(item or "value for this item", quote, checked)
+
+
+def decisions_rows(dec: Mapping) -> list[tuple[str, str]]:
+    """The Notes rows of the one decisions count (`wording.decisions_of`): the total, and the absence decisions apart when there are any."""
+    rows = [
+        (
+            "Decisions",
+            f"Decisions: {dec['total']} = code Pass/Fail {dec['code']} + two-reader verdicts {dec['two_reader']}",
+        )
+    ]
+    if dec["not_stated"]:
+        rows.append(
+            (
+                "Decisions, of which",
+                f"of which: not stated on the paper {dec['not_stated']}",
+            )
+        )
+    return rows
 
 
 def verdict_prefix(independent: bool, met: bool = True) -> str:
