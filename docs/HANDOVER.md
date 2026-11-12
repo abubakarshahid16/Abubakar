@@ -362,6 +362,22 @@ required for "enterprise", explicitly deferred by Ali.
 
 ---
 
+### Standing decisions of 12 Nov 2026 (owner, #1584; the words are in CLAUDE.md: the top rule, "The goal decides", "One reviewer only")
+
+- **The design.** The AI reviewer is the reviewer, on Claude or on the local model: same design, same steps, same sheet; only the engine
+  changes. Code is its calculator: code verifies every quote and does every number and unit comparison. A decision is either (a) Pass or
+  Fail, only when code compared a value, or (b) Met / Not met by two readers who agree, with quotes verified by code (internal copy; a
+  kind of paper moves to the contractor copy when two-reader verdicts are right 95 of 100 on its key). Everything else is an AI opinion
+  or a question for the engineer. 0 wrong decisions. The engineer signs.
+- **The goal decides.** Review like a senior engineer or better, any document, best CRS. A rule, an old design line or an old part of the
+  app that works against the goal: the lead changes it and tells the owner afterwards in one line. Ask first only for: raising a money
+  cap; deleting data; and the third item the owner has not yet restated (until then: his password sign-in and sending a NEW kind of
+  paper to Claude stay his). Rules 1 to 5 and #806 keep their own approval line.
+- **One reviewer only.** The old rule check stops being a separate review: its number and unit checks become a tool inside the AI review
+  and show as normal points; its separate button, "No comments" box, six steps and sheet go from the page (old reviews stay readable),
+  together with the new page, not before; before it is switched off the AI reviewer on the local model is measured against the same key
+  and shown beside Claude's; "5 of 5 pages were not fully read" is fixed on the current page too.
+
 ## 7. Demo — what works and what to say
 
 **Start:** Terminal 1 `cd backend && ..\.venv\Scripts\activate && python run.py`
@@ -547,3 +563,44 @@ no row) behaves as before. "Local only" (any run kept on this computer) also bar
 The header's engine is saved at the end of the run (`outcome_json.engine_ran`). With only datasheets scored, a contract with a
 recorded yes is still NOT offered for Claude on a default install: that path wakes up when contracts are scored or
 `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` is on.
+
+## 12. The redesigned review page: the backend (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
+
+`GET /api/reviews/papers/{id}/points`: one list of the rule check's comments and the AI review's lines, worst first (proven Fail, two
+readers not met, one reader not met, question, one reader met, two readers met, proven Pass, does not apply), pills, groups ("N alike"),
+the four tile counts, per-rule-book counts (a book the caller may not read is counted, never named), rule books not held, "x of N
+decided", and the proposed review code. Decisions: `POST .../points/decision` (Keep; Edit needs the engineer's text and keeps the
+original; Remove needs a reason of at least 10 characters and leaves the CRS sheets, staying in the record), `.../decisions` (Keep
+several), `.../add` (the engineer's own point: kept by definition, on both sheets, Comment By the engineer). A rule-check point is written
+to BOTH decision records (`review_point_decisions` and the older `crs_issue_decisions`) and its findings in ONE transaction
+(`review_point_sync`), through the page's route and through the older finding-decision route alike; if they ever differ the sign gate
+refuses. The AI review's CRS copies are drawn again on download with the decisions (`review_points_service.decided_ai_sheet`, a working
+file of its own); at signing (`/crs/issue`) the rule check's contractor copy AND the AI review's contractor copy are archived with their
+checksums and never rewritten. Review code: a KEPT code-proven Fail on a "shall" rule always proposes Rejected / Revise and Resubmit; the
+integer setting `REVIEW_CODE_RESUBMIT_AT_KEPT_MANDATORY_NOT_MET` (default 0 = off) also proposes it at N kept AI not-met points on "shall"
+rules; with points undecided the line reads "So far: <code>, N points still to decide"; Manual Review Required is only for unread pages.
+Rule-check points show a passage only when code finds it in the stored text of the cited page.
+
+Review R48 of the points backend (12 Nov): with the switch OFF the older finding-decision route, the sheets' apply and every new route are
+exactly as before (the page's routes answer 404 `feature_off`); with it ON the older route still keeps its own reason rules and words
+(`review_point_sync.record_rule_decision(old_door=True)`). The sign gate FAILS CLOSED: if the points cannot be read (a missing table, a locked
+database) signing is refused ("the points of this review could not be read"), and the AI open-points acknowledgement is treated as given only
+when the list was really built. "Keep all" is stored as a bulk keep (no rule_trust spot check). A rule-check point is "shall" only when its rule's
+stored type is not a recommendation; an unread strength is never mandatory. A removed code-proven Fail is said in the reason line (who and why)
+and its reason is on the audit event. An empty list proposes no code unless a review ran and found nothing. One sentence
+(`review_code_proposal.nothing_decided_sentence`) says "nothing decided yet" and names any code-proven Fail on a mandatory rule.
+
+
+
+## 13. The redesigned review page: the screen (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
+
+`GET /api/reviews/page-v2` says whether it is on (the page reads it once; unreadable = off, the old page stays). On, `ReviewWorkspace`
+draws `components/review/v2/ReviewPageV2` in place of its header, bar and tabs: the header (the paper, the kind line with who decided and
+Change), ONE engine choice (Automatic default, Claude, Local only) and ONE Review button with the engine line (`GET /api/reviews/plan`),
+the review code box (proposed code, one line of reason, "x of N decided", recording the final code), four filter tiles, rule book chips,
+the rule books not held, three tabs (Points, CRS sheet, How it was reviewed), the list of points (Keep / Edit / Remove, grouped questions,
+two quote boxes with only verified text, View page), Add a point, and the bottom row (Sign and issue is greyed with its reason). Today's
+sheet, CRS preview and replies sit under "CRS sheet"; today's Details under "How it was reviewed" (each part is read when opened). The sign
+flow is the workspace's own (`useSignOff` and the confirm step); the contractor copy of the rule check is still made only by it (the app's
+one issuing path), the page's "CRS for the contractor" button downloads the AI review's contractor copy. The points routes answer 404
+`feature_off` while the switch is off.

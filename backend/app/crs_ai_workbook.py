@@ -297,8 +297,8 @@ def _row(
         n,
         paper,
         _page_text(line),
-        layout_comment(line, status, order),
-        by,
+        line.get("engineer_text") or layout_comment(line, status, order),
+        f"Engineer: {line['engineer_by']}" if by and line.get("engineer_by") else by,
         None,
         None,
         against(line) or None,
@@ -631,6 +631,7 @@ def _guarded_not_met(ln: Mapping) -> bool:
         and not ln.get("recommendation")
         and not wording.is_unapproved(ln)
         and wording.is_two_reader(ln)
+        and not ln.get("engineer_text")
     )
 
 
@@ -640,11 +641,14 @@ def _contractor_items(items: list, kind: str | None = None) -> list:
     out = [
         (ln, st, o)
         for ln, st, o in items
-        if st == words.STATUS_FAIL
-        and wording.writer_refusal(ln) is None
-        and not wording.is_opinion(ln)
-        and not ln.get("recommendation")
-        and not wording.is_unapproved(ln)
+        if ln.get("engineer_text")
+        or (
+            st == words.STATUS_FAIL
+            and wording.writer_refusal(ln) is None
+            and not wording.is_opinion(ln)
+            and not ln.get("recommendation")
+            and not wording.is_unapproved(ln)
+        )
     ]
     if kind_review_table.contractor_copy_ai_verdict(kind):
         out += [
