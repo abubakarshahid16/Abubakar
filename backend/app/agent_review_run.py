@@ -267,6 +267,10 @@ class Runner(DecideMixin, RereadMixin):
     def _add_usd(self, usd: float) -> None:
         with self._lock:
             self.run_usd += float(usd)
+        if self.in_optional_step():  # what the run was charged inside the optional step (this thread): the line carries it
+            self._optional.charged = getattr(self._optional, "charged", 0.0) + float(
+                usd
+            )
 
     def _admit(self, app: float) -> None:
         if self.gate is not None:

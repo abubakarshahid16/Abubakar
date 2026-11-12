@@ -312,6 +312,7 @@ class RereadMixin:
         the recovered line) runs with `_optional` set on this thread: `Runner._halt` then only switches the step off and
         records `refused`, and the line comes back EXACTLY as it was (no claim). A cap stop of an item's NORMAL calls
         (outside the step) halts the review as before: the two are told apart by that flag."""
+        self._optional.charged = 0.0
         self._optional.on, self._optional.refused, self._optional.paid = (
             True,
             False,
@@ -436,6 +437,9 @@ class RereadMixin:
         base = {**record, "page": page, "lead_usd": lead_usd}
         again_answer = (answers or {}).get(iid)
         if error or again_answer is None or not model:
+            # whatever the run was charged inside this step stays on the line (a failed lead call is charged by the run
+            # at its worst case even when `_ask_lead` reports no cost)
+            spent = max(spent, getattr(self._optional, "charged", 0.0))
             return self._unchanged(line, cause, {**base, "outcome": "failed"}, spent)
         self._ctx.setdefault(iid, {})["reread_lead_answer"] = again_answer
         again = self.decide(

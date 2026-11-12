@@ -105,6 +105,9 @@ class ReLane(s.FakeModel):
         last = (
             body["messages"][0]["content"][-1]["text"] if body.get("messages") else ""
         )
+        if "a_second_reader_points_to" in last and getattr(self, "again_boom", False):
+            self.kinds.append("lead_again")
+            raise RuntimeError("invented transport failure")
         if "a_second_reader_points_to" in last:
             ids = [
                 q["item_id"]
@@ -825,9 +828,11 @@ def test_the_notes_count_the_cut_off_re_reads_in_plain_words(w):
 # ---------------------------------------------------------------- what the step paid stays on the line and equals the run
 
 
-def _scripted(w, script, answers):
-    w["fake"] = ReLane(reread={"found": False}, answers=answers)
-    w["fake"].script = list(script)
+def _scripted(w, script, answers, reread=None, again_boom=False):
+    w["fake"] = ReLane(
+        reread=reread or {"found": False}, answers=answers, again=AGAIN_NUMBER
+    )
+    w["fake"].script, w["fake"].again_boom = list(script), again_boom
     run_id, job_id = start()
     run_job(job_id)
     return lines_of(run_id), run_id
@@ -842,13 +847,13 @@ def _totals(lines, run_id):
     return usd, sum(line_json(r).get("usd") or 0.0 for r in lines.values())
 
 
-def _delta(w, monkeypatch, script, answers):
+def _delta(w, monkeypatch, script, answers, reread=None, again_boom=False):
     """(run total, summed line costs) of a run with the step on, minus the same of a run with it off."""
     monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
     off, off_id = _scripted(w, [], answers)
     monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
     db.reset_connection()
-    on, on_id = _scripted(w, script, answers)
+    on, on_id = _scripted(w, script, answers, reread, again_boom)
     (run_off, lines_off), (run_on, lines_on) = _totals(off, off_id), _totals(on, on_id)
     return run_on - run_off, lines_on - lines_off
 
@@ -924,3 +929,17 @@ def test_a_transport_error_on_the_retry_costs_the_first_call_plus_the_retrys_wor
     )
     assert run_extra == pytest.approx(line_extra, rel=1e-3)
     assert line_extra > claude_spend_cost(600) + 0.05
+
+
+def test_a_transport_error_on_the_lead_re_ask_is_on_the_line_as_the_run_was_charged(
+    w, monkeypatch
+):
+    run_extra, line_extra = _delta(
+        w,
+        monkeypatch,
+        [],
+        {**s.ANSWERS, "R-frame": SILENT},
+        reread=FOUND_NUMBER,
+        again_boom=True,
+    )  # the ninth case: the re-read answered, the lead re-ask failed in transport
+    assert line_extra > 0.05 and run_extra == pytest.approx(line_extra, rel=1e-3)
