@@ -116,16 +116,26 @@ def test_it_is_informational_and_says_so(win, agg):
     assert "NOT one of the checks" in WINDOWS.read_text(encoding="utf-8")
 
 
-def test_it_runs_nightly_and_on_demand_only(win):
-    # Owner decision 2026-10-08 (CI trim): nightly on main plus workflow_dispatch,
-    # not on pull requests or pushes, to save Actions minutes.
+def test_it_runs_by_hand_only_and_says_the_owner_switched_it_off(win):
+    # Owner order 12 Nov 2026 (point G, "less waste"): no nightly run, no pull
+    # request, no push. The file stays so it can be switched back on.
     triggers = _triggers(win)
-    assert "workflow_dispatch" in triggers
-    assert [s.get("cron") for s in triggers.get("schedule") or []], (
-        "no nightly schedule"
-    )
-    assert "pull_request" not in triggers
-    assert "push" not in triggers
+    assert list(triggers) == ["workflow_dispatch"]
+    text = WINDOWS.read_text(encoding="utf-8")
+    assert "SWITCHED OFF by the owner on 12 Nov 2026" in text
+    assert "Run workflow" in text
+
+
+def test_the_windows_job_is_not_a_required_check():
+    """main requires exactly these four; the Windows names must stay out of them."""
+    linux = yaml.safe_load(LINUX.read_text(encoding="utf-8"))
+    assert linux["jobs"]["backend"]["name"] == "backend (pytest)"
+    assert linux["jobs"]["frontend"]["name"] == "frontend (vitest + tsc)"
+    win_names = {
+        j["name"]
+        for j in yaml.safe_load(WINDOWS.read_text(encoding="utf-8"))["jobs"].values()
+    }
+    assert not win_names & {"backend (pytest)", "frontend (vitest + tsc)"}
 
 
 def test_linux_tests_run_on_pull_requests_and_pushes_to_main_only():

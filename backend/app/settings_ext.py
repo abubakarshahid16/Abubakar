@@ -486,8 +486,9 @@ class SettingsExt(BaseModel):
     standards_reader_model: str = ""
     #: #1584 (owner decision, 2 Nov): a document uploaded for review joins the Claude approved list by itself
     #: (`claude_auto_approve`), and so does a standard its review cites or that governs it; a blocked hash and the
-    #: register file (rule 3) never do. `<data_dir>/claude_blocked_hashes.json` must hold the owner's register hash:
-    #: absent, unreadable or empty, nothing carrying a document is sent. It sends nothing by itself: the Claude
+    #: register file (rule 3) never do: it is blocked by its file name, built in (owner, 12 Nov 2026), so no block file is needed;
+    #: `<data_dir>/claude_blocked_hashes.json` also holds files the owner marks (hash or name); one that cannot be read means
+    #: nothing carrying a document is sent. It sends nothing by itself: the Claude
     #: lane's own gates stay. OFF: no hook writes and an automatic row does not count; blocks still apply.
     #: Env: CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED.
     claude_auto_approve_reviews_enabled: bool = False

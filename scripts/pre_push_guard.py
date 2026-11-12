@@ -7,6 +7,10 @@ so a machine now refuses the push. Only what the branch changed against
   * formatting of the lines the branch touched: `quality_ratchet.py format-check
     --base origin/main` - NOT whole-file `ruff format --check`, which would
     fail on every drifting line of a big file the branch only touched a little;
+  * STYLE and SIZE checks (formatting, the size and quality ratchet, the lint baseline)
+    stop only for files on the verdict path (`scripts/verdict_path.py`, the one list);
+    for every other file they print a WARNING naming the file and the number and
+    the push goes on (owner order, 12 Nov 2026). Every other check stops everywhere;
   * the size and quality ratchet (`quality_ratchet.py check`, the same line CI runs),
     `check_lint_baseline.py check`, `check_mutation_anchors.py`,
     `check_system_map.py` (Python changes);
@@ -280,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     failed = []
+    warnings: list[str] = []
     for label, cmd, cwd, fix in plan(files, python, root):
         t0 = time.monotonic()
         code, out = _run(cmd, cwd)
@@ -288,7 +293,19 @@ def main(argv: list[str] | None = None) -> int:
         if code:
             failed.append((label, fix))
             print(re.sub(r"(?m)^", "      ", out.strip()[-1500:]))
+        else:
+            # style stops outside the verdict path are warnings: show every one
+            # (a passing step prints nothing else), with its file and number
+            warnings.extend(
+                ln.strip() for ln in out.splitlines() if "WARNING (not a stop" in ln
+            )
     total = time.monotonic() - started
+    if warnings:
+        print(
+            f"\n  {len(warnings)} style warning(s), not stops (the files are off the verdict path, scripts/verdict_path.py):"
+        )
+        for line in warnings:
+            print(f"    {line}")
     if total > BUDGET_SECONDS:
         print(f"  note: the checks took {total:.0f}s (target {BUDGET_SECONDS}s)")
     if failed:

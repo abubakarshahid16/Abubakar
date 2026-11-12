@@ -1,3 +1,9 @@
+# SWITCHED OFF by the owner on 12 Nov 2026 (order 12, point G, "less waste"): it no
+# longer runs nightly or on any pull request. It runs ONLY by hand: GitHub, Actions,
+# "tests-windows", "Run workflow" (or: gh workflow run tests-windows.yml --ref <branch>).
+# The file and its history are kept so it can be switched back on by adding the
+# `schedule:` trigger again. Everything below describes the job when it runs.
+#
 # The backend suite on WINDOWS, run by GitHub so a person does not have to.
 #
 # Why this file exists. The owner runs this product on Windows; `tests.yml`
@@ -10,10 +16,10 @@
 # What it is NOT. It is deliberately a separate file with its own job name and
 # is NOT one of the checks `main` requires, so a Windows-only failure is visible
 # in its run but cannot block a merge until the owner decides, after it
-# has proved reliable, to make it required. It runs NIGHTLY on `main` and on
-# demand (workflow_dispatch) - not on pull requests or pushes - to save Actions
-# minutes (owner decision 2026-10-08, CI trim). A Windows-only failure is
-# therefore seen within a day on main, or at once when started by hand.
+# has proved reliable, to make it required. Until 12 Nov 2026 it ran nightly on
+# `main` (owner decision 2026-10-08, CI trim); now it runs only on demand
+# (workflow_dispatch), never on pull requests, pushes or a schedule. The steps
+# that store durations only act on a scheduled run, so by hand they do nothing.
 #
 # It runs the same suite the Linux job runs, with the same model staging and the
 # same "is the suite armed" check. It does not run the lint, the benchmarks or
@@ -33,8 +39,6 @@
 name: tests-windows
 
 on:
-  schedule:
-    - cron: "41 2 * * *" # nightly, off the hour, on main by default
   workflow_dispatch:
 
 permissions:

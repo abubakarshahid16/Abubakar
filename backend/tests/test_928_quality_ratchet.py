@@ -219,9 +219,13 @@ def test_the_cli_blocks_a_new_long_function(tmp_path, monkeypatch, capsys):
     baseline = tmp_path / "baseline.json"
     baseline.write_text(json.dumps(_doc({"x": {"value": 5, "note": None}})), encoding="utf-8")
     monkeypatch.setattr(qr, "measure", lambda: _doc({"x": {"value": 5, "note": None}}))
-    monkeypatch.setattr(qr, "long_code", lambda root=None: {"files": {}, "functions": {"a.py::g": 120}})
+    # a verdict-path file (scripts/verdict_path.py): size stops. Off the path it
+    # only warns: tests/test_g1_less_waste.py.
+    monkeypatch.setattr(
+        qr, "long_code", lambda root=None: {"files": {}, "functions": {"backend/app/comparison.py::g": 120}}
+    )
     assert qr.main(["check", "--baseline", str(baseline)]) == 1
-    assert "NEW: a.py::g is 120 lines (limit 80)" in capsys.readouterr().out
+    assert "NEW: backend/app/comparison.py::g is 120 lines (limit 80)" in capsys.readouterr().out
 
 
 def test_record_long_code_writes_the_list_and_the_limits(tmp_path, monkeypatch):
@@ -310,7 +314,8 @@ def repo(tmp_path, monkeypatch):
 
 
 @needs_ruff
-def test_the_cli_blocks_a_changed_file_that_drifts_further(repo, capsys):
+def test_the_cli_blocks_a_changed_file_that_drifts_further(repo, capsys, monkeypatch):
+    monkeypatch.setattr(qr.verdict_path, "is_verdict_path", lambda path: True)
     (repo / "backend" / "old.py").write_text("a=1\nb = 2\nc=3\n", encoding="utf-8")
     _git(repo, "commit", "-qam", "grow")
     assert qr.main(["format-check", "--base", "base"]) == 1
