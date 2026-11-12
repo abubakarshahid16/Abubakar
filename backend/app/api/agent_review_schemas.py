@@ -407,7 +407,11 @@ class AgentBookCoverage(BaseModel):
 
 
 #: Where the candidate rules of a run came from.
-CandidatesFrom = Literal["per-rule scope decisions", "the rules of the selected books"]
+CandidatesFrom = Literal[
+    "per-rule scope decisions",
+    "the rules of the selected books",
+    "the rules of the selected books and per-rule scope decisions",
+]
 
 
 class AgentOtherBooks(BaseModel):

@@ -250,7 +250,7 @@ export interface AgentRulesUsed {
   /** null unless a person changed the rule set (then their name). */
   rule_set_changed_by?: string | null;
   /** where the candidate rules came from; null on a run stored before this was kept (shown as nothing). */
-  candidates_from?: "per-rule scope decisions" | "the rules of the selected books" | null;
+  candidates_from?: "per-rule scope decisions" | "the rules of the selected books" | "the rules of the selected books and per-rule scope decisions" | null;
   /** rules that were the same rule as another candidate (not asked twice, not in either list); null when not kept. */
   same_rule_repeats?: number | null;
   /** AI-approved rules of this paper kind in rule books the run did not select; null when not kept. */
