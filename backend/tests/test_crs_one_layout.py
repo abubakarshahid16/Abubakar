@@ -153,8 +153,12 @@ def test_the_working_columns_are_on_the_evidence_sheet_and_the_notes_counts_equa
         notes["Priority rule"] == words.PRIORITY_RULE
         and "safety tick" in notes["Status mapping"]
     )
-    assert [notes[f"Count: {s}"] for s in words.STATUSES if s != words.STATUS_AI_VERDICT] == [1, 1, 1, 1]
-    assert "Count: AI verdict" not in notes  # the normal reviewer never writes the two-reader class
+    assert [
+        notes[f"Count: {s}"] for s in words.STATUSES if s != words.STATUS_AI_VERDICT
+    ] == [1, 1, 1, 1]
+    assert (
+        "Count: AI verdict" not in notes
+    )  # the normal reviewer never writes the two-reader class
     assert notes["Count: rows on the CRS sheet"] == 4
 
 

@@ -203,7 +203,11 @@ def layout_view(view: dict, meta: dict) -> dict:
             ],
         }  # fmt: skip
         # the normal reviewer never writes the two-reader class (#1765): its Notes list the four statuses it can write
-        counts = [(f"Count: {s}", statuses.count(s)) for s in words.STATUSES if s != words.STATUS_AI_VERDICT]
+        counts = [
+            (f"Count: {s}", statuses.count(s))
+            for s in words.STATUSES
+            if s != words.STATUS_AI_VERDICT
+        ]
         out["notes"] = {
             "columns": ("Topic", "Detail"),
             "widths": (44.0, 120.0),

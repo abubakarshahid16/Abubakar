@@ -1136,9 +1136,11 @@ def test_the_contractor_copy_never_holds_the_class_or_its_words(tmp_path):
     contractor_rows = rows_of(path)
     assert "Status" not in contractor_rows[0]
     internal = WB.write(CRS_LINES, tmp_path / "i2.xlsx", META, "internal")
-    assert len(contractor_rows) == len(
-        [r for r in rows_of(internal) if r["Status"] == "Fail"]
-    ) == 1
+    assert (
+        len(contractor_rows)
+        == len([r for r in rows_of(internal) if r["Status"] == "Fail"])
+        == 1
+    )
 
 
 def test_the_summary_counts_the_class_apart_and_never_as_a_pass_or_fail():
