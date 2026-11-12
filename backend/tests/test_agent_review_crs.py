@@ -560,9 +560,10 @@ def test_the_main_sheet_is_styled_by_code(tmp_path):
             ws.cell(r, 1).fill.fgColor.rgb
         )
     assert all(len(v) == 1 for v in by_status.values())  # one colour per Status
-    assert {next(iter(v)) for v in by_status.values()} == {
-        f.fgColor.rgb for f in crs_layout.STATUS_FILLS.values()
-    }
+    assert (
+        {next(iter(v)) for v in by_status.values()}
+        == {crs_layout.STATUS_FILLS[st].fgColor.rgb for st in by_status}
+    )  # each Status present has exactly its own fill (the fifth, "AI verdict", has its own test in test_agent_two_reader.py)
 
 
 def test_every_other_sheet_is_styled_the_same_way(tmp_path):
@@ -576,9 +577,9 @@ def test_every_other_sheet_is_styled_the_same_way(tmp_path):
         )
 
 
-def test_the_status_fills_are_defined_once_with_four_colours():
+def test_the_status_fills_are_defined_once_with_five_colours():
     assert set(crs_layout.STATUS_FILLS) == set(words.STATUSES)
-    assert len({f.fgColor.rgb for f in crs_layout.STATUS_FILLS.values()}) == 4
+    assert len({f.fgColor.rgb for f in crs_layout.STATUS_FILLS.values()}) == 5
 
 
 def test_a_cell_that_starts_with_an_equals_sign_is_text_not_a_formula():

@@ -519,6 +519,12 @@ class SettingsExt(BaseModel):
     #: Agent proof test (#1690, part of #805): a lead reviewer agent loop (`agent_loop`) with tools. OFF by default.
     #: Env: AGENT_REVIEW_ENABLED. Claude calls go only through reader_transport and claude_spend.metered.
     agent_review_enabled: bool = False
+    #: Owner order 13, 12 Nov 2026 (point 10): the class "AI verdict, two readers agree" for the AI reviewer. After the first reader
+    #: answers, a second reader of a different model family answers the SAME question independently (it never sees the first
+    #: answer); a line is of the class only when both verdicts agree, code verified both readers' quotes and no guard objects.
+    #: Internal copy only; never a Pass or a Fail. OFF (default): no extra call and the stored lines are exactly what they were.
+    #: Switch it on only if 0 clear wrong on the answer key and the planted copies (owner). Env: AGENT_REVIEW_TWO_READER_VERDICT_ENABLED.
+    agent_review_two_reader_verdict_enabled: bool = False
     #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
     #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
     #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with

@@ -45,8 +45,10 @@ from . import (
 from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
 from . import agent_review_verdict as verdict
+from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_wording as wording
 from .agent_review_decide import DecideMixin
+from .agent_review_two_reader_run import TwoReaderMixin
 from .agent_review_request import (
     ABSENCE_SECOND_SYSTEM,
     ANSWER_SHAPE,
@@ -83,7 +85,7 @@ from .agent_review_request import (
 log = logging.getLogger(__name__)
 
 
-class Runner(DecideMixin):
+class Runner(DecideMixin, TwoReaderMixin):
     def __init__(
         self,
         *,
@@ -106,6 +108,7 @@ class Runner(DecideMixin):
         sink: Callable[[dict, dict], None] | None = None,
         trace_path: Path | None = None,
         tier_lookup: Callable[[Mapping], str | None] | None = None,
+        two_reader: bool | None = None,
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
@@ -150,6 +153,9 @@ class Runner(DecideMixin):
         self.second_models: set[str] = set()
         self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0}
         self.counts: dict[str, int] = {}
+        # the optional second-reader step (owner order 13): None = read the switch when the run starts
+        self._two_reader = two_reader
+        self.two_reader_state = two_reader_mod.stats_template()
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again
     def _kept(self, line: dict) -> dict:
@@ -536,6 +542,8 @@ class Runner(DecideMixin):
             ]
             for f in futures:
                 f.result()
+        if self.two_reader_on():  # optional, off by default: nothing below runs and no call is made when off
+            self.run_two_readers()
         return {"batches": len(batches), "batch_source": source}
 
 

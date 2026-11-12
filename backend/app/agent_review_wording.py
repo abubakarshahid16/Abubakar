@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterable, Mapping
 
+from . import agent_review_two_reader as two_reader
 from .agent_review_verdict import (
     AI_TIER,
     BY_ENGINEER,
@@ -39,10 +40,12 @@ CLASS_QUERY = "Query for the engineer"
 CLASS_UNAPPROVED = "AI opinion, rule not yet approved"
 CLASS_NOT_APPLICABLE = "Not applicable"
 CLASS_NOT_REVIEWED = "Not reviewed"
+CLASS_TWO_READERS = two_reader.CLASS_TWO_READERS
 WORD_NOT_REVIEWED = "Not reviewed"
 ERROR_WORDS = {"stop_max_tokens": "no answer from the AI: answer cut off"}
 CLASSES = (
     CLASS_PROVEN,
+    CLASS_TWO_READERS,
     CLASS_OPINION,
     CLASS_UNAPPROVED,
     CLASS_QUERY,
@@ -101,7 +104,22 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "not_proven_reason": _moved_reason(line, unsafe)
             + (f"; {why}" if unapproved else ""),
         }
+    if two_reader.disagrees(line):  # 2c. the independent second reader reached the opposite verdict: a Query
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": DISAGREE_WHY,
+        }
     return None
+
+
+def _two_readers(line: Mapping, reason: str) -> dict:
+    """The class "AI verdict, two readers agree": its own words, never a Pass or a Fail (`agent_review_two_reader`)."""
+    return {
+        "verdict_label": two_reader.word_of(line),
+        "verdict_class": CLASS_TWO_READERS,
+        "not_proven_reason": reason,
+    }
 
 
 def classify(line: Mapping) -> dict:
@@ -158,6 +176,8 @@ def classify(line: Mapping) -> dict:
         reason = str(
             line.get("why") or line.get("reason_code") or "the gate did not accept it"
         ).strip()
+        if two_reader.agrees(line):  # 4b. two independent readers, every quote verified, no guard
+            return _two_readers(line, reason)
         return {
             "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
             "verdict_class": CLASS_OPINION,
@@ -261,6 +281,12 @@ def is_not_reviewed(line: Mapping) -> bool:
     return classify(line)["verdict_class"] == CLASS_NOT_REVIEWED
 
 
+def is_two_reader(line: Mapping) -> bool:
+    """The line is of the class "AI verdict, two readers agree". Computed from the line itself (`classify`), never trusted from
+    a stored class."""
+    return classify(line)["verdict_class"] == CLASS_TWO_READERS
+
+
 def is_unapproved(line: Mapping) -> bool:
     return line.get("rule_tier") == RULE_NOT_APPROVED
 
@@ -281,6 +307,8 @@ def counts(lines: Iterable[Mapping]) -> dict:
         "proven_fail": n(FAIL, CLASS_PROVEN),
         "ai_thinks_met": n(THINKS_MET, CLASS_OPINION),
         "ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_OPINION),
+        "ai_verdict_met": n(two_reader.WORD_MET, CLASS_TWO_READERS),
+        "ai_verdict_not_met": n(two_reader.WORD_NOT_MET, CLASS_TWO_READERS),
         "unapproved_ai_thinks_met": n(THINKS_MET, CLASS_UNAPPROVED),
         "unapproved_ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_UNAPPROVED),
         "unapproved_lines": sum(
@@ -310,6 +338,7 @@ __all__ = [
     "CLASS_OPINION",
     "CLASS_PROVEN",
     "CLASS_QUERY",
+    "CLASS_TWO_READERS",
     "CLASS_UNAPPROVED",
     "THINKS_MET",
     "THINKS_NOT_MET",
@@ -320,6 +349,7 @@ __all__ = [
     "final_cap_all",
     "is_not_reviewed",
     "is_opinion",
+    "is_two_reader",
     "is_unapproved",
     "writer_refusal",
 ]

@@ -44,6 +44,7 @@ def _line(**over):
 def test_vocabularies_are_exactly_the_owner_words():
     assert CLASSES == [
         "Proven by code",
+        "AI verdict, two readers agree",
         "AI opinion, engineer to confirm",
         "AI opinion, rule not yet approved",
         "Query for the engineer",
@@ -55,6 +56,8 @@ def test_vocabularies_are_exactly_the_owner_words():
     assert WORDS == [
         "Pass",
         "Fail",
+        "AI verdict: met",
+        "AI verdict: not met",
         "AI thinks: met",
         "AI thinks: not met",
         "Query",
@@ -81,6 +84,10 @@ TIERS_OR_NONE = [*TIERS, None]
 OK_TIERS = ("Owner", "Engineer", "AI approved")
 ALLOWED = {
     "Proven by code": ({"Pass", "Fail"}, {*OK_TIERS, None}),
+    "AI verdict, two readers agree": (
+        {"AI verdict: met", "AI verdict: not met"},
+        {*OK_TIERS, None},
+    ),
     "AI opinion, engineer to confirm": (
         {"AI thinks: met", "AI thinks: not met"},
         {*OK_TIERS, None},

@@ -615,7 +615,7 @@ def _finish(
         if runner
         else []
     )
-    counts = runner_mod.counts_of(lines)
+    counts = {**runner_mod.counts_of(lines), **(runner.two_reader_counts() if runner else {})}  # + the second-reader step
     models = sorted(runner.lead_models | runner.second_models) if runner else []
     spent = runner and (
         runner.calls["lead"] or runner.calls["second"] or runner.calls["context"]
@@ -625,7 +625,7 @@ def _finish(
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
-            "usd": usd, "header": _header_facts(submittal, kind.equipment_type),
+            "usd": usd, "header": _header_facts(submittal, kind.equipment_type), "two_reader_step": counts.get("two_reader_step"),
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or [])}}  # fmt: skip
     folder = run_dir(run_id)

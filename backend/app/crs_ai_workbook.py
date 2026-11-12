@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
 from . import crs_export, crs_layout
@@ -54,6 +55,13 @@ def status_of(line: Mapping) -> tuple[str, int] | None:
         return words.STATUS_AI, words.ORDER_AI_MET
     if line.get("verdict") == FAIL:
         return words.STATUS_FAIL, words.ORDER_FAIL
+    if wording.is_two_reader(
+        line
+    ):  # two AI readers agreed independently: its own Status, never Pass or Fail
+        met = line.get("verdict_label") == two.WORD_MET
+        return words.STATUS_AI_VERDICT, (
+            words.ORDER_AI_VERDICT_MET if met else words.ORDER_AI_VERDICT_NOT_MET
+        )
     if wording.is_opinion(line):
         met = line.get("verdict_label") == wording.THINKS_MET
         return words.STATUS_AI, words.ORDER_AI_MET if met else words.ORDER_AI_NOT_MET
@@ -146,6 +154,12 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = f'The paper states "{has}"{where}.'
     else:
         out = "The paper gives no value that could be checked."
+    if status == words.STATUS_AI_VERDICT:
+        view = OPINION_MET if order == words.ORDER_AI_VERDICT_MET else OPINION_NOT_MET
+        out = (
+            f"The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: "
+            f"the requirement is {view}. {out}"
+        )
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"The AI reviewer's view, not proven: the requirement is {view}. {out}"
@@ -175,6 +189,8 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
         return "No action unless the engineer disagrees with the AI reviewer's view."
+    if status == words.STATUS_AI_VERDICT and order == words.ORDER_AI_VERDICT_MET:
+        return "No action unless the engineer disagrees with the AI reviewer's verdict."
     # the reader's action only when the reader asked for something: the action of an AI "met" is "no action" in its words, and
     # a "met" that was moved to a Query must not stand as the conclusion (N9)
     said = (
@@ -306,7 +322,8 @@ OTHER_WIDTHS = (9.0, 26.0, 20.0, 26.0, 30.0, 90.0)
 EVIDENCE_COLUMNS = (
     "Item No", "Status", "AI reasoning", "Paper quote", "Paper page", "Clause quote", "Rule book and clause",
     "Paper quote check", "Clause quote check", "Second reader", "AI calls (models)", "Reason code", "Item id (internal)",
-    "Rule id (internal)",
+    "Rule id (internal)", "Independent reader: verdict", "Independent reader: paper quote", "Independent reader: paper page",
+    "Independent reader: clause quote", "Independent reader: paper quote check", "Independent reader: clause quote check",
 )  # fmt: skip
 EVIDENCE_WIDTHS = (
     9.0,
@@ -323,6 +340,12 @@ EVIDENCE_WIDTHS = (
     22.0,
     24.0,
     30.0,
+    16.0,
+    45.0,
+    9.0,
+    45.0,
+    16.0,
+    16.0,
 )
 
 
@@ -344,7 +367,30 @@ def _calls(line: Mapping) -> str:
         parts.append(f"first reader {_clean(line['model'])}")
     if isinstance(second, Mapping) and _clean(second.get("model")):
         parts.append(f"second reader {_clean(second['model'])}")
+    indep = two.stored(line)
+    if indep is not None and _clean(indep.get("model")):
+        parts.append(f"independent reader {_clean(indep['model'])}")
     return "; ".join(parts) or "none"
+
+
+def _independent_cells(line: Mapping) -> list:
+    """The independent second reader's verdict, its two quotes and both quote checks (blank when it was not asked)."""
+    indep = two.stored(line)
+    if indep is None:
+        return [None] * 6
+    q = (
+        indep.get("quotes_checked")
+        if isinstance(indep.get("quotes_checked"), Mapping)
+        else {}
+    )
+    return [
+        indep.get("verdict"),
+        _clean(indep.get("paper_quote")) or None,
+        indep.get("paper_page"),
+        _clean(indep.get("clause_quote")) or None,
+        _check_word(bool(q.get("paper"))),
+        _check_word(bool(q.get("clause"))),
+    ]
 
 
 def _evidence_row(n: int, line: Mapping, status: str) -> list:
@@ -367,6 +413,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         _clean(line.get("reason_code")) or None,
         line.get("item_id"),
         label.get("label_key") if isinstance(label, Mapping) else None,
+        *_independent_cells(line),
     ]
 
 
@@ -399,6 +446,11 @@ def _notes_rows(
     rows.append(
         (f"Count: rows on the sheet '{words.OTHER_SHEET}'", len(others) + len(missing))
     )
+    step = meta.get("two_reader_step")
+    if isinstance(
+        step, Mapping
+    ):  # the optional second-reader step: counts and the one code that switched it off (internal only)
+        rows.append(("Second-reader step", _step_words(step)))
     rows += [("Rules not asked", _clean(t)) for t in block.get("summary_lines") or []]
     rows += [
         ("Run id", _clean(meta.get("run_id")) or "not reported"),
@@ -411,6 +463,20 @@ def _notes_rows(
         ),
     ]
     return rows
+
+
+def _step_words(step: Mapping) -> str:
+    off = _clean(step.get("off"))
+    return (
+        f"{step.get('candidates', 0)} lines were candidates, {step.get('asked', 0)} asked in {step.get('calls', 0)} calls; "
+        f"{step.get('agreed', 0)} agreed, {step.get('disagreed', 0)} disagreed, {step.get('unconfirmed', 0)} not confirmed"
+        + (
+            f"; switched off for the rest of the run ({off.replace('_', ' ')})"
+            if off
+            else ""
+        )
+        + "."
+    )
 
 
 def _clean(text) -> str:

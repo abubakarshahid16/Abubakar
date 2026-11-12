@@ -194,6 +194,15 @@ def _checked_project_papers(
     return tuple(p["document_id"] for p in accepted)
 
 
+def _two_reader_step(run) -> contract.AgentTwoReaderStep | None:
+    """The second-reader step of the run as the run row stored it (counts and one code); None when it was off or never stored."""
+    try:
+        got = json.loads(run["counts_json"] or "{}").get("two_reader_step")
+        return contract.AgentTwoReaderStep(**got) if isinstance(got, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get(
     "/api/reviews/runs/{review_run_id}/agent/summary",
     response_model=contract.AgentRunSummary,
@@ -233,6 +242,7 @@ def agent_summary(
         **_mode_of(conn, review_run_id),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        two_reader_step=_two_reader_step(run),
     )
 
 

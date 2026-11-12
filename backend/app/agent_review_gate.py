@@ -45,6 +45,12 @@ def enabled() -> bool:
     return bool(settings.agent_review_enabled)
 
 
+def two_reader_enabled() -> bool:
+    """True when the class "AI verdict, two readers agree" is switched on (`settings.agent_review_two_reader_verdict_enabled`,
+    default False). Needs the AI reviewer itself on."""
+    return bool(settings.agent_review_two_reader_verdict_enabled) and enabled()
+
+
 def require_on() -> None:
     if not enabled():
         raise FeatureOff("AGENT_REVIEW_ENABLED is off")

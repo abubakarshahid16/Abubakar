@@ -196,6 +196,9 @@ def is_held_pass(line: Mapping) -> bool:
         and line.get("verdict") == QUERY
         and line.get("reason_code") != "value_deferred"
         and shown_as_met
+        and not wording.is_two_reader(
+            line
+        )  # two readers agreed: its own Status on the CRS sheet, not the held-pass sheet
     )
 
 
@@ -320,7 +323,7 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
 
 def comment_by(line: Mapping) -> str:
     """'AI verdict (<model from the response>)', 'Decided by code' or 'Query for the engineer'."""
-    if wording.is_opinion(line):
+    if wording.is_opinion(line) or wording.is_two_reader(line):
         return f"{line['verdict_label']} ({line['verdict_class']})"
     if line.get("verdict") == QUERY:
         return "Query for the engineer"
