@@ -33,7 +33,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import review_leaving
 from .db import connect
@@ -55,7 +55,7 @@ BARRED_WORDS = (
 AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
-NEEDS_YES = "needs the owner's yes for this upload"
+NEEDS_YES = "this is a contract: choose Claude to send this contract to Claude"
 CHECKLISTS_EMPTY = (
     ("contract checklist", "empty; an engineer must write it"),
     ("calculation checklist", "empty; an engineer must write it"),
@@ -185,7 +185,7 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
     if not f.books_ok:
         return "BOOKS_NOT_APPROVED", "the rule books are not approved for Claude"
     if not f.scored_allowed:
-        return "UNSCORED", gate_unscored_words()
+        return "UNSCORED", unscored_choose_words()
     if not f.caps_ok:
         return "CAPS", "the spending cap leaves no room today"
     return None
@@ -209,10 +209,14 @@ def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     if not f.paper_approved:
         return False, "this paper is not approved for Claude"
     if not f.scored_allowed:
-        return False, gate_unscored_words()
+        return False, unscored_choose_words()
     if not f.caps_ok:
         return False, "the spending cap leaves no room today"
     return True, "its AI steps use Claude where this install sets them to"
+
+
+def unscored_choose_words() -> str:
+    return f"{gate_unscored_words()}; choose Claude to send it, and every line is a draft"
 
 
 def gate_unscored_words() -> str:
@@ -228,6 +232,14 @@ def decide(choice: str, f: Facts) -> Plan:
         raise ValueError(f"engine must be one of {', '.join(CHOICES)}")
     plan = Plan(choice=choice)
     plan.unscored = bool(f.kind) and not f.kind_scored
+    if choice == CLAUDE:
+        # THE EXPLICIT CHOICE IS THE CONSENT (owner, 12 Nov 2026, #1584: "button is enough"): of any kind, a contract, a paper or
+        # book not on the approved list, an unscored kind (a draft, internal copy only). The block list, the lane, the caps and
+        # the kinds the AI review takes are not lifted by it.
+        f = replace(f, contract_yes=True, paper_approved=True, books_ok=True, scored_allowed=True)
+    elif choice == AUTOMATIC:
+        # AUTOMATIC NEVER SENDS A CONTRACT OR AN UNSCORED KIND TO CLAUDE BY ITSELF: it resolves to Local, and says why.
+        f = replace(f, contract_yes=False, scored_allowed=f.scored_allowed and (f.kind is None or f.kind_scored))
     plan.needs_yes = bool(f.is_contract and not f.contract_yes)
     if f.is_contract:
         plan.wont_run = [{"part": p, "why": w} for p, w in CHECKLISTS_EMPTY]
@@ -436,11 +448,6 @@ def _cost_words(each: dict, total: float, per_run: float) -> str:
 def _notes(facts: Facts, plan: Plan, settings) -> list[str]:
     """Plain notes the panel shows below the plan."""
     notes = []
-    if facts.is_contract and not facts.scored_allowed:
-        notes.append(
-            "A recorded yes does not offer a contract for Claude while contracts are not scored against an answer key; it counts "
-            "once contracts are scored, or when this install turns on the setting for unscored kinds."
-        )
     if settings.review_web_standards_enabled:
         kept = not plan.text_leaves or plan.part(RULE_CHECK).engine != ON_CLAUDE
         notes.append(

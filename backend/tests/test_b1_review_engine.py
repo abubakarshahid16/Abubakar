@@ -121,18 +121,20 @@ def test_claude_with_the_ai_review_closed_but_rule_check_steps_open_runs_and_say
     assert plan.part(E.AI_REVIEW).engine == E.NOT_RUN and plan.part(E.AI_REVIEW).why
 
 
-def test_a_contract_needs_the_owners_yes_on_claude_and_nothing_on_local():
-    f = open_facts(kind="contract", is_contract=True, contract_yes=False)
-    local = E.decide("local", f)
-    assert local.refused is None and local.part(E.RULE_CHECK).engine == E.ON_LOCAL
-    refused = E.decide("claude", f)
-    assert refused.refused and E.NEEDS_YES in refused.refused and refused.needs_yes
-    auto = E.decide("automatic", f)
-    assert auto.part(E.AI_REVIEW).why == E.NEEDS_YES and not auto.text_leaves
-    yes = E.decide(
-        "claude", open_facts(kind="contract", is_contract=True, contract_yes=True)
-    )
-    assert yes.refused is None and yes.text_leaves
+def test_a_contract_goes_to_claude_only_on_the_explicit_choice_never_on_automatic():
+    """Owner, 12 Nov 2026 (#1584): "button is enough". Choosing Claude is the consent; Automatic never sends a contract by itself."""
+    for yes in (False, True):  # the older per-upload yes changes nothing for Automatic
+        f = open_facts(kind="contract", is_contract=True, contract_yes=yes)
+        local = E.decide("local", f)
+        assert local.refused is None and local.part(E.RULE_CHECK).engine == E.ON_LOCAL
+        chosen = E.decide("claude", f)
+        assert chosen.refused is None and chosen.text_leaves and not chosen.needs_yes
+        auto = E.decide("automatic", f)
+        assert auto.part(E.AI_REVIEW).why == E.NEEDS_YES and not auto.text_leaves and auto.needs_yes
+        assert "choose Claude to send this contract to Claude" in E.NEEDS_YES
+    # a block, a closed lane and the caps are not lifted by the choice
+    for shut in ({"blocked": True}, {"lane_open": False}, {"caps_ok": False}):
+        assert E.decide("claude", open_facts(kind="contract", is_contract=True, **shut)).refused
 
 
 def test_a_contract_says_its_checklists_are_empty():
@@ -150,11 +152,14 @@ def test_an_unscored_kind_is_not_offered_unless_the_setting_says_so():
     plan = E.decide("automatic", f)
     assert plan.unscored and plan.part(E.AI_REVIEW).engine == E.NOT_RUN
     assert agent_review_gate.UNSCORED_WORDS in plan.part(E.AI_REVIEW).why
+    # Automatic never sends an unscored kind by itself, whatever the setting says; the explicit choice does, as a draft
     on = E.decide(
         "automatic",
         open_facts(kind="procedure", kind_scored=False, scored_allowed=True),
     )
-    assert on.unscored and on.part(E.AI_REVIEW).engine == E.ON_CLAUDE
+    assert on.unscored and on.part(E.AI_REVIEW).engine == E.NOT_RUN and not on.text_leaves
+    chosen = E.decide("claude", open_facts(kind="procedure", kind_scored=False, scored_allowed=False))
+    assert chosen.unscored and chosen.part(E.AI_REVIEW).engine == E.ON_CLAUDE
 
 
 def test_a_bad_choice_is_refused():
@@ -197,9 +202,9 @@ def test_every_choice_by_every_kind_table():
             E.ON_LOCAL,
             E.NOT_RUN,
         )  # unscored: nothing goes out
-        assert (
-            got[("claude", kind)][0] is True
-        )  # Claude asked for, nothing may go: refused
+        # the explicit choice is the consent: not refused, and the AI review runs on Claude for the kinds it takes
+        assert got[("claude", kind)][0] is False and got[("claude", kind)][1] == E.ON_CLAUDE
+        assert (got[("claude", kind)][2] == E.ON_CLAUDE) == (kind in ("procedure", "contract"))
 
 
 # --------------------------------------------------------------------------------------------- the brute force
@@ -219,21 +224,15 @@ def _all_facts():
         )  # fmt: skip
 
 
-def _allowed_to_leave(f: F) -> bool:
-    """The rules of CLAUDE.md rule 1 and the owner's decision, written again from the outside."""
+def _allowed_to_leave(f: F, choice: str) -> bool:
+    """The rules of CLAUDE.md rule 1 and the owner's decision (#1584, 12 Nov 2026), written again from the outside."""
     if not (f.provider == "claude" or f.provider == "per_task"):
         return False
-    if not (
-        f.lane_open
-        and not f.blocked
-        and f.paper_approved
-        and f.scored_allowed
-        and f.caps_ok
-    ):
+    if not (f.lane_open and not f.blocked and f.caps_ok):
         return False
-    if f.is_contract and not f.contract_yes:
-        return False
-    return True
+    if choice == E.CLAUDE:
+        return True  # the explicit choice is the consent, of any kind
+    return bool(f.paper_approved and not f.is_contract and (f.kind is None or f.kind_scored))
 
 
 def test_brute_force_no_combination_sends_text_out_when_the_answer_says_it_would_not():
@@ -249,7 +248,7 @@ def test_brute_force_no_combination_sends_text_out_when_the_answer_says_it_would
             if (
                 plan.text_leaves
             ):  # an answer that says text leaves must be one the rules allow
-                assert _allowed_to_leave(f), (choice, f)
+                assert _allowed_to_leave(f, choice), (choice, f)
                 assert choice != E.LOCAL
             for p in plan.parts:  # a part is on Claude only through the lane its own installed switch opens
                 if p.engine == E.ON_CLAUDE and p.name == E.AI_REVIEW:
@@ -276,10 +275,10 @@ def test_brute_force_no_combination_sends_text_out_when_the_answer_says_it_would
                 )  # never a silent local run
             if plan.refused:
                 assert plan.runs == []
-            if f.is_contract and not f.contract_yes:
+            if f.is_contract and choice != E.CLAUDE:
                 assert (
                     not plan.text_leaves
-                )  # a contract never goes without the owner's yes
+                )  # a contract goes only on the explicit choice of Claude
     assert seen == len(KINDS) * 4 * 2**10 * 3
 
 
@@ -659,7 +658,7 @@ def test_a_contract_paper_is_not_approved_by_the_automatic_route(
     con = _doc("contract_1", "33" * 32, "CONTRACTOR_SUBMITTAL")
     review_jobs.enqueue(con, allowed_document_ids=frozenset({con}), requested_by=None)
     assert not _approved("33" * 32)
-    assert E.decide("claude", open_facts(kind="contract", is_contract=True)).needs_yes
+    assert E.decide("automatic", open_facts(kind="contract", is_contract=True)).needs_yes
 
 
 def test_the_contract_kind_is_read_from_the_papers_own_decided_kind(approvals):
@@ -784,15 +783,14 @@ def test_a_procedure_is_not_offered_for_claude_on_a_live_install_and_carries_the
     assert ai["engine"] == "not_run" and agent_review_gate.UNSCORED_WORDS in ai["why"]
     assert got["unscored"] and got["unscored_note"] == agent_review_gate.UNSCORED_WORDS
     assert got["text_leaves"] is False
-    assert review_engine.plan_for(db.connect(), world["sub"], world["scope"], "claude")[
-        "refused"
-    ]
+    chosen = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "claude")
+    assert chosen["refused"] is None and chosen["unscored"]  # the explicit choice sends it, as a draft
     lane.setattr(settings, "review_unscored_kinds_for_claude_enabled", True)
     on = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "automatic")
     assert (
-        next(p for p in on["parts"] if p["name"] == "ai_review")["engine"] == "claude"
-    )
-    assert on["unscored"]  # offered, and still a draft
+        next(p for p in on["parts"] if p["name"] == "ai_review")["engine"] == "not_run"
+    )  # Automatic never sends an unscored kind by itself, whatever the setting says
+    assert on["unscored"]
 
 
 # --------------------------------------------------------------------------------------------- the header
@@ -1176,26 +1174,22 @@ def test_a_contract_by_role_alone_needs_the_yes_whatever_its_kind(world, lane):
             "UPDATE document_classification SET document_role = 'CONTRACT_DOCUMENT' WHERE document_id = ?",
             (world["sub"],),
         )
+    # by role alone, whatever its kind: the explicit choice of Claude sends it, Automatic never does (owner, 12 Nov 2026)
     got = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "claude")
-    assert (
-        got["refused"]
-        and review_engine.NEEDS_YES in got["refused"]
-        and got["needs_yes"]
-    )
+    assert got["refused"] is None and not got["needs_yes"]
+    auto = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "automatic")
+    assert auto["text_leaves"] is False and auto["needs_yes"]
     local = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "local")
     assert local["refused"] is None
 
 
-def test_a_recorded_yes_on_an_unscored_contract_is_said_not_to_offer_it(world, lane):
+def test_a_recorded_yes_does_not_make_automatic_send_a_contract(world, lane):
     _confirm_kind(world, "contract")
     contract_yes.grant(world["sub"], "owner")
     got = review_engine.plan_for(
         db.connect(), world["sub"], world["scope"], "automatic"
     )
-    assert any("recorded yes does not offer a contract" in n for n in got["notes"])
-    assert (
-        got["text_leaves"] is False
-    )  # scored kinds only: the contract path waits for a score or the setting
+    assert got["text_leaves"] is False  # Automatic never sends a contract by itself; only the explicit choice does
 
 
 def test_the_gate_reads_the_scored_kinds_from_the_one_table_and_keeps_no_tuple(monkeypatch):
