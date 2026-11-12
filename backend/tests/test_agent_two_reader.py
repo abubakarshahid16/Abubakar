@@ -1092,10 +1092,14 @@ def test_the_class_lines_are_the_fifth_status_with_the_stated_order_priority_and
         None,
     ]  # not met: High when mandatory else Medium; met: blank
     assert (
-        "two AI readers" in verdict_rows[0]["COMPANY Comments"]
-        and "to be confirmed by an engineer" in verdict_rows[0]["COMPANY Comments"]
+        "\nNot met (AI, two readers agree, quotes verified): "
+        in verdict_rows[0]["COMPANY Comments"]
+        and "engineer to confirm" in verdict_rows[0]["COMPANY Comments"]
     )
-    assert "the requirement is met" in verdict_rows[2]["COMPANY Comments"]
+    assert (
+        "Met (AI, two readers agree, quotes verified)"
+        in verdict_rows[2]["COMPANY Comments"]
+    )
     assert order[1][0] == "AI verdict" and all(
         r["Status"] != "Pass" for r in verdict_rows
     )

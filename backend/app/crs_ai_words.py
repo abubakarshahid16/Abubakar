@@ -96,12 +96,21 @@ PRIORITY_RULE_NORMAL = priority_rule(NORMAL_STATUSES)
 
 #: The sentence of an "AI verdict" line says WHICH route earned it, each sentence true: the independent second-reader step, or the
 #: always-on route (owner, 12 Nov): a verdict one AI reader gave, checked and agreed by a second AI reader that SAW the first answer.
-VERDICT_PREFIX_INDEPENDENT = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is "
-VERDICT_PREFIX_CHECKED = "One AI reader's verdict, checked and agreed by a second AI reader that saw the first answer, to be confirmed by an engineer: the requirement is "
+#: The owner's words (12 Nov 2026) open the sentence of an "AI verdict" line; then the route clause, each true; then the engineer.
+OWNER_MET = "Met (AI, two readers agree, quotes verified)"
+OWNER_NOT_MET = "Not met (AI, two readers agree, quotes verified)"
+ROUTE_INDEPENDENT = "reached independently by two AI readers"
+ROUTE_CHECKED = (
+    "one AI reader's verdict, checked by a second AI reader that saw the first answer"
+)
+VERDICT_PREFIX_INDEPENDENT = f"{OWNER_MET}: {ROUTE_INDEPENDENT}, engineer to confirm."
+VERDICT_PREFIX_CHECKED = f"{OWNER_MET}: {ROUTE_CHECKED}, engineer to confirm."
 
 
-def verdict_prefix(independent: bool) -> str:
-    return VERDICT_PREFIX_INDEPENDENT if independent else VERDICT_PREFIX_CHECKED
+def verdict_prefix(independent: bool, met: bool = True) -> str:
+    """ONE home of the first sentence of an "AI verdict" met / not met line: the owner's words, the route clause, "engineer to confirm"."""
+    head = OWNER_MET if met else OWNER_NOT_MET
+    return f"{head}: {ROUTE_INDEPENDENT if independent else ROUTE_CHECKED}, engineer to confirm."
 
 
 AI_VIEW_PREFIX = "The AI reviewer's view, not proven: the requirement is "

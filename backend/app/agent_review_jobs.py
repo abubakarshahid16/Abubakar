@@ -573,7 +573,7 @@ def _finish(
     stop = _stop_text(runner, plan)
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
-            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
+            "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None, "paper_kind": kind.kind,
             "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),

@@ -567,7 +567,11 @@ def test_the_comparison_uses_the_class_before_the_optional_steps_and_flags_decis
         "g": line("AI opinion, engineer to confirm", "AI thinks: met"),
     }
     got = steady.compare(before, after)
-    assert (got["lines_compared"], got["changed"], got["decisions"]) == (5, 3, 2)
+    assert (got["lines_compared"], got["changed"], got["decisions"]) == (
+        5,
+        3,
+        1,
+    )  # "AI thinks" is no longer a decision (owner, 12 Nov 2026)
     assert [i["item_id"] for i in got["items"]] == ["a", "c", "g"]
 
 
@@ -819,4 +823,18 @@ def test_a_reused_lead_answer_charges_zero_and_a_failed_second_reader_call_still
         "reused_answer" in json.dumps(t) and t.get("usd")
         for t in trace_of(run_id)
         if t["type"] == "batch"
+    )
+
+
+def test_a_decision_is_code_pass_fail_or_a_two_reader_met_or_not_met_never_ai_thinks():
+    yes = [
+        ("Proven by code", "Pass"),
+        ("Proven by code", "Fail"),
+        ("AI verdict, two readers agree", "AI verdict: met"),
+        ("AI verdict, two readers agree", "AI verdict: not met"),
+    ]
+    no = [("AI verdict, two readers agree", "AI verdict: not stated"), ("AI opinion, engineer to confirm", "AI thinks: met"), ("AI opinion, engineer to confirm", "AI thinks: not met"),
+          ("Query for the engineer", ""), ("Not applicable", ""), ("Not reviewed", ""), ("Not checked on this paper", "Needs a drawing or a calculation")]  # fmt: skip
+    assert all(steady.is_decision(k) for k in yes) and not any(
+        steady.is_decision(k) for k in no
     )

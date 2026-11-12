@@ -5,8 +5,8 @@ and an earlier finished, not partial run of the same paper exists (a paper is on
 checksum, so the same id is the same file). Lines are compared on the class BEFORE the optional steps (the second readers keep it as
 `base`); a line the page re-read recovered is left out, as its class depends on a switch. Ids and class words only, no text.
 
-A DECISION is a class where the AI reviewer gives a verdict: "Proven by code" (Pass or Fail), or "AI opinion, engineer to confirm"
-with "AI thinks: met" or "AI thinks: not met". A changed line is "of which decisions" when either its old or its new class is one.
+A DECISION is "Proven by code" (Pass or Fail) or an "AI verdict, two readers agree" met / not met (owner, 12 Nov 2026; `wording.decisions_of`);
+"AI thinks" is not one. A changed line is "of which decisions" when either its old or its new class is one.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from collections.abc import Iterable, Mapping
 
 PROVEN = "Proven by code"
 OPINION = "AI opinion, engineer to confirm"
-OPINION_WORDS = ("AI thinks: met", "AI thinks: not met")
 OPTIONAL_STEPS = ("two_reader", "two_reader_absence", "two_reader_other")
 
 
@@ -41,17 +40,17 @@ def class_key(line: Mapping) -> tuple[str, str] | None:
         return None
     if cls == PROVEN:
         return cls, str(line.get("verdict") or label or "")
-    if cls == OPINION:
-        return cls, str(label or "")
+    if cls in (OPINION, "AI verdict, two readers agree"):
+        return str(cls), str(label or "")
     return str(cls), ""
 
 
 def is_decision(key: tuple[str, str]) -> bool:
-    """Proven by code, an AI verdict of the class "AI verdict, two readers agree" (owner, 12 Nov 2026: it counts as a decision), or
-    "AI thinks: met / not met"."""
-    return key[0] in (PROVEN, "AI verdict, two readers agree") or (
-        key[0] == OPINION and key[1] in OPINION_WORDS
-    )
+    """A DECISION (owner, 12 Nov 2026), by the one count `wording.decisions_of`: "Proven by code" or an "AI verdict, two readers agree" met /
+    not met. "AI thinks" is not a decision."""
+    from .agent_review_wording import decisions_of
+
+    return decisions_of([key])["total"] == 1
 
 
 def compare(before: Mapping[str, Mapping], after: Mapping[str, Mapping]) -> dict:

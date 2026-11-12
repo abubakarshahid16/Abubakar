@@ -13,7 +13,7 @@ from pathlib import Path
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
-from . import crs_export, crs_layout
+from . import crs_export, crs_layout, rule_labels
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
@@ -206,8 +206,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     else:
         out = "The AI reviewer holds no verified quote from the paper for this point."
     if status == words.STATUS_AI_VERDICT:
-        view = OPINION_MET if order == words.ORDER_AI_VERDICT_MET else OPINION_NOT_MET
-        out = f"{words.verdict_prefix(two.is_independent(line))}{view}. {out}"
+        out = f"{words.verdict_prefix(two.is_independent(line), order == words.ORDER_AI_VERDICT_MET)} {out}"
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
@@ -277,7 +276,22 @@ def _mandatory_rank(line: Mapping, status: str, order: int) -> str:
     return words.priority(status, line, order)
 
 
-def _row(n: int, line: Mapping, paper: str, status: str, order: int, by: str) -> list:
+def _row(
+    n: int,
+    line: Mapping,
+    paper: str,
+    status: str,
+    order: int,
+    by: str,
+    contractor: bool = False,
+) -> list:
+    if (
+        contractor and status == words.STATUS_AI_VERDICT
+    ):  # a flagged kind's "not met" row, worded as a comment with no AI word
+        return [
+            n, paper, _page_text(line), layout_comment(line, words.STATUS_FAIL, words.ORDER_FAIL), by, None, None,
+            against(line) or None, _mandatory_rank(line, status, order) or None, CONTRACTOR_COMMENT,
+        ]  # fmt: skip
     return [
         n,
         paper,
@@ -538,6 +552,15 @@ def _notes_rows(
         )
     )
     rows += [(f"Count: {s}", count[s]) for s in words.STATUSES]
+    dec = wording.decisions_of(
+        (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
+    )
+    rows.append(
+        (
+            "Decisions",
+            f"Decisions: {dec['total']} = code Pass/Fail {dec['code']} + two-reader verdicts {dec['two_reader']}",
+        )
+    )
     rows.append(("Count: rows on the CRS sheet", len(items)))
     rows += [(f"Count: {k}", kinds[k]) for k in words.OTHER_KINDS]
     rows.append(
@@ -596,9 +619,34 @@ def _clean(text) -> str:
     return " ".join(str(text or "").split())
 
 
-def _contractor_items(items: list) -> list:
-    """The proven Fail rows only: a 'should' never, an opinion never, a rule not yet approved never."""
-    return [
+#: PER PAPER KIND (owner, 12 Nov 2026): do "AI verdict: not met" rows go on the CONTRACTOR copy? False for every kind. Nothing switches it on
+#: by itself: a person sets a kind to True after the scorer shows two-reader verdicts right 95 of 100 on that kind's key. Read ONLY by
+#: `_contractor_items`. It moves into the kind table (`kind_review_table.json`, PR #1787) when that is on main.
+CONTRACTOR_COPY_AI_VERDICT: dict[str, bool] = {
+    kind: False for kind in rule_labels.PAPER_KINDS
+}
+CONTRACTOR_COMMENT = (
+    "Comment"  # the Status cell of such a row on the contractor copy: no AI word
+)
+
+
+def _guarded_not_met(ln: Mapping) -> bool:
+    """An "AI verdict: not met" row fit for the contractor copy once its kind is flagged: the word is "not met" (never "not stated" or
+    "met"), both quotes verified by code, a rule not a recommendation, the rule approved."""
+    q = ln.get("quotes_checked") or {}
+    return (
+        ln.get("verdict_label") == two.WORD_NOT_MET
+        and bool(q.get("paper") and q.get("clause"))
+        and not ln.get("recommendation")
+        and not wording.is_unapproved(ln)
+        and wording.is_two_reader(ln)
+    )
+
+
+def _contractor_items(items: list, kind: str | None = None) -> list:
+    """The proven Fail rows only: a 'should' never, an opinion never, a rule not yet approved never. When the run's paper kind is flagged
+    in `CONTRACTOR_COPY_AI_VERDICT` (false for every kind today) the guarded "AI verdict: not met" rows are added."""
+    out = [
         (ln, st, o)
         for ln, st, o in items
         if st == words.STATUS_FAIL
@@ -607,6 +655,14 @@ def _contractor_items(items: list) -> list:
         and not ln.get("recommendation")
         and not wording.is_unapproved(ln)
     ]
+    if CONTRACTOR_COPY_AI_VERDICT.get(str(kind or ""), False):
+        out += [
+            (ln, st, o)
+            for ln, st, o in items
+            if st == words.STATUS_AI_VERDICT and _guarded_not_met(ln)
+        ]
+        out.sort(key=lambda t: t[2])
+    return out
 
 
 def comment_cell(value) -> str | None:
@@ -682,7 +738,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)
     if contractor:
-        items = _contractor_items(items)
+        items = _contractor_items(items, meta.get("paper_kind"))
         books, label = _books_used(ln for ln, _s, _o in items), BOOKS_SHOWN
     else:  # the books of the lines the AI reviewer answered (a not-reviewed line used no book)
         books = _books_used(ln for ln in lines if not wording.is_not_reviewed(ln))
@@ -693,12 +749,15 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         "sentence": words.generated_by(crs_export.default_company()),
         "rows": _table(
             [
-                _row(n, ln, paper, st, o, by)
+                _row(n, ln, paper, st, o, by, contractor)
                 for n, (ln, st, o) in enumerate(items, start=1)
             ],
             lines_col=3,
         ),
-        "statuses": [st for _l, st, _o in items],
+        "statuses": [
+            CONTRACTOR_COMMENT if contractor and st == words.STATUS_AI_VERDICT else st
+            for _l, st, _o in items
+        ],
     }
     if contractor:  # nine company columns, plain styling: nothing that encodes an internal judgement
         view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])

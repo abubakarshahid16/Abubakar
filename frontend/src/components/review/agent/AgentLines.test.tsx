@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentLine } from "../../../types/api";
 import { AgentLines } from "./AgentLines";
-import { CLASS_ORDER, DATA_ERROR_NOTE, lineView } from "./agentWords";
+import { CLASS_ORDER, DATA_ERROR_NOTE, displayWord, lineView } from "./agentWords";
 
 const lines = vi.fn();
 vi.mock("../../../api/agentReview", () => ({ agentReview: { lines: (...a: unknown[]) => lines(...a) } }));
@@ -46,7 +46,7 @@ describe("AgentLines", () => {
     };
     for (const [id, [klass, word]] of Object.entries(expected)) {
       const block = screen.getByTestId(`block-${klass}`);
-      expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${word}$`));
+      expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${displayWord(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     }
     expect(CLASS_ORDER).toHaveLength(10);
     expect(screen.getByRole("table", { name: "AI opinion, rule not yet approved" })).toBeInTheDocument();
@@ -225,5 +225,14 @@ describe("AgentLines: general review", () => {
     await screen.findByTestId("word-B1");
     expect(screen.queryByText("AI thinks: met")).toBeNull();
     expect(screen.getByTestId("word-B1")).toHaveTextContent(DATA_ERROR_NOTE);
+  });
+});
+
+describe("the owner's words for a two-reader verdict", () => {
+  it("shows Met / Not met (AI, two readers agree, quotes verified) and every other word as stored", () => {
+    expect(displayWord("AI verdict: met")).toBe("Met (AI, two readers agree, quotes verified)");
+    expect(displayWord("AI verdict: not met")).toBe("Not met (AI, two readers agree, quotes verified)");
+    expect(displayWord("AI verdict: not stated")).toBe("AI verdict: not stated");
+    expect(displayWord("Pass")).toBe("Pass");
   });
 });
