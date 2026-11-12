@@ -427,7 +427,7 @@ def test_a_partly_readable_general_review_paper_lists_its_unread_pages_too(
 # ---------------------------------------------------------------- a plan with nothing to ask is NEVER silent (property)
 
 
-def _empty_doc(rows, counts):
+def _empty_doc(rows, counts, books=None):
     doc, _cache = s.item_doc()
     return {
         **doc,
@@ -445,6 +445,7 @@ def _empty_doc(rows, counts):
                 "source": "the rules of the selected books",
                 "rows": rows,
                 "repeats": 0,
+                "books_included": books,
                 "books_not_selected": {"books": 0, "ai_approved_of_this_kind": 0},
             },
         },
@@ -486,9 +487,9 @@ def _way_book_pages_missing(client, monkeypatch):
         conn.execute("DELETE FROM pages WHERE document_id = ?", (s.STD,))
 
 
-def _way_builder(rows, counts):
+def _way_builder(rows, counts, books=None):
     def way(client, monkeypatch):
-        doc = _empty_doc(rows, counts)
+        doc = _empty_doc(rows, counts, books)
         monkeypatch.setattr(items_mod, "build_items_for_run", lambda *_a, **_k: doc)
 
     return way
@@ -501,7 +502,8 @@ WAYS = {
     "kind unknown": _way_kind_unknown,
     "kind not enabled": _way_kind_not_enabled,
     "rule book pages missing (preflight refuses)": _way_book_pages_missing,
-    "no rows from the selected books": _way_builder(0, {}),
+    "no rows from the selected books": _way_builder(0, {}, 0),
+    "selected books hold no rules": _way_builder(0, {}, 2),
     "rows all left out": _way_builder(
         40, {"another_equipment_type": 25, "needs_a_human": 15}
     ),
@@ -533,7 +535,7 @@ def test_a_plan_with_nothing_to_ask_always_carries_a_plain_sentence_never_silent
     [
         (
             "no rows from the selected books",
-            "0 stored rules came from the rule books selected",
+            "no rule book was selected for this paper (counting only rule books its reader may read)",
         ),
         ("rows all left out", "40 stored rules were looked at and 0 fit this paper"),
         ("empty plan, no counts at all", "the plan recorded no further cause"),
@@ -570,3 +572,103 @@ def test_the_trial_checks_that_a_text_stop_is_true_of_the_copy_it_ran_on(client)
         conn.execute("DELETE FROM pages WHERE document_id = ?", (s.PAPER,))
         honest = trial.stop_is_true_check(conn, run_id, "no_paper_text: x")
     assert [c.ok for c in lying] == [False] and [c.ok for c in honest] == [True]
+
+
+def test_no_book_and_books_with_no_rules_are_two_different_true_sentences(client):
+    from app import agent_review_text as t
+
+    plan = lambda books: {  # noqa: E731
+        "items": [],
+        "block": {"candidates": {"rows": 0, "books_included": books}, "counts": {}},
+    }
+    none, one, many = (t.empty_plan_sentence(plan(b)) for b in (0, 1, 3))
+    assert "no rule book was selected" in none and "hold" not in none
+    assert "1 rule book was selected" in one and "holds 0 stored rules" in one
+    assert "3 rule books were selected" in many and "hold 0 stored rules" in many
+    assert (
+        "may read" in none and "may read" in one and "may read" in many
+    )  # the boundary is in the words
+
+
+def test_books_included_counts_only_books_the_reader_may_read(client):
+    from app import agent_review_text as t
+
+    with db.connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS review_applicable_standards (review_run_id TEXT, standard_document_id TEXT, included INTEGER)"
+        )
+        conn.executemany(
+            "INSERT INTO review_applicable_standards VALUES ('r', ?, ?)",
+            [("b1", 1), ("b2", 1), ("b3", 0)],
+        )
+        assert (
+            t.books_included(conn, "r", {"b1", "b3"}) == 1
+        )  # b2 unreadable, b3 not included
+        assert t.books_included(conn, "r", {"b1", "b2"}) == 2
+
+
+def test_a_general_review_with_no_line_and_no_stop_gets_its_own_true_sentence(
+    client, monkeypatch
+):
+    def fake_general(run_id, submittal, *_a, **_k):
+        with db.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, started_at)"
+                " VALUES (?,?,?,?,?)",
+                (run_id, submittal, "procedure", "x", "2020-01-01"),
+            )
+        return {
+            "counts": {"lines": 0},
+            "stop_reason": None,
+            "usd": None,
+            "partial": False,
+        }
+
+    monkeypatch.setattr(agent_review_jobs.general_job, "run", fake_general)
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading("procedure")
+    )
+    run_id = _run(client)
+    stop = _summary(client, run_id)["stop_reason"]
+    assert (
+        stop
+        == "no_rule_asked: The general review wrote no line for this paper and recorded no cause."
+    )
+
+
+def test_a_general_review_that_wrote_lines_or_gave_a_cause_is_left_alone(client):
+    from app import agent_review_text as t
+
+    run_id = _run(client)
+    for counts, stop in (({"lines": 3}, None), ({"lines": 0}, "refused: x")):
+        result = {"counts": counts, "stop_reason": stop}
+        with db.connect() as conn:
+            t.record_general(conn, run_id, t.read(conn, s.PAPER), result)
+        assert result["stop_reason"] == stop
+
+
+def test_the_trial_fails_on_the_fallback_sentence_and_passes_on_a_real_cause(
+    client, monkeypatch
+):
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "trial_on_copy.py"
+    spec = importlib.util.spec_from_file_location("trial_on_copy_c2c", path)
+    trial = importlib.util.module_from_spec(spec)
+    sys.modules["trial_on_copy_c2c"] = trial
+    spec.loader.exec_module(trial)
+    name = "rules asked > 0, or the plan says why none"
+    for way, ok in (
+        ("empty plan, no counts at all", False),
+        ("no rows from the selected books", True),
+    ):
+        WAYS[way](client, monkeypatch)
+        run_id = _run(client)
+        checks = trial.rules_check(
+            db.connect(), run_id, _rules_used(client, run_id), False
+        )
+        got = next(c for c in checks if c.name == name)
+        assert got.ok is ok, (way, got.detail)
+        with db.connect() as conn:
+            conn.execute("UPDATE review_runs SET status = 'completed'")

@@ -12,8 +12,20 @@ export function paperTextStopped(p: AgentPaperText | null | undefined): boolean 
   return p != null && (STOPS as readonly string[]).includes(p.state);
 }
 
-/** A stored stop reason is "<code>: <sentence>": the screen shows the sentence only (the code stays in the stored reason). */
+const BARE_CODE_WORDS: Record<string, string> = {
+  paper_kind_unknown: "The paper kind is unknown, so no rule was asked.",
+  kind_not_enabled: "The AI review is not enabled for this kind of paper, so no rule was asked.",
+  gate_closed: "The Claude lane is closed, so the AI could not be asked.",
+  usd_cap_reached: "The review stopped because a spending cap was reached.",
+  app_step_cap: "The review stopped because a spending cap was reached.",
+  budget_stop: "The review stopped because a spending cap was reached.",
+  run_stopped: "The review was stopped before it finished.",
+};
+const BARE_FALLBACK = "The review stopped before it finished; no further reason was recorded.";
+
+/** A stored stop reason is "<code>: <sentence>" or a bare "<code>": the screen shows a plain sentence, never the code word. */
 export function plainStop(reason: string): string {
+  if (/^[a-z][a-z_]*$/.test(reason)) return BARE_CODE_WORDS[reason] ?? BARE_FALLBACK;
   return reason.replace(/^[a-z][a-z_]*: /, "");
 }
 

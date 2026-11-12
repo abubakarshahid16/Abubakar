@@ -74,6 +74,15 @@ describe("the AI review screen and Rules used say it", () => {
     const text = screen.getByTestId("asked-empty").textContent ?? "";
     expect(text).toBe("The AI review asked no rule: 12 stored rules were looked at and 0 fit this paper (another equipment type: 12).");
   });
+  it("a bare stop code is shown as a plain sentence, never as the code word", () => {
+    for (const code of ["paper_kind_unknown", "usd_cap_reached", "some_new_code"]) {
+      const { unmount } = render(<AgentSummary summary={summary({ paper_text: null, stop_reason: code })} />);
+      const text = screen.getByTestId("agent-stop-reason").textContent ?? "";
+      expect(text).not.toContain(code);
+      expect(text).toMatch(/stopped early: [A-Z]/);
+      unmount();
+    }
+  });
   it("the summary shows the sentence of a stop without its code word", () => {
     render(<AgentSummary summary={summary({ paper_text: null, stop_reason: "paper_kind_unknown: paper kind unknown: no rule was asked" })} />);
     expect(screen.getByTestId("agent-stop-reason").textContent).not.toMatch(/paper_kind_unknown/);

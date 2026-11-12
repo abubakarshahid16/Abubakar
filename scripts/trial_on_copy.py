@@ -659,6 +659,17 @@ def rules_check(
                 f"asked 0 (strict); left out {len(left)}",
             )
         )
+    elif (
+        plan_stop == agent_review_text.NO_RULE
+        and agent_review_text.NO_CAUSE_MARK in stop
+    ):
+        out.append(
+            Check(
+                "rules asked > 0, or the plan says why none",
+                False,
+                "asked 0; the plan's own cause is unknown (the fallback sentence): the old silent defect",
+            )
+        )
     elif left or plan_stop or notes:
         why = (
             f"left out {len(left)} {reasons}"

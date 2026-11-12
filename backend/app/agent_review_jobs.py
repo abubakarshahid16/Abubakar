@@ -777,7 +777,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat)  # fmt: skip
-            agent_review_text.record(conn, run_id, text)
+            agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)
         plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops

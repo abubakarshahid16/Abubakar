@@ -40,9 +40,19 @@ SENTENCE_NOT_INDEXED = (
 )
 SENTENCE_STILL_READING = "This paper is still being read in: try again when its status is ready. The AI review asked no rule."
 #: the one table of causes for a plan that ends with nothing to ask (code -> sentence; numbers filled in by `empty_plan_sentence`).
-SENTENCE_NO_ROWS = (
-    "The AI review asked no rule: 0 stored rules came from the rule books selected for this paper "
-    "(no rule book was selected, or the selected books hold no rules for it)."
+SENTENCE_NO_BOOK = "The AI review asked no rule: no rule book was selected for this paper (counting only rule books its reader may read)."
+SENTENCE_BOOKS_NO_RULES = (
+    "The AI review asked no rule: {books} rule books were selected for this paper (counting only rule books its reader may "
+    "read) and they hold 0 stored rules."
+)
+SENTENCE_ONE_BOOK_NO_RULES = (
+    "The AI review asked no rule: 1 rule book was selected for this paper (counting only rule books its reader may read) "
+    "and it holds 0 stored rules."
+)
+#: the words that mark the fallback sentence: a plan whose cause nobody knows (the trial FAILS on it).
+NO_CAUSE_MARK = "recorded no further cause"
+SENTENCE_GENERAL_NONE = (
+    "The general review wrote no line for this paper and recorded no cause."
 )
 SENTENCE_ALL_LEFT_OUT = "The AI review asked no rule: {looked} stored rules were looked at and 0 fit this paper ({reasons})."
 SENTENCE_NO_CAUSE = "The AI review asked no rule and the plan recorded no further cause: 0 rules and 0 checklist items were left to ask."
@@ -179,8 +189,15 @@ def empty_plan_sentence(plan: dict, left_out_words: dict | None = None) -> str:
         if isinstance(v, int) and v > 0
     }
     looked = sum(counts.values())
-    if rows == 0:
-        return SENTENCE_NO_ROWS
+    books = (block.get("candidates") or {}).get("books_included")
+    if rows == 0 and books == 0:
+        return SENTENCE_NO_BOOK
+    if rows == 0 and isinstance(books, int) and books > 0:
+        return (
+            SENTENCE_ONE_BOOK_NO_RULES
+            if books == 1
+            else SENTENCE_BOOKS_NO_RULES.format(books=books)
+        )
     if looked > 0:
         words = left_out_words or {}
         reasons = ", ".join(
@@ -193,5 +210,38 @@ def empty_plan_sentence(plan: dict, left_out_words: dict | None = None) -> str:
 def ensure_stop(plan: dict, left_out_words: dict | None = None) -> dict:
     """A plan with no item always carries a stop with its sentence (kept as it is when it already has one)."""
     if not plan.get("items") and not plan.get("stop"):
-        plan["stop"] = f"{NO_RULE}: {empty_plan_sentence(plan, left_out_words)}"
+        sentence = (
+            SENTENCE_GENERAL_NONE
+            if plan.get("general")
+            else empty_plan_sentence(plan, left_out_words)
+        )
+        plan["stop"] = f"{NO_RULE}: {sentence}"
     return plan
+
+
+def books_included(conn, run_id: str, allowed) -> int:
+    """How many rule books the run's selection INCLUDED that the reader may read (an intersection, rule 5)."""
+    try:
+        got = conn.execute(
+            "SELECT standard_document_id FROM review_applicable_standards WHERE review_run_id = ? AND included = 1",
+            (run_id,),
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - no selection table: no selected book
+        return 0
+    return len({r[0] for r in got if r[0] in allowed})
+
+
+def record_general(conn, run_id: str, text: PaperText, result: dict) -> None:
+    """The general review's end: the paper's text state, and a stop with its words when it wrote no line and gave no cause."""
+    record(conn, run_id, text)
+    lines = (result.get("counts") or {}).get("lines") or 0
+    plan = ensure_stop(
+        {"items": [1] * int(lines), "stop": result.get("stop_reason"), "general": True}
+    )
+    if plan["stop"] and plan["stop"] != result.get("stop_reason"):
+        result["stop_reason"] = plan["stop"]
+        with conn:
+            conn.execute(
+                "UPDATE agent_review_run SET stop_reason = ?, partial = 1 WHERE run_id = ?",
+                (plan["stop"], run_id),
+            )
