@@ -178,6 +178,12 @@ export function CrsPreviewSheet(
                   {row.priority_label ?? ""}
                 </td>
               )}
+              {/* Order 13: the Status word of the one layout (internal copy only; a contractor-facing copy has none). */}
+              {preview.columns.includes("Status") && (
+                <td data-testid="crs-status" className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                  {row.status ?? ""}
+                </td>
+              )}
               {/* A sheet from a server before order 139 part 2. */}
               {preview.columns.includes("Severity") && (
                 <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">

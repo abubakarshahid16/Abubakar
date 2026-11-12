@@ -115,14 +115,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         "fixed_words",
     ),
     _m(
-        12,
-        "the switch-off client workbook gets the AI column width",
-        _E,
-        '    if internal or view.get("export_quality"):  # off: as it was\n',
-        "    if True:  # off: as it was\n",
-        "switch_off_workbook",
-    ),
-    _m(
         13,
         "an equipment tag such as P101 counts as a page again",
         _Q,

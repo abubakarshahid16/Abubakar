@@ -8,9 +8,16 @@ import io
 
 import openpyxl
 
-from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
-                            HEADER_FIELDS, HEADERS, build_crs)
-from app.crs_export import EMPTY_COMMENT_TEXT
+from app.crs_export import (
+    COLUMN_HEADER_ROW,
+    ISSUE_HEADER_ROW,
+    EMPTY_COMMENT_TEXT,
+    FIRST_DATA_ROW,
+    HEADER_FIELDS,
+    HEADER_ROW_OF,
+    HEADERS,
+    build_crs,
+)
 
 META = {"project": "EXAMPLE PROJECT", "document_title": "Doc T",
         "date_issued": "2026-09-19"}
@@ -40,22 +47,31 @@ def test_item_numbers_are_assigned_1_to_n_with_no_gaps():
 
 
 def test_the_header_block_carries_the_meta():
-    ws = load([], {"project": "DFDP", "document_title": "Sour Water Drums",
-                   "company_transmittal": "EOC-TX-001",
-                   "date_issued": "2026-09-19"})
-    keys = [key for _, key in HEADER_FIELDS]
+    ws = load(
+        [],
+        {
+            "project": "DFDP",
+            "document_title": "Sour Water Drums",
+            "company_transmittal": "EOC-TX-001",
+            "date_issued": "2026-09-19",
+        },
+    )
     assert "DFDP" in ws.cell(row=1, column=1).value
     assert ws.cell(row=2, column=1).value == "COMMENT RESOLUTION SHEET"
-    assert ws.cell(row=3 + keys.index("company_transmittal"),
-                   column=3).value == "EOC-TX-001"
-    assert ws.cell(row=3 + keys.index("document_title"),
-                   column=3).value == "Sour Water Drums"
+    assert (
+        ws.cell(row=HEADER_ROW_OF["company_transmittal"], column=3).value
+        == "EOC-TX-001"
+    )
+    assert (
+        ws.cell(row=HEADER_ROW_OF["document_title"], column=3).value
+        == "Sour Water Drums"
+    )
 
 
 def test_missing_meta_renders_as_nothing_never_none_text():
     ws = load([], {"project": "X"})
     keys = [key for _, key in HEADER_FIELDS]
-    for row in (3 + keys.index(key) for key in keys if key != "project"):
+    for row in (HEADER_ROW_OF[key] for key in keys if key != "project"):
         value = ws.cell(row=row, column=3).value
         assert value in (None, ""), f"row {row} leaked {value!r}"
 
@@ -68,7 +84,7 @@ def test_empty_findings_yield_a_valid_sheet_with_no_data_rows():
 def test_merges_match_the_template_shape():
     ws = load([])
     merges = {str(r) for r in ws.merged_cells.ranges}
-    for merge in ("A1:G1", "A2:G2", "A3:B3", "C3:G3", "A7:B7", "C7:G7"):
+    for merge in ("A1:J1", "A2:J2", "A3:B3", "C3:J3", "A7:B7", "C7:J7"):
         assert merge in merges
 
 
@@ -102,29 +118,41 @@ def test_no_code_no_row():
 
 # ============================ issue #165 criterion 4: visual distinction
 
-def test_rows_of_different_kinds_get_different_fill_colours():
-    """CRITERION 4. Opened with openpyxl, not asserted against the view dict
-    - the same discipline section 12 of the audit demanded for the other
-    three fields: read back what the file actually says, not what the
-    builder meant to say."""
-    ws = load([
-        {"comment": "a defect", "row_kind": "non_compliant"},
-        {"comment": "needs a human", "row_kind": "needs_engineer_review"},
-        {"comment": "no value stated", "row_kind": "missing_information"},
-        {"comment": "check elsewhere", "row_kind": "requires_other_document"},
-    ])
-    fills = [ws.cell(row=FIRST_DATA_ROW + n, column=4).fill.fgColor.rgb
-             for n in range(4)]
+
+def test_rows_get_one_fill_per_status_not_per_kind():
+    """Order 13: one light fill per Status (Fail, AI opinion, Query, Pass), read back out of the file."""
+    ws = load(
+        [
+            {"comment": "a defect", "row_kind": "non_compliant", "priority": 1},
+            {
+                "comment": "needs a human",
+                "row_kind": "needs_engineer_review",
+                "priority": 3,
+            },
+            {
+                "comment": "an AI draft",
+                "row_kind": "ai_engineering_check",
+                "priority": 3,
+            },
+            {"comment": "a tick", "row_kind": "safety_tick", "priority": 3},
+        ]
+    )
+    fills = [
+        ws.cell(row=FIRST_DATA_ROW + n, column=4).fill.fgColor.rgb for n in range(4)
+    ]
     assert len(set(fills)) == 4, f"rows did not get 4 distinct fills: {fills}"
-    assert all(f not in (None, "00000000") for f in fills)
+    assert [ws.cell(row=FIRST_DATA_ROW + n, column=10).value for n in range(4)] == [
+        "Fail",
+        "Query",
+        "AI opinion",
+        "Pass",
+    ]
 
 
-def test_a_row_with_no_kind_gets_no_fill():
-    """A raw dict from before #165 (no `row_kind` key) must still render - no
-    fill is the honest default, not a guessed one."""
+def test_a_row_with_no_kind_is_a_query_with_the_query_fill():
+    """A raw dict from before #165 (no `row_kind` key) must still render; with no kind nothing is proven: Query."""
     ws = load([{"comment": "plain"}])
-    cell = ws.cell(row=FIRST_DATA_ROW, column=4)
-    assert cell.fill.fgColor.rgb in (None, "00000000")
+    assert ws.cell(row=FIRST_DATA_ROW, column=10).value == "Query"
 
 
 # ====================== the three fields the client asked for, as rendered
@@ -147,11 +175,16 @@ FINDING = {"document_name": "drum.pdf", "page_section": "SAES-D-001 clause 6.2.2
 
 
 def _header_row(key: str) -> int:
-    return 3 + [k for _, k in HEADER_FIELDS].index(key)
+    return HEADER_ROW_OF[key]
+
+
+def _top(ws) -> int:
+    """The table's header row: an issue copy keeps the header it had (row 9), the internal copy has the one layout's block."""
+    return next(r for r in range(1, 40) if ws.cell(r, 1).value == "Item No")
 
 
 def _comment(ws, item_no: int = 1) -> str:
-    return ws.cell(row=COLUMN_HEADER_ROW + item_no, column=4).value
+    return ws.cell(row=_top(ws) + item_no, column=4).value
 
 
 def test_the_submittal_number_is_printed_in_the_header_block():
@@ -209,12 +242,14 @@ def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     # The issued copy is the template plus "Standard Reference" (CRS quick
     # wins); only the internal copy carries the owner's "AI Review Comments"
     # column (2026-09-27), and neither carries the reference as a column.
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    # order 139 part 2: "Priority" where #725 F7's "Severity" was
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Priority"
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=10).value is None
-    assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 8)] == HEADERS
+    top = _top(ws)
+    assert top == ISSUE_HEADER_ROW  # the header it had before
+    assert ws.cell(row=top, column=8).value == "Standard Reference"
+    assert ws.cell(row=top, column=9).value == "Priority"
+    assert (
+        ws.cell(row=top, column=10).value is None
+    )  # order 13: a contractor-facing copy has no Status column
+    assert [ws.cell(row=top, column=c).value for c in range(1, 8)] == HEADERS
 
 
 def test_re_exporting_the_same_review_prints_the_same_reference():

@@ -86,8 +86,11 @@ def scrub_workbook(wb, table_rows: int = 0) -> None:
         return
     from . import crs_export as ce
 
-    header_row = ce.COLUMN_HEADER_ROW
     first = wb.worksheets[0]
+    header_row = next(
+        (r for r in range(1, 40) if first.cell(r, 1).value == "Item No"),
+        ce.ISSUE_HEADER_ROW,
+    )
     own_cols = {c.column for c in first[header_row] if c.value in OWN_COLUMNS}
     for ws in wb.worksheets:
         for line in ws.iter_rows():

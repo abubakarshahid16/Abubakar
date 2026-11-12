@@ -2932,6 +2932,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # Never printed: half the key of each row's stable reference, so re-exports match.
         "review_run_id": review_run_id,
         "date_issued": stamp,
+        "header": export_status_mod.header_facts(connect(), review_run_id),
         # Left blank on purpose - see above. Absent, not invented.
         "company_transmittal": run.get("crs_company_transmittal") or "",
         "contractor_transmittal": run.get("crs_contractor_transmittal") or "",
@@ -2954,7 +2955,6 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # #633 item 7: row 1 of an incomplete run's sheet; "" for a completed run.
         "run_status_note": export_status_mod.run_header_note(run.get("status"), outcome, unread, missing),
         # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,

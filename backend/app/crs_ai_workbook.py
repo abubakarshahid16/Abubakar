@@ -10,12 +10,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
 from . import crs_export, crs_layout
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
+    NOT_CHECKED_HERE_SHEET,
     NOT_REVIEWED_SHEET,
     PASSED_SHEET,
     UNAPPROVED_SHEET,
@@ -55,6 +57,13 @@ def status_of(line: Mapping) -> tuple[str, int] | None:
     proven = line.get("verdict_class") == wording.CLASS_PROVEN
     if proven and line.get("verdict") == FAIL:
         return words.STATUS_FAIL, words.ORDER_FAIL
+    if wording.is_two_reader(
+        line
+    ):  # two AI readers agreed independently: its own Status, never Pass or Fail
+        met = line.get("verdict_label") == two.WORD_MET
+        return words.STATUS_AI_VERDICT, (
+            words.ORDER_AI_VERDICT_MET if met else words.ORDER_AI_VERDICT_NOT_MET
+        )
     if wording.is_opinion(line):
         met = line.get("verdict_label") == wording.THINKS_MET
         return words.STATUS_AI, words.ORDER_AI_MET if met else words.ORDER_AI_NOT_MET
@@ -65,6 +74,7 @@ OTHER_KIND_OF_SHEET = {
     NOT_APPLICABLE_SHEET: words.KIND_NOT_APPLICABLE,
     NOT_REVIEWED_SHEET: words.KIND_NOT_REVIEWED,
     UNAPPROVED_SHEET: words.KIND_UNAPPROVED,
+    NOT_CHECKED_HERE_SHEET: words.KIND_NOT_CHECKED_HERE,
 }
 
 
@@ -88,9 +98,46 @@ def _page_text(line: Mapping) -> str:
     return f"{base} - {label}" if base and label else base or label
 
 
+_WORDING: list[
+    dict
+] = []  # filled only by a COMPLETE load, like `agent_review_verdict.checklist_ids`
+
+
+def checklist_wording(item_id: object) -> str:
+    """The checklist item's own requirement wording ("Expected") by item id, through the app's one loader (`agent_skills`).
+    '' when the item or the data is not found on this machine (the caller then falls back to the line's own text)."""
+    if not _WORDING:
+        from . import agent_skills
+
+        found: dict[str, str] = {}
+        complete = True
+        for kind in agent_skills.KINDS:
+            try:
+                skill = agent_skills.load_skill(kind)
+            except agent_skills.SkillError:
+                complete = False
+                continue
+            found.update(
+                {f"S-{it['id']}": _clean(it.get("expected")) for it in skill["items"]}
+            )
+        if not (complete and found):
+            return words.plain(found.get(str(item_id)))
+        _WORDING.append(found)
+    return words.plain(_WORDING[0].get(str(item_id)))
+
+
+def _item_ask(line: Mapping) -> str:
+    """The words of what is asked: a checklist line's own item wording first, else the verified clause quote or stored rule text."""
+    if line.get("source") == "skill":
+        wording_text = checklist_wording(line.get("item_id"))
+        if wording_text:
+            return " ".join(wording_text.split()[:30])
+    return asks(line)
+
+
 def _requires(line: Mapping, status: str) -> str:
-    """Part 1: what the rule requires, in the rule's own held words (the verified clause quote, else the stored rule text)."""
-    ref, ask, field = against(line), asks(line), field_name(line)
+    """Part 1: what the rule requires, in the rule's own held words (a checklist item's own wording, the verified clause quote, else the stored rule text)."""
+    ref, ask, field = against(line), _item_ask(line), field_name(line)
     verb = (
         "recommends"
         if line.get("recommendation") or line.get("rule_kind") == "advice"
@@ -117,6 +164,11 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("paper_page"),
     )
     where = f", page {page}" if page not in (None, "") else ""
+    if (
+        line.get("verdict_label") == two.WORD_NOT_STATED
+        and status == words.STATUS_AI_VERDICT
+    ):
+        return f"The AI reviewer's verdict, to be confirmed by an engineer: {two.ABSENCE_WHY}."  # only what was established
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -153,6 +205,12 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = f'The paper states "{has}"{where}.'
     else:
         out = "The AI reviewer holds no verified quote from the paper for this point."
+    if status == words.STATUS_AI_VERDICT:
+        view = OPINION_MET if order == words.ORDER_AI_VERDICT_MET else OPINION_NOT_MET
+        out = (
+            f"The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: "
+            f"the requirement is {view}. {out}"
+        )
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
@@ -186,10 +244,22 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
         return "No action unless the engineer disagrees with the AI reviewer's view."
+    if status == words.STATUS_AI_VERDICT and order == words.ORDER_AI_VERDICT_MET:
+        return "No action unless the engineer disagrees with the AI reviewer's verdict."
+    if (
+        line.get("verdict_label") == two.WORD_NOT_STATED
+        and status == words.STATUS_AI_VERDICT
+    ):
+        return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
     what, ref = field_name(line) or "the item", against(line)
+    if (
+        line.get("verdict_label") == two.WORD_NOT_STATED
+        and status == words.STATUS_AI_VERDICT
+    ):
+        return f"Contractor to state {what}, or the page where it is shown."
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
-    if status == words.STATUS_AI:
+    if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
     return f"Contractor to state {what}, or the page where it is shown."
 
@@ -285,6 +355,8 @@ def _other_reason(line: Mapping, kind: str) -> str:
             words.plain(line.get("comment"))
             or "The AI reviewer judged the rule not applicable to this paper."
         )
+    if kind == words.KIND_NOT_CHECKED_HERE:
+        return two.OTHER_WHY + "."
     if kind == words.KIND_UNAPPROVED:
         view = {wording.THINKS_MET: "met", wording.THINKS_NOT_MET: "not met"}.get(
             str(line.get("verdict_label"))
@@ -316,7 +388,8 @@ OTHER_WIDTHS = (9.0, 26.0, 20.0, 26.0, 30.0, 90.0)
 EVIDENCE_COLUMNS = (
     "Item No", "Status", "AI reasoning", "AI reader's suggested action", "Paper quote", "Paper page", "Clause quote", "Rule book and clause",
     "Paper quote check", "Clause quote check", "Second reader", "AI calls (models)", "Reason code", "Item id (internal)",
-    "Rule id (internal)",
+    "Rule id (internal)", "Independent reader: verdict", "Independent reader: paper quote", "Independent reader: paper page",
+    "Independent reader: clause quote", "Independent reader: paper quote check", "Independent reader: clause quote check",
 )  # fmt: skip
 EVIDENCE_WIDTHS = (
     9.0,
@@ -334,6 +407,12 @@ EVIDENCE_WIDTHS = (
     22.0,
     24.0,
     30.0,
+    16.0,
+    45.0,
+    9.0,
+    45.0,
+    16.0,
+    16.0,
 )
 
 
@@ -355,7 +434,38 @@ def _calls(line: Mapping) -> str:
         parts.append(f"first reader {_clean(line['model'])}")
     if isinstance(second, Mapping) and _clean(second.get("model")):
         parts.append(f"second reader {_clean(second['model'])}")
+    indep = two.stored(line)
+    if indep is not None and _clean(indep.get("model")):
+        parts.append(f"independent reader {_clean(indep['model'])}")
     return "; ".join(parts) or "none"
+
+
+def _independent_cells(line: Mapping) -> list:
+    """The independent second reader's verdict, its two quotes and both quote checks (blank when it was not asked)."""
+    indep = two.independent(line)
+    if indep is None:
+        return [None] * 6
+    if (
+        indep.get("verdict") == two.A_NOT_STATED
+    ):  # it found nothing: there is no paper quote to check
+        q = indep.get("quotes_checked") or {}
+        return [
+            "not stated", None, None, _clean(indep.get("clause_quote")) or None,
+            "no quote: nothing found", _check_word(bool(q.get("clause"))),
+        ]  # fmt: skip
+    q = (
+        indep.get("quotes_checked")
+        if isinstance(indep.get("quotes_checked"), Mapping)
+        else {}
+    )
+    return [
+        indep.get("verdict"),
+        _clean(indep.get("paper_quote")) or None,
+        indep.get("paper_page"),
+        _clean(indep.get("clause_quote")) or None,
+        _check_word(bool(q.get("paper"))),
+        _check_word(bool(q.get("clause"))),
+    ]
 
 
 def _evidence_row(n: int, line: Mapping, status: str) -> list:
@@ -379,6 +489,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         _clean(line.get("reason_code")) or None,
         line.get("item_id"),
         label.get("label_key") if isinstance(label, Mapping) else None,
+        *_independent_cells(line),
     ]
 
 
@@ -393,6 +504,20 @@ def _notes_rows(
     kinds = {k: sum(1 for _l, kk in others if kk == k) for k in words.OTHER_KINDS}
     kinds[words.KIND_NOT_HELD] = len(missing)
     rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE)]
+    if any(ln.get("source") == "skill" for ln, _s, _o in items):
+        have = any(
+            checklist_wording(ln.get("item_id"))
+            for ln, _s, _o in items
+            if ln.get("source") == "skill"
+        )
+        rows.append(
+            (
+                "Checklist wording",
+                "from the checklist data"
+                if have
+                else "not available on this machine: the comment shows the line's own text",
+            )
+        )
     block = meta.get("rule_labels") or {}
     rows.append(
         (BOOKS_REVIEWED.rstrip(":"), "; ".join(meta.get("books_used") or []) or "none")
@@ -413,6 +538,16 @@ def _notes_rows(
     rows.append(
         (f"Count: rows on the sheet '{words.OTHER_SHEET}'", len(others) + len(missing))
     )
+    for (
+        key,
+        label,
+    ) in (  # the optional second-reader steps: counts and the one code that switched each off (internal only)
+        ("two_reader_step", "Second-reader step"),
+        ("two_reader_absence_step", "Second-reader absence step"),
+        ("two_reader_other_step", "Second-reader other-paper step"),
+    ):
+        if isinstance(meta.get(key), Mapping):
+            rows.append((label, _step_words(meta[key])))
     rows += [("Rules not asked", _clean(t)) for t in block.get("summary_lines") or []]
     stopped = (meta.get("order12_counts") or {}).get("page_reread_stopped")
     if stopped:  # PR #1760's notice, kept in the new layout (internal copy only)
@@ -428,6 +563,25 @@ def _notes_rows(
         ),
     ]
     return rows
+
+
+def _step_words(step: Mapping) -> str:
+    off = _clean(step.get("off"))
+    return (
+        f"{step.get('candidates', 0)} lines were candidates, {step.get('asked', 0)} asked in {step.get('calls', 0)} calls; "
+        f"{step.get('agreed', 0)} agreed, {step.get('disagreed', 0)} disagreed, {step.get('unconfirmed', 0)} not confirmed"
+        + (
+            f"; {step['skipped']} not asked: the first reader was not given every page of the paper"
+            if step.get("skipped")
+            else ""
+        )
+        + (
+            f"; switched off for the rest of the run ({off.replace('_', ' ')})"
+            if off
+            else ""
+        )
+        + "."
+    )
 
 
 def _clean(text) -> str:
@@ -519,7 +673,10 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         ),
         "statuses": [st for _l, st, _o in items],
     }
-    if contractor:
+    if contractor:  # nine company columns, plain styling: nothing that encodes an internal judgement
+        view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
+        view["rows"] = [r[:9] for r in view["rows"]]
+        view["plain"] = True
         return view
     others = other_lines(lines)
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])

@@ -15,6 +15,8 @@ export const PROVEN: AgentVerdictClass = "Proven by code";
 /** Display order of the class blocks. */
 export const CLASS_ORDER: readonly AgentVerdictClass[] = [
   "Proven by code",
+  "AI verdict, two readers agree",
+  "Not checked on this paper",
   "AI opinion, engineer to confirm",
   "AI opinion, rule not yet approved",
   "Query for the engineer",
@@ -32,6 +34,8 @@ export const GENERAL_CLASS_ORDER: readonly AgentVerdictClass[] = [
   "Not reviewed",
   "Not applicable",
   "Proven by code",
+  "AI verdict, two readers agree",
+  "Not checked on this paper",
   "AI opinion, engineer to confirm",
   "AI opinion, rule not yet approved",
 ];
@@ -40,6 +44,8 @@ export const GENERAL_CLASS_ORDER: readonly AgentVerdictClass[] = [
  *  tsc fails here when the contract gains a class). */
 export const CLASS_WORDS: Record<AgentVerdictClass, readonly string[]> = {
   "Proven by code": ["Pass", "Fail"],
+  "AI verdict, two readers agree": ["AI verdict: met", "AI verdict: not met", "AI verdict: not stated"],
+  "Not checked on this paper": ["Needs a drawing or a calculation"],
   "AI opinion, engineer to confirm": ["AI thinks: met", "AI thinks: not met"],
   "AI opinion, rule not yet approved": ["AI thinks: met", "AI thinks: not met"],
   "Query for the engineer": ["Query"],
@@ -72,6 +78,8 @@ export function modeWords(mode: AgentMode): string {
 /** Colour is never the only signal: each class has its own mark and border. */
 export const CLASS_STYLE: Record<AgentVerdictClass, { mark: string; border: string }> = {
   "Proven by code": { mark: "■", border: "border-l-4 border-solid border-signal-400" },
+  "AI verdict, two readers agree": { mark: "◈", border: "border-l-4 border-solid border-info-500" },
+  "Not checked on this paper": { mark: "▣", border: "border-l-4 border-dashed border-ink-500" },
   "AI opinion, engineer to confirm": { mark: "◆", border: "border-l-4 border-dashed border-warn-500" },
   "AI opinion, rule not yet approved": { mark: "◇", border: "border-l-4 border-dotted border-warn-500" },
   "Query for the engineer": { mark: "?", border: "border-l-4 border-double border-slateish-400" },

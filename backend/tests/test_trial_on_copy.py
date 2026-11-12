@@ -375,15 +375,22 @@ def test_the_proof_check_reads_the_stored_lines(world):
     assert not check.ok and "rule quote not verified by code" in check.detail
 
 
-def sheet(statuses, ref="B clause 4.1", extra=None):
-    """A contractor copy as the app writes it since order 13: no item id, a Status column."""
+def sheet(refs, extra=None, status=False):
+    """A contractor copy as the app writes it since order 13: nine company columns, no item id, no Status."""
     wb = Workbook()
     ws = wb.active
     ws.append(["COMMENT RESOLUTION SHEET"])
     ws.append([])
-    ws.append(["Item No", "Document Name", "Standard Reference", "Status"])
-    for n, status in enumerate(statuses, start=1):
-        ws.append([n, extra or "paper", ref, status])
+    ws.append(
+        [
+            "Item No",
+            "Document Name",
+            "Standard Reference",
+            *(["Status"] if status else []),
+        ]
+    )
+    for n, ref in enumerate(refs, start=1):
+        ws.append([n, extra or "paper", ref, *(["Fail"] if status else [])])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -394,26 +401,41 @@ def test_the_contractor_copy_may_hold_only_proven_fail_rows(world):
         from app import agent_review_schema
 
         agent_review_schema.ensure_schema()
-        for item, cls, word in (
-            ("F1", "Proven by code", "Fail"),
-            ("P1", "Proven by code", "Pass"),
+        for item, cls, word, clause in (
+            ("F1", "Proven by code", "Fail", "4.1"),
+            ("F2", "Proven by code", "Fail", "5.2"),
+            ("P1", "Proven by code", "Pass", "6.3"),
         ):
             conn.execute(
                 "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier, line_json, decided_at)"
-                " VALUES ('r',?,?,?,1,'4.1','B','',NULL,'{}','2026-11-12')",
-                (item, cls, word),
+                " VALUES ('r',?,?,?,1,?,'B','',NULL,'{}','2026-11-12')",
+                (item, cls, word, clause),
             )
     ro = trial.ro(world / "agent.sqlite")
-    assert trial.contractor_check(ro, "r", sheet(["Fail"])).ok
-    bad = trial.contractor_check(ro, "r", sheet(["Fail", "Pass"]))
-    assert not bad.ok and "1 row(s) that are not a proven Fail" in bad.detail
+    one, two = "B clause 4.1", "B clause 5.2"
+    assert trial.contractor_check(ro, "r", sheet([one, two])).ok
+    assert trial.contractor_check(
+        ro, "r", sheet([two, one])
+    ).ok  # order does not matter
     assert not trial.contractor_check(ro, "r", None).ok
-    wrong_rule = trial.contractor_check(ro, "r", sheet(["Fail"], ref="OTHER clause 9"))
-    assert not wrong_rule.ok  # a Fail row for the wrong rule no longer passes
+    for refs in (
+        ["", ""],  # two blank-reference rows
+        [one, one],  # the same proven reference twice
+        [one, "OTHER clause 9"],  # one proven and one unknown
+        [one],  # a proven Fail missing
+        [one, two, two],  # an extra row
+        [one, two, ""],
+    ):
+        got = trial.contractor_check(ro, "r", sheet(refs))
+        assert not got.ok, refs
+    assert "missing" in trial.contractor_check(ro, "r", sheet([one])).detail
     worded = trial.contractor_check(
-        ro, "r", sheet(["Fail"], extra="The AI reviewer's view, not proven")
+        ro, "r", sheet([one, two], extra="The AI reviewer's view, not proven")
     )
     assert not worded.ok and "AI wording" in worded.detail
+    assert not trial.contractor_check(
+        ro, "r", sheet([one, two], status=True)
+    ).ok  # a Status column is refused
 
 
 def test_the_normal_review_check_says_a_skipped_step_is_a_failure():

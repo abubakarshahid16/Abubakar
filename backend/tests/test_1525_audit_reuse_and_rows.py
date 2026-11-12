@@ -425,11 +425,8 @@ def _sheet_rows(rows, meta) -> int:
     """The data rows the real workbook prints."""
     wb = load_workbook(io.BytesIO(crs_export.build_crs(rows, meta)))
     ws = wb.worksheets[0]
-    return sum(
-        1
-        for r in range(crs_export.COLUMN_HEADER_ROW + 1, ws.max_row + 1)
-        if ws.cell(r, 4).value
-    )
+    top = next(r for r in range(1, 40) if ws.cell(r, 1).value == "Item No")
+    return sum(1 for r in range(top + 1, ws.max_row + 1) if ws.cell(r, 4).value)
 
 
 def _meta(copy, on):

@@ -33,6 +33,7 @@ describe("AgentLines", () => {
       line({ item_id: "D", verdict_class: "AI opinion, rule not yet approved", word: "AI thinks: not met", rule_tier: "Not AI approved" }),
       line({ item_id: "E", verdict_class: "Query for the engineer", word: "Query" }),
       line({ item_id: "F", verdict_class: "Not applicable", word: "Not applicable", page: null }),
+      line({ item_id: "G", verdict_class: "AI verdict, two readers agree", word: "AI verdict: not met", rule_tier: "AI approved" }),
     ]));
     render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
     await screen.findByTestId("block-Proven by code");
@@ -41,13 +42,22 @@ describe("AgentLines", () => {
       C: ["AI opinion, engineer to confirm", "AI thinks: met"],
       D: ["AI opinion, rule not yet approved", "AI thinks: not met"],
       E: ["Query for the engineer", "Query"], F: ["Not applicable", "Not applicable"],
+      G: ["AI verdict, two readers agree", "AI verdict: not met"],
     };
     for (const [id, [klass, word]] of Object.entries(expected)) {
       const block = screen.getByTestId(`block-${klass}`);
       expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${word}$`));
     }
-    expect(CLASS_ORDER).toHaveLength(8);
+    expect(CLASS_ORDER).toHaveLength(10);
     expect(screen.getByRole("table", { name: "AI opinion, rule not yet approved" })).toBeInTheDocument();
+  });
+
+  it("the two-readers class carries only its own two words and never Pass or Fail", () => {
+    expect(lineView({ verdict_class: "AI verdict, two readers agree", word: "AI verdict: met" }).word).toBe("AI verdict: met");
+    expect(lineView({ verdict_class: "AI verdict, two readers agree", word: "Pass" })).toMatchObject({ word: null, dataError: true });
+    expect(lineView({ verdict_class: "AI verdict, two readers agree", word: "Fail" })).toMatchObject({ word: null, dataError: true });
+    expect(lineView({ verdict_class: "Proven by code", word: "AI verdict: met" })).toMatchObject({ word: null, dataError: true });
+    expect(lineView({ verdict_class: "AI opinion, engineer to confirm", word: "AI verdict: not met" })).toMatchObject({ word: null, dataError: true });
   });
 
   it("never shows Pass or Fail on a line that is not proven, even if the API sent it", async () => {

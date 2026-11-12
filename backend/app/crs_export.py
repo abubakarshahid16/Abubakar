@@ -22,7 +22,6 @@ template; delivered on branch cowork/phase-7-crs-export for integration.
 import hashlib
 from io import BytesIO
 
-from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -211,8 +210,15 @@ HEADER_FIELDS = (
 #: field added since. Derived, never hardcoded, so the table cannot land on
 #: top of the header block when a field is added: both renderings and the
 #: tests read the geometry from here.
-COLUMN_HEADER_ROW = 3 + len(HEADER_FIELDS)
+COLUMN_HEADER_ROW = 3 + 7 + (len(HEADER_FIELDS) - 1) + 2  # order 13, INTERNAL copy: 7 facts, the 5 older fields, the sentence row, a blank row
+#: a contractor-facing (issue) copy keeps the header it had before: the six older fields, the table header straight under them
+ISSUE_HEADER_ROW = 3 + len(HEADER_FIELDS)
 FIRST_DATA_ROW = COLUMN_HEADER_ROW + 1
+
+#: order 13: the row each header field's value is on (the seven facts of the one layout come first, document_title is the third).
+HEADER_ROW_OF = {key: 3 + 7 + i for i, key in enumerate(k for _, k in HEADER_FIELDS if k != "document_title")}
+HEADER_ROW_OF["document_title"] = 5
+HEADER_ROW_OF_ISSUE = {key: 3 + i for i, (_label, key) in enumerate(HEADER_FIELDS)}
 
 #: Printed beside the code on the summary row. One definition, read by
 #: both renderings, so the workbook and the preview name it identically.
@@ -380,11 +386,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     company = meta.get("company_name", default_company())
     project = meta.get("project", "")
 
-    # Item numbers are assigned HERE, always 1..N with no gaps whatever the
-    # caller sends, so the preview numbers rows the way the workbook does. The
-    # per-row reference is minted HERE too, in the one builder both renderings
-    # read: the .xlsx and the preview quote the same reference for the same
-    # comment, and a re-export of this run quotes it again.
+    # Item numbers are assigned HERE (1..N, no gaps) and the per-row reference is minted HERE: the .xlsx and the preview
+    # quote the same ones, and a re-export of this run quotes them again.
     run_id = meta.get("review_run_id", "")
     copy, findings = _copy_and_rows(findings, meta)
 
@@ -554,7 +557,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
     view = crs_by_contractor.count_into(view, findings)
-    return quality.finish(view, dropped, merged) if qon else view
+    from . import crs_normal  # order 13: ONE row model for the file and the preview
+    return crs_normal.decorate(quality.finish(view, dropped, merged) if qon else view, meta)
 
 
 def safe_cell_text(value):
@@ -622,24 +626,6 @@ def _tick_section(view: dict) -> dict:
     }
 
 
-def _note_cell(ws, view: dict, put) -> None:
-    """The version 2 note, on both copies, in a new cell below the code. Never in column A: a reply is read by the Item
-    No there (`crs_reply.read_replies`), so this cell is no row of the table."""
-    note = view.get("rulebook_v2_note")
-    if not note:
-        return
-    row = COLUMN_HEADER_ROW + len(view["rows"]) + 4
-    ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=7)
-    put(row, 3, note, wrap=True)
-    ws.row_dimensions[row].height = max(15, 13 * (len(note) // 90 + 1))
-
-
-def _wraps(column: int, value) -> bool:
-    """The columns that wrap; switch on, also an Item No of several lines (the By Contractor query row's)."""
-    several = column == 1 and "\n" in str(value) and crs_by_contractor.enabled()
-    return column in (3, 4, 8, 10, 11, 12) or several
-
-
 def row_height(comment: str) -> int:
     """A table row's height for its comment; with the By Contractor switch on, never above Excel's limit."""
     height = max(15, 13 * (comment.count("\n") + len(comment) // 90 + 1))
@@ -664,106 +650,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     widths, merges and row heights - never what the sheet says.
     """
     view = _tick_section(build_crs_view(findings, meta))
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "CRS"
-
-    for col, width in WIDTHS.items():
-        ws.column_dimensions[col].width = width
     internal = view["crs_copy"] == COPY_INTERNAL
-    ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
-    ws.column_dimensions["I"].width = PRIORITY_COLUMN_WIDTH
-    if internal or view.get("export_quality"):  # off: as it was
-        ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
-    if internal:
-        ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
-        ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
+    from . import crs_normal  # order 13: the one layout, both reviewers
 
-    def put(row, col, value, bold=False, size=10, center=False, wrap=False):
-        cell = _write(ws, row, col, value)
-        cell.font = Font(name=ARIAL, bold=bold, size=size)
-        cell.alignment = Alignment(
-            horizontal="center" if center else "left",
-            vertical="top", wrap_text=wrap)
-        return cell
-
-    # Header block, rows 1-7, merges as measured from the template.
-    ws.merge_cells("A1:G1")  # #633 item 7: an incomplete run is said on row 1, above the company
-    put(1, 1, "\n".join(p for p in (view["run_status_note"], view["title"]) if p), bold=True, size=12, center=True, wrap=True)
-    ws.row_dimensions[1].height = 75 if view["run_status_note"] else 30
-    ws.merge_cells("A2:G2")
-    put(2, 1, view["subtitle"], bold=True, size=12, center=True)
-    for offset, field in enumerate(view["header"]):
-        row = 3 + offset
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
-        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=7)
-        put(row, 1, field["label"], bold=True)
-        put(row, 3, field["value"])
-
-    for i, header in enumerate(view["columns"], start=1):
-        put(COLUMN_HEADER_ROW, i, header,
-            bold=True, center=True, wrap=True).border = BOX
-
-    # The sheet row is the entry's POSITION, never its Item No: a permanent
-    # number ("CRS-XYZ-004") is text, and even a numeric one need not match
-    # the row it lands on.
-    for position, entry in enumerate(view["rows"], start=1):
-        row = COLUMN_HEADER_ROW + position
-        comment = entry["comment"]
-        values = [entry["item_no"], entry["document_name"],
-                  entry["page_section"], comment, entry["comment_by"],
-                  entry["contractor_response"], entry["final_resolution"],
-                  entry["standard_reference"], entry.get("priority_label", "")]
-        if internal:
-            values.extend([entry["ai_review_comment"], entry["reasoning"],
-                           entry.get("rule_trust", "")])
-        values[9:] = quality.tail_cells(view, entry, values[9:])  # #1503
-        fill = ROW_FILLS.get(entry.get("row_kind") or "")
-        for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=_wraps(i, value), center=(i in (1, 9)))
-            cell.border = BOX
-            if fill is not None:
-                cell.fill = fill
-        ws.row_dimensions[row].height = row_height(comment)
-
-    # THE REPLY CONVENTION: a tip on every Contractor's Response cell asks for a response code first
-    # (`crs_numbers.parse_response` reads it). A prompt, not a restriction.
-    if view["rows"]:
-        from openpyxl.worksheet.datavalidation import DataValidation
-        tip = DataValidation(type="textLength", operator="greaterThanOrEqual",
-                             formula1="0", allow_blank=True, showErrorMessage=False,
-                             showInputMessage=True, promptTitle=RESPONSE_PROMPT_TITLE,
-                             prompt=RESPONSE_PROMPT)
-        first = COLUMN_HEADER_ROW + 1
-        tip.add(f"F{first}:F{COLUMN_HEADER_ROW + len(view['rows'])}")
-        ws.add_data_validation(tip)
-
-    # Recommended review code: a bold merged row two rows below the table. #633: the incomplete notice sits above it.
-    if view["incomplete_notice"]:
-        notice_row = COLUMN_HEADER_ROW + len(view["rows"]) + 1
-        ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
-                       end_column=7)
-        put(notice_row, 1, view["incomplete_notice"], bold=True, wrap=True)
-        ws.row_dimensions[notice_row].height = quality.notice_height(view)
-    code = view["recommended_code"]
-    if code:
-        row = COLUMN_HEADER_ROW + len(view["rows"]) + 2
-        ws.merge_cells(start_row=row, start_column=1, end_row=row,
-                       end_column=2)
-        ws.merge_cells(start_row=row, start_column=3, end_row=row,
-                       end_column=7)
-        put(row, 1, view["recommended_code_label"], bold=True)
-        reason = view["recommended_code_reason"]
-        put(row, 3, f"{code}" + (f" - {reason}" if reason else ""),
-            bold=True, wrap=True)
-        ws.row_dimensions[row].height = max(15, 13 * (len(reason) // 90 + 1))
-        if view["recommended_code_status"]:
-            ws.merge_cells(start_row=row + 1, start_column=3, end_row=row + 1,
-                           end_column=7)
-            put(row + 1, 3, view["recommended_code_status"], wrap=True)
-
-    _note_cell(ws, view, put)
+    wb = crs_normal.workbook(view, meta)
     # B5: the applied standards and their reasons, on their own sheet.
     standards_sheet = wb.create_sheet(STANDARDS_SHEET)
     for col, header in enumerate(STANDARDS_COLUMNS, start=1):
@@ -790,9 +680,6 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
             notes_sheet.column_dimensions[col].width = width
 
     _later_sheets(wb, view, meta, internal)
-    from . import crs_layout  # order 13: the one layout's header row and print setup
-
-    crs_layout.style_header_and_print(ws, COLUMN_HEADER_ROW, len(view["columns"]))
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
