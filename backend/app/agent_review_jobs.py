@@ -725,7 +725,7 @@ def _rules_then_general(
     ):  # only a stop AFTER spending (a cap) skips the general parts
         general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
                                   name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
-                                  combined=True, refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
+                                  combined=True, local=local_mod.engine_for(run_id, True))  # fmt: skip
         result = general_job.merge_results(result, general)
     else:
         general_job.note_skipped(run_id, result["stop_reason"])
@@ -773,7 +773,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat,
-                                     refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
+                                     local=local_mod.engine_for(run_id, True))  # fmt: skip
             agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)

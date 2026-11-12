@@ -236,6 +236,19 @@ def unread_pages(conn: sqlite3.Connection, document_id: str) -> list[int]:
     ]
 
 
+def page_list(numbers: Iterable[int]) -> str:
+    """Page numbers in words for a line: "1-3, 5" (ranges of consecutive pages)."""
+    out: list[str] = []
+    run: list[int] = []
+    for n in [*sorted(set(numbers)), None]:
+        if run and (n is None or n != run[-1] + 1):
+            out.append(str(run[0]) if len(run) == 1 else f"{run[0]}-{run[-1]}")
+            run = []
+        if n is not None:
+            run.append(n)
+    return ", ".join(out)
+
+
 def unread_words(pages: Iterable[int]) -> str:
     """ "page 3 holds" / "pages 3, 5 hold", for a line that could not be checked."""
     numbers = sorted(set(pages))
