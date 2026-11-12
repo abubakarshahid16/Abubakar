@@ -43,7 +43,8 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    conn = conn if conn is not None else connect()
     conn.execute(
         """CREATE TABLE IF NOT EXISTS review_point_decision (
             id TEXT PRIMARY KEY,
