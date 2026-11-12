@@ -92,12 +92,14 @@ UNDECLARED = "undeclared"
 NOT_APPROVED = "not_approved"
 UNKNOWN_DOCUMENT = "unknown_document"
 
+_NO_CALLER = object()  # no caller named: the run's own background job
 #: The documents the prompt being built carries. None = nobody declared
 #: anything (refused); an empty set = declared to carry no document content.
 _CARRIED: ContextVar[frozenset[str] | None] = ContextVar("claude_carried_documents", default=None)
 _REQUEST_CONSENT: ContextVar[bool] = ContextVar("claude_request_consent", default=False)
 #: The review run whose documents the calls inside `reviewing()` carry. With `claude_spend.current_run()` it is how the gate
 #: knows a prompt belongs to a review run (so which document is the paper under review). None = not a review run.
+_CALLER: ContextVar = ContextVar("claude_caller", default=_NO_CALLER)
 _REVIEW_RUN: ContextVar[str | None] = ContextVar("claude_review_run", default=None)
 
 
@@ -151,6 +153,17 @@ def review_declaration(review_run_id):
     """`carrying` the review's documents (`review_documents`) and `reviewing` that run: what a review route declares."""
     with carrying(review_documents(review_run_id)), reviewing(review_run_id):
         yield
+
+
+@contextlib.contextmanager
+def acting_as(user_id):
+    """Name the person whose request this Claude call serves, so a run's consent record (`review_shown.consented_ids`) counts only
+    for the person who gave it. A call with no caller named (the run's own background job) is the run's requester."""
+    token = _CALLER.set(user_id)
+    try:
+        yield
+    finally:
+        _CALLER.reset(token)
 
 
 def review_run() -> str | None:
@@ -508,6 +521,27 @@ def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
     return None
 
 
+def _consented(ids) -> frozenset[str]:
+    """The declared documents the run in force may send because its start was an EXPLICIT choice of Claude with these documents
+    on the list the screen showed (`review_shown.consented_ids`; owner, 12 Nov 2026, #1584: "button is enough"). Never the block
+    list (asked first, whatever this says), never a document the stored list does not name, never another run's consent."""
+    run = review_run()
+    if not run or not ids:
+        return frozenset()
+    import sqlite3
+
+    from . import review_shown
+    from .db import connect
+
+    try:
+        caller = _CALLER.get()
+        if caller is _NO_CALLER:
+            return review_shown.consented_ids(connect(), run, ids)
+        return review_shown.consented_ids(connect(), run, ids, caller)
+    except sqlite3.Error:
+        return frozenset()
+
+
 def contracts_without_yes(ids) -> frozenset[str]:
     """The declared documents that are a CONTRACT (by role, or by the code's own kind decision; unreadable counts as a contract) and
     have no standing recorded yes (`contract_yes`). Owner, 12 Nov 2026 (#1584): a contract goes to Claude only with the owner's yes
@@ -515,10 +549,13 @@ def contracts_without_yes(ids) -> frozenset[str]:
     by how the document came onto the list."""
     from . import claude_auto_approve, contract_yes
 
+    consented = _consented(ids)
     return frozenset(
         d
         for d in ids
-        if claude_auto_approve.is_contract_paper(d) and not contract_yes.has_yes(d)
+        if d not in consented
+        and claude_auto_approve.is_contract_paper(d)
+        and not contract_yes.has_yes(d)
     )
 
 
@@ -606,8 +643,14 @@ def refusal() -> tuple[str, str] | None:
     if _REQUEST_CONSENT.get():
         return None
     approved = approved_hashes()
-    lapsed = _lapsed_ids(hashes) | contracts_without_yes(ids)
-    missing = sorted(d for d, h in hashes.items() if h not in approved or d in lapsed)
+    # The explicit choice of Claude: the listed documents of this run are approved for it.
+    consented = _consented(ids)
+    lapsed = (_lapsed_ids(hashes) | contracts_without_yes(ids)) - consented
+    missing = sorted(
+        d
+        for d, h in hashes.items()
+        if d not in consented and (h not in approved or d in lapsed)
+    )
     if missing:
         return NOT_APPROVED, (f"{len(missing)} of {len(ids)} document(s) in this prompt are not approved "
                               f"for the cloud model (ids: {', '.join(missing)}), so nothing is sent")
@@ -645,8 +688,14 @@ def local_instead() -> str | None:
         blocked = _blocked_ids(hashes)
     except BlockListUnreadable:
         blocked = ids
-    blocked = blocked | _lapsed_ids(hashes) | contracts_without_yes(ids)
-    missing = sum(1 for d, h in hashes.items() if h not in approved or d in blocked)
+    # A block is never lifted by the consent: `blocked` is kept apart.
+    consented = _consented(ids)
+    lapsed = (_lapsed_ids(hashes) | contracts_without_yes(ids)) - consented
+    missing = sum(
+        1
+        for d, h in hashes.items()
+        if d in blocked or (d not in consented and (h not in approved or d in lapsed))
+    )
     return LOCAL_INSTEAD.format(n=missing, of=len(ids))
 
 

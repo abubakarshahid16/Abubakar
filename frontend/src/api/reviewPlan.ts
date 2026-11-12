@@ -13,6 +13,8 @@ export interface LeavingDocument {
   title: string;
   kind: string;
   why: string;
+  /** A contract by role or by the code's own kind decision: the panel says so before the start. */
+  contract?: boolean;
 }
 
 export interface NotSentDocument {
@@ -36,6 +38,8 @@ export interface ReviewPlan {
   parts: PlanPart[];
   text_leaves: boolean;
   refused: string | null;
+  unscored?: boolean;
+  unscored_note?: string;
   sentence?: string;
   boundary?: string;
   cost?: { at_most_usd: number | null; basis: string | null };

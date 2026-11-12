@@ -121,22 +121,26 @@ def test_what_will_not_go_is_listed_with_the_reason(lib, monkeypatch):
     reasons = {n.get("title") or n.get("name"): n["reason"] for n in docs["not_sent"]}
     assert reasons[SPEC_NAME] == review_leaving.NOT_APPROVED_SPEC
     assert (
-        reasons[CONTRACT_NAME] == "a contract goes only with the owner's recorded yes"
+        reasons[CONTRACT_NAME]
+        == "a contract goes to Claude only when you choose Claude for the review"
     )
     assert reasons["SAES-Z-999"] == review_leaving.NOT_HELD
     assert lib["spec"] not in _by_id(docs) and lib["con"] not in _by_id(docs)
 
 
-def test_a_contract_with_a_recorded_yes_may_be_listed(lib, monkeypatch):
+def test_a_recorded_yes_does_not_make_automatic_list_a_contract_but_the_explicit_choice_lists_it(
+    lib, monkeypatch
+):
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     _approve(lib["sub"], lib["std"], lib["con"])
-    with db.connect() as conn:
-        conn.execute(
-            "UPDATE document_classification SET document_role='CONTRACT_DOCUMENT' WHERE document_id=?",
-            (lib["con"],),
-        )
     contract_yes.grant(lib["con"], "owner")
-    assert lib["con"] in _by_id(_plan(lib))
+    assert lib["con"] not in _by_id(
+        _plan(lib)
+    )  # Automatic never sends a contract by itself
+    docs = review_engine.plan_for(db.connect(), lib["sub"], lib["scope"], "claude")[
+        "documents"
+    ]
+    assert lib["con"] in _by_id(docs)  # the explicit choice does
 
 
 def test_a_blocked_document_is_not_listed(lib, monkeypatch):

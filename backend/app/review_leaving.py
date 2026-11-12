@@ -21,6 +21,7 @@ from . import claude_approved
 
 log = logging.getLogger(__name__)
 
+OTHER_DOCUMENT = "document"
 PAPER, RULE_BOOK, SPECIFICATION, PROJECT_PAPER, CONTRACT = (
     "paper",
     "rule book",
@@ -33,9 +34,9 @@ WHY_CITED = "cited by the paper"
 WHY_GOVERNS = "governs the equipment type"
 WHY_CHOSEN = "chosen by you for this review"
 WHY_EARLIER_SCOPE = "applied by scope in the last review of this paper"
-CONTRACT_WORDS = "a contract goes only with the owner's recorded yes"
+CONTRACT_WORDS = "a contract goes to Claude only when you choose Claude for the review"
 NOT_HELD = "not held in the library"
-BLOCKED_WORDS = "blocked from the cloud model by the owner's block list"
+BLOCKED_WORDS = "blocked by the owner"
 NOT_APPROVED_BOOK = "not approved for Claude; the owner approves it"
 NOT_APPROVED_SPEC = "a specification that is not on the owner's approved list"
 NOT_READABLE = "documents you may not read"
@@ -74,11 +75,12 @@ def _doc_rows(conn, ids) -> dict[str, dict]:
 def _specification_library(conn, paper_id: str) -> list[dict]:
     from . import applicability
 
+    # ANY OTHER DOCUMENT the paper may cite (a specification, a contract, a procedure, a supporting document...), not the paper itself
+    # and not a rule book the review's own selection covers (those come from `applicability.select`).
     rows = conn.execute(
-        "SELECT d.id AS id, d.filename AS filename FROM documents d"
-        " JOIN document_classification c ON c.document_id = d.id"
-        " WHERE c.document_role IN (?, ?) AND d.id != ?",
-        (claude_approved.SPECIFICATION_ROLE, "CONTRACT_DOCUMENT", paper_id),
+        "SELECT d.id AS id, d.filename AS filename FROM documents d WHERE d.id != ?"
+        " AND d.id NOT IN (SELECT DISTINCT standard_document_id FROM standard_requirements)",
+        (paper_id,),
     ).fetchall()
     return [
         {
@@ -87,6 +89,7 @@ def _specification_library(conn, paper_id: str) -> list[dict]:
             "document_number": applicability.library_identifier(r["filename"] or ""),
         }
         for r in rows
+        if applicability.library_identifier(r["filename"] or "")
     ]
 
 
@@ -104,10 +107,20 @@ def _citations(conn, document_id: str) -> list[str]:
     return standard_ids.cited_standards(text)
 
 
+def _is_contract(document_id: str) -> bool:
+    """By role or by the code's own kind decision (unreadable counts as a contract): the screen says so before the start."""
+    from . import claude_auto_approve
+
+    return bool(claude_auto_approve.is_contract_paper(document_id))
+
+
 class _Gate:
     """What the send gate would say about one document, read once."""
 
-    def __init__(self, facts) -> None:
+    def __init__(self, facts, explicit: bool = False) -> None:
+        #: The EXPLICIT choice of Claude is the consent for a listed document of any kind (owner, 12 Nov 2026, #1584). The block
+        #: list is asked first and is never lifted by it.
+        self.explicit = explicit
         self.approved = claude_approved.approved_hashes()
         self.enforced = bool(claude_approved.settings.claude_approved_list_enforced)
         self.auto = (
@@ -123,7 +136,7 @@ class _Gate:
             self.blocks, self.marked, self.unreadable = frozenset(), frozenset(), True
 
     def why_not(self, row: dict, kind: str) -> str | None:
-        from . import claude_auto_approve, contract_yes
+        from . import claude_auto_approve
 
         sha = (row["sha256"] or "").strip().lower()
         if (
@@ -132,10 +145,10 @@ class _Gate:
             or claude_approved.name_is_blocked(row["filename"], self.marked)
         ):
             return BLOCKED_WORDS
-        if claude_auto_approve.is_contract_paper(
-            row["id"]
-        ) and not contract_yes.has_yes(row["id"]):
-            return CONTRACT_WORDS
+        if self.explicit:
+            return None
+        if claude_auto_approve.is_contract_paper(row["id"]):
+            return CONTRACT_WORDS  # Automatic never sends a contract by itself, a recorded yes or not
         if not self.enforced or sha in self.approved:
             return None
         if (
@@ -156,6 +169,7 @@ def leaving_for(
     equipment_type: str | None,
     leaves: bool,
     project_ids=(),
+    explicit: bool = False,
 ) -> dict:
     """`{"leaving": [...], "not_sent": [...], "not_readable": n, "count": {...}, "summary": str}`. Never raises: a fault yields an
     EMPTY leaving list with the reason (the screen then offers no Claude start)."""
@@ -164,7 +178,16 @@ def leaving_for(
         out["summary"] = LOCAL_WORDS
         return _finish(out)
     try:
-        _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out)
+        _fill(
+            conn,
+            document_id,
+            allowed,
+            facts,
+            equipment_type,
+            project_ids,
+            out,
+            explicit,
+        )
     except (sqlite3.Error, ValueError, OSError) as exc:
         log.warning("review leaving list unreadable (%s)", type(exc).__name__)
         out["leaving"], out["not_sent"], out["not_readable"] = [], [], 0
@@ -189,7 +212,9 @@ def _finish(out: dict) -> dict:
     return out
 
 
-def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -> None:
+def _fill(
+    conn, document_id, allowed, facts, equipment_type, project_ids, out, explicit=False
+) -> None:
     from . import applicability
 
     seen: set[str] = set()
@@ -214,16 +239,28 @@ def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -
             )
         else:
             out["leaving"].append(
-                {"id": row["id"], "title": _title(row), "kind": kind, "why": why}
+                {
+                    "id": row["id"],
+                    "title": _title(row),
+                    "kind": kind,
+                    "why": why,
+                    "contract": _is_contract(row["id"]),
+                }
             )
 
-    gate = _Gate(facts)
+    gate = _Gate(facts, explicit)
     paper = _doc_rows(conn, [document_id]).get(document_id)
     if paper is None or document_id not in allowed:
         return
     seen.add(document_id)
     out["leaving"].append(
-        {"id": document_id, "title": _title(paper), "kind": PAPER, "why": WHY_PAPER}
+        {
+            "id": document_id,
+            "title": _title(paper),
+            "kind": PAPER,
+            "why": WHY_PAPER,
+            "contract": _is_contract(document_id),
+        }
     )
 
     # THE RULE BOOKS: the review's own selection (`applicability.select`, the function the run calls), read-only and without the
@@ -269,10 +306,13 @@ def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -
     for name in cited:
         hit = applicability.find_standard(specs, name)
         if hit is not None:
+            role = spec_rows[hit["id"]]["role"]
             other = (
                 CONTRACT
-                if spec_rows[hit["id"]]["role"] == "CONTRACT_DOCUMENT"
+                if role == "CONTRACT_DOCUMENT"
                 else SPECIFICATION
+                if role == claude_approved.SPECIFICATION_ROLE
+                else OTHER_DOCUMENT
             )
             put(spec_rows[hit["id"]], other, WHY_CITED)
     chosen = _doc_rows(conn, project_ids)
@@ -319,7 +359,7 @@ def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
         put(row, kind, WHY_EARLIER_SCOPE)
 
 
-def documents_block(ctx, plan, project_ids) -> dict:
+def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
     """`documents` of the plan: the older keys (the last review's rule book names) and the list of what would leave.
     `ctx` is `(conn, document_id, allowed, facts, reading)`."""
     from .review_engine import _earlier_books
@@ -344,6 +384,7 @@ def documents_block(ctx, plan, project_ids) -> dict:
             equipment_type=getattr(reading, "equipment_type", None),
             leaves=leaves,
             project_ids=tuple(project_ids),
+            explicit=plan.choice == "claude",
         )
     )
     return docs

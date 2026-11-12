@@ -100,4 +100,29 @@ describe("StartPanel", () => {
     await screen.findByText("Text leaves this Mac: yes");
     expect(screen.queryByText(/doc_[0-9]/)).toBeNull();
   });
+
+  it("says in one plain line, before Start, that a contract's text goes to Claude when Claude was chosen", async () => {
+    plan.mockImplementation(async (_id: string, engine: string) => ({
+      ok: true,
+      data: {
+        ...claudePlan, choice: engine, text_leaves: engine !== "local",
+        documents: { ...claudePlan.documents, leaving: [{ id: "doc_9", title: "Supply contract.pdf", kind: "contract", why: "cited by the paper", contract: true }] },
+      },
+    }));
+    panel();
+    await screen.findByText("Text leaves this Mac: yes");
+    expect(screen.queryByTestId("contract-line")).toBeNull(); // Automatic: no choice of Claude, nothing sends a contract
+    await userEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    expect(await screen.findByTestId("contract-line")).toHaveTextContent(
+      "This sends the contract's text to Claude (Anthropic). You chose Claude for this review.",
+    );
+  });
+
+  it("adds the draft sentence for an unscored kind on the explicit choice, internal copy only", async () => {
+    plan.mockResolvedValue({ ok: true, data: { ...claudePlan, unscored: true, unscored_note: "Treat every line as a draft." } });
+    panel();
+    await screen.findByText("Text leaves this Mac: yes");
+    await userEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    expect(await screen.findByText(/Treat every line as a draft\. Internal copy only\./)).toBeInTheDocument();
+  });
 });

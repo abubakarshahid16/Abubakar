@@ -66,6 +66,13 @@ def start(
         else review_shown.cap(plan, shown_document_ids)
     )
     stored_plan = review_shown.without_titles(plan)
+    # THE EXPLICIT CHOICE OF CLAUDE IS THE CONSENT (owner, 12 Nov 2026, #1584): the start records who, when, the run, the engine
+    # and each listed document's kind, role and file hash (ids only, no title, no text). Automatic and Local only record none.
+    consent = (
+        review_shown.consent_documents(conn, plan, shown)
+        if shown is not None and plan["choice"] == review_engine.CLAUDE
+        else None
+    )
 
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
         # In the SAME transaction as the job: a worker that claims the job finds its choice (and so its bar) already there.
@@ -80,6 +87,10 @@ def start(
         )
         if shown is not None:
             review_shown.record_in(txn_conn, new_run_id, shown, job_queue.now_iso())
+        if consent is not None:
+            review_shown.record_consent_in(
+                txn_conn, new_run_id, requested_by, consent, job_queue.now_iso()
+            )
 
     run_id, _job = review_jobs.enqueue(
         document_id,
@@ -140,10 +151,21 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
     shown = review_shown.shown_ids(
         conn, run_id
     )  # the AI run sends what the same screen showed, no more
+    consent = review_shown.consent_of(conn, run_id)
 
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
         if shown is not None:
             review_shown.record_in(txn_conn, new_run_id, shown, job_queue.now_iso())
+        if (
+            consent is not None
+        ):  # the AI run that follows is the same start: the same consent, under the same user
+            review_shown.record_consent_in(
+                txn_conn,
+                new_run_id,
+                job["created_by"],
+                list(consent["documents"].values()),
+                job_queue.now_iso(),
+            )
         review_engine.record_in(
             txn_conn,
             new_run_id,

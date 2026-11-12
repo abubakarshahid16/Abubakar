@@ -57,6 +57,9 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
   }
 
   const cost = plan?.cost;
+  // The explicit choice of Claude is the consent: say plainly, before Start, that a contract's text goes out.
+  const sendsContract = chosen === "claude" && plan?.text_leaves === true && plan.documents.leaving.some((d) => d.contract);
+  const draftNote = chosen === "claude" && plan?.text_leaves === true && plan.unscored ? plan.unscored_note : undefined;
   return (
     <div role="dialog" aria-label="Before the review starts"
       className="space-y-3 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 p-3 text-sm">
@@ -89,6 +92,12 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
               {plan.documents.summary ?? "The documents that would leave could not be worked out, so no Claude start is offered."}
             </p>
           )}
+          {sendsContract && (
+            <p role="note" className="font-medium text-slateish-100" data-testid="contract-line">
+              This sends the contract's text to Claude (Anthropic). You chose Claude for this review.
+            </p>
+          )}
+          {draftNote && <p role="note" className="text-slateish-300">{draftNote} Internal copy only.</p>}
           <LeavingList
             leaving={plan.documents.leaving}
             notSent={plan.documents.not_sent}

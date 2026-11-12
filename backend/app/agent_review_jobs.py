@@ -411,7 +411,8 @@ def _plan(
     # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
     # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
+                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED,
+                                        shown=review_shown.shown_ids(conn, run_id))  # fmt: skip
     # A rule book the list shown before the start does not name is dropped HERE, before any request is built: its rules are not
     # asked, none of its text is sent, the run goes on with the listed books, and the result counts what was left out.
     left_out = review_shown.drop_unlisted(conn, run_id, doc)

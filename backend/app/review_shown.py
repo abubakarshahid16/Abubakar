@@ -111,11 +111,25 @@ def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
     shown = shown_ids(conn, run_id)
     if shown is None:
         return []
+    from .agent_review_rules import NOT_ON_LIST
+
     items = doc.get("items") or []
-    dropped = sorted({str(i["standard_document_id"]) for i in items if i.get("standard_document_id")} - shown)
+    ids = {
+        str(i["standard_document_id"]) for i in items if i.get("standard_document_id")
+    }
+    dropped = ids - shown
     if dropped:
-        doc["items"] = [i for i in items if str(i.get("standard_document_id") or "") not in dropped]
-    return dropped
+        doc["items"] = [
+            i for i in items if str(i.get("standard_document_id") or "") not in dropped
+        ]
+    # the rules `build_items_for_run` already left out of the plan (reason NOT_ON_LIST) belong to books dropped the same way
+    left = (doc.get("rule_labels") or {}).get("left_out") or []
+    dropped |= {
+        str(r["standard_document_id"])
+        for r in left
+        if r.get("reason") == NOT_ON_LIST and r.get("standard_document_id")
+    }
+    return sorted(dropped)
 
 
 def _cited_ids(conn, run_id: str) -> set[str]:
@@ -139,20 +153,27 @@ def _cited_ids(conn, run_id: str) -> set[str]:
             continue
     try:
         row = conn.execute(
-            "SELECT requested_json, project_json FROM agent_review_general WHERE run_id = ?", (run_id,)
+            "SELECT requested_json, project_json FROM agent_review_general WHERE run_id = ?",
+            (run_id,),
         ).fetchone()
     except sqlite3.OperationalError:
         row = None
-    for raw in (row or ()):
+    for raw in row or ():
         try:
             got = json.loads(raw or "[]")
         except ValueError:
             continue
-        ids |= {str(d) for d in got if isinstance(d, str) and d} if isinstance(got, list) else set()
+        ids |= (
+            {str(d) for d in got if isinstance(d, str) and d}
+            if isinstance(got, list)
+            else set()
+        )
     return ids
 
 
-def held_applied(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
+def held_applied(
+    conn, run_id: str, applied_run: str | None = None, extra=()
+) -> list[str]:
     """The documents this run carries beside its paper (`_cited_ids`: the applied standards, the rules the AI reviewer asked, the
     project papers of a general review; also those of `applied_run`, the run the AI reviewer's standards were chosen on, and
     `extra`) that the list shown before the start left out: what the gate holds. Empty on a database error."""
@@ -171,7 +192,9 @@ def cited_unshown(conn, run_id: str, applied_run: str | None = None, extra=()) -
     return len(held_applied(conn, run_id, applied_run, extra))
 
 
-def found_during_review(conn, run_id: str, applied_run: str | None = None, extra=()) -> int:
+def found_during_review(
+    conn, run_id: str, applied_run: str | None = None, extra=()
+) -> int:
     """Of those, the rule books (not specifications): the ones the review found only while it ran, the screen's "N more rule books
     apply to this paper"."""
     held = held_applied(conn, run_id, applied_run, extra)
@@ -208,3 +231,124 @@ def without_titles(plan: dict) -> dict:
             for d in docs.get("not_sent") or []
         ]
     return {**plan, "documents": docs}
+
+
+# ---- the consent of an explicit choice of Claude (owner, 12 Nov 2026, #1584: "button is enough") -------------------------------
+
+CONSENT_TABLE = "review_claude_consent"
+
+
+def ensure_consent_schema(conn) -> None:
+    conn.execute(
+        f"""CREATE TABLE IF NOT EXISTS {CONSENT_TABLE} (
+            run_id         TEXT PRIMARY KEY,
+            user_id        TEXT,
+            engine         TEXT NOT NULL,
+            documents_json TEXT NOT NULL,
+            consented_at   TEXT NOT NULL
+        )"""
+    )
+
+
+def record_consent_in(
+    conn, run_id: str, user_id: str | None, documents: list[dict], now: str
+) -> None:
+    """Write, WITHOUT committing (the start's own transaction), that this user started this run with the explicit choice of Claude
+    and which documents the screen listed: each one's id, kind, role and file hash. Ids, kinds, roles and hashes only: never a
+    title and never any text."""
+    ensure_consent_schema(conn)
+    rows = [{k: d.get(k) for k in ("id", "kind", "role", "sha256")} for d in documents]
+    conn.execute(
+        f"INSERT OR REPLACE INTO {CONSENT_TABLE} (run_id, user_id, engine, documents_json, consented_at) VALUES (?,?,?,?,?)",
+        (run_id, user_id, "claude", json.dumps(rows, sort_keys=True), now),
+    )
+
+
+def consent_of(conn, run_id: str | None) -> dict | None:
+    """The consent record of a run, or None when the run was not started with the explicit choice of Claude (no table, no row).
+    A damaged row reads as no consent."""
+    if not run_id:
+        return None
+    has = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (CONSENT_TABLE,),
+    ).fetchone()
+    if has is None:
+        return None
+    row = conn.execute(
+        f"SELECT * FROM {CONSENT_TABLE} WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        docs = json.loads(row["documents_json"])
+    except ValueError:
+        return None
+    if not isinstance(docs, list):
+        return None
+    return {
+        "user_id": row["user_id"],
+        "at": row["consented_at"],
+        "documents": {str(d.get("id")): d for d in docs if isinstance(d, dict)},
+    }
+
+
+_ANY_CALLER = object()
+
+
+def consented_ids(conn, run_id: str | None, ids, caller=_ANY_CALLER) -> frozenset[str]:
+    """Of `ids`, the documents the run's consent record covers AND whose file is still the one that was listed (a replaced
+    revision is not covered) AND that the run's stored list still names. Raises `sqlite3.Error`: the caller fails closed."""
+    got = consent_of(conn, run_id)
+    if got is None:
+        return frozenset()
+    if caller is not _ANY_CALLER and caller != got["user_id"]:
+        return frozenset()  # per run AND per user: another person calling a Claude route on this run gets no consent from it
+    listed = shown_ids(conn, run_id) or frozenset()
+    wanted = sorted({str(i) for i in ids if i} & set(got["documents"]) & listed)
+    if not wanted:
+        return frozenset()
+    marks = ",".join("?" for _ in wanted)
+    now = {
+        r["id"]: (r["sha256"] or "").strip().lower()
+        for r in conn.execute(
+            f"SELECT id, sha256 FROM documents WHERE id IN ({marks})", wanted
+        )
+    }
+    return frozenset(
+        d
+        for d in wanted
+        if now.get(d)
+        and now[d] == str(got["documents"][d].get("sha256") or "").strip().lower()
+    )
+
+
+def consent_documents(conn, plan: dict, shown_ids_list) -> list[dict]:
+    """The documents a start's consent record names: the list stored with the run (`cap`), each with its kind from the plan and
+    its role and file hash from the library. Ids, kinds, roles and hashes only."""
+    stored = cap(plan, shown_ids_list)
+    kinds = {
+        d["id"]: d.get("kind")
+        for d in (plan.get("documents") or {}).get("leaving") or []
+    }
+    if not stored:
+        return []
+    marks = ",".join("?" for _ in stored)
+    rows = {
+        r["id"]: r
+        for r in conn.execute(
+            "SELECT d.id AS id, d.sha256 AS sha256, c.document_role AS role FROM documents d"
+            f" LEFT JOIN document_classification c ON c.document_id = d.id WHERE d.id IN ({marks})",
+            stored,
+        )
+    }
+    return [
+        {
+            "id": i,
+            "kind": kinds.get(i),
+            "role": rows[i]["role"],
+            "sha256": (rows[i]["sha256"] or "").strip().lower(),
+        }
+        for i in stored
+        if i in rows
+    ]
