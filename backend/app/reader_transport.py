@@ -99,6 +99,113 @@ def available() -> bool:
     return bool(cfg.enabled and cfg.allow_public_egress)
 
 
+#: THE API'S MESSAGE IS NEVER SHOWN. A 4xx message is free text that can echo request content (a quoted field value) or a
+#: credential, and rule 1 forbids document text in a log. So a rejection is reported as its TYPE plus, only for a closed list,
+#: OUR OWN fixed sentence; the one pattern-matched case fills it with the numbers or the date parsed from the message. Anything
+#: else is the type alone. (A 400 with no readable cause cost a day: 12 Nov 2026.)
+_DIGITS = r"(\d{1,9})"
+#: (error types that may carry a sentence, anchored regex of the API's message or None, OUR sentence with {0} {1} for the
+#: parsed numbers/date). `None`: the type alone decides and nothing is read from the message.
+_SAFE: tuple[tuple[tuple[str, ...], str | None, str], ...] = (
+    (
+        ("rate_limit_error",),
+        None,
+        "The Claude API is limiting the request rate; try again shortly.",
+    ),
+    (("overloaded_error",), None, "The Claude API is overloaded; try again shortly."),
+    (("api_error",), None, "The Claude API had an internal error; try again shortly."),
+    (("request_too_large",), None, "The request was too large for the Claude API."),
+    (
+        ("not_found_error",),
+        None,
+        "The Claude model was not found (its id may be wrong or retired).",
+    ),
+    (
+        ("invalid_request_error",),
+        r"Your credit balance is too low to access the Anthropic API\.(?: Please go to Plans & Billing to upgrade or purchase credits\.)?",
+        "The Claude account has no credit (the owner tops it up in the Anthropic console).",
+    ),
+    (
+        ("invalid_request_error",),
+        r"You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})(?: at [0-9:]{4,8} UTC)?\.?",
+        "The Claude account's usage limit is reached; access returns on {0}.",
+    ),
+    (
+        ("invalid_request_error",),
+        rf"max_tokens: {_DIGITS} > {_DIGITS}(?:, which is the maximum allowed number of output tokens for [A-Za-z0-9._\-]{{1,60}})?\.?",
+        "max_tokens {0} is above the model's limit {1}.",
+    ),
+    (
+        ("invalid_request_error",),
+        rf"prompt is too long: {_DIGITS} tokens > {_DIGITS} maximum",
+        "The prompt is too long: {0} tokens, the model's maximum is {1}.",
+    ),
+)
+#: Our own sentences as patterns, so a later layer can tell one from free text.
+_SENTENCES = tuple(
+    re.compile(re.sub(r"\\\{\d\\\}", r"[0-9-]{1,10}", re.escape(template)))
+    for _, _, template in _SAFE
+)
+
+
+def is_fixed_sentence(text: str) -> bool:
+    """True when `text` is one of OUR fixed sentences (never the API's own words)."""
+    return any(p.fullmatch(text) for p in _SENTENCES)
+
+
+def api_error(payload: object, status: int = 400) -> tuple[str, str]:
+    """(error type, OUR fixed sentence or "") from a 4xx body already parsed as JSON; ("", "") when it is not the API's error shape.
+
+    The API's message is only MATCHED against the closed patterns above, never passed on: no free text of the API reaches a
+    log, an exception or the screen. 401 and 403 (authentication, permission) never get a sentence. The type must have the
+    shape of the API's own enum, else it is dropped."""
+    err = payload.get("error", {}) if isinstance(payload, dict) else {}
+    if not isinstance(err, dict):
+        return "", ""
+    kind = str(err.get("type") or "")
+    kind = kind if re.fullmatch(r"[a-z][a-z_]{0,39}", kind) else ""
+    if status in (401, 403) or not kind:
+        return kind, ""
+    message = " ".join(str(err.get("message") or "").split())
+    for types, pattern, sentence in _SAFE:
+        if kind not in types:
+            continue
+        if pattern is None:
+            return kind, sentence
+        found = re.fullmatch(pattern, message)
+        if found:
+            return kind, sentence.format(*found.groups())
+    return kind, ""
+
+
+def _rejection(status: int, host: str, payload: object) -> str:
+    kind, message = api_error(payload, status)
+    detail = ": ".join(part for part in (kind, message) if part)
+    return f"{status} from {host}" + (f" ({detail})" if detail else "")
+
+
+def _json_or_none(parse, host: str):
+    """`parse()` -> the parsed JSON body, or None when the body is not JSON (the status alone is reported, #655)."""
+    try:
+        return parse()
+    except (ValueError, TypeError) as exc:  # #655: the status alone is reported
+        log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
+        return None
+
+
+def _raise_rejected(status: int, host: str, response, parse, body: Mapping) -> None:
+    """A 4xx: the status, the host, the API's error type and short message in the error and in one log line; never the
+    request (the log line carries only the model id and a digest)."""
+    said = _rejection(status, host, _json_or_none(parse, host))
+    log.warning(
+        "standards reader: rejected, %s model=%s digest=%s",
+        said,
+        body.get("model"),
+        _digest(body),
+    )
+    raise httpx.HTTPStatusError(said, request=response.request, response=response)
+
+
 def _digest(body: Mapping) -> str:
     """A fingerprint of what left, for the audit line. Not the text."""
     return hashlib.sha256(
@@ -159,15 +266,7 @@ def transport():
             # `rate_limit_error`...) and is what a reader of the log needs:
             # the first real call failed with a bare "400" that took a second
             # probe to read as "credit balance too low".
-            kind = ""
-            try:
-                err = response.json().get("error", {})
-                kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-            except ValueError as exc:  # #655: the status alone is reported
-                log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
-            raise httpx.HTTPStatusError(
-                f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
-                request=response.request, response=response)
+            _raise_rejected(response.status_code, host, response, response.json, body)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(
                 f"response from {host} is {len(response.content)} bytes, over "
@@ -253,15 +352,9 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                            extensions={"trace": _trace}) as response:
             status = response.status_code
             if status >= 400:
-                kind = ""
-                try:
-                    err = json.loads(response.read()).get("error", {})
-                    kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-                except ValueError as exc:  # #655: the status alone is reported
-                    log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
-                raise httpx.HTTPStatusError(
-                    f"{status} from {host}" + (f" ({kind})" if kind else ""),
-                    request=response.request, response=response)
+                _raise_rejected(
+                    status, host, response, lambda: json.loads(response.read()), body
+                )
             for line in response.iter_lines():
                 if cancel is not None and cancel.is_set():
                     cancelled = True
