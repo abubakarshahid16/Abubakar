@@ -308,10 +308,10 @@ def priority(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
+    "NORMAL_STATUSES",
     "OTHER_SHEET",
     "PRIORITY_RULE",
     "PRIORITY_RULE_NORMAL",
-    "NORMAL_STATUSES",
     "STATUSES",
     "UNKNOWN_WHY",
     "WHY_PHRASES",
