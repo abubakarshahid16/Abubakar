@@ -66,7 +66,9 @@ def write(
     if not all(_HEX.fullmatch(h) for h in found):
         raise ValueError("not a sha256")
     names = {n.strip() for n in names}
-    if any(len(claude_approved.name_key(n)) < claude_approved.MIN_MARKED_KEY for n in names):
+    if any(
+        len(claude_approved.name_key(n)) < claude_approved.MIN_MARKED_KEY for n in names
+    ):
         raise ValueError("name too short")
     path = Path(data_dir) / claude_approved.BLOCK_FILE_NAME
     data: dict = {}
@@ -110,7 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         found |= {h.strip().lower() for h in a.sha256}
         names = {n for n in a.name if n.strip()}
         if not found and not names:
-            print("REFUSED | nothing to block was given: the block file was not written")
+            print(
+                "REFUSED | nothing to block was given: the block file was not written"
+            )
             return 1
         n_found, n_file = write(a.data_dir, found, names)
     except (OSError, ValueError, sqlite3.Error) as exc:

@@ -283,9 +283,11 @@ def on_upload(document_id: str, uploaded_name: str | None = None) -> None:
         try:
             marked = claude_approved.marked_name_keys()
         except claude_approved.BlockListUnreadable:
-            marked = frozenset()  # _apply approves nothing then; the register name is still caught
+            # _apply approves nothing then; the register name is still caught
+            marked = frozenset()
         if role == REVIEW_ROLE or any(
-            claude_approved.name_is_blocked(n, marked) for n in (row["filename"], *names)
+            claude_approved.name_is_blocked(n, marked)
+            for n in (row["filename"], *names)
         ):
             return [_want(row, SOURCE, *names)]
         return [_want(row, SOURCE, withdraw=True)] if role else []
