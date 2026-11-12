@@ -90,7 +90,7 @@ def not_checked_sentence(kind: str | None) -> str | None:
 
 
 HELD = "NEEDS_ENGINEER_REVIEW"
-NOTE_NOT_CHECKED = "Not checked"
+NOTE_NOT_CHECKED = "What was not checked"
 NOTE_HELD = "Findings held for an engineer"
 
 
@@ -130,6 +130,18 @@ def crs_meta(
                 "detail": sentence,
             }
         )
+    # a run stored before this change still says "datasheet": the CRS names the paper by its decided kind (the stored run is not changed)
+    said = {
+        **comp,
+        "paper_noun": noun_of_kind(kind),
+        **({"not_checked_plain": sentence} if sentence else {}),
+    }
+    meta = {
+        **meta,
+        "recommended_code_reason": in_noun(
+            meta.get("recommended_code_reason") or "", said
+        ),
+    }
     held = sum(1 for f in findings if f.get("compliance_status") == HELD)
     if held:
         notes.append(

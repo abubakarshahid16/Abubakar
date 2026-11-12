@@ -199,7 +199,9 @@ def test_the_crs_meta_of_a_contract_says_not_checked_and_counts_the_held_finding
         {"review_notes": [{"note": "x"}]}, "doc_k2", out, findings, [{}, {}]
     )
     notes = {n["note"]: n for n in got["review_notes"]}
-    assert "No contract checklist is held" in notes["Not checked"]["detail"]
+    assert (
+        "No contract checklist is held" in notes[kind_words.NOTE_NOT_CHECKED]["detail"]
+    )
     assert notes["Findings held for an engineer"]["count"] == 3
     assert (
         "this CRS has 2 rows" in notes["Findings held for an engineer"]["detail"]
@@ -315,3 +317,21 @@ def test_the_exported_crs_view_carries_one_label_set_with_the_quality_export_on(
         "AI Review",
         "AI clause review - engineer to confirm",
     }  # unchanged when off
+
+
+def test_a_run_stored_before_this_change_is_shown_with_the_decided_noun_on_the_crs(
+    tmp_path, monkeypatch
+):
+    _world(tmp_path, monkeypatch, "SUPPLY CONTRACT FOR WIDGET SKIDS\nArticle 1")
+    old_reason = "No applicable standard asks this datasheet for a value that was checked. That is not enough to suggest a review code yet."
+    got = kind_words.crs_meta(
+        {"recommended_code_reason": old_reason, "review_notes": []},
+        "doc_k2",
+        {"completeness": {"fields_required": 0}},
+        [],
+        [],
+    )
+    assert got["recommended_code_reason"].startswith(
+        "No contract checklist is held, so no point of this contract was checked;"
+    )
+    assert "datasheet" not in got["recommended_code_reason"]
