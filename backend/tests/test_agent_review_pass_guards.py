@@ -594,6 +594,8 @@ def test_the_label_only_rule_also_holds_for_a_field_the_registry_does_not_know(w
         ("Not a sour service", False),
         ("Service: non-sour crude", False),
         ("Sour service without hydrogen", False),
+        ("Service: not expected to be sour", False),
+        ("Service: nil sour content", False),
     ],
 )
 def test_a_condition_quote_with_a_negation_next_to_the_condition_word_is_refused(
@@ -782,6 +784,8 @@ def test_earlier_proven_lines_are_relabelled_once_with_the_old_class_kept_and_ev
             new["class_before_1778"] == "Proven by code"
             and new["word_before_1778"] == lines[iid]["verdict"]
         )
+        assert new["verdict_before_1778"] == lines[iid]["verdict"]
+        assert new["decided_by_before_1778"] == lines[iid]["decided_by"]
         changed = {k for k in set(old) | set(new) if old.get(k) != new.get(k)}
         assert changed <= {
             "verdict",
@@ -791,6 +795,8 @@ def test_earlier_proven_lines_are_relabelled_once_with_the_old_class_kept_and_ev
             "textual_fail",
             "class_before_1778",
             "word_before_1778",
+            "verdict_before_1778",
+            "decided_by_before_1778",
         }, changed
         for col in (
             "run_id",
