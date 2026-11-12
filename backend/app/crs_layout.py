@@ -33,9 +33,10 @@ LAYOUT_WIDTHS = (9.0, 26.0, 14.0, 90.0, 22.0, 24.0, 16.0, 24.0, 11.0, 13.0)
 LAYOUT_MAIN_SHEET = "CRS"
 EVIDENCE_SHEET = "Evidence"
 NOTES_SHEET = "Notes"
-#: One light fill per Status, defined ONCE (four colours; the hex values are the pale fills the sheet already uses).
+#: One light fill per Status, defined ONCE (five colours; the hex values are the pale fills the sheet already uses).
 STATUS_FILLS = {
     "Fail": PatternFill("solid", fgColor="FFF5D6D6"),
+    "AI verdict": PatternFill("solid", fgColor="FFD8EEF0"),
     "AI opinion": PatternFill("solid", fgColor="FFEFE8F7"),
     "Query": PatternFill("solid", fgColor="FFFCF3CF"),
     "Pass": PatternFill("solid", fgColor="FFE3F2E6"),

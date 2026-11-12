@@ -526,7 +526,7 @@ def _finish(
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
     lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
-    counts = runner_mod.counts_of(lines)
+    counts = runner_mod.counts_of(lines, runner)
     reread = (  # C4: a stopped page re-read is stated, never dropped (null when off or ran fully)
         reread_mod.reread_facts(runner.reread_enabled, runner.reread_stopped, lines)
         if runner
@@ -541,7 +541,7 @@ def _finish(
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
-            "usd": usd, "header": _header_facts(submittal, kind.equipment_type),
+            "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
                                **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {})}}  # fmt: skip

@@ -487,7 +487,10 @@ CRS internal and contractor copies (xlsx) and the trace file go to `<data dir>/a
 **Wording classes (owner decision 2).** "Proven by code" (Pass / Fail), "AI opinion, engineer to confirm" (AI thinks: met / not
 met, with the reason it is not proven), "AI opinion, rule not yet approved", "Query for the engineer", "Not applicable", and
 "Not reviewed" (the AI gave no answer even after the batch was split: never a Query about the paper). The contractor copy holds
-the proven Fail only.
+the proven Fail only. Order 13 adds, behind `AGENT_REVIEW_TWO_READER_VERDICT_ENABLED` (default off), the class "AI verdict, two
+readers agree" (words "AI verdict: met" / "AI verdict: not met"; internal copy only; never a Pass or a Fail): a second model of
+another family answers the same question without seeing the first answer, and the class is given only when both verdicts agree,
+code verified both readers' quotes, the two paper quotes stand on the same page, and no guard objects (`agent_review_two_reader`).
 
 **NOT proven / not in this PR.** No frontend. No run on live data. Not run with a real model (every test uses an invented fake).
 Page pictures (drawings, scans) are not wired: a page with no text yields no Pass or Fail. The absence proof is built and off.

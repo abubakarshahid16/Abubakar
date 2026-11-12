@@ -36,21 +36,40 @@ STATUS_FAIL, STATUS_AI, STATUS_QUERY, STATUS_PASS = (
     "Query",
     "Pass",
 )
-STATUSES = (STATUS_FAIL, STATUS_AI, STATUS_QUERY, STATUS_PASS)
+#: The fifth Status word (owner order 13, point 10): two AI readers reached the same verdict independently. Internal copy only.
+STATUS_AI_VERDICT = "AI verdict"
+STATUSES = (STATUS_FAIL, STATUS_AI_VERDICT, STATUS_AI, STATUS_QUERY, STATUS_PASS)
 HIGH, MEDIUM, LOW = "High", "Medium", "Low"
-#: Internal copy row order: Fail, AI opinion (not met), Query, AI opinion (met), Pass (owner, 12 Nov).
-ORDER_FAIL, ORDER_AI_NOT_MET, ORDER_QUERY, ORDER_AI_MET, ORDER_PASS = range(5)
+#: Internal copy row order: Fail, AI verdict (not met), AI opinion (not met), Query, AI verdict (met), AI opinion (met), Pass
+#: (owner, 12 Nov, order 13 point 10).
+(
+    ORDER_FAIL,
+    ORDER_AI_VERDICT_NOT_MET,
+    ORDER_AI_NOT_MET,
+    ORDER_QUERY,
+    ORDER_AI_VERDICT_MET,
+    ORDER_AI_MET,
+    ORDER_PASS,
+) = range(7)
 #: The sheet of the lines that are not item rows (same Item No scheme), and what each kind is called there.
 OTHER_SHEET = "Not reviewed or not applicable"  # Excel: 31 characters at most
 KIND_NOT_APPLICABLE = "Does not apply"
 KIND_NOT_REVIEWED = "Not reviewed"
 KIND_UNAPPROVED = "Rule not yet approved"
 KIND_NOT_HELD = "Not checked: rule book not held"
-OTHER_KINDS = (KIND_NOT_APPLICABLE, KIND_NOT_REVIEWED, KIND_UNAPPROVED, KIND_NOT_HELD)
+KIND_NOT_CHECKED_HERE = "Not checked on this paper"
+OTHER_KINDS = (
+    KIND_NOT_APPLICABLE,
+    KIND_NOT_REVIEWED,
+    KIND_UNAPPROVED,
+    KIND_NOT_CHECKED_HERE,
+    KIND_NOT_HELD,
+)
 
 PRIORITY_RULE = (
-    "Priority is set by one rule. Fail = High. AI opinion (not met) = High when the rule is mandatory, otherwise Medium. "
-    "Query = Medium when the rule is mandatory, otherwise Low. AI opinion (met) and Pass = blank. Mandatory means a held "
+    "Priority is set by one rule. Fail = High. AI verdict (not met) and AI opinion (not met) = High when the rule is mandatory, "
+    "otherwise Medium. Query = Medium when the rule is mandatory, otherwise Low. AI verdict (met), AI opinion (met) and Pass = blank. "
+    "Mandatory means a held "
     "rule that is not marked as a recommendation ('should'); a checklist item has no stored strength and counts as not "
     "mandatory."
 )
@@ -258,7 +277,9 @@ def priority(status: str, line: Mapping, order: int | None = None) -> str:
     mandatory = line.get("source") == "rule" and line.get("rule_kind") != "advice"
     if status == STATUS_FAIL:
         return HIGH
-    if status == STATUS_AI and order == ORDER_AI_NOT_MET:
+    if (status == STATUS_AI and order == ORDER_AI_NOT_MET) or (
+        status == STATUS_AI_VERDICT and order == ORDER_AI_VERDICT_NOT_MET
+    ):
         return HIGH if mandatory else MEDIUM
     if status == STATUS_QUERY:
         return MEDIUM if mandatory else LOW
