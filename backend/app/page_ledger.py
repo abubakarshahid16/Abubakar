@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors, intake, page_not_read, unsupported_script
+from . import cover_page, errors, intake, local_engine_bar, page_not_read, unsupported_script
 from .config import settings
 from .db import connect
 
@@ -420,6 +420,13 @@ def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
 #
 # Pure: it reads the reader's own stored summary, never a database.
 
+def skipped_on_purpose(reason: object) -> bool:
+    """True when an AI reader's recorded reason says the step was NOT RUN on purpose (the local engine is barred in a Claude-lane run),
+    not that it ran and failed. A page the AI reader never tried is not a page nobody read: the code readers' reading stands, and the
+    skip is said once (`pages_ai_skipped`), never as an unread page to tick (K3, owner 12 Nov: "a false statement about reading")."""
+    return local_engine_bar.NOTE in str(reason or "")
+
+
 READING_COMPLETE = "complete"
 READING_INCOMPLETE = "incomplete"
 
@@ -438,6 +445,7 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
     total = pages.get("pages_total")
     unread = [int(p) for p in pages.get("pages_not_read_into_fields") or []]
     ai_missing: dict[int, str] = {}
+    skipped: dict[int, str] = {}
     if reader and total:
         engine = reader.get("engine") or "AI"
         reasons: dict[int, str] = {}
@@ -446,6 +454,9 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
         code_only = reader.get("code_only")
         if isinstance(code_only, dict):
             for page, why in code_only.items():
+                if skipped_on_purpose(why):
+                    skipped[int(page)] = f"the {engine} reader was not run on this page ({why})"
+                    continue
                 reasons.setdefault(int(page), f"the {engine} reader did not read this page ({why})")
         for page in reader.get("cut_off") or []:
             reasons.setdefault(int(page), f"the {engine} reader was cut off before this page")
@@ -473,6 +484,8 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
     return {
         "pages_ai_not_read": sorted(ai_missing),
         "ai_not_read_reasons": {str(p): why for p, why in ai_missing.items()},
+        # only when something was skipped on purpose: the shape without it is unchanged
+        **({"pages_ai_skipped": sorted(skipped), "ai_skipped_reasons": {str(p): w for p, w in sorted(skipped.items())}} if skipped else {}),
         "reading": {
             "status": READING_INCOMPLETE if incomplete or notes or not total else READING_COMPLETE,
             "pages_total": total,
@@ -535,7 +548,10 @@ def run_unread_pages(
     # reading came back for (`pages_not_read`); older runs, the fields rule.
     unread = cov.get("pages_not_read", cov.get("pages_not_read_into_fields"))
     pages = {int(p) for p in unread or []}
-    pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
+    # a page the AI reader was never run on (barred on purpose) is not unread: runs stored before `pages_ai_skipped` carry it in
+    # `pages_ai_not_read` with the skip's own reason (K3), so it is told apart by that reason
+    ai_reasons = cov.get("ai_not_read_reasons") or {}
+    pages |= {int(p) for p in cov.get("pages_ai_not_read") or [] if int(p) in pages or not skipped_on_purpose(ai_reasons.get(str(p)))}
     if isinstance(reader, dict):
         timed_out = {int(p) for p in reader.get("timed_out") or []}
         total = cov.get("pages_total")
