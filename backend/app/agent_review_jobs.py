@@ -384,12 +384,8 @@ def preflight(
             "SELECT 1 FROM pages WHERE document_id = ? LIMIT 1", (d,)
         ).fetchone():
             return "a rule book of the item list has no stored pages (the context check needs them)"
-    if (
-        not local
-        and not agent_run_second.models_differ(
-            [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
-        )
-    ):  # a local run checks its two models at the engine (`LocalEngine.second_ready`): the second reader is never asked if they match
+    # a local run checks its two models at the engine (`LocalEngine.second_ready`): the second reader is never asked if they match
+    if not local and not agent_run_second.models_differ([agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL):  # fmt: skip
         return "the lead and the second model are of the same family"
     return None
 
