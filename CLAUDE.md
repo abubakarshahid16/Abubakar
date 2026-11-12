@@ -139,6 +139,22 @@ carries the client's name; only the owner can rename it.
     it also helps, or does not hurt, sheets it was not built on (invented +
     held-out totals).
 
+14. **Less waste (owner order, 12 Nov 2026, standing).**
+    (a) Related PRs are combined into ONE branch and tested once: GitHub checks and the bench gate run once on the
+    combined head, and the main tree after the merge must equal the tested tree.
+    (b) ONE light review (one reviewer, one pass, no hand reverts) for layout, wording, docs and tests. A FULL fresh review
+    (attack, hand reverts, mutation entries where the danger zone is touched) for anything on the verdict path. The PR
+    text says which depth was used and why.
+    A FULL fresh review for anything that can change a verdict or a CRS cell, spend money, change the live data, or change what leaves the machine, whether or not the file is on the list; the list only decides where style stops block.
+    The lead runs the mutation check of ALL changed danger-zone modules on the COMBINED head before the merge (a per-PR
+    run cannot see stale entries that only the combination causes).
+    (c) The Windows test job (`tests-windows.yml`) is off: it runs only by hand (`workflow_dispatch`).
+    (d) Style stops (formatting of touched lines, file over 800 lines / function over 80 / complexity, the ruff lint
+    baseline) stop only for files on the verdict path, the one list in `scripts/verdict_path.py` (rule 6's danger zone
+    plus the code that decides or words a verdict or decides what leaves the machine). For every other file they print a
+    WARNING naming the file and the number. Tests, mutation anchors, system map, unused modules, flag register, no client
+    data, no test-sheet names, no second number reader, gitleaks and contract types stop everywhere.
+
 ## Mistakes not to repeat
 
 One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat". Read it before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
@@ -170,7 +186,8 @@ it is stale after 3 hours or when its process is gone. `run_p1.py`,
 ```
 Never write a second waiter.
 
-1. GitHub CI is the first gate for every PR.
+1. GitHub CI is the first gate for every PR. The Windows job is manual (rule 14c). Related PRs ride one branch and
+   are checked once on the combined head (rule 14a).
 2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
    of green PRs, plus per PR only when it touches retrieval, answer, review or
    eval code.

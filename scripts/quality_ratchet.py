@@ -34,6 +34,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verdict_path
+
 REPO = Path(__file__).resolve().parent.parent
 BACKEND_APP = REPO / "backend" / "app"
 FRONTEND_SRC = REPO / "frontend" / "src"
@@ -527,6 +530,54 @@ def compare(baseline: dict, current: dict) -> list[str]:
     return regressions
 
 
+#: Style and size metrics: a rise is a STOP only when it comes from a file on
+#: the verdict path (`verdict_path.py`), otherwise a WARNING naming the number.
+#: The two length ones are already held per file by `long_code` (stricter), so
+#: a verdict-path file that grows is stopped there; here they only warn.
+STYLE_METRICS = ("max_backend_file_lines", "max_backend_function_lines",
+                 "max_frontend_component_lines", "max_cyclomatic_complexity")
+_COMPLEX_LINE = re.compile(r"^(\S+?):\d+:\d+: C901 `([^`]+)` is too complex \((\d+) > ")
+
+
+def complexity_over(limit: int) -> list[str]:
+    """Every backend function more complex than `limit`, as 'path::name ...'
+    lines, so a rise can be traced to a file (verdict path or not)."""
+    ruff = shutil.which("ruff") or str(Path(sys.executable).with_name("ruff"))
+    proc = subprocess.run(
+        [ruff, "check", str(BACKEND_APP), "--select", "C901", "--config",
+         "lint.mccabe.max-complexity=1", "--no-cache", "--output-format", "concise"],
+        capture_output=True, text=True, cwd=REPO)
+    out = []
+    for raw in proc.stdout.splitlines():
+        m = _COMPLEX_LINE.match(raw)
+        if m and int(m.group(3)) > limit:
+            where = Path(m.group(1))
+            if where.is_absolute() and where.is_relative_to(REPO):
+                where = where.relative_to(REPO)
+            out.append(f"{where.as_posix()}::{m.group(2)} complexity is {m.group(3)} (was at most {limit})")
+    return out
+
+
+def split_regressions(baseline: dict, regressions: list[str]) -> tuple[list[str], list[str]]:
+    """(stops, warnings) for `compare()`'s lines. A style metric that rose is a
+    warning unless a verdict-path file is behind it; any other metric stops."""
+    stops, warns = [], []
+    for line in regressions:
+        name = line.split(":", 1)[0]
+        if name not in STYLE_METRICS:
+            stops.append(line)
+        elif name == "max_cyclomatic_complexity":
+            culprits = complexity_over(baseline["metrics"][name]["value"])
+            on_path = [c for c in culprits if verdict_path.is_verdict_path(c)]
+            if on_path:
+                stops += [f"{c}; {line}" for c in on_path]
+            else:
+                warns += [f"{c}; {line}" for c in culprits] or [line]
+        else:
+            warns.append(f"{line} (the file behind it is held per file by the long-code list)")
+    return stops, warns
+
+
 def _print_report(data: dict) -> None:
     for name, entry in sorted(data["metrics"].items()):
         if entry["value"] is None:
@@ -562,12 +613,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  closer: {line}")
         for line in moved:
             print(f"  moved, kept as it was: {line}")
+        blocked, warned = verdict_path.split(blocked)
+        for line in warned:
+            verdict_path.warn(line)
         if blocked:
-            print("\nBLOCKED - format the lines this PR touches, or the new file:")
+            print("\nBLOCKED - format the lines this PR touches, or the new file (verdict-path files stop):")
             for line in blocked:
                 print(f"  - {line}")
             return 1
-        print("\nOK: no changed file moved further from the formatter.")
+        print("\nOK: no verdict-path file moved further from the formatter"
+              + (f"; {len(warned)} warning(s) above for other files." if warned else "."))
         return 0
 
     if args.cmd == "record-long-code":
@@ -594,7 +649,10 @@ def main(argv: list[str] | None = None) -> int:
     _print_report(current)
     listed = json.loads(Path(args.long_code).read_text(encoding="utf-8"))
     blocked, shrunk = compare_long_code(listed, long_code())
+    regressions, warned = split_regressions(baseline, regressions)
+    blocked, warn_long = verdict_path.split(blocked)
     regressions += blocked
+    warned += warn_long
     print(f"\n  long code: {len(listed['files'])} files over {FILE_LIMIT} lines and "
           f"{len(listed['functions'])} functions over {FUNCTION_LIMIT} listed; "
           f"{len(blocked)} new or longer, {len(shrunk)} shorter")
@@ -603,12 +661,15 @@ def main(argv: list[str] | None = None) -> int:
     if shrunk and not blocked:
         print("  the bar went down: run `python scripts/quality_ratchet.py record-long-code`"
               " in this PR so it cannot come back")
+    for line in warned:
+        verdict_path.warn(line)
     if regressions:
-        print("\nBLOCKED - this PR makes the quality bar worse:")
+        print("\nBLOCKED - this PR makes the quality bar worse (verdict-path files and non-style rules):")
         for line in regressions:
             print(f"  - {line}")
         return 1
-    print("\nOK: no measured rule is worse than the baseline.")
+    print("\nOK: no verdict-path file or non-style rule is worse than the baseline"
+          + (f"; {len(warned)} warning(s) above for other files." if warned else "."))
     return 0
 
 
