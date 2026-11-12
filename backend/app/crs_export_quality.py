@@ -254,11 +254,22 @@ _ACTION = re.compile(
 )
 
 
+_BARE_NUMBER = re.compile(r"[(\[]?\d+(?:[.,]\d+)*[.)\]:;,]?")
+_CLAUSE_NUMBER = re.compile(r"\d+(?:\.\d+)*")
+
+
+def _bad_stop(text: str, at: int) -> bool:
+    """Is the full stop at `at` the end of a CLAUSE NUMBER ("4.1.2. Scope")? A cut there would end the head on the number."""
+    return bool(_CLAUSE_NUMBER.fullmatch(text[:at].split(" ")[-1].split("\n")[-1]))
+
+
 def _bad_space(text: str, at: int) -> bool:
     """Is the space at `at` between a number and its unit, or a clause word and
     its id? A cut there would part "10" from "mm" or "clause" from "4.1"."""
     before = text[:at].split(" ")[-1]
     after = text[at + 1 :].split(" ")[0]
+    if _BARE_NUMBER.fullmatch(before):  # a cut never ends on a bare number or a clause number: it falls before the number
+        return True
     if any(ch.isdigit() for ch in before) and after[:1] and not after[:1].isupper():
         return True
     return before.lower() in _UNIT_LEADERS and any(ch.isdigit() for ch in after)
@@ -276,6 +287,8 @@ def split_comment(text: str, limit: int = COMMENT_LIMIT) -> tuple[str, str]:
     for marker, keep in (("\n", 0), (". ", 1), (" ", 0)):
         at = text.rfind(marker, 0, limit + 1)
         while at > 0 and marker == " " and _bad_space(text, at):
+            at = text.rfind(marker, 0, at)
+        while at > 0 and marker == ". " and _bad_stop(text, at):
             at = text.rfind(marker, 0, at)
         if at > 0:
             cut = at + keep
@@ -640,6 +653,22 @@ def park_placeholders(view: dict) -> dict:
         "run_status_note": top,
         "review_notes": [*view["review_notes"], *notes],
     }
+
+
+#: The ONE label set of the Comment By column for a machine draft (K2): the older labels of the draft lanes ("AI Review",
+#: "AI - engineer to confirm", "AI clause review - engineer to confirm") all say the same thing to a reader. A source with its own
+#: meaning keeps its own label ("Playbook check (draft)"); an engineer's name is never touched.
+AI_DRAFT_LABEL = "AI reviewer - engineer to confirm"
+_AI_DRAFT_LABELS = frozenset(
+    {"AI Review", "AI - engineer to confirm", "AI clause review - engineer to confirm"}
+)
+
+
+def one_label_set(rows: list[dict]) -> None:
+    """Rule 8 (K2): every machine-draft label of the Comment By column becomes `AI_DRAFT_LABEL`; nothing else changes."""
+    for entry in rows:
+        if str(entry.get("comment_by") or "") in _AI_DRAFT_LABELS:
+            entry["comment_by"] = AI_DRAFT_LABEL
 
 
 def finish(view: dict, dropped: int, merged: int) -> dict:
