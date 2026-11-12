@@ -41,6 +41,11 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
         </ul>
       )}
       <PaperTextNotice paperText={summary.paper_text} />
+      {summary.page_reread_stopped && (
+        <p role="status" data-testid="agent-page-reread-stopped" className="text-sm text-slateish-100">
+          The second reading of pages stopped early: {summary.page_reread_stopped.not_reread} lines were not re-read ({summary.page_reread_stopped.why}).
+        </p>
+      )}
       {summary.stop_reason && !paperTextStopped(summary.paper_text) && (
         <p role="status" data-testid="agent-stop-reason"
           className="rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">

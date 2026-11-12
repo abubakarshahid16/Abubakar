@@ -111,7 +111,7 @@ setting says claude; `ollama` closes both. `local_engine_bar.is_claude_lane_run`
 only when one of `REVIEW_ENGINE_SETTINGS` says claude: a normal review with every engine local is not barred. The bar is decided per job by
 `is_claude_lane_run(agent_job)`: the AI reviewer's job (`jobs.stage = agent_review`, it carries `review_jobs._review_scope`) is
 barred exactly when its own gate is open; a normal review by the rule above. The reviewer's own setting does not bar a
-normal review. The app's second opinion on a Claude review is Claude (`agent_review_run`); the local second opinion exists
+normal review. The page re-read before a silent line (`agent_review_reread`, switch `AGENT_REVIEW_REREAD_SILENT_ENABLED`, default off) costs, per silent line, at most one page re-read by the second model, one re-ask of the lead on that page, the normal second opinion and the context check of a Fail, all through `Runner.call`, so the step gate, the lane gate, the approved-document check and the caps apply as to any call. The app's second opinion on a Claude review is Claude (`agent_review_run`); the local second opinion exists
 only in `scripts/run_agent_review.py`.
 
 Section 2's line references above are still those of `1b445af`.

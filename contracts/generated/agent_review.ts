@@ -39,6 +39,14 @@ export interface AgentPaperText {
   sentence?: string | null;
 }
 
+/** The optional second reading of pages ended early in this run (a cap or an error inside it, never the review). */
+export interface AgentPageRereadStop {
+  /** plain words for the reason, no document text. */
+  why: string;
+  /** silent lines that were not re-read because it had ended (the lines carrying the marker; counts equal lines). */
+  not_reread: number;
+}
+
 /** GET /api/reviews/runs/{id}/agent/summary. Counts are per class, over the lines of this run only; there is no percentage. */
 export interface AgentRunSummary {
   paper_kind: string;
@@ -56,6 +64,8 @@ export interface AgentRunSummary {
   equipment_state?: string | null;
   /** the sentences about the paper's equipment and the rules left out for it (counts only, no document text). */
   equipment_notes: string[];
+  /** null when the second reading of pages is off or ran fully (shown as nothing, never 0). */
+  page_reread_stopped?: AgentPageRereadStop | null;
   /** lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class. */
   not_reviewed: number;
   /** "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise. */

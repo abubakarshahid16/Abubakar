@@ -49,6 +49,7 @@ from . import (
 from . import agent_review_items as items_mod
 from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
+from . import agent_review_reread as reread_mod
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from .agent_review_pair import (  # noqa: F401 - re-exported
@@ -527,6 +528,7 @@ def _make_runner(
         paper=submittal, items=plan["items"], pages=request_mod.DbPages(connect(), submittal),
         clauses=request_mod.ClauseCache(plan["cache"]), model=agent_claude.LEAD_MODEL, send=send, env=env,
         done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type, std_pages=request_mod.StdPages(),
+        reread_silent=settings.agent_review_reread_silent_enabled,
         sink=lambda line, trace: store_line(run_id, line, trace), trace_path=folder / "trace.jsonl",
         tier_lookup=_tier_lookup(kind),
         retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS,
@@ -610,6 +612,11 @@ def _finish(
         else []
     )
     counts = runner_mod.counts_of(lines)
+    reread = (  # C4: a stopped page re-read is stated, never dropped (null when off or ran fully)
+        reread_mod.reread_facts(runner.reread_enabled, runner.reread_stopped, lines)
+        if runner
+        else None
+    )
     models = sorted(runner.lead_models | runner.second_models) if runner else []
     spent = runner and (
         runner.calls["lead"] or runner.calls["second"] or runner.calls["context"]
@@ -620,7 +627,8 @@ def _finish(
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
-                               "rule_books_not_held": len(plan["block"].get("missing_rule_books") or [])}}  # fmt: skip
+                               "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
+                               **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {})}}  # fmt: skip
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
     crs_lines.write_internal(lines, folder / "crs-internal.xlsx", meta)
@@ -633,7 +641,7 @@ def _finish(
             " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
             (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
              json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now(),
-             json.dumps(_equipment_facts(plan["block"]))),
+             json.dumps({**_equipment_facts(plan["block"]), "page_reread": reread})),
         )  # fmt: skip
     return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial}
 

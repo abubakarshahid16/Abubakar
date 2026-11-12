@@ -239,6 +239,7 @@ def agent_summary(
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
         paper_text=_paper_text(run),
+        page_reread_stopped=_equipment(run).get("page_reread"),
     )
 
 
