@@ -1,4 +1,4 @@
-# ruff: noqa: C408, E501
+# ruff: noqa: C408
 """The calculator of the one reviewer (owner, 12 Nov 2026, STATE section 37): code comparisons as lines of the AI review. Pure; no model, no database.
 
 Each test names the risk of ONE-REVIEWER.md it guards. A "Proven by code" Pass or Fail is unreachable without a compared value with both quotes found by code.

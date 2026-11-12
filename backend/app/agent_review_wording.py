@@ -25,6 +25,7 @@ from .agent_review_verdict import (
     DISAGREE_WHY,
     FAIL,
     NOT_A_RULE,
+    OWNER_TIER,
     PASS,
     QUERY,
     RULE_NOT_APPROVED,
@@ -35,7 +36,6 @@ from .agent_review_verdict import (
     hold_silence,
     item_tier,
     met_unsafe_why,
-    OWNER_TIER,
 )
 
 CLASS_PROVEN = "Proven by code"
