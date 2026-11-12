@@ -18,6 +18,7 @@ Pure: no database, no model, no network. Words and ids only; no document text is
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
 
@@ -29,6 +30,8 @@ from .reader_api import _fold
 BY_CODE = (
     "decided by code"  # `agent_review_verdict.BY_CODE`; a test keeps the two equal
 )
+log = logging.getLogger(__name__)
+
 SOURCE = "code"
 COMPLIANT, NON_COMPLIANT = comparison.COMPLIANT, comparison.NON_COMPLIANT
 PASS, FAIL = "Pass", "Fail"
@@ -149,7 +152,11 @@ def recompute(requirement: Mapping, observed: Mapping) -> str | None:
             },
             submittal_facts=None,
         )
-    except Exception:  # noqa: BLE001 - a comparison that cannot be redone proves nothing
+    except Exception as exc:  # noqa: BLE001 - a comparison that cannot be redone proves nothing
+        log.warning(
+            "code proof: the comparison could not be made again (%s)",
+            type(exc).__name__,
+        )
         return None
     status = got.get("status")
     return (
