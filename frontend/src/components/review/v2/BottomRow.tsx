@@ -6,8 +6,10 @@ import { downloadAgentCrs } from "../agent/downloadAgentCrs";
 import { downloadCrs } from "../downloadCrs";
 import { signWaits } from "./words";
 
-export function BottomRow({ ruleCheckRun, aiRun, undecided, codeRecorded, blockers, signed, onSign }: {
+export function BottomRow({ ruleCheckRun, aiRun, undecided, codeRecorded, blockers, signed, onSign, contractorWords }: {
   ruleCheckRun: string | null; aiRun: string | null; undecided: number; codeRecorded: boolean; blockers: string[]; signed: boolean; onSign: () => void;
+  /** What the contractor file holds for this paper's kind: the backend's own answer, never a fixed claim here. */
+  contractorWords?: string | null;
 }) {
   const [problem, setProblem] = useState<string | null>(null);
   const waits = signWaits({ undecided, codeRecorded, blockers });
@@ -27,14 +29,16 @@ export function BottomRow({ ruleCheckRun, aiRun, undecided, codeRecorded, blocke
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" className={btn} onClick={() => void copy("team")}>CRS for your team</button>
         <button type="button" className={btn} onClick={() => void copy("contractor")} disabled={!aiRun}
-          title={aiRun ? undefined : "The contractor file is made when you sign and issue"}>CRS for the contractor</button>
+          title={aiRun ? undefined : "The contractor file is made when you sign and issue"}>
+          {signed ? "CRS for the contractor (working copy)" : "CRS for the contractor (working copy, not issued)"}
+        </button>
         <button type="button" onClick={onSign} disabled={signed || waits != null} data-testid="v2-sign"
           className="ml-auto rounded-[var(--radius-sm)] bg-signal-500 px-4 py-1.5 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:bg-ink-600 disabled:text-slateish-500">
           {signed ? "Signed" : "Sign and issue"}
         </button>
       </div>
       <p className="text-xs text-slateish-400" data-testid="v2-contractor-line">
-        The contractor file holds only what code proved, or your own words. It never carries an AI wording. The rule check's contractor file is made when you sign and issue.
+        {contractorWords ? `${contractorWords} ` : ""}The rule check's contractor file is made when you sign and issue.
       </p>
       {waits && !signed && <p role="status" data-testid="v2-sign-waits" className="text-xs text-slateish-300">{waits}</p>}
       {problem && <p role="alert" className="text-xs text-danger-500">{problem}</p>}

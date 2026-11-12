@@ -109,6 +109,8 @@ export interface PointsListing {
   decided: number;
   of: number;
   removed: ReviewPoint[];
+  /** What the AI review's contractor copy holds for this paper's kind, in the backend's own words. */
+  contractor_copy?: { kind: string | null; words: string };
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };

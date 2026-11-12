@@ -81,7 +81,8 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
 
       {listing && (
         <BottomRow ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} undecided={undecided}
-          codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign} />
+          codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign}
+          contractorWords={listing.contractor_copy?.words ?? null} />
       )}
       {viewing && submittal && <PageImageViewer doc={submittal} initialPage={viewing.page} onClose={() => setViewing(null)} />}
     </section>
