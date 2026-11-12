@@ -99,7 +99,7 @@ describe("AgentLines", () => {
     lines.mockResolvedValueOnce(ok([line({ item_id: "T1" })]));
     const onOpen = vi.fn();
     render(<AgentLines runId="r1" onOpenTrace={onOpen} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Open the trace of line T1" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Open the trace of Point/ }));
     expect(onOpen).toHaveBeenCalledWith("T1");
   });
 });

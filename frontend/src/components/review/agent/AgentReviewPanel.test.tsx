@@ -43,7 +43,7 @@ describe("AgentReviewPanel", () => {
       model: "model-x", reason: "because", gate: [{ step: "quote check", outcome: "found", reason: "page 2" }],
     } });
     render(<AgentReviewPanel runId="r1" />);
-    await userEvent.click(await screen.findByRole("button", { name: "Open the trace of line L1" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Open the trace of Point/ }));
     expect(api.trace).toHaveBeenCalledWith("r1", "L1");
     const trace = await screen.findByTestId("agent-trace");
     for (const t of ["PQ text", "RQ text", "Book A", "5.1", "model-x", "because"]) expect(trace).toHaveTextContent(t);

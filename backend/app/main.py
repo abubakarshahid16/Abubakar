@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Respo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from . import agent_review_open_points as agent_open_points_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
@@ -3361,6 +3362,7 @@ def decide_crs_open_finding(
                      **schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409})
 def issue_review_crs(
     review_run_id: str,
+    ai_review_read: bool = False,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """PF5 (#885): ISSUE THE CONTRACTOR'S COPY - only a finished one.
@@ -3369,7 +3371,13 @@ def issue_review_crs(
     submittal is unread, or any finding on the sheet has no engineer's
     decision; the reply names each blocker in words. When it is issued, the
     exact workbook is kept with its sha256 and the run (`crs_issue.archive`)
-    and the reply carries both. The internal copy is not gated."""
+    and the reply carries both. The internal copy is not gated.
+
+    U2: refused (409) while the run's AI review has open lines (anything not
+    Pass and not "Not applicable") unless the request says `ai_review_read=true`,
+    which the screen sends only after the engineer ticked "I have read the AI
+    review's points". The issued file is the same either way; the issued-copy
+    row records the open count and the acknowledgement."""
     _require_identity_to_write(scope)
     gate = _crs_issue_gate(review_run_id, scope)
     if not gate["final_code_recorded"]:
@@ -3380,9 +3388,16 @@ def issue_review_crs(
     if not gate["issuable"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+    open_count = agent_open_points_mod.open_points(connect(), review_run_id)
+    if not ai_review_read:
+        if open_count:
+            raise HTTPException(status_code=409, detail=errors.safe_error(
+                errors.CRS_NOT_FINISHED, agent_open_points_mod.refusal(open_count)))
     workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
     record = crs_issue_mod.archive(review_run_id, workbook, filename,
-                                   actor=scope.user_id or "unrestricted")
+                                   actor=scope.user_id or "unrestricted",
+                                   ai_open_points=open_count,
+                                   ai_review_acknowledged=None if open_count is None else ai_review_read)
     return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
                                                "X-Issued-Sha256": record["sha256"]})
 

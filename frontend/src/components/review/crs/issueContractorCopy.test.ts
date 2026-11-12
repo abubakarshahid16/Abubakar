@@ -38,3 +38,14 @@ describe("issueContractorCopy", () => {
     expect(await issueContractorCopy("run-1", CLEAR)).toEqual({ ok: false, message: "Comments are still open on this run." });
   });
 });
+
+describe("issueContractorCopy: the AI review flag (U2)", () => {
+  it("sends ai_review_read only when the engineer said they read the AI review's points", async () => {
+    const calls: unknown[][] = [];
+    downloadCrs.mockImplementation(async (...a: unknown[]) => { calls.push(a); return null; });
+    const clear = { unsaved: 0, unopenedNeedsYou: 0, signLeft: [] };
+    await issueContractorCopy("r1", clear);
+    await issueContractorCopy("r1", { ...clear, aiReviewRead: true });
+    expect(calls).toEqual([["r1", "issue"], ["r1", "issue", { aiReviewRead: true }]]);
+  });
+});
