@@ -622,9 +622,9 @@ def _clean(text) -> str:
 #: PER PAPER KIND (owner, 12 Nov 2026): do "AI verdict: not met" rows go on the CONTRACTOR copy? False for every kind. Nothing switches it on
 #: by itself: a person sets a kind to True after the scorer shows two-reader verdicts right 95 of 100 on that kind's key. Read ONLY by
 #: `_contractor_items`. It moves into the kind table (`kind_review_table.json`, PR #1787) when that is on main.
-CONTRACTOR_COPY_AI_VERDICT: dict[str, bool] = {
-    kind: False for kind in rule_labels.PAPER_KINDS
-}
+CONTRACTOR_COPY_AI_VERDICT: dict[str, bool] = dict.fromkeys(
+    rule_labels.PAPER_KINDS, False
+)
 CONTRACTOR_COMMENT = (
     "Comment"  # the Status cell of such a row on the contractor copy: no AI word
 )

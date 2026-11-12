@@ -2,6 +2,7 @@
 
 Invented data; no model, no network."""
 
+# ruff: noqa: F811
 from __future__ import annotations
 
 import itertools
@@ -15,7 +16,7 @@ from app import crs_ai_words as words
 from app import crs_ai_workbook as WB
 from app import rule_labels
 from app.api import agent_review_schemas as contract
-from tests.test_agent_review_crs import META, OK, SK, mk, rows_of
+from tests.test_agent_review_crs import META, mk, rows_of
 from tests.test_agent_review_routes import client, finished_run  # noqa: F401
 
 CLASS = two.CLASS_TWO_READERS
@@ -24,11 +25,11 @@ CLASS = two.CLASS_TWO_READERS
 def verdict_line(word="AI verdict: met", **kw):
     """A textual line the always-on route made an "AI verdict" (old second opinion agreed, guards ok), for the CRS."""
     ai = "Pass" if word == two.WORD_MET else "Fail"
-    base = dict(
-        verdict="Pass" if ai == "Pass" else "Fail", decided_by="AI verdict", ai_verdict=ai, reason_code="met" if ai == "Pass" else "not_met",
-        model="m1", second_opinion={"agree": True, "model": "m2"}, pass_guard={"ok": True} if ai == "Pass" else None,
-        quotes_checked={"paper": True, "clause": True, "clause_strong": True}, field_roles=["x"],
-    )  # fmt: skip
+    base = {
+        "verdict": "Pass" if ai == "Pass" else "Fail", "decided_by": "AI verdict", "ai_verdict": ai, "reason_code": "met" if ai == "Pass" else "not_met",
+        "model": "m1", "second_opinion": {"agree": True, "model": "m2"}, "pass_guard": {"ok": True} if ai == "Pass" else None,
+        "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "field_roles": ["x"],
+    }  # fmt: skip
     base.update(kw)
     return mk("R-9", base.pop("verdict"), base.pop("ai_verdict"), **base)
 
