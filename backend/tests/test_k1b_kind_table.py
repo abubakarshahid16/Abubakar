@@ -237,7 +237,7 @@ def test_the_gate_asks_the_rules_of_a_general_kind_only_with_its_own_switch(
         assert not agent_review_gate.rules_kind_enabled(kind)
 
 
-def _stub(monkeypatch, order, stop=None):
+def _stub(monkeypatch, order, stop=None, usd=0.5):
     plan = {
         "items": [
             {"item_id": "S-1", "source": "skill"},
@@ -253,7 +253,7 @@ def _stub(monkeypatch, order, stop=None):
         return {
             "counts": {"items": 1},
             "stop_reason": stop,
-            "usd": 0.5,
+            "usd": usd,
             "partial": bool(stop),
         }
 
@@ -292,7 +292,7 @@ def test_with_the_switch_off_the_general_review_runs_alone_as_before(
     _stub(monkeypatch, order)
     run_id, job_id = start()
     agent_review_jobs.run(job_id, "w")
-    assert [o[0] for o in order] == ["general"] or order == []  # never the rule part
+    assert [o[0] for o in order] == ["general"]  # never the rule part
 
 
 def test_a_rule_part_that_stopped_skips_the_general_parts_and_says_so(
@@ -408,12 +408,12 @@ def test_the_transmittal_check_compares_numbers_and_revisions_by_code(
     )
     by = {r["number"]: (r["status"], r["reason"]) for r in got["rows"]}
     assert by == {
-        "ABC-100-001": ("Pass", "revision equal"),
-        "ABC-100-002": ("Fail", "revision differs"),
+        "ABC-100-001": ("Pass", "revision held"),
+        "ABC-100-002": ("Query", "the revision listed is not held: held revisions: C"),
         "ABC-100-003": ("Query", "the transmittal states no revision"),
         "ABC-100-009": ("Query", "not in the library for this reader"),
     }  # the transmittal's own number is not a listed document
-    assert got["counts"] == {"Pass": 1, "Fail": 1, "Query": 2, "listed": 4}
+    assert got["counts"] == {"Pass": 1, "Query": 3, "listed": 4}
     assert "may read" in got["boundary"]
 
 
@@ -459,3 +459,290 @@ def test_only_the_datasheet_is_scored_and_the_field_is_required():
         kind_review_table.scored("procedure") is False
         and kind_review_table.scored(None) is False
     )
+
+
+# ---------------------------------------------------------------- R46 block 1: the fail-closed behaviour, proven
+
+
+def test_the_gate_reads_the_table_each_time_not_a_tuple_frozen_in_code(
+    tmp_path, monkeypatch
+):
+    assert not agent_review_gate.general_kind_enabled("drawing")
+    _write(
+        tmp_path,
+        monkeypatch,
+        lambda d: d["kinds"]["drawing"].update(review="general", window_tokens=5000),
+    )
+    assert (
+        agent_review_gate.general_kind_enabled("drawing")
+        and "drawing" in agent_review_gate.AGENT_GENERAL_REVIEW_KINDS
+    )
+    _write(
+        tmp_path,
+        monkeypatch,
+        lambda d: d["kinds"]["datasheet"].update(
+            review="none", rules_of_kind=[], ask_rules=False
+        ),
+    )
+    assert (
+        not agent_review_gate.kind_enabled("datasheet")
+        and agent_review_gate.AGENT_REVIEW_KINDS == ()
+    )
+    monkeypatch.undo()
+    kind_review_table._load.cache_clear()
+
+
+def test_a_kind_with_no_row_asks_nothing_and_is_refused_with_a_plain_reason(
+    tmp_path, monkeypatch
+):
+    _write(tmp_path, monkeypatch, lambda d: d["kinds"].pop("procedure"))
+    assert not kind_review_table.has_row("procedure")
+    assert (
+        kind_review_table.row("procedure")["review"] == "none"
+    )  # never the datasheet's row
+    assert not kind_review_table.asks_rules(
+        "procedure"
+    ) and kind_review_table.window_settings("procedure") == (0, 0)
+    assert not agent_review_gate.general_kind_enabled(
+        "procedure"
+    ) and not agent_review_gate.rules_kind_enabled("procedure")
+    monkeypatch.undo()
+    kind_review_table._load.cache_clear()
+
+
+def test_scored_must_be_a_real_true_or_false(tmp_path, monkeypatch):
+    for bad in ("yes", 1, None):
+        _write(
+            tmp_path,
+            monkeypatch,
+            lambda d, bad=bad: d["kinds"]["procedure"].update(scored=bad),
+        )
+        with pytest.raises(kind_review_table.TableError):
+            kind_review_table.table()
+    monkeypatch.undo()
+    kind_review_table._load.cache_clear()
+
+
+def test_a_bad_table_does_not_stop_the_app_it_refuses_reviews_with_the_reason(
+    world, tmp_path, monkeypatch
+):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(kind_review_table, "TABLE_PATH", bad)
+    kind_review_table._load.cache_clear()
+    assert kind_review_table.problem()
+    assert (
+        agent_review_gate.AGENT_REVIEW_KINDS == ()
+        and agent_review_gate.AGENT_GENERAL_REVIEW_KINDS == ()
+    )
+    assert not agent_review_gate.kind_enabled(
+        "datasheet"
+    ) and not agent_review_gate.general_kind_enabled("procedure")
+    assert (
+        paper_kind.decide_paper_kind(
+            [{"page_no": 1, "text": "PUMP DATA SHEET"}]
+        ).paper_kind
+        == "datasheet"
+    )  # the kind code still runs
+    assert "cannot be used" in agent_review_gate.refusal_reason()
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    got = TestClient(app).post(
+        "/api/reviews/agent-run", json={"submittal_document_id": PAPER}
+    )
+    assert got.status_code == 409 and "cannot be used" in json.dumps(got.json())
+    monkeypatch.undo()
+    kind_review_table._load.cache_clear()
+
+
+# ---------------------------------------------------------------- R46 block 2: the transmittal check never prints a Fail
+
+
+NEAR_MISSES = [
+    "revision of the vendor", "Revision OF the vendor", "rev for review", "Rev. no stated", "revision no 3", "Rev AB", "Rev ABCD",
+    "revision and approval", "Revision: issued", "reviewed by the vendor", "Rev", "Revision.", "revised 2024", "rev. to follow",
+    "Rev -", "Revision #", "revision a", "Rev 1234",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("phrase", NEAR_MISSES)
+def test_a_phrase_that_is_not_a_revision_field_gives_no_revision(phrase):
+    assert (
+        transmittal_check.listed([(1, f"ABC-100-001 {phrase}")], {}, "")[0]["revision"]
+        == ""
+    )
+
+
+@pytest.mark.parametrize(
+    ("phrase", "rev"),
+    [
+        ("Rev A", "A"),
+        ("REV. 2", "2"),
+        ("Revision: B1", "B1"),
+        ("rev 0", "0"),
+        ("Rev 12A", "12A"),
+        ("Rev # C", "C"),
+    ],
+)
+def test_an_explicit_revision_field_is_read(phrase, rev):
+    assert (
+        transmittal_check.listed([(1, f"ABC-100-001 {phrase} for review")], {}, "")[0][
+            "revision"
+        ]
+        == rev
+    )
+
+
+def test_a_library_holding_two_revisions_compares_against_both_and_no_case_prints_a_fail(
+    tmp_path, monkeypatch
+):
+    conn = _transmittal_world(tmp_path, monkeypatch)
+    for doc, rev in (("doc_b1", "A"), ("doc_b2", "B")):
+        s.add_document(conn, doc, f"{doc}.pdf", "x")
+        conn.execute(
+            "INSERT INTO document_classification (document_id, document_number, revision, suggested_by) VALUES (?,'XYZ-200-001',?,'t')",
+            (doc, rev),
+        )
+    allowed = frozenset({"doc_tr", "doc_a", "doc_b", "doc_c", "doc_b1", "doc_b2"})
+    import itertools
+
+    seen = set()
+    for stated in ("A", "B", "C", "", "OF"):
+        sheet = (
+            f"1 XYZ-200-001 {'Rev ' + stated if stated else 'for review'} for review\n"
+        )
+        conn.execute("UPDATE pages SET text = ? WHERE document_id = 'doc_tr'", (sheet,))
+        got = transmittal_check.check(conn, "doc_tr", allowed)
+        (row,) = got["rows"]
+        seen.add((stated, row["status"], row["reason"]))
+        assert row["status"] in ("Pass", "Query") and "Fail" not in json.dumps(got)
+    assert ("A", "Pass", "revision held") in seen and (
+        "B",
+        "Pass",
+        "revision held",
+    ) in seen
+    assert (
+        "C",
+        "Query",
+        "the revision listed is not held: held revisions: A, B",
+    ) in seen
+    assert ("OF", "Query", "the transmittal states no revision") in seen
+    assert itertools  # (the sweep above is the brute force: every stated value against a two-revision library)
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    book = load_workbook(BytesIO(transmittal_check.build_xlsx(got, "doc_tr")))
+    text = " ".join(str(c.value) for r in book["CRS"].iter_rows() for c in r if c.value)
+    assert "Fail" not in text and "Contractor to confirm" in text
+
+
+# ---------------------------------------------------------------- R46 block 3: a cue only proposes; the library is not rewritten
+
+
+def _kind(*lines):
+    return paper_kind.decide_paper_kind([{"page_no": 1, "text": "\n".join(lines)}])
+
+
+def test_a_word_inside_a_datasheet_title_does_not_make_it_a_calculation():
+    for title in (
+        "Heat Exchanger Data Sheet - thermal calculation basis",
+        "PUMP DATA SHEET calcs by vendor",
+    ):
+        got = _kind(title)
+        assert (got.paper_kind, got.guess, got.method) == (
+            "datasheet",
+            False,
+            "title_cue",
+        )  # as on main
+    assert _kind("Pump calcs by vendor").paper_kind != "calculation"
+
+
+def test_a_data_sheet_heading_with_a_calculation_or_contract_heading_is_not_sure_and_stays_reviewable():
+    for other, name in (
+        ("CONTRACT FOR SUPPLY OF SKIDS", "contract"),
+        ("Relief Valve Sizing Calculation", "calculation"),
+    ):
+        for order in ((other, "PUMP DATA SHEET"), ("PUMP DATA SHEET", other)):
+            got = _kind(*order)
+            assert (got.paper_kind, got.guess, got.method) == (
+                "datasheet",
+                True,
+                "cues_conflict",
+            )
+            assert got.candidates == tuple(sorted({"datasheet", name}))
+    assert agent_review_gate.kind_enabled(
+        "datasheet"
+    )  # the datasheet review is not refused for it
+    assert "not sure" in agent_review_kind.decided_by("cues_conflict")
+
+
+def test_the_single_headings_still_decide():
+    assert _kind("Relief Valve Sizing Calculation").paper_kind == "calculation"
+    assert _kind("CONTRACT FOR SUPPLY OF SKIDS").paper_kind == "contract"
+    assert (
+        _kind("Sizing calculation of the vendor, revised").paper_kind != "calculation"
+    )  # not a heading: the line does not end in it
+
+
+def _doc_with_cover(conn, doc, text):
+    s.add_document(conn, doc, f"{doc}.pdf", text)
+    conn.commit()
+
+
+def test_a_paper_with_a_finished_review_keeps_that_kind_a_confirmed_kind_wins_over_both(
+    world, monkeypatch
+):
+    conn = db.connect()
+    agent_review_schema.ensure_schema()
+    _doc_with_cover(
+        conn, "doc_old", "RELIEF VALVE SIZING CALCULATION"
+    )  # a cue would now say: calculation
+    assert agent_review_kind.read_kind(conn, "doc_old")["kind"] == "calculation"
+    with conn:
+        conn.execute(
+            "INSERT INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, started_at, finished_at)"
+            " VALUES ('r-old','doc_old','datasheet','x','t','t2')"
+        )
+    got = agent_review_kind.read_kind(conn, "doc_old")
+    assert (got["kind"], got["method"], got["guess"]) == (
+        "datasheet",
+        "earlier_review",
+        True,
+    )
+    assert "earlier review" in agent_review_kind.decided_by(got["method"], None, True)
+    with conn:
+        conn.execute(
+            "INSERT INTO document_kinds (document_id, kind, state, router_version, routed_at) VALUES ('doc_old','procedure','confirmed','1','t')"
+        )
+    assert (
+        agent_review_kind.read_kind(conn, "doc_old")["kind"] == "procedure"
+    )  # an engineer's kind wins
+
+
+def test_the_review_kind_route_says_not_sure_choose_with_both_candidates(
+    tmp_path, monkeypatch
+):
+    s.setup_world(tmp_path, monkeypatch)
+    conn = db.connect()
+    _doc_with_cover(conn, "doc_two", "CONTRACT FOR SUPPLY OF SKIDS\nPUMP DATA SHEET")
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    body = TestClient(app).get("/api/documents/doc_two/review-kind").json()
+    assert (
+        body["not_sure_choose"] is True
+        and body["guess"] is True
+        and body["candidates"] == ["contract", "datasheet"]
+    )
+    assert body["kind"] == "datasheet" and "not sure" in body["decided_by"]
+
+
+def test_a_refusal_before_any_call_still_lets_the_general_part_say_why_only_a_cap_after_spending_skips_it(
+    job_world, monkeypatch
+):
+    monkeypatch.setattr(settings, "agent_review_general_rules_enabled", True)
+    order: list = []
+    _stub(
+        monkeypatch, order, stop="gate_closed: the Claude lane is closed", usd=None
+    )  # nothing was spent
+    run_id, job_id = start()
+    agent_review_jobs.run(job_id, "w")
+    assert [o[0] for o in order] == ["rules", "general"]

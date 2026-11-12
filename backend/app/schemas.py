@@ -1103,6 +1103,8 @@ class DocumentReviewKind(BaseModel):
     source: str
     decided_by: str
     guess: bool
+    candidates: list[str] = []
+    not_sure_choose: bool = False
     confirmed: bool
     review: str
     rules_of_kind: list[str]

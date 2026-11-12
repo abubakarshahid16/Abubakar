@@ -23,20 +23,37 @@ FEATURE_OFF = "feature_off"
 #: experiment's procedure and contract runs: most "AI thinks: not met" lines were wrong, because the paper was silent.) One
 #: switch stays one switch; inside it a paper of any other kind, or of an unknown kind, is refused before any job exists.
 #: Widening this tuple is an owner decision.
-AGENT_REVIEW_KINDS = (
-    kind_review_table.rule_review_kinds()
-)  # read from the one table (`reference/kind_review_table.json`)
 #: GENERAL REVIEW kinds, behind the SAME switch. OWNER, 11 Nov 2026 (STATE 16.4, word for word): "Do not switch them off. Review
 #: them in GENERAL REVIEW mode when we hold no rule book for the paper: ... Never ask equipment rules of a paper they do not
 #: belong to. Silence is a "Query", never "not met". No "Pass" or "Fail" in this mode. All lines internal only." ... "Switch it
 #: on in the app only if that score is clearly better than tonight's." (Scored 11 Nov: wrong lines 26 to 2 on a procedure, 18 to 1
 #: on a contract; planted errors caught 0 to 5 of 10 on each.) A paper of any other kind stays refused (409).
-AGENT_GENERAL_REVIEW_KINDS = kind_review_table.general_kinds()  # the same table
+#: (`AGENT_REVIEW_KINDS` and `AGENT_GENERAL_REVIEW_KINDS` are read from the one table, `reference/kind_review_table.json`.)
+def __getattr__(name: str):
+    """`AGENT_REVIEW_KINDS` / `AGENT_GENERAL_REVIEW_KINDS`: read from the one table (`kind_review_table`) each time they are asked,
+    never frozen at import (a bad table must not stop the app: it answers empty, and a review is refused with the reason)."""
+    if name == "AGENT_REVIEW_KINDS":
+        return kind_review_table.rule_review_kinds()
+    if name == "AGENT_GENERAL_REVIEW_KINDS":
+        return kind_review_table.general_kinds()
+    raise AttributeError(name)
+
+
 KIND_NOT_ENABLED = "kind_not_enabled"
 KIND_NOT_ENABLED_MESSAGE = (
     "AI review is on for datasheets (rule review) and for procedures and contracts "
     "(general review, no rule book) only (owner, 11 Nov 2026)"
 )
+
+
+def refusal_reason() -> str:
+    """The message of a refused kind: the owner's sentence, and the table's own problem when the table cannot be used."""
+    bad = kind_review_table.problem()
+    return (
+        f"{KIND_NOT_ENABLED_MESSAGE} (the kind table cannot be used: {bad})"
+        if bad
+        else KIND_NOT_ENABLED_MESSAGE
+    )
 
 
 class FeatureOff(RuntimeError):
@@ -76,14 +93,12 @@ def require_on() -> None:
 
 def kind_enabled(kind: str | None) -> bool:
     """May the AI reviewer take a paper of this decided kind? An unknown kind (None, "unknown") never."""
-    return str(kind or "").strip().lower().replace(" ", "_") in AGENT_REVIEW_KINDS
+    return kind_review_table.norm(kind) in kind_review_table.rule_review_kinds()
 
 
 def general_kind_enabled(kind: str | None) -> bool:
     """Does this decided kind get the GENERAL review (no rule book, no Pass or Fail)? An unknown kind never."""
-    return (
-        str(kind or "").strip().lower().replace(" ", "_") in AGENT_GENERAL_REVIEW_KINDS
-    )
+    return kind_review_table.norm(kind) in kind_review_table.general_kinds()
 
 
 def rules_kind_enabled(kind: str | None) -> bool:

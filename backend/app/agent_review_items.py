@@ -14,8 +14,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import agent_review_rules as rules_mod
-from . import kind_review_table
-from . import agent_review_text, requirement_split, rule_labels, table_gate
+from . import (
+    agent_review_text,
+    kind_review_table,
+    requirement_split,
+    rule_labels,
+    table_gate,
+)
 from .agent_review_standards import (
     _norm_clause,
     _paper_pages,
@@ -31,12 +36,18 @@ IN_STATES = (
 QUERY_CODE = "recommendation_query"  # advice raised as a query: not a requirement
 #: Paper kinds that have no main equipment type (step 2, paper kind first): the old run's
 #: "another equipment type" exclusion does not hold for them, so those rules are back in.
-NO_EQUIPMENT_KINDS = kind_review_table.no_main_equipment_kinds()  # the one table
 EQUIPMENT_CODE = "other_equipment"
 #: The clause label of a rule whose sentence sits before the standard's first heading.
 BEFORE_FIRST_HEADING = "before first heading"
 MAX_CLAUSE_CHARS = 8000
 MAX_BATCH = 12
+
+
+def __getattr__(name: str):
+    if name == "NO_EQUIPMENT_KINDS":  # read from the one table at each ask
+        return kind_review_table.no_main_equipment_kinds()
+    raise AttributeError(name)
+
 
 ITEM_KEYS = (
     "item_id", "source", "rule_version_id", "standard", "clause", "clause_page", "rule_kind",
@@ -519,7 +530,10 @@ def _candidate_rules(
         if not run_id:
             return [], left, run_id
         reqs, left = applicable_rules(
-            ro, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
+            ro,
+            run_id,
+            no_equipment_filter=paper_kind
+            in kind_review_table.no_main_equipment_kinds(),
         )
         return reqs, left, run_id
     seen_keys, reqs = set(), []
@@ -576,7 +590,9 @@ def decision_rows(conn, run_id: str, paper_kind: str | None, allowed) -> list[di
     """The rules a stored classic review judged applicable (`applicable_rules`), limited to books the caller may read (rule 5:
     an intersection), without the old engine's state: they join the candidates, the label filter decides each."""
     rows, _left = applicable_rules(
-        conn, run_id, no_equipment_filter=paper_kind in NO_EQUIPMENT_KINDS
+        conn,
+        run_id,
+        no_equipment_filter=paper_kind in kind_review_table.no_main_equipment_kinds(),
     )
     return [
         {k: v for k, v in r.items() if k not in _DECISION_KEYS}

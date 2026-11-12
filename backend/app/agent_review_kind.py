@@ -31,6 +31,8 @@ DECIDED_BY = {
     "title_equipment": "an equipment name in the title (a guess)",
     "blank_form": "a form with labels and no values (a guess)",
     "document_role": "the stored document role (a guess)",
+    "cues_conflict": "two different headings on the cover (a data-sheet heading and a calculation or contract heading): not sure, choose (a guess)",
+    "earlier_review": "the kind the earlier review of this paper used (a heading cue never changes it; an engineer may correct it)",
     "no_cue": "no cue found on the cover or title page",
     "no_pages": "the paper has no stored pages",
 }
@@ -58,6 +60,7 @@ class PaperReading:
     equipment_type: str | None
     equipment_source: str | None
     page: int | None = None
+    candidates: tuple[str, ...] = ()
 
     @property
     def decided_by(self) -> str:
@@ -76,6 +79,21 @@ class PaperReading:
     def item_kind(self) -> str | None:
         """The kind in the item builder's spelling ("test record"); None when unknown."""
         return self.kind.replace("_", " ") if self.known else None
+
+
+def _earlier_review_kind(conn, held: set[str], document_id: str) -> str | None:
+    """The paper kind of the paper's latest FINISHED AI review (a kind in the closed list), or None."""
+    if "agent_review_run" not in held:
+        return None
+    row = conn.execute(
+        "SELECT paper_kind FROM agent_review_run WHERE submittal_document_id = ? AND finished_at IS NOT NULL"
+        " AND paper_kind IS NOT NULL ORDER BY finished_at DESC LIMIT 1",
+        (document_id,),
+    ).fetchone()
+    from . import paper_kind as pk
+
+    kind = row[0] if row else None
+    return kind if kind in pk.PAPER_KINDS else None
 
 
 def read_kind(conn, document_id: str) -> dict:
@@ -113,6 +131,17 @@ def read_kind(conn, document_id: str) -> dict:
             (document_id,),
         ).fetchone()
         role = row["document_role"] if row else None
+    earlier = None if confirmed else _earlier_review_kind(conn, held, document_id)
+    if (
+        earlier is not None
+    ):  # (a) a paper that already has a finished review keeps that review's kind: a cue never changes it
+        return {
+            "kind": earlier,
+            "known": True,
+            "method": "earlier_review",
+            "guess": True,
+            "page": None,
+        }
     got = pk.decide_paper_kind(pages, document_role=role, confirmed_kind=confirmed)
     unknown = got.source_kind == "unknown" and got.method != "engineer_confirmed"
     return {
@@ -121,6 +150,7 @@ def read_kind(conn, document_id: str) -> dict:
         "method": got.method,
         "guess": bool(got.guess),
         "page": got.page,
+        "candidates": list(got.candidates),
     }
 
 
@@ -163,6 +193,7 @@ def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:
         equipment,
         equipment_source,
         got.get("page"),
+        tuple(got.get("candidates") or ()),
     )
 
 
@@ -183,6 +214,8 @@ def describe(document_id: str, allowed: frozenset[str]) -> dict:
         "source": reading.source,
         "decided_by": reading.decided_by,
         "guess": reading.guess,
+        "candidates": list(reading.candidates),
+        "not_sure_choose": reading.method == "cues_conflict",
         "confirmed": reading.method == "engineer_confirmed",
         "review": row["review"],
         "rules_of_kind": list(row["rules_of_kind"]),

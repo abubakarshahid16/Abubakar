@@ -64,8 +64,40 @@ def _load(mtime: float) -> dict:  # noqa: ARG001 - the argument is the cache key
 
 
 def table() -> dict:
-    """The whole file, re-read when it changes on disk."""
-    return _load(TABLE_PATH.stat().st_mtime)
+    """The whole file, re-read when it changes on disk. Raises `TableError` when the file is missing or malformed."""
+    try:
+        return _load(TABLE_PATH.stat().st_mtime)
+    except (OSError, ValueError) as exc:  # a json error is a ValueError
+        if isinstance(exc, TableError):
+            raise
+        raise TableError(
+            f"the kind table could not be read ({type(exc).__name__})"
+        ) from exc
+
+
+def problem() -> str | None:
+    """Why the table cannot be used (plain words, no paper text), or None. A bad table never stops the app: every accessor below
+    then answers as if no kind may be reviewed, and a review is refused with this reason."""
+    try:
+        table()
+    except TableError as exc:
+        return str(exc)
+    return None
+
+
+#: What a kind with no row, or any kind when the table is bad, gets: nothing is asked, nothing is sent.
+NO_REVIEW = {
+    "review": "none", "rules_of_kind": [], "ask_rules": False, "checklist_skill_ending": None,
+    "checklist_slot": "none: the kind has no row in the table (or the table is unusable)", "no_main_equipment": False,
+    "window_tokens": 0, "overlap_pages": 0, "crs_discipline": "", "label": "Unknown", "scored": False,
+}  # fmt: skip
+
+
+def _kinds() -> dict:
+    try:
+        return table()["kinds"]
+    except TableError:
+        return {}
 
 
 def norm(kind: str | None) -> str:
@@ -75,20 +107,19 @@ def norm(kind: str | None) -> str:
 
 def row(kind: str | None) -> dict:
     """The row of a kind. A kind with no row is treated as `unknown` (asks nothing); `has_row` tells them apart."""
-    kinds = table()["kinds"]
-    return kinds.get(norm(kind)) or kinds[UNKNOWN]
+    return _kinds().get(norm(kind)) or _kinds().get(UNKNOWN) or NO_REVIEW
 
 
 def has_row(kind: str | None) -> bool:
-    return norm(kind) in table()["kinds"]
+    return norm(kind) in _kinds()
 
 
 def kinds() -> tuple[str, ...]:
-    return tuple(table()["kinds"])
+    return tuple(_kinds())
 
 
 def kinds_with(review: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(k for k, r in table()["kinds"].items() if r["review"] in review)
+    return tuple(k for k, r in _kinds().items() if r["review"] in review)
 
 
 def rule_review_kinds() -> tuple[str, ...]:
@@ -106,7 +137,7 @@ def asks_rules(kind: str | None) -> bool:
 
 
 def no_main_equipment_kinds() -> tuple[str, ...]:
-    return tuple(k for k, r in table()["kinds"].items() if r["no_main_equipment"])
+    return tuple(k for k, r in _kinds().items() if r["no_main_equipment"])
 
 
 def checklist_ending(kind: str | None) -> str | None:
@@ -132,7 +163,7 @@ def window_settings(kind: str | None) -> tuple[int, int]:
 
 
 def page_rule() -> str:
-    return str(table()["page_strategy_rule"])
+    return str((_kinds() and table())["page_strategy_rule"]) if not problem() else ""
 
 
 def windows(pages: dict[int, str], kind: str | None) -> list[list[int]]:

@@ -353,7 +353,7 @@ def preflight(
     if shape:
         return shape
     if not (kind.known and agent_review_gate.rules_kind_enabled(kind.kind)):
-        return agent_review_gate.KIND_NOT_ENABLED_MESSAGE
+        return agent_review_gate.refusal_reason()
     if not conn.execute(
         "SELECT 1 FROM pages WHERE document_id = ? AND TRIM(text) <> '' LIMIT 1",
         (submittal,),
@@ -396,7 +396,7 @@ def _plan(
         why = "paper kind unknown: no rule was asked of this paper; an engineer names the paper kind and the review runs again"
         return _nothing_asked(conn, submittal, why, f"paper_kind_unknown: {why}")
     if not agent_review_gate.rules_kind_enabled(kind.kind):
-        why = f"{agent_review_gate.KIND_NOT_ENABLED_MESSAGE}: no rule was asked of this {kind.kind.replace('_', ' ')}"
+        why = f"{agent_review_gate.refusal_reason()}: no rule was asked of this {kind.kind.replace('_', ' ')}"
         return _nothing_asked(
             conn, submittal, why, f"{agent_review_gate.KIND_NOT_ENABLED}: {why}"
         )
@@ -706,7 +706,7 @@ def _rules_then_general(
     datasheet review's path (items, first reader, quote check, second reader; the checklist is left to the general review, so no
     item is asked twice), THEN the general parts. The rule review's CRS stays `crs-internal.xlsx` / `crs-contractor.xlsx`; the
     general review's one-layout workbook is `general/crs-internal.xlsx`. One run id, one cap (`claude_spend`: USD 15 a run). The
-    general parts are skipped when the rule part stopped (a cap or an approval stop): the run says so, nothing is hidden."""
+    general parts are skipped only when the rule part stopped AFTER spending (a cap): the run says so. A refusal before any call (lane closed, approval missing, preflight) still lets the general part run and say why it did not."""
     plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
     plan["items"] = [
         i for i in plan["items"] if i.get("source") != "skill"
@@ -715,7 +715,9 @@ def _rules_then_general(
     _progress(conn, job_id, 2, heartbeat)
     result = _execute(run_id, submittal, kind, plan, started)
     agent_review_text.record(conn, run_id, text)
-    if not result["stop_reason"]:
+    if not (
+        result["stop_reason"] and (result["usd"] or 0) > 0
+    ):  # only a stop AFTER spending (a cap) skips the general parts
         general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
                                   name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
                                   combined=True)  # fmt: skip

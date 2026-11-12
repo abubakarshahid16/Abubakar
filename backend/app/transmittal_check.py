@@ -6,10 +6,15 @@ pattern, never by one layout (rule 13): (1) every held document number (stored c
 in the sheet's text; (2) every token shaped like a document number (three or more segments joined by - _ / . with a digit). A
 revision is read only when the word Revision or Rev stands after the number on the same line. Per listed document, by code:
 
-  held, revision stated and equal            -> Pass     (a code comparison)
-  held, revision stated and different        -> Fail     (a code comparison)
-  held, no revision stated or none held      -> Query    (said, never guessed)
-  not in the library (for this caller)       -> Query    (not "missing": the caller may simply not read it)
+  held, revision stated and held (ANY held revision of that number)   -> Pass   (a code comparison)
+  held, revision stated and not among the held revisions              -> Query  ("the revision listed is not held: held revisions: ...";
+                                                                        the library may simply not hold the newer revision)
+  held, no revision stated (or none held, or it could not be read)    -> Query  (said, never guessed)
+  not in the library (for this caller)                                -> Query  (not "missing": the caller may simply not read it)
+
+This check NEVER prints a Fail: a mismatch is a question for the contractor, not a proven fault. A revision is read only from an
+explicit field: the word Rev, Rev. or Revision, then a short CODE (one capital letter, one to three digits, a letter and one or
+two digits, or one or two digits and a letter); a word ("of", "for", "no") is never a revision; in doubt: not stated.
 
 Whose documents it counts (rule 4): only documents the caller may read (a filter narrows, rule 5). No paper text is stored or
 logged; the rows hold document numbers and revision words only. The CRS-style list is drawn through the one layout (`crs_layout`).
@@ -25,10 +30,12 @@ from . import crs_ai_words as words
 from . import crs_export, crs_layout
 from .agent_run_crs import _cell
 
-PASS, FAIL, QUERY = words.STATUS_PASS, words.STATUS_FAIL, words.STATUS_QUERY
+PASS, QUERY = words.STATUS_PASS, words.STATUS_QUERY
 #: A token shaped like a document number: three or more segments, at least one digit.
 _NUMBER = re.compile(r"\b[A-Z0-9]{2,}(?:[-_/.][A-Z0-9]{1,}){2,}\b", re.I)
-_REV = re.compile(r"\brev(?:ision)?\b\.?\s*[:#-]?\s*([A-Z0-9]{1,3})\b", re.I)
+_REV = re.compile(
+    r"\b[Rr][Ee][Vv](?:[Ii][Ss][Ii][Oo][Nn])?\b\.?[ \t]*[:#-]?[ \t]*([A-Z]\d{0,2}|\d{1,3}[A-Z]?)(?![A-Za-z0-9])"
+)
 BY = "Code check (no AI)"
 CODE_COLUMNS_NOTE = "Documents listed on the transmittal against documents held in the library; revisions compared by code."
 
@@ -45,6 +52,8 @@ def norm_rev(rev: str | None) -> str:
 def _held(
     conn: sqlite3.Connection, allowed: frozenset[str], own: str
 ) -> dict[str, dict]:
+    """number -> {'document_ids': [...], 'revisions': sorted set of held revisions (empty ones left out)}: EVERY held document with
+    that number, so a library holding revision A and revision B compares against both."""
     out: dict[str, dict] = {}
     for r in conn.execute(
         "SELECT d.id AS id, c.document_number AS number, c.revision AS revision FROM documents d"
@@ -52,11 +61,13 @@ def _held(
         " AND TRIM(c.document_number) <> '' ORDER BY d.id"
     ):
         if r["id"] in allowed and r["id"] != own:
-            out.setdefault(
-                norm(r["number"]),
-                {"document_id": r["id"], "revision": norm_rev(r["revision"])},
+            got = out.setdefault(
+                norm(r["number"]), {"document_ids": [], "revisions": set()}
             )
-    return out
+            got["document_ids"].append(r["id"])
+            if norm_rev(r["revision"]):
+                got["revisions"].add(norm_rev(r["revision"]))
+    return {k: {**v, "revisions": sorted(v["revisions"])} for k, v in out.items()}
 
 
 def _lines(conn: sqlite3.Connection, document_id: str) -> list[tuple[int, str]]:
@@ -114,15 +125,17 @@ def listed(
 
 
 def _status(entry: Mapping, held: Mapping | None) -> tuple[str, str]:
-    """(Status, plain reason) by code."""
+    """(Status, plain reason) by code. Never a Fail."""
     if held is None:
         return QUERY, "not in the library for this reader"
-    stated, have = entry["revision"], held["revision"]
+    stated, have = entry["revision"], held["revisions"]
     if not stated:
         return QUERY, "the transmittal states no revision"
     if not have:
         return QUERY, "the library holds no revision for it"
-    return (PASS, "revision equal") if stated == have else (FAIL, "revision differs")
+    if stated in have:
+        return PASS, "revision held"
+    return QUERY, "the revision listed is not held: held revisions: " + ", ".join(have)
 
 
 def check(conn: sqlite3.Connection, document_id: str, allowed: frozenset[str]) -> dict:
@@ -140,11 +153,12 @@ def check(conn: sqlite3.Connection, document_id: str, allowed: frozenset[str]) -
         rows.append(
             {
                 "number": e["number"], "page": e["page"], "revision_stated": e["revision"] or None,
-                "revision_held": (h or {}).get("revision") or None, "held_document_id": (h or {}).get("document_id"),
+                "revisions_held": (h or {}).get("revisions") or [],
+                "held_document_id": ((h or {}).get("document_ids") or [None])[0],
                 "status": status, "reason": why,
             }
         )  # fmt: skip
-    counts = {s: sum(1 for r in rows if r["status"] == s) for s in (PASS, FAIL, QUERY)}
+    counts = {s: sum(1 for r in rows if r["status"] == s) for s in (PASS, QUERY)}
     return {
         "document_id": document_id,
         "rows": rows,
@@ -160,16 +174,18 @@ def _comment(r: Mapping) -> str:
         f"revision {r['revision_stated']}" if r["revision_stated"] else "no revision"
     )
     shows = f"The transmittal lists {r['number']} with {stated}, page {r['page']}. "
-    if r["status"] == QUERY and r["held_document_id"] is None:
+    if r["held_document_id"] is None:
         shows += "No document with that number is held for this reader."
         todo = f"Contractor to confirm {r['number']} was submitted, or send it."
     else:
-        have = f"revision {r['revision_held']}" if r["revision_held"] else "no revision"
-        shows += f"The library holds it at {have}."
-        todo = {
-            PASS: "No action.",
-            FAIL: f"Contractor to correct the revision of {r['number']} on the transmittal, or send the revision it states.",
-        }.get(r["status"], f"Contractor to confirm the revision of {r['number']}.")
+        held = ", ".join(r["revisions_held"]) or "none stated"
+        shows += f"The library holds revisions: {held}."
+        if r["status"] == PASS:
+            todo = "No action."
+        elif r["revision_stated"]:
+            todo = f"Contractor to confirm revision {r['revision_stated']} of {r['number']} was submitted, or send it."
+        else:
+            todo = f"Contractor to confirm the revision of {r['number']}."
     return "\n".join((req, shows, todo))
 
 
