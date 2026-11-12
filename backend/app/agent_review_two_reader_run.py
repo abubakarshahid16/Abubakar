@@ -6,10 +6,12 @@ SAME question the first reader answered: the request is built by the SAME `build
 rule text ONLY, so it holds nothing the first reader said (no verdict, no quote, no reasoning, no comment). What the second
 reader returns is stored on the line as `two_reader`; the class itself is re-derived by `agent_review_wording.classify`.
 
-BOUNDS. One call per batch of at most `MAX_BATCH` (8) candidate items that share a page group (the first reader's own grouping,
-`batch_by_page`), sent ONCE (`once=True`: never re-sent after a transport failure; a cut-off or unreadable reply is not retried or
-split). So the calls of a run are the sum over page groups of ceil(group size / 8): ceil(candidates / 8) for a paper of up to 8
-pages (every item then has every page), never more than the number of candidates; the
+BOUNDS. One call per batch of at most `MAX_BATCH` (8) candidate items that share a page group (the first reader's own batches,
+`agent_review_request.stable_batches`: a group is split on a hash of its items, so one more candidate changes one batch only),
+sent ONCE (`once=True`: never re-sent after a transport failure; a cut-off or unreadable reply is not retried or split). So the
+calls of a run are at least ceil(candidates / 8) and, since a split group holds about 5 to 6 items per batch, usually about
+candidates / 5; never more than the number of candidates; the
+the
 worst case of each is reserved through the same `AppStepGate` and `claude_spend.metered` as every other call, with the
 approved-document check and the caps. Batches run one after the other.
 
@@ -27,7 +29,6 @@ from typing import Any
 
 from . import agent_claude, agent_run_second
 from . import agent_review_crs as crs_lines
-from . import agent_review_items as items_mod
 from . import agent_review_two_reader as two
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
@@ -37,6 +38,7 @@ from .agent_review_request import (
     held_texts,
     pages_for,
     parse_answers,
+    stable_batches,
 )
 
 log = logging.getLogger(__name__)
@@ -60,12 +62,13 @@ class TwoReaderMixin:
         parts: dict,
         max_tokens: int,
         once: bool = False,
+        **kw,
     ):
         """`self.call` for one batch of lines. When it fails, what the run was charged for it (a transport failure is charged at
         the worst case) goes onto the batch's lines, a share each (as a good call's cost does), so no line understates."""
         with self.charged_scope() as charged:
             try:
-                return self.call(model, parts, max_tokens, once=once)
+                return self.call(model, parts, max_tokens, once=once, **kw)
             except BaseException:
                 self._charge_batch(batch, charged[0])
                 raise
@@ -219,7 +222,7 @@ class TwoReaderMixin:
             self.record_two_reader_off(two.OFF_LEAD_UNKNOWN)
             return
         items = [self.items_by_id[str(ln["item_id"])] for ln in ask]
-        batches = items_mod.batch_by_page(items, two.MAX_BATCH)
+        batches = stable_batches(items, two.MAX_BATCH)
         for batch in batches:
             if st["off"] is not None:
                 break
@@ -247,7 +250,12 @@ class TwoReaderMixin:
         st["calls"] += 1
         try:
             raw, usd = self.call_for_batch(
-                batch, agent_claude.SECOND_MODEL, parts, max_tokens, once=True
+                batch,
+                agent_claude.SECOND_MODEL,
+                parts,
+                max_tokens,
+                once=True,
+                **self.reuse_kw(),
             )
         except FATAL as exc:
             code = two.OFF_RUN_STOPPED if self._stop.is_set() else two.OFF_CAP
@@ -275,6 +283,7 @@ class TwoReaderMixin:
             self._two_reader_line(
                 it, got.get(str(it.get("item_id"))), pages, model, share
             )
+        self.settle_second(ids, "two_reader")
         self.trace_record(
             {
                 "type": "two_reader_batch",

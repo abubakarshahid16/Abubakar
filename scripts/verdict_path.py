@@ -88,6 +88,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_absence.py", "decides a Fail by absence"),
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
+    (
+        APP + "agent_review_reuse.py",
+        "stands in for a reader's call: what is reused, and that no call is made",
+    ),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
@@ -106,6 +110,7 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_review_rules.py": "rule selection by paper kind",
     "agent_review_schema.py": "database tables",
     "agent_review_standards.py": "standard text lookup",
+    "agent_review_steady.py": "counts changed lines between two runs for display; no call",
     "agent_review_text.py": "text helpers",
     "crs_ai_cell.py": "cell layout",
     "crs_ai_drafts.py": "draft handling",

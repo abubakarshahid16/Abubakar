@@ -15,6 +15,8 @@ export interface AgentRunRequest {
   submittal_document_id: string;
   /** General review only (a procedure or a contract): the project papers part 4 is checked against. Optional. Never chosen silently: each must be readable by the caller and is checked again when the job runs. Empty: part 4 says so on one line. */
   project_document_ids: string[];
+  /** Ask for fresh first-reader answers: this run ignores every stored answer and replaces it (only when the server keeps stored answers, `AGENT_REVIEW_REUSE_ANSWERS_ENABLED`; otherwise nothing is stored and the option changes nothing). */
+  fresh: boolean;
 }
 
 /** A project paper a general review was checked against. */
@@ -63,6 +65,14 @@ export interface AgentPageRereadStop {
   not_reread: number;
 }
 
+/** Lines whose class changed since the previous finished run of the same paper (compared before the optional steps). Counts only; the ids are in the run's trace. `decisions`: how many of those lines are, or were, a proven Pass or Fail or an AI opinion met or not met. */
+export interface AgentChangedSincePrevious {
+  previous_run_id: string;
+  lines_compared: number;
+  changed: number;
+  decisions: number;
+}
+
 /** GET /api/reviews/runs/{id}/agent/summary. Counts are per class, over the lines of this run only; there is no percentage. */
 export interface AgentRunSummary {
   paper_kind: string;
@@ -82,6 +92,10 @@ export interface AgentRunSummary {
   equipment_notes: string[];
   /** null when the second reading of pages is off or ran fully (shown as nothing, never 0). */
   page_reread_stopped?: AgentPageRereadStop | null;
+  /** answers taken from an earlier run instead of asking (USD 0 each); null when the server does not keep stored answers. */
+  answers_reused?: number | null;
+  /** null when there is no earlier finished run of this paper, or this run did not finish whole. */
+  changed_since_previous?: AgentChangedSincePrevious | null;
   /** lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class. */
   not_reviewed: number;
   /** "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise. */

@@ -25,7 +25,7 @@ CONTROL_FILES = ("README.md", "responsibilities.md", "ai-register.md", "data-cla
                  "incident-response.md", "severity-and-roles.md", "exercises.md", "evidence.md",
                  "threat-levels.md")
 CONTROL_FILES += ("drill-pack.md",)
-AI_WORDS = re.compile(r"(^|_)(ai|reasoning|judge|match|model|reader|wording|vision|llm)(_|$)")
+AI_WORDS = re.compile(r"(^|_)(ai|reasoning|judge|match|model|reader|wording|vision|llm|reuse)(_|$)")
 _ROW = re.compile(r"^\|\s*`([a-z0-9_]+)`\s*\|\s*`([^`]*)`\s*\|")
 SWITCH_HEADING = "## AI switches"
 
