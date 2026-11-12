@@ -161,6 +161,18 @@ def ledger_lines(data_dir: Path) -> int:
     return log.read_text().count("\n") if log.is_file() else 0
 
 
+def ledger_spent(data_dir: Path) -> float:
+    """USD already booked in the copy's ledger (a repeat run on the same copy starts from it)."""
+    log, total = Path(data_dir) / "claude_spend.jsonl", 0.0
+    if log.is_file():
+        for line in log.read_text().splitlines():
+            try:
+                total += float(json.loads(line).get("cost_usd") or 0)
+            except (ValueError, TypeError, AttributeError):
+                continue
+    return round(total, 6)
+
+
 def empty_approved_list() -> bool:
     """Set the copy's approved list aside, so every approval after this was made by the app in THIS run (a list copied from the
     live data proves nothing). Returns whether a list was set aside."""
@@ -220,11 +232,15 @@ def apply_settings(cfg: TrialConfig) -> dict:
     else:
         cap = effective_cap(cfg.max_usd, settings)
         cfg.max_usd = cap  # the spend check compares with the cap really in force
+        # `--max-usd` bounds THIS run's spend. The app's total cap counts the whole ledger, and a repeat run on the same copy
+        # (`--in-place`) starts from what the first run spent: without this the repeat is refused ("usd_cap_reached: total")
+        # before its first call and every line is "Not reviewed" (12 Nov, valve and real pump). The owner's caps still win.
+        before = ledger_spent(data)
         settings.claude_budget_usd_per_step = min(
             float(settings.claude_budget_usd_per_step), cap
         )
         settings.claude_budget_usd_total = min(
-            float(settings.claude_budget_usd_total), cap
+            float(settings.claude_budget_usd_total), before + cap
         )
     return {
         "key_present": bool(
@@ -888,7 +904,30 @@ def normal_review_check(
 # ------------------------------------------------------------------------------------------------ the run
 
 
-def wait_for(http: Http, run_id: str, timeout: float) -> str:
+def job_trouble(db: Path | None, run_id: str) -> str | None:
+    """A review job that failed an attempt and is waiting to retry never reaches a final status for minutes: say so now, with the
+    error code and the count (cause words only). None when the job is running, finished, or the copy cannot be read."""
+    if db is None:
+        return None
+    try:
+        conn = ro(db)
+        row = conn.execute(
+            "SELECT state, retries, error_code FROM jobs WHERE review_run_id = ?",
+            (run_id,),
+        ).fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return None
+    if (
+        row is not None
+        and row["error_code"]
+        and row["state"] in ("retrying", "poisoned")
+    ):
+        return f"job {row['state']} after {row['error_code']} (retries {row['retries']}): the review did not finish"
+    return None
+
+
+def wait_for(http: Http, run_id: str, timeout: float, db: Path | None = None) -> str:
     end = time.time() + timeout
     status = "unknown"
     while time.time() < end:
@@ -897,6 +936,11 @@ def wait_for(http: Http, run_id: str, timeout: float) -> str:
             status = str(body.get("status"))
             if status in ("completed", "failed", "cancelled"):
                 return status
+        trouble = job_trouble(db, run_id)
+        if (
+            trouble
+        ):  # fail fast, and say why, instead of waiting out the queue's retries
+            return f"failed: {trouble}"
         time.sleep(2.0)
     return f"timeout (last status {status})"
 
@@ -1039,17 +1083,37 @@ def spend_check(
             "spend: none in the closed lane", ok, f"usd {usd}, ledger lines {lines}"
         )
     problems = []
-    if not usd or usd <= 0:
+    reused = (summary or {}).get("answers_reused") or 0
+    if (
+        not usd or usd <= 0
+    ) and not reused:  # a run that reused every answer spent nothing, on purpose
         problems.append("no spend recorded")
     elif usd > cfg.max_usd:
         problems.append(f"usd {usd} above the cap {cfg.max_usd}")
     if answered == 0:
-        problems.append("every line is Not reviewed: the lane answered nothing")
+        stop = (summary or {}).get("stop_reason")
+        problems.append(
+            "every line is Not reviewed: the lane answered nothing"
+            + (f" (the run stopped: {stop})" if stop else "")
+        )
     return Check(
         "spend under the cap and real answers",
         not problems,
         "; ".join(problems)
         or f"usd {usd}, {answered} line(s) answered of {sum(counts.values())}",
+    )
+
+
+def stop_check(cfg: TrialConfig, summary: dict | None) -> Check | None:
+    """Open lane: a run that a cap or a refusal stopped did not finish its review, and the trial says so with the stop reason
+    (code and numbers, never a text) instead of passing on 'completed'. A repeat run that reviewed nothing fails here."""
+    if cfg.lane != "open" or summary is None:
+        return None
+    stop = summary.get("stop_reason")
+    return Check(
+        "run not stopped by a cap or a refusal",
+        not stop,
+        str(stop) if stop else "finished whole",
     )
 
 
@@ -1187,7 +1251,7 @@ def run_trial(
             )
         )
         if run_id:
-            final = wait_for(http, run_id, cfg.timeout)
+            final = wait_for(http, run_id, cfg.timeout, db)
             checks.append(Check("AI review completed", final == "completed", final))
             conn = ro(db)
             ids = [
@@ -1206,6 +1270,9 @@ def run_trial(
             checks.append(proof_check(conn, run_id))
             checks.append(contractor_check(conn, run_id, kept.get("contractor")))
             checks.append(spend_check(cfg, kept.get("summary"), data, ledger_before))
+            stopped = stop_check(cfg, kept.get("summary"))
+            if stopped is not None:
+                checks.append(stopped)
             checks.append(approval_check(conn, run_id, cfg.document, data))
             conn.close()
         if cfg.normal_review and run_id:
