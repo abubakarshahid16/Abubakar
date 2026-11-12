@@ -432,7 +432,9 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
     assert view["rows_withheld_no_text"] == 0
     name, sheet, text = _workbook_text(run, "issue")
     assert "issue-to-contractor" in name
-    assert "Evidence" not in sheet.parent.sheetnames and sheet.max_column == 10  # no AI column, no Evidence sheet
+    assert (
+        "Evidence" not in sheet.parent.sheetnames and sheet.max_column == 10
+    )  # no AI column, no Evidence sheet
     assert TEXT not in text
 
 

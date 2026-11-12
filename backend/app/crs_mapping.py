@@ -1010,28 +1010,6 @@ PRIORITY_WORDS = {
 ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarification"}
 
 
-#: ORDER 13 (one layout for both reviewers): the Status word of a normal-reviewer row, from its OWN verdict fields. Never a Pass or a
-#: Fail that its code path did not prove:
-#:   Fail        rank 1 "Out of limit": a figure code compared (a breach, a datasheet check's NON_COMPLIANT);
-#:   Pass        a safety tick: a COMPLIANT verdict code reached through a safety-tier rule (the engineer still ticks it);
-#:   AI opinion  an AI engineering check, a clause review, a spec kit item, a web standard check: drafts until an engineer confirms;
-#:   Query       every other row (missing value, needs engineer review, another document, not cited, engineer's comment, carried
-#:               forward, pages not readable): nothing proven, the engineer decides.
-CRS_STATUS_FAIL, CRS_STATUS_AI, CRS_STATUS_QUERY, CRS_STATUS_PASS = "Fail", "AI opinion", "Query", "Pass"
-_AI_ROW_KINDS = frozenset(
-    {ROW_KIND_AI_ENGINEERING_CHECK, ROW_KIND_WEB_STANDARD_CHECK, "clause_review", "spec_kit"}
-)
-
-
-def crs_status(row_kind: str | None, priority: int | None) -> str:
-    """The Status word of one row (the table above); a kind it does not know is a Query, never a Pass or a Fail."""
-    if row_kind in _AI_ROW_KINDS:
-        return CRS_STATUS_AI
-    if row_kind == ROW_KIND_SAFETY_TICK:
-        return CRS_STATUS_PASS
-    return CRS_STATUS_FAIL if priority == PRIORITY_OUT_OF_LIMIT else CRS_STATUS_QUERY
-
-
 def row_has_no_text(row: dict) -> bool:
     """Spec e, one home (rule 8): a CRS row with no comment text a contractor
     could be sent - an empty comment, or a waiting sentence with no draft

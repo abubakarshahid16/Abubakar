@@ -8,8 +8,8 @@ import io
 import openpyxl
 import pytest
 
-from app import crs_export, crs_layout, crs_mapping, crs_reply
 from app import crs_ai_words as words
+from app import crs_export, crs_layout, crs_mapping, crs_normal, crs_reply
 
 TEN = [
     "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
@@ -186,7 +186,7 @@ def test_every_row_kind_and_rank_maps_to_one_of_the_four_words_and_a_pass_or_fai
     assert len(kinds) >= 15
     for kind in kinds:
         for rank in ranks:
-            status = crs_mapping.crs_status(kind, rank)
+            status = crs_normal.crs_status(kind, rank)
             assert status in words.STATUSES, (kind, rank)
             if kind in (
                 "ai_engineering_check",
@@ -208,10 +208,10 @@ def test_every_row_kind_and_rank_maps_to_one_of_the_four_words_and_a_pass_or_fai
 
 def test_a_row_the_exporter_does_not_know_is_a_query_never_a_pass_or_a_fail():
     assert (
-        crs_mapping.crs_status("made_up", crs_mapping.PRIORITY_ENGINEERS_COMMENT)
+        crs_normal.crs_status("made_up", crs_mapping.PRIORITY_ENGINEERS_COMMENT)
         == "Query"
     )
-    assert crs_mapping.crs_status(None, None) == "Query"
+    assert crs_normal.crs_status(None, None) == "Query"
 
 
 # ---------------------------------------------------------------- the reply reader: by header name, either layout

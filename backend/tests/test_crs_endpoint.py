@@ -36,8 +36,13 @@ from openpyxl import load_workbook
 
 from app import access, db, submittal_review
 from app.config import settings
-from app.crs_export import (HEADER_ROW_OF, COLUMN_HEADER_ROW, FIRST_DATA_ROW,
-                            HEADER_FIELDS, HEADERS)
+from app.crs_export import (
+    HEADER_ROW_OF,
+    COLUMN_HEADER_ROW,
+    FIRST_DATA_ROW,
+    HEADER_FIELDS,
+    HEADERS,
+)
 from app.main import app
 from app import main as main_mod
 
@@ -315,9 +320,13 @@ def test_the_transmittal_numbers_are_blank_rather_than_invented():
     first = HEADER_ROW_OF["company_transmittal"]
     assert ws.cell(row=first, column=1).value == "COMPANY Transmittal No.:"
     assert ws.cell(row=first, column=3).value in (None, "")
-    assert ws.cell(row=HEADER_ROW_OF["contractor_transmittal"], column=3).value in (None, "")
-    assert ws.cell(row=HEADER_ROW_OF["date_responded"], column=3).value in (
-        None, ""), "Date Responded"
+    assert ws.cell(row=HEADER_ROW_OF["contractor_transmittal"], column=3).value in (
+        None,
+        "",
+    )
+    assert ws.cell(row=HEADER_ROW_OF["date_responded"], column=3).value in (None, ""), (
+        "Date Responded"
+    )
 
 
 def test_the_title_and_date_come_from_real_data():
@@ -604,8 +613,12 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
     # The column headers, directly under the header block: the one layout's ten (the preview still lists its own working
     # columns; the working columns of the file are on the Evidence sheet, by Item No).
     assert [_cell(ws, COLUMN_HEADER_ROW, c) for c in range(1, 11)] == [
-        *body["columns"][:9], "Status"]
-    evidence = {r[0]: r for r in ws.parent["Evidence"].iter_rows(min_row=2, values_only=True)}
+        *body["columns"][:9],
+        "Status",
+    ]
+    evidence = {
+        r[0]: r for r in ws.parent["Evidence"].iter_rows(min_row=2, values_only=True)
+    }
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"
@@ -626,7 +639,9 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
     assert any(row["reasoning"].startswith("Read: ") or "Result: " in row["reasoning"]
                for row in body["rows"])
     # And no eighth row hiding in the workbook that the preview never showed.
-    assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""  # nothing under the table but the notes below it
+    assert (
+        _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
+    )  # nothing under the table but the notes below it
 
     # The recommended review code line.
     code_row = COLUMN_HEADER_ROW + len(body["rows"]) + 2
@@ -853,11 +868,14 @@ def test_the_additions_left_the_seven_template_columns_in_place():
     internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
     # order 139 part 2: "Priority" where "Severity" was
     head = [*HEADERS, "Standard Reference", "Priority"]
-    assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 11)] == [*head, "Status"]  # order 13: one layout, ten columns, both copies
+    assert [
+        internal.cell(row=COLUMN_HEADER_ROW, column=c).value for c in range(1, 11)
+    ] == [*head, "Status"]  # order 13: one layout, ten columns, both copies
 
-    assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 11)] == [*head, "Status"]
+    assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value for c in range(1, 11)] == [
+        *head,
+        "Status",
+    ]
     assert ws.max_column == 10
 
 
