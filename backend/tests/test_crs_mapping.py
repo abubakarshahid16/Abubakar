@@ -80,8 +80,8 @@ def test_every_missing_value_is_its_own_row_one_per_field():
         noise["standard_reference"] == "SAES-G-905 (edition not recorded) cl. 4.1 (p.1)"
     )
     assert noise["comment"] == (
-        'SAES-G-905 (edition not recorded) cl. 4.1 (p.1): "The noise level shall not exceed 85 dB(A) at 1 m." '
-        "Datasheet p.1, Noise level (P-101A, P-101B) is left to be provided ('*'). "
+        'SAES-G-905 (edition not recorded) cl. 4.1 (p.1): "The noise level shall not exceed 85 dB(A) at 1 m."\n'
+        "Datasheet p.1, Noise level (P-101A, P-101B) is left to be provided ('*').\n"
         "Contractor to complete the field 'Noise level' (left blank).")
     # #725 F7: rows are ordered by page, then clause (4.1, 4.5, 4.7).
     assert "VENDOR TO ADVISE" in rows[1]["comment"] and "Seal type" in rows[1]["page_section"]
@@ -175,8 +175,8 @@ def test_the_comment_is_an_engineers_with_a_contractor_action():
     comment = build_crs_rows([nc], [], "s.pdf")[0]["comment"]
     assert comment == (
         "SAES-X-001 (edition not recorded) cl. 5.1 (p.7): requires corrosion allowance for carbon steel "
-        "vessels not less than 3 mm. Datasheet p.4, Corrosion allowance (V-001) "
-        "states 1.5 mm. Contractor to revise Corrosion allowance to meet the "
+        "vessels not less than 3 mm.\nDatasheet p.4, Corrosion allowance (V-001) "
+        "states 1.5 mm.\nContractor to revise Corrosion allowance to meet the "
         "requirement, or submit a deviation request with justification for "
         "Company approval.")
     assert ">=" not in comment and "8 exceeds 5" not in comment

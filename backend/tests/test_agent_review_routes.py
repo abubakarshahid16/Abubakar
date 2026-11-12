@@ -166,6 +166,26 @@ def test_a_datasheet_is_queued_and_a_second_start_while_it_waits_is_409(client):
     ).status_code in (404, 409)
 
 
+def test_the_screens_line_text_is_the_three_lines_of_the_files_comment_cell(client):
+    """Order 13: one source for the file and the screen: an item line's text on the AI review tab is its COMPANY Comments cell."""
+    import io
+
+    import openpyxl
+
+    run_id = finished_run(client)
+    lines = client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()["lines"]
+    blob = client.get(f"/api/reviews/runs/{run_id}/agent/crs?copy=internal").content
+    ws = openpyxl.load_workbook(io.BytesIO(blob))["CRS"]
+    cells = {str(r[3]) for r in ws.iter_rows(min_row=14, values_only=True) if r[3]}
+    item_lines = [ln for ln in lines if ln["word"] != "Not reviewed"]
+    assert item_lines
+    for ln in item_lines:
+        assert ln["reason"].count("\n") == 2 and ln["reason"] in cells, ln["item_id"]
+    assert all(
+        "\n" not in ln["reason"] for ln in lines if ln["word"] == "Not reviewed"
+    )  # not an item row: its stored reason
+
+
 def test_status_says_enabled_and_whether_the_lane_is_open(client, monkeypatch):
     monkeypatch.setattr(agent_review_gate, "claude_lane_open", lambda: False)
     assert client.get("/api/reviews/agent-status").json() == {

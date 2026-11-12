@@ -7,6 +7,7 @@ is the length of the rows written, taken from the same lists. No new AI call: on
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -655,6 +656,21 @@ def _evidence_sheet(items: list, others: list) -> dict:
         "statuses": [st for _l, st, _o in items] + [None] * len(others),
         "widths": EVIDENCE_WIDTHS,
     }
+
+
+def screen_text(line_json: str | None) -> str:
+    """The AI review tab's text for a stored line: the SAME three lines the file's COMPANY Comments cell holds (one source), for a line
+    that is an item row; '' for any other line (the screen keeps its stored reason) or a line that cannot be read."""
+    try:
+        line = json.loads(line_json or "")
+    except ValueError:
+        return ""
+    ruled = isinstance(line, dict) and line.get("source") in (
+        "rule",
+        "skill",
+    )  # a general review's line is not an item row
+    got = status_of(line) if ruled else None
+    return layout_comment(line, *got) if got else ""
 
 
 def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:

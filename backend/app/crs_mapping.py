@@ -713,7 +713,8 @@ def engineer_comment_text(group: list[dict]) -> str:
         # row asking two or more things says what to do once, what the sheet
         # says once, then every clause behind it (capped, with the count).
         return "\n".join([group_action(group), said, *clause_lines])
-    return f"{lead} {said} {_action(crs_blank_fields.action_leader(group), field)}"
+    # order 13: what the standard requires / what the document shows / what the contractor must do, one per line (never a part the row lacks)
+    return "\n".join(p for p in (lead, said, _action(crs_blank_fields.action_leader(group), field)) if p)
 
 
 def _clauses(group: list[dict]) -> dict[tuple, list[dict]]:

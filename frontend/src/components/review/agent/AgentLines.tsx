@@ -53,7 +53,7 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
                   <td className="pr-3">{line.rule_book}</td>
                   <td className="pr-3">{line.clause}</td>
                   <td className="pr-3">{tierWords(line.verdict_class, line.rule_tier)}</td>
-                  <td className="break-words">
+                  <td className="whitespace-pre-line break-words" data-testid={`reason-${line.item_id}`}>
                     {line.reason}
                     {line.text_source === "the model's words" && <span className="block text-xs text-slateish-400" data-testid={`model-words-${line.item_id}`}>{MODEL_WORDS_MARK}</span>}
                   </td>
