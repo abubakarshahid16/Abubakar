@@ -148,15 +148,48 @@ def _fold_words(text: Any) -> str:
     return " ".join(str(text or "").split()).casefold()
 
 
+def alternative_refusal(word: Any) -> str | None:
+    """THE one place that says which words may NOT be an alternative of a `one_of` reading (None: it may). Refused: an empty
+    word, a number (`number_as_text`), a number written as a word ("ten": `number_word`), a bare unit of two or more letters
+    ("bar", "mm": `bare_unit`; a one-letter grade such as "A" is allowed), and a phrase that joins two alternatives with a
+    whole word "or" or "and" (`joiner`: the reader must list them apart)."""
+    from . import claims
+    from .rule_label_quantity import EXTRA_UNIT_WORDS, NUMBER_WORDS
+
+    text = " ".join(str(word or "").split())
+    if not text:
+        return "empty"
+    if _number(text) is not None:
+        return "number_as_text"
+    low = text.casefold()
+    if low in NUMBER_WORDS:
+        return "number_word"
+    if len(text) >= 2 and (
+        low in EXTRA_UNIT_WORDS or claims.unit_dimension(text) is not None
+    ):
+        return "bare_unit"
+    if re.search(r"(?<!\w)(or|and)(?!\w)", low):
+        return "joiner"
+    return None
+
+
 def text_alternatives(values: Any) -> list[str] | None:
-    """The words of a `one_of` reading whose alternatives are TEXT (two or more, each a string that is no number, no two the
-    same), else None. Such a reading is never compared by code: it is only a label of the rule."""
+    """The words of a `one_of` reading whose alternatives are TEXT (two or more strings, none refused by
+    `alternative_refusal`, no two the same), else None. Such a reading is never compared by code: it is only a label of the
+    rule."""
     if not isinstance(values, list) or len(values) < 2:
         return None
-    if not all(isinstance(v, str) and v.strip() and _number(v) is None for v in values):
+    if not all(isinstance(v, str) and alternative_refusal(v) is None for v in values):
         return None
     words = [" ".join(v.split()) for v in values]
     return words if len({w.casefold() for w in words}) == len(words) else None
+
+
+def _without_words(text: str, words: Sequence[str]) -> str:
+    out = text
+    for w in words:
+        out = re.sub(re.escape(w), " " * len(w), out, flags=re.IGNORECASE)
+    return out
 
 
 def check_reading(raw: Mapping, quote: str | None) -> tuple[bool, dict]:
@@ -208,10 +241,13 @@ def reading_problem(reading: Mapping, quote: str | None) -> str | None:
     ):  # words: each in the quote as written
         if reading.get("comparator") != "one_of" or text_alternatives(values) is None:
             return "value_not_in_quote"
+        if not all(_fold_words(w) in _fold_words(text) for w in values):
+            return "value_not_in_quote"
+        # words are a reading, but a real quantity beside them is still unread: the alternatives are blanked, the rest is checked
         return (
-            None
-            if all(_fold_words(w) in _fold_words(text) for w in values)
-            else "value_not_in_quote"
+            "numbers_unread"
+            if quote_states_a_quantity(_without_words(text, values))
+            else None
         )
     if not all(numparse.value_in_text(v, text) for v in values):
         return "value_not_in_quote"
