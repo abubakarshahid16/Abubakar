@@ -453,22 +453,24 @@ def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
 # Pure: it reads the record it is given, never a database.
 
 
-def every_page_read(pages: dict, where: str, total: int) -> str:
+def _pages_line(pages: dict, where: str, total: int) -> str:
     """What `comparison.qualify_by_pages` says when no page is unread: fields
     were read from `where` of `total`, and (order 165) any page both readers
     read and found no field on is named as that, never counted as a page
     fields were read from."""
     none = pages.get("pages_read_no_field") or []
-    said = f"fields were read from every page ({where} of {total})"
-    if none:
-        said = (
-            f"every page was read: fields from {where} of {total}; "
+    if not none:
+        return f"fields were read from every page ({where} of {total})"
+    return (f"every page was read: fields from {where} of {total}; "
             f"page{'s' if len(none) != 1 else ''} {page_list(none)} "
-            "read, no checklist field found"
-        )
-    return (
-        f"{said}. {pages['ai_skipped_line']}" if pages.get("ai_skipped_line") else said
-    )
+            "read, no checklist field found")
+
+
+def every_page_read(pages: dict, where: str, total: int) -> str:
+    """`_pages_line`, and (K3) once, in plain words, how many pages the AI page reader did not run on and why."""
+    said = _pages_line(pages, where, total)
+    line = pages.get("ai_skipped_line")
+    return f"{said}. {line}" if line else said
 
 
 def run_unread_pages_shown(
