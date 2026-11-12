@@ -15,7 +15,7 @@ const CONTAINERS: Record<string, string> = {
 /** The paths the screen names most, in their own words. Anything else falls back to the generic rule below. */
 const LABELS: Record<string, string> = {
   "page_coverage.pages_total": "the page record: pages in the document",
-  "page_coverage.fact_pages": "the page record: pages read into fields",
+  "page_coverage.fact_pages": "the page record: pages with values read into fields",
   "page_coverage.pages_not_read": "the page record: pages not read",
   "page_coverage.pages_not_read_into_fields": "the page record: pages no field was read from",
   "page_coverage.pages_ai_not_read": "the page record: pages the AI reader did not read",
@@ -23,8 +23,8 @@ const LABELS: Record<string, string> = {
   "page_coverage.reading.status": "the page record: reading status",
   "page_coverage.reading.incomplete_pages": "the page record: incomplete pages",
   "page_coverage.reading": "the page record: reading status",
-  "requirement_split.reader.pages": "the reader's page count",
-  "requirement_split.reader.pages_read": "the reader's page count",
+  "requirement_split.reader.pages": "pages given to the AI reader",
+  "requirement_split.reader.pages_read": "pages the AI reader read",
   "requirement_split.reader.engine": "the reader's setting",
   "requirement_split.reader.seconds": "the reader's time",
   "requirement_split.reader.timed_out": "the pages the reader timed out on",

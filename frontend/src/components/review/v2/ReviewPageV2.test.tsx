@@ -520,4 +520,18 @@ describe("U5 polish: chips by book, names without tags, groups with pages, books
     mount(); await loaded();
     expect(screen.queryByTestId("v2-several-books")).toBeNull();
   });
+
+  it("a row and a group show their tag count, so alike names with different tag sets can be told apart before opening", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [
+      point({ id: "t1", name: "Set pressure", tags: ["TG-1", "TG-2", "TG-3", "TG-4"] }),
+      point({ id: "t2", name: "Set pressure", rank: 2, tile: "not_met", tags: ["TG-5"] }),
+      alike(1), alike(2),
+    ].map((p, i) => (i >= 2 ? { ...p, tags: [`TG-${10 + i}`, `TG-${20 + i}`] } : p)) })));
+    mount(); await loaded();
+    const rows = screen.getAllByTestId("v2-point");
+    expect(rows[0]).toHaveTextContent("4 tags");
+    expect(rows[1]).toHaveTextContent("1 tag");
+    expect(rows[0].textContent).not.toMatch(/TG-/);
+    expect(screen.getByTestId("v2-group-place")).toHaveTextContent("4 tags in all");
+  });
 });

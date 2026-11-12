@@ -14,7 +14,9 @@ const CODE = /page_coverage|requirement_split|standards_change|coverage_pair|cla
 describe("plainSource", () => {
   it("turns a stored field path into words and leaves ordinary text alone", () => {
     expect(plainSource("page_coverage.pages_total")).toBe("the page record: pages in the document");
-    expect(plainSource("requirement_split.reader.pages_read")).toBe("the reader's page count");
+    expect(plainSource("requirement_split.reader.pages_read")).toBe("pages the AI reader read");
+    expect(plainSource("requirement_split.reader.pages")).toBe("pages given to the AI reader");
+    expect(plainSource("page_coverage.fact_pages (count of the list)")).toBe("the page record: pages with values read into fields (count of the list)");
     expect(plainSource("completed_at - created_at")).toBe("the time the review finished - the time the review started");
     expect(plainSource("recommended_code")).toBe("recommended code");
     expect(plainSource("page_coverage.ocr.pending + page_coverage.ocr.failed")).toBe("the page record: ocr pending + the page record: ocr failed");

@@ -109,3 +109,62 @@ def test_a_different_clause_or_field_or_book_is_not_the_same_question():
     assert key("ai_review", 4, "d2", "4.1", "r", "set pressure") != base
     assert key("ai_review", 4, None, "4.1", "r", "set pressure") is None
     assert key("ai_review", 1, "d1", "4.1", "r", "set pressure") is None  # a proven Fail never joins a group
+
+
+# ------------------------------------------------------------------------------------------------ R48g: reasons keep groups apart
+
+
+def test_questions_with_different_reasons_are_never_one_group():
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    ai_run(
+        doc,
+        [
+            mk("R-1", "Query", None, why="the value is blank", field="Set pressure (TG-1, TG-2)", paper_page=2),
+            mk("R-2", "Query", None, why="the values conflict", field="Set pressure (TG-3, TG-4)", paper_page=3),
+            mk("R-3", "Query", None, why="held for a condition", field="Set pressure (TG-5, TG-6)", paper_page=4),
+            mk("R-4", "Query", None, why="the value is blank", field="Set pressure (TG-7, TG-8)", paper_page=5),
+        ],
+    )
+    pts = points_of(_client(doc, "doc_std"), doc)["points"]
+    assert len({p["group_key"] for p in pts}) == 3  # blank x2 is one group, the other two reasons stand alone
+    by_reason = sorted(p["n_alike"] for p in pts)
+    assert by_reason == [1, 1, 2, 2]
+
+
+def test_the_reason_fallback_is_in_the_key():
+    a = review_points.group_key("ai_review", 4, "d1", "4.1", "the value is blank", "set pressure")
+    b = review_points.group_key("ai_review", 4, "d1", "4.1", "the values conflict", "set pressure")
+    assert a != b
+
+
+# ------------------------------------------------------------------------------------------------ R48g: a point with one unreadable book
+
+
+def test_a_point_citing_a_readable_and_an_unreadable_book_is_counted_under_the_first_and_in_the_unreadable_count():
+    _submittal("doc_std", "STD-A-001.pdf")
+    pts = [
+        {"id": "a", "_book_docs": ["doc_std", "doc_secret"], "tile": "questions", "rank": 4, "group_key": None},
+        {"id": "b", "_book_docs": ["doc_secret"], "tile": "questions", "rank": 4, "group_key": None},
+        {"id": "c", "_book_docs": ["doc_std"], "tile": "questions", "rank": 4, "group_key": None},
+    ]
+    review_points_service.resolve_books(pts, frozenset({"doc_std"}))
+    c = review_points.counts(pts, two_reader_possible=True, not_held=[])
+    assert c["rule_books"] == [{"id": "doc_std", "name": "STD-A-001", "points": 2}]
+    assert c["other_rule_books_points"] == 2  # a and b
+    assert "doc_secret" not in str(c) and "secret" not in str(pts[0]["books"])
+
+
+def test_decided_counts_points_not_groups():
+    from tests.test_b1_review_points import decide
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    ai_run(doc, [mk(f"R-{i}", "Query", None, why="the value is blank", field=f"Set pressure (TG-{i}, TG-{i + 10})", paper_page=i + 1) for i in (1, 2, 3)])
+    client = _client(doc, "doc_std")
+    pts = points_of(client, doc)["points"]
+    assert {p["n_alike"] for p in pts} == {3}
+    assert decide(client, doc, pts[0]["id"], "keep").status_code == 200
+    assert decide(client, doc, pts[1]["id"], "keep").status_code == 200
+    got = points_of(client, doc)
+    assert (got["decided"], got["of"]) == (2, 3)  # two members decided, not "one group"

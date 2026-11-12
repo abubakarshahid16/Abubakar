@@ -244,7 +244,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         or (_plain(arc.against(line)) if book_name else "")
         or "A point of the AI review"
     )
-    reason = line.get("reason_code") or ""
+    # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)
+    # are never one group, so "Keep all" never decides them unseen.
+    reason = line.get("reason_code") or line.get("not_proven_reason") or ""
     shown = (
         line
         if book_readable
@@ -493,7 +495,10 @@ def counts(
             names[b["id"]] = b["name"]
     several = sum(1 for p in points if len({b["id"] for b in p.get("books") or []}) > 1)
     unnamed = sum(
-        1 for p in points if not p.get("books") and (p.get("_book_docs") or p.get("_book_doc"))
+        1
+        for p in points
+        if p.get("_other_books")
+        or (not p.get("books") and (p.get("_book_docs") or p.get("_book_doc")))
     )
     no_book = sum(
         1 for p in points if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))

@@ -240,6 +240,8 @@ def resolve_books(points: list[dict], readable: frozenset[str]) -> None:
             if d in readable and d in names
         ]
         p["books"] = books
+        # a point that cites a book the caller may not read is counted apart for it, even when another of its books is readable
+        p["_other_books"] = any(d not in names or d not in readable for d in p.get("_book_docs") or [])
         p["no_book"] = not (p.get("_book_docs") or p.get("_book_doc"))  # cites no rule book at all
         if books:
             p["rule_book"] = books[0]["name"]
