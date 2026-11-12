@@ -188,12 +188,12 @@ def test_every_choice_by_every_kind_table():
                 plan.part(E.RULE_CHECK).engine,
                 plan.part(E.AI_REVIEW).engine,
             )
-    for kind in ("datasheet", "procedure", "contract"):
-        assert got[("automatic", kind)] == (False, E.ON_CLAUDE, E.ON_CLAUDE)
+    assert got[("automatic", "datasheet")] == (False, E.ON_CLAUDE, E.ON_CLAUDE)
+    assert got[("local", "datasheet")] == (False, E.ON_LOCAL, E.NOT_RUN)
+    for kind in ("procedure", "contract", "drawing", "test_record", "other", None):
         assert got[("local", kind)] == (False, E.ON_LOCAL, E.NOT_RUN)
-    for kind in ("drawing", "test_record", "other", None):
-        assert got[("automatic", kind)][0] is False
-        assert got[("automatic", kind)][1:] == (
+        assert got[("automatic", kind)] == (
+            False,
             E.ON_LOCAL,
             E.NOT_RUN,
         )  # unscored: nothing goes out
@@ -755,16 +755,44 @@ def test_the_yes_routes_are_admin_only_and_scoped(world, monkeypatch):
 # --------------------------------------------------------------------------------------------- scored kinds
 
 
-def test_only_scored_kinds_are_scored():
-    assert agent_review_gate.kind_scored("datasheet") and agent_review_gate.kind_scored(
-        "contract"
-    )
-    assert not agent_review_gate.kind_scored(
-        "drawing"
-    ) and not agent_review_gate.kind_scored(None)
+def test_only_the_datasheet_is_scored_and_it_is_the_kind_table_of_k1():
+    assert agent_review_gate.SCORED_KINDS == ("datasheet",)
+    for kind in ("procedure", "contract", "drawing", "test_record", "other", None):
+        assert not agent_review_gate.kind_scored(kind)
     assert (
         not settings.review_unscored_kinds_for_claude_enabled
     )  # the default: not offered
+
+
+def _confirm_kind(world, kind):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO document_kinds (document_id, kind, state, routed_at) VALUES (?, ?, 'confirmed', 'x')",
+            (world["sub"], kind),
+        )
+
+
+def test_a_procedure_is_not_offered_for_claude_on_a_live_install_and_carries_the_draft_note(
+    world, lane
+):
+    _confirm_kind(world, "procedure")
+    lane.setattr(settings, "agent_review_enabled", True)
+    got = review_engine.plan_for(
+        db.connect(), world["sub"], world["scope"], "automatic"
+    )
+    ai = next(p for p in got["parts"] if p["name"] == "ai_review")
+    assert ai["engine"] == "not_run" and agent_review_gate.UNSCORED_WORDS in ai["why"]
+    assert got["unscored"] and got["unscored_note"] == agent_review_gate.UNSCORED_WORDS
+    assert got["text_leaves"] is False
+    assert review_engine.plan_for(db.connect(), world["sub"], world["scope"], "claude")[
+        "refused"
+    ]
+    lane.setattr(settings, "review_unscored_kinds_for_claude_enabled", True)
+    on = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "automatic")
+    assert (
+        next(p for p in on["parts"] if p["name"] == "ai_review")["engine"] == "claude"
+    )
+    assert on["unscored"]  # offered, and still a draft
 
 
 # --------------------------------------------------------------------------------------------- the header

@@ -30,10 +30,10 @@ AGENT_REVIEW_KINDS = ("datasheet",)
 #: on a contract; planted errors caught 0 to 5 of 10 on each.) A paper of any other kind stays refused (409).
 AGENT_GENERAL_REVIEW_KINDS = ("procedure", "contract")
 #: The kinds SCORED against an answer key (owner, 12 Nov 2026, #1584 comment 6820183348: "No new kind goes live until scored
-#: against a key"). The datasheet is scored on the key; the procedure and the contract general review were scored 11 Nov
-#: (wrong lines 26 to 2 and 18 to 1, see above). Every other kind is not. A minimal home until the kind table of K1 lands: then
-#: its `scored` field replaces this tuple. Adding a kind here is an owner decision after a score.
-SCORED_KINDS = ("datasheet", "procedure", "contract")
+#: against a key"). ONLY the datasheet is scored on the key. The procedure and contract experiment of 11 Nov (most "not met" lines
+#: on a procedure were wrong) is not a score against a key. The same as `scored` in K1's kind table (`kind_review_table.json`,
+#: PR #1787), which becomes the one home; adding a kind here is an owner decision after a score against a key.
+SCORED_KINDS = ("datasheet",)
 UNSCORED_WORDS = (
     "This kind of paper has not been scored against an answer key yet: treat every line as a draft"
 )

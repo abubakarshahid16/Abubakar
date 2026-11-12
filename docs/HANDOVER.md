@@ -535,5 +535,5 @@ and any part the plan keeps local are barred from Claude for the whole run (`rev
 reader on the job path (`agent_local_lead` is used only by the experiment loop), so Local only means: rule check on the local
 model, AI review not run, said in plain words. Approvals: role SPECIFICATION (approved like a submittal, behind the existing
 auto-approve switch); a contract needs `contract_yes` per file (checksum, who, when, audit, withdrawable). Unscored kinds:
-`agent_review_gate.SCORED_KINDS` and `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` (off). The CRS header names the engine
+`agent_review_gate.SCORED_KINDS` (datasheet ONLY; owner, 12 Nov) and `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` (off). The CRS header names the engine
 ("Reviewed by:", `crs_layout.engine_rows`). The screen (PR 2) waits for the owner's picture. Trial: `scripts/trial_on_copy.py --engine`.
