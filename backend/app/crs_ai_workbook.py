@@ -7,7 +7,6 @@ is the length of the rows written, taken from the same lists. No new AI call: on
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -21,7 +20,6 @@ from .agent_review_crs import (
     PASSED_SHEET,
     UNAPPROVED_SHEET,
     against,
-    ai_ask,
     asks,
     line_page,
     sheet_of,
@@ -142,7 +140,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
             f" (pages searched: {searched})." if searched else "."
         )
     elif guard == NO_VALUE_WHY:
-        out = f"The paper names {field} but gives no value for it{where}."
+        out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
         out = "This cannot be checked from the paper alone."
     elif line.get("verdict") == PASS:
@@ -154,7 +152,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     elif has:
         out = f'The paper states "{has}"{where}.'
     else:
-        out = "The paper gives no value that could be checked."
+        out = "The AI reviewer holds no verified quote from the paper for this point."
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
@@ -162,6 +160,10 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     if (
         status in (words.STATUS_AI, words.STATUS_QUERY)
         and why
+        not in (
+            "",
+            words.UNKNOWN_WHY,
+        )  # an empty phrase carries no information: never printed
         and guard != NO_VALUE_WHY
     ):
         out += f" Not confirmed: {why}."
@@ -176,47 +178,20 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     return out
 
 
-_NO_ACTION = re.compile(
-    r"\b(no (?:action|correction|change|comment)s?\b|nothing to|not required|complies|compliant|meets?\b|satisf|acceptable)",
-    re.I,
-)
-FIXED_TO = {
-    words.STATUS_FAIL: "Contractor to revise the paper to meet the requirement, giving any value that is missing, and resubmit it.",
-    words.STATUS_AI: "Contractor to check and confirm or correct the paper.",
-    words.STATUS_QUERY: "Contractor to state the value, or the page where it is shown.",
-}
-
-
-def _reader_action(line: Mapping, status: str, order: int) -> str:
-    """The reader's own action sentence, only where it cannot contradict the Status: a Fail or an AI opinion (not met) whose stored
-    AI verdict is Fail, never on a line the guard moved, never a sentence that says no action or that the paper meets the rule."""
-    if (
-        status not in (words.STATUS_FAIL, words.STATUS_AI)
-        or order == words.ORDER_AI_MET
-    ):
-        return ""
-    if line.get("ai_verdict") != FAIL or moved_by_guard(line):
-        return ""
-    said = words.plain(ai_ask({**line, "reasoning": None}, contractor=True))
-    return (
-        ""
-        if not said or _NO_ACTION.search(said)
-        else said
-        if said.endswith((".", "!", "?"))
-        else said + "."
-    )
-
-
 def _contractor_to(line: Mapping, status: str, order: int) -> str:
-    """Part 3: what the contractor must do: one fixed sentence per Status (it always agrees with the Status), then the reader's own
-    action text when `_reader_action` allows it. Pass and AI opinion (met): no action line."""
+    """Part 3: what the contractor must do: ONE fixed sentence per Status, completed with the field label and the rule reference the
+    line already carries. No free text of the AI reader reaches it (its suggested action is on the Evidence sheet). Pass and AI
+    opinion (met): no action line."""
     if status == words.STATUS_PASS:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
         return "No action unless the engineer disagrees with the AI reviewer's view."
-    return " ".join(
-        x for x in (FIXED_TO[status], _reader_action(line, status, order)) if x
-    )
+    what, ref = field_name(line) or "the item", against(line)
+    if status == words.STATUS_FAIL:
+        return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
+    if status == words.STATUS_AI:
+        return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
+    return f"Contractor to state {what}, or the page where it is shown."
 
 
 def layout_comment(line: Mapping, status: str, order: int) -> str:
@@ -339,7 +314,7 @@ OTHER_COLUMNS = (
 )
 OTHER_WIDTHS = (9.0, 26.0, 20.0, 26.0, 30.0, 90.0)
 EVIDENCE_COLUMNS = (
-    "Item No", "Status", "AI reasoning", "Paper quote", "Paper page", "Clause quote", "Rule book and clause",
+    "Item No", "Status", "AI reasoning", "AI reader's suggested action", "Paper quote", "Paper page", "Clause quote", "Rule book and clause",
     "Paper quote check", "Clause quote check", "Second reader", "AI calls (models)", "Reason code", "Item id (internal)",
     "Rule id (internal)",
 )  # fmt: skip
@@ -347,6 +322,7 @@ EVIDENCE_WIDTHS = (
     9.0,
     13.0,
     60.0,
+    45.0,
     45.0,
     9.0,
     45.0,
@@ -391,6 +367,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         n,
         status,
         _clean(line.get("reasoning")) or None,
+        _clean(line.get("comment")) or None,
         _clean(line.get("paper_quote")) or None,
         line.get("paper_page"),
         _clean(line.get("clause_quote")) or None,
