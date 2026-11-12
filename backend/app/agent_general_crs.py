@@ -239,7 +239,11 @@ def _head_view(
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
     by = "" if contractor else words.comment_by(discipline)
-    books = sorted({_c(ln.get("rule_book")) for ln in final if ln.get("rule_book")})
+    # only the books of ANSWERED rows (the item rows): a rule book we do not hold was never checked against, so it is never "used"
+    # here (it is on the Notes sheet); a copy with no rows prints no book, like the datasheet review's empty contractor copy
+    books = sorted(
+        {_c(ln.get("rule_book")) for ln, _s, _o in items if ln.get("rule_book")}
+    )
     label = workbook.BOOKS_SHOWN if contractor else workbook.BOOKS_REVIEWED
     return {
         "title": workbook._title(meta),

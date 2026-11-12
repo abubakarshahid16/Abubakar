@@ -2230,3 +2230,35 @@ def test_the_neutral_sentence_is_exactly_the_one_ordered(tmp_path):
             "The AI reviewer holds no verified quote from the paper for this point."
         )
     )
+
+
+def test_the_header_names_no_rule_book_that_was_never_checked(tmp_path):
+    agent_general_crs.write_all(
+        _one_layout_lines(),
+        tmp_path,
+        {"paper": "p.pdf", "run_id": "r", "date": "d"},
+        [],
+        {},
+    )  # the lines hold one rule book we do NOT hold ("IEC 61511")
+
+    def books(path):
+        for row in _cells(path):
+            if row[0] and str(row[0]).startswith("Rule books used"):
+                return row[2]
+        raise AssertionError("no books row")
+
+    assert not books(tmp_path / "crs-contractor.xlsx")  # no rows: blank
+    assert not books(
+        tmp_path / "crs-internal.xlsx"
+    )  # no answered line used a book: blank
+    notes = " ".join(
+        str(c) for r in _cells(tmp_path / "crs-internal.xlsx", "Notes") for c in r
+    )
+    assert "IEC 61511" in notes  # the not-held book stays on the Notes sheet
+    lines = _one_layout_lines()
+    lines[2]["rule_book"] = "INV-BOOK-1"  # an answered line that used a held book
+    agent_general_crs.write_all(
+        lines, tmp_path / "b", {"paper": "p.pdf", "run_id": "r", "date": "d"}, [], {}
+    )
+    assert books(tmp_path / "b" / "crs-internal.xlsx") == "INV-BOOK-1"
+    assert not books(tmp_path / "b" / "crs-contractor.xlsx")
