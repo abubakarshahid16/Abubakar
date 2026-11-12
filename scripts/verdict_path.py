@@ -139,6 +139,8 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_review_excerpt.py": "pure line and window selection for the local engine; every quote is still verified against the whole page by the gate",
+    "agent_review_local_run.py": "the local first-reader loop over windows; the verdict is decided by the same decide() (a FULL review still applies: rule 14b)",
     "agent_review_job_facts.py": "pure helpers moved out of the job file (stop sentence, equipment facts); decides nothing",
     "agent_review_local.py": "the local transport seam of the AI reviewer; every verdict rule it feeds is the Claude path's own (a FULL review still applies: rule 14b)",
     "agent_general_prompts.py": "prompt text only; no logic",
