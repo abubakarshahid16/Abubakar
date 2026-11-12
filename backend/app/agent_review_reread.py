@@ -244,14 +244,27 @@ class RereadMixin:
             try:
                 raw, usd = self.call(agent_claude.SECOND_MODEL, parts, limit, once=True)
             except agent_claude.AgentBadReply as exc:
-                paid += float(exc.usd if exc.usd is not None else 0.0)
-                if exc.code == "stop_max_tokens":
-                    self._optional.paid = paid
-                    if limit == REREAD_MAX_TOKENS:
-                        continue
-                    raise RereadFailed(FAIL_CUT_OFF, paid) from None
+                # what the call cost (its own usage); the worst case at THIS limit when none came back: as the run is charged
+                worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, limit)
+                paid += float(exc.usd if exc.usd is not None else worst)
+                self._optional.paid = paid
+                if exc.code == "stop_max_tokens" and limit == REREAD_MAX_TOKENS:
+                    continue
+                word = (
+                    FAIL_CUT_OFF if exc.code == "stop_max_tokens" else FAIL_CALL_ERROR
+                )
+                raise RereadFailed(word, paid) from None
+            except (
+                agent_claude.AgentTransportError
+            ):  # it may have been billed: the run is charged this limit's worst case
+                paid += app_worst_usd(agent_claude.SECOND_MODEL, parts, limit)
+                self._optional.paid = paid
                 raise RereadFailed(FAIL_CALL_ERROR, paid) from None
+            except FATAL:
+                self._optional.paid = paid  # a refusal on the retry: the first call's cost stays on the line
+                raise
             paid += float(usd or 0.0)
+            self._optional.paid = paid
             model = agent_claude._answered_model(raw)
             if model != "unknown":
                 self.second_models.add(model)
@@ -266,7 +279,10 @@ class RereadMixin:
             self.note_reread_stop(
                 exc
             )  # optional step: the lead's own calls decide whether the run stops
-            return self._unchanged(line, cause, {"outcome": "step_off"}, 0.0)
+            paid = getattr(
+                self._optional, "paid", 0.0
+            )  # what the step had already paid stays on the line
+            return self._unchanged(line, cause, {"outcome": "step_off"}, paid)
         if isinstance(exc, RereadFailed):
             outcome = "cut_off" if exc.word == FAIL_CUT_OFF else "failed"
             return self._unchanged(
