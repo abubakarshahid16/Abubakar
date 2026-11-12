@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { agentReview, isFeatureOff } from "../../../api/agentReview";
-import type { AgentBookCoverage, AgentRulesUsed } from "../../../types/api";
+import type { AgentBookCoverage, AgentBookTable, AgentRulesUsed } from "../../../types/api";
 import { LEFT_OUT_REASONS } from "./agentWords";
 import { humanizeCode } from "./plainWords";
 import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
@@ -43,6 +43,59 @@ const has = (text: string, needle: string) => text.toLowerCase().includes(needle
 
 export const GENERAL_NO_RULES =
   "General review: no rule was asked. Rule books the paper cites that we do not hold are listed below.";
+
+/** Words for the left-out counts of one book: "needs a human 3, needs another paper 2"; nothing when none. */
+export function leftOutWords(left: Record<string, number>): string {
+  return Object.entries(left).map(([k, n]) => `${k} ${n}`).join(", ");
+}
+
+/** Which held rule books were candidates for this review and which were not, and why. View only. */
+export function BookTable({ table }: { table: AgentBookTable }) {
+  const inBooks = table.books.filter((b) => b.in_review);
+  const outBooks = table.books.filter((b) => !b.in_review);
+  const byMethod = new Map<string, number>();
+  for (const b of outBooks) byMethod.set(b.method, (byMethod.get(b.method) ?? 0) + 1);
+  return (
+    <section aria-labelledby="rules-booktable-title" className="space-y-1" data-testid="book-table">
+      <h3 id="rules-booktable-title" className="text-base font-semibold text-slateish-100">Which rule books were candidates</h3>
+      <p className="text-xs text-slateish-400" data-testid="book-table-boundary">Counted over: {table.boundary}.</p>
+      {table.note != null && <p data-testid="book-table-note" className="text-sm text-slateish-300">{table.note}</p>}
+      <p className="text-sm text-slateish-100" data-testid="book-table-count">
+        {inBooks.length} book{inBooks.length === 1 ? "" : "s"} were candidates; {outBooks.length} were considered and not included.
+        {table.hidden_books > 0 && <> {table.hidden_books} more book{table.hidden_books === 1 ? "" : "s"} of this review {table.hidden_books === 1 ? "is" : "are"} not listed because you may not read {table.hidden_books === 1 ? "it" : "them"}.</>}
+      </p>
+      {inBooks.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <caption className="sr-only">Rule books that were candidates for this review</caption>
+            <thead className="text-xs text-slateish-400">
+              <tr>{["Rule book", "Why it was a candidate", "Rules stored", "Asked", "Left out"].map((h) => <th key={h} scope="col" className="py-1 pr-3">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {inBooks.map((b) => (
+                <tr key={b.rule_book} className="border-t border-ink-700 align-top">
+                  <td className="py-1 pr-3">{b.rule_book}</td><td className="pr-3">{b.method}</td>
+                  <td className="pr-3 font-mono">{b.stored_rules ?? ""}</td><td className="pr-3 font-mono">{b.asked}</td>
+                  <td>{leftOutWords(b.left_out)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {outBooks.length > 0 && (
+        <details data-testid="book-table-out">
+          <summary className="cursor-pointer text-sm text-slateish-100">
+            Considered, not included ({outBooks.length}): {[...byMethod].map(([m, n]) => `${n} ${m}`).join("; ")}
+          </summary>
+          <ul className="list-disc pl-5 text-sm text-slateish-100">
+            {outBooks.map((b) => <li key={b.rule_book}>{b.rule_book}: not included. {b.method}</li>)}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
 
 export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed; general?: boolean }) {
   const [filter, setFilter] = useState("");
@@ -104,6 +157,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
       </div>}
 
       {!general && <>
+      {data.book_table != null && <BookTable table={data.book_table} />}
       <section aria-labelledby="rules-books-title" className="space-y-1">
         <h3 id="rules-books-title" className="text-base font-semibold text-slateish-100">Rule books</h3>
         {data.books.length === 0 ? (
