@@ -195,14 +195,13 @@ def numeric_line(
             "clause_quote_unverified",
             reason,
         )
-    met = status == COMPLIANT
     return {
         **base,
-        "verdict": PASS if met else FAIL,
+        "verdict": PASS if status == COMPLIANT else FAIL,
         "decided_by": verdict_mod.BY_CODE,
         "compare": {
             "decided": True,
-            "verdict": "meets" if met else "does_not_meet",
+            "verdict": "meets" if status == COMPLIANT else "does_not_meet",
             "reason": reason,
         },
     }
@@ -267,8 +266,8 @@ def checklist_lines(
                         "compare": {"decided": False, "reason": detail}})  # fmt: skip
         else:
             met = status == COMPLIANT
-            out.append({**line, "verdict": PASS if met else FAIL, "decided_by": verdict_mod.BY_CODE,
-                        "compare": {"decided": True, "verdict": "meets" if met else "does_not_meet", "reason": detail}})  # fmt: skip
+            out.append({**line, "verdict": PASS if status == COMPLIANT else FAIL, "decided_by": verdict_mod.BY_CODE,
+                        "compare": {"decided": True, "verdict": "meets" if status == COMPLIANT else "does_not_meet", "reason": detail}})  # fmt: skip
     return out
 
 
