@@ -339,7 +339,8 @@ def claude_select_standards(
         claude_approved.carrying(
             [run["submittal_document_id"], *(c.get("document_id") for c in candidates)]
         ),
-        claude_approved.acting_as(scope.user_id),  # a run's consent counts only for the person who gave it
+        # a run's consent counts only for the person who gave it
+        claude_approved.acting_as(scope.user_id),
         claude_spend_report.for_route(review_run_id),
     ):
         result, exhausted = _capped(
@@ -372,7 +373,10 @@ def claude_read_datasheet(
     run = _run_or_404(review_run_id, scope)
     model_call, transport = _model_call_or_409(STEP_READ_DATASHEET)
     submittal_id = run["submittal_document_id"]
-    with claude_approved.acting_as(scope.user_id), claude_spend_report.for_route(review_run_id):
+    with (
+        claude_approved.acting_as(scope.user_id),
+        claude_spend_report.for_route(review_run_id),
+    ):
         result, exhausted = _capped(
             model_call,
             lambda call: claude_datasheet.read_datasheet(
@@ -409,11 +413,17 @@ def claude_recheck_findings(
     model_call, transport = _model_call_or_409(STEP_RECHECK)
     # #838: this review's documents are not approved for the cloud model ->
     # the local model re-checks, nothing leaves, and the answer says so.
-    with claude_approved.acting_as(scope.user_id), claude_approved.review_declaration(review_run_id):
+    with (
+        claude_approved.acting_as(scope.user_id),
+        claude_approved.review_declaration(review_run_id),
+    ):
         local_instead = claude_approved.local_instead()
     if local_instead:
         model_call, transport = _local_recheck_call(), None
-    with claude_approved.acting_as(scope.user_id), claude_spend_report.for_route(review_run_id):
+    with (
+        claude_approved.acting_as(scope.user_id),
+        claude_spend_report.for_route(review_run_id),
+    ):
         result, exhausted = _capped(
             model_call,
             lambda call: claude_recheck.recheck_run(
@@ -471,7 +481,10 @@ def review_ai_check(
     if not ok:
         raise HTTPException(status_code=409, detail=errors.safe_error(MODEL_DISABLED, why))
     try:
-        with claude_approved.acting_as(scope.user_id), claude_spend_report.for_route(review_run_id):
+        with (
+            claude_approved.acting_as(scope.user_id),
+            claude_spend_report.for_route(review_run_id),
+        ):
             result = ai_engineering_check.run_check(
                 review_run_id,
                 allowed_document_ids=scope.allowed_document_ids,
