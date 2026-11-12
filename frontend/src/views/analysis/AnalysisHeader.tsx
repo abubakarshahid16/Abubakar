@@ -1,19 +1,23 @@
 import type { ReactNode } from "react";
 
+import { MoreText } from "../../components/MoreText";
+
 export function AnalysisHeader() {
   return (
     <header className="border-b border-ink-700 pb-4">
       <h1 className="text-xl font-semibold text-slateish-100">Analysis</h1>
       <p className="mt-1 text-sm font-semibold text-signal-300">Document submittal review</p>
-      <p className="mt-2 max-w-3xl text-sm text-slateish-300">
-        Ask one engineering question, choose the work to run, and inspect only cited document evidence.
-        Public evidence is isolated from private document context.
-      </p>
+      <MoreText className="mt-2 max-w-3xl" summary="Ask one engineering question, choose the work to run, and read only cited evidence.">
+        <p className="text-sm text-slateish-300">
+          Ask one engineering question, choose the work to run, and inspect only cited document evidence.
+          Public evidence is isolated from private document context.
+        </p>
       <div className="mt-4 grid gap-2 md:grid-cols-3">
         <Rule title="Evidence rule">Document claims render only when citations resolve to page evidence.</Rule>
         <Rule title="Recommendation rule">Advisory output is separate from document facts and carries engineer review.</Rule>
         <Rule title="Market rule" warning>Public market rows are sample data unless a governed provider is enabled.</Rule>
       </div>
+      </MoreText>
     </header>
   );
 }

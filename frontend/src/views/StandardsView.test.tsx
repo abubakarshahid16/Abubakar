@@ -79,6 +79,49 @@ function mockApi(opts: {
 
 beforeEach(() => { vi.restoreAllMocks(); });
 
+describe("the library list: search and families", () => {
+  const many = (n: number): StandardSummary[] =>
+    Array.from({ length: n }, (_, i) => ({
+      ...base, id: `s${i}`, filename: `SAES-Z-${i}.pdf`, document_number: `SAES-Z-${i}`, title: null,
+    }));
+
+  it("groups by family with the count of that family", async () => {
+    mockApi({ standards: [...many(3), { ...base, id: "api1", filename: "API 610.pdf", document_number: null, title: null }] });
+    render(<StandardsView />);
+    expect(await screen.findByRole("region", { name: "SAES standards" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "API standards" })).toBeTruthy();
+    expect(screen.getByTestId("standards-shown").textContent).toBe("4 in your library");
+  });
+
+  it("filters by the search and says how many of how many match", async () => {
+    mockApi({ standards: [...many(3), { ...base, id: "api1", filename: "API 610.pdf", document_number: null, title: null }] });
+    render(<StandardsView />);
+    await screen.findByRole("region", { name: "SAES standards" });
+    fireEvent.change(screen.getByLabelText("Search the standards library"), { target: { value: "610" } });
+    expect(screen.queryByRole("region", { name: "SAES standards" })).toBeNull();
+    expect(screen.getByTestId("standards-shown").textContent).toBe("1 of 4 in your library match");
+  });
+
+  it("draws a long family in part and shows the rest on request", async () => {
+    mockApi({ standards: many(60) });
+    render(<StandardsView />);
+    await screen.findByRole("region", { name: "SAES standards" });
+    expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(25);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 60 SAES standards" }));
+    expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(60);
+  });
+
+  it("names a book by its title when it has no number, and by the file name when it has neither", async () => {
+    mockApi({ standards: [
+      { ...base, id: "t", filename: "f1.pdf", document_number: null, title: "Pump rules" },
+      { ...base, id: "f", filename: "5521.pdf", document_number: null, title: null },
+    ] });
+    render(<StandardsView />);
+    expect(await screen.findByRole("button", { name: /Pump rules/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /5521\.pdf/ })).toBeTruthy();
+  });
+});
+
 describe("the library list", () => {
   it("says no requirements have been extracted, not '0 requirements'", async () => {
     mockApi({ standards: [{ ...base, requirement_count: 0 }] });

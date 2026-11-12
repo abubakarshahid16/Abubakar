@@ -15,6 +15,7 @@
  * `chunk_count_total` is every chunk row; publishing one alone is how "19% of
  * pages vanished" stayed invisible, so they are always shown together.
  */
+import { formatWhen } from "../format/when";
 import type { DocumentRecord, DocumentReviewStatus } from "../types/api";
 import { ROLE_OPTIONS } from "./classification/MetadataEditor";
 
@@ -103,8 +104,8 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
           ) : null}
           <Field label="Pages with lost equations" value={doc.equation_pages || null} />
           <Field label="Pages excluded" value={doc.pages_excluded || null} />
-          <Field label="Uploaded" value={doc.uploaded_at} />
-          <Field label="Indexed" value={doc.indexed_at} />
+          <Field label="Uploaded" value={formatWhen(doc.uploaded_at)} />
+          <Field label="Indexed" value={formatWhen(doc.indexed_at)} />
         </dl>
 
         {doc.status === "stored_not_indexed" && (

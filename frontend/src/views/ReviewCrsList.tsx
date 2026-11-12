@@ -6,6 +6,7 @@
  * caller may read and downloads a run's CRS (internal review copy) with the
  * same call the Review runs screen uses - one export, two places to start it.
  */
+import { formatWhen } from "../format/when";
 import { useState } from "react";
 
 import { reviews as reviewsApi } from "../api/client";
@@ -96,7 +97,7 @@ export function ReviewCrsList() {
               <span className="text-slateish-200">
                 {run.submittal_filename ?? run.submittal_document_id}
                 <span className="ml-2 text-xs text-slateish-400">
-                  {run.status}{run.created_at ? ` · ${run.created_at.slice(0, 10)}` : ""}
+                  {run.status}{run.created_at ? ` · ${formatWhen(run.created_at)}` : ""}
                 </span>
               </span>
               <button

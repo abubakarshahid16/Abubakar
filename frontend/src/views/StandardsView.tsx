@@ -22,6 +22,7 @@
  * tab strip, because an empty tab reads as a broken feature rather than an
  * unbuilt one.
  */
+import { formatWhen } from "../format/when";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
@@ -30,6 +31,7 @@ import { ClauseCheckDrafts } from "../components/standards/ClauseCheckDrafts";
 import { MissingStandards } from "../components/standards/MissingStandards";
 import { StructuredReading } from "../components/standards/StructuredReading";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
+import { displayName, groupByFamily, searchStandards } from "./standardsLibrary";
 import type {
   ApiError, DocumentRecord, StandardRequirement, StandardSummary,
 } from "../types/api";
@@ -48,10 +50,16 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "processing", label: "Processing Details" },
 ];
 
+/** Rows drawn per family before "Show all". */
+const GROUP_PREVIEW = 25;
+
 export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [selected, setSelected] = useState<StandardSummary | null>(null);
   const [includeSuperseded, setIncludeSuperseded] = useState(true);
+  const [query, setQuery] = useState("");
+  // Rows shown per family; the rest wait behind "Show all" so 280 books are not drawn at once.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const refresh = useCallback(async () => {
     const result = await api.standards({ include_superseded: includeSuperseded });
@@ -73,6 +81,9 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
     ? load.standards.find((s) => s.id === selected.id) ?? selected
     : null;
 
+  const matches = searchStandards(load.standards, query);
+  const groups = groupByFamily(matches);
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -93,16 +104,53 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
           hint="A document appears here once an administrator sets its role to Company standard."
         />
       ) : (
-        <ul className="flex flex-col gap-2">
-          {load.standards.map((standard) => (
-            <li key={standard.id}>
-              <StandardRow
-                standard={standard}
-                onOpen={() => setSelected(standard)}
-              />
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name, number, title or family"
+              aria-label="Search the standards library"
+              className="w-full max-w-md rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-sm"
+            />
+            <p className="text-xs opacity-70" data-testid="standards-shown">
+              {matches.length === load.standards.length
+                ? `${load.standards.length.toLocaleString()} in your library`
+                : `${matches.length.toLocaleString()} of ${load.standards.length.toLocaleString()} in your library match`}
+            </p>
+          </div>
+          {matches.length === 0 && (
+            <p className="text-sm opacity-70">No standard in your library matches that search.</p>
+          )}
+          {groups.map((group) => {
+            const all = expanded.has(group.family) || query.trim() !== "";
+            const shown = all ? group.rows : group.rows.slice(0, GROUP_PREVIEW);
+            return (
+              <section key={group.family} aria-label={`${group.family} standards`} className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium opacity-80">
+                  {group.family} <span className="font-normal opacity-70">({group.rows.length.toLocaleString()})</span>
+                </h3>
+                <ul className="flex flex-col gap-2">
+                  {shown.map((standard) => (
+                    <li key={standard.id}>
+                      <StandardRow standard={standard} onOpen={() => setSelected(standard)} />
+                    </li>
+                  ))}
+                </ul>
+                {shown.length < group.rows.length && (
+                  <button
+                    type="button"
+                    className="self-start text-xs text-signal-400 hover:underline"
+                    onClick={() => setExpanded(new Set([...expanded, group.family]))}
+                  >
+                    Show all {group.rows.length.toLocaleString()} {group.family} standards
+                  </button>
+                )}
+              </section>
+            );
+          })}
+        </>
       )}
 
       <MissingStandards />
@@ -135,7 +183,7 @@ function StandardRow({
       <div className="flex flex-wrap items-center gap-2">
         {/* The number is how an engineer names a standard. Falls back to the
             filename rather than rendering an empty heading. */}
-        <span className="font-medium">{standard.document_number || standard.filename}</span>
+        <span className="font-medium">{displayName(standard)}</span>
         {standard.revision && (
           <span className="rounded bg-white/10 px-2 py-0.5 text-xs">Rev {standard.revision}</span>
         )}
@@ -169,7 +217,12 @@ function StandardRow({
           </span>
         )}
       </div>
-      {standard.title && <p className="mt-1 text-xs opacity-80">{standard.title}</p>}
+      {standard.title && displayName(standard) !== standard.title && (
+        <p className="mt-1 text-xs opacity-80">{standard.title}</p>
+      )}
+      {standard.filename !== displayName(standard) && (
+        <p className="mt-1 text-xs opacity-60">File: {standard.filename}</p>
+      )}
       <p className="mt-1 text-xs opacity-70">
         {standard.effective_date && <>Effective {standard.effective_date} · </>}
         {/* ZERO IS A REAL ANSWER and is worded as one. "0 requirements" would
@@ -484,7 +537,7 @@ function ProcessingTab({ standard }: { standard: StandardSummary }) {
       <Field label="Clauses detected" value={clauses} />
       <Field label="Requirements extracted" value={standard.requirement_count} />
       <Field label="Awaiting verification" value={standard.awaiting_verification} />
-      <Field label="Uploaded" value={standard.uploaded_at} />
+      <Field label="Uploaded" value={formatWhen(standard.uploaded_at)} />
     </dl>
   );
 }

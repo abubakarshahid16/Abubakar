@@ -13,6 +13,7 @@
  *
  * Data flow is by props; this component calls no api.* function itself.
  */
+import { formatWhen } from "../format/when";
 import { useState } from "react";
 
 import { EmptyState, Spinner } from "../components/states";
@@ -32,10 +33,6 @@ function formatBytes(n: number): string {
  *  the report's frozen, hashed snapshot and is never rewritten. */
 export function displayQuestion(text: string | null): string | null {
   return text === null ? null : text.replace(/[\\\s]+$/, "");
-}
-
-function formatWhen(iso: string): string {
-  return iso.replace("T", " ").replace(/\.\d+/, "").replace("Z", " UTC");
 }
 
 export function ReportsView({
@@ -177,7 +174,10 @@ function ReportRow({
                     )}
                     <span className="text-slateish-400">
                       {" "}
-                      · {nf.format(d.passages_cited)} passage{d.passages_cited === 1 ? "" : "s"}
+                      {d.passages_cited === 0
+                        // Said plainly: "0 passages" next to a cited document reads as a contradiction.
+                        ? "· on the document list; no passage of it is quoted in this report"
+                        : `· ${nf.format(d.passages_cited)} passage${d.passages_cited === 1 ? "" : "s"}`}
                     </span>
                     {d.text_source && d.text_source !== "extracted" && (
                       <span className="text-warn-500">

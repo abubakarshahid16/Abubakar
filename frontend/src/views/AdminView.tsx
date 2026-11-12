@@ -19,6 +19,8 @@
  *
  * Data flow is by props; this component calls no api.* function itself.
  */
+import { formatWhen } from "../format/when";
+import { filterGrantDocuments, grantPage } from "./grantList";
 import { useEffect, useState } from "react";
 
 import { DisconnectedState, EmptyState, Spinner } from "../components/states";
@@ -32,10 +34,6 @@ import type {
   LoadFailure,
 } from "../types/admin";
 import { management, reviews } from "../api/client";
-
-function formatWhen(iso: string): string {
-  return iso.replace("T", " ").replace(/\.\d+/, "").replace("Z", " UTC");
-}
 
 /**
  * The "seeded but useless" summary.
@@ -375,6 +373,11 @@ export function AdminView(props: AdminViewProps) {
 
   const summary = summarise(users, disciplines, documents);
   const disciplineNames = (disciplines ?? []).map((d) => d.name);
+  // The grant list is searched and shown one page at a time: it holds hundreds of documents.
+  const [grantQuery, setGrantQuery] = useState("");
+  const [grantPageIndex, setGrantPageIndex] = useState(0);
+  const grantMatches = filterGrantDocuments(orphansFirst(documents ?? []), grantQuery);
+  const grantView = grantPage(grantMatches, grantPageIndex);
   const [baselineRules, setBaselineRules] = useState<import("../types/api").ReviewBaselineRule[]>([]);
   const [baselineType, setBaselineType] = useState("");
   const [baselineTarget, setBaselineTarget] = useState("");
@@ -602,8 +605,27 @@ export function AdminView(props: AdminViewProps) {
         )}
 
         {!documentsFailure && documents !== null && documents.length > 0 && (
+          <>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="search"
+              value={grantQuery}
+              onChange={(e) => { setGrantQuery(e.target.value); setGrantPageIndex(0); }}
+              placeholder="Search documents by file name"
+              aria-label="Search documents"
+              className="w-full max-w-md rounded-[var(--radius-xs)] border border-ink-500 bg-ink-850 px-3 py-1.5 text-sm text-slateish-200"
+            />
+            <p className="text-xs text-slateish-400" data-testid="admin-grant-shown">
+              {grantMatches.length === documents.length
+                ? `${documents.length.toLocaleString()} documents`
+                : `${grantMatches.length.toLocaleString()} of ${documents.length.toLocaleString()} documents match`}
+            </p>
+          </div>
+          {grantMatches.length === 0 && (
+            <p className="text-sm text-slateish-400">No document matches that search.</p>
+          )}
           <ul className="space-y-2">
-            {orphansFirst(documents).map((doc) => (
+            {grantView.rows.map((doc) => (
               <li
                 key={doc.document_id}
                 className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-3"
@@ -655,6 +677,28 @@ export function AdminView(props: AdminViewProps) {
               </li>
             ))}
           </ul>
+          {grantView.pages > 1 && (
+            <nav aria-label="Document pages" className="flex items-center gap-3 text-xs text-slateish-300">
+              <button
+                type="button"
+                disabled={grantView.index === 0}
+                onClick={() => setGrantPageIndex(grantView.index - 1)}
+                className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span>Page {grantView.index + 1} of {grantView.pages}</span>
+              <button
+                type="button"
+                disabled={grantView.index >= grantView.pages - 1}
+                onClick={() => setGrantPageIndex(grantView.index + 1)}
+                className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </nav>
+          )}
+          </>
         )}
       </section>
 

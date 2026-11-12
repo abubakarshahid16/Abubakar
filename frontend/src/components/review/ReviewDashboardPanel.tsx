@@ -11,13 +11,15 @@
  * review", not a bare 0. And the Needs Attention tile lists WHY, because a
  * tile reading "9" is a number a reader has to trust.
  */
+import { formatWhen } from "../../format/when";
+import { equipmentLabel } from "../../format/equipment";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
 import {
   LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
-  truncationNote, whenLabel,
+  truncationNote,
 } from "./reviewFormat";
 
 export interface ReviewDashboardPanelProps {
@@ -289,13 +291,17 @@ export function ReviewDashboardPanel(
                   <tr key={run.review_run_id} className="border-t border-ink-800">
                     <td className="px-3 py-2 text-slateish-200">
                       {run.submittal_filename}
-                      <span className="block text-slateish-500">{whenLabel(run.created_at)}</span>
+                      <span className="block text-slateish-500">{formatWhen(run.created_at)}</span>
+                    </td>
+                    <td className="px-3 py-2 text-slateish-300" title={run.equipment_tags.join(", ") || undefined}>
+                      {equipmentLabel(run.equipment_tags)}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
-                      {run.equipment_tags.join(", ")}
-                    </td>
-                    <td className="px-3 py-2 text-slateish-300">
-                      {run.findings_total.toLocaleString()}
+                      {run.findings_total === 0 && !run.recommended_code ? (
+                        // An AI-review run has lines, not findings: say so, not an empty row. (The run itself does not say
+                        // which kind it is, so this says only what the row shows: nothing in the findings table.)
+                        <span>No findings table</span>
+                      ) : run.findings_total.toLocaleString()}
                       {run.by_status.NON_COMPLIANT ? (
                         <span className={`ml-1 rounded-full border px-1.5 ${statusTone("NON_COMPLIANT")}`}>
                           {run.by_status.NON_COMPLIANT} {statusLabel("NON_COMPLIANT").toLowerCase()}

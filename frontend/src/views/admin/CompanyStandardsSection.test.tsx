@@ -29,17 +29,17 @@ describe("CompanyStandardsSection (#620)", () => {
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held, confirmCompanyStandard: vi.fn() })} />);
     expect(await screen.findByTestId("admin-held-count")).toHaveTextContent("1 Company standard is waiting for confirmation.");
     expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent(
-      "Company standards uploaded before 2026-10-18 count as confirmed and are not listed here.");
+      "Company standards uploaded before 18 Oct 2026 count as confirmed and are not listed here.");
     const row = screen.getByTestId("admin-held-std-1");
     expect(row).toHaveTextContent("sample-company-standard.pdf");
-    expect(row).toHaveTextContent("uploaded 2026-10-19");
+    expect(row).toHaveTextContent("uploaded 19 Oct 2026, ");
   });
 
   it("an empty list says nothing is waiting, and still says which standards it does not cover", async () => {
     const held = vi.fn().mockResolvedValue(page([]));
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held })} />);
     expect(await screen.findByTestId("admin-held-count")).toHaveTextContent("No Company standard is waiting for confirmation.");
-    expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("uploaded before 2026-10-18 count as confirmed");
+    expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("uploaded before 18 Oct 2026 count as confirmed");
   });
 
   it("confirm asks first, calls the route, then reads the list again", async () => {
