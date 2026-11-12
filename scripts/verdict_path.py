@@ -109,6 +109,14 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "the one table of what each kind of paper is asked: review, rules, checklist, page split",
     ),
     (
+        APP + "agent_general_parts.py",
+        "runs parts 1 and 2 of a general review and sends the paper's text to Claude",
+    ),
+    (
+        APP + "agent_general_job.py",
+        "plans a general review, declares what may be sent, stores its lines and run row",
+    ),
+    (
         APP + "agent_review_reuse.py",
         "stands in for a reader's call: what is reused, and that no call is made",
     ),
@@ -117,8 +125,6 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
-    "agent_general_job.py": "job plumbing: plan, store, files; every line leaves through agent_general_review (listed)",
-    "agent_general_parts.py": "runs parts 1 and 2; every line leaves through agent_general_review (listed)",
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",

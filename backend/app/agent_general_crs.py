@@ -232,14 +232,16 @@ def _evidence_row(n: int, ln: Mapping, status: str) -> list:
     ]  # fmt: skip
 
 
-def _head_view(
-    final: list[Mapping], items: list, meta: Mapping, copy: str, discipline: str
-) -> dict:
+def _head_view(items: list, meta: Mapping, copy: str, discipline: str) -> dict:
     """The title, the header block (the datasheet review's own, `crs_ai_workbook._header_pairs`), the sentence and the item rows."""
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
     by = "" if contractor else words.comment_by(discipline)
-    books = sorted({_c(ln.get("rule_book")) for ln in final if ln.get("rule_book")})
+    # only the books of ANSWERED rows (the item rows): a rule book we do not hold was never checked against, so it is never "used"
+    # here (it is on the Notes sheet); a copy with no rows prints no book, like the datasheet review's empty contractor copy
+    books = sorted(
+        {_c(ln.get("rule_book")) for ln, _s, _o in items if ln.get("rule_book")}
+    )
     label = workbook.BOOKS_SHOWN if contractor else workbook.BOOKS_REVIEWED
     return {
         "title": workbook._title(meta),
@@ -333,7 +335,7 @@ def layout_view(
     )
     contractor = copy == "contractor"
     items = [] if contractor else _item_lines(final)
-    view = _head_view(final, items, meta, copy, discipline)
+    view = _head_view(items, meta, copy, discipline)
     if contractor:
         view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
         view["rows"] = [r[:9] for r in view["rows"]]
