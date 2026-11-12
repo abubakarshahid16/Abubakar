@@ -197,9 +197,18 @@ def transport():
             # `rate_limit_error`...) and is what a reader of the log needs:
             # the first real call failed with a bare "400" that took a second
             # probe to read as "credit balance too low".
-            said = _rejection(response.status_code, host, _json_or_none(response.json, host))
-            log.warning("standards reader: rejected, %s model=%s digest=%s", said, body.get("model"), _digest(body))
-            raise httpx.HTTPStatusError(said, request=response.request, response=response)
+            said = _rejection(
+                response.status_code, host, _json_or_none(response.json, host)
+            )
+            log.warning(
+                "standards reader: rejected, %s model=%s digest=%s",
+                said,
+                body.get("model"),
+                _digest(body),
+            )
+            raise httpx.HTTPStatusError(
+                said, request=response.request, response=response
+            )
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(
                 f"response from {host} is {len(response.content)} bytes, over "
@@ -285,9 +294,20 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                            extensions={"trace": _trace}) as response:
             status = response.status_code
             if status >= 400:
-                said = _rejection(status, host, _json_or_none(lambda: json.loads(response.read()), host))
-                log.warning("standards reader: rejected, %s model=%s digest=%s", said, body.get("model"), _digest(body))
-                raise httpx.HTTPStatusError(said, request=response.request, response=response)
+                said = _rejection(
+                    status,
+                    host,
+                    _json_or_none(lambda: json.loads(response.read()), host),
+                )
+                log.warning(
+                    "standards reader: rejected, %s model=%s digest=%s",
+                    said,
+                    body.get("model"),
+                    _digest(body),
+                )
+                raise httpx.HTTPStatusError(
+                    said, request=response.request, response=response
+                )
             for line in response.iter_lines():
                 if cancel is not None and cancel.is_set():
                     cancelled = True
