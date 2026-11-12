@@ -176,7 +176,7 @@ an unapproved document: the Claude-first path answers with the local model and s
 chat paths say the document is not approved and ask the reader to choose the Local model.
 
 **Automatic list entries (#1584, owner decision, `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED`, off).** With the
-switch on, `claude_auto_approve` approves documents by The routes are exactly these four: (1) a file uploaded as a contractor submittal or a specification, or given either role later, is approved when it is uploaded or when the role is set, unless the code's own kind decision reads it as a contract (a contract needs the owner's recorded yes); (2) the paper a review is started on is approved when the review starts, if its role is none, contractor submittal or specification and it is not a contract; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. The citation route approves rule books only; a cited specification goes out only if it is already on the list through its role. Any other document a review cites (a contract, a supporting document, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". A specification on the approved list may be sent to Claude when it is the paper under review and also when another paper's review cites it. At send time a document that is a contract by role or by the code's kind decision is refused on every route, including "cited by another review", unless the owner's yes for that file is recorded (`contract_yes`). Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register file (rule 3) and any blocked hash or name never. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. To block a file: a `status: blocked` row on the list, its hash in
+switch on, `claude_auto_approve` approves documents by The routes are exactly these four: (1) a file uploaded as a contractor submittal or a specification, or given either role later, is approved when it is uploaded or when the role is set, unless the code's own kind decision reads it as a contract (a contract needs the owner's recorded yes); (2) the paper a review is started on is approved when the review starts, if its role is none, contractor submittal or specification and it is not a contract; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. The citation route approves rule books only; a cited specification goes out only if it is already on the list through its role. Any other document a review cites (a contract, a supporting document, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". A specification on the approved list may be sent to Claude when it is the paper under review. When another paper's review cites it, it goes out only when it was on the list shown before the start (`review_shown`: the run's stored list; owner decision of 12 Nov 2026, #1584); no start route stores such a list yet, so no cited specification is sent, and the review says "not sent: this review cites a specification that was not on the list shown before the start". At send time a document that is a contract by role or by the code's kind decision is refused on every route except chat (whose per-request consent is its own lane), including "cited by another review", unless the owner's yes for that file is recorded (`contract_yes`). Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register file (rule 3) and any blocked hash or name never. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. To block a file: a `status: blocked` row on the list, its hash in
 `backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"], "blocked_names": ["<file name>"]}`, outside
 git), or its name there; `scripts/write_block_file.py --name <file name>` / `--file` / `--sha256` adds an entry and never drops
 one. Owner decision of 12 Nov 2026 afternoon (#1584): the register is blocked by its file name, built in (any case, spacing,
@@ -361,6 +361,22 @@ required for "enterprise", explicitly deferred by Ali.
 | **AI-approved rules** (owner decision 1, 11 Nov 2026): a rule is usable by the AI reviewer when a person approved it (owner or engineer tier, `rulebook_approval`) OR its label `ai_approved` | No engineer is available. `ai_approved` = two DIFFERENT Claude models agree on the rule's paper kind, field and reading under one prompt version, AND code finds its quote word for word on the rule-book page; rules where they disagree are `needs_human` and decide nothing. It lives in its own tables (`rule_label`, `rule_label_event`, made only when `agent_review_enabled` is on) and never writes an owner or engineer approval; a person's refusal is never overridden. It replaces the engineer sample FOR NOW: when an engineer comes he reviews the `needs_human` list and a sample, not everything. The label job writes a database COPY only (`scripts/run_rule_labels.py`); the live app takes the label file through `POST /api/admin/rule-labels/import`, which checks every row again. Code: `rule_labels.py` (decision, tier), `rule_label_job.py`, `rule_label_import.py`. With the server STOPPED, `scripts/import_rule_label_files.py` loads the label file and the equipment label file through the same checks and prints the same counts; a live database is written only after `live_guard.prepare_live_write` (backup and restore drill). `scripts/trial_on_copy.py` runs one AI review on a COPY (closed lane free, open lane with the caller's key) and checks every route, the contract pairs, the Rules used page, the Pass/Fail proof rule and the standing approval; it exits non-zero on any failed check. `scripts/write_block_file.py` writes `claude_blocked_hashes.json` from the register-named documents (counts only printed). Standing approval (issue #1584, comment 6806441133, owner decision of 12 Nov 2026, to be confirmed there by the owner): with `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED=true` and that block file, the paper and the rule books the AI reviewer asks rules from join the approved list (`claude_auto_approve.on_agent_standards`, called by `agent_review_run.Runner.run`); the register never does. The import trusts the admin who places the label file (a file's `origin` is its own word); every row is still re-checked by code. |
 
 ---
+
+### Standing decisions of 12 Nov 2026 (owner, #1584; the words are in CLAUDE.md: the top rule, "The goal decides", "One reviewer only")
+
+- **The design.** The AI reviewer is the reviewer, on Claude or on the local model: same design, same steps, same sheet; only the engine
+  changes. Code is its calculator: code verifies every quote and does every number and unit comparison. A decision is either (a) Pass or
+  Fail, only when code compared a value, or (b) Met / Not met by two readers who agree, with quotes verified by code (internal copy; a
+  kind of paper moves to the contractor copy when two-reader verdicts are right 95 of 100 on its key). Everything else is an AI opinion
+  or a question for the engineer. 0 wrong decisions. The engineer signs.
+- **The goal decides.** Review like a senior engineer or better, any document, best CRS. A rule, an old design line or an old part of the
+  app that works against the goal: the lead changes it and tells the owner afterwards in one line. Ask first only for: raising a money
+  cap; deleting data; and the third item the owner has not yet restated (until then: his password sign-in and sending a NEW kind of
+  paper to Claude stay his). Rules 1 to 5 and #806 keep their own approval line.
+- **One reviewer only.** The old rule check stops being a separate review: its number and unit checks become a tool inside the AI review
+  and show as normal points; its separate button, "No comments" box, six steps and sheet go from the page (old reviews stay readable),
+  together with the new page, not before; before it is switched off the AI reviewer on the local model is measured against the same key
+  and shown beside Claude's; "5 of 5 pages were not fully read" is fixed on the current page too.
 
 ## 7. Demo — what works and what to say
 
@@ -547,3 +563,44 @@ no row) behaves as before. "Local only" (any run kept on this computer) also bar
 The header's engine is saved at the end of the run (`outcome_json.engine_ran`). With only datasheets scored, a contract with a
 recorded yes is still NOT offered for Claude on a default install: that path wakes up when contracts are scored or
 `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` is on.
+
+## 12. The redesigned review page: the backend (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
+
+`GET /api/reviews/papers/{id}/points`: one list of the rule check's comments and the AI review's lines, worst first (proven Fail, two
+readers not met, one reader not met, question, one reader met, two readers met, proven Pass, does not apply), pills, groups ("N alike"),
+the four tile counts, per-rule-book counts (a book the caller may not read is counted, never named), rule books not held, "x of N
+decided", and the proposed review code. Decisions: `POST .../points/decision` (Keep; Edit needs the engineer's text and keeps the
+original; Remove needs a reason of at least 10 characters and leaves the CRS sheets, staying in the record), `.../decisions` (Keep
+several), `.../add` (the engineer's own point: kept by definition, on both sheets, Comment By the engineer). A rule-check point is written
+to BOTH decision records (`review_point_decisions` and the older `crs_issue_decisions`) and its findings in ONE transaction
+(`review_point_sync`), through the page's route and through the older finding-decision route alike; if they ever differ the sign gate
+refuses. The AI review's CRS copies are drawn again on download with the decisions (`review_points_service.decided_ai_sheet`, a working
+file of its own); at signing (`/crs/issue`) the rule check's contractor copy AND the AI review's contractor copy are archived with their
+checksums and never rewritten. Review code: a KEPT code-proven Fail on a "shall" rule always proposes Rejected / Revise and Resubmit; the
+integer setting `REVIEW_CODE_RESUBMIT_AT_KEPT_MANDATORY_NOT_MET` (default 0 = off) also proposes it at N kept AI not-met points on "shall"
+rules; with points undecided the line reads "So far: <code>, N points still to decide"; Manual Review Required is only for unread pages.
+Rule-check points show a passage only when code finds it in the stored text of the cited page.
+
+Review R48 of the points backend (12 Nov): with the switch OFF the older finding-decision route, the sheets' apply and every new route are
+exactly as before (the page's routes answer 404 `feature_off`); with it ON the older route still keeps its own reason rules and words
+(`review_point_sync.record_rule_decision(old_door=True)`). The sign gate FAILS CLOSED: if the points cannot be read (a missing table, a locked
+database) signing is refused ("the points of this review could not be read"), and the AI open-points acknowledgement is treated as given only
+when the list was really built. "Keep all" is stored as a bulk keep (no rule_trust spot check). A rule-check point is "shall" only when its rule's
+stored type is not a recommendation; an unread strength is never mandatory. A removed code-proven Fail is said in the reason line (who and why)
+and its reason is on the audit event. An empty list proposes no code unless a review ran and found nothing. One sentence
+(`review_code_proposal.nothing_decided_sentence`) says "nothing decided yet" and names any code-proven Fail on a mandatory rule.
+
+
+
+## 13. The redesigned review page: the screen (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
+
+`GET /api/reviews/page-v2` says whether it is on (the page reads it once; unreadable = off, the old page stays). On, `ReviewWorkspace`
+draws `components/review/v2/ReviewPageV2` in place of its header, bar and tabs: the header (the paper, the kind line with who decided and
+Change), ONE engine choice (Automatic default, Claude, Local only) and ONE Review button with the engine line (`GET /api/reviews/plan`),
+the review code box (proposed code, one line of reason, "x of N decided", recording the final code), four filter tiles, rule book chips,
+the rule books not held, three tabs (Points, CRS sheet, How it was reviewed), the list of points (Keep / Edit / Remove, grouped questions,
+two quote boxes with only verified text, View page), Add a point, and the bottom row (Sign and issue is greyed with its reason). Today's
+sheet, CRS preview and replies sit under "CRS sheet"; today's Details under "How it was reviewed" (each part is read when opened). The sign
+flow is the workspace's own (`useSignOff` and the confirm step); the contractor copy of the rule check is still made only by it (the app's
+one issuing path), the page's "CRS for the contractor" button downloads the AI review's contractor copy. The points routes answer 404
+`feature_off` while the switch is off.

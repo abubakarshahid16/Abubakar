@@ -169,7 +169,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return f"The AI reviewer's verdict, to be confirmed by an engineer: {two.ABSENCE_WHY}."  # only what was established
+        return words.absence_cell(line, field_name(line) or _item_ask(line))
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -297,8 +297,8 @@ def _row(
         n,
         paper,
         _page_text(line),
-        layout_comment(line, status, order),
-        by,
+        line.get("engineer_text") or layout_comment(line, status, order),
+        f"Engineer: {line['engineer_by']}" if by and line.get("engineer_by") else by,
         None,
         None,
         against(line) or None,
@@ -557,12 +557,7 @@ def _notes_rows(
     dec = wording.decisions_of(
         (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
     )
-    rows.append(
-        (
-            "Decisions",
-            f"Decisions: {dec['total']} = code Pass/Fail {dec['code']} + two-reader verdicts {dec['two_reader']}",
-        )
-    )
+    rows += words.decisions_rows(dec)
     rows.append(("Count: rows on the CRS sheet", len(items)))
     rows += [(f"Count: {k}", kinds[k]) for k in words.OTHER_KINDS]
     rows.append(
@@ -636,6 +631,7 @@ def _guarded_not_met(ln: Mapping) -> bool:
         and not ln.get("recommendation")
         and not wording.is_unapproved(ln)
         and wording.is_two_reader(ln)
+        and not ln.get("engineer_text")
     )
 
 
@@ -645,11 +641,14 @@ def _contractor_items(items: list, kind: str | None = None) -> list:
     out = [
         (ln, st, o)
         for ln, st, o in items
-        if st == words.STATUS_FAIL
-        and wording.writer_refusal(ln) is None
-        and not wording.is_opinion(ln)
-        and not ln.get("recommendation")
-        and not wording.is_unapproved(ln)
+        if ln.get("engineer_text")
+        or (
+            st == words.STATUS_FAIL
+            and wording.writer_refusal(ln) is None
+            and not wording.is_opinion(ln)
+            and not ln.get("recommendation")
+            and not wording.is_unapproved(ln)
+        )
     ]
     if kind_review_table.contractor_copy_ai_verdict(kind):
         out += [

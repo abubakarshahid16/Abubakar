@@ -83,8 +83,11 @@ import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 import { PastReviewsButton } from "./PastReviewsButton";
 import { WorkspaceTabs } from "./WorkspaceTabs";
+import { HowTab } from "../v2/HowTab";
+import { ReviewPageV2 } from "../v2/ReviewPageV2";
+import { usePageV2Switch } from "../v2/usePoints";
 import {
-  LEAVE_WARNING, WORKSPACE_TABS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
+  LEAVE_WARNING, WORKSPACE_TABS, WORKSPACE_TAB_LABELS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
   type SignGuard, type SignOff, type WorkspaceLocation, type WorkspaceTab,
 } from "./contract";
 
@@ -361,6 +364,8 @@ export function ReviewWorkspace({
 
   // #1690: the AI reviewer's one switch. Off (or unknown): no start button, no tabs.
   const agent = useAgentSwitch();
+  // 12 Nov 2026: the redesigned page, only while its switch is on (the old page stays the default).
+  const v2 = usePageV2Switch();
   // U2: the run's AI review, read once for the top panel, the headline and
   // the signing guard. Nothing is read while the switch is off.
   const overview = useAgentOverview(runId, agent !== null && run?.status === "completed");
@@ -477,6 +482,95 @@ export function ReviewWorkspace({
     const ref = standardsState.missing.find((m) => m.identifier === name) as { id?: string } | undefined;
     return ref?.id ? { id: ref.id, name } : { name };
   });
+  const signConfirmNode = (
+    <SignConfirm
+        runId={runId} open={signOffRaw.confirmOpen} onClose={signOffRaw.closeConfirm}
+        onIssued={() => { void issueGate.reload(); }}
+        summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer: signer.name, signInOff: signer.signInOff }}
+        // Not known whether a newer review exists (the document's reviews
+        // could not be read, or not yet): the step asks before issuing.
+        newerReview={newerRun ? { at: newerAt || null }
+          : run?.submittal_document_id && data.documentRuns == null ? "unknown" : null}
+      />
+  );
+
+  const sheetBody = (
+          <div className="space-y-2">
+            <SheetCountsLine numbers={numbers} />
+            {!readOnly && (
+              <KeepAllRemaining count={numbers.remainingToKeep} onKeep={keepAll} canUndo={canUndo} onUndo={undoKeepAll} />
+            )}
+            <WorkspaceSheet
+              runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
+              decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers} readOnly={readOnly}
+              showKeys={view.mode === "detailed"} serverNotes={data.serverNotes ?? 0} groupingStale={data.groupingStale ?? false}
+              onValuesConfirmed={() => void refresh()}
+              footer={(
+                <>
+                  <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
+                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)}
+                    folded={view.mode === "simple"} signGuard={signGuard} />
+                  {/* #1171 review, item 6: a standards list that could not be
+                      loaded is a problem with this review, not a detail, so
+                      Simple view says it outside the fold too. */}
+                  {view.mode === "simple" && standardsState.error && (
+                    <p role="status" className="text-xs text-warn-500" data-testid="ws-standards-error">
+                      {standardsErrorLine(standardsState.error)}
+                    </p>
+                  )}
+                  {/* S4: the honesty footer, as under the comment sheet. v2.2
+                      round 2: Simple view folds it behind one line; it stays
+                      on the page (the honesty rule), only folded. */}
+                  <FoldInSimple simple={view.mode === "simple"} testId="ws-honesty-fold"
+                    summary="How these comments were counted">
+                    <CrsFooter
+                      run={run}
+                      counts={{
+                        met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
+                        comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou, stated: numbers.stated,
+                      }}
+                      standards={standardsState.standards} missing={standardsState.missing}
+                      standardsError={standardsState.error} rejected={numbers.removed}
+                      heldNote={standardsState.held?.sentence ?? null}
+                      signedAt={numbers.signedAt}
+                    />
+                  </FoldInSimple>
+                </>
+              )}
+            />
+          </div>
+  );
+
+  if (v2) {
+    const crsPanel = <CrsTabPanel runId={runId} beforeCopy={beforeCopy} />;
+    return (
+      <>
+        {leaveQuestion}
+        <ReviewPageV2
+          run={run} submittal={submittal} isAdmin={isAdmin} onBack={leave} onOpenRun={openRun}
+          sheetTab={<div className="space-y-4">{sheetBody}{crsPanel}</div>}
+          howTab={(
+            <HowTab
+              top={<HowReviewedView key={runId} runId={runId} onBack={() => onTab("sheet")} onOpenRun={openRun} onOpenSteps={() => onTab("steps")} />}
+              sections={[
+                ...(agent ? [{ id: "rules", title: "Rules used", render: () => <RulesUsedPanel key={runId} runId={runId} /> }] : []),
+                ...PANEL_TABS.map((panel) => ({ id: panel, title: WORKSPACE_TAB_LABELS[panel], render: () => (
+                  <BehindTheScenes embedded panel={panel} run={run} findings={findings} documents={submittal ? [submittal] : []}
+                    standardsState={standardsState} focusStatus={focusStatus} onOpenPanel={() => undefined} onFocusStatus={setFocusStatus}
+                    onStandardsChanged={() => { void refresh(); }} onChanged={() => void refresh()} />
+                ) })),
+              ]}
+            />
+          )}
+          onSign={() => { void signOffRaw.sign(); }}
+          signBlockers={(issueGate.gate?.blockers ?? []).filter((b) => !/final code|not decided yet/i.test(b))}
+          signed={numbers.signed}
+          onCodeRecorded={() => { void refresh(); void issueGate.reload(); }}
+        />
+        {signConfirmNode}
+      </>
+    );
+  }
   return (
     <section
       className={`mx-auto w-full max-w-7xl space-y-4 ${panelOpen ? PANEL_ROOM : ""}`} aria-labelledby="ws-title"
@@ -550,63 +644,10 @@ export function ReviewWorkspace({
           </button>
         </div>
       )}
-      <SignConfirm
-        runId={runId} open={signOffRaw.confirmOpen} onClose={signOffRaw.closeConfirm}
-        onIssued={() => { void issueGate.reload(); }}
-        summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer: signer.name, signInOff: signer.signInOff }}
-        // Not known whether a newer review exists (the document's reviews
-        // could not be read, or not yet): the step asks before issuing.
-        newerReview={newerRun ? { at: newerAt || null }
-          : run?.submittal_document_id && data.documentRuns == null ? "unknown" : null}
-      />
+      {signConfirmNode}
 
       <WorkspaceTabs tab={tab} onTab={onTab} mode={view.mode} agentTabs={agent !== null}>
-        {tab === "sheet" && (
-          <div className="space-y-2">
-            <SheetCountsLine numbers={numbers} />
-            {!readOnly && (
-              <KeepAllRemaining count={numbers.remainingToKeep} onKeep={keepAll} canUndo={canUndo} onUndo={undoKeepAll} />
-            )}
-            <WorkspaceSheet
-              runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
-              decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers} readOnly={readOnly}
-              showKeys={view.mode === "detailed"} serverNotes={data.serverNotes ?? 0} groupingStale={data.groupingStale ?? false}
-              onValuesConfirmed={() => void refresh()}
-              footer={(
-                <>
-                  <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
-                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)}
-                    folded={view.mode === "simple"} signGuard={signGuard} />
-                  {/* #1171 review, item 6: a standards list that could not be
-                      loaded is a problem with this review, not a detail, so
-                      Simple view says it outside the fold too. */}
-                  {view.mode === "simple" && standardsState.error && (
-                    <p role="status" className="text-xs text-warn-500" data-testid="ws-standards-error">
-                      {standardsErrorLine(standardsState.error)}
-                    </p>
-                  )}
-                  {/* S4: the honesty footer, as under the comment sheet. v2.2
-                      round 2: Simple view folds it behind one line; it stays
-                      on the page (the honesty rule), only folded. */}
-                  <FoldInSimple simple={view.mode === "simple"} testId="ws-honesty-fold"
-                    summary="How these comments were counted">
-                    <CrsFooter
-                      run={run}
-                      counts={{
-                        met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
-                        comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou, stated: numbers.stated,
-                      }}
-                      standards={standardsState.standards} missing={standardsState.missing}
-                      standardsError={standardsState.error} rejected={numbers.removed}
-                      heldNote={standardsState.held?.sentence ?? null}
-                      signedAt={numbers.signedAt}
-                    />
-                  </FoldInSimple>
-                </>
-              )}
-            />
-          </div>
-        )}
+        {tab === "sheet" && sheetBody}
         {tab === "how" && (
           <HowReviewedView
             key={runId} runId={runId}

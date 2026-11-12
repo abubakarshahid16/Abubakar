@@ -7,13 +7,32 @@
 > else here, in `docs/` or in `.cowork/` differs from it, #805 wins.
 >
 > **Top rule - AI-first (owner, 11 Oct 2026; changed 3 Nov 2026 17:55 PKT, #1584;
-> #805 rule 1):** AI reviews and judges like a senior engineer; code verifies
-> every quote and does every number comparison; the engineer signs. A verdict
-> (Pass, Fail, Missing) counts as decided only with evidence: a quote from the
-> document AND from the clause, both verified by code, numbers compared by code,
-> 0 wrong verdicts. Switching any AI step off by default, or replacing an AI
-> step with a rules-only path, needs the owner's written approval on #692 and
-> #1584.
+> changed 12 Nov 2026, owner, #1584; #805 rule 1):** The AI reviewer is the reviewer, on Claude or on the local model: same design,
+> same steps, same sheet; only the engine changes. Code is its calculator: code verifies every quote and does every number and unit
+> comparison. A decision is either (a) Pass or Fail, only when code compared a value, or (b) Met / Not met by two readers who agree,
+> with quotes verified by code (internal copy; a kind of paper moves to the contractor copy when two-reader verdicts are right 95 of
+> 100 on its key). Everything else is an AI opinion or a question for the engineer. 0 wrong decisions. The engineer signs. Switching
+> any AI step off by default, or replacing an AI step with a rules-only path, needs the owner's written approval on #692 and #1584.
+
+## The goal decides (owner, 12 Nov 2026, standing)
+
+The goal: review like a senior engineer or better, any document, best CRS. If a written rule, an old design line or an old part of the
+app works against the goal, the lead changes it and tells the owner afterwards in one line. Ask the owner first only for: raising a
+money cap; deleting data; and the third item the owner has not yet restated (until he does: signing in with his password and sending
+a NEW kind of paper to Claude stay his). Everything else is the lead's decision: design, screens, wording, removing old parts, order
+of work. This section does not change the privacy and safety rules 1 to 5 or #806: those keep their own approval line above.
+
+## One reviewer only (owner, 12 Nov 2026)
+
+1. The AI reviewer is the reviewer, on Claude or on the local model. Same design, same steps, same sheet. Only the engine changes.
+2. The old rule check stops being a separate review. Its number comparisons and unit checks become a tool inside the AI review and
+   appear as normal points in the one list.
+3. Remove from the page: its separate button, its "No comments" box, its six steps and its separate sheet. Old reviews stay readable
+   in history.
+4. Do it together with the new page, not before. Do not break the current page tonight.
+5. Before the old rule check is switched off, measure the AI reviewer on the local model against the same answer key and show me the
+   score next to Claude's.
+6. Fix "5 of 5 pages were not fully read" on the current page too. It is a false statement about reading.
 
 ## Where we are (pointers only)
 
@@ -54,7 +73,7 @@ carries the client's name; only the owner can rename it.
    outbound path for document content stays forbidden. Standing approval (owner decision of
    12 Nov 2026 afternoon, recorded on #1584): with
    `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED=true` the paper under review and the rule books of the rules the AI
-   reviewer asks join the approved list automatically. The routes are exactly these four: (1) a file uploaded as a contractor submittal or a specification, or given either role later, is approved when it is uploaded or when the role is set, unless the code's own kind decision reads it as a contract (a contract needs the owner's recorded yes); (2) the paper a review is started on is approved when the review starts, if its role is none, contractor submittal or specification and it is not a contract; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. The citation route approves rule books only; a cited specification goes out only if it is already on the list through its role. Any other document a review cites (a contract, a supporting document, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". A specification on the approved list may be sent to Claude when it is the paper under review and also when another paper's review cites it. At send time a document that is a contract by role or by the code's kind decision is refused on every route, including "cited by another review", unless the owner's yes for that file is recorded (`contract_yes`). Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register is blocked by its file name
+   reviewer asks join the approved list automatically. The routes are exactly these four: (1) a file uploaded as a contractor submittal or a specification, or given either role later, is approved when it is uploaded or when the role is set, unless the code's own kind decision reads it as a contract (a contract needs the owner's recorded yes); (2) the paper a review is started on is approved when the review starts, if its role is none, contractor submittal or specification and it is not a contract; (3) a rule book (a document classed as a standard) that the AI reviewer asks rules from is approved just before it asks, if the paper qualifies and the book is inside the access of the user who started the review; (4) a rule book that a review cites, or that governs its equipment type, is approved when the review starts or records it. The citation route approves rule books only; a cited specification goes out only if it is already on the list through its role. Any other document a review cites (a contract, a supporting document, a drawing, another datasheet, a procedure) is not approved automatically: the review shows "not sent: this document is not a rule book; the owner approves it". A specification on the approved list may be sent to Claude when it is the paper under review. When another paper's review cites it, it goes out only when it was on the list shown before the start (`review_shown`: the run's stored list; owner decision of 12 Nov 2026, #1584); no start route stores such a list yet, so no cited specification is sent, and the review says "not sent: this review cites a specification that was not on the list shown before the start". At send time a document that is a contract by role or by the code's kind decision is refused on every route except chat (whose per-request consent is its own lane), including "cited by another review", unless the owner's yes for that file is recorded (`contract_yes`). Nothing else is approved automatically: no library-wide approval, and chat uses its own per-request consent. The register is blocked by its file name
    (built in, any case, spacing, extension or copy suffix) and by checksum when the file is held. The name block is by file name: a register renamed before it was uploaded is recognised only by its checksum when that file is held, and accented or look-alike letters in a name are not matched. the block list
    (`claude_blocked_hashes.json`) also holds the files, by name or checksum, that the owner marks; the switch needs no
    block file, but a block file that cannot be read turns it off; the switch is off by default. ONE REVIEW BUTTON (owner decision of 12 Nov 2026, #1584 comment 6820183348): Automatic (default), Claude or Local only, resolved in ONE place (`review_engine.decide`), shown before the start (`GET /api/reviews/plan`: engine, whether text leaves, cost as an upper bound, what will not run). The choice only narrows or selects among lanes the installed switches already open; it never opens one. Local only is a run-wide bar (`review_engine.barring`, read by `reasoning_provider._lane_unavailable`, `claude_approved.refusal` and `agent_claude.gate_open`): nothing is sent; the AI review needs Claude, so it does not run. A specification (role SPECIFICATION) joins the approved list like a contractor submittal; a contract paper never joins by itself: on Claude it needs the owner's yes for that file (`contract_yes`: by checksum, who and when recorded, withdrawable, audited); the block list wins. A kind not scored against an answer key (`agent_review_gate.SCORED_KINDS`) is not offered for Claude or the AI review unless `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` says so. In chat, the user may choose Claude and explicitly

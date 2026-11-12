@@ -465,10 +465,13 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                 }.get(status, "unknown")
                 ai_kind = ""
                 if status == "ai verdict":
-                    from app.agent_review_two_reader import ABSENCE_WHY
+                    from app.crs_ai_words import ABSENCE_OPENER
 
                     said = fold(comment)
-                    if fold(ABSENCE_WHY) in said:
+                    if (
+                        fold(f"{ABSENCE_OPENER}: two AI readers each read every page")
+                        in said
+                    ):
                         ai_kind = "not stated"
                     elif re.search(
                         r"(?<!not )met \(ai, two readers agree|the requirement is met",
@@ -680,21 +683,28 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
 
 
 def decision_figures(key: list[KeyRow], lines: list[Line]) -> dict:
-    """DECISIONS (owner, 12 Nov 2026) = code Pass/Fail lines + two-reader verdicts (Status "AI verdict", met or not met; never "not stated",
-    "AI thinks" or a Query). Each is right, wrong or not on the key: a Pass / "met" is right on a complies row and wrong on a problem row; a Fail /
+    """DECISIONS (owner, 12 Nov 2026) = code Pass/Fail lines + two-reader verdicts (Status "AI verdict", met, not met or not stated on the paper; never
+    "AI thinks" or a Query). A "not stated" counts as a negative decision (a find on a problem row, wrong on a complies row). Each is right, wrong or not on the key: a Pass / "met" is right on a complies row and wrong on a problem row; a Fail /
     "not met" is right on a problem row and wrong on a complies row or when it repeats a wrong or disputed row. A line answering nothing the key
     judges is "not on the key". Kept beside the two-way figures (problems found; found where a rule is held)."""
     code, two = [], []
     for ln in lines:
         if ln.is_pass or ln.status == "fail":
             code.append((ln, ln.is_pass))
-        elif ln.ai_kind in ("met", "not met"):
+        elif ln.ai_kind in ("met", "not met", "not stated"):
             two.append((ln, ln.ai_kind == "met"))
     right = wrong = 0
     for ln, positive in [*code, *two]:
         verdicts = set()
         for k in key:
             if k.scored_as == "not scored" or not answers(k, ln):
+                continue
+            if (
+                ln.ai_kind == "not stated"
+            ):  # R49 F3: right ONLY where the key says the item is missing; where it says a page states it, wrong
+                verdicts.add(
+                    "right" if k.absent and k.scored_as == "problem" else "wrong"
+                )
                 continue
             if k.scored_as == "problem":
                 verdicts.add("right" if not positive else "wrong")
