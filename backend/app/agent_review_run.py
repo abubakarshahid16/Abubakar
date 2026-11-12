@@ -80,10 +80,10 @@ from .agent_review_request import (
     plan_pages,
     stop_reason,
 )
+from .agent_review_reread import RereadMixin
 from .agent_review_two_reader_absence import AbsenceMixin
 from .agent_review_two_reader_other import OtherPaperMixin
 from .agent_review_two_reader_run import TwoReaderMixin
-from .agent_review_reread import RereadMixin
 
 log = logging.getLogger(__name__)
 

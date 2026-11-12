@@ -169,7 +169,7 @@ class AbsenceMixin:
                 [str(line.get("model") or "")], agent_claude.SECOND_MODEL
             ):
                 continue
-            if sorted({p for p in line.get("pages_searched") or []}) != list(
+            if sorted(set(line.get("pages_searched") or [])) != list(
                 range(1, self.total_pages + 1)
             ):
                 self.two_reader_absence_state["skipped"] += (
