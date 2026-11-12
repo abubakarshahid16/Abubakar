@@ -64,7 +64,6 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           {summary.two_reader_other_step.off ? ` The step was switched off for the rest of this run (${summary.two_reader_other_step.off.replace(/_/g, " ")}); lines are as they were.` : ""}
         </p>
       )}
-      {summary.stop_reason && (
       <PaperTextNotice paperText={summary.paper_text} />
       {summary.page_reread_stopped && (
         <p role="status" data-testid="agent-page-reread-stopped" className="text-sm text-slateish-100">
