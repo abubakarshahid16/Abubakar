@@ -25,6 +25,7 @@ from collections import Counter
 from . import (
     agent_review_calculator as calc,
 )
+from . import agent_review_pass_guards as guards
 from . import (
     agent_review_wording as wording,
 )
@@ -74,28 +75,42 @@ def _numeric_items(items: list[dict]) -> list[dict]:
 
 
 def pair(
-    item: dict, requirement: dict, facts: list[dict], sheet: str | None
+    item: dict,
+    requirement: dict,
+    facts: list[dict],
+    sheet: str | None,
+    why: Counter | None = None,
 ) -> list[dict]:
     """The facts that answer this rule: not blank, the SAME quantity words as the rule's field, and no refusal of the classic pairing
-    (`match_rules.refusal`: unit dimension, equipment domain, table input, compound term, qualifier ...). Never a guess: none, no pair."""
+    (`match_rules.refusal`: unit dimension, equipment domain, table input, compound term, qualifier ...). Never a guess: none, no pair.
+    `why` (a Counter) takes the reason of every fact that did not pair, in words, so a run that pairs nothing says why."""
     from . import match_rules, subject_pairing
 
-    field = (item.get("field_roles") or [None])[0]
+    why = Counter() if why is None else why
+    field = (guards.field_names(item) or [None])[
+        0
+    ]  # the label's own field first, then the item's roles (the Pass guard's reading)
     wanted = subject_pairing.quantity_words(field, sheet)
     if not wanted:
+        why["the rule names no field the code can match"] += 1
         return []
     out = []
     for f in facts:
         if (
-            f.get("is_blank")
-            or subject_pairing.quantity_words(
+            subject_pairing.quantity_words(
                 f.get("field_name") or f.get("field_label"), sheet
             )
             != wanted
         ):
             continue
-        if match_rules.refusal(requirement, f, sheet=sheet) is None:
+        if f.get("is_blank"):
+            why["the value on the paper is blank"] += 1
+        elif (refused := match_rules.refusal(requirement, f, sheet=sheet)) is not None:
+            why[f"refused by the pairing: {str(refused)[:40]}"] += 1
+        else:
             out.append(f)
+    if not out and not any(k.startswith(("refused", "the value")) for k in why):
+        why["no value on the paper has this rule's quantity words"] += 1
     return out
 
 
@@ -148,14 +163,15 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
     )
     made: list[dict] = []
     considered = paired = 0
+    unpaired: Counter = Counter()
     for item in _numeric_items(plan.get("items") or []):
         considered += 1
         req = {
             **calc.requirement_from_item(item),
-            "field": (item.get("field_roles") or [None])[0],
-            "subject": (item.get("field_roles") or [None])[0],
+            "field": (guards.field_names(item) or [None])[0],
+            "subject": (guards.field_names(item) or [None])[0],
         }
-        for fact in pair(item, req, facts, sheet):
+        for fact in pair(item, req, facts, sheet, unpaired):
             paired += 1
             line = calc.numeric_line(
                 item, req, fact, submittal_facts=facts, page_text=pages.get(fact.get("page")),
@@ -180,6 +196,7 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
         "facts": len(facts),
         "rules_considered": considered,
         "pairs": paired,
+        "not_paired": dict(unpaired),
         "by_class": dict(by_class),
         "reasons": dict(
             Counter(
