@@ -1,4 +1,4 @@
-# ruff: noqa: F811
+# ruff: noqa: F811, C408
 """The AI reviewer on the LOCAL model (owner orders, 12 Nov 2026), behind `AGENT_REVIEW_LOCAL_ENGINE_ENABLED`.
 
 Invented paper, rule book and models. A fake Ollama answers `model_transport.post_json_retrying`; no real model is ever loaded,
@@ -36,8 +36,9 @@ B_NAME = "glm-4.7-flash"
 class FakeOllama:
     """The local engine: answers from tables by model name; records every request in order."""
 
-    def __init__(self, a=A_NAME, b=B_NAME, first=None, second=None, garbage=False, empty=False):
+    def __init__(self, a=A_NAME, b=B_NAME, first=None, second=None, garbage=False, empty=False, cut_first_of_each=False):
         self.a, self.b = a, b
+        self.cut_first_of_each, self.cut_seen = cut_first_of_each, set()
         self.first = dict(s.ANSWERS if first is None else first)
         self.second = dict(s.ANSWERS if second is None else second)
         self.garbage, self.empty = garbage, empty
@@ -52,6 +53,9 @@ class FakeOllama:
         raw = user[user.rfind('{"items":') :].split("\n\n")[0]
         ids = [q["item_id"] for q in json.loads(raw)["items"]]
         table = self.first if body["model"] == self.a else self.second
+        if self.cut_first_of_each and body["model"] == self.a and tuple(ids) not in self.cut_seen:
+            self.cut_seen.add(tuple(ids))  # the answer stops at the output limit: half a JSON text
+            return {"model": body["model"], "message": {"content": '{"answers": [{"item_id": "R-co'}, "done_reason": "length"}
         if self.empty:
             text = ""
         elif self.garbage:
@@ -141,6 +145,16 @@ def test_a_local_run_uses_the_local_socket_only_costs_zero_and_writes_no_spend_r
     for ln in lines.values():
         assert float(json.loads(ln["line_json"]).get("usd") or 0.0) == 0.0
         assert ln["verdict_class"] != CLASS  # no second reader asked: nothing is "two readers agree"
+
+
+def test_a_cut_off_local_answer_is_retried_and_still_costs_zero(local):
+    local["ollama"].cut_first_of_each = True
+    run_id = run_review()
+    got = lines_of(run_id)
+    assert set(got) == {"R-coat", "R-frame", "R-mark", "R-colour"} and local["ollama"].cut_seen
+    assert run_row(run_id)["usd"] == 0.0 and claude_spend.entries() == []
+    for ln in got.values():
+        assert float(json.loads(ln["line_json"]).get("usd") or 0.0) == 0.0  # a cut-off call is not charged a Claude worst case
 
 
 def test_the_local_run_unloads_every_model_it_loaded(local, two_on):
