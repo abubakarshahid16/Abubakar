@@ -51,6 +51,13 @@ def two_reader_enabled() -> bool:
     return bool(settings.agent_review_two_reader_verdict_enabled) and enabled()
 
 
+def two_reader_absence_enabled() -> bool:
+    """True when the absence word of the class is on: its own switch AND the first one (`two_reader_enabled`)."""
+    return (
+        bool(settings.agent_review_two_reader_absence_enabled) and two_reader_enabled()
+    )
+
+
 def require_on() -> None:
     if not enabled():
         raise FeatureOff("AGENT_REVIEW_ENABLED is off")

@@ -49,6 +49,7 @@ WORDS = (
     "Fail",
     "AI verdict: met",
     "AI verdict: not met",
+    "AI verdict: not stated",
     "AI thinks: met",
     "AI thinks: not met",
     "Query",
@@ -128,8 +129,8 @@ _STATEMENTS = (
         text_source TEXT CHECK (text_source IS NULL OR text_source IN ('quote', 'the model''s words')),
         PRIMARY KEY (run_id, item_id),
         CHECK (word NOT IN ('Pass', 'Fail') OR verdict_class = 'Proven by code'),
-        CHECK (word NOT IN ('AI verdict: met', 'AI verdict: not met') OR verdict_class = 'AI verdict, two readers agree'),
-        CHECK (verdict_class <> 'AI verdict, two readers agree' OR word IN ('AI verdict: met', 'AI verdict: not met')),
+        CHECK (word NOT IN ('AI verdict: met', 'AI verdict: not met', 'AI verdict: not stated') OR verdict_class = 'AI verdict, two readers agree'),
+        CHECK (verdict_class <> 'AI verdict, two readers agree' OR word IN ('AI verdict: met', 'AI verdict: not met', 'AI verdict: not stated')),
         CHECK (verdict_class <> 'AI verdict, two readers agree' OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
         CHECK (word NOT IN ('Pass', 'Fail') OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
         CHECK (verdict_class NOT IN {_in(GENERAL_CLASSES)} OR (rule_tier IS NULL AND part IS NOT NULL)),
@@ -153,6 +154,7 @@ _STATEMENTS = (
 
 LINE_TABLE = "agent_review_line"
 TWO_READER_CLASS = "AI verdict, two readers agree"
+TWO_READER_NOT_STATED = "AI verdict: not stated"
 NEW_LINE_COLUMNS = frozenset({"part", "text_source"})
 UPGRADE_ACTION = "agent_review_tables_upgraded"
 
@@ -185,7 +187,11 @@ def line_check_is_old(conn) -> bool:
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (LINE_TABLE,)
     ).fetchone()
-    return bool(row and row[0] and TWO_READER_CLASS not in row[0])
+    return bool(
+        row
+        and row[0]
+        and (TWO_READER_CLASS not in row[0] or TWO_READER_NOT_STATED not in row[0])
+    )
 
 
 def has_tables(conn) -> bool:

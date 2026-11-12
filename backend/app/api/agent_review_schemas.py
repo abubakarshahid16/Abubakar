@@ -44,6 +44,7 @@ VerdictWord = Literal[
     "Fail",
     "AI verdict: met",
     "AI verdict: not met",
+    "AI verdict: not stated",
     "AI thinks: met",
     "AI thinks: not met",
     "Query",
@@ -78,7 +79,7 @@ _AI_WORDS = ("AI thinks: met", "AI thinks: not met")
 LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
     "Proven by code": (("Pass", "Fail"), (*_APPROVED_TIERS, None)),
     "AI verdict, two readers agree": (
-        ("AI verdict: met", "AI verdict: not met"),
+        ("AI verdict: met", "AI verdict: not met", "AI verdict: not stated"),
         (*_APPROVED_TIERS, None),
     ),
     "AI opinion, engineer to confirm": (_AI_WORDS, (*_APPROVED_TIERS, None)),
@@ -219,6 +220,8 @@ class AgentRunSummary(BaseModel):
     project_papers_used: list[AgentProjectPaper] = []
     #: the second-reader step of this run (counts and one code, no text); null when the step was off or the run was stored before it.
     two_reader_step: AgentTwoReaderStep | None = None
+    #: the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it.
+    two_reader_absence_step: AgentTwoReaderStep | None = None
 
 
 class AgentLine(BaseModel):

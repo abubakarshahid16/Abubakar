@@ -382,6 +382,9 @@ def rule_item(
         "clause_page": cpage if cpage is not None else r.get("page"),
         "rule_kind": _rule_kind(r),
         "requirement_type": r.get("requirement_type"),
+        "rule_row_found": True,  # the stored requirement row was read: what `agent_review_absence.required` asks for
+        "rule_exceptions": r.get("exceptions"),
+        "rule_condition": r.get("condition"),
         "table_row": r.get("table_row"),
         "comparator": r.get("operator"),
         "value": r.get("value"),

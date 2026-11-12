@@ -42,7 +42,7 @@ export const GENERAL_CLASS_ORDER: readonly AgentVerdictClass[] = [
  *  tsc fails here when the contract gains a class). */
 export const CLASS_WORDS: Record<AgentVerdictClass, readonly string[]> = {
   "Proven by code": ["Pass", "Fail"],
-  "AI verdict, two readers agree": ["AI verdict: met", "AI verdict: not met"],
+  "AI verdict, two readers agree": ["AI verdict: met", "AI verdict: not met", "AI verdict: not stated"],
   "AI opinion, engineer to confirm": ["AI thinks: met", "AI thinks: not met"],
   "AI opinion, rule not yet approved": ["AI thinks: met", "AI thinks: not met"],
   "Query for the engineer": ["Query"],

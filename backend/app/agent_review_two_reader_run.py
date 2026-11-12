@@ -68,6 +68,10 @@ class TwoReaderMixin:
             self._two_reader_pass()
         except Exception as exc:  # noqa: BLE001  an optional step never fails the run
             self.record_two_reader_off(two.OFF_CALL_FAILED, error=type(exc).__name__)
+        if (
+            self.absence_on()
+        ):  # its own switch; never before the value step, never without it
+            self.run_absence()
 
     def two_reader_counts(self) -> dict:
         """What the run row keeps of the step (counts and the one code that switched it off): {} when the step did not run."""
@@ -77,7 +81,8 @@ class TwoReaderMixin:
         return {
             "two_reader_step": {
                 k: v for k, v in st.items() if k not in ("enabled", "usd")
-            }
+            },
+            **self.two_reader_absence_counts(),
         }
 
     def two_reader_candidates(self) -> list[dict]:

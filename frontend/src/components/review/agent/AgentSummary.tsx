@@ -47,6 +47,14 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           {summary.two_reader_step.off ? ` The step was switched off for the rest of this run (${summary.two_reader_step.off.replace(/_/g, " ")}); lines are as they were.` : ""}
         </p>
       )}
+      {summary.two_reader_absence_step && (
+        <p data-testid="two-reader-absence-step" className="text-sm text-slateish-100">
+          Second AI reader, absence (internal): {summary.two_reader_absence_step.candidates} lines were candidates, {summary.two_reader_absence_step.asked} asked in{" "}
+          {summary.two_reader_absence_step.calls} calls; {summary.two_reader_absence_step.agreed} agreed, {summary.two_reader_absence_step.disagreed} disagreed,{" "}
+          {summary.two_reader_absence_step.unconfirmed} not confirmed.
+          {summary.two_reader_absence_step.off ? ` The step was switched off for the rest of this run (${summary.two_reader_absence_step.off.replace(/_/g, " ")}); lines are as they were.` : ""}
+        </p>
+      )}
       {summary.stop_reason && (
         <p role="status" data-testid="agent-stop-reason"
           className="rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">

@@ -525,6 +525,11 @@ class SettingsExt(BaseModel):
     #: Internal copy only; never a Pass or a Fail. OFF (default): no extra call and the stored lines are exactly what they were.
     #: Switch it on only if 0 clear wrong on the answer key and the planted copies (owner). Env: AGENT_REVIEW_TWO_READER_VERDICT_ENABLED.
     agent_review_two_reader_verdict_enabled: bool = False
+    #: Owner order 13 (lead, 12 Nov): the word "AI verdict: not stated" of the same class. Needs the switch above on too. A second model
+    #: of another family reads EVERY page whole and, without seeing the first answer, finds no value; code's own absence search
+    #: (`agent_review_absence.prove`) finds none either and every page is read. Never a Fail, never in the contractor copy. OFF: as the
+    #: switch above alone. Env: AGENT_REVIEW_TWO_READER_ABSENCE_ENABLED.
+    agent_review_two_reader_absence_enabled: bool = False
     #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
     #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
     #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with

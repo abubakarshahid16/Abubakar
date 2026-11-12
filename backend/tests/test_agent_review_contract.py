@@ -58,6 +58,7 @@ def test_vocabularies_are_exactly_the_owner_words():
         "Fail",
         "AI verdict: met",
         "AI verdict: not met",
+        "AI verdict: not stated",
         "AI thinks: met",
         "AI thinks: not met",
         "Query",
@@ -85,7 +86,7 @@ OK_TIERS = ("Owner", "Engineer", "AI approved")
 ALLOWED = {
     "Proven by code": ({"Pass", "Fail"}, {*OK_TIERS, None}),
     "AI verdict, two readers agree": (
-        {"AI verdict: met", "AI verdict: not met"},
+        {"AI verdict: met", "AI verdict: not met", "AI verdict: not stated"},
         {*OK_TIERS, None},
     ),
     "AI opinion, engineer to confirm": (

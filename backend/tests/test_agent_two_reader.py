@@ -681,7 +681,11 @@ def test_same_evidence_needs_the_same_page_and_overlap_or_the_same_label():
 
 
 def test_the_class_and_its_two_words_are_in_the_one_table_and_the_database_copy():
-    assert contract.LINE_TABLE[CLASS][0] == ("AI verdict: met", "AI verdict: not met")
+    assert contract.LINE_TABLE[CLASS][0] == (
+        "AI verdict: met",
+        "AI verdict: not met",
+        "AI verdict: not stated",
+    )
     assert CLASS in schema.CLASSES and {
         "AI verdict: met",
         "AI verdict: not met",

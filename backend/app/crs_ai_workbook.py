@@ -127,6 +127,11 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("paper_page"),
     )
     where = f", page {page}" if page not in (None, "") else ""
+    if (
+        line.get("verdict_label") == two.WORD_NOT_STATED
+        and status == words.STATUS_AI_VERDICT
+    ):
+        return f"The AI reviewer's verdict, to be confirmed by an engineer: {two.ABSENCE_WHY}."  # only what was established
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -232,6 +237,11 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         return "No action unless the engineer disagrees with the AI reviewer's view."
     if status == words.STATUS_AI_VERDICT and order == words.ORDER_AI_VERDICT_MET:
         return "No action unless the engineer disagrees with the AI reviewer's verdict."
+    if (
+        line.get("verdict_label") == two.WORD_NOT_STATED
+        and status == words.STATUS_AI_VERDICT
+    ):
+        return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
     return " ".join(
         x for x in (FIXED_TO[status], _reader_action(line, status, order)) if x
     )
@@ -412,9 +422,17 @@ def _calls(line: Mapping) -> str:
 
 def _independent_cells(line: Mapping) -> list:
     """The independent second reader's verdict, its two quotes and both quote checks (blank when it was not asked)."""
-    indep = two.stored(line)
+    indep = two.stored(line) or two.stored_absence(line)
     if indep is None:
         return [None] * 6
+    if (
+        indep.get("verdict") == two.A_NOT_STATED
+    ):  # it found nothing: there is no paper quote to check
+        q = indep.get("quotes_checked") or {}
+        return [
+            "not stated", None, None, _clean(indep.get("clause_quote")) or None,
+            "no quote: nothing found", _check_word(bool(q.get("clause"))),
+        ]  # fmt: skip
     q = (
         indep.get("quotes_checked")
         if isinstance(indep.get("quotes_checked"), Mapping)
@@ -485,11 +503,15 @@ def _notes_rows(
     rows.append(
         (f"Count: rows on the sheet '{words.OTHER_SHEET}'", len(others) + len(missing))
     )
-    step = meta.get("two_reader_step")
-    if isinstance(
-        step, Mapping
-    ):  # the optional second-reader step: counts and the one code that switched it off (internal only)
-        rows.append(("Second-reader step", _step_words(step)))
+    for (
+        key,
+        label,
+    ) in (  # the optional second-reader steps: counts and the one code that switched each off (internal only)
+        ("two_reader_step", "Second-reader step"),
+        ("two_reader_absence_step", "Second-reader absence step"),
+    ):
+        if isinstance(meta.get(key), Mapping):
+            rows.append((label, _step_words(meta[key])))
     rows += [("Rules not asked", _clean(t)) for t in block.get("summary_lines") or []]
     rows += [
         ("Run id", _clean(meta.get("run_id")) or "not reported"),

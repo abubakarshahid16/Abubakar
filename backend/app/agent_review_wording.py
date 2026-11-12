@@ -104,7 +104,7 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "not_proven_reason": _moved_reason(line, unsafe)
             + (f"; {why}" if unapproved else ""),
         }
-    if two_reader.disagrees(
+    if two_reader.disagrees(line) or two_reader.absence_disagrees(
         line
     ):  # 2c. the independent second reader reached the opposite verdict: a Query
         return {
@@ -113,15 +113,6 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "not_proven_reason": DISAGREE_WHY,
         }
     return None
-
-
-def _two_readers(line: Mapping, reason: str) -> dict:
-    """The class "AI verdict, two readers agree": its own words, never a Pass or a Fail (`agent_review_two_reader`)."""
-    return {
-        "verdict_label": two_reader.word_of(line),
-        "verdict_class": CLASS_TWO_READERS,
-        "not_proven_reason": reason,
-    }
 
 
 def classify(line: Mapping) -> dict:
@@ -178,10 +169,10 @@ def classify(line: Mapping) -> dict:
         reason = str(
             line.get("why") or line.get("reason_code") or "the gate did not accept it"
         ).strip()
-        if two_reader.agrees(
-            line
-        ):  # 4b. two independent readers, every quote verified, no guard
-            return _two_readers(line, reason)
+        if (
+            got := two_reader.class_of(line, reason)
+        ):  # 4b. two independent readers (value or absence verdict), every quote verified, no guard
+            return got
         return {
             "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
             "verdict_class": CLASS_OPINION,
@@ -313,6 +304,7 @@ def counts(lines: Iterable[Mapping]) -> dict:
         "ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_OPINION),
         "ai_verdict_met": n(two_reader.WORD_MET, CLASS_TWO_READERS),
         "ai_verdict_not_met": n(two_reader.WORD_NOT_MET, CLASS_TWO_READERS),
+        "ai_verdict_not_stated": n(two_reader.WORD_NOT_STATED, CLASS_TWO_READERS),
         "unapproved_ai_thinks_met": n(THINKS_MET, CLASS_UNAPPROVED),
         "unapproved_ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_UNAPPROVED),
         "unapproved_lines": sum(
