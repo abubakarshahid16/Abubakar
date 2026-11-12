@@ -386,7 +386,8 @@ def summary_lines(
     eq_other = counts.get(ANOTHER_EQUIPMENT) or {}
     if eq_other.get("total"):
         parts = ", ".join(
-            f"{family_words(k)} {n}" for k, n in sorted(eq_other.get("by_family", {}).items())
+            f"{family_words(k)} {n}"
+            for k, n in sorted(eq_other.get("by_family", {}).items())
         )
         lines.append(
             f"another equipment type: {eq_other['total']} rules not asked ({parts})"

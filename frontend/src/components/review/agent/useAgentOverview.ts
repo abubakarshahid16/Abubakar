@@ -16,7 +16,7 @@ export type AgentOverview =
   | { state: "off" }
   | { state: "none" }
   | { state: "error"; message: string }
-  | { state: "ok"; summary: AgentRunSummary; lines: AgentLine[] | null; openPoints: number | null; missing: MissingSplit | null };
+  | { state: "ok"; summary: AgentRunSummary; lines: AgentLine[] | null; openPoints: number | null; missing?: MissingSplit | null };
 
 const MAX_PAGES = 200;
 
