@@ -93,6 +93,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
     (
+        APP + "agent_review_jobs.py",
+        "decides which review a paper gets and what it asks, and writes the run",
+    ),
+    (
         APP + "agent_general_review.py",
         "the single exit of a general review's lines (no verdict word), the mode decision",
     ),
@@ -103,6 +107,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (
         APP + "agent_general_findings.py",
         "which findings of parts 3 to 5 become lines; sends the paper's text to Claude",
+    ),
+    (
+        APP + "kind_review_table.py",
+        "the one table of what each kind of paper is asked: review, rules, checklist, page split",
     ),
     (
         APP + "agent_general_parts.py",
@@ -129,8 +137,8 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
     "agent_review_gate.py": "the on/off switch only",
     "agent_review_items.py": "builds the item list",
-    "agent_review_jobs.py": "job plumbing",
     "agent_review_kind.py": "names the paper kind",
+    "agent_review_page_record.py": "the page record kept on a run's row, and the requeue; moved unchanged out of agent_review_jobs; decides no verdict",
     "agent_review_pages.py": "page lookup",
     "agent_review_request.py": "request and reason-code shapes",
     "agent_review_rule_rows.py": "reads rule rows from the database",

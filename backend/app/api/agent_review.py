@@ -134,7 +134,7 @@ def start_agent_run(
     ):
         detail = errors.safe_error(
             errors.INVALID_PARAMETER,
-            agent_review_gate.KIND_NOT_ENABLED_MESSAGE,
+            agent_review_gate.refusal_reason(),
             document_id=document_id,
         )
         raise HTTPException(
