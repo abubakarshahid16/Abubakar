@@ -37,6 +37,7 @@ EXPORT_FORMAT = "rule-equipment-labels-v1"
 AGREED, NEEDS_HUMAN, UNLABELLED = "agreed", "needs_human", "unlabelled"
 STATES = (AGREED, NEEDS_HUMAN, UNLABELLED)
 TABLES = ("rule_equipment_label", "rule_equipment_label_event")
+ANSWER_COLUMNS = ("answer_a_json", "answer_b_json")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 _STATEMENTS = (
@@ -47,6 +48,7 @@ _STATEMENTS = (
         equip_general INTEGER NOT NULL DEFAULT 0 CHECK (equip_general IN (0, 1)),
         equip_state TEXT NOT NULL CHECK (equip_state IN ({",".join(f"'{s}'" for s in STATES)})),
         equip_disagreement TEXT,
+        answer_a_json TEXT, answer_b_json TEXT,
         model_a TEXT, model_b TEXT, prompt_version TEXT, list_sha TEXT,
         labelled_at TEXT NOT NULL,
         PRIMARY KEY (source, rule_ref),
@@ -110,6 +112,14 @@ def create_tables(conn) -> None:
     try:
         for statement in _STATEMENTS:
             conn.execute(statement)
+        held = {r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")}
+        for column in (
+            ANSWER_COLUMNS
+        ):  # a table made before the two answers were kept gets the two columns
+            if column not in held:
+                conn.execute(
+                    f"ALTER TABLE rule_equipment_label ADD COLUMN {column} TEXT"
+                )
     except BaseException:
         conn.rollback()
         raise
@@ -202,6 +212,37 @@ def label_for(conn, source: str, rule_ref: str) -> dict | None:
 # ---------------------------------------------------------------- the lab table -> a label file -> the server
 
 
+def _lab_answer(row, who: str, cols: set) -> dict | None:
+    """One labelling model's own answer from the lab table: {family, type, part, general, valid}; None when the lab did not keep it."""
+    if f"{who}_valid" not in cols or row[f"{who}_valid"] is None:
+        return None
+    return {
+        "family": row[f"{who}_family"] or None,
+        "type": row[f"{who}_type"] or None,
+        "part": row[f"{who}_part"] or None,
+        "general": 1 if row[f"{who}_general"] else 0,
+        "valid": 1 if row[f"{who}_valid"] else 0,
+    }
+
+
+def answer_of(label: Any, which: str) -> dict | None:
+    """The stored answer of one labelling model ("a" or "b") as a dict, or None (missing, unparseable, not valid, or off the
+    list: then nobody may rely on it)."""
+    raw = (label or {}).get(f"answer_{which}_json")
+    try:
+        got = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return None
+    if not isinstance(got, dict) or got.get("valid") not in (1, True):
+        return None
+    return {
+        "family": got.get("family") or None,
+        "type": got.get("type") or None,
+        "part": got.get("part") or None,
+        "general": 1 if got.get("general") in (1, True) else 0,
+    }
+
+
 def convert_lab(lab: sqlite3.Connection) -> list[dict]:
     """The equipment rows of the lab labeller's `rule_label` table (a database COPY) as label-file rows. A row the lab did not
     ask about (no equip_state) is skipped. No rule text, no answer text: ids, answers on the list, models, prompt, list hash."""
@@ -233,6 +274,8 @@ def convert_lab(lab: sqlite3.Connection) -> list[dict]:
                 if r["ea_list_sha"] == r["eb_list_sha"]
                 else None,
                 "labelled_at": r["labelled_at"],
+                "answer_a": _lab_answer(r, "ea", cols),
+                "answer_b": _lab_answer(r, "eb", cols),
             }
         )
     return rows
@@ -301,6 +344,22 @@ def problem(row: Any, tax: Taxonomy) -> str | None:
     return None
 
 
+def _answer_json(answer: Any, tax: Taxonomy) -> str | None:
+    """A labelling model's answer as stored text, or None when it is missing or not on the closed list (never refuses the row)."""
+    if not isinstance(answer, dict):
+        return None
+    fam, typ = answer.get("family") or None, answer.get("type") or None
+    if (typ is not None and typ not in tax.type_family) or (
+        fam is not None and fam not in tax.families
+    ):
+        return None
+    return json.dumps(
+        {"family": fam, "type": typ, "part": answer.get("part") or None,
+         "general": 1 if answer.get("general") else 0, "valid": 1 if answer.get("valid") else 0},
+        sort_keys=True,
+    )  # fmt: skip
+
+
 def import_rows(conn, rows: Iterable[Any], tax: Taxonomy | None = None) -> dict:
     """Store label-file rows on the server's database: {read, stored, refused}. Every row is checked again by code; an
     identical stored row is counted and not written again; a changed row updates the stored one (the trigger appends the event).
@@ -312,7 +371,7 @@ def import_rows(conn, rows: Iterable[Any], tax: Taxonomy | None = None) -> dict:
     cursor.row_factory = sqlite3.Row
     counts = {"read": 0, "stored": 0, "refused": 0}
     cols = ("equip_family", "equip_type", "equip_part", "equip_general", "equip_state", "equip_disagreement", "model_a",
-            "model_b", "prompt_version", "list_sha", "labelled_at")  # fmt: skip
+            "model_b", "prompt_version", "list_sha", "labelled_at", *ANSWER_COLUMNS)  # fmt: skip
     for row in rows:
         counts["read"] += 1
         if problem(row, tax) is not None:
@@ -323,12 +382,22 @@ def import_rows(conn, rows: Iterable[Any], tax: Taxonomy | None = None) -> dict:
             if c == "equip_general"
             else (row.get(c) or None)
             for c in cols
+            if c not in ANSWER_COLUMNS
         }
+        for which in ("a", "b"):
+            values[f"answer_{which}_json"] = _answer_json(
+                row.get(f"answer_{which}"), tax
+            )
         values["labelled_at"] = values["labelled_at"] or "1970-01-01T00:00:00Z"
         held = cursor.execute(
             "SELECT * FROM rule_equipment_label WHERE source = ? AND rule_ref = ?",
             (row["source"], row["rule_ref"]),
         ).fetchone()
+        for column in (
+            ANSWER_COLUMNS
+        ):  # a file with no answer (an older file) never wipes an answer already stored
+            if values[column] is None and held is not None and held[column]:
+                values[column] = held[column]
         try:
             if held is None:
                 conn.execute(
@@ -357,6 +426,7 @@ __all__ = [
     "UNLABELLED",
     "SwitchedOff",
     "Taxonomy",
+    "answer_of",
     "convert_lab",
     "create_tables",
     "ensure_schema",
