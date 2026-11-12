@@ -349,3 +349,95 @@ def test_5_a_big_limit_proves_against_its_own_clause():
 )
 def test_6_value_near_label_is_a_token_match_and_one_cell(label, value, text, expect):
     assert calc.value_near_label(label, value, text) is expect
+
+
+# ---------------------------------------------------------------------------------------- 7 (R48f ask): the clause must show the DIRECTION of the limit
+
+
+def _dir_line(clause, *, item=None, raw="85"):
+    it = {**ITEM, **(item or {}), "question": clause}
+    f = fact(raw)
+    return calc.numeric_line(
+        it, calc.requirement_from_item(it), f, submittal_facts=[f], page_text=f"Noise level {raw} dB(A)",
+        clause_quote=clause, clause_text=clause, page_count=3,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "Noise level shall not exceed 90 dB(A).",
+        "Noise level: maximum 90 dB(A).",
+        "Noise level shall be at most 90 dB(A).",
+        "Noise level shall be not more than 90 dB(A).",
+        "Noise level of 90 dB(A) maximum.",
+        "Noise level of 90 dB(A) or less.",
+    ],
+)
+def test_7_an_upper_limit_is_proven_only_by_an_upper_word(clause):
+    assert proven(_dir_line(clause))
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "Noise level shall be at least 90 dB(A).",  # the opposite word: the reviewer's case
+        "Noise level: minimum 90 dB(A).",
+        "Noise level of 90 dB(A) or more.",
+        "The noise level is 90 dB(A).",  # no direction word
+        "Noise level 90 dB(A).",
+    ],
+)
+def test_7_the_opposite_word_or_no_word_is_a_query_with_the_reason(clause):
+    ln = _dir_line(clause)
+    assert (
+        query(ln, "clause_direction_not_shown")
+        and "direction of the limit" in ln["why"]
+    )
+
+
+def test_7_a_lower_limit_needs_a_lower_word_and_strict_or_not_is_one_sense():
+    low = {"comparator": ">=", "value": 80}
+    assert proven(_dir_line("Noise level shall be at least 80 dB(A).", item=low))
+    assert proven(
+        _dir_line(
+            "Noise level shall be more than 80 dB(A).",
+            item={"comparator": ">", "value": 80},
+        )
+    )
+    assert query(
+        _dir_line("Noise level shall not exceed 80 dB(A).", item=low),
+        "clause_direction_not_shown",
+    )
+
+
+def test_7_equality_needs_an_equality_word():
+    eq = {"comparator": "=", "value": 85}
+    assert proven(_dir_line("Noise level = 85 dB(A).", item=eq))
+    assert query(
+        _dir_line("Noise level shall not exceed 85 dB(A).", item=eq),
+        "clause_direction_not_shown",
+    )
+
+
+def test_7_a_range_needs_between_and_or_a_join():
+    rng = {
+        "rule_kind": "range",
+        "requirement_type": "range_limit",
+        "comparator": None,
+        "value": None,
+        "value_low": 80,
+        "value_high": 90,
+    }
+    assert proven(_dir_line("Noise level shall be between 80 and 90 dB(A).", item=rng))
+    assert proven(_dir_line("Noise level shall be 80 to 90 dB(A).", item=rng))
+
+
+def test_7_the_exit_asks_again_a_flipped_comparator_on_a_stored_line_is_demoted():
+    ln = _dir_line("Noise level shall not exceed 90 dB(A).")
+    assert proven(ln)
+    flipped = {**ln, "proof_requirement": {**ln["proof_requirement"], "operator": ">="}}
+    assert exit_of(flipped)["verdict"] == "Query"
+    assert (
+        exit_of({**ln, "clause_quote": "Noise level 90 dB(A)."})["verdict"] == "Query"
+    )

@@ -140,6 +140,79 @@ def clause_reason(requirement: Mapping | None, quote: object) -> str | None:
     return None
 
 
+DIRECTION_WHY = "the clause's wording does not show the direction of the limit"
+_SENSE = {
+    ">=": "lower",
+    ">": "lower",
+    "min": "lower",
+    "<=": "upper",
+    "<": "upper",
+    "max": "upper",
+    "=": "equal",
+}
+#: words that follow a figure and give its direction ("90 dB(A) maximum", "5 bar or more"): the one small list this module adds to the comparator
+#: vocabulary of `claims` (which reads only what stands BEFORE a figure).
+_AFTER_DIRECTION = (
+    (
+        re.compile(
+            r"^\s*(?:[a-z\u00b0%()/0-9.]{1,12}\s+)?(?:or\s+(?:less|lower|fewer|below)|maximum|max\.?)\b",
+            re.IGNORECASE,
+        ),
+        "upper",
+    ),
+    (
+        re.compile(
+            r"^\s*(?:[a-z\u00b0%()/0-9.]{1,12}\s+)?(?:or\s+(?:more|higher|greater|above)|minimum|min\.?)\b",
+            re.IGNORECASE,
+        ),
+        "lower",
+    ),
+)
+_RANGE_WORD = re.compile(r"\bbetween\s*$", re.IGNORECASE)
+_RANGE_JOIN = re.compile(
+    r"^\s*(?:\S{0,12}\s+)?(?:and|to|-|\u2013|\u2014)\s", re.IGNORECASE
+)
+
+
+def _sense_before(prefix: str) -> str | None:
+    """The direction a comparator phrase at the END of `prefix` gives: the repo's one comparator vocabulary (`claims.comparator_ending`)."""
+    from . import claims
+
+    return _SENSE.get(claims.comparator_ending(prefix.strip()) or "")
+
+
+def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
+    """Why the clause quote does not show the DIRECTION of the stored limit; None when it does. The stored comparator (at least, at most, equal) or
+    range must agree with a direction word the quote carries next to the limit's figure: before it (claims' comparator vocabulary) or after it.
+    No word, or the opposite one, is a reason. A range needs "between" before the first end, or a joining "and" / "to" / dash before the second."""
+    req = requirement or {}
+    text, numbers = numparse.fold(str(quote or "")), limit_numbers(req)
+    if not numbers:
+        return DIRECTION_WHY
+    found = [
+        n for n in numparse.find_numbers(text) if n.value is not None and not n.joined
+    ]
+    spots = [
+        next((n for n in found if n.value == numparse.as_number(x)), None)
+        for x in numbers
+    ]
+    if any(spot is None for spot in spots):
+        return DIRECTION_WHY
+    if len(numbers) == 2:
+        first, second = sorted(spots, key=lambda n: n.start)
+        joined = _RANGE_WORD.search(text[: first.start]) or _RANGE_JOIN.match(
+            text[first.end : second.start] + " "
+        )
+        return None if joined else DIRECTION_WHY
+    want = _SENSE.get(str(req.get("operator") or ""))
+    spot = spots[0]
+    got = _sense_before(text[: spot.start])
+    if got is None:
+        after = text[spot.end :]
+        got = next((sense for rx, sense in _AFTER_DIRECTION if rx.match(after)), None)
+    return None if want is not None and got == want else DIRECTION_WHY
+
+
 def recompute(requirement: Mapping, observed: Mapping) -> str | None:
     """The comparison made again on the stored requirement and value: COMPLIANT or NON_COMPLIANT, else None."""
     try:
@@ -234,6 +307,7 @@ def numeric_proven(line: Mapping) -> bool:
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
         and clause_reason(req, line.get("clause_quote")) is None
+        and direction_reason(req, line.get("clause_quote")) is None
         and _verdict_matches(line, recompute(req, obs))
     )
 
