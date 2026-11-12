@@ -143,6 +143,10 @@ def gate_open(env: dict | None = None) -> bool:
     """True only when the lane's provider switch is open: in the given `env` (obeyed exactly), else in the process
     environment with the app settings behind it (`_env_with_settings`). The two egress flags and the key are checked again
     where the request is built and where it is sent."""
+    from . import review_engine
+
+    if review_engine.claude_barred():  # the run's plan keeps it on this computer
+        return False
     env = _env_with_settings() if env is None else env
     provider = str(env.get("REASONING_PROVIDER") or "").strip().lower()
     if provider == "claude":

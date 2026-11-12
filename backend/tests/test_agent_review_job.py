@@ -171,9 +171,12 @@ def test_the_internal_copy_header_holds_the_documents_facts_and_the_notes_sheet_
         for c in row
         if c is not None
     )
-    assert {
-        r[4] for r in wb["CRS"].iter_rows(min_row=13, values_only=True) if r[0]
-    } == {"AI reviewer, instrument"}
+    # 12 Nov 2026: the engine on the header, never a model id
+    assert top["Reviewed by:"] == "AI reviewer on Claude"
+    table = list(wb["CRS"].iter_rows(values_only=True))
+    # the header block above has grown before
+    first = next(i for i, r in enumerate(table) if r[4] == "Comment By") + 1
+    assert {r[4] for r in table[first:] if r[0]} == {"AI reviewer, instrument"}
 
 
 def test_the_contractor_copy_holds_the_proven_fail_only(world):

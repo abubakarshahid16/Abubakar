@@ -152,6 +152,11 @@ def discipline(kind: str | None) -> str:
     return str(row(kind)["crs_discipline"] or "")
 
 
+def scored_kinds() -> tuple[str, ...]:
+    """The kinds whose `scored` field is true (the ONE home of "scored against an answer key")."""
+    return tuple(k for k in kinds() if row(k)["scored"])
+
+
 def scored(kind: str | None) -> bool:
     """True only for a kind whose review was scored against an answer key. A kind not scored does not go live (owner, 12 Nov)."""
     return bool(row(kind)["scored"])
