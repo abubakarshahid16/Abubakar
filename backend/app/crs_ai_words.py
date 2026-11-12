@@ -165,6 +165,7 @@ WHY_PATTERNS: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(p, re.IGNORECASE), v)
     for p, v in (
         (r"^not asked: too long for the local model", "Not asked: too long for the local model. Not reviewed"),
+        (r"^not all of the paper could be asked", "Not all of the paper could be asked; it was not found in the part that was. Not reviewed"),
         (r"^AI call failed", "the AI reviewer gave no answer"),
         (r"answer cut off", "the AI reviewer's answer was cut off"),
         (r"^no answer from the AI", "the AI reviewer gave no answer"),

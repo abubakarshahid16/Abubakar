@@ -537,10 +537,12 @@ class SettingsExt(BaseModel):
     #: The local second reader's model; empty = no second reader (lines stay "AI thinks"). Must be of another family than model A.
     #: Env: AGENT_REVIEW_LOCAL_MODEL_B.
     agent_review_local_model_b: str = "glm-4.7-flash"
-    #: The context window (tokens) asked of the local model on every call of the local AI reviewer. 0 = the shared local window
-    #: (`local_num_ctx`, 8192), the default; a larger number is asked per call (the transport never lowers it below the shared window).
-    #: `_b` is for the second reader's model (0 = the same as the first). Env: AGENT_REVIEW_LOCAL_NUM_CTX, AGENT_REVIEW_LOCAL_NUM_CTX_B.
-    agent_review_local_num_ctx: int = 0
+    #: The CAP (tokens) on the context window asked of the local model on every call of the local AI reviewer: the window is the model's own
+    #: context length (read from `/api/show`) or this cap, whichever is smaller; an engine that does not say uses the shared local window
+    #: (`local_num_ctx`, 8192). `_b` is for the second reader's model (0 = the same as the first). The memory cost per 1,000 tokens is on the
+    #: run's counts (`local_kv_mb_per_1k_first`). Measured 12 Nov 2026: 8,192 fits no request that carries a page of a datasheet and its rule.
+    #: Env: AGENT_REVIEW_LOCAL_NUM_CTX, AGENT_REVIEW_LOCAL_NUM_CTX_B.
+    agent_review_local_num_ctx: int = 16384
     agent_review_local_num_ctx_b: int = 0
     #: Owner order 13 (lead, 12 Nov): the word "AI verdict: not stated" of the same class. Needs the switch above on too. A second model
     #: of another family reads EVERY page whole and, without seeing the first answer, finds no value; code's own absence search

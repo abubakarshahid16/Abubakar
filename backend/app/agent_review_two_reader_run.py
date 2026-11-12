@@ -252,7 +252,13 @@ class TwoReaderMixin:
                     h["ref"],
                     {**h, "standard": it.get("standard"), "clause": it.get("clause")},
                 )
-        parts = build_parts(self.paper, pages, clauses, batch, held_of)
+        shown = None
+        if (
+            self.local is not None and len(batch) == 1
+        ):  # the same evidence the first reader decided on, the one clause, one item
+            clauses, held_of = self._local_clauses(batch[0])
+            shown = self.local_shown(batch[0])
+        parts = build_parts(self.paper, shown or pages, clauses, batch, held_of)
         max_tokens = (
             self.local.second_tokens(len(batch))
             if self.local is not None

@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import agent_claude, claude_spend
-from .agent_review_local import LOCAL_TOO_LONG
+from .agent_review_local import LOCAL_TOO_LONG, NOT_ALL_ASKED
 from . import agent_review_verdict as verdict
 from .reader_api import _fold
 
@@ -472,7 +472,10 @@ def reason_of(
         if isinstance(raw, list)
         else []
     )
-    if error == LOCAL_TOO_LONG:  # nothing was called: not "AI call failed"
+    if error in (
+        LOCAL_TOO_LONG,
+        NOT_ALL_ASKED,
+    ):  # nothing was called, or not all was: not "AI call failed"
         return "not_asked_too_long", searched
     if error:
         return "ai_call_failed", searched
