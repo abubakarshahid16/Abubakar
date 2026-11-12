@@ -115,7 +115,7 @@ def _all_fields() -> tuple[tuple[str, absence.FieldWords], ...]:
 #: words a label line may add to the field's own words: a unit column header
 UNIT_HEADERS = frozenset({"unit", "units", "uom"})
 NEGATIONS = frozenset(
-    {"not", "no", "non", "without", "never", "none", "nor", "neither"}
+    {"not", "no", "non", "without", "never", "none", "nor", "neither", "nil"}
 )
 
 
@@ -237,11 +237,11 @@ def _spans(page_text: Any, quote: Any) -> list[tuple[int, int]]:
 
 
 def _negated(quote: str, terms: set[str]) -> bool:
-    """A negation word within three words of a word of the condition."""
+    """A negation word within five words before, or three after, a word of the condition ("not expected to be sour")."""
     tokens = re.findall(r"[a-z0-9']+", _fold(quote))
     for i, tok in enumerate(tokens):
         if terms & agent_bind.content_words(tok) and any(
-            t in NEGATIONS or t.endswith("n't") for t in tokens[max(0, i - 3) : i + 4]
+            t in NEGATIONS or t.endswith("n't") for t in tokens[max(0, i - 5) : i + 4]
         ):
             return True
     return False

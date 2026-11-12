@@ -300,14 +300,22 @@ def _relabel_old_lines(conn) -> int:
         new = relabel_plan(line) if isinstance(line, dict) else None
         if new is None:
             continue
-        got = wording.apply({**new, "class_before_1778": cls, "word_before_1778": word})
+        got = wording.apply(
+            {
+                **new,
+                "class_before_1778": cls,
+                "word_before_1778": word,
+                "verdict_before_1778": line.get("verdict"),
+                "decided_by_before_1778": line.get("decided_by"),
+            }
+        )
         label = contract.legal_word(got["verdict_class"], got["verdict_label"])
         if label is None:
             raise sqlite3.IntegrityError("a re-labelled line has no legal word")
         conn.execute(
             f"UPDATE {LINE_TABLE} SET verdict_class = ?, word = ?, reason = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
             (got["verdict_class"], label, str(got.get("not_proven_reason") or ""),
-             json.dumps({**new, "class_before_1778": cls, "word_before_1778": word}, ensure_ascii=False, default=str), run_id, item_id),
+             json.dumps({**new, "class_before_1778": cls, "word_before_1778": word, "verdict_before_1778": line.get("verdict"), "decided_by_before_1778": line.get("decided_by")}, ensure_ascii=False, default=str), run_id, item_id),
         )  # fmt: skip
         counts[f"{word} -> {label}"] = counts.get(f"{word} -> {label}", 0) + 1
     if counts:
