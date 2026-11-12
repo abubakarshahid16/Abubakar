@@ -69,7 +69,10 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_reread` | The AI reviewer's page re-read (core): which lines are silent, the pages a second model reads (at most 3), the quote check, the line decided again by the same gate; off by default |
 | `agent_review_wording` | The AI reviewer's words (core): Pass/Fail only when proven, else AI thinks met / not met; the one exit cap by current tier; counts per class |
 | `agent_review_pair` | The AI reviewer line's class and word in the contract's words, asked of the one table (`LINE_TABLE`); a refused pair is never stored |
-| `agent_review_crs` | The AI reviewer's CRS writers (core): internal and contractor xlsx; refuse an unproven Pass or Fail; contractor copy holds the proven Fail only |
+| `agent_review_crs` | The AI reviewer's CRS writers (core): internal and contractor xlsx in the app's one CRS layout (order 13: `sheet_of` still decides where a line goes); refuse an unproven Pass or Fail; contractor copy holds the proven Fail only |
+| `crs_ai_workbook` | Order 13: what the cells of the AI reviewer's CRS say - item rows with Status, the sheet of lines that are not item rows, Evidence, Notes; three-part comments built from the stored line, no new AI call |
+| `crs_ai_words` | Order 13: the fixed sentences and the ONE table of plain phrases of the AI reviewer's CRS, the banned code words, the Status words and the stated Priority rule |
+| `crs_ai_header` | Order 13: the CRS header block's facts (project, document number, title, revision, date, discipline) read from `document_classification`; blank when not held |
 | `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
 | `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |
 | `agent_run_stats` | Honest counts (provider errors, failed tool calls, step-limit items), the 'run unreliable' words and the failure breaker of the agent proof test runner |
@@ -192,6 +195,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `coverage_values` | #1592: the CRS footer's one count of values read: checklist fields read, and standard rules tied to a field, each rule once, beside `coverage_pair`; words only, behind ONE_CHECKED_DEFINITION_ENABLED |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
+| `crs_layout` | Order 13: the one CRS layout's drawing code - header row, frozen panes and print setup for both reviewers, and the AI reviewer's whole workbook (`build_layout_crs`); styled by code |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `part_name_roles` | Test B (part of #805): the strict rules by which a part printed alone (IMPELLER: material) or a seal in a sentence fills its material/type field, for the form reader's label gate and the stored-facts check, behind FORM_PART_NAME_ROLES_ENABLED |
 | `section_index` | Test B / HAZOP (part of #805): headings of any kind (attachment/appendix/annex codes, table titles, item titles) indexed at review time in memory for the playbook review, and the generic-title-word rule, behind SECTION_INDEX_ENABLED |

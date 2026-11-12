@@ -124,6 +124,52 @@ def test_a_full_fake_model_review_writes_lines_both_copies_and_the_record(world)
     assert status == "completed"
 
 
+def test_the_internal_copy_header_holds_the_documents_facts_and_the_notes_sheet_the_run_facts(
+    world,
+):
+    """Order 13: the header block reads what the app holds for the paper (`document_classification`); the run id and the cost are
+    on the Notes sheet only."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO document_classification (document_id, suggested_by, project, document_number, title,"
+            " revision, effective_date, discipline) VALUES (?, 'test', 'Project Q', 'DOC-77', 'Title Z', 'B', '2026-01-05',"
+            " 'instrument')",
+            (s.PAPER,),
+        )
+    run_id, job_id = start()
+    assert run_job(job_id) == "done"
+    wb = load_workbook(agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx")
+    top = {
+        r[0]: r[2] for r in wb["CRS"].iter_rows(max_row=12, values_only=True) if r[0]
+    }
+    assert (top["Project:"], top["Document number:"], top["Document title:"]) == (
+        "Project Q",
+        "DOC-77",
+        "Title Z",
+    )
+    assert (top["Revision:"], top["Date:"], top["Discipline:"]) == (
+        "B",
+        "2026-01-05",
+        "instrument",
+    )
+    notes = {r[0]: r[1] for r in wb["Notes"].iter_rows(min_row=2, values_only=True)}
+    usd = (
+        db.connect()
+        .execute("SELECT usd FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()["usd"]
+    )
+    assert notes["Run id"] == run_id and notes["Cost (USD)"] == usd
+    assert run_id not in "\n".join(
+        str(c)
+        for row in wb["CRS"].iter_rows(values_only=True)
+        for c in row
+        if c is not None
+    )
+    assert {
+        r[4] for r in wb["CRS"].iter_rows(min_row=13, values_only=True) if r[0]
+    } == {"AI reviewer, instrument"}
+
+
 def test_the_contractor_copy_holds_the_proven_fail_only(world):
     run_id, job_id = start()
     run_job(job_id)
