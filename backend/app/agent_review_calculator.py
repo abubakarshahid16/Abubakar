@@ -121,14 +121,25 @@ def _checks(base: dict, fact: Mapping, page_text: object, clause_text: object) -
     )
     c_found = quote_found(base["clause_quote"], clause_text)
     limit = proof.clause_reason(base["proof_requirement"], base["clause_quote"]) is None
+    subject = (
+        proof.subject_reason(
+            base["rule_field"], base["proof_requirement"], base["clause_quote"]
+        )
+        is None
+    )
+    way = (
+        proof.direction_reason(base["proof_requirement"], base["clause_quote"]) is None
+    )
     return {
         "paper": found and value and field,
-        "clause": c_found and limit,
+        "clause": c_found and limit and way and subject,
         "paper_found": found,
         "paper_value": value,
         "field": field,
         "clause_found": c_found,
         "clause_limit": limit,
+        "clause_direction": way,
+        "clause_subject": subject,
     }
 
 
@@ -139,6 +150,8 @@ _QUOTE_FAILS = (
     ("field", "field_not_with_quote", "the quote from the paper does not sit with the field's label, on its line or the line above"),
     ("clause_found", "clause_quote_unverified", "the rule's quote was not found in its clause, so it was not compared into a Pass or Fail"),
     ("clause_limit", "clause_limit_not_in_quote", "the quote from the clause does not state the limit that was compared, with its unit"),
+    ("clause_direction", "clause_direction_not_shown", "the clause's wording does not show the direction of the limit"),
+    ("clause_subject", "clause_subject_not_the_field", "the clause's wording does not make the field the subject of the limit"),
 )  # fmt: skip
 
 
@@ -171,6 +184,8 @@ def numeric_line(
         "clause_quote": clause_quote or "",
         "paper_quote": _paper_quote(fact) if fact else "",
         "paper_page": f.get("page"),
+        "rule_field": (guards.field_names(item) or [None])[0],
+        "paper_context": proof.context_of(page_text, _paper_quote(fact)) if fact else "",
         "paper_page_count": page_count,
         "quotes_checked": {"paper": False, "clause": False},
         "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
