@@ -363,18 +363,19 @@ def test_plan_with_the_real_builder_asks_rules_and_accounts_for_every_candidate(
     assert {r[0]: r[1] for r in rows}[1] == 3
 
 
-def test_with_per_rule_scope_decisions_the_candidates_are_those_decisions_as_before(
+def test_with_per_rule_scope_decisions_the_candidates_are_the_books_rules_plus_those_decisions(
     tmp_path, monkeypatch
 ):
+    """#1780: decisions add to the selected books' rules; they never shrink the set (they used to replace it)."""
     _conn, _run, plan = _real_plan_world(tmp_path, monkeypatch, with_decisions=True)
     asked = {i["rule_version_id"] for i in plan["items"] if i["source"] == "rule"}
-    assert asked == {
-        "req-a",
-        "req-b",
-    }  # only the rules the stored decisions name, not the whole book
-    assert plan["block"]["candidates"]["source"] == "per-rule scope decisions"
+    assert asked == {"req-a", "req-b", "req-c"}  # the same as a run with no decisions
+    assert (
+        plan["block"]["candidates"]["source"]
+        == "the rules of the selected books and per-rule scope decisions"
+    )
     assert not any(
-        "rules came from the rule books" in x for x in plan["block"]["summary_lines"]
+        "no per-rule scope decision exists" in x for x in plan["block"]["summary_lines"]
     )
 
 
