@@ -121,10 +121,16 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
         line
     ):  # 2d. both readers: needs a drawing or a calculation, not checked here
         return got
-    if (
-        two_reader.disagrees(line)
-        or two_reader.absence_disagrees(line)
-        or two_reader.other_disagrees(line)
+    if two_reader.absence_disagrees(
+        line
+    ):  # 2c'. the second reader found a value on a page code verified: the place is named
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": two_reader.absence_disagree_why(line),
+        }
+    if two_reader.disagrees(line) or two_reader.other_disagrees(
+        line
     ):  # 2c. the independent second reader reached the opposite verdict: a Query
         return {
             "verdict_label": WORD_QUERY,
@@ -375,17 +381,25 @@ def is_unapproved(line: Mapping) -> bool:
 
 def decisions_of(pairs: Iterable[tuple[str, str]]) -> dict:
     """THE one count of decisions (owner, 12 Nov 2026) from (class, word) pairs: "Proven by code" (Pass or Fail: the code compared a value or
-    proved an absence) plus "AI verdict, two readers agree" with the word met or not met. "Not stated" and every "AI thinks" are not decisions."""
-    code = two_reader_n = 0
+    proved an absence) plus "AI verdict, two readers agree" with the word met, not met or not stated (lead, 12 Nov 2026: two readers each
+    read every page and found no value is a decision "not stated on the paper"). Every "AI thinks" is not a decision."""
+    code = two_reader_n = stated_n = 0
     for cls, word in pairs:
         if cls == CLASS_PROVEN:
             code += 1
         elif cls == CLASS_TWO_READERS and word in (
             two_reader.WORD_MET,
             two_reader.WORD_NOT_MET,
+            two_reader.WORD_NOT_STATED,
         ):
             two_reader_n += 1
-    return {"code": code, "two_reader": two_reader_n, "total": code + two_reader_n}
+            stated_n += word == two_reader.WORD_NOT_STATED
+    return {
+        "code": code,
+        "two_reader": two_reader_n,
+        "not_stated": stated_n,
+        "total": code + two_reader_n,
+    }
 
 
 def counts(lines: Iterable[Mapping]) -> dict:

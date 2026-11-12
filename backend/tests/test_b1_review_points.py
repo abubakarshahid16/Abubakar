@@ -1557,7 +1557,7 @@ def test_the_contractor_copy_line_comes_from_the_kind_table_in_both_states(monke
     plain = points_of(client, doc)["contractor_copy"]
     assert (
         plain["kind"] == "datasheet"
-        and plain["words"] == review_points_service.CONTRACTOR_COPY_PLAIN
+        and plain["words"] == kind_review_table.CONTRACTOR_COPY_PLAIN
     )
     assert "never carries an AI wording" in plain["words"]
     monkeypatch.setattr(
@@ -1566,7 +1566,7 @@ def test_the_contractor_copy_line_comes_from_the_kind_table_in_both_states(monke
         lambda kind: kind == "datasheet",
     )
     flagged = points_of(client, doc)["contractor_copy"]
-    assert flagged["words"] == review_points_service.CONTRACTOR_COPY_WITH_VERDICTS
+    assert flagged["words"] == kind_review_table.CONTRACTOR_COPY_WITH_VERDICTS
     assert (
         "never carries an AI wording" not in flagged["words"]
         and "two readers agreed" in flagged["words"]
