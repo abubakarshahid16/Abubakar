@@ -130,13 +130,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="stop colouring rows by row_kind, so a NON_COMPLIANT "
                     "defect and a NEEDS_ENGINEER_REVIEW row look identical "
                     "on the printed sheet (issue #165 criterion 4)",
-        path=APP / "crs_export.py",
-        anchor="            if fill is not None:\n"
-               "                cell.fill = fill",
-        replacement="            if False:\n"
-                    "                cell.fill = fill",
+        path=APP / "crs_layout.py",
+        anchor="        fill = STATUS_FILLS.get(statuses[n - 1]) if n - 1 < len(statuses) else None\n",
+        replacement="        fill = None\n",
         target="tests/test_crs_export.py",
-        keyword="rows_of_different_kinds_get_different_fill_colours",
+        keyword="rows_get_one_fill_per_status_not_per_kind",
         tags=("honesty", "critical"),
     ),
     # ---- from B168_PIPELINE_REPAIR ----------------------------------------

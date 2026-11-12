@@ -244,7 +244,9 @@ def test_the_internal_crs_shows_the_trust_and_the_safety_tick_and_the_issue_copy
     _rerun(world)
     client = _client(world["scope"])
     internal = client.get(f"/api/reviews/runs/{world['run']}/crs/preview").json()
-    assert "Rule trust (internal)" in internal["columns"]
+    # #1767: the trust text moved off the CRS sheet to the Evidence sheet; the rows still carry it (internal copy only)
+    assert "Rule trust (internal)" not in internal["columns"]
+    assert all("rule_trust" in r for r in internal["rows"])
     ticks = [r for r in internal["rows"] if r["row_kind"] == "safety_tick"]
     assert len(ticks) == 1
     assert "ENGINEER TO TICK (safety field)" in ticks[0]["comment"]
@@ -259,6 +261,16 @@ def test_the_internal_crs_shows_the_trust_and_the_safety_tick_and_the_issue_copy
     assert "1 of 2 datasheet fields" in notes["Not checked by any rule"]["detail"]
     assert "H2S service" in notes["Not checked by any rule"]["detail"]
     assert notes["Spot-check automatic findings"]["count"] == 1
+
+
+def test_the_internal_workbook_carries_the_rule_trust_on_its_evidence_sheet_and_the_issue_copy_has_none():
+    """#1767 moved the Rule trust column from the CRS sheet to the Evidence sheet (internal copy only)."""
+    from tests.test_crs_one_layout import _book
+
+    evidence = list(_book("internal")["Evidence"].iter_rows(values_only=True))
+    col = evidence[0].index("Rule trust (internal)")
+    assert any(row[col] for row in evidence[1:])
+    assert "Evidence" not in _book("issue").sheetnames
 
 
 def test_the_safety_tick_gates_issue_until_ticked_and_a_tick_is_a_correct_audit(world, monkeypatch):

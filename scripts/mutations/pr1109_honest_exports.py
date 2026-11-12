@@ -22,9 +22,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1109-02", phase=1109,
              description="the workbook prints the title alone on row 1, the note never "
                          "reaches the file",
-             path=APP / "crs_export.py",
-             anchor='    put(1, 1, "\\n".join(p for p in (view["run_status_note"], view["title"]) if p),',
-             replacement='    put(1, 1, view["title"],',
+             path=APP / "crs_normal.py",
+             anchor='        "title": "\\n".join(p for p in (view["run_status_note"], view["title"]) if p),',
+             replacement='        "title": view["title"],',
              target=_TEST, keyword="incomplete_run_carries_the_marker",
              tags=("crs", "honesty", "633")),
 )

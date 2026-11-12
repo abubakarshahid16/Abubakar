@@ -60,6 +60,7 @@ NOT_APPLICABLE_SHEET = (
 )
 UNAPPROVED_SHEET = "Rules not yet approved"  # Excel: 31 characters at most
 NOT_REVIEWED_SHEET = "Not reviewed"
+NOT_CHECKED_HERE_SHEET = "Not checked on this paper"  # a bucket of the sheet "Not reviewed or not applicable"
 HELD_PASS_SHEET = "AI met, not proven by code"  # Excel: 31 characters at most, no colon
 HEADING_ROWS = 8  # the old engine's CRS: 8 rows above the column headings
 OLD_HEADERS = (
@@ -196,6 +197,9 @@ def is_held_pass(line: Mapping) -> bool:
         and line.get("verdict") == QUERY
         and line.get("reason_code") != "value_deferred"
         and shown_as_met
+        and not wording.is_two_reader(
+            line
+        )  # two readers agreed: its own Status on the CRS sheet, not the held-pass sheet
     )
 
 
@@ -215,6 +219,8 @@ def sheet_of(line: Mapping) -> str:
         return NOT_REVIEWED_SHEET
     if wording.is_unapproved(line):
         return UNAPPROVED_SHEET
+    if wording.is_not_checked_here(line):
+        return NOT_CHECKED_HERE_SHEET
     if is_not_applicable(line):
         return NOT_APPLICABLE_SHEET
     if is_held_pass(line):
@@ -237,6 +243,7 @@ def sheet_rows(lines: Iterable[Mapping]) -> dict[str, int]:
             HELD_PASS_SHEET,
             NOT_REVIEWED_SHEET,
             UNAPPROVED_SHEET,
+            NOT_CHECKED_HERE_SHEET,
         ),
         0,
     )
@@ -323,7 +330,7 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
 
 def comment_by(line: Mapping) -> str:
     """'AI verdict (<model from the response>)', 'Decided by code' or 'Query for the engineer'."""
-    if wording.is_opinion(line):
+    if wording.is_opinion(line) or wording.is_two_reader(line):
         return f"{line['verdict_label']} ({line['verdict_class']})"
     if line.get("verdict") == QUERY:
         return "Query for the engineer"

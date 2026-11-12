@@ -102,6 +102,7 @@ def modules() -> tuple[Module, ...]:
                 (ar.AgentRunRequest, "AgentRunRequest"),
                 (ar.AgentProjectPaper, "AgentProjectPaper"),
                 (ar.AgentStatus, "AgentStatus"),
+                (ar.AgentTwoReaderStep, "AgentTwoReaderStep"),
                 (ar.AgentPaperText, "AgentPaperText"),
                 (ar.AgentPageRereadStop, "AgentPageRereadStop"),
                 (ar.AgentRunSummary, "AgentRunSummary"),

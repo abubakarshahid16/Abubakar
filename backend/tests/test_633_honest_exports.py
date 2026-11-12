@@ -217,7 +217,12 @@ def test_the_crs_of_an_incomplete_run_carries_the_marker_on_row_one(world):
         assert str(cells[(1, 1)]).startswith("REVIEW INCOMPLETE: run failed"), copy
         assert "API 682" in cells[(1, 1)]
         # The column headers did not move: the template's geometry is kept.
-        assert cells[(crs_export.COLUMN_HEADER_ROW, 1)] == crs_export.HEADERS[0]
+        header_row = (
+            crs_export.COLUMN_HEADER_ROW
+            if copy == "internal"
+            else crs_export.ISSUE_HEADER_ROW
+        )
+        assert cells[(header_row, 1)] == crs_export.HEADERS[0]
     # The preview says the same thing as the file.
     view = crs_export.build_crs_view(rows, {**meta, "copy": "issue"})
     assert view["run_status_note"] == note
