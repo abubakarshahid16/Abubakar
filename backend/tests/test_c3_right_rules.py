@@ -78,8 +78,14 @@ def conn(monkeypatch):
     return c
 
 
+def _answer(typ=None, fam=None, general=0, valid=1):
+    return json.dumps(
+        {"family": fam, "type": typ, "part": None, "general": general, "valid": valid}
+    )
+
+
 def _equipment_label(
-    c, ref, *, typ=None, fam=None, part=None, general=0, state="agreed"
+    c, ref, *, typ=None, fam=None, part=None, general=0, state="agreed", a=None, b=None
 ):
     cols = {"source": "requirement", "rule_ref": ref, "equip_state": state, "equip_general": general, "equip_type": typ,
             "equip_family": fam, "equip_part": part, "labelled_at": "t"}  # fmt: skip
@@ -89,10 +95,21 @@ def _equipment_label(
         )
     else:
         cols.update(equip_disagreement="type")
+    cols.update(answer_a_json=a, answer_b_json=b)
     c.execute(
         f"INSERT INTO rule_equipment_label ({', '.join(cols)}) VALUES ({','.join('?' * len(cols))})",
         tuple(cols.values()),
     )
+
+
+def _disagree(c, ref, a, b, field=None):
+    label(c, ref, field=field)
+    _equipment_label(c, ref, state="needs_human", a=a, b=b)
+
+
+def _disagree(c, ref, a, b, field=None):
+    label(c, ref, field=field)
+    _equipment_label(c, ref, state="needs_human", a=a, b=b)
 
 
 def _rule(c, ref, field, **eq):
@@ -395,3 +412,92 @@ def test_on_a_local_trial_copy_no_known_finding_rule_is_left_out():
         K.read_ids(ids), K.asked_in_run_db(db, os.environ.get("KNOWN_RULES_RUN_ID"))
     )
     assert lost == [], f"known-finding rules no longer asked: {lost}"
+
+
+# ---------------------------------------------------------------- two readers who disagree but both name other equipment
+
+OTHER_A = _answer(
+    "gadget_valve", "valves"
+)  # not the paper's (a widget valve) and not related
+OTHER_B = _answer(
+    None, "static"
+)  # a family the paper has only through the field-narrowed related line
+
+
+def test_both_readers_name_other_equipment_so_the_rule_is_left_out_with_its_own_words(
+    conn, tax
+):
+    _disagree(
+        conn, "both", OTHER_A, _answer("gadget_valve", "valves"), field="overpressure"
+    )
+    got = _asked(conn, _ctx(conn, tax, NARROW), "both")
+    assert got["ask"] is False and got["reason"] == R.TWO_READERS_OTHER
+    assert (
+        R.REASON_WORDS[R.TWO_READERS_OTHER]
+        == "the two labelling readers named different other equipment"
+    )
+    counts = R.count_left_out([{"reason": R.TWO_READERS_OTHER}])
+    assert counts[R.TWO_READERS_OTHER] == 1
+    assert any(
+        x.startswith("the two labelling readers named different other equipment: 1")
+        for x in R.summary_lines(counts, "datasheet")
+    )
+
+
+def test_a_related_family_whose_field_is_not_named_counts_as_other_equipment_for_a_reader(
+    conn, tax
+):
+    _disagree(conn, "rel", OTHER_A, OTHER_B, field="joint_efficiency")
+    assert _asked(conn, _ctx(conn, tax, NARROW), "rel")["reason"] == R.TWO_READERS_OTHER
+    _disagree(conn, "relnamed", OTHER_A, OTHER_B, field="overpressure")
+    assert (
+        _asked(conn, _ctx(conn, tax, NARROW), "relnamed")["ask"] is True
+    )  # the data line names this field: not other
+
+
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        (_answer("widget_valve", "valves"), OTHER_A),  # one names the paper's own type
+        (
+            _answer(None, "valves"),
+            OTHER_A,
+        ),  # one names the paper's... family is valves: the paper's family
+        (_answer(general=1), OTHER_A),  # one says general
+        (None, OTHER_A),  # one missing
+        (OTHER_A, "not json {"),  # one unparseable
+        (OTHER_A, _answer("gadget_valve", "valves", valid=0)),  # one not valid
+        (OTHER_A, _answer()),  # one names nothing
+    ],
+)
+def test_in_any_doubt_about_the_two_answers_the_rule_is_asked(conn, tax, a, b):
+    _disagree(conn, "x", a, b)
+    got = _asked(conn, _ctx(conn, tax, NARROW), "x")
+    assert got["ask"] is True and got["equipment_why"] == "equipment_not_known"
+
+
+def test_the_answers_are_kept_by_the_import_and_a_paper_without_usable_equipment_asks_the_rule(
+    conn, tax, monkeypatch
+):
+    good = {"source": "requirement", "rule_ref": "imp", "equip_state": "needs_human", "equip_disagreement": "type",
+            "answer_a": {"family": "valves", "type": "gadget_valve", "part": None, "general": 0, "valid": 1},
+            "answer_b": {"family": "static", "type": "nope", "part": None, "general": 0, "valid": 1}}  # fmt: skip
+    got = REQ.import_rows(conn, [good], tax)
+    assert got["stored"] == 1 and got["refused"] == 0
+    row = REQ.label_for(conn, "requirement", "imp")
+    assert REQ.answer_of(row, "a")["type"] == "gadget_valve"
+    assert (
+        REQ.answer_of(row, "b") is None
+    )  # off the closed list: not kept, so the rule is asked
+    # an older table without the two columns gets them
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE rule_equipment_label (source TEXT, rule_ref TEXT)")
+    c.execute("DROP TABLE rule_equipment_label")
+    REQ.create_tables(c)
+    assert {r[1] for r in c.execute("PRAGMA table_info(rule_equipment_label)")} >= set(
+        REQ.ANSWER_COLUMNS
+    )
+    # no usable paper equipment: nothing is left out for two readers
+    conn.execute("UPDATE document_classification SET equipment_type = NULL")
+    _disagree(conn, "z", OTHER_A, OTHER_A)
+    assert _asked(conn, _ctx(conn, tax, NARROW), "z")["ask"] is True

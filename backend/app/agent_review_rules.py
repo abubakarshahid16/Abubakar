@@ -30,6 +30,7 @@ from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment 
     NOT_IN_LIST,
     PAPER_EQUIPMENT_REASONS,
     PART_ABSENT,
+    TWO_READERS_OTHER,
     UNREADABLE,
     EquipmentCtx,
     PaperEquipment,
@@ -58,6 +59,7 @@ REASONS = (
     ANOTHER_EQUIPMENT,
     *PAPER_EQUIPMENT_REASONS,
     PART_ABSENT,
+    TWO_READERS_OTHER,
 )
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
@@ -70,6 +72,7 @@ REASON_WORDS = {
     NOT_IN_LIST: "the paper names equipment the equipment list does not know",
     UNREADABLE: "the paper's equipment could not be read",
     PART_ABSENT: "a part the paper's equipment does not have",
+    TWO_READERS_OTHER: "the two labelling readers named different other equipment",
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = ("off", "both")
@@ -394,6 +397,10 @@ def summary_lines(
                     else ""
                 )
             )
+    if counts.get(TWO_READERS_OTHER):
+        lines.append(
+            f"the two labelling readers named different other equipment: {counts[TWO_READERS_OTHER]} rules not asked"
+        )
     if counts.get(PART_ABSENT):
         lines.append(
             f"a part the paper's equipment does not have: {counts[PART_ABSENT]} rules not asked"

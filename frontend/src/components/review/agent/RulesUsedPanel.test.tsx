@@ -179,6 +179,17 @@ describe("RulesUsedView: a rule left out for a part the paper's equipment does n
   });
 });
 
+describe("RulesUsedView: two labelling readers named different other equipment", () => {
+  it("shows the reason in its contract words", () => {
+    render(<RulesUsedView data={data({
+      left_out: [{ rule_book: "Book A", clause: "7", reason: "the two labelling readers named different other equipment" }],
+      left_out_counts: { "the two labelling readers named different other equipment": 2 },
+    })} />);
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("the two labelling readers named different other equipment: 2");
+    expect(screen.getByText("the two labelling readers named different other equipment", { selector: "td" })).toBeInTheDocument();
+  });
+});
+
 describe("RulesUsedView: where the rules came from", () => {
   it("says the source, the repeats, and the other-book count with its boundary", () => {
     render(<RulesUsedView data={data({

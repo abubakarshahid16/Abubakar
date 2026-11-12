@@ -7,7 +7,7 @@ export type AgentRuleTier = "Owner" | "Engineer" | "AI approved" | "Not AI appro
 export type AgentPart = "not held" | "checklist" | "paper against itself" | "against project papers" | "engineering comment";
 export type AgentTextSource = "quote" | "the model's words";
 export type AgentMode = "rule review" | "general review";
-export type AgentLeftOutReason = "needs another paper" | "needs a human" | "quote not found" | "not labelled yet" | "another equipment type" | "rule book not held" | "the paper names no equipment" | "the paper names equipment the equipment list does not know" | "the paper's equipment could not be read" | "a part the paper's equipment does not have";
+export type AgentLeftOutReason = "needs another paper" | "needs a human" | "quote not found" | "not labelled yet" | "another equipment type" | "rule book not held" | "the paper names no equipment" | "the paper names equipment the equipment list does not know" | "the paper's equipment could not be read" | "a part the paper's equipment does not have" | "the two labelling readers named different other equipment";
 
 /** POST /api/reviews/agent-run body. */
 export interface AgentRunRequest {

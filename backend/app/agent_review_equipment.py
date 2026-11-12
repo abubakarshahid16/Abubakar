@@ -27,6 +27,8 @@ UNREADABLE = "paper_equipment_unreadable"  # the app's reader could not decide w
 PAPER_EQUIPMENT_REASONS = (NO_EQUIPMENT, NOT_IN_LIST, UNREADABLE)
 #: a rule about a part (the label's `equip_part`) that the paper's own facts and pages show its equipment does not have
 PART_ABSENT = "part_not_on_paper"
+#: the two labelling readers disagreed with each other, and BOTH named equipment that is not the paper's
+TWO_READERS_OTHER = "two_readers_other_equipment"
 
 # ---- the equipment filter: only ever REMOVES rules ------------------------------------------------------------------------
 
@@ -179,6 +181,46 @@ def _related_only_blocks(
     return rule_field not in frozenset().union(*ours)
 
 
+def _both_readers_name_other_equipment(
+    label: Mapping,
+    eq: PaperEquipment,
+    tax: rule_equipment.Taxonomy,
+    mode: str,
+    rule_field: str | None,
+) -> str | None:
+    """For a label the two readers did not agree on: the family left out when BOTH stored answers are valid, neither says
+    "general", each names a type or a family, and the paper's own decision (`equipment_decision` on that answer alone) would
+    leave each one out as another equipment type. Anything else (a missing, unparseable or invalid answer, "general", an
+    answer that names nothing, one that names the paper's equipment or a related field the data line allows, a paper whose
+    equipment is not usable): None, and the rule is asked."""
+    if (
+        str(label.get("equip_state") or "") != rule_equipment.NEEDS_HUMAN
+        or not eq.usable
+    ):
+        return None
+    families = []
+    for which in ("a", "b"):
+        ans = rule_equipment.answer_of(label, which)
+        if ans is None or ans["general"] or not (ans["type"] or ans["family"]):
+            return None
+        keep, why, fam = equipment_decision(
+            {
+                "equip_state": rule_equipment.AGREED,
+                "equip_type": ans["type"],
+                "equip_family": ans["family"],
+                "equip_general": 0,
+            },
+            eq,
+            tax,
+            mode,
+            rule_field,
+        )
+        if keep or why != ANOTHER_EQUIPMENT:
+            return None
+        families.append(fam)
+    return families[0] or families[1] or "unnamed"
+
+
 def equipment_decision(
     label: Mapping,
     eq: PaperEquipment,
@@ -192,6 +234,9 @@ def equipment_decision(
     (also a related type's rule whose field the data line does not name); paper_names_no_equipment (the paper names no usable
     equipment: every rule that names a type or a family goes). `rule_field` is the rule's approved label field."""
     if str(label.get("equip_state") or "") != rule_equipment.AGREED:
+        both = _both_readers_name_other_equipment(label, eq, tax, mode, rule_field)
+        if both is not None:
+            return False, TWO_READERS_OTHER, both
         return True, "equipment_not_known", None
     if int(label.get("equip_general") or 0) == 1:
         return True, "general", None
