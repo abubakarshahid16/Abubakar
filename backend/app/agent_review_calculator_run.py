@@ -46,7 +46,8 @@ def runner_done(stored: dict) -> dict:
     return {
         k: v
         for k, v in stored.items()
-        if not v.get("error") and v.get("source") != calc.SOURCE
+        if not v.get("error")
+        and str(v.get("source") or "").strip().casefold() != calc.SOURCE
     }
 
 

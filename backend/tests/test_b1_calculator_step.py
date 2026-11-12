@@ -364,3 +364,13 @@ def test_a_rule_that_names_no_field_says_why_it_did_not_pair(world, on):
     assert got["pairs"] == 0 and got["not_paired"] == {
         "the rule names no field the code can match": 1
     }
+
+
+def test_the_runner_of_a_resumed_run_never_takes_the_code_lines_as_its_own():
+    stored = {
+        "R-1": {"source": "rule", "verdict": "Pass"},
+        "R-2": {"source": "rule", "error": "x"},
+        "C-1-f": {"source": "code", "verdict": "Pass"},
+        "c-2": {"source": "CODE", "verdict": "Query"},
+    }
+    assert set(run_mod.runner_done(stored)) == {"R-1"}  # a code line has no plan item: re-capping it would turn a proven line into a Query
