@@ -92,12 +92,14 @@ UNDECLARED = "undeclared"
 NOT_APPROVED = "not_approved"
 UNKNOWN_DOCUMENT = "unknown_document"
 
+_NO_CALLER = object()  # no caller named: the run's own background job
 #: The documents the prompt being built carries. None = nobody declared
 #: anything (refused); an empty set = declared to carry no document content.
 _CARRIED: ContextVar[frozenset[str] | None] = ContextVar("claude_carried_documents", default=None)
 _REQUEST_CONSENT: ContextVar[bool] = ContextVar("claude_request_consent", default=False)
 #: The review run whose documents the calls inside `reviewing()` carry. With `claude_spend.current_run()` it is how the gate
 #: knows a prompt belongs to a review run (so which document is the paper under review). None = not a review run.
+_CALLER: ContextVar = ContextVar("claude_caller", default=_NO_CALLER)
 _REVIEW_RUN: ContextVar[str | None] = ContextVar("claude_review_run", default=None)
 
 
@@ -151,6 +153,17 @@ def review_declaration(review_run_id):
     """`carrying` the review's documents (`review_documents`) and `reviewing` that run: what a review route declares."""
     with carrying(review_documents(review_run_id)), reviewing(review_run_id):
         yield
+
+
+@contextlib.contextmanager
+def acting_as(user_id):
+    """Name the person whose request this Claude call serves, so a run's consent record (`review_shown.consented_ids`) counts only
+    for the person who gave it. A call with no caller named (the run's own background job) is the run's requester."""
+    token = _CALLER.set(user_id)
+    try:
+        yield
+    finally:
+        _CALLER.reset(token)
 
 
 def review_run() -> str | None:
@@ -521,7 +534,10 @@ def _consented(ids) -> frozenset[str]:
     from .db import connect
 
     try:
-        return review_shown.consented_ids(connect(), run, ids)
+        caller = _CALLER.get()
+        if caller is _NO_CALLER:
+            return review_shown.consented_ids(connect(), run, ids)
+        return review_shown.consented_ids(connect(), run, ids, caller)
     except sqlite3.Error:
         return frozenset()
 

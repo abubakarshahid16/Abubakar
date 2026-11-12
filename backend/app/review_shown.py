@@ -111,16 +111,25 @@ def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
     shown = shown_ids(conn, run_id)
     if shown is None:
         return []
+    from .agent_review_rules import NOT_ON_LIST
+
     items = doc.get("items") or []
-    dropped = sorted(
-        {str(i["standard_document_id"]) for i in items if i.get("standard_document_id")}
-        - shown
-    )
+    ids = {
+        str(i["standard_document_id"]) for i in items if i.get("standard_document_id")
+    }
+    dropped = ids - shown
     if dropped:
         doc["items"] = [
             i for i in items if str(i.get("standard_document_id") or "") not in dropped
         ]
-    return dropped
+    # the rules `build_items_for_run` already left out of the plan (reason NOT_ON_LIST) belong to books dropped the same way
+    left = (doc.get("rule_labels") or {}).get("left_out") or []
+    dropped |= {
+        str(r["standard_document_id"])
+        for r in left
+        if r.get("reason") == NOT_ON_LIST and r.get("standard_document_id")
+    }
+    return sorted(dropped)
 
 
 def _cited_ids(conn, run_id: str) -> set[str]:
@@ -284,12 +293,17 @@ def consent_of(conn, run_id: str | None) -> dict | None:
     }
 
 
-def consented_ids(conn, run_id: str | None, ids) -> frozenset[str]:
+_ANY_CALLER = object()
+
+
+def consented_ids(conn, run_id: str | None, ids, caller=_ANY_CALLER) -> frozenset[str]:
     """Of `ids`, the documents the run's consent record covers AND whose file is still the one that was listed (a replaced
     revision is not covered) AND that the run's stored list still names. Raises `sqlite3.Error`: the caller fails closed."""
     got = consent_of(conn, run_id)
     if got is None:
         return frozenset()
+    if caller is not _ANY_CALLER and caller != got["user_id"]:
+        return frozenset()  # per run AND per user: another person calling a Claude route on this run gets no consent from it
     listed = shown_ids(conn, run_id) or frozenset()
     wanted = sorted({str(i) for i in ids if i} & set(got["documents"]) & listed)
     if not wanted:

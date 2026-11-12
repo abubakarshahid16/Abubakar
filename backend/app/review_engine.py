@@ -209,10 +209,13 @@ def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     if not f.paper_approved:
         return False, "this paper is not approved for Claude"
     if not f.scored_allowed:
-        return False, unscored_choose_words()
+        return False, UNKNOWN_CHOOSE if f.kind is None else unscored_choose_words()
     if not f.caps_ok:
         return False, "the spending cap leaves no room today"
     return True, "its AI steps use Claude where this install sets them to"
+
+
+UNKNOWN_CHOOSE = "the kind of this paper is not known, so Automatic keeps it on this computer; choose Claude to send it"
 
 
 def unscored_choose_words() -> str:
@@ -250,7 +253,7 @@ def decide(choice: str, f: Facts) -> Plan:
         f = replace(
             f,
             contract_yes=False,
-            scored_allowed=f.scored_allowed and (f.kind is None or f.kind_scored),
+            scored_allowed=f.scored_allowed and f.kind is not None and f.kind_scored,
         )
     plan.needs_yes = bool(f.is_contract and not f.contract_yes)
     if f.is_contract:

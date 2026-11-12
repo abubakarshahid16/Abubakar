@@ -81,7 +81,7 @@ def test_local_only_runs_the_rule_check_and_says_the_ai_review_needs_claude():
     "closed, words, rule_check",
     [
         (dict(agent_enabled=False), "switched off", E.ON_CLAUDE),
-        (dict(kind=None), "not known", E.ON_CLAUDE),
+        (dict(kind=None), "not known", E.ON_LOCAL),  # Automatic never sends an unknown kind
         (
             dict(kind="drawing", kind_scored=True),
             "does not take a drawing",
@@ -232,7 +232,7 @@ def _allowed_to_leave(f: F, choice: str) -> bool:
         return False
     if choice == E.CLAUDE:
         return True  # the explicit choice is the consent, of any kind
-    return bool(f.paper_approved and not f.is_contract and (f.kind is None or f.kind_scored))
+    return bool(f.paper_approved and not f.is_contract and f.kind is not None and f.kind_scored)
 
 
 def test_brute_force_no_combination_sends_text_out_when_the_answer_says_it_would_not():
@@ -396,7 +396,7 @@ def test_a_plan_on_claude_is_not_barred_and_does_call_claude(
     """The bar follows the plan, never more: with the approvals met the same run does reach Claude (the test above is not vacuous)."""
     fake = _fake_claude()
     lane.setattr(reader_transport, "transport", lambda: fake)
-    run_id, plan, state = _run_started(world, "automatic")
+    run_id, plan, state = _run_started(world, "claude")  # an unknown kind goes only on the explicit choice
     assert plan["parts"][0]["engine"] == "claude", plan["parts"][0]
     assert state == "done"
     assert fake.calls, (
@@ -471,7 +471,7 @@ def test_the_plan_names_documents_cost_and_what_will_not_run(world, lane):
         TestClient(app)
         .get(
             "/api/reviews/plan",
-            params={"submittal_document_id": world["sub"], "engine": "automatic"},
+            params={"submittal_document_id": world["sub"], "engine": "claude"},
             headers=world["admin"],
         )
         .json()
@@ -1201,3 +1201,15 @@ def test_the_gate_reads_the_scored_kinds_from_the_one_table_and_keeps_no_tuple(m
     assert agent_review_gate.kind_scored("procedure") and not agent_review_gate.kind_scored("datasheet")
     monkeypatch.setattr(kind_review_table, "scored", lambda kind: False)
     assert not agent_review_gate.kind_scored("datasheet")
+
+
+def test_brute_force_automatic_never_sends_an_unknown_kind_an_unscored_kind_or_a_contract():
+    """R50d-1: over every combination of facts, Automatic puts text on Claude for none of them (any part, any switch)."""
+    seen = sent = 0
+    for f in _all_facts():
+        plan = E.decide(E.AUTOMATIC, f)
+        seen += 1
+        if f.kind is None or not f.kind_scored or f.is_contract:
+            if plan.text_leaves or any(p.engine == E.ON_CLAUDE for p in plan.parts):
+                sent += 1
+    assert seen == len(KINDS) * 4 * 2**10 and sent == 0

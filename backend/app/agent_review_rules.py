@@ -51,12 +51,14 @@ NEEDS_HUMAN = "needs_a_human"
 QUOTE_NOT_FOUND = "quote_not_found"
 NOT_LABELLED = "not_labelled_yet"
 KIND_UNKNOWN = "paper_kind_unknown"
+NOT_ON_LIST = "rule_book_not_on_shown_list"
 REASONS = (
     ANOTHER_PAPER,
     NEEDS_HUMAN,
     QUOTE_NOT_FOUND,
     NOT_LABELLED,
     KIND_UNKNOWN,
+    NOT_ON_LIST,
     ANOTHER_EQUIPMENT,
     *PAPER_EQUIPMENT_REASONS,
     PART_EXCLUDED,
@@ -68,6 +70,7 @@ REASON_WORDS = {
     QUOTE_NOT_FOUND: "quote not found",
     NOT_LABELLED: "not labelled yet",
     KIND_UNKNOWN: "paper kind unknown",
+    NOT_ON_LIST: "its rule book was not on the list shown before the start",
     ANOTHER_EQUIPMENT: "another equipment type",
     NO_EQUIPMENT: "the paper names no equipment",
     NOT_IN_LIST: "the paper names equipment the equipment list does not know",
@@ -412,7 +415,7 @@ def summary_lines(
         )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"
-        for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED)
+        for r in (NEEDS_HUMAN, QUOTE_NOT_FOUND, NOT_LABELLED, NOT_ON_LIST)
         if counts.get(r)
     ]
     if rest:
