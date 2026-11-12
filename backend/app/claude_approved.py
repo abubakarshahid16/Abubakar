@@ -541,6 +541,17 @@ def _unshown_specifications(ids) -> frozenset[str]:
         return frozenset(ids)
 
 
+def _in_library(ids) -> frozenset[str]:
+    """The declared ids the library holds. With no library at all (a bare test database) nothing is a contract to ask about; a
+    document the library does not hold is for `UNKNOWN_DOCUMENT` to say, when the list is enforced."""
+    import sqlite3
+
+    try:
+        return frozenset(d for d, h in _hashes_of(frozenset(ids)).items() if h)
+    except sqlite3.OperationalError:
+        return frozenset()
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
@@ -562,6 +573,15 @@ def refusal() -> tuple[str, str] | None:
             f"{len(held)} of {len(ids)} document(s) in this prompt were not on the list shown before the start "
             f"(ids: {', '.join(sorted(held))}), so nothing is sent"
         )
+    if ids and not _REQUEST_CONSENT.get():
+        # A document that became a contract between the plan and the send is refused in every configuration, the owner's list
+        # enforced or not: a contract goes only with the owner's recorded yes.
+        contracts = contracts_without_yes(_in_library(ids))
+        if contracts:
+            return NOT_APPROVED, (
+                f"{len(contracts)} of {len(ids)} document(s) in this prompt are a contract without the owner's recorded yes "
+                f"(ids: {', '.join(sorted(contracts))}), so nothing is sent"
+            )
     if not settings.claude_approved_list_enforced:
         return None
     if ids is None:

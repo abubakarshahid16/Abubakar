@@ -404,3 +404,126 @@ def test_the_ai_run_says_how_many_applied_standards_the_list_left_out(lib):
         or "{}"
     )
     assert outcome[claude_auto_approve.SHOWN_KEY]["not_sent"] == 1
+
+
+def _earlier_run(paper, status, scope_books):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at, started_at)"
+            " VALUES ('earlier', ?, ?, 't', 't', '2026-11-01T00:00:00Z')",
+            (paper, status),
+        )
+        for n, book in enumerate(scope_books):
+            conn.execute(
+                "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+                " selection_method, included, created_at) VALUES (?, 'earlier', ?, 'x', 'scope', 1, 't')",
+                (f"es{n}", book),
+            )
+
+
+def test_books_the_last_completed_review_applied_by_scope_are_on_the_list_so_a_second_review_loses_none(
+    lib,
+):
+    _book("bk_s1", "91" * 32, "ZZZ-D-001 scope one.pdf")
+    _book("bk_s2", "92" * 32, "ZZZ-D-002 scope two.pdf")
+    scope = lib["scope"] | {"bk_s1", "bk_s2"}
+    assert {"bk_s1", "bk_s2"}.isdisjoint(
+        d["id"] for d in _plan(lib, scope=scope)["leaving"]
+    )  # a first review: not knowable
+    _earlier_run(lib["sub"], "completed", ["bk_s1", "bk_s2"])
+    got = {d["id"]: d["why"] for d in _plan(lib, scope=scope)["leaving"]}
+    assert (
+        got["bk_s1"]
+        == got["bk_s2"]
+        == "applied by scope in the last review of this paper"
+    )
+    # asked (what that run applied) is a subset of the list
+    asked = {"bk_s1", "bk_s2"}
+    assert asked <= set(got)
+
+
+def test_an_earlier_scope_book_is_not_listed_when_the_run_did_not_complete_or_the_caller_may_not_read_it(
+    lib,
+):
+    _book("bk_s3", "93" * 32, "ZZZ-D-003 scope three.pdf")
+    _earlier_run(lib["sub"], "failed", ["bk_s3"])
+    assert "bk_s3" not in {
+        d["id"] for d in _plan(lib, scope=lib["scope"] | {"bk_s3"})["leaving"]
+    }
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'completed' WHERE id = 'earlier'")
+    docs = _plan(lib, scope=lib["scope"])  # the caller may not read it
+    assert (
+        "bk_s3" not in {d["id"] for d in docs["leaving"]} and docs["not_readable"] >= 0
+    )
+    assert "ZZZ-D-003" not in json.dumps(docs)
+
+
+def test_the_result_carries_the_found_during_review_count_and_the_sentence(lib):
+    from app import claude_auto_approve
+
+    _book("bk_f1", "94" * 32, "ZZZ-E-001 found one.pdf")
+    run_id, _ = review_engine_start.start(
+        lib["sub"],
+        lib["scope"] | {"bk_f1"},
+        "adm",
+        "automatic",
+        shown_document_ids=(lib["sub"],),
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+            " selection_method, included, created_at) VALUES ('f1', ?, 'bk_f1', 'x', 'scope', 1, 't')",
+            (run_id,),
+        )
+    claude_auto_approve.record_on_run(run_id)
+    outcome = json.loads(
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()[0]
+        or "{}"
+    )
+    assert outcome[claude_auto_approve.SHOWN_KEY]["found_during_review"] == 1
+    lines = [p["line"] for p in claude_auto_approve.run_lines(outcome)]
+    assert any(
+        line
+        == "1 more rule book(s) apply to this paper. They were not sent because they were not on the list you saw. "
+        "Review again to include them."
+        for line in lines
+    )
+
+
+def test_a_document_that_became_a_contract_is_refused_even_when_the_owners_list_is_not_enforced(
+    lib,
+):
+    assert settings.claude_approved_list_enforced is False
+    with claude_approved.carrying([lib["spec"]]):
+        assert claude_approved.refusal() is None
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET document_role='CONTRACT_DOCUMENT' WHERE document_id=?",
+            (lib["spec"],),
+        )
+    with claude_approved.carrying([lib["spec"]]):
+        found = claude_approved.refusal()
+    assert found is not None and "contract" in found[1]
+    contract_yes.grant(lib["spec"], "owner")
+    with claude_approved.carrying([lib["spec"]]):
+        assert claude_approved.refusal() is None
+    with claude_approved.per_request_consent(
+        [lib["con"]]
+    ):  # chat's own lane is unchanged
+        assert claude_approved.refusal() is None
+
+
+def test_the_stored_plan_holds_ids_and_counts_never_a_file_name(lib):
+    _book("bk_old", "95" * 32, "ZZZ-F-001 earlier book.pdf")
+    got = review_engine.plan_for(db.connect(), lib["sub"], lib["scope"], "automatic")
+    stored = review_shown.without_titles(got)
+    text = json.dumps(stored)
+    for name in ("API 610 invented.pdf", SPEC_NAME, CONTRACT_NAME, "sub_pump.pdf"):
+        assert name not in text
+    assert (
+        "rule_books" not in stored["documents"]
+        and "rule_books_count" in stored["documents"]
+    )

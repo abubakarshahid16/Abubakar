@@ -219,7 +219,7 @@ def test_the_run_says_it_did_not_send_the_cited_specification_even_with_the_swit
             ).fetchone()[0]
             or "{}"
         )
-    assert outcome[claude_auto_approve.SHOWN_KEY] == {"not_sent": 1}
+    assert outcome[claude_auto_approve.SHOWN_KEY] == {"not_sent": 1, "found_during_review": 0}
     lines = [p["line"] for p in claude_auto_approve.run_lines(outcome)]
     assert any(
         line.startswith("Not sent: 1 document(s)")

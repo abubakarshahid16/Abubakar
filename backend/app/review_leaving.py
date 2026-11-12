@@ -32,6 +32,7 @@ WHY_PAPER = "paper under review"
 WHY_CITED = "cited by the paper"
 WHY_GOVERNS = "governs the equipment type"
 WHY_CHOSEN = "chosen by you for this review"
+WHY_EARLIER_SCOPE = "applied by scope in the last review of this paper"
 CONTRACT_WORDS = "a contract goes only with the owner's recorded yes"
 NOT_HELD = "not held in the library"
 BLOCKED_WORDS = "blocked from the cloud model by the owner's block list"
@@ -242,6 +243,7 @@ def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -
                 else RULE_BOOK
             )
             put(row, kind, METHOD_WORDS.get(r["method"], "applies to this paper"))
+    _earlier_scope_books(conn, document_id, allowed, put, rows_of=_doc_rows)
     for m in chosen_by["missing_references"]:
         out["not_sent"].append(
             {
@@ -283,6 +285,38 @@ def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -
                 else PROJECT_PAPER
             )
             put(row, kind, WHY_CHOSEN)
+
+
+def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
+    """The books the paper's LAST COMPLETED review applied by scope (the one step the plan cannot take without a model), so from the
+    second review on nothing it found is lost. Only those still held in the library (selectable) and, by `put`, inside the caller's
+    scope and approved or approvable as the gate says."""
+    from . import standards
+
+    last = conn.execute(
+        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND status = 'completed'"
+        " ORDER BY started_at DESC, id DESC LIMIT 1",
+        (document_id,),
+    ).fetchone()
+    if last is None:
+        return
+    ids = [
+        r["standard_document_id"]
+        for r in conn.execute(
+            "SELECT standard_document_id FROM review_applicable_standards WHERE review_run_id = ?"
+            " AND selection_method = 'scope' AND COALESCE(included, 1) = 1",
+            (last["id"],),
+        )
+    ]
+    held = standards.selectable_standard_ids(allowed_document_ids=allowed)
+    rows = rows_of(conn, [i for i in ids if i in held])
+    for row in rows.values():
+        kind = (
+            SPECIFICATION
+            if row["role"] == claude_approved.SPECIFICATION_ROLE
+            else RULE_BOOK
+        )
+        put(row, kind, WHY_EARLIER_SCOPE)
 
 
 def documents_block(ctx, plan, project_ids) -> dict:

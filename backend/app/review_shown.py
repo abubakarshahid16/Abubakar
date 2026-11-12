@@ -97,21 +97,52 @@ def held_documents(conn, run_id: str, document_ids) -> frozenset[str]:
     return frozenset(specs)
 
 
-def cited_unshown(conn, run_id: str, applied_run: str | None = None) -> int:
-    """How many documents applied to this run were held because no list shown before the start names them. For the run's note."""
+def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
+    """THE UPSTREAM DROP of the AI reviewer: with a stored list, the items of any rule book the list does not name are removed from
+    the plan BEFORE a request is built, so their rules are not asked and none of their text is sent, and the run goes on with
+    everything that is listed. Returns the dropped books' ids (the run counts them). Items with no rule book (checklists) stay.
+    The send-time check in `claude_approved.refusal` remains the last line of defence. No list stored: nothing dropped."""
+    shown = shown_ids(conn, run_id)
+    if shown is None:
+        return []
+    items = doc.get("items") or []
+    dropped = sorted({str(i["standard_document_id"]) for i in items if i.get("standard_document_id")} - shown)
+    if dropped:
+        doc["items"] = [i for i in items if str(i.get("standard_document_id") or "") not in dropped]
+    return dropped
+
+
+def held_applied(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
+    """The documents applied to this run (or to `applied_run`, the run the AI reviewer's standards were chosen on) that the list
+    shown before the start left out: what the gate holds. Empty on a database error."""
     try:
         rows = conn.execute(
             "SELECT standard_document_id FROM review_applicable_standards"
             " WHERE review_run_id = ? AND COALESCE(included, 1) = 1",
             (applied_run or run_id,),
         ).fetchall()
-        return len(
-            held_documents(
-                conn, run_id, [r["standard_document_id"] for r in rows]
-            )
-        )
+        return sorted(held_documents(conn, run_id, [*(r["standard_document_id"] for r in rows), *extra]))
     except sqlite3.Error:
+        return []
+
+
+def cited_unshown(conn, run_id: str, applied_run: str | None = None, extra=()) -> int:
+    """How many documents applied to this run were held because no list shown before the start names them. For the run's note."""
+    return len(held_applied(conn, run_id, applied_run, extra))
+
+
+def found_during_review(conn, run_id: str, applied_run: str | None = None, extra=()) -> int:
+    """Of those, the rule books (not specifications): the ones the review found only while it ran, the screen's "N more rule books
+    apply to this paper"."""
+    held = held_applied(conn, run_id, applied_run, extra)
+    if not held:
         return 0
+    marks = ",".join("?" for _ in held)
+    specs = conn.execute(
+        f"SELECT COUNT(*) FROM document_classification WHERE document_role = ? AND document_id IN ({marks})",
+        [SPECIFICATION_ROLE, *held],
+    ).fetchone()[0]
+    return len(held) - specs
 
 
 def cap(plan: dict, shown_document_ids) -> list[str]:
@@ -125,6 +156,9 @@ def without_titles(plan: dict) -> dict:
     """The plan as it is stored with the run: the leaving list by id, kind and reason only (the stored choice holds words and ids,
     never a file name)."""
     docs = dict(plan.get("documents") or {})
+    # ids and counts only: not the file names of the paper's earlier rule books either
+    docs["rule_books_count"] = len(docs.pop("rule_books", None) or [])
+    docs.pop("rule_books_note", None)
     if "leaving" in docs:
         docs["leaving"] = [
             {k: d.get(k) for k in ("id", "kind", "why")} for d in docs["leaving"]
