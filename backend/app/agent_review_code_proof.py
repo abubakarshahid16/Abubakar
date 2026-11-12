@@ -241,6 +241,31 @@ def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
     return None if want is not None and got == want else DIRECTION_WHY
 
 
+SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
+
+
+def subject_reason(
+    rule_field: object, requirement: Mapping | None, quote: object
+) -> str | None:
+    """Why the clause quote is not ABOUT the rule's field, in words; None when it is. Every content word of the rule's own field name must stand in the
+    quote BEFORE the limit's figure: "The set pressure shall not exceed 110 %" is about set pressure; "Liquid service valves ... at 10 % or less
+    overpressure" is about liquid service valves, and a limit stated for a scope the code does not know is not applied to every paper."""
+    from . import agent_bind
+
+    words = agent_bind.content_words(str(rule_field or "").replace("_", " "))
+    text, numbers = numparse.fold(str(quote or "")), limit_numbers(requirement or {})
+    spots = [
+        n
+        for x in numbers
+        for n in numparse.find_numbers(text)
+        if n.value is not None and n.value == numparse.as_number(x) and not n.joined
+    ]
+    if not words or not spots:
+        return SUBJECT_WHY
+    before = text[: min(n.start for n in spots)]
+    return None if words <= agent_bind.content_words(before) else SUBJECT_WHY
+
+
 def recompute(requirement: Mapping, observed: Mapping) -> str | None:
     """The comparison made again on the stored requirement and value: COMPLIANT or NON_COMPLIANT, else None."""
     try:
@@ -352,6 +377,8 @@ def numeric_proven(line: Mapping) -> bool:
         and field_ok(line)
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
+        and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
+        is None
         and _verdict_matches(line, recompute(req, obs))
     )
 

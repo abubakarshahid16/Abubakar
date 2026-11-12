@@ -538,3 +538,31 @@ def test_9_a_unit_as_its_own_token_is_stated_and_case_is_kept():
     assert not proof.unit_stated("MPa", "5 mPa") and not proof.unit_stated(
         "bar", "10 barg"
     )
+
+
+# ---------------------------------------------------------------------------------------- 10 (valve trial): the clause must be ABOUT the rule's field
+
+
+def test_10_a_limit_stated_for_another_subject_is_not_applied_to_this_field():
+    clause = "Liquid service valves, certified in accordance with the code, are required to reach full capacity at 90 dB(A) or less noise."
+    ln = _dir_line(clause, item={"comparator": "<="})
+    assert (
+        query(ln, "clause_subject_not_the_field")
+        and "subject of the limit" in ln["why"]
+    )
+
+
+@pytest.mark.parametrize(
+    "clause", ["The noise level shall not exceed 90 dB(A).", "Noise: maximum 90 dB(A)."]
+)
+def test_10_a_clause_about_the_field_still_proves(clause):
+    assert proven(_dir_line(clause))
+
+
+@pytest.mark.parametrize("field", [None, "", "pressure", "liquid"])
+def test_10_the_exit_asks_again_a_line_whose_rule_field_is_not_in_the_clause_is_demoted(
+    field,
+):
+    ln = _dir_line("Noise level shall not exceed 90 dB(A).")
+    assert proven(ln) and ln["rule_field"] == "noise"
+    assert exit_of({**ln, "rule_field": field})["verdict"] == "Query"
