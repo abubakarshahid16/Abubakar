@@ -633,7 +633,7 @@ def _finish(
             " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
             (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
              json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now(),
-             json.dumps({**_equipment_facts(plan["block"]), "paper_text": plan.get("paper_text")})),
+             json.dumps(_equipment_facts(plan["block"]))),
         )  # fmt: skip
     return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial}
 
@@ -770,7 +770,6 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
         _write_run_start(run_id, submittal, kind, started)
-        # no stored text to read: stop BEFORE any rule is chosen and any call is made, and say so on the run
         general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
         stops = text.stops_run(general)
         if general and not stops:
@@ -778,14 +777,15 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat)  # fmt: skip
+            agent_review_text.record(conn, run_id, text)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)
         plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops
                 else _plan(conn, run_id, submittal, scope, kind, heartbeat))  # fmt: skip
-        # a partly readable paper: its pages with no text are listed
-        plan["paper_text"] = text.as_dict()
+        agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)  # a plan with nothing to ask always says why
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
+        agent_review_text.record(conn, run_id, text)
         _progress(conn, job_id, 3, heartbeat)
     except nothing_read.StoredFileAbsent as exc:
         return nothing_read.fail_run(job_id, run_id, exc)

@@ -4,7 +4,7 @@
  * percentage. A null cost renders nothing (never 0).
  */
 import type { AgentRunSummary } from "../../../types/api";
-import { PaperTextNotice, paperTextStopped } from "./PaperTextNotice";
+import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
 import { CLASS_ORDER, CLASS_STYLE, NOT_REVIEWED_NOTE, isKnownClass, modeWords } from "./agentWords";
 
 export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
@@ -44,7 +44,7 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
       {summary.stop_reason && !paperTextStopped(summary.paper_text) && (
         <p role="status" data-testid="agent-stop-reason"
           className="rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
-          This review stopped early: {summary.stop_reason}. The lines below are the ones finished before it stopped.
+          This review stopped early: {plainStop(summary.stop_reason)}. The lines below are the ones finished before it stopped.
         </p>
       )}
       <div>

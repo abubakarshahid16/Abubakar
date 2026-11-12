@@ -10,11 +10,11 @@ import { AgentSummary } from "./AgentSummary";
 import { PaperTextNotice, paperTextStopped } from "./PaperTextNotice";
 import { RulesUsedView } from "./RulesUsedPanel";
 
-const NO_TEXT = "This paper has no readable text in the library: re-read it, then review again. No rule was asked and nothing was sent to the AI.";
+const NO_TEXT = "This paper has no readable text in the library. Check its status on the Documents screen (waiting for recognition, failed, no searchable content) or upload a readable copy, then review again. The AI review asked no rule.";
 const stopped: AgentPaperText = { state: "no text", pages_total: 3, pages_not_read: [1, 2, 3], sentence: NO_TEXT };
 const partly: AgentPaperText = {
   state: "partly readable", pages_total: 5, pages_not_read: [2, 4],
-  sentence: "2 of 5 pages have no stored text and were not read (pages 2, 4). The rules were asked against the other pages only.",
+  sentence: "2 of 5 pages of this paper have no readable text (pages 2, 4).",
 };
 const summary = (over: Partial<AgentRunSummary> = {}): AgentRunSummary => ({
   paper_kind: "unknown", paper_kind_source: "no cue found: unknown", equipment_type: null, counts_by_class: {}, usd: null, models: [],
@@ -36,7 +36,7 @@ describe("PaperTextNotice", () => {
   it("a partly readable paper is not a stop and lists the pages not read", () => {
     render(<PaperTextNotice paperText={partly} />);
     expect(paperTextStopped(partly)).toBe(false);
-    expect(screen.getByTestId("paper-text-partly")).toHaveTextContent("2 of 5 pages");
+    expect(screen.getByTestId("paper-text-partly")).toHaveTextContent("2 of 5 pages of this paper");
     expect(screen.getByTestId("paper-text-pages")).toHaveTextContent("Pages not read: 2, 4");
   });
   it("a readable paper, or a run stored before this was kept, shows nothing", () => {
@@ -65,6 +65,17 @@ describe("the AI review screen and Rules used say it", () => {
   });
   it("Rules used gives any other stop reason for an empty list", () => {
     render(<RulesUsedView data={rules({ paper_text: null, stop_reason: "refused: the item list failed its checks (1 problem(s))" })} />);
-    expect(screen.getByTestId("asked-empty")).toHaveTextContent("No rule was asked: refused: the item list failed its checks");
+    const text = screen.getByTestId("asked-empty").textContent ?? "";
+    expect(text).toContain("the item list failed its checks");
+    expect(text).not.toMatch(/refused:/); // the code stays in the stored reason, never on screen
+  });
+  it("a plan with nothing to ask shows its sentence without the code word", () => {
+    render(<RulesUsedView data={rules({ paper_text: null, stop_reason: "no_rule_asked: The AI review asked no rule: 12 stored rules were looked at and 0 fit this paper (another equipment type: 12)." })} />);
+    const text = screen.getByTestId("asked-empty").textContent ?? "";
+    expect(text).toBe("The AI review asked no rule: 12 stored rules were looked at and 0 fit this paper (another equipment type: 12).");
+  });
+  it("the summary shows the sentence of a stop without its code word", () => {
+    render(<AgentSummary summary={summary({ paper_text: null, stop_reason: "paper_kind_unknown: paper kind unknown: no rule was asked" })} />);
+    expect(screen.getByTestId("agent-stop-reason").textContent).not.toMatch(/paper_kind_unknown/);
   });
 });

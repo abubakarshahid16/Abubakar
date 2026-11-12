@@ -166,9 +166,11 @@ class AgentStatus(BaseModel):
     claude_lane_open: bool
 
 
-#: What the library holds for the paper to read (order 13, C2). "no text" and "not indexed" stop the run before any rule is
+#: What the library holds for the paper to read (order 13, C2). "no text", "not indexed" and "still reading" stop the run before any rule is
 #: chosen or any call is made; "partly readable" runs and lists the pages with no stored text.
-PaperTextState = Literal["readable", "partly readable", "no text", "not indexed"]
+PaperTextState = Literal[
+    "readable", "partly readable", "no text", "not indexed", "still reading"
+]
 
 
 class AgentPaperText(BaseModel):

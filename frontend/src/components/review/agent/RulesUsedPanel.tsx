@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { agentReview, isFeatureOff } from "../../../api/agentReview";
 import type { AgentBookCoverage, AgentRulesUsed } from "../../../types/api";
 import { LEFT_OUT_REASONS } from "./agentWords";
-import { PaperTextNotice, paperTextStopped } from "./PaperTextNotice";
+import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
 
 export const NOT_MEASURED = "not measured";
 export const LESS_THAN_HALF =
@@ -134,7 +134,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
             {paperTextStopped(data.paper_text)
               ? `No rule was asked. ${data.paper_text?.sentence ?? ""}`
               : data.stop_reason
-                ? `No rule was asked: ${data.stop_reason}`
+                ? plainStop(data.stop_reason)
                 : undecided ? "No rule was asked: the paper kind could not be decided." : "No rule was asked of this paper."}
           </p>
         ) : asked.length === 0 ? (

@@ -29,9 +29,7 @@ def client(_routes_client):  # noqa: F811 - a fixture takes the imported fixture
     return _routes_client
 
 
-NO_TEXT = (
-    "This paper has no readable text in the library: re-read it, then review again."
-)
+NO_TEXT = "This paper has no readable text in the library. Check its status on the Documents screen"
 NOT_INDEXED = "This paper's text is stored but not indexed for search"
 
 
@@ -217,20 +215,54 @@ def test_the_trials_own_plan_check_counts_the_stop_as_the_plan_saying_why(client
     assert got.ok and "the plan stopped: no_paper_text" in got.detail
 
 
-def test_nothing_read_from_the_read_step_becomes_the_same_stop_not_a_retried_failure(
+def test_a_paper_with_no_text_makes_no_call_of_any_kind_not_even_the_read_step(
     client, monkeypatch
 ):
-    def nothing(*_a):
-        raise nothing_read.NothingRead(
-            "nothing read: the document could not be read (2 pages, 0 values)"
-        )
+    def never(*_a):
+        raise AssertionError("the read step (it can call a reader) must not run")
 
-    monkeypatch.setattr(nothing_read, "read_phase", nothing)
+    monkeypatch.setattr(nothing_read, "read_phase", never)
+    fake = agent_review_jobs.lane()[0]
     with db.connect() as conn:
         conn.execute("DELETE FROM pages WHERE document_id = ?", (s.PAPER,))
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (s.PAPER,))
     run_id = _run(client)
+    assert fake.kinds == []
     assert _summary(client, run_id)["stop_reason"].startswith("no_paper_text: ")
+    assert "nothing was sent" not in _summary(client, run_id)["stop_reason"]
+
+
+def test_nothing_read_on_a_paper_with_text_but_no_chunks_becomes_the_not_indexed_stop(
+    client, monkeypatch
+):
+    def nothing(*_a):
+        raise nothing_read.NothingRead("nothing read: the document could not be read")
+
+    monkeypatch.setattr(nothing_read, "read_phase", nothing)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM chunks WHERE document_id = ?", (s.PAPER,))
+    run_id = _run(client)
+    assert _summary(client, run_id)["stop_reason"].startswith(
+        "paper_text_not_indexed: "
+    )
+
+
+@pytest.mark.parametrize("status", ["queued", "extracting", "chunking"])
+def test_a_paper_still_being_read_in_says_wait_not_no_text(client, status):
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET status = ? WHERE id = ?", (status, s.PAPER))
+        conn.execute("DELETE FROM chunks WHERE document_id = ?", (s.PAPER,))
+    run_id = _run(client)
+    got = _summary(client, run_id)
+    assert got["paper_text"]["state"] == "still reading"
+    assert (
+        "still being read in: try again when its status is ready" in got["stop_reason"]
+    )
+    assert "no readable text" not in got["stop_reason"]
+
+
+def test_a_ready_paper_with_text_is_not_called_still_reading(client):
+    assert _state().state == "readable"  # the status check never touches a ready paper
 
 
 def test_a_read_step_that_found_nothing_on_a_paper_that_has_text_is_still_a_loud_failure(
@@ -335,3 +367,206 @@ def test_a_general_review_paper_with_text_but_no_chunks_is_not_stopped_but_with_
     run_id = _run(client)
     assert called == [s.PAPER]  # no text: stopped before the general review
     assert _summary(client, run_id)["stop_reason"].startswith("no_paper_text: ")
+
+
+# ---------------------------------------------------------------- the listing is true in every case; the general path lists too
+
+
+def test_the_partly_readable_sentence_says_nothing_about_rules_so_it_is_true_when_none_were_asked(
+    client, monkeypatch
+):
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading("unknown", known=False)
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages(document_id, page_no, text, char_count, needs_ocr, batch_no) VALUES (?,2,'',0,1,0)",
+            (s.PAPER,),
+        )
+    run_id = _run(client)
+    got = _summary(client, run_id)
+    assert got["counts_by_class"] == {} and got["stop_reason"]  # nothing was asked
+    sentence = got["paper_text"]["sentence"]
+    assert sentence == "1 of 2 pages of this paper have no readable text (page 2)."
+    assert "rules were asked" not in sentence
+
+
+def test_a_partly_readable_general_review_paper_lists_its_unread_pages_too(
+    client, monkeypatch
+):
+    def fake_general(run_id, submittal, *_a, **_k):
+        with db.connect() as conn:  # what the real general job's finish writes
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, started_at)"
+                " VALUES (?,?,?,?,?)",
+                (run_id, submittal, "procedure", "x", "2020-01-01"),
+            )
+        return {"counts": {}, "stop_reason": None, "usd": None, "partial": False}
+
+    monkeypatch.setattr(agent_review_jobs.general_job, "run", fake_general)
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading("procedure")
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages(document_id, page_no, text, char_count, needs_ocr, batch_no) VALUES (?,2,'',0,1,0)",
+            (s.PAPER,),
+        )
+    run_id = _run(client)
+    got = (
+        db.connect()
+        .execute(
+            "SELECT json_extract(equipment_json, '$.paper_text.pages_not_read') FROM agent_review_run WHERE run_id = ?",
+            (run_id,),
+        )
+        .fetchone()[0]
+    )
+    assert got == "[2]"
+
+
+# ---------------------------------------------------------------- a plan with nothing to ask is NEVER silent (property)
+
+
+def _empty_doc(rows, counts):
+    doc, _cache = s.item_doc()
+    return {
+        **doc,
+        "items": [],
+        "counts": {"skill": 0, "rule": 0},
+        "rule_labels": {
+            "on": True,
+            "paper_kind": "datasheet",
+            "paper_kind_known": True,
+            "counts": counts,
+            "left_out": [],
+            "summary_lines": [],
+            "missing_rule_books": [],
+            "candidates": {
+                "source": "the rules of the selected books",
+                "rows": rows,
+                "repeats": 0,
+                "books_not_selected": {"books": 0, "ai_approved_of_this_kind": 0},
+            },
+        },
+    }
+
+
+def _way_no_text(client, monkeypatch):
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = ?", (s.PAPER,))
+
+
+def _way_not_indexed(client, monkeypatch):
+    with db.connect() as conn:
+        conn.execute("DELETE FROM chunks WHERE document_id = ?", (s.PAPER,))
+
+
+def _way_still_reading(client, monkeypatch):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE documents SET status = 'chunking' WHERE id = ?", (s.PAPER,)
+        )
+        conn.execute("DELETE FROM chunks WHERE document_id = ?", (s.PAPER,))
+
+
+def _way_kind_unknown(client, monkeypatch):
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading("unknown", known=False)
+    )
+
+
+def _way_kind_not_enabled(client, monkeypatch):
+    monkeypatch.setattr(
+        agent_review_kind, "decide", lambda *_a, **_k: reading("drawing")
+    )
+
+
+def _way_book_pages_missing(client, monkeypatch):
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = ?", (s.STD,))
+
+
+def _way_builder(rows, counts):
+    def way(client, monkeypatch):
+        doc = _empty_doc(rows, counts)
+        monkeypatch.setattr(items_mod, "build_items_for_run", lambda *_a, **_k: doc)
+
+    return way
+
+
+WAYS = {
+    "no text": _way_no_text,
+    "not indexed": _way_not_indexed,
+    "still reading": _way_still_reading,
+    "kind unknown": _way_kind_unknown,
+    "kind not enabled": _way_kind_not_enabled,
+    "rule book pages missing (preflight refuses)": _way_book_pages_missing,
+    "no rows from the selected books": _way_builder(0, {}),
+    "rows all left out": _way_builder(
+        40, {"another_equipment_type": 25, "needs_a_human": 15}
+    ),
+    "empty plan, no counts at all": _way_builder(None, {}),
+}
+
+
+@pytest.mark.parametrize("way", sorted(WAYS))
+def test_a_plan_with_nothing_to_ask_always_carries_a_plain_sentence_never_silent(
+    client, monkeypatch, way
+):
+    WAYS[way](client, monkeypatch)
+    fake = agent_review_jobs.lane()[0]
+    run_id = _run(client)
+    got = _summary(client, run_id)
+    used = _rules_used(client, run_id)
+    assert fake.kinds == []  # no AI call
+    if (
+        "preflight" not in way
+    ):  # a refused plan keeps the rules it had chosen on the Rules used page
+        assert used["asked"] == []
+    stop = got["stop_reason"]
+    assert stop and len(stop.split(": ", 1)[-1]) > 20, way  # never silent
+    assert used["stop_reason"] == stop  # the Rules used page says it too
+
+
+@pytest.mark.parametrize(
+    "way,needle",
+    [
+        (
+            "no rows from the selected books",
+            "0 stored rules came from the rule books selected",
+        ),
+        ("rows all left out", "40 stored rules were looked at and 0 fit this paper"),
+        ("empty plan, no counts at all", "the plan recorded no further cause"),
+    ],
+)
+def test_the_causes_of_an_empty_plan_are_each_worded_from_what_the_plan_knows(
+    client, monkeypatch, way, needle
+):
+    WAYS[way](client, monkeypatch)
+    stop = _summary(client, _run(client))["stop_reason"]
+    assert stop.startswith("no_rule_asked: ") and needle in stop
+    if way == "rows all left out":
+        assert (
+            "another_equipment_type" not in stop
+        )  # the plain left-out words, not the codes
+
+
+def test_the_trial_checks_that_a_text_stop_is_true_of_the_copy_it_ran_on(client):
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "trial_on_copy.py"
+    spec = importlib.util.spec_from_file_location("trial_on_copy_c2b", path)
+    trial = importlib.util.module_from_spec(spec)
+    sys.modules["trial_on_copy_c2b"] = trial
+    spec.loader.exec_module(trial)
+    run_id = _run(client)  # a readable paper: the run asks rules
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_run SET stop_reason = 'no_paper_text: x' WHERE run_id = ?",
+            (run_id,),
+        )
+        lying = trial.stop_is_true_check(conn, run_id, "no_paper_text: x")
+        conn.execute("DELETE FROM pages WHERE document_id = ?", (s.PAPER,))
+        honest = trial.stop_is_true_check(conn, run_id, "no_paper_text: x")
+    assert [c.ok for c in lying] == [False] and [c.ok for c in honest] == [True]

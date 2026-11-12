@@ -567,6 +567,43 @@ def contractor_check(
     )
 
 
+def stop_is_true_check(conn: sqlite3.Connection, run_id: str, stop: str) -> list[Check]:
+    """A text stop must be TRUE of the copy it ran on, counted straight from the tables (not by the module that wrote it)."""
+    code = stop.split(":")[0]
+    run = conn.execute(
+        "SELECT submittal_document_id FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    from app import agent_review_text as t
+
+    if run is None or code not in (t.NO_TEXT, t.NOT_INDEXED, t.STILL_READING):
+        return []
+    doc = run[0]
+    with_text = conn.execute(
+        "SELECT COUNT(*) FROM pages WHERE document_id = ? AND TRIM(COALESCE(text, '')) <> ''",
+        (doc,),
+    ).fetchone()[0]
+    chunks = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE document_id = ? AND TRIM(COALESCE(text, '')) <> ''",
+        (doc,),
+    ).fetchone()[0]
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (doc,)
+    ).fetchone()
+    status = status[0] if status else None
+    true = {
+        t.NO_TEXT: with_text == 0 and status not in t.IN_PROGRESS,
+        t.NOT_INDEXED: with_text > 0 and chunks == 0 and status not in t.IN_PROGRESS,
+        t.STILL_READING: status in t.IN_PROGRESS and (with_text == 0 or chunks == 0),
+    }[code]
+    return [
+        Check(
+            "the text stop is true of this copy",
+            bool(true),
+            f"{code}: pages with text {with_text}, chunks {chunks}, status {status}",
+        )
+    ]
+
+
 def rules_check(
     conn: sqlite3.Connection, run_id: str, used: dict | None, require_asked: bool
 ) -> list[Check]:
@@ -602,6 +639,7 @@ def rules_check(
         )
         else ""
     )
+    out.extend(stop_is_true_check(conn, run_id, stop))
     reasons: dict[str, int] = {}
     for r in left:
         reasons[r["left_out_reason"]] = reasons.get(r["left_out_reason"], 0) + 1

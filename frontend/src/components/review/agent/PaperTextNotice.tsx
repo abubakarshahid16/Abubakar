@@ -5,11 +5,16 @@
  */
 import type { AgentPaperText } from "../../../types/api";
 
-export const STOPS = ["no text", "not indexed"] as const;
+export const STOPS = ["no text", "not indexed", "still reading"] as const;
 
 /** True when the review was refused for lack of readable text. */
 export function paperTextStopped(p: AgentPaperText | null | undefined): boolean {
   return p != null && (STOPS as readonly string[]).includes(p.state);
+}
+
+/** A stored stop reason is "<code>: <sentence>": the screen shows the sentence only (the code stays in the stored reason). */
+export function plainStop(reason: string): string {
+  return reason.replace(/^[a-z][a-z_]*: /, "");
 }
 
 export function PaperTextNotice({ paperText }: { paperText: AgentPaperText | null | undefined }) {
