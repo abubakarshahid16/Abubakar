@@ -65,6 +65,9 @@ EXEMPTIONS: list[tuple[str, str, str]] = [
     # this entry was deleted. That is what an expiry condition is for: the
     # suite asked for the deletion instead of a comment hoping someone
     # remembered.
+    ("words.ts", "is not available",
+     "the review page says so only while the Claude account refuses every call (the spend ledger's standing refusal, "
+     "`claude_standing_refusal`); it stops being true when that sentence is no longer drawn"),
 ]
 
 #: A COMMENT may say a claim used to be made - that is the fix, not the bug.
