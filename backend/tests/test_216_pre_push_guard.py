@@ -46,6 +46,7 @@ def _git(root: Path, *args: str) -> str:
 def repo(tmp_path):
     (tmp_path / "scripts").mkdir()
     shutil.copy(REPO / "scripts" / "quality_ratchet.py", tmp_path / "scripts")
+    shutil.copy(REPO / "scripts" / "verdict_path.py", tmp_path / "scripts")
     shutil.copy(REPO / "ruff.toml", tmp_path)
     shutil.copy(REPO / "scripts" / "check_client_identifiers.py", tmp_path / "scripts")
     (tmp_path / ".github").mkdir()
@@ -83,15 +84,29 @@ def _format_step_only(monkeypatch):
 def test_a_badly_formatted_new_file_is_refused_and_the_fix_is_named(
     repo, monkeypatch, capsys
 ):
-    _commit(repo, "bad.py", BAD)
+    # numparse.py is on the verdict path (scripts/verdict_path.py): style stops
+    _commit(repo, "numparse.py", BAD)
     _format_step_only(monkeypatch)
     assert guard.main(["--root", str(repo)]) == 1
     out = capsys.readouterr().out
     assert (
         "REFUSED" in out
         and "formatting of the lines this branch touched" in out
-        and "bad.py" in out
+        and "numparse.py" in out
     )
+
+
+@needs_ruff
+def test_a_badly_formatted_file_off_the_verdict_path_warns_and_the_push_goes_on(
+    repo, monkeypatch, capsys
+):
+    _commit(repo, "bad.py", BAD)
+    _format_step_only(monkeypatch)
+    assert guard.main(["--root", str(repo)]) == 0
+    out = capsys.readouterr().out
+    assert "REFUSED" not in out
+    assert "WARNING (not a stop, off the verdict path)" in out
+    assert "backend/app/bad.py" in out and "5 lines differ" in out
 
 
 @needs_ruff

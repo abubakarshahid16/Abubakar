@@ -31,8 +31,8 @@ WHAT NEVER GETS ONE
   * a blocked hash: a `status: blocked` row on the list, or a hash in the local
     block file. Existing rows are never rewritten, so an owner's block or a
     `pending_owner` row stays exactly as it was written;
-  * a file named like the register (`claude_approved.is_register_name`): it gets
-    a `blocked` row instead, so the same bytes stay blocked under any other name.
+  * a file named like the register or like a file the owner marked in the block file
+    (`claude_approved.name_is_blocked`): it gets a `blocked` row instead, so the same bytes stay blocked under any other name.
     A blocked row beside an earlier approved row wins at the gate.
 
 FAIL CLOSED. If the list or the block file cannot be read, nothing is added and
@@ -145,9 +145,11 @@ def _apply(wanted: list[dict]) -> list[dict]:
         rows = data["documents"]
         try:
             blocks = claude_approved.blocked_hashes()
+            marked = claude_approved.marked_name_keys()
             readable = True
         except claude_approved.BlockListUnreadable:
             blocks = frozenset(claude_approved.blocked_rows(rows))
+            marked = frozenset()
             readable = False
         for want in wanted:
             sha = want["sha256"]
@@ -159,12 +161,12 @@ def _apply(wanted: list[dict]) -> list[dict]:
                 "document_id": want["document_id"],
                 "label": want["label"],
             }
-            if any(claude_approved.is_register_name(n) for n in want["names"]):
+            if any(claude_approved.name_is_blocked(n, marked) for n in want["names"]):
                 if sha not in blocks:
                     entry = {
                         **base,
                         "status": BLOCKED,
-                        "blocked_by": f"{AUTO_BY}: register file name",
+                        "blocked_by": f"{AUTO_BY}: file name on the block list",
                         "blocked_on": today,
                         "source": SOURCE,
                     }
@@ -238,6 +240,13 @@ def _document(document_id: str):
     )
 
 
+def _is_rule_book(row) -> bool:
+    """The library classes this document as a standard or rule book (`claude_approved.STANDARD_ROLE`, the one notion of
+    it). A document a review cites that is anything else (a specification, a drawing, another datasheet, a procedure) is
+    not approved automatically: the owner approves it. This only NARROWS what is listed (rule 5)."""
+    return row["document_role"] == claude_approved.STANDARD_ROLE
+
+
 def _want(row, source: str, *extra_names, withdraw: bool = False) -> dict | None:
     sha = (row["sha256"] or "").strip().lower()
     if not sha:
@@ -278,8 +287,14 @@ def on_upload(document_id: str, uploaded_name: str | None = None) -> None:
             return []
         names = (uploaded_name,) if uploaded_name else ()
         role = row["document_role"]
+        try:
+            marked = claude_approved.marked_name_keys()
+        except claude_approved.BlockListUnreadable:
+            # _apply approves nothing then; the register name is still caught
+            marked = frozenset()
         if role == REVIEW_ROLE or any(
-            claude_approved.is_register_name(n) for n in (row["filename"], *names)
+            claude_approved.name_is_blocked(n, marked)
+            for n in (row["filename"], *names)
         ):
             return [_want(row, SOURCE, *names)]
         return [_want(row, SOURCE, withdraw=True)] if role else []
@@ -326,7 +341,7 @@ def on_review_start(review_run_id: str) -> None:
         for row in _standards_on(review_run_id):
             label = LISTED_METHODS.get(row["selection_method"])
             standard = _document(row["standard_document_id"])
-            if label and standard is not None:
+            if label and standard is not None and _is_rule_book(standard):
                 out.append(_want(standard, f"{label} {subject_id}"))
         return out
 
@@ -399,6 +414,8 @@ def on_standard_cited(
         label = LISTED_METHODS.get(method)
         if subject_id is None or standard is None or label is None:
             return []
+        if not _is_rule_book(standard):
+            return []
         return [_want(standard, f"{label} {subject_id}")]
 
     _run("citation", standard_document_id, build)
@@ -426,7 +443,17 @@ def record_on_run(review_run_id: str) -> None:
             if s["selection_method"] not in LISTED_METHODS
             and sha.get(s["standard_document_id"]) not in approved
         ]
-        if not unlisted:
+        not_rule_book = [
+            s
+            for s in standards
+            if s["selection_method"] in LISTED_METHODS
+            and sha.get(s["standard_document_id"]) not in approved
+            and (_document(s["standard_document_id"]) or {"document_role": None})[
+                "document_role"
+            ]
+            != claude_approved.STANDARD_ROLE
+        ]
+        if not unlisted and not not_rule_book:
             return
         with conn:
             row = conn.execute(
@@ -434,6 +461,8 @@ def record_on_run(review_run_id: str) -> None:
             ).fetchone()
             outcome = json.loads(row["outcome_json"] or "{}")
             outcome[RUN_KEY] = {"not_listed": len(unlisted), "of": len(standards)}
+            if not_rule_book:
+                outcome[RUN_KEY]["not_rule_book"] = len(not_rule_book)
             conn.execute(
                 "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
                 (json.dumps(outcome), review_run_id),
@@ -448,15 +477,29 @@ def run_lines(outcome: dict) -> list[dict]:
     """The could-not-check line for `record_on_run`'s count. `detail`: the local
     check still read those standards, so the sheet is not called incomplete."""
     unlisted = outcome.get(RUN_KEY) or {}
-    if not unlisted.get("not_listed"):
-        return []
-    line = (
-        f"{unlisted['not_listed']} of {unlisted['of']} standard(s) applied to this review "
-        "were not cited by it, so they are not on the cloud model's approved list and "
-        "the cloud model did not read them."
-    )
-    note = "Not read by the cloud model"
-    return [{"part": RUN_KEY, "line": line, "note": note, "detail": True}]
+    out = []
+    if unlisted.get("not_listed"):
+        line = (
+            f"{unlisted['not_listed']} of {unlisted['of']} standard(s) applied to this review "
+            "were not cited by it, so they are not on the cloud model's approved list and "
+            "the cloud model did not read them."
+        )
+        note = "Not read by the cloud model"
+        out.append({"part": RUN_KEY, "line": line, "note": note, "detail": True})
+    if unlisted.get("not_rule_book"):
+        line = (
+            f"Not sent: {unlisted['not_rule_book']} document(s) this review cites are not rule "
+            "books, so the cloud model did not read them; the owner approves them."
+        )
+        out.append(
+            {
+                "part": RUN_KEY,
+                "line": line,
+                "note": "Not read by the cloud model",
+                "detail": True,
+            }
+        )
+    return out
 
 
 def notes_after(compare):
