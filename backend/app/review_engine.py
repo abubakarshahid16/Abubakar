@@ -54,6 +54,13 @@ BARRED_WORDS = (
 AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
+AI_ON_LOCAL = "the AI review runs on the local model: nothing leaves this computer"
+AI_ON_LOCAL_RULES_ONLY = (
+    "the AI review asks the rules of this kind on the local model: nothing leaves this computer; the general review (the paper against "
+    "itself, the checklist) does not run on the local model yet"
+)
+AI_NEEDS_GENERAL_LOCAL = "the AI review of this kind of paper is the general review, which does not run on the local model yet; it will not run"
+
 NEEDS_YES = "needs the owner's yes for this upload"
 CHECKLISTS_EMPTY = (
     ("contract checklist", "empty; an engineer must write it"),
@@ -104,6 +111,8 @@ class Facts:
     books_ok: bool = (
         True  # the rule books may go (approved or joining by the automatic route)
     )
+    local_ai: bool = False  # AGENT_REVIEW_LOCAL_ENGINE_ENABLED (and the AI reviewer is on): the AI review may run on the local model
+    rules_for_kind: bool = False  # the reviewer asks the held rules of this paper's kind (a datasheet always; a procedure or contract only with its switch)
 
 
 @dataclass
@@ -214,6 +223,27 @@ def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     return True, "its AI steps use Claude where this install sets them to"
 
 
+def _local_ai(f: Facts) -> tuple[bool, str]:
+    """(may the AI review run on the LOCAL model for this paper, the plain sentence). Needs the local switch and a kind the reviewer offers.
+    Everything that only bars CLAUDE (no yes for a contract, not approved, blocked, lane closed, caps, not scored) does not bar the local
+    model: nothing leaves this computer. A procedure or a contract is the GENERAL review, which the local model does not run yet
+    (`agent_review_local.GENERAL_REFUSED`): only the rules of its kind can run, and only with their own switch; the sentence says what runs
+    and what does not. A kind not scored against a key still carries its draft sentence on the sheet."""
+    from . import agent_review_local
+
+    if not (
+        f.local_ai
+        and f.agent_enabled
+        and f.kind in ("datasheet", "procedure", "contract")
+    ):
+        return False, AI_NEEDS_CLAUDE_LOCAL
+    if f.kind == "datasheet" or getattr(agent_review_local, "GENERAL_ON_LOCAL", False):
+        return True, AI_ON_LOCAL
+    if f.rules_for_kind:
+        return True, AI_ON_LOCAL_RULES_ONLY
+    return False, AI_NEEDS_GENERAL_LOCAL
+
+
 def gate_unscored_words() -> str:
     from . import agent_review_gate
 
@@ -232,6 +262,7 @@ def decide(choice: str, f: Facts) -> Plan:
         plan.wont_run = [{"part": p, "why": w} for p, w in CHECKLISTS_EMPTY]
     blocker = _ai_blocker(f)
     rc_claude, rc_why = _rule_check_on_claude(f)
+    local_ok, local_why = _local_ai(f)
 
     if choice == LOCAL:
         plan.parts = [
@@ -240,7 +271,7 @@ def decide(choice: str, f: Facts) -> Plan:
                 ON_LOCAL,
                 "you chose Local only: nothing leaves this computer",
             ),
-            Part(AI_REVIEW, NOT_RUN, AI_NEEDS_CLAUDE_LOCAL),
+            Part(AI_REVIEW, ON_LOCAL if local_ok else NOT_RUN, local_why),
         ]
         return plan
 
@@ -263,6 +294,11 @@ def decide(choice: str, f: Facts) -> Plan:
         rc = Part(RULE_CHECK, ON_LOCAL, f"runs on this computer: {rc_why}")
     if ai_ok:
         ai = Part(AI_REVIEW, ON_CLAUDE, "the AI review reads the paper on Claude")
+    elif choice == AUTOMATIC and local_ok:
+        # Claude is not allowed for this paper: the local model reads it (said with the reason), never a silent Claude call
+        ai = Part(
+            AI_REVIEW, ON_LOCAL, f"{local_why} (Claude is not used: {blocker[1]})"
+        )
     else:
         ai = Part(AI_REVIEW, NOT_RUN, blocker[1])
     plan.parts = [rc, ai]
@@ -277,6 +313,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
     from . import (
         agent_review_gate,
         agent_review_kind,
+        agent_review_local,
         claude_approved,
         claude_spend,
         contract_yes,
@@ -340,6 +377,8 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         or bool(settings.review_unscored_kinds_for_claude_enabled),
         kind_scored=scored,
         caps_ok=room,
+        local_ai=agent_review_local.switch_on(),
+        rules_for_kind=agent_review_gate.rules_kind_enabled(kind),
         books_ok=bool(
             settings.claude_auto_approve_reviews_enabled
             or not settings.claude_approved_list_enforced
@@ -432,24 +471,6 @@ def _cost_words(each: dict, total: float, per_run: float) -> str:
     )
 
 
-def _notes(facts: Facts, plan: Plan, settings) -> list[str]:
-    """Plain notes the panel shows below the plan."""
-    notes = []
-    if facts.is_contract and not facts.scored_allowed:
-        notes.append(
-            "A recorded yes does not offer a contract for Claude while contracts are not scored against an answer key; it counts "
-            "once contracts are scored, or when this install turns on the setting for unscored kinds."
-        )
-    if settings.review_web_standards_enabled:
-        kept = not plan.text_leaves or plan.part(RULE_CHECK).engine != ON_CLAUDE
-        notes.append(
-            "The public web check of standards the library lacks will not run: this review is kept on this computer."
-            if kept
-            else "This install turns on the public web check of standards the library lacks; it can send those standard names out."
-        )
-    return notes
-
-
 def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> dict:
     """The pre-start answer. No side effect: nothing is written, no call is made, no model is loaded. A dict of plain facts:
     the engine of each part, whether text leaves this computer and which documents, the estimated cost, what will not run."""
@@ -495,7 +516,23 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
         else None,
         "exact": False,
     }
+    from . import agent_review_gate
+
+    if plan.part(AI_REVIEW).engine == ON_LOCAL:
+        out["cost"]["local_usd"] = 0.0
+        out["cost"]["local_basis"] = (
+            "the AI review on the local model costs USD 0: no Claude call, no spend line"
+        )
+        from .agent_review_local import local_time
+
+        out["time"] = local_time(
+            conn, document_id, agent_review_gate.two_reader_enabled()
+        )
     out["notes"] = _notes(facts, plan, settings)
+    if plan.part(AI_REVIEW).engine == ON_LOCAL:
+        out["notes"].append(
+            out["time"]["basis"]
+        )  # the start screen says before the start: the time, and that other reviews wait
     out["sentence"] = sentence_of(out)
     return out
 
@@ -507,7 +544,9 @@ def sentence_of(plan: dict) -> str:
     bits = []
     if plan["refused"]:
         return plan["refused"] + "."
-    if plan["choice"] == LOCAL:
+    if ai["engine"] == ON_LOCAL:
+        bits.append(ai["why"][:1].upper() + ai["why"][1:] + ".")
+    elif plan["choice"] == LOCAL:
         bits.append(AI_NEEDS_CLAUDE_LOCAL + ".")
     elif ai["engine"] == ON_CLAUDE:
         bits.append("The AI review runs on Claude.")
@@ -637,6 +676,16 @@ def stored(conn, run_id: str | None) -> dict | None:
     return got
 
 
+def ai_review_engine(conn, run_id: str | None) -> str | None:
+    """The engine the stored plan of this run gave the AI review ("claude", "local", "not_run"), or None when the run has no stored plan
+    (the older routes). A database error propagates (never read as "no plan")."""
+    got = stored(conn, run_id)
+    for part in ((got or {}).get("plan") or {}).get("parts") or []:
+        if isinstance(part, dict) and part.get("name") == AI_REVIEW:
+            return part.get("engine")
+    return None
+
+
 def bar_state(conn, job_id) -> tuple[bool, str | None]:
     """(barred, why): must the run of this job stay on this computer? FAILS CLOSED, like `local_engine_bar._is_agent_job`.
     * the stored choice says so: barred;
@@ -691,88 +740,13 @@ def note_on_run(job_id, why: str) -> None:
         log.warning("review engine: the note was not written (%s)", type(exc).__name__)
 
 
-def claude_steps_from_ledger(run_id: str) -> list[str]:
-    """The steps of this run that reached Claude (a ledger line under its id, not a refusal). Step names only."""
-    from . import claude_spend
-
-    return sorted(
-        {
-            str(e.get("step") or "")
-            for e in claude_spend.entries()
-            if e.get("run") == run_id and not e.get("refused")
-        }
-        - {""}
-    )
-
-
-def save_ran(run_id: str | None) -> None:
-    """At the END of a run, save what it really did: the steps that reached Claude. The sheet header reads this stored fact, so an
-    export made later says what the first one said. Never raises."""
-    from .db import connect
-
-    if not run_id:
-        return
-    try:
-        steps = claude_steps_from_ledger(run_id)
-        conn = connect()
-        got = conn.execute(
-            "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
-        ).fetchone()
-        if got is None:
-            return
-        outcome = json.loads(got["outcome_json"] or "{}")
-        outcome["engine_ran"] = {"claude_steps": steps}
-        with conn:
-            conn.execute(
-                "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
-                (json.dumps(outcome), run_id),
-            )
-    except (OSError, ValueError, sqlite3.Error) as exc:
-        log.warning(
-            "review engine: what the run did was not saved (%s)", type(exc).__name__
-        )
-
-
-def ran_steps(run_id: str) -> list[str]:
-    """The Claude steps of a finished run: the SAVED fact when there is one, else (an older or unfinished run) the ledger's."""
-    from .db import connect
-
-    try:
-        got = (
-            connect()
-            .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
-            .fetchone()
-        )
-        saved = json.loads((got["outcome_json"] if got else None) or "{}").get(
-            "engine_ran"
-        )
-    except (sqlite3.Error, ValueError):
-        saved = None
-    if isinstance(saved, dict) and isinstance(saved.get("claude_steps"), list):
-        return [str(x) for x in saved["claude_steps"]]
-    return claude_steps_from_ledger(run_id)
-
-
-def note_web_check_skipped(run_id: str) -> None:
-    """The run was kept on this computer, so its public web check did not run: say so on the run. Best effort; never raises."""
-    from . import absence
-    from .db import connect
-
-    status = absence.check_failed_status(
-        "Web standards check",
-        "this review was kept on this computer, so nothing was sent out",
-    )
-    try:
-        conn = connect()
-        with conn:
-            conn.execute(
-                "UPDATE review_runs SET web_check_status = ? WHERE id = ?",
-                (json.dumps(status), run_id),
-            )
-    except sqlite3.Error as exc:
-        log.warning(
-            "review engine: the web check note was not written (%s)", type(exc).__name__
-        )
+from .review_engine_ran import (  # noqa: E402,F401 - moved unchanged, re-exported
+    _notes,
+    claude_steps_from_ledger,
+    note_web_check_skipped,
+    ran_steps,
+    save_ran,
+)
 
 
 def honouring_choice(job):

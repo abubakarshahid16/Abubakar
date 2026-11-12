@@ -53,7 +53,10 @@ def start(
     parts = {p["name"]: p for p in plan["parts"]}
     plan["project_document_ids"] = list(project_document_ids)
     plan["fresh"] = bool(fresh)
-    then_ai = parts[review_engine.AI_REVIEW]["engine"] == review_engine.ON_CLAUDE
+    then_ai = parts[review_engine.AI_REVIEW]["engine"] in (
+        review_engine.ON_CLAUDE,
+        review_engine.ON_LOCAL,
+    )
     bar = parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
 
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
@@ -117,9 +120,15 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
     # allowed is not started, and the record says why in words.
     again = review_engine.plan_for(conn, doc, scope, got["choice"])
     ai = next(p for p in again["parts"] if p["name"] == review_engine.AI_REVIEW)
-    if again["refused"] or ai["engine"] != review_engine.ON_CLAUDE:
+    if again["refused"] or ai["engine"] not in (
+        review_engine.ON_CLAUDE,
+        review_engine.ON_LOCAL,
+    ):
         _note(conn, run_id, f"not started: {ai['why']}")
         return None
+    on_local = (
+        ai["engine"] == review_engine.ON_LOCAL
+    )  # a local AI review is barred from Claude for its whole length
     plan = got["plan"]
     general = agent_review_gate.general_kind_enabled(again.get("kind"))
     projects = tuple(plan.get("project_document_ids") or ()) if general else None
@@ -131,7 +140,7 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
             again,
             job["created_by"],
             then_ai=False,
-            bar_claude=False,
+            bar_claude=on_local,
             now=job_queue.now_iso(),
         )
 
