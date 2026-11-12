@@ -543,6 +543,11 @@ class SettingsExt(BaseModel):
     #: both egress flags and a key; the approved-document list and the USD caps still apply on every call. Under
     #: REASONING_PROVIDER=ollama it changes nothing (the master switch is checked first). Env: AGENT_REVIEW_ENGINE.
     agent_review_engine: str = "ollama"
+    #: Owner decision 12 Nov 2026 (#1584, comment 6820183348): "No new kind goes live until scored against a key." A kind not
+    #: in `agent_review_gate.SCORED_KINDS` is NOT offered for Claude or the AI review while this is False (default): the
+    #: Review plan says so and runs the rule check on the local model. True = offered, every line marked a draft.
+    #: Env: REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED.
+    review_unscored_kinds_for_claude_enabled: bool = False
     #: Owner order 13, C4 (12 Nov 2026): before the AI reviewer closes a line as "the paper does not state this", a second,
     #: different model reads the whole stored text of the page(s) where the field would stand (per silent line at most 1 re-read, 1 lead re-ask, the normal second opinion and the context check of a Fail
     #: line, same spend reservation and caps); a quote that code verifies on that page is decided again by the same gate.

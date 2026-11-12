@@ -315,6 +315,7 @@ def _header_pairs(meta: Mapping, books: list[str], label: str) -> list[tuple[str
         ("Date:", _clean(h.get("date"))),
         ("Discipline:", _clean(meta.get("discipline") or h.get("discipline"))),
         (label, "; ".join(books)),
+        *crs_layout.engine_rows(h),
     ]
 
 

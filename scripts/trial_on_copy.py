@@ -92,6 +92,10 @@ class TrialConfig:
     skills_dir: str | None = None
     #: point E: ask the AI reviewer for fresh first-reader answers (ignore and replace the stored ones)
     fresh: bool = False
+    #: 12 Nov 2026 (owner, #1584): start from the ONE Review button's route with this engine choice: "automatic", "claude" or
+    #: "local". None (default) keeps the older start (`/api/reviews/agent-run`). "local" also checks that nothing was booked
+    #: to the Claude ledger and that no AI review ran.
+    engine: str | None = None
 
 
 # ------------------------------------------------------------------------------------------------ safety
@@ -1135,6 +1139,47 @@ def steadiness_check(summary: dict | None) -> Check:
     )
 
 
+def engine_follow(http, cfg: TrialConfig, first: str, db: Path, data: Path, ledger_before: int):
+    """After a start from the ONE Review button: wait for the rule check, then for the AI review that follows it (its run id is
+    on the first run's stored choice). Returns (the AI review's run id or None, the checks of the choice). For "local": no AI review
+    runs and the Claude ledger gets no new line."""
+    checks: list[Check] = []
+    final = wait_for(http, first, cfg.timeout, db)
+    checks.append(Check("rule check completed", final == "completed", final))
+    follow = None
+    deadline = time.time() + cfg.timeout
+    while cfg.engine != "local" and time.time() < deadline:
+        conn = ro(db)
+        try:
+            row = conn.execute(
+                "SELECT followed_by FROM review_engine_choice WHERE run_id = ?", (first,)
+            ).fetchone()
+        finally:
+            conn.close()
+        word = (row["followed_by"] if row else None) or ""
+        if word:
+            follow = word if not word.startswith("not started") else None
+            if follow is None:
+                checks.append(Check("AI review follows the rule check", False, word))
+            break
+        time.sleep(2.0)
+    if cfg.engine == "local":
+        checks.append(Check("no Claude call (ledger unchanged)", ledger_lines(data) == ledger_before,
+                            f"lines {ledger_before} -> {ledger_lines(data)}"))
+        conn = ro(db)
+        try:
+            ai = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'agent_review_run'"
+            ).fetchone() and conn.execute(
+                "SELECT 1 FROM agent_review_run WHERE submittal_document_id = ? AND run_id != ? AND started_at >= "
+                "(SELECT started_at FROM review_runs WHERE id = ?)", (cfg.document, first, first)
+            ).fetchone()
+        finally:
+            conn.close()
+        checks.append(Check("no AI review ran (Local only)", not ai))
+    return follow, checks
+
+
 def run_trial(
     cfg: TrialConfig,
     *,
@@ -1230,26 +1275,42 @@ def run_trial(
             )
         )
         conn.close()
-        code, run = http.call(
-            "POST",
-            "/api/reviews/agent-run",
-            {
-                "submittal_document_id": cfg.document,
-                **({"fresh": True} if cfg.fresh else {}),
-            },
-        )
+        if cfg.engine:
+            code, run = http.call(
+                "POST",
+                "/api/reviews/start",
+                {
+                    "submittal_document_id": cfg.document,
+                    "engine": cfg.engine,
+                    **({"fresh": True} if cfg.fresh else {}),
+                },
+            )
+        else:
+            code, run = http.call(
+                "POST",
+                "/api/reviews/agent-run",
+                {
+                    "submittal_document_id": cfg.document,
+                    **({"fresh": True} if cfg.fresh else {}),
+                },
+            )
         try:
             started = json.loads(run) if run else {}
         except ValueError:
             started = {}
         run_id = started.get("review_run_id")
+        first_run = run_id
+        if cfg.engine and run_id:
+            run_id, engine_checks = engine_follow(http, cfg, run_id, db, data, ledger_before)
         checks.append(
             Check(
-                "AI review started",
-                code == 200 and bool(run_id),
-                f"HTTP {code}" + ("" if run_id else f" {str(started)[:120]}"),
+                "AI review started" if not cfg.engine else f"review started (engine: {cfg.engine})",
+                code == 200 and bool(first_run),
+                f"HTTP {code}" + ("" if first_run else f" {str(started)[:120]}"),
             )
         )
+        if cfg.engine and first_run:
+            checks += engine_checks
         if run_id:
             final = wait_for(http, run_id, cfg.timeout, db)
             checks.append(Check("AI review completed", final == "completed", final))
@@ -1370,6 +1431,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="fail when no rule was asked, even if the plan says why",
     )
+    ap.add_argument(
+        "--engine",
+        choices=("automatic", "claude", "local"),
+        default=None,
+        help="start from the one Review button's route with this choice (default: the older AI review start)",
+    )
     ap.add_argument("--timeout", type=float, default=1800.0)
     ap.add_argument("--port", type=int, default=0)
     ap.add_argument(
@@ -1418,6 +1485,7 @@ def main(argv: list[str] | None = None) -> int:
             sets=sets,
             skills_dir=a.skills_dir,
             fresh=a.fresh,
+            engine=a.engine,
         )
         checks = run_trial(cfg)
     except Refused as exc:

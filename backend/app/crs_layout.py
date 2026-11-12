@@ -157,6 +157,18 @@ def _below(ws, below, last_row: int, ncols: int) -> None:
         ws.print_area = f"A1:{get_column_letter(ncols)}{end}"
 
 
+def engine_rows(facts) -> list[tuple[str, str]]:
+    """The header rows that name the ENGINE (12 Nov 2026, owner decision, #1584) and, for a kind not scored against a key, the draft
+    sentence. ONE home for both reviewers' sheets and both copies; a fact that is not there adds no row."""
+    got = facts or {}
+    rows = []
+    if got.get("reviewed_by"):
+        rows.append(("Reviewed by:", str(got["reviewed_by"])))
+    if got.get("draft_note"):
+        rows.append(("Note:", str(got["draft_note"])))
+    return rows
+
+
 def _header_block(ws, view: dict, ncols: int) -> int:
     """Rows 1 and 2 (title, subtitle), the header facts, the generated-by sentence; returns the row of the table's header."""
     last = get_column_letter(ncols)

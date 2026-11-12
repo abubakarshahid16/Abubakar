@@ -91,7 +91,9 @@ def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
         ("Rule books used:", "; ".join(applied)),
     ]
     pairs += [(k, v) for k, v in old.items() if k != "Document Title:"]
-    return pairs
+    from . import crs_layout
+
+    return pairs + crs_layout.engine_rows(h)
 
 
 def _below(view: dict) -> list[tuple[int, str, str, int]]:

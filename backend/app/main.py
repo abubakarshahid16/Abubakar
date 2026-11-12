@@ -276,6 +276,7 @@ from .api import deliverables as api_deliverables  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import review_start as api_review_start  # noqa: E402
 from .api import review_templates as api_review_templates  # noqa: E402
 from .api import run_standards as api_run_standards  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
@@ -286,6 +287,7 @@ for _r in (api_documents, api_document_classification, api_document_files, api_a
     app.include_router(_r.router)
 app.include_router(auth_session_mod.router)
 app.include_router(api_run_summary.router)
+app.include_router(api_review_start.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
 app.include_router(api_crs_archive.router)

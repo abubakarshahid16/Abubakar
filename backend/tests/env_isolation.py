@@ -179,6 +179,7 @@ EGRESS_SAFE: dict[str, object] = {
     "agent_review_reread_silent_enabled": False,  # C4: page re-read, off
     "agent_review_reuse_answers_enabled": False,  # point E: stored first-reader answers reused, off
     "agent_review_two_reader_verdict_enabled": False,  # order 13: the two-readers class, off
+    "review_unscored_kinds_for_claude_enabled": False,  # 12 Nov: a kind not scored against a key is not offered for Claude
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off
     # #645: one local model call per undecided clause sentence - off, like

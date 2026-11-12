@@ -72,6 +72,13 @@ BLOCKED = "blocked"
 WITHDRAWN = "withdrawn"
 AUTO_SOURCE = "auto"
 REVIEW_ROLE = "CONTRACTOR_SUBMITTAL"
+#: Owner decision 12 Nov 2026 (#1584, comment 6820183348): "Specifications: approved for Claude." A specification
+#: uploaded for review qualifies exactly as a contractor submittal does (`REVIEW_ROLES`, the one list).
+SPECIFICATION_ROLE = "SPECIFICATION"
+REVIEW_ROLES = (REVIEW_ROLE, SPECIFICATION_ROLE)
+#: A yes the owner's admin recorded for ONE contract file (`contract_yes`): its row's `source`. Not `auto`, so the switch
+#: does not roll it back and no role lapse withdraws it; a withdrawn yes is a `withdrawn` row.
+CONTRACT_YES_SOURCE = "contract_yes"
 #: A rule book (a company standard): the only kind of document the AI reviewer's rule books may be (`claude_auto_approve`).
 STANDARD_ROLE = "COMPANY_STANDARD"
 BLOCK_FILE_NAME = "claude_blocked_hashes.json"
@@ -367,7 +374,7 @@ def _lapsed_ids(hashes: dict[str, str | None]) -> frozenset[str]:
         .fetchall()
     )
     return frozenset(
-        r["document_id"] for r in rows if r["document_role"] not in (None, REVIEW_ROLE)
+        r["document_id"] for r in rows if r["document_role"] not in (None, *REVIEW_ROLES)
     )
 
 
@@ -473,7 +480,14 @@ def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
 
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
-    leave, else None. Ids only in the reason - never a file name."""
+    leave, else None. Ids only in the reason - never a file name.
+
+    FIRST, before every other question and whatever the list says: a run whose plan keeps it on this computer
+    (`review_engine.barring`: Local only, or a part the plan put on the local model) sends nothing, ever."""
+    from . import review_engine
+
+    if review_engine.claude_barred():
+        return review_engine.BARRED_CODE, review_engine.BARRED_WORDS
     ids = carried()
     if ids:  # before the guard and the consent below: a block wins over both
         stopped = _block_stop(ids)

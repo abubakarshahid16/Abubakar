@@ -109,8 +109,11 @@ def is_claude_lane_run(agent_job: bool | None = False) -> bool:
     * the kind of job could not be read (None): barred when EITHER rule would bar it (the safe side).
     * anything else: never."""
     from . import reasoning_provider as rp
+    from . import review_engine
     from .config import settings
 
+    if review_engine.claude_barred():
+        return False  # the run is kept on this computer: no Claude lane, so no bar on the local engine either
     if agent_job is None:
         return is_claude_lane_run(True) or is_claude_lane_run(False)
     if agent_job:

@@ -465,7 +465,9 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
 
 def _review_scope(job):
     """A Claude-lane run never loads the local engine, its spend lines name the run, and its spend goes in its record."""
-    barred = local_engine_bar.barring_local_engine(job)
+    from . import review_engine
+
+    barred = review_engine.honouring_choice(local_engine_bar.barring_local_engine(job))
 
     @functools.wraps(job)
     def wrapper(job_id, *args, **kwargs):

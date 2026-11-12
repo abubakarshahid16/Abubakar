@@ -514,6 +514,12 @@ def _header_facts(submittal: str, equipment_type: str | None) -> dict:
         return crs_header.document_header(conn, submittal, equipment_type)
 
 
+def _engine_facts(run_id: str, submittal: str, usd) -> dict:
+    """What engine read the paper, and the draft sentence for an unscored kind, for the header of both copies."""
+    with connect() as conn:
+        return crs_header.engine_facts(conn, run_id, submittal, ai=True, usd=usd)
+
+
 def _equipment_facts(block: dict) -> dict:
     """What the paper's equipment state means for the rules: the state word, and the summary sentences about equipment (counts
     only, no document text) that the summary and Rules used routes show."""
@@ -574,7 +580,7 @@ def _finish(
     meta = {"paper": _document_name(submittal), "run_id": run_id, "date": started[:10],
             "lead_models": sorted(runner.lead_models) if runner else [],
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
-            "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
+            "usd": usd, "header": {**_header_facts(submittal, kind.equipment_type), **_engine_facts(run_id, submittal, usd)}, **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
                                **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {}),
