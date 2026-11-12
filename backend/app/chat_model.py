@@ -92,6 +92,17 @@ _PICKER_WORDS = {
 }
 
 
+def _local_review_note() -> str | None:
+    """While a local AI review holds the computer the Local model still answers, but may be slower (they share the local engine)."""
+    try:
+        from . import agent_review_local
+
+        return agent_review_local.LOCAL_REVIEW_NOTE if agent_review_local.review_running() else None
+    except Exception as exc:  # noqa: BLE001 - the menu must still render
+        log.debug("chat_model: local review state unreadable (%s)", type(exc).__name__)
+        return None
+
+
 def available_models() -> dict:
     """What the composer's Model menu may offer - only what can actually run.
 
@@ -114,7 +125,7 @@ def available_models() -> dict:
          "available": ok,
          "reason": None if ok else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
         {"id": LOCAL, "label": "Local model", "model": settings.answer_model,
-         "available": True, "reason": None},
+         "available": True, "reason": _local_review_note()},
     ]
     return {"default": CLAUDE if ok and rp._provider_setting() != rp.PER_TASK else LOCAL,
             "models": models}

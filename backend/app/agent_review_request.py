@@ -472,6 +472,8 @@ def reason_of(
         if isinstance(raw, list)
         else []
     )
+    if error == LOCAL_TOO_LONG:  # nothing was called: not "AI call failed"
+        return "not_asked_too_long", searched
     if error:
         return "ai_call_failed", searched
     code = str(answer.get("reason_code") or "").strip().lower()

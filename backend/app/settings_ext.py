@@ -537,6 +537,11 @@ class SettingsExt(BaseModel):
     #: The local second reader's model; empty = no second reader (lines stay "AI thinks"). Must be of another family than model A.
     #: Env: AGENT_REVIEW_LOCAL_MODEL_B.
     agent_review_local_model_b: str = "glm-4.7-flash"
+    #: The context window (tokens) asked of the local model on every call of the local AI reviewer. 0 = the shared local window
+    #: (`local_num_ctx`, 8192), the default; a larger number is asked per call (the transport never lowers it below the shared window).
+    #: `_b` is for the second reader's model (0 = the same as the first). Env: AGENT_REVIEW_LOCAL_NUM_CTX, AGENT_REVIEW_LOCAL_NUM_CTX_B.
+    agent_review_local_num_ctx: int = 0
+    agent_review_local_num_ctx_b: int = 0
     #: Owner order 13 (lead, 12 Nov): the word "AI verdict: not stated" of the same class. Needs the switch above on too. A second model
     #: of another family reads EVERY page whole and, without seeing the first answer, finds no value; code's own absence search
     #: (`agent_review_absence.prove`) finds none either and every page is read. Never a Fail, never in the contractor copy. OFF: as the

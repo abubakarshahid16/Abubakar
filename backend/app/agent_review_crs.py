@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from . import agent_review_wording as wording
+from .agent_review_local import LOCAL_TOO_LONG, NOT_ASKED_WORDS
 from . import numparse
 from .agent_review_verdict import (
     BY_ABSENCE,
@@ -309,6 +310,8 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
             f'{where}: the sheet states "{has}", which does not meet {rule}. {req}.'
             + (f" {said}" if said else "")
         )
+    if code == "not_asked_too_long":
+        return f"{where}: confirm compliance with {rule}. {req}. (Not asked: too long for the local model. Not reviewed.)"
     if code == "ai_call_failed":
         return f"{where}: confirm compliance with {rule}. {req}. (Not reviewed: the AI call failed.)"
     if code == "sheet_silent":
@@ -382,6 +385,8 @@ def quotes_checked_cell(line: Mapping) -> str:
 
 def ai_call_cell(line: Mapping) -> str:
     err = _clean(line.get("error"))
+    if err == LOCAL_TOO_LONG:
+        return f"No AI call was made: {NOT_ASKED_WORDS}."
     return f"AI call failed: {err}" if err else "AI call answered"
 
 

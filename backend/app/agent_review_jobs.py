@@ -59,6 +59,7 @@ from . import crs_ai_header as crs_header
 from .agent_review_job_facts import (  # noqa: F401
     EQUIPMENT_LINES,
     _equipment_facts,
+    _header_facts,
     _stop_text,
 )
 from .agent_review_page_record import (  # noqa: F401 - moved unchanged, re-exported
@@ -511,9 +512,14 @@ def _ask(
     if (
         local is not None
     ):  # nothing here reaches Claude: no approval list, no spend, no ledger; one big model at a time
+        local.progress_cb = local_mod.progress_writer(run_id)
         try:
             with local.session():
                 runner.run()
+        except (
+            local_mod.heavy_lock.HeavyJobBusy
+        ) as exc:  # nothing was asked: said in plain words, not a type name
+            runner.stopped, runner.stop_text = local_mod.busy_words(exc), ""
         except BaseException as exc:
             if not runner.stopped:
                 runner.stopped, runner.stop_text = request_mod.stop_reason(exc, None)
@@ -533,12 +539,6 @@ def _ask(
                 exc, runner.last_app_worst
             )
         raise
-
-
-def _header_facts(submittal: str, equipment_type: str | None) -> dict:
-    """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
-    with connect() as conn:
-        return crs_header.document_header(conn, submittal, equipment_type)
 
 
 def _finish(

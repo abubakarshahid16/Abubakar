@@ -27,16 +27,19 @@ _VERSION_TAIL = re.compile(r"(?:-\d{8}|-latest|@[\w.\-]+)$")
 
 #: Families of the local models (Ollama tags) the app can run, longest first. Any name that starts with one of these (and then a digit,
 #: a dash, a dot, a colon or the end) is that family, whatever its size or tag. A name of no listed family is compared whole, as before.
-LOCAL_FAMILIES = tuple(
-    sorted(
-        (
+LOCAL_FAMILIES: dict[str, str] = {
+    **{
+        f: f
+        for f in (
             "qwen", "glm", "gpt-oss", "llama", "gemma", "mistral", "mixtral", "phi", "deepseek", "granite", "smollm",
             "olmo", "command-r", "yi", "minicpm", "internlm", "nemotron", "exaone", "hermes",
-        ),
-        key=len,
-        reverse=True,
-    )
-)  # fmt: skip
+        )
+    },
+    # a name that begins another way but is the same family (a fine-tune or a variant of it)
+    "codellama": "llama", "meta-llama": "llama", "magistral": "mistral", "codestral": "mistral", "medgemma": "gemma",
+    "qwq": "qwen", "codegemma": "gemma", "llava": "llama",
+}  # fmt: skip
+_BY_LENGTH = sorted(LOCAL_FAMILIES, key=len, reverse=True)
 
 
 def model_family(name: str) -> str:
@@ -44,12 +47,13 @@ def model_family(name: str) -> str:
 
     A LOCAL model of a listed family (`LOCAL_FAMILIES`: an Ollama tag such as `qwen3:8b`, or a registry path such as
     `hf.co/org/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL`) is reduced to its family word (`qwen`, `glm`, `gpt-oss`): two sizes of one family are NOT
-    two readers. Any other name, and every Claude id, keeps the rule above."""
+    two readers. Any other name, and every Claude id, keeps the rule above. For the LOCAL AI reviewer the name rule only makes the
+    check stricter: the engine's own family data (`agent_review_local.second_ready_for`, from `/api/show`) decides first and fails closed."""
     low = name.strip().lower()
     base = low.rsplit("/", 1)[-1].split(":", 1)[0]
-    for fam in LOCAL_FAMILIES:
-        if base.startswith(fam) and not base[len(fam) :][:1].isalpha():
-            return fam
+    for prefix in _BY_LENGTH:
+        if base.startswith(prefix) and not base[len(prefix) :][:1].isalpha():
+            return LOCAL_FAMILIES[prefix]
     return _VERSION_TAIL.sub("", low)
 
 

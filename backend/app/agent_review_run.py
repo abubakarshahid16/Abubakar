@@ -383,6 +383,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         for attempt in range(MAX_RETRIES + 1):
             if self._stop.is_set():
                 raise agent_claude.AgentBudgetStop(self.stopped or "run_stopped")
+            self.local.note(self.local_label())
             try:
                 return self.local.call(model, parts, max_tokens)
             except agent_claude.AgentTransportError:
@@ -391,6 +392,13 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                     continue
                 raise
         raise agent_claude.AgentTransportError("retries_exhausted")
+
+    def local_label(self) -> str:
+        """What the screen says while a local request is made: "question k of n, reader 1 of 2" (counts only)."""
+        if self.local.phase == local_mod.FIRST:
+            return f"asking the local AI reviewer: question {min(len(self.lines) + 1, len(self.items))} of {len(self.items)}, reader 1 of 2"
+        st = self.two_reader_state
+        return f"asking the local AI reviewer: question {st['asked'] + 1} of {max(st['candidates'], st['asked'] + 1)}, reader 2 of 2"
 
     def _worst(self, model: str, parts: dict, max_tokens: int) -> float:
         """The worst case the run is charged for a request: the Claude estimate, and 0.0 on the local engine (it costs nothing)."""
@@ -759,4 +767,5 @@ def counts_of(lines: Iterable[Mapping], runner: Runner | None = None) -> dict:
     out["not_run"] = sum(
         1 for ln in ls if str(ln.get("error") or "").startswith("not run")
     )
-    return {**out, **(runner.two_reader_counts() if runner else {})}
+    local = runner.local.stats() if runner and runner.local is not None else {}
+    return {**out, **(runner.two_reader_counts() if runner else {}), **local}

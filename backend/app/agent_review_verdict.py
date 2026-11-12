@@ -68,6 +68,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import agent_bind, agent_run_second, agent_tools, blank_markers
+from .agent_review_local import failed_words
 from .reader_api import _fold
 
 PASS, FAIL, QUERY = "Pass", "Fail", "Query"
@@ -205,10 +206,9 @@ def is_number_item(item: Mapping) -> bool:
 def needs_second_opinion(
     ai_verdict: str | None, checks: QuoteCheck, error: str | None, absent: bool = False
 ) -> bool:
-    """Ask the second reader when a Pass or Fail could still stand (saves money; the rule is the same), AND for every AI
-    "met" that would be SHOWN as "AI thinks: met": a Pass with both quotes verified by code but a clause quote too short to
-    prove (`clause_strong` false). That reader's disagreement turns the line into a Query (`met_unsafe_why`); its agreement
-    leaves it a "met" (the gate still refuses to prove it); no answer leaves it as it was. A Fail needs the strong clause."""
+    """Ask the second reader when a Pass or Fail could still stand (saves money; the rule is the same), AND for every AI "met" that
+    would be SHOWN as "AI thinks: met": a Pass with both quotes verified by code but a clause quote too short to prove. That reader's
+    disagreement turns the line into a Query (`met_unsafe_why`); its agreement leaves it a "met"; no answer leaves it as it was."""
     if error or ai_verdict not in (PASS, FAIL) or not checks.both:
         return False
     if ai_verdict == PASS:
@@ -233,7 +233,7 @@ def textual_verdict(
 
     `second` is agent_run_second.ask_second_opinion's {'agree': bool | None, 'model': str} or None (not asked)."""
     if error:
-        return _query(f"AI call failed: {error}", second_opinion="not asked")
+        return _query(failed_words(error), second_opinion="not asked")
     if ai_verdict not in (PASS, FAIL):
         return _query("the AI did not give pass or fail", second_opinion="not asked")
     if not checks.paper:
@@ -303,7 +303,7 @@ def number_verdict(
 ) -> dict:
     """{'verdict', 'decided_by', 'why'} for a number line: only compare_number decides (labelled 'decided by code')."""
     if error:
-        return _query(f"AI call failed: {error}")
+        return _query(failed_words(error))
     if not checks.paper:
         return _query(f"paper quote not verified by code ({checks.paper_why})")
     if not checks.clause:

@@ -3,6 +3,9 @@ the equipment facts of the rule block. No I/O."""
 
 from __future__ import annotations
 
+from . import crs_ai_header as crs_header
+from .db import connect
+
 EQUIPMENT_LINES = (
     "another equipment type",
     "the paper names no equipment",
@@ -33,3 +36,9 @@ def _equipment_facts(block: dict) -> dict:
         "notes": notes,
         "candidates": block.get("candidates"),
     }
+
+
+def _header_facts(submittal: str, equipment_type: str | None) -> dict:
+    """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
+    with connect() as conn:
+        return crs_header.document_header(conn, submittal, equipment_type)

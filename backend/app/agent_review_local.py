@@ -31,13 +31,24 @@ reports on the line: "not asked: too long for the local model"). Nothing is cut.
 from __future__ import annotations
 
 import contextlib
+import math
+import re
 import logging
 import sqlite3
 import threading
+import uuid
+from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
-from . import agent_claude, agent_run_second, heavy_lock, model_memory, model_transport
+from . import (
+    agent_claude,
+    agent_run_second,
+    context_budget,
+    heavy_lock,
+    model_memory,
+    model_transport,
+)
 
 log = logging.getLogger(__name__)
 
@@ -45,14 +56,30 @@ LOCK_KIND = "agent_review_local"
 FIRST, SECOND = "first", "second"
 #: What a line says when its request would not fit the local window (never "checked").
 LOCAL_TOO_LONG = "not asked: too long for the local model"
+#: What a reader of the sheet sees for such a line: nothing was called, so it is never "AI call failed".
+NOT_ASKED_WORDS = "Not asked: too long for the local model. Not reviewed"
+NOT_ASKED_CODE = "not_asked_too_long"
+
+
+def failed_words(error: object) -> str:
+    """Why a line has no answer. A request the local engine could not take was never called: it says so, never "AI call failed"."""
+    return NOT_ASKED_WORDS if error == LOCAL_TOO_LONG else f"AI call failed: {error}"
+
+
 #: The one code of the second-reader step when it was switched off because model B could not be a second reader.
 OFF_SECOND_UNAVAILABLE = "second_reader_not_available_on_this_computer"
 SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (no second local model of another family): lines stay 'AI thinks'"
-GENERAL_REFUSED = (
-    "the general review (a procedure or a contract with no rule book) does not run on the local model yet; "
-    "nothing was asked"
-)
-CHARS_PER_TOKEN = 3  # conservative, as the repo's other local budget (numbers and JSON tokenise densely)
+#: TRUNCATION GUARD, three nets. (1) The SEND decision uses the repo's own fail-safe estimate (`context_budget.estimate_tokens`: a digit
+#: costs a token each, letters 3.5 to a token; it may over-estimate and must never under-estimate) for the whole prompt plus the output
+#: limit plus a margin; a request over the window is not sent. (2) After every call the engine's own `prompt_eval_count` is read from the
+#: JSON `model_transport` returns. `context_budget` measured that on an overflow the engine reports a count BELOW the window (1,026 of
+#: 1,536, 33% under), so a count at the window is not the test: an answer is thrown away when the count is missing, when it is at or over
+#: CUT_FRACTION of the window (a prompt admitted by (1) is at most about 0.7 of its estimate for prose; one that reads that full of the
+#: window is treated as cut, the safe side), or when it is below the lower bound of what the prompt must cost (a digit is at least a
+#: third of a token, other text at least a sixteenth of a token a character). (3) A per-call nonce starts the system text so the engine's
+#: prompt cache can never make a full prompt look short.
+CUT_FRACTION = 0.6
+MIN_CHARS_PER_DIGIT_TOKEN, MIN_CHARS_PER_WORD_TOKEN = 3, 16
 WINDOW_MARGIN_TOKENS = 256
 TIMEOUT_S = 600.0
 #: Smaller than the Claude path (it measured 1,000 + 1,100 x items with the reader's own thinking): thinking is off here, and the window
@@ -118,33 +145,86 @@ def engine_for(run_id: str) -> LocalEngine | None:
     return LocalEngine(*models_from_settings()) if local_run(run_id) else None
 
 
-def second_ready_for(a: str, b: str, installed: bool | None = None) -> tuple[bool, str]:
-    """(ready, why not): model B must be named, of another family than A, and not known to be missing."""
+_ROOT = re.compile(r"[a-z]+")
+
+
+def families_of(show: Any) -> set[str] | None:
+    """The family words the local engine itself reports for a model (`/api/show`: `details.family`, `details.families`, the architecture),
+    each reduced to its leading letters (`qwen35moe` and `qwen3` are `qwen`). None when the answer holds none (unknown: fails closed)."""
+    if not isinstance(show, dict):
+        return None
+    details = show.get("details") if isinstance(show.get("details"), dict) else {}
+    info = show.get("model_info") if isinstance(show.get("model_info"), dict) else {}
+    raw = [
+        details.get("family"),
+        *(details.get("families") or []),
+        info.get("general.architecture"),
+    ]
+    roots = {
+        m.group(0)
+        for x in raw
+        if isinstance(x, str) and (m := _ROOT.match(x.strip().lower()))
+    }
+    return roots or None
+
+
+def _show(model: str) -> dict | None:
+    """The engine's own data for a model (`/api/show`, through `model_transport`: the one validated loopback socket). None when it cannot be
+    read (not installed, engine down, host refused): the caller fails closed."""
+    try:
+        got = model_transport.post_json("/api/show", {"model": model}, timeout=15.0)
+    except Exception as exc:  # noqa: BLE001 - a stopped engine or a missing model is a state, not an error here
+        log.warning("local model details could not be read (%s)", type(exc).__name__)
+        return None
+    return got if isinstance(got, dict) else None
+
+
+def busy_words(exc: heavy_lock.HeavyJobBusy) -> str:
+    """The stop sentence of a run that never got the heavy lock: plain words, never a type name."""
+    return f"another heavy job held the computer for {int(exc.waited / 60)} minutes; start again later"
+
+
+def progress_writer(run_id: str) -> Callable[[str], None]:
+    """A callback that writes the screen's progress label of this run's job (counts only), on the calling thread's own connection."""
+
+    def write(label: str) -> None:
+        from .db import connect
+
+        with connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET progress_label = ? WHERE review_run_id = ? AND state = 'running'",
+                (label, run_id),
+            )
+
+    return write
+
+
+LOCAL_REVIEW_NOTE = "A local review is running; answers may be slower."
+
+
+def review_running() -> bool:
+    """Is a local AI review holding the heavy lock right now? (the chat's model menu says so: it shares the local engine)"""
+    rec = heavy_lock.read()
+    return bool(rec and rec.get("kind") == LOCK_KIND and not heavy_lock.is_stale(rec))
+
+
+def second_ready_for(
+    a: str, b: str, show_a: Any = None, show_b: Any = None
+) -> tuple[bool, str]:
+    """(ready, why not). FAILS CLOSED: model B must be named and installed, and the local engine's own data for BOTH models must be
+    readable and share no family word. The name rule (`agent_run_second.models_differ`) is checked too and can only make it stricter."""
     if not b:
         return False, "no second model is set"
+    fa, fb = families_of(show_a), families_of(show_b)
+    if show_b is None:
+        return False, "the second model is not installed or its details cannot be read"
+    if fa is None or fb is None:
+        return False, "the family of a model is not known from the local engine"
+    if fa & fb:
+        return False, "the second model is the same family as the first"
     if not agent_run_second.models_differ([a], b):
         return False, "the second model is the same family as the first, or unnamed"
-    if installed is False:
-        return False, "the second model is not installed"
     return True, ""
-
-
-def _installed(model: str) -> bool | None:
-    """Is `model` listed by the local engine (`/api/tags`)? None when that cannot be read (the call itself will then say)."""
-    try:
-        got = model_transport.get_json("/api/tags", timeout=10.0, required=False)
-    except Exception as exc:  # noqa: BLE001 - a stopped engine is a state, not an error here
-        log.warning("local models could not be listed (%s)", type(exc).__name__)
-        return None
-    if not isinstance(got, dict):
-        return None
-    names = {
-        str(m.get("name") or m.get("model") or "")
-        for m in got.get("models") or []
-        if isinstance(m, dict)
-    }
-    wanted = model if ":" in model else model + ":latest"
-    return model in names or wanted in names
 
 
 def _text_of_blocks(content: Any) -> str:
@@ -155,6 +235,33 @@ def _text_of_blocks(content: Any) -> str:
         for b in content or []
         if isinstance(b, dict) and b.get("type") == "text"
     )
+
+
+def _too_long() -> agent_claude.AgentBadReply:
+    exc = agent_claude.AgentBadReply(LOCAL_TOO_LONG)
+    exc.usd = 0.0
+    return exc
+
+
+def lower_bound_tokens(text: str) -> int:
+    """The fewest tokens `text` can cost any tokenizer of the models in use: a digit at least a third of a token, any other character at
+    least a sixteenth. A reply that says the prompt was smaller than this was cut."""
+    digits = sum(ch.isdigit() for ch in text)
+    return (
+        digits // MIN_CHARS_PER_DIGIT_TOKEN
+        + (len(text) - digits) // MIN_CHARS_PER_WORD_TOKEN
+    )
+
+
+def _cut_prompt(reported: Any, window: int, text: str) -> str | None:
+    """Why the prompt the engine reports cannot be trusted to be the whole request, or None when it can. Code only."""
+    if isinstance(reported, bool) or not isinstance(reported, int) or reported <= 0:
+        return "prompt size not reported"
+    if reported >= int(window * CUT_FRACTION):
+        return "prompt at or near the window"
+    if reported < lower_bound_tokens(text):
+        return "prompt shorter than the request needs"
+    return None
 
 
 def chat_messages(parts: dict) -> list[dict]:
@@ -186,9 +293,14 @@ class LocalEngine:
         *,
         post: Callable[..., Any] | None = None,
         unload: Callable[[str], Any] | None = None,
-        installed: Callable[[str], bool | None] | None = None,
+        show: Callable[[str], dict | None] | None = None,
         window: int | None = None,
+        output_cap: int | None = None,
     ) -> None:
+        self.output_cap = output_cap  # a ceiling on every request's output limit (the general review's windows fit under it)
+        self.discarded: Counter = (
+            Counter()
+        )  # reason -> n: answers thrown away because the prompt was cut or not reported
         self.model_a, self.model_b = model_a.strip(), (model_b or "").strip()
         self._post = post
         self._unload = unload or model_memory.unload
@@ -200,25 +312,56 @@ class LocalEngine:
         self.not_asked = 0
         self.unloads: list[str] = []
         self._ready: tuple[bool, str] | None = None
-        self._installed_of = installed or _installed
+        self._show_of = show or _show
+        self.used: set[str] = (
+            set()
+        )  # the models THIS run loaded (only these are ever unloaded)
+        self.progress_cb: Callable[[str], None] | None = None
 
     # ---- readiness of the second reader
     def second_ready(self) -> tuple[bool, str]:
         if self._ready is None:
-            known = self._installed_of(self.model_b) if self.model_b else None
-            self._ready = second_ready_for(self.model_a, self.model_b, known)
+            sa = self._show_of(self.model_a) if self.model_b else None
+            sb = self._show_of(self.model_b) if self.model_b else None
+            self._ready = second_ready_for(self.model_a, self.model_b, sa, sb)
         return self._ready
 
     # ---- budget
-    def window(self) -> int:
-        return int(self._window or model_transport.shared_window())
+    def window(self, role: str = FIRST) -> int:
+        """The context window asked of the model of this role: the setting (0 = the shared local window), never below the shared window
+        (the transport raises a smaller one to it)."""
+        if self._window:
+            return int(self._window)
+        from .config import settings
 
-    def fits(self, parts: dict, max_tokens: int) -> bool:
-        chars = sum(len(m["content"]) for m in chat_messages(parts))
-        return (
-            chars // CHARS_PER_TOKEN + 1 + int(max_tokens) + WINDOW_MARGIN_TOKENS
-            <= self.window()
+        asked = int(
+            getattr(
+                settings,
+                "agent_review_local_num_ctx_b"
+                if role == SECOND
+                else "agent_review_local_num_ctx",
+                0,
+            )
+            or 0
         )
+        if role == SECOND and not asked:
+            asked = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
+        return max(asked, model_transport.shared_window())
+
+    def stats(self) -> dict:
+        """Counts only (no text): requests by stage, requests not sent for length, answers discarded for a cut or unreported prompt."""
+        return {
+            "local_requests_first": self.calls[FIRST],
+            "local_requests_second": self.calls[SECOND],
+            "local_not_asked_too_long": self.not_asked,
+            "local_answers_discarded": sum(self.discarded.values()),
+        }
+
+    def fits(self, parts: dict, max_tokens: int, role: str = FIRST) -> bool:
+        need = sum(
+            context_budget.estimate_tokens(m["content"]) for m in chat_messages(parts)
+        )
+        return need + int(max_tokens) + WINDOW_MARGIN_TOKENS <= self.window(role)
 
     def first_tokens(self, n_items: int) -> int:
         return min(
@@ -258,10 +401,10 @@ class LocalEngine:
             finally:
                 with self._lock:
                     self._drop_loaded()
-                    for name in (self.model_a, self.model_b):
-                        if name and name not in self.unloads:
-                            with contextlib.suppress(Exception):
-                                self._unload(name)
+                    # only models THIS run loaded: a model another job or the chat is using is never unloaded from here
+                    for name in sorted(self.used - set(self.unloads)):
+                        with contextlib.suppress(Exception):
+                            self._unload(name)
 
     # ---- the one call
     def call(self, model: str, parts: dict, max_tokens: int) -> tuple[dict, float]:
@@ -277,24 +420,40 @@ class LocalEngine:
             name = self.model_b
         else:
             name = self.model_a
-        if not self.fits(parts, max_tokens):
+        if self.output_cap:
+            max_tokens = min(int(max_tokens), int(self.output_cap))
+        if not self.fits(parts, max_tokens, role):
             with self._lock:
                 self.not_asked += 1
-            exc = agent_claude.AgentBadReply(LOCAL_TOO_LONG)
-            exc.usd = 0.0
-            raise exc
+            raise _too_long()
+        messages = chat_messages(parts)
+        whole = "\n".join(m["content"] for m in messages)
+        messages = [
+            {
+                **messages[0],
+                "content": f"[request {uuid.uuid4().hex[:8]}]\n"
+                + messages[0]["content"],
+            },
+            *messages[1:],
+        ]
+        window = self.window(role)
         body = {
             "model": name,
-            "messages": chat_messages(parts),
+            "messages": messages,
             "stream": False,
             "think": False,
             "format": "json",
-            "options": {"temperature": 0, "num_predict": int(max_tokens)},
+            "options": {
+                "temperature": 0,
+                "num_predict": int(max_tokens),
+                "num_ctx": window,
+            },
         }
         with self._lock:  # one request at a time: one big model, one runner
             if self.loaded and self.loaded != name:
                 self._drop_loaded()
             self.loaded = name
+            self.used.add(name)
             self.calls[role] += 1
             answer = self._send(body)
         message = answer.get("message") if isinstance(answer, dict) else None
@@ -303,6 +462,12 @@ class LocalEngine:
             exc = agent_claude.AgentBadReply("bad_shape")
             exc.usd = 0.0
             raise exc
+        reported = answer.get("prompt_eval_count")
+        why = _cut_prompt(reported, window, whole)
+        if why:  # the engine may have cut the prompt: nothing it said is used (never a met / not met from a part of the paper)
+            with self._lock:
+                self.discarded[why] += 1
+            raise _too_long()
         if answer.get("done_reason") == "length":
             exc = agent_claude.AgentBadReply("stop_max_tokens")
             exc.usd = 0.0
@@ -316,6 +481,17 @@ class LocalEngine:
             "stop_reason": "end_turn",
             "usage": {},
         }, 0.0
+
+    def note(self, label: str) -> None:
+        """Progress: a beat of the running review's heartbeat (`worker_review.beat_now`) and the screen's label, before and after a request."""
+        from . import worker_review
+
+        worker_review.beat_now()
+        if self.progress_cb is not None:
+            try:
+                self.progress_cb(label)
+            except Exception as exc:  # noqa: BLE001 - a label is never worth a run
+                log.warning("local progress label failed (%s)", type(exc).__name__)
 
     def _send(self, body: dict) -> Any:
         post = self._post or model_transport.post_json_retrying
@@ -333,9 +509,19 @@ class LocalEngine:
 SECONDS_GUESS_PER_REQUEST = 60
 
 
-def local_time(conn, document_id: str) -> dict:
-    """The time of the AI review on the local model, in honest words: the number of requests from the rules the paper's last AI review
-    asked (None when there is none), and a labelled GUESS of the minutes (nothing is measured on this install yet; CLAUDE.md rule 4)."""
+ITEMS_PER_FIRST_REQUEST = 2.3  # the stable batches are halved on a hash until at most 3: about 2.3 items a request on average
+SHARE_ASKED_SECOND = (
+    0.5  # a guess: about half the lines are candidates for the second reader
+)
+GENERAL_ON_LOCAL = False  # the general review does not run on the local model yet (a second change turns this on)
+WAIT_WORDS = "other reviews wait behind it (one review at a time), and chat answers may be slower while it runs"
+GENERAL_REFUSED = "the general review (a procedure or a contract with no rule book) does not run on the local model yet; nothing was asked"
+
+
+def local_time(conn, document_id: str, two_readers: bool = False) -> dict:
+    """The time of the AI review on the local model, in honest words: an ESTIMATE of the requests from the rules the paper's last AI review
+    asked (None when there is none), counting only what will really be asked (no second reader unless that switch is on), and a labelled
+    GUESS of the minutes (nothing is measured on this install yet; CLAUDE.md rule 4)."""
     try:
         row = conn.execute(
             "SELECT a.items_total FROM agent_review_run a JOIN review_runs r ON r.id = a.run_id"
@@ -348,18 +534,26 @@ def local_time(conn, document_id: str) -> dict:
         return {
             "requests": None,
             "minutes_guess": None,
-            "basis": "the rules to ask are chosen when the review starts, so the time is not known yet; each request to the local model is one"
-            " at a time and the review needs a few minutes for every ten rules or more (a guess, not measured on this install)",
+            "basis": "an estimate cannot be made yet: the rules to ask are chosen when the review starts. A local review takes a few minutes for every"
+            f" ten rules or more (a guess, not measured on this install); {WAIT_WORDS}",
         }
     n = int(row["items_total"])
-    first = -(-n // FIRST_BATCH_MAX)
-    second = -(
-        -n // (2 * SECOND_BATCH_MAX)
-    )  # at most about half the lines are asked a second time
+    first = math.ceil(n / ITEMS_PER_FIRST_REQUEST * 1.2)  # 20% for splits and re-asks
+    second = (
+        math.ceil(n * SHARE_ASKED_SECOND / ITEMS_PER_FIRST_REQUEST * 1.1)
+        if two_readers
+        else 0
+    )  # 10% for context checks
     requests = first + second
     return {
         "requests": requests,
         "minutes_guess": round(requests * SECONDS_GUESS_PER_REQUEST / 60),
-        "basis": f"up to about {requests} requests to the local model, one at a time, if the same {n} rules are asked again; the minutes are a"
-        f" guess of {SECONDS_GUESS_PER_REQUEST} seconds a request, not measured on this install",
+        "basis": f"an estimate of about {requests} requests ({first} first reader"
+        + (
+            f", {second} second reader"
+            if two_readers
+            else ", no second reader: that switch is off"
+        )
+        + f") if the same {n} rules are asked again, one at a time, at a guess of {SECONDS_GUESS_PER_REQUEST} seconds a request (not measured on this"
+        f" install); a local review takes about {round(requests * SECONDS_GUESS_PER_REQUEST / 60)} minutes and {WAIT_WORDS}",
     }

@@ -164,6 +164,7 @@ WHY_PHRASES: dict[str, str] = {
 WHY_PATTERNS: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(p, re.IGNORECASE), v)
     for p, v in (
+        (r"^not asked: too long for the local model", "Not asked: too long for the local model. Not reviewed"),
         (r"^AI call failed", "the AI reviewer gave no answer"),
         (r"answer cut off", "the AI reviewer's answer was cut off"),
         (r"^no answer from the AI", "the AI reviewer gave no answer"),
@@ -197,6 +198,7 @@ CODE_PHRASES = {
     "pass_field_unknown": "the rule's field is not known",
     "pass_condition_not_quoted": "the condition the rule applies under is not quoted",
     "ai_call_failed": "the AI reviewer gave no answer",
+    "not_asked_too_long": "not asked: too long for the local model",
     "not_applicable": "does not apply",
     "verdict_and_reason_differ": "the answer was not consistent",
     "other": "other",

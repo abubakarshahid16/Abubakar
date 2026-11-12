@@ -7,10 +7,12 @@ and the Claude lane is a transport that fails the test if it is touched."""
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
 from app import (
+    agent_claude,
     agent_review_jobs,
     claude_spend,
     db,
@@ -31,6 +33,18 @@ E = review_engine
 CLASS = "AI verdict, two readers agree"
 A_NAME = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
 B_NAME = "glm-4.7-flash"
+#: what the local engine's own /api/show says about each invented model (family words as it reports them)
+SHOWS = {
+    A_NAME: {"details": {"family": "qwen35moe", "families": ["qwen35moe"]}},
+    B_NAME: {"details": {"family": "glm4moe", "families": ["glm4moe"]}},
+    "qwen3:8b": {"details": {"family": "qwen3", "families": ["qwen3"]}},
+    "gpt-oss:20b": {"details": {"family": "gptoss", "families": ["gptoss"]}},
+}
+
+
+def _tokens(body) -> int:
+    """What a real engine reports: the tokens of the prompt it read (about 3 characters a token)."""
+    return sum(len(m["content"]) for m in body["messages"]) // 3 + 1
 
 
 class FakeOllama:
@@ -52,8 +66,27 @@ class FakeOllama:
         self.second = dict(s.ANSWERS if second is None else second)
         self.garbage, self.empty = garbage, empty
         self.log: list[str] = []
+        self.bodies = []
+
+    report = None  # "short" | "window" | "missing" | "tiny": what the engine says about the prompt it read
+    bodies: list = []
 
     def __call__(self, path, body, *, timeout):
+        self.bodies.append(body)
+        got = self._answer(path, body)
+        if self.report == "short":
+            got["prompt_eval_count"] = (
+                5  # the engine read far fewer tokens than the request has
+            )
+        elif self.report == "window":
+            got["prompt_eval_count"] = body["options"][
+                "num_ctx"
+            ]  # it read up to the window: the rest was cut
+        elif self.report == "missing":
+            got.pop("prompt_eval_count")
+        return got
+
+    def _answer(self, path, body):
         assert path == "/api/chat"
         self.log.append(body["model"])
         if (
@@ -63,6 +96,7 @@ class FakeOllama:
                 "model": body["model"],
                 "message": {"content": json.dumps({"limits": False})},
                 "done_reason": "stop",
+                "prompt_eval_count": _tokens(body),
             }
         user = body["messages"][-1]["content"]
         raw = user[user.rfind('{"items":') :].split("\n\n")[0]
@@ -80,6 +114,7 @@ class FakeOllama:
                 "model": body["model"],
                 "message": {"content": '{"answers": [{"item_id": "R-co'},
                 "done_reason": "length",
+                "prompt_eval_count": _tokens(body),
             }
         if self.empty:
             text = ""
@@ -93,6 +128,7 @@ class FakeOllama:
             "model": body["model"],
             "message": {"content": text},
             "done_reason": "stop",
+            "prompt_eval_count": _tokens(body),
         }
 
 
@@ -114,7 +150,7 @@ def local(w, monkeypatch):
     )
     monkeypatch.setattr(model_transport, "post_json_retrying", ollama)
     monkeypatch.setattr(model_memory, "unload", lambda m: unloads.append(m) or True)
-    monkeypatch.setattr(local_mod, "_installed", lambda _m: True)
+    monkeypatch.setattr(local_mod, "_show", lambda m: SHOWS.get(m))
 
     def boom(*_a, **_k):
         raise AssertionError("a local run asked for the Claude transport")
@@ -162,12 +198,101 @@ def test_a_name_of_no_listed_local_family_is_compared_whole():
     assert not second_mod.models_differ(["m1"], "m1")
 
 
-def test_the_second_reader_is_ready_only_for_another_family_that_is_installed():
-    ok = local_mod.second_ready_for
-    assert ok(A_NAME, B_NAME, True) == (True, "")
-    assert ok(A_NAME, "", None)[0] is False
-    assert ok(A_NAME, "qwen3:8b", True)[0] is False
-    assert ok(A_NAME, B_NAME, False)[0] is False
+def _show_of(family):
+    return (
+        None
+        if family is None
+        else {"details": {"family": family, "families": [family]}}
+    )
+
+
+#: (first model, second model, the family the engine reports for each, may they be two readers): the reviewer's nine pairs and more
+PAIRS = [
+    ("codellama:7b", "llama3:8b", "llama", "llama", False),
+    ("qwq:32b", "qwen3.5:9b", "qwen2", "qwen35", False),
+    (
+        "magistral:24b",
+        "mistral:7b",
+        "mistral3",
+        "llama",
+        False,
+    ),  # the engine says different families; the name rule is stricter
+    ("medgemma:4b", "gemma3:4b", "gemma3", "gemma3", False),
+    ("hf.co/x/Meta-Llama-3.1-8B-GGUF:Q4", "llama3.1:8b", "llama", "llama", False),
+    (
+        "reader-ft:latest",
+        "qwen3.5:9b",
+        "qwen35",
+        "qwen35",
+        False,
+    ),  # a renamed copy: the engine's data shows the same family
+    (A_NAME, B_NAME, "qwen35moe", "glm4moe", True),
+    ("qwen3.5:9b", "gpt-oss:20b", "qwen35", "gptoss", True),
+    (
+        "reader-ft:latest",
+        "gpt-oss:20b",
+        "qwen35",
+        "gptoss",
+        True,
+    ),  # an unknown name is fine when the engine says the families differ
+    (
+        "qwen3.5:9b",
+        "reader-ft:latest",
+        "qwen35",
+        None,
+        False,
+    ),  # the second model's data cannot be read: fails closed
+    (
+        "qwen3.5:9b",
+        "glm-4.7-flash",
+        None,
+        "glm4moe",
+        False,
+    ),  # the first model's data cannot be read: fails closed
+]
+
+
+@pytest.mark.parametrize(("a", "b", "fa", "fb", "ready"), PAIRS)
+def test_two_readers_are_two_families_by_the_engines_own_data_and_it_fails_closed(
+    a, b, fa, fb, ready
+):
+    got = local_mod.second_ready_for(a, b, _show_of(fa), _show_of(fb))
+    assert got[0] is ready
+    assert (got[1] == "") is ready  # a refusal always says why
+
+
+def test_a_second_model_the_engine_reports_no_family_for_is_not_a_second_reader():
+    assert (
+        local_mod.second_ready_for(A_NAME, B_NAME, SHOWS[A_NAME], {"details": {}})[0]
+        is False
+    )
+    assert local_mod.second_ready_for(A_NAME, "", SHOWS[A_NAME], None)[0] is False
+    assert local_mod.families_of(
+        {
+            "details": {"family": "qwen35moe"},
+            "model_info": {"general.architecture": "qwen35moe"},
+        }
+    ) == {"qwen"}
+
+
+def test_the_show_call_goes_through_the_one_local_socket_module(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda path, body, *, timeout: (
+            seen.append((path, body)) or {"details": {"family": "x"}}
+        ),
+    )
+    assert local_mod._show("m")["details"]["family"] == "x" and seen == [
+        ("/api/show", {"model": "m"})
+    ]
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda *a, **k: (_ for _ in ()).throw(model_transport.ModelHostRefused("no")),
+    )
+    assert local_mod._show("m") is None
 
 
 # ---------------------------------------------------------------- the engine: one socket, zero cost, no spend row
@@ -260,7 +385,9 @@ def test_a_second_model_of_the_same_family_or_none_is_never_asked_and_never_the_
 
 
 def test_a_second_model_that_is_not_installed_is_not_asked(local, two_on, monkeypatch):
-    monkeypatch.setattr(local_mod, "_installed", lambda _m: False)
+    monkeypatch.setattr(
+        local_mod, "_show", lambda m: None if m == B_NAME else SHOWS.get(m)
+    )
     run_id = run_review()
     assert set(local["ollama"].log) == {A_NAME}
     assert step_of(run_id)["off"] == local_mod.OFF_SECOND_UNAVAILABLE
@@ -285,7 +412,7 @@ def test_the_workbook_says_a_second_reader_was_not_available(
 
 def test_a_model_of_the_other_stage_is_refused_at_the_seam():
     eng = local_mod.LocalEngine(
-        A_NAME, B_NAME, installed=lambda _m: True, post=lambda *a, **k: {}
+        A_NAME, B_NAME, show=lambda m: SHOWS.get(m), post=lambda *a, **k: {}
     )
     with pytest.raises(
         local_mod.LocalStageRefused
@@ -484,7 +611,11 @@ def test_automatic_for_a_paper_that_may_not_go_to_claude_reads_it_locally():
     contract = E.decide(
         "automatic",
         open_facts(
-            kind="contract", is_contract=True, paper_approved=False, local_ai=True
+            kind="contract",
+            is_contract=True,
+            paper_approved=False,
+            local_ai=True,
+            rules_for_kind=True,
         ),
     )
     ai = contract.part(E.AI_REVIEW)
@@ -565,7 +696,7 @@ def test_the_sentence_and_cost_of_a_local_plan_say_local_zero_and_a_guess(
     assert isinstance(conn, sqlite3.Connection)
     t = local_mod.local_time(conn, s.PAPER)
     assert (
-        t["minutes_guess"] is None and "not known yet" in t["basis"]
+        t["minutes_guess"] is None and "cannot be made yet" in t["basis"]
     )  # no earlier run: nothing invented
 
 
@@ -576,8 +707,18 @@ def test_a_local_time_estimate_is_labelled_a_guess_and_counts_requests(w):
                      (run_id, s.PAPER, "datasheet", "read by code", 37, "2026-11-12"))  # fmt: skip
         t = local_mod.local_time(conn, s.PAPER)
     assert (
-        t["requests"] == 13 + 7 and t["minutes_guess"] == 20 and "guess" in t["basis"]
+        t["requests"] == 20 and t["minutes_guess"] == 20
+    )  # 37 rules, no second reader (that switch is off): 20 first-reader requests
+    assert (
+        "no second reader" in t["basis"]
+        and "estimate" in t["basis"]
+        and "other reviews wait" in t["basis"]
     )
+    with db.connect() as conn:
+        both = local_mod.local_time(conn, s.PAPER, two_readers=True)
+    assert (
+        both["requests"] == 29 and "second reader" in both["basis"]
+    )  # counted only when the second reader is switched on
 
 
 # ---------------------------------------------------------------- the follow-up and the sheet header
@@ -592,3 +733,378 @@ def test_the_sheet_header_of_a_local_ai_review_says_local_not_claude():
 
 def test_a_two_reader_state_is_a_code_never_text():
     assert local_mod.OFF_SECOND_UNAVAILABLE != two.OFF_LEAD_UNKNOWN
+
+
+# ---------------------------------------------------------------- truncation: the engine's own count decides, not the estimate
+
+
+@pytest.mark.parametrize("report", ["short", "window", "missing"])
+def test_a_prompt_the_engine_says_it_cut_or_did_not_report_never_gives_a_decision(
+    local, two_on, report
+):
+    local["ollama"].report = report
+    run_id = run_review()
+    got = lines_of(run_id)
+    assert (
+        got and local["ollama"].log
+    )  # requests were made, every answer was thrown away
+    for ln in got.values():
+        assert ln["word"] not in (
+            "Pass",
+            "Fail",
+            "AI verdict: met",
+            "AI verdict: not met",
+            "AI thinks: met",
+            "AI thinks: not met",
+        )
+        assert ln["verdict_class"] not in ("Proven by code", CLASS)
+        assert (
+            local_mod.LOCAL_TOO_LONG in json.loads(ln["line_json"]).get("error", "")
+            or local_mod.LOCAL_TOO_LONG in ln["reason"]
+        )
+    counts = json.loads(run_row(run_id)["counts_json"])
+    assert counts["local_answers_discarded"] > 0
+
+
+def test_the_context_size_is_asked_explicitly_on_every_call_and_comes_from_the_settings(
+    local, two_on, monkeypatch
+):
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 12288)
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx_b", 16384)
+    run_review()
+    by_model = {}
+    for b in local["ollama"].bodies:
+        by_model.setdefault(b["model"], set()).add(b["options"]["num_ctx"])
+    assert by_model[A_NAME] == {12288} and by_model[B_NAME] == {16384}
+
+
+def test_the_default_context_size_is_the_shared_window(local):
+    run_review()
+    assert {b["options"]["num_ctx"] for b in local["ollama"].bodies} == {
+        model_transport.shared_window()
+    }
+
+
+def test_a_reply_that_reports_the_whole_prompt_is_used():
+    text = "word " * 600  # about 3,000 characters
+    assert local_mod._cut_prompt(900, 8192, text) is None
+    assert local_mod._cut_prompt(None, 8192, text) == "prompt size not reported"
+    assert (
+        local_mod._cut_prompt(5000, 8192, text) == "prompt at or near the window"
+    )  # the engine reports BELOW the window when it cuts
+    assert (
+        local_mod._cut_prompt(10, 8192, text) == "prompt shorter than the request needs"
+    )
+    assert local_mod._cut_prompt(True, 8192, text) == "prompt size not reported"
+
+
+# ---------------------------------------------------------------- R51 F1/F2: the estimate decides what is sent, the engine's count is the second net
+
+
+NUMERIC_PAGE = "\n".join(
+    f"{i:03d}  30.0000  {i * 7.31:08.4f}  12.5000  0.0010  {i * 3}" for i in range(260)
+)[:10500]
+
+
+def numeric_parts(text=NUMERIC_PAGE):
+    return {
+        "system": [{"type": "text", "text": "You review."}],
+        "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}],
+    }
+
+
+def test_a_numeric_page_the_old_three_characters_a_token_rule_would_send_is_not_sent():
+    from app import context_budget
+
+    assert len(NUMERIC_PAGE) == 10500
+    old_rule = (
+        len(NUMERIC_PAGE) // 3 + 1 + 1000 + 256
+    )  # what chars // 3 said: it fits the 8192 window
+    assert old_rule < 8192
+    assert (
+        context_budget.estimate_tokens(NUMERIC_PAGE) > 8192
+    )  # the repo's fail-safe estimate says it does not
+    sent = []
+    eng = local_mod.LocalEngine(
+        A_NAME,
+        B_NAME,
+        post=lambda *a, **k: sent.append(1) or {},
+        show=lambda m: SHOWS.get(m),
+    )
+    with pytest.raises(agent_claude.AgentBadReply) as caught:
+        eng.call(A_NAME, numeric_parts(), 1000)
+    assert (
+        caught.value.code == local_mod.LOCAL_TOO_LONG and sent == []
+    )  # nothing reached the engine
+    assert eng.stats()["local_not_asked_too_long"] == 1
+
+
+def test_an_engine_that_reports_a_cut_prompt_below_the_window_is_never_an_answer(
+    monkeypatch,
+):
+    from app import context_budget
+
+    monkeypatch.setattr(
+        context_budget, "estimate_tokens", lambda _t: 10
+    )  # an estimate that under-counted: the second net must catch it
+    window = 8192
+
+    def cut(
+        path, body, *, timeout
+    ):  # what the engine really does on an overflow: it keeps part and reports a count below the window
+        return {
+            "model": A_NAME,
+            "message": {"content": '{"answers": []}'},
+            "done_reason": "stop",
+            "prompt_eval_count": int(window * 0.67),
+        }
+
+    eng = local_mod.LocalEngine(
+        A_NAME, B_NAME, post=cut, show=lambda m: SHOWS.get(m), window=window
+    )
+    with pytest.raises(agent_claude.AgentBadReply) as caught:
+        eng.call(A_NAME, numeric_parts(), 1000)
+    assert caught.value.code == local_mod.LOCAL_TOO_LONG
+    assert eng.stats()["local_answers_discarded"] == 1
+
+
+def test_a_reported_shortfall_never_yields_met_or_not_met_in_a_run(local, two_on):
+    local["ollama"].report = "window"
+    got = lines_of(run_review())
+    assert all(
+        ln["word"]
+        not in (
+            "AI verdict: met",
+            "AI verdict: not met",
+            "AI thinks: met",
+            "AI thinks: not met",
+            "Pass",
+            "Fail",
+        )
+        for ln in got.values()
+    )
+
+
+# ---------------------------------------------------------------- R51 F5, F6: progress and a busy computer
+
+
+def test_every_local_request_beats_the_heartbeat_and_says_question_k_of_n_reader_r_of_2(
+    local, two_on, monkeypatch
+):
+    from app import worker_review
+
+    beats, labels = [], []
+    monkeypatch.setattr(worker_review, "beat_now", lambda: beats.append(1) or 0.0)
+    monkeypatch.setattr(local_mod, "progress_writer", lambda _run: labels.append)
+    run_review()
+    assert len(beats) >= len(local["ollama"].log) > 0
+    assert any(
+        re.fullmatch(
+            r"asking the local AI reviewer: question \d+ of \d+, reader 1 of 2", x
+        )
+        for x in labels
+    )
+    assert any(
+        re.fullmatch(
+            r"asking the local AI reviewer: question \d+ of \d+, reader 2 of 2", x
+        )
+        for x in labels
+    )
+
+
+def test_a_computer_held_by_another_heavy_job_stops_the_run_in_plain_words(
+    local, monkeypatch
+):
+    import contextlib
+
+    @contextlib.contextmanager
+    def busy(*_a, **_k):
+        raise local_mod.heavy_lock.HeavyJobBusy({"kind": "p1"}, 1800.0)
+        yield
+
+    monkeypatch.setattr(local_mod.heavy_lock, "held", busy)
+    run_id = run_review()
+    stop = run_row(run_id)["stop_reason"]
+    assert (
+        stop == "another heavy job held the computer for 30 minutes; start again later"
+    )
+    assert "HeavyJobBusy" not in stop and local["ollama"].log == []
+
+
+# ---------------------------------------------------------------- R51 F7: the sheet says nothing was asked
+
+
+def _cells(path):
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path)
+    return [
+        str(c.value)
+        for ws in wb.worksheets
+        for row in ws.iter_rows()
+        for c in row
+        if c.value is not None
+    ]
+
+
+def test_a_not_asked_line_reads_on_the_built_sheets_as_not_asked_never_as_a_failed_call(
+    local, monkeypatch
+):
+    monkeypatch.setattr(
+        model_transport, "shared_window", lambda: 900
+    )  # nothing fits: every item is "not asked"
+    run_id = run_review()
+    folder = agent_review_jobs.run_dir(run_id)
+    internal, contractor = (
+        _cells(folder / "crs-internal.xlsx"),
+        _cells(folder / "crs-contractor.xlsx"),
+    )
+    assert "Not asked: too long for the local model. Not reviewed." in internal
+    for cell in [*internal, *contractor]:
+        assert "AI call failed" not in cell and "the AI call failed" not in cell
+    line = next(iter(lines_of(run_id).values()))
+    assert json.loads(line["line_json"])["reason_code"] == "not_asked_too_long"
+
+
+# ---------------------------------------------------------------- R51 F4: other jobs and the chat
+
+
+def test_only_the_models_this_run_loaded_are_unloaded_and_the_chat_menu_says_a_review_is_running(
+    monkeypatch,
+):
+    dropped = []
+    eng = local_mod.LocalEngine(
+        A_NAME,
+        B_NAME,
+        post=lambda *a, **k: {},
+        unload=dropped.append,
+        show=lambda m: SHOWS.get(m),
+    )
+    monkeypatch.setattr(
+        local_mod.heavy_lock,
+        "held",
+        lambda *a, **k: __import__("contextlib").nullcontext(),
+    )
+    with eng.session():
+        eng.used.add(A_NAME)  # this run only ever loaded the first model
+    assert (
+        dropped == [A_NAME]
+    )  # a model the run never loaded (the second, or the chat's) is never unloaded from here
+    import os
+    import time
+
+    from app import chat_model
+
+    monkeypatch.setattr(
+        local_mod.heavy_lock,
+        "read",
+        lambda *a, **k: {
+            "kind": local_mod.LOCK_KIND,
+            "started_epoch": time.time(),
+            "pid": os.getpid(),
+            "host": "x",
+        },
+    )
+    monkeypatch.setattr(local_mod.heavy_lock, "is_stale", lambda *a, **k: False)
+    local_option = next(
+        m for m in chat_model.available_models()["models"] if m["id"] == "local"
+    )
+    assert (
+        local_option["reason"] == "A local review is running; answers may be slower."
+        and local_option["available"] is True
+    )
+    monkeypatch.setattr(local_mod.heavy_lock, "read", lambda *a, **k: None)
+    assert (
+        next(m for m in chat_model.available_models()["models"] if m["id"] == "local")[
+            "reason"
+        ]
+        is None
+    )
+
+
+# ---------------------------------------------------------------- R51 F8: the plan says what will and will not run
+
+
+def test_a_contract_or_procedure_with_no_rules_of_its_kind_is_not_planned_as_an_ai_review_on_local():
+    for kind in ("contract", "procedure"):
+        plan = E.decide(
+            "local",
+            open_facts(
+                kind=kind,
+                is_contract=kind == "contract",
+                local_ai=True,
+                rules_for_kind=False,
+            ),
+        )
+        ai = plan.part(E.AI_REVIEW)
+        assert (
+            ai.engine == E.NOT_RUN
+            and "general review" in ai.why
+            and "does not run on the local model yet" in ai.why
+        )
+        assert (
+            E.decide(
+                "automatic",
+                open_facts(
+                    kind=kind,
+                    is_contract=kind == "contract",
+                    paper_approved=False,
+                    local_ai=True,
+                ),
+            )
+            .part(E.AI_REVIEW)
+            .engine
+            == E.NOT_RUN
+        )
+
+
+def test_a_contract_with_rules_of_its_kind_says_the_rules_run_and_the_general_review_does_not():
+    plan = E.decide(
+        "local",
+        open_facts(
+            kind="contract", is_contract=True, local_ai=True, rules_for_kind=True
+        ),
+    )
+    ai = plan.part(E.AI_REVIEW)
+    assert (
+        ai.engine == E.ON_LOCAL
+        and "rules of this kind" in ai.why
+        and "general review" in ai.why
+        and "does not run on the local model yet" in ai.why
+    )
+    sentence = E.sentence_of({**plan.as_dict(), "kind": "contract"})
+    assert "does not run on the local model yet" in sentence
+
+
+def test_the_plan_of_a_datasheet_on_local_carries_the_wait_words_and_an_estimate(w):
+    plan = E.decide("local", open_facts(local_ai=True)).as_dict()
+    assert plan["parts"][1]["engine"] == "local"
+    t = local_mod.local_time(db.connect(), s.PAPER)
+    assert (
+        "other reviews wait behind it" in t["basis"]
+        and "chat answers may be slower" in t["basis"]
+    )
+
+
+def test_the_contractor_comment_of_a_not_asked_line_says_not_asked_not_a_failed_call():
+    from app import agent_review_crs as crs
+
+    base = {
+        "item_id": "R-1",
+        "paper_page": 1,
+        "reason_code": "not_asked_too_long",
+        "error": local_mod.LOCAL_TOO_LONG,
+        "verdict": "Query",
+    }
+    said = crs.company_comment(base, contractor=True)
+    assert (
+        "(Not asked: too long for the local model. Not reviewed.)" in said
+        and "AI call failed" not in said
+    )
+    failed = crs.company_comment(
+        {**base, "reason_code": "ai_call_failed", "error": "transport_x"},
+        contractor=True,
+    )
+    assert (
+        "(Not reviewed: the AI call failed.)" in failed
+    )  # a real failure keeps its words

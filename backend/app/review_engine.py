@@ -54,10 +54,12 @@ BARRED_WORDS = (
 AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
-AI_ON_LOCAL = (
-    "the AI review reads the paper on the local model: nothing leaves this computer"
+AI_ON_LOCAL = "the AI review runs on the local model: nothing leaves this computer"
+AI_ON_LOCAL_RULES_ONLY = (
+    "the AI review asks the rules of this kind on the local model: nothing leaves this computer; the general review (the paper against "
+    "itself, the checklist) does not run on the local model yet"
 )
-#: Honest time words: nothing has been measured on this install, so the number is a labelled guess (rule 4).
+AI_NEEDS_GENERAL_LOCAL = "the AI review of this kind of paper is the general review, which does not run on the local model yet; it will not run"
 
 NEEDS_YES = "needs the owner's yes for this upload"
 CHECKLISTS_EMPTY = (
@@ -110,6 +112,7 @@ class Facts:
         True  # the rule books may go (approved or joining by the automatic route)
     )
     local_ai: bool = False  # AGENT_REVIEW_LOCAL_ENGINE_ENABLED (and the AI reviewer is on): the AI review may run on the local model
+    rules_for_kind: bool = False  # the reviewer asks the held rules of this paper's kind (a datasheet always; a procedure or contract only with its switch)
 
 
 @dataclass
@@ -220,15 +223,25 @@ def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     return True, "its AI steps use Claude where this install sets them to"
 
 
-def _local_ai_ok(f: Facts) -> bool:
-    """May the AI review run on the LOCAL model for this paper? Needs the local switch and a kind the reviewer offers. Everything that
-    only bars CLAUDE (no yes for a contract, not approved, blocked, lane closed, caps, not scored) does not bar the local model:
-    nothing leaves this computer. A kind not scored against a key still carries its draft sentence on the sheet."""
-    return bool(
+def _local_ai(f: Facts) -> tuple[bool, str]:
+    """(may the AI review run on the LOCAL model for this paper, the plain sentence). Needs the local switch and a kind the reviewer offers.
+    Everything that only bars CLAUDE (no yes for a contract, not approved, blocked, lane closed, caps, not scored) does not bar the local
+    model: nothing leaves this computer. A procedure or a contract is the GENERAL review, which the local model does not run yet
+    (`agent_review_local.GENERAL_REFUSED`): only the rules of its kind can run, and only with their own switch; the sentence says what runs
+    and what does not. A kind not scored against a key still carries its draft sentence on the sheet."""
+    from . import agent_review_local
+
+    if not (
         f.local_ai
         and f.agent_enabled
         and f.kind in ("datasheet", "procedure", "contract")
-    )
+    ):
+        return False, AI_NEEDS_CLAUDE_LOCAL
+    if f.kind == "datasheet" or getattr(agent_review_local, "GENERAL_ON_LOCAL", False):
+        return True, AI_ON_LOCAL
+    if f.rules_for_kind:
+        return True, AI_ON_LOCAL_RULES_ONLY
+    return False, AI_NEEDS_GENERAL_LOCAL
 
 
 def gate_unscored_words() -> str:
@@ -249,6 +262,7 @@ def decide(choice: str, f: Facts) -> Plan:
         plan.wont_run = [{"part": p, "why": w} for p, w in CHECKLISTS_EMPTY]
     blocker = _ai_blocker(f)
     rc_claude, rc_why = _rule_check_on_claude(f)
+    local_ok, local_why = _local_ai(f)
 
     if choice == LOCAL:
         plan.parts = [
@@ -257,9 +271,7 @@ def decide(choice: str, f: Facts) -> Plan:
                 ON_LOCAL,
                 "you chose Local only: nothing leaves this computer",
             ),
-            Part(AI_REVIEW, ON_LOCAL, AI_ON_LOCAL)
-            if _local_ai_ok(f)
-            else Part(AI_REVIEW, NOT_RUN, AI_NEEDS_CLAUDE_LOCAL),
+            Part(AI_REVIEW, ON_LOCAL if local_ok else NOT_RUN, local_why),
         ]
         return plan
 
@@ -282,10 +294,10 @@ def decide(choice: str, f: Facts) -> Plan:
         rc = Part(RULE_CHECK, ON_LOCAL, f"runs on this computer: {rc_why}")
     if ai_ok:
         ai = Part(AI_REVIEW, ON_CLAUDE, "the AI review reads the paper on Claude")
-    elif choice == AUTOMATIC and _local_ai_ok(f):
+    elif choice == AUTOMATIC and local_ok:
         # Claude is not allowed for this paper: the local model reads it (said with the reason), never a silent Claude call
         ai = Part(
-            AI_REVIEW, ON_LOCAL, f"{AI_ON_LOCAL} (Claude is not used: {blocker[1]})"
+            AI_REVIEW, ON_LOCAL, f"{local_why} (Claude is not used: {blocker[1]})"
         )
     else:
         ai = Part(AI_REVIEW, NOT_RUN, blocker[1])
@@ -366,6 +378,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         kind_scored=scored,
         caps_ok=room,
         local_ai=agent_review_local.switch_on(),
+        rules_for_kind=agent_review_gate.rules_kind_enabled(kind),
         books_ok=bool(
             settings.claude_auto_approve_reviews_enabled
             or not settings.claude_approved_list_enforced
@@ -521,6 +534,8 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
         else None,
         "exact": False,
     }
+    from . import agent_review_gate
+
     if plan.part(AI_REVIEW).engine == ON_LOCAL:
         out["cost"]["local_usd"] = 0.0
         out["cost"]["local_basis"] = (
@@ -528,8 +543,14 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
         )
         from .agent_review_local import local_time
 
-        out["time"] = local_time(conn, document_id)
+        out["time"] = local_time(
+            conn, document_id, agent_review_gate.two_reader_enabled()
+        )
     out["notes"] = _notes(facts, plan, settings)
+    if plan.part(AI_REVIEW).engine == ON_LOCAL:
+        out["notes"].append(
+            out["time"]["basis"]
+        )  # the start screen says before the start: the time, and that other reviews wait
     out["sentence"] = sentence_of(out)
     return out
 
@@ -542,7 +563,7 @@ def sentence_of(plan: dict) -> str:
     if plan["refused"]:
         return plan["refused"] + "."
     if ai["engine"] == ON_LOCAL:
-        bits.append("The AI review runs on the local model.")
+        bits.append(ai["why"][:1].upper() + ai["why"][1:] + ".")
     elif plan["choice"] == LOCAL:
         bits.append(AI_NEEDS_CLAUDE_LOCAL + ".")
     elif ai["engine"] == ON_CLAUDE:
