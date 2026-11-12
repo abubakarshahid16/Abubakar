@@ -566,6 +566,11 @@ class SettingsExt(BaseModel):
     #: that waits for every point). OFF (default): the old page stays; the sign route (`/crs/issue`) asks nothing new. ON: it also
     #: refuses while any point is undecided. The lead switches it on live, tests it, and shows the owner. Env: REVIEW_PAGE_V2_ENABLED.
     review_page_v2_enabled: bool = False
+    #: Owner, 12 Nov 2026 (ONE REVIEWER, STATE section 37): the AI review job runs the old rule check's code comparisons as a calculator step before
+    #: its first reader call (`agent_review_calculator_run`): a stored datasheet fact against a numeric rule, and the approved checklist, as lines
+    #: "Proven by code" only with a compared value and both quotes found by code. Needs the AI reviewer on; off (default): the job is byte-for-byte
+    #: what it was. Env: AI_REVIEW_CALCULATOR_ENABLED.
+    ai_review_calculator_enabled: bool = False
     #: Owner, 12 Nov 2026 (the review code of the redesigned page). N > 0: when the engineer has KEPT at least N AI "not met" points
     #: (two-reader verdicts and one-reader views, never a code-proven Fail) on mandatory ("shall") rules, the proposed code is
     #: "Rejected / Revise and Resubmit", with the count in the reason line. 0 (default) = OFF: those points propose at most

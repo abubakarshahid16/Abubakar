@@ -677,6 +677,30 @@ def _is_general_review(run) -> bool:
     return False
 
 
+def calculator_check(run) -> list[Check]:
+    """With AI_REVIEW_CALCULATOR_ENABLED on, the run's counts carry the calculator's summary: say what it did, or why it did not run (ONE REVIEWER, PR 3).
+    Setting off: no key, no check (the report is what it was)."""
+    if run is None:
+        return []
+    with contextlib.suppress(ValueError, TypeError):
+        calc = (json.loads(run["counts_json"] or "{}") or {}).get("calculator")
+        if calc:
+            ran = bool(calc.get("ran"))
+            detail = (
+                f"{calc.get('lines', 0)} code lines {calc.get('by_class') or {}}, {calc.get('pairs', 0)} pairs from {calc.get('facts', 0)} stored values"
+                if ran
+                else str(calc.get("reason") or "did not run")
+            )
+            return [
+                Check(
+                    "the calculator step ran, or says why not",
+                    ran or bool(calc.get("reason")),
+                    detail,
+                )
+            ]
+    return []
+
+
 def rules_check(
     conn: sqlite3.Connection, run_id: str, used: dict | None, require_asked: bool
 ) -> list[Check]:
@@ -713,6 +737,7 @@ def rules_check(
         else ""
     )
     out.extend(stop_is_true_check(conn, run_id, stop))
+    out.extend(calculator_check(run))
     reasons: dict[str, int] = {}
     for r in left:
         reasons[r["left_out_reason"]] = reasons.get(r["left_out_reason"], 0) + 1
