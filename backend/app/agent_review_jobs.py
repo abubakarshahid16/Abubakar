@@ -527,6 +527,7 @@ def _finish(
     items = plan["items"]
     lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
     counts = runner_mod.counts_of(lines)
+    n_cut = reread_mod.cut_off_count(lines)
     reread = (  # C4: a stopped page re-read is stated, never dropped (null when off or ran fully)
         reread_mod.reread_facts(runner.reread_enabled, runner.reread_stopped, lines)
         if runner
@@ -544,7 +545,8 @@ def _finish(
             "usd": usd, "header": _header_facts(submittal, kind.equipment_type),
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
                                "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
-                               **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {})}}  # fmt: skip
+                               **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {}),
+                               **({"page_reread_cut_off": reread_mod.cut_off_sentence(n_cut)} if n_cut else {})}}  # fmt: skip
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
     crs_lines.write_internal(lines, folder / "crs-internal.xlsx", meta)

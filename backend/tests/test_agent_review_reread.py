@@ -63,6 +63,10 @@ class ReLane(s.FakeModel):
     def __init__(self, reread=None, again=None, **kw):
         super().__init__(**kw)
         self.reread = reread
+        self.reread_cut: set[int] = (
+            set()
+        )  # max_tokens limits at which the re-read answer is cut off
+        self.reread_limits: list[int] = []
         self.again = (
             again or {}
         )  # the lead's answer per item when it is asked again with the pointer
@@ -79,6 +83,12 @@ class ReLane(s.FakeModel):
             text = (
                 self.reread if isinstance(self.reread, str) else json.dumps(self.reread)
             )
+            self.reread_limits.append(body["max_tokens"])
+            if body["max_tokens"] in self.reread_cut:
+                usage = {"input_tokens": 1500, "output_tokens": body["max_tokens"]}
+                cut = self._reply(self.second_name, usage, '{"found": tr')
+                cut["stop_reason"] = "max_tokens"
+                return cut
             usage = {"input_tokens": 1500, "output_tokens": 120}
             return self._reply(self.second_name, usage, text)
         last = (
@@ -716,3 +726,86 @@ def test_calls_already_paid_in_a_refused_step_are_charged_to_the_line(w, monkeyp
     lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, AGAIN_NUMBER)
     stored = line_json(lines["R-frame"])
     assert stored["reread"]["outcome"] == "step_off" and stored["usd"] > 0
+
+
+# ---------------------------------------------------------------- a cut-off re-read is retried once and charged what it cost
+
+
+def _review_cut(w, cut, reread=None, answers=None):
+    w["fake"] = ReLane(
+        reread=reread or {"found": False},
+        answers=answers or {**s.ANSWERS, "R-frame": SILENT},
+    )
+    w["fake"].reread_cut = set(cut)
+    run_id, job_id = start()
+    run_job(job_id)
+    return lines_of(run_id), w["fake"], run_id
+
+
+def test_a_cut_off_re_read_is_asked_once_more_at_twice_the_limit_and_then_used(w):
+    lines, fake, _ = _review_cut(w, {rr.REREAD_MAX_TOKENS})
+    assert (
+        fake.reread_limits == [600, 1200]
+        and rr.REREAD_RETRY_TOKENS == 2 * rr.REREAD_MAX_TOKENS
+    )
+    assert line_json(lines["R-frame"])["reread"]["outcome"] == "no_value"
+
+
+def test_a_second_cut_off_ends_as_cut_off_with_no_claim_and_no_third_call(w):
+    lines, fake, _ = _review_cut(w, {600, 1200})
+    row = lines["R-frame"]
+    rec = line_json(row)["reread"]
+    assert rec["outcome"] == "cut_off" and rec["failure"] == "cut_off"
+    assert fake.reread_limits == [600, 1200] and fake.kinds.count("reread") == 2
+    assert row["word"] == "Query" and "two AI readers" not in row["reason"]
+    assert "answer" not in rec and "found" not in json.dumps(
+        rec
+    )  # a cause word, never the answer
+
+
+def test_a_cut_off_line_is_charged_what_the_calls_cost_not_the_worst_case(
+    w, monkeypatch
+):
+    from app import claude_spend
+
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    off, _, _ = _review_cut(w, set())
+    base = line_json(off["R-frame"])["usd"]
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
+    db.reset_connection()
+    lines, _fake, _ = _review_cut(w, {600, 1200})
+    real = claude_spend.cost_usd(
+        agent_claude.SECOND_MODEL, {"input_tokens": 1500, "output_tokens": 600}
+    ) + claude_spend.cost_usd(
+        agent_claude.SECOND_MODEL, {"input_tokens": 1500, "output_tokens": 1200}
+    )
+    charged = line_json(lines["R-frame"])["usd"] - base
+    assert charged == pytest.approx(real, rel=0.01) and charged > 0
+    worst = claude_spend.worst_case_usd(agent_claude.SECOND_MODEL, 6000, 600)
+    assert charged < worst * 2
+
+
+def test_the_failure_cause_words_are_stored_never_the_answer(w):
+    lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, "not json at all")
+    assert line_json(lines["R-frame"])["reread"]["failure"] == "unreadable"
+    lines, _ = review(
+        w, {**s.ANSWERS, "R-frame": SILENT}, agent_claude.AgentTransportError("boom")
+    )
+    assert line_json(lines["R-frame"])["reread"]["failure"] == "call_error"
+
+
+def test_the_notes_count_the_cut_off_re_reads_in_plain_words(w):
+    import openpyxl
+
+    _, _, run_id = _review_cut(w, {600, 1200})
+    wb = openpyxl.load_workbook(agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx")
+    cells = [
+        str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value
+    ]
+    assert any(rr.cut_off_sentence(1) in c for c in cells)
+    assert (
+        rr.cut_off_count(
+            [{"reread": {"outcome": "cut_off"}}, {"reread": {"outcome": "failed"}}, {}]
+        )
+        == 1
+    )

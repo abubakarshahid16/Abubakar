@@ -248,9 +248,13 @@ class Runner(DecideMixin, RereadMixin):
                     time.sleep(self.retry_base * (2**attempt))
                     continue
                 raise
-            except agent_claude.AgentBadReply:
-                self._release(app, app)
-                self._add_usd(app)
+            except agent_claude.AgentBadReply as exc:
+                # the optional page re-read is charged what the call cost (its own usage); every other call at the worst case
+                charge = (
+                    exc.usd if self.in_optional_step() and exc.usd is not None else app
+                )
+                self._release(app, charge)
+                self._add_usd(charge)
                 raise
             except Exception:
                 self._release(app, 0.0)
