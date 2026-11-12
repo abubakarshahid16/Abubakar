@@ -110,12 +110,13 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         "09",
-        "the issue copy prints the internal word for rank 3",
-        _E,
-        '    return {"priority": priority, "priority_label": priority_word(priority, copy)}\n',
-        '    return {"priority": priority, "priority_label": priority_word(priority)}\n',
-        _TE,
-        "issue_copy_says_clarification_for_rank_three",
+        "the issue copy takes its Priority word from the old rank words, not from the shared function (PR #1767: ONE vocabulary - "
+        "this entry once guarded the issue copy's own rank-3 word 'Clarification', which was removed on purpose)",
+        APP / "crs_normal.py",
+        'row["priority_label"] = words.priority(status, {}, words.ORDER_AI_NOT_MET)',
+        'row["priority_label"] = words.priority(status, {}, words.ORDER_AI_NOT_MET) if internal else row["rank_word"]',
+        "tests/test_crs_one_layout.py",
+        "same_priority_per_item_no",
     ),
     _m(
         "10",
