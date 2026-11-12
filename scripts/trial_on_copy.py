@@ -656,6 +656,17 @@ def stop_is_true_check(conn: sqlite3.Connection, run_id: str, stop: str) -> list
     ]
 
 
+def _is_general_review(run) -> bool:
+    """True when the run is a GENERAL review (procedure or contract: no rule is asked by design; the counts say so)."""
+    if run is None:
+        return False
+    with contextlib.suppress(ValueError, TypeError):
+        return (json.loads(run["counts_json"] or "{}") or {}).get(
+            "mode"
+        ) == "general review"
+    return False
+
+
 def rules_check(
     conn: sqlite3.Connection, run_id: str, used: dict | None, require_asked: bool
 ) -> list[Check]:
@@ -666,7 +677,7 @@ def rules_check(
     asked = [r for r in rows if r["asked"]]
     left = [r for r in rows if not r["asked"]]
     run = conn.execute(
-        "SELECT stop_reason, items_total, paper_kind, equipment_json FROM agent_review_run WHERE run_id = ?",
+        "SELECT stop_reason, items_total, paper_kind, equipment_json, counts_json FROM agent_review_run WHERE run_id = ?",
         (run_id,),
     ).fetchone()
     stop = (run["stop_reason"] if run else None) or ""
@@ -720,6 +731,14 @@ def rules_check(
                 "rules asked > 0, or the plan says why none",
                 False,
                 "asked 0; the plan's own cause is unknown (the fallback sentence): the old silent defect",
+            )
+        )
+    elif _is_general_review(run):
+        out.append(
+            Check(
+                "rules asked > 0, or the plan says why none",
+                True,
+                "asked 0 by design: a general review holds the paper to no rule book (its checklist and project papers are the plan)",
             )
         )
     elif left or plan_stop or notes:

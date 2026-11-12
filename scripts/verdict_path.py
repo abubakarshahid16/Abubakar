@@ -93,6 +93,26 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
     (
+        APP + "agent_general_review.py",
+        "the single exit of a general review's lines (no verdict word), the mode decision",
+    ),
+    (
+        APP + "agent_general_crs.py",
+        "what the cells of a general review's CRS say (comment, Status, header)",
+    ),
+    (
+        APP + "agent_general_findings.py",
+        "which findings of parts 3 to 5 become lines; sends the paper's text to Claude",
+    ),
+    (
+        APP + "agent_general_parts.py",
+        "runs parts 1 and 2 of a general review and sends the paper's text to Claude",
+    ),
+    (
+        APP + "agent_general_job.py",
+        "plans a general review, declares what may be sent, stores its lines and run row",
+    ),
+    (
         APP + "agent_review_reuse.py",
         "stands in for a reader's call: what is reused, and that no call is made",
     ),
@@ -102,6 +122,7 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
     "agent_review_coverage.py": "counts coverage for display",
