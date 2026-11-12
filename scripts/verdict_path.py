@@ -158,6 +158,7 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
+    "agent_review_code_trace.py": "words the stored proof of a code line for the trace screen; decides nothing",
     "agent_review_coverage.py": "counts coverage for display",
     "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
     "agent_review_gate.py": "the on/off switch only",
