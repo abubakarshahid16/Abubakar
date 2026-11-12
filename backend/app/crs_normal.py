@@ -212,7 +212,7 @@ def layout_view(view: dict, meta: dict) -> dict:
             "columns": ("Topic", "Detail"),
             "widths": (44.0, 120.0),
             "rows": [
-                ["Priority rule", words.PRIORITY_RULE],
+                ["Priority rule", words.PRIORITY_RULE_NORMAL],
                 ["Status mapping", STATUS_MAPPING],
                 *[list(c) for c in counts],
                 ["Count: rows on the CRS sheet", len(rows)],

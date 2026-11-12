@@ -150,7 +150,7 @@ def test_the_working_columns_are_on_the_evidence_sheet_and_the_notes_counts_equa
     )
     notes = {r[0]: r[1] for r in wb["Notes"].iter_rows(min_row=2, values_only=True)}
     assert (
-        notes["Priority rule"] == words.PRIORITY_RULE
+        notes["Priority rule"] == words.PRIORITY_RULE_NORMAL
         and "safety tick" in notes["Status mapping"]
     )
     assert [
@@ -344,3 +344,34 @@ def test_both_copies_of_one_review_print_the_same_priority_per_item_no():
     }
     assert issue and all(internal[k] == v for k, v in issue.items())
     assert set(issue.values()) <= {"High", "Medium", "Low", None}
+
+
+def _every_text(obj):
+    if isinstance(obj, dict):
+        for v in obj.values():
+            yield from _every_text(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _every_text(v)
+    elif obj is not None:
+        yield str(obj)
+
+
+def test_the_normal_reviewer_never_names_the_two_reader_class_anywhere():
+    for copy in ("internal", "issue"):
+        wb = _book(copy)
+        cells = [
+            str(c)
+            for ws in wb.worksheets
+            for r in ws.iter_rows(values_only=True)
+            for c in r
+            if c is not None
+        ]
+        assert cells and not any("AI verdict" in c for c in cells), copy
+        meta = {"review_run_id": "r", "copy": copy, "export_quality": False}
+        view = crs_export.build_crs_view(_rows(), meta)
+        assert not any("AI verdict" in t for t in _every_text(view)), copy
+    # one home builds the sentence: the AI reviewer's still names the class, the normal reviewer's does not
+    assert "AI verdict" in words.PRIORITY_RULE
+    assert "AI verdict" not in words.PRIORITY_RULE_NORMAL
+    assert words.PRIORITY_RULE_NORMAL == words.priority_rule(words.NORMAL_STATUSES)
