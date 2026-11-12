@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterable, Mapping
 
+from . import agent_review_approved_code as approved_code
+from . import agent_review_code_proof as code_proof
 from . import agent_review_two_reader as two_reader
 from .agent_review_verdict import (
     AI_TIER,
@@ -24,6 +26,7 @@ from .agent_review_verdict import (
     DISAGREE_WHY,
     FAIL,
     NOT_A_RULE,
+    OWNER_TIER,
     PASS,
     QUERY,
     RULE_NOT_APPROVED,
@@ -279,6 +282,34 @@ def demote_unproven(line: Mapping) -> dict:
 demote_uncompared_pass = demote_unproven  # the name of the first version (Pass only)
 
 
+CODE_SOURCE = "code"  # a line made by the calculator (`agent_review_calculator`), never by a model
+UNPROVEN_CODE_WHY = "the code line was not proven: a compared value with both quotes found by code is needed"
+
+
+def code_line_proven(line: Mapping) -> bool:
+    """A CODE line may be Pass or Fail ONLY when the proof is made again from its own texts and values (`agent_review_code_proof`): both quotes hold
+    the numbers they stand for, the comparison gives the stored verdict, the page is real. A flag on the line is never taken on trust."""
+    return code_proof.line_proven(line)
+
+
+def hold_unproven_code(line: Mapping) -> dict:
+    """A line that claims to be a code line (its source in any case, its kind, its approved marker or its `C-` id) and is Pass or Fail without
+    `code_line_proven` becomes a Query with the reason. Only makes a line less confident. Idempotent."""
+    out = dict(line)
+    if (
+        code_proof.is_code_line(out)
+        and out.get("verdict") in (PASS, FAIL)
+        and not code_line_proven(out)
+    ):
+        out.update(
+            verdict=QUERY,
+            decided_by=BY_ENGINEER,
+            why=UNPROVEN_CODE_WHY,
+            reason_code="not_proven",
+        )
+    return out
+
+
 def final_cap(
     line: Mapping,
     item: Mapping | None,
@@ -297,8 +328,12 @@ def final_cap(
     * a line that rests on absence (`reason_code` absent / sheet_silent) on a paper kind where silence is a Query (every kind
       but a datasheet; an unknown or missing `paper_kind` counts as silent) is a Query: `hold_silence`.
     Idempotent. Only makes a line less confident."""
-    out = hold_silence(line, paper_kind)
-    tier = item_tier(item, lookup, skill_ids)
+    out = hold_unproven_code(hold_silence(line, paper_kind))
+    tier = (
+        OWNER_TIER
+        if approved_code.is_approved_code_item(item)
+        else item_tier(item, lookup, skill_ids)
+    )
     if tier == NOT_A_RULE:
         out.pop("rule_tier", None)
         out["tier"] = None
