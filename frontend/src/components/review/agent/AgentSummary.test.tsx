@@ -94,3 +94,25 @@ describe("AgentSummary: mode and project papers", () => {
     expect(screen.getByTestId("count-AI note, no rule book")).toHaveTextContent(": 9");
   });
 });
+
+describe("AgentSummary: two readers agree", () => {
+  it("counts the class apart from Pass and Fail and says what the second-reader step did", () => {
+    render(<AgentSummary summary={summary({
+      counts_by_class: { "Proven by code": 2, "AI verdict, two readers agree": 3 },
+      two_reader_step: { candidates: 5, asked: 5, calls: 1, agreed: 3, disagreed: 1, unconfirmed: 1, skipped: 0, off: null },
+    })} />);
+    expect(screen.getByTestId("count-AI verdict, two readers agree")).toHaveTextContent("AI verdict, two readers agree: 3");
+    expect(screen.getByTestId("count-Proven by code")).toHaveTextContent("Proven by code: 2");
+    expect(screen.getByTestId("two-reader-step")).toHaveTextContent("5 lines were candidates, 5 asked in 1 calls; 3 agreed, 1 disagreed, 1 not confirmed.");
+  });
+  it("says when the step was switched off for the rest of the run", () => {
+    render(<AgentSummary summary={summary({
+      two_reader_step: { candidates: 4, asked: 0, calls: 0, agreed: 0, disagreed: 0, unconfirmed: 0, skipped: 0, off: "cap_refused" },
+    })} />);
+    expect(screen.getByTestId("two-reader-step")).toHaveTextContent("switched off for the rest of this run (cap refused)");
+  });
+  it("shows nothing about the step when the run has none", () => {
+    render(<AgentSummary summary={summary()} />);
+    expect(screen.queryByTestId("two-reader-step")).toBeNull();
+  });
+});

@@ -1,8 +1,8 @@
 // GENERATED from backend/app/api/agent_review_schemas.py by scripts/gen_contract_types.py.
 // Do not edit: change the backend model and run the script (order 119.1).
 
-export type AgentVerdictClass = "Proven by code" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed" | "Not checked: rule book not held" | "AI note, no rule book";
-export type AgentVerdictWord = "Pass" | "Fail" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed" | "Not checked" | "AI note";
+export type AgentVerdictClass = "Proven by code" | "AI verdict, two readers agree" | "Not checked on this paper" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed" | "Not checked: rule book not held" | "AI note, no rule book";
+export type AgentVerdictWord = "Pass" | "Fail" | "AI verdict: met" | "AI verdict: not met" | "AI verdict: not stated" | "Needs a drawing or a calculation" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed" | "Not checked" | "AI note";
 export type AgentRuleTier = "Owner" | "Engineer" | "AI approved" | "Not AI approved";
 export type AgentPart = "not held" | "checklist" | "paper against itself" | "against project papers" | "engineering comment";
 export type AgentTextSource = "quote" | "the model's words";
@@ -27,6 +27,22 @@ export interface AgentProjectPaper {
 export interface AgentStatus {
   enabled: boolean;
   claude_lane_open: boolean;
+}
+
+/** What the optional second-reader step did in one run (owner order 13): counts only. `off` is the code that switched the step off for the rest of the run (a cap refusal, a failed call, an unknown first-reader model), null when it ran to the end. */
+export interface AgentTwoReaderStep {
+  candidates: number;
+  asked: number;
+  calls: number;
+  /** lines that earned the class "AI verdict, two readers agree". */
+  agreed: number;
+  /** lines where the two readers reached opposite verdicts (a Query for the engineer). */
+  disagreed: number;
+  /** lines asked where the second reader could not tell, or a quote or a guard did not hold (the line stays as it was). */
+  unconfirmed: number;
+  /** absence step only: lines not asked because the first reader was not given every page of the paper. */
+  skipped: number;
+  off?: string | null;
 }
 
 export interface AgentPaperText {
@@ -72,6 +88,12 @@ export interface AgentRunSummary {
   mode: AgentMode;
   /** the project papers a general review was checked against (empty for a rule review, or when none was named). */
   project_papers_used: AgentProjectPaper[];
+  /** the second-reader step of this run (counts and one code, no text); null when the step was off or the run was stored before it. */
+  two_reader_step?: AgentTwoReaderStep | null;
+  /** the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it. */
+  two_reader_absence_step?: AgentTwoReaderStep | null;
+  /** the same for the other-paper class ("Not checked on this paper"); null when that step was off. */
+  two_reader_other_step?: AgentTwoReaderStep | null;
   /** the paper's stored-text state; null on a run stored before it was kept (shown as nothing). */
   paper_text?: AgentPaperText | null;
 }

@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import sqlite3
 
-from .agent_review_gate import enabled, require_on
+from .agent_review_gate import enabled, require_on, two_reader_enabled
 from .db import schema_once
 
 CLASSES = (
     "Proven by code",
+    "AI verdict, two readers agree",
+    "Not checked on this paper",
     "AI opinion, engineer to confirm",
     "AI opinion, rule not yet approved",
     "Query for the engineer",
@@ -46,6 +48,10 @@ PARTS = (
 WORDS = (
     "Pass",
     "Fail",
+    "AI verdict: met",
+    "AI verdict: not met",
+    "AI verdict: not stated",
+    "Needs a drawing or a calculation",
     "AI thinks: met",
     "AI thinks: not met",
     "Query",
@@ -125,6 +131,11 @@ _STATEMENTS = (
         text_source TEXT CHECK (text_source IS NULL OR text_source IN ('quote', 'the model''s words')),
         PRIMARY KEY (run_id, item_id),
         CHECK (word NOT IN ('Pass', 'Fail') OR verdict_class = 'Proven by code'),
+        CHECK (word NOT IN ('AI verdict: met', 'AI verdict: not met', 'AI verdict: not stated') OR verdict_class = 'AI verdict, two readers agree'),
+        CHECK (verdict_class <> 'AI verdict, two readers agree' OR word IN ('AI verdict: met', 'AI verdict: not met', 'AI verdict: not stated')),
+        CHECK (verdict_class <> 'AI verdict, two readers agree' OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
+        CHECK (word <> 'Needs a drawing or a calculation' OR verdict_class = 'Not checked on this paper'),
+        CHECK (verdict_class <> 'Not checked on this paper' OR (word = 'Needs a drawing or a calculation' AND (rule_tier IS NULL OR rule_tier <> 'Not AI approved'))),
         CHECK (word NOT IN ('Pass', 'Fail') OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
         CHECK (verdict_class NOT IN {_in(GENERAL_CLASSES)} OR (rule_tier IS NULL AND part IS NOT NULL)),
         CHECK (word NOT IN ('Not checked', 'AI note') OR verdict_class IN {_in(GENERAL_CLASSES)})
@@ -146,6 +157,8 @@ _STATEMENTS = (
 
 
 LINE_TABLE = "agent_review_line"
+TWO_READER_CLASS = "AI verdict, two readers agree"
+TWO_READER_NOT_STATED = "AI verdict: not stated"
 NEW_LINE_COLUMNS = frozenset({"part", "text_source"})
 UPGRADE_ACTION = "agent_review_tables_upgraded"
 
@@ -169,6 +182,26 @@ def line_shape_is_old(conn) -> bool:
     return bool(cols) and bool(NEW_LINE_COLUMNS - cols)
 
 
+def line_check_is_old(conn) -> bool:
+    """True only when the second-reader switch is ON and `agent_review_line` exists with a CHECK that does not yet name the class
+    "AI verdict, two readers agree" (a table made before that class). With the switch off nothing is judged old, so a switched-off
+    app never touches an existing table. The upgrade is the one `create_tables` already does for the older shape."""
+    if not two_reader_enabled():
+        return False
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (LINE_TABLE,)
+    ).fetchone()
+    return bool(
+        row
+        and row[0]
+        and (
+            TWO_READER_CLASS not in row[0]
+            or TWO_READER_NOT_STATED not in row[0]
+            or "Not checked on this paper" not in row[0]
+        )
+    )
+
+
 def has_tables(conn) -> bool:
     held = {
         r[0]
@@ -180,7 +213,7 @@ def has_tables(conn) -> bool:
 def shape_problem(conn) -> str | None:
     """Why no run may start before the first Claude call: the line table is still of the older shape (the upgrade did not
     happen or failed). None when the tables are usable or do not exist yet (they are made on the first run)."""
-    if line_shape_is_old(conn):
+    if line_shape_is_old(conn) or line_check_is_old(conn):
         return "the AI review tables could not be upgraded: the older table shape is still in place"
     return None
 
@@ -241,7 +274,7 @@ def create_tables(conn) -> None:
     conn.execute("BEGIN IMMEDIATE")
     try:
         old = old_columns = None
-        if line_shape_is_old(conn):
+        if line_shape_is_old(conn) or line_check_is_old(conn):
             old_columns = _columns(conn, LINE_TABLE)
             old = _rename_old_line_table(conn)
         for statement in _STATEMENTS:
@@ -276,7 +309,7 @@ def upgrade_if_old(quiet: bool = False) -> None:
     a table). Raises `UpgradeFailed`."""
     from .db import connect
 
-    if enabled() and line_shape_is_old(connect()):
+    if enabled() and (line_shape_is_old(connect()) or line_check_is_old(connect())):
         from .db import reset_schema_memo
 
         reset_schema_memo()

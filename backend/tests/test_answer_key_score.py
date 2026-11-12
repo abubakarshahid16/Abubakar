@@ -598,3 +598,76 @@ def test_a_one_word_printed_label_must_be_the_whole_line_label():
     spell = {"body_material": ("Material",)}
     assert "body_material" not in aks.roles_named("Spring material", patterns, spell)
     assert "body_material" in aks.roles_named("Material", patterns, spell)
+
+
+def _ai_verdict_crs(tmp_path, rows):
+    """A CRS in the NEW layout whose rows are (page, comment, status): the Status column the AI reviewer's workbook has."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "CRS"
+    ws.append(
+        [
+            "Item No",
+            "Document Name",
+            "Page No./Section",
+            "COMPANY Comments",
+            "Comment By",
+            "Contractor's Response",
+            "Final Resolution",
+            "Standard Reference",
+            "Priority",
+            "Status",
+        ]
+    )
+    for i, (page, comment, status) in enumerate(rows, start=1):
+        ws.append(
+            [
+                i,
+                "doc_x",
+                page,
+                comment,
+                "AI reviewer",
+                None,
+                None,
+                "XS-1 1",
+                None,
+                status,
+            ]
+        )
+    path = tmp_path / "ai.xlsx"
+    wb.save(path)
+    return path
+
+
+def test_a_two_reader_verdict_is_a_decision_of_its_own_kind_and_a_wrong_one_is_a_clear_wrong(
+    tmp_path,
+):
+    key = [
+        {"kind": "problem", "role": "set_pressure", "page": "2"},
+        {"kind": "complies", "role": "body_material", "page": "1"},
+        {"kind": "problem", "role": "set_pressure", "page": "3"},
+    ]
+    not_met = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is not met."
+    met = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is met."
+    crs = _ai_verdict_crs(
+        tmp_path,
+        [
+            ("p.2 - Set pressure", not_met, "AI verdict"),
+            ("p.1 - Body material", met, "AI verdict"),
+            ("p.3 - Set pressure", met, "AI verdict"),
+        ],
+    )
+    res = aks.score_files(_key(tmp_path, key), crs)
+    assert res["ai_verdict_lines"] == 3 and res["lines_unknown_verdict"] == 0
+    assert res["ai_verdict_found"] == [2] and res["ai_verdict_complies_confirmed"] == [
+        3
+    ]
+    assert (
+        res["ai_verdict_wrong"] == [4] and 4 in res["clear_wrong"]
+    )  # a wrong "met" on a problem row is a clear wrong
+    assert (
+        res["problems_found"] == []
+        and res["pass_lines"] == 0
+        and res["complies_confirmed"] == []
+    )  # never mixed into the proven counts
+    assert "wrong two-reader verdicts" in aks.summary(res)["clear_wrong"]

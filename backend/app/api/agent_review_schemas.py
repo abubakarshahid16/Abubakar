@@ -22,6 +22,12 @@ from pydantic import BaseModel, Field, model_validator
 #: Class of one CRS line. Only the first is proven by code.
 VerdictClass = Literal[
     "Proven by code",
+    #: Two different AI readers reached the same verdict independently, code verified both readers' quotes and no guard objects
+    #: (owner order 13, behind AGENT_REVIEW_TWO_READER_VERDICT_ENABLED). Internal copy only; never a Pass or a Fail.
+    "AI verdict, two readers agree",
+    #: Two AI readers each found the rule cannot be checked on this paper: it needs a drawing or a calculation (owner order 13, behind
+    #: AGENT_REVIEW_TWO_READER_OTHER_PAPER_ENABLED). Not a decision, not a Query, not "Not applicable"; internal only.
+    "Not checked on this paper",
     "AI opinion, engineer to confirm",
     "AI opinion, rule not yet approved",
     "Query for the engineer",
@@ -39,6 +45,10 @@ VerdictClass = Literal[
 VerdictWord = Literal[
     "Pass",
     "Fail",
+    "AI verdict: met",
+    "AI verdict: not met",
+    "AI verdict: not stated",
+    "Needs a drawing or a calculation",
     "AI thinks: met",
     "AI thinks: not met",
     "Query",
@@ -74,6 +84,14 @@ _APPROVED_TIERS = ("Owner", "Engineer", "AI approved")
 _AI_WORDS = ("AI thinks: met", "AI thinks: not met")
 LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
     "Proven by code": (("Pass", "Fail"), (*_APPROVED_TIERS, None)),
+    "Not checked on this paper": (
+        ("Needs a drawing or a calculation",),
+        (*_APPROVED_TIERS, None),
+    ),
+    "AI verdict, two readers agree": (
+        ("AI verdict: met", "AI verdict: not met", "AI verdict: not stated"),
+        (*_APPROVED_TIERS, None),
+    ),
     "AI opinion, engineer to confirm": (_AI_WORDS, (*_APPROVED_TIERS, None)),
     "AI opinion, rule not yet approved": (_AI_WORDS, ("Not AI approved",)),
     "Query for the engineer": (("Query",), (*_APPROVED_TIERS, "Not AI approved", None)),
@@ -130,6 +148,8 @@ TextSource = Literal["quote", "the model's words"]
 #: classes below, with a part; "Query" and "Not reviewed" appear in both modes.
 RULE_REVIEW_ONLY = (
     "Proven by code",
+    "AI verdict, two readers agree",
+    "Not checked on this paper",
     "AI opinion, engineer to confirm",
     "AI opinion, rule not yet approved",
     "Not applicable",
@@ -166,6 +186,24 @@ class AgentStatus(BaseModel):
 
     enabled: bool
     claude_lane_open: bool
+
+
+class AgentTwoReaderStep(BaseModel):
+    """What the optional second-reader step did in one run (owner order 13): counts only. `off` is the code that switched the
+    step off for the rest of the run (a cap refusal, a failed call, an unknown first-reader model), null when it ran to the end."""
+
+    candidates: Count = 0
+    asked: Count = 0
+    calls: Count = 0
+    #: lines that earned the class "AI verdict, two readers agree".
+    agreed: Count = 0
+    #: lines where the two readers reached opposite verdicts (a Query for the engineer).
+    disagreed: Count = 0
+    #: lines asked where the second reader could not tell, or a quote or a guard did not hold (the line stays as it was).
+    unconfirmed: Count = 0
+    #: absence step only: lines not asked because the first reader was not given every page of the paper.
+    skipped: Count = 0
+    off: str | None = None
 
 
 #: What the library holds for the paper to read (order 13, C2). "no text", "not indexed" and "still reading" stop the run before any rule is
@@ -221,6 +259,12 @@ class AgentRunSummary(BaseModel):
     mode: Mode = "rule review"
     #: the project papers a general review was checked against (empty for a rule review, or when none was named).
     project_papers_used: list[AgentProjectPaper] = []
+    #: the second-reader step of this run (counts and one code, no text); null when the step was off or the run was stored before it.
+    two_reader_step: AgentTwoReaderStep | None = None
+    #: the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it.
+    two_reader_absence_step: AgentTwoReaderStep | None = None
+    #: the same for the other-paper class ("Not checked on this paper"); null when that step was off.
+    two_reader_other_step: AgentTwoReaderStep | None = None
     #: the paper's stored-text state; null on a run stored before it was kept (shown as nothing).
     paper_text: AgentPaperText | None = None
 
