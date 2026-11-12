@@ -952,3 +952,39 @@ def test_the_trial_takes_an_engine_and_local_checks_the_ledger_and_that_no_ai_re
     )  # a line appeared: the check must fail
     _f, bad = t.engine_follow(None, cfg, "run-1", tmp_path / "x.sqlite", tmp_path, 0)
     assert not {c.name: c.ok for c in bad}["no Claude call (ledger unchanged)"]
+
+
+def test_the_trial_does_not_wait_for_an_ai_review_the_plan_did_not_start(
+    world, tmp_path, monkeypatch
+):
+    import sqlite3
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import trial_on_copy as t
+
+    run_id, _job = _enqueue(world)
+    review_engine.record(
+        db.connect(),
+        run_id,
+        {"choice": "automatic"},
+        "adm",
+        then_ai=False,
+        bar_claude=True,
+        now="2026-11-12T00:00:00Z",
+    )
+
+    def own(_db):
+        conn = sqlite3.connect(settings.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    monkeypatch.setattr(t, "wait_for", lambda *a, **k: "completed")
+    monkeypatch.setattr(t, "ro", own)
+    cfg = t.TrialConfig(
+        data_dir=tmp_path, document=world["sub"], engine="automatic", timeout=5.0
+    )
+    follow, checks = t.engine_follow(None, cfg, run_id, tmp_path / "x", tmp_path, 0)
+    assert follow is None and all(c.ok for c in checks)
+    assert any("runs no AI review" in c.name for c in checks)

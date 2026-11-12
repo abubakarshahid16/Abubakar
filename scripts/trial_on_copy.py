@@ -1160,11 +1160,14 @@ def engine_follow(
         conn = ro(db)
         try:
             row = conn.execute(
-                "SELECT followed_by FROM review_engine_choice WHERE run_id = ?",
+                "SELECT followed_by, then_ai FROM review_engine_choice WHERE run_id = ?",
                 (first,),
             ).fetchone()
         finally:
             conn.close()
+        if row is not None and not row["then_ai"]:
+            checks.append(Check("the plan runs no AI review (said in its words)", True))
+            break
         word = (row["followed_by"] if row else None) or ""
         if word:
             follow = word if not word.startswith("not started") else None
