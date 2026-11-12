@@ -22,6 +22,7 @@ and records the code on the run (`two_reader_state["off"]`, counted in the summa
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from . import agent_claude, agent_run_second
@@ -69,19 +70,43 @@ class TwoReaderMixin:
                 self._charge_batch(batch, charged[0])
                 raise
 
-    def _charge_batch(self, batch: list[dict], usd: float) -> None:
-        if usd <= 0 or not batch:
+    #: tests set this True: a batch element that yields no stored line then raises instead of being skipped with a warning
+    strict_charge = False
+
+    @staticmethod
+    def batch_item_id(element: Mapping) -> str | None:
+        """The item id of one batch element: the element is an item (verdict, other-paper steps) or a wrapper holding the
+        item or the line (absence step: {"line", "item", "proof"}). ONE home for the lookup."""
+        for holder in (element, element.get("item"), element.get("line")):
+            if isinstance(holder, Mapping) and holder.get("item_id") is not None:
+                return str(holder["item_id"])
+        return None
+
+    def _charge_batch(self, batch: list, usd: float) -> None:
+        total = round(float(usd), 6)
+        if total <= 0 or not batch:
             return
-        share = usd / len(batch)
-        for it in batch:
-            line = self.lines.get(str(it.get("item_id")))
+        base = round(total / len(batch), 6)
+        shares = [base] * (len(batch) - 1) + [
+            round(total - base * (len(batch) - 1), 6)
+        ]  # they add up exactly
+        for element, share in zip(batch, shares, strict=True):
+            iid = self.batch_item_id(element)
+            line = self.lines.get(iid) if iid else None
             if line is None:
+                if self.strict_charge:
+                    raise LookupError(
+                        "a batch element has no stored line to carry its charge"
+                    )
+                log.warning(
+                    "agent review: a batch element has no stored line for its cost note"
+                )
                 continue
             new = self.exit_line(
                 {**line, "usd": round(float(line.get("usd") or 0.0) + share, 6)}
             )
             with self._lock:
-                self.lines[str(it.get("item_id"))] = new
+                self.lines[iid] = new
             try:
                 if self.sink is not None:
                     self.sink(new, None)
