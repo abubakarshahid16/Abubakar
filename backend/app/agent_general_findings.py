@@ -194,6 +194,7 @@ class FindingsMixin:
                     f"paper against itself, window {w + 1}",
                 )
                 continue
+            self.read_pages[3].update(window)
             raw = got["findings"]
             self.dropped.add(
                 3,
@@ -218,10 +219,26 @@ class FindingsMixin:
 
     def part3(self) -> None:
         survivors, n_windows = self._p3_collect()
+        self.part3_finish(survivors, n_windows)
+
+    def second_reader_missing(self, part: int, survivors: list) -> bool:
+        """On the local engine with no usable second reader: nothing with a verified quote may be shown on one reader's word. Said
+        once, with the count; True when the candidates were set aside."""
+        if self.local is None or not survivors or self.local.second_ready()[0]:
+            return False
+        self.dropped.add(part, "second reader not available", len(survivors))
+        self.add({"part": part, "verdict_class": CLASS_NOT_REVIEWED, "subkind": None, "document": self.paper,
+                  "text": f"{len(survivors)} finding(s) with a verified quote were not shown: {self.local.second_ready()[1]}, and "
+                          "one AI reader alone is never enough"})  # fmt: skip
+        return True
+
+    def part3_finish(self, survivors: list[dict], n_windows: int) -> None:
         self.part_counts[3] = {
             "windows": n_windows,
             "candidates_verified": len(survivors),
         }
+        if self.second_reader_missing(3, survivors):
+            return
         results = self.review_many([self.review_job_p3(s) for s in survivors])
         kept = 0
         for s, (keep, reason, relate) in zip(survivors, results, strict=True):
@@ -301,7 +318,7 @@ class FindingsMixin:
         used = 0
         for d in sorted(self.project):
             cost = sum(core.tokens_of(t) + 20 for t in self.docs.pages(d).values())
-            if cur and used + cost > GROUP_TOKENS:
+            if cur and used + cost > self.group_tokens:
                 groups.append(cur)
                 cur, used = [], 0
             cur.append(d)
@@ -414,8 +431,15 @@ class FindingsMixin:
             self.part_counts[4] = {"note": core.NO_PROJECT_PAPER, "project_papers": 0}
             return
         survivors, calls = self._p4_collect()
+        self.part4_finish(survivors, calls)
+
+    def part4_finish(self, survivors: list[dict], calls: int) -> None:
+        if not self.project:
+            return
         self.part_counts[4] = {"calls": calls, "groups": len(self.groups_p4()), "candidates_verified": len(survivors),
                                "project_papers": len(self.project)}  # fmt: skip
+        if self.second_reader_missing(4, survivors):
+            return
         results = self.review_many([self.review_job_p4(s) for s in survivors])
         kept = 0
         for s, (keep, reason, relate) in zip(survivors, results, strict=True):
@@ -523,6 +547,7 @@ class FindingsMixin:
                     f"AI engineering comments, window {w + 1}",
                 )
                 continue
+            self.read_pages[5].update(window)
             for c in got["comments"]:
                 if shown >= MAX_COMMENTS_P5:  # at most 10 per RUN, not per window
                     self.dropped.add(5, "over the limit of comments")

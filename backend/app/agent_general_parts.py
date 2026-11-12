@@ -27,8 +27,10 @@ from typing import Any
 from . import agent_claude, kind_review_table
 from . import agent_general_prompts as prompts
 from . import agent_general_review as core
+from . import agent_review_local as local_mod
 from . import agent_review_verdict as verdict
 from .agent_general_findings import (  # noqa: F401  (the limits are re-exported for the callers and the tests)
+    GROUP_TOKENS,
     MAX_COMMENTS_P5,
     MAX_WORDS_NOTE,
     Dropped,
@@ -72,7 +74,19 @@ class GeneralRun(FindingsMixin):
         second_model: str = SECOND_MODEL,
         window_tokens: int | None = None,
         concurrency: int = 3,
+        local: Any = None,
     ) -> None:
+        # the LOCAL engine (`agent_review_local`): the same parts, staged (every first-reader call, then every second-reader call),
+        # in windows and batches that fit the local window; None = the Claude path exactly as before
+        self.local = local
+        self.p2_batch, self.group_tokens = MAX_BATCH_P2, GROUP_TOKENS
+        if local is not None:
+            lead_model, second_model = local.model_a, local.model_b or "no-second-model"
+            window_tokens, concurrency = local_mod.GENERAL_WINDOW_TOKENS, 1
+            self.p2_batch, self.group_tokens = (
+                local_mod.GENERAL_P2_BATCH,
+                local_mod.GENERAL_GROUP_TOKENS,
+            )
         self.paper, self.docs, self.kind = paper, docs, kind
         self.not_held = list(books.get("not_held") or [])
         self.held_fit = dict(books.get("held_fit") or {})
@@ -93,6 +107,11 @@ class GeneralRun(FindingsMixin):
         self.pages = docs.pages(paper)
         self.unread = sorted({int(n) for n in unread})
         self.lines: list[dict] = []
+        self.read_pages: dict[int, set[int]] = {
+            2: set(),
+            3: set(),
+            5: set(),
+        }  # pages a part's AI reading really covered
         self.dropped = Dropped()
         self.part_counts: dict[int, dict] = {p: {} for p in core.PARTS}
         self.lead_models: set[str] = set()
@@ -268,10 +287,11 @@ class GeneralRun(FindingsMixin):
         failed: dict[str, str] = {}
         windows = self.windows()
         batches = [
-            self.items[i : i + MAX_BATCH_P2]
-            for i in range(0, len(self.items), MAX_BATCH_P2)
+            self.items[i : i + self.p2_batch]
+            for i in range(0, len(self.items), self.p2_batch)
         ]
         for w, window in enumerate(windows):
+            answered = 0
             for b, batch in enumerate(batches):
                 key = f"p2-w{w}-b{b}-{_key(self.lead_model, *[i['item_id'] for i in batch])}"
                 try:
@@ -286,6 +306,9 @@ class GeneralRun(FindingsMixin):
                         failed[i["item_id"]] = f"no answer from the AI: {exc.code}"
                     continue
                 self._p2_take(rec, batch, found, failed)
+                answered += 1
+            if answered == len(batches):
+                self.read_pages[2].update(window)
         return found, failed
 
     def _p2_take(
@@ -411,6 +434,9 @@ class GeneralRun(FindingsMixin):
 
     # ---- all parts
     def run_all(self) -> None:
+        if self.local is not None:
+            self.run_all_local()
+            return
         self.part1()
         self.part2()
         self.part3()
@@ -422,3 +448,45 @@ class GeneralRun(FindingsMixin):
             and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY)
         ]
         self.part5(known)
+
+    def run_all_local(self) -> None:
+        """The same five parts on the local model, STAGED (one big model at a time): the first reader does every question (parts 2 and
+        5, and the candidates of parts 3 and 4); then the model is unloaded and the second reader keeps or drops each candidate. A
+        candidate is shown only when the second reader, of another family, kept it and code verified its quotes. What the AI could not
+        show on its page, and the pages no window read, are said on the sheet, never dropped silently."""
+        self.part1()
+        self.part2()
+        s3, _n3 = self._p3_collect()
+        s4, calls4 = self._p4_collect() if self.project else ([], 0)
+        known = [
+            ln["text"]
+            for ln in self.lines
+            if ln["part"] == 2 and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY)
+        ]
+        self.part5(known + [str(c["what"]) for c in (*s3, *s4)])  # fmt: skip
+        self.local.to_second()
+        self.part3_finish(s3, len(self.windows()))
+        self.part4_finish(s4, calls4) if self.project else self.part4()
+        self.local_coverage_lines()
+
+    def local_coverage_lines(self) -> None:
+        """Which pages each reading covered, and what the AI could not show: counts and page numbers only, said as lines."""
+        wanted = sorted({n for w in self.windows() for n in w})
+        for part, label in (
+            (2, "the checklist"),
+            (3, "the paper against itself"),
+            (5, "the AI engineering comments"),
+        ):
+            read = sorted(self.read_pages[part])
+            missed = [n for n in wanted if n not in self.read_pages[part]]
+            self.part_counts.setdefault(part, {})["pages_read"] = read
+            self.part_counts[part]["pages_not_read"] = missed
+            if missed and (part != 2 or self.items):
+                self.add({"part": part, "verdict_class": CLASS_NOT_CHECKED, "subkind": None, "document": self.paper,
+                          "text": f"pages not read by the AI for {label}: {core.page_list(missed)} ({local_mod.LOCAL_TOO_LONG} or no readable answer); "
+                                  f"pages read: {core.page_list(read) or 'none'}"})  # fmt: skip
+        for part in (3, 4, 5):
+            n = self.dropped.n[part].get("quote not verified", 0)
+            if n:
+                self.add({"part": part, "verdict_class": CLASS_NOT_CHECKED, "subkind": None, "document": self.paper,
+                          "text": f"AI could not show where: {n} finding(s) of the AI had a quote that is not on its page; they are not reported as problems"})  # fmt: skip
