@@ -148,6 +148,7 @@ def start_agent_run(
             allowed_document_ids=scope.allowed_document_ids,
             requested_by=scope.user_id,
             project_document_ids=project if general else None,
+            fresh=body.fresh,
         )
     except review_jobs.ReviewAlreadyActive as exc:
         raise HTTPException(
@@ -197,6 +198,14 @@ def _checked_project_papers(
             ),
         )
     return tuple(p["document_id"] for p in accepted)
+
+
+def _counts_of(run) -> dict:
+    try:
+        got = json.loads(run["counts_json"] or "{}")
+        return got if isinstance(got, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def _two_reader_step(
@@ -254,6 +263,8 @@ def agent_summary(
         two_reader_other_step=_two_reader_step(run, "two_reader_other_step"),
         paper_text=_paper_text(run),
         page_reread_stopped=_equipment(run).get("page_reread"),
+        answers_reused=_counts_of(run).get("answers_reused"),
+        changed_since_previous=_counts_of(run).get("changed_since_previous"),
     )
 
 

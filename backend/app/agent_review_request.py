@@ -6,13 +6,13 @@ Split from `agent_review_run` (the runner) so no file passes the size bar. Nothi
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import agent_claude, claude_spend
-from . import agent_review_items as items_mod
 from . import agent_review_verdict as verdict
 from .reader_api import _fold
 
@@ -31,9 +31,15 @@ MAX_PAGES_PER_CALL = 4
 SMALL_PAPER_PAGES = 8
 INFERRED_PAGES = 3
 MAX_BATCH = 8
-TOKENS_PER_ITEM = 700
-TOKENS_BASE = 600
-MAX_TOKENS_CAP = 8000
+#: Starting output limit of a first-reader batch: TOKENS_BASE + TOKENS_PER_ITEM x items, at most MAX_TOKENS_CAP. Measured on the
+#: four trial papers (12 Nov, two paid rounds): complete answers used up to 6,041 tokens for 8 items and 3,292 for 4 (about 750 an
+#: item with the reader's own thinking), and the old limit (600 + 700 x items: 6,200 and 3,400) cut off 4 batches, each then split
+#: and asked again with different companions, so a cut-off changed the next batch's request. 1,000 + 1,100 x items is 9,800 for 8
+#: items and 5,400 for 4: about 60% above the largest answer seen. A limit is only a ceiling (it is billed by use); the worst-case
+#: reservation is higher by the difference (see `app_worst_usd`). A cut-off still retries as before, up to RETRY_MAX_TOKENS.
+TOKENS_PER_ITEM = 1100
+TOKENS_BASE = 1000
+MAX_TOKENS_CAP = 10000
 MAX_RETRIES = 3
 #: a lead answer that stopped at max_tokens, or could not be read: the batch is split in half and asked once more per half
 SPLITTABLE = ("stop_max_tokens", "unparseable_reply")
@@ -246,15 +252,61 @@ def _hints(item: Mapping) -> list[int]:
     ]
 
 
+def _bits(item: Mapping) -> bytes:
+    """The item's place in the split order: the hash of its clause (so items of one clause stay together), then the hash of its own
+    id (so a clause with many items can still be split). A property of the item only; it never depends on the other items."""
+    clause = hashlib.sha256(str(item.get("clause_quote_ref") or "").encode()).digest()
+    return clause + hashlib.sha256(str(item.get("item_id")).encode()).digest()
+
+
+def _bit(key: bytes, depth: int) -> int:
+    return (key[depth // 8] >> (7 - depth % 8)) & 1
+
+
+def _split(members: list[dict], max_items: int, depth: int = 0) -> list[list[dict]]:
+    """A group that is too big is split on the next bit of its members' keys, again and again, until every part holds at most
+    `max_items` (point E, steady results). Which part an item lands in depends on its own key and on how many items share its
+    key prefix, nothing else: adding one item changes the one part it lands in (and splits that part when it grows past the
+    limit); the other parts keep their members and their order."""
+    if len(members) <= max_items:
+        return [members]
+    if depth >= 8 * 64:  # identical keys (a repeated id): cut by position, no way to tell them apart
+        return [members[i : i + max_items] for i in range(0, len(members), max_items)]
+    zero = [m for m in members if _bit(_bits(m), depth) == 0]
+    one = [m for m in members if _bit(_bits(m), depth) == 1]
+    if not zero or not one:
+        return _split(members, max_items, depth + 1)
+    return _split(zero, max_items, depth + 1) + _split(one, max_items, depth + 1)
+
+
+def stable_batches(items: list[dict], max_items: int = MAX_BATCH) -> list[list[dict]]:
+    """Batches that move one at a time. The rule: items with the same page hint form a group; a group of at most `max_items` is one
+    batch; a bigger group is split on the hash of the items' clause and id (`_split`); inside a batch the items are ordered by
+    (clause_quote_ref, item_id), which keeps items of one clause side by side. The old rule cut every `max_items` items from the
+    start of a group, so one added rule shifted every later batch and changed all their requests. Now: adding one item changes the
+    one batch it joins (a batch that grows past `max_items` is split in two); removing one changes the one batch it was in, or
+    joins that batch with its neighbour when together they fit. Measured on 400 random additions to 30, 53 and 86 items: one
+    batch changed every time. Groups come out in the item builder's order (no page hint last). No item is dropped or repeated."""
+    groups: dict[tuple[int, ...], list[dict]] = {}
+    for it in items:
+        groups.setdefault(tuple(sorted(set(it.get("page_hint") or []))), []).append(it)
+    out: list[list[dict]] = []
+    for pages in sorted(groups, key=lambda p: (not p, p)):
+        for part in _split(groups[pages], max(1, int(max_items))):
+            out.append(
+                sorted(
+                    part,
+                    key=lambda i: (str(i.get("clause_quote_ref") or ""), str(i["item_id"])),
+                )
+            )
+    return [b for b in out if b]
+
+
 def make_batches(
     items: list[dict], max_batch: int = MAX_BATCH
 ) -> tuple[list[list[dict]], str]:
-    """The item builder's `batch_by_page`, every batch then cut to `max_batch` items."""
-    out = []
-    for b in items_mod.batch_by_page(items):
-        b = list(b)
-        out.extend(b[i : i + max_batch] for i in range(0, len(b), max(1, max_batch)))
-    return [b for b in out if b], "items.batch_by_page"
+    """The stable batches (`stable_batches`), each at most `max_batch` items."""
+    return stable_batches(items, max_batch), "items.stable_batches"
 
 
 def page_cap(total_pages: int) -> int:

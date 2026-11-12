@@ -240,6 +240,7 @@ class AbsenceMixin:
                 parts,
                 MAX_TOKENS_BASE + MAX_TOKENS_PER_ITEM * len(batch),
                 once=True,
+                **self.reuse_kw(),
             )
         except FATAL as exc:
             code = two.OFF_RUN_STOPPED if self._stop.is_set() else two.OFF_CAP

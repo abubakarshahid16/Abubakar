@@ -44,6 +44,7 @@ from . import (
 )
 from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
+from . import agent_review_reuse as reuse_mod
 from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
@@ -115,6 +116,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         two_reader: bool | None = None,
         two_reader_absence: bool | None = None,
         two_reader_other: bool | None = None,
+        answers: reuse_mod.AnswerStore | None = None,
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
@@ -160,7 +162,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self._warmed = False
         self.lead_models: set[str] = set()
         self.second_models: set[str] = set()
-        self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0, "reread": 0}
+        self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0, "reread": 0, "reused": 0}
+        self.answers = answers  # point E: stored first-reader answers; None (the default) = every call is made as before
+        self._reuse_note: dict[tuple, dict] = {}
         self.counts: dict[str, int] = {}
         # the optional second-reader step (owner order 13): None = read the switch when the run starts
         self._two_reader = two_reader
@@ -237,6 +241,49 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
 
     # ---- one metered call, with the step gate and rate-limit backoff
     def call(
+        self,
+        model: str,
+        parts: dict,
+        max_tokens: int,
+        once: bool = False,
+        reuse: bool | str = False,
+    ) -> tuple[dict, float]:
+        """One metered call. `reuse` (a reader's batch call whose reply `parse_answers` reads; "lead" for the first reader) lets a
+        stored complete answer to the byte-identical request stand in: no call, no admission, USD 0, and the reply carries the note
+        `reuse_mod.NOTE`. This happens BEFORE the transport; nothing below is reached and `claude_spend` sees no spend."""
+        key = None
+        if reuse and self.answers is not None and self._may_send():
+            key = self.answers.key(model, parts, max_tokens)
+            hit = self.answers.lookup(key)
+            if hit is not None and parse_answers(hit["answer"]) is None:
+                self.answers.forget(key)  # stored but unreadable now: asked again for real
+                hit = None
+            if hit is not None:
+                with self._lock:
+                    self.calls["reused"] += 1
+                    if reuse == "lead":
+                        self.calls["lead"] -= 1  # the caller counted a call before asking; none was made
+                note = {"run_id": hit["run_id"], "date": hit["date"]}
+                return {**hit["answer"], reuse_mod.NOTE: note}, 0.0
+        answer, usd = self._metered_call(model, parts, max_tokens, once)
+        if key is not None and parse_answers(answer) is not None:
+            self.answers.remember(key, model, max_tokens, answer)
+        return answer, usd
+
+    def _may_send(self) -> bool:
+        """A stored answer stands in only where a NEW call would be allowed to go out: the reviewer's lane is open and the documents
+        the run declared are on the approved list. Otherwise it is a miss, and the real call is refused (and written to the ledger)
+        exactly as without stored answers: a closed lane or a document taken off the list never yields a result from the store."""
+        from . import claude_approved
+
+        return agent_claude.gate_open(self.env) and claude_approved.refusal() is None
+
+    def reuse_kw(self, kind: bool | str = True) -> dict:
+        """`reuse=` for a reader batch call, only when stored answers are kept: with the switch off the call is made exactly as before
+        (the same arguments)."""
+        return {"reuse": kind} if self.answers is not None else {}
+
+    def _metered_call(
         self, model: str, parts: dict, max_tokens: int, once: bool = False
     ) -> tuple[dict, float]:
         app = app_worst_usd(model, parts, max_tokens)
@@ -381,7 +428,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             with self._lock:
                 self.calls["lead"] += 1
             try:
-                raw, usd = self.call(self.model, parts, max_tokens, **once_kw)
+                raw, usd = self.call(
+                    self.model, parts, max_tokens, **self.reuse_kw("lead"), **once_kw
+                )
             except agent_claude.AgentBadReply as exc:
                 if exc.code != "stop_max_tokens" or (split_ok and len(batch) > 1):
                     raise  # a bigger batch is split by the caller instead
@@ -398,7 +447,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 cut_retry = True
                 retry_worst = app_worst_usd(self.model, parts, bigger)
                 try:  # once: a failed or timed-out retry is not sent again
-                    raw, usd2 = self.call(self.model, parts, bigger, once=True)
+                    raw, usd2 = self.call(
+                        self.model, parts, bigger, once=True, **self.reuse_kw("lead")
+                    )
                 except agent_claude.AgentBadReply as exc2:
                     if exc2.code == "stop_max_tokens":
                         return (
@@ -412,6 +463,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             model = agent_claude._answered_model(raw)
             if model != "unknown":
                 self.lead_models.add(model)
+            if isinstance(raw, dict) and raw.get(reuse_mod.NOTE):
+                with self._lock:  # run_batch reads it: which stored answer stood in (never the answer itself)
+                    self._reuse_note[tuple(str(i.get("item_id")) for i in batch)] = raw[reuse_mod.NOTE]
             answer = parse_answers(raw)
             if answer is None and cut_retry:
                 return None, usd, SECOND_UNREADABLE, model
@@ -420,7 +474,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             ):  # one retry; a bigger batch is split instead
                 with self._lock:
                     self.calls["retries"] += 1
-                raw, usd2 = self.call(self.model, parts, max_tokens, **once_kw)
+                raw, usd2 = self.call(self.model, parts, max_tokens, **self.reuse_kw("lead"), **once_kw)
                 usd += usd2
                 answer = parse_answers(raw)
             if answer is None:
@@ -467,6 +521,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 )
         parts = build_parts(self.paper, pages, clauses, batch, held_of)
         answer, usd, error, model = self._ask_lead(batch, parts, allow_split)
+        with self._lock:
+            note = self._reuse_note.pop(tuple(ids), None)
+        said = reuse_mod.sentence(note) if note else None
         if answer is None and allow_split and len(batch) > 1 and error in SPLITTABLE:
             self.trace_record({"type": "split", "item_ids": ids, "after": error})
             mid = (len(batch) + 1) // 2
@@ -483,6 +540,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 "model_answered": model,
                 "usd": usd,
                 "error": error,
+                **({"reused_answer": said} if said else {}),
             }
         )
         for it in batch:
@@ -495,6 +553,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 "lead_model": model,
                 "lead_error": error,
                 "lead_answer": (answer or {}).get(iid),
+                **({"reused_answer": said} if said else {}),
             }
         share, missing = usd / max(1, len(batch)), []
         for it in batch:
@@ -507,6 +566,8 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             line = self.decide(
                 it, got, pages, model, error if answer is None else None, box, share
             )
+            if note and got is not None:
+                line["reused_answer"] = {**note, "text": said}
             self.emit(self.reread_silent_line(it, line, model, box))
         if missing:
             self.run_batch(missing, False)
@@ -567,6 +628,10 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             self.two_reader_on()
         ):  # optional, off by default: nothing below runs and no call is made when off
             self.run_two_readers()
+        if (
+            self.answers is not None and not self.stopped and not self._stop.is_set()
+        ):  # point E: the answers of a run that was not halted are kept for the next run
+            self.answers.commit()
         return {"batches": len(batches), "batch_source": source}
 
 
