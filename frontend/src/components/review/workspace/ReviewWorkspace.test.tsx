@@ -991,7 +991,7 @@ describe("ReviewWorkspace: the AI review first (U2)", () => {
     const panel = screen.getByTestId("ai-review-panel");
     const bar = screen.getByRole("region", { name: "What you need to do" });
     expect(panel.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(screen.getByTestId("ws-rule-check-start")).getByText("Rule check (on this computer, no AI cost)")).toBeInTheDocument();
+    expect(within(screen.getByTestId("ws-rule-check-start")).getByText("Rule check (runs here, free)")).toBeInTheDocument();
     expect(within(screen.getByTestId("ws-ai-review-start")).getByText("AI review (Claude, costs money)")).toBeInTheDocument();
   });
   it("the headline follows the AI review when it has open points, and the old help line is not shown", () => {
@@ -1025,4 +1025,22 @@ describe("ReviewWorkspace: the AI review first (U2)", () => {
     expect(screen.getByRole("button", { name: "Sign and export" })).toBeEnabled();
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
+
+describe("ReviewWorkspace: unknown AI review holds Sign, the flag follows the tick (U2)", () => {
+  it("while the AI review is being read Sign is disabled; when its read failed too", () => {
+    agentStatus = { enabled: true, claude_lane_open: true };
+    overviewNow = { state: "loading" };
+    const { unmount } = render(<Harness initial={{}} />);
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+    unmount();
+    overviewNow = { state: "error", message: "x" };
+    render(<Harness initial={{}} />);
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+  });
+  it("names Claude on the start button only when the Claude lane is open", () => {
+    agentStatus = { enabled: true, claude_lane_open: false };
+    render(<Harness initial={{}} />);
+    expect(screen.getByText("AI review (costs money)")).toBeInTheDocument();
+  });
+});
 });

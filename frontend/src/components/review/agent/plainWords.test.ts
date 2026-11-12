@@ -18,22 +18,22 @@ const L = (over: Partial<AgentLine>): AgentLine => ({
 describe("plainReason: what the code saw, in words", () => {
   const table: [string, string][] = [
     ["second opinion model is the same or unknown; first verdict GREEN",
-      "The second check was not done by a different model, so this stays an opinion."],
+      "The second check could not be shown to come from a different model, so this stays an opinion."],
     ["second opinion disagreed; first verdict RED", "The second AI reader disagreed with the first."],
     ["no second opinion; first verdict GREEN", "No second AI reader checked this, so it stays an opinion."],
     ["the AI did not give pass or fail", "The AI did not decide."],
     ["no figure with its unit inside both quotes", "The value and its unit were not found together in the quoted text."],
     ["the paper is silent on this; a missing statement is not a failure",
-      "The AI found no line for this on the pages it read; code cannot prove that something is absent."],
+      "The AI found no line for this on the pages it read; a program cannot show that this is missing."],
     ["AI call failed: boom claude-sonnet-x", "The AI gave no answer."],
-    ["paper quote not verified by code (not on the page)", "The quoted text could not be found on the page."],
+    ["paper quote not verified by code (not on the page)", "Code could not match the quoted text to the page."],
     ["code could not compare the figures (units differ)", "Code could not compare the figures."],
   ];
   it.each(table)("%s", (old, plain) => expect(plainReason(old)).toBe(plain));
 
   it("never lets first verdict, a colour, an id or a model name through", () => {
     for (const [old] of table) expect(hasBannedWord(plainReason(old))).toBe(false);
-    expect(plainReason("odd_code_word here")).toBe("It could not be confirmed.");
+    expect(plainReason("odd_code_word here")).toBe("Reason not shown in plain words. Open the trace.");
     expect(plainReason("odd_code_word here")).toBe(UNKNOWN_WHY);
     expect(plainReason("sweep finding, first verdict RED: left to the engineer")).not.toMatch(/RED|first verdict/);
   });
@@ -65,9 +65,11 @@ describe("humanizeCode and the counts", () => {
       ...Array.from({ length: 13 }, () => L({})),
       ...Array.from({ length: 4 }, () => L({ verdict_class: "Not applicable", word: "Not applicable" })),
     ];
-    expect(countsSentence(lines)).toBe(
-      "7 points the AI thinks are not met, 13 questions for the engineer, 4 rules that do not apply, 0 proven by code",
+    expect(countsSentence(lines, true)).toBe(
+      "7 points the AI says are not met, 13 questions for the engineer, 4 rules that do not apply, 0 proven by code",
     );
+    // the proven class is said only when the summary carries it
+    expect(countsSentence(lines)).not.toMatch(/proven by code/);
   });
   it("open points are everything but Pass and not applicable", () => {
     expect(openPoints([
@@ -77,7 +79,8 @@ describe("humanizeCode and the counts", () => {
   });
   it("the class-count fallback splits no opinion", () => {
     expect(classCountsSentence({ "AI opinion, engineer to confirm": 2, "Query for the engineer": 1 }))
-      .toBe("2 AI opinions to confirm, 1 question for the engineer, 0 proven by code");
+      .toBe("2 AI opinions, you confirm, 1 question for the engineer");
+    expect(classCountsSentence({ "Proven by code": 0, "Query for the engineer": 1 })).toBe("1 question for the engineer, 0 proven by code");
   });
   it("the headline says the number and the next step", () => {
     expect(aiHeadline(20).headline).toBe("AI review: 20 points are still open.");

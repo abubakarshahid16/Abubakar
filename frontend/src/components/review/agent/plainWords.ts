@@ -11,7 +11,7 @@
  */
 import type { AgentLine, AgentRunSummary } from "../../../types/api";
 
-export const UNKNOWN_WHY = "It could not be confirmed.";
+export const UNKNOWN_WHY = "Reason not shown in plain words. Open the trace.";
 
 /** Words a reader must not see in the main columns. */
 export const BANNED_ON_SCREEN: readonly RegExp[] = [
@@ -36,14 +36,14 @@ export function humanizeCode(text: string): string {
 /** The backend's own sentences (exact start) -> plain words. */
 const KNOWN: ReadonlyArray<readonly [string, string]> = [
   ["the paper is silent on this; a missing statement is not a failure",
-    "The AI found no line for this on the pages it read; code cannot prove that something is absent"],
+    "The AI found no line for this on the pages it read; a program cannot show that this is missing"],
   ["the rule is conditional; code cannot prove the condition holds",
     "The rule holds only under a condition, and code cannot prove the condition holds"],
   ["the rule is a table row or a note; its conditions may lie outside the quote",
-    "The rule is a table row or a note whose conditions may lie outside the quoted text"],
+    "This rule comes from a table or note. Its conditions may be elsewhere"],
   ["the quoted paper text defers or leaves open this value", "The paper leaves this value open"],
-  ["the quoted paper text could not be verified by code", "The quoted text could not be found on the page"],
-  ["the quoted clause text could not be verified by code", "The quoted rule text could not be found in the rule book"],
+  ["the quoted paper text could not be verified by code", "Code could not match the quoted text to the page"],
+  ["the quoted clause text could not be verified by code", "Code could not match the quoted rule text to the rule book"],
   ["the reviewer's code found words", "The AI's own words say the paper leaves this out, so it stays an opinion"],
   ["the AI reader quoted only the field's name", "Only the name of the field was quoted, with no value after it"],
   ["two AI readers disagree on this line", "The second AI reader disagreed with the first"],
@@ -56,7 +56,7 @@ const KNOWN: ReadonlyArray<readonly [string, string]> = [
   ["the rule names no field of the field registry", "The rule names no field code knows, so code cannot prove something is absent"],
   ["the requirement names several registry fields", "The rule names several fields, so code cannot tell which one is absent"],
   ["this paper kind has no field list", "This kind of paper has no fixed field list, so code cannot prove something is absent"],
-  ["this paper kind's field list does not carry the field", "This item may belong in another paper"],
+  ["this paper kind's field list does not carry the field", "This kind of paper's field list does not include this item, so code cannot prove it is absent"],
   ["a page has no readable text", "A page has no readable text, so code cannot prove something is absent"],
   ["a field read from the paper names this item", "The paper names this item, so it may be stated"],
   ["the field's registry words stand on a page of the paper", "The field's words stand on a page of the paper, so it may be stated"],
@@ -65,14 +65,14 @@ const KNOWN: ReadonlyArray<readonly [string, string]> = [
   ["no second opinion on the absence", "No second AI reader confirmed that this is absent"],
   ["the second opinion did not agree the item is absent", "The second AI reader did not agree that this is absent"],
   ["second opinion model is the same or unknown",
-    "The second check was not done by a different model, so this stays an opinion"],
+    "The second check could not be shown to come from a different model, so this stays an opinion"],
   ["second opinion disagreed", "The second AI reader disagreed with the first"],
   ["no second opinion", "No second AI reader checked this, so it stays an opinion"],
   ["the AI did not give pass or fail", "The AI did not decide"],
   ["no figure with its unit inside both quotes", "The value and its unit were not found together in the quoted text"],
   ["code could not compare the figures", "Code could not compare the figures"],
-  ["paper quote not verified by code", "The quoted text could not be found on the page"],
-  ["clause quote not verified by code", "The quoted rule text could not be found in the rule book"],
+  ["paper quote not verified by code", "Code could not match the quoted text to the page"],
+  ["clause quote not verified by code", "Code could not match the quoted rule text to the rule book"],
   ["clause quote is too short or is the clause heading", "The quoted rule text is too short to rely on"],
   ["not mentioned is never a pass", "The paper does not mention this, and not mentioned is never counted as met"],
   ["AI call failed", "The AI gave no answer"],
@@ -151,7 +151,7 @@ const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} 
 /** The counts of one AI review in plain words, over the lines of this review
  *  only. A class with no line is left out (a zero that matters, "proven by
  *  code", is always said). */
-export function countsSentence(lines: readonly AgentLine[]): string {
+export function countsSentence(lines: readonly AgentLine[], provenClassPresent = false): string {
   const n = (f: (l: AgentLine) => boolean) => lines.filter(f).length;
   const klass = (c: string) => (l: AgentLine) => l.verdict_class === c;
   const opinion = (l: AgentLine) => l.verdict_class === "AI opinion, engineer to confirm" || l.verdict_class === "AI opinion, rule not yet approved";
@@ -160,8 +160,8 @@ export function countsSentence(lines: readonly AgentLine[]): string {
   const met = n((l) => (opinion(l) || klass("AI verdict, two readers agree")(l)) && /: met$/.test(l.word));
   const stated = n((l) => klass("AI verdict, two readers agree")(l) && /not stated/.test(l.word));
   const proven = n(klass("Proven by code"));
-  if (notMet) parts.push(plural(notMet, "point the AI thinks is not met", "points the AI thinks are not met"));
-  if (met) parts.push(plural(met, "point the AI thinks is met", "points the AI thinks are met"));
+  if (notMet) parts.push(plural(notMet, "point the AI says is not met", "points the AI says are not met"));
+  if (met) parts.push(plural(met, "point the AI says is met", "points the AI says are met"));
   if (stated) parts.push(plural(stated, "point the AI says the paper does not state", "points the AI says the paper does not state"));
   const q = n(klass("Query for the engineer"));
   if (q) parts.push(plural(q, "question for the engineer", "questions for the engineer"));
@@ -172,10 +172,11 @@ export function countsSentence(lines: readonly AgentLine[]): string {
   const nr = n(klass("Not reviewed"));
   if (nr) parts.push(plural(nr, "line the AI gave no answer for", "lines the AI gave no answer for"));
   const held = n(klass("Not checked: rule book not held"));
-  if (held) parts.push(plural(held, "line not checked because we do not hold its rule book", "lines not checked because we do not hold their rule book"));
+  if (held) parts.push(plural(held, "line not checked: we do not have its rule book", "lines not checked: we do not have their rule book"));
   const notes = n(klass("AI note, no rule book"));
   if (notes) parts.push(plural(notes, "AI note", "AI notes"));
-  parts.push(`${proven.toLocaleString()} proven by code`);
+  // Said only when the summary carries that class (never a 0 made up from a missing key).
+  if (provenClassPresent) parts.push(`${proven.toLocaleString()} proven by code`);
   return parts.join(", ");
 }
 
@@ -185,23 +186,25 @@ export function classCountsSentence(counts: AgentRunSummary["counts_by_class"]):
   const c = (k: string) => counts[k] ?? 0;
   const parts: string[] = [];
   const opinions = c("AI opinion, engineer to confirm") + c("AI opinion, rule not yet approved");
-  if (opinions) parts.push(plural(opinions, "AI opinion to confirm", "AI opinions to confirm"));
-  if (c("AI verdict, two readers agree")) parts.push(plural(c("AI verdict, two readers agree"), "AI verdict agreed by two readers", "AI verdicts agreed by two readers"));
+  if (opinions) parts.push(plural(opinions, "AI opinion, you confirm", "AI opinions, you confirm"));
+  if (c("AI verdict, two readers agree")) parts.push(`${c("AI verdict, two readers agree").toLocaleString()} where two AI readers agree`);
   if (c("Query for the engineer")) parts.push(plural(c("Query for the engineer"), "question for the engineer", "questions for the engineer"));
   if (c("Not applicable")) parts.push(plural(c("Not applicable"), "rule that does not apply", "rules that do not apply"));
-  parts.push(`${c("Proven by code").toLocaleString()} proven by code`);
+  if ("Proven by code" in counts) parts.push(`${c("Proven by code").toLocaleString()} proven by code`);
   return parts.join(", ");
 }
 
 // ---------------------------------------------------------------- the two reviewers, named once
 
-export const RULE_CHECK_NAME = "Rule check (on this computer, no AI cost)";
+export const RULE_CHECK_NAME = "Rule check (runs here, free)";
 /** No cost figure is known to the app before a run, so none is written. */
-export const AI_REVIEW_NAME = "AI review (Claude, costs money)";
+export function aiReviewName(claudeLaneOpen: boolean): string {
+  return claudeLaneOpen ? "AI review (Claude, costs money)" : "AI review (costs money)";
+}
 
 export const AI_PANEL_TITLE = "AI review of this document";
 export const AI_PANEL_WHAT =
-  "An AI reviewer read this document against the rules of the rule books we hold. Nothing here is final until an engineer confirms it.";
+  "An AI reviewer checked this document against the rules of the rule books we hold. Nothing here is final until an engineer confirms it.";
 export const INTERNAL_CRS_LINE = "For your own team: every point the AI raised, with its reason. Not for the contractor.";
 export const CONTRACTOR_CRS_LINE = "For the contractor: only the failures the code proved.";
 export const CONTRACTOR_EMPTY_LINE =
@@ -239,5 +242,5 @@ export function pagesTakenWords(cov: { carried_from_run?: string | null; carried
   if (!cov || !cov.carried_from_run) return null;
   const d = cov.carried_from_at ? new Date(cov.carried_from_at) : null;
   const day = d && !Number.isNaN(d.getTime()) ? `, ${d.toISOString().slice(0, 10)}` : "";
-  return `Pages read: taken from an earlier review of this paper${day}`;
+  return `Pages: copied from an earlier review of this paper${day}`;
 }

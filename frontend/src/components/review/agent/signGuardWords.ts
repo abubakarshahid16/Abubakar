@@ -1,11 +1,15 @@
 /** The signing guard's words (one home; see plainWords.ts for the rest). */
 export const SIGN_GUARD_TICK = "I have read the AI review's points";
 
-export function signGuardWarning(open: number | null): string {
-  if (open == null) {
-    return "The AI review of this document has points that could not be counted here, and they are not on this sheet.";
+export function signGuardWarning(open: number | null, blocked: "loading" | "error" | null = null): string {
+  if (blocked === "loading") return "Reading the AI review of this document. Sign and export waits until it is read.";
+  if (blocked === "error") {
+    return "The state of the AI review of this document could not be read, so Sign and export is not available. Reload the page to try again.";
   }
-  return `The AI review of this document has ${open.toLocaleString()} open ${open === 1 ? "point" : "points"} that ${open === 1 ? "is" : "are"} not on this sheet.`;
+  if (open == null) {
+    return "The AI found points to look at that could not be counted here. They are not on this sheet.";
+  }
+  return `The AI found ${open.toLocaleString()} ${open === 1 ? "point" : "points"} to look at. ${open === 1 ? "It is" : "They are"} not on this sheet.`;
 }
 
 /** Why Sign waits, for the step list. */

@@ -371,6 +371,8 @@ export interface SignGuard {
   /** "I have read the AI review's points" is ticked. */
   acked: boolean;
   onAck: (acked: boolean) => void;
+  /** The AI review's state is not known (still being read, or the read failed): Sign is not available and no tick is offered. */
+  blocked?: "loading" | "error" | null;
 }
 
 export interface SheetCountsLineProps {
@@ -405,6 +407,8 @@ export interface UseSignOffArgs {
    *  decisions on screen and answers null, or plain words why the copy
    *  would leave decisions out (then nothing is downloaded). */
   beforeCopy?: () => Promise<string | null>;
+  /** U2: read when the copy is issued: true only after the engineer ticked "I have read the AI review's points". It becomes the request's `ai_review_read` flag. */
+  aiReviewRead?: () => boolean;
 }
 
 export interface WorkspaceSheetProps {

@@ -29,7 +29,7 @@ describe("AiReviewPanel", () => {
     rerender(<AiReviewPanel runId="r1" overview={{ state: "ok", summary: SUMMARY, lines: [line({})], openPoints: 1 }} onSeeEvery={() => {}} />);
     expect(screen.getByRole("heading", { name: "AI review of this document" })).toBeInTheDocument();
     expect(screen.getByText(/Nothing here is final until an engineer confirms it/)).toBeInTheDocument();
-    expect(screen.getByTestId("ai-panel-counts")).toHaveTextContent("1 question for the engineer, 0 proven by code");
+    expect(screen.getByTestId("ai-panel-counts")).toHaveTextContent("1 question for the engineer");
   });
   it("says why the contractor copy is empty only when no failure was proven", () => {
     const { rerender } = render(<AiReviewPanel runId="r1" overview={{ state: "ok", summary: SUMMARY, lines: [line({})], openPoints: 1 }} onSeeEvery={() => {}} />);
@@ -59,9 +59,16 @@ describe("AiReviewPanel", () => {
     const ov = { state: "ok" as const, summary: SUMMARY, lines: [line({})], openPoints: 1, missing: null };
     const { rerender } = render(<AiReviewPanel runId="r1" overview={ov} onSeeEvery={() => {}}
       pageCoverage={{ carried_from_run: "old", carried_from_at: "2026-11-01T10:00:00Z" }} />);
-    expect(screen.getByTestId("ai-panel-pages")).toHaveTextContent("Pages read: taken from an earlier review of this paper, 2026-11-01");
+    expect(screen.getByTestId("ai-panel-pages")).toHaveTextContent("Pages: copied from an earlier review of this paper, 2026-11-01");
     rerender(<AiReviewPanel runId="r1" overview={ov} onSeeEvery={() => {}} pageCoverage={{}} />);
     expect(screen.queryByTestId("ai-panel-pages")).toBeNull();
     expect(screen.queryByTestId("ai-panel-missing")).toBeNull();
+  });
+  it("does not say 0 proven by code when the summary has no such class", () => {
+    const withClass = { ...SUMMARY, counts_by_class: { "Proven by code": 0, "Query for the engineer": 1 } } as typeof SUMMARY;
+    const { rerender } = render(<AiReviewPanel runId="r1" overview={{ state: "ok", summary: SUMMARY, lines: [line({})], openPoints: 1 }} onSeeEvery={() => {}} />);
+    expect(screen.getByTestId("ai-panel-counts")).not.toHaveTextContent("proven by code");
+    rerender(<AiReviewPanel runId="r1" overview={{ state: "ok", summary: withClass, lines: [line({})], openPoints: 1 }} onSeeEvery={() => {}} />);
+    expect(screen.getByTestId("ai-panel-counts")).toHaveTextContent("1 question for the engineer, 0 proven by code");
   });
 });

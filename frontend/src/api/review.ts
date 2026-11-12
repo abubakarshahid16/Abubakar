@@ -425,13 +425,14 @@ export const reviews = {
   exportCrs: async (
     runId: string,
     copy: "internal" | "issue" = "internal",
+    options: { aiReviewRead?: boolean } = {},
   ): Promise<Result<{ blob: Blob; filename: string }>> => {
     // Owner order 2f: "internal" keeps the AI Review Comments column;
     // "issue" is the contractor's copy, with every unconfirmed AI item removed.
     // PF5 (#885): the contractor's copy is ISSUED (POST): the server refuses
     // it while a page is unread or a finding undecided, and keeps the copy.
     const run = encodeURIComponent(runId);
-    const path = copy === "issue" ? `/reviews/runs/${run}/crs/issue` : `/reviews/runs/${run}/crs?copy=${copy}`;
+    const path = copy === "issue" ? `/reviews/runs/${run}/crs/issue${options.aiReviewRead ? "?ai_review_read=true" : ""}` : `/reviews/runs/${run}/crs?copy=${copy}`;
     return fetchSpreadsheet(path, copy === "issue" ? "POST" : "GET", `CRS_${runId}.xlsx`);
   },
   /** PF5 (#885): the contractor copies already issued for a run, newest

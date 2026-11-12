@@ -14,6 +14,7 @@ import { type MissingSplit, missingSplit, openPoints } from "./plainWords";
 
 export type AgentOverview =
   | { state: "off" }
+  | { state: "loading" }
   | { state: "none" }
   | { state: "error"; message: string }
   | { state: "ok"; summary: AgentRunSummary; lines: AgentLine[] | null; openPoints: number | null; missing?: MissingSplit | null };
@@ -22,11 +23,11 @@ const MAX_PAGES = 200;
 
 /** `enabled` false (the switch is off, or the run is not finished): nothing is read. */
 export function useAgentOverview(runId: string, enabled: boolean): AgentOverview {
-  const [view, setView] = useState<AgentOverview>({ state: "off" });
+  const [view, setView] = useState<AgentOverview>(enabled ? { state: "loading" } : { state: "off" });
   useEffect(() => {
     if (!enabled) { setView({ state: "off" }); return undefined; }
     let live = true;
-    setView({ state: "off" });
+    setView({ state: "loading" });
     void (async () => {
       const summary = await agentReview.summary(runId);
       if (!live) return;

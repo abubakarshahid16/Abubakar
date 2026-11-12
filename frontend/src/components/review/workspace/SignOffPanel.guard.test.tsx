@@ -35,7 +35,7 @@ describe("SignOffPanel: the AI review's open points", () => {
   it("open points: a plain warning and Sign waits for the tick", async () => {
     const onAck = vi.fn();
     const { rerender } = render(panel({ open: 20, acked: false, onAck }));
-    expect(screen.getByTestId("ws-sign-guard")).toHaveTextContent("The AI review of this document has 20 open points that are not on this sheet");
+    expect(screen.getByTestId("ws-sign-guard")).toHaveTextContent("The AI found 20 points to look at. They are not on this sheet.");
     expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
     await userEvent.click(screen.getByRole("checkbox", { name: "I have read the AI review's points" }));
     expect(onAck).toHaveBeenCalledWith(true);
@@ -46,5 +46,14 @@ describe("SignOffPanel: the AI review's open points", () => {
     render(panel({ open: null, acked: false, onAck: vi.fn() }));
     expect(screen.getByTestId("ws-sign-guard")).toHaveTextContent("could not be counted");
     expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+  });
+  it("while the AI review is read, or when it could not be read, Sign is off and no tick is offered", () => {
+    const { rerender } = render(panel({ open: null, acked: true, onAck: vi.fn(), blocked: "loading" }));
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByTestId("ws-sign-guard")).toHaveTextContent("Reading the AI review");
+    rerender(panel({ open: null, acked: true, onAck: vi.fn(), blocked: "error" }));
+    expect(screen.getByRole("button", { name: "Sign and export" })).toBeDisabled();
+    expect(screen.getByTestId("ws-sign-guard")).toHaveTextContent("could not be read");
   });
 });

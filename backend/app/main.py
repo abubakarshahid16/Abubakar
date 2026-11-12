@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Respo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from . import agent_review_open_points as agent_open_points_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
@@ -3361,6 +3362,7 @@ def decide_crs_open_finding(
                      **schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409})
 def issue_review_crs(
     review_run_id: str,
+    ai_review_read: bool = False,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """PF5 (#885): ISSUE THE CONTRACTOR'S COPY - only a finished one.
@@ -3369,9 +3371,19 @@ def issue_review_crs(
     submittal is unread, or any finding on the sheet has no engineer's
     decision; the reply names each blocker in words. When it is issued, the
     exact workbook is kept with its sha256 and the run (`crs_issue.archive`)
-    and the reply carries both. The internal copy is not gated."""
+    and the reply carries both. The internal copy is not gated.
+
+    U2: refused (409) while the run's AI review has open lines (anything not
+    Pass and not "Not applicable") unless the request says `ai_review_read=true`,
+    which the screen sends only after the engineer ticked "I have read the AI
+    review's points". The issued file is the same either way."""
     _require_identity_to_write(scope)
     gate = _crs_issue_gate(review_run_id, scope)
+    if not ai_review_read:
+        open_count = agent_open_points_mod.open_points(connect(), review_run_id)
+        if open_count:
+            raise HTTPException(status_code=409, detail=errors.safe_error(
+                errors.CRS_NOT_FINISHED, agent_open_points_mod.refusal(open_count)))
     if not gate["final_code_recorded"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.CODE_NOT_DECIDED,

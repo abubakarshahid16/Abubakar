@@ -68,7 +68,8 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
           <p className="truncate font-semibold text-slateish-100">{row.filename}</p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slateish-400">
             <StatusChip tone={chip.tone} text={chip.text} />
-            {aiMark && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id} />}
+            {aiMark && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id}
+              earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {step && <span data-testid="row-step">Now: {step}</span>}
             {dayTimeWords(row.activityAt) && <span data-testid="row-date">{dayTimeWords(row.activityAt)}</span>}

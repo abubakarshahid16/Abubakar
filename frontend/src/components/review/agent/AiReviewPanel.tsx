@@ -23,7 +23,7 @@ export function AiReviewPanel({ runId, overview, onSeeEvery, pageCoverage = null
   const [fileError, setFileError] = useState<string | null>(null);
   if (overview.state !== "ok") return null;
   const { summary, lines } = overview;
-  const counts = lines ? countsSentence(lines) : classCountsSentence(summary.counts_by_class);
+  const counts = lines ? countsSentence(lines, "Proven by code" in summary.counts_by_class) : classCountsSentence(summary.counts_by_class);
   const provenFails = lines ? lines.filter((l) => l.verdict_class === "Proven by code" && l.word === "Fail").length : null;
 
   async function download(copy: "internal" | "contractor") {

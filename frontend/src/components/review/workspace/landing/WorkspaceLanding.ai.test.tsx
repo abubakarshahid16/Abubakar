@@ -45,4 +45,14 @@ describe("WorkspaceLanding: AI mark and first line", () => {
     expect(screen.getByTestId("ai-mark")).toHaveTextContent("AI review: 20 lines");
     expect(summary).not.toHaveBeenCalledWith("run-old-a");
   });
+  it("hints when the newest review has none but an older one has", async () => {
+    summary.mockImplementation(async (id: string) => (id === "run-old-c"
+      ? { ok: true, data: { counts_by_class: { "Query for the engineer": 1 } } }
+      : { ok: false, disconnected: false, error: { code: "not_found", message: "x" } }));
+    render(<WorkspaceLanding documents={[doc("c")]} onOpenRun={vi.fn()} onReload={vi.fn()} submittalsTotal={1}
+      loadReadyCounts={async () => ({})} isAdmin
+      runs={[run("run-old-c", "c", "2026-10-01T08:00:00Z"), run("run-new-c", "c", "2026-10-05T08:00:00Z")]} />);
+    await waitFor(() => expect(screen.getByTestId("ai-earlier-hint")).toHaveTextContent("An earlier review of this file has an AI review"));
+    expect(screen.queryByTestId("ai-mark")).toBeNull();
+  });
 });

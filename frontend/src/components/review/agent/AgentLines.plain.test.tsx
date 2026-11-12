@@ -47,7 +47,7 @@ describe("the AI review tab, rendered", () => {
     expect(text).not.toMatch(/R-614e60d6/);
     expect(hasBannedWord(text.replace(/AI thinks: not met/g, ""))).toBe(false);
     expect(text).toContain("pressure relief");
-    expect(text).toContain("The second check was not done by a different model, so this stays an opinion.");
+    expect(text).toContain("The second check could not be shown to come from a different model, so this stays an opinion.");
     expect(text).toContain("The value and its unit were not found together in the quoted text.");
   });
 });

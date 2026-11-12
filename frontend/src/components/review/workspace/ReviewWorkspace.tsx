@@ -49,7 +49,7 @@ import { RulesUsedPanel } from "../agent/RulesUsedPanel";
 import { useAgentSwitch } from "../agent/useAgentSwitch";
 import { AiReviewPanel } from "../agent/AiReviewPanel";
 import { useAgentOverview } from "../agent/useAgentOverview";
-import { AI_REVIEW_NAME, RULE_CHECK_NAME, aiHeadline } from "../agent/plainWords";
+import { RULE_CHECK_NAME, aiHeadline, aiReviewName } from "../agent/plainWords";
 import { SIGN_GUARD_WAITS } from "../agent/signGuardWords";
 import { progressLine, runStatusLabel } from "../reviewFormat";
 import { BehindTheScenes } from "../panels/BehindTheScenes";
@@ -342,7 +342,8 @@ export function ReviewWorkspace({
   }, [saveAll]);
 
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
-  const signOffRaw = useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy });
+  const aiReadRef = useRef(false);
+  const signOffRaw = useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy, aiReviewRead: () => aiReadRef.current });
   const signer = useSigner();
   // S2: Sign (from the bar or the sign-off panel) runs the issuing checks in
   // useSignOff and, when nothing is left, opens the ONE preview-and-confirm
@@ -368,10 +369,14 @@ export function ReviewWorkspace({
   useEffect(() => { setAiRead(false); }, [runId]);
   const aiOpen = overview.state === "ok" ? overview.openPoints : 0;
   const aiHasOpen = overview.state === "ok" && (aiOpen === null || aiOpen > 0);
+  // Not known (still being read, or the read failed) holds Sign too: unknown is not "nothing open".
+  const aiBlocked = overview.state === "loading" || overview.state === "error" ? overview.state : null;
   const signGuard: SignGuard | null = useMemo(
-    () => (aiHasOpen ? { open: aiOpen, acked: aiRead, onAck: setAiRead } : null),
-    [aiHasOpen, aiOpen, aiRead],
+    () => (aiBlocked ? { open: null, acked: false, onAck: setAiRead, blocked: aiBlocked }
+      : aiHasOpen ? { open: aiOpen, acked: aiRead, onAck: setAiRead } : null),
+    [aiBlocked, aiHasOpen, aiOpen, aiRead],
   );
+  aiReadRef.current = signGuard != null && signGuard.acked && !signGuard.blocked;
   const stepsShown = useMemo(() => (signGuard && !signGuard.acked
     ? steps.map((s) => (s.id === "sign" && !s.done ? { ...s, enabled: false, detail: s.detail ?? SIGN_GUARD_WAITS } : s))
     : steps), [steps, signGuard]);
@@ -496,7 +501,7 @@ export function ReviewWorkspace({
           <span className="inline-flex flex-col items-start gap-1" data-testid="ws-ai-review-start">
             <AgentStartButton status={agent} documentId={run.submittal_document_id}
               onStarted={(started) => openRun(started.review_run_id)} />
-            <span className="text-xs text-slateish-400">{AI_REVIEW_NAME}</span>
+            <span className="text-xs text-slateish-400">{aiReviewName(agent.claude_lane_open)}</span>
           </span>
         )}
         {run.submittal_document_id && isAdmin === false && (
