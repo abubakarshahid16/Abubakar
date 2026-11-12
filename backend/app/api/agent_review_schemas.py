@@ -72,6 +72,8 @@ LeftOutReason = Literal[
     "the paper names no equipment",
     "the paper names equipment the equipment list does not know",
     "the paper's equipment could not be read",
+    "a part excluded by a value the paper states",
+    "both labelling readers named other equipment",
 ]
 
 #: The closed table every line must match: class -> (allowed words, allowed
@@ -202,6 +204,30 @@ class AgentTwoReaderStep(BaseModel):
     #: absence step only: lines not asked because the first reader was not given every page of the paper.
     skipped: Count = 0
     off: str | None = None
+#: What the library holds for the paper to read (order 13, C2). "no text", "not indexed" and "still reading" stop the run before any rule is
+#: chosen or any call is made; "partly readable" runs and lists the pages with no stored text.
+PaperTextState = Literal[
+    "readable", "partly readable", "no text", "not indexed", "still reading"
+]
+
+
+class AgentPaperText(BaseModel):
+    state: PaperTextState
+    #: null when the library holds no page count for the paper.
+    pages_total: int | None = Field(default=None, ge=0)
+    #: page numbers with no stored text (every page when state is "no text").
+    pages_not_read: list[int] = []
+    #: the one plain sentence for a state other than "readable"; null when readable.
+    sentence: str | None = None
+
+
+class AgentPageRereadStop(BaseModel):
+    """The optional second reading of pages ended early in this run (a cap or an error inside it, never the review)."""
+
+    #: plain words for the reason, no document text.
+    why: str
+    #: silent lines that were not re-read because it had ended (the lines carrying the marker; counts equal lines).
+    not_reread: Count
 
 
 class AgentRunSummary(BaseModel):
@@ -223,6 +249,8 @@ class AgentRunSummary(BaseModel):
     equipment_state: str | None = None
     #: the sentences about the paper's equipment and the rules left out for it (counts only, no document text).
     equipment_notes: list[str] = []
+    #: null when the second reading of pages is off or ran fully (shown as nothing, never 0).
+    page_reread_stopped: AgentPageRereadStop | None = None
     #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
     not_reviewed: Count = 0
     #: "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise.
@@ -235,6 +263,8 @@ class AgentRunSummary(BaseModel):
     two_reader_absence_step: AgentTwoReaderStep | None = None
     #: the same for the other-paper class ("Not checked on this paper"); null when that step was off.
     two_reader_other_step: AgentTwoReaderStep | None = None
+    #: the paper's stored-text state; null on a run stored before it was kept (shown as nothing).
+    paper_text: AgentPaperText | None = None
 
 
 class AgentLine(BaseModel):
@@ -393,3 +423,7 @@ class AgentRulesUsed(BaseModel):
     same_rule_repeats: Count | None = None
     #: AI-approved rules of this paper kind in rule books the run did not select; null when not kept.
     other_books: AgentOtherBooks | None = None
+    #: why the run stopped early, or why no rule was asked (the same words as the summary); null when it ran to its end.
+    stop_reason: str | None = None
+    #: the paper's stored-text state; null on a run stored before it was kept.
+    paper_text: AgentPaperText | None = None

@@ -254,7 +254,7 @@ def test_the_static_table_check_names_the_illegal_pair(monkeypatch):
     assert trial.static_pair_check().ok
 
 
-def test_an_empty_plan_with_no_word_about_it_fails_and_a_stated_reason_passes(
+def test_an_empty_plan_now_carries_its_own_stated_reason_so_the_trial_passes_it(
     world, monkeypatch
 ):
     quiet = {
@@ -270,11 +270,9 @@ def test_an_empty_plan_with_no_word_about_it_fails_and_a_stated_reason_passes(
         "rule_labels": quiet,
     }
     checks = trial.run_trial(cfg_for(world), lane=stub(), log=lambda _m: None)
-    assert "rules asked > 0, or the plan says why none" in failed(checks)
-    assert (
-        "empty plan"
-        in by_name(checks)["rules asked > 0, or the plan says why none"].detail
-    )
+    # C2: an empty plan is never silent any more: the run itself says why (the trial's old "no word" failure cannot happen)
+    got = by_name(checks)["rules asked > 0, or the plan says why none"]
+    assert got.ok and "the plan stopped: no_rule_asked" in got.detail
 
 
 def test_left_out_rules_with_a_reason_explain_an_empty_ask(world, monkeypatch):

@@ -37,6 +37,7 @@ from . import (
     agent_review_gate,
     agent_review_kind,
     agent_review_schema,
+    agent_review_text,
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
@@ -48,6 +49,7 @@ from . import (
 from . import agent_review_items as items_mod
 from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
+from . import agent_review_reread as reread_mod
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import crs_ai_header as crs_header
@@ -527,6 +529,7 @@ def _make_runner(
         paper=submittal, items=plan["items"], pages=request_mod.DbPages(connect(), submittal),
         clauses=request_mod.ClauseCache(plan["cache"]), model=agent_claude.LEAD_MODEL, send=send, env=env,
         done_lines=done, paper_kind=kind.kind, equipment_type=kind.equipment_type, std_pages=request_mod.StdPages(),
+        reread_silent=settings.agent_review_reread_silent_enabled,
         sink=lambda line, trace: store_line(run_id, line, trace), trace_path=folder / "trace.jsonl",
         tier_lookup=_tier_lookup(kind),
         retry_base=0.0 if send is not None else request_mod.RETRY_BASE_SECONDS,
@@ -606,16 +609,13 @@ def _finish(
 ) -> dict:
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
-    lines = (
-        [
-            runner.lines[str(i["item_id"])]
-            for i in items
-            if str(i["item_id"]) in runner.lines
-        ]
-        if runner
-        else []
-    )
+    lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
     counts = runner_mod.counts_of(lines, runner)
+    reread = (  # C4: a stopped page re-read is stated, never dropped (null when off or ran fully)
+        reread_mod.reread_facts(runner.reread_enabled, runner.reread_stopped, lines)
+        if runner
+        else None
+    )
     models = sorted(runner.lead_models | runner.second_models) if runner else []
     spent = runner and (
         runner.calls["lead"] or runner.calls["second"] or runner.calls["context"]
@@ -627,7 +627,8 @@ def _finish(
             "second_models": sorted(runner.second_models) if runner else [], "rule_labels": plan["block"] or None,
             "usd": usd, "header": _header_facts(submittal, kind.equipment_type), **{k: v for k, v in counts.items() if k.startswith("two_reader")},
             "order12_counts": {"rules_left_out": plan["block"].get("counts"),
-                               "rule_books_not_held": len(plan["block"].get("missing_rule_books") or [])}}  # fmt: skip
+                               "rule_books_not_held": len(plan["block"].get("missing_rule_books") or []),
+                               **({"page_reread_stopped": reread_mod.stopped_sentence(reread)} if reread else {})}}  # fmt: skip
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
     crs_lines.write_internal(lines, folder / "crs-internal.xlsx", meta)
@@ -640,7 +641,7 @@ def _finish(
             " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
             (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
              json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now(),
-             json.dumps(_equipment_facts(plan["block"]))),
+             json.dumps({**_equipment_facts(plan["block"]), "page_reread": reread})),
         )  # fmt: skip
     return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial}
 
@@ -773,20 +774,27 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
         _progress(conn, job_id, 0, heartbeat)
-        nothing_read.read_phase(submittal, scope, run_id)
+        text = agent_review_text.read_step(conn, submittal, scope, run_id)
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
         _write_run_start(run_id, submittal, kind, started)
-        if kind.known and agent_review_gate.general_kind_enabled(kind.kind):
+        general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
+        stops = text.stops_run(general)
+        if general and not stops:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat)  # fmt: skip
+            agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)
-        plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
+        plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops
+                else _plan(conn, run_id, submittal, scope, kind, heartbeat))  # fmt: skip
+        # a plan with nothing to ask always says why
+        agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
+        agent_review_text.record(conn, run_id, text)
         _progress(conn, job_id, 3, heartbeat)
     except nothing_read.StoredFileAbsent as exc:
         return nothing_read.fail_run(job_id, run_id, exc)

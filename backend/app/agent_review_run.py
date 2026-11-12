@@ -83,11 +83,12 @@ from .agent_review_request import (
 from .agent_review_two_reader_absence import AbsenceMixin
 from .agent_review_two_reader_other import OtherPaperMixin
 from .agent_review_two_reader_run import TwoReaderMixin
+from .agent_review_reread import RereadMixin
 
 log = logging.getLogger(__name__)
 
 
-class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
+class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
     def __init__(
         self,
         *,
@@ -105,6 +106,7 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
         paper_kind: str | None = None,
         equipment_type: str | None = None,
         absence_check: bool = False,
+        reread_silent: bool = False,
         context_check: bool = True,
         std_pages: Callable[[str, int], str | None] | None = None,
         sink: Callable[[dict, dict], None] | None = None,
@@ -145,6 +147,9 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
             k: self._kept(v) for k, v in dict(done_lines or {}).items()
         }
         self.absence_check = bool(absence_check)
+        self.reread_enabled = bool(
+            reread_silent
+        )  # C4: off unless the job passes the switch
         self.carried = (
             absence.carried_roles(paper_kind, equipment_type) if absence_check else None
         )
@@ -155,7 +160,7 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
         self._warmed = False
         self.lead_models: set[str] = set()
         self.second_models: set[str] = set()
-        self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0}
+        self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0, "reread": 0}
         self.counts: dict[str, int] = {}
         # the optional second-reader step (owner order 13): None = read the switch when the run starts
         self._two_reader = two_reader
@@ -327,6 +332,12 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
         return got
 
     def _halt(self, exc: BaseException) -> None:
+        if (
+            self.in_optional_step()
+        ):  # C4: the optional page re-read never stops the review; it only ends itself
+            self.note_reread_stop(exc)
+            self._optional.refused = True
+            return
         with self._lock:
             if self._stop.is_set():
                 return
@@ -354,10 +365,13 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
     # case, as the run is charged); `run_batch` shares it equally over the group's items. The cut-off call of a batch that
     # is then split is charged to the run, not to any line.
     def _ask_lead(
-        self, batch: list[dict], parts: dict, split_ok: bool
+        self, batch: list[dict], parts: dict, split_ok: bool, once: bool = False
     ) -> tuple[dict | None, float, str | None, str | None]:
         """(answers by item id or None, usd, error code or None, answering model); the bound and the cost rule are above."""
         max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
+        once_kw = (
+            {"once": True} if once else {}
+        )  # the normal path calls exactly as before
         answer, usd, error, model = None, 0.0, None, None
         spent = retry_worst = (
             0.0  # what the run was charged for the cut-off call, and for the retry if it was sent
@@ -367,7 +381,7 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
             with self._lock:
                 self.calls["lead"] += 1
             try:
-                raw, usd = self.call(self.model, parts, max_tokens)
+                raw, usd = self.call(self.model, parts, max_tokens, **once_kw)
             except agent_claude.AgentBadReply as exc:
                 if exc.code != "stop_max_tokens" or (split_ok and len(batch) > 1):
                     raise  # a bigger batch is split by the caller instead
@@ -406,7 +420,7 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
             ):  # one retry; a bigger batch is split instead
                 with self._lock:
                     self.calls["retries"] += 1
-                raw, usd2 = self.call(self.model, parts, max_tokens)
+                raw, usd2 = self.call(self.model, parts, max_tokens, **once_kw)
                 usd += usd2
                 answer = parse_answers(raw)
             if answer is None:
@@ -490,11 +504,10 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
                     it
                 )  # a readable answer that left this item out: asked once more below
                 continue
-            self.emit(
-                self.decide(
-                    it, got, pages, model, error if answer is None else None, box, share
-                )
+            line = self.decide(
+                it, got, pages, model, error if answer is None else None, box, share
             )
+            self.emit(self.reread_silent_line(it, line, model, box))
         if missing:
             self.run_batch(missing, False)
 

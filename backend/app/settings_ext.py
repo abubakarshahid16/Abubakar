@@ -542,3 +542,8 @@ class SettingsExt(BaseModel):
     #: both egress flags and a key; the approved-document list and the USD caps still apply on every call. Under
     #: REASONING_PROVIDER=ollama it changes nothing (the master switch is checked first). Env: AGENT_REVIEW_ENGINE.
     agent_review_engine: str = "ollama"
+    #: Owner order 13, C4 (12 Nov 2026): before the AI reviewer closes a line as "the paper does not state this", a second,
+    #: different model reads the whole stored text of the page(s) where the field would stand (per silent line at most 1 re-read, 1 lead re-ask, the normal second opinion and the context check of a Fail
+    #: line, same spend reservation and caps); a quote that code verifies on that page is decided again by the same gate.
+    #: OFF by default; the lead turns it on after a paid trial shows no wrong answer. Env: AGENT_REVIEW_REREAD_SILENT_ENABLED.
+    agent_review_reread_silent_enabled: bool = False

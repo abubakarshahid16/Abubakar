@@ -80,6 +80,8 @@ def test_vocabularies_are_exactly_the_owner_words():
         "the paper names no equipment",
         "the paper names equipment the equipment list does not know",
         "the paper's equipment could not be read",
+        "a part excluded by a value the paper states",
+        "both labelling readers named other equipment",
     ]
 
 

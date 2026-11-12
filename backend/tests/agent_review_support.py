@@ -221,6 +221,19 @@ def add_document(conn, doc_id: str, filename: str, text: str) -> None:
         "INSERT INTO pages(document_id, page_no, text, char_count, batch_no) VALUES (?,1,?,?,0)",
         (doc_id, text, len(text)),
     )
+    # the search chunk a stored paper has: a paper with page text but no chunk is stopped before any rule is chosen (C2)
+    conn.execute(
+        "INSERT INTO chunks(id, document_id, filename, ordinal, page_start, page_end, text, token_count, content_hash)"
+        " VALUES (?,?,?,0,1,1,?,?,?)",
+        (
+            f"{doc_id}:c0",
+            doc_id,
+            filename,
+            text,
+            len(text.split()),
+            hashlib.sha256(text.encode()).hexdigest(),
+        ),
+    )
     conn.commit()
 
 
