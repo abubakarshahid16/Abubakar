@@ -22,9 +22,7 @@ from .db import connect
 
 TABLE = "review_shown_lists"
 SPECIFICATION_ROLE = "SPECIFICATION"
-NOT_SHOWN_WORDS = (
-    "not sent: this review cites a specification that was not on the list shown before the start"
-)
+NOT_SHOWN_WORDS = "not sent: this review cites a specification that was not on the list shown before the start"
 
 
 def ensure_schema(conn=None) -> None:
@@ -103,6 +101,10 @@ def cited_unshown(conn, run_id: str) -> int:
             " WHERE review_run_id = ? AND COALESCE(included, 1) = 1",
             (run_id,),
         ).fetchall()
-        return len(unshown_specifications(conn, run_id, [r["standard_document_id"] for r in rows]))
+        return len(
+            unshown_specifications(
+                conn, run_id, [r["standard_document_id"] for r in rows]
+            )
+        )
     except sqlite3.Error:
         return 0

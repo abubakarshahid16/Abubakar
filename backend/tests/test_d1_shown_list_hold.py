@@ -9,12 +9,25 @@ import json
 
 import pytest
 
-from app import claude_approved, claude_spend, claude_spend_report, classification, db, review_shown, submittal_review
+from app import (
+    classification,
+    claude_approved,
+    claude_spend,
+    claude_spend_report,
+    db,
+    review_shown,
+    submittal_review,
+)
 from app.config import settings
 
 NOW = "2026-11-12T00:00:00Z"
 SUBMITTAL, STANDARD, SPEC = "CONTRACTOR_SUBMITTAL", "COMPANY_STANDARD", "SPECIFICATION"
-SHA = {"doc_paper": "a1" * 32, "doc_spec": "b2" * 32, "doc_book": "c3" * 32, "doc_spec_paper": "d4" * 32}
+SHA = {
+    "doc_paper": "a1" * 32,
+    "doc_spec": "b2" * 32,
+    "doc_book": "c3" * 32,
+    "doc_spec_paper": "d4" * 32,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +40,12 @@ def world(tmp_path, monkeypatch):
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
-    for doc_id, role in (("doc_paper", SUBMITTAL), ("doc_spec", SPEC), ("doc_book", STANDARD), ("doc_spec_paper", SPEC)):
+    for doc_id, role in (
+        ("doc_paper", SUBMITTAL),
+        ("doc_spec", SPEC),
+        ("doc_book", STANDARD),
+        ("doc_spec_paper", SPEC),
+    ):
         with db.connect() as conn:
             conn.execute(
                 "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
@@ -36,7 +54,14 @@ def world(tmp_path, monkeypatch):
             )
         classification.set_role(doc_id, role)
     claude_approved.list_path().write_text(
-        json.dumps({"documents": [{"sha256": s, "status": "approved", "label": "invented"} for s in SHA.values()]}),
+        json.dumps(
+            {
+                "documents": [
+                    {"sha256": s, "status": "approved", "label": "invented"}
+                    for s in SHA.values()
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     yield
@@ -87,15 +112,25 @@ def _gate_recheck(run_id, ids):
 
 
 def _gate_comparison(run_id, ids):
-    with claude_approved.carrying(claude_approved.review_documents(run_id)), claude_approved.reviewing(run_id):
+    with (
+        claude_approved.carrying(claude_approved.review_documents(run_id)),
+        claude_approved.reviewing(run_id),
+    ):
         return claude_approved.refusal()
 
 
-ROUTES = [_gate_ai_reviewer, _gate_select_and_datasheet, _gate_recheck, _gate_comparison]
+ROUTES = [
+    _gate_ai_reviewer,
+    _gate_select_and_datasheet,
+    _gate_recheck,
+    _gate_comparison,
+]
 
 
 @pytest.mark.parametrize("gate", ROUTES)
-def test_a_cited_specification_on_the_approved_list_is_refused_when_no_list_was_shown(gate):
+def test_a_cited_specification_on_the_approved_list_is_refused_when_no_list_was_shown(
+    gate,
+):
     run_id = _run()
     found = gate(run_id, ["doc_paper", "doc_spec"])
     assert found is not None and found[0] == claude_approved.NOT_APPROVED
@@ -135,7 +170,10 @@ def test_outside_a_review_run_nothing_changes():
 
 def test_chats_per_request_consent_is_unchanged(monkeypatch):
     run_id = _run()
-    with claude_approved.per_request_consent(["doc_spec"]), claude_spend.for_run(run_id):
+    with (
+        claude_approved.per_request_consent(["doc_spec"]),
+        claude_spend.for_run(run_id),
+    ):
         assert claude_approved.refusal() is None
 
 
@@ -151,7 +189,10 @@ def test_a_library_that_cannot_be_read_holds_the_specification(monkeypatch):
 
 def test_local_instead_says_the_specification_was_not_on_the_list_shown():
     run_id = _run()
-    with claude_approved.carrying(["doc_paper", "doc_spec"]), claude_approved.reviewing(run_id):
+    with (
+        claude_approved.carrying(["doc_paper", "doc_spec"]),
+        claude_approved.reviewing(run_id),
+    ):
         said = claude_approved.local_instead()
     assert said is not None and "not on the list shown before the start" in said
     assert "doc_spec" not in said  # counts, never an id or a title
@@ -172,12 +213,26 @@ def test_the_run_says_it_did_not_send_the_cited_specification_even_with_the_swit
     run_id = _run()
     claude_auto_approve.record_on_run(run_id)
     with db.connect() as conn:
-        outcome = json.loads(conn.execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)).fetchone()[0] or "{}")
+        outcome = json.loads(
+            conn.execute(
+                "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
+            ).fetchone()[0]
+            or "{}"
+        )
     assert outcome[claude_auto_approve.SHOWN_KEY] == {"not_sent": 1}
     lines = [p["line"] for p in claude_auto_approve.run_lines(outcome)]
-    assert any(line.startswith("Not sent: 1 specification(s)") and "shown before the start" in line for line in lines)
+    assert any(
+        line.startswith("Not sent: 1 specification(s)")
+        and "shown before the start" in line
+        for line in lines
+    )
     _show(run_id, ["doc_spec"])
     claude_auto_approve.record_on_run(run_id)
     with db.connect() as conn:
-        outcome = json.loads(conn.execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)).fetchone()[0] or "{}")
+        outcome = json.loads(
+            conn.execute(
+                "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
+            ).fetchone()[0]
+            or "{}"
+        )
     assert claude_auto_approve.SHOWN_KEY not in outcome

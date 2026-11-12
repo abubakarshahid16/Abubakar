@@ -146,6 +146,13 @@ def reviewing(review_run_id):
         _REVIEW_RUN.reset(token)
 
 
+@contextlib.contextmanager
+def review_declaration(review_run_id):
+    """`carrying` the review's documents (`review_documents`) and `reviewing` that run: what a review route declares."""
+    with carrying(review_documents(review_run_id)), reviewing(review_run_id):
+        yield
+
+
 def review_run() -> str | None:
     """The review run this call belongs to: `reviewing`, else the spend ledger's `for_run`."""
     from . import claude_spend
@@ -568,9 +575,11 @@ def refusal() -> tuple[str, str] | None:
         return None
     held = _unshown_specifications(ids)
     if held:
-        return NOT_APPROVED, (f"{len(held)} of {len(ids)} document(s) in this prompt are specifications this review cites "
-                              f"that were not on the list shown before the start (ids: {', '.join(sorted(held))}), "
-                              f"so nothing is sent")
+        return NOT_APPROVED, (
+            f"{len(held)} of {len(ids)} document(s) in this prompt are specifications this review cites "
+            f"that were not on the list shown before the start (ids: {', '.join(sorted(held))}), "
+            f"so nothing is sent"
+        )
     approved = approved_hashes()
     lapsed = _lapsed_ids(hashes) | contracts_without_yes(ids)
     missing = sorted(d for d, h in hashes.items() if h not in approved or d in lapsed)
@@ -584,8 +593,10 @@ def refusal() -> tuple[str, str] | None:
 #: documents are not on the list. `{n}` and `{of}` are counts, never a title.
 LOCAL_INSTEAD = ("ran on the local model: {n} of {of} document(s) in its prompt are not approved "
                  "for the cloud model")
-LOCAL_INSTEAD_NOT_SHOWN = ("ran on the local model: {n} of {of} document(s) in its prompt are specifications "
-                           "that were not on the list shown before the start")
+LOCAL_INSTEAD_NOT_SHOWN = (
+    "ran on the local model: {n} of {of} document(s) in its prompt are specifications "
+    "that were not on the list shown before the start"
+)
 
 
 def local_instead() -> str | None:

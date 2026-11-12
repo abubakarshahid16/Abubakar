@@ -354,7 +354,10 @@ def _restore_closed(row, provider, written, missing, reasons) -> None:
     asks = _loads(row, "asks")
     requirements = _requirements({c: asks[c] for c in missing})
     pages = clause_review.page_texts(row["document_id"])
-    with claude_approved.carrying(_loads(row, "documents")), claude_approved.reviewing(row["review_run_id"]):
+    with (
+        claude_approved.carrying(_loads(row, "documents")),
+        claude_approved.reviewing(row["review_run_id"]),
+    ):
         open_lane = provider or rp.claude_for_task(_engine(), step=STEP)
         reader = rp.ClaudeProvider(row["model"], step=STEP) if open_lane else None
         for custom_id in missing:

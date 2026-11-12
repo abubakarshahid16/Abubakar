@@ -480,7 +480,9 @@ def _note_unshown(review_run_id: str) -> None:
                 (json.dumps(outcome), review_run_id),
             )
     except Exception as exc:  # noqa: BLE001 - a note must not fail a finished review
-        log.warning("claude shown-list run note %s: %s", review_run_id, type(exc).__name__)
+        log.warning(
+            "claude shown-list run note %s: %s", review_run_id, type(exc).__name__
+        )
 
 
 def record_on_run(review_run_id: str) -> None:
