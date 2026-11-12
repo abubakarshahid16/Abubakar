@@ -186,6 +186,10 @@ _TEMPLATE_FILES = (
 _MIN_TEMPLATE = 20
 
 
+class TemplateSourceError(RuntimeError):
+    """A row-builder file's source cannot be read: loud, never a silent "nothing to swap" (K2)."""
+
+
 @lru_cache(maxsize=1)
 def templates() -> tuple[str, ...]:
     """The system's OWN sentence fragments that name the paper "datasheet", read from the string constants of the six row-builder files
@@ -199,7 +203,9 @@ def templates() -> tuple[str, ...]:
     for name in _TEMPLATE_FILES:
         spec = importlib.util.find_spec(f"{__package__}.{name}")
         if spec is None or not spec.origin:
-            continue
+            raise TemplateSourceError(
+                f"the source of {name} cannot be found: no sentence of it could be named for another kind"
+            )
         tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
         docs = {
             id(n.body[0].value)
@@ -225,13 +231,50 @@ def templates() -> tuple[str, ...]:
     return tuple(sorted(found, key=len, reverse=True))
 
 
+_OPEN_CLOSE = {'"': '"', "\u201c": "\u201d", "\u2018": "\u2019", "'": "'"}
+
+
+def quoted_spans(text: str) -> list[tuple[int, int]]:
+    """The INTERIORS of every quoted passage in `text`, as the row builders write them: straight and curly, double and single marks.
+    A straight single mark is an opening only after a space, an opening bracket or the start (an apostrophe is not a quote). A quote
+    that never closes runs to the end of the text, so what follows it is left alone: the safe side."""
+    spans: list[tuple[int, int]] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        opens = ch in _OPEN_CLOSE and (ch != "'" or i == 0 or text[i - 1] in " ([")
+        if not opens:
+            i += 1
+            continue
+        close, j = _OPEN_CLOSE[ch], i + 1
+        while j < n and not (
+            text[j] == close
+            and (close != "'" or j + 1 == n or not text[j + 1].isalnum())
+        ):
+            j += 1
+        spans.append((i + 1, j))
+        i = j + 1
+    return spans
+
+
 def in_templates(text: str, noun: str) -> str:
     """`text` with the system's own datasheet-worded sentence fragments (`templates`) said of this paper's kind; everything else, quotes
-    and titles and labels included, is returned as it was."""
-    for fragment in templates():
-        if fragment in text:
-            text = text.replace(fragment, _swap(fragment, noun))
-    return text
+    and titles and labels included, is returned as it was. A fragment that touches the inside of a quoted passage is never rewritten,
+    whatever its length: text between quote marks is the paper's or the rule book's own."""
+    fragments = templates()
+    if not fragments:
+        raise TemplateSourceError(
+            "no template fragment is known: nothing could be said of this paper's kind"
+        )
+    spans = quoted_spans(text)
+    pattern = re.compile("|".join(re.escape(f) for f in fragments))
+    out, last = [], 0
+    for m in pattern.finditer(text):
+        if any(m.start() < b and a < m.end() for a, b in spans):
+            continue
+        out += [text[last : m.start()], _swap(m.group(0), noun)]
+        last = m.end()
+    return "".join(out) + text[last:]
 
 
 def name_the_paper(view: dict, meta: dict) -> None:

@@ -488,3 +488,121 @@ def test_a_short_generic_fragment_of_a_template_is_never_a_swap_key():
     assert keys and all(len(k) >= 20 for k in keys)
     assert "The datasheet " not in keys and "Datasheet states " not in keys
     assert "Not read from the datasheet" in keys  # a whole system sentence is
+
+
+# ---- follow-ups of R52c: quote boundaries, and the templates cannot drift silently
+
+QUOTE_SHAPES = ('"{}"', "\u201c{}\u201d", "'{}'", "\u2018{}\u2019")
+
+
+@pytest.mark.parametrize("shape", QUOTE_SHAPES)
+def test_text_between_quote_marks_is_never_rewritten_whatever_its_length(shape):
+    inside = "see Annex B (see the datasheet pages)"  # contains a template fragment, inside a quote
+    long_inside = (
+        "see Annex B "
+        + "word " * 40
+        + "Not read from the datasheet (5 pages) and Held, not compared with the datasheet"
+    )
+    for quoted in (inside, long_inside):
+        text = f"Not read from the datasheet (5 pages). The rule says {shape.format(quoted)}. Held, not compared with the datasheet."
+        got = kind_words.in_templates(text, "contract")
+        assert (
+            shape.format(quoted) in got
+        )  # the quote is identical, template words inside it included
+        assert got.startswith("Not read from the contract (5 pages).") and got.endswith(
+            "Held, not compared with the contract."
+        )
+
+
+def test_an_apostrophe_is_not_a_quote_and_an_unclosed_quote_protects_what_follows():
+    assert kind_words.in_templates(
+        "Not read from the datasheet (the vendor's sheet). Held, not compared with the datasheet.",
+        "contract",
+    ) == (
+        "Not read from the contract (the vendor's sheet). Held, not compared with the contract."
+    )
+    unclosed = 'The rule says "see Annex B. Held, not compared with the datasheet.'
+    assert (
+        kind_words.in_templates(unclosed, "contract") == unclosed
+    )  # an open quote runs to the end: left alone
+
+
+def test_a_template_that_opens_with_a_quote_mark_is_still_said_after_a_closed_quote():
+    text = '"the paper says this" Please confirm or justify. This is a recommendation, not a requirement; it is not compared with the datasheet.'
+    assert "Please confirm or justify" in kind_words.in_templates(
+        text, "contract"
+    )  # no crash, no mangling
+
+
+#: Every string constant with "datasheet" in the six row-builder files must be a template `templates()` returns or be listed here.
+KNOWN_FAULT = {
+    "Datasheet ": "KNOWN FAULT this round: a short f-string piece in crs_mapping; saying it would also open a quote",
+    "Datasheet states ": "KNOWN FAULT this round: too short to be an exact key (a quote may begin with it)",
+    "The datasheet ": "KNOWN FAULT this round: too short to be an exact key (a quote may begin with it)",
+    "datasheet_check": "a code identifier (a row kind), not a sentence",
+    "datasheet_check_not_run": "a code identifier (an outcome key), not a sentence",
+}
+
+
+def test_every_datasheet_worded_constant_of_the_row_builders_is_a_template_or_a_named_known_fault():
+    import ast
+    import re
+    from pathlib import Path
+
+    keys = set(kind_words.templates())
+    missed: list[str] = []
+    for name in kind_words._TEMPLATE_FILES:
+        tree = ast.parse(
+            (Path(__file__).resolve().parents[1] / "app" / f"{name}.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        docs = {
+            id(n.body[0].value)
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr)
+            and isinstance(n.body[0].value, ast.Constant)
+        }  # fmt: skip
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docs
+                and re.search("datasheet", node.value, re.I)
+            ):
+                if node.value not in keys and node.value not in KNOWN_FAULT:
+                    missed.append(f"{name}: {node.value[:60]!r}")
+    assert not missed, (
+        "a new datasheet-worded sentence is neither a template nor a named known fault: "
+        + "; ".join(missed)
+    )
+    assert all(
+        KNOWN_FAULT[k] for k in KNOWN_FAULT
+    )  # every exception carries its reason
+
+
+def test_a_row_builder_source_that_cannot_be_read_fails_loudly_never_swaps_nothing(
+    monkeypatch,
+):
+    import importlib.util
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a, **k: (
+            None if name.endswith(".absence") else real(name, *a, **k)
+        ),
+    )
+    kind_words.templates.cache_clear()
+    try:
+        with pytest.raises(kind_words.TemplateSourceError):
+            kind_words.templates()
+        with pytest.raises(kind_words.TemplateSourceError):
+            kind_words.name_the_paper(
+                {"rows": [{"comment": "Not read from the datasheet"}]},
+                {"paper_noun": "contract"},
+            )
+    finally:
+        monkeypatch.undo()
+        kind_words.templates.cache_clear()
