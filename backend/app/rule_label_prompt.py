@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -119,19 +120,23 @@ def batch_structure_ok(rows: Any, n_rules: int) -> bool:
 
 
 def parse_answers(
-    text: str, batch: Sequence[Rule], model: str
+    text: str, batch: Sequence[Rule], model: str, why: Counter | None = None
 ) -> dict[int, rule_labels.PassAnswer]:
     """{n: PassAnswer} for the answers that are readable AND belong to their rule. The WHOLE batch is left out unless the answers are exactly
     n = 1..N, each once (`batch_structure_ok`). Left out (the rule stays unlabelled for this pass): not JSON; an `n` out of range, repeated or not an integer; a paper kind outside its closed list or a field that is no text; a reading of the wrong shape; a `start` that is not the first three words of THAT rule's quote (an answer
     attached to the wrong rule). A readable answer whose numbers or unit the quote does not hold is kept with
-    valid=False (code decides: the rule goes to a human)."""
+    valid=False (code decides: the rule goes to a human). With `why` (a Counter) every answer left out is counted under one cause
+    word: batch_structure, not_an_object, n_invalid, kind_or_shape, start_mismatch, field_not_text (counts only, never text)."""
+    why = Counter() if why is None else why
     obj = agent_claude.parse_json_object(text)
     rows = obj.get("answers") if isinstance(obj, dict) else None
     out: dict[int, rule_labels.PassAnswer] = {}
     if not batch_structure_ok(rows, len(batch)):
+        why["batch_structure"] += len(batch)
         return out  # the whole batch is unreadable: nothing attached by guesswork, the rules stay unlabelled
     for a in rows:
         if not isinstance(a, dict):
+            why["not_an_object"] += 1
             continue
         n, kind, fld = a.get("n"), a.get("paper_kind"), a.get("field")
         if (
@@ -140,15 +145,19 @@ def parse_answers(
             or not 1 <= n <= len(batch)
             or n in out
         ):
+            why["n_invalid"] += 1
             continue
         quote = batch[n - 1].quote
         if kind not in PAPER_KINDS or not rule_labels.shape_ok(a):
+            why["kind_or_shape"] += 1
             continue
         if _start_key(a.get("start")) != _start_key(rule_labels.first_words(quote)):
+            why["start_mismatch"] += 1
             continue
         if kind != "datasheet":
             fld = None
         elif fld is not None and not isinstance(fld, str):
+            why["field_not_text"] += 1
             continue  # a field NOT ON THE LIST is kept: `rule_labels.decide` makes that row needs_human
         valid, reading = rule_labels.check_reading(a, quote)
         content = {"paper_kind": kind, "field": fld, "reading": reading, "valid": valid}

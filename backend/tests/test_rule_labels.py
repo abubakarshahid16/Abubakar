@@ -788,3 +788,55 @@ def test_which_stored_label_versions_stay_usable_after_the_prompt_moved_to_v4():
         "rule-label-v2",
     )
     assert "rule-label-v3" not in (*rl.ACCEPTED_PROMPTS, *rl.LAB_PROMPTS)
+
+
+def test_every_answer_the_parser_leaves_out_is_counted_under_one_cause_word():
+    import json
+    from collections import Counter
+
+    from app import rule_label_prompt as prompt
+
+    class Rule:
+        def __init__(self, quote):
+            self.quote, self.clause = quote, "1"
+
+    batch = [
+        Rule("The supplier shall provide a statement."),
+        Rule("The supplier shall provide a record."),
+    ]
+    base = {"paper_kind": "procedure", "field": None, "comparator": "required", "values": [], "unit": None,
+            "strength": "shall", "subject": "x", "reason": "x"}  # fmt: skip
+    good1 = {**base, "n": 1, "start": "The supplier shall"}
+
+    def causes(answers):
+        why = Counter()
+        prompt.parse_answers(json.dumps({"answers": answers}), batch, "m", why)
+        return dict(why)
+
+    assert causes([good1, {**base, "n": 2, "start": "The supplier shall"}]) == {}
+    assert causes([good1]) == {"batch_structure": 2}
+    assert causes([good1, {**base, "n": 2, "start": "Another rule entirely"}]) == {
+        "start_mismatch": 1
+    }
+    assert causes(
+        [
+            good1,
+            {**base, "n": 2, "start": "The supplier shall", "paper_kind": "nonsense"},
+        ]
+    ) == {"kind_or_shape": 1}
+    assert causes([good1, "text"]) == {"batch_structure": 2}
+    assert causes(
+        [
+            good1,
+            {
+                **base,
+                "n": 2,
+                "start": "The supplier shall",
+                "paper_kind": "datasheet",
+                "field": 7,
+            },
+        ]
+    ) == {"field_not_text": 1}
+    assert causes([good1, {**base, "n": 1, "start": "The supplier shall"}]) == {
+        "batch_structure": 2
+    }
