@@ -464,25 +464,39 @@ def absence_agrees(line: Mapping) -> bool:
     so in the sentence); a code veto (a value found, a deferral, an unreadable page) never reaches this record. Read from the stored
     line alone."""
     rec = stored_absence(line)
-    if rec is None or not is_absence_candidate(line) or rec.get("verdict") != A_NOT_STATED:
+    if (
+        rec is None
+        or not is_absence_candidate(line)
+        or rec.get("verdict") != A_NOT_STATED
+    ):
         return False
-    q = rec.get("quotes_checked") if isinstance(rec.get("quotes_checked"), Mapping) else {}
+    q = (
+        rec.get("quotes_checked")
+        if isinstance(rec.get("quotes_checked"), Mapping)
+        else {}
+    )
     if not (q.get("clause") and q.get("clause_strong")):
         return False
     check = rec.get("code_check")
     code = rec.get("code_search") if isinstance(rec.get("code_search"), Mapping) else {}
-    if check == CHECK_SEARCHED:
-        if code.get("proven") is not True:
-            return False
-    elif check != CHECK_COULD_NOT or code.get("veto") is True:
-        return False
     total = rec.get("pages_total")
     if not (isinstance(total, int) and 1 <= total <= ABSENCE_MAX_PAGES):
         return False
-    every = list(range(1, total + 1))  # "each read every page" is true only when the stored lists prove it
+    if check == CHECK_SEARCHED:
+        if code.get("proven") is not True or code.get("pages_checked") != total:
+            return False
+    elif (
+        check != CHECK_COULD_NOT or code.get("proven") is True
+    ):  # "could not" never rests on a proof, and no veto is stored
+        return False
+    every = list(
+        range(1, total + 1)
+    )  # "each read every page" is true only when the stored lists prove it
     if rec.get("first_pages") != every or rec.get("second_pages") != every:
         return False
-    return agent_run_second.models_differ([str(line.get("model") or "")], rec.get("model"))
+    return agent_run_second.models_differ(
+        [str(line.get("model") or "")], rec.get("model")
+    )
 
 
 def absence_disagrees(line: Mapping) -> bool:
@@ -507,7 +521,11 @@ def absence_disagree_why(line: Mapping) -> str:
     one code verified the second reader's quote on)."""
     rec = stored_absence(line) or {}
     page = rec.get("paper_page")
-    where = f"a value on page {page}" if isinstance(page, int) and not isinstance(page, bool) else "a value on the paper"
+    where = (
+        f"a value on page {page}"
+        if isinstance(page, int) and not isinstance(page, bool)
+        else "a value on the paper"
+    )
     return f"{verdict.DISAGREE_ONE_FOUND} {where}"
 
 

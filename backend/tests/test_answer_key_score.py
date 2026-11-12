@@ -684,7 +684,11 @@ def test_decisions_are_code_pass_fail_plus_two_reader_verdicts_right_wrong_and_n
     ]
     met = "Met (AI, two readers agree, quotes verified): one AI reader's verdict, checked by a second AI reader that saw the first answer, engineer to confirm."
     not_met = "Not met (AI, two readers agree, quotes verified): reached independently by two AI readers, engineer to confirm."
-    absent = "The AI reviewer's verdict, to be confirmed by an engineer: Two AI readers each read every page and found no value for this; the reviewer's code found none either."
+    from app.crs_ai_words import absence_verdict_sentence
+
+    absent = absence_verdict_sentence(
+        "Operating temperature", "The rating shall be stated", True
+    )
     crs = _ai_verdict_crs(
         tmp_path,
         [
@@ -704,7 +708,7 @@ def test_decisions_are_code_pass_fail_plus_two_reader_verdicts_right_wrong_and_n
                 "p.4 - Operating temperature",
                 absent,
                 "AI verdict",
-            ),  # not stated: not a decision
+            ),  # not stated on the paper: a negative decision, wrong on a complies row
             (
                 "p.4 - Operating temperature",
                 "c",
@@ -715,18 +719,18 @@ def test_decisions_are_code_pass_fail_plus_two_reader_verdicts_right_wrong_and_n
     )
     res = aks.score_files(_key(tmp_path, key), crs)
     assert res["decisions"] == {
-        "n": 4,
+        "n": 5,
         "code": 1,
-        "two_reader": 3,
+        "two_reader": 4,
         "right": 2,
-        "wrong": 1,
+        "wrong": 2,
         "not_on_key": 1,
     }
     assert res["ai_verdict_wrong"] and set(res["ai_verdict_wrong"]) <= set(
         res["clear_wrong"]
     )  # a wrong two-reader verdict is a clear wrong
     assert (
-        "decisions = code Pass/Fail + two-reader verdicts: right 2 of 4, wrong 1, not on the key 1"
+        "decisions = code Pass/Fail + two-reader verdicts: right 2 of 5, wrong 2, not on the key 1"
         in aks.summary(res)["decisions"]
     )
 
