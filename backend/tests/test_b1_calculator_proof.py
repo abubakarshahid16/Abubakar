@@ -11,7 +11,7 @@ import pytest
 from app import agent_review_calculator as calc
 from app import agent_review_code_proof as proof
 from app import agent_review_verdict as V
-from tests.test_b1_calculator import CLAUSE, ITEM, exit_of, fact, line
+from tests.test_b1_calculator import ITEM, exit_of, fact, line
 
 
 def proven(ln) -> bool:
