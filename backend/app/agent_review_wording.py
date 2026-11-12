@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Iterable, Mapping
 
 from . import agent_review_approved_code as approved_code
+from . import agent_review_code_proof as code_proof
 from . import agent_review_two_reader as two_reader
 from .agent_review_verdict import (
     AI_TIER,
@@ -286,32 +287,17 @@ UNPROVEN_CODE_WHY = "the code line was not proven: a compared value with both qu
 
 
 def code_line_proven(line: Mapping) -> bool:
-    """A CODE line (source "code") may be Pass or Fail ONLY with a decided comparison by code that agrees with the verdict, a paper page, and BOTH quotes
-    found by code. The calculator makes lines that satisfy this; the exit asks again, so no other path can write a "Proven by code" for a code line."""
-    cmp, checked, verdict = (
-        line.get("compare"),
-        line.get("quotes_checked") or {},
-        line.get("verdict"),
-    )
-    page = line.get("paper_page")
-    return bool(
-        line.get("decided_by") == BY_CODE
-        and isinstance(cmp, Mapping)
-        and cmp.get("decided") is True
-        and cmp.get("verdict") == ("meets" if verdict == PASS else "does_not_meet")
-        and checked.get("paper")
-        and checked.get("clause")
-        and isinstance(page, int)
-        and not isinstance(page, bool)
-        and page >= 1
-    )
+    """A CODE line may be Pass or Fail ONLY when the proof is made again from its own texts and values (`agent_review_code_proof`): both quotes hold
+    the numbers they stand for, the comparison gives the stored verdict, the page is real. A flag on the line is never taken on trust."""
+    return code_proof.line_proven(line)
 
 
 def hold_unproven_code(line: Mapping) -> dict:
-    """A code line that is Pass or Fail without `code_line_proven` becomes a Query with the reason. Only makes a line less confident. Idempotent."""
+    """A line that claims to be a code line (its source in any case, its kind, its approved marker or its `C-` id) and is Pass or Fail without
+    `code_line_proven` becomes a Query with the reason. Only makes a line less confident. Idempotent."""
     out = dict(line)
     if (
-        out.get("source") == CODE_SOURCE
+        code_proof.is_code_line(out)
         and out.get("verdict") in (PASS, FAIL)
         and not code_line_proven(out)
     ):

@@ -55,6 +55,7 @@ def line(
         page_text=page_text,
         clause_quote=clause_quote,
         clause_text=clause_text,
+        page_count=3,
     )
 
 
@@ -80,7 +81,8 @@ def test_a_met_limit_is_a_proven_pass_and_a_breach_a_proven_fail_through_the_exi
         and bad["source"] == "code"
     )
     assert (
-        ok["quotes_checked"] == {"paper": True, "clause": True}
+        ok["quotes_checked"]["paper"] is True
+        and ok["quotes_checked"]["clause"] is True
         and ok["paper_page"] == 1
     )
 
@@ -195,7 +197,7 @@ def test_brute_force_proven_by_code_is_unreachable_without_a_compared_value_with
         f = fact(is_blank=blank, page=page)
         ln = calc.numeric_line(
             ITEM, calc.requirement_from_item(ITEM), f, submittal_facts=[f],
-            page_text="Noise level 85 dB(A)" if paper_ok else "nope", clause_quote=CLAUSE, clause_text=CLAUSE if clause_ok else "nope",
+            page_text="Noise level 85 dB(A)" if paper_ok else "nope", clause_quote=CLAUSE, clause_text=CLAUSE if clause_ok else "nope", page_count=3,
         )  # fmt: skip
         seen += 1
         capped = exit_of(ln)
@@ -329,8 +331,8 @@ def test_a_check_that_does_not_apply_is_no_line_and_a_held_one_is_a_query():
 
 
 def test_a_forged_approved_marker_with_an_id_the_approved_file_does_not_hold_is_capped():
-    forged = {"item_id": "C-X-1", "source": "code", "approved_checklist": True, "rule_id": "DS-NOT-APPROVED", "verdict": "Fail", "decided_by": V.BY_CODE,
-              "compare": {"decided": True, "verdict": "does_not_meet"}, "quotes_checked": {"paper": True, "clause": True}, "paper_page": 1}  # fmt: skip
+    forged = {"item_id": "C-X-1", "source": "code", "approved_checklist": True, "rule_id": "DS-NOT-APPROVED", "verdict": "Fail", "decided_by": V.BY_CODE, "code_kind": "checklist", "paper_quote": "5", "clause_quote": "approved wording",
+              "compare": {"decided": True, "verdict": "does_not_meet"}, "quotes_checked": {"paper": True, "clause": True}, "paper_page": 1, "paper_page_count": 2}  # fmt: skip
     assert not approved_code.is_approved_code_item(forged)
     capped = exit_of(forged, forged)
     assert capped["verdict"] == "Query" and capped["verdict_class"] != "Proven by code"

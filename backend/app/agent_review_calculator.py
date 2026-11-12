@@ -26,8 +26,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from . import agent_review_code_proof as proof
+from . import agent_review_pass_guards as guards
 from . import agent_review_verdict as verdict_mod
-from . import agent_review_wording as wording
 from . import comparison, hold_reason
 from .reader_api import _fold
 
@@ -55,25 +56,7 @@ def quote_found(quote: object, text: object) -> bool:
     return bool(q) and bool(t) and q in t
 
 
-NEAR_CHARS = 80
-
-
-def value_near_label(label: object, value: object, text: object) -> bool:
-    """The checklist's results carry the value and its label, not the cell's text: the value counts as FOUND only when it stands within `NEAR_CHARS`
-    after the field's label on that page (a number that merely occurs somewhere on the page is not the field's value)."""
-    lab, val, t = (
-        _fold(str(label or "")),
-        _fold(str(value or "")),
-        _fold(str(text or "")),
-    )
-    if not (lab and val and t):
-        return False
-    start = t.find(lab)
-    while start != -1:
-        if val in t[start + len(lab) : start + len(lab) + NEAR_CHARS]:
-            return True
-        start = t.find(lab, start + 1)
-    return False
+value_near_label = proof.value_near_label  # one home: `agent_review_code_proof`
 
 
 def _is_page(page: object) -> bool:
@@ -102,9 +85,7 @@ def requirement_from_item(item: Mapping) -> dict:
     return {
         "requirement_type": item.get("requirement_type") or "numeric_limit",
         "operator": item.get("comparator"),
-        "raw_value": None
-        if value is None
-        else (f"{value:g}" if isinstance(value, (int, float)) else str(value)),
+        "raw_value": proof.stored_text(value) or None,
         "raw_unit": item.get("unit") or "",
         "value_low": item.get("value_low"),
         "value_high": item.get("value_high"),
@@ -117,6 +98,50 @@ def requirement_from_item(item: Mapping) -> dict:
     }
 
 
+def _undecided(base: dict, why: str, code: str, reason: str | None = None) -> dict:
+    """The line when the code did not decide: a Query with the reason in words, never a Pass or Fail."""
+    note = (
+        {"decided": False} if reason is None else {"decided": False, "reason": reason}
+    )
+    return {**base, **_query(why, code), "compare": note}
+
+
+def _checks(base: dict, fact: Mapping, page_text: object, clause_text: object) -> dict:
+    """The tests behind the two quote flags, each asked of the stored texts: found on the page, the value inside the quote, the quote sitting with the
+    field's label, found in the clause, the limit inside the quote. `paper` and `clause` hold all of theirs together."""
+    found = bool(
+        _is_page(fact.get("page")) and quote_found(base["paper_quote"], page_text)
+    )
+    value = proof.paper_reason(base["proof_fact"], base["paper_quote"]) is None
+    label = fact.get("field_label") or fact.get("field_name")
+    field = bool(
+        found
+        and label
+        and guards.belongs({"field_roles": [label]}, base["paper_quote"], page_text)[0]
+    )
+    c_found = quote_found(base["clause_quote"], clause_text)
+    limit = proof.clause_reason(base["proof_requirement"], base["clause_quote"]) is None
+    return {
+        "paper": found and value and field,
+        "clause": c_found and limit,
+        "paper_found": found,
+        "paper_value": value,
+        "field": field,
+        "clause_found": c_found,
+        "clause_limit": limit,
+    }
+
+
+#: In the order they are asked: the flag that failed, the code, the words.
+_QUOTE_FAILS = (
+    ("paper_found", "paper_quote_unverified", "the value's quote was not found on its page, so it was not compared into a Pass or Fail"),
+    ("paper_value", "paper_value_not_in_quote", "the quote from the paper does not state the value that was compared, with its unit, as a bare number"),
+    ("field", "field_not_with_quote", "the quote from the paper does not sit with the field's label, on its line or the line above"),
+    ("clause_found", "clause_quote_unverified", "the rule's quote was not found in its clause, so it was not compared into a Pass or Fail"),
+    ("clause_limit", "clause_limit_not_in_quote", "the quote from the clause does not state the limit that was compared, with its unit"),
+)  # fmt: skip
+
+
 def numeric_line(
     item: Mapping,
     requirement: Mapping,
@@ -126,82 +151,71 @@ def numeric_line(
     page_text: str | None,
     clause_quote: str | None,
     clause_text: str | None,
+    page_count: int | None = None,
 ) -> dict:
     """ONE line for one rule item and the fact paired with it. `page_text`: the stored text of the fact's page; `clause_quote`: the quote of the rule
     the line shows; `clause_text`: the clause's own text it must stand in. The caller pairs (`subject_pairing`) and fetches the texts; this decides,
-    by `compare`, and verifies the two quotes."""
+    by `compare`, and proves the quotes (`agent_review_code_proof`): each must be found, carry the number it stands for, and the paper's sit with its label."""
+    f = fact or {}
     base = {
-        "item_id": f"{ID_PREFIX}{item.get('item_id')}"
-        + (f"-{fact.get('id')}" if fact and fact.get("id") else ""),
+        "item_id": f"{ID_PREFIX}{item.get('item_id')}" + (f"-{f.get('id')}" if f.get("id") else ""),
         "source": SOURCE,
         "code_kind": "numeric",
         "standard": item.get("standard"),
         "clause": item.get("clause"),
         "rule_kind": item.get("rule_kind"),
         "rule_version_id": item.get("rule_version_id"),
-        "field": (fact or {}).get("field_label") or (fact or {}).get("field_name"),
+        "field": f.get("field_label") or f.get("field_name"),
         "field_roles": item.get("field_roles") or [],
-        "equipment_tag": (fact or {}).get("equipment_tag"),
+        "equipment_tag": f.get("equipment_tag"),
         "clause_quote": clause_quote or "",
         "paper_quote": _paper_quote(fact) if fact else "",
-        "paper_page": (fact or {}).get("page"),
+        "paper_page": f.get("page"),
+        "paper_page_count": page_count,
         "quotes_checked": {"paper": False, "clause": False},
-    }
+        "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
+        "proof_fact": {"raw_value": f.get("raw_value"), "raw_unit": f.get("raw_unit")} if fact else None,
+    }  # fmt: skip
     got = comparison.compare(
         dict(requirement), dict(fact) if fact else None, submittal_facts=submittal_facts
     )
-    status = got.get("status")
     if fact is None:
-        return {
-            **base,
-            **_query("no value read from the paper answers this rule", "no_fact"),
-            "compare": {"decided": False},
-        }
+        return _undecided(
+            base, "no value read from the paper answers this rule", "no_fact"
+        )
     if fact.get("is_blank"):
-        return {
-            **base,
-            **_query("the value on the paper is blank", "blank_value"),
-            "compare": {"decided": False},
-        }
-    base["quotes_checked"] = {
-        "paper": bool(
-            _is_page(fact.get("page")) and quote_found(base["paper_quote"], page_text)
-        ),
-        "clause": quote_found(base["clause_quote"], clause_text),
-    }
+        return _undecided(base, "the value on the paper is blank", "blank_value")
     base["limit"], base["observed"] = got.get("limit"), got.get("observed")
     reason = str(got.get("rationale") or "")[:200]
+    status = got.get("status")
     if status not in (COMPLIANT, NON_COMPLIANT) or not (
         got.get("limit") and got.get("observed")
     ):
-        return {
-            **base,
-            **_query(reason or "the code could not decide", "not_decided"),
-            "compare": {"decided": False, "reason": reason},
-        }
+        return _undecided(
+            base, reason or "the code could not decide", "not_decided", reason
+        )
     if got.get(hold_reason.KEY):
-        return {
-            **base,
-            **_query(reason or "held for an engineer", "held"),
-            "compare": {"decided": False, "reason": reason},
-        }
-    if not base["quotes_checked"]["paper"]:
-        return {**base, **_query("the value's quote was not found on its page, so it was not compared into a Pass or Fail", "paper_quote_unverified"),
-                "compare": {"decided": False, "reason": reason}}  # fmt: skip
-    if not base["quotes_checked"]["clause"]:
-        return {**base, **_query("the rule's quote was not found in its clause, so it was not compared into a Pass or Fail", "clause_quote_unverified"),
-                "compare": {"decided": False, "reason": reason}}  # fmt: skip
-    met = status == COMPLIANT
-    return {
+        return _undecided(base, reason or "held for an engineer", "held", reason)
+    base["quotes_checked"] = checks = _checks(base, fact, page_text, clause_text)
+    for key, code, why in _QUOTE_FAILS:
+        if not checks[key]:
+            return _undecided(base, why, code, reason)
+    line = {
         **base,
-        "verdict": PASS if met else FAIL,
+        "verdict": PASS if status == COMPLIANT else FAIL,
         "decided_by": verdict_mod.BY_CODE,
-        "compare": {
-            "decided": True,
-            "verdict": "meets" if met else "does_not_meet",
-            "reason": reason,
-        },
-    }
+        "compare": {"decided": True, "verdict": "meets" if status == COMPLIANT else "does_not_meet", "reason": reason},
+    }  # fmt: skip
+    if not proof.line_proven(
+        line
+    ):  # the exit's own ask, made here too: the line is never worse off at the exit than here
+        return _undecided(
+            base,
+            "the proof was recomputed from the line's own texts and values and did not hold",
+            "not_proven",
+            reason,
+        )
+    return line
 
 
 def checklist_lines(
@@ -233,6 +247,9 @@ def checklist_lines(
             "clause_quote": str(r.get("text") or ""),
             "paper_quote": str(value or ""),
             "paper_page": page,
+            "paper_page_count": max(
+                (k for k in page_texts if _is_page(k)), default=None
+            ),
             "quotes_checked": {
                 "paper": bool(
                     _is_page(page)
@@ -270,4 +287,4 @@ def checklist_lines(
 
 def can_be_proven(line: Mapping) -> bool:
     """Re-check, on ANY code line, what `PROVEN_REQUIRES` says (the exit's own check: `agent_review_wording.code_line_proven`)."""
-    return wording.code_line_proven(line)
+    return proof.line_proven(line)
