@@ -472,6 +472,35 @@ def test_a_failed_call_inside_the_step_switches_it_off_and_leaves_the_lines(w, o
     assert lines_of(run_id)["R-coat"]["word"] == "AI thinks: met"
 
 
+def test_a_failed_call_inside_the_step_puts_what_the_run_was_charged_on_the_lines(
+    w, monkeypatch
+):
+    def totals(run_id):
+        run = (
+            db.connect()
+            .execute("SELECT usd FROM agent_review_run WHERE run_id = ?", (run_id,))
+            .fetchone()["usd"]
+        )
+        return run, sum(
+            json.loads(r["line_json"]).get("usd") or 0.0
+            for r in lines_of(run_id).values()
+        )
+
+    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", False)
+    lane(w)
+    off = totals(run_review())
+    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
+    db.reset_connection()
+    lane(w, fail=TimeoutError("invented timeout"))
+    run_id = run_review()
+    assert step_of(run_id)["off"] == two.OFF_CALL_FAILED
+    on = totals(run_id)
+    assert on[0] - off[0] > 0  # the failed call was charged to the run (its worst case)
+    assert on[1] - off[1] == pytest.approx(
+        on[0] - off[0], rel=1e-3
+    )  # and is on the lines
+
+
 def test_a_reply_that_leaves_every_item_out_changes_no_line(w, on):
     fake = lane(w)
     fake.second = {}  # a reply with no answer for any item
