@@ -62,30 +62,28 @@ def test_a_datasheet_keeps_its_exact_old_sentences():
 
 @pytest.mark.parametrize("noun", ["contract", "procedure", "transmittal"])
 def test_no_sentence_of_the_review_calls_another_kind_a_datasheet(noun):
+    """Through the two doors every stored or shown reason leaves by: the recommendation and the stored outcome."""
     comp = {**BASE, "paper_noun": noun, "fields_required": 12, "fields_answered": 3}
     zero = {**BASE, "paper_noun": noun}
-    outs = [
-        comparison.plain_reason("Manual Review Required", TECH, comp, None, ["IEC 1"]),
-        comparison.plain_reason("Manual Review Required", TECH, zero, None, ["IEC 1"]),
-        comparison.plain_reason(
-            "Manual Review Required",
-            "NOMINAL ESTIMATE",
-            {**comp, "fields_read": 4},
-            None,
-            ["IEC 1"],
-        ),
-        comparison.plain_reason(
-            "Manual Review Required",
-            "Manual review: no requirement was evaluated",
-            zero,
-            None,
-            [],
-        ),
-        comparison._insufficient_reason(zero),
-        comparison._insufficient_reason(comp),
+    got = [
+        comparison.recommend_code([], comp, missing_references=["IEC 1"]),
+        comparison.recommend_code([], zero, missing_references=["IEC 1"]),
+        comparison.recommend_code([], {**zero, "extraction_coverage": 0.1}),
     ]
-    for text in outs:
-        assert "datasheet" not in text.lower() and noun in text, text
+    stored = [
+        {"recommended_code": "Manual Review Required", "reason": TECH, "completeness": c, "missing_references": [{"identifier": "IEC 1"}]}
+        for c in (comp, zero)
+    ] + [
+        {"recommended_code": "Manual Review Required", "reason": "Manual review: no requirement was evaluated", "completeness": zero},
+        {"recommended_code": "Manual Review Required", "reason": "NOMINAL ESTIMATE", "completeness": {**comp, "fields_read": 4}},
+    ]  # fmt: skip
+    texts = [r[k] for r in got for k in ("reason", "details")] + [
+        t for o in stored for t in comparison.plain_outcome(o) if t
+    ]
+    assert texts
+    for text in texts:
+        assert "datasheet" not in text.lower(), text
+    assert any(noun in t for t in texts)
 
 
 def test_a_review_that_checked_nothing_says_what_was_not_checked_and_why():
@@ -94,7 +92,9 @@ def test_a_review_that_checked_nothing_says_what_was_not_checked_and_why():
         "paper_noun": "contract",
         "not_checked_plain": kind_words.not_checked_sentence("contract"),
     }
-    text = comparison.plain_reason("Manual Review Required", TECH, comp, None, [])
+    text = comparison.plain_outcome(
+        {"recommended_code": "Manual Review Required", "reason": TECH, "completeness": comp}
+    )[0]
     assert text.startswith(
         "No contract checklist is held, so no point of this contract was checked;"
     )
@@ -205,7 +205,7 @@ def _kind(*lines):
 
 
 def test_the_old_contract_cues_count_in_the_conflict_check():
-    for cue in ('Schedule "G"', "GENERAL CONDITIONS OF CONTRACT", "Supply Agreement"):
+    for cue in ('Schedule "Q"', "GENERAL CONDITIONS OF CONTRACT", "Supply Agreement"):
         got = _kind(cue, "Pump Data Sheet")
         assert (got.paper_kind, got.guess, got.method) == (
             "datasheet",

@@ -14,6 +14,8 @@ Reads only; no model, no network.
 
 from __future__ import annotations
 
+import re
+
 from . import kind_review_table, paper_kind
 
 DATASHEET = "datasheet"
@@ -139,6 +141,40 @@ def crs_meta(
             }
         )
     return {**meta, "review_notes": notes, "export_quality": True}
+
+
+_WORD = re.compile(r"\bdatasheet\b", re.I)
+
+
+def _swap(text: str, noun: str) -> str:
+    return _WORD.sub(
+        lambda m: noun.capitalize() if m.group(0)[0].isupper() else noun, text
+    )
+
+
+def in_noun(thing, completeness: dict | None):
+    """The paper's noun in the review's sentences (K2): a run that recorded a decided kind other than a datasheet reads "contract",
+    "procedure" ... where the sentences were written "datasheet", and a review that asked nothing of the paper says in one plain
+    sentence what was not checked and why. Takes a reason string or a recommendation dict (its "reason" and "details"); a datasheet,
+    an unknown kind and a run from before this change come back as they were."""
+    noun = noun_in(completeness)
+    if isinstance(thing, dict):
+        return {
+            **thing,
+            **{
+                k: in_noun(thing[k], completeness)
+                for k in ("reason", "details")
+                if isinstance(thing.get(k), str)
+            },
+        }
+    if noun == DATASHEET or not isinstance(thing, str):
+        return thing
+    said = _swap(thing, noun)
+    asked_nothing = (
+        f"No applicable standard asks this {noun} for a value that was checked."
+    )
+    plain = (completeness or {}).get("not_checked_plain")
+    return said.replace(asked_nothing, plain) if plain else said
 
 
 def noun_in(completeness: dict | None) -> str:
