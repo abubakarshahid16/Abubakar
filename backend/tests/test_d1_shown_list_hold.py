@@ -208,7 +208,7 @@ def test_the_run_note_counts_the_cited_specifications_not_sent():
 
 
 def test_the_run_says_it_did_not_send_the_cited_specification_even_with_the_switch_off():
-    from app import absence, claude_auto_approve
+    from app import claude_auto_approve
 
     run_id = _run()
     claude_auto_approve.record_on_run(run_id)
