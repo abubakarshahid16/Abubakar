@@ -120,27 +120,21 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
-        self.concurrency, self.max_batch, self.retry_base = (
-            max(1, int(concurrency)),
-            max_batch,
-            retry_base,
-        )
+        self.concurrency, self.max_batch = max(1, int(concurrency)), max_batch
+        self.retry_base = retry_base
         self.context_check, self.std_pages = bool(context_check), std_pages
         self.sink, self.trace_path = sink, trace_path
-        self.meter = agent_claude.SpendMeter(
-            app_cap()
-        )  # a backstop: the step gate and `metered` are the binding ones
+        # a backstop: the step gate and `metered` are the binding ones
+        self.meter = agent_claude.SpendMeter(app_cap())
         self.opinion = agent_claude.ClaudeProvider(
             model=model, send=send, env=env, meter=self.meter
         )
         self.total_pages = pages.count(paper)
-        self.tier_lookup = (
-            tier_lookup  # the CURRENT tier of a rule item, from the label table
-        )
+        # the CURRENT tier of a rule item, from the label table
+        self.tier_lookup = tier_lookup
         self.items = plan_pages(items, pages, paper, clauses)
         self.items_by_id = {str(i.get("item_id")): i for i in self.items}
-        self.stopped = ""
-        self.stop_text = ""
+        self.stopped = self.stop_text = ""
         self.gate: AppStepGate | None = None
         self.last_app_worst: float | None = None
         self.run_usd = 0.0
@@ -149,9 +143,8 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             k: self._kept(v) for k, v in dict(done_lines or {}).items()
         }
         self.absence_check = bool(absence_check)
-        self.reread_enabled = bool(
-            reread_silent
-        )  # C4: off unless the job passes the switch
+        # C4: off unless the job passes the switch
+        self.reread_enabled = bool(reread_silent)
         self.carried = (
             absence.carried_roles(paper_kind, equipment_type) if absence_check else None
         )
@@ -429,9 +422,8 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
     ) -> tuple[dict | None, float, str | None, str | None]:
         """(answers by item id or None, usd, error code or None, answering model); the bound and the cost rule are above."""
         max_tokens = min(MAX_TOKENS_CAP, TOKENS_BASE + TOKENS_PER_ITEM * len(batch))
-        once_kw = (
-            {"once": True} if once else {}
-        )  # the normal path calls exactly as before
+        # the normal path calls exactly as before (no `reuse=` while stored answers are off)
+        once_kw = {**({"once": True} if once else {}), **self.reuse_kw("lead")}
         answer, usd, error, model = None, 0.0, None, None
         spent = retry_worst = (
             0.0  # what the run was charged for the cut-off call, and for the retry if it was sent
@@ -441,9 +433,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             with self._lock:
                 self.calls["lead"] += 1
             try:
-                raw, usd = self.call(
-                    self.model, parts, max_tokens, **self.reuse_kw("lead"), **once_kw
-                )
+                raw, usd = self.call(self.model, parts, max_tokens, **once_kw)
             except agent_claude.AgentBadReply as exc:
                 if exc.code != "stop_max_tokens" or (split_ok and len(batch) > 1):
                     raise  # a bigger batch is split by the caller instead
@@ -459,10 +449,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                     self.calls["retries"] += 1
                 cut_retry = True
                 retry_worst = app_worst_usd(self.model, parts, bigger)
-                try:  # once: a failed or timed-out retry is not sent again
-                    raw, usd2 = self.call(
-                        self.model, parts, bigger, once=True, **self.reuse_kw("lead")
-                    )
+                once_kw["once"] = True  # a failed or timed-out retry is not sent again
+                try:
+                    raw, usd2 = self.call(self.model, parts, bigger, **once_kw)
                 except agent_claude.AgentBadReply as exc2:
                     if exc2.code == "stop_max_tokens":
                         return (
@@ -485,9 +474,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             ):  # one retry; a bigger batch is split instead
                 with self._lock:
                     self.calls["retries"] += 1
-                raw, usd2 = self.call(
-                    self.model, parts, max_tokens, **self.reuse_kw("lead"), **once_kw
-                )
+                raw, usd2 = self.call(self.model, parts, max_tokens, **once_kw)
                 usd += usd2
                 answer = parse_answers(raw)
             if answer is None:
