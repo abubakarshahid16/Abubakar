@@ -520,9 +520,10 @@ def test_scorer_contract_row_matches_by_topic_words_and_page(tmp_path):
 def test_writer_matches_what_the_scorer_reads():
     """The REPO scorer (`tools/answer_key_score.py`, one home; no path outside the repo, no skip): the sheet it reads and the column
     names it looks up are the ones the writers emit, and a row the experiment writer calls a comment has enough filled cells."""
+    from tools import answer_key_score as aks
+
     from app import agent_review_crs as real
     from app import crs_layout
-    from tools import answer_key_score as aks
 
     src = Path(aks.__file__).read_text(
         encoding="utf-8"

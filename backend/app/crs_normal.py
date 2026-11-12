@@ -158,19 +158,19 @@ def row_cells(entry: dict) -> tuple[list, str]:
         entry["item_no"], entry["document_name"], entry["page_section"], entry["comment"], entry["comment_by"],
         entry["contractor_response"], entry["final_resolution"], entry["standard_reference"], entry["priority_label"] or None,
     ]  # fmt: skip
-    return (cells + [entry["status"]] if entry["status"] else cells), entry["status"]
+    return ([*cells, entry["status"]] if entry["status"] else cells), entry["status"]
 
 
 def _cells_of(entry: dict, columns: list) -> list:
     cells, _s = row_cells(entry)
     return (
-        cells + [entry["ai_review_comment"] or None]
+        [*cells, entry["ai_review_comment"] or None]
         if ce.AI_COLUMN in columns
         else cells
     )
 
 
-def layout_view(view: dict, meta: dict) -> dict:  # noqa: ARG001 - kept for the callers' signature
+def layout_view(view: dict, meta: dict) -> dict:
     """The (decorated) view of `crs_export.build_crs_view` as plain values for `crs_layout.layout_workbook`."""
     internal = view["crs_copy"] == "internal"
     rows = [_cells_of(e, view["columns"]) for e in view["rows"]]
@@ -182,7 +182,7 @@ def layout_view(view: dict, meta: dict) -> dict:  # noqa: ARG001 - kept for the 
         "row_heights": [ce.row_height(e["comment"]) for e in view["rows"]],
         "header": [(h["label"], h["value"]) for h in view["header"]],
         "columns": view["columns"],
-        "widths": crs_layout.LAYOUT_WIDTHS[:9] + (60.0,)
+        "widths": (*crs_layout.LAYOUT_WIDTHS[:9], 60.0)
         if ce.AI_COLUMN in view["columns"]
         else None,
         "plain": not internal,

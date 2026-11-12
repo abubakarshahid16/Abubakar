@@ -40,7 +40,6 @@ from app.config import settings
 from app.crs_export import (
     COLUMN_HEADER_ROW,
     FIRST_DATA_ROW,
-    HEADER_FIELDS,
     HEADER_ROW_OF,
     HEADERS,
     ISSUE_HEADER_ROW,

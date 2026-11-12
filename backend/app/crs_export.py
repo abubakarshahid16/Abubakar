@@ -353,13 +353,6 @@ def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
 
 
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
-    """The view the file AND the preview are drawn from (order 13: both are decorated by `crs_normal.decorate`, one row model)."""
-    from . import crs_normal
-
-    return crs_normal.decorate(_build_crs_view(findings, meta), meta)
-
-
-def _build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
     THE SINGLE DEFINITION OF THE CONTENT. `build_crs` renders this into the
@@ -393,11 +386,8 @@ def _build_crs_view(findings: list[dict], meta: dict) -> dict:
     company = meta.get("company_name", default_company())
     project = meta.get("project", "")
 
-    # Item numbers are assigned HERE, always 1..N with no gaps whatever the
-    # caller sends, so the preview numbers rows the way the workbook does. The
-    # per-row reference is minted HERE too, in the one builder both renderings
-    # read: the .xlsx and the preview quote the same reference for the same
-    # comment, and a re-export of this run quotes it again.
+    # Item numbers are assigned HERE (1..N, no gaps) and the per-row reference is minted HERE: the .xlsx and the preview
+    # quote the same ones, and a re-export of this run quotes them again.
     run_id = meta.get("review_run_id", "")
     copy, findings = _copy_and_rows(findings, meta)
 
@@ -567,7 +557,8 @@ def _build_crs_view(findings: list[dict], meta: dict) -> dict:
             for n in (meta.get("review_notes") or [])] if copy == COPY_INTERNAL else []),
     }
     view = crs_by_contractor.count_into(view, findings)
-    return quality.finish(view, dropped, merged) if qon else view
+    from . import crs_normal  # order 13: ONE row model for the file and the preview
+    return crs_normal.decorate(quality.finish(view, dropped, merged) if qon else view, meta)
 
 
 def safe_cell_text(value):
