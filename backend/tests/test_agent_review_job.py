@@ -89,7 +89,10 @@ def test_a_full_fake_model_review_writes_lines_both_copies_and_the_record(world)
     assert run_job(job_id) == "done"
     lines = lines_of(run_id)
     assert {k: (v["verdict_class"], v["word"]) for k, v in lines.items()} == {
-        "R-coat": ("AI verdict, two readers agree", "AI verdict: met"),  # a Pass the code did not compare
+        "R-coat": (
+            "AI verdict, two readers agree",
+            "AI verdict: met",
+        ),  # a Pass the code did not compare
         "R-frame": ("Proven by code", "Pass"),
         "R-mark": ("Proven by code", "Fail"),
         "R-colour": ("Not reviewed", "Not reviewed"),

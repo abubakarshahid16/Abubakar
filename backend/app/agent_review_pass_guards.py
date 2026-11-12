@@ -93,11 +93,11 @@ def _hit(folded: str, words: absence.FieldWords) -> bool:
             ):
                 return True
     for sp in words.spellings:
-        if re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded):
-            if not (
-                len(sp.split()) == 1 and sp in GENERIC and not _label_only(folded, sp)
-            ):
-                return True
+        generic_alone = (
+            len(sp.split()) == 1 and sp in GENERIC and not _label_only(folded, sp)
+        )
+        if re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded) and not generic_alone:
+            return True
     return False
 
 

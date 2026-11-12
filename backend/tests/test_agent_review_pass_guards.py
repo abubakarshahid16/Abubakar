@@ -388,9 +388,10 @@ PAGES = {1: SPACED + "\nService: sour crude\nService: crude\nCoating layers two 
 
 def test_condition_ok_cases():
     base = _answer(condition_page=1)
-    ok = lambda quote, **kw: G.condition_ok(
-        {**base, "condition_quote": quote, **kw}, PAGES, {"sour"}
-    )  # noqa: E731
+
+    def ok(quote, **kw):
+        return G.condition_ok({**base, "condition_quote": quote, **kw}, PAGES, {"sour"})
+
     assert ok("Service: sour crude") is True
     assert ok("Service: crude") is False  # no word of the condition
     assert ok("Coating layers two") is False  # the value quote

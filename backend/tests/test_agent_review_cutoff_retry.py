@@ -74,7 +74,9 @@ def test_cut_off_then_complete_the_line_is_decided_from_the_second_answer_only(
 ):
     lane = use(w, monkeypatch, {0})
     line = lines_of(run_review())["R-coat"]
-    assert line["word"] == "AI verdict: met"  # a Pass the code did not compare (owner, 12 Nov)
+    assert (
+        line["word"] == "AI verdict: met"
+    )  # a Pass the code did not compare (owner, 12 Nov)
     assert len(lane.limits) == 2
     assert (
         lane.limits[1]
@@ -113,7 +115,10 @@ def test_a_batch_cut_off_is_still_split_first_then_a_half_gets_the_larger_retry(
         lane.lead_asked[1] == lane.lead_asked[2]
     )  # the same half, asked again with more room
     assert retry == 2 * half1 and half1 < first
-    assert lines["R-coat"]["word"] == "AI verdict: met" and lines["R-mark"]["word"] == "Fail"
+    assert (
+        lines["R-coat"]["word"] == "AI verdict: met"
+        and lines["R-mark"]["word"] == "Fail"
+    )
 
 
 def test_the_retry_reserves_its_larger_worst_case_and_a_low_cap_refuses_it(
