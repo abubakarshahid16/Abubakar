@@ -25,6 +25,16 @@ from . import rule_label_import, rule_label_ocr, rule_labels
 from .compiled_rule_proof import quote_verified
 from .rule_label_schema import AI_APPROVED, QUOTE_NOT_FOUND
 
+#: The lab's own word for the guard the product calls `numbers_unread`. A lab row held ONLY for it, which the product's
+#: (corrected) check now approves, is approved: nothing else the lab held is ever promoted.
+LAB_GUARD_ONLY = frozenset({"no_number_reading"})
+
+
+def _held_only_for_the_quantity_guard(lab) -> bool:
+    held = lab["disagreement"] if "disagreement" in lab.keys() else None  # noqa: SIM118 - sqlite3.Row
+    parts = {p.strip() for p in str(held or "").split(",") if p.strip()}
+    return lab["state"] == "needs_human" and bool(parts) and parts <= LAB_GUARD_ONLY
+
 
 def _json(raw):
     try:
@@ -148,7 +158,11 @@ def convert(conn: sqlite3.Connection, pages_of, page_origin) -> tuple[list[dict]
         )
         if d is None:
             continue
-        if d.state == AI_APPROVED and lab["state"] != AI_APPROVED:
+        if (
+            d.state == AI_APPROVED
+            and lab["state"] != AI_APPROVED
+            and not _held_only_for_the_quantity_guard(lab)
+        ):
             # never promoted: the lab's own (stricter) checks said no, so a person decides
             d = rule_labels.Decision(
                 "needs_human", d.paper_kind, d.field, "lab_not_approved", d.reading
