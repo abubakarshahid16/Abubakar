@@ -548,7 +548,7 @@ def run_lines(outcome: dict) -> list[dict]:
         out.append(
             {
                 "part": SHOWN_KEY,
-                "line": f"Not sent: {held} specification(s) this review cites were not on the list shown before "
+                "line": f"Not sent: {held} document(s) this review cites were not on the list shown before "
                 "the start, so the cloud model did not read them.",
                 "note": "Not read by the cloud model",
                 "detail": True,

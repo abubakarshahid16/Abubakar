@@ -17,6 +17,15 @@ const rereadPages = vi.fn();
 const startReviewRun = vi.fn();
 const visionReaderStatus = vi.fn();
 
+const planFor = vi.fn();
+const plannedStart = vi.fn();
+vi.mock("../../../api/reviewPlan", () => ({
+  reviewPlan: {
+    plan: (...args: unknown[]) => planFor(...args),
+    start: (...args: unknown[]) => plannedStart(...args),
+  },
+}));
+
 vi.mock("../../../api/client", () => ({
   reviews: {
     readiness: (...args: unknown[]) => readiness(...args),
@@ -47,7 +56,10 @@ function ready(over: Partial<ReviewReadiness> = {}): ReviewReadiness {
 }
 
 beforeEach(() => {
-  for (const mock of [readiness, rereadPages, startReviewRun, visionReaderStatus]) mock.mockReset();
+  for (const mock of [readiness, rereadPages, startReviewRun, visionReaderStatus, planFor, plannedStart]) mock.mockReset();
+  planFor.mockResolvedValue({ ok: true, data: { choice: "automatic", parts: [], text_leaves: false, refused: null,
+    documents: { leaving: [], not_sent: [], not_readable: 0 } } });
+  plannedStart.mockResolvedValue({ ok: true, data: { review_run_id: "run-3" } });
   readiness.mockResolvedValue({ ok: true, data: ready() });
   startReviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-3" } });
   visionReaderStatus.mockResolvedValue({ ok: true, data: {
@@ -111,7 +123,8 @@ describe("a re-run that cannot say anything new", () => {
     expect(screen.getByRole("alertdialog", { name: "Nothing changed since the last run" })).toBeInTheDocument();
     expect(startReviewRun).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Run again anyway" }));
-    expect(startReviewRun).toHaveBeenCalledWith("doc-sub");
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
+    expect(plannedStart).toHaveBeenCalledWith("doc-sub", "automatic", []);
     expect(onStarted).toHaveBeenCalledWith("run-3");
   });
 
@@ -120,14 +133,17 @@ describe("a re-run that cannot say anything new", () => {
     await strip();
     await userEvent.click(screen.getByRole("button", { name: "Check it" }));
     expect(screen.queryByRole("alertdialog")).toBeNull();
-    expect(startReviewRun).toHaveBeenCalledWith("doc-sub");
+    expect(plannedStart).not.toHaveBeenCalled(); // the plan and the document list are shown first
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
+    expect(plannedStart).toHaveBeenCalledWith("doc-sub", "automatic", []);
   });
 
   it("shows the server's refusal as the server worded it", async () => {
-    startReviewRun.mockResolvedValue({ ok: false, error: { message: "a review of this submittal is already running" } });
+    plannedStart.mockResolvedValue({ ok: false, error: { message: "a review of this submittal is already running" } });
     control();
     await strip();
     await userEvent.click(screen.getByRole("button", { name: "Check it" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("already running");
   });
 });

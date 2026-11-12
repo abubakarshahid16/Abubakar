@@ -450,12 +450,12 @@ def _notes(facts: Facts, plan: Plan, settings) -> list[str]:
     return notes
 
 
-def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> dict:
+def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str, project_ids=()) -> dict:
     """The pre-start answer. No side effect: nothing is written, no call is made, no model is loaded. A dict of plain facts:
     the engine of each part, whether text leaves this computer and which documents, the estimated cost, what will not run."""
     from .config import settings
 
-    facts, _reading = read_facts(conn, document_id, allowed)
+    facts, reading = read_facts(conn, document_id, allowed)
     plan = decide(choice, facts)
     out = plan.as_dict()
     out["kind"] = facts.kind
@@ -474,6 +474,19 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
             if books
             else "the rule books are chosen when the review starts"
         )
+    from . import review_leaving
+
+    docs.update(
+        review_leaving.leaving_for(
+            conn,
+            document_id,
+            allowed,
+            facts,
+            equipment_type=getattr(reading, "equipment_type", None),
+            leaves=bool(leaves),
+            project_ids=tuple(project_ids),
+        )
+    )
     out["documents"] = docs
     out["boundary"] = "documents you may read"
     per_run = float(settings.claude_budget_usd_per_run)

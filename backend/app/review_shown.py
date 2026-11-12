@@ -68,12 +68,16 @@ def shown_ids(conn, run_id: str | None) -> frozenset[str] | None:
     return frozenset(str(d) for d in got) if isinstance(got, list) else frozenset()
 
 
-def unshown_specifications(conn, run_id: str, document_ids) -> frozenset[str]:
-    """Of `document_ids`, the specifications that are not the paper under review `run_id` and are not on its stored list.
-    Raises `sqlite3.Error` when the library cannot be read: the caller fails closed."""
+def held_documents(conn, run_id: str, document_ids) -> frozenset[str]:
+    """Of `document_ids`, the ones the gate holds for review run `run_id`. A run WITH a stored list sends only what it names: any
+    other document, of any kind, is held. A run without one holds the specifications that are not the paper under review (the
+    older routes show no list). Raises `sqlite3.Error` when the library cannot be read: the caller fails closed."""
     ids = sorted({str(d) for d in document_ids if d})
     if not ids:
         return frozenset()
+    stored = shown_ids(conn, run_id)
+    if stored is not None:
+        return frozenset(ids) - stored
     marks = ",".join("?" for _ in ids)
     specs = {
         r["document_id"]
@@ -90,11 +94,11 @@ def unshown_specifications(conn, run_id: str, document_ids) -> frozenset[str]:
     specs.discard(paper["submittal_document_id"] if paper else None)
     if not specs:
         return frozenset()
-    return frozenset(specs - (shown_ids(conn, run_id) or frozenset()))
+    return frozenset(specs)
 
 
 def cited_unshown(conn, run_id: str) -> int:
-    """How many specifications this run cites (applied to it) that were not on its shown list. For the run's note."""
+    """How many documents applied to this run were held because no list shown before the start names them. For the run's note."""
     try:
         rows = conn.execute(
             "SELECT standard_document_id FROM review_applicable_standards"
@@ -102,9 +106,31 @@ def cited_unshown(conn, run_id: str) -> int:
             (run_id,),
         ).fetchall()
         return len(
-            unshown_specifications(
+            held_documents(
                 conn, run_id, [r["standard_document_id"] for r in rows]
             )
         )
     except sqlite3.Error:
         return 0
+
+
+def cap(plan: dict, shown_document_ids) -> list[str]:
+    """The list a start stores: what the screen showed, narrowed to what the plan lists NOW. A document the screen did not show is
+    never added; one the plan no longer lists is dropped. Only NARROWS."""
+    now = {d["id"] for d in (plan.get("documents") or {}).get("leaving") or []}
+    return sorted({str(d) for d in shown_document_ids} & now)
+
+
+def without_titles(plan: dict) -> dict:
+    """The plan as it is stored with the run: the leaving list by id, kind and reason only (the stored choice holds words and ids,
+    never a file name)."""
+    docs = dict(plan.get("documents") or {})
+    if "leaving" in docs:
+        docs["leaving"] = [
+            {k: d.get(k) for k in ("id", "kind", "why")} for d in docs["leaving"]
+        ]
+        docs["not_sent"] = [
+            {k: d.get(k) for k in ("kind", "why", "reason")}
+            for d in docs.get("not_sent") or []
+        ]
+    return {**plan, "documents": docs}

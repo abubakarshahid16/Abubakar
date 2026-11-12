@@ -12,8 +12,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
+import { type Engine, reviewPlan } from "../../../api/reviewPlan";
 import type { ReviewReadiness } from "../../../types/api";
 import { ReadinessStrip } from "../ReadinessStrip";
+import { StartPanel } from "./StartPanel";
 
 export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpenStandards, onReread }: {
   submittalId: string;
@@ -26,6 +28,7 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
 }) {
   const [readiness, setReadiness] = useState<ReviewReadiness | null>(null);
   const [confirmRerun, setConfirmRerun] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [launch, setLaunch] = useState<{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }>({ kind: "idle" });
 
   const loadReadiness = useCallback(async () => {
@@ -47,12 +50,13 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
       return;
     }
     setConfirmRerun(false);
-    void start();
+    setPanelOpen(true); // the plan and the list of documents that would leave are shown before anything starts
   }
 
-  async function start() {
+  async function start(engine: Engine, shownDocumentIds: string[]) {
     setLaunch({ kind: "running" });
-    const result = await reviewsApi.startReviewRun(submittalId);
+    const result = await reviewPlan.start(submittalId, engine, shownDocumentIds);
+    setPanelOpen(false);
     if (!result.ok) {
       // SHOWN AS THE API RETURNED IT - a refusal ("a review of this submittal
       // is already running") is a real answer, never retried silently.
@@ -83,6 +87,10 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
           </span>
         )}
       </div>
+      {panelOpen && launch.kind !== "running" && (
+        <StartPanel submittalId={submittalId} starting={false} onStart={(e, ids) => void start(e, ids)}
+          onCancel={() => setPanelOpen(false)} />
+      )}
       {launch.kind === "error" && (
         <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
           {launch.message}
