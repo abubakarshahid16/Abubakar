@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .agent_review_gate import enabled, require_on, two_reader_enabled
+from .agent_review_gate import enabled, require_on
 from .db import schema_once
 
 CLASSES = (
@@ -183,11 +183,10 @@ def line_shape_is_old(conn) -> bool:
 
 
 def line_check_is_old(conn) -> bool:
-    """True only when the second-reader switch is ON and `agent_review_line` exists with a CHECK that does not yet name the class
-    "AI verdict, two readers agree" (a table made before that class). With the switch off nothing is judged old, so a switched-off
-    app never touches an existing table. The upgrade is the one `create_tables` already does for the older shape."""
-    if not two_reader_enabled():
-        return False
+    """True when `agent_review_line` exists with a CHECK that does not yet name the classes "AI verdict, two readers agree",
+    "Not checked on this paper" and the words they carry (a table made before them). The class "AI verdict: met" is written ALWAYS
+    since the owner's decision of 12 Nov 2026 (a Pass the code did not compare), so this no longer waits for a switch; the upgrade
+    is the one `create_tables` already does for the older shape and runs only where the AI reviewer itself is on."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (LINE_TABLE,)
     ).fetchone()

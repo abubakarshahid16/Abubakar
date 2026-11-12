@@ -101,6 +101,8 @@ def _holds(line: Mapping) -> bool:
 
 def is_candidate(line: Mapping) -> bool:
     """May the second reader be asked about this line (rule 1 above)? Pure on the stored line."""
+    if textual_pass_agreed(line):  # already "AI verdict: met" (owner, 12 Nov): no second asking
+        return False
     ai = line.get("ai_verdict")
     if ai not in (verdict.PASS, verdict.FAIL) or line.get("verdict") != verdict.QUERY:
         return False
@@ -489,8 +491,27 @@ def absence_disagrees(line: Mapping) -> bool:
     return rec.get("verdict") == A_FOUND and bool(q.get("paper"))
 
 
+def textual_pass_agreed(line: Mapping) -> bool:
+    """A Pass the code did not compare (`wording.demote_uncompared_pass`, flag `textual_pass`) that stands on two verified quotes, a
+    strong clause quote and a second reader of another family who agreed, with no hold: owner, 12 Nov 2026, class "AI verdict, two
+    readers agree" word "AI verdict: met". Read from the stored line alone; a guard that objected already made it a Query upstream."""
+    second = line.get("second_opinion")
+    if not (line.get("textual_pass") is True and isinstance(second, Mapping) and second.get("agree") is True):
+        return False
+    q = _checks(line)
+    if not (line.get("ai_verdict") == verdict.PASS and line.get("reason_code") == "met" and q.get("paper") and q.get("clause") and q.get("clause_strong")):
+        return False
+    if line.get("verdict") != verdict.QUERY or _holds(line) or line.get("rule_tier") == verdict.RULE_NOT_APPROVED:
+        return False
+    if not (line.get("checklist") is True or line.get("tier") in verdict.USABLE_TIERS):
+        return False
+    return agent_run_second.models_differ([str(line.get("model") or "")], second.get("model"))
+
+
 def class_of(line: Mapping, reason: str) -> dict | None:
     """The class entry of a line that earned it (both rules above), else None: the word and the reason shown."""
+    if textual_pass_agreed(line):
+        return {"verdict_label": WORD_MET, "verdict_class": CLASS_TWO_READERS, "not_proven_reason": reason}
     if agrees(line):
         return {
             "verdict_label": word_of(line),

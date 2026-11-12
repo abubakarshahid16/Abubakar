@@ -272,10 +272,14 @@ def test_an_unapproved_rule_never_produces_the_class_and_is_never_asked(w, on):
 
 
 def test_a_proven_pass_and_fail_are_untouched_and_buy_no_call(w, on):
-    fake = lane(w, agree=True)  # the old second opinion agrees: both are proven by code
+    fake = lane(w, agree=True)  # the old second opinion agrees
     got = lines_of(run_review())
-    assert (got["R-coat"]["word"], got["R-mark"]["word"]) == ("Pass", "Fail")
-    assert {got[i]["verdict_class"] for i in ("R-coat", "R-mark")} == {"Proven by code"}
+    # a Pass the code did not compare is "AI verdict: met" (owner, 12 Nov 2026); the Fail stays as it was
+    assert (got["R-coat"]["word"], got["R-mark"]["word"]) == ("AI verdict: met", "Fail")
+    assert (got["R-coat"]["verdict_class"], got["R-mark"]["verdict_class"]) == (
+        CLASS,
+        "Proven by code",
+    )
     assert fake.reader2 == []
 
 
@@ -920,12 +924,10 @@ def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_ev
     monkeypatch.setattr(settings, "agent_review_enabled", True)
     conn = _old_database(tmp_path / "old.sqlite")
     before = _rows(conn)
-    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", False)
-    assert (
-        not schema.line_check_is_old(conn) and schema.shape_problem(conn) is None
-    )  # off: an existing table is never touched
-    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
-    assert schema.line_check_is_old(conn) and schema.shape_problem(conn)
+    # the class is written whatever the switches say (a Pass the code did not compare): the old table is upgraded by default
+    for flag in (False, True):
+        monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", flag)
+        assert schema.line_check_is_old(conn) and schema.shape_problem(conn)
     schema.create_tables(conn)
     assert not schema.line_check_is_old(conn) and schema.shape_problem(conn) is None
     # every row, every column, equal (the new columns are NULL and sit after the old ones)
