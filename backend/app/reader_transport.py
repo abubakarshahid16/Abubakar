@@ -107,23 +107,44 @@ _DIGITS = r"(\d{1,9})"
 #: (error types that may carry a sentence, anchored regex of the API's message or None, OUR sentence with {0} {1} for the
 #: parsed numbers/date). `None`: the type alone decides and nothing is read from the message.
 _SAFE: tuple[tuple[tuple[str, ...], str | None, str], ...] = (
-    (("rate_limit_error",), None, "The Claude API is limiting the request rate; try again shortly."),
+    (
+        ("rate_limit_error",),
+        None,
+        "The Claude API is limiting the request rate; try again shortly.",
+    ),
     (("overloaded_error",), None, "The Claude API is overloaded; try again shortly."),
     (("api_error",), None, "The Claude API had an internal error; try again shortly."),
     (("request_too_large",), None, "The request was too large for the Claude API."),
-    (("not_found_error",), None, "The Claude model was not found (its id may be wrong or retired)."),
-    (("invalid_request_error",), r"Your credit balance is too low to access the Anthropic API\.(?: Please go to Plans & Billing to upgrade or purchase credits\.)?",
-     "The Claude account has no credit (the owner tops it up in the Anthropic console)."),
-    (("invalid_request_error",), r"You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})(?: at [0-9:]{4,8} UTC)?\.?",
-     "The Claude account's usage limit is reached; access returns on {0}."),
-    (("invalid_request_error",), rf"max_tokens: {_DIGITS} > {_DIGITS}(?:, which is the maximum allowed number of output tokens for [A-Za-z0-9._\-]{{1,60}})?\.?",
-     "max_tokens {0} is above the model's limit {1}."),
-    (("invalid_request_error",), rf"prompt is too long: {_DIGITS} tokens > {_DIGITS} maximum",
-     "The prompt is too long: {0} tokens, the model's maximum is {1}."),
+    (
+        ("not_found_error",),
+        None,
+        "The Claude model was not found (its id may be wrong or retired).",
+    ),
+    (
+        ("invalid_request_error",),
+        r"Your credit balance is too low to access the Anthropic API\.(?: Please go to Plans & Billing to upgrade or purchase credits\.)?",
+        "The Claude account has no credit (the owner tops it up in the Anthropic console).",
+    ),
+    (
+        ("invalid_request_error",),
+        r"You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})(?: at [0-9:]{4,8} UTC)?\.?",
+        "The Claude account's usage limit is reached; access returns on {0}.",
+    ),
+    (
+        ("invalid_request_error",),
+        rf"max_tokens: {_DIGITS} > {_DIGITS}(?:, which is the maximum allowed number of output tokens for [A-Za-z0-9._\-]{{1,60}})?\.?",
+        "max_tokens {0} is above the model's limit {1}.",
+    ),
+    (
+        ("invalid_request_error",),
+        rf"prompt is too long: {_DIGITS} tokens > {_DIGITS} maximum",
+        "The prompt is too long: {0} tokens, the model's maximum is {1}.",
+    ),
 )
 #: Our own sentences as patterns, so a later layer can tell one from free text.
 _SENTENCES = tuple(
-    re.compile(re.sub(r"\\\{\d\\\}", r"[0-9-]{1,10}", re.escape(template))) for _, _, template in _SAFE
+    re.compile(re.sub(r"\\\{\d\\\}", r"[0-9-]{1,10}", re.escape(template)))
+    for _, _, template in _SAFE
 )
 
 
