@@ -63,6 +63,7 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
+    (APP + "agent_review_local.py", "the local seam of the AI reviewer: which model answers, the staging, USD 0"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
     (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),

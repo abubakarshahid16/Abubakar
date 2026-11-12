@@ -526,6 +526,17 @@ class SettingsExt(BaseModel):
     #: Internal copy only; never a Pass or a Fail. OFF (default): no extra call and the stored lines are exactly what they were.
     #: Switch it on only if 0 clear wrong on the answer key and the planted copies (owner). Env: AGENT_REVIEW_TWO_READER_VERDICT_ENABLED.
     agent_review_two_reader_verdict_enabled: bool = False
+    #: Owner orders 12 Nov 2026 ("both engines for every kind of paper"; "fix local review and local model as well"): the AI reviewer
+    #: (rule review with its first and second reader) may run on the LOCAL model through `model_transport` only, never Claude, cost
+    #: USD 0, nothing leaves the computer. Staged for one big model at a time: the first reader over all items with model A, unload,
+    #: then the second reader with model B (a different family, else no "two readers agree"). OFF (default): the Local only choice and
+    #: a paper that may not go to Claude get the rule check only, exactly as before. Env: AGENT_REVIEW_LOCAL_ENGINE_ENABLED.
+    agent_review_local_engine_enabled: bool = False
+    #: The local first reader's model; empty = `answer_model` (the model the app already uses). Env: AGENT_REVIEW_LOCAL_MODEL_A.
+    agent_review_local_model_a: str = ""
+    #: The local second reader's model; empty = no second reader (lines stay "AI thinks"). Must be of another family than model A.
+    #: Env: AGENT_REVIEW_LOCAL_MODEL_B.
+    agent_review_local_model_b: str = "glm-4.7-flash"
     #: Owner order 13 (lead, 12 Nov): the word "AI verdict: not stated" of the same class. Needs the switch above on too. A second model
     #: of another family reads EVERY page whole and, without seeing the first answer, finds no value; code's own absence search
     #: (`agent_review_absence.prove`) finds none either and every page is read. Never a Fail, never in the contractor copy. OFF: as the

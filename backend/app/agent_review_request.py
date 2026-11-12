@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import agent_claude, claude_spend
+from .agent_review_local import LOCAL_TOO_LONG
 from . import agent_review_verdict as verdict
 from .reader_api import _fold
 
@@ -42,7 +43,7 @@ TOKENS_BASE = 1000
 MAX_TOKENS_CAP = 10000
 MAX_RETRIES = 3
 #: a lead answer that stopped at max_tokens, or could not be read: the batch is split in half and asked once more per half
-SPLITTABLE = ("stop_max_tokens", "unparseable_reply")
+SPLITTABLE = ("stop_max_tokens", "unparseable_reply", LOCAL_TOO_LONG)
 #: an answer cut off at its limit, for an item that cannot be split further (a single item, or a half already split), is
 #: asked ONCE more with RETRY_TOKEN_FACTOR times the limit, never above RETRY_MAX_TOKENS. Measured (12 Nov trial, 72 lines):
 #: 2 cut-offs, a batch of 8 at 6,200 and a half of 4 at 3,400 (about 850+ tokens an item); complete answers used 1,000 to

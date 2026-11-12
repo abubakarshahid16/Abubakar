@@ -11,6 +11,7 @@ import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
@@ -609,7 +610,9 @@ def _step_words(step: Mapping) -> str:
             else ""
         )
         + (
-            f"; switched off for the rest of the run ({off.replace('_', ' ')})"
+            "; " + local_words.SECOND_UNAVAILABLE_WORDS
+            if off == local_words.OFF_SECOND_UNAVAILABLE
+            else f"; switched off for the rest of the run ({off.replace('_', ' ')})"
             if off
             else ""
         )

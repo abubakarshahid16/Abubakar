@@ -54,6 +54,9 @@ BARRED_WORDS = (
 AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
+AI_ON_LOCAL = "the AI review reads the paper on the local model: nothing leaves this computer"
+#: Honest time words: nothing has been measured on this install, so the number is a labelled guess (rule 4).
+LOCAL_SECONDS_GUESS_PER_REQUEST = 60
 NEEDS_YES = "needs the owner's yes for this upload"
 CHECKLISTS_EMPTY = (
     ("contract checklist", "empty; an engineer must write it"),
@@ -104,6 +107,7 @@ class Facts:
     books_ok: bool = (
         True  # the rule books may go (approved or joining by the automatic route)
     )
+    local_ai: bool = False  # AGENT_REVIEW_LOCAL_ENGINE_ENABLED (and the AI reviewer is on): the AI review may run on the local model
 
 
 @dataclass
@@ -214,6 +218,17 @@ def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
     return True, "its AI steps use Claude where this install sets them to"
 
 
+def _local_ai_ok(f: Facts) -> bool:
+    """May the AI review run on the LOCAL model for this paper? Needs the local switch and a kind the reviewer offers. Everything that
+    only bars CLAUDE (no yes for a contract, not approved, blocked, lane closed, caps, not scored) does not bar the local model:
+    nothing leaves this computer. A kind not scored against a key still carries its draft sentence on the sheet."""
+    return bool(
+        f.local_ai
+        and f.agent_enabled
+        and f.kind in ("datasheet", "procedure", "contract")
+    )
+
+
 def gate_unscored_words() -> str:
     from . import agent_review_gate
 
@@ -240,7 +255,9 @@ def decide(choice: str, f: Facts) -> Plan:
                 ON_LOCAL,
                 "you chose Local only: nothing leaves this computer",
             ),
-            Part(AI_REVIEW, NOT_RUN, AI_NEEDS_CLAUDE_LOCAL),
+            Part(AI_REVIEW, ON_LOCAL, AI_ON_LOCAL)
+            if _local_ai_ok(f)
+            else Part(AI_REVIEW, NOT_RUN, AI_NEEDS_CLAUDE_LOCAL),
         ]
         return plan
 
@@ -263,6 +280,9 @@ def decide(choice: str, f: Facts) -> Plan:
         rc = Part(RULE_CHECK, ON_LOCAL, f"runs on this computer: {rc_why}")
     if ai_ok:
         ai = Part(AI_REVIEW, ON_CLAUDE, "the AI review reads the paper on Claude")
+    elif choice == AUTOMATIC and _local_ai_ok(f):
+        # Claude is not allowed for this paper: the local model reads it (said with the reason), never a silent Claude call
+        ai = Part(AI_REVIEW, ON_LOCAL, f"{AI_ON_LOCAL} (Claude is not used: {blocker[1]})")
     else:
         ai = Part(AI_REVIEW, NOT_RUN, blocker[1])
     plan.parts = [rc, ai]
@@ -277,6 +297,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
     from . import (
         agent_review_gate,
         agent_review_kind,
+        agent_review_local,
         claude_approved,
         claude_spend,
         contract_yes,
@@ -340,6 +361,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         or bool(settings.review_unscored_kinds_for_claude_enabled),
         kind_scored=scored,
         caps_ok=room,
+        local_ai=agent_review_local.switch_on(),
         books_ok=bool(
             settings.claude_auto_approve_reviews_enabled
             or not settings.claude_approved_list_enforced
@@ -495,9 +517,45 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
         else None,
         "exact": False,
     }
+    if plan.part(AI_REVIEW).engine == ON_LOCAL:
+        out["cost"]["local_usd"] = 0.0
+        out["cost"]["local_basis"] = "the AI review on the local model costs USD 0: no Claude call, no spend line"
+        out["time"] = _local_time(conn, document_id)
     out["notes"] = _notes(facts, plan, settings)
     out["sentence"] = sentence_of(out)
     return out
+
+
+def _local_time(conn, document_id: str) -> dict:
+    """The time of the AI review on the local model, in honest words: the number of requests from the rules the paper's last AI review
+    asked (None when there is none), and a labelled GUESS of the minutes (nothing is measured on this install yet; CLAUDE.md rule 4)."""
+    try:
+        row = conn.execute(
+            "SELECT a.items_total FROM agent_review_run a JOIN review_runs r ON r.id = a.run_id"
+            " WHERE r.submittal_document_id = ? AND a.items_total IS NOT NULL ORDER BY r.started_at DESC LIMIT 1",
+            (document_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        row = None
+    from . import agent_review_local as local
+
+    if row is None or not row["items_total"]:
+        return {
+            "requests": None,
+            "minutes_guess": None,
+            "basis": "the rules to ask are chosen when the review starts, so the time is not known yet; each request to the local model is one"
+            " at a time and the review needs a few minutes for every ten rules or more (a guess, not measured on this install)",
+        }
+    n = int(row["items_total"])
+    first = -(-n // local.FIRST_BATCH_MAX)
+    second = -(-n // (2 * local.SECOND_BATCH_MAX))  # at most about half the lines are asked a second time
+    requests = first + second
+    return {
+        "requests": requests,
+        "minutes_guess": round(requests * LOCAL_SECONDS_GUESS_PER_REQUEST / 60),
+        "basis": f"up to about {requests} requests to the local model, one at a time, if the same {n} rules are asked again; the minutes are a"
+        f" guess of {LOCAL_SECONDS_GUESS_PER_REQUEST} seconds a request, not measured on this install",
+    }
 
 
 def sentence_of(plan: dict) -> str:
@@ -507,7 +565,9 @@ def sentence_of(plan: dict) -> str:
     bits = []
     if plan["refused"]:
         return plan["refused"] + "."
-    if plan["choice"] == LOCAL:
+    if ai["engine"] == ON_LOCAL:
+        bits.append("The AI review runs on the local model.")
+    elif plan["choice"] == LOCAL:
         bits.append(AI_NEEDS_CLAUDE_LOCAL + ".")
     elif ai["engine"] == ON_CLAUDE:
         bits.append("The AI review runs on Claude.")
@@ -635,6 +695,16 @@ def stored(conn, run_id: str | None) -> dict | None:
     except ValueError:
         got["plan"] = {}
     return got
+
+
+def ai_review_engine(conn, run_id: str | None) -> str | None:
+    """The engine the stored plan of this run gave the AI review ("claude", "local", "not_run"), or None when the run has no stored plan
+    (the older routes). A database error propagates (never read as "no plan")."""
+    got = stored(conn, run_id)
+    for part in ((got or {}).get("plan") or {}).get("parts") or []:
+        if isinstance(part, dict) and part.get("name") == AI_REVIEW:
+            return part.get("engine")
+    return None
 
 
 def bar_state(conn, job_id) -> tuple[bool, str | None]:
