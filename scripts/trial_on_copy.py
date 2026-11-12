@@ -90,6 +90,8 @@ class TrialConfig:
     port: int = 0
     sets: dict = field(default_factory=dict)
     skills_dir: str | None = None
+    #: point E: ask the AI reviewer for fresh first-reader answers (ignore and replace the stored ones)
+    fresh: bool = False
 
 
 # ------------------------------------------------------------------------------------------------ safety
@@ -939,6 +941,7 @@ def route_checks(http: Http, run_id: str, ids: list[str]) -> tuple[list[Check], 
     code, summary = http.get_json(f"{base}/agent/summary")
     out.append(Check("route summary 200", code == 200, f"HTTP {code}"))
     kept["summary"] = summary if code == 200 else None
+    out.append(steadiness_check(summary if code == 200 else None))
     got, cursor, code = [], 0, 200
     while True:
         code, page = http.get_json(f"{base}/agent/lines?limit=500&cursor={cursor}")
@@ -1050,6 +1053,24 @@ def spend_check(
     )
 
 
+def steadiness_check(summary: dict | None) -> Check:
+    """Point E, free: lines that changed class since the previous finished run of this paper, and how many were decisions; the
+    answers reused instead of asked. Information only (always PASS): ids are in the run's trace, never here."""
+    got = (summary or {}).get("changed_since_previous")
+    reused = (summary or {}).get("answers_reused")
+    said = (
+        f"lines that changed class since the previous run: {got['changed']} of {got['lines_compared']} "
+        f"(of which decisions: {got['decisions']})"
+        if got
+        else "lines that changed class since the previous run: no earlier finished run, or this run did not finish whole"
+    )
+    return Check(
+        "steadiness (information)",
+        True,
+        f"{said}; answers reused: {reused if reused is not None else 'not kept'}",
+    )
+
+
 def run_trial(
     cfg: TrialConfig,
     *,
@@ -1146,7 +1167,12 @@ def run_trial(
         )
         conn.close()
         code, run = http.call(
-            "POST", "/api/reviews/agent-run", {"submittal_document_id": cfg.document}
+            "POST",
+            "/api/reviews/agent-run",
+            {
+                "submittal_document_id": cfg.document,
+                **({"fresh": True} if cfg.fresh else {}),
+            },
         )
         try:
             started = json.loads(run) if run else {}
@@ -1287,6 +1313,11 @@ def main(argv: list[str] | None = None) -> int:
         help="a non-secret setting for this run (e.g. REASONING_PROVIDER=per_task)",
     )
     ap.add_argument("--skills-dir", default=None)
+    ap.add_argument(
+        "--fresh",
+        action="store_true",
+        help="ask for fresh first-reader answers: ignore the stored ones and replace them (with AGENT_REVIEW_REUSE_ANSWERS_ENABLED on)",
+    )
     ap.add_argument("--out", default=None, help="write the table as JSON here")
     a = ap.parse_args(argv)
     sets = {}
@@ -1319,6 +1350,7 @@ def main(argv: list[str] | None = None) -> int:
             port=a.port,
             sets=sets,
             skills_dir=a.skills_dir,
+            fresh=a.fresh,
         )
         checks = run_trial(cfg)
     except Refused as exc:

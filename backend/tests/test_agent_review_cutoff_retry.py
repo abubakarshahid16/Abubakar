@@ -125,7 +125,9 @@ def test_the_retry_reserves_its_larger_worst_case_and_a_low_cap_refuses_it(
     w, monkeypatch
 ):
     # a per-item budget above the 4,096 floor the spend module reserves for models that think, so the worst case can differ
-    monkeypatch.setattr(run_mod, "TOKENS_PER_ITEM", 3000)
+    monkeypatch.setattr(
+        run_mod, "TOKENS_PER_ITEM", 3500
+    )  # base 1,000 + 3,500 = 4,500, not the final check's 4,000
     use(w, monkeypatch, {0})
     seen = []
     real = run_mod.Runner.call

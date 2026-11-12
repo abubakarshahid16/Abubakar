@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1568,
+ "total": 1567,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -452,7 +452,6 @@
   "backend/tests/test_coverage_report.py::PTH123": 1,
   "backend/tests/test_cross_field_limits.py::F401": 1,
   "backend/tests/test_cross_field_limits.py::I001": 1,
-  "backend/tests/test_crs_endpoint.py::I001": 1,
   "backend/tests/test_crs_export.py::I001": 1,
   "backend/tests/test_crs_mapping.py::I001": 1,
   "backend/tests/test_crs_permanent_numbers.py::F401": 1,

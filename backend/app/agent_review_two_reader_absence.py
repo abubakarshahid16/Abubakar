@@ -241,6 +241,7 @@ class AbsenceMixin:
                 parts,
                 MAX_TOKENS_BASE + MAX_TOKENS_PER_ITEM * len(batch),
                 once=True,
+                **self.reuse_kw(),
             )
         except FATAL as exc:
             code = two.OFF_RUN_STOPPED if self._stop.is_set() else two.OFF_CAP
@@ -271,6 +272,9 @@ class AbsenceMixin:
                 model,
                 float(usd) / len(batch),
             )
+        self.settle_second(
+            [str(b["item"].get("item_id")) for b in batch], "two_reader_absence"
+        )
 
     def _checked(
         self, item: dict, answer: dict, texts: dict[int, str]
