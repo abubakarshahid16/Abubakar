@@ -56,7 +56,7 @@ from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
 from . import claude_spend_report as report_mod
-from . import claude_standing_refusal as standing
+from . import claude_standing_refusal as sr
 from .claude_image_tokens import json_counts
 from .config import settings
 
@@ -655,12 +655,12 @@ def failure_word(exc: BaseException) -> str:
             stated = str(err.get("type") or "")
             kind = stated if _ERROR_TYPE.fullmatch(stated) else ""
             no_credit = status == 400 and "credit balance" in str(err.get("message") or "").lower()
-            limit = status in (400, 429) and standing.mentions_limit(err)
+            limit = status in (400, 429) and sr.mentions_limit(err)
     except (ValueError, TypeError, AttributeError, LookupError):
         # A body that is not the API's JSON says nothing more than its status.
         kind, no_credit, limit = "", False, False
     if no_credit or limit:
-        return f"{name}:http_{status}:{NO_CREDIT if no_credit else standing.USAGE_LIMIT}"
+        return f"{name}:http_{status}:{NO_CREDIT if no_credit else sr.USAGE_LIMIT}"
     return f"{name}:http_{status}" + (f":{kind}" if kind else "")
 
 
