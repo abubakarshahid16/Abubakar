@@ -321,6 +321,7 @@ class GeneralRun(FindingsMixin):
             "document": self.paper,
             "item_id": item["item_id"],
             "checklist_item": item["item_id"],
+            "topic": topic,
         }
         quote = {"quote_a": {"document": self.paper, "page": verdict._page_no(a.get("paper_page")), "text": str(a.get("paper_quote") or "").strip()},
                  "quotes_verified_by_code": True} if f["verified"] else {}  # fmt: skip

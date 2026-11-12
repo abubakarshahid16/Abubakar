@@ -36,6 +36,7 @@ from . import agent_general_review as core
 from . import agent_review_gate as gate
 from . import agent_review_request as request_mod
 from . import agent_review_run as runner_mod
+from . import crs_ai_header as crs_header
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -167,6 +168,7 @@ def _finish(
         "date": started[:10],
         "lead_models": sorted(g.lead_models) if g else [],
         "second_models": sorted(g.second_models) if g else [],
+        "header": crs_header.document_header(conn, submittal, None),
     }
     dropped = g.dropped.as_json() if g else {}
     crs.write_all(lines, folder, meta, accepted, dropped)
