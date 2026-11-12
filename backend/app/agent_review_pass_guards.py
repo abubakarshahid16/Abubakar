@@ -76,7 +76,7 @@ def field_names(item: Mapping) -> list[str]:
     return [n for n in dict.fromkeys(names) if n]
 
 
-def _label_only(folded: str, text: str) -> bool:
+def _is_the_label(folded: str, text: str) -> bool:
     return folded.strip(" :.-") == text.strip()
 
 
@@ -89,12 +89,12 @@ def _hit(folded: str, words: absence.FieldWords) -> bool:
             if text and not (
                 len(text.split()) == 1
                 and text in GENERIC
-                and not _label_only(folded, text)
+                and not _is_the_label(folded, text)
             ):
                 return True
     for sp in words.spellings:
         generic_alone = (
-            len(sp.split()) == 1 and sp in GENERIC and not _label_only(folded, sp)
+            len(sp.split()) == 1 and sp in GENERIC and not _is_the_label(folded, sp)
         )
         if re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded) and not generic_alone:
             return True
@@ -112,13 +112,42 @@ def _all_fields() -> tuple[tuple[str, absence.FieldWords], ...]:
     return tuple(out)
 
 
+#: words a label line may add to the field's own words: a unit column header
+UNIT_HEADERS = frozenset({"unit", "units", "uom"})
+NEGATIONS = frozenset(
+    {"not", "no", "non", "without", "never", "none", "nor", "neither"}
+)
+
+
+def _label_only(folded: str, names: list[str]) -> bool:
+    """The line is ONLY the field's label: its longest registry match (or all content words of a field the registry does not know)
+    and nothing else but punctuation, a parenthesised unit or a unit column header. A row that holds a text value is not a label line."""
+    words = absence.field_words([(n, "rule label") for n in names])
+    if words is not None:
+        found = [m.group(0) for p in words.patterns for m in p.finditer(folded)]
+        found += [
+            sp
+            for sp in words.spellings
+            if re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded)
+        ]
+        if not found:
+            return False
+        rest = folded.replace(max(found, key=len).strip(), " ", 1)
+    else:
+        want = agent_bind.content_words(" ".join(n.replace("_", " ") for n in names))
+        have = agent_bind.content_words(folded)
+        return bool(want) and want <= have and have - want <= UNIT_HEADERS
+    rest = re.sub(r"\([^)]*\)", " ", rest)
+    return all(t in UNIT_HEADERS for t in re.findall(r"[a-z0-9]+", rest))
+
+
 def _carries(folded: str, names: list[str]) -> bool:
     words = absence.field_words([(n, "rule label") for n in names])
     if words is not None:
         return _hit(folded, words)
     want = agent_bind.content_words(" ".join(n.replace("_", " ") for n in names))
     if len(want) == 1 and next(iter(want)) in GENERIC:
-        return _label_only(folded, next(iter(want)))
+        return _is_the_label(folded, next(iter(want)))
     return bool(want) and want <= agent_bind.content_words(folded)
 
 
@@ -168,6 +197,7 @@ def belongs(
         and not re.search(r"\d", above)
         and len(above.split()) <= MAX_LABEL_WORDS
         and _carries(above, names)
+        and _label_only(above, names)
         and not any(_other_field_words(line, names) for line in own)
     ):
         return True, None, None
@@ -206,11 +236,26 @@ def _spans(page_text: Any, quote: Any) -> list[tuple[int, int]]:
     return out
 
 
+def _negated(quote: str, terms: set[str]) -> bool:
+    """A negation word within three words of a word of the condition."""
+    tokens = re.findall(r"[a-z0-9']+", _fold(quote))
+    for i, tok in enumerate(tokens):
+        if terms & agent_bind.content_words(tok) and any(
+            t in NEGATIONS or t.endswith("n't") for t in tokens[max(0, i - 3) : i + 4]
+        ):
+            return True
+    return False
+
+
 def condition_ok(answer: Mapping, pages: Mapping[int, str], terms: set[str]) -> bool:
     """The condition quote is verified on its page, holds a word of the condition, and is not the value quote nor overlaps it."""
     cq = answer.get("condition_quote")
     ok, _why = verdict.check_paper_quote(cq, answer.get("condition_page"), pages)
     if not (ok and terms and terms & agent_bind.content_words(str(cq))):
+        return False
+    if _negated(
+        str(cq), terms
+    ):  # a quote saying the condition does NOT hold is no quote of the condition
         return False
     vq, fc, fv = (
         answer.get("paper_quote"),

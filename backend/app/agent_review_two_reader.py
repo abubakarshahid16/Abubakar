@@ -108,9 +108,9 @@ def _pass_guard_ok(rec: Mapping) -> bool:
 
 def is_candidate(line: Mapping) -> bool:
     """May the second reader be asked about this line (rule 1 above)? Pure on the stored line."""
-    if textual_pass_agreed(
+    if textual_pass_agreed(line) or textual_fail_agreed(
         line
-    ):  # already "AI verdict: met" (owner, 12 Nov): no second asking
+    ):  # already "AI verdict: met / not met": no second asking
         return False
     ai = line.get("ai_verdict")
     if ai not in (verdict.PASS, verdict.FAIL) or line.get("verdict") != verdict.QUERY:
@@ -543,8 +543,54 @@ def textual_pass_agreed(line: Mapping) -> bool:
     )
 
 
+def textual_fail_agreed(line: Mapping) -> bool:
+    """A "not met" the code did not prove (`wording.demote_unproven`, flag `textual_fail`: no failed comparison, no absence proof) that
+    stands on two verified quotes, a strong clause quote and a second reader of another family who agreed, with no hold (F1, F3 and the
+    context check F4 already ran upstream and a held Fail is a Query without this flag): "AI verdict: not met", internal copy only. The
+    lead's application of the owner's limit to Fail, to be confirmed by the owner."""
+    second = line.get("second_opinion")
+    if not (
+        line.get("textual_fail") is True
+        and isinstance(second, Mapping)
+        and second.get("agree") is True
+    ):
+        return False
+    q = _checks(line)
+    if not (
+        line.get("ai_verdict") == verdict.FAIL
+        and line.get("reason_code") == "not_met"
+        and q.get("paper")
+        and q.get("clause")
+        and q.get("clause_strong")
+    ):
+        return False
+    if (
+        line.get("verdict") != verdict.QUERY
+        or _holds(line)
+        or line.get("rule_tier") == verdict.RULE_NOT_APPROVED
+    ):
+        return False
+    if not (line.get("checklist") is True or line.get("tier") in verdict.USABLE_TIERS):
+        return False
+    return agent_run_second.models_differ(
+        [str(line.get("model") or "")], second.get("model")
+    )
+
+
+def is_independent(line: Mapping) -> bool:
+    """The line's class rests on an independent second reading (the step's stored record), not on the old second opinion that saw the
+    first reader's verdict and quotes."""
+    return not (textual_pass_agreed(line) or textual_fail_agreed(line))
+
+
 def class_of(line: Mapping, reason: str) -> dict | None:
     """The class entry of a line that earned it (both rules above), else None: the word and the reason shown."""
+    if textual_fail_agreed(line):
+        return {
+            "verdict_label": WORD_NOT_MET,
+            "verdict_class": CLASS_TWO_READERS,
+            "not_proven_reason": reason,
+        }
     if textual_pass_agreed(line):
         return {
             "verdict_label": WORD_MET,

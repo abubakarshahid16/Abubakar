@@ -488,7 +488,10 @@ def test_a_fail_is_never_changed_by_these_guards(w):
     setup(
         w, iid="R-mark", paper_quote="Coating layers two"
     )  # another field's row: a Pass would be refused, a Fail must not be
-    assert cls(run_review(), "R-mark") == ("Proven by code", "Fail")
+    assert cls(run_review(), "R-mark") == (
+        "AI verdict, two readers agree",
+        "AI verdict: not met",
+    )  # the Pass guards never touch a Fail
 
 
 def test_a_number_rule_with_a_code_comparison_is_untouched(w):
@@ -541,3 +544,305 @@ def test_every_reason_and_every_plain_phrase_of_the_guards_states_only_what_the_
         assert not any(b in text.lower() for b in banned), text
         assert text and text != words.UNKNOWN_WHY, text
     assert "line above it" in G.FIELD_LINE_WHY  # exactly what the code looked at
+
+
+# ---------------------------------------------------------------- R39b A: the line above must be ONLY the label
+
+
+def test_a_row_holding_a_text_value_is_not_a_label_line_above():
+    """The reviewer's page: a material row (label and text value) above a bonnet-type row: the next row must not pass for the material."""
+    item = {"rule_label": {"field": "body_material"}}
+    page = "filler\nBody material: carbon steel\nBonnet type: bolted\nfiller"
+    assert G.belongs(item, "Bonnet type: bolted", page)[0] is False
+    stacked = "filler\nBody material\nA216 WCB\nfiller"
+    assert (
+        G.belongs(item, "A216 WCB", stacked)[0] is True
+    )  # a label-only line above the value
+    assert (
+        G.belongs(item, "A216 WCB", "filler\nBody material (unit)\nA216 WCB")[0] is True
+    )  # a parenthesised unit header is allowed
+    assert (
+        G.belongs(item, "A216 WCB", "filler\nBody material units\nA216 WCB")[0] is True
+    )
+    assert (
+        G.belongs(
+            item, "A216 WCB", "filler\nBody material and bonnet bolting\nA216 WCB"
+        )[0]
+        is False
+    )  # more than the label
+
+
+def test_the_label_only_rule_also_holds_for_a_field_the_registry_does_not_know(w):
+    setup(
+        w,
+        page="DATA SHEET\nCoating layers: two layers\nTwo layers carbon steel\nfiller\nfiller",
+        paper_quote="Two layers carbon steel",
+    )
+    assert (
+        cls(run_review()) == THINKS_MET
+    )  # "Coating layers: two layers" is a row with a value, not a label line
+
+
+# ---------------------------------------------------------------- R39b: the condition quote saying the condition does NOT hold
+
+
+@pytest.mark.parametrize(
+    "quote,ok",
+    [
+        ("Service: sour crude", True),
+        ("Service: not sour", False),
+        ("Not a sour service", False),
+        ("Service: non-sour crude", False),
+        ("Sour service without hydrogen", False),
+    ],
+)
+def test_a_condition_quote_with_a_negation_next_to_the_condition_word_is_refused(
+    quote, ok
+):
+    page = {1: SPACED + f"\n{quote}"}
+    answer = _answer(condition_quote=quote, condition_page=1)
+    assert G.condition_ok(answer, page, {"sour"}) is ok
+
+
+# ---------------------------------------------------------------- R39b B: each sentence is true of its route
+
+
+def _verdict_line(**kw):
+    from tests.test_agent_review_crs import OK, SK
+
+    base = {
+        "item_id": "R-1", "source": "rule", "standard": "S", "clause": "1", "verdict": "Pass", "decided_by": "AI verdict", "ai_verdict": "Pass",
+        "reason_code": "met", "model": "m1", "paper_page": 1, "paper_quote": "Coating layers two", "clause_quote": "x",
+        "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "second_opinion": {"agree": True, "model": "m2"},
+        "pass_guard": {"ok": True}, "field": "Coating layers", "field_roles": [], "reasoning": "r",
+    }  # fmt: skip
+    return W.final_cap({**base, **kw}, OK, skill_ids=SK, paper_kind="datasheet")
+
+
+def _comment(line):
+    from app import crs_ai_workbook as WB
+
+    return WB.layout_comment(line, *WB.status_of(line))
+
+
+def test_the_always_on_route_says_the_second_reader_saw_the_first_answer_never_independently():
+    line = _verdict_line()
+    assert (line["verdict_class"], line["verdict_label"]) == (
+        two.CLASS_TWO_READERS,
+        two.WORD_MET,
+    ) and not two.is_independent(line)
+    text = _comment(line)
+    assert "saw the first answer" in text and "independent" not in text.lower()
+    assert text.count(words.VERDICT_PREFIX_CHECKED) == 1
+
+
+def test_the_independent_step_says_independently():
+    line = _verdict_line(
+        verdict="Query", decided_by="engineer", second_opinion=None,
+        two_reader={"verdict": "met", "model": "m3", "reason_code": "met", "paper_page": 1, "paper_quote": "Coating layers two", "pass_guard": {"ok": True},
+                    "spans": {"first": [0, 5], "second": [0, 5]}, "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}},
+    )  # fmt: skip
+    assert two.agrees(line) and two.is_independent(line)
+    text = _comment(line)
+    assert (
+        "reached independently by two AI readers" in text
+        and "saw the first answer" not in text
+    )
+
+
+# ---------------------------------------------------------------- R39b C: the same limit for Fail
+
+
+def test_no_line_shape_is_proven_by_code_fail_without_a_failed_comparison_or_the_absence_proof():
+    absence_by = V.BY_ABSENCE
+    for by, cmp_, second, hold in itertools.product(
+        ["decided by code", "AI verdict", absence_by, V.BY_FINAL_CHECK, "engineer"],
+        [None, {}, {"decided": True, "verdict": "meets"}, {"decided": True, "verdict": "does_not_meet"}, {"decided": False, "verdict": "does_not_meet"}],
+        [None, {"agree": True, "model": "m2"}, {"agree": False}], [False, True],
+    ):  # fmt: skip
+        line = {
+            "item_id": "R-1", "verdict": "Fail", "ai_verdict": "Fail", "reason_code": "not_met", "decided_by": by, "compare": cmp_, "model": "m1",
+            "second_opinion": second, "conditional_hold": hold, "tier": "AI approved", "source": "rule",
+            "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "paper_quote": "Body material: steel",
+        }  # fmt: skip
+        got = W.classify(line)
+        proved = (
+            by == "decided by code"
+            and cmp_ == {"decided": True, "verdict": "does_not_meet"}
+        ) or by == absence_by
+        assert (got["verdict_class"] == "Proven by code") is proved, (
+            by,
+            cmp_,
+            second,
+            hold,
+        )
+        if got["verdict_class"] == two.CLASS_TWO_READERS:
+            assert (
+                got["verdict_label"] == two.WORD_NOT_MET
+                and second
+                and second.get("agree") is True
+                and not hold
+            )
+
+
+def test_nothing_but_a_proven_fail_reaches_the_contractor_copy(tmp_path):
+    from app import crs_ai_workbook as WB
+    from tests.test_agent_review_crs import META, rows_of
+
+    proven = _verdict_line(
+        verdict="Fail",
+        ai_verdict="Fail",
+        reason_code="not_met",
+        decided_by="decided by code",
+        compare={"decided": True, "verdict": "does_not_meet"},
+        item_id="R-1",
+    )
+    textual = _verdict_line(
+        verdict="Fail",
+        ai_verdict="Fail",
+        reason_code="not_met",
+        item_id="R-2",
+        field="Other field",
+    )
+    assert (
+        textual["verdict_label"] == two.WORD_NOT_MET and textual["verdict"] == "Query"
+    )
+    path = WB.write([proven, textual], tmp_path / "c.xlsx", META, "contractor")
+    assert [r["Item No"] for r in rows_of(path)] == [1] and len(rows_of(path)) == 1
+
+
+# ---------------------------------------------------------------- R39b D: earlier lines are re-labelled once, audited, content kept
+
+
+def _old_db(tmp_path, monkeypatch):
+    import sqlite3
+
+    from app import agent_review_schema as schema
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    conn = sqlite3.connect(tmp_path / "old.sqlite")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE audit_events (id INTEGER PRIMARY KEY, at TEXT, actor_user_id, actor_username TEXT, action TEXT, resource_type TEXT, resource_id TEXT, outcome TEXT, detail TEXT)"
+    )
+    for stmt in schema._STATEMENTS:
+        conn.execute(stmt)
+    lines = {
+        "i-textual-pass": {"verdict": "Pass", "decided_by": "AI verdict", "ai_verdict": "Pass", "reason_code": "met", "tier": "AI approved", "model": "m1", "second_opinion": {"agree": True, "model": "m2"}, "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "keep": "a"},
+        "i-number-pass": {"verdict": "Pass", "decided_by": "decided by code", "ai_verdict": "Pass", "compare": {"decided": True, "verdict": "meets"}, "tier": "AI approved", "keep": "b"},
+        "i-textual-fail": {"verdict": "Fail", "decided_by": "AI verdict", "ai_verdict": "Fail", "reason_code": "not_met", "tier": "AI approved", "model": "m1", "second_opinion": {"agree": True, "model": "m2"}, "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "keep": "c"},
+        "i-absence-fail": {"verdict": "Fail", "decided_by": V.BY_ABSENCE, "ai_verdict": "Fail", "tier": "AI approved", "keep": "d"},
+    }  # fmt: skip
+    for iid, line in lines.items():
+        word, cls = line["verdict"], "Proven by code"
+        conn.execute(
+            "INSERT INTO agent_review_line (run_id,item_id,verdict_class,word,page,clause,rule_book,reason,rule_tier,line_json,trace_json,decided_at) VALUES ('r',?,?,?,3,'4.1','Book','why','Owner',?, 'trace','t')",
+            (iid, cls, word, json.dumps({"item_id": iid, **line})),
+        )
+    conn.commit()
+    return conn, schema, lines
+
+
+def _snapshot(conn):
+    return {
+        r["item_id"]: dict(r) for r in conn.execute("SELECT * FROM agent_review_line")
+    }
+
+
+def test_earlier_proven_lines_are_relabelled_once_with_the_old_class_kept_and_every_other_field_unchanged(
+    tmp_path, monkeypatch
+):
+    conn, schema, lines = _old_db(tmp_path, monkeypatch)
+    before = _snapshot(conn)
+    schema.create_tables(conn)
+    after = _snapshot(conn)
+    assert (
+        after["i-number-pass"]["verdict_class"],
+        after["i-number-pass"]["word"],
+    ) == ("Proven by code", "Pass")  # compared: stays proven
+    assert (
+        after["i-absence-fail"]["verdict_class"],
+        after["i-absence-fail"]["word"],
+    ) == ("Proven by code", "Fail")
+    assert (
+        after["i-number-pass"] == before["i-number-pass"]
+        and after["i-absence-fail"] == before["i-absence-fail"]
+    )  # byte for byte
+    assert (
+        after["i-textual-pass"]["word"] == "AI thinks: met"
+        and after["i-textual-fail"]["word"] == "AI verdict: not met"
+    )
+    for iid in ("i-textual-pass", "i-textual-fail"):
+        old, new = (
+            json.loads(before[iid]["line_json"]),
+            json.loads(after[iid]["line_json"]),
+        )
+        assert (
+            new["class_before_1778"] == "Proven by code"
+            and new["word_before_1778"] == lines[iid]["verdict"]
+        )
+        changed = {k for k in set(old) | set(new) if old.get(k) != new.get(k)}
+        assert changed <= {
+            "verdict",
+            "decided_by",
+            "why",
+            "textual_pass",
+            "textual_fail",
+            "class_before_1778",
+            "word_before_1778",
+        }, changed
+        for col in (
+            "run_id",
+            "item_id",
+            "page",
+            "clause",
+            "rule_book",
+            "rule_tier",
+            "trace_json",
+            "decided_at",
+        ):
+            assert after[iid][col] == before[iid][col], col
+    audit = [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT action, resource_id, detail FROM audit_events WHERE action = ?",
+            (schema.RELABEL_ACTION,),
+        )
+    ]
+    assert audit == [
+        (
+            schema.RELABEL_ACTION,
+            "agent_review_line",
+            "lines re-labelled: 2 (Fail -> AI verdict: not met x1; Pass -> AI thinks: met x1)",
+        )
+    ]
+    schema.create_tables(
+        conn
+    )  # idempotent: nothing is touched again, no second audit row
+    assert _snapshot(conn) == after
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE action = ?",
+            (schema.RELABEL_ACTION,),
+        ).fetchone()[0]
+        == 1
+    )
+
+
+def test_a_failure_while_relabelling_rolls_everything_back(tmp_path, monkeypatch):
+    from app.api import agent_review_schemas as contract
+
+    conn, schema, _lines = _old_db(tmp_path, monkeypatch)
+    before = _snapshot(conn)
+    monkeypatch.setattr(contract, "legal_word", lambda *_a: None)
+    with pytest.raises(schema.UpgradeFailed):
+        schema.create_tables(conn)
+    assert _snapshot(conn) == before
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE action = ?",
+            (schema.RELABEL_ACTION,),
+        ).fetchone()[0]
+        == 0
+    )

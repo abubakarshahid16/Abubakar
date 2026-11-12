@@ -207,10 +207,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = "The AI reviewer holds no verified quote from the paper for this point."
     if status == words.STATUS_AI_VERDICT:
         view = OPINION_MET if order == words.ORDER_AI_VERDICT_MET else OPINION_NOT_MET
-        out = (
-            f"The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: "
-            f"the requirement is {view}. {out}"
-        )
+        out = f"{words.verdict_prefix(two.is_independent(line))}{view}. {out}"
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"

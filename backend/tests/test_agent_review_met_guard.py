@@ -244,6 +244,7 @@ def test_a_proven_fail_with_ai_met_is_never_touched(quote, checks):
         met(
             verdict="Fail",
             decided_by="decided by code",
+            compare={"decided": True, "verdict": "does_not_meet"},
             paper_quote=quote,
             quotes_checked=checks,
             second_opinion={"agree": False},

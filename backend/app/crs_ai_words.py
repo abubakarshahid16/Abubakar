@@ -94,6 +94,16 @@ PRIORITY_RULE = priority_rule(STATUSES)
 NORMAL_STATUSES = tuple(x for x in STATUSES if x != STATUS_AI_VERDICT)
 PRIORITY_RULE_NORMAL = priority_rule(NORMAL_STATUSES)
 
+#: The sentence of an "AI verdict" line says WHICH route earned it, each sentence true: the independent second-reader step, or the
+#: always-on route (owner, 12 Nov): a verdict one AI reader gave, checked and agreed by a second AI reader that SAW the first answer.
+VERDICT_PREFIX_INDEPENDENT = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is "
+VERDICT_PREFIX_CHECKED = "One AI reader's verdict, checked and agreed by a second AI reader that saw the first answer, to be confirmed by an engineer: the requirement is "
+
+
+def verdict_prefix(independent: bool) -> str:
+    return VERDICT_PREFIX_INDEPENDENT if independent else VERDICT_PREFIX_CHECKED
+
+
 AI_VIEW_PREFIX = "The AI reviewer's view, not proven: the requirement is "
 AI_VIEW_MET = (
     AI_VIEW_PREFIX + "met."

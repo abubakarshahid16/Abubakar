@@ -155,7 +155,7 @@ def test_a_good_run_with_a_not_applicable_answer_and_a_cut_off_answer_passes_eve
     assert failed(checks) == [], trial.table(checks)
     assert "asked 4" in got["rules asked > 0, or the plan says why none"].detail
     assert (
-        "proven Pass 1, proven Fail 1" in got["Pass/Fail only with code proof"].detail
+        "proven Pass 1, proven Fail 0" in got["Pass/Fail only with code proof"].detail
     )
     assert "4 line(s)" in got["route trace 200 for every line"].detail
     assert (

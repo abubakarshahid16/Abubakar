@@ -32,6 +32,11 @@ def line(verdict, ai=None, **kw):
             if verdict == "Pass"
             else {}
         ),
+        **(
+            {"compare": {"decided": True, "verdict": "does_not_meet"}}
+            if verdict == "Fail"
+            else {}
+        ),
         **kw,
     }
 

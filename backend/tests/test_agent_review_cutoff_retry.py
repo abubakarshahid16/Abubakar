@@ -117,7 +117,7 @@ def test_a_batch_cut_off_is_still_split_first_then_a_half_gets_the_larger_retry(
     assert retry == 2 * half1 and half1 < first
     assert (
         lines["R-coat"]["word"] == "AI verdict: met"
-        and lines["R-mark"]["word"] == "Fail"
+        and lines["R-mark"]["word"] == "AI verdict: not met"
     )
 
 

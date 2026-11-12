@@ -271,14 +271,19 @@ def test_an_unapproved_rule_never_produces_the_class_and_is_never_asked(w, on):
     assert fake.reader2 == []
 
 
-def test_a_proven_pass_and_fail_are_untouched_and_buy_no_call(w, on):
+def test_a_textual_pass_and_fail_with_the_old_agreement_are_ai_verdicts_and_buy_no_call(
+    w, on
+):
     fake = lane(w, agree=True)  # the old second opinion agrees
     got = lines_of(run_review())
-    # a Pass the code did not compare is "AI verdict: met" (owner, 12 Nov 2026); the Fail stays as it was
-    assert (got["R-coat"]["word"], got["R-mark"]["word"]) == ("AI verdict: met", "Fail")
+    # a Pass the code did not compare is "AI verdict: met" (owner, 12 Nov 2026); the Fail the code did not prove is "AI verdict: not met" (the lead's application of the same limit)
+    assert (got["R-coat"]["word"], got["R-mark"]["word"]) == (
+        "AI verdict: met",
+        "AI verdict: not met",
+    )
     assert (got["R-coat"]["verdict_class"], got["R-mark"]["verdict_class"]) == (
         CLASS,
-        "Proven by code",
+        CLASS,
     )
     assert fake.reader2 == []
 

@@ -94,7 +94,10 @@ def test_a_full_fake_model_review_writes_lines_both_copies_and_the_record(world)
             "AI verdict: met",
         ),  # a Pass the code did not compare
         "R-frame": ("Proven by code", "Pass"),
-        "R-mark": ("Proven by code", "Fail"),
+        "R-mark": (
+            "AI verdict, two readers agree",
+            "AI verdict: not met",
+        ),  # no failed comparison, no absence proof
         "R-colour": ("Not reviewed", "Not reviewed"),
     }
     assert lines["R-colour"]["reason"].startswith("no answer from the AI")
@@ -174,16 +177,37 @@ def test_the_internal_copy_header_holds_the_documents_facts_and_the_notes_sheet_
 
 
 def test_the_contractor_copy_holds_the_proven_fail_only(world):
+    """A Fail the code proved by a failed comparison reaches the contractor; a "not met" on two quotes and a second AI never does."""
+    from app import db
+
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE document_id = ?",
+            (s.PAPER_PAGE.replace("0.35 mm", "0.15 mm"), s.PAPER),
+        )
+    world.answers["R-frame"] = {
+        **s.ANSWERS["R-frame"],
+        "paper_quote": "Coating thickness: 0.15 mm",
+        "paper_figure": "Coating thickness: 0.15 mm",
+        "verdict": "Fail",
+        "reason_code": "not_met",
+    }
     run_id, job_id = start()
     run_job(job_id)
+    assert (
+        lines_of(run_id)["R-frame"]["word"] == "Fail"
+        and lines_of(run_id)["R-mark"]["word"] == "AI verdict: not met"
+    )
     ws = load_workbook(agent_review_jobs.run_dir(run_id) / "crs-contractor.xlsx").active
     text = "\n".join(
         " | ".join(str(c) for c in row if c is not None)
         for row in ws.iter_rows(values_only=True)
     )
-    assert "red" in text or "marking" in text.lower() or "Marking" in text
-    for pass_word in ("Coating layers two", "Frame width 45 mm"):
-        assert pass_word not in text  # a Pass never reaches the contractor
+    assert "0.15" in text or "thickness" in text.lower()
+    assert "Marking blue" not in text and "red" not in text.split("Priority")[
+        -1
+    ].lower().replace("required", "")  # the textual not met stays internal
+    assert "Coating layers two" not in text  # a Pass never reaches the contractor
 
 
 def test_a_pass_or_fail_needs_the_second_model_to_agree(world, monkeypatch):
