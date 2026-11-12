@@ -54,7 +54,9 @@ class PaperText:
     def stops_run(self, general: bool) -> bool:
         """True when the run must stop before any rule is chosen. A general review (a procedure, a contract) chooses no rule book
         from the search chunks and reads the page text itself, so only "no text" stops it; "not indexed" stops the rule review."""
-        return self.stop_code is not None and not (general and self.state == "not indexed")
+        return self.stop_code is not None and not (
+            general and self.state == "not indexed"
+        )
 
     def as_dict(self) -> dict:
         return {
