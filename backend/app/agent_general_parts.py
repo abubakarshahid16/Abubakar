@@ -218,7 +218,10 @@ class GeneralRun(FindingsMixin):
             self.halt(exc)
         self.failures += 1
         code = getattr(exc, "code", type(exc).__name__)
-        self.not_reviewed(part, f"{label}: {local_mod.NOT_ASKED_WORDS if code == local_mod.LOCAL_TOO_LONG else code}")
+        self.not_reviewed(
+            part,
+            f"{label}: {local_mod.NOT_ASKED_WORDS if code == local_mod.LOCAL_TOO_LONG else code}",
+        )
 
     def check(self, quote: Any, page: Any, doc: str) -> bool:
         ok, _why = verdict.check_paper_quote(quote, page, self.docs.pages(doc))
@@ -304,7 +307,9 @@ class GeneralRun(FindingsMixin):
                         self.halt(exc)
                     self.failures += 1
                     for i in batch:
-                        failed[i["item_id"]] = f"no answer from the AI: {local_mod.NOT_ASKED_WORDS if exc.code == local_mod.LOCAL_TOO_LONG else exc.code}"
+                        failed[i["item_id"]] = (
+                            f"no answer from the AI: {local_mod.NOT_ASKED_WORDS if exc.code == local_mod.LOCAL_TOO_LONG else exc.code}"
+                        )
                     continue
                 self._p2_take(rec, batch, found, failed)
                 answered += 1
@@ -465,7 +470,9 @@ class GeneralRun(FindingsMixin):
             if ln["part"] == 2 and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY)
         ]
         self.part5(known + [str(c["what"]) for c in (*s3, *s4)])  # fmt: skip
-        if not self.local.second_ready()[0]:  # the checklist answers stay, but are said to come from one reader
+        if not self.local.second_ready()[
+            0
+        ]:  # the checklist answers stay, but are said to come from one reader
             for ln in self.lines:
                 if ln["part"] == 2 and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY):
                     ln["text"] += " (one AI reader only: not confirmed by a second)"

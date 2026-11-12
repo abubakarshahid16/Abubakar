@@ -172,7 +172,8 @@ def test_a_request_the_engine_cut_is_never_an_answer(world):
     g.run_all()
     assert not shown(g) and eng.stats()["local_answers_discarded"] > 0
     assert any(
-        ln["text"].startswith("not reviewed") and local_mod.NOT_ASKED_WORDS in ln["text"]
+        ln["text"].startswith("not reviewed")
+        and local_mod.NOT_ASKED_WORDS in ln["text"]
         for ln in g.lines
     )
 
@@ -313,31 +314,60 @@ def test_the_general_review_progress_label_counts_requests_and_names_the_reader(
     )
 
 
-def test_with_no_second_reader_the_part_five_comments_are_not_made_and_the_checklist_says_one_reader(world):
+def test_with_no_second_reader_the_part_five_comments_are_not_made_and_the_checklist_says_one_reader(
+    world,
+):
     post = GLocal()
-    g, _eng = build_local(world, post, b="qwen3:8b")  # the same family as the first reader
+    g, _eng = build_local(
+        world, post, b="qwen3:8b"
+    )  # the same family as the first reader
     g.run_all()
-    assert not [ln for ln in g.lines if ln["part"] == 5 and ln["verdict_class"] == core.CLASS_NOTE]
-    assert any(ln["part"] == 5 and "comments were not made" in ln["text"] for ln in g.lines)
+    assert not [
+        ln
+        for ln in g.lines
+        if ln["part"] == 5 and ln["verdict_class"] == core.CLASS_NOTE
+    ]
+    assert any(
+        ln["part"] == 5 and "comments were not made" in ln["text"] for ln in g.lines
+    )
     p2 = [ln for ln in g.lines if ln["part"] == 2]
-    assert p2 and all(ln["text"].endswith("(one AI reader only: not confirmed by a second)") for ln in p2)
+    assert p2 and all(
+        ln["text"].endswith("(one AI reader only: not confirmed by a second)")
+        for ln in p2
+    )
 
 
-def test_a_paper_read_in_parts_says_statements_in_different_parts_were_not_compared(world, monkeypatch):
-    one, _ = build_local(world, GLocal(), name="r2")  # built before the window is made small: the paper is read whole
+def test_a_paper_read_in_parts_says_statements_in_different_parts_were_not_compared(
+    world, monkeypatch
+):
+    one, _ = build_local(
+        world, GLocal(), name="r2"
+    )  # built before the window is made small: the paper is read whole
     monkeypatch.setattr(local_mod, "GENERAL_WINDOW_TOKENS", 40)
     g, _eng = build_local(world, GLocal())
     g.run_all()
     n = len(g.windows())
     assert n > 1
-    assert any(ln["text"] == f"Statements in different parts of the paper were not compared with each other (the paper was read in {n} parts)" for ln in g.lines)
+    assert any(
+        ln["text"]
+        == f"Statements in different parts of the paper were not compared with each other (the paper was read in {n} parts)"
+        for ln in g.lines
+    )
     one.run_all()
-    assert not any("were not compared with each other" in ln["text"] for ln in one.lines)  # a paper read whole needs no such sentence
+    assert not any(
+        "were not compared with each other" in ln["text"] for ln in one.lines
+    )  # a paper read whole needs no such sentence
 
 
-def test_a_window_the_engine_could_not_take_is_not_reviewed_in_plain_words_not_a_code_word(world):
+def test_a_window_the_engine_could_not_take_is_not_reviewed_in_plain_words_not_a_code_word(
+    world,
+):
     post = GLocal(cut_when="Section")
     g, _eng = build_local(world, post)
     g.run_all()
     texts = [ln["text"] for ln in g.lines if ln["text"].startswith("not reviewed")]
-    assert texts and all(local_mod.NOT_ASKED_WORDS in t for t in texts) and not any("bad_reply" in t for t in texts)
+    assert (
+        texts
+        and all(local_mod.NOT_ASKED_WORDS in t for t in texts)
+        and not any("bad_reply" in t for t in texts)
+    )
