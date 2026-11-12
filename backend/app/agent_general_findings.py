@@ -227,9 +227,9 @@ class FindingsMixin:
         if self.local is None or not survivors or self.local.second_ready()[0]:
             return False
         self.dropped.add(part, "second reader not available", len(survivors))
+        what = "the AI engineering comments were not made" if part == 5 else f"{len(survivors)} finding(s) with a verified quote were not shown"
         self.add({"part": part, "verdict_class": CLASS_NOT_REVIEWED, "subkind": None, "document": self.paper,
-                  "text": f"{len(survivors)} finding(s) with a verified quote were not shown: {self.local.second_ready()[1]}, and "
-                          "one AI reader alone is never enough"})  # fmt: skip
+                  "text": f"{what}: {self.local.second_ready()[1]}, and one AI reader alone is never enough"})  # fmt: skip
         return True
 
     def part3_finish(self, survivors: list[dict], n_windows: int) -> None:
@@ -526,6 +526,9 @@ class FindingsMixin:
         return True
 
     def part5(self, known: list[str]) -> None:
+        if self.second_reader_missing(5, [None]):  # comments come from one reader: with no usable second reader none is made
+            self.part_counts[5] = {"windows": 0, "shown": 0, "second_reader": "not available"}
+            return
         windows = self.windows()
         shown = 0
         seen: set[str] = set()

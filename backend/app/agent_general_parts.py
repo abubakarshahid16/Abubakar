@@ -217,7 +217,8 @@ class GeneralRun(FindingsMixin):
         if isinstance(exc, FATAL):
             self.halt(exc)
         self.failures += 1
-        self.not_reviewed(part, f"{label}: {getattr(exc, 'code', type(exc).__name__)}")
+        code = getattr(exc, "code", type(exc).__name__)
+        self.not_reviewed(part, f"{label}: {local_mod.NOT_ASKED_WORDS if code == local_mod.LOCAL_TOO_LONG else code}")
 
     def check(self, quote: Any, page: Any, doc: str) -> bool:
         ok, _why = verdict.check_paper_quote(quote, page, self.docs.pages(doc))
@@ -303,7 +304,7 @@ class GeneralRun(FindingsMixin):
                         self.halt(exc)
                     self.failures += 1
                     for i in batch:
-                        failed[i["item_id"]] = f"no answer from the AI: {exc.code}"
+                        failed[i["item_id"]] = f"no answer from the AI: {local_mod.NOT_ASKED_WORDS if exc.code == local_mod.LOCAL_TOO_LONG else exc.code}"
                     continue
                 self._p2_take(rec, batch, found, failed)
                 answered += 1
@@ -464,6 +465,10 @@ class GeneralRun(FindingsMixin):
             if ln["part"] == 2 and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY)
         ]
         self.part5(known + [str(c["what"]) for c in (*s3, *s4)])  # fmt: skip
+        if not self.local.second_ready()[0]:  # the checklist answers stay, but are said to come from one reader
+            for ln in self.lines:
+                if ln["part"] == 2 and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY):
+                    ln["text"] += " (one AI reader only: not confirmed by a second)"
         self.local.to_second()
         self.part3_finish(s3, len(self.windows()))
         self.part4_finish(s4, calls4) if self.project else self.part4()
@@ -472,6 +477,9 @@ class GeneralRun(FindingsMixin):
     def local_coverage_lines(self) -> None:
         """Which pages each reading covered, and what the AI could not show: counts and page numbers only, said as lines."""
         wanted = sorted({n for w in self.windows() for n in w})
+        if len(self.windows()) > 1:  # silence must never be read as "no contradictions"
+            self.add({"part": 3, "verdict_class": CLASS_NOT_CHECKED, "subkind": None, "document": self.paper,
+                      "text": f"Statements in different parts of the paper were not compared with each other (the paper was read in {len(self.windows())} parts)"})  # fmt: skip
         for part, label in (
             (2, "the checklist"),
             (3, "the paper against itself"),
