@@ -1198,12 +1198,22 @@ def test_a_recorded_yes_on_an_unscored_contract_is_said_not_to_offer_it(world, l
     )  # scored kinds only: the contract path waits for a score or the setting
 
 
-def test_the_gate_reads_the_scored_kinds_from_the_one_table_and_keeps_no_tuple(monkeypatch):
+def test_the_gate_reads_the_scored_kinds_from_the_one_table_and_keeps_no_tuple(
+    monkeypatch,
+):
     from app import kind_review_table
 
-    assert "SCORED_KINDS" not in vars(agent_review_gate)  # served from the table, never a tuple in code
-    assert agent_review_gate.SCORED_KINDS == kind_review_table.scored_kinds() == ("datasheet",)
+    assert "SCORED_KINDS" not in vars(
+        agent_review_gate
+    )  # served from the table, never a tuple in code
+    assert (
+        agent_review_gate.SCORED_KINDS
+        == kind_review_table.scored_kinds()
+        == ("datasheet",)
+    )
     monkeypatch.setattr(kind_review_table, "scored", lambda kind: kind == "procedure")
-    assert agent_review_gate.kind_scored("procedure") and not agent_review_gate.kind_scored("datasheet")
+    assert agent_review_gate.kind_scored(
+        "procedure"
+    ) and not agent_review_gate.kind_scored("datasheet")
     monkeypatch.setattr(kind_review_table, "scored", lambda kind: False)
     assert not agent_review_gate.kind_scored("datasheet")

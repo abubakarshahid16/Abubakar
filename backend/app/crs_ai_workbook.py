@@ -636,6 +636,7 @@ def _guarded_not_met(ln: Mapping) -> bool:
         and not ln.get("recommendation")
         and not wording.is_unapproved(ln)
         and wording.is_two_reader(ln)
+        and not ln.get("engineer_text")
     )
 
 
@@ -658,7 +659,7 @@ def _contractor_items(items: list, kind: str | None = None) -> list:
         out += [
             (ln, st, o)
             for ln, st, o in items
-            if st == words.STATUS_AI_VERDICT and _guarded_not_met(ln) and not ln.get("engineer_text")
+            if st == words.STATUS_AI_VERDICT and _guarded_not_met(ln)
         ]
         out.sort(key=lambda t: t[2])
     return out
@@ -796,6 +797,4 @@ def write(lines: list[Mapping], path: str | Path, meta: Mapping, copy: str) -> P
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(crs_layout.build_layout_crs(layout_view(lines, meta, copy)))
-    if copy == "internal":  # the run's meta, kept so the sheet can be drawn again with the engineer's decisions (`review_points_service`)
-        out.with_name("crs-meta.json").write_text(json.dumps(dict(meta), default=str), encoding="utf-8")
     return out

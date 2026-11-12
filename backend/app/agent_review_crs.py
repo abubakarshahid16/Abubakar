@@ -20,6 +20,7 @@ approved on it. Lines get their tier from `agent_review_wording.final_cap`, whic
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -453,7 +454,10 @@ def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Pat
     # imported here: `crs_ai_workbook` reads this module (it draws through `crs_layout`)
     from . import crs_ai_workbook
 
-    return crs_ai_workbook.write(lines, path, meta, "internal")
+    out = crs_ai_workbook.write(lines, path, meta, "internal")
+    # the run's meta, kept so the sheet can be drawn again with the engineer's decisions (`review_points_service`)
+    out.with_name("crs-meta.json").write_text(json.dumps(dict(meta), default=str), encoding="utf-8")
+    return out
 
 
 def write_contractor(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
