@@ -431,8 +431,14 @@ def _calls(line: Mapping) -> str:
     second = line.get("second_opinion")
     parts = []
     if _clean(line.get("model")):
-        reused = line.get("reused_answer")  # point E: internal copy only (the contractor copy has no Evidence sheet)
-        mark = f" ({reused['text']})" if isinstance(reused, Mapping) and reused.get("text") else ""
+        reused = line.get(
+            "reused_answer"
+        )  # point E: internal copy only (the contractor copy has no Evidence sheet)
+        mark = (
+            f" ({reused['text']})"
+            if isinstance(reused, Mapping) and reused.get("text")
+            else ""
+        )
         parts.append(f"first reader {_clean(line['model'])}{mark}")
     if isinstance(second, Mapping) and _clean(second.get("model")):
         parts.append(f"second reader {_clean(second['model'])}")

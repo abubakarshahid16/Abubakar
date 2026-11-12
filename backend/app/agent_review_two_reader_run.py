@@ -188,7 +188,11 @@ class TwoReaderMixin:
         st["calls"] += 1
         try:
             raw, usd = self.call(
-                agent_claude.SECOND_MODEL, parts, max_tokens, once=True, **self.reuse_kw()
+                agent_claude.SECOND_MODEL,
+                parts,
+                max_tokens,
+                once=True,
+                **self.reuse_kw(),
             )
         except FATAL as exc:
             code = two.OFF_RUN_STOPPED if self._stop.is_set() else two.OFF_CAP

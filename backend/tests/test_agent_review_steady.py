@@ -644,16 +644,26 @@ def test_the_start_route_takes_fresh_and_the_summary_route_shows_both_numbers(
     )
 
 
-def test_the_evidence_sheet_marks_a_reused_answer_and_the_contractor_copy_never_does(w, reuse_on):
+def test_the_evidence_sheet_marks_a_reused_answer_and_the_contractor_copy_never_does(
+    w, reuse_on
+):
     import openpyxl
 
     first, second = run_review(), run_review()
 
     def cells(run_id, name):
         wb = openpyxl.load_workbook(agent_review_jobs.run_dir(run_id) / name)
-        return [str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value is not None]
+        return [
+            str(c.value)
+            for ws in wb
+            for row in ws.iter_rows()
+            for c in row
+            if c.value is not None
+        ]
 
     assert not any("reused answer" in c for c in cells(first, "crs-internal.xlsx"))
-    marked = [c for c in cells(second, "crs-internal.xlsx") if "reused answer from run" in c]
+    marked = [
+        c for c in cells(second, "crs-internal.xlsx") if "reused answer from run" in c
+    ]
     assert marked and all(f"run {first} of" in c for c in marked)
     assert not any("reused" in c.lower() for c in cells(second, "crs-contractor.xlsx"))

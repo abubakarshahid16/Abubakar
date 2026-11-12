@@ -1064,7 +1064,11 @@ def steadiness_check(summary: dict | None) -> Check:
         if got
         else "lines that changed class since the previous run: no earlier finished run, or this run did not finish whole"
     )
-    return Check("steadiness (information)", True, f"{said}; answers reused: {reused if reused is not None else 'not kept'}")
+    return Check(
+        "steadiness (information)",
+        True,
+        f"{said}; answers reused: {reused if reused is not None else 'not kept'}",
+    )
 
 
 def run_trial(
@@ -1165,7 +1169,10 @@ def run_trial(
         code, run = http.call(
             "POST",
             "/api/reviews/agent-run",
-            {"submittal_document_id": cfg.document, **({"fresh": True} if cfg.fresh else {})},
+            {
+                "submittal_document_id": cfg.document,
+                **({"fresh": True} if cfg.fresh else {}),
+            },
         )
         try:
             started = json.loads(run) if run else {}

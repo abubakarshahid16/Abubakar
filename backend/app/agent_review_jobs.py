@@ -150,7 +150,9 @@ def enqueue(
         )  # fmt: skip
         if project_document_ids is not None:
             general_job.record_request(conn, run_id, project_document_ids)
-        reuse_mod.record_fresh(conn, run_id, fresh)  # point E: this run ignores stored answers (switch off: nothing)
+        reuse_mod.record_fresh(
+            conn, run_id, fresh
+        )  # point E: this run ignores stored answers (switch off: nothing)
         job_queue.audit(
             conn,
             "job.queued",
@@ -450,7 +452,10 @@ def _make_runner(
         conn = connect()
         reuse_mod.ensure_tables(conn)
         answers = reuse_mod.AnswerStore(
-            run_id, submittal, request_mod.PROMPT_VERSION, fresh=reuse_mod.is_fresh(conn, run_id)
+            run_id,
+            submittal,
+            request_mod.PROMPT_VERSION,
+            fresh=reuse_mod.is_fresh(conn, run_id),
         )
     return runner_mod.Runner(
         paper=submittal, items=plan["items"], pages=request_mod.DbPages(connect(), submittal),
@@ -538,10 +543,14 @@ def _finish(
     items = plan["items"]
     lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
     counts = runner_mod.counts_of(lines, runner)
-    if runner is not None and runner.answers is not None:  # point E: said only when the switch is on
+    if (
+        runner is not None and runner.answers is not None
+    ):  # point E: said only when the switch is on
         counts["answers_reused"] = runner.calls["reused"]
         counts["answers_fresh_run"] = runner.answers.fresh
-    if runner is not None and not runner.stopped and not counts.get("not_run"):  # point E: free steadiness number
+    if (
+        runner is not None and not runner.stopped and not counts.get("not_run")
+    ):  # point E: free steadiness number
         with connect() as conn:
             found = steady_mod.since_previous(conn, run_id, submittal, lines)
         if found is not None:
@@ -554,7 +563,10 @@ def _finish(
     )
     models = sorted(runner.lead_models | runner.second_models) if runner else []
     spent = runner and (
-        runner.calls["lead"] or runner.calls["second"] or runner.calls["context"] or runner.calls["reused"]
+        runner.calls["lead"]
+        or runner.calls["second"]
+        or runner.calls["context"]
+        or runner.calls["reused"]
     )  # a run that reused every answer spent USD 0, not "unknown"
     usd = round(runner.run_usd, 6) if spent else None
     stop = _stop_text(runner, plan)

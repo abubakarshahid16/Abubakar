@@ -270,7 +270,9 @@ def _split(members: list[dict], max_items: int, depth: int = 0) -> list[list[dic
     limit); the other parts keep their members and their order."""
     if len(members) <= max_items:
         return [members]
-    if depth >= 8 * 64:  # identical keys (a repeated id): cut by position, no way to tell them apart
+    if (
+        depth >= 8 * 64
+    ):  # identical keys (a repeated id): cut by position, no way to tell them apart
         return [members[i : i + max_items] for i in range(0, len(members), max_items)]
     zero = [m for m in members if _bit(_bits(m), depth) == 0]
     one = [m for m in members if _bit(_bits(m), depth) == 1]
@@ -296,7 +298,10 @@ def stable_batches(items: list[dict], max_items: int = MAX_BATCH) -> list[list[d
             out.append(
                 sorted(
                     part,
-                    key=lambda i: (str(i.get("clause_quote_ref") or ""), str(i["item_id"])),
+                    key=lambda i: (
+                        str(i.get("clause_quote_ref") or ""),
+                        str(i["item_id"]),
+                    ),
                 )
             )
     return [b for b in out if b]
