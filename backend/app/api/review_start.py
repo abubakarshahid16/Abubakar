@@ -100,9 +100,7 @@ def _actor(admin: dict | None, scope: access.AccessScope) -> str:
     )
 
 
-@router.get(
-    "/api/reviews/plan", response_model=ReviewPlanOut, responses={**schemas.ERRORS_404}
-)
+@router.get("/api/reviews/plan", response_model=ReviewPlanOut, responses={**schemas.ERRORS_404})
 def review_plan(
     request: Request,
     submittal_document_id: str = Query(...),
@@ -117,9 +115,7 @@ def review_plan(
         conn, submittal_document_id, scope.allowed_document_ids, engine
     )
     record = contract_yes.record_of(submittal_document_id)
-    if record is not None and not _is_admin(
-        request
-    ):  # who approved is for admins; anyone sees that a yes stands
+    if record is not None and not _is_admin(request):  # who approved is for admins; anyone sees that a yes stands
         record = {k: v for k, v in record.items() if k in ("document_id", "status")}
     got["contract_yes"] = record
     return got
@@ -171,11 +167,8 @@ def start_review(
     return main_mod._run_summary(run, scope)
 
 
-@router.post(
-    "/api/reviews/contract-yes",
-    response_model=ContractYesRecord,
-    responses={**schemas.ERRORS_404, **schemas.ERRORS_409},
-)
+@router.post("/api/reviews/contract-yes", response_model=ContractYesRecord,
+             responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
 def record_contract_yes(
     body: ContractYesRequest,
     request: Request,
@@ -194,11 +187,8 @@ def record_contract_yes(
         ) from exc
 
 
-@router.delete(
-    "/api/reviews/contract-yes/{document_id}",
-    response_model=ContractYesWithdrawn,
-    responses={**schemas.ERRORS_404},
-)
+@router.delete("/api/reviews/contract-yes/{document_id}", response_model=ContractYesWithdrawn,
+               responses={**schemas.ERRORS_404})
 def withdraw_contract_yes(
     document_id: str,
     request: Request,

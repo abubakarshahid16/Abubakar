@@ -45,6 +45,7 @@ def record_rule_decision(
     reason_code: str | None = None,
     click_id: str | None = None,
     original: str | None = None,
+    old_door: bool = False,
 ) -> dict:
     """Write one decision on the rule-check point `key` (its finding id, or its row key) to both records and to every finding behind
     it, in one transaction. Returns the OLD record's row (the shape the older route answers with). Raises `dec.PointRefused` or
@@ -61,10 +62,16 @@ def record_rule_decision(
         reason = listed[
             reason_code
         ]  # a listed reason IS the reason when nothing was typed (the older route's rule)
-    text, cleaned = dec.check(state, text, reason)
-    if reason_code is None and old == crs_issue.ACCEPT:
-        reason_code = DEFAULT_CODE[state]
-    old_reason = cleaned or DEFAULT_REASON.get(state, "")
+    if old_door:
+        # The OLDER route keeps its own rules and its own words (an accept without a reason, or a short one, is refused with the same
+        # sentence as before): nothing is defaulted here; the older record validates inside the transaction.
+        text, cleaned = "", " ".join((reason or "").split())
+        old_reason = cleaned
+    else:
+        text, cleaned = dec.check(state, text, reason)
+        if reason_code is None and old == crs_issue.ACCEPT:
+            reason_code = DEFAULT_CODE[state]
+        old_reason = cleaned or DEFAULT_REASON.get(state, "")
     ids = list(dict.fromkeys(finding_ids or [key]))
     conn = connect()
     dec.ensure_schema(

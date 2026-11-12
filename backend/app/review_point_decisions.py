@@ -132,7 +132,12 @@ def insert_row(
         " VALUES (:id, :paper_document_id, :point_id, :state, :text, :original, :reason, :decided_by, :decided_at)",
         row,
     )
-    _audit(conn, AUDIT, actor, paper_id, {"point": point_id, "state": state})
+    detail = {
+        "point": point_id,
+        "state": state,
+        **({"reason": reason} if state == REMOVE else {}),
+    }  # a removal's reason is on the audit
+    _audit(conn, AUDIT, actor, paper_id, detail)
     return row
 
 

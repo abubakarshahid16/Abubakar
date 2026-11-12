@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from collections import Counter, defaultdict
 
 from . import crs_ai_words as words
@@ -262,7 +261,9 @@ def _view_page(document_id: str | None, page) -> dict | None:
 _PAGE = re.compile(r"\b(?:page|p\.?)\s*(\d{1,4})", re.I)
 
 
-def rule_point(row: dict, ctx: dict, finding: dict | None, sides: dict) -> dict:
+def rule_point(
+    row: dict, ctx: dict, finding: dict | None, sides: dict, *, shall: bool = False
+) -> dict:
     """One CRS row of the rule check as a point. `finding`: its stored finding (or None); `sides`: {"submittal": .., "standard": ..}
     as `evidence_boxes.side` answered (document None when the side cannot be shown)."""
     from . import crs_normal
@@ -337,7 +338,7 @@ def rule_point(row: dict, ctx: dict, finding: dict | None, sides: dict) -> dict:
         "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else NO_CLAUSE_QUOTE,
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
-        "shall": True,
+        "shall": shall,
         "group_key": group_key(SOURCE_RULE_CHECK, rank, book_name, None, str(reason)),
         "added_by": added_by,
         "finding_ids": list(
@@ -431,39 +432,34 @@ def counts(
 
 
 def _book_of(conn, run_id: str) -> dict[str, tuple[str | None, str | None]]:
-    try:
-        return {
-            r["rule_key"]: (r["standard_document_id"], r["rule_book"])
-            for r in conn.execute(
-                "SELECT rule_key, standard_document_id, rule_book FROM agent_review_rule WHERE run_id = ? AND asked = 1",
-                (run_id,),
-            )
-        }
-    except sqlite3.OperationalError:
-        return {}
+    return {
+        r["rule_key"]: (r["standard_document_id"], r["rule_book"])
+        for r in conn.execute(
+            "SELECT rule_key, standard_document_id, rule_book FROM agent_review_rule WHERE run_id = ? AND asked = 1",
+            (run_id,),
+        )
+    }
 
 
 def ai_points_of_run(
     conn, run_id: str, paper_document_id: str, readable: frozenset[str]
 ) -> tuple[list[dict], list[str]]:
-    """(the points of one AI review run, the names of the rule books it did not hold). A table not made yet is no points."""
-    try:
-        lines = [
-            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
-            for r in conn.execute(
-                "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
-                (run_id,),
-            )
-        ]
-        held = [
-            r["name"]
-            for r in conn.execute(
-                "SELECT name FROM agent_review_missing_book WHERE run_id = ? ORDER BY name",
-                (run_id,),
-            )
-        ]
-    except sqlite3.OperationalError:
-        return [], []
+    """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
+    read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
+    lines = [
+        {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        for r in conn.execute(
+            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
+            (run_id,),
+        )
+    ]
+    held = [
+        r["name"]
+        for r in conn.execute(
+            "SELECT name FROM agent_review_missing_book WHERE run_id = ? ORDER BY name",
+            (run_id,),
+        )
+    ]
     ctx = {
         "run_id": run_id,
         "paper_document_id": paper_document_id,
@@ -490,7 +486,7 @@ def by_rule_book(points: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
-def removed_stub(finding: dict, ctx: dict) -> dict:
+def removed_stub(finding: dict, ctx: dict, *, shall: bool = False) -> dict:
     """A rule-check point an engineer removed: its row has left the sheet, so the list keeps it from the finding (name, page, the
     required action), with no quote. The record of a removal is never dropped."""
     page = finding.get("contractor_page")
@@ -504,12 +500,15 @@ def removed_stub(finding: dict, ctx: dict) -> dict:
         if str(finding.get("compliance_status") or "").upper() == "NON_COMPLIANT"
         else 4
     )
+    # The rule book's own words are the book's (rule 5): a stub never carries the requirement text, and carries the required action only
+    # when the caller may read the book it came from.
+    book_ok = finding.get("standard_document_id") in ctx["readable"]
     return {
         "id": f"rc:{finding['id']}", "source": SOURCE_RULE_CHECK, "source_words": SOURCE_WORDS[SOURCE_RULE_CHECK], "engine": ENGINE_RC,
         "rank": rank, "tile": TILE_OF_RANK[rank], "firm": RANKS[rank][1] or None, "other_kind": None,
-        "name": _plain(finding.get("matched_phrase") or " ".join(_clean(finding.get("requirement")).split()[:7])) or "A point of the rule check",
-        "page": page, "rule_book": None, "clause": None, "action": _plain(finding.get("required_action")) or None,
+        "name": _plain(finding.get("matched_phrase")) or "A point of the rule check",
+        "page": page, "rule_book": None, "clause": None, "action": (_plain(finding.get("required_action")) or None) if book_ok else None,
         "paper_quote": None, "clause_quote": None, "paper_quote_note": NO_PAPER_QUOTE, "clause_quote_note": NO_CLAUSE_QUOTE,
-        "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": True, "group_key": None,
+        "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": shall, "group_key": None,
         "added_by": None, "finding_ids": [finding["id"]], "_book_doc": finding.get("standard_document_id"),
     }  # fmt: skip
