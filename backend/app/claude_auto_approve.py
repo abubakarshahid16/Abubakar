@@ -471,7 +471,9 @@ def _note_unshown(review_run_id: str, applied_run: str | None = None, extra=()) 
         if count:
             outcome[SHOWN_KEY] = {
                 "not_sent": count,
-                "found_during_review": review_shown.found_during_review(conn, review_run_id, applied_run, extra),
+                "found_during_review": review_shown.found_during_review(
+                    conn, review_run_id, applied_run, extra
+                ),
             }
         elif SHOWN_KEY in outcome:
             del outcome[SHOWN_KEY]
