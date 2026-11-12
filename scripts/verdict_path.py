@@ -67,6 +67,14 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
     (APP + "claude_approved.py", "the approved-document list and block list"),
     (APP + "claude_auto_approve.py", "automatic approval of what may be sent"),
+    (APP + "crs_normal.py", "the normal reviewer's Status and Priority words"),
+    (APP + "agent_review_two_reader.py", "the class 'AI verdict, two readers agree'"),
+    (APP + "agent_review_two_reader_absence.py", "the word 'AI verdict: not stated'"),
+    (APP + "agent_review_two_reader_other.py", "the class 'Not checked on this paper'"),
+    (
+        APP + "agent_review_equipment.py",
+        "drops a rule before it is asked: a wrong drop hides a finding",
+    ),
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
 )

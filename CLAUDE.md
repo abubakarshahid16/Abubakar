@@ -145,6 +145,8 @@ carries the client's name; only the owner can rename it.
     (b) ONE light review (one reviewer, one pass, no hand reverts) for layout, wording, docs and tests. A FULL fresh review
     (attack, hand reverts, mutation entries where the danger zone is touched) for anything on the verdict path. The PR
     text says which depth was used and why.
+    The lead runs the mutation check of ALL changed danger-zone modules on the COMBINED head before the merge (a per-PR
+    run cannot see stale entries that only the combination causes).
     (c) The Windows test job (`tests-windows.yml`) is off: it runs only by hand (`workflow_dispatch`).
     (d) Style stops (formatting of touched lines, file over 800 lines / function over 80 / complexity, the ruff lint
     baseline) stop only for files on the verdict path, the one list in `scripts/verdict_path.py` (rule 6's danger zone

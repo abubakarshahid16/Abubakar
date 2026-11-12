@@ -46,6 +46,14 @@ def test_every_listed_path_exists_and_has_a_reason():
         assert why.strip(), path
 
 
+def test_the_round_4_reader_files_are_on_the_list():
+    for name in (
+        "crs_normal", "agent_review_two_reader", "agent_review_two_reader_absence",
+        "agent_review_two_reader_other", "agent_review_equipment",
+    ):  # fmt: skip
+        assert vp.is_verdict_path(f"backend/app/{name}.py"), name
+
+
 def test_the_whole_rule_6_danger_zone_is_on_the_list():
     for name in RULE_6_ZONE:
         assert vp.is_verdict_path(f"backend/app/{name}"), name

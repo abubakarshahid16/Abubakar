@@ -23,6 +23,7 @@ Read this instead of re-deriving it. The planner's orders on #692 are the source
 
 ## Less waste (owner order, 12 Nov 2026, standing; CLAUDE.md rule 14)
 - **Combine.** Related PRs go into one branch and are tested once: GitHub checks and the bench gate run once on the combined head, and the main tree after the merge must equal the tested tree.
+- **Mutation check on the combined head.** The lead runs the mutation check of ALL changed danger-zone modules on the COMBINED head before the merge (a per-PR run cannot see stale entries that only the combination causes).
 - **Review depth.** ONE light review (one reviewer, one pass, no hand reverts) for layout, wording, docs and tests. A FULL fresh review (attack, hand reverts, mutation entries where the danger zone is touched) for anything on the verdict path (`scripts/verdict_path.py`). The PR text says which depth was used and why.
 - **Windows.** `tests-windows.yml` is switched off: by hand only (Actions, tests-windows, Run workflow). It was never a required check.
 - **Style stops.** Formatting of touched lines, file and function size, complexity and the ruff lint baseline stop only for verdict-path files; for any other file they print a WARNING with the file and the number. R1 below still says what to fix; a warning is not a miss. Every non-style check still stops everywhere.
