@@ -782,7 +782,8 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             return _done(conn, job_id, run_id, result)
         plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops
                 else _plan(conn, run_id, submittal, scope, kind, heartbeat))  # fmt: skip
-        agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)  # a plan with nothing to ask always says why
+        # a plan with nothing to ask always says why
+        agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
         agent_review_text.record(conn, run_id, text)
