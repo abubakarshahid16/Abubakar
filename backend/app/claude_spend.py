@@ -692,10 +692,20 @@ def standing_refusal(now: datetime | None = None) -> dict | None:
         if e.get("releases") or e.get("settles") or "finish_reason" in e:
             if why.endswith(":" + NO_CREDIT) or why.endswith(":" + USAGE_LIMIT):
                 cause = NO_CREDIT if why.endswith(":" + NO_CREDIT) else USAGE_LIMIT
-                found = {"cause": cause, "at": str(e.get("at") or ""),
-                         "words": NO_CREDIT_WORDS if cause == NO_CREDIT else USAGE_LIMIT_WORDS}
-            elif "finish_reason" in e and not why.startswith(("failed:", "unbilled:")) and not e.get("corrupt") \
-                    and not e.get("cached") and e.get("input_tokens"):
+                found = {
+                    "cause": cause,
+                    "at": str(e.get("at") or ""),
+                    "words": NO_CREDIT_WORDS
+                    if cause == NO_CREDIT
+                    else USAGE_LIMIT_WORDS,
+                }
+            elif (
+                "finish_reason" in e
+                and not why.startswith(("failed:", "unbilled:"))
+                and not e.get("corrupt")
+                and not e.get("cached")
+                and e.get("input_tokens")
+            ):
                 found = None  # a call went through after it: the lane works
     if found is None:
         return None
@@ -705,7 +715,9 @@ def standing_refusal(now: datetime | None = None) -> dict | None:
         return None
     if at.tzinfo is None:
         at = at.replace(tzinfo=UTC)
-    return found if (now - at).total_seconds() <= STANDING_REFUSAL_HOURS * 3600 else None
+    return (
+        found if (now - at).total_seconds() <= STANDING_REFUSAL_HOURS * 3600 else None
+    )
 
 
 def settle_failure(reservation: Reservation, exc: BaseException, *, unbilled=None,
