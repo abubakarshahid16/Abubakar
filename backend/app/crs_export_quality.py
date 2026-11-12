@@ -642,6 +642,22 @@ def park_placeholders(view: dict) -> dict:
     }
 
 
+#: The ONE label set of the Comment By column for a machine draft (K2): the older labels of the draft lanes ("AI Review",
+#: "AI - engineer to confirm", "AI clause review - engineer to confirm") all say the same thing to a reader. A source with its own
+#: meaning keeps its own label ("Playbook check (draft)"); an engineer's name is never touched.
+AI_DRAFT_LABEL = "AI reviewer - engineer to confirm"
+_AI_DRAFT_LABELS = frozenset(
+    {"AI Review", "AI - engineer to confirm", "AI clause review - engineer to confirm"}
+)
+
+
+def one_label_set(rows: list[dict]) -> None:
+    """Rule 8 (K2): every machine-draft label of the Comment By column becomes `AI_DRAFT_LABEL`; nothing else changes."""
+    for entry in rows:
+        if str(entry.get("comment_by") or "") in _AI_DRAFT_LABELS:
+            entry["comment_by"] = AI_DRAFT_LABEL
+
+
 def finish(view: dict, dropped: int, merged: int) -> dict:
     """Rules 3 to 7 on the view `build_crs_view` made (switch on only)."""
     from . import crs_export as ce
@@ -655,6 +671,7 @@ def finish(view: dict, dropped: int, merged: int) -> dict:
         view["rows_withheld_no_text"] += dropped
         dropped = 0
     flagged, overflowed = _finish_rows(view["rows"], ce.ROW_REF_LABEL)
+    one_label_set(view["rows"])
     standards, considered = split_standards(
         view["applicable_standards"], ce.STATUS_CONSIDERED
     )

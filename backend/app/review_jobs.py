@@ -57,15 +57,6 @@ ACTIVE_RUN = ("queued", "running")
 #: The word a progress line uses for the submittal: its CONFIRMED kind, else
 #: "document" (a suggested kind is a guess, rule 4). the live review: a procedure's
 #: review said "reading the datasheet".
-_KIND_WORDS = {
-    "datasheet": "datasheet",
-    "procedure": "procedure",
-    "specification": "specification",
-    "drawing": "drawing",
-    "transmittal": "transmittal",
-    "contract": "contract",
-    "feed": "FEED",
-}
 #: (noun, unit) when nothing is known: neutral, and a PDF's unit.
 NEUTRAL_WORDS = ("document", "page")
 
@@ -74,11 +65,9 @@ def document_words(document_id: str) -> tuple[str, str]:
     """(noun, unit) for the progress lines of a review of `document_id`. The
     unit is "part" for a Word file read in parts (`pagination = 'flow'`), else "page".
     WORD_PAGE_MARKERS_ENABLED: a Word file shows pages, "part" only with no page marks."""
-    from . import doc_router, document_kind
+    from . import kind_words
 
-    stored = document_kind.stored_kind(document_id)
-    confirmed = stored is not None and stored[1] == doc_router.STATE_CONFIRMED
-    noun = _KIND_WORDS.get(stored[0] or "", "document") if confirmed else "document"
+    noun = kind_words.noun_of_document(document_id)  # the DECIDED kind's noun, "document" when unknown (`kind_words`, one home)
     row = (
         connect()
         .execute("SELECT pagination FROM documents WHERE id = ?", (document_id,))

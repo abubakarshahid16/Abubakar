@@ -138,6 +138,20 @@ def _status(entry: Mapping, held: Mapping | None) -> tuple[str, str]:
     return QUERY, "the revision listed is not held: held revisions: " + ", ".join(have)
 
 
+def _own_numbers(lines: list[tuple[int, str]]) -> set[str]:
+    """The transmittal's OWN number as its title line prints it ("Transmittal No. X"): never a listed document, even when no number
+    is stored for the transmittal. Read from the lines that name a transmittal, by the same number pattern."""
+    out: set[str] = set()
+    for _page, line in lines:
+        if re.search(r"\btransmittals?\b", line, re.I):
+            out |= {
+                norm(m.group(0))
+                for m in _DOC_NUMBER.finditer(line)
+                if any(c.isdigit() for c in m.group(0))
+            }
+    return out
+
+
 def check(conn: sqlite3.Connection, document_id: str, allowed: frozenset[str]) -> dict:
     """{'rows': [...], 'counts': {...}, 'boundary': words}: the listed documents against the documents `allowed` holds."""
     held = _held(conn, allowed, document_id)
@@ -145,7 +159,12 @@ def check(conn: sqlite3.Connection, document_id: str, allowed: frozenset[str]) -
         "SELECT document_number FROM document_classification WHERE document_id = ?",
         (document_id,),
     ).fetchone()
-    entries = listed(_lines(conn, document_id), held, norm(own[0] if own else ""))
+    lines = _lines(conn, document_id)
+    entries = [
+        e
+        for e in listed(lines, held, norm(own[0] if own else ""))
+        if e["number"] not in _own_numbers(lines)
+    ]
     rows = []
     for e in entries:
         h = held.get(e["number"])

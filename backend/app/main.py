@@ -20,6 +20,7 @@ from . import scan_quality
 from . import applicability as applicability_mod, cited_edition as cited_edition_mod
 from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
+from . import kind_words as kind_words_mod
 from . import crs_export as crs_export_mod
 from . import crs_ai_cell as crs_ai_cell_mod
 from . import crs_issue as crs_issue_mod
@@ -2974,6 +2975,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         submittal_id, review_run_id, allowed
     )
     meta = clause_coverage_mod.crs_meta(meta, run["id"], allowed)
+    meta = kind_words_mod.crs_meta(meta, submittal_id, outcome, findings, rows)
     return rows, meta, submittal_name, stamp
 
 
