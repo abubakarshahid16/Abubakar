@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 
-from . import review_leaving
+from . import review_cost, review_leaving
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -216,7 +216,9 @@ def _rule_check_on_claude(f: Facts) -> tuple[bool, str]:
 
 
 def unscored_choose_words() -> str:
-    return f"{gate_unscored_words()}; choose Claude to send it, and every line is a draft"
+    return (
+        f"{gate_unscored_words()}; choose Claude to send it, and every line is a draft"
+    )
 
 
 def gate_unscored_words() -> str:
@@ -236,10 +238,20 @@ def decide(choice: str, f: Facts) -> Plan:
         # THE EXPLICIT CHOICE IS THE CONSENT (owner, 12 Nov 2026, #1584: "button is enough"): of any kind, a contract, a paper or
         # book not on the approved list, an unscored kind (a draft, internal copy only). The block list, the lane, the caps and
         # the kinds the AI review takes are not lifted by it.
-        f = replace(f, contract_yes=True, paper_approved=True, books_ok=True, scored_allowed=True)
+        f = replace(
+            f,
+            contract_yes=True,
+            paper_approved=True,
+            books_ok=True,
+            scored_allowed=True,
+        )
     elif choice == AUTOMATIC:
         # AUTOMATIC NEVER SENDS A CONTRACT OR AN UNSCORED KIND TO CLAUDE BY ITSELF: it resolves to Local, and says why.
-        f = replace(f, contract_yes=False, scored_allowed=f.scored_allowed and (f.kind is None or f.kind_scored))
+        f = replace(
+            f,
+            contract_yes=False,
+            scored_allowed=f.scored_allowed and (f.kind is None or f.kind_scored),
+        )
     plan.needs_yes = bool(f.is_contract and not f.contract_yes)
     if f.is_contract:
         plan.wont_run = [{"part": p, "why": w} for p, w in CHECKLISTS_EMPTY]
@@ -412,40 +424,7 @@ def _earlier_books(conn, document_id: str) -> list[dict]:
 # ----------------------------------------------------------------------------------------------- the pre-start answer
 
 
-def _last_cost(conn, document_id: str) -> float | None:
-    """The real cost of the paper's last AI review (its stored `usd`); None when there is none or it was not measured."""
-    try:
-        row = conn.execute(
-            "SELECT a.usd FROM agent_review_run a JOIN review_runs r ON r.id = a.run_id"
-            " WHERE r.submittal_document_id = ? AND a.usd IS NOT NULL ORDER BY r.started_at DESC LIMIT 1",
-            (document_id,),
-        ).fetchone()
-    except sqlite3.Error:
-        return None
-    return float(row["usd"]) if row and row["usd"] is not None else None
-
-
-def _usd(value: float) -> str:
-    return f"USD {value:g}"
-
-
-def _cost_words(each: dict, total: float, per_run: float) -> str:
-    """The true upper bound per part and in total, from the caps in code: the rule check and the AI review are two runs, each with
-    its own per-run cap. The day and month caps still apply on top. Never an exact figure."""
-    bits = []
-    if each["rule_check"] is not None:
-        bits.append(f"rule check: at most {_usd(each['rule_check'])}")
-    if each["ai_review"] is not None:
-        bits.append(f"AI review: at most {_usd(each['ai_review'])}")
-    together = f"; together at most {_usd(total)}" if len(bits) > 1 else ""
-    return (
-        "; ".join(bits)
-        + together
-        + f" (each review has its own cap of {_usd(per_run)}, the day and month caps still apply; the real cost is usually lower)"
-    )
-
-
-def _notes(facts: Facts, plan: Plan, settings) -> list[str]:
+def _notes(plan: Plan, settings) -> list[str]:
     """Plain notes the panel shows below the plan."""
     notes = []
     if settings.review_web_standards_enabled:
@@ -479,7 +458,7 @@ def plan_for(
     leaves = plan.text_leaves
     out["boundary"] = "documents you may read"
     per_run = float(settings.claude_budget_usd_per_run)
-    last = _last_cost(conn, document_id)
+    last = review_cost.last_cost(conn, document_id)
     rc_on = plan.part(RULE_CHECK).engine == ON_CLAUDE
     ai_on = plan.part(AI_REVIEW).engine == ON_CLAUDE
     each = {
@@ -490,14 +469,14 @@ def plan_for(
     out["cost"] = {
         "at_most_usd": total if leaves else None,
         "by_part_at_most_usd": each,
-        "basis": _cost_words(each, total, per_run) if leaves else None,
+        "basis": review_cost.cost_words(each, total, per_run) if leaves else None,
         "last_review_usd": last if leaves else None,
         "last_review_note": "the measured cost of the last AI review of this paper"
         if (leaves and last is not None)
         else None,
         "exact": False,
     }
-    out["notes"] = _notes(facts, plan, settings)
+    out["notes"] = _notes(plan, settings)
     out["sentence"] = sentence_of(out)
     return out
 

@@ -537,7 +537,9 @@ def contracts_without_yes(ids) -> frozenset[str]:
     return frozenset(
         d
         for d in ids
-        if d not in consented and claude_auto_approve.is_contract_paper(d) and not contract_yes.has_yes(d)
+        if d not in consented
+        and claude_auto_approve.is_contract_paper(d)
+        and not contract_yes.has_yes(d)
     )
 
 
@@ -625,9 +627,14 @@ def refusal() -> tuple[str, str] | None:
     if _REQUEST_CONSENT.get():
         return None
     approved = approved_hashes()
-    consented = _consented(ids)  # the explicit choice of Claude: the listed documents of this run are approved for it
+    # The explicit choice of Claude: the listed documents of this run are approved for it.
+    consented = _consented(ids)
     lapsed = (_lapsed_ids(hashes) | contracts_without_yes(ids)) - consented
-    missing = sorted(d for d, h in hashes.items() if d not in consented and (h not in approved or d in lapsed))
+    missing = sorted(
+        d
+        for d, h in hashes.items()
+        if d not in consented and (h not in approved or d in lapsed)
+    )
     if missing:
         return NOT_APPROVED, (f"{len(missing)} of {len(ids)} document(s) in this prompt are not approved "
                               f"for the cloud model (ids: {', '.join(missing)}), so nothing is sent")
@@ -665,10 +672,13 @@ def local_instead() -> str | None:
         blocked = _blocked_ids(hashes)
     except BlockListUnreadable:
         blocked = ids
-    consented = _consented(ids)  # a block is never lifted by it: `blocked` is kept apart
+    # A block is never lifted by the consent: `blocked` is kept apart.
+    consented = _consented(ids)
     lapsed = (_lapsed_ids(hashes) | contracts_without_yes(ids)) - consented
     missing = sum(
-        1 for d, h in hashes.items() if d in blocked or (d not in consented and (h not in approved or d in lapsed))
+        1
+        for d, h in hashes.items()
+        if d in blocked or (d not in consented and (h not in approved or d in lapsed))
     )
     return LOCAL_INSTEAD.format(n=missing, of=len(ids))
 
