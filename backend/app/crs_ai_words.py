@@ -16,7 +16,6 @@ import re
 from collections.abc import Mapping
 
 from . import agent_review_absence as absence
-from . import agent_review_two_reader as two
 from .agent_review_two_reader import DISAGREE_ONE_FOUND
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
@@ -109,26 +108,24 @@ VERDICT_PREFIX_INDEPENDENT = f"{OWNER_MET}: {ROUTE_INDEPENDENT}, engineer to con
 VERDICT_PREFIX_CHECKED = f"{OWNER_MET}: {ROUTE_CHECKED}, engineer to confirm."
 
 
-ABSENCE_CHECK_SEARCHED = "the code searched for this field and found no value"
-ABSENCE_CHECK_COULD_NOT = "the code could not check this itself"
-ABSENCE_OPENER = "Not met (AI, two readers agree)"
+ABSENCE_CHECK_SEARCHED = (
+    "the code searched for this field and found no value on any page"
+)
+ABSENCE_OPENER = "Not stated (AI, two readers agree)"
 
 
-def absence_verdict_sentence(item: str, clause_quote: str, code_checked: bool) -> str:
+def absence_verdict_sentence(item: str, clause_quote: str) -> str:
     """ONE home of the sentence of an "AI verdict: not stated" line (lead, 12 Nov 2026, from the owner's rule). It never says the paper
-    side is "quotes verified": there is no paper quote, the readers found nothing. The clause quote is the verified one."""
-    check = ABSENCE_CHECK_SEARCHED if code_checked else ABSENCE_CHECK_COULD_NOT
+    side is "quotes verified": there is no paper quote, the readers found nothing. The clause quote is the verified one. The line has
+    this word only when the code itself searched (R49 F2), so the code-check clause is always the searched one."""
     ask = f' The rule requires: "{clause_quote}".' if clause_quote else ""
-    return f"{ABSENCE_OPENER}: two AI readers each read every page of the paper and found no {item}.{ask} Code check: {check}. Engineer to confirm."
+    return f"{ABSENCE_OPENER}: two AI readers each read every page of the paper and found no {item}.{ask} Code check: {ABSENCE_CHECK_SEARCHED}. Engineer to confirm."
 
 
 def absence_cell(line: Mapping, item: str) -> str:
-    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's verified clause quote and its stored
-    code check (searched or could not)."""
-    rec = line.get(two.ABSENCE_FIELD)
-    checked = isinstance(rec, Mapping) and rec.get("code_check") == two.CHECK_SEARCHED
+    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's verified clause quote."""
     quote = plain(" ".join(str(line.get("clause_quote") or "").split())[:300])
-    return absence_verdict_sentence(item or "value for this item", quote, checked)
+    return absence_verdict_sentence(item or "value for this item", quote)
 
 
 def decisions_rows(dec: Mapping) -> list[tuple[str, str]]:

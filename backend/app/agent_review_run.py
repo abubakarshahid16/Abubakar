@@ -135,7 +135,10 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self.total_pages = pages.count(paper)
         # the CURRENT tier of a rule item, from the label table
         self.tier_lookup = tier_lookup
-        self.items = plan_pages(items, pages, paper, clauses)
+        self._two_reader, self._two_reader_absence = two_reader, two_reader_absence
+        self.items = plan_pages(
+            items, pages, paper, clauses, whole_short=self.absence_on()
+        )
         self.items_by_id = {str(i.get("item_id")): i for i in self.items}
         self.stopped = self.stop_text = ""
         self.gate: AppStepGate | None = None

@@ -322,9 +322,15 @@ def page_cap(total_pages: int) -> int:
 
 
 def plan_pages(
-    items: list[dict], pages: Any, paper: str, clauses: ClauseCache | None = None
+    items: list[dict],
+    pages: Any,
+    paper: str,
+    clauses: ClauseCache | None = None,
+    whole_short: bool = False,
 ) -> list[dict]:
-    """Copies of the items with a page hint for every item, so batches share pages (general: words, no layout)."""
+    """Copies of the items with a page hint for every item, so batches share pages (general: words, no layout). `whole_short`: only
+    when the absence decision is on, a short paper goes whole to EVERY item, a checklist item's own page hint too; otherwise an item's
+    own hint stands and the request is as it always was."""
     from .agent_bind import content_words
 
     total = pages.count(paper)
@@ -332,13 +338,13 @@ def plan_pages(
     out = []
     for it in items:
         it = dict(it)
-        if 0 < total <= SMALL_PAPER_PAGES:  # a short paper goes WHOLE for every item, a checklist item's own page hint too (order 13)
+        if _hints(it) and not (whole_short and 0 < total <= SMALL_PAPER_PAGES):
+            it["page_hint_source"] = "items"
+        elif 0 < total <= SMALL_PAPER_PAGES:
             it["page_hint"], it["page_hint_source"] = (
                 list(range(1, total + 1)),
                 "short paper: all pages",
             )
-        elif _hints(it):
-            it["page_hint_source"] = "items"
         else:
             roles = " ".join(
                 str(r).replace("_", " ") for r in it.get("field_roles") or []

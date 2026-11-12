@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import pytest
 
+import tests.agent_review_support as s
 from app import agent_review_absence as A
 from app import agent_review_two_reader as two
 from app import crs_ai_words as words
+from app import db
 from app.config import settings
 from tests.test_agent_review_guards import run_review, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
-from tests.test_agent_two_reader import CLASS
+from tests.test_agent_two_reader import CLASS, stored
 from tests.test_agent_two_reader_absence import (
     NOT_STATED,
     PAGES,
@@ -78,28 +80,126 @@ def test_a_label_with_an_empty_cell_does_not_veto_and_the_sentence_says_the_code
     assert (got["verdict_class"], got["word"]) == (CLASS, NOT_STATED)
 
 
-def test_a_rule_with_no_known_field_still_gets_the_word_and_the_sentence_says_the_code_could_not_check(
+def test_a_rule_with_no_known_field_never_gets_the_word_nothing_is_asked_and_the_line_stays_an_opinion(
     w, both
 ):
+    """R49 F2: two readers alone are not a decision. The code cannot search: no call, the line stays "AI thinks"."""
     paper()
     fake = _setup_with(w, field_roles=[], page_hint=[1, 2, 3])
     run_id = run_review()
     got = lines_of(run_id)["R-coat"]
-    assert (got["verdict_class"], got["word"]) == (CLASS, NOT_STATED) and len(
-        fake.absence_bodies
-    ) == 1
-    from tests.test_agent_two_reader import stored
-
     assert (
-        stored(run_id, "R-coat")["two_reader_absence"]["code_check"]
-        == two.CHECK_COULD_NOT
+        got["word"] == "AI thinks: not met"
+        and got["verdict_class"] != CLASS
+        and fake.absence_bodies == []
     )
-    assert words.ABSENCE_CHECK_COULD_NOT in words.absence_verdict_sentence(
-        "x", "y", False
+    assert (
+        absence_step(run_id)["asked"] == 0 and absence_step(run_id)["candidates"] == 0
     )
-    assert words.ABSENCE_CHECK_SEARCHED in words.absence_verdict_sentence(
-        "x", "y", True
+    assert "two_reader_absence" not in stored(run_id, "R-coat")
+
+
+def _unreadable(kind):
+    """The reviewer's three attack cases (R49 F1), run with and without a field list."""
+    if kind == "ocr_failed":
+        paper()
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE page_ledger SET native_status='scanned', ocr_status='failed' WHERE document_id=? AND page_no=2",
+                (s.PAPER,),
+            )
+    elif kind == "tiny":
+        paper({**PAGES, 2: "Fig 1"})
+    else:  # a page that is not in the stored reading at all
+        paper(ledger={1, 3})
+
+
+@pytest.mark.parametrize("kind", ["ocr_failed", "tiny", "missing_ledger"])
+@pytest.mark.parametrize("known_field", [True, False])
+def test_an_unreadable_page_vetoes_the_word_on_every_path_and_nothing_is_asked(
+    w, both, kind, known_field
+):
+    _unreadable(kind)
+    fake = _setup_with(w, **({} if known_field else {"field_roles": []}))
+    run_id = run_review()
+    got = lines_of(run_id)["R-coat"]
+    assert (
+        got["word"] != NOT_STATED
+        and got["verdict_class"] != CLASS
+        and fake.absence_bodies == []
     )
+    st = absence_step(run_id)
+    assert st["asked"] == 0 and st["skipped"] == 1
+
+
+def test_a_value_on_a_page_with_no_field_list_is_not_asked_either(w, both):
+    paper({**PAGES, 3: PAGES[3] + "\nDesign pressure: 12 barg"})
+    fake = _setup_with(w, field_roles=[])
+    run_id = run_review()
+    assert (
+        lines_of(run_id)["R-coat"]["word"] != NOT_STATED and fake.absence_bodies == []
+    )
+
+
+def test_the_unreadable_page_is_decided_before_the_early_returns_of_the_field_search():
+    texts = {1: PAGES[1], 2: "Fig 1", 3: PAGES[3]}
+    for carried, item in (
+        (None, {"source": "rule"}),  # no field list
+        (
+            frozenset({ROLE}),
+            {"source": "rule", "field_roles": []},
+        ),  # a field the code does not know
+    ):
+        got = A.prove_field(item, "x shall be stated", texts, 3, None, [], carried)
+        assert (
+            not got.proven and got.code == "absence_page_unreadable" and got.page == 2
+        )
+
+
+def test_the_short_paper_whole_rule_is_off_with_the_switch_off_and_the_requests_are_as_before(
+    w, monkeypatch
+):
+    from app import agent_review_request as rq
+
+    class Pages:
+        def count(self, _p):
+            return 3
+
+        def page(self, _p, n):
+            return f"page {n} text"
+
+    items = [
+        {"item_id": "S-1", "page_hint": [2], "question": "q"},
+        {"item_id": "R-1", "question": "q"},
+    ]
+    off = rq.plan_pages(items, Pages(), "p")
+    assert (
+        off[0]["page_hint"] == [2] and off[0]["page_hint_source"] == "items"
+    )  # its own hint stands, as before
+    assert (
+        off[1]["page_hint"] == [1, 2, 3]
+        and off[1]["page_hint_source"] == "short paper: all pages"
+    )
+    on = rq.plan_pages(items, Pages(), "p", whole_short=True)
+    assert (
+        on[0]["page_hint"] == [1, 2, 3]
+        and on[0]["page_hint_source"] == "short paper: all pages"
+    )
+    # and the run passes the switch: with both switches off the item keeps its own page hint
+    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_two_reader_absence_enabled", False)
+    paper()
+    _setup_with(w, page_hint=[2])
+    run_id = run_review()
+    assert (
+        stored(run_id, "R-coat").get("page_hint_source") == "items"
+        and lines_of(run_id)["R-coat"]["word"] != NOT_STATED
+    )
+    monkeypatch.setattr(settings, "agent_review_two_reader_absence_enabled", True)
+    monkeypatch.setattr(A, "carried_roles", lambda *_a, **_k: frozenset({ROLE}))
+    _setup_with(w, page_hint=[2])
+    run_id = run_review()
+    assert stored(run_id, "R-coat").get("page_hint_source") == "short paper: all pages"
 
 
 def test_a_paper_of_more_than_eight_pages_is_not_awarded_and_nothing_is_asked(w, both):
@@ -148,16 +248,21 @@ def test_a_checklist_item_is_plain_unless_its_text_is_conditional_or_advice():
     assert A.plain_requirement_code(item, "") == "absence_rule_not_found"
 
 
-def test_the_two_readers_page_lists_and_the_item_name_reach_the_sentence_only_through_the_one_home():
+def test_the_sentence_is_built_in_one_home_with_the_absence_words_and_the_searched_code_check():
     sentence = words.absence_verdict_sentence(
-        "Design pressure", "The nameplate shall be steel", True
+        "Design pressure", "The nameplate shall be steel"
     )
     assert sentence.startswith(
         f"{words.ABSENCE_OPENER}: two AI readers each read every page of the paper and found no Design pressure."
     )
+    assert (
+        words.ABSENCE_OPENER == "Not stated (AI, two readers agree)"
+        and "Not met" not in sentence
+    )
     assert "quotes verified" not in sentence and sentence.endswith(
         "Engineer to confirm."
     )
+    assert words.ABSENCE_CHECK_SEARCHED in sentence
 
 
 def test_a_not_stated_line_is_a_decision_and_the_notes_say_of_which_not_stated_on_the_paper(

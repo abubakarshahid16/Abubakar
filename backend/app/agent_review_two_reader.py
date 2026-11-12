@@ -48,8 +48,8 @@ ABSENCE_MAX_PAGE_CHARS = 60_000
 OFF_PAPER_TOO_LONG = "paper_over_size_limit"
 #: the absence verdict needs BOTH readers given EVERY page: for a paper of more pages the class is not awarded (until the whole-paper work lands)
 ABSENCE_MAX_PAGES = 8
-#: the code's own check of an absence line: it searched the field and found no value, or it could not check (no known field)
-CHECK_SEARCHED, CHECK_COULD_NOT = "searched", "could_not"
+#: the code's own check of an absence line: it searched the field and found no value on any page (the only path that gives the decision)
+CHECK_SEARCHED = "searched"
 #: the second reader's own verdict words
 V_MET, V_NOT_MET, V_CANNOT_TELL, V_NOT_APPLICABLE = (
     "met",
@@ -436,7 +436,7 @@ def is_absence_candidate(line: Mapping) -> bool:
 def absence_answer(
     *, found: Any, quote: Any, page: Any, clause_quote: Any, paper_ok: bool, clause_ok: bool, strong: bool,
     open_: bool, model: str, usd: float, code_search: Mapping, pages_total: int,
-    first_pages: Any = (), second_pages: Any = (), base: Mapping | None = None, code_check: str = CHECK_COULD_NOT,
+    first_pages: Any = (), second_pages: Any = (), base: Mapping | None = None, code_check: str = CHECK_SEARCHED,
 ) -> dict:  # fmt: skip
     """The stored absence answer of the second reader. `verdict`: found a value (its quote verified on its page, not a deferral),
     not stated (it says no value anywhere and its clause quote is verified), else cannot tell. `first_pages` / `second_pages`: the
@@ -459,12 +459,12 @@ def absence_answer(
 
 def absence_agrees(line: Mapping) -> bool:
     """The absence verdict "AI verdict: not stated" (lead's application of the owner's rule, to be confirmed): the first reader said
-    absent on a verified strong clause (or approved checklist point), and the second reader (another family) was asked on the WHOLE
-    paper and also says "not stated" without a verified value. BOTH readers were given EVERY page of a paper of at most
-    `ABSENCE_MAX_PAGES` pages (proved by the stored page lists, never assumed). The code's own search never found a value
-    (`code_check` "searched": the field is known and its words are on no page; "could_not": the code cannot search this rule, said
-    so in the sentence); a code veto (a value found, a deferral, an unreadable page) never reaches this record. Read from the stored
-    line alone."""
+    absent on a verified strong clause (or approved checklist point), the second reader (another family) was asked on the WHOLE paper
+    and also says "not stated", AND the code itself searched: the rule's field is on the paper kind's field list, every page was
+    readable, and no page, fact or deferral shows a value (`code_search` proven, every page checked). Two readers alone are never a
+    decision (R49, F2: they were wrong on 3 of 4 lines the key judged). BOTH readers were given EVERY page of a paper of at most
+    `ABSENCE_MAX_PAGES` pages, proved by the stored page lists. A record stored before `code_check` existed keeps what it earned
+    (proven code search, every page) and is not limited by the page count. Read from the stored line alone."""
     rec = stored_absence(line)
     if (
         rec is None
@@ -479,17 +479,21 @@ def absence_agrees(line: Mapping) -> bool:
     )
     if not (q.get("clause") and q.get("clause_strong")):
         return False
-    check = rec.get("code_check")
     code = rec.get("code_search") if isinstance(rec.get("code_search"), Mapping) else {}
     total = rec.get("pages_total")
-    if not (isinstance(total, int) and 1 <= total <= ABSENCE_MAX_PAGES):
+    if rec.get("code_check") not in (
+        CHECK_SEARCHED,
+        None,
+    ):  # "could not" (or anything else) is never a decision
         return False
-    if check == CHECK_SEARCHED:
-        if code.get("proven") is not True or code.get("pages_checked") != total:
-            return False
-    elif (
-        check != CHECK_COULD_NOT or code.get("proven") is True
-    ):  # "could not" never rests on a proof, and no veto is stored
+    if not (
+        isinstance(total, int)
+        and total >= 1
+        and code.get("proven") is True
+        and code.get("pages_checked") == total
+    ):
+        return False
+    if rec.get("code_check") == CHECK_SEARCHED and total > ABSENCE_MAX_PAGES:
         return False
     every = list(
         range(1, total + 1)

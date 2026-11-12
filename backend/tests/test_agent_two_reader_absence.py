@@ -417,15 +417,16 @@ def test_a_not_stated_line_in_the_crs_has_the_status_priority_and_only_establish
     )  # Priority as for "not met", mandatory
     assert (
         row[3].count(
-            "Not met (AI, two readers agree): two AI readers each read every page of the paper and found no Design pressure."
+            "Not stated (AI, two readers agree): two AI readers each read every page of the paper and found no Design pressure."
         )
         == 1
     )
     assert 'The rule requires: "Nameplates shall be steel and fixed".' in row[3]
     assert (
-        "Code check: the code searched for this field and found no value. Engineer to confirm."
+        "Code check: the code searched for this field and found no value on any page. Engineer to confirm."
         in row[3]
     )
+    assert "Not met (AI" not in row[3]
     assert (
         "quotes verified" not in row[3]
         and "Contractor to state Design pressure" in row[3]
@@ -470,12 +471,13 @@ def _oracle(
     second_all,
     small,
 ):
-    check_ok = (check == "searched" and proven and pages_ok) or (
-        check == "could_not" and not proven
+    # only the code's own search gives the decision: a new record "searched" (at most 8 pages) or a legacy record with a proven search
+    check_ok = (
+        check in ("searched", None) and proven and pages_ok and (small or check is None)
     )
     return (
         rec_verdict == "not stated" and clause_ok and strong and check_ok and differ and not hold and reason_ok and tier_ok
-        and first_all and second_all and small
+        and first_all and second_all
     )  # fmt: skip
 
 
@@ -578,12 +580,28 @@ def test_each_read_every_page_is_said_only_when_the_stored_page_lists_prove_it()
             "second_pages": more,
             "code_search": {"proven": True, "pages_checked": 9},
         },
-        {"code_check": None},
+        {
+            "code_check": "could_not",
+            "code_search": {"proven": False, "pages_checked": 0},
+        },  # the code could not search: never the word
+        {"code_check": "could_not"},
         {"code_check": "bogus"},
     ):
         rec = {**_line()["two_reader_absence"], **short}
         ln = _line(two_reader_absence=rec)
         assert ln["verdict_label"] != NOT_STATED and ln["verdict_class"] != CLASS
+
+
+def test_a_record_stored_before_code_check_existed_keeps_what_it_earned_and_is_not_relabelled():
+    rec = {k: v for k, v in _line()["two_reader_absence"].items() if k != "code_check"}
+    ln = _line(two_reader_absence=rec)
+    assert (ln["verdict_class"], ln["verdict_label"]) == (
+        CLASS,
+        NOT_STATED,
+    )  # a pure function of the stored line: the same on a re-read, switch on or off
+    assert W.apply(ln)["verdict_label"] == NOT_STATED
+    unproven = {**rec, "code_search": {"proven": False, "pages_checked": 3}}
+    assert _line(two_reader_absence=unproven)["verdict_label"] != NOT_STATED
 
 
 def test_the_record_keeps_the_line_before_the_step(w, both):

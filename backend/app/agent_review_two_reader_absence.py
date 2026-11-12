@@ -158,14 +158,15 @@ class AbsenceMixin:
 
     def absence_candidates(self, texts: dict[int, str]) -> list[dict]:
         """The lines worth asking: first-reader absence lines (a verified clause, a held rule or an approved checklist item, a plain
-        binding requirement) whose first reader was given EVERY page and whose model is of another family than the second reader's.
-        The code's own field search (`absence.prove_field`) is a VETO and evidence, never a gate on knowing the field: a value found,
-        a deferral or an unreadable page ends it (nothing asked); a rule the code cannot search (no known field) stays a candidate
-        and the verdict says "the code could not check this itself"."""
+        binding requirement) whose first reader was given EVERY page, whose model is of another family than the second reader's, AND
+        whose field the code itself can search (`absence.prove_field` proven: the field is on the paper kind's list, every page was
+        readable, no value anywhere). A page the code cannot read ends every line first (decided before anything else); a value found,
+        a deferral, or a rule the code cannot search ends that line: nothing is asked and the line stays an opinion (R49 F1, F2)."""
         carried = absence.carried_roles(self.paper_kind, self.equipment_type)
         ledger = getattr(self.pages, "ledger_rows", None)
         facts = list(getattr(self.pages, "facts", []) or [])
         every = list(range(1, self.total_pages + 1))
+        bad = absence.unreadable_page(texts, self.total_pages, ledger)
         out = []
         for iid, line in sorted(self.lines.items()):
             item = self.items_by_id.get(iid)
@@ -174,6 +175,9 @@ class AbsenceMixin:
                 or two.ABSENCE_FIELD in line
                 or not two.is_absence_candidate(line)
             ):
+                continue
+            if bad is not None:  # F1: before any other check, on every path
+                self._skip_absence(iid, f"page {bad} is not readable by the code")
                 continue
             if not agent_run_second.models_differ(
                 [str(line.get("model") or "")], agent_claude.SECOND_MODEL
@@ -201,17 +205,18 @@ class AbsenceMixin:
                     "code": proof.code,
                 }
             )
-            if proof.proven:
-                check = two.CHECK_SEARCHED
-            elif proof.code in absence.CANNOT_SEARCH:
-                check = two.CHECK_COULD_NOT
-            else:
+            if not proof.proven:  # a veto, or a rule the code cannot search: no decision either way, nothing asked
                 self._skip_absence(
-                    iid, "the code's search vetoed it: " + str(proof.code)
+                    iid, "the code did not prove the absence itself: " + str(proof.code)
                 )
                 continue
             out.append(
-                {"line": line, "item": item, "proof": proof.to_json(), "check": check}
+                {
+                    "line": line,
+                    "item": item,
+                    "proof": proof.to_json(),
+                    "check": two.CHECK_SEARCHED,
+                }
             )
         return out
 

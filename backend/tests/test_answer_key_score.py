@@ -687,7 +687,7 @@ def test_decisions_are_code_pass_fail_plus_two_reader_verdicts_right_wrong_and_n
     from app.crs_ai_words import absence_verdict_sentence
 
     absent = absence_verdict_sentence(
-        "Operating temperature", "The rating shall be stated", True
+        "Operating temperature", "The rating shall be stated"
     )
     crs = _ai_verdict_crs(
         tmp_path,
@@ -732,6 +732,39 @@ def test_decisions_are_code_pass_fail_plus_two_reader_verdicts_right_wrong_and_n
     assert (
         "decisions = code Pass/Fail + two-reader verdicts: right 2 of 5, wrong 2, not on the key 1"
         in aks.summary(res)["decisions"]
+    )
+
+
+def test_a_not_stated_decision_is_right_only_where_the_key_says_the_item_is_missing(
+    tmp_path,
+):
+    """R49 F3. Three lines, by id and page only: a key row that says the field is on no page (absent) makes it right; a key row with a
+    page (the value is stated, rightly or wrongly) and a complies row make it wrong."""
+    from app.crs_ai_words import absence_verdict_sentence
+
+    key = [
+        {"kind": "problem", "role": "set_pressure", "page": "absent"},
+        {
+            "kind": "problem",
+            "role": "design_pressure",
+            "page": "5",
+        },  # stated on page 5 with a wrong value
+        {"kind": "complies", "role": "body_material", "page": "1"},
+    ]
+    said = absence_verdict_sentence("x", "The rule requires it")
+    crs = _ai_verdict_crs(
+        tmp_path,
+        [
+            ("p.1 - Set pressure", said, "AI verdict"),
+            ("p.5 - Design pressure", said, "AI verdict"),
+            ("p.1 - Body material", said, "AI verdict"),
+        ],
+    )
+    res = aks.score_files(_key(tmp_path, key), crs)
+    assert (
+        res["decisions"]["n"] == 3
+        and res["decisions"]["right"] == 1
+        and res["decisions"]["wrong"] == 2
     )
 
 

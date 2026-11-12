@@ -699,6 +699,13 @@ def decision_figures(key: list[KeyRow], lines: list[Line]) -> dict:
         for k in key:
             if k.scored_as == "not scored" or not answers(k, ln):
                 continue
+            if (
+                ln.ai_kind == "not stated"
+            ):  # R49 F3: right ONLY where the key says the item is missing; where it says a page states it, wrong
+                verdicts.add(
+                    "right" if k.absent and k.scored_as == "problem" else "wrong"
+                )
+                continue
             if k.scored_as == "problem":
                 verdicts.add("right" if not positive else "wrong")
             elif k.scored_as == "complies":

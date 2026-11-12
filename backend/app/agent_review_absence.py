@@ -475,7 +475,11 @@ def prove_field(
     deferred: Callable[[str], int | None] | None = None,
     rules: Mapping | None = None,
 ) -> Proof:
-    """Steps 2-6 of `prove`: the field, the paper kind, every page, no field read, no field words, no deferral."""
+    """Steps 2-6 of `prove`: every page readable (decided FIRST, before any early return: a page the code could not read vetoes on every
+    path), the field, the paper kind, no field read, no field words, no deferral."""
+    bad = unreadable_page(texts, total, ledger)
+    if bad is not None:
+        return Proof(False, "absence_page_unreadable", bad)
     if carried is None:
         return Proof(False, "absence_no_field_list")
     candidates = candidates_of(item)
@@ -497,9 +501,6 @@ def prove_field(
     for words in known:
         if words.role is None or words.role not in carried:
             return Proof(False, "absence_not_carried", **base)
-    bad = unreadable_page(texts, total, ledger)
-    if bad is not None:
-        return Proof(False, "absence_page_unreadable", bad, **base)
     empty_pages: set[int] = (
         set()
     )  # pages where the label stands with an EMPTY value cell (`empty_label_pages`)
