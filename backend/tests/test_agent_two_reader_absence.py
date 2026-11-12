@@ -147,6 +147,7 @@ def test_both_readers_say_not_stated_and_code_search_is_empty_gives_the_new_word
         "agreed": 1,
         "disagreed": 0,
         "unconfirmed": 0,
+        "skipped": 0,
         "off": None,
     }
     assert len(fake.absence_bodies) == 1
@@ -391,7 +392,7 @@ def _line(**over):
             "verdict": "not stated", "model": "second-m", "paper_quote": None, "paper_page": None,
             "clause_quote": "Nameplates shall be steel and fixed",
             "quotes_checked": {"paper": False, "clause": True, "clause_strong": True, "both": False},
-            "code_search": {"proven": True, "pages_checked": 3}, "pages_total": 3,
+            "code_search": {"proven": True, "pages_checked": 3}, "pages_total": 3, "first_pages": [1, 2, 3], "second_pages": [1, 2, 3],
         },
     }  # fmt: skip
     base.update(over)
@@ -444,10 +445,12 @@ def _oracle(
     hold,
     reason_ok,
     tier_ok,
+    first_all=True,
+    second_all=True,
 ):
     return (
         cand_ok and rec_verdict == "not stated" and clause_ok and strong and proven and pages_ok and differ
-        and source_ok and not hold and reason_ok and tier_ok
+        and source_ok and not hold and reason_ok and tier_ok and first_all and second_all
     )  # fmt: skip
 
 
@@ -465,8 +468,12 @@ def test_the_absence_word_is_reachable_only_by_the_rule_brute_force():
         hold,
         reason_ok,
         tier_ok,
+        first_all,
+        second_all,
     ) in itertools.product(
         ["not stated", "found a value", "cannot tell"],
+        flags,
+        flags,
         flags,
         flags,
         flags,
@@ -486,6 +493,7 @@ def test_the_absence_word_is_reachable_only_by_the_rule_brute_force():
                 "clause_quote": "x", "paper_quote": "Some value 10", "paper_page": 1,
                 "quotes_checked": {"paper": True, "clause": clause_ok, "clause_strong": strong},
                 "code_search": {"proven": proven, "pages_checked": 3 if pages_ok else 2}, "pages_total": 3,
+                "first_pages": [1, 2, 3] if first_all else [1, 2], "second_pages": [1, 2, 3] if second_all else [1, 2],
             },
         )  # fmt: skip
         if not tier_ok:
@@ -512,6 +520,8 @@ def test_the_absence_word_is_reachable_only_by_the_rule_brute_force():
             hold,
             reason_ok,
             tier_ok,
+            first_all,
+            second_all,
         )
         assert (got["verdict_label"] == NOT_STATED) is want, (
             rec_verdict,
@@ -527,3 +537,58 @@ def test_the_absence_word_is_reachable_only_by_the_rule_brute_force():
         )
         reached += want
     assert reached == 1  # exactly one corner of the table reaches the word
+
+
+def test_the_class_is_not_awarded_when_the_first_reader_was_not_given_every_page(
+    w, both
+):
+    paper()
+    fake = setup(w)
+    fake.answers["R-coat"] = {
+        **fake.answers["R-coat"],
+        "pages_searched": [1, 2],
+    }  # the first reader searched two of three pages
+    run_id = run_review()
+    assert (
+        lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+        and fake.absence_bodies == []
+    )
+    assert (
+        absence_step(run_id)["skipped"] == 1 and absence_step(run_id)["candidates"] == 0
+    )
+    notes = {
+        r[0]: r[1]
+        for r in openpyxl.load_workbook(
+            agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx"
+        )["Notes"].iter_rows(min_row=2, values_only=True)
+    }
+    assert (
+        "the first reader was not given every page of the paper"
+        in notes["Second-reader absence step"]
+    )
+
+
+def test_each_read_every_page_is_said_only_when_the_stored_page_lists_prove_it():
+    assert "every page" in two.ABSENCE_WHY
+    for short in (
+        {"first_pages": [1, 2]},
+        {"second_pages": [1, 2]},
+        {"first_pages": []},
+        {"pages_total": 4},
+    ):
+        rec = {**_line()["two_reader_absence"], **short}
+        ln = _line(two_reader_absence=rec)
+        assert ln["verdict_label"] != NOT_STATED and two.ABSENCE_WHY not in str(
+            ln.get("not_proven_reason")
+        )
+
+
+def test_the_record_keeps_the_line_before_the_step(w, both):
+    paper()
+    setup(w)
+    run_id = run_review()
+    rec = stored(run_id, "R-coat")["two_reader_absence"]
+    assert rec["base"] == {
+        "verdict_class": "AI opinion, engineer to confirm",
+        "verdict_label": "AI thinks: not met",
+    }

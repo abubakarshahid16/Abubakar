@@ -28,6 +28,7 @@ from . import agent_claude, agent_run_second
 from . import agent_review_crs as crs_lines
 from . import agent_review_items as items_mod
 from . import agent_review_two_reader as two
+from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
 from .agent_review_request import (
     FATAL,
@@ -40,7 +41,38 @@ from .agent_review_request import (
 log = logging.getLogger(__name__)
 
 
+def base_of(line: dict) -> dict:
+    """What a line was before a second-reader step touched it: its class and word (kept in the stored second-reader record, so one
+    run gives the before and the after)."""
+    got = wording.classify(line)
+    return {
+        "verdict_class": got["verdict_class"],
+        "verdict_label": got["verdict_label"],
+    }
+
+
 class TwoReaderMixin:
+    def _fail_guards(self, item: dict, line: dict, answer: dict, pages: dict) -> dict:
+        """The Fail-side guards of the ONE home: F1 and F3 (`verdict.apply_holds`) on the second reader's clause quote and F4 (the
+        rule-book context check, `context_check_fail`, a budget stop raised to the step instead of stopping the run)."""
+        held = held_texts(item, self.clauses)
+        requirement = next(
+            (h["text"] for h in held if h["kind"] == "requirement"), None
+        )
+        decision = {"verdict": verdict.FAIL, "decided_by": verdict.BY_AI, "why": None}
+        decision = verdict.apply_holds(
+            decision, self._tiered(item), clause_quote=answer.get("clause_quote"), requirement=requirement,
+            clause_sources=[self.clauses.source(h["ref"]) for h in held],
+        )  # fmt: skip
+        decision, _info = self.context_check_fail(
+            str(item.get("item_id")), item, [line.get("paper_quote"), answer.get("paper_quote")], pages,
+            requirement or answer.get("clause_quote"), decision, str(line.get("model") or ""), halt=False,
+        )  # fmt: skip
+        return {
+            "ok": decision.get("verdict") == verdict.FAIL,
+            "why": decision.get("why"),
+        }
+
     # ---- the switch: a Runner argument wins (tests); else the setting
     def two_reader_on(self) -> bool:
         if self._two_reader is not None:
@@ -198,8 +230,29 @@ class TwoReaderMixin:
             model=model,
             usd=share,
             two_sentences=crs_lines.two_sentences,
+            spans=two.evidence_spans(
+                pages.get(verdict._page_no(answer.get("paper_page")) or 0),
+                self.lines[iid].get("paper_quote"),
+                answer.get("paper_quote"),
+            ),
+            base=base_of(self.lines[iid]),
         )
         line = self.lines[iid]
+        if (
+            line.get("ai_verdict") == verdict.FAIL
+            and wording.is_two_reader(
+                self.exit_line(
+                    {**line, two.FIELD: {**second, "fail_guards": {"ok": True}}}
+                )
+            )
+        ):  # a "not met" must pass what a code Fail passes (F1, F3, F4) before it earns the class
+            try:
+                second["fail_guards"] = self._fail_guards(item, line, answer, pages)
+            except FATAL as exc:
+                self.record_two_reader_off(
+                    two.OFF_CAP, cause=str(getattr(exc, "code", type(exc).__name__))
+                )
+                return
         new = self.exit_line(
             {
                 **line,

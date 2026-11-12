@@ -116,6 +116,7 @@ def test_two_readers_agree_and_every_quote_of_both_is_verified_gives_the_class(w
         "agreed": 2,
         "disagreed": 0,
         "unconfirmed": 0,
+        "skipped": 0,
         "off": None,
     }
 
@@ -522,6 +523,7 @@ def _oracle(
     same_ev,
     absent,
     tier,
+    guards,
 ):
     """The rule written again in the test, from the owner's words."""
     if (
@@ -540,6 +542,8 @@ def _oracle(
         return False
     if absent or not differ or not same_ev or not (sec_paper and sec_clause):
         return False
+    if ai == "Fail" and not guards:  # a not met needs the Fail-side guards (F1, F3, F4)
+        return False
     return sec_verdict == ("met" if ai == "Pass" else "not met")
 
 
@@ -547,9 +551,9 @@ def _oracle(
 def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
     flags = [False, True]
     n = 0
-    for verdict, code_ok, paper, clause, strong, hold, second_ok, sec_verdict, sec_paper, sec_clause, differ, same_ev, absent, tier in itertools.product(
+    for verdict, code_ok, paper, clause, strong, hold, second_ok, sec_verdict, sec_paper, sec_clause, differ, same_ev, absent, tier, guards in itertools.product(
         ["Query", "Fail" if ai == "Fail" else "Pass"], flags, flags, flags, flags, flags, flags,
-        ["met", "not met", "cannot tell"], flags, flags, flags, flags, flags, flags,
+        ["met", "not met", "cannot tell"], flags, flags, flags, flags, flags, flags, flags,
     ):  # fmt: skip
         code = ("met" if ai == "Pass" else "not_met") if code_ok else "other"
         item = (
@@ -569,7 +573,8 @@ def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
             two_reader={
                 "verdict": sec_verdict, "model": "second-m" if differ else "lead-m-20260101",
                 "reason_code": "met" if ai == "Pass" else "not_met", "paper_quote": "Nameplate: steel plate",
-                "paper_page": 2 if same_ev else 3, "clause_quote": "Nameplates shall be steel and fixed",
+                "paper_page": 2, "spans": {"first": [0, 20], "second": [5, 25] if same_ev else [30, 50]},
+                "fail_guards": {"ok": guards}, "clause_quote": "Nameplates shall be steel and fixed",
                 "field_label": "Other label",
                 "quotes_checked": {"paper": sec_paper, "clause": sec_clause, "clause_strong": sec_clause},
                 "says_absent": absent,
@@ -592,6 +597,7 @@ def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
             same_ev,
             absent,
             tier,
+            guards,
         )
         assert (got["verdict_class"] == CLASS) is want, (
             ai,
@@ -609,6 +615,7 @@ def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
             same_ev,
             absent,
             tier,
+            guards,
         )
         if got["verdict_class"] == CLASS:
             n += 1
@@ -627,54 +634,190 @@ def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
 # ---------------------------------------------------------------- same evidence
 
 
+PAGE = (
+    "Maximum allowable working pressure 10 barg\n"
+    "Maximum allowable working temperature 200 C\n"
+    "Design pressure (barg) 10\n"
+    "Design pressure (barg) 25\n"
+    "Seat leakage class IV\n"
+    "Set pressure 10 barg 12 barg\n"
+)
+
+
+def _pair(first, second, page=2, page2=None, label="Design pressure"):
+    """A first-reader line and a second-reader record whose spans were computed on PAGE by the step's own function."""
+    line = {"paper_page": page, "paper_quote": first, "field_label_ai": label}
+    rec = {
+        "paper_page": page2 or page,
+        "paper_quote": second,
+        "field_label": label,
+        "spans": two.evidence_spans(PAGE, first, second),
+    }
+    return line, rec
+
+
 @pytest.mark.parametrize(
-    "a,b,want",
+    "first,second,want",
     [
-        ("Set pressure 10 barg", "set pressure 10 barg", True),
-        ("Set pressure 10 barg", "10 barg", True),
-        ("Orifice area: 1.0 in2 nominal", "Orifice area 1.0 in2", True),
-        ("Body material carbon steel", "Trim material stainless", False),
-        ("", "10 barg", False),
-        ("a b", "c d", False),
+        (
+            "Design pressure (barg) 10",
+            "design pressure (barg) 10",
+            True,
+        ),  # the same place, the same value
+        (
+            "Set pressure 10 barg",
+            "10 barg",
+            True,
+        ),  # one holds the other, same value and unit
+        # near misses (the review's scenarios): each must NOT earn the class
+        (
+            "Maximum allowable working pressure 10 barg",
+            "Maximum allowable working temperature 200 C",
+            False,
+        ),  # three words in a row, another field
+        (
+            "Design pressure (barg) 10",
+            "Design pressure (barg) 25",
+            False,
+        ),  # same field label, another place and another value
+        (
+            "Design pressure (barg) 10",
+            "Seat leakage class IV",
+            False,
+        ),  # same self-reported label, unrelated quotes
+        (
+            "Set pressure 10 barg",
+            "pressure 10 barg 12 barg",
+            False,
+        ),  # the same place but another value
+        (
+            "Set pressure 10 barg",
+            "Set pressure 10 barg 12 barg",
+            False,
+        ),  # the same place, an extra figure
     ],
 )
-def test_quotes_overlap_means_inside_or_three_words_in_a_row(a, b, want):
-    assert two.quotes_overlap(a, b) is want
+def test_same_evidence_is_the_same_place_and_the_same_value_never_a_label_or_shared_words(
+    first, second, want
+):
+    line, rec = _pair(first, second)
+    assert two.same_evidence(line, rec) is want
 
 
-def test_same_evidence_needs_the_same_page_and_overlap_or_the_same_label():
-    line = {
-        "paper_page": 2,
-        "paper_quote": "Set pressure 10 barg",
-        "field_label_ai": "Set pressure",
-    }
-    assert two.same_evidence(
-        line,
-        {"paper_page": 2, "paper_quote": "Set pressure 10 barg", "field_label": None},
+def test_same_evidence_needs_the_same_page_and_stored_spans():
+    line, rec = _pair("Design pressure (barg) 10", "Design pressure (barg) 10")
+    assert two.same_evidence(line, rec)
+    assert not two.same_evidence(line, {**rec, "paper_page": 3})
+    assert not two.same_evidence(
+        {**line, "paper_page": None}, {**rec, "paper_page": None}
     )
-    assert two.same_evidence(
-        line,
-        {
-            "paper_page": 2,
-            "paper_quote": "Pressure value",
-            "field_label": "set PRESSURE",
+    assert not two.same_evidence(
+        line, {**rec, "spans": None}
+    )  # code cannot establish it: the line stays what it was
+    assert not two.same_evidence(
+        line, {**rec, "spans": {"first": [0, 5], "second": [9, 12]}}
+    )
+
+
+def test_the_step_stores_the_spans_and_the_line_before_the_step_in_its_record(w, on):
+    lane(w)
+    run_id = run_review()
+    rec = stored(run_id, "R-coat")["two_reader"]
+    assert rec["spans"]["first"] == rec["spans"]["second"] and rec["base"] == {
+        "verdict_class": "AI opinion, engineer to confirm",
+        "verdict_label": "AI thinks: met",
+    }  # one run gives the before and the after
+
+
+def test_a_near_miss_second_quote_stored_by_the_run_does_not_earn_the_class(w, on):
+    """A second reader that quotes ANOTHER line of the same page (every quote verified) is not the same evidence."""
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = ?, char_count = 99 WHERE document_id = ?",
+            (s.PAPER_PAGE + "\nCoating layers three", s.PAPER),
+        )
+    lane(
+        w,
+        second={
+            **s.ANSWERS,
+            "R-coat": {**s.ANSWERS["R-coat"], "paper_quote": "Coating layers three"},
         },
     )
-    assert not two.same_evidence(
-        line,
-        {
-            "paper_page": 3,
-            "paper_quote": "Set pressure 10 barg",
-            "field_label": "Set pressure",
+    assert lines_of(run_review())["R-coat"]["word"] == "AI thinks: met"
+
+
+def test_a_header_only_quote_never_earns_met_or_not_met(w, on):
+    fake = lane(w)
+    fake.answers["R-mark"] = {
+        **s.ANSWERS["R-mark"],
+        "paper_quote": "Marking",
+    }  # the first reader quotes only the header
+    fake.second["R-mark"] = {**s.ANSWERS["R-mark"], "paper_quote": "Marking"}
+    run_id = run_review()
+    assert lines_of(run_id)["R-mark"]["verdict_class"] != CLASS
+    lane(
+        w,
+        second={
+            **s.ANSWERS,
+            "R-mark": {**s.ANSWERS["R-mark"], "paper_quote": "Marking"},
         },
     )
-    assert not two.same_evidence(
-        line, {"paper_page": 2, "paper_quote": "Tag number", "field_label": "Tag"}
+    assert (
+        lines_of(run_review())["R-mark"]["verdict_class"] != CLASS
+    )  # the second reader quotes only the header
+
+
+def test_a_not_met_runs_the_fail_guards_and_each_guard_objecting_keeps_the_line(
+    w, on, monkeypatch
+):
+    from app import agent_review_two_reader_run as stepmod
+
+    fake = lane(w)
+    run_id = run_review()
+    assert fake.kinds.count("context") >= 1 and stored(run_id, "R-mark")["two_reader"][
+        "fail_guards"
+    ] == {"ok": True, "why": None}
+    assert lines_of(run_id)["R-mark"]["verdict_class"] == CLASS
+    # the context check (F4) holds the Fail: the line stays "AI thinks: not met"
+    monkeypatch.setattr(
+        stepmod.TwoReaderMixin,
+        "_fail_guards",
+        lambda self, *a, **k: {
+            "ok": False,
+            "why": "a condition on the rule-book page limits this rule",
+        },
     )
-    assert not two.same_evidence(
-        {**line, "paper_page": None},
-        {"paper_page": None, "paper_quote": "Set pressure 10 barg"},
+    lane(w)
+    row = lines_of(run_review())["R-mark"]
+    assert (row["verdict_class"], row["word"]) == (
+        "AI opinion, engineer to confirm",
+        "AI thinks: not met",
     )
+
+
+def test_the_fail_guards_are_the_ones_a_code_fail_passes_not_a_copy():
+    import inspect
+
+    from app import agent_review_two_reader_run as stepmod
+
+    src = inspect.getsource(stepmod.TwoReaderMixin._fail_guards)
+    assert (
+        "verdict.apply_holds(" in src
+        and "self.context_check_fail(" in src
+        and "halt=False" in src
+    )
+
+
+def test_a_conditional_clause_quote_of_the_second_reader_keeps_the_not_met(
+    w, on, monkeypatch
+):
+    quote = "The marking shall be in red when the unit is installed outdoors."
+    monkeypatch.setitem(s.RULES, "R-mark", (quote, "4.3", None, None, None, None))
+    w["doc"], w["cache"] = s.item_doc()
+    fake = lane(w)
+    fake.answers["R-mark"] = {**s.ANSWERS["R-mark"], "clause_quote": quote}
+    fake.second["R-mark"] = {**s.ANSWERS["R-mark"], "clause_quote": quote}
+    assert lines_of(run_review())["R-mark"]["verdict_class"] != CLASS
 
 
 # ---------------------------------------------------------------- the table, the database copy, the old table
@@ -729,23 +872,53 @@ def test_the_database_refuses_the_new_words_outside_the_class_and_the_class_with
             put(cls, word, tier)
 
 
-def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_every_row(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setattr(settings, "agent_review_enabled", True)
-    conn = sqlite3.connect(tmp_path / "old.sqlite")
+def _old_database(path):
+    """A database whose `agent_review_line` was made before the class existed (the class removed from its SQL), with three rows."""
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute(
         "CREATE TABLE audit_events (id INTEGER PRIMARY KEY, at TEXT, actor_user_id, actor_username TEXT, action TEXT, resource_type TEXT, resource_id TEXT, outcome TEXT, detail TEXT)"
     )
     for stmt in schema._STATEMENTS:
+        conn.execute(stmt.replace(CLASS, "AI verdict, REMOVED"))
+    for n, (cls, word, page) in enumerate(
+        [
+            ("Query for the engineer", "Query", 3),
+            ("Proven by code", "Pass", None),
+            ("Not applicable", "Not applicable", 7),
+        ]
+    ):
         conn.execute(
-            stmt.replace(CLASS, "AI verdict, REMOVED")
-        )  # the table as it was made before the class existed
-    conn.execute(
-        "INSERT INTO agent_review_line (run_id,item_id,verdict_class,word,line_json,decided_at) VALUES ('r','i','Query for the engineer','Query','{}','t')"
-    )
+            "INSERT INTO agent_review_line (run_id,item_id,verdict_class,word,page,clause,rule_book,reason,rule_tier,line_json,trace_json,decided_at)"
+            " VALUES ('r',?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                f"i{n}",
+                cls,
+                word,
+                page,
+                f"4.{n}",
+                "Book A",
+                f"reason {n}",
+                "Owner",
+                json.dumps({"n": n}),
+                f"trace {n}",
+                f"t{n}",
+            ),
+        )
     conn.commit()
+    return conn
+
+
+def _rows(conn, table="agent_review_line"):
+    return [tuple(r) for r in conn.execute(f'SELECT * FROM "{table}" ORDER BY item_id')]
+
+
+def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_every_row(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    conn = _old_database(tmp_path / "old.sqlite")
+    before = _rows(conn)
     monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", False)
     assert (
         not schema.line_check_is_old(conn) and schema.shape_problem(conn) is None
@@ -754,11 +927,77 @@ def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_ev
     assert schema.line_check_is_old(conn) and schema.shape_problem(conn)
     schema.create_tables(conn)
     assert not schema.line_check_is_old(conn) and schema.shape_problem(conn) is None
-    assert conn.execute("SELECT COUNT(*) FROM agent_review_line").fetchone()[0] == 1
+    # every row, every column, equal (the new columns are NULL and sit after the old ones)
+    after = [r[: len(before[0])] for r in _rows(conn)]
+    assert after == before
+    kept = conn.execute(
+        "SELECT name FROM sqlite_master WHERE name LIKE 'agent_review_line_before_general_%'"
+    ).fetchall()
+    assert (
+        len(kept) == 1 and _rows(conn, kept[0][0]) == before
+    )  # the old table is kept, never dropped, with its rows
+    audit = conn.execute(
+        "SELECT action, resource_id, detail FROM audit_events"
+    ).fetchall()
+    assert [tuple(a) for a in audit] == [
+        (
+            "agent_review_tables_upgraded",
+            kept[0][0],
+            "rows copied: 3; the older table is kept under this name",
+        )
+    ]
+    schema.create_tables(
+        conn
+    )  # a second call finds nothing old: no second kept table, no second audit row
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'agent_review_line_before_general_%'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0] == 1
     conn.execute(
         "INSERT INTO agent_review_line (run_id,item_id,verdict_class,word,line_json,decided_at) VALUES ('r','j',?,'AI verdict: met','{}','t')",
         (CLASS,),
     )
+
+
+def test_a_failed_upgrade_rolls_back_and_leaves_the_old_table_and_its_rows(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
+    conn = _old_database(tmp_path / "old.sqlite")
+    before, old_sql = (
+        _rows(conn),
+        conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'agent_review_line'"
+        ).fetchone()[0],
+    )
+
+    def boom(*_a, **_k):
+        raise sqlite3.IntegrityError("the copy holds a different number of rows")
+
+    monkeypatch.setattr(schema, "_copy_old_rows", boom)
+    with pytest.raises(schema.UpgradeFailed):
+        schema.create_tables(conn)
+    assert (
+        _rows(conn) == before
+        and conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'agent_review_line'"
+        ).fetchone()[0]
+        == old_sql
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'agent_review_line_before_general_%'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0] == 0
+    assert schema.shape_problem(
+        conn
+    )  # still refused: no run may start on the old shape
 
 
 # ---------------------------------------------------------------- the CRS
@@ -773,6 +1012,7 @@ def _two(iid, ai, **kw):
         two_reader={
             "verdict": verdict_word, "model": "second-m", "reason_code": code, "paper_quote": "Nameplate: steel plate",
             "paper_page": 2, "clause_quote": "Nameplates shall be steel and fixed", "field_label": None,
+            "spans": {"first": [0, 16], "second": [0, 22]}, "fail_guards": {"ok": True},
             "quotes_checked": {"paper": True, "clause": True, "clause_strong": True, "both": True}, "says_absent": False,
         },
         **kw,

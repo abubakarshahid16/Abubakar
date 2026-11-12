@@ -39,6 +39,8 @@ export interface AgentTwoReaderStep {
   disagreed: number;
   /** lines asked where the second reader could not tell, or a quote or a guard did not hold (the line stays as it was). */
   unconfirmed: number;
+  /** absence step only: lines not asked because the first reader was not given every page of the paper. */
+  skipped: number;
   off?: string | null;
 }
 

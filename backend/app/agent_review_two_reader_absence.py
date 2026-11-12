@@ -38,6 +38,7 @@ from .agent_review_request import (
     held_texts,
     parse_answers,
 )
+from .agent_review_two_reader_run import base_of
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +168,20 @@ class AbsenceMixin:
             if not agent_run_second.models_differ(
                 [str(line.get("model") or "")], agent_claude.SECOND_MODEL
             ):
+                continue
+            if sorted({p for p in line.get("pages_searched") or []}) != list(
+                range(1, self.total_pages + 1)
+            ):
+                self.two_reader_absence_state["skipped"] += (
+                    1  # not awarded: the first reader was not given every page
+                )
+                self.trace_record(
+                    {
+                        "type": "two_reader_absence_skip",
+                        "item_id": iid,
+                        "why": "the first reader was not given every page of the paper",
+                    }
+                )
                 continue
             proof = absence.prove(
                 item, self._absence_requirement(line), texts, self.total_pages, ledger, facts, carried,
@@ -298,6 +313,7 @@ class AbsenceMixin:
             found=answer.get("found"), quote=answer.get("paper_quote"), page=answer.get("page"),
             clause_quote=answer.get("clause_quote"), paper_ok=paper_ok, clause_ok=clause_ok, strong=strong,
             open_=answer.get("open") is True, model=model, usd=share, code_search=b["proof"], pages_total=self.total_pages,
+            first_pages=b["line"].get("pages_searched"), second_pages=texts, base=base_of(b["line"]),
         )  # fmt: skip
         line = self.lines[iid]
         new = self.exit_line(

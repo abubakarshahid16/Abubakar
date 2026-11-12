@@ -26,6 +26,7 @@ from .agent_review_request import (
     pages_for,
     parse_answers,
 )
+from .agent_review_two_reader_run import base_of
 
 log = logging.getLogger(__name__)
 
@@ -157,6 +158,7 @@ class OtherPaperMixin:
         rec = two.second_answer(
             answer, ai=ev["ai"], reason_code=ev["reason_code"], checks=ev["checks"], absent=ev["absent"],
             model=model, usd=share, two_sentences=crs_lines.two_sentences,
+            base=base_of(self.lines[iid]),
         )  # fmt: skip
         line = self.lines[iid]
         new = self.exit_line(

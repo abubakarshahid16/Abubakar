@@ -536,6 +536,7 @@ def _step_words(step: Mapping) -> str:
     return (
         f"{step.get('candidates', 0)} lines were candidates, {step.get('asked', 0)} asked in {step.get('calls', 0)} calls; "
         f"{step.get('agreed', 0)} agreed, {step.get('disagreed', 0)} disagreed, {step.get('unconfirmed', 0)} not confirmed"
+        + (f"; {step['skipped']} not asked: the first reader was not given every page of the paper" if step.get("skipped") else "")
         + (
             f"; switched off for the rest of the run ({off.replace('_', ' ')})"
             if off

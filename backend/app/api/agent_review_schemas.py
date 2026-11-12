@@ -199,6 +199,8 @@ class AgentTwoReaderStep(BaseModel):
     disagreed: Count = 0
     #: lines asked where the second reader could not tell, or a quote or a guard did not hold (the line stays as it was).
     unconfirmed: Count = 0
+    #: absence step only: lines not asked because the first reader was not given every page of the paper.
+    skipped: Count = 0
     off: str | None = None
 
 

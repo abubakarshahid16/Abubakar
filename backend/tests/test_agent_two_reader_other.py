@@ -101,6 +101,7 @@ def test_both_readers_need_a_drawing_and_both_clause_quotes_verified_gives_the_n
         "agreed": 1,
         "disagreed": 0,
         "unconfirmed": 0,
+        "skipped": 0,
         "off": None,
     }
     counts = {r["verdict_class"]: 0 for r in lines_of(run_id).values()}
@@ -349,3 +350,12 @@ def test_a_checklist_item_is_a_candidate_too():
         paper_kind="datasheet",
     )
     assert ln["verdict_class"] == CLASS and ln.get("tier") is None
+
+
+def test_the_record_keeps_the_line_before_the_step(w, on):
+    lane(w)
+    run_id = run_review()
+    assert stored(run_id, "R-coat")["two_reader_other"]["base"] == {
+        "verdict_class": "Query for the engineer",
+        "verdict_label": "Query",
+    }

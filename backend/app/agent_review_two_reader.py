@@ -24,7 +24,6 @@ A line proven by code is never touched. The class is NEVER a Pass or a Fail.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -126,6 +125,10 @@ def is_candidate(line: Mapping) -> bool:
         return False
     if verdict.quote_defers(line.get("paper_quote")) or verdict.says_absent(line):
         return False
+    if verdict.quote_is_label_only(
+        line
+    ):  # a header with no value is no evidence for "met" or for "not met"
+        return False
     return verdict._page_no(line.get("paper_page")) is not None
 
 
@@ -142,6 +145,8 @@ def second_answer(
     model: str,
     usd: float,
     two_sentences: Any = None,
+    spans: Mapping | None = None,
+    base: Mapping | None = None,
 ) -> dict:
     """The stored form of the second reader's answer for one item (text of the model only inside its own quotes and one short
     reasoning; no new class of data). `verdict` is one of SECOND_VERDICTS; code decides it from the reader's verdict word and
@@ -169,6 +174,10 @@ def second_answer(
         or None,
         "quotes_checked": checks.to_json(),
         "says_absent": bool(absent),
+        "spans": dict(spans) if spans else None,
+        "base": dict(base)
+        if base
+        else None,  # what the line was before this step: its class and word
         "usd": round(float(usd), 6),
     }
 
@@ -176,45 +185,78 @@ def second_answer(
 # ---------------------------------------------------------------- same evidence
 
 
-_TOKEN = re.compile(r"[a-z0-9]+")
+def _spans_in(page_text: Any, quote: Any) -> list[list[int]]:
+    """Every place the (folded) quote stands in the (folded) page text: [[start, end), ...]."""
+    fq, fp = _fold(str(quote or "")).strip(), _fold(str(page_text or ""))
+    out, i = [], fp.find(fq) if fq else -1
+    while i >= 0:
+        out.append([i, i + len(fq)])
+        i = fp.find(fq, i + 1)
+    return out
 
 
-def _tokens(text: Any) -> list[str]:
-    return _TOKEN.findall(_fold(str(text or "")))
+def span_in(page_text: Any, quote: Any) -> list[int] | None:
+    """The first place the quote stands in the page text, else None."""
+    got = _spans_in(page_text, quote)
+    return got[0] if got else None
 
 
-def quotes_overlap(a: Any, b: Any) -> bool:
-    """One quote lies wholly inside the other (folded), or they share a run of three words in a row."""
-    ta, tb = _tokens(a), _tokens(b)
-    if not ta or not tb:
-        return False
-    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
-    n = len(short)
-    runs = {tuple(long_[i : i + n]) for i in range(len(long_) - n + 1)}
-    if tuple(short) in runs:
-        return True
-    if len(short) < 3:
-        return False
-    grams = {tuple(long_[i : i + 3]) for i in range(len(long_) - 2)}
-    return any(tuple(short[i : i + 3]) in grams for i in range(len(short) - 2))
+def evidence_spans(page_text: Any, first_quote: Any, second_quote: Any) -> dict | None:
+    """The two verified quote spans on one page, for `same_evidence`; None when either quote is not on the page. A quote that stands
+    in several places is read where it meets the other quote, if anywhere (a figure printed twice is not two pieces of evidence)."""
+    firsts, seconds = (
+        _spans_in(page_text, first_quote),
+        _spans_in(page_text, second_quote),
+    )
+    if not (firsts and seconds):
+        return None
+    for a in firsts:
+        for b in seconds:
+            if a[0] < b[1] and b[0] < a[1]:
+                return {"first": a, "second": b}
+    return {"first": firsts[0], "second": seconds[0]}
 
 
-def same_label(a: Any, b: Any) -> bool:
-    fa, fb = _fold(str(a or "")).strip(), _fold(str(b or "")).strip()
-    return bool(fa) and fa == fb
+def _figure_keys(text: Any) -> tuple[frozenset, frozenset]:
+    """The numbers a quote states and the units beside them, by the repo's own number and unit code (`numparse`, the figure rule
+    of `agent_review_verdict.figures_in`); nothing new is parsed here."""
+    from . import agent_bind, numparse
+
+    units = set()
+    for fig in verdict.figures_in(text):
+        m = agent_bind._NUMBER_UNIT.search(fig)
+        if m:
+            units.add(m.group(1).lower())
+    return frozenset(numparse.number_keys(str(text or ""))), frozenset(units)
 
 
 def same_evidence(line: Mapping, second: Mapping) -> bool:
-    """Rule 4: the same page, and overlapping quotes or the same field label."""
+    """THE one rule (general, no field word): the two verified quotes point at the SAME PLACE and the SAME VALUE. Same page; their
+    verified spans in the page text intersect (or one holds the other); and the numbers and units the two quotes state are equal.
+    A reader's own field label is never evidence, and three shared words are not a place. Where code cannot establish this (no
+    stored spans) it is False and the line stays what it was."""
     p1, p2 = (
         verdict._page_no(line.get("paper_page")),
         verdict._page_no(second.get("paper_page")),
     )
-    if p1 is None or p1 != p2:
+    spans = second.get("spans") if isinstance(second.get("spans"), Mapping) else {}
+    a, b = spans.get("first"), spans.get("second")
+    if p1 is None or p1 != p2 or not (_is_span(a) and _is_span(b)):
         return False
-    return quotes_overlap(
-        line.get("paper_quote"), second.get("paper_quote")
-    ) or same_label(line.get("field_label_ai"), second.get("field_label"))
+    if not (a[0] < b[1] and b[0] < a[1]):
+        return False
+    return _figure_keys(line.get("paper_quote")) == _figure_keys(
+        second.get("paper_quote")
+    )
+
+
+def _is_span(v: Any) -> bool:
+    return (
+        isinstance(v, (list, tuple))
+        and len(v) == 2
+        and all(isinstance(x, int) for x in v)
+        and v[0] < v[1]
+    )
 
 
 # ---------------------------------------------------------------- the decision
@@ -234,6 +276,22 @@ def _guards_ok(line: Mapping, second: Mapping, ai: str) -> bool:
     )
     if second.get("says_absent") or verdict.quote_defers(second.get("paper_quote")):
         return False
+    label_probe = {
+        "paper_quote": second.get("paper_quote"),
+        "field_label_ai": line.get("field_label_ai") or second.get("field_label"),
+        "field": line.get("field"),
+        "field_roles": line.get("field_roles"),
+    }
+    if verdict.quote_is_label_only(
+        label_probe
+    ):  # the second reader quoted only a header
+        return False
+    if (
+        ai == verdict.FAIL
+    ):  # the Fail-side guards (F1, F3, F4) are the ones a code Fail passes: run by the runner, stored here
+        guards = second.get("fail_guards")
+        if not (isinstance(guards, Mapping) and guards.get("ok") is True):
+            return False
     if ai == verdict.PASS:
         probe = {
             "ai_verdict": verdict.PASS,
@@ -307,6 +365,7 @@ def stats_template() -> dict:
         "agreed": 0,
         "disagreed": 0,
         "unconfirmed": 0,
+        "skipped": 0,
         "off": None,
         "usd": 0.0,
     }
@@ -342,9 +401,11 @@ def is_absence_candidate(line: Mapping) -> bool:
 def absence_answer(
     *, found: Any, quote: Any, page: Any, clause_quote: Any, paper_ok: bool, clause_ok: bool, strong: bool,
     open_: bool, model: str, usd: float, code_search: Mapping, pages_total: int,
+    first_pages: Any = (), second_pages: Any = (), base: Mapping | None = None,
 ) -> dict:  # fmt: skip
     """The stored absence answer of the second reader. `verdict`: found a value (its quote verified on its page, not a deferral),
-    not stated (it says no value anywhere and its clause quote is verified), else cannot tell."""
+    not stated (it says no value anywhere and its clause quote is verified), else cannot tell. `first_pages` / `second_pages`: the
+    pages each reader was given (the first reader's searched pages, which are always pages it was sent; every page for the second)."""
     if found is True and paper_ok and not verdict.quote_defers(quote):
         word = A_FOUND
     elif found is False and not open_ and clause_ok and strong:
@@ -355,7 +416,9 @@ def absence_answer(
         "verdict": word, "model": model, "paper_quote": quote or None, "paper_page": verdict._page_no(page),
         "clause_quote": clause_quote or None,
         "quotes_checked": {"paper": bool(paper_ok), "clause": bool(clause_ok), "clause_strong": bool(strong), "both": bool(paper_ok and clause_ok)},
-        "code_search": dict(code_search), "pages_total": int(pages_total), "usd": round(float(usd), 6),
+        "code_search": dict(code_search), "pages_total": int(pages_total),
+        "first_pages": sorted({int(p) for p in first_pages or ()}), "second_pages": sorted({int(p) for p in second_pages or ()}),
+        "base": dict(base) if base else None, "usd": round(float(usd), 6),
     }  # fmt: skip
 
 
@@ -385,6 +448,11 @@ def absence_agrees(line: Mapping) -> bool:
         and total >= 1
         and code.get("pages_checked") == total
     ):
+        return False
+    every = list(
+        range(1, total + 1)
+    )  # "each read every page" is true only when the stored lists prove it
+    if rec.get("first_pages") != every or rec.get("second_pages") != every:
         return False
     return agent_run_second.models_differ(
         [str(line.get("model") or "")], rec.get("model")

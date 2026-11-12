@@ -125,6 +125,8 @@ class Line:
     roles: frozenset = field(default=frozenset())
     clause: tuple | None = None
     unknown_verdict: bool = False
+    #: Status "AI verdict" (two AI readers agreed): "met", "not met" or "not stated". Scored in its OWN columns, never as a pass or comment.
+    ai_kind: str = ""
 
 
 def fold(text) -> str:
@@ -457,7 +459,19 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                     "fail": "comment",
                     "query": "comment",
                     "ai opinion": "comment",
+                    "ai verdict": "comment",
                 }.get(status, "unknown")
+                ai_kind = ""
+                if status == "ai verdict":
+                    from app.agent_review_two_reader import ABSENCE_WHY
+
+                    ai_kind = (
+                        "not stated"
+                        if fold(ABSENCE_WHY) in fold(comment)
+                        else "met"
+                        if "the requirement is met" in fold(comment)
+                        else "not met"
+                    )
             elif verdict:
                 kind = VERDICTS.get(verdict, "unknown")
                 if pass_sheet and kind != "pass":
@@ -475,6 +489,7 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                     kind == "pass",
                     clause=clause_ref(row[si]) if si is not None else None,
                     unknown_verdict=kind == "unknown",
+                    ai_kind=ai_kind if sti is not None else "",
                 )
             )
     return out, layout
@@ -560,7 +575,10 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
         replace(ln, roles=roles_named(ln.label, patterns, spellings)) for ln in lines
     ]
     unknown = [ln for ln in lines if ln.unknown_verdict]
-    comments = [ln for ln in lines if not ln.is_pass and not ln.unknown_verdict]
+    ai_lines = [ln for ln in lines if ln.ai_kind]  # two-reader verdicts: their own columns below
+    comments = [
+        ln for ln in lines if not ln.is_pass and not ln.unknown_verdict and not ln.ai_kind
+    ]
     passes = [ln for ln in lines if ln.is_pass]
     of = {kind: [k.row for k in key if k.scored_as == kind] for kind in SCORED_AS}
     res = {
@@ -597,6 +615,10 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
         "lines_without_field_role": sum(1 for ln in lines if not ln.roles),
         "lines_without_page": sum(1 for ln in lines if not ln.pages),
         "matched_lines": {},
+        "ai_verdict_lines": len(ai_lines),
+        "ai_verdict_found": [],
+        "ai_verdict_complies_confirmed": [],
+        "ai_verdict_wrong": [],
     }
     problem_rows = [k for k in key if k.scored_as == "problem"]
     complies_rows = [k for k in key if k.scored_as == "complies"]
@@ -642,7 +664,38 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
                 {f"{ln.sheet}!{ln.row}" for ln in hit + hit_pass}
             )
     res["wrong_pass_lines"] = len(hidden_by_pass)
+    _score_ai_verdicts(res, key, ai_lines)
     return res
+
+
+def _score_ai_verdicts(res: dict, key: list[KeyRow], ai_lines: list[Line]) -> None:
+    """A two-reader verdict is a DECISION of its own kind: right or wrong against the key, in its own columns, never mixed into the
+    proven Pass / Fail counts. A "not met" or "not stated" line answering a problem row is a find; answering a complies row it is
+    wrong. A "met" line answering a complies row is right; answering a problem row it is wrong. A "not met" line that repeats a
+    wrong or disputed row is a clear wrong. Every wrong one is ALSO counted in `clear_wrong`."""
+    for k in key:
+        if k.scored_as == "not scored":
+            continue
+        hits = [ln for ln in ai_lines if answers(k, ln)]
+        if k.scored_as in ("wrong", "disputed"):
+            if any(ln.ai_kind != "met" and repeats(k, ln) for ln in hits) and k.row not in res["clear_wrong"] and k.scored_as == "wrong":
+                res["clear_wrong"].append(k.row)
+            continue
+        negative = [ln for ln in hits if ln.ai_kind in ("not met", "not stated")]
+        positive = [ln for ln in hits if ln.ai_kind == "met"]
+        if k.scored_as == "problem":
+            if negative and k.row not in res["problems_found"]:
+                res["ai_verdict_found"].append(k.row)
+            if positive and not negative:
+                res["ai_verdict_wrong"].append(k.row)
+        elif k.scored_as == "complies":
+            if positive and not negative:
+                res["ai_verdict_complies_confirmed"].append(k.row)
+            if negative:
+                res["ai_verdict_wrong"].append(k.row)
+    for row in res["ai_verdict_wrong"]:
+        if row not in res["clear_wrong"]:
+            res["clear_wrong"].append(row)
 
 
 def overlap(found: list, hand: list) -> dict:
@@ -672,7 +725,8 @@ def summary(res: dict) -> dict:
         "layout_read": res.get("layout", ""),
         "problems_found": f"{len(res['problems_found'])} of {of['problem']}",
         "complies_confirmed": f"{len(res['complies_confirmed'])} of {of['complies']}",
-        "clear_wrong": f"{len(res['clear_wrong'])} of {of['wrong']}",
+        "clear_wrong": f"{len([r for r in res['clear_wrong'] if r not in res['ai_verdict_wrong']])} of {of['wrong']}"
+        + (f", plus {len(res['ai_verdict_wrong'])} wrong two-reader verdicts" if res["ai_verdict_wrong"] else ""),
         "disputed_raised": f"{len(res['disputed_raised'])} of {of['disputed']}",
         "wrong_passes": f"{len(res['wrong_passes'])} problem rows, from "
         f"{res['wrong_pass_lines']} of {res['pass_lines']} pass lines",
@@ -680,6 +734,8 @@ def summary(res: dict) -> dict:
             k: len(v) for k, v in res["other_clause_not_judged"].items()
         },
         "word_only_not_counted": {k: len(v) for k, v in res["word_only"].items()},
+        "ai_verdict": f"{res['ai_verdict_lines']} lines: found {len(res['ai_verdict_found'])} problem rows, confirmed "
+        f"{len(res['ai_verdict_complies_confirmed'])} complies rows, wrong {len(res['ai_verdict_wrong'])} (also in clear_wrong)",
         "comment_lines": res["comment_lines"],
         "pass_lines": res["pass_lines"],
         "lines_without_field_role": res["lines_without_field_role"],
