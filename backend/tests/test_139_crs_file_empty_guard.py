@@ -54,11 +54,10 @@ def test_priority_column_prints_the_rank_word():
         assert "Severity" not in view["columns"]
         # order 13: ONE row model for file and preview: the internal view prints the stated rule (Fail High, Query Low); a
         # contractor-facing view keeps the rank words; the old word is `rank_word` on both
-        assert [r["priority_label"] for r in view["rows"]] == (
-            ["High", "Low"]
-            if copy == ce.COPY_INTERNAL
-            else ["Out of limit", "Missing value"]
-        )
+        assert [r["priority_label"] for r in view["rows"]] == [
+            "High",
+            "Low",
+        ]  # ONE vocabulary: both copies
         assert [r["rank_word"] for r in view["rows"]] == [
             "Out of limit",
             "Missing value",
@@ -95,10 +94,12 @@ def test_issue_copy_says_clarification_for_rank_three():
         internal["rank_word"] == "Engineer to check"
         and internal["priority_label"] == "Low"
     )
-    assert issue["priority_label"] == "Clarification"
+    assert (
+        issue["priority_label"] == internal["priority_label"] == "Low"
+    )  # one vocabulary; no "Clarification" word
     # order 13: the contractor-facing file keeps the rank word, has no Status column and no Evidence sheet
     sheet = _sheet(rows, ce.COPY_ISSUE)
-    assert sheet.cell(row=ce.ISSUE_HEADER_ROW + 1, column=9).value == "Clarification"
+    assert sheet.cell(row=ce.ISSUE_HEADER_ROW + 1, column=9).value == "Low"
     assert "Evidence" not in sheet.parent.sheetnames
 
 

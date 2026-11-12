@@ -403,29 +403,40 @@ def test_the_contractor_copy_may_hold_only_proven_fail_rows(world):
         from app import agent_review_schema
 
         agent_review_schema.ensure_schema()
-        for item, cls, word in (
-            ("F1", "Proven by code", "Fail"),
-            ("P1", "Proven by code", "Pass"),
+        for item, cls, word, clause in (
+            ("F1", "Proven by code", "Fail", "4.1"),
+            ("F2", "Proven by code", "Fail", "5.2"),
+            ("P1", "Proven by code", "Pass", "6.3"),
         ):
             conn.execute(
                 "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier, line_json, decided_at)"
-                " VALUES ('r',?,?,?,1,'4.1','B','',NULL,'{}','2026-11-12')",
-                (item, cls, word),
+                " VALUES ('r',?,?,?,1,?,'B','',NULL,'{}','2026-11-12')",
+                (item, cls, word, clause),
             )
     ro = trial.ro(world / "agent.sqlite")
-    assert trial.contractor_check(ro, "r", sheet(["B clause 4.1"])).ok
-    bad = trial.contractor_check(ro, "r", sheet(["B clause 4.1", "B clause 4.1"]))
-    assert not bad.ok and "1 row(s) that are not a proven Fail" in bad.detail
+    one, two = "B clause 4.1", "B clause 5.2"
+    assert trial.contractor_check(ro, "r", sheet([one, two])).ok
+    assert trial.contractor_check(
+        ro, "r", sheet([two, one])
+    ).ok  # order does not matter
     assert not trial.contractor_check(ro, "r", None).ok
-    assert not trial.contractor_check(
-        ro, "r", sheet(["OTHER clause 9"])
-    ).ok  # a Fail row for the wrong rule
+    for refs in (
+        ["", ""],  # two blank-reference rows
+        [one, one],  # the same proven reference twice
+        [one, "OTHER clause 9"],  # one proven and one unknown
+        [one],  # a proven Fail missing
+        [one, two, two],  # an extra row
+        [one, two, ""],
+    ):
+        got = trial.contractor_check(ro, "r", sheet(refs))
+        assert not got.ok, refs
+    assert "missing" in trial.contractor_check(ro, "r", sheet([one])).detail
     worded = trial.contractor_check(
-        ro, "r", sheet(["B clause 4.1"], extra="The AI reviewer's view, not proven")
+        ro, "r", sheet([one, two], extra="The AI reviewer's view, not proven")
     )
     assert not worded.ok and "AI wording" in worded.detail
     assert not trial.contractor_check(
-        ro, "r", sheet(["B clause 4.1"], status=True)
+        ro, "r", sheet([one, two], status=True)
     ).ok  # a Status column is refused
 
 

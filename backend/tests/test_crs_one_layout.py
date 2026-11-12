@@ -327,3 +327,15 @@ def test_the_reply_reader_reads_a_workbook_this_exporter_wrote():
 
 def test_the_one_layouts_drawing_code_is_shared():
     assert crs_layout.LAYOUT_COLUMNS == tuple(TEN)
+
+
+def test_both_copies_of_one_review_print_the_same_priority_per_item_no():
+    """One vocabulary (lead): the Priority of a row is the stated rule's word on the internal AND the issue copy."""
+    internal = {r["Item No"]: r["Priority"] for r in _table(_book("internal")["CRS"])}
+    issue = {
+        r["Item No"]: r["Priority"]
+        for r in _table(_book("issue")["CRS"])
+        if r["Item No"]
+    }
+    assert issue and all(internal[k] == v for k, v in issue.items())
+    assert set(issue.values()) <= {"High", "Medium", "Low", None}

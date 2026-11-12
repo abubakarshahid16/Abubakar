@@ -9612,7 +9612,7 @@
     ],
     [
      "I10",
-     "Out of limit",
+     "High",
      "center",
      "top",
      true,
@@ -9729,7 +9729,7 @@
     ],
     [
      "I11",
-     "Clarification",
+     "Low",
      "center",
      "top",
      true,
@@ -9846,7 +9846,7 @@
     ],
     [
      "I12",
-     "Clarification",
+     "Low",
      "center",
      "top",
      true,
@@ -9963,7 +9963,7 @@
     ],
     [
      "I13",
-     "Clarification",
+     "Low",
      "center",
      "top",
      true,
@@ -10080,7 +10080,7 @@
     ],
     [
      "I14",
-     "Out of limit",
+     "High",
      "center",
      "top",
      true,
@@ -11504,7 +11504,7 @@
     ],
     [
      "I10",
-     "Fail",
+     "High",
      "center",
      "top",
      true,
@@ -11634,7 +11634,7 @@
     ],
     [
      "I11",
-     "Engineer to check",
+     "Low",
      "center",
      "top",
      true,
@@ -11764,7 +11764,7 @@
     ],
     [
      "I12",
-     "Engineer to check",
+     "Low",
      "center",
      "top",
      true,
@@ -11894,7 +11894,7 @@
     ],
     [
      "I13",
-     "Engineer to check",
+     "Low",
      "center",
      "top",
      true,
@@ -12024,7 +12024,7 @@
     ],
     [
      "I14",
-     "Fail",
+     "High",
      "center",
      "top",
      true,

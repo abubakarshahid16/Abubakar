@@ -108,8 +108,8 @@ def test_the_workbook_prints_the_severity_column_in_both_copies():
         first = head + 1
         assert ws.cell(row=head, column=9).value == "Priority"
         # order 13: the internal copy prints the stated priority rule and a Status (the rank word is on Evidence); a contractor-facing
-        # copy keeps its rank word and has no Status column
-        assert ws.cell(row=first, column=9).value == (
-            "High" if internal else "Out of limit"
-        )
+        # copy has no Status column (same Priority words)
+        assert (
+            ws.cell(row=first, column=9).value == "High"
+        )  # ONE vocabulary: both copies
         assert ws.cell(row=first, column=10).value == ("Fail" if internal else None)

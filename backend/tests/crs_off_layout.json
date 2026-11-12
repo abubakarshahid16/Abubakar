@@ -8410,7 +8410,7 @@
     ],
     [
      "I10",
-     "Clarification",
+     "Low",
      "center",
      "top",
      true,
@@ -8527,7 +8527,7 @@
     ],
     [
      "I11",
-     "Out of limit",
+     "High",
      "center",
      "top",
      true,
@@ -8644,7 +8644,7 @@
     ],
     [
      "I12",
-     null,
+     "Low",
      "center",
      "top",
      true,
@@ -8653,7 +8653,7 @@
      "Arial",
      null,
      "thin",
-     "n"
+     "s"
     ],
     [
      "A13",

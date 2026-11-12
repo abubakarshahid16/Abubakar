@@ -137,8 +137,8 @@ def decorate(view: dict, meta: dict) -> dict:
             "priority_label"
         ]  # the old word, kept for the Evidence sheet
         row["status"] = status if internal else ""
-        if internal:
-            row["priority_label"] = words.priority(status, {}, words.ORDER_AI_NOT_MET)
+        # ONE vocabulary: both copies of one review print the same Priority word for a row (the stated rule, one function)
+        row["priority_label"] = words.priority(status, {}, words.ORDER_AI_NOT_MET)
     overflow = (
         ce.AI_COLUMN in view["columns"] and not internal
     )  # a long issued comment's overflow stays on the sheet
