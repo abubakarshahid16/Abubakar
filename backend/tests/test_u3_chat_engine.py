@@ -238,7 +238,7 @@ def test_the_setting_is_written_in_every_home():
     assert "`chat_model_engine`" in (REPO / "docs" / "architecture-call-graph.md").read_text(encoding="utf-8")
 
 
-def test_small_talk_does_not_claim_claude_writes_it_when_the_request_is_not_claude(monkeypatch, tmp_path):
+def test_small_talk_names_who_answers_per_request(monkeypatch, tmp_path):
     from app import chat_answers
 
     _lane(monkeypatch, tmp_path)
@@ -246,3 +246,35 @@ def test_small_talk_does_not_claim_claude_writes_it_when_the_request_is_not_clau
     assert "nothing you type leaves it" in said and "sent to it" not in said
     said = chat_answers.small_talk("about_the_assistant", examples=[], model="claude")["answer"]
     assert "sent to it" in said
+
+
+def test_no_selection_claude_asks_to_search_and_gets_no_library_text(monkeypatch, tmp_path):
+    """The fake Claude DOES call search_documents; with no document selected the tool scope is empty."""
+    seen: list = []
+    _lane(monkeypatch, tmp_path)
+    _fake_claude(monkeypatch, seen, tool_first={"query": "NDFT coating system 1"})
+    client = TestClient(app)
+    _two_documents(client)
+    convo = client.post("/api/conversations").json()["id"]
+    _ask(client, convo, "what is NDFT", model="claude")
+    assert len(seen) >= 1
+    sent = json.dumps(seen)
+    assert "280" not in sent and "ZZQ" not in sent and "777" not in sent
+
+
+def test_earlier_turns_that_quoted_a_document_are_not_sent_without_a_selection(monkeypatch, tmp_path):
+    seen: list = []
+    _lane(monkeypatch, tmp_path)
+    _fake_claude(monkeypatch, seen, tool_first={"query": "NDFT coating system 1"},
+                 text='The NDFT is 280 um [S1 "NDFT nominal dry film thickness of 280 um"].')
+    client = TestClient(app)
+    first, _ = _two_documents(client)
+    convo = client.post("/api/conversations").json()["id"]
+    first_body = _ask(client, convo, "what is the NDFT for coating system no. 1", model="claude", document_ids=[first])
+    assert first_body["provider"] == "claude"
+    before = len(seen)
+    second_body = _ask(client, convo, "What is the boiling point of water at sea level?", model="claude")
+    assert len(seen) > before and second_body["provider"] == "claude"
+    sent = json.dumps(seen[before:])
+    for fragment in ("280", "nominal dry film", "ZZQ", "777"):
+        assert fragment not in sent, fragment

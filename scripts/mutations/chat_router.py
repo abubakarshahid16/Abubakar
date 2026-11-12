@@ -70,7 +70,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "chat_answers.py",
              anchor="    ok = chat_model.claude_will_answer(model)\n    who = (",
              replacement="    ok = False\n    who = (",
-             target=_T, keyword="says_honestly_who_answers", tags=("honesty", "privacy")),
+             target="tests/test_u3_chat_engine.py", keyword="small_talk_names_who_answers_per_request", tags=("honesty", "privacy")),
     Mutation(id="M939", phase=81, description="general: the reader's style never reaches the model",
              path=APP / "chat_answers.py",
              anchor="    prompt = f\"{history}Question: {question}\" + (f\"\\n\\nAnswer {style}.\" if style else \"\")\n",
