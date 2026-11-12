@@ -422,6 +422,20 @@ def legal_rows_check(conn: sqlite3.Connection, run_id: str) -> Check:
             key = (r["verdict_class"], r["word"], r["rule_tier"])
             bad[key] = bad.get(key, 0) + 1
     if not rows:
+        from app import agent_review_text
+
+        stop = conn.execute(
+            "SELECT stop_reason FROM agent_review_run WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        code = str((stop[0] if stop else None) or "").split(":")[0]
+        if (
+            code in agent_review_text.STOP_CODES
+        ):  # a paper with no stored text is refused: no line is expected
+            return Check(
+                "stored lines legal by the contract",
+                True,
+                f"no line expected: the run stopped, {code}",
+            )
         return Check(
             "stored lines legal by the contract", False, "the run stored no line"
         )
@@ -553,6 +567,43 @@ def contractor_check(
     )
 
 
+def stop_is_true_check(conn: sqlite3.Connection, run_id: str, stop: str) -> list[Check]:
+    """A text stop must be TRUE of the copy it ran on, counted straight from the tables (not by the module that wrote it)."""
+    code = stop.split(":")[0]
+    run = conn.execute(
+        "SELECT submittal_document_id FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    from app import agent_review_text as t
+
+    if run is None or code not in (t.NO_TEXT, t.NOT_INDEXED, t.STILL_READING):
+        return []
+    doc = run[0]
+    with_text = conn.execute(
+        "SELECT COUNT(*) FROM pages WHERE document_id = ? AND TRIM(COALESCE(text, '')) <> ''",
+        (doc,),
+    ).fetchone()[0]
+    chunks = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE document_id = ? AND TRIM(COALESCE(text, '')) <> ''",
+        (doc,),
+    ).fetchone()[0]
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (doc,)
+    ).fetchone()
+    status = status[0] if status else None
+    true = {
+        t.NO_TEXT: with_text == 0 and status not in t.IN_PROGRESS,
+        t.NOT_INDEXED: with_text > 0 and chunks == 0 and status not in t.IN_PROGRESS,
+        t.STILL_READING: status in t.IN_PROGRESS and (with_text == 0 or chunks == 0),
+    }[code]
+    return [
+        Check(
+            "the text stop is true of this copy",
+            bool(true),
+            f"{code}: pages with text {with_text}, chunks {chunks}, status {status}",
+        )
+    ]
+
+
 def rules_check(
     conn: sqlite3.Connection, run_id: str, used: dict | None, require_asked: bool
 ) -> list[Check]:
@@ -575,14 +626,20 @@ def rules_check(
             else []
         )
     # only a stop the PLAN made explains an empty rule list; a lane stop (gate_closed, not_approved, a cap) says nothing about rules
-    from app import agent_review_gate
+    from app import agent_review_gate, agent_review_text
 
     plan_stop = (
         stop.split(":")[0]
         if stop.split(":")[0]
-        in ("paper_kind_unknown", agent_review_gate.KIND_NOT_ENABLED, "refused")
+        in (
+            "paper_kind_unknown",
+            agent_review_gate.KIND_NOT_ENABLED,
+            "refused",
+            *agent_review_text.STOP_CODES,
+        )
         else ""
     )
+    out.extend(stop_is_true_check(conn, run_id, stop))
     reasons: dict[str, int] = {}
     for r in left:
         reasons[r["left_out_reason"]] = reasons.get(r["left_out_reason"], 0) + 1
@@ -600,6 +657,17 @@ def rules_check(
                 "rules asked > 0, or the plan says why none",
                 False,
                 f"asked 0 (strict); left out {len(left)}",
+            )
+        )
+    elif (
+        plan_stop == agent_review_text.NO_RULE
+        and agent_review_text.NO_CAUSE_MARK in stop
+    ):
+        out.append(
+            Check(
+                "rules asked > 0, or the plan says why none",
+                False,
+                "asked 0; the plan's own cause is unknown (the fallback sentence): the old silent defect",
             )
         )
     elif left or plan_stop or notes:
@@ -862,11 +930,19 @@ def route_checks(http: Http, run_id: str, ids: list[str]) -> tuple[list[Check], 
         )
         if c != 200:
             bad_trace.append(f"{item}:{c}")
+    text_state = (
+        ((summary or {}).get("paper_text") or {}).get("state") if code == 200 else None
+    )
+    text_stop = text_state in ("no text", "not indexed")
     out.append(
         Check(
             "route trace 200 for every line",
-            not bad_trace and bool(ids),
-            f"{len(ids)} line(s)"
+            not bad_trace and (bool(ids) or text_stop),
+            (
+                f"{len(ids)} line(s)"
+                if ids
+                else f"no line expected: the paper has {text_state}"
+            )
             if not bad_trace
             else f"{len(bad_trace)} failed: {', '.join(bad_trace[:5])}",
         )
@@ -874,6 +950,28 @@ def route_checks(http: Http, run_id: str, ids: list[str]) -> tuple[list[Check], 
     code, used = http.get_json(f"{base}/rules-used")
     out.append(Check("route rules-used 200", code == 200, f"HTTP {code}"))
     kept["used"] = used if code == 200 else None
+    if text_stop or text_state == "partly readable":
+        sentence = ((summary or {}).get("paper_text") or {}).get("sentence")
+        on_used = (
+            ((used or {}).get("paper_text") or {}) if isinstance(used, dict) else {}
+        )
+        ok = bool(sentence) and on_used.get("sentence") == sentence
+        if text_stop:
+            ok = (
+                ok
+                and (summary or {}).get("stop_reason", "").endswith(sentence or "?")
+                and (
+                    (used or {}).get("stop_reason")
+                    == (summary or {}).get("stop_reason")
+                )
+            )
+        out.append(
+            Check(
+                "a paper with missing text says so on the summary and on Rules used",
+                ok,
+                f"state {text_state}; pages not read {(summary or {}).get('paper_text', {}).get('pages_not_read')}",
+            )
+        )
     for copy in ("internal", "contractor"):
         c, blob = http.call("GET", f"{base}/agent/crs?copy={copy}")
         valid = c == 200 and blob[:2] == b"PK"

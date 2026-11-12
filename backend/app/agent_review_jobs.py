@@ -37,6 +37,7 @@ from . import (
     agent_review_gate,
     agent_review_kind,
     agent_review_schema,
+    agent_review_text,
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
@@ -765,20 +766,27 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
         _progress(conn, job_id, 0, heartbeat)
-        nothing_read.read_phase(submittal, scope, run_id)
+        text = agent_review_text.read_step(conn, submittal, scope, run_id)
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
         _write_run_start(run_id, submittal, kind, started)
-        if kind.known and agent_review_gate.general_kind_enabled(kind.kind):
+        general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
+        stops = text.stops_run(general)
+        if general and not stops:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat)  # fmt: skip
+            agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)
-        plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
+        plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops
+                else _plan(conn, run_id, submittal, scope, kind, heartbeat))  # fmt: skip
+        # a plan with nothing to ask always says why
+        agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
+        agent_review_text.record(conn, run_id, text)
         _progress(conn, job_id, 3, heartbeat)
     except nothing_read.StoredFileAbsent as exc:
         return nothing_read.fail_run(job_id, run_id, exc)

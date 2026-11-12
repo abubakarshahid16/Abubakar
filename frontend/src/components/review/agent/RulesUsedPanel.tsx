@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { agentReview, isFeatureOff } from "../../../api/agentReview";
 import type { AgentBookCoverage, AgentRulesUsed } from "../../../types/api";
 import { LEFT_OUT_REASONS } from "./agentWords";
+import { PaperTextNotice, paperTextStopped, plainStop } from "./PaperTextNotice";
 
 export const NOT_MEASURED = "not measured";
 export const LESS_THAN_HALF =
@@ -67,6 +68,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
           Paper kind: <span className="font-medium">{undecided ? "not decided" : data.paper_kind}</span>
           {data.equipment_type ? <> · Equipment type: <span className="font-medium">{data.equipment_type}</span></> : null}
         </p>
+        <PaperTextNotice paperText={data.paper_text} />
         {data.rule_set_changed_by != null && (
           <p data-testid="rules-changed-by" className="text-sm text-warn-500">Rule set changed by {data.rule_set_changed_by}</p>
         )}
@@ -129,7 +131,11 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         </p>
         {data.asked.length === 0 ? (
           <p data-testid="asked-empty" className="text-sm text-slateish-300">
-            {undecided ? "No rule was asked: the paper kind could not be decided." : "No rule was asked of this paper."}
+            {paperTextStopped(data.paper_text)
+              ? `No rule was asked. ${data.paper_text?.sentence ?? ""}`
+              : data.stop_reason
+                ? plainStop(data.stop_reason)
+                : undecided ? "No rule was asked: the paper kind could not be decided." : "No rule was asked of this paper."}
           </p>
         ) : asked.length === 0 ? (
           <p className="text-sm text-slateish-300">No asked rule matches the filter.</p>
