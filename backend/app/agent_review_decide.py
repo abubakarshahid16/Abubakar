@@ -188,39 +188,41 @@ class DecideMixin:
             _fold(label) in _fold(t) for t in pages.values() if t
         )
         reason_code, deferred_page = ev["reason_code"], None
-        if (
-            decision["verdict"] == verdict.PASS
-        ):  # deferral guard: a value marked 'By Contractor' is not confirmed
+        if decision["verdict"] == verdict.PASS:
+            # deferral guard: a value marked 'By Contractor' is not confirmed
             guard = self.pass_guard(item, label if label_ok else "")
-            if guard is None and (
-                why := pass_guards.check(item, answer, pages, ev["requirement"])
-            ):
-                guard = (
-                    {
-                        "verdict": verdict.QUERY,
-                        "decided_by": verdict.BY_ENGINEER,
-                        "why": why[1],
-                    },
-                    why[0],
-                    None,
-                )
             if guard is not None:
                 decision, reason_code, deferred_page = guard
+        pg = self._pass_guards(item, answer, pages, ev)
+        if pg is not None and not pg["ok"] and reason_code == ev["reason_code"]:
+            reason_code = str(
+                pg["code"]
+            )  # on EVERY Pass answer (a Pass the gate left a Query too): it can end as neither proof nor "AI verdict: met"
+            if decision["verdict"] == verdict.PASS:
+                decision = {
+                    "verdict": verdict.QUERY,
+                    "decided_by": verdict.BY_ENGINEER,
+                    "why": pg["why"],
+                }
         self._ctx.setdefault(iid, {}).update(
             second_opinion_answer=g["second"], absence_second_answer=g["absence_second"]
         )
-        return self._line(
-            item,
-            answer,
-            ev,
-            g,
-            decision,
-            ctx_info,
-            error,
-            lead_model,
-            usd_share,
+        line = self._line(
+            item, answer, ev, g, decision, ctx_info, error, lead_model, usd_share,
             (label if label_ok else None, label, reason_code, deferred_page),
-        )
+        )  # fmt: skip
+        return {**line, "pass_guard": pg} if pg is not None else line
+
+    def _pass_guards(
+        self, item: Mapping, answer: Mapping, pages: Mapping[int, str], ev: Mapping
+    ) -> dict | None:
+        """The field and condition guards on a Pass ANSWER of a rule without numbers (None for any other answer)."""
+        if (
+            verdict.ai_verdict_word(answer.get("verdict")) != verdict.PASS
+            or ev.get("reason_code") != "met"
+        ):
+            return None
+        return pass_guards.verdict_of(item, answer, pages, ev["requirement"])
 
     def _line(
         self,

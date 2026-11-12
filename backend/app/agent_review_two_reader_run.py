@@ -27,6 +27,7 @@ from typing import Any
 from . import agent_claude, agent_run_second
 from . import agent_review_crs as crs_lines
 from . import agent_review_items as items_mod
+from . import agent_review_pass_guards as pass_guards
 from . import agent_review_two_reader as two
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
@@ -249,6 +250,12 @@ class TwoReaderMixin:
             ),
             base=base_of(self.lines[iid]),
         )
+        if (
+            second["verdict"] == two.V_MET
+        ):  # the second reader's own quotes pass the same field and condition guards
+            second["pass_guard"] = pass_guards.verdict_of(
+                item, answer, pages, ev["requirement"]
+            )
         line = self.lines[iid]
         if (
             line.get("ai_verdict") == verdict.FAIL

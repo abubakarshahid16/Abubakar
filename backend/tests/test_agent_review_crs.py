@@ -59,7 +59,9 @@ def mk(iid, verdict, ai=None, item=OK, paper_kind=None, **kw):
         "field": "Field " + iid.replace("-", ""),
         "field_roles": ["nameplate_material"],
     }
-    if verdict == "Pass":  # a PROVEN Pass is one the code compared (owner, 12 Nov 2026): the number path's result
+    if (
+        verdict == "Pass"
+    ):  # a PROVEN Pass is one the code compared (owner, 12 Nov 2026): the number path's result
         base["compare"] = {"decided": True, "verdict": "meets"}
     base.update(kw)
     return W.final_cap(base, item, skill_ids=SK, paper_kind=paper_kind)

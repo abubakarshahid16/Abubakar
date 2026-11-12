@@ -573,12 +573,12 @@ def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
             "R-9", verdict, ai, item=item, reason_code=code, model="lead-m", paper_page=2, field_label_ai="Nameplate material",
             quotes_checked={"paper": paper, "clause": clause, "clause_strong": strong},
             second_opinion={"agree": None, "model": "m"} if second_ok else {"agree": False, "model": "m"},
-            conditional_hold=hold, paper_quote="Nameplate: steel plate", reasoning="It is steel.",
+            conditional_hold=hold, pass_guard={"ok": True}, paper_quote="Nameplate: steel plate", reasoning="It is steel.",
             two_reader={
                 "verdict": sec_verdict, "model": "second-m" if differ else "lead-m-20260101",
                 "reason_code": "met" if ai == "Pass" else "not_met", "paper_quote": "Nameplate: steel plate",
                 "paper_page": 2, "spans": {"first": [0, 20], "second": [5, 25] if same_ev else [30, 50]},
-                "fail_guards": {"ok": guards}, "clause_quote": "Nameplates shall be steel and fixed",
+                "fail_guards": {"ok": guards}, "pass_guard": {"ok": True}, "clause_quote": "Nameplates shall be steel and fixed",
                 "field_label": "Other label",
                 "quotes_checked": {"paper": sec_paper, "clause": sec_clause, "clause_strong": sec_clause},
                 "says_absent": absent,
@@ -1010,12 +1010,12 @@ def _two(iid, ai, **kw):
     code, verdict_word = ("met", "met") if ai == "Pass" else ("not_met", "not met")
     kw.setdefault("rule_kind", None)
     return mk(
-        iid, "Query", ai, reason_code=code, why="no second opinion",
+        iid, "Query", ai, reason_code=code, why="no second opinion", pass_guard={"ok": True},
         quotes_checked={"paper": True, "clause": True, "clause_strong": True}, second_opinion=None,
         two_reader={
             "verdict": verdict_word, "model": "second-m", "reason_code": code, "paper_quote": "Nameplate: steel plate",
             "paper_page": 2, "clause_quote": "Nameplates shall be steel and fixed", "field_label": None,
-            "spans": {"first": [0, 16], "second": [0, 22]}, "fail_guards": {"ok": True},
+            "spans": {"first": [0, 16], "second": [0, 22]}, "fail_guards": {"ok": True}, "pass_guard": {"ok": True},
             "quotes_checked": {"paper": True, "clause": True, "clause_strong": True, "both": True}, "says_absent": False,
         },
         **kw,
@@ -1242,9 +1242,9 @@ def test_the_second_readers_label_only_quote_never_earns_the_class():
     second = "Coating layers"  # only the field's own label
     base = {"item_id": "R-9", "source": "rule", "standard": "S", "clause": "1", "verdict": "Query", "ai_verdict": "Pass", "reason_code": "met",
             "model": "lead-m", "paper_page": 1, "paper_quote": first, "field_label_ai": "Coating layers", "field": "Coating layers",
-            "quotes_checked": {"paper": True, "clause": True}, "reasoning": "r", "second_opinion": None}  # fmt: skip
+            "quotes_checked": {"paper": True, "clause": True}, "reasoning": "r", "second_opinion": None, "pass_guard": {"ok": True}}  # fmt: skip
     rec = {"verdict": "met", "model": "second-m", "reason_code": "met", "paper_page": 1, "paper_quote": second, "field_label": "Coating layers",
-           "spans": two.evidence_spans(page, first, second), "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "says_absent": False}  # fmt: skip
+           "spans": two.evidence_spans(page, first, second), "pass_guard": {"ok": True}, "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "says_absent": False}  # fmt: skip
     ok = W.apply(
         W.final_cap(
             {

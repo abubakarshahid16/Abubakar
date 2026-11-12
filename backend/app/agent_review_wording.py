@@ -138,7 +138,9 @@ def classify(line: Mapping) -> dict:
     THE ORDER at the exit (the first that applies wins): 1. Not reviewed (the AI gave no answer); 2. silence (a non-datasheet
     paper that is silent: Query, and when the rule is also not AI approved the reason says both); 3. the cap of a rule that is
     not AI approved; 4. proven Pass / Fail, then the AI opinions, then Query."""
-    line = demote_uncompared_pass(line)  # owner, 12 Nov 2026: a proven Pass is one the code compared; here too, not only at the exit
+    line = demote_uncompared_pass(
+        line
+    )  # owner, 12 Nov 2026: a proven Pass is one the code compared; here too, not only at the exit
     verdict, ai = line.get("verdict"), line.get("ai_verdict")
     unapproved = line.get("rule_tier") == RULE_NOT_APPROVED
     why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
@@ -238,7 +240,12 @@ def demote_uncompared_pass(line: Mapping) -> dict:
     a second reader), classified by `classify`. Never touches a Fail, a Query or a Pass the code compared. Idempotent."""
     out = dict(line)
     if out.get("verdict") == PASS and not code_compared(out):
-        out.update(verdict=QUERY, decided_by=BY_ENGINEER, why=NO_COMPARISON_WHY, textual_pass=True)
+        out.update(
+            verdict=QUERY,
+            decided_by=BY_ENGINEER,
+            why=NO_COMPARISON_WHY,
+            textual_pass=True,
+        )
     return out
 
 

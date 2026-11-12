@@ -89,7 +89,7 @@ def test_a_full_fake_model_review_writes_lines_both_copies_and_the_record(world)
     assert run_job(job_id) == "done"
     lines = lines_of(run_id)
     assert {k: (v["verdict_class"], v["word"]) for k, v in lines.items()} == {
-        "R-coat": ("Proven by code", "Pass"),
+        "R-coat": ("AI verdict, two readers agree", "AI verdict: met"),  # a Pass the code did not compare
         "R-frame": ("Proven by code", "Pass"),
         "R-mark": ("Proven by code", "Fail"),
         "R-colour": ("Not reviewed", "Not reviewed"),
@@ -241,7 +241,7 @@ def test_a_cut_off_answer_is_asked_again_per_half_and_what_stays_unanswered_is_n
     assert sorted(first) == sorted(halves[0] + halves[1])
     lines = lines_of(run_id)
     assert lines["R-colour"]["word"] == "Not reviewed"  # never a Query about the paper
-    assert lines["R-coat"]["word"] == "Pass"
+    assert lines["R-coat"]["word"] == "AI verdict: met"
 
 
 def test_an_unknown_paper_kind_asks_nothing_and_the_run_says_so(world, monkeypatch):

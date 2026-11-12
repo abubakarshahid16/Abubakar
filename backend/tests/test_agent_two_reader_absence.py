@@ -362,10 +362,10 @@ def test_a_line_proven_by_code_is_never_asked(w, both):
     fake.agree = True
     fake.answers["R-coat"] = s.ANSWERS[
         "R-coat"
-    ]  # a Pass the code did not compare: "AI verdict: met", never an absence line
+    ]  # a Pass: the rule field here is design_pressure (absence setup) and the quote is on the coating line, so the field guard leaves "AI thinks: met"; it is never an absence line
     run_id = run_review()
     assert (
-        lines_of(run_id)["R-coat"]["word"] == "AI verdict: met"
+        lines_of(run_id)["R-coat"]["word"] == "AI thinks: met"
         and fake.absence_bodies == []
     )
 

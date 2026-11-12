@@ -421,7 +421,7 @@ def widen_to_sentence(quote: Any, clause_text: str | None) -> str | None:
 
 #: Plain conditional words only (no equipment, service or scoping words: rule 13).
 _CONDITIONAL = re.compile(
-    r"\b(?:if|when|where|unless|provided that|in case|except|only|otherwise)\b|\bfor\s+(?:[a-z][\w-]*\s+){0,3}(?:service|duty)\b(?!\s+(?:life|factor|manual))",
+    r"\b(?:if|when|where|unless|provided that|in case|except|only|otherwise)\b|\b(?:for\s+(?:[a-z][\w-]*\s+){0,3}|(?:in|to)\s+(?:[a-z][\w-]*\s+){1,3})(?:service|duty)\b(?!\s+(?:life|factor|manual|point|rating))",
     re.IGNORECASE,
 )
 CONDITIONAL_WHY = "the rule is conditional; code cannot prove the condition holds"
