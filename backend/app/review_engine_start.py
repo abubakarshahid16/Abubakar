@@ -126,7 +126,13 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
 
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
         review_engine.record_in(
-            txn_conn, new_run_id, again, job["created_by"], then_ai=False, bar_claude=False, now=job_queue.now_iso()
+            txn_conn,
+            new_run_id,
+            again,
+            job["created_by"],
+            then_ai=False,
+            bar_claude=False,
+            now=job_queue.now_iso(),
         )
 
     try:
