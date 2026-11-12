@@ -135,7 +135,10 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self.total_pages = pages.count(paper)
         # the CURRENT tier of a rule item, from the label table
         self.tier_lookup = tier_lookup
-        self.items = plan_pages(items, pages, paper, clauses)
+        self._two_reader, self._two_reader_absence = two_reader, two_reader_absence
+        self.items = plan_pages(
+            items, pages, paper, clauses, whole_short=self.absence_on()
+        )
         self.items_by_id = {str(i.get("item_id")): i for i in self.items}
         self.stopped = self.stop_text = ""
         self.gate: AppStepGate | None = None
@@ -165,9 +168,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         self._reuse_note: dict[tuple, dict] = {}
         self.counts: dict[str, int] = {}
         # the optional second-reader step (owner order 13): None = read the switch when the run starts
-        self._two_reader = two_reader
         self.two_reader_state = two_reader_mod.stats_template()
-        self._two_reader_absence = two_reader_absence
         self._two_reader_other = two_reader_other
         self.two_reader_other_state = two_reader_mod.stats_template()
         self.two_reader_absence_state = two_reader_mod.stats_template()

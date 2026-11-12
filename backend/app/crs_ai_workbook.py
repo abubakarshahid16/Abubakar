@@ -169,7 +169,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return f"The AI reviewer's verdict, to be confirmed by an engineer: {two.ABSENCE_WHY}."  # only what was established
+        return words.absence_cell(line, field_name(line) or _item_ask(line))
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -557,12 +557,7 @@ def _notes_rows(
     dec = wording.decisions_of(
         (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
     )
-    rows.append(
-        (
-            "Decisions",
-            f"Decisions: {dec['total']} = code Pass/Fail {dec['code']} + two-reader verdicts {dec['two_reader']}",
-        )
-    )
+    rows += words.decisions_rows(dec)
     rows.append(("Count: rows on the CRS sheet", len(items)))
     rows += [(f"Count: {k}", kinds[k]) for k in words.OTHER_KINDS]
     rows.append(
