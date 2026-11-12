@@ -906,3 +906,78 @@ def test_a_scorer_reads_both_layouts_by_header_name_and_says_which(tmp_path):
     old.save(tmp_path / "old.xlsx")
     got, layout = aks.read_crs_layout(tmp_path / "old.xlsx")
     assert layout == aks.LAYOUT_OLD and [x.is_pass for x in got] == [True]
+
+
+# ---------------------------------------------------------------- part A: a checklist line's own item wording
+
+
+@pytest.fixture
+def skills(monkeypatch):
+    """A fake checklist loaded through the app's one loader (`agent_skills.load_skill`)."""
+    from app import agent_skills
+
+    def load(kind):
+        if kind != agent_skills.KINDS[0]:
+            raise agent_skills.SkillError("none")
+        return {
+            "items": [
+                {
+                    "id": "1",
+                    "expected": "The nameplate is steel and S-EQ-04 is fixed.",
+                }
+            ]
+        }
+
+    WB._WORDING.clear()
+    monkeypatch.setattr(agent_skills, "load_skill", load)
+    yield
+    WB._WORDING.clear()
+
+
+def test_a_checklist_lines_part_one_is_the_item_wording_by_item_id(skills):
+    line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
+    assert (
+        WB.checklist_wording("S-1") == "The nameplate is steel and is fixed."
+    )  # a code word is scrubbed
+    one = WB.layout_comment(line, *WB.status_of(line)).split("\n")[0]
+    assert one == 'STD-1 clause 4.1 requires: "The nameplate is steel and is fixed.".'
+    assert not words.has_banned(one)
+
+
+def test_a_checklist_line_falls_back_to_todays_text_and_the_notes_sheet_says_so(
+    tmp_path, monkeypatch
+):
+    from app import agent_skills
+
+    WB._WORDING.clear()
+    monkeypatch.setattr(
+        agent_skills,
+        "load_skill",
+        lambda kind: (_ for _ in ()).throw(agent_skills.SkillError("gone")),
+    )
+    line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
+    assert WB.checklist_wording("S-1") == ""
+    one = WB.layout_comment(line, *WB.status_of(line)).split("\n")[0]
+    assert (
+        one == 'STD-1 clause 4.1 requires: "Nameplates shall be steel and fixed".'
+    )  # the verified clause quote, as before
+    path = C.write_internal([line], tmp_path / "i.xlsx", META)
+    notes = {r["Topic"]: r["Detail"] for r in rows_of_notes(path)}
+    assert notes["Checklist wording"].startswith("not available on this machine")
+    assert WB._WORDING == []  # a failed load is never remembered
+
+
+def test_a_rule_line_never_reads_the_checklist(skills):
+    line = mk("R-1", "Fail", "Fail")
+    assert WB.layout_comment(line, *WB.status_of(line)).startswith(
+        'STD-1 clause 4.1 requires: "Nameplates shall'
+    )
+
+
+def test_the_notes_sheet_says_where_the_checklist_wording_came_from(skills, tmp_path):
+    line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
+    notes = {
+        r["Topic"]: r["Detail"]
+        for r in rows_of_notes(C.write_internal([line], tmp_path / "i.xlsx", META))
+    }
+    assert notes["Checklist wording"] == "from the checklist data"

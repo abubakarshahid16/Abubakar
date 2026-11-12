@@ -106,11 +106,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         "10",
-        "the normal reviewer's sheet is not given the shared header row, frozen panes and print setup",
+        "the normal reviewer's sheet is drawn without its rows (the one layout is built, the rows are lost)",
         _E,
-        '    crs_layout.style_header_and_print(ws, COLUMN_HEADER_ROW, len(view["columns"]))\n',
-        "    pass\n",
+        "    wb = crs_normal.workbook(view, meta)\n",
+        '    wb = crs_normal.workbook({**view, "rows": []}, meta)\n',
         _T2,
-        "shared_header_and_print_setup",
+        "ten_columns or comment_texts",
     ),
 )

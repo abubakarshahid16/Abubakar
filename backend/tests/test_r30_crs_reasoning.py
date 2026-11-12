@@ -72,8 +72,10 @@ def test_the_internal_copy_prints_it_in_a_new_last_column():
     # #947 (PR #985): "Rule trust (internal)" follows it as the last column.
     assert view["columns"][-3:] == [crs_export.AI_COLUMN, crs_export.REASONING_COLUMN,
                                     crs_export.TRUST_COLUMN]   # nothing moved
-    assert ws.cell(row=crs_export.COLUMN_HEADER_ROW, column=11).value == crs_export.REASONING_COLUMN
-    assert ws.cell(row=crs_export.COLUMN_HEADER_ROW + 1, column=11).value == view["rows"][0]["reasoning"]
+    # order 13: the reasoning is on the Evidence sheet, by Item No
+    ev = ws.parent["Evidence"]
+    assert ev.cell(row=1, column=7).value == crs_export.REASONING_COLUMN
+    assert ev.cell(row=2, column=7).value == view["rows"][0]["reasoning"]
     assert view["rows"][0]["reasoning"].startswith("Read: Noise level = 95 dB(A)")
 
 
@@ -83,4 +85,4 @@ def test_the_issue_copy_never_carries_it():
     assert view["rows"] and all(r["reasoning"] == "" for r in view["rows"])
     header = [ws.cell(row=crs_export.COLUMN_HEADER_ROW, column=c).value for c in range(1, 13)]
     assert crs_export.REASONING_COLUMN not in header
-    assert ws.cell(row=crs_export.COLUMN_HEADER_ROW + 1, column=11).value in (None, "")
+    assert "Evidence" not in ws.parent.sheetnames

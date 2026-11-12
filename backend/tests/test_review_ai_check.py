@@ -387,7 +387,9 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
     assert "Relates to API 610" in row["ai_review_comment"]
     name, sheet, _text = _workbook_text(run, "internal")
     assert "internal-review-copy" in name
-    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=10).value == "AI Review Comments"  # #725 F7: Severity is column 9
+    # order 13: the AI review comment is on the Evidence sheet (never on the CRS sheet), and the CRS sheet's column 10 is Status
+    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=10).value == "Status"
+    assert sheet.parent["Evidence"].cell(row=1, column=6).value == "AI Review Comments"
 
 
 def test_an_unconfirmed_items_comment_by_is_never_blank(world):
@@ -430,7 +432,7 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
     assert view["rows_withheld_no_text"] == 0
     name, sheet, text = _workbook_text(run, "issue")
     assert "issue-to-contractor" in name
-    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=10).value is None
+    assert "Evidence" not in sheet.parent.sheetnames and sheet.max_column == 10  # no AI column, no Evidence sheet
     assert TEXT not in text
 
 

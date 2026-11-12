@@ -62,10 +62,17 @@ def test_priority_column_prints_the_rank_word():
         ]  # kept, not printed
         ws = _sheet(rows, copy)
         assert ws.cell(row=ce.COLUMN_HEADER_ROW, column=9).value == "Priority"
+        # order 13: the sheet's Priority is the stated rule (Fail High, Query Low); the rank word is on the Evidence sheet
         assert [ws.cell(row=ce.FIRST_DATA_ROW + i, column=9).value for i in (0, 1)] == [
-            "Out of limit",
-            "Missing value",
+            "High",
+            "Low",
         ]
+        if copy == ce.COPY_INTERNAL:
+            ev = ws.parent["Evidence"]
+            assert [ev.cell(row=2 + i, column=4).value for i in (0, 1)] == [
+                "Out of limit",
+                "Missing value",
+            ]
 
 
 def test_issue_copy_says_clarification_for_rank_three():
@@ -78,10 +85,10 @@ def test_issue_copy_says_clarification_for_rank_three():
     issue = ce.build_crs_view(rows, {"copy": ce.COPY_ISSUE})["rows"][0]
     assert internal["priority_label"] == "Engineer to check"
     assert issue["priority_label"] == "Clarification"
-    assert (
-        _sheet(rows, ce.COPY_ISSUE).cell(row=ce.FIRST_DATA_ROW, column=9).value
-        == "Clarification"
-    )
+    # order 13: the issue copy's Priority is the stated rule (a Query: Low); it carries no Evidence sheet for the rank word
+    issue = _sheet(rows, ce.COPY_ISSUE)
+    assert issue.cell(row=ce.FIRST_DATA_ROW, column=9).value == "Low"
+    assert "Evidence" not in issue.parent.sheetnames
 
 
 def test_row_without_priority_prints_nothing():
@@ -97,9 +104,10 @@ def test_row_without_priority_prints_nothing():
         (None, ""),
         (m.PRIORITY_CARRIED_FORWARD, "Carried forward"),
     ]
-    assert _sheet(rows, ce.COPY_INTERNAL).cell(
-        row=ce.FIRST_DATA_ROW, column=9
-    ).value in (None, "")
+    # order 13: the old rank word is on the Evidence sheet, blank for a row with no rank (never a guessed word)
+    ev = _sheet(rows, ce.COPY_INTERNAL).parent["Evidence"]
+    assert ev.cell(row=2, column=4).value in (None, "")
+    assert ev.cell(row=3, column=4).value == "Carried forward"
 
 
 def test_file_keeps_the_sheets_order():

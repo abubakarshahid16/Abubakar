@@ -136,12 +136,32 @@ def _put(ws, row, col, value, bold=False, size=10, center=False, wrap=False):
     return cell
 
 
+def _below(ws, below, last_row: int, ncols: int) -> None:
+    """Notes under the table, each `(offset, label, text, column[, height])` at `last_row + offset`: a labelled line (label in A:B, text in
+    C to the end), or a notice merged from `column` (1 = across the sheet, 3 = never in column A: a reply is read by the Item No
+    there). The print area then reaches the last of them."""
+    end = last_row
+    for offset, label, text, col, *height in below:
+        row = last_row + offset
+        end = max(end, row)
+        if label:
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+            _put(ws, row, 1, label, bold=True)
+            col = 3
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=ncols)
+        _put(ws, row, col, text, bold=bool(label) or col == 1, wrap=True)
+        fitted = max(15, 13 * _lines_needed(text, sum(LAYOUT_WIDTHS)))
+        ws.row_dimensions[row].height = height[0] if height else fitted
+    if end > last_row:
+        ws.print_area = f"A1:{get_column_letter(ncols)}{end}"
+
+
 def _header_block(ws, view: dict, ncols: int) -> int:
     """Rows 1 and 2 (title, subtitle), the header facts, the generated-by sentence; returns the row of the table's header."""
     last = get_column_letter(ncols)
     ws.merge_cells(f"A1:{last}1")
     _put(ws, 1, 1, view.get("title") or "", bold=True, size=12, center=True, wrap=True)
-    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[1].height = view.get("title_height") or 30
     ws.merge_cells(f"A2:{last}2")
     _put(ws, 2, 1, view.get("subtitle") or SUBTITLE, bold=True, size=12, center=True)
     row = 3
@@ -154,7 +174,9 @@ def _header_block(ws, view: dict, ncols: int) -> int:
             15, 13 * _lines_needed(value, sum(LAYOUT_WIDTHS[2:]))
         )
         row += 1
-    if view.get("sentence"):
+    if (
+        view.get("sentence") is not None
+    ):  # "" reserves the row (the normal reviewer's issue copy keeps one geometry)
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncols)
         _put(ws, row, 1, view["sentence"], bold=True)
         row += 1
@@ -192,8 +214,14 @@ def layout_workbook(view: dict) -> Workbook:
         height = (
             max(_lines_needed(v, LAYOUT_WIDTHS[c]) for c, v in enumerate(values)) * 13
         )
-        ws.row_dimensions[r].height = min(MAX_ROW_HEIGHT, max(15, height))
+        heights = view.get(
+            "row_heights"
+        )  # the normal reviewer keeps its own row-height formula (`crs_export.row_height`)
+        ws.row_dimensions[r].height = (
+            heights[n - 1] if heights else min(MAX_ROW_HEIGHT, max(15, height))
+        )
     style_table(ws, header_row, ncols, header_row + len(rows), LAYOUT_WIDTHS)
+    _below(ws, view.get("below") or [], header_row + len(rows), ncols)
 
     other = view.get("other")
     if other:

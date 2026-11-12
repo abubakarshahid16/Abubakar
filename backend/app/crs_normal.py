@@ -14,8 +14,10 @@ Query Low, Pass blank.
 
 from __future__ import annotations
 
-from . import crs_ai_header, crs_layout
 from . import crs_ai_words as words
+from . import crs_export as ce
+from . import crs_export_quality as quality
+from . import crs_layout
 from .crs_mapping import crs_status
 
 EVIDENCE_COLUMNS = (
@@ -30,18 +32,10 @@ STATUS_MAPPING = (
 )
 
 
-def _header_facts(meta: dict) -> dict:
-    """The document's facts: `meta['header']`, else read for the run (blank when the run or the paper is not found)."""
-    if isinstance(meta.get("header"), dict):
-        return meta["header"]
-    from .db import connect
-
-    run = meta.get("review_run_id")
-    return crs_ai_header.header_for_run(connect(), run) if run else {}
-
-
 def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
-    h = _header_facts(meta)
+    h = (
+        meta.get("header") or {}
+    )  # supplied by the caller (`export_status.header_facts`); this module reads no database
     old = {p["label"]: p["value"] for p in view["header"]}
     applied = [
         s["standard"] for s in view["applicable_standards"] if s["status"] == "Applied"
@@ -56,11 +50,14 @@ def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
         ("Rule books used:", "; ".join(applied)),
     ]
     pairs += [(k, v) for k, v in old.items() if k != "Document Title:"]
-    pairs += (
-        [("Review status:", view["run_status_note"])] if view["run_status_note"] else []
-    )
-    pairs += (
-        [("Not fully checked:", view["incomplete_notice"])]
+    return pairs
+
+
+def _below(view: dict) -> list[tuple[int, str, str, int]]:
+    """What stood under the table before and still does: the incomplete-review notice, the review code with its reason and status,
+    the rule book version 2 note (offsets from the last table row, as before)."""
+    out = (
+        [(1, "", view["incomplete_notice"], 1, quality.notice_height(view))]
         if view["incomplete_notice"]
         else []
     )
@@ -70,20 +67,22 @@ def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
             if view["recommended_code_reason"]
             else ""
         )
-        pairs.append(
-            (view["recommended_code_label"], f"{view['recommended_code']}{reason}")
+        out.append(
+            (
+                2,
+                view["recommended_code_label"],
+                f"{view['recommended_code']}{reason}",
+                3,
+            )
         )
-        pairs += (
-            [("", view["recommended_code_status"])]
+        out += (
+            [(3, "", view["recommended_code_status"], 3)]
             if view["recommended_code_status"]
             else []
         )
-    pairs += (
-        [("Rule book version 2:", view["rulebook_v2_note"])]
-        if view["rulebook_v2_note"]
-        else []
+    return out + (
+        [(4, "", view["rulebook_v2_note"], 3)] if view["rulebook_v2_note"] else []
     )
-    return pairs
 
 
 def _status_and_priority(entry: dict) -> tuple[str, str]:
@@ -91,17 +90,26 @@ def _status_and_priority(entry: dict) -> tuple[str, str]:
     return status, words.priority(status, {}, words.ORDER_AI_NOT_MET)
 
 
+def row_cells(entry: dict) -> tuple[list, str]:
+    """One row's ten cells in the one layout's order, and its Status (the tick sheet draws the same cells)."""
+    status, pri = _status_and_priority(entry)
+    return [
+        entry["item_no"], entry["document_name"], entry["page_section"], entry["comment"], entry["comment_by"],
+        entry["contractor_response"], entry["final_resolution"], entry["standard_reference"], pri or None, status,
+    ], status  # fmt: skip
+
+
 def layout_view(view: dict, meta: dict) -> dict:
     """The view of `crs_export.build_crs_view` as plain values for `crs_layout.layout_workbook`."""
     internal = view["crs_copy"] == "internal"
-    marks = [_status_and_priority(e) for e in view["rows"]]
-    rows = [
-        [e["item_no"], e["document_name"], e["page_section"], e["comment"], e["comment_by"], e["contractor_response"],
-         e["final_resolution"], e["standard_reference"], pri or None, status]
-        for e, (status, pri) in zip(view["rows"], marks, strict=True)
-    ]  # fmt: skip
+    built = [row_cells(e) for e in view["rows"]]
+    rows = [cells for cells, _s in built]
+    marks = [(status, "") for _c, status in built]
     out = {
-        "title": view["title"],
+        "title": "\n".join(p for p in (view["run_status_note"], view["title"]) if p),
+        "title_height": 75 if view["run_status_note"] else None,
+        "below": _below(view),
+        "row_heights": [ce.row_height(e["comment"]) for e in view["rows"]],
         "header": _pairs(view, meta),
         "sentence": words.generated_by(meta.get("company_name", ""))
         if internal
@@ -139,8 +147,6 @@ def layout_view(view: dict, meta: dict) -> dict:
 def workbook(view: dict, meta: dict):
     """The normal reviewer's workbook in the one layout, with the reply tip on every Contractor's Response cell."""
     from openpyxl.worksheet.datavalidation import DataValidation
-
-    from . import crs_export as ce
 
     wb = crs_layout.layout_workbook(layout_view(view, meta))
     ws = wb["CRS"]

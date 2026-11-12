@@ -25,7 +25,7 @@ def document_header(
 ) -> dict[str, str]:
     """{project, document_number, title, revision, date, discipline} of one document from `document_classification`.
     The discipline is the stored one (the cover's own words, else its canonical spelling); when none is stored, the
-    equipment type in plain words; else ''."""
+    equipment type the CALLER names in plain words (a procedure's CRS names no equipment type: the normal reviewer names none); else ''."""
     row = conn.execute(
         "SELECT project, document_number, title, revision, effective_date, discipline, discipline_canonical, equipment_type"
         " FROM document_classification WHERE document_id = ?",
@@ -33,9 +33,7 @@ def document_header(
     ).fetchone()
     got: Mapping = dict(row) if row is not None else {}
     discipline = _text(got.get("discipline_canonical")) or _text(got.get("discipline"))
-    discipline = discipline or equipment_words(
-        equipment_type or got.get("equipment_type")
-    )
+    discipline = discipline or equipment_words(equipment_type)
     return {
         "project": _text(got.get("project")),
         "document_number": _text(got.get("document_number")),

@@ -105,4 +105,5 @@ def test_the_workbook_prints_the_severity_column_in_both_copies():
         ws = book["CRS"]
         head, first = crs_export.COLUMN_HEADER_ROW, crs_export.COLUMN_HEADER_ROW + 1
         assert ws.cell(row=head, column=9).value == "Priority"
-        assert ws.cell(row=first, column=9).value == "Out of limit"
+        assert ws.cell(row=first, column=9).value == "High"  # order 13: the stated priority rule; the rank word is on Evidence
+        assert ws.cell(row=first, column=10).value == "Fail"

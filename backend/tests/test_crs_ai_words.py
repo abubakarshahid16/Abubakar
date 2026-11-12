@@ -124,7 +124,10 @@ def test_the_header_facts_are_what_the_app_holds_and_blank_otherwise():
         "project": "P", "document_number": "N-1", "title": "T", "revision": "B", "date": "2026-02-03",
         "discipline": "instrument",
     }  # fmt: skip
-    second = header.document_header(conn, "d2")
+    second = header.document_header(conn, "d2", "pressure_relief_valve")
+    assert (
+        header.document_header(conn, "d2")["discipline"] == ""
+    )  # a stored equipment type is not read on its own
     assert (
         second["discipline"] == "pressure relief valve"
         and second["project"] == ""

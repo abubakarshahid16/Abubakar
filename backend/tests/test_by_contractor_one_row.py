@@ -434,5 +434,5 @@ def test_switch_off_the_workbook_is_mains_values_and_styles(monkeypatch):
         if "invented second line" in str(c[1])
     ]
     assert (
-        reply and not reply[0][4]
-    )  # main does not wrap the reply cell; neither may this head
+        reply and reply[0][4]
+    )  # order 13: main did not wrap the reply cell; the one layout wraps every cell of the table

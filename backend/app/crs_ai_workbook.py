@@ -113,7 +113,7 @@ def checklist_wording(item_id: object) -> str:
                 {f"S-{it['id']}": _clean(it.get("expected")) for it in skill["items"]}
             )
         if not (complete and found):
-            return _clean(found.get(str(item_id)))
+            return words.plain(found.get(str(item_id)))
         _WORDING.append(found)
     return words.plain(_WORDING[0].get(str(item_id)))
 
