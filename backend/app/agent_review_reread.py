@@ -352,7 +352,7 @@ class RereadMixin:
         parts = self.reread_parts(item, texts, held)
         try:
             got, model, usd = self._ask_reread(parts)
-        except (FATAL, RereadFailed, agent_claude.AgentClaudeError) as exc:
+        except (*FATAL, RereadFailed, agent_claude.AgentClaudeError) as exc:
             return self._failed_read(line, cause, parts, exc)
         self._optional.paid = usd
         failure = FAIL_UNREADABLE
