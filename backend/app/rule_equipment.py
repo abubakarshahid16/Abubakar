@@ -113,9 +113,13 @@ def create_tables(conn) -> None:
         for statement in _STATEMENTS:
             conn.execute(statement)
         held = {r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")}
-        for column in ANSWER_COLUMNS:  # a table made before the two answers were kept gets the two columns
+        for column in (
+            ANSWER_COLUMNS
+        ):  # a table made before the two answers were kept gets the two columns
             if column not in held:
-                conn.execute(f"ALTER TABLE rule_equipment_label ADD COLUMN {column} TEXT")
+                conn.execute(
+                    f"ALTER TABLE rule_equipment_label ADD COLUMN {column} TEXT"
+                )
     except BaseException:
         conn.rollback()
         raise
@@ -345,7 +349,9 @@ def _answer_json(answer: Any, tax: Taxonomy) -> str | None:
     if not isinstance(answer, dict):
         return None
     fam, typ = answer.get("family") or None, answer.get("type") or None
-    if (typ is not None and typ not in tax.type_family) or (fam is not None and fam not in tax.families):
+    if (typ is not None and typ not in tax.type_family) or (
+        fam is not None and fam not in tax.families
+    ):
         return None
     return json.dumps(
         {"family": fam, "type": typ, "part": answer.get("part") or None,
@@ -379,7 +385,9 @@ def import_rows(conn, rows: Iterable[Any], tax: Taxonomy | None = None) -> dict:
             if c not in ANSWER_COLUMNS
         }
         for which in ("a", "b"):
-            values[f"answer_{which}_json"] = _answer_json(row.get(f"answer_{which}"), tax)
+            values[f"answer_{which}_json"] = _answer_json(
+                row.get(f"answer_{which}"), tax
+            )
         values["labelled_at"] = values["labelled_at"] or "1970-01-01T00:00:00Z"
         held = cursor.execute(
             "SELECT * FROM rule_equipment_label WHERE source = ? AND rule_ref = ?",
