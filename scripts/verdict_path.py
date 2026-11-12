@@ -75,9 +75,43 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "agent_review_equipment.py",
         "drops a rule before it is asked: a wrong drop hides a finding",
     ),
+    (APP + "claude_api.py", "Claude calls: money and what leaves the machine"),
+    (
+        APP + "datasheet_ai.py",
+        "the datasheet AI reader's Claude calls: money and egress",
+    ),
+    (APP + "reader_api.py", "the reader's Claude calls: money and egress"),
+    (
+        APP + "agent_review_two_reader_run.py",
+        "asks the second reader and sets the class",
+    ),
+    (APP + "agent_review_absence.py", "decides a Fail by absence"),
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
 )
+
+#: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
+#: here with a reason (a test enforces it, so a new verdict file cannot slip by).
+OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_review_context.py": "builds the page context a reader sees; decides nothing",
+    "agent_review_coverage.py": "counts coverage for display",
+    "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
+    "agent_review_gate.py": "the on/off switch only",
+    "agent_review_items.py": "builds the item list",
+    "agent_review_jobs.py": "job plumbing",
+    "agent_review_kind.py": "names the paper kind",
+    "agent_review_pages.py": "page lookup",
+    "agent_review_request.py": "request and reason-code shapes",
+    "agent_review_rule_rows.py": "reads rule rows from the database",
+    "agent_review_rules.py": "rule selection by paper kind",
+    "agent_review_schema.py": "database tables",
+    "agent_review_standards.py": "standard text lookup",
+    "agent_review_text.py": "text helpers",
+    "crs_ai_cell.py": "cell layout",
+    "crs_ai_drafts.py": "draft handling",
+    "crs_ai_header.py": "sheet header",
+    "crs_ai_review_view.py": "screen view of a stored review",
+}
 
 #: Not listed, on purpose: `config.py` holds `check_model_url` (a network gate),
 #: but the file is large and mostly plain settings; it is guarded by its own

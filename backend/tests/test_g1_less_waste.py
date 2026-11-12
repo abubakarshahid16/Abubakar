@@ -54,6 +54,28 @@ def test_the_round_4_reader_files_are_on_the_list():
         assert vp.is_verdict_path(f"backend/app/{name}.py"), name
 
 
+def test_a_new_agent_review_or_crs_ai_file_is_listed_or_off_on_purpose():
+    for path in sorted((ROOT / "backend" / "app").glob("*.py")):
+        if path.name.startswith(("agent_review_", "crs_ai_")):
+            listed = vp.is_verdict_path(f"backend/app/{path.name}")
+            off = path.name in vp.OFF_ON_PURPOSE
+            assert listed != off, (
+                f"{path.name}: put it on VERDICT_PATH or OFF_ON_PURPOSE (with a reason), not both or neither"
+            )
+    for name, why in vp.OFF_ON_PURPOSE.items():
+        assert (ROOT / "backend" / "app" / name).exists() and why.strip(), name
+
+
+def test_the_full_review_sentence_is_the_same_in_every_home():
+    sentence = "whether or not the file is on the list; the list only decides where style stops block."
+    for home in (
+        "CLAUDE.md",
+        ".claude/skills/release-train/SKILL.md",
+        ".claude/commands/review.md",
+    ):
+        assert sentence in (ROOT / home).read_text(encoding="utf-8"), home
+
+
 def test_the_whole_rule_6_danger_zone_is_on_the_list():
     for name in RULE_6_ZONE:
         assert vp.is_verdict_path(f"backend/app/{name}"), name

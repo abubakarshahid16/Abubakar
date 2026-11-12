@@ -145,6 +145,7 @@ carries the client's name; only the owner can rename it.
     (b) ONE light review (one reviewer, one pass, no hand reverts) for layout, wording, docs and tests. A FULL fresh review
     (attack, hand reverts, mutation entries where the danger zone is touched) for anything on the verdict path. The PR
     text says which depth was used and why.
+    A FULL fresh review for anything that can change a verdict or a CRS cell, spend money, change the live data, or change what leaves the machine, whether or not the file is on the list; the list only decides where style stops block.
     The lead runs the mutation check of ALL changed danger-zone modules on the COMBINED head before the merge (a per-PR
     run cannot see stale entries that only the combination causes).
     (c) The Windows test job (`tests-windows.yml`) is off: it runs only by hand (`workflow_dispatch`).
