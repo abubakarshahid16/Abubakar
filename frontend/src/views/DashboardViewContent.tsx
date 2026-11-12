@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { formatWhenDate } from "../format/when";
 import { api, classification, management } from "../api/client";
 import type { ClassificationCoverage } from "../api/client";
 import type { Connection } from "../components/Shell";
@@ -147,7 +148,7 @@ export function DashboardView({
           </p>
         </div>
         <p className="font-mono text-xs text-slateish-500">
-          refreshed {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "—"} · every{" "}
+          refreshed {fetchedAt ? formatWhenDate(fetchedAt) : "—"} · every{" "}
           {metrics.refresh_seconds}s
         </p>
       </div>

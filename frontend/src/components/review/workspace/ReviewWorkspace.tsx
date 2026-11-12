@@ -39,6 +39,7 @@
  *    says so with a link to the newer one, and Sign asks first.
  *  - "Review again" is not offered to someone who is not an administrator.
  */
+import { formatDay } from "../../../format/when";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
@@ -166,9 +167,7 @@ export function notFinishedWords(run: ReviewRunSummary): string {
 
 /** "15 Oct 2026" style date for the newer-review line; "" when not known. */
 function dayOf(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString();
+  return formatDay(value);
 }
 
 /** Queued / running / anything else that is not "completed": the same

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { formatWhen } from "../../format/when";
 import type { ReviewDisposition, ReviewFinding, ReviewFindingEvent, ReviewFindingUpdate, ReviewStatus } from "../../types/api";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ViewId } from "../Shell";
@@ -174,7 +175,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
         <button type="button" onClick={() => void showTraceability()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-3 py-1.5 text-xs text-signal-300 hover:bg-signal-500/10">{traceability === null ? "View full chain" : "Refresh full chain"}</button>
       </div>
       {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 ps-3 text-xs text-slateish-500" aria-label="Finding history">
-        {history.map((event) => <li key={event.id}><span className="text-slateish-400">{eventLabel(event.event_type)}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
+        {history.map((event) => <li key={event.id}><span className="text-slateish-400">{eventLabel(event.event_type)}</span> · {formatWhen(event.created_at)} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
       </ol>}
       {traceability !== null && <TraceabilityTimeline traceability={traceability} finding={finding} />}
     </li>
@@ -202,7 +203,7 @@ function TraceabilityTimeline({ traceability, finding }: { traceability: import(
       </li>)}
     </ol>
     {traceability.events.length > 0 && <ul className="mt-3 border-t border-ink-700 pt-2 text-slateish-500">
-      {traceability.events.map((event) => <li key={event.id}>{eventLabel(event.event_type)} · {new Date(event.created_at).toLocaleString()} · {event.actor_user_id ?? "system"}</li>)}
+      {traceability.events.map((event) => <li key={event.id}>{eventLabel(event.event_type)} · {formatWhen(event.created_at)} · {event.actor_user_id ?? "system"}</li>)}
     </ul>}
   </section>;
 }

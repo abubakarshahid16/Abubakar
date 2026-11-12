@@ -618,10 +618,10 @@ describe("ReviewWorkspace", () => {
     data.mockReturnValue({ ...ready(), newerRun: newer } as WorkspaceRunData);
     render(<Harness initial={{}} />);
     const line = screen.getByTestId("ws-newer-review");
-    expect(line).toHaveTextContent(`A newer review of this document exists (${new Date("2026-10-18T09:00:00Z").toLocaleDateString()}).`);
+    expect(line).toHaveTextContent(`A newer review of this document exists (${"18 Oct 2026"}).`);
     await user.click(screen.getByRole("button", { name: "Sign and export" }));
     expect(screen.getByRole("dialog", { name: "Preview and confirm" })).toHaveAttribute(
-      "data-newer", new Date("2026-10-18T09:00:00Z").toLocaleDateString());
+      "data-newer", "18 Oct 2026");
     await user.click(screen.getByRole("button", { name: "Cancel signing" }));
     await user.click(within(line).getByRole("button", { name: "Open it" }));
     expect(onOpenRun).toHaveBeenCalledWith("run-9");
