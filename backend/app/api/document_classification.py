@@ -4,14 +4,22 @@ Moved out of main.py with no logic change (planner order 73, #692; system map ta
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from .. import access, agent_review_kind, register_type_split, schemas
+from .. import (
+    access,
+    agent_review_kind,
+    kind_review_table,
+    register_type_split,
+    schemas,
+    transmittal_check,
+)
 from .. import admin as admin_mod
 from .. import classification as classification_mod
 from .. import doc_router as doc_router_mod
 from .. import playbooks as playbooks_mod
 from ..api_utils import reject_unknown_params, require_document
+from ..db import connect
 
 router = APIRouter()
 
@@ -148,6 +156,33 @@ def get_document_review_kind(document_id: str, scope: access.AccessScope = Depen
     and ids, never a paper's text."""
     require_document(document_id, scope)
     return agent_review_kind.describe(document_id, scope.allowed_document_ids)
+
+
+def _transmittal_result(document_id: str, scope: access.AccessScope) -> dict:
+    require_document(document_id, scope)
+    reading = agent_review_kind.decide(document_id, scope.allowed_document_ids)
+    if not (reading.known and kind_review_table.row(reading.kind)["review"] == "completeness"):
+        raise HTTPException(status_code=409, detail={
+            "code": "not_a_transmittal", "message": "the completeness check is for a paper whose kind is a transmittal"})
+    return transmittal_check.check(connect(), document_id, scope.allowed_document_ids)
+
+
+@router.get("/api/documents/{document_id}/transmittal-check", response_model=schemas.TransmittalCheck,
+            responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
+def get_transmittal_check(document_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    """A transmittal's listed documents against the documents the caller may read: by code, no AI call, nothing sent anywhere."""
+    return _transmittal_result(document_id, scope)
+
+
+@router.get("/api/documents/{document_id}/transmittal-check.xlsx", responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
+def get_transmittal_check_xlsx(document_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    """The same list as a CRS-style workbook (the one layout)."""
+    result = _transmittal_result(document_id, scope)
+    return Response(
+        transmittal_check.build_xlsx(result, document_id),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="transmittal-check.xlsx"'},
+    )
 
 
 @router.put("/api/documents/{document_id}/kind", response_model=schemas.DocumentClassification,

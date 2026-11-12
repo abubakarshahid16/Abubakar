@@ -347,7 +347,7 @@ def preflight(
     shape = agent_review_schema.shape_problem(conn)  # before the first Claude call
     if shape:
         return shape
-    if not (kind.known and agent_review_gate.kind_enabled(kind.kind)):
+    if not (kind.known and agent_review_gate.rules_kind_enabled(kind.kind)):
         return agent_review_gate.KIND_NOT_ENABLED_MESSAGE
     if not conn.execute(
         "SELECT 1 FROM pages WHERE document_id = ? AND TRIM(text) <> '' LIMIT 1",
@@ -390,7 +390,7 @@ def _plan(
     if not kind.known:
         why = "paper kind unknown: no rule was asked of this paper; an engineer names the paper kind and the review runs again"
         return _nothing_asked(conn, submittal, why, f"paper_kind_unknown: {why}")
-    if not agent_review_gate.kind_enabled(kind.kind):
+    if not agent_review_gate.rules_kind_enabled(kind.kind):
         why = f"{agent_review_gate.KIND_NOT_ENABLED_MESSAGE}: no rule was asked of this {kind.kind.replace('_', ' ')}"
         return _nothing_asked(
             conn, submittal, why, f"{agent_review_gate.KIND_NOT_ENABLED}: {why}"
@@ -746,6 +746,33 @@ def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
     return "queued"
 
 
+def _rules_then_general(
+    conn, job_id, run_id, submittal, scope, kind, started, text, heartbeat
+) -> dict:
+    """A procedure or contract with `agent_review_general_rules_enabled` on (K1b): FIRST the held rules of the paper's kind through the
+    datasheet review's path (items, first reader, quote check, second reader; the checklist is left to the general review, so no
+    item is asked twice), THEN the general parts. The rule review's CRS stays `crs-internal.xlsx` / `crs-contractor.xlsx`; the
+    general review's one-layout workbook is `general/crs-internal.xlsx`. One run id, one cap (`claude_spend`: USD 15 a run). The
+    general parts are skipped when the rule part stopped (a cap or an approval stop): the run says so, nothing is hidden."""
+    plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
+    plan["items"] = [
+        i for i in plan["items"] if i.get("source") != "skill"
+    ]  # the checklist is the general review's part 2
+    agent_review_text.ensure_stop(plan, LEFT_OUT_WORDS)
+    _progress(conn, job_id, 2, heartbeat)
+    result = _execute(run_id, submittal, kind, plan, started)
+    agent_review_text.record(conn, run_id, text)
+    if not result["stop_reason"]:
+        general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
+                                  name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
+                                  combined=True)  # fmt: skip
+        result = general_job.merge_results(result, general)
+    else:
+        general_job.note_skipped(run_id, result["stop_reason"])
+    _progress(conn, job_id, 3, heartbeat)
+    return result
+
+
 @review_jobs._review_scope  # the bar on the local engine; ledger lines carry the run's id; spend in the run's record
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     """Run one claimed AI review job to its end. Returns the job's final state."""
@@ -776,6 +803,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         _write_run_start(run_id, submittal, kind, started)
         general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
         stops = text.stops_run(general)
+        if general and not stops and agent_review_gate.rules_kind_enabled(kind.kind):
+            result = _rules_then_general(
+                conn, job_id, run_id, submittal, scope, kind, started, text, heartbeat
+            )
+            return _done(conn, job_id, run_id, result)
         if general and not stops:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
