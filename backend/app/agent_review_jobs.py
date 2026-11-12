@@ -261,8 +261,6 @@ def stored_lines(run_id: str) -> dict[str, dict]:
 # ---------------------------------------------------------------- rules and books
 
 
-
-
 def lane() -> tuple:
     """(send, env) for the Claude calls: (None, None) in the app, the real lane. Tests replace this with a fake model."""
     return None, None
