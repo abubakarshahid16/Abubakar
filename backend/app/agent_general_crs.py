@@ -232,9 +232,7 @@ def _evidence_row(n: int, ln: Mapping, status: str) -> list:
     ]  # fmt: skip
 
 
-def _head_view(
-    final: list[Mapping], items: list, meta: Mapping, copy: str, discipline: str
-) -> dict:
+def _head_view(items: list, meta: Mapping, copy: str, discipline: str) -> dict:
     """The title, the header block (the datasheet review's own, `crs_ai_workbook._header_pairs`), the sentence and the item rows."""
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
@@ -333,7 +331,7 @@ def layout_view(
     discipline = _c(meta.get("discipline") or h.get("discipline"))
     contractor = copy == "contractor"
     items = [] if contractor else _item_lines(final)
-    view = _head_view(final, items, meta, copy, discipline)
+    view = _head_view(items, meta, copy, discipline)
     if contractor:
         view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
         view["rows"] = [r[:9] for r in view["rows"]]
