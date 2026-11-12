@@ -130,7 +130,7 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "plans a general review, declares what may be sent, stores its lines and run row",
     ),
     (
-        APP + "page_ledger.py",
+        APP + "page_reading.py",
         "the one unread-pages definition: the sign gate, the Pass hold, the page lines",
     ),
     (
