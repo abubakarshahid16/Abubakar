@@ -207,9 +207,14 @@ class AnswerStore:
         with self._lock:
             self._pending.pop(key, None)
         try:
-            self._conn().execute(
-                "DELETE FROM agent_review_answer WHERE request_key = ?", (key,)
-            )
+            conn = self._conn()
+            # COMMITTED here: a bare DELETE opens a write transaction on this worker thread's connection and keeps SQLite's write
+            # lock until the thread's next commit, which for a batch worker is its next paid call away; every other thread's
+            # `store_line` then waits out the 30 s busy timeout and the run fails "database is locked" (12 Nov, planted valve)
+            with conn:
+                conn.execute(
+                    "DELETE FROM agent_review_answer WHERE request_key = ?", (key,)
+                )
         except sqlite3.Error as exc:
             log.warning("agent review reuse: forget failed (%s)", type(exc).__name__)
 
