@@ -445,15 +445,23 @@ def _ai_pages(reader: dict, total: int, pages: dict) -> tuple[dict, dict]:
     for page, why in code_only.items() if isinstance(code_only, dict) else ():
         raw[int(page)] = why
     for page in reader.get("cut_off") or []:
-        failed.setdefault(int(page), f"the {engine} reader was cut off before this page")
+        failed.setdefault(
+            int(page), f"the {engine} reader was cut off before this page"
+        )
     for page, why in (reader.get("partly_read") or {}).items():
-        failed.setdefault(int(page), f"the {engine} reader read this page in part ({why})")
+        failed.setdefault(
+            int(page), f"the {engine} reader read this page in part ({why})"
+        )
     for key, word in (("unavailable", "unavailable"), ("stopped", "stopped")):
-        if reader.get(key) and (key == "unavailable" or int(reader.get("pages_read") or 0) < total):
+        if reader.get(key) and (
+            key == "unavailable" or int(reader.get("pages_read") or 0) < total
+        ):
             for page in range(1, total + 1):
                 raw.setdefault(page, reader[key])
                 if key == "stopped" or not local_engine_bar.is_bar_note(reader[key]):
-                    failed.setdefault(page, f"the {engine} reader was {word} ({reader[key]})")
+                    failed.setdefault(
+                        page, f"the {engine} reader was {word} ({reader[key]})"
+                    )
     marked = {int(p) for p in reader.get("skipped_on_purpose") or []}
     skipped = {
         p: f"the {engine} reader was not run on this page ({why})"
@@ -463,12 +471,16 @@ def _ai_pages(reader: dict, total: int, pages: dict) -> tuple[dict, dict]:
     for page, why in raw.items():
         if page not in skipped and page not in failed:
             failed[page] = f"the {engine} reader did not read this page ({why})"
-    thin = {int(p) for p in pages.get("pages_thin") or []} | {int(p) for p in pages.get("pages_read_no_field") or []}
+    thin = {int(p) for p in pages.get("pages_thin") or []} | {
+        int(p) for p in pages.get("pages_read_no_field") or []
+    }
     for page in [p for p in skipped if p in thin]:
         failed[page] = LITTLE_TEXT
         del skipped[page]
     keep = {p: w for p, w in failed.items() if 1 <= p <= total}
-    return dict(sorted(keep.items())), {p: w for p, w in skipped.items() if 1 <= p <= total}
+    return dict(sorted(keep.items())), {
+        p: w for p, w in skipped.items() if 1 <= p <= total
+    }
 
 
 def skipped_line(skipped: dict) -> str:
@@ -477,7 +489,9 @@ def skipped_line(skipped: dict) -> str:
     n = len(skipped)
     whys = {w.rsplit("(", 1)[-1].rstrip(")") for w in skipped.values()}
     why = next(iter(whys)) if len(whys) == 1 else "different reasons"
-    return NOT_RUN_WORDS.format(n=n, s="" if n == 1 else "s", why=why, they="it was" if n == 1 else "they were")
+    return NOT_RUN_WORDS.format(
+        n=n, s="" if n == 1 else "s", why=why, they="it was" if n == 1 else "they were"
+    )
 
 
 def reading_gaps(reader: dict | None, pages: dict) -> dict:
@@ -556,7 +570,9 @@ def every_page_read(pages: dict, where: str, total: int) -> str:
             f"page{'s' if len(none) != 1 else ''} {page_list(none)} "
             "read, no checklist field found"
         )
-    return f"{said}. {pages['ai_skipped_line']}" if pages.get("ai_skipped_line") else said
+    return (
+        f"{said}. {pages['ai_skipped_line']}" if pages.get("ai_skipped_line") else said
+    )
 
 
 def run_reader(outcome: dict | None) -> dict | None:
@@ -673,7 +689,11 @@ def _thin_part(ledger: list) -> dict:
     """`pages_thin`: the pages whose text layer is under the app's own minimum for a usable one (`OCR_MIN_USABLE_CHARS`, the
     measure `ocr.route_decision` uses). Only when there are some: the shape without it is unchanged."""
     floor = settings.ocr_min_usable_chars
-    thin = [r["page_no"] for r in ledger if r["native_status"] == "text" and (r["native_chars"] or 0) < floor]
+    thin = [
+        r["page_no"]
+        for r in ledger
+        if r["native_status"] == "text" and (r["native_chars"] or 0) < floor
+    ]
     return {"pages_thin": thin} if thin else {}
 
 

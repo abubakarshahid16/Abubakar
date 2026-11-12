@@ -713,7 +713,8 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
         if call is None:
             reasons[page_no] = why
             if _bar_note(why):
-                skipped_on_purpose.append(page_no)  # the structured marker `page_ledger.reading_gaps` reads
+                # the structured marker `page_ledger.reading_gaps` reads
+                skipped_on_purpose.append(page_no)
             continue
         if stopped is not None:
             reasons[page_no] = (OUT_OF_TIME.format(seconds=_seconds(budget)) if stopped == "time_budget"
