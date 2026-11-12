@@ -419,6 +419,34 @@ class AgentOtherBooks(BaseModel):
     boundary: str
 
 
+class AgentBookRow(BaseModel):
+    """One rule book that was a candidate for this review, or was only considered, with what happened to its rules."""
+
+    rule_book: str
+    #: true when the book's rules were candidates; false when the book was only considered and not included.
+    in_review: bool
+    #: the fixed words for what decided it (never text from the paper): named in the paper, governs this equipment type, ...
+    method: str
+    #: how many rules the library stores for this book (all of them, whatever their label); null when not counted.
+    stored_rules: Count | None = None
+    #: rules of this book asked in this review.
+    asked: Count = 0
+    #: rules of this book that were candidates and not asked, counted per reason.
+    left_out: dict[LeftOutReason, Count] = {}
+
+
+class AgentBookTable(BaseModel):
+    """Which held rule books were candidates for this review and which were not (view only)."""
+
+    books: list[AgentBookRow] = []
+    #: whose books these rows cover, in words (rule 4: every count states its boundary).
+    boundary: str
+    #: rule books of this review the reader may not read: counted, never named (rule 5).
+    hidden_books: Count = 0
+    #: a sentence when no book selection was stored for this run (rules came from per-rule decisions); null otherwise.
+    note: str | None = None
+
+
 class AgentRulesUsed(BaseModel):
     """GET /api/reviews/runs/{id}/rules-used (view only)."""
 
@@ -442,6 +470,8 @@ class AgentRulesUsed(BaseModel):
     same_rule_repeats: Count | None = None
     #: AI-approved rules of this paper kind in rule books the run did not select; null when not kept.
     other_books: AgentOtherBooks | None = None
+    #: the book-by-book table: which held rule books were candidates and which were not, and why; null on a run stored before it was kept.
+    book_table: AgentBookTable | None = None
     #: why the run stopped early, or why no rule was asked (the same words as the summary); null when it ran to its end.
     stop_reason: str | None = None
     #: the paper's stored-text state; null on a run stored before it was kept.
