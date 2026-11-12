@@ -171,6 +171,9 @@ class AgentRunRequest(BaseModel):
     #: General review only (a procedure or a contract): the project papers part 4 is checked against. Optional. Never chosen
     #: silently: each must be readable by the caller and is checked again when the job runs. Empty: part 4 says so on one line.
     project_document_ids: list[str] = Field(default=[], max_length=10)
+    #: Ask for fresh first-reader answers: this run ignores every stored answer and replaces it (only when the server keeps stored
+    #: answers, `AGENT_REVIEW_REUSE_ANSWERS_ENABLED`; otherwise nothing is stored and the option changes nothing).
+    fresh: bool = False
 
 
 class AgentProjectPaper(BaseModel):
@@ -223,6 +226,16 @@ class AgentPaperText(BaseModel):
     sentence: str | None = None
 
 
+class AgentChangedSincePrevious(BaseModel):
+    """Lines whose class changed since the previous finished run of the same paper (compared before the optional steps). Counts only;
+    the ids are in the run's trace. `decisions`: how many of those lines are, or were, a proven Pass or Fail or an AI opinion met or not met."""
+
+    previous_run_id: str
+    lines_compared: Count
+    changed: Count
+    decisions: Count
+
+
 class AgentPageRereadStop(BaseModel):
     """The optional second reading of pages ended early in this run (a cap or an error inside it, never the review)."""
 
@@ -253,6 +266,10 @@ class AgentRunSummary(BaseModel):
     equipment_notes: list[str] = []
     #: null when the second reading of pages is off or ran fully (shown as nothing, never 0).
     page_reread_stopped: AgentPageRereadStop | None = None
+    #: answers taken from an earlier run instead of asking (USD 0 each); null when the server does not keep stored answers.
+    answers_reused: Count | None = None
+    #: null when there is no earlier finished run of this paper, or this run did not finish whole.
+    changed_since_previous: AgentChangedSincePrevious | None = None
     #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
     not_reviewed: Count = 0
     #: "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise.

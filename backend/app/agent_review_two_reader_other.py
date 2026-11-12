@@ -17,7 +17,6 @@ from typing import Any
 
 from . import agent_claude, agent_run_second
 from . import agent_review_crs as crs_lines
-from . import agent_review_items as items_mod
 from . import agent_review_two_reader as two
 from .agent_review_request import (
     FATAL,
@@ -25,6 +24,7 @@ from .agent_review_request import (
     held_texts,
     pages_for,
     parse_answers,
+    stable_batches,
 )
 from .agent_review_two_reader_run import base_of
 
@@ -88,7 +88,7 @@ class OtherPaperMixin:
             self.record_other_off(two.OFF_LEAD_UNKNOWN)
             return
         items = [self.items_by_id[str(ln["item_id"])] for ln in ask]
-        for batch in items_mod.batch_by_page(items, two.MAX_BATCH):
+        for batch in stable_batches(items, two.MAX_BATCH):
             if st["off"] is not None:
                 break
             self._other_batch(batch)
@@ -116,6 +116,7 @@ class OtherPaperMixin:
                 parts,
                 min(two.TOKENS_CAP, two.TOKENS_BASE + two.TOKENS_PER_ITEM * len(batch)),
                 once=True,
+                **self.reuse_kw(),
             )
         except FATAL as exc:
             self.record_other_off(
@@ -146,6 +147,7 @@ class OtherPaperMixin:
                 model,
                 float(usd) / len(batch),
             )
+        self.settle_second([str(i.get("item_id")) for i in batch], "two_reader_other")
 
     def _other_line(
         self, item: dict, answer: dict | None, pages: dict, model: str, share: float
