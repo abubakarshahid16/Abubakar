@@ -37,6 +37,7 @@ from . import (
     agent_review_gate,
     agent_review_kind,
     agent_review_schema,
+    agent_review_text,
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
@@ -632,7 +633,7 @@ def _finish(
             " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
             (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
              json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now(),
-             json.dumps(_equipment_facts(plan["block"]))),
+             json.dumps({**_equipment_facts(plan["block"]), "paper_text": plan.get("paper_text")})),
         )  # fmt: skip
     return {"counts": counts, "stop_reason": stop, "usd": usd, "partial": partial}
 
@@ -765,11 +766,31 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
         _progress(conn, job_id, 0, heartbeat)
-        nothing_read.read_phase(submittal, scope, run_id)
+        read_nothing = False
+        try:
+            nothing_read.read_phase(submittal, scope, run_id)
+        except nothing_read.StoredFileAbsent:
+            raise
+        except nothing_read.NothingRead:
+            read_nothing = True  # said below with the paper's text state, on the run, never as a retried failure
+        text = agent_review_text.read(conn, submittal)
+        if read_nothing and text.stop is None:
+            raise nothing_read.NothingRead("nothing read: the document could not be read")
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
         _write_run_start(run_id, submittal, kind, started)
-        if kind.known and agent_review_gate.general_kind_enabled(kind.kind):
+        # no stored text to read: stop BEFORE any rule is chosen and any call is made, and say so on the run. A general review
+        # (a procedure, a contract) chooses no rule book from the search chunks and reads the page text itself, so only "no
+        # text" stops it; "not indexed" stops the rule review, whose rule books are chosen from the chunks.
+        general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
+        if text.stop and not (general and text.state == "not indexed"):
+            plan = _nothing_asked(conn, submittal, text.sentence, text.stop)
+            plan["paper_text"] = text.as_dict()
+            _progress(conn, job_id, 2, heartbeat)
+            result = _execute(run_id, submittal, kind, plan, started)
+            _progress(conn, job_id, 3, heartbeat)
+            return _done(conn, job_id, run_id, result)
+        if general:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
@@ -777,6 +798,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)
         plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
+        plan["paper_text"] = text.as_dict()  # a partly readable paper: its pages with no text are listed
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
         _progress(conn, job_id, 3, heartbeat)

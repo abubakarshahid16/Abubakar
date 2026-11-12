@@ -170,8 +170,8 @@ def test_7_the_run_is_refused_before_any_call_when_the_paper_has_no_stored_page(
         conn.execute("DELETE FROM pages WHERE document_id = ?", (s.PAPER,))
     run_id = run_review()
     assert run_row(run_id)["stop_reason"].startswith(
-        "refused: the paper has no stored page text"
-    )
+        "no_paper_text: This paper has no readable text in the library"
+    )  # C2: said before the rules are chosen, in plain words (the preflight check stays as the backstop)
     assert w["fake"].lead_asked == []
 
 
