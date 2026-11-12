@@ -41,6 +41,8 @@ ENTRY_POINTS = (
     "ocr_box_convert",
     # page pictures of the AI reviewer (drawings and scans): not wired into the job (text pages only)
     "agent_review_pages",
+    # the calculator of the one reviewer (owner, 12 Nov 2026): pure and tested, wired into the AI review job by the next PR of ONE-REVIEWER.md (PR 3)
+    "agent_review_calculator",
 )
 
 

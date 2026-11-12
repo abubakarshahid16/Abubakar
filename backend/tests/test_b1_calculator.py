@@ -10,6 +10,7 @@ import itertools
 
 import pytest
 
+from app import agent_review_approved_code as approved_code
 from app import agent_review_calculator as calc
 from app import agent_review_verdict as V
 from app import agent_review_wording as W
@@ -330,17 +331,17 @@ def test_a_check_that_does_not_apply_is_no_line_and_a_held_one_is_a_query():
 def test_a_forged_approved_marker_with_an_id_the_approved_file_does_not_hold_is_capped():
     forged = {"item_id": "C-X-1", "source": "code", "approved_checklist": True, "rule_id": "DS-NOT-APPROVED", "verdict": "Fail", "decided_by": V.BY_CODE,
               "compare": {"decided": True, "verdict": "does_not_meet"}, "quotes_checked": {"paper": True, "clause": True}, "paper_page": 1}  # fmt: skip
-    assert not V.is_approved_code_item(forged)
+    assert not approved_code.is_approved_code_item(forged)
     capped = exit_of(forged, forged)
     assert capped["verdict"] == "Query" and capped["verdict_class"] != "Proven by code"
     real = {**forged, "rule_id": "DS-C1"}
     assert (
-        V.is_approved_code_item(real)
+        approved_code.is_approved_code_item(real)
         and exit_of(real, real)["verdict_class"] == "Proven by code"
     )
-    assert not V.is_approved_code_item(
+    assert not approved_code.is_approved_code_item(
         {**real, "source": "rule"}
-    ) and not V.is_approved_code_item({**real, "approved_checklist": "yes"})
+    ) and not approved_code.is_approved_code_item({**real, "approved_checklist": "yes"})
 
 
 def test_the_calculator_makes_no_second_number_reader_and_opens_nothing():

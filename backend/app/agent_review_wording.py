@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterable, Mapping
 
+from . import agent_review_approved_code as approved_code
 from . import agent_review_two_reader as two_reader
 from .agent_review_verdict import (
     AI_TIER,
@@ -34,6 +35,7 @@ from .agent_review_verdict import (
     hold_silence,
     item_tier,
     met_unsafe_why,
+    OWNER_TIER,
 )
 
 CLASS_PROVEN = "Proven by code"
@@ -286,7 +288,11 @@ UNPROVEN_CODE_WHY = "the code line was not proven: a compared value with both qu
 def code_line_proven(line: Mapping) -> bool:
     """A CODE line (source "code") may be Pass or Fail ONLY with a decided comparison by code that agrees with the verdict, a paper page, and BOTH quotes
     found by code. The calculator makes lines that satisfy this; the exit asks again, so no other path can write a "Proven by code" for a code line."""
-    cmp, checked, verdict = line.get("compare"), line.get("quotes_checked") or {}, line.get("verdict")
+    cmp, checked, verdict = (
+        line.get("compare"),
+        line.get("quotes_checked") or {},
+        line.get("verdict"),
+    )
     page = line.get("paper_page")
     return bool(
         line.get("decided_by") == BY_CODE
@@ -304,8 +310,17 @@ def code_line_proven(line: Mapping) -> bool:
 def hold_unproven_code(line: Mapping) -> dict:
     """A code line that is Pass or Fail without `code_line_proven` becomes a Query with the reason. Only makes a line less confident. Idempotent."""
     out = dict(line)
-    if out.get("source") == CODE_SOURCE and out.get("verdict") in (PASS, FAIL) and not code_line_proven(out):
-        out.update(verdict=QUERY, decided_by=BY_ENGINEER, why=UNPROVEN_CODE_WHY, reason_code="not_proven")
+    if (
+        out.get("source") == CODE_SOURCE
+        and out.get("verdict") in (PASS, FAIL)
+        and not code_line_proven(out)
+    ):
+        out.update(
+            verdict=QUERY,
+            decided_by=BY_ENGINEER,
+            why=UNPROVEN_CODE_WHY,
+            reason_code="not_proven",
+        )
     return out
 
 
@@ -328,7 +343,11 @@ def final_cap(
       but a datasheet; an unknown or missing `paper_kind` counts as silent) is a Query: `hold_silence`.
     Idempotent. Only makes a line less confident."""
     out = hold_unproven_code(hold_silence(line, paper_kind))
-    tier = item_tier(item, lookup, skill_ids)
+    tier = (
+        OWNER_TIER
+        if approved_code.is_approved_code_item(item)
+        else item_tier(item, lookup, skill_ids)
+    )
     if tier == NOT_A_RULE:
         out.pop("rule_tier", None)
         out["tier"] = None

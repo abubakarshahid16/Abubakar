@@ -421,6 +421,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_point_sync` | One decision on a rule-check point written to BOTH decision records and the findings behind it in one transaction; `disagreements` for the sign gate |
 | `review_code_proposal` | The proposed review code from one stated rule, with its reason line and "So far" wording |
 | `api.review_points` | Routes: GET /api/reviews/papers/{id}/points, POST .../points/decision, .../points/decisions, .../points/add (12 Nov 2026) |
+| `agent_review_calculator` | The calculator of the one reviewer: a stored datasheet fact against a numeric rule (`comparison.compare`) and the approved checklist (`datasheet_checks.evaluate`) as lines of the AI review; Pass or Fail only with a compared value and both quotes found by code. Pure; wired by a later PR (ONE-REVIEWER.md) |
+| `agent_review_approved_code` | The approved checklist as an owner-tier item of the AI review's exit, only for an id that the approved file holds |
 | `review_engine` | The one resolver of the Review button's choice (Automatic, Claude, Local only): which part runs on which engine and why, whether text leaves, the pre-start answer, the stored choice, and the run-wide bar that keeps a run on this computer (12 Nov 2026) |
 | `review_engine_start` | Starting a review from the plan: queues the rule check, then the AI review the plan runs, checked again before it starts |
 | `contract_yes` | The owner's yes to send ONE contract upload to Claude: recorded by checksum on the approved list with who and when, audited, withdrawable |

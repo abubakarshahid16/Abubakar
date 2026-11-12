@@ -578,49 +578,6 @@ def is_checklist_item(
     )
 
 
-_APPROVED_CHECK_IDS: list[frozenset[str]] = []
-
-
-def approved_check_ids() -> frozenset[str]:
-    """The ids of the approved checklist entries (`reference/datasheet_checks.json`, read by `datasheet_checks`): every entry of the file that has
-    an id. Remembered only when the data loaded; an empty or failed load is asked again, never kept."""
-    if _APPROVED_CHECK_IDS:
-        return _APPROVED_CHECK_IDS[0]
-    from . import datasheet_checks
-
-    ids: set[str] = set()
-
-    def walk(node) -> None:
-        if isinstance(node, Mapping):
-            if isinstance(node.get("id"), str):
-                ids.add(node["id"])
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    try:
-        walk(datasheet_checks.load_rules())
-    except (OSError, ValueError):
-        return frozenset()
-    found = frozenset(ids)
-    if found:
-        _APPROVED_CHECK_IDS.append(found)
-    return found
-
-
-def is_approved_code_item(item: Mapping | None) -> bool:
-    """A code line's item that stands on the APPROVED checklist: source "code", the marker, and a rule id that EXISTS in the approved data. The marker
-    is never taken on trust (as `is_checklist_item`): an id the approved file does not hold is a rule with no tier, and its Pass or Fail is capped."""
-    return (
-        isinstance(item, Mapping)
-        and item.get("source") == "code"
-        and item.get("approved_checklist") is True
-        and item.get("rule_id") in approved_check_ids()
-    )
-
-
 def item_tier(
     item: Mapping | None,
     lookup: Callable[[Mapping], str | None] | None = None,
@@ -640,8 +597,6 @@ def item_tier(
         return NOT_A_RULE
     if item.get("rule_tier") == RULE_NOT_APPROVED:
         return RULE_NOT_APPROVED
-    if is_approved_code_item(item):  # a code line of the approved checklist: the owner approved its entry
-        return OWNER_TIER
     if (
         lookup is not None
     ):  # the CURRENT label table decides, whatever tier the item carried when it was built
