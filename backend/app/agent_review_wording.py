@@ -18,6 +18,8 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 from . import agent_review_two_reader as two_reader
 from .agent_review_verdict import (
     AI_TIER,
+    BY_ABSENCE,
+    BY_CODE,
     BY_ENGINEER,
     DISAGREE_WHY,
     FAIL,
@@ -65,6 +67,10 @@ REREAD_OUTCOME_WHY = {
     "no_value": REREAD_NO_VALUE_WHY,
     "quote_not_found": REREAD_QUOTE_NOT_FOUND_WHY,
 }
+#: Owner, 12 Nov 2026: "Proven Pass always means the code compared a value." A Pass whose line holds no passed code comparison is
+#: not proven; it is "AI verdict, two readers agree" (internal copy only) when the quotes and the second reader hold, else "AI thinks".
+NO_COMPARISON_WHY = "the code compared no value on this line"
+NO_PROOF_WHY = "the code compared no value on this line and proved no absence"
 ONE_READER = "One AI reader's view, not confirmed: "
 SECOND_DISAGREED = "The second AI reader disagreed. "
 
@@ -134,6 +140,9 @@ def classify(line: Mapping) -> dict:
     THE ORDER at the exit (the first that applies wins): 1. Not reviewed (the AI gave no answer); 2. silence (a non-datasheet
     paper that is silent: Query, and when the rule is also not AI approved the reason says both); 3. the cap of a rule that is
     not AI approved; 4. proven Pass / Fail, then the AI opinions, then Query."""
+    line = demote_unproven(
+        line
+    )  # owner, 12 Nov 2026: a proven Pass is one the code compared; here too, not only at the exit
     verdict, ai = line.get("verdict"), line.get("ai_verdict")
     unapproved = line.get("rule_tier") == RULE_NOT_APPROVED
     why = f"the rule is not AI approved: {line.get('rule_unapproved_why') or 'not agreed'}"
@@ -217,6 +226,53 @@ def apply(line: Mapping) -> dict:
     return out
 
 
+def code_compared(line: Mapping) -> bool:
+    """The code itself compared a value and it passed: the number path (`number_verdict`: a decided `compare_number`, decided by code)."""
+    cmp = line.get("compare")
+    return (
+        line.get("decided_by") == BY_CODE
+        and isinstance(cmp, Mapping)
+        and cmp.get("decided") is True
+        and cmp.get("verdict") == "meets"
+    )
+
+
+def code_proved_fail(line: Mapping) -> bool:
+    """The code itself proved the Fail: a decided `compare_number` that did not meet (decided by code), or the code's own absence
+    proof (`BY_ABSENCE`: every page read, no field words on any page, a strong verified clause quote)."""
+    cmp = line.get("compare")
+    by_value = (
+        line.get("decided_by") == BY_CODE
+        and isinstance(cmp, Mapping)
+        and cmp.get("decided") is True
+        and cmp.get("verdict") == "does_not_meet"
+    )
+    return by_value or line.get("decided_by") == BY_ABSENCE
+
+
+def demote_unproven(line: Mapping) -> dict:
+    """The owner's limit (12 Nov 2026, applied to Fail by the lead, to be confirmed by the owner): "Proven by code" means the code
+    compared a value, or proved an absence. A Pass with no passed code comparison, and a Fail with neither a failed comparison nor
+    the absence proof, is a Query that keeps the AI's verdict (`textual_pass` / `textual_fail`: it stood on two verified quotes and a
+    second reader), classified by `classify`. Never touches a Query or what the code proved. Idempotent."""
+    out = dict(line)
+    if out.get("verdict") == PASS and not code_compared(out):
+        out.update(
+            verdict=QUERY,
+            decided_by=BY_ENGINEER,
+            why=NO_COMPARISON_WHY,
+            textual_pass=True,
+        )
+    elif out.get("verdict") == FAIL and not code_proved_fail(out):
+        out.update(
+            verdict=QUERY, decided_by=BY_ENGINEER, why=NO_PROOF_WHY, textual_fail=True
+        )
+    return out
+
+
+demote_uncompared_pass = demote_unproven  # the name of the first version (Pass only)
+
+
 def final_cap(
     line: Mapping,
     item: Mapping | None,
@@ -241,7 +297,7 @@ def final_cap(
         out.pop("rule_tier", None)
         out["tier"] = None
         out["checklist"] = True
-        return apply(out)
+        return apply(demote_unproven(out))
     out["checklist"] = False
     if tier == RULE_NOT_APPROVED:
         out["rule_tier"] = RULE_NOT_APPROVED
@@ -259,7 +315,7 @@ def final_cap(
     out.pop("rule_tier", None)
     out.pop("rule_unapproved_why", None)
     out["tier"] = tier
-    return apply(out)
+    return apply(demote_unproven(out))
 
 
 def final_cap_all(
