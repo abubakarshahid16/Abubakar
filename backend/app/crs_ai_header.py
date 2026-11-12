@@ -72,18 +72,9 @@ def reviewed_by(review_run_id: str, *, ai: bool, usd: float | None = None) -> st
         if usd is not None:
             return "AI reviewer on Claude"
         return "AI reviewer (no model was asked on this run)"
-    from . import claude_spend, local_engine_bar
+    from . import local_engine_bar, review_engine
 
-    steps = sorted(
-        {
-            str(e.get("step") or "")
-            for e in claude_spend.entries()
-            if e.get("run") == review_run_id
-            and not e.get("refused")
-            and not e.get("estimated_refusal")
-        }
-        - {""}
-    )
+    steps = review_engine.ran_steps(review_run_id)  # the fact saved at the end of the run, else the ledger's
     if not steps:
         return "rule check on the local model"
     named = "; ".join(sorted({local_engine_bar._words(st) for st in steps}))

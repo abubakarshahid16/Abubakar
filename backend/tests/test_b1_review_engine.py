@@ -988,3 +988,211 @@ def test_the_trial_does_not_wait_for_an_ai_review_the_plan_did_not_start(
     follow, checks = t.engine_follow(None, cfg, run_id, tmp_path / "x", tmp_path, 0)
     assert follow is None and all(c.ok for c in checks)
     assert any("runs no AI review" in c.name for c in checks)
+
+
+# ------------------------------------------------------------------------------- review R47: the blocking three
+
+
+def _job_of(run_id):
+    return (
+        db.connect()
+        .execute("SELECT id FROM jobs WHERE review_run_id = ?", (run_id,))
+        .fetchone()["id"]
+    )
+
+
+def test_the_choice_exists_the_moment_the_job_does_a_worker_can_never_run_it_unbarred(
+    world, lane, monkeypatch
+):
+    """A worker that claims the job between its creation and the old second step found no choice and ran unbarred. The hook
+    that `enqueue` calls right after the commit is exactly that gap: the bar must already be readable there."""
+    seen = []
+
+    def worker_in_the_gap(run_id):
+        job_id = _job_of(run_id)
+        seen.append(review_engine.bar_state(db.connect(), job_id))
+
+    monkeypatch.setattr(
+        review_jobs.claude_auto_approve, "on_review_start", worker_in_the_gap
+    )
+    run_id, _plan = review_engine_start.start(
+        world["sub"], world["scope"], "adm", "local"
+    )
+    assert seen == [(True, None)], seen
+    assert _job_of(run_id).startswith(review_engine.JOB_MARK)
+
+
+def test_a_job_with_a_choice_row_and_one_without_are_told_apart(world, lane):
+    run_id, _plan = review_engine_start.start(
+        world["sub"], world["scope"], "adm", "local"
+    )
+    marked = _job_of(run_id)
+    with db.connect() as conn:
+        conn.execute(f"DELETE FROM {review_engine.TABLE} WHERE run_id = ?", (run_id,))
+        conn.execute(
+            "UPDATE review_runs SET status = 'complete' WHERE id = ?", (run_id,)
+        )
+    # a job of the new route that lost its choice: kept on this computer, and it says so
+    assert review_engine.bar_state(db.connect(), marked) == (
+        True,
+        review_engine.MISSING_WORDS,
+    )
+    # a job of the older routes: no mark, no row: as before
+    _old_run, old_job = _enqueue(world)
+    assert not old_job.startswith(review_engine.JOB_MARK)
+    assert review_engine.bar_state(db.connect(), old_job) == (False, None)
+
+
+def test_an_unreadable_choice_fails_closed_and_the_run_says_why(
+    world, lane, no_local_engine, monkeypatch
+):
+    import sqlite3
+
+    fake = _fake_claude()
+    lane.setattr(reader_transport, "transport", lambda: fake)
+    run_id, _plan = review_engine_start.start(
+        world["sub"], world["scope"], "adm", "automatic"
+    )
+    job_id = _job_of(run_id)
+    real = review_engine.stored
+
+    def locked(conn, rid):
+        if rid == run_id:
+            raise sqlite3.OperationalError("database is locked")
+        return real(conn, rid)
+
+    monkeypatch.setattr(review_engine, "stored", locked)
+    assert review_engine.bar_state(db.connect(), job_id) == (
+        True,
+        review_engine.UNREADABLE_WORDS,
+    )
+    review_jobs.claim_next(W)
+    assert review_jobs.run(job_id, W) == "done"
+    assert fake.calls == [], "an unreadable choice let the run reach Claude"
+    outcome = json.loads(
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()[0]
+    )
+    assert outcome["engine_choice_note"] == review_engine.UNREADABLE_WORDS
+
+
+def test_a_missing_job_row_is_barred_too(world, lane):
+    assert review_engine.bar_state(db.connect(), "no-such-job") == (
+        True,
+        review_engine.UNREADABLE_WORDS,
+    )
+
+
+# --------------------------------------------------------------------------------------------- review R47: the rest
+
+
+def test_the_cost_says_the_true_bound_per_part_and_in_total(world, lane, monkeypatch):
+    monkeypatch.setattr(
+        review_engine, "read_facts", lambda *a, **k: (open_facts(), None)
+    )
+    got = review_engine.plan_for(
+        db.connect(), world["sub"], world["scope"], "automatic"
+    )
+    per = float(settings.claude_budget_usd_per_run)
+    assert got["cost"]["at_most_usd"] == 2 * per and got["cost"][
+        "by_part_at_most_usd"
+    ] == {"rule_check": per, "ai_review": per}
+    assert (
+        "rule check: at most USD 15; AI review: at most USD 15; together at most USD 30"
+        in got["cost"]["basis"]
+    )
+    assert got["cost"]["exact"] is False
+    one = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "local")
+    assert one["cost"]["at_most_usd"] is None and one["cost"]["basis"] is None
+
+
+def test_the_header_engine_is_a_saved_fact_of_the_run_not_the_ledger_of_the_day(
+    world, lane
+):
+    run_id, _job = _enqueue(world)
+    with claude_spend.for_run(run_id):
+        claude_spend.record(step="crs_wording", model="claude-sonnet-5", usage={"input_tokens": 1, "output_tokens": 1},
+                            prompt_sha256="x", wall_time_s=0.1, finish_reason="end_turn")  # fmt: skip
+    review_engine.save_ran(run_id)
+    first = crs_ai_header.reviewed_by(run_id, ai=False)
+    with claude_spend.for_run(
+        run_id
+    ):  # a later ledger line (a re-run under the same id, a rotated file) changes nothing
+        claude_spend.record(step="review_ai_check", model="claude-sonnet-5", usage={"input_tokens": 1, "output_tokens": 1},
+                            prompt_sha256="y", wall_time_s=0.1, finish_reason="end_turn")  # fmt: skip
+    assert crs_ai_header.reviewed_by(run_id, ai=False) == first and "wording" in first
+    assert "AI check" not in first and "review ai check" not in first.lower()
+    # a run with no saved fact (an older one) still falls back to the ledger
+    with claude_spend.for_run("legacy"):
+        claude_spend.record(step="crs_wording", model="claude-sonnet-5", usage={"input_tokens": 1, "output_tokens": 1},
+                            prompt_sha256="z", wall_time_s=0.1, finish_reason="end_turn")  # fmt: skip
+    assert "with Claude for" in crs_ai_header.reviewed_by("legacy", ai=False)
+
+
+def test_who_approved_a_contract_is_shown_only_to_an_admin(world, lane):
+    from tests.test_p3_review_jobs import _user
+
+    contract_yes.grant(world["sub"], "owner@example.test")
+    bob = _user("bob", [world["sub"], world["std"]])
+    client = TestClient(app)
+    ask = dict(params={"submittal_document_id": world["sub"], "engine": "local"})
+    as_admin = client.get("/api/reviews/plan", headers=world["admin"], **ask).json()[
+        "contract_yes"
+    ]
+    as_bob = client.get("/api/reviews/plan", headers=bob, **ask).json()["contract_yes"]
+    assert as_admin["approved_by"] == "owner@example.test"
+    assert as_bob == {"document_id": world["sub"], "status": "approved"}
+
+
+def test_local_only_also_keeps_the_public_web_check_from_running(
+    world, lane, monkeypatch
+):
+    from app import market_transport
+
+    monkeypatch.setattr(settings, "review_web_standards_enabled", True)
+    monkeypatch.setattr(
+        market_transport, "transport", lambda: pytest.fail("a market call was made")
+    )
+    run_id, _job = _enqueue(world)
+    with review_engine.barring():
+        review_jobs._web_check(run_id, world["scope"], ["INVENTED 1"])
+    status = (
+        db.connect()
+        .execute("SELECT web_check_status FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()[0]
+    )
+    assert "kept on this computer" in status
+    note = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "local")[
+        "notes"
+    ]
+    assert any("web check" in n and "will not run" in n for n in note)
+
+
+def test_a_contract_by_role_alone_needs_the_yes_whatever_its_kind(world, lane):
+    lane.setattr(settings, "agent_review_enabled", True)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET document_role = 'CONTRACT_DOCUMENT' WHERE document_id = ?",
+            (world["sub"],),
+        )
+    got = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "claude")
+    assert (
+        got["refused"]
+        and review_engine.NEEDS_YES in got["refused"]
+        and got["needs_yes"]
+    )
+    local = review_engine.plan_for(db.connect(), world["sub"], world["scope"], "local")
+    assert local["refused"] is None
+
+
+def test_a_recorded_yes_on_an_unscored_contract_is_said_not_to_offer_it(world, lane):
+    _confirm_kind(world, "contract")
+    contract_yes.grant(world["sub"], "owner")
+    got = review_engine.plan_for(
+        db.connect(), world["sub"], world["scope"], "automatic"
+    )
+    assert any("recorded yes does not offer a contract" in n for n in got["notes"])
+    assert (
+        got["text_leaves"] is False
+    )  # scored kinds only: the contract path waits for a score or the setting

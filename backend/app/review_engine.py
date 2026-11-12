@@ -152,6 +152,9 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
     """The first reason the AI review cannot go to Claude for this paper: (code, one plain sentence), else None."""
     if not f.agent_enabled:
         return "AI_OFF", "the AI review is switched off on this install"
+    if f.is_contract and not f.contract_yes:
+        # by ROLE or by kind, asked before the kind: a contract is never "unknown"
+        return "NEEDS_YES", NEEDS_YES
     if f.kind is None:
         return (
             "KIND_UNKNOWN",
@@ -174,8 +177,6 @@ def _ai_blocker(f: Facts) -> tuple[str, str] | None:
         )
     if f.blocked:
         return "BLOCKED", "this file is blocked for Claude by name or checksum"
-    if f.is_contract and not f.contract_yes:
-        return "NEEDS_YES", NEEDS_YES
     if not f.paper_approved:
         return "NOT_APPROVED", "this paper is not approved for Claude"
     if not f.books_ok:
@@ -409,6 +410,44 @@ def _last_cost(conn, document_id: str) -> float | None:
     return float(row["usd"]) if row and row["usd"] is not None else None
 
 
+def _usd(value: float) -> str:
+    return f"USD {value:g}"
+
+
+def _cost_words(each: dict, total: float, per_run: float) -> str:
+    """The true upper bound per part and in total, from the caps in code: the rule check and the AI review are two runs, each with
+    its own per-run cap. The day and month caps still apply on top. Never an exact figure."""
+    bits = []
+    if each["rule_check"] is not None:
+        bits.append(f"rule check: at most {_usd(each['rule_check'])}")
+    if each["ai_review"] is not None:
+        bits.append(f"AI review: at most {_usd(each['ai_review'])}")
+    together = f"; together at most {_usd(total)}" if len(bits) > 1 else ""
+    return (
+        "; ".join(bits)
+        + together
+        + f" (each review has its own cap of {_usd(per_run)}, the day and month caps still apply; the real cost is usually lower)"
+    )
+
+
+def _notes(facts: Facts, plan: Plan, settings) -> list[str]:
+    """Plain notes the panel shows below the plan."""
+    notes = []
+    if facts.is_contract and not facts.scored_allowed:
+        notes.append(
+            "A recorded yes does not offer a contract for Claude while contracts are not scored against an answer key; it counts "
+            "once contracts are scored, or when this install turns on the setting for unscored kinds."
+        )
+    if settings.review_web_standards_enabled:
+        kept = not plan.text_leaves or plan.part(RULE_CHECK).engine != ON_CLAUDE
+        notes.append(
+            "The public web check of standards the library lacks will not run: this review is kept on this computer."
+            if kept
+            else "This install turns on the public web check of standards the library lacks; it can send those standard names out."
+        )
+    return notes
+
+
 def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> dict:
     """The pre-start answer. No side effect: nothing is written, no call is made, no model is loaded. A dict of plain facts:
     the engine of each part, whether text leaves this computer and which documents, the estimated cost, what will not run."""
@@ -435,19 +474,26 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
         )
     out["documents"] = docs
     out["boundary"] = "documents you may read"
-    cap = float(settings.claude_budget_usd_per_run)
+    per_run = float(settings.claude_budget_usd_per_run)
     last = _last_cost(conn, document_id)
+    rc_on = plan.part(RULE_CHECK).engine == ON_CLAUDE
+    ai_on = plan.part(AI_REVIEW).engine == ON_CLAUDE
+    each = {
+        "rule_check": per_run if rc_on else None,
+        "ai_review": per_run if ai_on else None,
+    }
+    total = sum(v for v in each.values() if v is not None)
     out["cost"] = {
-        "at_most_usd": cap if leaves else None,
-        "basis": "the cap for one review (never exceeded); the real cost is usually lower"
-        if leaves
-        else None,
+        "at_most_usd": total if leaves else None,
+        "by_part_at_most_usd": each,
+        "basis": _cost_words(each, total, per_run) if leaves else None,
         "last_review_usd": last if leaves else None,
         "last_review_note": "the measured cost of the last AI review of this paper"
         if (leaves and last is not None)
         else None,
         "exact": False,
     }
+    out["notes"] = _notes(facts, plan, settings)
     out["sentence"] = sentence_of(out)
     return out
 
@@ -498,6 +544,49 @@ def ensure_schema(conn) -> None:
     )
 
 
+#: The id of a job made by the ONE Review button starts with this (not a hex digit, so no older job id can look like it): a job
+#: that carries it MUST have a choice row; a job without it (the older routes) behaves exactly as before.
+JOB_MARK = "job_x"
+UNREADABLE_WORDS = "the engine choice of this review could not be read, so the review was kept on this computer"
+MISSING_WORDS = "the engine choice of this review was not found, so the review was kept on this computer"
+
+
+def new_job_id(marked: bool) -> str:
+    import uuid
+
+    return (
+        JOB_MARK + uuid.uuid4().hex[:11] if marked else "job_" + uuid.uuid4().hex[:12]
+    )
+
+
+def record_in(
+    conn,
+    run_id: str,
+    plan: dict,
+    requested_by: str | None,
+    *,
+    then_ai: bool,
+    bar_claude: bool,
+    now: str,
+) -> None:
+    """Write the choice WITHOUT committing: for the transaction that makes the run and its job (`review_jobs.enqueue(
+    in_transaction=...)`), so a worker can never claim the job before its choice exists."""
+    ensure_schema(conn)
+    conn.execute(
+        f"INSERT OR REPLACE INTO {TABLE} (run_id, choice, plan_json, requested_by, bar_claude, then_ai, decided_at)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (
+            run_id,
+            plan["choice"],
+            json.dumps(plan, sort_keys=True),
+            requested_by,
+            int(bar_claude),
+            int(then_ai),
+            now,
+        ),
+    )
+
+
 def record(
     conn,
     run_id: str,
@@ -508,33 +597,33 @@ def record(
     bar_claude: bool,
     now: str,
 ) -> None:
-    ensure_schema(conn)
     with conn:
-        conn.execute(
-            f"INSERT OR REPLACE INTO {TABLE} (run_id, choice, plan_json, requested_by, bar_claude, then_ai, decided_at)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (
-                run_id,
-                plan["choice"],
-                json.dumps(plan, sort_keys=True),
-                requested_by,
-                int(bar_claude),
-                int(then_ai),
-                now,
-            ),
+        record_in(
+            conn,
+            run_id,
+            plan,
+            requested_by,
+            then_ai=then_ai,
+            bar_claude=bar_claude,
+            now=now,
         )
 
 
-def stored(conn, run_id: str | None) -> dict | None:
-    """The stored choice of a run, or None. A table not made yet is None (a read creates nothing)."""
-    if not run_id:
-        return None
-    try:
-        row = conn.execute(
-            f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,)
+def _has_table(conn) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (TABLE,)
         ).fetchone()
-    except sqlite3.OperationalError:
+        is not None
+    )
+
+
+def stored(conn, run_id: str | None) -> dict | None:
+    """The stored choice of a run, or None when there is none (no table yet, or no row). A database error is NOT None: it
+    propagates, so no caller can read "could not look" as "nothing chosen"."""
+    if not run_id or not _has_table(conn):
         return None
+    row = conn.execute(f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,)).fetchone()
     if row is None:
         return None
     got = dict(row)
@@ -545,30 +634,160 @@ def stored(conn, run_id: str | None) -> dict | None:
     return got
 
 
-def bar_for_job(conn, job_id) -> bool:
-    """True when the run of this job must stay on this computer: its stored plan says so. A job with no stored choice (the old two
-    buttons) is not barred here: the installed switches decide, as before."""
+def bar_state(conn, job_id) -> tuple[bool, str | None]:
+    """(barred, why): must the run of this job stay on this computer? FAILS CLOSED, like `local_engine_bar._is_agent_job`.
+    * the stored choice says so: barred;
+    * the choice cannot be read (a database error, no job row): barred, and `why` says so in plain words;
+    * a job of the new route (id carries `JOB_MARK`) with no choice row: barred, and `why` says so;
+    * a job of the older routes (no mark, no row): not barred here, the installed switches decide as before."""
     try:
         row = conn.execute(
             "SELECT review_run_id FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
-    except sqlite3.Error:
-        return False
-    got = stored(conn, row["review_run_id"] if row else None)
-    return bool(got and got["bar_claude"])
+        if row is None:
+            return True, UNREADABLE_WORDS
+        got = stored(conn, row["review_run_id"])
+    except sqlite3.Error as exc:
+        log.warning(
+            "review engine: choice unreadable (%s); the run is kept on this computer",
+            type(exc).__name__,
+        )
+        return True, UNREADABLE_WORDS
+    if got is None:
+        return (
+            (True, MISSING_WORDS) if str(job_id).startswith(JOB_MARK) else (False, None)
+        )
+    return bool(got["bar_claude"]), None
+
+
+def bar_for_job(conn, job_id) -> bool:
+    return bar_state(conn, job_id)[0]
+
+
+def note_on_run(job_id, why: str) -> None:
+    """Say in the run's record why it was kept on this computer when its choice could not be read. Best effort; never raises."""
+    from .db import connect
+
+    try:
+        conn = connect()
+        row = conn.execute(
+            "SELECT review_run_id FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return
+        run_id = row["review_run_id"]
+        got = conn.execute(
+            "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        outcome = json.loads((got["outcome_json"] if got else None) or "{}")
+        outcome["engine_choice_note"] = why
+        with conn:
+            conn.execute(
+                "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+                (json.dumps(outcome), run_id),
+            )
+    except (sqlite3.Error, ValueError) as exc:
+        log.warning("review engine: the note was not written (%s)", type(exc).__name__)
+
+
+def claude_steps_from_ledger(run_id: str) -> list[str]:
+    """The steps of this run that reached Claude (a ledger line under its id, not a refusal). Step names only."""
+    from . import claude_spend
+
+    return sorted(
+        {
+            str(e.get("step") or "")
+            for e in claude_spend.entries()
+            if e.get("run") == run_id and not e.get("refused")
+        }
+        - {""}
+    )
+
+
+def save_ran(run_id: str | None) -> None:
+    """At the END of a run, save what it really did: the steps that reached Claude. The sheet header reads this stored fact, so an
+    export made later says what the first one said. Never raises."""
+    from .db import connect
+
+    if not run_id:
+        return
+    try:
+        steps = claude_steps_from_ledger(run_id)
+        conn = connect()
+        got = conn.execute(
+            "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if got is None:
+            return
+        outcome = json.loads(got["outcome_json"] or "{}")
+        outcome["engine_ran"] = {"claude_steps": steps}
+        with conn:
+            conn.execute(
+                "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+                (json.dumps(outcome), run_id),
+            )
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        log.warning(
+            "review engine: what the run did was not saved (%s)", type(exc).__name__
+        )
+
+
+def ran_steps(run_id: str) -> list[str]:
+    """The Claude steps of a finished run: the SAVED fact when there is one, else (an older or unfinished run) the ledger's."""
+    from .db import connect
+
+    try:
+        got = (
+            connect()
+            .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+            .fetchone()
+        )
+        saved = json.loads((got["outcome_json"] if got else None) or "{}").get(
+            "engine_ran"
+        )
+    except (sqlite3.Error, ValueError):
+        saved = None
+    if isinstance(saved, dict) and isinstance(saved.get("claude_steps"), list):
+        return [str(x) for x in saved["claude_steps"]]
+    return claude_steps_from_ledger(run_id)
+
+
+def note_web_check_skipped(run_id: str) -> None:
+    """The run was kept on this computer, so its public web check did not run: say so on the run. Best effort; never raises."""
+    from . import absence
+    from .db import connect
+
+    status = absence.check_failed_status(
+        "Web standards check",
+        "this review was kept on this computer, so nothing was sent out",
+    )
+    try:
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE review_runs SET web_check_status = ? WHERE id = ?",
+                (json.dumps(status), run_id),
+            )
+    except sqlite3.Error as exc:
+        log.warning(
+            "review engine: the web check note was not written (%s)", type(exc).__name__
+        )
 
 
 def honouring_choice(job):
-    """The review job, with the run's bar up when its plan keeps it on this computer."""
+    """The review job, with the run's bar up when its plan keeps it on this computer (or when the plan cannot be read)."""
     import functools
 
     from .db import connect
 
     @functools.wraps(job)
     def wrapper(job_id, *args, **kwargs):
-        if bar_for_job(connect(), job_id):
+        barred, why = bar_state(connect(), job_id)
+        if barred:
             with barring():
                 state = job(job_id, *args, **kwargs)
+            if why:
+                note_on_run(job_id, why)
         else:
             state = job(job_id, *args, **kwargs)
         # Outside the bar: the AI review that follows a finished rule check is its own run with its own plan.

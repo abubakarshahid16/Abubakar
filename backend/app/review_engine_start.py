@@ -53,17 +53,26 @@ def start(
     parts = {p["name"]: p for p in plan["parts"]}
     plan["project_document_ids"] = list(project_document_ids)
     plan["fresh"] = bool(fresh)
+    then_ai = parts[review_engine.AI_REVIEW]["engine"] == review_engine.ON_CLAUDE
+    bar = parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
+
+    def choice_with_the_job(txn_conn, new_run_id: str) -> None:
+        # In the SAME transaction as the job: a worker that claims the job finds its choice (and so its bar) already there.
+        review_engine.record_in(
+            txn_conn,
+            new_run_id,
+            plan,
+            requested_by,
+            then_ai=then_ai,
+            bar_claude=bar,
+            now=job_queue.now_iso(),
+        )
+
     run_id, _job = review_jobs.enqueue(
-        document_id, allowed_document_ids=allowed, requested_by=requested_by
-    )
-    review_engine.record(
-        conn,
-        run_id,
-        plan,
-        requested_by,
-        then_ai=parts[review_engine.AI_REVIEW]["engine"] == review_engine.ON_CLAUDE,
-        bar_claude=parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE,
-        now=job_queue.now_iso(),
+        document_id,
+        allowed_document_ids=allowed,
+        requested_by=requested_by,
+        in_transaction=choice_with_the_job,
     )
     return run_id, plan
 
@@ -114,6 +123,12 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
     plan = got["plan"]
     general = agent_review_gate.general_kind_enabled(again.get("kind"))
     projects = tuple(plan.get("project_document_ids") or ()) if general else None
+
+    def choice_with_the_job(txn_conn, new_run_id: str) -> None:
+        review_engine.record_in(
+            txn_conn, new_run_id, again, job["created_by"], then_ai=False, bar_claude=False, now=job_queue.now_iso()
+        )
+
     try:
         ai_run, _ = agent_review_jobs.enqueue(
             doc,
@@ -121,20 +136,12 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
             requested_by=job["created_by"],
             project_document_ids=projects,
             fresh=bool(plan.get("fresh")),
+            in_transaction=choice_with_the_job,
         )
     except review_jobs.ReviewAlreadyActive:
         _note(
             conn, run_id, "not started: another review of this paper is already running"
         )
         return None
-    review_engine.record(
-        conn,
-        ai_run,
-        again,
-        job["created_by"],
-        then_ai=False,
-        bar_claude=False,
-        now=job_queue.now_iso(),
-    )
     _note(conn, run_id, ai_run)
     return ai_run

@@ -48,6 +48,15 @@ class ContractYesRequest(BaseModel):
     document_id: str
 
 
+def _is_admin(request: Request) -> bool:
+    """True for an admin (or, under AUTH_MODE=disabled with no identity, as `current_admin` allows). Never raises."""
+    try:
+        admin_mod.current_admin(request)
+    except HTTPException:
+        return False
+    return True
+
+
 def _actor(admin: dict | None, scope: access.AccessScope) -> str:
     return str(
         (admin or {}).get("email")
@@ -71,7 +80,10 @@ def review_plan(
     got = review_engine.plan_for(
         conn, submittal_document_id, scope.allowed_document_ids, engine
     )
-    got["contract_yes"] = contract_yes.record_of(submittal_document_id)
+    record = contract_yes.record_of(submittal_document_id)
+    if record is not None and not _is_admin(request):  # who approved is for admins; anyone sees that a yes stands
+        record = {k: v for k, v in record.items() if k in ("document_id", "status")}
+    got["contract_yes"] = record
     return got
 
 
