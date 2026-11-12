@@ -78,12 +78,6 @@ def style_print(ws, header_row: int, ncols: int, last_row: int) -> None:
     ws.print_area = f"A1:{get_column_letter(ncols)}{max(last_row, header_row)}"
 
 
-def style_header_and_print(ws, header_row: int, ncols: int) -> None:
-    """The normal reviewer's sheet: the shared header row, frozen panes and print setup; its rows and their styles are untouched."""
-    style_header_row(ws, header_row, ncols)
-    style_print(ws, header_row, ncols, ws.max_row)
-
-
 def style_table(ws, header_row: int, ncols: int, last_row: int, widths=None) -> None:
     """THE styling of a table sheet of the AI reviewer's workbook: `style_header_row`, thin borders on every used cell (every
     cell of the table, an empty Response cell included), wrapped text, column widths, then `style_print`."""
@@ -167,8 +161,8 @@ def _header_block(ws, view: dict, ncols: int) -> int:
     return row + 1  # one blank row between the block and the table
 
 
-def build_layout_crs(view: dict) -> bytes:
-    """Draw the CRS of the AI reviewer into the app's layout and return the workbook bytes.
+def layout_workbook(view: dict) -> Workbook:
+    """Draw a CRS (either reviewer) into the app's one layout and return the workbook.
 
     view (all plain values, decided by the caller; a missing part prints nothing):
       title, subtitle          rows 1 and 2 (merged)
@@ -217,6 +211,11 @@ def build_layout_crs(view: dict) -> bytes:
     if notes:
         _table_sheet(wb.create_sheet(NOTES_SHEET), notes["columns"], notes["rows"], notes["widths"],
                      heading_rows=notes.get("heading_rows") or ())  # fmt: skip
+    return wb
+
+
+def build_layout_crs(view: dict) -> bytes:
+    """`layout_workbook` as bytes."""
     buffer = BytesIO()
-    wb.save(buffer)
+    layout_workbook(view).save(buffer)
     return buffer.getvalue()

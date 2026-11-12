@@ -44,3 +44,12 @@ def document_header(
         "date": _text(got.get("effective_date")),
         "discipline": discipline,
     }
+
+
+def header_for_run(conn, review_run_id: str) -> dict[str, str]:
+    """`document_header` of the paper a review run reviewed (the normal reviewer's export knows only the run id); every value
+    '' when the run or the paper is not found."""
+    row = conn.execute(
+        "SELECT submittal_document_id FROM review_runs WHERE id = ?", (review_run_id,)
+    ).fetchone()
+    return document_header(conn, row[0]) if row else dict.fromkeys(FIELDS, "")

@@ -27,15 +27,21 @@ from .agent_review_verdict import (
     UNVERIFIED_CLAUSE_WHY,
     UNVERIFIED_PAPER_WHY,
 )
+from .crs_mapping import (
+    CRS_STATUS_AI,
+    CRS_STATUS_FAIL,
+    CRS_STATUS_PASS,
+    CRS_STATUS_QUERY,
+)
 
 # ---------------------------------------------------------------- the four Status words, their order, the priority rule
 
 STATUS_FAIL, STATUS_AI, STATUS_QUERY, STATUS_PASS = (
-    "Fail",
-    "AI opinion",
-    "Query",
-    "Pass",
-)
+    CRS_STATUS_FAIL,
+    CRS_STATUS_AI,
+    CRS_STATUS_QUERY,
+    CRS_STATUS_PASS,
+)  # one home: `crs_mapping` (the normal reviewer's Status words are the same four)
 STATUSES = (STATUS_FAIL, STATUS_AI, STATUS_QUERY, STATUS_PASS)
 HIGH, MEDIUM, LOW = "High", "Medium", "Low"
 #: Internal copy row order: Fail, AI opinion (not met), Query, AI opinion (met), Pass (owner, 12 Nov).
