@@ -63,6 +63,14 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
     (
+        APP + "table_cell.py",
+        "locates the one cell of a value on the stored table rows: the cell is the proof of a proven Pass or Fail",
+    ),
+    (
+        APP + "agent_review_calculator_cells.py",
+        "groups facts per tag, lifts or settles a held reading, picks a fact's cell: decides which value a proven line rests on",
+    ),
+    (
         APP + "agent_review_calculator.py",
         "makes a proven Pass or Fail of the one reviewer from a compared value",
     ),
@@ -77,7 +85,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
-    (APP + "agent_review_calculator_run.py", "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass"),
+    (
+        APP + "agent_review_calculator_run.py",
+        "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass",
+    ),
     (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
     (
         APP + "review_engine_start.py",
