@@ -79,11 +79,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "07",
         "the contractor-facing copy is coloured by Status (a colour says which comments were drafts)",
-        _N,
-        '"plain": not internal,',
-        '"plain": False,',
-        _T,
-        "contractor_facing_copy",
+        APP / "crs_ai_workbook.py",
+        '        view["plain"] = True\n',
+        '        view["plain"] = False\n',
+        "tests/test_agent_review_crs.py",
+        "names_an_internal_judgement",
     ),
     _m(
         "08",
