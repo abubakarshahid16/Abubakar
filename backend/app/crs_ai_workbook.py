@@ -497,6 +497,10 @@ def _notes_rows(
     ):
         if isinstance(meta.get(key), Mapping):
             rows.append((label, _step_words(meta[key])))
+    if stopped := (meta.get("order12_counts") or {}).get(
+        "page_reread_stopped"
+    ):  # C4: a stopped page re-read is stated
+        rows.append(("Second reading of pages", _clean(stopped)))
     rows += [("Rules not asked", _clean(t)) for t in block.get("summary_lines") or []]
     rows += [
         ("Run id", _clean(meta.get("run_id")) or "not reported"),
