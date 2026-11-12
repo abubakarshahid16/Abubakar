@@ -449,3 +449,13 @@ def test_no_model_is_reachable_from_the_transmittal_check():
         re.M,
     )
     assert sqlite3  # (the check reads the library with plain SQL only)
+
+
+def test_only_the_datasheet_is_scored_and_the_field_is_required():
+    assert [k for k in kind_review_table.kinds() if kind_review_table.scored(k)] == [
+        "datasheet"
+    ]
+    assert (
+        kind_review_table.scored("procedure") is False
+        and kind_review_table.scored(None) is False
+    )

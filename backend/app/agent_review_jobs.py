@@ -54,6 +54,11 @@ from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
 from . import crs_ai_header as crs_header
+from .agent_review_page_record import (  # noqa: F401 - moved unchanged, re-exported
+    _requeue_switched_off,
+    _with_page_record,
+    page_record,
+)
 from .agent_review_pair import (  # noqa: F401 - re-exported
     IllegalLine,
     contract_class_and_word,
@@ -676,44 +681,6 @@ def _cancelled(conn, job_id: str, run_id: str) -> str:
     return job_queue.CANCELLED
 
 
-def page_record(conn, run_id: str) -> dict | None:
-    """The page reading to keep on an AI run's row (#1780). The AI review reads no page itself, so its row used to carry
-    none, and a paper whose normal reviews held a good reading showed "no page record". Now: the paper's current page
-    ledger when it holds pages; else the newest earlier run's stored reading that has pages, marked with the run and date it
-    came from ("carried_from_run", "carried_from_at"); else None (the screen says so plainly). A skipped, failed or empty
-    reading never replaces a stored one that has pages."""
-    from . import comparison
-
-    row = conn.execute(
-        "SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)
-    ).fetchone()
-    if row is None:
-        return None
-    try:
-        now = comparison.pages_read_with_reading(row["submittal_document_id"])
-    except Exception:  # noqa: BLE001 - a missing record must not fail the run
-        now = None
-    if isinstance(now, dict) and now.get("pages_total"):
-        return now
-    for old in conn.execute(
-        "SELECT id, outcome_json, COALESCE(completed_at, updated_at) AS at FROM review_runs"
-        " WHERE submittal_document_id = ? AND id <> ? AND outcome_json IS NOT NULL ORDER BY created_at DESC, id DESC",
-        (row["submittal_document_id"], run_id),
-    ):
-        try:
-            cov = (json.loads(old["outcome_json"]) or {}).get("page_coverage")
-        except (ValueError, TypeError):
-            continue
-        if isinstance(cov, dict) and cov.get("pages_total"):
-            return {**cov, "carried_from_run": old["id"], "carried_from_at": old["at"]}
-    return None
-
-
-def _with_page_record(conn, run_id: str, outcome: dict) -> dict:
-    cov = page_record(conn, run_id)
-    return {**outcome, "page_coverage": cov} if cov else outcome
-
-
 def _done(conn, job_id: str, run_id: str, result: dict) -> str:
     outcome = {"agent_review": True, "partial": result["partial"], "stop_reason": result["stop_reason"],
                "counts": {k: v for k, v in result["counts"].items() if isinstance(v, int)}}  # fmt: skip
@@ -730,20 +697,6 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         )
         job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
     return "done"
-
-
-def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
-    """The switch went off while the job waited: nothing is sent, the job goes back to the queue."""
-    with conn:
-        conn.execute(
-            "UPDATE jobs SET state = 'queued', claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?",
-            (_now(), job_id),
-        )
-        conn.execute(
-            "UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
-            (_now(), run_id),
-        )
-    return "queued"
 
 
 def _rules_then_general(

@@ -19,7 +19,7 @@ TABLE_PATH = Path(__file__).parent / "reference" / "kind_review_table.json"
 REVIEWS = ("rule", "rule_and_general", "general", "completeness", "none")
 ROW_KEYS = (
     "review", "rules_of_kind", "ask_rules", "checklist_skill_ending", "checklist_slot", "no_main_equipment",
-    "window_tokens", "overlap_pages", "crs_discipline", "label",
+    "window_tokens", "overlap_pages", "crs_discipline", "label", "scored",
 )  # fmt: skip
 UNKNOWN = "unknown"
 
@@ -40,6 +40,8 @@ def _check(data: dict) -> dict:
             raise TableError(
                 f"kind {name}: review {row['review']!r} is not one of {REVIEWS}"
             )
+        if not isinstance(row["scored"], bool):
+            raise TableError(f"kind {name}: scored must be true or false")
         if row["ask_rules"] != bool(row["rules_of_kind"]):
             raise TableError(f"kind {name}: ask_rules and rules_of_kind disagree")
         if (
@@ -57,7 +59,7 @@ def _check(data: dict) -> dict:
 
 
 @lru_cache(maxsize=1)
-def _load(mtime: float) -> dict:
+def _load(mtime: float) -> dict:  # noqa: ARG001 - the argument is the cache key (re-read when the file changes)
     return _check(json.loads(TABLE_PATH.read_text(encoding="utf-8")))
 
 
@@ -117,6 +119,11 @@ def checklist_slot(kind: str | None) -> str:
 
 def discipline(kind: str | None) -> str:
     return str(row(kind)["crs_discipline"] or "")
+
+
+def scored(kind: str | None) -> bool:
+    """True only for a kind whose review was scored against an answer key. A kind not scored does not go live (owner, 12 Nov)."""
+    return bool(row(kind)["scored"])
 
 
 def window_settings(kind: str | None) -> tuple[int, int]:

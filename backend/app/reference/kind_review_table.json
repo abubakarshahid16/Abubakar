@@ -1,5 +1,5 @@
 {
-  "_about": "ONE home for what the AI reviewer does with each kind of paper (order 13, K1b). The code reads only this file (kind_review_table.py): the gate, the equipment rule, the checklist, the page split and the CRS discipline words. Edit here, never a tuple in code. A kind the code can decide that has no row here is a test failure. A kind decided with no row, or `none`, asks nothing and says so.",
+  "_about": "ONE home for what the AI reviewer does with each kind of paper (order 13, K1b). The code reads only this file (kind_review_table.py): the gate, the equipment rule, the checklist, the page split and the CRS discipline words. Edit here, never a tuple in code. A kind the code can decide that has no row here is a test failure. A kind decided with no row, or `none`, asks nothing and says so. `scored`: true only for a kind whose review was scored against an answer key (datasheet); no other kind goes live until it is (owner, 12 Nov, STATE 24). The engine choice and approvals read it.",
   "table_version": "1",
   "page_strategy_rule": "Deterministic split: pages are taken in page order; the whole paper goes in ONE window when its estimated tokens (characters / 4 + 20 per page) fit window_tokens; otherwise windows of consecutive pages, each as large as fits, the next one starting overlap_pages pages back. No page is ever skipped; the same paper always gives the same windows.",
   "kinds": {
@@ -15,7 +15,8 @@
       "window_tokens": 60000,
       "overlap_pages": 1,
       "crs_discipline": "",
-      "label": "Datasheet"
+      "label": "Datasheet",
+      "scored": true
     },
     "procedure": {
       "review": "rule_and_general",
@@ -29,7 +30,8 @@
       "window_tokens": 60000,
       "overlap_pages": 1,
       "crs_discipline": "Procedures",
-      "label": "Procedure"
+      "label": "Procedure",
+      "scored": false
     },
     "contract": {
       "review": "rule_and_general",
@@ -43,7 +45,8 @@
       "window_tokens": 60000,
       "overlap_pages": 1,
       "crs_discipline": "Contracts",
-      "label": "Contract"
+      "label": "Contract",
+      "scored": false
     },
     "calculation": {
       "review": "none",
@@ -55,7 +58,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "Calculations",
-      "label": "Calculation"
+      "label": "Calculation",
+      "scored": false
     },
     "transmittal": {
       "review": "completeness",
@@ -67,7 +71,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "Document control",
-      "label": "Transmittal"
+      "label": "Transmittal",
+      "scored": false
     },
     "specification": {
       "review": "none",
@@ -79,7 +84,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "",
-      "label": "Specification"
+      "label": "Specification",
+      "scored": false
     },
     "drawing": {
       "review": "none",
@@ -91,7 +97,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "",
-      "label": "Drawing"
+      "label": "Drawing",
+      "scored": false
     },
     "test_record": {
       "review": "none",
@@ -103,7 +110,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "",
-      "label": "Test record"
+      "label": "Test record",
+      "scored": false
     },
     "other": {
       "review": "none",
@@ -115,7 +123,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "",
-      "label": "Other"
+      "label": "Other",
+      "scored": false
     },
     "unknown": {
       "review": "none",
@@ -127,7 +136,8 @@
       "window_tokens": 0,
       "overlap_pages": 0,
       "crs_discipline": "",
-      "label": "Unknown"
+      "label": "Unknown",
+      "scored": false
     }
   }
 }
