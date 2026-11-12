@@ -14,8 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import agent_review_rules as rules_mod
-from . import agent_review_text
-from . import requirement_split, rule_labels, table_gate
+from . import agent_review_text, requirement_split, rule_labels, table_gate
 from .agent_review_standards import (
     _norm_clause,
     _paper_pages,
@@ -585,7 +584,9 @@ def build_items_for_run(
         "rows": len(rows) if rows is not None else None,
         "repeats": (doc.get("rules_left_out") or {}).get("stored_repeat", 0),
         "books_not_selected": other,
-        "books_included": agent_review_text.books_included(conn, scope_run, allowed) if by_book else None,
+        "books_included": agent_review_text.books_included(conn, scope_run, allowed)
+        if by_book
+        else None,
     }
     if by_book:
         block.setdefault("summary_lines", []).append(

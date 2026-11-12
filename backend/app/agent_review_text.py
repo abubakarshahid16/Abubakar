@@ -16,6 +16,7 @@ Words and numbers only: page numbers and counts, never a page's text. General (r
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 
 NO_TEXT = "no_paper_text"
@@ -226,7 +227,7 @@ def books_included(conn, run_id: str, allowed) -> int:
             "SELECT standard_document_id FROM review_applicable_standards WHERE review_run_id = ? AND included = 1",
             (run_id,),
         ).fetchall()
-    except Exception:  # noqa: BLE001 - no selection table: no selected book
+    except sqlite3.OperationalError:  # no selection table: no selected book
         return 0
     return len({r[0] for r in got if r[0] in allowed})
 
