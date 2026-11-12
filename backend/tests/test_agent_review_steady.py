@@ -667,3 +667,125 @@ def test_the_evidence_sheet_marks_a_reused_answer_and_the_contractor_copy_never_
     ]
     assert marked and all(f"run {first} of" in c for c in marked)
     assert not any("reused" in c.lower() for c in cells(second, "crs-contractor.xlsx"))
+
+
+def test_an_answer_with_a_quote_that_fails_the_check_is_never_frozen(w, reuse_on):
+    """N1 (review R38): a stored answer whose quote the code could not verify is dropped, so the next run asks again."""
+    run_review()
+    quote = s.ANSWERS["R-coat"]["paper_quote"]
+    hit = [r for r in stored_rows() if quote in r["answer_json"]]
+    assert len(hit) == 1
+    asked = len(w["fake"].lead_asked)
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            "UPDATE agent_review_answer SET answer_json = ? WHERE request_key = ?",
+            (
+                hit[0]["answer_json"].replace(quote, "a quote the paper does not hold"),
+                hit[0]["request_key"],
+            ),
+        )
+    second = (
+        run_review()
+    )  # the tampered answer is used once, the check fails, and it is dropped
+    assert (
+        len(w["fake"].lead_asked) == asked
+        and lines_of(second)["R-coat"]["word"] != "Pass"
+    )
+    assert hit[0]["request_key"] not in {r["request_key"] for r in stored_rows()}
+    third = run_review()  # so this run asks again, gets the good answer, and a fully verified answer is kept
+    assert (
+        len(w["fake"].lead_asked) == asked + 1
+        and lines_of(third)["R-coat"]["word"] == "Pass"
+    )
+    assert hit[0]["request_key"] in {r["request_key"] for r in stored_rows()}
+    assert (
+        run_review() and len(w["fake"].lead_asked) == asked + 1
+    )  # the verified one is reused
+
+
+def test_a_new_answer_whose_quote_fails_is_not_stored_at_all(w, reuse_on):
+    w["fake"].answers["R-coat"] = {
+        **s.ANSWERS["R-coat"],
+        "paper_quote": "a quote the paper does not hold",
+    }
+    first = run_review()
+    assert lines_of(first)["R-coat"]["word"] != "Pass"
+    quote_batches = [
+        r
+        for r in stored_rows()
+        if "a quote the paper does not hold" in r["answer_json"]
+    ]
+    assert quote_batches == []
+    asked = len(w["fake"].lead_asked)
+    run_review()
+    assert len(w["fake"].lead_asked) > asked  # asked again, not frozen
+
+
+def test_an_absence_answer_with_no_quote_is_not_a_failed_quote(w, reuse_on):
+    w["fake"].answers["R-mark"] = {
+        **s.ANSWERS["R-mark"],
+        "reason_code": "absent",
+        "paper_quote": "",
+        "pages_searched": [1],
+    }
+    run_review()
+    asked = len(w["fake"].lead_asked)
+    run_review()
+    assert (
+        len(w["fake"].lead_asked) == asked
+    )  # nothing was claimed, so nothing failed: it is reused
+
+
+def test_a_second_reader_answer_with_a_failed_quote_is_not_frozen_either(
+    w, on, reuse_on
+):
+    fake = lane(
+        w,
+        second={
+            **s.ANSWERS,
+            "R-coat": {
+                **s.ANSWERS["R-coat"],
+                "paper_quote": "a quote the paper does not hold",
+            },
+        },
+    )
+    run_review()
+    asked = len(fake.reader2)
+    run_review()
+    assert len(fake.reader2) == asked + 1  # asked again
+    fake.second = dict(s.ANSWERS)
+    run_review()
+    run_review()
+    assert len(fake.reader2) == asked + 2  # once verified, it is kept and reused
+
+
+def test_reuse_freezes_the_first_answer_until_a_fresh_run_the_stated_trade_off(
+    w, reuse_on
+):
+    """What reuse hides (the PR text): the first run's answer, right or wrong, is copied until a fresh run replaces it."""
+    first = run_review()
+    assert lines_of(first)["R-coat"]["word"] == "Pass"
+    asked = len(w["fake"].lead_asked)
+    w["fake"].answers["R-coat"] = {
+        **s.ANSWERS["R-coat"],
+        "verdict": "Query",
+        "reason_code": "sheet_silent",
+        "paper_quote": "",
+    }
+    second = (
+        run_review()
+    )  # the reader would now say something else, but the stored answer stands
+    assert (
+        len(w["fake"].lead_asked) == asked
+        and lines_of(second)["R-coat"]["word"] == "Pass"
+    )
+    assert (
+        counts_of(second).get("changed_since_previous", {}).get("changed") == 0
+    )  # and the steadiness number is 0
+    fresh = start_run(
+        fresh=True
+    )  # an engineer asks for a fresh run: the new answer shows, and replaces the stored one
+    assert lines_of(fresh)["R-coat"]["word"] != "Pass"
+    assert counts_of(fresh)["changed_since_previous"]["changed"] >= 1
+    assert lines_of(run_review())["R-coat"]["word"] != "Pass"

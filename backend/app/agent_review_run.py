@@ -263,10 +263,12 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                             1  # the caller counted a call before asking; none was made
                         )
                 note = {"run_id": hit["run_id"], "date": hit["date"]}
+                self._keys.last = key
                 return {**hit["answer"], reuse_mod.NOTE: note}, 0.0
         answer, usd = self._metered_call(model, parts, max_tokens, once)
         if key is not None and parse_answers(answer) is not None:
             self.answers.remember(key, model, max_tokens, answer)
+            self._keys.last = key
         return answer, usd
 
     def _may_send(self) -> bool:
@@ -276,6 +278,23 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         from . import claude_approved
 
         return agent_claude.gate_open(self.env) and claude_approved.refusal() is None
+
+    #: the key of the last reader answer this thread asked for or reused, until `settle_reuse` looks at its quotes
+    _keys = threading.local()
+
+    def settle_reuse(self, checks: Iterable[Mapping | None]) -> None:
+        """After a batch is decided: an answer in which ANY item's quote failed the code's quote check is dropped, kept or stored, so
+        the next run asks again (never frozen)."""
+        key = getattr(self._keys, "last", None)
+        self._keys.last = None
+        if key is not None and self.answers is not None:
+            if any(reuse_mod.quote_failed(c) for c in checks):
+                self.answers.forget(key)
+
+    def settle_second(self, ids: Iterable[str], step: str) -> None:
+        """`settle_reuse` for a second-reader batch: the quote checks its step stored on each line (`step` is the record's key)."""
+        recs = [(self.lines.get(i) or {}).get(step) for i in ids]
+        self.settle_reuse((r or {}).get("quotes_checked") for r in recs)
 
     def reuse_kw(self, kind: bool | str = True) -> dict:
         """`reuse=` for a reader batch call, only when stored answers are kept: with the switch off the call is made exactly as before
@@ -555,7 +574,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
                 "lead_answer": (answer or {}).get(iid),
                 **({"reused_answer": said} if said else {}),
             }
-        share, missing = usd / max(1, len(batch)), []
+        share, missing, checks = usd / max(1, len(batch)), [], []
         for it in batch:
             got = (answer or {}).get(str(it.get("item_id")))
             if got is None and answer is not None and allow_split:
@@ -568,7 +587,9 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             )
             if note and got is not None:
                 line["reused_answer"] = {**note, "text": said}
+            checks.append(line.get("quotes_checked") if got is not None else None)
             self.emit(self.reread_silent_line(it, line, model, box))
+        self.settle_reuse(checks)
         if missing:
             self.run_batch(missing, False)
 

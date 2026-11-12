@@ -118,6 +118,27 @@ def complete(answer: Any) -> bool:
     )
 
 
+#: Why a quote the reader GAVE was not verified by code (`agent_review_verdict.check_paper_quote` / `check_clause_quote`). "no paper
+#: quote" and "no clause quote" are not here: the reader gave none (an absence), nothing was claimed and nothing failed.
+QUOTE_FAILED = frozenset(
+    {
+        "paper quote not on the page",
+        "paper quote too short",
+        "clause quote not in the clause",
+        "clause quote too short",
+    }
+)
+
+
+def quote_failed(checks: Mapping | None) -> bool:
+    """True when a quote the reader gave did not pass the code's quote check (a `quotes_checked` dict). Such an answer is not kept
+    for reuse: the next run asks again instead of freezing a quote that does not stand."""
+    return isinstance(checks, Mapping) and (
+        checks.get("paper_why") in QUOTE_FAILED
+        or checks.get("clause_why") in QUOTE_FAILED
+    )
+
+
 class AnswerStore:
     """One run's view of the stored answers. `lookup` reads (never when `fresh`), `remember` keeps an answer in memory, `commit`
     writes what was kept (called only by a run that ended without a stop)."""
@@ -182,7 +203,9 @@ class AnswerStore:
         return {"answer": answer, "run_id": row[1], "date": str(row[2])[:10]}
 
     def forget(self, key: str) -> None:
-        """Drop a stored answer the caller found unusable (never loops: the next ask is a real call)."""
+        """Drop an answer the caller found unusable, kept or stored (never loops: the next ask is a real call)."""
+        with self._lock:
+            self._pending.pop(key, None)
         try:
             self._conn().execute(
                 "DELETE FROM agent_review_answer WHERE request_key = ?", (key,)

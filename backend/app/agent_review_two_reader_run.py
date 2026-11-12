@@ -220,6 +220,7 @@ class TwoReaderMixin:
             self._two_reader_line(
                 it, got.get(str(it.get("item_id"))), pages, model, share
             )
+        self.settle_second(ids, "two_reader")
         self.trace_record(
             {
                 "type": "two_reader_batch",

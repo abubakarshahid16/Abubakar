@@ -146,6 +146,7 @@ class OtherPaperMixin:
                 model,
                 float(usd) / len(batch),
             )
+        self.settle_second([str(i.get("item_id")) for i in batch], "two_reader_other")
 
     def _other_line(
         self, item: dict, answer: dict | None, pages: dict, model: str, share: float
