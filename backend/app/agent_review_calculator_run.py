@@ -25,6 +25,7 @@ from collections import Counter
 from . import (
     agent_review_calculator as calc,
 )
+from . import agent_review_calculator_cells as cells_mod
 from . import agent_review_pass_guards as guards
 from . import (
     agent_review_wording as wording,
@@ -139,65 +140,114 @@ def step(
     return lines
 
 
+def _tables(conn, submittal: str) -> dict:
+    """page -> the stored table rows of that page (`pages.tables_json`)."""
+    from . import table_cell
+
+    return {
+        r["page_no"]: table_cell.tables_of(r["tables_json"])
+        for r in conn.execute(
+            "SELECT page_no, tables_json FROM pages WHERE document_id = ?", (submittal,)
+        )
+    }
+
+
+def _numeric_lines(
+    items, facts, sheet, pages, tables, cache, kind, tier_lookup, unpaired
+) -> tuple[list[dict], int, int]:
+    """The numeric lines, PER TAG GROUP: a rule is paired with the facts of one group and compared with that group's facts only."""
+    made, considered, paired = [], 0, 0
+    counts = cells_mod.page_tag_counts(facts)
+    count = max((k for k in pages if isinstance(k, int)), default=None)
+    for item in _numeric_items(items):
+        considered += 1
+        field = (guards.field_names(item) or [None])[0]
+        req = {**calc.requirement_from_item(item), "field": field, "subject": field}
+        for gfacts in cells_mod.groups(facts).values():
+            cells = cells_mod.cells_of(gfacts, tables, counts)
+            for fact in pair(item, req, gfacts, sheet, unpaired):
+                paired += 1
+                line = calc.numeric_line(
+                    item, req, fact, submittal_facts=gfacts, page_text=pages.get(fact.get("page")),
+                    clause_quote=cache.text(item.get("rule_quote_ref")), clause_text=cache.text(item.get("clause_quote_ref")),
+                    page_count=count, cell=cells.get(str(fact.get("id"))),
+                )  # fmt: skip
+                if fact.get("settled_note"):
+                    line["settled_note"] = fact["settled_note"]
+                made.append(
+                    wording.final_cap(line, item, tier_lookup, paper_kind=kind.kind)
+                )
+    return made, considered, paired
+
+
+def _checklist_lines(
+    facts, stored, pages, tables, submittal, kind, tier_lookup
+) -> list[dict]:
+    """The approved checklist, PER TAG GROUP; a group-level result (no fact) is named by its group."""
+    from . import checklist_scope, degraded_read
+
+    made = []
+    counts = cells_mod.page_tag_counts(facts)
+    for key, gfacts in cells_mod.groups(facts).items():
+        results = degraded_read.hold(
+            checklist_scope.evaluate(gfacts, stored, pages), submittal
+        )
+        results = [
+            {**r, "equipment_tag": r.get("equipment_tag") or key} for r in results
+        ]
+        for line in calc.checklist_lines(
+            results, page_texts=pages, cells=cells_mod.cells_of(gfacts, tables, counts)
+        ):
+            made.append(
+                wording.final_cap(line, line, tier_lookup, paper_kind=kind.kind)
+            )
+    return made
+
+
 def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict], dict]:
-    from . import (
-        checklist_scope,
-        classification,
-        datasheets,
-        degraded_read,
-        match_rules,
-    )
+    from . import classification, datasheets, match_rules
 
     if not (kind.known and kind.kind == "datasheet"):
         return [], _note("the paper is not a datasheet")
-    facts = datasheets.list_facts(
-        submittal, allowed_document_ids=frozenset({submittal})
-    )
-    if not facts:
+    raw = datasheets.list_facts(submittal, allowed_document_ids=frozenset({submittal}))
+    if not raw:
         return [], _note("no datasheet value is stored for this paper yet")
-    pages = DbPages(conn, submittal).pages
-    cache = ClauseCache(plan.get("cache"))
+    pages, tables = DbPages(conn, submittal).pages, _tables(conn, submittal)
+    settled = [
+        cells_mod.settle(f, raw, tables) for f in raw
+    ]  # a hold that was only other tags' values is lifted, in words
+    facts, lifted = [f for f, _ in settled], Counter(w for _, w in settled if w)
     stored = classification.of_document(submittal) or {}
     sheet = match_rules.sheet_kind(
         facts, stored.get("equipment_type") or kind.equipment_type
     )
-    made: list[dict] = []
-    considered = paired = 0
     unpaired: Counter = Counter()
-    for item in _numeric_items(plan.get("items") or []):
-        considered += 1
-        req = {
-            **calc.requirement_from_item(item),
-            "field": (guards.field_names(item) or [None])[0],
-            "subject": (guards.field_names(item) or [None])[0],
-        }
-        for fact in pair(item, req, facts, sheet, unpaired):
-            paired += 1
-            line = calc.numeric_line(
-                item, req, fact, submittal_facts=facts, page_text=pages.get(fact.get("page")),
-                clause_quote=cache.text(item.get("rule_quote_ref")), clause_text=cache.text(item.get("clause_quote_ref")),
-                page_count=max((k for k in pages if isinstance(k, int)), default=None),
-            )  # fmt: skip
-            made.append(
-                wording.final_cap(line, item, tier_lookup, paper_kind=kind.kind)
-            )
-    results = degraded_read.hold(
-        checklist_scope.evaluate(facts, stored, pages), submittal
+    made, considered, paired = _numeric_lines(
+        plan.get("items") or [],
+        facts,
+        sheet,
+        pages,
+        tables,
+        ClauseCache(plan.get("cache")),
+        kind,
+        tier_lookup,
+        unpaired,
     )
-    for line in calc.checklist_lines(results, page_texts=pages):
-        made.append(wording.final_cap(line, line, tier_lookup, paper_kind=kind.kind))
-    # stored BEFORE the first reader call: a run that stops early keeps them
-    for line in made:
+    made += _checklist_lines(facts, stored, pages, tables, submittal, kind, tier_lookup)
+    for (
+        line
+    ) in made:  # stored BEFORE the first reader call: a run that stops early keeps them
         store(line, None)
-    by_class = Counter(ln.get("verdict_class") for ln in made)
     return made, {
         "ran": True,
         "lines": len(made),
         "facts": len(facts),
+        "groups": len(cells_mod.groups(facts)),
+        "holds_lifted": sum(lifted.values()),
         "rules_considered": considered,
         "pairs": paired,
         "not_paired": dict(unpaired),
-        "by_class": dict(by_class),
+        "by_class": dict(Counter(ln.get("verdict_class") for ln in made)),
         "reasons": dict(
             Counter(
                 ln.get("reason_code") for ln in made if ln.get("verdict") == "Query"

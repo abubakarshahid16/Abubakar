@@ -364,3 +364,82 @@ def test_a_rule_that_names_no_field_says_why_it_did_not_pair(world, on):
     assert got["pairs"] == 0 and got["not_paired"] == {
         "the rule names no field the code can match": 1
     }
+
+
+def test_a_value_held_only_because_another_tag_states_another_value_is_decided_inside_its_own_group(
+    world, on
+):
+    frame_item()
+    mine = fact(tag="T1")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET validation_state = 'conflict', bbox = ? WHERE id = ?",
+            (json.dumps({"conflict_pages": [1, 2]}), mine["id"]),
+        )
+    datasheets.create_fact(
+        submittal_document_id=s.PAPER, chunk_id=f"{s.PAPER}:c0", field_label="Coating thickness", raw_value="0.9", page=1, unit="mm",
+        equipment_tag="T2", source_text="Coating thickness: 0.9 mm",
+    )  # fmt: skip
+    run_id, job_id = start()
+    run_job(job_id)
+    got = lines_of(run_id)[f"C-R-frame-{mine['id']}"]
+    assert (
+        got["verdict_class"] == "Proven by code" and got["word"] == "Pass"
+    )  # held before, as a conflict with the other tag's page
+    assert (
+        outcome(run_id)["calculator"]["holds_lifted"] >= 1
+        and outcome(run_id)["calculator"]["groups"] == 2
+    )
+    line = json.loads(
+        db.connect()
+        .execute(
+            "SELECT line_json FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            (run_id, got["item_id"]),
+        )
+        .fetchone()[0]
+    )
+    assert "other tags" in line["settled_note"] and line["equipment_tag"] == "T1"
+
+
+def test_a_located_cell_is_the_papers_quote_and_the_line_names_where_it_stands(
+    world, on
+):
+    frame_item()
+    f = fact(source="0.35 mm")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET tables_json = ? WHERE document_id = ? AND page_no = 1",
+            (
+                json.dumps(
+                    {
+                        "v": 1,
+                        "tables": [
+                            {"rows": [["1", "Coating thickness", "", "0.35 mm"]]}
+                        ],
+                    }
+                ),
+                s.PAPER,
+            ),
+        )
+    run_id, job_id = start()
+    run_job(job_id)
+    row = (
+        db.connect()
+        .execute(
+            "SELECT line_json FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            (run_id, f"C-R-frame-{f['id']}"),
+        )
+        .fetchone()
+    )
+    line = json.loads(row[0])
+    assert line["verdict"] == "Pass" and line["cell_ref"] == {
+        "page": 1,
+        "table": 0,
+        "row": 0,
+        "label_col": 1,
+        "value_col": 3,
+    }
+    assert (
+        line["paper_quote"] == "Coating thickness 0.35 mm"
+        and line["quotes_checked"]["paper"] is True
+    )

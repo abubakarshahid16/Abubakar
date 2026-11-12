@@ -29,7 +29,7 @@ from collections.abc import Mapping
 from . import agent_review_code_proof as proof
 from . import agent_review_pass_guards as guards
 from . import agent_review_verdict as verdict_mod
-from . import comparison, hold_reason
+from . import comparison, hold_reason, table_cell
 from .reader_api import _fold
 
 SOURCE = "code"
@@ -106,18 +106,35 @@ def _undecided(base: dict, why: str, code: str, reason: str | None = None) -> di
     return {**base, **_query(why, code), "compare": note}
 
 
-def _checks(base: dict, fact: Mapping, page_text: object, clause_text: object) -> dict:
+def _checks(
+    base: dict,
+    fact: Mapping,
+    page_text: object,
+    clause_text: object,
+    cell: table_cell.Cell | None = None,
+) -> dict:
     """The tests behind the two quote flags, each asked of the stored texts: found on the page, the value inside the quote, the quote sitting with the
     field's label, found in the clause, the limit inside the quote. `paper` and `clause` hold all of theirs together."""
+    # a located cell: the quote is the row's own two cells, each found on the page (`table_cell.in_page`); the label is the row's own cell
     found = bool(
-        _is_page(fact.get("page")) and quote_found(base["paper_quote"], page_text)
+        _is_page(fact.get("page"))
+        and (
+            table_cell.in_page(cell, page_text)
+            if cell
+            else quote_found(base["paper_quote"], page_text)
+        )
     )
     value = proof.paper_reason(base["proof_fact"], base["paper_quote"]) is None
     label = fact.get("field_label") or fact.get("field_name")
     field = bool(
         found
         and label
-        and guards.belongs({"field_roles": [label]}, base["paper_quote"], page_text)[0]
+        and (
+            cell is not None
+            or guards.belongs({"field_roles": [label]}, base["paper_quote"], page_text)[
+                0
+            ]
+        )
     )
     c_found = quote_found(base["clause_quote"], clause_text)
     limit = proof.clause_reason(base["proof_requirement"], base["clause_quote"]) is None
@@ -152,6 +169,7 @@ def numeric_line(
     clause_quote: str | None,
     clause_text: str | None,
     page_count: int | None = None,
+    cell: table_cell.Cell | None = None,
 ) -> dict:
     """ONE line for one rule item and the fact paired with it. `page_text`: the stored text of the fact's page; `clause_quote`: the quote of the rule
     the line shows; `clause_text`: the clause's own text it must stand in. The caller pairs (`subject_pairing`) and fetches the texts; this decides,
@@ -169,9 +187,11 @@ def numeric_line(
         "field_roles": item.get("field_roles") or [],
         "equipment_tag": f.get("equipment_tag"),
         "clause_quote": clause_quote or "",
-        "paper_quote": _paper_quote(fact) if fact else "",
+        "paper_quote": cell.quote if cell else (_paper_quote(fact) if fact else ""),
         "paper_page": f.get("page"),
         "paper_page_count": page_count,
+        "cell_ref": cell.ref() if cell else None,
+        "cell_note": cell.split if cell else None,
         "quotes_checked": {"paper": False, "clause": False},
         "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
         "proof_fact": {"raw_value": f.get("raw_value"), "raw_unit": f.get("raw_unit")} if fact else None,
@@ -196,7 +216,7 @@ def numeric_line(
         )
     if got.get(hold_reason.KEY):
         return _undecided(base, reason or "held for an engineer", "held", reason)
-    base["quotes_checked"] = checks = _checks(base, fact, page_text, clause_text)
+    base["quotes_checked"] = checks = _checks(base, fact, page_text, clause_text, cell)
     for key, code, why in _QUOTE_FAILS:
         if not checks[key]:
             return _undecided(base, why, code, reason)
@@ -219,7 +239,10 @@ def numeric_line(
 
 
 def checklist_lines(
-    results: list[Mapping], *, page_texts: Mapping[int, str]
+    results: list[Mapping],
+    *,
+    page_texts: Mapping[int, str],
+    cells: Mapping[str, table_cell.Cell] | None = None,
 ) -> list[dict]:
     """The approved checklist's results (`datasheet_checks.evaluate`: pure, code only) as lines. The clause side is the approved entry's own
     wording (`APPROVED_CHECKLIST`, the entry id as the clause): no document, so its quote is the entry itself. The paper quote must be found on
@@ -232,6 +255,9 @@ def checklist_lines(
             continue
         fact_id = r.get("fact_id")
         value, page = r.get("value"), r.get("page")
+        cell = (
+            (cells or {}).get(str(fact_id)) if fact_id else None
+        )  # the value's own located cell: its quote is the row's two cells
         line = {
             "item_id": f"{ID_PREFIX}{r.get('rule_id')}"
             + (f"-{fact_id}" if fact_id else f"-{r.get('equipment_tag') or 'sheet'}"),
@@ -245,7 +271,9 @@ def checklist_lines(
             "field": r.get("field"),
             "equipment_tag": r.get("equipment_tag"),
             "clause_quote": str(r.get("text") or ""),
-            "paper_quote": str(value or ""),
+            "paper_quote": cell.quote if cell else str(value or ""),
+            "cell_ref": cell.ref() if cell else None,
+            "cell_note": cell.split if cell else None,
             "paper_page": page,
             "paper_page_count": max(
                 (k for k in page_texts if _is_page(k)), default=None
@@ -253,7 +281,14 @@ def checklist_lines(
             "quotes_checked": {
                 "paper": bool(
                     _is_page(page)
-                    and value_near_label(r.get("field"), value, page_texts.get(page))
+                    and (
+                        table_cell.in_page(cell, page_texts.get(page))
+                        and proof.states(value, "", cell.quote)
+                        if cell
+                        else value_near_label(
+                            r.get("field"), value, page_texts.get(page)
+                        )
+                    )
                 ),
                 "clause": bool(
                     str(r.get("text") or "").strip()
