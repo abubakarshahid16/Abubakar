@@ -137,6 +137,19 @@ def _json_or_none(parse, host: str):
         return None
 
 
+def _raise_rejected(status: int, host: str, response, parse, body: Mapping) -> None:
+    """A 4xx: the status, the host, the API's error type and short message in the error and in one log line; never the
+    request (the log line carries only the model id and a digest)."""
+    said = _rejection(status, host, _json_or_none(parse, host))
+    log.warning(
+        "standards reader: rejected, %s model=%s digest=%s",
+        said,
+        body.get("model"),
+        _digest(body),
+    )
+    raise httpx.HTTPStatusError(said, request=response.request, response=response)
+
+
 def _digest(body: Mapping) -> str:
     """A fingerprint of what left, for the audit line. Not the text."""
     return hashlib.sha256(
@@ -197,18 +210,7 @@ def transport():
             # `rate_limit_error`...) and is what a reader of the log needs:
             # the first real call failed with a bare "400" that took a second
             # probe to read as "credit balance too low".
-            said = _rejection(
-                response.status_code, host, _json_or_none(response.json, host)
-            )
-            log.warning(
-                "standards reader: rejected, %s model=%s digest=%s",
-                said,
-                body.get("model"),
-                _digest(body),
-            )
-            raise httpx.HTTPStatusError(
-                said, request=response.request, response=response
-            )
+            _raise_rejected(response.status_code, host, response, response.json, body)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(
                 f"response from {host} is {len(response.content)} bytes, over "
@@ -294,19 +296,8 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                            extensions={"trace": _trace}) as response:
             status = response.status_code
             if status >= 400:
-                said = _rejection(
-                    status,
-                    host,
-                    _json_or_none(lambda: json.loads(response.read()), host),
-                )
-                log.warning(
-                    "standards reader: rejected, %s model=%s digest=%s",
-                    said,
-                    body.get("model"),
-                    _digest(body),
-                )
-                raise httpx.HTTPStatusError(
-                    said, request=response.request, response=response
+                _raise_rejected(
+                    status, host, response, lambda: json.loads(response.read()), body
                 )
             for line in response.iter_lines():
                 if cancel is not None and cancel.is_set():
