@@ -24,7 +24,7 @@ from collections.abc import Mapping
 
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
-from . import comparison, hold_reason, numparse
+from . import comparison, hold_reason, numparse, table_cell
 from .reader_api import _fold
 
 BY_CODE = (
@@ -359,6 +359,20 @@ def field_ok(line: Mapping) -> bool:
     """The label test asked again from the line's own stored lines: the fact's field label stands on the quote's own line or the label line directly
     above it (`agent_review_pass_guards.belongs`, the Pass guard's own rule)."""
     label, context = str(line.get("field") or "").strip(), line.get("paper_context")
+    if isinstance(
+        line.get("cell_ref"), Mapping
+    ):  # a located cell: the label is the row's own cell (or a part of a compound label), and the quote starts with it
+        cell_label = str(line.get("cell_label") or "")
+        names = [
+            _fold(cell_label),
+            *[_fold(x) for x in table_cell.label_parts(cell_label)],
+        ]
+        return bool(
+            label
+            and cell_label
+            and _fold(label) in names
+            and _fold(str(line.get("paper_quote") or "")).startswith(_fold(cell_label))
+        )
     if not (label and isinstance(context, str) and context.strip()):
         return False
     return guards.belongs({"field_roles": [label]}, line.get("paper_quote"), context)[0]

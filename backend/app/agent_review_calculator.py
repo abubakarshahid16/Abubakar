@@ -206,6 +206,7 @@ def numeric_line(
         "paper_context": proof.context_of(page_text, _paper_quote(fact)) if fact else "",
         "paper_page_count": page_count,
         "cell_ref": cell.ref() if cell else None,
+        "cell_label": cell.label_text if cell else None,
         "cell_note": cell.split if cell else None,
         "quotes_checked": {"paper": False, "clause": False},
         "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
@@ -288,6 +289,7 @@ def checklist_lines(
             "clause_quote": str(r.get("text") or ""),
             "paper_quote": cell.quote if cell else str(value or ""),
             "cell_ref": cell.ref() if cell else None,
+            "cell_label": cell.label_text if cell else None,
             "cell_note": cell.split if cell else None,
             "paper_page": page,
             "paper_page_count": max(
