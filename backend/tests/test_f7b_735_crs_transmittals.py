@@ -13,13 +13,13 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app import access
-from app.crs_export import HEADER_FIELDS
+from app.crs_export import HEADER_ROW_OF
 from app.main import app
 from tests.test_crs_endpoint import _client, _run, _sheet, _submittal, temp_db  # noqa: F401
 
 
 def _row(key):
-    return 3 + [k for _, k in HEADER_FIELDS].index(key)
+    return HEADER_ROW_OF[key]
 
 
 def test_entered_transmittal_numbers_are_printed_on_the_sheet():

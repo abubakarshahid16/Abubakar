@@ -21,32 +21,17 @@ COUNT_LINE = (
 HEADER_ROW = 4
 
 
-def row_values(view: dict, entry: dict) -> list:
-    """The cells of one row, in the internal CRS sheet's own column order (`crs_export.build_crs`)."""
-    from . import crs_export_quality as quality
+def row_values(view: dict, entry: dict) -> list:  # noqa: ARG001 - kept for the callers' signature
+    """The cells of one row, in the one layout's column order (`crs_normal.row_cells`)."""
+    from . import crs_normal
 
-    values = [
-        entry["item_no"],
-        entry["document_name"],
-        entry["page_section"],
-        entry["comment"],
-        entry["comment_by"],
-        entry["contractor_response"],
-        entry["final_resolution"],
-        entry["standard_reference"],
-        entry.get("priority_label", ""),
-        entry["ai_review_comment"],
-        entry["reasoning"],
-        entry.get("rule_trust", ""),
-    ]
-    values[9:] = quality.tail_cells(view, entry, values[9:])
-    return values
+    return crs_normal.row_cells(entry)[0]
 
 
 def write_sheet(wb, view: dict, ticks: list[dict]) -> None:
     """The internal-only sheet, right after the CRS sheet: the title, the count, then the CRS table's own
     columns, one line per tick row."""
-    from openpyxl.styles import Alignment, Font
+    from openpyxl.styles import Font
 
     from . import crs_export as ce
 
@@ -55,18 +40,19 @@ def write_sheet(wb, view: dict, ticks: list[dict]) -> None:
     ce._write(ws, 2, 1, COUNT_LINE.format(n=len(ticks))).font = Font(
         name=ce.ARIAL, size=10
     )
-    for col, width in ce.WIDTHS.items():
-        ws.column_dimensions[col].width = width
-    for col, header in enumerate(view["columns"], start=1):
-        cell = ce._write(ws, HEADER_ROW, col, header)
-        cell.font = Font(name=ce.ARIAL, bold=True, size=10)
-        cell.border = ce.BOX
-    fill = ce.ROW_FILLS[ce.ROW_KIND_SAFETY_TICK]
+    from . import crs_layout
+
+    for col, header in enumerate(crs_layout.LAYOUT_COLUMNS, start=1):
+        ce._write(ws, HEADER_ROW, col, header)
     for position, entry in enumerate(ticks, start=1):
         for i, value in enumerate(row_values(view, entry), start=1):
-            cell = ce._write(ws, HEADER_ROW + position, i, value)
-            cell.font = Font(name=ce.ARIAL, size=10)
-            cell.alignment = Alignment(
-                horizontal="left", vertical="top", wrap_text=True
-            )
-            cell.border, cell.fill = ce.BOX, fill
+            ce._write(ws, HEADER_ROW + position, i, value)
+        for i in range(1, len(crs_layout.LAYOUT_COLUMNS) + 1):
+            ws.cell(HEADER_ROW + position, i).fill = crs_layout.STATUS_FILLS["Pass"]
+    crs_layout.style_table(
+        ws,
+        HEADER_ROW,
+        len(crs_layout.LAYOUT_COLUMNS),
+        HEADER_ROW + len(ticks),
+        crs_layout.LAYOUT_WIDTHS,
+    )

@@ -68,9 +68,13 @@ def test_the_export_has_every_row_the_preview_has_and_the_ai_wording(temp_db):  
     assert len(body["rows"]) == len(rows)
     from tests.test_crs_endpoint import COLUMN_HEADER_ROW, _cell
 
+    evidence = {
+        e[0]: e for e in ws.parent["Evidence"].iter_rows(min_row=2, values_only=True)
+    }
     for row in body["rows"]:
         r = COLUMN_HEADER_ROW + row["item_no"]
-        assert _cell(ws, r, 10) == row["ai_review_comment"]
+        # order 13: the AI wording is on the Evidence sheet (column 6), by Item No
+        assert (evidence[row["item_no"]][5] or "") == row["ai_review_comment"]
         assert _cell(ws, r, 4) == row["comment"]
     assert any(r["ai_review_comment"].startswith("Please revise") for r in body["rows"])
     assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""

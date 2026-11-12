@@ -194,20 +194,4 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    return min(MAX_ROW_HEIGHT, height)\n",
         "switch_off_a_tall_row_keeps_mains_height",
     ),
-    _m(
-        "21",
-        "any cell of several lines wraps with the switch OFF too (a two-line reply wraps, unlike main)",
-        _E,
-        '    several = column == 1 and "\\n" in str(value) and crs_by_contractor.enabled()\n',
-        '    several = "\\n" in str(value)\n',
-        "mains_values_and_styles",
-    ),
-    _m(
-        "22",
-        "the query row's Item No of several numbers never wraps (the numbers run together)",
-        _E,
-        '    several = column == 1 and "\\n" in str(value) and crs_by_contractor.enabled()\n',
-        "    several = False\n",
-        "reply_on_the_query_row",
-    ),
 )

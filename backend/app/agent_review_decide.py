@@ -433,8 +433,10 @@ class DecideMixin:
         rule_text: str | None,
         decision: Mapping,
         lead_model: str | None,
+        halt: bool = True,
     ) -> tuple[dict, dict]:
-        """F4 (the core's `check_fail`): before a Fail is proven, ONE call with the rule-book page. The result can only HOLD
+        """`halt=False` (an optional step): a budget stop is raised to the caller instead of stopping the run.
+        F4 (the core's `check_fail`): before a Fail is proven, ONE call with the rule-book page. The result can only HOLD
         the Fail. A Fail is proven only if THIS run made the check and it said proven; every other path holds it."""
         if decision.get("verdict") != verdict.FAIL or not self.context_check:
             return dict(decision), {}
@@ -464,6 +466,8 @@ class DecideMixin:
             fatal=FATAL,
         )
         if got.fatal is not None:
+            if not halt:
+                raise got.fatal
             self._halt(got.fatal)
         if got.exchange:
             self._ctx.setdefault(iid, {})["context_exchange"] = got.exchange
