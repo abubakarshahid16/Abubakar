@@ -180,7 +180,9 @@ def _header_block(ws, view: dict, ncols: int) -> int:
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncols)
         _put(ws, row, 1, view["sentence"], bold=True)
         row += 1
-    return row + 1  # one blank row between the block and the table
+    return (
+        row + view.get("gap", 1)
+    )  # one blank row between the block and the table (a contractor copy: none, as before)
 
 
 def layout_workbook(view: dict) -> Workbook:
@@ -198,21 +200,37 @@ def layout_workbook(view: dict) -> Workbook:
     wb = Workbook()
     ws = wb.active
     ws.title = LAYOUT_MAIN_SHEET
-    ncols = len(LAYOUT_COLUMNS)
+    columns = tuple(
+        view.get("columns") or LAYOUT_COLUMNS
+    )  # a contractor-facing copy: the nine company columns, no Status
+    ncols = len(columns)
     header_row = _header_block(ws, view, ncols)
-    for c, name in enumerate(LAYOUT_COLUMNS, start=1):
+    for c, name in enumerate(columns, start=1):
         _write(ws, header_row, c, name)
     rows, statuses = view.get("rows") or [], view.get("statuses") or []
     for n, values in enumerate(rows, start=1):
         r = header_row + n
         for c, value in enumerate(values, start=1):
-            _put(ws, r, c, value, center=c in (1, 9, 10), wrap=True)
+            _put(
+                ws,
+                r,
+                c,
+                value,
+                center=columns[c - 1] in ("Item No", "Priority", "Status"),
+                wrap=True,
+            )
         fill = STATUS_FILLS.get(statuses[n - 1]) if n - 1 < len(statuses) else None
-        if fill is not None:
+        if fill is not None and not view.get(
+            "plain"
+        ):  # plain: no colour encodes an internal judgement
             for c in range(1, ncols + 1):
                 ws.cell(row=r, column=c).fill = fill
         height = (
-            max(_lines_needed(v, LAYOUT_WIDTHS[c]) for c, v in enumerate(values)) * 13
+            max(
+                _lines_needed(v, (view.get("widths") or LAYOUT_WIDTHS)[c])
+                for c, v in enumerate(values)
+            )
+            * 13
         )
         heights = view.get(
             "row_heights"
@@ -220,7 +238,13 @@ def layout_workbook(view: dict) -> Workbook:
         ws.row_dimensions[r].height = (
             heights[n - 1] if heights else min(MAX_ROW_HEIGHT, max(15, height))
         )
-    style_table(ws, header_row, ncols, header_row + len(rows), LAYOUT_WIDTHS)
+    style_table(
+        ws,
+        header_row,
+        ncols,
+        header_row + len(rows),
+        view.get("widths") or LAYOUT_WIDTHS[:ncols],
+    )
     _below(ws, view.get("below") or [], header_row + len(rows), ncols)
 
     other = view.get("other")

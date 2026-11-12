@@ -567,7 +567,10 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         ),
         "statuses": [st for _l, st, _o in items],
     }
-    if contractor:
+    if contractor:  # nine company columns, plain styling: nothing that encodes an internal judgement
+        view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
+        view["rows"] = [r[:9] for r in view["rows"]]
+        view["plain"] = True
         return view
     others = other_lines(lines)
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])

@@ -10,6 +10,7 @@ import openpyxl
 
 from app.crs_export import (
     COLUMN_HEADER_ROW,
+    ISSUE_HEADER_ROW,
     EMPTY_COMMENT_TEXT,
     FIRST_DATA_ROW,
     HEADER_FIELDS,
@@ -46,9 +47,15 @@ def test_item_numbers_are_assigned_1_to_n_with_no_gaps():
 
 
 def test_the_header_block_carries_the_meta():
-    ws = load([], {"project": "DFDP", "document_title": "Sour Water Drums",
-                   "company_transmittal": "EOC-TX-001",
-                   "date_issued": "2026-09-19"})
+    ws = load(
+        [],
+        {
+            "project": "DFDP",
+            "document_title": "Sour Water Drums",
+            "company_transmittal": "EOC-TX-001",
+            "date_issued": "2026-09-19",
+        },
+    )
     assert "DFDP" in ws.cell(row=1, column=1).value
     assert ws.cell(row=2, column=1).value == "COMMENT RESOLUTION SHEET"
     assert (
@@ -171,8 +178,13 @@ def _header_row(key: str) -> int:
     return HEADER_ROW_OF[key]
 
 
+def _top(ws) -> int:
+    """The table's header row: an issue copy keeps the header it had (row 9), the internal copy has the one layout's block."""
+    return next(r for r in range(1, 40) if ws.cell(r, 1).value == "Item No")
+
+
 def _comment(ws, item_no: int = 1) -> str:
-    return ws.cell(row=COLUMN_HEADER_ROW + item_no, column=4).value
+    return ws.cell(row=_top(ws) + item_no, column=4).value
 
 
 def test_the_submittal_number_is_printed_in_the_header_block():
@@ -230,14 +242,14 @@ def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     # The issued copy is the template plus "Standard Reference" (CRS quick
     # wins); only the internal copy carries the owner's "AI Review Comments"
     # column (2026-09-27), and neither carries the reference as a column.
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Priority"
+    top = _top(ws)
+    assert top == ISSUE_HEADER_ROW  # the header it had before
+    assert ws.cell(row=top, column=8).value == "Standard Reference"
+    assert ws.cell(row=top, column=9).value == "Priority"
     assert (
-        ws.cell(row=COLUMN_HEADER_ROW, column=10).value == "Status"
-    )  # order 13: the one layout, ten columns
-    assert [
-        ws.cell(row=COLUMN_HEADER_ROW, column=c).value for c in range(1, 8)
-    ] == HEADERS
+        ws.cell(row=top, column=10).value is None
+    )  # order 13: a contractor-facing copy has no Status column
+    assert [ws.cell(row=top, column=c).value for c in range(1, 8)] == HEADERS
 
 
 def test_re_exporting_the_same_review_prints_the_same_reference():

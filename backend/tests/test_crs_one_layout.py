@@ -66,7 +66,7 @@ def _book(copy="internal", rows=None, meta=None):
 
 
 def _table(ws):
-    top = crs_export.COLUMN_HEADER_ROW
+    top = next(r for r in range(1, 40) if ws.cell(r, 1).value == "Item No")
     head = [c.value for c in ws[top]]
     return [
         dict(zip(head, [c.value for c in ws[r]], strict=False))
@@ -74,9 +74,8 @@ def _table(ws):
     ]
 
 
-@pytest.mark.parametrize("copy", ["internal", "issue"])
-def test_the_normal_reviewers_sheet_has_the_ten_columns_in_the_one_layouts_order(copy):
-    ws = _book(copy)["CRS"]
+def test_the_normal_reviewers_sheet_has_the_ten_columns_in_the_one_layouts_order():
+    ws = _book("internal")["CRS"]
     assert [c.value for c in ws[crs_export.COLUMN_HEADER_ROW]][:10] == TEN
     assert ws.max_column == 10
     assert (
@@ -84,6 +83,35 @@ def test_the_normal_reviewers_sheet_has_the_ten_columns_in_the_one_layouts_order
         and ws.page_setup.orientation == "landscape"
     )
     assert ws.cell(crs_export.COLUMN_HEADER_ROW, 1).fill.fgColor.rgb == "FF1F3864"
+
+
+def test_the_contractor_facing_copy_has_the_nine_company_columns_the_old_header_and_plain_styling():
+    """Blocking 1 of R30: an issued comment is the company's; a Status (or a colour for it) would say which were drafts."""
+    wb = _book("issue")
+    ws = wb["CRS"]
+    assert [c.value for c in ws[crs_export.ISSUE_HEADER_ROW]] == TEN[:9]
+    assert ws.max_column == 9 and "Status" not in str(
+        [c.value for r in ws.iter_rows() for c in r]
+    )
+    labels = [ws.cell(r, 1).value for r in range(3, crs_export.ISSUE_HEADER_ROW)]
+    assert labels == [
+        label for label, _key in crs_export.HEADER_FIELDS
+    ]  # exactly the header it had before
+    body = [c for r in ws.iter_rows(min_row=crs_export.ISSUE_HEADER_ROW + 1) for c in r]
+    assert all(
+        c.fill.fill_type is None for c in body
+    )  # no colour encodes a Status or a row kind
+    banned = (
+        "AI opinion",
+        "Query",
+        "AI verdict",
+        "AI reviewer's view",
+        "not proven",
+    )
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows(values_only=True):
+            for value in row:
+                assert not any(b in str(value or "") for b in banned), value
 
 
 def test_its_comment_texts_order_and_numbers_are_what_they_were_only_moved():
@@ -201,8 +229,11 @@ def test_every_row_kind_and_rank_maps_to_one_of_the_four_words_and_a_pass_or_fai
             elif kind == "safety_tick":
                 assert status == "Pass"
             else:
+                # Fail needs a kind whose rank 1 is a figure code compared (listed once: CODE_COMPARED_KINDS); an unknown kind is a
+                # Query at every rank, rank 1 included
                 assert (status == "Fail") == (
-                    rank == crs_mapping.PRIORITY_OUT_OF_LIMIT
+                    kind in crs_normal.CODE_COMPARED_KINDS
+                    and rank == crs_mapping.PRIORITY_OUT_OF_LIMIT
                 ), (kind, rank)  # Fail = a figure code compared
 
 
@@ -218,36 +249,49 @@ def test_a_row_the_exporter_does_not_know_is_a_query_never_a_pass_or_a_fail():
 
 
 def _reply_book(layout):
+    """A returned sheet whose columns are NOT where the exporter puts them: a column of the contractor's own is inserted before Item No,
+    and Contractor's Response is moved to the front of the others, so a reader that took fixed columns would read the wrong cells."""
     wb = openpyxl.Workbook()
     ws = wb.active
     if (
         layout == "old"
     ):  # the seven-column template with its header block, header on row 9
-        for r in range(1, 9):
-            ws.cell(r, 1, f"block {r}")
-        head = [
-            "Item No",
-            "Document Name",
-            "Page No./Section",
-            "COMPANY Comments",
-            "Comment By",
-            "Contractor's Response",
-            "Final Resolution",
-        ]
-        top = 9
-    else:  # the new layout: a taller header block, ten columns, the response column where the header says
-        for r in range(1, 17):
-            ws.cell(r, 1, f"block {r}")
-        head = TEN
-        top = 17
+        top, head = (
+            9,
+            [
+                "Item No",
+                "Document Name",
+                "Page No./Section",
+                "COMPANY Comments",
+                "Comment By",
+                "Contractor's Response",
+                "Final Resolution",
+            ],
+        )
+    else:  # the new layout: a taller header block, ten columns
+        top, head = 17, list(TEN)
+    head.remove("Contractor's Response")
+    head = [
+        "Contractor tag",
+        "Contractor's Response",
+        *head,
+    ]  # inserted column first, the response second
+    for r in range(1, top):
+        ws.cell(r, 1, f"block {r}")
     for c, name in enumerate(head, start=1):
         ws.cell(top, c, name)
-    first = ws.cell(top + 1, 1, "CRS-INV-001")
-    assert first.value
-    ws.cell(top + 1, 2, "paper.pdf")
-    ws.cell(top + 1, head.index("Contractor's Response") + 1, "Accepted - done")
-    ws.cell(top + 2, 1, "CRS-INV-002")
-    ws.cell(top + 2, head.index("Contractor's Response") + 1, "Rejected - no")
+    item, resp, name = (
+        head.index("Item No") + 1,
+        head.index("Contractor's Response") + 1,
+        head.index("Document Name") + 1,
+    )
+    for n, (ref, text) in enumerate(
+        (("CRS-INV-001", "Accepted - done"), ("CRS-INV-002", "Rejected - no")), start=1
+    ):
+        ws.cell(top + n, 1, "tag")
+        ws.cell(top + n, item, ref)
+        ws.cell(top + n, resp, text)
+        ws.cell(top + n, name, "paper.pdf")
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

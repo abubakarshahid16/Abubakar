@@ -210,12 +210,15 @@ HEADER_FIELDS = (
 #: field added since. Derived, never hardcoded, so the table cannot land on
 #: top of the header block when a field is added: both renderings and the
 #: tests read the geometry from here.
-COLUMN_HEADER_ROW = 3 + 7 + (len(HEADER_FIELDS) - 1) + 2  # order 13: 7 facts, the 5 older fields, the sentence row, a blank row
+COLUMN_HEADER_ROW = 3 + 7 + (len(HEADER_FIELDS) - 1) + 2  # order 13, INTERNAL copy: 7 facts, the 5 older fields, the sentence row, a blank row
+#: a contractor-facing (issue) copy keeps the header it had before: the six older fields, the table header straight under them
+ISSUE_HEADER_ROW = 3 + len(HEADER_FIELDS)
 FIRST_DATA_ROW = COLUMN_HEADER_ROW + 1
 
 #: order 13: the row each header field's value is on (the seven facts of the one layout come first, document_title is the third).
 HEADER_ROW_OF = {key: 3 + 7 + i for i, key in enumerate(k for _, k in HEADER_FIELDS if k != "document_title")}
 HEADER_ROW_OF["document_title"] = 5
+HEADER_ROW_OF_ISSUE = {key: 3 + i for i, (_label, key) in enumerate(HEADER_FIELDS)}
 
 #: Printed beside the code on the summary row. One definition, read by
 #: both renderings, so the workbook and the preview name it identically.
@@ -350,6 +353,13 @@ def _copy_and_rows(findings: list[dict], meta: dict) -> tuple[str, list[dict]]:
 
 
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
+    """The view the file AND the preview are drawn from (order 13: both are decorated by `crs_normal.decorate`, one row model)."""
+    from . import crs_normal
+
+    return crs_normal.decorate(_build_crs_view(findings, meta), meta)
+
+
+def _build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
     THE SINGLE DEFINITION OF THE CONTENT. `build_crs` renders this into the

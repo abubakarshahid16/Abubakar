@@ -70,8 +70,10 @@ def _book(copy):
 def test_the_internal_copy_prints_it_in_a_new_last_column():
     view, ws = _book("internal")
     # #947 (PR #985): "Rule trust (internal)" follows it as the last column.
-    assert view["columns"][-3:] == [crs_export.AI_COLUMN, crs_export.REASONING_COLUMN,
-                                    crs_export.TRUST_COLUMN]   # nothing moved
+    assert view["columns"][-2:] == [
+        "Priority",
+        "Status",
+    ]  # order 13: the working columns are on the Evidence sheet
     # order 13: the reasoning is on the Evidence sheet, by Item No
     ev = ws.parent["Evidence"]
     assert ev.cell(row=1, column=7).value == crs_export.REASONING_COLUMN

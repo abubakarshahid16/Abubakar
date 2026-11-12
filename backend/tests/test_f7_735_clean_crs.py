@@ -103,9 +103,13 @@ def test_the_workbook_prints_the_severity_column_in_both_copies():
         assert view["rows"][0]["severity"] == "major"
         book = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, {"copy": copy})))
         ws = book["CRS"]
-        head, first = crs_export.COLUMN_HEADER_ROW, crs_export.COLUMN_HEADER_ROW + 1
+        internal = copy == crs_export.COPY_INTERNAL
+        head = crs_export.COLUMN_HEADER_ROW if internal else crs_export.ISSUE_HEADER_ROW
+        first = head + 1
         assert ws.cell(row=head, column=9).value == "Priority"
-        assert (
-            ws.cell(row=first, column=9).value == "High"
-        )  # order 13: the stated priority rule; the rank word is on Evidence
-        assert ws.cell(row=first, column=10).value == "Fail"
+        # order 13: the internal copy prints the stated priority rule and a Status (the rank word is on Evidence); a contractor-facing
+        # copy keeps its rank word and has no Status column
+        assert ws.cell(row=first, column=9).value == (
+            "High" if internal else "Out of limit"
+        )
+        assert ws.cell(row=first, column=10).value == ("Fail" if internal else None)

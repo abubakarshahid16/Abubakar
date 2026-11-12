@@ -373,9 +373,12 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
     view = _preview(run)
     # CRS quick wins: "Standard Reference" follows the seven; AI stays last.
     # order 139 part 2: "Priority" where "Severity" was
-    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Priority", "AI Review Comments",
-                               crs_export.REASONING_COLUMN,  # R30: reasoning, internal only
-                               crs_export.TRUST_COLUMN]      # #947: rule trust last, internal only
+    assert view["columns"] == [
+        *crs_export.HEADERS,
+        "Standard Reference",
+        "Priority",
+        "Status",
+    ]  # order 13
     [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
     assert TEXT not in row["comment"]
     # Honesty audit entry 71: "Comment By" is never blank - unconfirmed is a
@@ -433,7 +436,7 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
     name, sheet, text = _workbook_text(run, "issue")
     assert "issue-to-contractor" in name
     assert (
-        "Evidence" not in sheet.parent.sheetnames and sheet.max_column == 10
+        "Evidence" not in sheet.parent.sheetnames and sheet.max_column == 9
     )  # no AI column, no Evidence sheet
     assert TEXT not in text
 

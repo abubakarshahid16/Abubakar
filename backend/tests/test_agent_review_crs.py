@@ -199,7 +199,13 @@ def test_the_contractor_copy_holds_proven_fail_lines_only_and_nothing_else(tmp_p
         "Field R1",
         "Field S1",
     ]  # R-1 and the checklist Fail: no Pass, no opinion, no 'should', no Query
-    assert {r["Status"] for r in rows_of(path)} == {"Fail"}
+    assert (
+        "Status" not in rows_of(path)[0]
+    )  # order 13: the nine company columns only; the Status column is the internal copy's
+    assert list(rows_of(path)[0]) == [
+        "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
+        "Final Resolution", "Standard Reference", "Priority",
+    ]  # fmt: skip
     text = all_text(path)
     for word in (
         "AI opinion", "AI reviewer's view", "Recommendation", "lead-m", "second-m", "It is steel", "run-1", "Query",
@@ -1051,3 +1057,41 @@ def test_the_notes_sheet_says_where_the_checklist_wording_came_from(skills, tmp_
         for r in rows_of_notes(C.write_internal([line], tmp_path / "i.xlsx", META))
     }
     assert notes["Checklist wording"] == "from the checklist data"
+
+
+def test_no_cell_of_the_contractor_copy_names_an_internal_judgement_a_model_or_a_run(
+    tmp_path,
+):
+    """Every cell of every sheet of the contractor copy, on every kind of line; plain styling (no fill encodes a Status)."""
+    path = C.write_contractor(_every_kind_of_line(), tmp_path / "c.xlsx", META)
+    wb = openpyxl.load_workbook(path)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                text = str(cell.value or "")
+                for bad in (
+                    "AI opinion",
+                    "AI verdict",
+                    "AI reviewer's view",
+                    "not proven",
+                    "Query",
+                    "run-1",
+                    "lead-m",
+                    "second-m",
+                ):
+                    assert bad not in text, (cell.coordinate, bad)
+                assert not words.has_banned(text), (cell.coordinate, text)
+                assert (
+                    cell.value is None
+                    or cell.fill.fill_type is None
+                    or cell.row <= 1
+                    or cell.fill.fgColor.rgb in ("FF1F3864", "00000000")
+                )
+    ws = wb["CRS"]
+    body = [
+        c
+        for r in ws.iter_rows(min_row=14)
+        for c in r
+        if c.value is not None and c.row > 14
+    ]
+    assert all(c.fill.fill_type is None for c in body)  # plain: no Status colour

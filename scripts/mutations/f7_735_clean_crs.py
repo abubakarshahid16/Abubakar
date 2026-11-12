@@ -44,6 +44,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     # Re-anchored (order 139 part 2): column I prints the row's Priority word
     # where it printed the severity.
     _m(7108, "the workbook leaves the priority (formerly severity) column empty", APP / "crs_normal.py",
-       "entry[\"standard_reference\"], pri or None, status,",
-       "entry[\"standard_reference\"], None, status,", "severity_column"),
+       "entry[\"standard_reference\"], entry[\"priority_label\"] or None,",
+       "entry[\"standard_reference\"], None,", "severity_column"),
 )

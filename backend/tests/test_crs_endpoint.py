@@ -35,16 +35,17 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app import access, db, submittal_review
+from app import main as main_mod
 from app.config import settings
 from app.crs_export import (
-    HEADER_ROW_OF,
     COLUMN_HEADER_ROW,
     FIRST_DATA_ROW,
     HEADER_FIELDS,
+    HEADER_ROW_OF,
     HEADERS,
+    ISSUE_HEADER_ROW,
 )
 from app.main import app
-from app import main as main_mod
 
 NOW = "2026-09-19T00:00:00Z"
 
@@ -541,15 +542,17 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
         *HEADERS,
         "Standard Reference",
         "Priority",
-        "AI Review Comments",
-        "Reasoning (internal)",
-        "Rule trust (internal)",
-    ]
+        "Status",
+    ]  # order 13: the one layout, ten columns
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))
     # order 139 part 2
-    assert issued["columns"] == [*HEADERS, "Standard Reference", "Priority"]
+    assert issued["columns"] == [
+        *HEADERS,
+        "Standard Reference",
+        "Priority",
+    ]  # a contractor-facing copy: no Status
 
 
 def test_the_contractor_columns_come_back_empty_rather_than_missing():
@@ -605,17 +608,15 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
     # The header block, rows 1-7.
     assert ws.cell(row=1, column=1).value == body["title"]
     assert ws.cell(row=2, column=1).value == body["subtitle"]
-    assert len(body["header"]) == len(HEADER_FIELDS)
-    for field, (_label, key) in zip(body["header"], HEADER_FIELDS, strict=True):
-        assert _cell(ws, HEADER_ROW_OF[key], 1).lower() == field["label"].lower()
-        assert _cell(ws, HEADER_ROW_OF[key], 3) == field["value"]
+    for offset, field in enumerate(
+        body["header"]
+    ):  # the preview's header IS the file's (one row model)
+        assert _cell(ws, 3 + offset, 1) == field["label"]
+        assert _cell(ws, 3 + offset, 3) == field["value"]
 
     # The column headers, directly under the header block: the one layout's ten (the preview still lists its own working
     # columns; the working columns of the file are on the Evidence sheet, by Item No).
-    assert [_cell(ws, COLUMN_HEADER_ROW, c) for c in range(1, 11)] == [
-        *body["columns"][:9],
-        "Status",
-    ]
+    assert [_cell(ws, COLUMN_HEADER_ROW, c) for c in range(1, 11)] == body["columns"]
     evidence = {
         r[0]: r for r in ws.parent["Evidence"].iter_rows(min_row=2, values_only=True)
     }
@@ -631,7 +632,11 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
         assert _cell(ws, r, 8) == row["standard_reference"]
         # the old Priority word, the AI comment, the reasoning (R30) and the rule trust (#947) are on the Evidence sheet
         ev = evidence[row["item_no"]]
-        assert (ev[3] or "") == row["priority_label"]
+        assert (
+            _cell(ws, r, 9) == row["priority_label"]
+            and _cell(ws, r, 10) == row["status"]
+        )  # the same words as the file
+        assert (ev[3] or "") == row["rank_word"]
         assert (ev[5] or "") == row["ai_review_comment"]
         assert (ev[6] or "") == row["reasoning"]
         assert (ev[7] or "") == row["rule_trust"]
@@ -872,11 +877,10 @@ def test_the_additions_left_the_seven_template_columns_in_place():
         internal.cell(row=COLUMN_HEADER_ROW, column=c).value for c in range(1, 11)
     ] == [*head, "Status"]  # order 13: one layout, ten columns, both copies
 
-    assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value for c in range(1, 11)] == [
-        *head,
-        "Status",
-    ]
-    assert ws.max_column == 10
+    assert [ws.cell(row=ISSUE_HEADER_ROW, column=c).value for c in range(1, 10)] == head
+    assert (
+        ws.max_column == 9
+    )  # a contractor-facing copy: nine company columns, no Status
 
 
 def test_the_issue_copy_is_refused_until_an_engineer_decides():

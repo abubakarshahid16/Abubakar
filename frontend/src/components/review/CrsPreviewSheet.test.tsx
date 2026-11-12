@@ -34,6 +34,21 @@ function sheet(over: Partial<CrsPreview> = {}): CrsPreview {
   } as CrsPreview;
 }
 
+describe("CrsPreviewSheet Status column (order 13)", () => {
+  it("prints the Status of the one layout on the internal view and nothing on a contractor-facing view", () => {
+    const internal = sheet({
+      columns: [...sheet().columns, "Status"],
+      rows: sheet().rows.map((r) => ({ ...r, status: "Fail", priority_label: "High" })),
+    });
+    const { unmount } = render(<CrsPreviewSheet preview={internal} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.getAllByTestId("crs-status").map((c) => c.textContent)).toEqual(["Fail", "Fail"]);
+    expect(screen.getAllByTestId("crs-priority").map((c) => c.textContent)).toEqual(["High", "High"]);
+    unmount();
+    render(<CrsPreviewSheet preview={sheet()} runId="run-1" onChanged={vi.fn()} readOnly />);
+    expect(screen.queryByTestId("crs-status")).toBeNull();
+  });
+});
+
 describe("CrsPreviewSheet Priority column (order 139 part 2)", () => {
   it("prints the Priority column from priority_label", () => {
     render(<CrsPreviewSheet preview={sheet()} runId="run-1" onChanged={vi.fn()} readOnly />);

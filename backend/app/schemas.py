@@ -2532,6 +2532,10 @@ class CrsPreviewRow(BaseModel):
     #: The rank's word as THIS copy prints it in the "Priority" column; ""
     #: when no rank is sent - never a guessed word.
     priority_label: str = ""
+    #: Order 13: the row's Status word (Pass, Fail, AI opinion, Query) on the INTERNAL copy, the file's own cell; "" on a
+    #: contractor-facing copy. And the rank word the old Priority column printed (the file's Evidence sheet).
+    status: str = ""
+    rank_word: str = ""
     #: Order 139 part 2 (spec e): the caller sent this row with NO comment text;
     #: the internal copy prints `crs_export.EMPTY_COMMENT_TEXT` in COMPANY
     #: Comments instead of an empty cell. Never true on the issue copy, which

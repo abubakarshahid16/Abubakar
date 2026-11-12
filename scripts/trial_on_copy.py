@@ -504,30 +504,26 @@ AI_WORDS = ("ai opinion", "ai reviewer's view", "query", "not proven", "one ai r
 
 
 def contractor_rows(blob: bytes) -> list[dict]:
-    """The rows of the contractor copy's comment sheet as {status, ref, text}: the rows under the 'Item No' header. Since order 13
-    the sheet shows no item id: its columns are the company columns plus Status. `text` is every cell of the whole workbook that
-    holds a word of the AI reviewer's own (checked apart, see `contractor_check`)."""
+    """The rows of the contractor copy's comment sheet as {ref}: the rows under the 'Item No' header. Since order 13 the sheet shows no
+    item id and no Status (a contractor-facing copy has the nine company columns only); a proven Fail is told by its rule book and
+    clause (`Standard Reference`), matched against the stored lines."""
     from openpyxl import load_workbook
 
     wb = load_workbook(io.BytesIO(blob), read_only=True)
-    ws = wb.worksheets[0]
     out: list[dict] = []
     head: list | None = None
-    for row in ws.iter_rows(values_only=True):
+    for row in wb.worksheets[0].iter_rows(values_only=True):
         first = row[0] if row else None
         if head is None:
-            if first == "Item No" and "Status" in row:
+            if first == "Item No" and "Standard Reference" in row:
                 head = list(row)
             continue
         if first not in (None, ""):
-            out.append(
-                {
-                    "status": str(row[head.index("Status")] or ""),
-                    "ref": str(row[head.index("Standard Reference")] or ""),
-                }
-            )
+            out.append({"ref": str(row[head.index("Standard Reference")] or "")})
     if head is None:
-        raise ValueError("no Item No / Status header row")
+        raise ValueError("no Item No / Standard Reference header row")
+    if "Status" in head:
+        raise ValueError("the contractor copy carries a Status column")
     return out
 
 
@@ -567,11 +563,7 @@ def contractor_check(
             (run_id,),
         )
     ]
-    wrong = [
-        r
-        for r in rows
-        if r["status"] != "Fail" or (r["ref"] and r["ref"] not in proven)
-    ]
+    wrong = [r for r in rows if r["ref"] and r["ref"] not in proven]
     if wrong or len(rows) > len(proven) or ai_cells:
         return Check(
             name,

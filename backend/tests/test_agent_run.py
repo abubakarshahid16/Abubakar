@@ -438,8 +438,6 @@ def test_local_run_takes_the_heavy_lock_and_a_claude_run_does_not(
 
 # ---- the scorer bridge ---------------------------------------------------------------------------------------------
 
-SCORER = Path.home() / "project" / "mirror" / "answer-key" / "answer_key_score.py"
-
 
 def _findings():
     return [
@@ -519,17 +517,32 @@ def test_scorer_contract_row_matches_by_topic_words_and_page(tmp_path):
     )  # the scorer counts rows with 5+ filled cells
 
 
-@pytest.mark.skipif(
-    not SCORER.exists(), reason="the scorer lives on the owner's Mac only"
-)
 def test_writer_matches_what_the_scorer_reads():
-    src = SCORER.read_text(encoding="utf-8")  # the CODE only, never a key or CRS file
-    assert f'load(a.crs, "{ar.CRS_SHEET}")' in src
-    m = re.search(r">= (\d+)\]", src)
-    assert m and int(m.group(1)) == ar.MIN_FILLED_CELLS
-    # the column names the scorer reads from its key file are the ones the CRS writer uses for the same facts
-    reads = set(re.findall(r'h\.index\("([^"]+)"\)', src))
-    assert {"Standard Reference", "Page No./Section"} <= reads
+    """The REPO scorer (`tools/answer_key_score.py`, one home; no path outside the repo, no skip): the sheet it reads and the column
+    names it looks up are the ones the writers emit, and a row the experiment writer calls a comment has enough filled cells."""
+    from app import agent_review_crs as real
+    from app import crs_layout
+    from tools import answer_key_score as aks
+
+    src = Path(aks.__file__).read_text(
+        encoding="utf-8"
+    )  # the CODE only, never a key or CRS file
+    assert (
+        aks.CRS_SHEET == ar.CRS_SHEET == real.CRS_SHEET == crs_layout.LAYOUT_MAIN_SHEET
+    )
+    reads = set(re.findall(r'head\.index\("([^"]+)"\)', src)) | {"Item No"}
+    assert {
+        "Page No./Section",
+        "Standard Reference",
+        "COMPANY Comments",
+        "Status",
+    } <= reads
+    # the app's own writer: every name the scorer looks up is a header of its CRS sheet ("Verdict" is the OLD layout's)
+    assert reads - {"Verdict"} <= set(crs_layout.LAYOUT_COLUMNS)
+    m = re.search(r"\) < (\d+)\s*\n", src)
+    assert m and ar.MIN_FILLED_CELLS >= int(
+        m.group(1)
+    )  # a comment row of the experiment writer is never skipped
     assert {"Standard Reference", "Page No./Section"} <= set(ar.CRS_HEADERS)
 
 

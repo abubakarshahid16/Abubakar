@@ -25,6 +25,8 @@ from .crs_ai_words import STATUS_AI, STATUS_FAIL, STATUS_PASS, STATUS_QUERY
 from .crs_mapping import (
     PRIORITY_OUT_OF_LIMIT,
     ROW_KIND_AI_ENGINEERING_CHECK,
+    ROW_KIND_DATASHEET_CHECK,
+    ROW_KIND_NON_COMPLIANT,
     ROW_KIND_SAFETY_TICK,
     ROW_KIND_WEB_STANDARD_CHECK,
 )
@@ -51,14 +53,21 @@ _AI_ROW_KINDS = frozenset(
 )
 
 
+#: The kinds whose rank 1 ("Out of limit") is a figure its code compared: the ONLY kinds that can be a Fail. (A rank copied onto a row of
+#: another kind, or a kind this table does not know, is never a Fail.)
+CODE_COMPARED_KINDS = frozenset({ROW_KIND_NON_COMPLIANT, ROW_KIND_DATASHEET_CHECK})
+
+
 def crs_status(row_kind: str | None, priority: int | None) -> str:
     """The Status word of one normal-reviewer row, from its OWN verdict fields (the table in the module docstring). Never a Pass or a
-    Fail that its code path did not prove; a kind it does not know is a Query."""
+    Fail that its code path did not prove; a kind it does not know is a Query at every rank."""
     if row_kind in _AI_ROW_KINDS:
         return STATUS_AI
     if row_kind == ROW_KIND_SAFETY_TICK:
         return STATUS_PASS
-    return STATUS_FAIL if priority == PRIORITY_OUT_OF_LIMIT else STATUS_QUERY
+    if row_kind in CODE_COMPARED_KINDS and priority == PRIORITY_OUT_OF_LIMIT:
+        return STATUS_FAIL
+    return STATUS_QUERY
 
 
 def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
@@ -72,7 +81,10 @@ def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
     pairs = [
         ("Project:", h.get("project", "")),
         ("Document number:", h.get("document_number", "")),
-        ("Document title:", h.get("title") or old.get("Document Title:", "")),
+        (
+            "Document title:",
+            old.get("Document Title:") or h.get("title", ""),
+        ),  # what it showed before: the file name
         ("Revision:", h.get("revision", "")),
         ("Date:", h.get("date", "")),
         ("Discipline:", h.get("discipline", "")),
@@ -114,52 +126,83 @@ def _below(view: dict) -> list[tuple[int, str, str, int]]:
     )
 
 
-def _status_and_priority(entry: dict) -> tuple[str, str]:
-    status = crs_status(entry.get("row_kind"), entry.get("priority"))
-    return status, words.priority(status, {}, words.ORDER_AI_NOT_MET)
+def decorate(view: dict, meta: dict) -> dict:
+    """THE one row model of the file and the preview: every row gets its Status and the Priority word of its copy; the INTERNAL view's
+    columns are the one layout's ten and its header the one layout's facts. A contractor-facing (issue) view keeps its nine company
+    columns, its own header and its own Priority words, and no Status (it would say which comments were drafts)."""
+    internal = view["crs_copy"] == "internal"
+    for row in view["rows"]:
+        status = crs_status(row.get("row_kind"), row.get("priority"))
+        row["rank_word"] = row[
+            "priority_label"
+        ]  # the old word, kept for the Evidence sheet
+        row["status"] = status if internal else ""
+        if internal:
+            row["priority_label"] = words.priority(status, {}, words.ORDER_AI_NOT_MET)
+    overflow = (
+        ce.AI_COLUMN in view["columns"] and not internal
+    )  # a long issued comment's overflow stays on the sheet
+    view["columns"] = list(
+        crs_layout.LAYOUT_COLUMNS if internal else crs_layout.LAYOUT_COLUMNS[:9]
+    )
+    if overflow:
+        view["columns"].append(ce.AI_COLUMN)
+    if internal:
+        view["header"] = [{"label": k, "value": v} for k, v in _pairs(view, meta)]
+    return view
 
 
 def row_cells(entry: dict) -> tuple[list, str]:
-    """One row's ten cells in the one layout's order, and its Status (the tick sheet draws the same cells)."""
-    status, pri = _status_and_priority(entry)
-    return [
+    """One row's cells in the one layout's order (ten with Status on the internal copy, nine on a contractor-facing one), and its Status."""
+    cells = [
         entry["item_no"], entry["document_name"], entry["page_section"], entry["comment"], entry["comment_by"],
-        entry["contractor_response"], entry["final_resolution"], entry["standard_reference"], pri or None, status,
-    ], status  # fmt: skip
+        entry["contractor_response"], entry["final_resolution"], entry["standard_reference"], entry["priority_label"] or None,
+    ]  # fmt: skip
+    return (cells + [entry["status"]] if entry["status"] else cells), entry["status"]
 
 
-def layout_view(view: dict, meta: dict) -> dict:
-    """The view of `crs_export.build_crs_view` as plain values for `crs_layout.layout_workbook`."""
+def _cells_of(entry: dict, columns: list) -> list:
+    cells, _s = row_cells(entry)
+    return (
+        cells + [entry["ai_review_comment"] or None]
+        if ce.AI_COLUMN in columns
+        else cells
+    )
+
+
+def layout_view(view: dict, meta: dict) -> dict:  # noqa: ARG001 - kept for the callers' signature
+    """The (decorated) view of `crs_export.build_crs_view` as plain values for `crs_layout.layout_workbook`."""
     internal = view["crs_copy"] == "internal"
-    built = [row_cells(e) for e in view["rows"]]
-    rows = [cells for cells, _s in built]
-    marks = [(status, "") for _c, status in built]
+    rows = [_cells_of(e, view["columns"]) for e in view["rows"]]
+    statuses = [e["status"] for e in view["rows"]]
     out = {
         "title": "\n".join(p for p in (view["run_status_note"], view["title"]) if p),
         "title_height": 75 if view["run_status_note"] else None,
         "below": _below(view),
         "row_heights": [ce.row_height(e["comment"]) for e in view["rows"]],
-        "header": _pairs(view, meta),
-        "sentence": words.generated_by(meta.get("company_name", ""))
-        if internal
-        else "",
+        "header": [(h["label"], h["value"]) for h in view["header"]],
+        "columns": view["columns"],
+        "widths": crs_layout.LAYOUT_WIDTHS[:9] + (60.0,)
+        if ce.AI_COLUMN in view["columns"]
+        else None,
+        "plain": not internal,
+        "gap": 1 if internal else 0,
         "rows": rows,
-        "statuses": [s for s, _p in marks],
+        "statuses": statuses,
     }
     if internal:
+        out["sentence"] = words.generated_by(meta.get("company_name", ""))
         out["evidence"] = {
             "columns": EVIDENCE_COLUMNS,
-            "statuses": [s for s, _p in marks],
+            "statuses": statuses,
             "widths": EVIDENCE_WIDTHS,
             "rows": [
-                [e["item_no"], s, e["row_kind"], e.get("priority_label") or None, e["row_ref"],
+                [e["item_no"], e["status"], e["row_kind"], e.get("rank_word") or None, e["row_ref"],
                  e["ai_review_comment"] or None, e["reasoning"] or None, e["rule_trust"] or None]
-                for e, (s, _p) in zip(view["rows"], marks, strict=True)
+                for e in view["rows"]
             ],
         }  # fmt: skip
-        counts = [
-            (f"Count: {s}", sum(1 for m, _p in marks if m == s)) for s in words.STATUSES
-        ]
+        counts = [(f"Count: {s}", statuses.count(s)) for s in words.STATUSES]
         out["notes"] = {
             "columns": ("Topic", "Detail"),
             "widths": (44.0, 120.0),
