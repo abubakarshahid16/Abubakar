@@ -258,6 +258,26 @@ class RereadMixin:
             return parse_reread(_text_of(raw)), model, paid
         raise RereadFailed(FAIL_CUT_OFF, paid)  # not reached
 
+    def _failed_read(
+        self, line: dict, cause: str, parts: dict, exc: BaseException
+    ) -> dict:
+        """The line after a re-read call that gave no answer: the cause word and what was paid, never any answer text."""
+        if isinstance(exc, FATAL):
+            self.note_reread_stop(
+                exc
+            )  # optional step: the lead's own calls decide whether the run stops
+            return self._unchanged(line, cause, {"outcome": "step_off"}, 0.0)
+        if isinstance(exc, RereadFailed):
+            outcome = "cut_off" if exc.word == FAIL_CUT_OFF else "failed"
+            return self._unchanged(
+                line, cause, {"outcome": outcome, "failure": exc.word}, exc.paid
+            )
+        # a transport failure: it may have been billed, so the worst case
+        worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS)
+        return self._unchanged(
+            line, cause, {"outcome": "failed", "failure": FAIL_CALL_ERROR}, worst
+        )
+
     # ---- the step
     def _unchanged(self, line: dict, cause: str, extra: Mapping, usd: float) -> dict:
         """The line as it was, plus the `reread` record and what the extra calls cost (a line never understates)."""
@@ -332,23 +352,8 @@ class RereadMixin:
         parts = self.reread_parts(item, texts, held)
         try:
             got, model, usd = self._ask_reread(parts)
-        except FATAL as exc:
-            self.note_reread_stop(
-                exc
-            )  # optional step: the lead's own calls decide whether the run stops
-            return self._unchanged(line, cause, {"outcome": "step_off"}, 0.0)
-        except RereadFailed as exc:
-            outcome = "cut_off" if exc.word == FAIL_CUT_OFF else "failed"
-            return self._unchanged(
-                line, cause, {"outcome": outcome, "failure": exc.word}, exc.paid
-            )
-        except (
-            agent_claude.AgentClaudeError
-        ):  # a transport failure: it may have been billed, so the worst case
-            worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS)
-            return self._unchanged(
-                line, cause, {"outcome": "failed", "failure": FAIL_CALL_ERROR}, worst
-            )
+        except (FATAL, RereadFailed, agent_claude.AgentClaudeError) as exc:
+            return self._failed_read(line, cause, parts, exc)
         self._optional.paid = usd
         failure = FAIL_UNREADABLE
         if model and not agent_run_second.models_differ([lead_model], model):
