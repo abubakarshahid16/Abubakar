@@ -688,7 +688,7 @@ def screen_text(line_json: str | None) -> str:
         "skill",
     )  # a general review's line is not an item row
     got = status_of(line) if ruled else None
-    return layout_comment(line, *got) if got else ""
+    return comment_cell(layout_comment(line, *got)) or "" if got else ""
 
 
 def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:

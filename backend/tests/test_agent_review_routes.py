@@ -176,7 +176,8 @@ def test_the_screens_line_text_is_the_three_lines_of_the_files_comment_cell(clie
     lines = client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()["lines"]
     blob = client.get(f"/api/reviews/runs/{run_id}/agent/crs?copy=internal").content
     ws = openpyxl.load_workbook(io.BytesIO(blob))["CRS"]
-    cells = {str(r[3]) for r in ws.iter_rows(min_row=14, values_only=True) if r[3]}
+    top = next(r for r in range(1, 40) if ws.cell(r, 1).value == "Item No")
+    cells = {str(r[3]) for r in ws.iter_rows(min_row=top + 1, values_only=True) if r[3]}
     item_lines = [ln for ln in lines if ln["word"] != "Not reviewed"]
     assert item_lines
     for ln in item_lines:

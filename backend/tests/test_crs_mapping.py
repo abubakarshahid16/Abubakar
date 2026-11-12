@@ -204,3 +204,14 @@ def test_a_rows_identity_is_carried_but_never_printed():
 
     assert rows[0]["finding_id"] == "f-1"
     assert "f-1" not in rows[0]["comment"] + rows[0]["page_section"]
+
+
+def test_the_rule_check_comment_is_three_lines_required_shown_what_to_do():
+    """Order 13: what the standard requires / what the document shows / what the contractor must do, one per line, each ending with a
+    full stop, built only from what the row holds (no empty line for a part it lacks)."""
+    nc = dict(NC, crs_field_label="CORROSION ALLOWANCE", contractor_evidence_text="1.5 mm")
+    comment = build_crs_rows([nc], [], "s.pdf")[0]["comment"]
+    required, shown, todo = comment.split("\n")
+    assert required.startswith("SAES-X-001") and shown.startswith("Datasheet p.4")
+    assert todo.startswith("Contractor to revise")
+    assert all(p.endswith(".") for p in (required, shown, todo)) and "\n\n" not in comment
