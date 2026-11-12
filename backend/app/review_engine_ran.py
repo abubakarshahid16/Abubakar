@@ -92,3 +92,23 @@ def note_web_check_skipped(run_id: str) -> None:
         log.warning(
             "review engine: the web check note was not written (%s)", type(exc).__name__
         )
+
+
+def _notes(facts, plan, settings) -> list[str]:
+    """Plain notes the panel shows below the plan."""
+    from .review_engine import ON_CLAUDE, RULE_CHECK
+
+    notes = []
+    if facts.is_contract and not facts.scored_allowed:
+        notes.append(
+            "A recorded yes does not offer a contract for Claude while contracts are not scored against an answer key; it counts "
+            "once contracts are scored, or when this install turns on the setting for unscored kinds."
+        )
+    if settings.review_web_standards_enabled:
+        kept = not plan.text_leaves or plan.part(RULE_CHECK).engine != ON_CLAUDE
+        notes.append(
+            "The public web check of standards the library lacks will not run: this review is kept on this computer."
+            if kept
+            else "This install turns on the public web check of standards the library lacks; it can send those standard names out."
+        )
+    return notes

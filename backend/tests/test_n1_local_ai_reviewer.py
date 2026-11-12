@@ -1108,3 +1108,103 @@ def test_the_contractor_comment_of_a_not_asked_line_says_not_asked_not_a_failed_
     assert (
         "(Not reviewed: the AI call failed.)" in failed
     )  # a real failure keeps its words
+
+
+# ---------------------------------------------------------------- Automatic when Claude refuses every call (the account limit)
+
+
+def _ledger(monkeypatch, lines):
+    from app import claude_spend
+
+    monkeypatch.setattr(claude_spend, "_raw_lines", lambda: lines)
+
+
+def _at(minutes_ago):
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat(
+        timespec="seconds"
+    )
+
+
+def test_a_standing_refusal_is_the_newest_account_level_rejection_with_no_success_after_it(
+    monkeypatch,
+):
+    from app import claude_standing_refusal as ref
+
+    refusal = {
+        "at": _at(5),
+        "releases": "r1",
+        "step": "agent_review",
+        "reason": "unbilled:HTTPStatusError:http_400:no_credit",
+    }
+    _ledger(monkeypatch, [refusal])
+    assert ref.standing() is True
+    _ledger(
+        monkeypatch,
+        [{**refusal, "reason": "unbilled:HTTPStatusError:http_429:rate_limit_error"}],
+    )
+    assert ref.standing() is True
+    _ledger(
+        monkeypatch,
+        [refusal, {"at": _at(1), "settles": "r2", "finish_reason": "end_turn"}],
+    )
+    assert ref.standing() is False  # a call went through after it
+    _ledger(monkeypatch, [{**refusal, "at": _at(60 * 30)}])
+    assert ref.standing() is False  # older than a day
+    _ledger(monkeypatch, [{**refusal, "reason": "unbilled:ReaderRefused"}])
+    assert (
+        ref.standing() is False
+    )  # a refusal made here (a closed flag) is not the account's
+    _ledger(monkeypatch, [])
+    assert ref.standing() is False
+
+
+def test_automatic_resolves_to_local_with_one_plain_sentence_when_claude_refuses_every_call():
+    plan = E.decide("automatic", open_facts(claude_refused=True, local_ai=True))
+    ai = plan.part(E.AI_REVIEW)
+    assert (
+        ai.engine == E.ON_LOCAL and plan.refused is None and plan.text_leaves is False
+    )
+    assert ai.why.startswith(
+        "Claude is not available now, so this review runs on this computer"
+    )
+    assert plan.part(E.RULE_CHECK).engine == E.ON_LOCAL
+    sentence = E.sentence_of({**plan.as_dict(), "kind": "datasheet"})
+    assert (
+        "Claude is not available now, so this review runs on this computer" in sentence
+    )
+
+
+def test_a_refusing_claude_never_yields_a_failed_start_for_automatic_and_still_refuses_the_claude_choice():
+    off = E.decide(
+        "automatic", open_facts(claude_refused=True)
+    )  # the local switch is off: the rule check runs, the AI review does not, no refusal
+    assert off.refused is None and off.part(E.AI_REVIEW).engine == E.NOT_RUN
+    assert "Claude is not available now" in off.part(E.AI_REVIEW).why
+    chosen = E.decide(
+        "claude",
+        open_facts(claude_refused=True, step_engine_claude=False, local_ai=True),
+    )
+    assert (
+        chosen.refused and chosen.part(E.AI_REVIEW).engine == E.NOT_RUN
+    )  # never a silent fallback when Claude was asked for
+
+
+def test_read_facts_reads_the_standing_refusal(w, monkeypatch):
+    from app import claude_spend
+
+    monkeypatch.setattr(
+        claude_spend,
+        "_raw_lines",
+        lambda: [
+            {
+                "at": _at(2),
+                "releases": "r",
+                "step": "s",
+                "reason": "unbilled:HTTPStatusError:http_400:no_credit",
+            }
+        ],
+    )
+    facts, _reading = E.read_facts(db.connect(), s.PAPER, frozenset({s.PAPER}))
+    assert facts.claude_refused is True
