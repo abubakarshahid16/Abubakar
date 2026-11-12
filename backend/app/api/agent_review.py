@@ -36,6 +36,7 @@ from .. import (
     agent_review_schema,
     agent_review_text,
     crs_ai_workbook,
+    agent_review_wording,
     errors,
     review_jobs,
     schemas,
@@ -240,6 +241,13 @@ def agent_summary(
             (review_run_id,),
         )
     }
+    pairs = [
+        (r["verdict_class"], r["word"])
+        for r in conn.execute(
+            "SELECT verdict_class, word FROM agent_review_line WHERE run_id = ?",
+            (review_run_id,),
+        )
+    ]
     books = [
         r["name"]
         for r in conn.execute(
@@ -263,6 +271,7 @@ def agent_summary(
         two_reader_step=_two_reader_step(run),
         two_reader_absence_step=_two_reader_step(run, "two_reader_absence_step"),
         two_reader_other_step=_two_reader_step(run, "two_reader_other_step"),
+        decisions=contract.AgentDecisions(**agent_review_wording.decisions_of(pairs)),
         paper_text=_paper_text(run),
         page_reread_stopped=_equipment(run).get("page_reread"),
         answers_reused=_counts_of(run).get("answers_reused"),

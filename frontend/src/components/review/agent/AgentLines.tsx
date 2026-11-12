@@ -10,7 +10,7 @@ import { agentReview } from "../../../api/agentReview";
 import type { AgentLine, AgentMode } from "../../../types/api";
 import {
   CLASS_ORDER, CLASS_STYLE, DATA_ERROR_NOTE, GENERAL_CLASS_ORDER, MODEL_WORDS_MARK, NOT_REVIEWED_NOTE, PART_ORDER, PART_WORDS,
-  lineView, tierWords,
+  displayWord, lineView, tierWords,
 } from "./agentWords";
 import { lineName, plainReason } from "./plainWords";
 
@@ -47,7 +47,7 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
                       className="text-left text-signal-300 underline-offset-2 hover:underline">{name.title}</button>
                   </td>
                   <td className="pr-3" data-testid={`word-${line.item_id}`}>
-                    {view.word ?? view.klass ?? "unknown class"}
+                    {view.word != null ? displayWord(view.word) : (view.klass ?? "unknown class")}
                     {view.dataError && <span role="note" className="block text-xs text-warn-500">{DATA_ERROR_NOTE}</span>}
                   </td>
                   {general && <td className="pr-3">{line.part ? PART_WORDS[line.part] ?? "" : ""}</td>}

@@ -127,6 +127,8 @@ class Line:
     unknown_verdict: bool = False
     #: Status "AI verdict" (two AI readers agreed): "met", "not met" or "not stated". Scored in its OWN columns, never as a pass or comment.
     ai_kind: str = ""
+    #: the line's Status (new layout) or Verdict (old layout), folded: "pass", "fail", "query", "ai opinion", "ai verdict"
+    status: str = ""
 
 
 def fold(text) -> str:
@@ -465,13 +467,16 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                 if status == "ai verdict":
                     from app.agent_review_two_reader import ABSENCE_WHY
 
-                    ai_kind = (
-                        "not stated"
-                        if fold(ABSENCE_WHY) in fold(comment)
-                        else "met"
-                        if "the requirement is met" in fold(comment)
-                        else "not met"
-                    )
+                    said = fold(comment)
+                    if fold(ABSENCE_WHY) in said:
+                        ai_kind = "not stated"
+                    elif re.search(
+                        r"(?<!not )met \(ai, two readers agree|the requirement is met",
+                        said,
+                    ):
+                        ai_kind = "met"
+                    else:
+                        ai_kind = "not met"
             elif verdict:
                 kind = VERDICTS.get(verdict, "unknown")
                 if pass_sheet and kind != "pass":
@@ -490,6 +495,7 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                     clause=clause_ref(row[si]) if si is not None else None,
                     unknown_verdict=kind == "unknown",
                     ai_kind=ai_kind if sti is not None else "",
+                    status=status if sti is not None else verdict,
                 )
             )
     return out, layout
@@ -669,7 +675,48 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
             )
     res["wrong_pass_lines"] = len(hidden_by_pass)
     _score_ai_verdicts(res, key, ai_lines)
+    res["decisions"] = decision_figures(key, lines)
     return res
+
+
+def decision_figures(key: list[KeyRow], lines: list[Line]) -> dict:
+    """DECISIONS (owner, 12 Nov 2026) = code Pass/Fail lines + two-reader verdicts (Status "AI verdict", met or not met; never "not stated",
+    "AI thinks" or a Query). Each is right, wrong or not on the key: a Pass / "met" is right on a complies row and wrong on a problem row; a Fail /
+    "not met" is right on a problem row and wrong on a complies row or when it repeats a wrong or disputed row. A line answering nothing the key
+    judges is "not on the key". Kept beside the two-way figures (problems found; found where a rule is held)."""
+    code, two = [], []
+    for ln in lines:
+        if ln.is_pass or ln.status == "fail":
+            code.append((ln, ln.is_pass))
+        elif ln.ai_kind in ("met", "not met"):
+            two.append((ln, ln.ai_kind == "met"))
+    right = wrong = 0
+    for ln, positive in [*code, *two]:
+        verdicts = set()
+        for k in key:
+            if k.scored_as == "not scored" or not answers(k, ln):
+                continue
+            if k.scored_as == "problem":
+                verdicts.add("right" if not positive else "wrong")
+            elif k.scored_as == "complies":
+                verdicts.add("right" if positive else "wrong")
+            elif (
+                k.scored_as in ("wrong", "disputed") and not positive and repeats(k, ln)
+            ):
+                verdicts.add("wrong")
+        if "wrong" in verdicts:
+            wrong += 1
+        elif "right" in verdicts:
+            right += 1
+    n = len(code) + len(two)
+    return {
+        "n": n,
+        "code": len(code),
+        "two_reader": len(two),
+        "right": right,
+        "wrong": wrong,
+        "not_on_key": n - right - wrong,
+    }
 
 
 def _score_ai_verdicts(res: dict, key: list[KeyRow], ai_lines: list[Line]) -> None:
@@ -746,6 +793,9 @@ def summary(res: dict) -> dict:
             k: len(v) for k, v in res["other_clause_not_judged"].items()
         },
         "word_only_not_counted": {k: len(v) for k, v in res["word_only"].items()},
+        "decisions": "decisions = code Pass/Fail + two-reader verdicts: right {right} of {n}, wrong {wrong}, not on the key {not_on_key}".format(
+            **res["decisions"]
+        ),
         "ai_verdict": f"{res['ai_verdict_lines']} lines: found {len(res['ai_verdict_found'])} problem rows, confirmed "
         f"{len(res['ai_verdict_complies_confirmed'])} complies rows, wrong {len(res['ai_verdict_wrong'])} (also in clear_wrong)",
         "comment_lines": res["comment_lines"],
