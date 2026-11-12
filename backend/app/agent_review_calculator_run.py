@@ -84,7 +84,14 @@ def pair(
 
 
 def step(
-    conn, run_id: str, submittal: str, kind, plan: dict, *, store, tier_lookup
+    conn,
+    run_id: str,  # noqa: ARG001 - the job's signature
+    submittal: str,
+    kind,
+    plan: dict,
+    *,
+    store,
+    tier_lookup,
 ) -> list[dict]:
     """Make, finish and STORE the calculator's lines; set `plan["calculator"]` (what ran, in words and counts). Setting off: `[]` and nothing else."""
     if not enabled():
