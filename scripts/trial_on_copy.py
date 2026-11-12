@@ -500,58 +500,88 @@ def proof_check(conn: sqlite3.Connection, run_id: str) -> Check:
     )
 
 
-def contractor_rows(blob: bytes) -> list[str]:
-    """The Status of every row on the contractor copy's comment sheet (the rows under the 'Item No' header). Since order 13 the
-    sheet shows no item id: its columns are the company columns plus Status."""
+AI_WORDS = ("ai opinion", "ai reviewer's view", "query", "not proven", "one ai reader")
+
+
+def contractor_rows(blob: bytes) -> list[dict]:
+    """The rows of the contractor copy's comment sheet as {status, ref, text}: the rows under the 'Item No' header. Since order 13
+    the sheet shows no item id: its columns are the company columns plus Status. `text` is every cell of the whole workbook that
+    holds a word of the AI reviewer's own (checked apart, see `contractor_check`)."""
     from openpyxl import load_workbook
 
     wb = load_workbook(io.BytesIO(blob), read_only=True)
     ws = wb.worksheets[0]
-    out: list[str] = []
-    status_col: int | None = None
+    out: list[dict] = []
+    head: list | None = None
     for row in ws.iter_rows(values_only=True):
         first = row[0] if row else None
-        if status_col is None:
+        if head is None:
             if first == "Item No" and "Status" in row:
-                status_col = list(row).index("Status")
+                head = list(row)
             continue
         if first not in (None, ""):
-            out.append(str(row[status_col] or ""))
-    if status_col is None:
+            out.append(
+                {
+                    "status": str(row[head.index("Status")] or ""),
+                    "ref": str(row[head.index("Standard Reference")] or ""),
+                }
+            )
+    if head is None:
         raise ValueError("no Item No / Status header row")
     return out
+
+
+def _ai_word_cells(blob: bytes) -> int:
+    """Cells of the whole contractor workbook (every sheet) with an AI opinion word or a code word."""
+    from openpyxl import load_workbook
+
+    from app import crs_ai_words
+
+    n = 0
+    for sheet in load_workbook(io.BytesIO(blob), read_only=True).worksheets:
+        for row in sheet.iter_rows(values_only=True):
+            for cell in row:
+                text = str(cell or "").lower()
+                if text and (
+                    any(w in text for w in AI_WORDS) or crs_ai_words.has_banned(text)
+                ):
+                    n += 1
+    return n
 
 
 def contractor_check(
     conn: sqlite3.Connection, run_id: str, blob: bytes | None
 ) -> Check:
+    name = "contractor copy holds proven Fail only"
     if blob is None:
-        return Check(
-            "contractor copy holds proven Fail only", False, "the copy was not read"
-        )
+        return Check(name, False, "the copy was not read")
     try:
-        statuses = contractor_rows(blob)
+        rows = contractor_rows(blob)
+        ai_cells = _ai_word_cells(blob)
     except Exception as exc:  # noqa: BLE001
-        return Check(
-            "contractor copy holds proven Fail only",
-            False,
-            f"not a readable workbook ({type(exc).__name__})",
+        return Check(name, False, f"not a readable workbook ({type(exc).__name__})")
+    proven = [
+        f"{r['rule_book']} clause {r['clause']}".strip()
+        for r in conn.execute(
+            "SELECT rule_book, clause FROM agent_review_line WHERE run_id = ? AND verdict_class = 'Proven by code' AND word = 'Fail'",
+            (run_id,),
         )
-    proven_fail = conn.execute(
-        "SELECT COUNT(*) FROM agent_review_line WHERE run_id = ? AND verdict_class = 'Proven by code' AND word = 'Fail'",
-        (run_id,),
-    ).fetchone()[0]
-    extra = [s for s in statuses if s != "Fail"]
-    if extra or len(statuses) > proven_fail:
+    ]
+    wrong = [
+        r
+        for r in rows
+        if r["status"] != "Fail" or (r["ref"] and r["ref"] not in proven)
+    ]
+    if wrong or len(rows) > len(proven) or ai_cells:
         return Check(
-            "contractor copy holds proven Fail only",
+            name,
             False,
-            f"{len(extra) or len(statuses) - proven_fail} row(s) that are not a proven Fail",
+            f"{len(wrong) or max(0, len(rows) - len(proven))} row(s) that are not a proven Fail; {ai_cells} cell(s) with AI wording",
         )
     return Check(
-        "contractor copy holds proven Fail only",
+        name,
         True,
-        f"{len(statuses)} row(s) of {proven_fail} proven Fail",
+        f"{len(rows)} row(s) of {len(proven)} proven Fail, each matched by its rule book and clause, no AI wording",
     )
 
 
