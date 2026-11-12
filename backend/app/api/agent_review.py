@@ -516,7 +516,9 @@ def _coverage_for(rules: list) -> list[contract.AgentBookCoverage]:
     ]
 
 
-def _book_table(conn, run_id: str, scope: access.AccessScope) -> contract.AgentBookTable:
+def _book_table(
+    conn, run_id: str, scope: access.AccessScope
+) -> contract.AgentBookTable:
     """Which held rule books were candidates and which were not; only books the caller may read are named (rule 5)."""
     got = agent_review_book_table.build(conn, run_id, scope.may_read)
     return contract.AgentBookTable(

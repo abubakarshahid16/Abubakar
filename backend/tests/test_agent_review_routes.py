@@ -383,13 +383,24 @@ def test_the_tables_refuse_an_unproven_pass_or_fail_themselves(client):
         )
 
 
-def test_rules_used_carries_the_book_table_with_its_boundary_and_names_only_readable_books(client):
+def test_rules_used_carries_the_book_table_with_its_boundary_and_names_only_readable_books(
+    client,
+):
     run_id = finished_run(client)
     table = client.get(f"/api/reviews/runs/{run_id}/rules-used").json()["book_table"]
-    assert table["boundary"].startswith("rule books in the library the person viewing this may read")
-    assert table["books"] and table["hidden_books"] >= 1  # the invented left-out book is not a held, readable document
+    assert table["boundary"].startswith(
+        "rule books in the library the person viewing this may read"
+    )
+    assert (
+        table["books"] and table["hidden_books"] >= 1
+    )  # the invented left-out book is not a held, readable document
     assert "doc_other" not in json.dumps(table) and "INV-OTHER" not in json.dumps(table)
-    assert all({"rule_book", "in_review", "method", "asked", "left_out"} <= set(b) for b in table["books"])
+    assert all(
+        {"rule_book", "in_review", "method", "asked", "left_out"} <= set(b)
+        for b in table["books"]
+    )
     asked_total = sum(b["asked"] for b in table["books"])
     used = client.get(f"/api/reviews/runs/{run_id}/rules-used").json()
-    assert asked_total <= len(used["asked"])  # only readable books are counted in the table
+    assert asked_total <= len(
+        used["asked"]
+    )  # only readable books are counted in the table

@@ -8,7 +8,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentRulesUsed } from "../../../types/api";
+import type { AgentBookTable, AgentRulesUsed } from "../../../types/api";
 import { NOT_AGENT_RULES, RulesUsedPanel, RulesUsedView } from "./RulesUsedPanel";
 
 const rulesUsed = vi.fn();
@@ -250,7 +250,7 @@ describe("Rules used for a general review", () => {
 
 
 describe("BookTable", () => {
-  const table = {
+  const table: AgentBookTable = {
     boundary: "rule books in the library the person viewing this may read",
     hidden_books: 2,
     note: null,
