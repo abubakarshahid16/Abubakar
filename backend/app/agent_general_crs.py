@@ -5,8 +5,10 @@ Status on the CRS sheet, then the sheets "Not reviewed or not applicable", Evide
 from `crs_ai_words` (the Statuses, the priority rule, the plain-text filter). A general review has no rule book to hold the paper
 to, so a line is never Pass or Fail: an AI note is Status "AI opinion", a question for the engineer is "Query" (worded
 "Contractor to confirm ..."), a line that was not reviewed or a rule book we do not hold goes to the second sheet. A comment has
-three parts, one per line: what the rule (or checklist point, or project paper) requires, what the paper shows (a quote code
-verified, with its page), what the contractor must do.
+three parts: what the rule (or checklist point, or project paper) requires, what the paper shows (ONLY a quote code verified,
+with its page, else one neutral sentence; the AI's own words are on the Evidence sheet, never in the comment), what the
+contractor must do. (The shared exporter joins the three parts with line breaks and flattens them: its own fix.) The header block
+is the datasheet review's own; what the mode is (no Pass or Fail) is said on the internal Notes sheet only.
 
 The contractor copy and the comment-only copy hold the nine company columns and NO rows: a general review proves no Fail, and the
 contractor copy shows proven Fail only. Every line is re-run through the single exit first, so a writer can only ever carry a
@@ -21,6 +23,7 @@ from pathlib import Path
 
 from . import agent_general_review as core
 from . import crs_ai_words as words
+from . import crs_ai_workbook as workbook
 from . import crs_export, crs_layout, kind_review_table
 from .agent_general_review import (
     CLASS_NOT_CHECKED,
@@ -43,7 +46,7 @@ OTHER_KIND = {
 }
 EVIDENCE_COLUMNS = (
     "Item No", "Status", "Part", "Sub-kind", "Paper quote", "Paper page", "Other quote", "Other page", "Other document",
-    "Quotes checked by code", "Figures (by code)", "Second reader's reason", "Text source", "Line id (internal)",
+    "Quotes checked by code", "Figures (by code)", "AI reviewer's words", "Second reader's reason", "Text source", "Line id (internal)",
 )  # fmt: skip
 EVIDENCE_WIDTHS = (
     9.0,
@@ -57,6 +60,7 @@ EVIDENCE_WIDTHS = (
     26.0,
     16.0,
     26.0,
+    60.0,
     40.0,
     20.0,
     24.0,
@@ -85,8 +89,13 @@ def _other_quote(ln: Mapping) -> Mapping | None:
     return ln.get("quote_b") or ln.get("quote_other")
 
 
+def _verified(ln: Mapping, q: Mapping | None) -> Mapping | None:
+    """A quote the CRS comment may print: present AND checked by code (`quotes_verified_by_code` is exactly True)."""
+    return q if ln.get("quotes_verified_by_code") is True else None
+
+
 def _page_text(ln: Mapping) -> str | None:
-    return _page_cell(_quote(_paper_quote(ln))[1])
+    return _page_cell(_quote(_verified(ln, _paper_quote(ln)))[1])
 
 
 def _what(ln: Mapping) -> str:
@@ -98,14 +107,14 @@ def _what(ln: Mapping) -> str:
         return _c(ln["topic"])
     if other:
         return f"compliance with {other}"
-    return words.plain(ln.get("text")) or "the point raised"
+    return "the point raised"  # never the AI's free text: that is on the Evidence sheet
 
 
 def _requires(ln: Mapping, status: str) -> str:
     """Part 1: what the rule requires. In this mode the 'rule' is the checklist point, the project paper's own requirement, the paper
     itself, or good practice; a question is worded 'Contractor to confirm ...'."""
     part, other = ln["part"], _c(ln.get("other_document"))
-    oq = _quote(_other_quote(ln))[0]
+    oq = _quote(_verified(ln, _other_quote(ln)))[0]
     if status == words.STATUS_QUERY:
         tail = f', which requires: "{oq}".' if oq else "."
         return f"Contractor to confirm {_what(ln)}{tail}"
@@ -131,29 +140,27 @@ def _requires(ln: Mapping, status: str) -> str:
     )
 
 
+NO_QUOTE = "The AI reviewer holds no verified quote from the paper for this point."
+AI_VIEW = "The AI reviewer's view, not proven by code: this point needs the engineer's attention."
+
+
 def _paper_shows(ln: Mapping, status: str) -> str:
-    """Part 2: what the paper shows: only a quote code verified, with its page; then the AI reviewer's own words, marked as its view."""
-    text, page = _quote(_paper_quote(ln))
+    """Part 2: what the paper shows: ONLY a quote code verified, with its page (`NO_QUOTE` when there is none). The AI's own words
+    never enter the comment (they are on the Evidence sheet); an AI note says, in one fixed sentence, that it is the AI's view."""
+    text, page = _quote(_verified(ln, _paper_quote(ln)))
     where = f", page {page}" if page not in (None, "") else ""
-    out = (
-        f'The paper states "{text}"{where}.'
-        if text
-        else "The AI reviewer holds no verified quote from the paper for this point."
+    out = f'The paper states "{text}"{where}.' if text else NO_QUOTE
+    b_text, b_page = (
+        _quote(_verified(ln, _other_quote(ln))) if ln["part"] == 3 else ("", None)
     )
-    b_text, b_page = _quote(_other_quote(ln)) if ln["part"] == 3 else ("", None)
     if b_text:
         out += (
             f' It also states "{b_text}"'
             + (f", page {b_page}" if b_page not in (None, "") else "")
             + "."
         )
-    view = words.plain(ln.get("text"))
-    if view:
-        out += (
-            f" The AI reviewer's view, not proven by code: {view}"
-            if status == words.STATUS_AI
-            else f" {view}"
-        )
+    if status == words.STATUS_AI:
+        out += f" {AI_VIEW}"
     if ln.get("figures"):
         out += f" Figures: {_c(ln['figures'])}."
     return out
@@ -214,13 +221,95 @@ def _table(rows: list[list]) -> list[list]:
 
 
 def _evidence_row(n: int, ln: Mapping, status: str) -> list:
+    """The Evidence row: the quotes and the AI reviewer's own words (here and nowhere else; never in the comment)."""
     qa, pa = _quote(_paper_quote(ln))
     qb, pb = _quote(_other_quote(ln))
     return [
         n, status, core.PART_WORDS[ln["part"]], ln.get("subkind") or "", qa, pa, qb, pb, _c(ln.get("other_document")),
-        "verified by code" if ln.get("quotes_verified_by_code") else "no quote", ln.get("figures") or "",
-        _c(ln.get("second_model_reason")), _c(ln.get("text_source")) or "", ln.get("line_id") or "",
+        "verified by code" if ln.get("quotes_verified_by_code") is True else "no verified quote", ln.get("figures") or "",
+        words.plain(ln.get("text")), _c(ln.get("second_model_reason")), _c(ln.get("text_source")) or "",
+        ln.get("line_id") or "",
     ]  # fmt: skip
+
+
+def _head_view(
+    final: list[Mapping], items: list, meta: Mapping, copy: str, discipline: str
+) -> dict:
+    """The title, the header block (the datasheet review's own, `crs_ai_workbook._header_pairs`), the sentence and the item rows."""
+    paper = str(meta.get("paper") or "")
+    contractor = copy == "contractor"
+    by = "" if contractor else words.comment_by(discipline)
+    books = sorted({_c(ln.get("rule_book")) for ln in final if ln.get("rule_book")})
+    label = workbook.BOOKS_SHOWN if contractor else workbook.BOOKS_REVIEWED
+    return {
+        "title": workbook._title(meta),
+        "header": workbook._header_pairs({**meta, "discipline": discipline}, books, label),
+        "sentence": words.generated_by(crs_export.default_company()),
+        "rows": _table([_row(n, ln, paper, st, o, by) for n, (ln, st, o) in enumerate(items, start=1)]),
+        "statuses": [st for _l, st, _o in items],
+    }  # fmt: skip
+
+
+def _other_sheet(others: list, paper: str, first_no: int) -> dict:
+    rows = [
+        [
+            first_no + k,
+            paper,
+            core.PART_WORDS[ln["part"]],
+            _c(ln.get("rule_book") or ", ".join(ln.get("held_rule_books") or []))
+            or None,
+            kind,
+            _sentence(ln.get("text")),
+        ]
+        for k, (ln, kind) in enumerate(others)
+    ]
+    return {
+        "name": words.OTHER_SHEET,
+        "columns": OTHER_COLUMNS,
+        "rows": _table(rows),
+        "widths": OTHER_WIDTHS,
+    }
+
+
+def _evidence_sheet(items: list, others: list) -> dict:
+    ev = [_evidence_row(n, ln, st) for n, (ln, st, _o) in enumerate(items, start=1)]
+    ev += [
+        _evidence_row(len(items) + k, ln, kind)
+        for k, (ln, kind) in enumerate(others, start=1)
+    ]
+    return {
+        "columns": EVIDENCE_COLUMNS,
+        "rows": _table(ev),
+        "statuses": [st for _l, st, _o in items] + [None] * len(others),
+        "widths": EVIDENCE_WIDTHS,
+    }
+
+
+def _notes_sheet(
+    items: list, others: list, books: list, meta: Mapping, used: list, dropped: Mapping
+) -> dict:
+    count = Counter(st for _l, st, _o in items)
+    models = lambda key: ", ".join(meta.get(key) or []) or "not reported"  # noqa: E731
+    notes: list[list] = [
+        ["Review mode", core.MODE_WORD + ": " + NO_FAIL_NOTE],
+        ["Priority rule", words.priority_rule((words.STATUS_AI, words.STATUS_QUERY))],
+        ["Rule books not held", "; ".join(books) or "none"],
+        ["Papers used", "; ".join(used) or core.NO_PROJECT_PAPER],
+        *[[f"Count: {s}", count.get(s, 0)] for s in (words.STATUS_AI, words.STATUS_QUERY)],
+        ["Count: rows on the CRS sheet", len(items)],
+        *[[f"Count: {k}", sum(1 for _l, kk in others if kk == k)] for k in OTHER_KIND.values()],
+        ["Count: rows on the sheet '" + words.OTHER_SHEET + "'", len(others)],
+        *[[f"Dropped, {core.PART_WORDS[int(p)]}: {r}", n] for p, c in dropped.items() for r, n in c.items()],
+        ["Run id", _c(meta.get("run_id")) or "not reported"],
+        ["Date", _c(meta.get("date")) or "not reported"],
+        ["First reader models", models("lead_models")],
+        ["Second reader models", models("second_models")],
+    ]  # fmt: skip
+    return {
+        "columns": ("Topic", "Detail"),
+        "rows": _table(notes),
+        "widths": (44.0, 120.0),
+    }
 
 
 def layout_view(
@@ -231,43 +320,20 @@ def layout_view(
     copy: str,
 ) -> dict:
     """The whole workbook as plain values for `crs_layout.build_layout_crs`. copy = 'internal' | 'contractor'. The contractor copy
-    holds the nine company columns and no rows (a general review proves no Fail)."""
-    paper = str(meta.get("paper") or "")
-    h = meta.get("header") or {}
-    contractor = copy == "contractor"
+    is the datasheet review's contractor copy: its header block, the nine company columns, no rows (a general review proves no
+    Fail). What the mode is (no Pass or Fail) is said on the internal Notes sheet only."""
     final = [
         core.finalize_line(ln) for ln in lines
-    ]  # the exporter takes nothing that did not leave through the exit
-    items = [] if contractor else _item_lines(final)
-    discipline = (
+    ]  # nothing that did not leave through the exit
+    h = meta.get("header") or {}
+    discipline = _c(
         meta.get("discipline")
         or h.get("discipline")
         or kind_review_table.discipline(meta.get("kind"))
     )
-    by = "" if contractor else words.comment_by(discipline)
-    books = sorted({_c(ln.get("rule_book")) for ln in final if ln.get("rule_book")})
-    view: dict = {
-        "title": "\n".join(
-            p for p in (crs_export.default_company(), _c(h.get("project"))) if p
-        ),
-        "header": [
-            ("Project:", _c(h.get("project"))),
-            ("Document number:", _c(h.get("document_number"))),
-            ("Document title:", _c(h.get("title"))),
-            ("Revision:", _c(h.get("revision"))),
-            ("Date:", _c(h.get("date"))),
-            ("Discipline:", _c(discipline)),
-            ("Review mode:", core.MODE_WORD + ": " + NO_FAIL_NOTE),
-        ],
-        "sentence": words.generated_by(crs_export.default_company()),
-        "rows": _table(
-            [
-                _row(n, ln, paper, st, o, by)
-                for n, (ln, st, o) in enumerate(items, start=1)
-            ]
-        ),
-        "statuses": [st for _l, st, _o in items],
-    }
+    contractor = copy == "contractor"
+    items = [] if contractor else _item_lines(final)
+    view = _head_view(final, items, meta, copy, discipline)
     if contractor:
         view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
         view["rows"] = [r[:9] for r in view["rows"]]
@@ -278,77 +344,11 @@ def layout_view(
         for ln in final
         if ln["verdict_class"] in OTHER_KIND
     ]
-    view["other"] = {
-        "name": words.OTHER_SHEET,
-        "columns": OTHER_COLUMNS,
-        "rows": _table(
-            [
-                [
-                    len(items) + k,
-                    paper,
-                    core.PART_WORDS[ln["part"]],
-                    _c(
-                        ln.get("rule_book")
-                        or ", ".join(ln.get("held_rule_books") or [])
-                    )
-                    or None,
-                    kind,
-                    _sentence(ln.get("text")),
-                ]
-                for k, (ln, kind) in enumerate(others, start=1)
-            ]
-        ),
-        "widths": OTHER_WIDTHS,
-    }
-    ev = [_evidence_row(n, ln, st) for n, (ln, st, _o) in enumerate(items, start=1)]
-    ev += [
-        _evidence_row(len(items) + k, ln, kind)
-        for k, (ln, kind) in enumerate(others, start=1)
-    ]
-    view["evidence"] = {
-        "columns": EVIDENCE_COLUMNS,
-        "rows": _table(ev),
-        "statuses": [st for _l, st, _o in items] + [None] * len(others),
-        "widths": EVIDENCE_WIDTHS,
-    }
-    count = Counter(st for _l, st, _o in items)
+    books = sorted({_c(ln.get("rule_book")) for ln in final if ln.get("rule_book")})
     used = [_c(p.get("name")) for p in project_papers if p.get("name")]
-    notes: list[list] = [
-        ["Review mode", core.MODE_WORD + ": " + NO_FAIL_NOTE],
-        ["Priority rule", words.priority_rule((words.STATUS_AI, words.STATUS_QUERY))],
-        ["Rule books not held", "; ".join(books) or "none"],
-        ["Papers used", "; ".join(used) or core.NO_PROJECT_PAPER],
-        *[
-            [f"Count: {s}", count.get(s, 0)]
-            for s in (words.STATUS_AI, words.STATUS_QUERY)
-        ],
-        ["Count: rows on the CRS sheet", len(items)],
-        *[
-            [f"Count: {k}", sum(1 for _l, kk in others if kk == k)]
-            for k in OTHER_KIND.values()
-        ],
-        ["Count: rows on the sheet '" + words.OTHER_SHEET + "'", len(others)],
-        *[
-            [f"Dropped, {core.PART_WORDS[int(p)]}: {r}", n]
-            for p, c in dropped.items()
-            for r, n in c.items()
-        ],
-        ["Run id", _c(meta.get("run_id")) or "not reported"],
-        ["Date", _c(meta.get("date")) or "not reported"],
-        [
-            "First reader models",
-            ", ".join(meta.get("lead_models") or []) or "not reported",
-        ],
-        [
-            "Second reader models",
-            ", ".join(meta.get("second_models") or []) or "not reported",
-        ],
-    ]
-    view["notes"] = {
-        "columns": ("Topic", "Detail"),
-        "rows": _table(notes),
-        "widths": (44.0, 120.0),
-    }
+    view["other"] = _other_sheet(others, str(meta.get("paper") or ""), len(items) + 1)
+    view["evidence"] = _evidence_sheet(items, others)
+    view["notes"] = _notes_sheet(items, others, books, meta, used, dropped)
     return view
 
 

@@ -56,7 +56,7 @@ def test_the_round_4_reader_files_are_on_the_list():
 
 def test_a_new_agent_review_or_crs_ai_file_is_listed_or_off_on_purpose():
     for path in sorted((ROOT / "backend" / "app").glob("*.py")):
-        if path.name.startswith(("agent_review_", "crs_ai_")):
+        if path.name.startswith(("agent_review_", "agent_general_", "crs_ai_")):
             listed = vp.is_verdict_path(f"backend/app/{path.name}")
             off = path.name in vp.OFF_ON_PURPOSE
             assert listed != off, (
