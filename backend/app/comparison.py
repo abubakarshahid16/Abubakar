@@ -1804,12 +1804,7 @@ def completeness_for_run(
         extraction = round(answered / required, 3) if required else None
         basis = {"basis": BASIS_REQUIRED_FIELDS, "fields_required": required,
                  "fields_answered": answered, "fields_estimated": None}
-        basis.update(kind_rules.unknown_type_words(submittal_document_id))
-        kind = kind_words.decided_kind(submittal_document_id)
-        if not kind_words.is_datasheet_like(kind):  # a datasheet keeps every word it had: nothing is added to its record
-            basis["paper_noun"] = kind_words.noun_of_kind(kind)
-            if not required:
-                basis["not_checked_plain"] = kind_words.not_checked_sentence(kind)
+        basis.update(kind_rules.unknown_type_words(submittal_document_id), **kind_words.run_words(submittal_document_id, required))
     else:
         # No findings yet (applicability screen): the NOMINAL figure, labelled nominal.
         fields_estimated = pages * FIELDS_PER_PAGE_NOMINAL if pages else None
@@ -1915,11 +1910,11 @@ def recommend_code(findings: list[dict], completeness: dict, *,
             also.append(f"{k} value{'s are' if k != 1 else ' is'} left for the contractor")
         extraction = completeness.get("extraction_coverage")
         if extraction is None or extraction < COMPLETENESS_THRESHOLD:
-            also.append(f"not enough of the {_noun(completeness)} was checked to say the rest is met")
+            also.append(f"not enough of the {kind_words.noun_in(completeness)} was checked to say the rest is met")
         if also:
             plain += " Also: " + "; ".join(also) + "."
         if missing:
-            plain += " " + _standards_sentence(missing, _not_checked(missing), _noun(completeness))
+            plain += " " + _standards_sentence(missing, _not_checked(missing), kind_words.noun_in(completeness))
         return {**result, "details": result["reason"], "reason": plain}
     return {**result, "details": result["reason"],
             "reason": plain_reason(result["code"], result["reason"], completeness,
@@ -1946,11 +1941,6 @@ def _pages_part(page_coverage: dict | None) -> str:
 #: counted ("and 20 more") and all are named in Details and on the
 #: CRS "Applicable standards" sheet.
 PLAIN_NAMES_SHOWN = 5
-
-
-def _noun(completeness: dict | None) -> str:
-    """The paper's noun in a sentence of the review (`kind_words`): "datasheet" unless the run recorded another decided kind."""
-    return str((completeness or {}).get("paper_noun") or "datasheet")
 
 
 def _standards_sentence(missing: list[str], tail: str, noun: str = "datasheet") -> str:
@@ -1983,37 +1973,33 @@ def plain_reason(code: str, technical: str, completeness: dict | None,
             and "not enough to recommend a code" in technical):
         required = completeness.get("fields_required") or 0
         answered = completeness.get("fields_answered") or 0
-        noun = _noun(completeness)
-        head = (f"Found {answered} of the {required} {noun} value"
+        head = (f"Found {answered} of the {required} {kind_words.noun_in(completeness)} value"
                 f"{'s' if required != 1 else ''} the applicable standards ask for."
                 if required else
-                f"No applicable standard asks this {noun} for a value that was checked.")
-        head = completeness.get("unknown_type_plain", head) if not required else head
-        if not required and completeness.get("not_checked_plain"):
-            head = completeness["not_checked_plain"]  # K2: what was NOT checked and why, in one plain sentence
+                f"No applicable standard asks this {kind_words.noun_in(completeness)} for a value that was checked.")
+        head = completeness.get("not_checked_plain") or completeness.get("unknown_type_plain", head) if not required else head
         if missing:
             return f"{head} " + _standards_sentence(
-                missing, "so a review code can't be suggested yet.", noun)
+                missing, "so a review code can't be suggested yet.", kind_words.noun_in(completeness))
         return f"{head} That is not enough to suggest a review code yet."
     gated = ("NOMINAL ESTIMATE" in technical
              or technical.startswith("the submittal could not be read well enough"))
     if gated:
         read = completeness.get("fields_read")
-        noun = _noun(completeness)
-        head = (f"Checked {read} {noun} field{'s' if read != 1 else ''}"
+        head = (f"Checked {read} {kind_words.noun_in(completeness)} field{'s' if read != 1 else ''}"
                 f"{_pages_part(page_coverage)}." if read is not None
-                else f"The {noun} could not be read well enough.")
+                else f"The {kind_words.noun_in(completeness)} could not be read well enough.")
         if missing:
             return f"{head} " + _standards_sentence(
-                missing, "so a review code can't be suggested yet.", noun)
-        return f"{head} That is not enough of the {noun} to suggest a review code yet."
+                missing, "so a review code can't be suggested yet.", kind_words.noun_in(completeness))
+        return f"{head} That is not enough of the {kind_words.noun_in(completeness)} to suggest a review code yet."
     if code == manual and missing and "not held locally" in technical:
         if technical.startswith("Manual review: no requirement") or "none was evaluated" in technical:
-            return (f"No requirement could be checked against this {_noun(completeness)}. "
-                    + _standards_sentence(missing, _not_checked(missing), _noun(completeness)))
-        return "Needs an engineer: " + _standards_sentence(missing, _not_checked(missing), _noun(completeness))
+            return (f"No requirement could be checked against this {kind_words.noun_in(completeness)}. "
+                    + _standards_sentence(missing, _not_checked(missing), kind_words.noun_in(completeness)))
+        return "Needs an engineer: " + _standards_sentence(missing, _not_checked(missing), kind_words.noun_in(completeness))
     if technical.startswith("Manual review: no requirement was evaluated"):
-        return f"No requirement could be checked against this {_noun(completeness)}, so a review code can't be suggested yet."
+        return f"No requirement could be checked against this {kind_words.noun_in(completeness)}, so a review code can't be suggested yet."
     if technical.startswith("Manual review: all ") and "none was evaluated" in technical:
         return "Every requirement read as not applicable, so nothing was checked and no code is suggested."
     # Every other reason is already plain (the owner's own wording included,
@@ -2090,7 +2076,7 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
                            "to provide")
         extraction = completeness.get("extraction_coverage")
         if extraction is None or extraction < COMPLETENESS_THRESHOLD:
-            caveats.append(f"the review did not cover enough of the {_noun(completeness)} to "
+            caveats.append(f"the review did not cover enough of the {kind_words.noun_in(completeness)} to "
                            "say the rest is met")
         if missing_locally:
             caveats.append(f"{len(missing_locally)} cited standard(s) are not held "
@@ -2268,11 +2254,11 @@ def _insufficient_reason(completeness: dict) -> str:
         if not required and completeness.get("unknown_type_technical"):
             head = completeness["unknown_type_technical"]
         elif not required:
-            head = (f"no requirement of an applicable standard asks this {_noun(completeness)} "
+            head = (f"no requirement of an applicable standard asks this {kind_words.noun_in(completeness)} "
                     "for a value, so how much of it the review covered was not "
                     "measured")
         else:
-            head = (f"{answered:,} of the {required:,} {_noun(completeness)} values the applicable "
+            head = (f"{answered:,} of the {required:,} {kind_words.noun_in(completeness)} values the applicable "
                     f"standards' requirements ask for were found in the fields read "
                     f"from this submittal")
         if cover is not None and cover < COMPLETENESS_THRESHOLD:

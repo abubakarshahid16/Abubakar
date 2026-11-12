@@ -139,3 +139,20 @@ def crs_meta(
             }
         )
     return {**meta, "review_notes": notes, "export_quality": True}
+
+
+def noun_in(completeness: dict | None) -> str:
+    """The paper's noun in a sentence of the review: the run's recorded one, else "datasheet" (a run of a datasheet records none)."""
+    return str((completeness or {}).get("paper_noun") or DATASHEET)
+
+
+def run_words(document_id: str, required: int) -> dict:
+    """What a run records about the paper's kind in its completeness: nothing for a datasheet or an unknown kind (its record stays
+    as it was); else the noun, and, when no requirement was asked of it, the plain not-checked sentence."""
+    kind = decided_kind(document_id)
+    if is_datasheet_like(kind):
+        return {}
+    out = {"paper_noun": noun_of_kind(kind)}
+    if not required:
+        out["not_checked_plain"] = not_checked_sentence(kind)
+    return out
