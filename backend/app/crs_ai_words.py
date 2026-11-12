@@ -57,7 +57,14 @@ KIND_NOT_APPLICABLE = "Does not apply"
 KIND_NOT_REVIEWED = "Not reviewed"
 KIND_UNAPPROVED = "Rule not yet approved"
 KIND_NOT_HELD = "Not checked: rule book not held"
-OTHER_KINDS = (KIND_NOT_APPLICABLE, KIND_NOT_REVIEWED, KIND_UNAPPROVED, KIND_NOT_HELD)
+KIND_NOT_CHECKED_HERE = "Not checked on this paper"
+OTHER_KINDS = (
+    KIND_NOT_APPLICABLE,
+    KIND_NOT_REVIEWED,
+    KIND_UNAPPROVED,
+    KIND_NOT_CHECKED_HERE,
+    KIND_NOT_HELD,
+)
 
 PRIORITY_RULE = (
     "Priority is set by one rule. Fail = High. AI verdict (not met) and AI opinion (not met) = High when the rule is mandatory, "

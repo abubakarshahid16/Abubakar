@@ -27,6 +27,7 @@ from .db import schema_once
 CLASSES = (
     "Proven by code",
     "AI verdict, two readers agree",
+    "Not checked on this paper",
     "AI opinion, engineer to confirm",
     "AI opinion, rule not yet approved",
     "Query for the engineer",
@@ -50,6 +51,7 @@ WORDS = (
     "AI verdict: met",
     "AI verdict: not met",
     "AI verdict: not stated",
+    "Needs a drawing or a calculation",
     "AI thinks: met",
     "AI thinks: not met",
     "Query",
@@ -132,6 +134,8 @@ _STATEMENTS = (
         CHECK (word NOT IN ('AI verdict: met', 'AI verdict: not met', 'AI verdict: not stated') OR verdict_class = 'AI verdict, two readers agree'),
         CHECK (verdict_class <> 'AI verdict, two readers agree' OR word IN ('AI verdict: met', 'AI verdict: not met', 'AI verdict: not stated')),
         CHECK (verdict_class <> 'AI verdict, two readers agree' OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
+        CHECK (word <> 'Needs a drawing or a calculation' OR verdict_class = 'Not checked on this paper'),
+        CHECK (verdict_class <> 'Not checked on this paper' OR (word = 'Needs a drawing or a calculation' AND (rule_tier IS NULL OR rule_tier <> 'Not AI approved'))),
         CHECK (word NOT IN ('Pass', 'Fail') OR rule_tier IS NULL OR rule_tier <> 'Not AI approved'),
         CHECK (verdict_class NOT IN {_in(GENERAL_CLASSES)} OR (rule_tier IS NULL AND part IS NOT NULL)),
         CHECK (word NOT IN ('Not checked', 'AI note') OR verdict_class IN {_in(GENERAL_CLASSES)})
@@ -190,7 +194,11 @@ def line_check_is_old(conn) -> bool:
     return bool(
         row
         and row[0]
-        and (TWO_READER_CLASS not in row[0] or TWO_READER_NOT_STATED not in row[0])
+        and (
+            TWO_READER_CLASS not in row[0]
+            or TWO_READER_NOT_STATED not in row[0]
+            or "Not checked on this paper" not in row[0]
+        )
     )
 
 

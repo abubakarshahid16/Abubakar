@@ -48,7 +48,7 @@ describe("AgentLines", () => {
       const block = screen.getByTestId(`block-${klass}`);
       expect(within(block).getByTestId(`word-${id}`)).toHaveTextContent(new RegExp(`^${word}$`));
     }
-    expect(CLASS_ORDER).toHaveLength(9);
+    expect(CLASS_ORDER).toHaveLength(10);
     expect(screen.getByRole("table", { name: "AI opinion, rule not yet approved" })).toBeInTheDocument();
   });
 

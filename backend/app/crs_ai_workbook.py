@@ -21,6 +21,7 @@ from .agent_review_crs import (
     NOT_REVIEWED_SHEET,
     PASSED_SHEET,
     UNAPPROVED_SHEET,
+    NOT_CHECKED_HERE_SHEET,
     against,
     ai_ask,
     asks,
@@ -75,6 +76,7 @@ OTHER_KIND_OF_SHEET = {
     NOT_APPLICABLE_SHEET: words.KIND_NOT_APPLICABLE,
     NOT_REVIEWED_SHEET: words.KIND_NOT_REVIEWED,
     UNAPPROVED_SHEET: words.KIND_UNAPPROVED,
+    NOT_CHECKED_HERE_SHEET: words.KIND_NOT_CHECKED_HERE,
 }
 
 
@@ -338,6 +340,8 @@ def _other_reason(line: Mapping, kind: str) -> str:
             words.plain(line.get("comment"))
             or "The AI reviewer judged the rule not applicable to this paper."
         )
+    if kind == words.KIND_NOT_CHECKED_HERE:
+        return two.OTHER_WHY + "."
     if kind == words.KIND_UNAPPROVED:
         view = {wording.THINKS_MET: "met", wording.THINKS_NOT_MET: "not met"}.get(
             str(line.get("verdict_label"))
@@ -422,7 +426,7 @@ def _calls(line: Mapping) -> str:
 
 def _independent_cells(line: Mapping) -> list:
     """The independent second reader's verdict, its two quotes and both quote checks (blank when it was not asked)."""
-    indep = two.stored(line) or two.stored_absence(line)
+    indep = two.independent(line)
     if indep is None:
         return [None] * 6
     if (
@@ -509,6 +513,7 @@ def _notes_rows(
     ) in (  # the optional second-reader steps: counts and the one code that switched each off (internal only)
         ("two_reader_step", "Second-reader step"),
         ("two_reader_absence_step", "Second-reader absence step"),
+        ("two_reader_other_step", "Second-reader other-paper step"),
     ):
         if isinstance(meta.get(key), Mapping):
             rows.append((label, _step_words(meta[key])))

@@ -72,6 +72,8 @@ class TwoReaderMixin:
             self.absence_on()
         ):  # its own switch; never before the value step, never without it
             self.run_absence()
+        if self.other_on():  # its own switch, after the others, never without the first
+            self.run_other()
 
     def two_reader_counts(self) -> dict:
         """What the run row keeps of the step (counts and the one code that switched it off): {} when the step did not run."""
@@ -83,6 +85,7 @@ class TwoReaderMixin:
                 k: v for k, v in st.items() if k not in ("enabled", "usd")
             },
             **self.two_reader_absence_counts(),
+            **self.two_reader_other_counts(),
         }
 
     def two_reader_candidates(self) -> list[dict]:

@@ -104,8 +104,14 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "not_proven_reason": _moved_reason(line, unsafe)
             + (f"; {why}" if unapproved else ""),
         }
-    if two_reader.disagrees(line) or two_reader.absence_disagrees(
+    if got := two_reader.other_class(
         line
+    ):  # 2d. both readers: needs a drawing or a calculation, not checked here
+        return got
+    if (
+        two_reader.disagrees(line)
+        or two_reader.absence_disagrees(line)
+        or two_reader.other_disagrees(line)
     ):  # 2c. the independent second reader reached the opposite verdict: a Query
         return {
             "verdict_label": WORD_QUERY,
@@ -282,6 +288,11 @@ def is_two_reader(line: Mapping) -> bool:
     return classify(line)["verdict_class"] == CLASS_TWO_READERS
 
 
+def is_not_checked_here(line: Mapping) -> bool:
+    """The line is of the class "Not checked on this paper" (computed from the line, never from a stored class)."""
+    return classify(line)["verdict_class"] == two_reader.CLASS_NOT_CHECKED_HERE
+
+
 def is_unapproved(line: Mapping) -> bool:
     return line.get("rule_tier") == RULE_NOT_APPROVED
 
@@ -305,6 +316,7 @@ def counts(lines: Iterable[Mapping]) -> dict:
         "ai_verdict_met": n(two_reader.WORD_MET, CLASS_TWO_READERS),
         "ai_verdict_not_met": n(two_reader.WORD_NOT_MET, CLASS_TWO_READERS),
         "ai_verdict_not_stated": n(two_reader.WORD_NOT_STATED, CLASS_TWO_READERS),
+        "not_checked_here": n(two_reader.WORD_NEEDS, two_reader.CLASS_NOT_CHECKED_HERE),
         "unapproved_ai_thinks_met": n(THINKS_MET, CLASS_UNAPPROVED),
         "unapproved_ai_thinks_not_met": n(THINKS_NOT_MET, CLASS_UNAPPROVED),
         "unapproved_lines": sum(

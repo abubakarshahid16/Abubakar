@@ -52,6 +52,14 @@ V_MET, V_NOT_MET, V_CANNOT_TELL, V_NOT_APPLICABLE = (
     "cannot tell",
     "not applicable",
 )
+#: the second reader's answer "this rule needs a drawing or a calculation" (the closed reason code needs_drawing_or_calc)
+V_NEEDS = "needs a drawing or a calculation"
+#: OTHER-PAPER class (own switch `AGENT_REVIEW_TWO_READER_OTHER_PAPER_ENABLED`): not a decision, not a Query, not "Not applicable"
+CLASS_NOT_CHECKED_HERE = "Not checked on this paper"
+WORD_NEEDS = "Needs a drawing or a calculation"
+OTHER_FIELD = "two_reader_other"
+OTHER_WHY = "Two AI readers each found that this rule cannot be checked on a datasheet: it needs a drawing or a calculation"
+NEEDS_CODE = "needs_drawing_or_calc"
 SECOND_VERDICTS = (V_MET, V_NOT_MET, V_CANNOT_TELL, V_NOT_APPLICABLE)
 FIELD = "two_reader"
 #: at most this many candidate items in one second-reader call (the first reader's own bound, `MAX_BATCH`)
@@ -144,6 +152,8 @@ def second_answer(
         word = V_NOT_MET
     elif ai == verdict.QUERY and reason_code == "not_applicable":
         word = V_NOT_APPLICABLE
+    elif ai == verdict.QUERY and reason_code == NEEDS_CODE:
+        word = V_NEEDS
     else:
         word = V_CANNOT_TELL
     reasoning = " ".join(str(answer.get("reasoning") or "").split())
@@ -411,5 +421,80 @@ def class_of(line: Mapping, reason: str) -> dict | None:
             "verdict_label": WORD_NOT_STATED,
             "verdict_class": CLASS_TWO_READERS,
             "not_proven_reason": ABSENCE_WHY,
+        }
+    return None
+
+
+# ---------------------------------------------------------------- the other-paper class
+
+
+def stored_other(line: Mapping) -> Mapping | None:
+    got = line.get(OTHER_FIELD)
+    return got if isinstance(got, Mapping) else None
+
+
+def independent(line: Mapping) -> Mapping | None:
+    """The independent second reader's stored answer of whichever step asked it (value, absence or other-paper)."""
+    return stored(line) or stored_absence(line) or stored_other(line)
+
+
+def is_other_candidate(line: Mapping) -> bool:
+    """The first reader's own answer says the rule cannot be checked on this paper: its stored CLOSED reason code is
+    `needs_drawing_or_calc` (`agent_review_request.REASON_CODES`, read by `reason_of`; never free text), no verdict, no error, a
+    verified clause quote, an approved rule or a checklist item."""
+    if line.get("reason_code") != NEEDS_CODE or line.get("verdict") != verdict.QUERY:
+        return False
+    if line.get("ai_verdict") not in (verdict.QUERY, None) or _holds(line):
+        return False
+    if line.get("rule_tier") == verdict.RULE_NOT_APPROVED:
+        return False
+    if not (line.get("checklist") is True or line.get("tier") in verdict.USABLE_TIERS):
+        return False
+    return bool(_checks(line).get("clause"))
+
+
+def other_agrees(line: Mapping) -> bool:
+    """Both readers say it needs a drawing or a calculation, both clause quotes verified by code, the models differ."""
+    rec = stored_other(line)
+    if rec is None or not is_other_candidate(line) or rec.get("verdict") != V_NEEDS:
+        return False
+    q = (
+        rec.get("quotes_checked")
+        if isinstance(rec.get("quotes_checked"), Mapping)
+        else {}
+    )
+    if not q.get("clause"):
+        return False
+    return agent_run_second.models_differ(
+        [str(line.get("model") or "")], rec.get("model")
+    )
+
+
+def other_disagrees(line: Mapping) -> bool:
+    """The second reader gave a verdict (met or not met) and code verified both of its quotes: a disagreement."""
+    rec = stored_other(line)
+    if (
+        rec is None
+        or line.get("verdict") != verdict.QUERY
+        or line.get("reason_code") != NEEDS_CODE
+    ):
+        return False
+    q = (
+        rec.get("quotes_checked")
+        if isinstance(rec.get("quotes_checked"), Mapping)
+        else {}
+    )
+    return rec.get("verdict") in (V_MET, V_NOT_MET) and bool(
+        q.get("paper") and q.get("clause")
+    )
+
+
+def other_class(line: Mapping) -> dict | None:
+    """The class "Not checked on this paper" entry of a line both readers say needs a drawing or a calculation, else None."""
+    if other_agrees(line):
+        return {
+            "verdict_label": WORD_NEEDS,
+            "verdict_class": CLASS_NOT_CHECKED_HERE,
+            "not_proven_reason": OTHER_WHY,
         }
     return None

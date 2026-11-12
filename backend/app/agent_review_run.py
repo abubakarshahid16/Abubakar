@@ -81,12 +81,13 @@ from .agent_review_request import (
     stop_reason,
 )
 from .agent_review_two_reader_absence import AbsenceMixin
+from .agent_review_two_reader_other import OtherPaperMixin
 from .agent_review_two_reader_run import TwoReaderMixin
 
 log = logging.getLogger(__name__)
 
 
-class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin):
+class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
     def __init__(
         self,
         *,
@@ -111,6 +112,7 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin):
         tier_lookup: Callable[[Mapping], str | None] | None = None,
         two_reader: bool | None = None,
         two_reader_absence: bool | None = None,
+        two_reader_other: bool | None = None,
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
@@ -159,6 +161,8 @@ class Runner(DecideMixin, TwoReaderMixin, AbsenceMixin):
         self._two_reader = two_reader
         self.two_reader_state = two_reader_mod.stats_template()
         self._two_reader_absence = two_reader_absence
+        self._two_reader_other = two_reader_other
+        self.two_reader_other_state = two_reader_mod.stats_template()
         self.two_reader_absence_state = two_reader_mod.stats_template()
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again

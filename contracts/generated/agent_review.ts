@@ -1,8 +1,8 @@
 // GENERATED from backend/app/api/agent_review_schemas.py by scripts/gen_contract_types.py.
 // Do not edit: change the backend model and run the script (order 119.1).
 
-export type AgentVerdictClass = "Proven by code" | "AI verdict, two readers agree" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed" | "Not checked: rule book not held" | "AI note, no rule book";
-export type AgentVerdictWord = "Pass" | "Fail" | "AI verdict: met" | "AI verdict: not met" | "AI verdict: not stated" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed" | "Not checked" | "AI note";
+export type AgentVerdictClass = "Proven by code" | "AI verdict, two readers agree" | "Not checked on this paper" | "AI opinion, engineer to confirm" | "AI opinion, rule not yet approved" | "Query for the engineer" | "Not applicable" | "Not reviewed" | "Not checked: rule book not held" | "AI note, no rule book";
+export type AgentVerdictWord = "Pass" | "Fail" | "AI verdict: met" | "AI verdict: not met" | "AI verdict: not stated" | "Needs a drawing or a calculation" | "AI thinks: met" | "AI thinks: not met" | "Query" | "Not applicable" | "Not reviewed" | "Not checked" | "AI note";
 export type AgentRuleTier = "Owner" | "Engineer" | "AI approved" | "Not AI approved";
 export type AgentPart = "not held" | "checklist" | "paper against itself" | "against project papers" | "engineering comment";
 export type AgentTextSource = "quote" | "the model's words";
@@ -69,6 +69,8 @@ export interface AgentRunSummary {
   two_reader_step?: AgentTwoReaderStep | null;
   /** the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it. */
   two_reader_absence_step?: AgentTwoReaderStep | null;
+  /** the same for the other-paper class ("Not checked on this paper"); null when that step was off. */
+  two_reader_other_step?: AgentTwoReaderStep | null;
 }
 
 /** One CRS line of the AI reviewer. */

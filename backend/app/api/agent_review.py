@@ -246,6 +246,7 @@ def agent_summary(
         equipment_notes=_equipment(run).get("notes") or [],
         two_reader_step=_two_reader_step(run),
         two_reader_absence_step=_two_reader_step(run, "two_reader_absence_step"),
+        two_reader_other_step=_two_reader_step(run, "two_reader_other_step"),
     )
 
 

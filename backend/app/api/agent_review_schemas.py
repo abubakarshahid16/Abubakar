@@ -25,6 +25,9 @@ VerdictClass = Literal[
     #: Two different AI readers reached the same verdict independently, code verified both readers' quotes and no guard objects
     #: (owner order 13, behind AGENT_REVIEW_TWO_READER_VERDICT_ENABLED). Internal copy only; never a Pass or a Fail.
     "AI verdict, two readers agree",
+    #: Two AI readers each found the rule cannot be checked on this paper: it needs a drawing or a calculation (owner order 13, behind
+    #: AGENT_REVIEW_TWO_READER_OTHER_PAPER_ENABLED). Not a decision, not a Query, not "Not applicable"; internal only.
+    "Not checked on this paper",
     "AI opinion, engineer to confirm",
     "AI opinion, rule not yet approved",
     "Query for the engineer",
@@ -45,6 +48,7 @@ VerdictWord = Literal[
     "AI verdict: met",
     "AI verdict: not met",
     "AI verdict: not stated",
+    "Needs a drawing or a calculation",
     "AI thinks: met",
     "AI thinks: not met",
     "Query",
@@ -78,6 +82,10 @@ _APPROVED_TIERS = ("Owner", "Engineer", "AI approved")
 _AI_WORDS = ("AI thinks: met", "AI thinks: not met")
 LINE_TABLE: dict[str, tuple[tuple[str, ...], tuple[str | None, ...]]] = {
     "Proven by code": (("Pass", "Fail"), (*_APPROVED_TIERS, None)),
+    "Not checked on this paper": (
+        ("Needs a drawing or a calculation",),
+        (*_APPROVED_TIERS, None),
+    ),
     "AI verdict, two readers agree": (
         ("AI verdict: met", "AI verdict: not met", "AI verdict: not stated"),
         (*_APPROVED_TIERS, None),
@@ -139,6 +147,7 @@ TextSource = Literal["quote", "the model's words"]
 RULE_REVIEW_ONLY = (
     "Proven by code",
     "AI verdict, two readers agree",
+    "Not checked on this paper",
     "AI opinion, engineer to confirm",
     "AI opinion, rule not yet approved",
     "Not applicable",
@@ -222,6 +231,8 @@ class AgentRunSummary(BaseModel):
     two_reader_step: AgentTwoReaderStep | None = None
     #: the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it.
     two_reader_absence_step: AgentTwoReaderStep | None = None
+    #: the same for the other-paper class ("Not checked on this paper"); null when that step was off.
+    two_reader_other_step: AgentTwoReaderStep | None = None
 
 
 class AgentLine(BaseModel):

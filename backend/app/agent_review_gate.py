@@ -58,6 +58,14 @@ def two_reader_absence_enabled() -> bool:
     )
 
 
+def two_reader_other_paper_enabled() -> bool:
+    """True when the class "Not checked on this paper" is on: its own switch AND the first one."""
+    return (
+        bool(settings.agent_review_two_reader_other_paper_enabled)
+        and two_reader_enabled()
+    )
+
+
 def require_on() -> None:
     if not enabled():
         raise FeatureOff("AGENT_REVIEW_ENABLED is off")
