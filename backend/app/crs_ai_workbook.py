@@ -7,6 +7,7 @@ is the length of the rows written, taken from the same lists. No new AI call: on
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from .agent_review_crs import (
     stated,
 )
 from .agent_review_verdict import (
+    BY_ABSENCE,
     BY_CODE,
     DEFERRED_WHY,
     FAIL,
@@ -53,7 +55,8 @@ def status_of(line: Mapping) -> tuple[str, int] | None:
         return words.STATUS_PASS, words.ORDER_PASS
     if bucket == HELD_PASS_SHEET:
         return words.STATUS_AI, words.ORDER_AI_MET
-    if line.get("verdict") == FAIL:
+    proven = line.get("verdict_class") == wording.CLASS_PROVEN
+    if proven and line.get("verdict") == FAIL:
         return words.STATUS_FAIL, words.ORDER_FAIL
     if wording.is_two_reader(
         line
@@ -135,9 +138,15 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         )
     elif line.get("verdict") == FAIL and line.get("decided_by") == BY_CODE and has:
         out = f'The paper states "{has}"{where}, which does not meet the requirement.'
-    elif silent or (line.get("verdict") == FAIL and not has):
+    elif line.get("verdict") == FAIL and line.get("decided_by") == BY_ABSENCE:
+        # the ONLY place a fact about the paper is stated: the absence check's own proof (decided by code and a second reader)
         searched = _searched(line)
         out = f"The paper does not state {field}" + (
+            f" (pages searched: {searched})." if searched else "."
+        )
+    elif silent and not has:
+        searched = _searched(line)
+        out = f"The AI reviewer did not find {field} in the paper" + (
             f" (pages searched: {searched})." if searched else "."
         )
     elif guard == NO_VALUE_WHY:
@@ -162,12 +171,11 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         )
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
-        out = f"The AI reviewer's view, not proven: the requirement is {view}. {out}"
+        out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
     why = words.why_phrase(guard or line.get("not_proven_reason"))
     if (
         status in (words.STATUS_AI, words.STATUS_QUERY)
         and why
-        and not silent
         and guard != NO_VALUE_WHY
     ):
         out += f" Not confirmed: {why}."
@@ -182,29 +190,51 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     return out
 
 
+_NO_ACTION = re.compile(
+    r"\b(no (?:action|correction|change|comment)s?\b|nothing to|not required|complies|compliant|meets?\b|satisf|acceptable)",
+    re.I,
+)
+FIXED_TO = {
+    words.STATUS_FAIL: "Contractor to revise the paper to meet the requirement, giving any value that is missing, and resubmit it.",
+    words.STATUS_AI: "Contractor to check and confirm or correct the paper.",
+    words.STATUS_AI_VERDICT: "Contractor to check and confirm or correct the paper.",
+    words.STATUS_QUERY: "Contractor to state the value, or the page where it is shown.",
+}
+
+
+def _reader_action(line: Mapping, status: str, order: int) -> str:
+    """The reader's own action sentence, only where it cannot contradict the Status: a Fail or an AI opinion (not met) whose stored
+    AI verdict is Fail, never on a line the guard moved, never a sentence that says no action or that the paper meets the rule."""
+    if status not in (
+        words.STATUS_FAIL,
+        words.STATUS_AI,
+        words.STATUS_AI_VERDICT,
+    ) or order in (words.ORDER_AI_MET, words.ORDER_AI_VERDICT_MET):
+        return ""
+    if line.get("ai_verdict") != FAIL or moved_by_guard(line):
+        return ""
+    said = words.plain(ai_ask({**line, "reasoning": None}, contractor=True))
+    return (
+        ""
+        if not said or _NO_ACTION.search(said)
+        else said
+        if said.endswith((".", "!", "?"))
+        else said + "."
+    )
+
+
 def _contractor_to(line: Mapping, status: str, order: int) -> str:
-    """Part 3: what the contractor must do: the reader's own action sentence when it passes the number check and holds no code
-    word, else one fixed sentence."""
+    """Part 3: what the contractor must do: one fixed sentence per Status (it always agrees with the Status), then the reader's own
+    action text when `_reader_action` allows it. Pass and AI opinion (met): no action line."""
     if status == words.STATUS_PASS:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
         return "No action unless the engineer disagrees with the AI reviewer's view."
     if status == words.STATUS_AI_VERDICT and order == words.ORDER_AI_VERDICT_MET:
         return "No action unless the engineer disagrees with the AI reviewer's verdict."
-    # the reader's action only when the reader asked for something: the action of an AI "met" is "no action" in its words, and
-    # a "met" that was moved to a Query must not stand as the conclusion (N9)
-    said = (
-        ""
-        if line.get("ai_verdict") == PASS
-        else words.plain(ai_ask({**line, "reasoning": None}, contractor=True))
+    return " ".join(
+        x for x in (FIXED_TO[status], _reader_action(line, status, order)) if x
     )
-    if said:
-        return said if said.endswith((".", "!", "?")) else said + "."
-    if status == words.STATUS_QUERY:
-        return "Contractor to state the value, or the page where it is shown."
-    if line.get("reason_code") in SILENCE_CODES or line.get("silence_query"):
-        return "Contractor to provide it, or to say where it is shown."
-    return "Contractor to correct the paper so that it meets the requirement, and re-issue it."
 
 
 def layout_comment(line: Mapping, status: str, order: int) -> str:
@@ -244,7 +274,11 @@ def _books_used(lines: Iterable[Mapping]) -> list[str]:
     )
 
 
-def _header_pairs(meta: Mapping, lines: list[Mapping]) -> list[tuple[str, str]]:
+BOOKS_SHOWN = "Rule books used (rows shown):"
+BOOKS_REVIEWED = "Rule books used (reviewed lines):"
+
+
+def _header_pairs(meta: Mapping, books: list[str], label: str) -> list[tuple[str, str]]:
     h = meta.get("header") or {}
     return [
         ("Project:", _clean(h.get("project"))),
@@ -253,7 +287,7 @@ def _header_pairs(meta: Mapping, lines: list[Mapping]) -> list[tuple[str, str]]:
         ("Revision:", _clean(h.get("revision"))),
         ("Date:", _clean(h.get("date"))),
         ("Discipline:", _clean(meta.get("discipline") or h.get("discipline"))),
-        ("Rule books used:", "; ".join(_books_used(lines))),
+        (label, "; ".join(books)),
     ]
 
 
@@ -304,10 +338,13 @@ def _other_reason(line: Mapping, kind: str) -> str:
             else ""
         )
         return "The rule has not been approved yet." + tail
-    return (
+    text = (
         words.why_phrase(line.get("not_proven_reason"))
         or "the AI reviewer gave no answer"
-    ).capitalize() + "."
+    )
+    return (
+        text[:1].upper() + text[1:] + "."
+    )  # only the first letter: never "the ai reviewer"
 
 
 OTHER_COLUMNS = (
@@ -429,7 +466,9 @@ def _notes_rows(
     kinds[words.KIND_NOT_HELD] = len(missing)
     rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE)]
     block = meta.get("rule_labels") or {}
-    rows.append(("Rule books used", "; ".join(meta.get("books_used") or []) or "none"))
+    rows.append(
+        (BOOKS_REVIEWED.rstrip(":"), "; ".join(meta.get("books_used") or []) or "none")
+    )
     rows.append(
         (
             "Rule books not held",
@@ -552,9 +591,13 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     by = "" if contractor else words.comment_by(discipline)
     if contractor:
         items = _contractor_items(items)
+        books, label = _books_used(ln for ln, _s, _o in items), BOOKS_SHOWN
+    else:  # the books of the lines the AI reviewer answered (a not-reviewed line used no book)
+        books = _books_used(ln for ln in lines if not wording.is_not_reviewed(ln))
+        label = BOOKS_REVIEWED
     view: dict = {
         "title": _title(meta),
-        "header": _header_pairs(meta, lines),
+        "header": _header_pairs(meta, books, label),
         "sentence": words.generated_by(crs_export.default_company()),
         "rows": _table(
             [
@@ -570,9 +613,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
     view["other"] = _other_sheet(others, missing, paper, len(items) + 1)
     view["evidence"] = _evidence_sheet(items, others)
-    rows = _notes_rows(
-        {**meta, "books_used": _books_used(lines)}, items, others, missing
-    )
+    rows = _notes_rows({**meta, "books_used": books}, items, others, missing)
     view["notes"] = {
         "columns": ("Topic", "Detail"),
         "rows": _table([[a, b] for a, b in rows]),

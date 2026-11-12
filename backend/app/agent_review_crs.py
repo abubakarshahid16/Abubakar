@@ -1,6 +1,6 @@
 """CRS files of the AI reviewer: the internal and the contractor workbook (ported from the experiment's exp11/crs_lines.py).
 
-ONE exporter: since order 13 (owner, 12 Nov 2026) the workbooks are drawn by `crs_export.build_layout_crs`, in the app's own CRS
+ONE exporter: since order 13 (owner, 12 Nov 2026) the workbooks are drawn by `crs_layout.build_layout_crs` (the drawing code both reviewers share), in the app's own CRS
 layout, and this module decides what the cells say (words: `crs_ai_words`). Every line shows its Status in one of four short words:
 Pass (proven by code), Fail (proven by code), AI opinion (the AI reviewer's view, not proven by code) or Query.
 
@@ -222,7 +222,10 @@ def sheet_of(line: Mapping) -> str:
         return NOT_APPLICABLE_SHEET
     if is_held_pass(line):
         return HELD_PASS_SHEET
-    if line.get("verdict") == PASS:
+    if line.get("verdict") == PASS and line.get("verdict_class") in (
+        None,
+        wording.CLASS_PROVEN,
+    ):  # keyed on the class too: a Pass the exit did not prove is never a Pass row
         return PASSED_SHEET
     return CRS_SHEET
 
