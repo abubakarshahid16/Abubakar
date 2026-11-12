@@ -24,6 +24,17 @@ function line(over: Partial<AgentLine>): AgentLine {
 }
 const ok = (ls: AgentLine[], next: string | null = null) => ({ ok: true, data: { lines: ls, next } });
 
+describe("AgentLines three-line text (order 13)", () => {
+  it("shows the three lines of the file's comment, one per line", async () => {
+    const three = "Rule requires X.\nThe paper states Y.\nContractor to revise Z.";
+    lines.mockResolvedValue(ok([line({ item_id: "T1", reason: three })]));
+    render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
+    const cell = await screen.findByTestId("reason-T1");
+    expect(cell.textContent).toContain("Rule requires X.\nThe paper states Y.\nContractor to revise Z.");
+    expect(cell.className).toContain("whitespace-pre-line");
+  });
+});
+
 describe("AgentLines", () => {
   it("renders every class and word exactly, each class in its own block", async () => {
     lines.mockResolvedValue(ok([

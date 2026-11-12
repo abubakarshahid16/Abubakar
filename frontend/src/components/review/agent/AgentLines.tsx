@@ -55,8 +55,9 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
                   <td className="pr-3">{line.rule_book}</td>
                   <td className="pr-3">{line.clause}</td>
                   <td className="pr-3">{tierWords(line.verdict_class, line.rule_tier)}</td>
-                  <td className="break-words pr-3">
-                    {plainReason(line.reason)}
+                  <td className="whitespace-pre-line break-words pr-3" data-testid={`reason-${line.item_id}`}>
+                    {/* a comment of three lines (the file's own text) is shown as it is; any other reason in plain words */}
+                    {line.reason?.includes("\n") ? line.reason : plainReason(line.reason)}
                     {line.text_source === "the model's words" && <span className="block text-xs text-slateish-400" data-testid={`model-words-${line.item_id}`}>{MODEL_WORDS_MARK}</span>}
                   </td>
                   <td className="break-all text-xs text-slateish-500" data-testid={`id-${line.item_id}`}>{name.id}</td>
