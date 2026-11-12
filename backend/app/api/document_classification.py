@@ -174,13 +174,24 @@ def get_transmittal_check(document_id: str, scope: access.AccessScope = Depends(
     return _transmittal_result(document_id, scope)
 
 
-@router.get("/api/documents/{document_id}/transmittal-check.xlsx", responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get(
+    "/api/documents/{document_id}/transmittal-check.xlsx",
+    response_class=Response,
+    responses={
+        200: {"content": {_XLSX: {"schema": {"type": "string", "format": "binary"}}}},
+        **schemas.ERRORS_404,
+        **schemas.ERRORS_409,
+    },
+)
 def get_transmittal_check_xlsx(document_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     """The same list as a CRS-style workbook (the one layout)."""
     result = _transmittal_result(document_id, scope)
     return Response(
         transmittal_check.build_xlsx(result, document_id),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=_XLSX,
         headers={"Content-Disposition": 'attachment; filename="transmittal-check.xlsx"'},
     )
 

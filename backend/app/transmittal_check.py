@@ -32,7 +32,7 @@ from .agent_run_crs import _cell
 
 PASS, QUERY = words.STATUS_PASS, words.STATUS_QUERY
 #: A token shaped like a document number: three or more segments, at least one digit.
-_NUMBER = re.compile(r"\b[A-Z0-9]{2,}(?:[-_/.][A-Z0-9]{1,}){2,}\b", re.I)
+_DOC_NUMBER = re.compile(r"\b[A-Z0-9]{2,}(?:[-_/.][A-Z0-9]{1,}){2,}\b", re.I)
 _REV = re.compile(
     r"\b[Rr][Ee][Vv](?:[Ii][Ss][Ii][Oo][Nn])?\b\.?[ \t]*[:#-]?[ \t]*([A-Z]\d{0,2}|\d{1,3}[A-Z]?)(?![A-Za-z0-9])"
 )
@@ -102,7 +102,7 @@ def listed(
     for page, line in lines:
         shaped = {
             norm(m.group(0))
-            for m in _NUMBER.finditer(line)
+            for m in _DOC_NUMBER.finditer(line)
             if any(ch.isdigit() for ch in m.group(0))
         }
         in_text = {
