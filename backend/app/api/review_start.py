@@ -66,7 +66,7 @@ def _actor(admin: dict | None, scope: access.AccessScope) -> str:
     )
 
 
-@router.get("/api/reviews/plan")
+@router.get("/api/reviews/plan", response_model=dict)
 def review_plan(
     request: Request,
     submittal_document_id: str = Query(...),
@@ -133,7 +133,7 @@ def start_review(
     return main_mod._run_summary(run, scope)
 
 
-@router.post("/api/reviews/contract-yes")
+@router.post("/api/reviews/contract-yes", response_model=dict)
 def record_contract_yes(
     body: ContractYesRequest,
     request: Request,
@@ -152,7 +152,7 @@ def record_contract_yes(
         ) from exc
 
 
-@router.delete("/api/reviews/contract-yes/{document_id}")
+@router.delete("/api/reviews/contract-yes/{document_id}", response_model=dict)
 def withdraw_contract_yes(
     document_id: str,
     request: Request,

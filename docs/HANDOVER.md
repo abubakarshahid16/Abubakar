@@ -547,3 +547,21 @@ no row) behaves as before. "Local only" (any run kept on this computer) also bar
 The header's engine is saved at the end of the run (`outcome_json.engine_ran`). With only datasheets scored, a contract with a
 recorded yes is still NOT offered for Claude on a default install: that path wakes up when contracts are scored or
 `REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED` is on.
+
+## 12. The redesigned review page: the backend (12 Nov 2026, SPEC.md; behind `REVIEW_PAGE_V2_ENABLED`, default off)
+
+`GET /api/reviews/papers/{id}/points`: one list of the rule check's comments and the AI review's lines, worst first (proven Fail, two
+readers not met, one reader not met, question, one reader met, two readers met, proven Pass, does not apply), pills, groups ("N alike"),
+the four tile counts, per-rule-book counts (a book the caller may not read is counted, never named), rule books not held, "x of N
+decided", and the proposed review code. Decisions: `POST .../points/decision` (Keep; Edit needs the engineer's text and keeps the
+original; Remove needs a reason of at least 10 characters and leaves the CRS sheets, staying in the record), `.../decisions` (Keep
+several), `.../add` (the engineer's own point: kept by definition, on both sheets, Comment By the engineer). A rule-check point is written
+to BOTH decision records (`review_point_decisions` and the older `crs_issue_decisions`) and its findings in ONE transaction
+(`review_point_sync`), through the page's route and through the older finding-decision route alike; if they ever differ the sign gate
+refuses. The AI review's CRS copies are drawn again on download with the decisions (`review_points_service.decided_ai_sheet`, a working
+file of its own); at signing (`/crs/issue`) the rule check's contractor copy AND the AI review's contractor copy are archived with their
+checksums and never rewritten. Review code: a KEPT code-proven Fail on a "shall" rule always proposes Rejected / Revise and Resubmit; the
+integer setting `REVIEW_CODE_RESUBMIT_AT_KEPT_MANDATORY_NOT_MET` (default 0 = off) also proposes it at N kept AI not-met points on "shall"
+rules; with points undecided the line reads "So far: <code>, N points still to decide"; Manual Review Required is only for unread pages.
+Rule-check points show a passage only when code finds it in the stored text of the cited page.
+

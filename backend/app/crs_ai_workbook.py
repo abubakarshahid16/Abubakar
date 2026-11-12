@@ -7,6 +7,7 @@ is the length of the rows written, taken from the same lists. No new AI call: on
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -282,8 +283,8 @@ def _row(n: int, line: Mapping, paper: str, status: str, order: int, by: str) ->
         n,
         paper,
         _page_text(line),
-        layout_comment(line, status, order),
-        by,
+        line.get("engineer_text") or layout_comment(line, status, order),
+        f"Engineer: {line['engineer_by']}" if by and line.get("engineer_by") else by,
         None,
         None,
         against(line) or None,
@@ -598,15 +599,19 @@ def _clean(text) -> str:
 
 
 def _contractor_items(items: list) -> list:
-    """The proven Fail rows only: a 'should' never, an opinion never, a rule not yet approved never."""
+    """The proven Fail rows only: a 'should' never, an opinion never, a rule not yet approved never. PLUS the engineer's own words
+    (12 Nov 2026): a point the engineer edited or added is theirs, in their text, never the AI's."""
     return [
         (ln, st, o)
         for ln, st, o in items
-        if st == words.STATUS_FAIL
-        and wording.writer_refusal(ln) is None
-        and not wording.is_opinion(ln)
-        and not ln.get("recommendation")
-        and not wording.is_unapproved(ln)
+        if ln.get("engineer_text")
+        or (
+            st == words.STATUS_FAIL
+            and wording.writer_refusal(ln) is None
+            and not wording.is_opinion(ln)
+            and not ln.get("recommendation")
+            and not wording.is_unapproved(ln)
+        )
     ]
 
 
@@ -724,4 +729,6 @@ def write(lines: list[Mapping], path: str | Path, meta: Mapping, copy: str) -> P
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(crs_layout.build_layout_crs(layout_view(lines, meta, copy)))
+    if copy == "internal":  # the run's meta, kept so the sheet can be drawn again with the engineer's decisions (`review_points_service`)
+        out.with_name("crs-meta.json").write_text(json.dumps(dict(meta), default=str), encoding="utf-8")
     return out

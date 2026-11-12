@@ -548,6 +548,16 @@ class SettingsExt(BaseModel):
     #: Review plan says so and runs the rule check on the local model. True = offered, every line marked a draft.
     #: Env: REVIEW_UNSCORED_KINDS_FOR_CLAUDE_ENABLED.
     review_unscored_kinds_for_claude_enabled: bool = False
+    #: Owner, 12 Nov 2026: the redesigned review page (SPEC: one list of points, a decision on each, the proposed review code, signing
+    #: that waits for every point). OFF (default): the old page stays; the sign route (`/crs/issue`) asks nothing new. ON: it also
+    #: refuses while any point is undecided. The lead switches it on live, tests it, and shows the owner. Env: REVIEW_PAGE_V2_ENABLED.
+    review_page_v2_enabled: bool = False
+    #: Owner, 12 Nov 2026 (the review code of the redesigned page). N > 0: when the engineer has KEPT at least N AI "not met" points
+    #: (two-reader verdicts and one-reader views, never a code-proven Fail) on mandatory ("shall") rules, the proposed code is
+    #: "Rejected / Revise and Resubmit", with the count in the reason line. 0 (default) = OFF: those points propose at most
+    #: "Approved with Comments" until a company engineer states the practice. A KEPT code-proven Fail on a "shall" rule always
+    #: proposes the rejection, whatever this says. Env: REVIEW_CODE_RESUBMIT_AT_KEPT_MANDATORY_NOT_MET.
+    review_code_resubmit_at_kept_mandatory_not_met: int = 0
     #: Owner order 13, C4 (12 Nov 2026): before the AI reviewer closes a line as "the paper does not state this", a second,
     #: different model reads the whole stored text of the page(s) where the field would stand (per silent line at most 1 re-read, 1 lead re-ask, the normal second opinion and the context check of a Fail
     #: line, same spend reservation and caps); a quote that code verifies on that page is decided again by the same gate.
