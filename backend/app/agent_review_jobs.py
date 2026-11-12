@@ -602,15 +602,7 @@ def _finish(
 ) -> dict:
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
-    lines = (
-        [
-            runner.lines[str(i["item_id"])]
-            for i in items
-            if str(i["item_id"]) in runner.lines
-        ]
-        if runner
-        else []
-    )
+    lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
     counts = runner_mod.counts_of(lines)
     reread = (  # C4: a stopped page re-read is stated, never dropped (null when off or ran fully)
         reread_mod.reread_facts(runner.reread_enabled, runner.reread_stopped, lines)
