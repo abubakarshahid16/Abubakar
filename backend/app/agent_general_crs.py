@@ -21,7 +21,7 @@ from pathlib import Path
 
 from . import agent_general_review as core
 from . import crs_ai_words as words
-from . import crs_export, crs_layout
+from . import crs_export, crs_layout, kind_review_table
 from .agent_general_review import (
     CLASS_NOT_CHECKED,
     CLASS_NOT_REVIEWED,
@@ -239,7 +239,11 @@ def layout_view(
         core.finalize_line(ln) for ln in lines
     ]  # the exporter takes nothing that did not leave through the exit
     items = [] if contractor else _item_lines(final)
-    discipline = meta.get("discipline") or h.get("discipline")
+    discipline = (
+        meta.get("discipline")
+        or h.get("discipline")
+        or kind_review_table.discipline(meta.get("kind"))
+    )
     by = "" if contractor else words.comment_by(discipline)
     books = sorted({_c(ln.get("rule_book")) for ln in final if ln.get("rule_book")})
     view: dict = {

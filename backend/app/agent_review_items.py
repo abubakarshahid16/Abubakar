@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import agent_review_rules as rules_mod
+from . import kind_review_table
 from . import agent_review_text, requirement_split, rule_labels, table_gate
 from .agent_review_standards import (
     _norm_clause,
@@ -30,7 +31,7 @@ IN_STATES = (
 QUERY_CODE = "recommendation_query"  # advice raised as a query: not a requirement
 #: Paper kinds that have no main equipment type (step 2, paper kind first): the old run's
 #: "another equipment type" exclusion does not hold for them, so those rules are back in.
-NO_EQUIPMENT_KINDS = ("procedure", "contract")
+NO_EQUIPMENT_KINDS = kind_review_table.no_main_equipment_kinds()  # the one table
 EQUIPMENT_CODE = "other_equipment"
 #: The clause label of a rule whose sentence sits before the standard's first heading.
 BEFORE_FIRST_HEADING = "before first heading"
@@ -217,6 +218,10 @@ def skill_kinds_for(paper_kind: str, kinds: tuple[str, ...] | None = None) -> li
 
         kinds = agent_skills.KINDS
     tail = paper_kind.replace(" ", "_")
+    if kind_review_table.has_row(tail):  # the one table says which checklist ending a kind has (None: the slot is empty)
+        tail = kind_review_table.checklist_ending(tail)
+        if not tail:
+            return []
     return [k for k in kinds if k == tail or k.endswith("_" + tail)]
 
 

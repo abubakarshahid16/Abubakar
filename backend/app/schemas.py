@@ -1094,6 +1094,24 @@ class DocumentKindVocabulary(BaseModel):
     counts: dict
 
 
+class DocumentReviewKind(BaseModel):
+    """GET /api/documents/{id}/review-kind: the kind the AI reviewer would decide, how, and which review it would get."""
+
+    document_id: str
+    kind: str
+    known: bool
+    source: str
+    decided_by: str
+    guess: bool
+    confirmed: bool
+    review: str
+    rules_of_kind: list[str]
+    checklist: str
+    equipment_type: str | None = None
+    choices: list[dict]
+    correct_with: str
+
+
 class DocumentKindRouted(BaseModel):
     routed: int
     suggested: int

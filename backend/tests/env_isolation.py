@@ -181,6 +181,7 @@ EGRESS_SAFE: dict[str, object] = {
     "agent_review_two_reader_verdict_enabled": False,  # order 13: the two-readers class, off
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off
+    "agent_review_general_rules_enabled": False,  # K1b: the general review asks the rules of its kind, off
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,

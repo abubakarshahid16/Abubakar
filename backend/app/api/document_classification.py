@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import access, register_type_split, schemas
+from .. import access, agent_review_kind, register_type_split, schemas
 from .. import admin as admin_mod
 from .. import classification as classification_mod
 from .. import doc_router as doc_router_mod
@@ -138,6 +138,16 @@ def get_document_kinds(scope: access.AccessScope = Depends(access.current_scope)
     documents it counts)."""
     allowed = None if scope.unrestricted else scope.allowed_document_ids
     return {"kinds": doc_router_mod.kinds(), "counts": doc_router_mod.counts(allowed)}
+
+
+@router.get("/api/documents/{document_id}/review-kind", response_model=schemas.DocumentReviewKind,
+            responses={**schemas.ERRORS_404})
+def get_document_review_kind(document_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    """The kind the AI reviewer would decide for this paper BEFORE a review starts: how it was decided ("decided by: ..."), whether
+    it is a guess, which review that kind gets, and the kinds a person may choose. Correct it with PUT .../kind. Read only; words
+    and ids, never a paper's text."""
+    require_document(document_id, scope)
+    return agent_review_kind.describe(document_id, scope.allowed_document_ids)
 
 
 @router.put("/api/documents/{document_id}/kind", response_model=schemas.DocumentClassification,

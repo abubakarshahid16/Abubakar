@@ -120,7 +120,10 @@ def _equipment(doc_id):
         (("ACME", "CERTIFICATE OF CONFORMITY"), "test_record"),
         (("ACME", "PRESSURE TEST PROCEDURE"), "procedure"),
         (("ACME", "INSPECTION AND TEST PLAN"), "procedure"),
-        (("ACME", "PIPING MATERIAL SPECIFICATION"), "other"),
+        (("ACME", "PIPING MATERIAL SPECIFICATION"), "specification"),
+        (("ACME", "RELIEF VALVE SIZING CALCULATION"), "calculation"),
+        (("ACME", "CONTRACT FOR SUPPLY OF SKIDS"), "contract"),
+        (("ACME", "TRANSMITTAL No. TR-7"), "transmittal"),
         (("ACME", "MINUTES OF THE KICK-OFF"), "other"),
     ],
 )
@@ -135,13 +138,14 @@ def test_the_list_is_closed():
         "datasheet",
         "procedure",
         "contract",
+        "calculation",
+        "specification",
+        "transmittal",
         "drawing",
         "test_record",
         "other",
     )
     for kind in (
-        "specification",
-        "transmittal",
         "feed",
         "standard",
         "unknown",
@@ -444,4 +448,4 @@ def test_switch_off_the_confirm_list_is_as_on_main(monkeypatch):
     with pytest.raises(doc_router.UnknownKind):
         doc_router.confirm("d1", "test_record", _confirmer())
     monkeypatch.setattr(settings, "paper_kind_first_enabled", True)
-    assert [k["id"] for k in doc_router.kinds()] == [*MAIN_KINDS, "test_record"]
+    assert [k["id"] for k in doc_router.kinds()] == [*MAIN_KINDS, "test_record", "calculation"]

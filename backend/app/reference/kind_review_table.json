@@ -1,0 +1,133 @@
+{
+  "_about": "ONE home for what the AI reviewer does with each kind of paper (order 13, K1b). The code reads only this file (kind_review_table.py): the gate, the equipment rule, the checklist, the page split and the CRS discipline words. Edit here, never a tuple in code. A kind the code can decide that has no row here is a test failure. A kind decided with no row, or `none`, asks nothing and says so.",
+  "table_version": "1",
+  "page_strategy_rule": "Deterministic split: pages are taken in page order; the whole paper goes in ONE window when its estimated tokens (characters / 4 + 20 per page) fit window_tokens; otherwise windows of consecutive pages, each as large as fits, the next one starting overlap_pages pages back. No page is ever skipped; the same paper always gives the same windows.",
+  "kinds": {
+    "datasheet": {
+      "review": "rule",
+      "rules_of_kind": [
+        "datasheet"
+      ],
+      "ask_rules": true,
+      "checklist_skill_ending": "datasheet",
+      "checklist_slot": "filled",
+      "no_main_equipment": false,
+      "window_tokens": 60000,
+      "overlap_pages": 1,
+      "crs_discipline": "",
+      "label": "Datasheet"
+    },
+    "procedure": {
+      "review": "rule_and_general",
+      "rules_of_kind": [
+        "procedure"
+      ],
+      "ask_rules": true,
+      "checklist_skill_ending": "procedure",
+      "checklist_slot": "filled",
+      "no_main_equipment": true,
+      "window_tokens": 60000,
+      "overlap_pages": 1,
+      "crs_discipline": "Procedures",
+      "label": "Procedure"
+    },
+    "contract": {
+      "review": "rule_and_general",
+      "rules_of_kind": [
+        "contract"
+      ],
+      "ask_rules": true,
+      "checklist_skill_ending": null,
+      "checklist_slot": "empty: the clause checklist is an engineer's job (not written)",
+      "no_main_equipment": true,
+      "window_tokens": 60000,
+      "overlap_pages": 1,
+      "crs_discipline": "Contracts",
+      "label": "Contract"
+    },
+    "calculation": {
+      "review": "none",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none yet: a calculation is no longer asked datasheet rules; its own review (rules of kind calculation, a calculation checklist from an engineer) is not built",
+      "no_main_equipment": false,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "Calculations",
+      "label": "Calculation"
+    },
+    "transmittal": {
+      "review": "completeness",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none: a code-only list (documents listed against documents held; no AI call)",
+      "no_main_equipment": true,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "Document control",
+      "label": "Transmittal"
+    },
+    "specification": {
+      "review": "none",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none",
+      "no_main_equipment": false,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "",
+      "label": "Specification"
+    },
+    "drawing": {
+      "review": "none",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none",
+      "no_main_equipment": false,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "",
+      "label": "Drawing"
+    },
+    "test_record": {
+      "review": "none",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none",
+      "no_main_equipment": false,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "",
+      "label": "Test record"
+    },
+    "other": {
+      "review": "none",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none",
+      "no_main_equipment": false,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "",
+      "label": "Other"
+    },
+    "unknown": {
+      "review": "none",
+      "rules_of_kind": [],
+      "ask_rules": false,
+      "checklist_skill_ending": null,
+      "checklist_slot": "none: the engineer names the kind first",
+      "no_main_equipment": false,
+      "window_tokens": 0,
+      "overlap_pages": 0,
+      "crs_discipline": "",
+      "label": "Unknown"
+    }
+  }
+}

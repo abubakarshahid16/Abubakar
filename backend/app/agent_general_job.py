@@ -169,6 +169,7 @@ def _finish(
         "lead_models": sorted(g.lead_models) if g else [],
         "second_models": sorted(g.second_models) if g else [],
         "header": crs_header.document_header(conn, submittal, None),
+        "kind": kind.kind,
     }
     dropped = g.dropped.as_json() if g else {}
     crs.write_all(lines, folder, meta, accepted, dropped)

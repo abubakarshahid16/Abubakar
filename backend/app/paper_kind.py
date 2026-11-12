@@ -27,7 +27,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from . import document_kind
+from . import document_kind, kind_review_table
 from .classification import _now, suggest_equipment_type_from_title, title_block_lines
 from .db import connect, schema_once
 
@@ -40,6 +40,9 @@ PAPER_KINDS: tuple[str, ...] = (
     "datasheet",
     "procedure",
     "contract",
+    "calculation",
+    "specification",
+    "transmittal",
     "drawing",
     "test_record",
     "other",
@@ -47,7 +50,7 @@ PAPER_KINDS: tuple[str, ...] = (
 #: Plain words for each kind (the owner's words).
 WORDS: dict[str, str] = {k: k.replace("_", " ") for k in PAPER_KINDS}
 #: Kinds whose MAIN label is never an equipment type.
-NO_MAIN_EQUIPMENT: frozenset[str] = frozenset({"procedure", "contract"})
+NO_MAIN_EQUIPMENT: frozenset[str] = frozenset(kind_review_table.no_main_equipment_kinds())  # the one table
 
 #: A record of a test or inspection that was done (its result), named in the
 #: title. A test PLAN or test PROCEDURE says how a test is done: a procedure.
@@ -60,14 +63,43 @@ _TEST_RECORD = re.compile(
 )
 #: `document_kind`'s title cues with the test-record cue after "procedure", so
 #: a "test report procedure" is a procedure and a "test report" a test record.
-PAPER_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    document_kind._KIND_CUES[0],
-    ("test_record", _TEST_RECORD),
-    *document_kind._KIND_CUES[1:],
+#: A calculation names itself ("sizing calculation", "calculation sheet", "calc"): it is read BEFORE the datasheet cue, so a
+#: calculation titled with an equipment name is a calculation, never a datasheet (K1b; a procedure, a test record, a contract, a
+#: specification, a drawing and a FEED title still come first).
+_CALCULATION = re.compile(r"\bcalculations?\b|\bcalcs?\b", re.I)
+#: A contract that names itself by its subject ("Contract for ...", "Supply contract", "Subcontract"): the router's contract cue
+#: reads agreement / general conditions / terms and conditions only. "Contract No." is a label naming a number, never the title.
+_CONTRACT_HEADING = re.compile(
+    r"\bcontract\s+(?:for|between|of)\b|\b(?:sub-?contract|supply\s+contract|service\s+contract"
+    r"|construction\s+contract|master\s+contract)\b|^\W*(?:the\s+)?contract\W*$",
+    re.I,
 )
+
+
+#: A transmittal is identified by its own number ("Transmittal No. TR-7"). The router's reading skips a kind word followed by
+#: "No." (a label naming ANOTHER document, "P&ID No."); a transmittal's own number is consumed here, so the line is read.
+_TRANSMITTAL_NUMBER = re.compile(r"\btransmittal\s+(?:no\b\.?|number|nr\b\.?|#)\s*[A-Z0-9][\w/.-]*", re.I)
+
+
+def _paper_cues() -> tuple[tuple[str, re.Pattern[str]], ...]:
+    out: list[tuple[str, re.Pattern[str]]] = []
+    for kind, pattern in document_kind._KIND_CUES:
+        if kind == "contract":
+            pattern = re.compile(pattern.pattern + "|" + _CONTRACT_HEADING.pattern, re.I)
+        if kind == "datasheet":
+            out.append(("calculation", _CALCULATION))
+        if kind == "transmittal":
+            pattern = re.compile(_TRANSMITTAL_NUMBER.pattern + "|" + pattern.pattern, re.I)
+        out.append((kind, pattern))
+        if kind == "procedure":
+            out.append(("test_record", _TEST_RECORD))
+    return tuple(out)
+
+
+PAPER_CUES: tuple[tuple[str, re.Pattern[str]], ...] = _paper_cues()
 #: `document_kind` kinds (and the router's, `reference/document_kinds.json`, which
 #: an engineer may confirm) that are kinds of the closed list.
-_SAME = {"datasheet", "procedure", "contract", "drawing", "test_record"}
+_SAME = set(PAPER_KINDS) - {"other"}
 #: Every other kind is `other`, on purpose: specification, transmittal, FEED,
 #: standard, study, report, letter and unknown. The owner's list is closed (order
 #: 11 Nov step 2); none of them is a datasheet, procedure, contract, drawing or
@@ -128,7 +160,10 @@ def decide_paper_kind(
     )
     kind = to_paper_kind(found.kind)
     guess = found.guess
-    if kind == "other" and to_paper_kind(found.conflict) != "other":
+    if kind in ("other", "specification") and to_paper_kind(found.conflict) not in (
+        "other",
+        "specification",
+    ):
         # The number names a kind outside the list, the title one inside it:
         # the title's kind, a guess.
         kind, guess = to_paper_kind(found.conflict), True

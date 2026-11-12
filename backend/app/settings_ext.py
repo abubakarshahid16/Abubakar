@@ -537,6 +537,12 @@ class SettingsExt(BaseModel):
     #: that are not item rows. Never a decision, never in the contractor copy. OFF: as the first switch alone.
     #: Env: AGENT_REVIEW_TWO_READER_OTHER_PAPER_ENABLED.
     agent_review_two_reader_other_paper_enabled: bool = False
+    #: K1b (12 Nov 2026): the GENERAL review of a procedure or contract ALSO asks the held rules of its paper kind (the kinds whose
+    #: row in `reference/kind_review_table.json` is `rule_and_general`) through the same first reader, quote check and second
+    #: reader as the datasheet review, then runs the general parts (checklist, paper against itself, project papers, comments).
+    #: Needs the AI reviewer on. OFF (owner, 11 Nov 2026: procedure and contract rule lines were mostly wrong when the paper was
+    #: silent; switch on only after a scored run): the general review runs alone, as before. Env: AGENT_REVIEW_GENERAL_RULES_ENABLED.
+    agent_review_general_rules_enabled: bool = False
     #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
     #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
     #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with
