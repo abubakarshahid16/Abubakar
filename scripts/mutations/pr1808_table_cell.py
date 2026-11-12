@@ -40,4 +40,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="a compound row splits when the unit stands on one part only or the units differ",
              path=_K, anchor="    elif not (units[0] and len(set(units)) == 1):\n", replacement="    elif False:\n",
              target=_T, keyword="does_not_split_cleanly", tags=_TAGS),
+    Mutation(id="M1808-14", phase=1808,
+             description="the questions of code lines are not grouped by their reason: every deferred value and every unstated phase is its own point again",
+             path=APP / "review_points.py", anchor="if (code_why := code_question_key(line)) and rank == 4", replacement="if False",
+             target="tests/test_b1_review_notes.py", keyword="same_reason_are_one_group", tags=_TAGS),
 )

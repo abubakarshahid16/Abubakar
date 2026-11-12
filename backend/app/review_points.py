@@ -132,6 +132,22 @@ def group_key(
     )
 
 
+def code_question_key(line: dict) -> str | None:
+    """The reason of a question a CODE line (the calculator's) asks, with its field name and its numbers taken out, so that every check the sheet could not
+    make for the SAME reason is one group ("the sheet defers a value to the contractor", "the fluid phase is not stated"). None for any other line."""
+    if str(line.get("source") or "").strip().casefold() != "code":
+        return None
+    why = _clean(line.get("why") or (line.get("compare") or {}).get("reason")).lower()
+    for part in (
+        str(line.get("field") or "").lower(),
+        str(line.get("equipment_tag") or "").lower(),
+    ):
+        if part:
+            why = why.replace(part, " ")
+    why = re.sub(r"[0-9]+(?:\s*[-,]\s*[0-9]+)*", " ", why)
+    return " ".join(why.split()) or None
+
+
 def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None) -> str:
     if added_by:
         return "Added by " + added_by
@@ -236,7 +252,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         else None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": not bool(line.get("recommendation")),
-        "group_key": group_key(SOURCE_AI_REVIEW, rank, book_name, clause, str(reason)),
+        "group_key": group_key(
+            SOURCE_AI_REVIEW, rank, "approved checklist", "any check", code_why
+        )
+        if (code_why := code_question_key(line)) and rank == 4
+        else group_key(SOURCE_AI_REVIEW, rank, book_name, clause, str(reason)),
         "added_by": None,
         "_book_doc": book_doc,
     }
