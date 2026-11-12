@@ -115,6 +115,8 @@ def modules() -> tuple[Module, ...]:
                 (ar.AgentMissingBook, "AgentMissingBook"),
                 (ar.AgentOtherBooks, "AgentOtherBooks"),
                 (ar.AgentBookCoverage, "AgentBookCoverage"),
+                (ar.AgentBookRow, "AgentBookRow"),
+                (ar.AgentBookTable, "AgentBookTable"),
                 (ar.AgentRulesUsed, "AgentRulesUsed"),
             ),
             unions=(

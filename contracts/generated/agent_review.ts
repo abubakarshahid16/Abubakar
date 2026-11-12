@@ -193,6 +193,32 @@ export interface AgentBookCoverage {
   below_half?: boolean | null;
 }
 
+/** One rule book that was a candidate for this review, or was only considered, with what happened to its rules. */
+export interface AgentBookRow {
+  rule_book: string;
+  /** true when the book's rules were candidates; false when the book was only considered and not included. */
+  in_review: boolean;
+  /** the fixed words for what decided it (never text from the paper): named in the paper, governs this equipment type, ... */
+  method: string;
+  /** how many rules the library stores for this book (all of them, whatever their label); null when not counted. */
+  stored_rules?: number | null;
+  /** rules of this book asked in this review. */
+  asked: number;
+  /** rules of this book that were candidates and not asked, counted per reason. */
+  left_out: Record<string, number>;
+}
+
+/** Which held rule books were candidates for this review and which were not (view only). */
+export interface AgentBookTable {
+  books: AgentBookRow[];
+  /** whose books these rows cover, in words (rule 4: every count states its boundary). */
+  boundary: string;
+  /** rule books of this review the reader may not read: counted, never named (rule 5). */
+  hidden_books: number;
+  /** a sentence when no book selection was stored for this run (rules came from per-rule decisions); null otherwise. */
+  note?: string | null;
+}
+
 /** GET /api/reviews/runs/{id}/rules-used (view only). */
 export interface AgentRulesUsed {
   paper_kind: string;
@@ -215,6 +241,8 @@ export interface AgentRulesUsed {
   same_rule_repeats?: number | null;
   /** AI-approved rules of this paper kind in rule books the run did not select; null when not kept. */
   other_books?: AgentOtherBooks | null;
+  /** the book-by-book table: which held rule books were candidates and which were not, and why; null on a run stored before it was kept. */
+  book_table?: AgentBookTable | null;
   /** why the run stopped early, or why no rule was asked (the same words as the summary); null when it ran to its end. */
   stop_reason?: string | null;
   /** the paper's stored-text state; null on a run stored before it was kept. */
