@@ -17,9 +17,17 @@ Read this instead of re-deriving it. The planner's orders on #692 are the source
 1. One feature = one PR, branch from the release branch it will ride (or main). `Refs #692` only: never write close / fix / resolve before #692 or #805.
 2. General fixes only (order 143): no code naming a datasheet, field label, tag or a standard's part list; units and physics may be code; word lists are a last resort with a reason per word.
 3. Tests that fail without the fix (check once by hand). Mutation entries `M<PR>-NN` and audit entry `A-<PR>` only in the danger zone (rule 6). Big screen changes sit behind an OFF switch.
-4. A fresh-eyes review by an agent that did not write it, before "PR ready".
+4. A fresh-eyes review by an agent that did not write it, before "PR ready": a light one-pass review for layout, wording, docs and tests; a full one for the verdict path (see "Less waste").
 5. Validate before every push: the changed test files, `scripts/check_mutation_anchors.py`, `scripts/check_lint_baseline.py check` (ruff 0.16.6), `scripts/check_system_map.py`, `scripts/gen_contract_types.py --check`, frontend `tsc -p tsconfig.app.json --noEmit` and vitest on the touched folders. Never the full suite locally (order 129).
 6. Post on #692 only when a PR is claimed, ready, merged or blocked, or a review result is in. Never post "no change". Never post a token.
+
+## Less waste (owner order, 12 Nov 2026, standing; CLAUDE.md rule 14)
+- **Combine.** Related PRs go into one branch and are tested once: GitHub checks and the bench gate run once on the combined head, and the main tree after the merge must equal the tested tree.
+- **What needs the full review.** A FULL fresh review for anything that can change a verdict or a CRS cell, spend money, change the live data, or change what leaves the machine, whether or not the file is on the list; the list only decides where style stops block.
+- **Mutation check on the combined head.** The lead runs the mutation check of ALL changed danger-zone modules on the COMBINED head before the merge (a per-PR run cannot see stale entries that only the combination causes).
+- **Review depth.** ONE light review (one reviewer, one pass, no hand reverts) for layout, wording, docs and tests. A FULL fresh review (attack, hand reverts, mutation entries where the danger zone is touched) for anything on the verdict path (`scripts/verdict_path.py`). The PR text says which depth was used and why.
+- **Windows.** `tests-windows.yml` is switched off: by hand only (Actions, tests-windows, Run workflow). It was never a required check.
+- **Style stops.** Formatting of touched lines, file and function size, complexity and the ruff lint baseline stop only for verdict-path files; for any other file they print a WARNING with the file and the number. R1 below still says what to fix; a warning is not a miss. Every non-style check still stops everywhere.
 
 ## Reviews (order 147)
 Request changes only for correctness, a safety fence, order 143 or a missing test. Everything else is "optional, not blocking". GitHub refuses a formal approval on a PR from the same account, so an approval is a PR comment naming the head sha.
@@ -32,7 +40,7 @@ Merge commits, not squash. A release PR shows only its own changes once the one 
 
 ## Speed rules (orders 215 and 216, permanent)
 The pre-push guard (`.githooks/pre-push`, runs `scripts/pre_push_guard.py`) enforces R1 and warns on R2. Switch it on once per clone and worktree, at the start of every session: `git config core.hooksPath .githooks`. Cloud sessions: run `python3 -m pip install ruff==0.16.6` once (the guard needs exactly that ruff and says so when it is missing; it is not a broken hook).
-- **R1. Check before you push.** Format only the lines you touched (never reformat a whole old file: `python scripts/quality_ratchet.py format-check --base origin/main` is the test; ruff 0.16.6 from `backend/.venv` or your session), then `check_lint_baseline.py check`, `check_mutation_anchors.py`, `check_system_map.py`, the tests of the modules you changed. A PR that fails CI on formatting, size or anchors is a miss: fix it within 10 minutes.
+- **R1. Check before you push.** Format only the lines you touched (never reformat a whole old file: `python scripts/quality_ratchet.py format-check --base origin/main` is the test; ruff 0.16.6 from `backend/.venv` or your session), then `check_lint_baseline.py check`, `check_mutation_anchors.py`, `check_system_map.py`, the tests of the modules you changed. A PR that fails CI on formatting or size of a verdict-path file, or on anchors, is a miss: fix it within 10 minutes (formatting and size of any other file only warn, see "Less waste").
 - **R2. Fresh with main before review.** Merge current main into your branch and push before asking for review, and again whenever main moves while the PR waits. Say "up to date with main at <sha>" in the review request.
 - **R3. Next-job queue.** Your #1238 note has a "Next job: ..." line from the plan. When a job ends, start the next at once.
 - **R4. Backup packer.** If fixes are labelled `state:approved` and s1 has not posted a pack within 15 minutes, s2 packs them (same bundle rules); s1 does the same for s2.

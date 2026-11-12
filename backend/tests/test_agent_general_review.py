@@ -1127,7 +1127,7 @@ def test_a_document_named_like_the_register_is_never_a_project_paper(world):
     got, problems = core.check_project_papers(
         conn, PAPER, ["doc_reg"], frozenset({PAPER, "doc_reg"})
     )
-    assert got == [] and "never sent" in problems[0]
+    assert got == [] and "is not sent" in problems[0]
 
 
 # ---------------------------------------------------------------- failures are Not reviewed, never a verdict

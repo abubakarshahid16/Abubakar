@@ -36,16 +36,18 @@ stays the record. Here, at the gate:
     says, and before the chat consent below: a hash with a `blocked` row on the
     list, a hash in `<data_dir>/claude_blocked_hashes.json` (outside git;
     `{"blocked_sha256": ["..."]}`), or a document named like the register
-    (CLAUDE.md rule 3), in any case or spacing. THE HASH IS THE BLOCK; the name is
-    a backstop, and a re-saved copy of the register needs its own hash.
+    (CLAUDE.md rule 3), in any case or spacing, or whose name contains the name of a
+    file the owner marked in the block file (`"blocked_names"`). Owner, 12 Nov 2026
+    afternoon: the register is blocked BY NAME, built in, so no block file is needed;
+    a hash blocks the same bytes under any other name.
   * OFF IS A ROLLBACK: with the switch off a row whose `source` starts `auto` does
     not count as approved, so what the switch added stops at once. The block file
     is then not required (a damaged one still refuses).
   * A LAPSED ROLE: an automatic submittal row whose document no longer has a
     qualifying role is refused, whether or not its withdrawal was written.
-  * FAIL CLOSED, SWITCH ON: if the list cannot be read, or the block file is
-    missing, cannot be read or holds NO hash, nothing carrying a document is sent.
-    The owner's real register hash must be in it before the switch is turned on.
+  * FAIL CLOSED: if the list cannot be read, or the block file EXISTS and cannot
+    be read, nothing carrying a document is sent. An absent block file is simply
+    no marked file (the register's name block does not need it).
   * EVERY SEND IS RECORDED, switch on, on its spend-ledger line (`sent_documents`:
     id and hash, with the line's step, model and time; never a title). A later
     `releases` line for that reservation means the call provably did no work.
@@ -156,11 +158,80 @@ class BlockListUnreadable(Exception):
     """The list or the block file could not be read. Never carries their content."""
 
 
+_EXTENSION = re.compile(r"\.[a-z0-9]{1,5}$")
+#: A name the owner marks must have at least this many letters and digits, else it would block almost every file.
+MIN_MARKED_KEY = 5
+
+
+def name_key(filename: str | None) -> str:
+    """A file name as letters and digits only: lower case, extension dropped, every
+    space, underscore, hyphen and bracket gone. "Name_ (1).PDF" and "name copy" both
+    reduce to something that starts with the key of "Name"."""
+    folded = unicodedata.normalize("NFKC", filename or "").casefold().strip()
+    return "".join(c for c in _EXTENSION.sub("", folded) if c.isalnum())
+
+
 def is_register_name(filename: str | None) -> bool:
     """Is this file named like the register, in any case, spacing or punctuation,
     with anything around it ("Copy of ... (1).pdf")? Errs toward blocking."""
-    folded = unicodedata.normalize("NFKC", filename or "").casefold()
-    return REGISTER_NAME_KEY in "".join(c for c in folded if c.isalnum())
+    return REGISTER_NAME_KEY in name_key(filename)
+
+
+def _present(path: Path) -> bool:
+    """Is there a file here? An operating-system refusal is `BlockListUnreadable`, never a crash."""
+    try:
+        return path.exists()
+    except OSError as exc:
+        raise BlockListUnreadable("the block file cannot be read") from exc
+
+
+def marked_name_keys() -> frozenset[str]:
+    """The keys of the file NAMES the owner marked in the block file
+    (`"blocked_names": [...]`). Raises `BlockListUnreadable` for a block file that is
+    damaged, and for a name with too few letters and digits (it would block nearly
+    everything: fail closed). An absent file marks nothing."""
+    path = block_file_path()
+    if not _present(path):
+        return frozenset()
+    names = _read_block_file(path).get("blocked_names")
+    if names is None:
+        return frozenset()
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise BlockListUnreadable("the block file has the wrong shape")
+    keys = [name_key(n) for n in names]
+    if any(len(k) < MIN_MARKED_KEY for k in keys):
+        raise BlockListUnreadable("a blocked name is too short to be a file name")
+    return frozenset(keys)
+
+
+def name_is_blocked(filename: str | None, marked: frozenset[str] | None = None) -> bool:
+    """Is a file with this stored name blocked BY NAME: named like the register, or
+    containing the name of a file the owner marked (`marked`: `marked_name_keys()`).
+    A near-name, a copy suffix, a date or revision after the name, another
+    extension and different spacing all match: the safer error is to block."""
+    key = name_key(filename)
+    if REGISTER_NAME_KEY in key:
+        return True
+    return any(m in key for m in (marked or ()))
+
+
+def blocked_by_name(filename: str | None) -> bool:
+    """`name_is_blocked` against the block file as it is now. A block file that cannot
+    be read answers True: when in doubt the file is blocked."""
+    try:
+        return name_is_blocked(filename, marked_name_keys())
+    except BlockListUnreadable:
+        return True
+
+
+def _read_block_file(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BlockListUnreadable("the block file cannot be read") from exc
+    if not isinstance(data, dict):
+        raise BlockListUnreadable("the block file has the wrong shape")
+    return data
 
 
 def read_list_strict() -> dict:
@@ -168,9 +239,9 @@ def read_list_strict() -> dict:
     Unlike `_entries`, a damaged file is an answer of its own: it can hold a block
     that could not be seen, so it must not read as "nothing is blocked"."""
     path = list_path()
-    if not path.is_file():
-        return {"documents": []}
     try:
+        if not path.is_file():
+            return {"documents": []}
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise BlockListUnreadable("the approved list cannot be read") from exc
@@ -183,21 +254,18 @@ def read_list_strict() -> dict:
 def blocked_hashes() -> frozenset[str]:
     """Every blocked hash: `blocked` rows on the list and the block file's. Raises
     `BlockListUnreadable` when either cannot be read, and for a value that is not a
-    hash: a typo must not unblock. Switch on, a block file that is absent or holds
-    no hash raises too; switch off, an absent one is simply none."""
+    hash: a typo must not unblock. An ABSENT block file is none, switch on or off
+    (the register is blocked by its file name without it; owner, 12 Nov 2026); one that
+    exists and cannot be read raises."""
     path = block_file_path()
-    required = auto_approve_on()
     listed: list = []
-    if required or path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise BlockListUnreadable("the block file cannot be read") from exc
-        listed = data.get("blocked_sha256") if isinstance(data, dict) else None
+    if _present(path):
+        listed = _read_block_file(path).get("blocked_sha256")
+        if listed is None:
+            listed = []
         if not isinstance(listed, list):
             raise BlockListUnreadable("the block file has the wrong shape")
-        if required and not listed:
-            raise BlockListUnreadable("the block file holds no hash")
+        marked_name_keys()  # a damaged name list is as bad as a damaged hash list
     found = [str(h).strip().lower() for h in listed]
     found += blocked_rows(read_list_strict()["documents"])
     if not all(_SHA256.fullmatch(h) for h in found):
@@ -260,6 +328,7 @@ def _blocked_ids(hashes: dict[str, str | None]) -> frozenset[str]:
     from .db import connect
 
     blocks = blocked_hashes()
+    marked = marked_name_keys()
     marks = ",".join("?" for _ in hashes)
     rows = (
         connect()
@@ -268,7 +337,7 @@ def _blocked_ids(hashes: dict[str, str | None]) -> frozenset[str]:
         )
         .fetchall()
     )
-    named = {r["id"] for r in rows if is_register_name(r["filename"])}
+    named = {r["id"] for r in rows if name_is_blocked(r["filename"], marked)}
     return frozenset(d for d, h in hashes.items() if h in blocks or d in named)
 
 
@@ -383,10 +452,11 @@ def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
 
     try:
         blocked = sorted(_blocked_ids(_hashes_of(ids)))
-    except BlockListUnreadable:
+    except BlockListUnreadable as exc:
+        why = str(exc)
         return (
             NOT_APPROVED,
-            "the approved list or the block file cannot be read, so nothing is sent (fail closed)",
+            f"the approved list or the block file has a fault ({why}), so nothing is sent (fail closed)",
         )
     except sqlite3.OperationalError:
         # Guard off and no library at all: nothing is there to be blocked.
@@ -396,7 +466,7 @@ def _block_stop(ids: frozenset[str]) -> tuple[str, str] | None:
     if blocked:
         return NOT_APPROVED, (
             f"{len(blocked)} of {len(ids)} document(s) in this prompt are blocked "
-            f"for the cloud model (ids: {', '.join(blocked)}), so nothing is sent"
+            f"for the cloud model by file name or checksum (ids: {', '.join(blocked)}), so nothing is sent"
         )
     return None
 
