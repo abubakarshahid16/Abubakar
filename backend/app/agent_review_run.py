@@ -484,7 +484,7 @@ class Runner(DecideMixin, RereadMixin):
             line = self.decide(
                 it, got, pages, model, error if answer is None else None, box, share
             )
-            self.emit(self.reread_silent_line(it, line, got, model, box))
+            self.emit(self.reread_silent_line(it, line, model, box))
         if missing:
             self.run_batch(missing, False)
 

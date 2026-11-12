@@ -6,7 +6,7 @@ value: its reason code is absent / absent_pages_not_named / sheet_silent, or the
 or "only the field's name" (`NO_VALUE_WHY`). A line with an error, a resumed line, a rule that is not AI approved (it never
 buys a call: `calls_allowed`), a drawing or calculation reason, an unclear clause and "not applicable" are NOT silent: no call.
 
-THE STEP (behind `AGENT_REVIEW_REREAD_SILENT_ENABLED`, default OFF): ONE extra call per silent line at most (`once`: never sent
+THE STEP (behind `AGENT_REVIEW_REREAD_SILENT_ENABLED`, default OFF): a second-model page re-read (`once`: never sent
 again after a transport failure), always to `agent_claude.SECOND_MODEL` and only when it is a different model family from
 the lead. The call goes through the runner's own `call` (the step gate's reservation, `agent_claude._call`, the lane gate,
 the approved-document check and the caps: nothing here opens a socket or keeps a ledger). Output limit `REREAD_MAX_TOKENS`.
@@ -14,12 +14,14 @@ the approved-document check and the caps: nothing here opens a socket or keeps a
 PAGES (the bound is `REREAD_MAX_PAGES`, 3): the page the first reader cited when it is a page of this paper with text, else
 the pages code already selected for the item (its page hint), the ones with most field words first. Whole stored page text.
 
-THE ANSWER IS NOT TRUSTED: its quote must stand word for word on one of those pages (code checks). If it does, the line is
-decided AGAIN by the SAME `decide` (the same gate, holds, guards and caps) on an answer made of that quote; a text line can end
-no better than "AI thinks" there, because the gate's second opinion would come from the same model (`no_second`). If the
-second reader says there is no value, its quote is not on the page, or it gave no usable answer, the line stays the Query it
-was, now carrying `reread = {"found": False}`, which `agent_review_wording` words as "two AI readers found no value for this".
-A failed or refused call leaves the line exactly as it was (`reread = {"found": None}`): never a claim that two readers looked.
+THE ANSWER IS NOT TRUSTED, AND ONE READER NEVER DECIDES: its quote must stand word for word on one of those pages (code). If
+it does, the FIRST (lead) model is asked the item once more on that page with the quote pointed out, and its answer goes
+through the normal `decide` (gate, holds, caps and the normal second opinion). Per silent line at most: 1 re-read + 1 lead
+re-ask (the cut-off retry rule of main applies) + the normal second opinion + the context check of a Fail. If the lead again
+finds nothing, or the second opinion disagrees, the line stays what it was and says one reader pointed to text on page N
+and the other did not confirm it. Three other outcomes, three sets of words: the reader says no value (`no_value`: two
+readers found none), its quote is not on the page (`quote_not_found`: not used), the call failed, was refused or unreadable
+(`failed`: the line says nothing and is charged the call's reserved worst case).
 """
 
 from __future__ import annotations
@@ -30,7 +32,15 @@ from typing import Any
 
 from . import agent_claude, agent_run_second
 from . import agent_review_verdict as verdict
-from .agent_review_request import FATAL, _hints, _text_of, held_texts, pages_for
+from .agent_review_request import (
+    FATAL,
+    _hints,
+    _text_of,
+    app_worst_usd,
+    build_parts,
+    held_texts,
+    pages_for,
+)
 from .reader_api import _fold
 
 REREAD_MAX_PAGES = 3
@@ -165,16 +175,28 @@ class RereadMixin:
         return parse_reread(_text_of(raw)), model, float(usd or 0.0)
 
     # ---- the step
+    def _unchanged(self, line: dict, cause: str, extra: Mapping, usd: float) -> dict:
+        """The line as it was, plus the `reread` record and what the extra calls cost (a line never understates)."""
+        out = {**line, "reread": {"asked": True, "cause": cause, **extra}}
+        if usd:
+            out["usd"] = round(float(line.get("usd") or 0.0) + usd, 6)
+        return out
+
     def reread_silent_line(
         self,
         item: Mapping,
         line: dict,
-        answer: Mapping | None,
         lead_model: str | None,
         box: Any,
     ) -> dict:
-        """`line` unchanged unless the step is on, the line is silent and the second reader's quote verifies; then the line
-        decided again by the same gate. Every other outcome is the same line plus the `reread` record (see the module doc)."""
+        """`line` unchanged unless the step is on and the line is silent. THE FLOW (per silent line at most: 1 page re-read by
+        the second model + 1 lead re-ask + the normal second opinion + the context check of a Fail, all through `Runner.call`):
+        (a) the second model reads the pages; its quote must stand on one of them (code); (b) the FIRST (lead) model is asked
+        the item once more on that page with the quote pointed out; (c) its answer goes through the normal `decide`, second
+        opinion included; (d) if the lead again finds nothing, or the second opinion disagrees, the line stays what it was
+        and says one reader pointed to text on page N and the other did not confirm it. No line becomes a "met", a Pass or a
+        Fail on one reader's word. Outcomes recorded in `reread["outcome"]`: no_value, quote_not_found, not_confirmed,
+        recovered; a failed, refused or unreadable call records `failed` and the line says nothing about it."""
         cause = silent_cause(line)
         if (
             not self.reread_enabled
@@ -184,38 +206,29 @@ class RereadMixin:
             or not verdict.calls_allowed(item, self.tier_lookup)
         ):
             return line
-        if lead_model and not agent_run_second.models_differ(
+        if not lead_model or not agent_run_second.models_differ(
             [lead_model], agent_claude.SECOND_MODEL
         ):
-            return line  # the same family would be one reader twice: no call, no claim of two readers
+            return line  # unknown, or the same family: one reader twice, never counted as two
         numbers = self.reread_pages(item, line)
         texts = {n: self.pages.page(self.paper, n) or "" for n in numbers}
         if not texts:
             return line
         held = held_texts(item, self.clauses)
+        parts = self.reread_parts(item, texts, held)
         try:
-            got, model, usd = self._ask_reread(self.reread_parts(item, texts, held))
+            got, model, usd = self._ask_reread(parts)
         except FATAL:
             self._reread_off = (
                 True  # optional step: the lead's own calls decide whether the run stops
             )
-            return {**line, "reread": {"asked": True, "found": None, "cause": cause}}
+            return self._unchanged(line, cause, {"outcome": "failed"}, 0.0)
         except agent_claude.AgentClaudeError:
-            return {**line, "reread": {"asked": True, "found": None, "cause": cause}}
-        usd_total = round(float(line.get("usd") or 0.0) + usd, 6)
-        if (
-            lead_model
-            and model
-            and not agent_run_second.models_differ([lead_model], model)
-        ):
-            got = None  # the lane answered with the lead's own family: that is not a second reader
-        record = {
-            "asked": True,
-            "cause": cause,
-            "pages": sorted(texts),
-            "model": model,
-            "usd": usd,
-        }
+            worst = app_worst_usd(agent_claude.SECOND_MODEL, parts, REREAD_MAX_TOKENS)
+            return self._unchanged(line, cause, {"outcome": "failed"}, worst)
+        if model and not agent_run_second.models_differ([lead_model], model):
+            got = None  # the lane answered with the lead's own family: not a second reader
+        record = {"pages": sorted(texts), "model": model, "reread_usd": usd}
         iid = str(item.get("item_id"))
         self._ctx.setdefault(iid, {})["reread_exchange"] = {
             **record,
@@ -225,25 +238,63 @@ class RereadMixin:
                 "reason_code": line.get("reason_code"),
             },
         }
+        if got is None:
+            return self._unchanged(line, cause, {**record, "outcome": "failed"}, usd)
+        if got.get("found") is False:
+            return self._unchanged(line, cause, {**record, "outcome": "no_value"}, usd)
         page = self._verified_page(got, texts)
         if page is None:
-            return {
-                **line,
-                "usd": usd_total,
-                "reread": {**record, "found": False if got is not None else None},
-            }
-        new_answer = self._answer_from(answer or {}, got or {}, page)
-        again = self.decide(
-            dict(item),
-            new_answer,
-            texts,
-            model,
-            None,
-            box,
-            usd_total,
-            no_second=True,
+            return self._unchanged(
+                line, cause, {**record, "outcome": "quote_not_found"}, usd
+            )
+        return self._lead_again(
+            item, line, cause, got, page, texts, held, box, record, usd
         )
-        return {**again, "reread": {**record, "found": True, "page": page}}
+
+    def _lead_again(
+        self, item, line, cause, got, page, texts, held, box, record, usd
+    ) -> dict:
+        """(b) and (c): the lead is asked the item once more on the page; its answer goes through `decide` like a first one."""
+        iid = str(item.get("item_id"))
+        one = dict(item, page_hint=[page])
+        pointer = {
+            "a_second_reader_points_to": {"page": page, "quote": got.get("paper_quote")}
+        }
+        clauses = {
+            h["ref"]: {
+                **h,
+                "standard": item.get("standard"),
+                "clause": item.get("clause"),
+            }
+            for h in held
+        }
+        parts = build_parts(
+            self.paper, {page: texts[page]}, clauses, [one], {iid: held}
+        )
+        last = parts["messages"][0]["content"][-1]
+        last["text"] = json.dumps(pointer, ensure_ascii=False) + "\n\n" + last["text"]
+        answers, lead_usd, error, model = self._ask_lead([one], parts, False)
+        spent = usd + lead_usd
+        base = {**record, "page": page, "lead_usd": lead_usd}
+        again_answer = (answers or {}).get(iid)
+        if error or again_answer is None or not model:
+            return self._unchanged(line, cause, {**base, "outcome": "failed"}, spent)
+        self._ctx.setdefault(iid, {})["reread_lead_answer"] = again_answer
+        again = self.decide(
+            dict(item), again_answer, {page: texts[page]}, model, None, box,
+            round(float(line.get("usd") or 0.0) + spent, 6),
+        )  # fmt: skip
+        second = again.get("second_opinion")
+        disagreed = isinstance(second, Mapping) and second.get("agree") is False
+        if (
+            silent_cause(again) is not None
+            or disagreed
+            or again.get("ai_verdict") not in (verdict.PASS, verdict.FAIL)
+        ):
+            return self._unchanged(
+                line, cause, {**base, "outcome": "not_confirmed"}, spent
+            )
+        return {**again, "reread": {**base, "cause": cause, "outcome": "recovered"}}
 
     @staticmethod
     def _verified_page(got: Mapping | None, texts: Mapping[int, str]) -> int | None:
@@ -259,27 +310,3 @@ class RereadMixin:
         if named in hits:
             return named
         return hits[0] if len(hits) == 1 else None
-
-    @staticmethod
-    def _answer_from(first: Mapping, got: Mapping, page: int) -> dict:
-        """The answer the gate decides again: the second reader's own quote, figures and view. What the FIRST reader said
-        about silence (its reasoning, comment, `mentioned`, pages searched) is dropped; its field label is kept."""
-        meets = got.get("meets")
-        word = {True: "Pass", False: "Fail"}.get(meets, "Query")
-        out = {
-            k: v
-            for k, v in first.items()
-            if k not in ("mentioned", "reasoning", "comment", "pages_searched")
-        }
-        out.update(
-            paper_quote=got.get("paper_quote"),
-            paper_page=page,
-            paper_figure=got.get("paper_figure") or "",
-            clause_quote=got.get("clause_quote") or first.get("clause_quote"),
-            clause_figure=got.get("clause_figure") or first.get("clause_figure"),
-            reasoning=got.get("reasoning") or "",
-            comment=got.get("comment") or "",
-            verdict=word,
-            reason_code={"Pass": "met", "Fail": "not_met"}.get(word, "other"),
-        )
-        return out

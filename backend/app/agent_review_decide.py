@@ -95,11 +95,8 @@ class DecideMixin:
         lead_model: str | None,
         error: str | None,
         box: Any,
-        no_second: bool = False,
     ) -> dict:
-        """The decision of the gate for one item, with the second opinion and the absence proof when they are earned.
-        `no_second`: the lead of this answer is the second model itself (the page re-read), so a second opinion from it
-        would be the same reader twice: not bought (the line then stays "AI thinks", never proven by that path)."""
+        """The decision of the gate for one item, with the second opinion and the absence proof when they are earned."""
         iid, checks, ai = str(item.get("item_id")), ev["checks"], ev["ai"]
         # a rule whose tier is not Owner / Engineer / AI approved never buys a call beyond the lead's own answer
         allowed = verdict.calls_allowed(item, self.tier_lookup)
@@ -119,7 +116,6 @@ class DecideMixin:
         else:
             if (
                 allowed
-                and not no_second
                 and verdict.needs_second_opinion(ai, checks, error, ev["absent"])
                 and not self._stop.is_set()
             ):
@@ -161,7 +157,6 @@ class DecideMixin:
         error: str | None,
         box: Any,
         usd_share: float,
-        no_second: bool = False,
     ) -> dict:
         """One line, by code."""
         iid = str(item.get("item_id"))
@@ -169,7 +164,7 @@ class DecideMixin:
         if answer == {} and not error:
             error = "no_answer_for_item"
         ev = self._evidence(item, answer, pages, error)
-        g = self._gate(item, answer, ev, lead_model, error, box, no_second)
+        g = self._gate(item, answer, ev, lead_model, error, box)
         # F1 (conditional rule), F3 (table row or note), then THE cap of a rule that is not approved
         decision = verdict.apply_holds(
             g["decision"],

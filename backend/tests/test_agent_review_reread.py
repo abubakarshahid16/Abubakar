@@ -16,6 +16,7 @@ from app import (
     nothing_read,
 )
 from app import agent_review_items as items_mod
+from app import agent_review_request as request_mod
 from app import agent_review_reread as rr
 from app import agent_review_run as run_mod
 from app import agent_review_verdict as V
@@ -59,10 +60,14 @@ FOUND_TEXT = {
 class ReLane(s.FakeModel):
     """FakeModel plus the page re-read: `reread` is what the second reader says (a dict, text, or an exception to raise)."""
 
-    def __init__(self, reread=None, **kw):
+    def __init__(self, reread=None, again=None, **kw):
         super().__init__(**kw)
         self.reread = reread
+        self.again = (
+            again or {}
+        )  # the lead's answer per item when it is asked again with the pointer
         self.reread_bodies: list[dict] = []
+        self.asked_again: list[str] = []
 
     def __call__(self, url, *, headers, body, timeout):
         if "PAGE RE-READ" in json.dumps(body.get("system")):
@@ -76,6 +81,20 @@ class ReLane(s.FakeModel):
             )
             usage = {"input_tokens": 1500, "output_tokens": 120}
             return self._reply(self.second_name, usage, text)
+        last = (
+            body["messages"][0]["content"][-1]["text"] if body.get("messages") else ""
+        )
+        if "a_second_reader_points_to" in last:
+            ids = [
+                q["item_id"]
+                for q in json.loads(last.split("\n\n", 1)[1].split("\n\n")[0])["items"]
+            ]
+            with self._lock:
+                self.kinds.append("lead_again")
+                self.asked_again += ids
+            got = [{"item_id": i, **self.again[i]} for i in ids if i in self.again]
+            usage = {"input_tokens": 1200, "output_tokens": 300}
+            return self._reply(self.LEAD, usage, json.dumps({"answers": got}))
         return super().__call__(url, headers=headers, body=body, timeout=timeout)
 
 
@@ -102,8 +121,8 @@ def w(tmp_path, monkeypatch):
     return state
 
 
-def review(w, answers, reread):
-    w["fake"] = ReLane(reread=reread, answers=answers)
+def review(w, answers, reread, again=None):
+    w["fake"] = ReLane(reread=reread, answers=answers, again=again)
     run_id, job_id = start()
     run_job(job_id)
     return lines_of(run_id), w["fake"]
@@ -113,42 +132,76 @@ def line_json(row):
     return json.loads(row["line_json"])
 
 
-# ---------------------------------------------------------------- the step decides the line again by the same gate
+# ---------------------------------------------------------------- the step: re-read, lead asked again, normal gate
 
 
-def test_a_silent_number_line_with_a_verified_quote_is_decided_again_by_code(w):
+AGAIN_NUMBER = {"R-frame": s.ANSWERS["R-frame"]}
+AGAIN_TEXT = {"R-coat": s.ANSWERS["R-coat"]}
+
+
+def test_a_recovered_number_line_has_two_readers_behind_it_and_is_decided_by_code(w):
     answers = {**s.ANSWERS, "R-frame": SILENT}
-    lines, fake = review(w, answers, FOUND_NUMBER)
+    lines, fake = review(w, answers, FOUND_NUMBER, AGAIN_NUMBER)
     row = lines["R-frame"]
     assert (row["word"], row["verdict_class"]) == ("Pass", "Proven by code")
     stored = line_json(row)
     assert stored["decided_by"] == V.BY_CODE and stored["compare"]["decided"] is True
-    assert stored["paper_quote"] == FOUND_NUMBER["paper_quote"]
-    assert stored["reread"]["found"] is True and stored["reread"]["pages"] == [1]
-    assert fake.kinds.count("reread") == 1
+    assert stored["reread"]["outcome"] == "recovered" and stored["reread"]["pages"] == [
+        1
+    ]
+    assert fake.kinds.count("reread") == 1 and fake.asked_again == ["R-frame"]
 
 
-def test_a_silent_number_line_the_gate_cannot_pass_stays_unproven_with_the_same_gate_reason(
+def test_the_lead_is_asked_again_with_the_page_and_the_pointer_and_no_other_page(w):
+    _, fake = review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, AGAIN_NUMBER)
+    assert fake.asked_again == ["R-frame"]
+
+
+def test_a_recovered_text_line_gets_the_normal_second_opinion_and_may_then_be_proven(w):
+    answers = {**s.ANSWERS, "R-coat": SILENT}
+    lines, fake = review(w, answers, FOUND_TEXT, AGAIN_TEXT)
+    assert lines["R-coat"]["word"] == "Pass"
+    assert fake.kinds.count("second") == 2  # R-mark's Fail and the recovered R-coat
+    assert fake.kinds.count("lead_again") == 1
+
+
+def test_a_recovered_text_line_whose_second_opinion_disagrees_stays_the_old_query_with_the_pointer_words(
     w,
 ):
-    bad = {**FOUND_NUMBER, "paper_figure": "a figure that is not in the quote 9 mm"}
-    lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, bad)
-    row = lines["R-frame"]
-    assert row["word"] not in ("Pass", "Fail")
-    assert "no figure with its unit inside both quotes" in row["reason"]
+    answers = {**s.ANSWERS, "R-coat": SILENT}
+    w["fake"] = ReLane(
+        reread=FOUND_TEXT, answers=answers, again=AGAIN_TEXT, agree=False
+    )
+    run_id, job_id = start()
+    run_job(job_id)
+    row = lines_of(run_id)["R-coat"]
+    assert row["word"] == "Query"
+    assert W.REREAD_NOT_CONFIRMED_WHY.format(page=1) in row["reason"]
+    assert line_json(row)["reread"]["outcome"] == "not_confirmed"
 
 
-def test_a_text_line_is_never_proven_by_the_second_reader_alone(w):
-    answers = {**s.ANSWERS, "R-coat": {**SILENT, "paper_quote": ""}}
-    lines, fake = review(w, answers, FOUND_TEXT)
-    row = lines["R-coat"]
-    assert row["word"] == "AI thinks: met"  # never Pass: no independent second opinion
-    assert row["verdict_class"] == "AI opinion, engineer to confirm"
-    # the second model is the reader here, so the gate bought no second opinion of its own for this line
-    assert (
-        fake.kinds.count("second") == 1
-    )  # R-mark's own Fail only; the re-read line bought none
-    assert fake.kinds.count("reread") == 1
+def test_no_line_is_met_or_proven_on_one_readers_word(w):
+    """The lead says silent again after the pointer: the second reader's quote alone never makes a met, Pass or Fail."""
+    for item_id, found in (("R-frame", FOUND_NUMBER), ("R-coat", FOUND_TEXT)):
+        answers = {**s.ANSWERS, item_id: SILENT}
+        lines, _ = review(w, answers, found, {item_id: SILENT})
+        row = lines[item_id]
+        assert row["word"] == "Query", item_id
+        assert W.REREAD_NOT_CONFIRMED_WHY.format(page=1) in row["reason"]
+        assert "met" not in row["word"]
+
+
+def test_a_recovered_number_line_the_gate_cannot_pass_stays_unproven_with_the_gate_reason(
+    w,
+):
+    bad = {
+        "R-frame": {
+            **s.ANSWERS["R-frame"],
+            "paper_figure": "a figure that is not in the quote 9 mm",
+        }
+    }
+    lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, FOUND_NUMBER, bad)
+    assert lines["R-frame"]["word"] not in ("Pass", "Fail")
 
 
 # ---------------------------------------------------------------- what keeps the Query
@@ -158,19 +211,24 @@ def test_the_second_reader_finds_nothing_the_line_says_two_readers_found_no_valu
     lines, fake = review(
         w, {**s.ANSWERS, "R-frame": SILENT}, {"found": False, "paper_quote": ""}
     )
+    assert fake.kinds.count("lead_again") == 0
     row = lines["R-frame"]
     assert row["word"] == "Query" and row["verdict_class"] == "Query for the engineer"
     assert W.REREAD_NO_VALUE_WHY in row["reason"]
-    assert line_json(row)["reread"]["found"] is False
+    assert line_json(row)["reread"]["outcome"] == "no_value"
     assert fake.kinds.count("reread") == 1
 
 
-def test_a_quote_that_is_not_on_the_page_keeps_the_query_with_the_two_readers_words(w):
+def test_a_quote_that_is_not_on_the_page_is_not_used_and_never_says_no_value_was_found(
+    w,
+):
     invented = {**FOUND_NUMBER, "paper_quote": "Coating thickness: 9.99 mm"}
-    lines, _ = review(w, {**s.ANSWERS, "R-frame": SILENT}, invented)
+    lines, fake = review(w, {**s.ANSWERS, "R-frame": SILENT}, invented, AGAIN_NUMBER)
     row = lines["R-frame"]
     assert row["word"] == "Query"
-    assert W.REREAD_NO_VALUE_WHY in row["reason"]
+    assert W.REREAD_QUOTE_NOT_FOUND_WHY in row["reason"]
+    assert W.REREAD_NO_VALUE_WHY not in row["reason"]
+    assert fake.kinds.count("lead_again") == 0  # an unverified quote buys no lead call
 
 
 def test_a_silent_line_of_a_failed_call_is_exactly_the_old_query_with_no_claim(w):
@@ -180,8 +238,15 @@ def test_a_silent_line_of_a_failed_call_is_exactly_the_old_query_with_no_claim(w
     row = lines["R-frame"]
     assert row["word"] == "Query"
     assert "two AI readers" not in row["reason"]
-    assert line_json(row)["reread"]["found"] is None
+    assert line_json(row)["reread"]["outcome"] == "failed"
     assert fake.kinds.count("reread") == 1  # one call, never sent again
+    assert (
+        row["reason"]
+        == W.apply({**line_json(row), "reread": None})["not_proven_reason"]
+    )
+    assert (
+        line_json(row)["usd"] > 0
+    )  # the failed call is charged to the line (its reserved worst case)
 
 
 def test_an_unreadable_answer_is_the_old_query_with_no_claim(w):
@@ -293,25 +358,113 @@ def test_silent_cause_names_each_exit_and_nothing_else():
     assert rr.silent_cause({**no_value, "not_mentioned_hold": True}) == "not_stated"
 
 
-def test_the_two_readers_words_state_only_what_the_code_saw():
-    banned = (
-        "the paper gives",
-        "the paper does not",
-        "the paper says",
-        "the paper is",
-        "the paper has",
-    )
-    assert not any(b in W.REREAD_NO_VALUE_WHY.lower() for b in banned)
+BANNED = (
+    "the paper gives",
+    "the paper does not",
+    "the paper says",
+    "the paper is",
+    "the paper has",
+)
+
+
+def test_every_why_constant_of_the_wording_module_is_in_the_banned_phrase_scope():
+    found = {
+        n: getattr(W, n)
+        for n in dir(W)
+        if n.endswith("_WHY") and isinstance(getattr(W, n), str)
+    }
+    assert {
+        "REREAD_NO_VALUE_WHY",
+        "REREAD_QUOTE_NOT_FOUND_WHY",
+        "REREAD_NOT_CONFIRMED_WHY",
+    } <= set(found)
+    for name, text in found.items():
+        if (
+            name != "SILENCE_WHY"
+        ):  # the owner's own wording for a silent paper, exempt in the verdict test too
+            assert not any(b in text.lower() for b in BANNED), (name, text)
+
+
+def test_each_outcome_has_its_own_words_and_a_failed_or_recovered_line_says_nothing():
     base = {"verdict": V.QUERY, "reason_code": "sheet_silent", "ai_verdict": V.QUERY}
-    for reread, said in (
-        ({"found": False}, True),
-        ({"found": None}, False),
-        ({"found": True}, False),
-    ):
-        out = W.apply({**base, "reread": reread})
-        assert (W.REREAD_NO_VALUE_WHY in str(out["not_proven_reason"])) is said
-    twice = W.apply(W.apply({**base, "reread": {"found": False}}))
+    said = {
+        "no_value": W.REREAD_NO_VALUE_WHY,
+        "quote_not_found": W.REREAD_QUOTE_NOT_FOUND_WHY,
+        "not_confirmed": W.REREAD_NOT_CONFIRMED_WHY.format(page=3),
+    }
+    for outcome, words in said.items():
+        out = W.apply({**base, "reread": {"outcome": outcome, "page": 3}})
+        assert words in out["not_proven_reason"], outcome
+        others = [x for x in said.values() if x != words]
+        assert not any(x in out["not_proven_reason"] for x in others)
+    for outcome in ("failed", "recovered", None):
+        out = W.apply({**base, "reread": {"outcome": outcome}})
+        assert not any(x in str(out["not_proven_reason"]) for x in said.values())
+    twice = W.apply(W.apply({**base, "reread": {"outcome": "no_value"}}))
     assert twice["not_proven_reason"].count(W.REREAD_NO_VALUE_WHY) == 1
+
+
+def test_the_step_does_not_run_when_the_lead_is_unknown_or_the_same_family(
+    w, monkeypatch
+):
+    answers = {**s.ANSWERS, "R-frame": SILENT}
+    monkeypatch.setattr(
+        agent_claude, "SECOND_MODEL", ReLane.LEAD
+    )  # the second model IS the lead's family
+    lines, fake = review(w, answers, FOUND_NUMBER, AGAIN_NUMBER)
+    assert fake.kinds.count("reread") == 0 and "reread" not in line_json(
+        lines["R-frame"]
+    )
+    monkeypatch.undo()
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", True)
+
+    class Host(rr.RereadMixin):
+        reread_enabled, _stop = True, type("E", (), {"is_set": lambda self: False})()
+        tier_lookup = None
+
+    line = {"verdict": V.QUERY, "reason_code": "sheet_silent", "usd": 0.1}
+    item = {"item_id": "x", "rule_label": {"tier": "AI approved"}}
+    assert (
+        Host().reread_silent_line(item, line, None, None) is line
+    )  # an unknown lead: no call
+
+
+def test_a_resumed_silent_line_is_not_asked_again_and_not_re_read(w):
+    silent = {
+        "item_id": "R-frame",
+        "verdict": V.QUERY,
+        "reason_code": "sheet_silent",
+        "ai_verdict": "Query",
+    }
+    fake = ReLane(reread=FOUND_NUMBER, again=AGAIN_NUMBER)
+    pages = type(
+        "P", (), {"page": lambda self, d, n: s.PAPER_PAGE, "count": lambda self, d: 1}
+    )()
+    runner = run_mod.Runner(
+        paper=s.PAPER, items=[s.item("R-frame")], pages=pages,
+        clauses=request_mod.ClauseCache({}), model=agent_claude.LEAD_MODEL, send=fake,
+        done_lines={"R-frame": silent}, reread_silent=True,
+    )  # fmt: skip
+    assert runner.todo() == []
+    assert fake.kinds == []
+
+
+def test_with_the_switch_off_every_stored_line_equals_the_line_without_the_step(
+    w, monkeypatch
+):
+    answers = {**s.ANSWERS, "R-frame": SILENT}
+    monkeypatch.setattr(settings, "agent_review_reread_silent_enabled", False)
+    off, _ = review(w, answers, FOUND_NUMBER, AGAIN_NUMBER)
+    monkeypatch.setattr(
+        run_mod.Runner, "reread_silent_line", lambda self, it, ln, lm, bx: ln
+    )
+    db.reset_connection()
+    stripped, _ = review(w, answers, FOUND_NUMBER, AGAIN_NUMBER)
+
+    def strip(rows):
+        return {k: json.loads(v["line_json"]) for k, v in rows.items()}
+
+    assert strip(off) == strip(stripped)
 
 
 def test_a_page_choice_is_bounded_cited_first_then_the_best_hint_pages():
