@@ -32,11 +32,12 @@ _A, _B = (
 )  # the two words of the register's name, built from the one list
 REG = f"{_A} {_B}.pdf"
 MARKED = "Invented Marked Sheet.pdf"
-# a document with the submittal role is approved by route 1 (a paper uploaded for review), not by citation
+# a document with a paper-for-review role (a contractor submittal, and since #1790 a specification: owner, 12 Nov 2026, "Specifications:
+# approved for Claude") is approved by route 1 (a paper uploaded for review), not by citation
 ROLES_NOT_RULE_BOOKS = [
     r
     for r in classification.ROLES
-    if r not in ("COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL")
+    if r != "COMPANY_STANDARD" and r not in claude_approved.REVIEW_ROLES
 ] + [None]
 
 _spec = importlib.util.spec_from_file_location(

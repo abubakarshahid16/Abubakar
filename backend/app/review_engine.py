@@ -529,7 +529,10 @@ def sentence_of(plan: dict) -> str:
 TABLE = "review_engine_choice"
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    from .db import connect
+
+    conn = conn or connect()
     conn.execute(
         f"""CREATE TABLE IF NOT EXISTS {TABLE} (
             run_id        TEXT PRIMARY KEY,

@@ -11,7 +11,7 @@ The resolver is `review_engine.decide`; this file only carries it. Scope: a pape
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -44,6 +44,40 @@ class ReviewStartRequest(BaseModel):
     fresh: bool = False
 
 
+class PlanPart(BaseModel):
+    name: str
+    engine: str
+    why: str
+
+
+class ReviewPlanOut(BaseModel):
+    """What the Review button WOULD run (`review_engine.plan_for`): plain facts; the other keys it adds (cost, documents, boundary, ...) pass through."""
+
+    model_config = {"extra": "allow"}
+    choice: str
+    parts: list[PlanPart]
+    text_leaves: bool
+    refused: str | None = None
+    refused_code: str | None = None
+    needs_yes: bool = False
+    unscored: bool = False
+    wont_run: list[dict[str, Any]] = []
+
+
+class ContractYesRecord(BaseModel):
+    model_config = {"extra": "allow"}
+    document_id: str | None = None
+    status: str | None = None
+    approved_by: str | None = None
+    approved_on: str | None = None
+    withdrawn_by: str | None = None
+    withdrawn_on: str | None = None
+
+
+class ContractYesWithdrawn(BaseModel):
+    withdrawn: bool
+
+
 class ContractYesRequest(BaseModel):
     document_id: str
 
@@ -66,7 +100,7 @@ def _actor(admin: dict | None, scope: access.AccessScope) -> str:
     )
 
 
-@router.get("/api/reviews/plan")
+@router.get("/api/reviews/plan", response_model=ReviewPlanOut, responses={**schemas.ERRORS_404})
 def review_plan(
     request: Request,
     submittal_document_id: str = Query(...),
@@ -133,7 +167,8 @@ def start_review(
     return main_mod._run_summary(run, scope)
 
 
-@router.post("/api/reviews/contract-yes")
+@router.post("/api/reviews/contract-yes", response_model=ContractYesRecord,
+             responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
 def record_contract_yes(
     body: ContractYesRequest,
     request: Request,
@@ -152,7 +187,8 @@ def record_contract_yes(
         ) from exc
 
 
-@router.delete("/api/reviews/contract-yes/{document_id}")
+@router.delete("/api/reviews/contract-yes/{document_id}", response_model=ContractYesWithdrawn,
+               responses={**schemas.ERRORS_404})
 def withdraw_contract_yes(
     document_id: str,
     request: Request,
