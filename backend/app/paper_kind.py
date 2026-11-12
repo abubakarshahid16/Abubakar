@@ -156,9 +156,20 @@ class PaperKind:
         }
 
 
+#: A line that opens with a list number is a LIST ROW (a transmittal's "1  <number>  Rev A  datasheet"), never a heading.
+_LIST_ROW = re.compile(r"^\s*\(?\d+[.)]?\s+")
+#: The kinds whose heading at the TOP of the first page is the paper's own name: a later cue of another kind does not unsettle it.
+_STRONG_TOP = ("transmittal", "procedure", "test_record")
+
+
 def _cover_headings(pages: Sequence[dict]) -> dict[str, tuple[int, str]]:
-    """Which of the three heading kinds the cover shows: {kind: (page, line)} for data sheet, calculation, contract. The same lines
-    and limits as the title cue reading (short lines, no label lines)."""
+    """Which of the three heading kinds the cover shows: {kind: (page, line)} for data sheet, calculation, contract. The same
+    lines and limits as the title cue reading (short lines, no label lines, no list rows). The contract kind counts EVERY contract
+    cue (agreement, general conditions, a quoted schedule letter, the new headings): a conflict is about what the cover shows, not
+    about which cue happened to be read first."""
+    contract = re.compile(
+        document_kind._KIND_CUES[2][1].pattern + "|" + _CONTRACT_HEADING.pattern, re.I
+    )
     out: dict[str, tuple[int, str]] = {}
     for page, line in sorted(document_kind._cover_lines(pages), key=lambda pl: pl[0]):
         text = line.strip().strip("|").strip()
@@ -166,25 +177,45 @@ def _cover_headings(pages: Sequence[dict]) -> dict[str, tuple[int, str]]:
             not text
             or ":" in text
             or len(text.split()) > document_kind._TITLE_WORDS_MAX
+            or _LIST_ROW.match(text)
         ):
             continue
         for kind, pattern in (
             ("datasheet", _DATASHEET),
             ("calculation", _CALCULATION),
-            ("contract", _CONTRACT_HEADING),
+            ("contract", contract),
         ):
-            if pattern.search(text) and not document_kind._REFERENCE_AFTER.match(
-                text, pattern.search(text).end()
-            ):
+            hit = pattern.search(text)
+            if hit and not document_kind._REFERENCE_AFTER.match(text, hit.end()):
                 out.setdefault(kind, (page, text))
     return out
+
+
+def _top_heading_kind(pages: Sequence[dict]) -> str | None:
+    """The kind named by the FIRST line of the first page when it is a strong heading (`_STRONG_TOP`), else None."""
+    first = next(
+        (
+            p
+            for p in sorted(pages, key=lambda p: p["page_no"])
+            if (p.get("text") or "").strip()
+        ),
+        None,
+    )
+    if first is None:
+        return None
+    line = next((ln.strip() for ln in first["text"].splitlines() if ln.strip()), "")
+    for kind, pattern in PAPER_CUES:
+        if kind in _STRONG_TOP and pattern.search(line):
+            return kind
+    return None
 
 
 def _conflict(pages: Sequence[dict], document_role: str | None) -> PaperKind | None:
     """A cover with a data-sheet heading AND a calculation or contract heading is "not sure: choose": the kind stays the datasheet
     (a datasheet review is never refused for a paper that carries a data-sheet heading) and is a GUESS with both candidates; the
-    person chooses before the review starts (PUT /api/documents/{id}/kind). Nothing is decided by one of the two cues alone."""
-    if document_role == "COMPANY_STANDARD":
+    person chooses before the review starts (PUT /api/documents/{id}/kind). Nothing is decided by one of the two cues alone. A
+    strong heading on the first line (a transmittal, a procedure, a test record) is the paper's own name and wins."""
+    if document_role == "COMPANY_STANDARD" or _top_heading_kind(pages):
         return None
     heads = _cover_headings(pages)
     if "datasheet" in heads and set(heads) & {"calculation", "contract"}:

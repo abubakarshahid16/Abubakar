@@ -20,7 +20,7 @@ from __future__ import annotations
 from . import crs_ai_words as words
 from . import crs_export as ce
 from . import crs_export_quality as quality
-from . import crs_layout
+from . import crs_layout, kind_words
 from .crs_ai_words import STATUS_AI, STATUS_FAIL, STATUS_PASS, STATUS_QUERY
 from .crs_mapping import (
     PRIORITY_OUT_OF_LIMIT,
@@ -154,6 +154,8 @@ def decorate(view: dict, meta: dict) -> dict:
     view["title"] = "\n".join(
         p for p in (view["title"], *crs_layout.engine_lines(meta.get("header"))) if p
     )
+    # K2: the paper's decided noun, internal copy of a non-datasheet only
+    kind_words.name_the_paper(view, meta)
     return view
 
 
