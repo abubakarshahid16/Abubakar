@@ -128,11 +128,12 @@ def _rejection(status: int, host: str, payload: object) -> str:
     return f"{status} from {host}" + (f" ({detail})" if detail else "")
 
 
-def _json_or_none(parse):
+def _json_or_none(parse, host: str):
     """`parse()` -> the parsed JSON body, or None when the body is not JSON (the status alone is reported, #655)."""
     try:
         return parse()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as exc:  # #655: the status alone is reported
+        log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
         return None
 
 
@@ -196,7 +197,7 @@ def transport():
             # `rate_limit_error`...) and is what a reader of the log needs:
             # the first real call failed with a bare "400" that took a second
             # probe to read as "credit balance too low".
-            said = _rejection(response.status_code, host, _json_or_none(response.json))
+            said = _rejection(response.status_code, host, _json_or_none(response.json, host))
             log.warning("standards reader: rejected, %s model=%s digest=%s", said, body.get("model"), _digest(body))
             raise httpx.HTTPStatusError(said, request=response.request, response=response)
         if len(response.content) > MAX_RESPONSE_BYTES:
@@ -284,7 +285,7 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                            extensions={"trace": _trace}) as response:
             status = response.status_code
             if status >= 400:
-                said = _rejection(status, host, _json_or_none(lambda: json.loads(response.read())))
+                said = _rejection(status, host, _json_or_none(lambda: json.loads(response.read()), host))
                 log.warning("standards reader: rejected, %s model=%s digest=%s", said, body.get("model"), _digest(body))
                 raise httpx.HTTPStatusError(said, request=response.request, response=response)
             for line in response.iter_lines():
