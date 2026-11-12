@@ -92,6 +92,7 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "agent_review_reuse.py",
         "stands in for a reader's call: what is reused, and that no call is made",
     ),
+    (APP + "agent_review_open_points.py", "decides whether a sign is refused while the AI review has open points"),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
