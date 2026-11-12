@@ -60,7 +60,7 @@ def test_a_later_draft_on_the_same_section_and_clause_joins_the_first_row():
         "First finding." in v["rows"][0]["comment"]
         and "Second finding." in v["rows"][0]["comment"]
     )
-    assert v["rows"][0]["priority_label"] == "Missing value"  # the stronger rank wins
+    assert v["rows"][0]["rank_word"] == "Missing value"  # the stronger rank wins
     assert v["rows_merged"] == 1
     off = view(rows, OFF)
     assert len(off["rows"]) == 3
@@ -281,9 +281,9 @@ def test_priority_is_only_ever_one_of_the_fixed_words():
         row(f"c{i}", page_section=f"p.{i} - f", priority=p)
         for i, p in enumerate([1, 2, 3, 4, None])
     ]
-    labels = [r["priority_label"] for r in view(rows)["rows"]]
+    labels = [r["rank_word"] for r in view(rows)["rows"]]
     assert set(labels) <= set(q.PRIORITY_WORDS)
-    off = [r["priority_label"] for r in view(rows, OFF)["rows"]]
+    off = [r["rank_word"] for r in view(rows, OFF)["rows"]]
     assert "" in off  # the old sheet printed a blank for a row with no rank
 
 
@@ -291,11 +291,10 @@ def test_switch_off_leaves_the_sheet_as_it_was():
     rows = [row("A"), row("B")]
     v = view(rows, OFF)
     assert len(v["rows"]) == 2 and v.get("export_quality", False) is False
-    assert v["columns"][-3:] == [
-        crs_export.AI_COLUMN,
-        crs_export.REASONING_COLUMN,
-        crs_export.TRUST_COLUMN,
-    ]
+    assert v["columns"][-2:] == [
+        "Priority",
+        "Status",
+    ]  # order 13: the internal view lists the one layout's ten columns
     assert "Internal" not in sheet(rows, OFF).sheetnames
 
 
@@ -343,7 +342,7 @@ def test_a_fail_merged_into_an_engineers_row_shows_fail():
         row("Value out of limit.", priority=1),
     ]
     v = view(rows)
-    assert len(v["rows"]) == 1 and v["rows"][0]["priority_label"] == "Fail"
+    assert len(v["rows"]) == 1 and v["rows"][0]["rank_word"] == "Fail"
     assert v["rows"][0]["row_kind"] == "engineer_comment"
 
 

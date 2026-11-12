@@ -22,7 +22,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        "absence.py", '    if not parts:\n        return ""\n    notice',
        '    if True:\n        return ""\n    notice', "unchecked_parts_names"),
     _m(3404, "the workbook does not print the incomplete notice",
-       "crs_export.py", '    if view["incomplete_notice"]:\n', "    if False:\n", "workbook_prints"),
+       "crs_normal.py", '        if view["incomplete_notice"]\n        else []', '        if False\n        else []', "workbook_prints"),
     _m(3405, "the CRS meta carries no incomplete notice",
        "main.py", '"incomplete_notice": absence_mod.notice_for(unchecked),', '"incomplete_notice": "",',
        "partial_and_the_crs"),

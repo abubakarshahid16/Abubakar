@@ -52,7 +52,13 @@ def test_priority_column_prints_the_rank_word():
         view = ce.build_crs_view(rows, {"copy": copy})
         assert view["columns"][8] == ce.PRIORITY_COLUMN == "Priority"
         assert "Severity" not in view["columns"]
+        # order 13: ONE row model for file and preview: the internal view prints the stated rule (Fail High, Query Low); a
+        # contractor-facing view keeps the rank words; the old word is `rank_word` on both
         assert [r["priority_label"] for r in view["rows"]] == [
+            "High",
+            "Low",
+        ]  # ONE vocabulary: both copies
+        assert [r["rank_word"] for r in view["rows"]] == [
             "Out of limit",
             "Missing value",
         ]
@@ -61,11 +67,19 @@ def test_priority_column_prints_the_rank_word():
             "minor",
         ]  # kept, not printed
         ws = _sheet(rows, copy)
-        assert ws.cell(row=ce.COLUMN_HEADER_ROW, column=9).value == "Priority"
-        assert [ws.cell(row=ce.FIRST_DATA_ROW + i, column=9).value for i in (0, 1)] == [
-            "Out of limit",
-            "Missing value",
+        internal = copy == ce.COPY_INTERNAL
+        top = ce.COLUMN_HEADER_ROW if internal else ce.ISSUE_HEADER_ROW
+        assert ws.cell(row=top, column=9).value == "Priority"
+        # order 13: the file prints what the view says (one row model); the old rank word is on the internal Evidence sheet
+        assert [ws.cell(row=top + 1 + i, column=9).value for i in (0, 1)] == [
+            r["priority_label"] for r in view["rows"]
         ]
+        if internal:
+            ev = ws.parent["Evidence"]
+            assert [ev.cell(row=2 + i, column=4).value for i in (0, 1)] == [
+                "Out of limit",
+                "Missing value",
+            ]
 
 
 def test_issue_copy_says_clarification_for_rank_three():
@@ -76,12 +90,17 @@ def test_issue_copy_says_clarification_for_rank_three():
     ]
     internal = ce.build_crs_view(rows, {"copy": ce.COPY_INTERNAL})["rows"][0]
     issue = ce.build_crs_view(rows, {"copy": ce.COPY_ISSUE})["rows"][0]
-    assert internal["priority_label"] == "Engineer to check"
-    assert issue["priority_label"] == "Clarification"
     assert (
-        _sheet(rows, ce.COPY_ISSUE).cell(row=ce.FIRST_DATA_ROW, column=9).value
-        == "Clarification"
+        internal["rank_word"] == "Engineer to check"
+        and internal["priority_label"] == "Low"
     )
+    assert (
+        issue["priority_label"] == internal["priority_label"] == "Low"
+    )  # one vocabulary; no "Clarification" word
+    # order 13: the contractor-facing file keeps the rank word, has no Status column and no Evidence sheet
+    sheet = _sheet(rows, ce.COPY_ISSUE)
+    assert sheet.cell(row=ce.ISSUE_HEADER_ROW + 1, column=9).value == "Low"
+    assert "Evidence" not in sheet.parent.sheetnames
 
 
 def test_row_without_priority_prints_nothing():
@@ -93,13 +112,14 @@ def test_row_without_priority_prints_nothing():
         _row(2, priority=None, row_kind=m.ROW_KIND_CARRIED_FORWARD),
     ]
     view = ce.build_crs_view(rows, {"copy": ce.COPY_INTERNAL})
-    assert [(r["priority"], r["priority_label"]) for r in view["rows"]] == [
+    assert [(r["priority"], r["rank_word"]) for r in view["rows"]] == [
         (None, ""),
         (m.PRIORITY_CARRIED_FORWARD, "Carried forward"),
     ]
-    assert _sheet(rows, ce.COPY_INTERNAL).cell(
-        row=ce.FIRST_DATA_ROW, column=9
-    ).value in (None, "")
+    # order 13: the old rank word is on the Evidence sheet, blank for a row with no rank (never a guessed word)
+    ev = _sheet(rows, ce.COPY_INTERNAL).parent["Evidence"]
+    assert ev.cell(row=2, column=4).value in (None, "")
+    assert ev.cell(row=3, column=4).value == "Carried forward"
 
 
 def test_file_keeps_the_sheets_order():
@@ -170,7 +190,10 @@ def test_an_unconfirmed_ai_row_is_internal_with_its_waiting_sentence():
     internal = ce.build_crs_view(rows, {"copy": ce.COPY_INTERNAL})["rows"][0]
     assert internal["comment"].endswith(m.AI_UNCONFIRMED_COMMENT)
     assert internal["comment_missing"] is False
-    assert internal["priority_label"] == "Engineer to check"
+    assert (
+        internal["rank_word"] == "Engineer to check"
+        and internal["status"] == "AI opinion"
+    )
     issue = ce.build_crs_view(rows, {"copy": ce.COPY_ISSUE})
     assert issue["rows"] == [] and issue["rows_withheld_no_text"] == 0
 

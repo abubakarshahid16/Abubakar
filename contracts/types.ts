@@ -504,6 +504,8 @@ export interface CrsPreviewRow {
   /** Order 139 part 2: the rank's word as this copy prints it in the
    *  "Priority" column; "" when no rank is sent (never a guess). */
   priority_label?: string;
+  status?: string;
+  rank_word?: string;
   /** Order 139 part 2: the row reached the sheet with no comment text; the
    *  internal copy prints a sentence saying so in COMPANY Comments. */
   comment_missing?: boolean;

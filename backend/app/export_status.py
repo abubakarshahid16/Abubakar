@@ -10,6 +10,7 @@ nothing to raise (CLAUDE.md rule 4: absence is never a positive outcome).
 Data and wording only. `review.render_report` draws the PDF and
 `crs_export.build_crs` the workbook; `main._crs_content` composes the CRS.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,8 +43,11 @@ def missing_standards(submittal_id: str, allowed: frozenset[str]) -> list[str]:
     from . import applicability, datasheets  # lazy: both reach back into review
 
     text = " ".join(
-        row["text"] or "" for row in connect().execute(
-            "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)))
+        row["text"] or ""
+        for row in connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)
+        )
+    )
     names = datasheets.referenced_standards(text)
     missing = applicability.missing_references(applicability._library(allowed), names)
     return sorted(missing, key=applicability.normalise_identifier)
@@ -72,8 +76,13 @@ def latest_run(document_id: str) -> dict | None:
         outcome = json.loads(row["outcome_json"] or "{}")
     except (TypeError, ValueError):
         outcome = {}
-    return {"id": row["id"], "status": row["status"] or "unknown",
-            "reason": str((outcome if isinstance(outcome, dict) else {}).get("error") or "")}
+    return {
+        "id": row["id"],
+        "status": row["status"] or "unknown",
+        "reason": str(
+            (outcome if isinstance(outcome, dict) else {}).get("error") or ""
+        ),
+    }
 
 
 def incomplete(run: dict | None) -> bool:
@@ -98,7 +107,8 @@ def _listed(values: list, label: str, unit: str) -> str:
     """'<label>: <count> (<ids>)' - a count never without what it counts."""
     items = [str(v) for v in values]
     shown = ", ".join(items[:LIST_LIMIT]) + (
-        f" and {len(items) - LIST_LIMIT} more" if len(items) > LIST_LIMIT else "")
+        f" and {len(items) - LIST_LIMIT} more" if len(items) > LIST_LIMIT else ""
+    )
     return f"{label}: {len(items)} {unit}" + (f" ({shown})" if items else "")
 
 
@@ -119,7 +129,9 @@ def missing_standards_line(missing: list[str]) -> str:
     return _listed(missing, "Missing standards", "cited standard(s) not in the library")
 
 
-def pdf_header_lines(document_id: str, allowed: frozenset[str] | None) -> tuple[dict | None, list[str]]:
+def pdf_header_lines(
+    document_id: str, allowed: frozenset[str] | None
+) -> tuple[dict | None, list[str]]:
     """The run and the lines the review PDF prints under its title: the run
     code and status, the status line of a run that did not complete, the
     unread pages (from the page ledger, as the readiness route reads it) and
@@ -127,10 +139,15 @@ def pdf_header_lines(document_id: str, allowed: frozenset[str] | None) -> tuple[
     scoping (scripts, tests): every document counts as held."""
     run = latest_run(document_id)
     if allowed is None:
-        allowed = frozenset(r["id"] for r in connect().execute("SELECT id FROM documents"))
+        allowed = frozenset(
+            r["id"] for r in connect().execute("SELECT id FROM documents")
+        )
     pages = page_ledger.readiness_pages(document_id)
-    lines = [f"Review run: {run['id']}  |  Status: {run['status']}" if run
-             else "Review run: none recorded for this document"]
+    lines = [
+        f"Review run: {run['id']}  |  Status: {run['status']}"
+        if run
+        else "Review run: none recorded for this document"
+    ]
     if incomplete(run):
         lines.append(status_line(run["status"], run["reason"]))
     lines.append(
@@ -164,7 +181,9 @@ def crs_header_note(
     )
 
 
-def run_header_note(status: str | None, outcome: dict, unread: list, missing: list[str]) -> str:
+def run_header_note(
+    status: str | None, outcome: dict, unread: list, missing: list[str]
+) -> str:
     """`crs_header_note` for a stored run. #1550: a run stored with
     PAGE_READ_BY_READING_ENABLED counts its unread pages as the issue gate and
     the CRS footer do (`page_ledger.run_unread_pages`), not the fields list."""
@@ -217,3 +236,11 @@ def equipment_notes(submittal_id: str, run_id: str, allowed: frozenset) -> list[
     if procedure_crs.no_equipment(submittal_id):
         return spec
     return spec + equipment_title_block.for_submittal(submittal_id, run_id, allowed)
+
+
+def header_facts(conn, review_run_id: str) -> dict:
+    """The CRS header block's facts (project, document number, title, revision, date, discipline) of the paper a run reviewed
+    (`crs_ai_header`); blank for what the app does not hold."""
+    from . import crs_ai_header
+
+    return crs_ai_header.header_for_run(conn, review_run_id)

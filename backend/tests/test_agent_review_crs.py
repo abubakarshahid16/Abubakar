@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import itertools
 
 import openpyxl
 import pytest
@@ -199,7 +200,13 @@ def test_the_contractor_copy_holds_proven_fail_lines_only_and_nothing_else(tmp_p
         "Field R1",
         "Field S1",
     ]  # R-1 and the checklist Fail: no Pass, no opinion, no 'should', no Query
-    assert {r["Status"] for r in rows_of(path)} == {"Fail"}
+    assert (
+        "Status" not in rows_of(path)[0]
+    )  # order 13: the nine company columns only; the Status column is the internal copy's
+    assert list(rows_of(path)[0]) == [
+        "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
+        "Final Resolution", "Standard Reference", "Priority",
+    ]  # fmt: skip
     text = all_text(path)
     for word in (
         "AI opinion", "AI reviewer's view", "Recommendation", "lead-m", "second-m", "It is steel", "run-1", "Query",
@@ -583,9 +590,10 @@ def test_the_main_sheet_is_styled_by_code(tmp_path):
             ws.cell(r, 1).fill.fgColor.rgb
         )
     assert all(len(v) == 1 for v in by_status.values())  # one colour per Status
-    assert {next(iter(v)) for v in by_status.values()} == {
-        f.fgColor.rgb for f in crs_layout.STATUS_FILLS.values()
-    }
+    assert (
+        {next(iter(v)) for v in by_status.values()}
+        == {crs_layout.STATUS_FILLS[st].fgColor.rgb for st in by_status}
+    )  # each Status present has exactly its own fill (the fifth, "AI verdict", has its own test in test_agent_two_reader.py)
 
 
 def test_every_other_sheet_is_styled_the_same_way(tmp_path):
@@ -599,9 +607,13 @@ def test_every_other_sheet_is_styled_the_same_way(tmp_path):
         )
 
 
-def test_the_status_fills_are_defined_once_with_four_colours():
+def test_the_status_fills_are_defined_once_with_five_colours():
     assert set(crs_layout.STATUS_FILLS) == set(words.STATUSES)
-    assert len({f.fgColor.rgb for f in crs_layout.STATUS_FILLS.values()}) == 4
+    fills = {name: f.fgColor.rgb for name, f in crs_layout.STATUS_FILLS.items()}
+    assert len(fills) == 5
+    # every pair of Statuses has two different fills
+    for first, second in itertools.combinations(fills, 2):
+        assert fills[first] != fills[second], (first, second)
 
 
 def test_a_cell_that_starts_with_an_equals_sign_is_text_not_a_formula():
@@ -976,3 +988,131 @@ def test_a_scorer_reads_both_layouts_by_header_name_and_says_which(tmp_path):
     old.save(tmp_path / "old.xlsx")
     got, layout = aks.read_crs_layout(tmp_path / "old.xlsx")
     assert layout == aks.LAYOUT_OLD and [x.is_pass for x in got] == [True]
+
+
+# ---------------------------------------------------------------- part A: a checklist line's own item wording
+
+
+@pytest.fixture
+def skills(monkeypatch):
+    """A fake checklist loaded through the app's one loader (`agent_skills.load_skill`)."""
+    from app import agent_skills
+
+    def load(kind):
+        if kind != agent_skills.KINDS[0]:
+            raise agent_skills.SkillError("none")
+        return {
+            "items": [
+                {
+                    "id": "1",
+                    "expected": "The nameplate is steel and S-EQ-04 is fixed.",
+                }
+            ]
+        }
+
+    WB._WORDING.clear()
+    monkeypatch.setattr(agent_skills, "load_skill", load)
+    yield
+    WB._WORDING.clear()
+
+
+def test_a_checklist_lines_part_one_is_the_item_wording_by_item_id(skills):
+    line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
+    assert (
+        WB.checklist_wording("S-1") == "The nameplate is steel and is fixed."
+    )  # a code word is scrubbed
+    one = WB.layout_comment(line, *WB.status_of(line)).split("\n")[0]
+    assert one == 'STD-1 clause 4.1 requires: "The nameplate is steel and is fixed.".'
+    assert not words.has_banned(one)
+
+
+def test_a_checklist_line_falls_back_to_todays_text_and_the_notes_sheet_says_so(
+    tmp_path, monkeypatch
+):
+    from app import agent_skills
+
+    WB._WORDING.clear()
+    monkeypatch.setattr(
+        agent_skills,
+        "load_skill",
+        lambda kind: (_ for _ in ()).throw(agent_skills.SkillError("gone")),
+    )
+    line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
+    assert WB.checklist_wording("S-1") == ""
+    one = WB.layout_comment(line, *WB.status_of(line)).split("\n")[0]
+    assert (
+        one == 'STD-1 clause 4.1 requires: "Nameplates shall be steel and fixed".'
+    )  # the verified clause quote, as before
+    path = C.write_internal([line], tmp_path / "i.xlsx", META)
+    notes = {r["Topic"]: r["Detail"] for r in rows_of_notes(path)}
+    assert notes["Checklist wording"].startswith("not available on this machine")
+    assert WB._WORDING == []  # a failed load is never remembered
+
+
+def test_a_rule_line_never_reads_the_checklist(skills):
+    line = mk("R-1", "Fail", "Fail")
+    assert WB.layout_comment(line, *WB.status_of(line)).startswith(
+        'STD-1 clause 4.1 requires: "Nameplates shall'
+    )
+
+
+def test_the_notes_sheet_says_where_the_checklist_wording_came_from(skills, tmp_path):
+    line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
+    notes = {
+        r["Topic"]: r["Detail"]
+        for r in rows_of_notes(C.write_internal([line], tmp_path / "i.xlsx", META))
+    }
+    assert notes["Checklist wording"] == "from the checklist data"
+
+
+def test_no_cell_of_the_contractor_copy_names_an_internal_judgement_a_model_or_a_run(
+    tmp_path,
+):
+    """Every cell of every sheet of the contractor copy, on every kind of line; plain styling (no fill encodes a Status)."""
+    path = C.write_contractor(_every_kind_of_line(), tmp_path / "c.xlsx", META)
+    wb = openpyxl.load_workbook(path)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                text = str(cell.value or "")
+                for bad in (
+                    "AI opinion",
+                    "AI verdict",
+                    "AI reviewer's view",
+                    "not proven",
+                    "Query",
+                    "run-1",
+                    "lead-m",
+                    "second-m",
+                ):
+                    assert bad not in text, (cell.coordinate, bad)
+                assert not words.has_banned(text), (cell.coordinate, text)
+                assert (
+                    cell.value is None
+                    or cell.fill.fill_type is None
+                    or cell.row <= 1
+                    or cell.fill.fgColor.rgb in ("FF1F3864", "00000000")
+                )
+    ws = wb["CRS"]
+    body = [
+        c
+        for r in ws.iter_rows(min_row=14)
+        for c in r
+        if c.value is not None and c.row > 14
+    ]
+    assert all(c.fill.fill_type is None for c in body)  # plain: no Status colour
+
+
+def test_the_second_reading_row_is_on_notes_exactly_once_when_the_step_stopped_and_never_when_it_did_not():
+    def rows(meta):
+        view = WB.layout_view([mk("R-1", "Fail", "Fail")], meta, "internal")
+        return [r for r in view["notes"]["rows"] if r[0] == "Second reading of pages"]
+
+    stopped = {
+        **META,
+        "order12_counts": {
+            "page_reread_stopped": "The second reading of pages stopped early: 3 lines were not re-read"
+        },
+    }
+    assert len(rows(stopped)) == 1
+    assert rows(META) == [] and rows({**META, "order12_counts": {}}) == []

@@ -44,6 +44,7 @@ from . import (
 )
 from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
+from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
 from .agent_review_decide import DecideMixin
@@ -80,11 +81,14 @@ from .agent_review_request import (
     stop_reason,
 )
 from .agent_review_reread import RereadMixin
+from .agent_review_two_reader_absence import AbsenceMixin
+from .agent_review_two_reader_other import OtherPaperMixin
+from .agent_review_two_reader_run import TwoReaderMixin
 
 log = logging.getLogger(__name__)
 
 
-class Runner(DecideMixin, RereadMixin):
+class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
     def __init__(
         self,
         *,
@@ -108,6 +112,9 @@ class Runner(DecideMixin, RereadMixin):
         sink: Callable[[dict, dict], None] | None = None,
         trace_path: Path | None = None,
         tier_lookup: Callable[[Mapping], str | None] | None = None,
+        two_reader: bool | None = None,
+        two_reader_absence: bool | None = None,
+        two_reader_other: bool | None = None,
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
@@ -155,6 +162,13 @@ class Runner(DecideMixin, RereadMixin):
         self.second_models: set[str] = set()
         self.calls = {"lead": 0, "second": 0, "context": 0, "retries": 0, "reread": 0}
         self.counts: dict[str, int] = {}
+        # the optional second-reader step (owner order 13): None = read the switch when the run starts
+        self._two_reader = two_reader
+        self.two_reader_state = two_reader_mod.stats_template()
+        self._two_reader_absence = two_reader_absence
+        self._two_reader_other = two_reader_other
+        self.two_reader_other_state = two_reader_mod.stats_template()
+        self.two_reader_absence_state = two_reader_mod.stats_template()
 
     # ---- resume: a kept line of a rule that is not AI approved is capped again
     def _kept(self, line: dict) -> dict:
@@ -549,14 +563,19 @@ class Runner(DecideMixin, RereadMixin):
             ]
             for f in futures:
                 f.result()
+        if (
+            self.two_reader_on()
+        ):  # optional, off by default: nothing below runs and no call is made when off
+            self.run_two_readers()
         return {"batches": len(batches), "batch_source": source}
 
 
-def counts_of(lines: Iterable[Mapping]) -> dict:
-    """Counts per class of the stored lines, with the not-run lines counted apart. No text."""
+def counts_of(lines: Iterable[Mapping], runner: Runner | None = None) -> dict:
+    """Counts per class of the stored lines, with the not-run lines counted apart. No text. With the runner: what its optional
+    second-reader step did (`two_reader_step`, counts and one code), only when the step ran or was switched off."""
     ls = [wording.apply(ln) for ln in lines]
     out = crs_lines.run_counts(ls)
     out["not_run"] = sum(
         1 for ln in ls if str(ln.get("error") or "").startswith("not run")
     )
-    return out
+    return {**out, **(runner.two_reader_counts() if runner else {})}

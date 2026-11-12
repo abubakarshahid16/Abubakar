@@ -84,9 +84,9 @@ def test_switch_on_tick_rows_leave_the_crs_sheet_for_their_own_section(monkeypat
     assert "ENGINEER TO TICK (safety field): invented tick 4" in body
     assert not any(t.startswith("Invented comment") for t in body)
     # the same columns as the CRS table, header row then one line per tick row
-    header = [ws.cell(ts.HEADER_ROW, c).value for c in range(1, 13)]
+    header = [ws.cell(ts.HEADER_ROW, c).value for c in range(1, 11)]
     assert header == [
-        wb["CRS"].cell(crs_export.COLUMN_HEADER_ROW, c).value for c in range(1, 13)
+        wb["CRS"].cell(crs_export.COLUMN_HEADER_ROW, c).value for c in range(1, 11)
     ]
 
 
@@ -98,11 +98,11 @@ def test_a_tick_row_prints_the_same_cells_as_on_the_crs_sheet_with_the_switch_of
     off = book(ROWS)["CRS"]
     on_crs = off.cell(crs_export.COLUMN_HEADER_ROW + 2, 4).value
     off_cells = [
-        off.cell(crs_export.COLUMN_HEADER_ROW + 2, c).value for c in range(2, 13)
+        off.cell(crs_export.COLUMN_HEADER_ROW + 2, c).value for c in range(2, 11)
     ]
     switch(monkeypatch, True)
     ws = book(ROWS)[ts.SHEET]
-    on_cells = [ws.cell(ts.HEADER_ROW + 1, c).value for c in range(2, 13)]
+    on_cells = [ws.cell(ts.HEADER_ROW + 1, c).value for c in range(2, 11)]
     assert on_crs == "ENGINEER TO TICK (safety field): invented tick 2"
     assert on_cells == off_cells
 

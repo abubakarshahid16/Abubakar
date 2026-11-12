@@ -40,6 +40,30 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           {summary.equipment_notes.map((n) => <li key={n}>{n}</li>)}
         </ul>
       )}
+      {summary.two_reader_step && (
+        <p data-testid="two-reader-step" className="text-sm text-slateish-100">
+          Second AI reader (internal): {summary.two_reader_step.candidates} lines were candidates, {summary.two_reader_step.asked} asked in{" "}
+          {summary.two_reader_step.calls} calls; {summary.two_reader_step.agreed} agreed, {summary.two_reader_step.disagreed} disagreed,{" "}
+          {summary.two_reader_step.unconfirmed} not confirmed.
+          {summary.two_reader_step.off ? ` The step was switched off for the rest of this run (${summary.two_reader_step.off.replace(/_/g, " ")}); lines are as they were.` : ""}
+        </p>
+      )}
+      {summary.two_reader_absence_step && (
+        <p data-testid="two-reader-absence-step" className="text-sm text-slateish-100">
+          Second AI reader, absence (internal): {summary.two_reader_absence_step.candidates} lines were candidates, {summary.two_reader_absence_step.asked} asked in{" "}
+          {summary.two_reader_absence_step.calls} calls; {summary.two_reader_absence_step.agreed} agreed, {summary.two_reader_absence_step.disagreed} disagreed,{" "}
+          {summary.two_reader_absence_step.unconfirmed} not confirmed.
+          {summary.two_reader_absence_step.off ? ` The step was switched off for the rest of this run (${summary.two_reader_absence_step.off.replace(/_/g, " ")}); lines are as they were.` : ""}
+        </p>
+      )}
+      {summary.two_reader_other_step && (
+        <p data-testid="two-reader-other-step" className="text-sm text-slateish-100">
+          Second AI reader, needs a drawing or a calculation (internal): {summary.two_reader_other_step.candidates} lines were candidates, {summary.two_reader_other_step.asked} asked in{" "}
+          {summary.two_reader_other_step.calls} calls; {summary.two_reader_other_step.agreed} agreed, {summary.two_reader_other_step.disagreed} disagreed,{" "}
+          {summary.two_reader_other_step.unconfirmed} not confirmed.
+          {summary.two_reader_other_step.off ? ` The step was switched off for the rest of this run (${summary.two_reader_other_step.off.replace(/_/g, " ")}); lines are as they were.` : ""}
+        </p>
+      )}
       <PaperTextNotice paperText={summary.paper_text} />
       {summary.page_reread_stopped && (
         <p role="status" data-testid="agent-page-reread-stopped" className="text-sm text-slateish-100">

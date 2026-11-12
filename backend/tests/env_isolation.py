@@ -177,6 +177,9 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_engineering_review_pass_enabled": False,  # lane 6: off unless a test turns it on
     "agent_review_enabled": False,  # #1690: agent loop, off unless a test turns it on
     "agent_review_reread_silent_enabled": False,  # C4: page re-read, off
+    "agent_review_two_reader_verdict_enabled": False,  # order 13: the two-readers class, off
+    "agent_review_two_reader_absence_enabled": False,  # its absence word, off
+    "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
