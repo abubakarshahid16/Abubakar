@@ -2519,19 +2519,17 @@ class CrsPreviewRow(BaseModel):
     #: its own "Standard Reference" column after the client's seven. Empty
     #: for an engineer's own chat comment.
     standard_reference: str = ""
-    #: #725 F7: the worst severity of the findings the row groups (critical,
-    #: major, minor, observation), printed in the "Severity" column after
-    #: Standard Reference in both copies. Empty when none is recorded.
-    #: Order 139 part 2: the "Priority" column replaced it in the printed
-    #: sheet; the severity stays on the row and is no longer printed.
+    #: #725 F7: the worst severity of the findings the row groups (critical, major, minor, observation); empty when none is
+    #: recorded. Order 139 part 2: the "Priority" column replaced it in the printed sheet; it stays on the row, not printed.
     severity: str = ""
     #: Order 139 part 2: the row's rank (1 out of limit, 2 missing value, 3
     #: engineer to check, 4 engineer's comment, 5 carried forward), which the
     #: sheet is sorted by. Null on a row from a caller with no rank.
     priority: int | None = None
-    #: The rank's word as THIS copy prints it in the "Priority" column; ""
-    #: when no rank is sent - never a guessed word.
+    #: The Priority word THIS copy prints; "" when no rank is sent.
     priority_label: str = ""
+    status: str = ""  # order 13: the file's Status cell (internal copy; "" on a contractor-facing copy)
+    rank_word: str = ""  # the old rank word, on the file's Evidence sheet
     #: Order 139 part 2 (spec e): the caller sent this row with NO comment text;
     #: the internal copy prints `crs_export.EMPTY_COMMENT_TEXT` in COMPANY
     #: Comments instead of an empty cell. Never true on the issue copy, which

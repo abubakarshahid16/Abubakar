@@ -196,6 +196,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `coverage_values` | #1592: the CRS footer's one count of values read: checklist fields read, and standard rules tied to a field, each rule once, beside `coverage_pair`; words only, behind ONE_CHECKED_DEFINITION_ENABLED |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
+| `crs_normal` | Order 13: the normal reviewer's CRS in the one layout - the ten columns with Status, the header block, Evidence and Notes sheets; `crs_status` maps each row's kind and rank to Pass / Fail / AI opinion / Query; reads no database |
 | `crs_layout` | Order 13: the one CRS layout's drawing code - header row, frozen panes and print setup for both reviewers, and the AI reviewer's whole workbook (`build_layout_crs`); styled by code |
 | `crs_export_quality` | #1503: the CRS export's quality rules behind CRS_EXPORT_QUALITY_ENABLED - merge duplicate rows, drop empty ones, a page or "page not found" on every row, 350-character comments, the Internal sheet, trimmed standards sheet, Priority from a fixed list; export only |
 | `part_name_roles` | Test B (part of #805): the strict rules by which a part printed alone (IMPELLER: material) or a seal in a sentence fills its material/type field, for the form reader's label gate and the stored-facts check, behind FORM_PART_NAME_ROLES_ENABLED |

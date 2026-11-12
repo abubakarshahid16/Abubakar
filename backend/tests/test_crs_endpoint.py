@@ -35,11 +35,16 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app import access, db, submittal_review
-from app.config import settings
-from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
-                            HEADER_FIELDS, HEADERS)
-from app.main import app
 from app import main as main_mod
+from app.config import settings
+from app.crs_export import (
+    COLUMN_HEADER_ROW,
+    FIRST_DATA_ROW,
+    HEADER_ROW_OF,
+    HEADERS,
+    ISSUE_HEADER_ROW,
+)
+from app.main import app
 
 NOW = "2026-09-19T00:00:00Z"
 
@@ -312,11 +317,16 @@ def test_the_transmittal_numbers_are_blank_rather_than_invented():
 
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
-    assert ws.cell(row=3, column=1).value == "COMPANY Transmittal No.:"
-    assert ws.cell(row=3, column=3).value in (None, "")
-    assert ws.cell(row=4, column=3).value in (None, "")
-    assert ws.cell(row=2 + len(HEADER_FIELDS), column=3).value in (
-        None, ""), "Date Responded"
+    first = HEADER_ROW_OF["company_transmittal"]
+    assert ws.cell(row=first, column=1).value == "COMPANY Transmittal No.:"
+    assert ws.cell(row=first, column=3).value in (None, "")
+    assert ws.cell(row=HEADER_ROW_OF["contractor_transmittal"], column=3).value in (
+        None,
+        "",
+    )
+    assert ws.cell(row=HEADER_ROW_OF["date_responded"], column=3).value in (None, ""), (
+        "Date Responded"
+    )
 
 
 def test_the_title_and_date_come_from_real_data():
@@ -325,10 +335,10 @@ def test_the_title_and_date_come_from_real_data():
 
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
 
-    title_row = 3 + [k for _, k in HEADER_FIELDS].index("document_title")
+    title_row = HEADER_ROW_OF["document_title"]
     assert ws.cell(row=title_row, column=3).value == (
         "P-1000001-9900-SP-9910-0003_00.pdf")
-    issued = ws.cell(row=title_row + 1, column=3).value
+    issued = ws.cell(row=HEADER_ROW_OF["date_issued"], column=3).value
     assert issued and len(issued) == 10 and issued[4] == "-"
 
 
@@ -531,15 +541,17 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
         *HEADERS,
         "Standard Reference",
         "Priority",
-        "AI Review Comments",
-        "Reasoning (internal)",
-        "Rule trust (internal)",
-    ]
+        "Status",
+    ]  # order 13: the one layout, ten columns
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))
     # order 139 part 2
-    assert issued["columns"] == [*HEADERS, "Standard Reference", "Priority"]
+    assert issued["columns"] == [
+        *HEADERS,
+        "Standard Reference",
+        "Priority",
+    ]  # a contractor-facing copy: no Status
 
 
 def test_the_contractor_columns_come_back_empty_rather_than_missing():
@@ -595,14 +607,18 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
     # The header block, rows 1-7.
     assert ws.cell(row=1, column=1).value == body["title"]
     assert ws.cell(row=2, column=1).value == body["subtitle"]
-    assert len(body["header"]) == len(HEADER_FIELDS)
-    for offset, field in enumerate(body["header"]):
+    for offset, field in enumerate(
+        body["header"]
+    ):  # the preview's header IS the file's (one row model)
         assert _cell(ws, 3 + offset, 1) == field["label"]
         assert _cell(ws, 3 + offset, 3) == field["value"]
 
-    # The column headers, directly under the header block.
-    assert [_cell(ws, COLUMN_HEADER_ROW, c)
-            for c in range(1, 13)] == body["columns"]
+    # The column headers, directly under the header block: the one layout's ten (the preview still lists its own working
+    # columns; the working columns of the file are on the Evidence sheet, by Item No).
+    assert [_cell(ws, COLUMN_HEADER_ROW, c) for c in range(1, 11)] == body["columns"]
+    evidence = {
+        r[0]: r for r in ws.parent["Evidence"].iter_rows(min_row=2, values_only=True)
+    }
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"
@@ -613,16 +629,23 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
             row["comment"], row["comment_by"], row["contractor_response"],
             row["final_resolution"]], f"row {row['item_no']} disagrees"
         assert _cell(ws, r, 8) == row["standard_reference"]
-        # order 139 part 2: column I is the Priority word (was #725 F7's severity)
-        assert _cell(ws, r, 9) == row["priority_label"]
-        assert _cell(ws, r, 10) == row["ai_review_comment"]
-        assert _cell(ws, r, 11) == row["reasoning"]  # R30
-        assert _cell(ws, r, 12) == row["rule_trust"]  # rule_trust (#947)
+        # the old Priority word, the AI comment, the reasoning (R30) and the rule trust (#947) are on the Evidence sheet
+        ev = evidence[row["item_no"]]
+        assert (
+            _cell(ws, r, 9) == row["priority_label"]
+            and _cell(ws, r, 10) == row["status"]
+        )  # the same words as the file
+        assert (ev[3] or "") == row["rank_word"]
+        assert (ev[5] or "") == row["ai_review_comment"]
+        assert (ev[6] or "") == row["reasoning"]
+        assert (ev[7] or "") == row["rule_trust"]
     # R30: the machine rows carry their chain (value read, clause, result, why).
     assert any(row["reasoning"].startswith("Read: ") or "Result: " in row["reasoning"]
                for row in body["rows"])
     # And no eighth row hiding in the workbook that the preview never showed.
-    assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
+    assert (
+        _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
+    )  # nothing under the table but the notes below it
 
     # The recommended review code line.
     code_row = COLUMN_HEADER_ROW + len(body["rows"]) + 2
@@ -695,7 +718,7 @@ def _number(doc_id: str, number: str) -> None:
 
 
 def _submittal_no(ws) -> str:
-    row = 3 + [k for _, k in HEADER_FIELDS].index("submittal_number")
+    row = HEADER_ROW_OF["submittal_number"]
     assert ws.cell(row=row, column=1).value == "Submittal No.:"
     return ws.cell(row=row, column=3).value
 
@@ -849,12 +872,14 @@ def test_the_additions_left_the_seven_template_columns_in_place():
     internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
     # order 139 part 2: "Priority" where "Severity" was
     head = [*HEADERS, "Standard Reference", "Priority"]
-    assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 11)] == [*head, "AI Review Comments"]
+    assert [
+        internal.cell(row=COLUMN_HEADER_ROW, column=c).value for c in range(1, 11)
+    ] == [*head, "Status"]  # order 13: one layout, ten columns, both copies
 
-    assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 10)] == head
-    assert ws.max_column == 9
+    assert [ws.cell(row=ISSUE_HEADER_ROW, column=c).value for c in range(1, 10)] == head
+    assert (
+        ws.max_column == 9
+    )  # a contractor-facing copy: nine company columns, no Status
 
 
 def test_the_issue_copy_is_refused_until_an_engineer_decides():

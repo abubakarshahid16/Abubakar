@@ -88,9 +88,46 @@ def _page_text(line: Mapping) -> str:
     return f"{base} - {label}" if base and label else base or label
 
 
+_WORDING: list[
+    dict
+] = []  # filled only by a COMPLETE load, like `agent_review_verdict.checklist_ids`
+
+
+def checklist_wording(item_id: object) -> str:
+    """The checklist item's own requirement wording ("Expected") by item id, through the app's one loader (`agent_skills`).
+    '' when the item or the data is not found on this machine (the caller then falls back to the line's own text)."""
+    if not _WORDING:
+        from . import agent_skills
+
+        found: dict[str, str] = {}
+        complete = True
+        for kind in agent_skills.KINDS:
+            try:
+                skill = agent_skills.load_skill(kind)
+            except agent_skills.SkillError:
+                complete = False
+                continue
+            found.update(
+                {f"S-{it['id']}": _clean(it.get("expected")) for it in skill["items"]}
+            )
+        if not (complete and found):
+            return words.plain(found.get(str(item_id)))
+        _WORDING.append(found)
+    return words.plain(_WORDING[0].get(str(item_id)))
+
+
+def _item_ask(line: Mapping) -> str:
+    """The words of what is asked: a checklist line's own item wording first, else the verified clause quote or stored rule text."""
+    if line.get("source") == "skill":
+        wording_text = checklist_wording(line.get("item_id"))
+        if wording_text:
+            return " ".join(wording_text.split()[:30])
+    return asks(line)
+
+
 def _requires(line: Mapping, status: str) -> str:
-    """Part 1: what the rule requires, in the rule's own held words (the verified clause quote, else the stored rule text)."""
-    ref, ask, field = against(line), asks(line), field_name(line)
+    """Part 1: what the rule requires, in the rule's own held words (a checklist item's own wording, the verified clause quote, else the stored rule text)."""
+    ref, ask, field = against(line), _item_ask(line), field_name(line)
     verb = (
         "recommends"
         if line.get("recommendation") or line.get("rule_kind") == "advice"
@@ -393,6 +430,20 @@ def _notes_rows(
     kinds = {k: sum(1 for _l, kk in others if kk == k) for k in words.OTHER_KINDS}
     kinds[words.KIND_NOT_HELD] = len(missing)
     rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE)]
+    if any(ln.get("source") == "skill" for ln, _s, _o in items):
+        have = any(
+            checklist_wording(ln.get("item_id"))
+            for ln, _s, _o in items
+            if ln.get("source") == "skill"
+        )
+        rows.append(
+            (
+                "Checklist wording",
+                "from the checklist data"
+                if have
+                else "not available on this machine: the comment shows the line's own text",
+            )
+        )
     block = meta.get("rule_labels") or {}
     rows.append(
         (BOOKS_REVIEWED.rstrip(":"), "; ".join(meta.get("books_used") or []) or "none")
@@ -519,7 +570,10 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         ),
         "statuses": [st for _l, st, _o in items],
     }
-    if contractor:
+    if contractor:  # nine company columns, plain styling: nothing that encodes an internal judgement
+        view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
+        view["rows"] = [r[:9] for r in view["rows"]]
+        view["plain"] = True
         return view
     others = other_lines(lines)
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])

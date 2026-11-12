@@ -78,12 +78,6 @@ def style_print(ws, header_row: int, ncols: int, last_row: int) -> None:
     ws.print_area = f"A1:{get_column_letter(ncols)}{max(last_row, header_row)}"
 
 
-def style_header_and_print(ws, header_row: int, ncols: int) -> None:
-    """The normal reviewer's sheet: the shared header row, frozen panes and print setup; its rows and their styles are untouched."""
-    style_header_row(ws, header_row, ncols)
-    style_print(ws, header_row, ncols, ws.max_row)
-
-
 def style_table(ws, header_row: int, ncols: int, last_row: int, widths=None) -> None:
     """THE styling of a table sheet of the AI reviewer's workbook: `style_header_row`, thin borders on every used cell (every
     cell of the table, an empty Response cell included), wrapped text, column widths, then `style_print`."""
@@ -142,12 +136,32 @@ def _put(ws, row, col, value, bold=False, size=10, center=False, wrap=False):
     return cell
 
 
+def _below(ws, below, last_row: int, ncols: int) -> None:
+    """Notes under the table, each `(offset, label, text, column[, height])` at `last_row + offset`: a labelled line (label in A:B, text in
+    C to the end), or a notice merged from `column` (1 = across the sheet, 3 = never in column A: a reply is read by the Item No
+    there). The print area then reaches the last of them."""
+    end = last_row
+    for offset, label, text, col, *height in below:
+        row = last_row + offset
+        end = max(end, row)
+        if label:
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+            _put(ws, row, 1, label, bold=True)
+            col = 3
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=ncols)
+        _put(ws, row, col, text, bold=bool(label) or col == 1, wrap=True)
+        fitted = max(15, 13 * _lines_needed(text, sum(LAYOUT_WIDTHS)))
+        ws.row_dimensions[row].height = height[0] if height else fitted
+    if end > last_row:
+        ws.print_area = f"A1:{get_column_letter(ncols)}{end}"
+
+
 def _header_block(ws, view: dict, ncols: int) -> int:
     """Rows 1 and 2 (title, subtitle), the header facts, the generated-by sentence; returns the row of the table's header."""
     last = get_column_letter(ncols)
     ws.merge_cells(f"A1:{last}1")
     _put(ws, 1, 1, view.get("title") or "", bold=True, size=12, center=True, wrap=True)
-    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[1].height = view.get("title_height") or 30
     ws.merge_cells(f"A2:{last}2")
     _put(ws, 2, 1, view.get("subtitle") or SUBTITLE, bold=True, size=12, center=True)
     row = 3
@@ -160,15 +174,19 @@ def _header_block(ws, view: dict, ncols: int) -> int:
             15, 13 * _lines_needed(value, sum(LAYOUT_WIDTHS[2:]))
         )
         row += 1
-    if view.get("sentence"):
+    if (
+        view.get("sentence") is not None
+    ):  # "" reserves the row (the normal reviewer's issue copy keeps one geometry)
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncols)
         _put(ws, row, 1, view["sentence"], bold=True)
         row += 1
-    return row + 1  # one blank row between the block and the table
+    return (
+        row + view.get("gap", 1)
+    )  # one blank row between the block and the table (a contractor copy: none, as before)
 
 
-def build_layout_crs(view: dict) -> bytes:
-    """Draw the CRS of the AI reviewer into the app's layout and return the workbook bytes.
+def layout_workbook(view: dict) -> Workbook:
+    """Draw a CRS (either reviewer) into the app's one layout and return the workbook.
 
     view (all plain values, decided by the caller; a missing part prints nothing):
       title, subtitle          rows 1 and 2 (merged)
@@ -182,24 +200,52 @@ def build_layout_crs(view: dict) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = LAYOUT_MAIN_SHEET
-    ncols = len(LAYOUT_COLUMNS)
+    columns = tuple(
+        view.get("columns") or LAYOUT_COLUMNS
+    )  # a contractor-facing copy: the nine company columns, no Status
+    ncols = len(columns)
     header_row = _header_block(ws, view, ncols)
-    for c, name in enumerate(LAYOUT_COLUMNS, start=1):
+    for c, name in enumerate(columns, start=1):
         _write(ws, header_row, c, name)
     rows, statuses = view.get("rows") or [], view.get("statuses") or []
     for n, values in enumerate(rows, start=1):
         r = header_row + n
         for c, value in enumerate(values, start=1):
-            _put(ws, r, c, value, center=c in (1, 9, 10), wrap=True)
+            _put(
+                ws,
+                r,
+                c,
+                value,
+                center=columns[c - 1] in ("Item No", "Priority", "Status"),
+                wrap=True,
+            )
         fill = STATUS_FILLS.get(statuses[n - 1]) if n - 1 < len(statuses) else None
-        if fill is not None:
+        if fill is not None and not view.get(
+            "plain"
+        ):  # plain: no colour encodes an internal judgement
             for c in range(1, ncols + 1):
                 ws.cell(row=r, column=c).fill = fill
         height = (
-            max(_lines_needed(v, LAYOUT_WIDTHS[c]) for c, v in enumerate(values)) * 13
+            max(
+                _lines_needed(v, (view.get("widths") or LAYOUT_WIDTHS)[c])
+                for c, v in enumerate(values)
+            )
+            * 13
         )
-        ws.row_dimensions[r].height = min(MAX_ROW_HEIGHT, max(15, height))
-    style_table(ws, header_row, ncols, header_row + len(rows), LAYOUT_WIDTHS)
+        heights = view.get(
+            "row_heights"
+        )  # the normal reviewer keeps its own row-height formula (`crs_export.row_height`)
+        ws.row_dimensions[r].height = (
+            heights[n - 1] if heights else min(MAX_ROW_HEIGHT, max(15, height))
+        )
+    style_table(
+        ws,
+        header_row,
+        ncols,
+        header_row + len(rows),
+        view.get("widths") or LAYOUT_WIDTHS[:ncols],
+    )
+    _below(ws, view.get("below") or [], header_row + len(rows), ncols)
 
     other = view.get("other")
     if other:
@@ -217,6 +263,11 @@ def build_layout_crs(view: dict) -> bytes:
     if notes:
         _table_sheet(wb.create_sheet(NOTES_SHEET), notes["columns"], notes["rows"], notes["widths"],
                      heading_rows=notes.get("heading_rows") or ())  # fmt: skip
+    return wb
+
+
+def build_layout_crs(view: dict) -> bytes:
+    """`layout_workbook` as bytes."""
     buffer = BytesIO()
-    wb.save(buffer)
+    layout_workbook(view).save(buffer)
     return buffer.getvalue()

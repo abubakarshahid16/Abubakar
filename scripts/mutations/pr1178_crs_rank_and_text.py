@@ -102,9 +102,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "08",
         "the Priority column prints the severity ('minor') again",
-        _E,
-        '                  entry["standard_reference"], entry.get("priority_label", "")]',
-        '                  entry["standard_reference"], entry.get("severity", "")]',
+        APP / "crs_normal.py",
+        'entry["standard_reference"], entry["priority_label"] or None,',
+        'entry["standard_reference"], entry.get("severity", "") or None,',
         _TE,
         "priority_column_prints_the_rank_word",
     ),
