@@ -35,6 +35,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
+from .db import connect
+
 log = logging.getLogger(__name__)
 
 AUTOMATIC, CLAUDE, LOCAL = "automatic", "claude", "local"
@@ -530,8 +532,6 @@ TABLE = "review_engine_choice"
 
 
 def ensure_schema(conn=None) -> None:
-    from .db import connect
-
     conn = conn or connect()
     conn.execute(
         f"""CREATE TABLE IF NOT EXISTS {TABLE} (
@@ -669,8 +669,6 @@ def bar_for_job(conn, job_id) -> bool:
 
 def note_on_run(job_id, why: str) -> None:
     """Say in the run's record why it was kept on this computer when its choice could not be read. Best effort; never raises."""
-    from .db import connect
-
     try:
         conn = connect()
         row = conn.execute(

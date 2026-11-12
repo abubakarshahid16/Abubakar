@@ -43,7 +43,9 @@ def _check(data: dict) -> dict:
         if not isinstance(row["scored"], bool):
             raise TableError(f"kind {name}: scored must be true or false")
         if not isinstance(row["contractor_copy_ai_verdict"], bool):
-            raise TableError(f"kind {name}: contractor_copy_ai_verdict must be true or false")
+            raise TableError(
+                f"kind {name}: contractor_copy_ai_verdict must be true or false"
+            )
         if row["ask_rules"] != bool(row["rules_of_kind"]):
             raise TableError(f"kind {name}: ask_rules and rules_of_kind disagree")
         if (
