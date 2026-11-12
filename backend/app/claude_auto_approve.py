@@ -455,13 +455,13 @@ def on_standard_cited(
     _run("citation", standard_document_id, build)
 
 
-def _note_unshown(review_run_id: str) -> None:
+def _note_unshown(review_run_id: str, applied_run: str | None = None) -> None:
     """Put on the run how many cited specifications the gate holds because no list shown before the start names them."""
     from . import review_shown
 
     try:
         conn = connect()
-        count = review_shown.cited_unshown(conn, review_run_id)
+        count = review_shown.cited_unshown(conn, review_run_id, applied_run)
         row = conn.execute(
             "SELECT outcome_json FROM review_runs WHERE id = ?", (review_run_id,)
         ).fetchone()
@@ -483,6 +483,11 @@ def _note_unshown(review_run_id: str) -> None:
         log.warning(
             "claude shown-list run note %s: %s", review_run_id, type(exc).__name__
         )
+
+
+def note_unshown_for(review_run_id: str, applied_run: str) -> None:
+    """The AI reviewer's run: the standards were applied on `applied_run`; say how many the list shown before the start left out."""
+    _note_unshown(review_run_id, applied_run)
 
 
 def record_on_run(review_run_id: str) -> None:

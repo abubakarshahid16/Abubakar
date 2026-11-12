@@ -6,7 +6,8 @@ rules from (cited by the paper, or governing its equipment type), the cited spec
 the user chose for a general review; each with its display title, kind and why. `not_sent` lists what a review cites that will NOT
 go, and why. A document the caller may not read is counted, never named (CLAUDE.md rule 5: intersection, never union).
 
-The match is the review's own: `agent_review_rules.library_of`, `standard_ids.cited_standards`, `applicability.find_standard`.
+The rule books are the review's own selection (`applicability.select`, read-only, without its model step); cited specifications and
+contracts are matched by `standard_ids.cited_standards` and `applicability.find_standard`.
 This module only decides what is LISTED. What is sent stays under `claude_approved.refusal` and, with a stored list
 (`review_shown`), only what the list names. It reads page text to find citations and returns no text of it.
 """
@@ -38,6 +39,17 @@ NOT_APPROVED_BOOK = "not approved for Claude; the owner approves it"
 NOT_APPROVED_SPEC = "a specification that is not on the owner's approved list"
 NOT_READABLE = "documents you may not read"
 LOCAL_WORDS = "Nothing leaves this Mac"
+#: Why a standard the review's own selection applies is on the list, by the method that chose it.
+METHOD_WORDS = {
+    "referenced": "cited by the paper",
+    "possible_citation": "possibly cited by the paper",
+    "governing_standard": "governs the equipment type",
+    "equipment_type": "applies by equipment type",
+    "service": "applies by service",
+    "project": "applies by project",
+    "scope": "applies by scope",
+    "manual": "added by an engineer",
+}
 
 
 def _title(row) -> str:
@@ -77,9 +89,9 @@ def _specification_library(conn, paper_id: str) -> list[dict]:
     ]
 
 
-def _citations(conn, document_id: str, equipment_type: str | None):
-    """(cited names in the paper's own spelling, governing names for its equipment type). Names of standards only."""
-    from . import applicability, standard_ids
+def _citations(conn, document_id: str) -> list[str]:
+    """The standards the paper cites, in its own spelling (names of standards only, no paper text)."""
+    from . import standard_ids
 
     text = "\n".join(
         r[0] or ""
@@ -88,11 +100,7 @@ def _citations(conn, document_id: str, equipment_type: str | None):
             (document_id,),
         )
     )
-    cited = standard_ids.cited_standards(text)
-    governing = (applicability.governing_table().get("equipment_types") or {}).get(
-        equipment_type or "", []
-    )
-    return cited, list(governing)
+    return standard_ids.cited_standards(text)
 
 
 class _Gate:
@@ -181,7 +189,7 @@ def _finish(out: dict) -> dict:
 
 
 def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -> None:
-    from . import agent_review_rules, applicability
+    from . import applicability
 
     seen: set[str] = set()
 
@@ -217,34 +225,54 @@ def _fill(conn, document_id, allowed, facts, equipment_type, project_ids, out) -
         {"id": document_id, "title": _title(paper), "kind": PAPER, "why": WHY_PAPER}
     )
 
-    cited, governing = _citations(conn, document_id, equipment_type)
-    books = agent_review_rules.library_of(conn)
+    # THE RULE BOOKS: the review's own selection (`applicability.select`, the function the run calls), read-only and without the
+    # step that asks a model. Every standard it would apply is listed, whatever method chose it. What only the model step would
+    # add (a scope clause) is found during the run: it is held and the result says so (`claude_auto_approve.SHOWN_KEY`).
+    chosen_by = applicability.select(
+        document_id, allowed_document_ids=allowed, persist=False, ask_model=False
+    )
+    applied = [r for r in chosen_by["selected"] if r.get("included")]
+    rows = _doc_rows(conn, [r["standard_document_id"] for r in applied])
+    for r in applied:
+        row = rows.get(r["standard_document_id"])
+        if row is not None:
+            kind = (
+                SPECIFICATION
+                if row["role"] == claude_approved.SPECIFICATION_ROLE
+                else RULE_BOOK
+            )
+            put(row, kind, METHOD_WORDS.get(r["method"], "applies to this paper"))
+    for m in chosen_by["missing_references"]:
+        out["not_sent"].append(
+            {
+                "name": m["identifier"],
+                "kind": RULE_BOOK,
+                "why": WHY_CITED,
+                "reason": NOT_HELD,
+            }
+        )
+    for g in chosen_by["governing_not_held"]:
+        out["not_sent"].append(
+            {
+                "name": g["identifier"],
+                "kind": RULE_BOOK,
+                "why": WHY_GOVERNS,
+                "reason": NOT_HELD,
+            }
+        )
+    # CITED SPECIFICATIONS AND CONTRACTS (not selectable standards): named by the paper's own citations.
+    cited = _citations(conn, document_id)
     specs = _specification_library(conn, document_id)
-    rows = _doc_rows(conn, [e["id"] for e in books + specs])
-    for names, why in ((cited, WHY_CITED), (governing, WHY_GOVERNS)):
-        for name in names:
-            book = applicability.find_standard(books, name)
-            spec = None if book else applicability.find_standard(specs, name)
-            hit = book or spec
-            if hit is None:
-                if why == WHY_CITED and not any(
-                    n["name"] == name for n in out["not_sent"] if "name" in n
-                ):
-                    out["not_sent"].append(
-                        {
-                            "name": name,
-                            "kind": RULE_BOOK,
-                            "why": why,
-                            "reason": NOT_HELD,
-                        }
-                    )
-                continue
+    spec_rows = _doc_rows(conn, [e["id"] for e in specs])
+    for name in cited:
+        hit = applicability.find_standard(specs, name)
+        if hit is not None:
             other = (
                 CONTRACT
-                if rows[hit["id"]]["role"] == "CONTRACT_DOCUMENT"
+                if spec_rows[hit["id"]]["role"] == "CONTRACT_DOCUMENT"
                 else SPECIFICATION
             )
-            put(rows[hit["id"]], RULE_BOOK if book else other, why)
+            put(spec_rows[hit["id"]], other, WHY_CITED)
     chosen = _doc_rows(conn, project_ids)
     for pid in project_ids:
         row = chosen.get(pid)

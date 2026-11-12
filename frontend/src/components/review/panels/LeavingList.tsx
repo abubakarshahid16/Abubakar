@@ -32,6 +32,9 @@ export function LeavingList({ leaving, notSent, notReadable, textLeaves }: {
           <p className="text-xs text-slateish-400">
             {leaving.length} document(s), of the documents you may read.
           </p>
+          <p className="text-xs text-slateish-400">
+            A rule book found only during the review is not sent; the result lists it.
+          </p>
         </>
       )}
       {notSent.length > 0 && (

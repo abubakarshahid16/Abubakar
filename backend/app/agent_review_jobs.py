@@ -406,6 +406,7 @@ def _plan(
     claude_auto_approve.on_review_start(
         scope_run
     )  # a cited standard joins the list too (when auto-approve is on)
+    claude_auto_approve.note_unshown_for(run_id, scope_run)  # what the list shown before the start left out is not sent
     cache: dict = {}
     # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
     # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).

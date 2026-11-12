@@ -16,6 +16,7 @@ describe("LeavingList", () => {
     expect(box.getByText("Pump datasheet rev B.pdf")).toBeInTheDocument();
     expect(box.getByText(/rule book, cited by the paper/)).toBeInTheDocument();
     expect(box.queryByText(/doc_1|doc_2/)).toBeNull();
+    expect(box.getByText("A rule book found only during the review is not sent; the result lists it.")).toBeInTheDocument();
     expect(box.getByText(/2 document\(s\), of the documents you may read/)).toBeInTheDocument();
   });
 

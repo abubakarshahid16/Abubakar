@@ -97,13 +97,13 @@ def held_documents(conn, run_id: str, document_ids) -> frozenset[str]:
     return frozenset(specs)
 
 
-def cited_unshown(conn, run_id: str) -> int:
+def cited_unshown(conn, run_id: str, applied_run: str | None = None) -> int:
     """How many documents applied to this run were held because no list shown before the start names them. For the run's note."""
     try:
         rows = conn.execute(
             "SELECT standard_document_id FROM review_applicable_standards"
             " WHERE review_run_id = ? AND COALESCE(included, 1) = 1",
-            (run_id,),
+            (applied_run or run_id,),
         ).fetchall()
         return len(
             held_documents(

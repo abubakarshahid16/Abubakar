@@ -49,6 +49,10 @@ def lib(world, monkeypatch):  # noqa: F811
             "UPDATE documents SET filename = 'API 610 invented.pdf' WHERE id = ?",
             (world["std"],),
         )
+        conn.execute(
+            "UPDATE chunks SET text = text || ' Also SAES-Z-999.' WHERE document_id = ?",
+            (world["sub"],),
+        )
     world["spec"], world["con"] = spec, con
     world["scope"] = world["scope"] | {spec, con}
     return world
@@ -278,3 +282,125 @@ def test_the_ai_run_that_follows_the_rule_check_stores_the_same_list(lib, monkey
     monkeypatch.setattr(review_engine_start.agent_review_jobs, "enqueue", enqueue)
     assert review_engine_start.follow_up(job_id, "done") == "ai-run"
     assert seen["list"] == frozenset({lib["sub"], lib["std"]})
+
+
+def _book(doc_id, sha, filename, **classified):
+    """An invented rule book: a standard with one stored rule, classified as given."""
+    _doc(doc_id, sha, "COMPANY_STANDARD", filename=filename)
+    sets = ", ".join(f"{k} = ?" for k in classified)
+    with db.connect() as conn:
+        if sets:
+            conn.execute(
+                f"UPDATE document_classification SET {sets} WHERE document_id = ?",
+                [*classified.values(), doc_id],
+            )
+        conn.execute(
+            "INSERT INTO standard_requirements (id, standard_document_id, clause, page, requirement_text, source_text,"
+            " created_at, updated_at) VALUES (?, ?, '4.1', 1, 'x', 'x', 't', 't')",
+            (f"req_{doc_id}", doc_id),
+        )
+
+
+def test_every_rule_book_a_run_selects_is_on_the_list_whatever_method_chose_it(
+    lib, monkeypatch
+):
+    """Property over the selection methods: what `applicability.select` (the run's own function, persisting) includes is a subset
+    of the plan's list, which reads the same function. The scope step, which asks a model, is the one thing left out."""
+    from app import applicability
+
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET equipment_type='pump', service='sour water', project='PRJ-1' WHERE document_id = ?",
+            (lib["sub"],),
+        )
+    _book("bk_type", "81" * 32, "ZZZ-A-001 type book.pdf", equipment_type="pump")
+    _book("bk_service", "82" * 32, "ZZZ-A-002 service book.pdf", service="sour water")
+    _book("bk_project", "83" * 32, "ZZZ-A-003 project book.pdf", project="PRJ-1")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE chunks SET text = text || ' Also ZZZ-A-004.' WHERE document_id = ?",
+            (lib["sub"],),
+        )
+    _book("bk_cited", "84" * 32, "ZZZ-A-004 cited book.pdf")
+    scope = lib["scope"] | {"bk_type", "bk_service", "bk_project", "bk_cited"}
+    monkeypatch.setattr(
+        applicability, "scope_decisions", lambda library, profile: ({}, "not run")
+    )
+    monkeypatch.setattr(settings, "applicability_reasoning_enabled", False)
+    got = applicability.select(
+        lib["sub"], allowed_document_ids=scope, review_run_id=None, persist=False
+    )
+    asked = {r["standard_document_id"] for r in got["selected"] if r["included"]}
+    methods = {r["method"] for r in got["selected"] if r["included"]}
+    assert (
+        len(methods) >= 3 and {"service", "project"} <= methods
+    )  # the property is not vacuous
+    leaving = {d["id"] for d in _plan(lib, scope=scope)["leaving"]}
+    assert asked <= leaving
+    why = {d["id"]: d["why"] for d in _plan(lib, scope=scope)["leaving"]}
+    assert (
+        why["bk_service"] == "applies by service"
+        and why["bk_project"] == "applies by project"
+    )
+
+
+def test_a_rule_book_only_the_models_scope_step_would_find_is_held_and_counted(lib):
+    from app import claude_auto_approve
+
+    extra = _book("bk_scope", "85" * 32, "ZZZ-B-001 scope book.pdf")
+    run_id, _ = review_engine_start.start(
+        lib["sub"],
+        lib["scope"] | {"bk_scope"},
+        "adm",
+        "automatic",
+        shown_document_ids=(lib["sub"],),
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+            " selection_method, included, created_at) VALUES ('sc1', ?, 'bk_scope', 'x', 'scope', 1, 't')",
+            (run_id,),
+        )
+    with (
+        claude_approved.carrying([lib["sub"], "bk_scope"]),
+        claude_approved.reviewing(run_id),
+    ):
+        found = claude_approved.refusal()
+    assert found is not None and "bk_scope" in found[1]
+    claude_auto_approve.record_on_run(run_id)
+    outcome = json.loads(
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()[0]
+        or "{}"
+    )
+    assert outcome[claude_auto_approve.SHOWN_KEY]["not_sent"] == 1
+    assert extra is None
+
+
+def test_the_ai_run_says_how_many_applied_standards_the_list_left_out(lib):
+    from app import claude_auto_approve
+
+    _book("bk_late", "86" * 32, "ZZZ-C-001 late book.pdf")
+    run_id, _ = review_engine_start.start(
+        lib["sub"], lib["scope"], "adm", "automatic", shown_document_ids=(lib["sub"],)
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at) VALUES ('ai_run', ?, 'running', 't', 't')",
+            (lib["sub"],),
+        )
+        review_shown.record_in(conn, "ai_run", [lib["sub"]], "t")
+        conn.execute(
+            "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+            " selection_method, included, created_at) VALUES ('sc2', ?, 'bk_late', 'x', 'scope', 1, 't')",
+            (run_id,),
+        )
+    claude_auto_approve.note_unshown_for("ai_run", run_id)
+    outcome = json.loads(
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = 'ai_run'")
+        .fetchone()[0]
+        or "{}"
+    )
+    assert outcome[claude_auto_approve.SHOWN_KEY]["not_sent"] == 1
