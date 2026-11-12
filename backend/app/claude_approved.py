@@ -525,7 +525,7 @@ def contracts_without_yes(ids) -> frozenset[str]:
 def _unshown_specifications(ids) -> frozenset[str]:
     """Owner, 12 Nov 2026 (#1584): the screen lists every document that will leave before the review starts. Inside a review
     run, a SPECIFICATION that is not the paper under review goes only if the run's stored list names it (`review_shown`);
-    no list stored = none goes. Outside a review run (chat, a standalone reader) nothing changes. Only NARROWS. A library
+    no list stored = none goes. A run started WITH a list sends only the documents it names, of any kind. Outside a review run (chat, a standalone reader) nothing changes. Only NARROWS. A library
     that cannot be read holds every declared document (fail closed)."""
     run = review_run()
     if not run or not ids:
@@ -536,9 +536,20 @@ def _unshown_specifications(ids) -> frozenset[str]:
     from .db import connect
 
     try:
-        return review_shown.unshown_specifications(connect(), run, ids)
+        return review_shown.held_documents(connect(), run, ids)
     except sqlite3.Error:
         return frozenset(ids)
+
+
+def _in_library(ids) -> frozenset[str]:
+    """The declared ids the library holds. With no library at all (a bare test database) nothing is a contract to ask about; a
+    document the library does not hold is for `UNKNOWN_DOCUMENT` to say, when the list is enforced."""
+    import sqlite3
+
+    try:
+        return frozenset(d for d, h in _hashes_of(frozenset(ids)).items() if h)
+    except sqlite3.OperationalError:
+        return frozenset()
 
 
 def unshown_specifications(ids) -> frozenset[str]:
@@ -561,6 +572,22 @@ def refusal() -> tuple[str, str] | None:
         stopped = _block_stop(ids)
         if stopped is not None:
             return stopped
+    # The list the screen showed is a cap of its own, whether or not the owner's list is enforced.
+    held = frozenset() if _REQUEST_CONSENT.get() else _unshown_specifications(ids)
+    if held:
+        return NOT_APPROVED, (
+            f"{len(held)} of {len(ids)} document(s) in this prompt were not on the list shown before the start "
+            f"(ids: {', '.join(sorted(held))}), so nothing is sent"
+        )
+    if ids and not _REQUEST_CONSENT.get():
+        # A document that became a contract between the plan and the send is refused in every configuration, the owner's list
+        # enforced or not: a contract goes only with the owner's recorded yes.
+        contracts = contracts_without_yes(_in_library(ids))
+        if contracts:
+            return NOT_APPROVED, (
+                f"{len(contracts)} of {len(ids)} document(s) in this prompt are a contract without the owner's recorded yes "
+                f"(ids: {', '.join(sorted(contracts))}), so nothing is sent"
+            )
     if not settings.claude_approved_list_enforced:
         return None
     if ids is None:
@@ -578,13 +605,6 @@ def refusal() -> tuple[str, str] | None:
     # egress flags, API-key checks and spend limits remain enforced downstream.
     if _REQUEST_CONSENT.get():
         return None
-    held = _unshown_specifications(ids)
-    if held:
-        return NOT_APPROVED, (
-            f"{len(held)} of {len(ids)} document(s) in this prompt are specifications this review cites "
-            f"that were not on the list shown before the start (ids: {', '.join(sorted(held))}), "
-            f"so nothing is sent"
-        )
     approved = approved_hashes()
     lapsed = _lapsed_ids(hashes) | contracts_without_yes(ids)
     missing = sorted(d for d, h in hashes.items() if h not in approved or d in lapsed)
@@ -598,10 +618,7 @@ def refusal() -> tuple[str, str] | None:
 #: documents are not on the list. `{n}` and `{of}` are counts, never a title.
 LOCAL_INSTEAD = ("ran on the local model: {n} of {of} document(s) in its prompt are not approved "
                  "for the cloud model")
-LOCAL_INSTEAD_NOT_SHOWN = (
-    "ran on the local model: {n} of {of} document(s) in its prompt are specifications "
-    "that were not on the list shown before the start"
-)
+LOCAL_INSTEAD_NOT_SHOWN = "ran on the local model: {n} of {of} document(s) in its prompt were not on the list shown before the start"
 
 
 def local_instead() -> str | None:

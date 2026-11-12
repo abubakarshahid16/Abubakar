@@ -183,7 +183,7 @@ def test_a_library_that_cannot_be_read_holds_the_specification(monkeypatch):
     def boom(*a, **k):
         raise review_shown.sqlite3.OperationalError("locked")
 
-    monkeypatch.setattr(review_shown, "unshown_specifications", boom)
+    monkeypatch.setattr(review_shown, "held_documents", boom)
     assert _gate_ai_reviewer(run_id, ["doc_paper", "doc_spec"]) is not None
 
 
@@ -202,7 +202,7 @@ def test_the_run_note_counts_the_cited_specifications_not_sent():
     run_id = _run()
     with db.connect() as conn:
         assert review_shown.cited_unshown(conn, run_id) == 1
-    _show(run_id, ["doc_spec"])
+    _show(run_id, ["doc_spec", "doc_book"])
     with db.connect() as conn:
         assert review_shown.cited_unshown(conn, run_id) == 0
 
@@ -219,14 +219,14 @@ def test_the_run_says_it_did_not_send_the_cited_specification_even_with_the_swit
             ).fetchone()[0]
             or "{}"
         )
-    assert outcome[claude_auto_approve.SHOWN_KEY] == {"not_sent": 1}
+    assert outcome[claude_auto_approve.SHOWN_KEY] == {"not_sent": 1, "found_during_review": 0}
     lines = [p["line"] for p in claude_auto_approve.run_lines(outcome)]
     assert any(
-        line.startswith("Not sent: 1 specification(s)")
+        line.startswith("Not sent: 1 document(s)")
         and "shown before the start" in line
         for line in lines
     )
-    _show(run_id, ["doc_spec"])
+    _show(run_id, ["doc_spec", "doc_book"])
     claude_auto_approve.record_on_run(run_id)
     with db.connect() as conn:
         outcome = json.loads(

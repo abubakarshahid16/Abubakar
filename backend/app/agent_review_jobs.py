@@ -45,6 +45,7 @@ from . import (
     nothing_read,
     review_engine,
     review_jobs,
+    review_shown,
 )
 from . import agent_review_items as items_mod
 from . import agent_review_pair as pair_mod
@@ -411,6 +412,10 @@ def _plan(
     # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
                                         equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
+    # A rule book the list shown before the start does not name is dropped HERE, before any request is built: its rules are not
+    # asked, none of its text is sent, the run goes on with the listed books, and the result counts what was left out.
+    left_out = review_shown.drop_unlisted(conn, run_id, doc)
+    claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache)
     if refused:

@@ -124,7 +124,7 @@ def test_a_claude_api_route_holds_the_cited_specification_and_says_why(
     body = TestClient(app).post(f"/api/reviews/runs/{run}/claude/recheck").json()
     assert asked_cloud == [] and _asked_locally() >= 1  # it ran on the local model, nothing went to Claude
     assert body["local_instead"].startswith(
-        "ran on the local model: 1 of 2 document(s) in its prompt are specifications that were not on the list shown"
+        "ran on the local model: 1 of 2 document(s) in its prompt were not on the list shown"
     )
 
 

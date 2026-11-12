@@ -42,6 +42,9 @@ class ReviewStartRequest(BaseModel):
     engine: Literal["automatic", "claude", "local"] = "automatic"
     project_document_ids: list[str] = Field(default=[], max_length=10)
     fresh: bool = False
+    #: The ids of the documents the pre-start screen listed as leaving this Mac. A review started with this list sends only those;
+    #: absent, no list was shown: the paper and rule books as before, no cited specification.
+    shown_document_ids: list[str] | None = Field(default=None, max_length=200)
 
 
 class PlanPart(BaseModel):
@@ -105,14 +108,19 @@ def review_plan(
     request: Request,
     submittal_document_id: str = Query(...),
     engine: Literal["automatic", "claude", "local"] = Query("automatic"),
+    project_document_ids: list[str] = Query(default=[], max_length=10),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The plan for this paper and this choice, in plain facts. Writes nothing and calls nothing."""
-    reject_unknown_params(request, {"submittal_document_id", "engine"})
+    reject_unknown_params(request, {"submittal_document_id", "engine", "project_document_ids"})
     require_document(submittal_document_id, scope)
     conn = connect()
     got = review_engine.plan_for(
-        conn, submittal_document_id, scope.allowed_document_ids, engine
+        conn,
+        submittal_document_id,
+        scope.allowed_document_ids,
+        engine,
+        project_ids=tuple(i for i in project_document_ids if i in scope.allowed_document_ids),
     )
     record = contract_yes.record_of(submittal_document_id)
     if record is not None and not _is_admin(request):  # who approved is for admins; anyone sees that a yes stands
@@ -145,6 +153,9 @@ def start_review(
             body.engine,
             fresh=body.fresh,
             project_document_ids=tuple(body.project_document_ids),
+            shown_document_ids=None
+            if body.shown_document_ids is None
+            else tuple(body.shown_document_ids),
         )
     except review_engine_start.StartRefused as exc:
         detail = errors.safe_error(errors.INVALID_PARAMETER, exc.sentence)
