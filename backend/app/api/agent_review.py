@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse
 from .. import (
     access,
     agent_general_review,
+    agent_review_book_table,
     agent_review_coverage,
     agent_review_gate,
     agent_review_jobs,
@@ -526,6 +527,19 @@ def _coverage_for(rules: list) -> list[contract.AgentBookCoverage]:
     ]
 
 
+def _book_table(
+    conn, run_id: str, scope: access.AccessScope
+) -> contract.AgentBookTable:
+    """Which held rule books were candidates and which were not; only books the caller may read are named (rule 5)."""
+    got = agent_review_book_table.build(conn, run_id, scope.may_read)
+    return contract.AgentBookTable(
+        books=[contract.AgentBookRow(**b) for b in got["books"]],
+        boundary=agent_review_book_table.BOUNDARY,
+        hidden_books=got["hidden_books"],
+        note=got["note"],
+    )
+
+
 @router.get(
     "/api/reviews/runs/{review_run_id}/rules-used",
     response_model=contract.AgentRulesUsed,
@@ -572,6 +586,7 @@ def rules_used(
         rule_set_changed_by=run["rule_set_changed_by"],
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
+        book_table=_book_table(conn, review_run_id, scope),
         stop_reason=run["stop_reason"], paper_text=_paper_text(run),
         candidates_from=cand.get("source"), same_rule_repeats=cand.get("repeats") if cand else None,
         other_books=None if not other else contract.AgentOtherBooks(
