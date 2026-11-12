@@ -41,7 +41,7 @@ from .rule_label_schema import (
 )
 
 #: Changes when the prompt text or the answer shape changes. A row is approved only when BOTH passes ran this one.
-PROMPT_VERSION = "rule-label-v3"
+PROMPT_VERSION = "rule-label-v4"
 #: What an import accepts. Never a version this code does not know how to check.
 ACCEPTED_PROMPTS = (PROMPT_VERSION,)
 #: The lab labeller's prompt of 11 Nov 2026 (no first-words echo). Accepted ONLY from a label file whose rows say
@@ -144,6 +144,21 @@ def shape_ok(raw: Mapping) -> bool:
     )
 
 
+def _fold_words(text: Any) -> str:
+    return " ".join(str(text or "").split()).casefold()
+
+
+def text_alternatives(values: Any) -> list[str] | None:
+    """The words of a `one_of` reading whose alternatives are TEXT (two or more, each a string that is no number, no two the
+    same), else None. Such a reading is never compared by code: it is only a label of the rule."""
+    if not isinstance(values, list) or len(values) < 2:
+        return None
+    if not all(isinstance(v, str) and v.strip() and _number(v) is None for v in values):
+        return None
+    words = [" ".join(v.split()) for v in values]
+    return words if len({w.casefold() for w in words}) == len(words) else None
+
+
 def check_reading(raw: Mapping, quote: str | None) -> tuple[bool, dict]:
     """(valid, the reading with its values as floats). Invalid: a value that is no number, a value the quote does not
     state, a count of values that does not fit the comparator, or a unit the quote does not write (case matters: mPa
@@ -157,6 +172,14 @@ def check_reading(raw: Mapping, quote: str | None) -> tuple[bool, dict]:
         "strength": raw["strength"],
         "subject": subject_clip(raw.get("subject")),
     }
+    words = text_alternatives(raw_values) if comparator == "one_of" else None
+    if (
+        words is not None
+    ):  # alternatives that are words: each must be in the quote, exactly as written (checked by code)
+        reading["values"] = words
+        reading["unit"] = None
+        folded = _fold_words(quote)
+        return all(_fold_words(w) in folded for w in words), reading
     nums = [_number(v) for v in raw_values]
     if any(n is None for n in nums):
         return False, reading
@@ -180,6 +203,16 @@ def reading_problem(reading: Mapping, quote: str | None) -> str | None:
     number: a bare "statement" of a numeric rule is not a reading of it)."""
     text = " ".join(str(quote or "").split())
     values = list(reading.get("values") or [])
+    if values and all(
+        isinstance(v, str) for v in values
+    ):  # words: each in the quote as written
+        if reading.get("comparator") != "one_of" or text_alternatives(values) is None:
+            return "value_not_in_quote"
+        return (
+            None
+            if all(_fold_words(w) in _fold_words(text) for w in values)
+            else "value_not_in_quote"
+        )
     if not all(numparse.value_in_text(v, text) for v in values):
         return "value_not_in_quote"
     unit = str(reading.get("unit") or "").strip()
@@ -197,6 +230,15 @@ def _same_numbers(a: Sequence[float], b: Sequence[float]) -> bool:
         math.isclose(x, y, rel_tol=1e-9, abs_tol=0.0)
         for x, y in zip(sorted(a), sorted(b), strict=True)
     )
+
+
+def _same_values(a: Sequence[Any], b: Sequence[Any]) -> bool:
+    """Numbers agree by `_same_numbers`; words agree as the same set (case and spacing folded); a number and a word never."""
+    if any(isinstance(v, str) for v in (*a, *b)):
+        return all(isinstance(v, str) for v in (*a, *b)) and {
+            _fold_words(v) for v in a
+        } == {_fold_words(v) for v in b}
+    return _same_numbers(a, b)
 
 
 def units_agree(a: str | None, b: str | None) -> bool:
@@ -222,7 +264,7 @@ def readings_agree(a: Mapping, b: Mapping) -> list[str]:
     out = []
     if a["comparator"] != b["comparator"]:
         out.append("comparator")
-    if not _same_numbers(a["values"], b["values"]):
+    if not _same_values(a["values"], b["values"]):
         out.append("values")
     if (a["values"] or b["values"]) and not units_agree(a.get("unit"), b.get("unit")):
         out.append("unit")

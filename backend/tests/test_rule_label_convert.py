@@ -245,3 +245,24 @@ def test_a_lab_field_not_on_the_list_is_needs_human_in_the_converter(tmp_path):
         rows[0]["state"] == "needs_human"
         and rows[0]["disagreement"] == "field_not_listed"
     )
+
+
+def _lab(state, disagreement):
+    import sqlite3
+
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    return c.execute(
+        "SELECT ? AS state, ? AS disagreement", (state, disagreement)
+    ).fetchone()
+
+
+def test_only_a_row_the_lab_held_for_the_quantity_guard_alone_may_be_promoted():
+    from app.rule_label_convert import _held_only_for_the_quantity_guard as held
+
+    assert held(_lab("needs_human", "no_number_reading"))
+    assert not held(_lab("needs_human", "no_number_reading,kind"))
+    assert not held(_lab("needs_human", "kind"))
+    assert not held(_lab("needs_human", None))
+    assert not held(_lab("needs_human", "lab_not_approved"))
+    assert not held(_lab("quote_not_found", "no_number_reading"))
