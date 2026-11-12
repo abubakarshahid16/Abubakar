@@ -7,6 +7,7 @@ checksum, so the same id is the same file). Lines are compared on the class BEFO
 
 A DECISION is "Proven by code" (Pass or Fail) or an "AI verdict, two readers agree" met / not met (owner, 12 Nov 2026; `wording.decisions_of`);
 "AI thinks" is not one. A changed line is "of which decisions" when either its old or its new class is one.
+A steadiness number of a run stored before this change keeps its old meaning: "AI thinks" was counted as a decision then.
 """
 
 from __future__ import annotations
