@@ -22,6 +22,9 @@ describe("familyOf", () => {
     expect(familyOf(row({ document_number: "SAES-A-105" }))).toBe("SAES");
     expect(familyOf(row({ filename: "API_610_2021.pdf" }))).toBe("API");
     expect(familyOf(row({ filename: "x.pdf", title: "ASME B31.3 piping" }))).toBe("ASME");
+    // the number outranks the title and the file name; the earliest word in one text wins
+    expect(familyOf(row({ document_number: "ISO 9001", title: "Quality, see API 610", filename: "api.pdf" }))).toBe("ISO");
+    expect(familyOf(row({ title: "ISO 9001 (see API 610)" }))).toBe("ISO");
     expect(familyOf(row({ filename: "ISO-9001.pdf" }))).toBe("ISO");
     expect(familyOf(row({ filename: "NACE MR0175.pdf" }))).toBe("NACE");
   });

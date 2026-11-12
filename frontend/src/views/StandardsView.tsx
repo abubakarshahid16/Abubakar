@@ -83,6 +83,7 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
 
   const matches = searchStandards(load.standards, query);
   const groups = groupByFamily(matches);
+  const familyTotals = new Map(groupByFamily(load.standards).map((g) => [g.family, g.rows.length]));
 
   return (
     <div className="flex flex-col gap-4">
@@ -129,7 +130,12 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
             return (
               <section key={group.family} aria-label={`${group.family} standards`} className="flex flex-col gap-2">
                 <h3 className="text-sm font-medium opacity-80">
-                  {group.family} <span className="font-normal opacity-70">({group.rows.length.toLocaleString()})</span>
+                  {group.family}{" "}
+                  <span className="font-normal opacity-70">
+                    ({query.trim() !== ""
+                      ? `${group.rows.length.toLocaleString()} of ${(familyTotals.get(group.family) ?? group.rows.length).toLocaleString()} match`
+                      : group.rows.length.toLocaleString()})
+                  </span>
                 </h3>
                 <ul className="flex flex-col gap-2">
                   {shown.map((standard) => (
@@ -224,7 +230,7 @@ function StandardRow({
         <p className="mt-1 text-xs opacity-60">File: {standard.filename}</p>
       )}
       <p className="mt-1 text-xs opacity-70">
-        {standard.effective_date && <>Effective {standard.effective_date} · </>}
+        {standard.effective_date && <>Effective {formatWhen(standard.effective_date)} · </>}
         {/* ZERO IS A REAL ANSWER and is worded as one. "0 requirements" would
             read as "this standard requires nothing". */}
         {standard.requirement_count === 0
@@ -478,7 +484,7 @@ function RevisionsTab({
         {rows.map((row) => (
           <li key={row.id} className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-mono">{row.revision ?? "revision not recorded"}</span>
-            {row.effective_date && <span className="opacity-70">{row.effective_date}</span>}
+            {row.effective_date && <span className="opacity-70">{formatWhen(row.effective_date)}</span>}
             {row.superseded ? (
               <span className="text-warn-500">superseded</span>
             ) : (

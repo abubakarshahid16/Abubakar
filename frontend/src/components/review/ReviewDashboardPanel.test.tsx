@@ -262,20 +262,21 @@ describe("V1: the recent table reads plainly", () => {
     expect(screen.queryByText(new RegExp(tags.join(", ")))).toBeNull();
   });
 
-  it("says 'No findings table' for a run with no findings and no code, not an empty row", async () => {
+  it("shows 0 for a run that found 0, never a made-up label", async () => {
     dashboard.mockResolvedValue({
       ok: true,
       data: data({ recent: [run({ findings_total: 0, by_status: {}, recommended_code: null, equipment_tags: [] })] }),
     });
     panel();
-    expect(await screen.findByText("No findings table")).toBeInTheDocument();
+    const row = (await screen.findByText("drum.pdf")).closest("tr") as HTMLElement;
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(/^0$/);
+    expect(screen.queryByText(/No findings table|AI review/)).toBeNull();
   });
 
   it("keeps the count when there are findings", async () => {
     panel();
     expect(await screen.findByText("1,580")).toBeInTheDocument();
-    expect(screen.queryByText("No findings table")).toBeNull();
-  });
+      });
 
   it("writes the run time in the one date format", async () => {
     panel();

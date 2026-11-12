@@ -297,11 +297,8 @@ export function ReviewDashboardPanel(
                       {equipmentLabel(run.equipment_tags)}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
-                      {run.findings_total === 0 && !run.recommended_code ? (
-                        // An AI-review run has lines, not findings: say so, not an empty row. (The run itself does not say
-                        // which kind it is, so this says only what the row shows: nothing in the findings table.)
-                        <span>No findings table</span>
-                      ) : run.findings_total.toLocaleString()}
+                      {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. */}
+                      {run.findings_total.toLocaleString()}
                       {run.by_status.NON_COMPLIANT ? (
                         <span className={`ml-1 rounded-full border px-1.5 ${statusTone("NON_COMPLIANT")}`}>
                           {run.by_status.NON_COMPLIANT} {statusLabel("NON_COMPLIANT").toLowerCase()}

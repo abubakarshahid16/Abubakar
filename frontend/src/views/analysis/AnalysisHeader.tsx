@@ -12,12 +12,15 @@ export function AnalysisHeader() {
           Ask one engineering question, choose the work to run, and inspect only cited document evidence.
           Public evidence is isolated from private document context.
         </p>
-      <div className="mt-4 grid gap-2 md:grid-cols-3">
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
         <Rule title="Evidence rule">Document claims render only when citations resolve to page evidence.</Rule>
         <Rule title="Recommendation rule">Advisory output is separate from document facts and carries engineer review.</Rule>
-        <Rule title="Market rule" warning>Public market rows are sample data unless a governed provider is enabled.</Rule>
       </div>
       </MoreText>
+      {/* An honesty label (rule 4: samples are labelled samples): always visible, never folded. */}
+      <div className="mt-3 max-w-3xl">
+        <Rule title="Market rule" warning>Public market rows are sample data unless a governed provider is enabled.</Rule>
+      </div>
     </header>
   );
 }

@@ -7,7 +7,6 @@
  * before every Needs-you row was opened and "Sign waits" fails; drop the J
  * handler and the keyboard test fails.
  */
-import { formatWhen } from "../format/when";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -206,7 +205,7 @@ describe("CrsSheetView", () => {
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
     const headers = within(screen.getByRole("grid")).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Tier", "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status", "Actions"]);
-    expect(screen.getByTestId("crs-footer")).toHaveTextContent(`Review of ${formatWhen("2026-10-15T08:18:00Z")}`);
+    expect(screen.getByTestId("crs-footer")).toHaveTextContent(/Review of 15 Oct 2026, \d{2}:\d{2}/);
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages not fully read: 2 of 12 (4, 9).");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Standards used: 1 (API 520.pdf); missing from the library: 1 (API 526).");
     expect(screen.queryByTestId("crs-rejected")).not.toBeInTheDocument();

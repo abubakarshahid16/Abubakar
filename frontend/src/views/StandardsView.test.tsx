@@ -100,6 +100,7 @@ describe("the library list: search and families", () => {
     fireEvent.change(screen.getByLabelText("Search the standards library"), { target: { value: "610" } });
     expect(screen.queryByRole("region", { name: "SAES standards" })).toBeNull();
     expect(screen.getByTestId("standards-shown").textContent).toBe("1 of 4 in your library match");
+    expect(screen.getByRole("region", { name: "API standards" })).toHaveTextContent("API (1 of 1 match)");
   });
 
   it("draws a long family in part and shows the rest on request", async () => {

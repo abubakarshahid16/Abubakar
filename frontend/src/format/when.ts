@@ -10,7 +10,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const HAS_ZONE = /(Z|[+-]\d{2}(:?\d{2})?)$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
-function parse(value: string): Date | null {
+export function parseWhen(value: string): Date | null {
   const text = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}/.test(text)) return null;
   if (DATE_ONLY.test(text)) {
@@ -26,7 +26,7 @@ function parse(value: string): Date | null {
 /** "12 Nov 2026, 14:35" (or "12 Nov 2026" for a bare calendar day). */
 export function formatWhen(value: string | null | undefined): string {
   if (value === null || value === undefined || value === "") return "";
-  const date = parse(value);
+  const date = parseWhen(value);
   if (!date) return value;
   const day = `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
   if (DATE_ONLY.test(value.trim())) return day;
@@ -38,4 +38,11 @@ export function formatWhen(value: string | null | undefined): string {
 /** The same for a Date or epoch milliseconds (the page's own "refreshed" stamp). */
 export function formatWhenDate(value: Date | number): string {
   return formatWhen(new Date(value).toISOString());
+}
+
+/** "12 Nov 2026" (the day in the reader's zone); "" when there is no readable date. */
+export function formatDay(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = parseWhen(value);
+  return date ? `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}` : "";
 }

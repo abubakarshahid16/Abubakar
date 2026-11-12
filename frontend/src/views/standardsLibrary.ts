@@ -16,11 +16,22 @@ const FAMILY_WORDS: ReadonlyArray<readonly [Family, RegExp]> = [
   ["NACE", /(^|[^a-z])nace([^a-z]|$)/i],
 ];
 
-/** The family of a standard: read from its number, then its file name, then its title. "Other" when none says. */
+/** The family whose word stands EARLIEST in one text ("ISO 9001 (see API 610)" is ISO), or null. */
+function familyIn(text: string): Family | null {
+  let best: { family: Family; at: number } | null = null;
+  for (const [family, pattern] of FAMILY_WORDS) {
+    const m = pattern.exec(text);
+    if (m && (best === null || m.index < best.at)) best = { family, at: m.index };
+  }
+  return best ? best.family : null;
+}
+
+/** The family of a standard: read from its stored NUMBER first, then its title, then its file name. "Other" when none says. */
 export function familyOf(s: Pick<StandardSummary, "document_number" | "filename" | "title">): Family {
-  for (const text of [s.document_number, s.filename, s.title]) {
+  for (const text of [s.document_number, s.title, s.filename]) {
     if (!text) continue;
-    for (const [family, pattern] of FAMILY_WORDS) if (pattern.test(text)) return family;
+    const family = familyIn(text);
+    if (family) return family;
   }
   return "Other";
 }

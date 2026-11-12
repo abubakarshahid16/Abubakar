@@ -24,4 +24,9 @@ describe("Analysis header", () => {
     expect(evidence.closest("[hidden]")).not.toBeNull();
     expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument();
   });
+  it("keeps the sample-data market rule visible without opening More", () => {
+    render(<AnalysisHeader />);
+    const market = screen.getByText(/Public market rows are sample data/);
+    expect(market.closest("[hidden]")).toBeNull();
+  });
 });
