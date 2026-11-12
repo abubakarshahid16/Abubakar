@@ -15,6 +15,9 @@ from . import (
     review_point_decisions as decisions_mod,
 )
 from . import (
+    review_points_notes as notes_mod,
+)
+from . import (
     review_points as rp,
 )
 from .db import connect
@@ -223,6 +226,8 @@ def assemble(paper_id: str, scope) -> dict:
         rp.ai_points_of_run(conn, ai_run, paper_id, readable) if ai_run else ([], [])
     )
     rc_pts = _rule_points(rc_run, paper_id, scope) if rc_run else []
+    if ai_run and not rc_run:  # the AI review is the only reviewer: its notes are points of the one list (a rule check lists its own)
+        ai_pts += notes_mod.notes_of_run(ai_run, paper_id, scope, not_held)
     names = _names(decisions_mod.people(paper_id))
     add_pts = [
         decisions_mod.added_point(r, names.get(r["added_by"]) or r["added_by"])

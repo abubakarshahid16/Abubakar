@@ -169,9 +169,8 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
     )
     for line in calc.checklist_lines(results, page_texts=pages):
         made.append(wording.final_cap(line, line, tier_lookup, paper_kind=kind.kind))
-    for (
-        line
-    ) in made:  # stored BEFORE the first reader call: a run that stops early keeps them
+    # stored BEFORE the first reader call: a run that stops early keeps them
+    for line in made:
         store(line, None)
     by_class = Counter(ln.get("verdict_class") for ln in made)
     return made, {
