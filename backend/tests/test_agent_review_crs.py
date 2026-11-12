@@ -582,10 +582,21 @@ def test_the_status_fills_are_defined_once_with_four_colours():
 
 
 def test_a_cell_that_starts_with_an_equals_sign_is_text_not_a_formula():
-    line = mk("R-1", "Fail", "Fail", paper_quote="=1+1", field="=SUM(A1)")
-    data = crs_layout.build_layout_crs(WB.layout_view([line], META, "internal"))
-    ws = openpyxl.load_workbook(io.BytesIO(data))["CRS"]
-    assert all(c.data_type != "f" for row in ws.iter_rows() for c in row)
+    """The drawing code stores every string as text, whatever the caller hands over (a second defence beside `_cell`)."""
+    view = WB.layout_view([mk("R-1", "Fail", "Fail")], META, "internal")
+    view["rows"] = [["=1+1"] * 10]
+    view["header"] = [("Project:", "=SUM(A1)")]
+    view["evidence"]["rows"][0][2] = "=HYPERLINK(1)"
+    ws = openpyxl.load_workbook(io.BytesIO(crs_layout.build_layout_crs(view)))
+    assert all(
+        c.data_type != "f"
+        for sheet in ws.worksheets
+        for row in sheet.iter_rows()
+        for c in row
+    )
+    assert any(
+        c.value == "=1+1" for row in ws["CRS"].iter_rows() for c in row
+    )  # the text is kept as it came
 
 
 def test_run_counts_are_counts_only_with_a_denominator():
