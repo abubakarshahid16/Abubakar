@@ -22,6 +22,7 @@ from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
 from . import crs_ai_cell as crs_ai_cell_mod
+from . import review_point_decisions as review_point_decisions_mod
 from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
 from . import crs_mapping as crs_mapping_mod
@@ -277,6 +278,7 @@ from .api import deliverables as api_deliverables  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import review_points as api_review_points  # noqa: E402
 from .api import review_start as api_review_start  # noqa: E402
 from .api import review_templates as api_review_templates  # noqa: E402
 from .api import run_standards as api_run_standards  # noqa: E402
@@ -289,6 +291,7 @@ for _r in (api_documents, api_document_classification, api_document_files, api_a
 app.include_router(auth_session_mod.router)
 app.include_router(api_run_summary.router)
 app.include_router(api_review_start.router)
+app.include_router(api_review_points.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
 app.include_router(api_crs_archive.router)
@@ -2708,8 +2711,8 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
         row["comment"] = "\n".join(p for p in (row.get("comment") or "", line) if p)
 
 
-def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
-                 ) -> tuple[list[dict], dict, str, str]:
+def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal",
+                 apply_point_decisions: bool = True) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
 
     Returns (rows, meta, submittal filename, date stamp). A run the caller may
@@ -2851,6 +2854,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
                 crs_mapping_mod.carry_issued_wording(row, record, _display_names)
     _replaced_numbers(crs_scope, rows)
     crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
+    if apply_point_decisions and settings.review_page_v2_enabled:  # 12 Nov (switch on): the sheets hold the kept, edited and added points, never a removed one
+        review_point_decisions_mod.apply_to_rows(
+            submittal_id, rows, _display_names(review_point_decisions_mod.people(submittal_id)))
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO: a new run raises the same comment
     # again as an unconfirmed draft; it is kept (a new run may be right), but
     # the engineer is never asked twice blind: its byline names who rejected
@@ -3264,10 +3270,32 @@ def _crs_issue_gate(review_run_id: str, scope: access.AccessScope) -> dict:
         page_ledger_mod.run_reader(outcome),
     )
     final = bool(run.get("engineer_final_code"))
+    points_read = None
+    if settings.review_page_v2_enabled:  # the redesigned page (12 Nov): every point decided, on top of today's checks
+        from . import review_point_sync, review_points_service
+
+        try:
+            undecided, total = review_points_service.undecided(run["submittal_document_id"], scope)
+            split = review_point_sync.disagreements(run["submittal_document_id"], review_run_id)
+            points_read = True
+        except Exception as exc:  # noqa: BLE001 - FAIL CLOSED: points that cannot be read are never counted as "nothing undecided"
+            import logging
+
+            logging.getLogger(__name__).warning("sign gate: the points could not be read (%s)", type(exc).__name__)
+            points_read, undecided, split = False, 0, []
+            gate["blockers"].insert(0, "the points of this review could not be read, so it cannot be signed yet")
+            gate["issuable"] = False
+        if undecided:
+            gate["blockers"].insert(0, f"{undecided} of {total} points are not decided yet")
+            gate["issuable"] = False
+        if split:  # the two decision records must name the same answer; if they ever do not, nothing is signed
+            gate["blockers"].append(
+                f"the two decision records disagree on {len(split)} point(s), so this cannot be signed until an engineer decides them again")
+            gate["issuable"] = False
     if not final:
         gate["blockers"].insert(0, "an engineer has not recorded the final code")
     return {"review_run_id": review_run_id, **gate,
-            "issuable": gate["issuable"] and final, "final_code_recorded": final}
+            "issuable": gate["issuable"] and final, "final_code_recorded": final, "points_read": points_read}
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/issue-gate",
@@ -3342,22 +3370,36 @@ def decide_crs_open_finding(
     if not is_finding and not crs_issue_mod.is_open_row_key(rows, finding_id):  # #986
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id in this run"))
+    if not settings.review_page_v2_enabled:  # OFF: exactly as before the redesigned page
+        try:
+            record = crs_issue_mod.decide_finding(
+                review_run_id, finding_id, body.decision or "", reason=body.reason, actor=actor,
+                reason_code=body.reason_code, click_id=body.click_id)
+        except crs_issue_mod.IssueError as exc:
+            raise HTTPException(status_code=422, detail=errors.safe_error(
+                errors.INVALID_PARAMETER, str(exc))) from exc
+        changes = crs_issue_mod.finding_changes(body.decision, actor, review_mod.now_iso())
+        for fid in crs_issue_mod.group_of(rows, finding_id) if is_finding else []:
+            review_mod.update(fid, changes, actor_user_id=actor)
+        _mint_crs_numbers(review_run_id, scope)
+        return record
+    from . import review_point_sync
+
+    state = review_point_sync.NEW_OF_OLD.get(body.decision or "")
+    if state is None:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "a finding is accepted or rejected"))
     try:
-        record = crs_issue_mod.decide_finding(
-            review_run_id,
-            finding_id,
-            body.decision or "",
-            reason=body.reason,
-            actor=actor,
-            reason_code=body.reason_code,
-            click_id=body.click_id,
-        )
-    except crs_issue_mod.IssueError as exc:
+        # ONE transaction for both decision records and every finding behind the row (12 Nov 2026: the two can never disagree)
+        record = review_point_sync.record_rule_decision(
+            submittal_review_mod.get_review_run(
+                review_run_id, allowed_document_ids=scope.allowed_document_ids)["submittal_document_id"],
+            review_run_id, finding_id, state, actor=actor,
+            finding_ids=crs_issue_mod.group_of(rows, finding_id) if is_finding else [],
+            reason=body.reason, reason_code=body.reason_code, click_id=body.click_id, old_door=True)
+    except (crs_issue_mod.IssueError, review_point_decisions_mod.PointRefused) as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
-    changes = crs_issue_mod.finding_changes(body.decision, actor, review_mod.now_iso())
-    for fid in crs_issue_mod.group_of(rows, finding_id) if is_finding else []:
-        review_mod.update(fid, changes, actor_user_id=actor)
     _mint_crs_numbers(review_run_id, scope)
     return record
 
@@ -3396,6 +3438,9 @@ def issue_review_crs(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
     open_count = agent_open_points_mod.open_points(connect(), review_run_id)
+    # the redesigned page: every point is decided (the gate above refused otherwise), so the AI review's points ARE read
+    # ... but only when the points list was really built (a gate that could not read it already refused above)
+    ai_review_read = ai_review_read or (settings.review_page_v2_enabled and gate.get("points_read") is True)
     if not ai_review_read:
         if open_count:
             raise HTTPException(status_code=409, detail=errors.safe_error(
@@ -3405,6 +3450,10 @@ def issue_review_crs(
                                    actor=scope.user_id or "unrestricted",
                                    ai_open_points=open_count,
                                    ai_review_acknowledged=None if open_count is None else ai_review_read)
+    if settings.review_page_v2_enabled:  # the AI review's contractor copy is signed with it, and frozen the same way
+        from . import review_points_service
+
+        review_points_service.archive_ai_contractor_copy(review_run_id, actor=scope.user_id or "unrestricted")
     return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
                                                "X-Issued-Sha256": record["sha256"]})
 
