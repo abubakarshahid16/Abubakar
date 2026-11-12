@@ -427,7 +427,7 @@ def test_a_comment_is_never_cut_after_a_bare_number_or_a_clause_number(tail):
 
     pad = "word " * 60
     for text in (pad + "design pressure 10 " + tail + " " + "x " * 40, pad + "see clause 4.1.2. " + tail + " " + "x " * 40,
-                 pad + "tag PSV-101 " + tail + " " + "x " * 40):  # fmt: skip
+                 pad + "tag INV-VAL-1 " + tail + " " + "x " * 40):  # fmt: skip
         for limit in range(len(pad) + 10, len(pad) + 50):
             head, rest = q.split_comment(text, limit)
             assert (
