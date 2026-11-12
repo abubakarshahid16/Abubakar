@@ -136,7 +136,7 @@ describe("HowReviewedView on a full run", () => {
 
     // 1. pages: totals, lists and the source of each
     expect(screen.getByTestId("pages-total")).toHaveTextContent("5");
-    expect(screen.getByTestId("pages-total")).toHaveTextContent("from page_coverage.pages_total");
+    expect(screen.getByTestId("pages-total")).toHaveTextContent("from the page record: pages in the document");
     expect(screen.getByTestId("pages-code")).toHaveTextContent("3");
     expect(screen.getByTestId("pages-code")).toHaveTextContent("pages 1-3");
     expect(screen.getByTestId("pages-ai")).toHaveTextContent("3");
@@ -148,7 +148,7 @@ describe("HowReviewedView on a full run", () => {
     expect(screen.getByTestId("pages-no-ocr")).toHaveTextContent("1");
     expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("2");
     expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("pages 4-5");
-    expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("from page_coverage.pages_ai_not_read");
+    expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("from the page record: pages the AI reader did not read");
     expect(screen.getByTestId("pages-ai-not-read-reasons")).toHaveTextContent("Page 4: the ollama reader timed out on this page");
     expect(screen.getByTestId("pages-reading")).toHaveTextContent("incomplete");
     expect(screen.getByTestId("pages-meaning")).toHaveTextContent(
@@ -170,7 +170,7 @@ describe("HowReviewedView on a full run", () => {
     expect(screen.getByTestId("clauses-not-applicable")).toHaveTextContent("4,362");
     expect(screen.getByTestId("clauses-repeats")).toHaveTextContent("15");
     expect(screen.getByTestId("clauses-not-used")).toHaveTextContent("7");
-    expect(screen.getByTestId("clauses-not-used")).toHaveTextContent("from requirement_split.not_used");
+    expect(screen.getByTestId("clauses-not-used")).toHaveTextContent("from the rule count: not used");
     expect(screen.getByTestId("clauses-not-checked-reasons")).toHaveTextContent("standard not in library");
     expect(screen.getByTestId("clauses-not-checked-reasons")).toHaveTextContent("12");
     expect(screen.getByTestId("clauses-not-applicable-reasons")).toHaveTextContent("other equipment");

@@ -28,7 +28,7 @@ export interface StandardsRecord {
   heldEngineer?: ReviewRunHeldForConfirmation | null;
 }
 
-const STANDARDS_SOURCE = "the run's standards record (GET /api/reviews/runs/{id}/standards)";
+const STANDARDS_SOURCE = "the run's standards record";
 
 /** The stored per-standard counts the run carries, by standard id. */
 function storedCounts(run: ReviewRunSummary, id: string): string | null {
@@ -77,9 +77,9 @@ export function StandardsSection({ run, record, error }: {
         <Fact label="Standards in scope" testId="standards-in-scope"
           fact={{ value: run.standards_in_scope ?? null, source: "standards_in_scope" }} />
         <Fact label="Cited by the document and in the library" testId="standards-cited"
-          fact={{ value: cited ? cited.length : null, source: `${STANDARDS_SOURCE}, selection_method "referenced"` }} />
+          fact={{ value: cited ? cited.length : null, source: `${STANDARDS_SOURCE}, cited by the document` }} />
         <Fact label="Cited by the document but missing from the library" testId="standards-missing-count"
-          fact={{ value: record ? record.missing.length : null, source: `${STANDARDS_SOURCE}, missing_references` }}
+          fact={{ value: record ? record.missing.length : null, source: `${STANDARDS_SOURCE}, missing references` }}
           detail="- their clauses were not checked" />
       </FactList>
       {error !== null && (

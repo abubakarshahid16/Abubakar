@@ -67,7 +67,7 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
           rows={top(c.doesNotApplyReasons)} source="requirement_split.does_not_apply_reasons" />
       </div>
       <p className="text-sm text-slateish-300" data-testid="clauses-applicability">
-        How "does not apply" was decided (from applicability):{" "}
+        How "does not apply" was decided:{" "}
         {applicability
           ? (applicability.equipment_unsure
             ? `${applicability.equipment_unsure} `
@@ -85,7 +85,7 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
         </p>
       ) : (
         <p className="text-sm text-slateish-300" data-testid="clauses-coverage-line">
-          Clause coverage as the engine stored it (from clause_coverage.line):{" "}
+          Clause coverage as the engine stored it:{" "}
           {run.clause_coverage ? run.clause_coverage.line : NOT_RECORDED}
           {run.clause_coverage && !run.clause_coverage.adds_up && (
             <span className="text-warn-500"> The stored counts do not add up; the engine flagged this itself.</span>

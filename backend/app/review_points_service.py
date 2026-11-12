@@ -176,6 +176,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
             finding = None
         sides = _sides(finding, scope) if finding else {}
         p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding))
+        p["_book_docs"] = _book_docs_of_row(row, finding, p)
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
             bool(row.get("engineer_rejected")),
@@ -199,6 +200,53 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
             ):
                 out.append(rp.removed_stub(finding, ctx, strength=_strength(finding)))
     return out
+
+
+def _book_docs_of_row(row: dict, finding: dict | None, point: dict) -> list[str]:
+    """Every rule book (document id) the row's findings cite, in order, without repeats: a row that cites several clauses, or several
+    books, is one point that counts once for each book."""
+    docs: list[str] = []
+    if finding and finding.get("standard_document_id"):
+        docs.append(finding["standard_document_id"])
+    for fid in row.get("finding_ids") or []:
+        other = review_mod.get(fid) if fid != (finding or {}).get("id") else None
+        if other and other.get("standard_document_id"):
+            docs.append(other["standard_document_id"])
+    return list(dict.fromkeys(docs))
+
+
+def _stem(filename: str | None) -> str | None:
+    """A rule book's name from its file name: the stem (the same rule the AI reviewer uses for its rule book labels)."""
+    return Path(filename).stem.strip() or None if filename else None
+
+
+def resolve_books(points: list[dict], readable: frozenset[str]) -> None:
+    """Give each point its rule books by IDENTITY: `books` = [{id, name}] of the books it cites that the caller may read (the name is
+    the book's own file name, not a string made of its clause and page), `rule_book` = the first one's name. A book the caller may not
+    read is counted by the listing, never named (rule 5). Points that cite no book have an empty `books`."""
+    ids = {d for p in points for d in p.get("_book_docs") or [] if d in readable}
+    names: dict[str, str] = {}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        for r in connect().execute(
+            f"SELECT id, filename FROM documents WHERE id IN ({marks})", sorted(ids)
+        ):
+            if _stem(r["filename"]):
+                names[r["id"]] = _stem(r["filename"])
+    for p in points:
+        books = [
+            {"id": d, "name": names[d]}
+            for d in p.get("_book_docs") or []
+            if d in readable and d in names
+        ]
+        p["books"] = books
+        p["no_book"] = not (p.get("_book_docs") or p.get("_book_doc"))  # cites no rule book at all
+        if books:
+            p["rule_book"] = books[0]["name"]
+        elif p.get("_book_docs") or p.get("_book_doc"):
+            p["rule_book"], p["clause"] = None, None  # held but not readable (or not found): not named
+        else:
+            p["rule_book"] = None  # no identity, no chip: a display string is never parsed into a book
 
 
 def _names(ids) -> dict[str, str]:
@@ -229,6 +277,7 @@ def assemble(paper_id: str, scope) -> dict:
         for r in decisions_mod.added(paper_id)
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
+    resolve_books(points, readable)
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)

@@ -302,13 +302,13 @@ def test_a_rule_book_the_caller_may_not_read_is_counted_never_named():
     ai_run(doc, [mk("R-1", "Fail", "Fail"), mk("R-3", "Query", "Fail", why="a b")])
     allowed = points_of(_client(doc, "doc_std"), doc)
     blind = points_of(_client(doc), doc)  # the caller may read the paper only
-    assert [b["name"] for b in allowed["counts"]["rule_books"]] == ["STD-1"]
+    assert [b["name"] for b in allowed["counts"]["rule_books"]] == ["STD-A-001"]
     assert (
         blind["counts"]["rule_books"] == []
         and blind["counts"]["other_rule_books_points"] == 2
     )
     assert all(p["rule_book"] is None and p["clause"] is None for p in blind["points"])
-    assert "STD-1" not in json.dumps(blind)
+    assert "STD-1" not in json.dumps(blind) and "STD-A-001" not in json.dumps(blind)
 
 
 def test_view_page_targets_the_existing_page_image_route():

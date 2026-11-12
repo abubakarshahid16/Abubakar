@@ -14,8 +14,17 @@ export const TILE_LABELS: Record<(typeof TILE_ORDER)[number], string> = {
 
 const usd = (n: number) => `USD ${Number.isInteger(n) ? n : n.toFixed(2)}`;
 
+/** U5: Claude cannot run now (the spend ledger holds a standing refusal): the plain reason, or null when nothing stands in the way. */
+export function claudeDownWords(plan: ReviewPlan): string | null {
+  const r = plan.claude_standing_refusal;
+  return r && r.words ? `Claude is not available now (${r.words})` : null;
+}
+
 /** "Engine: Claude. Text of this paper and of 4 rule books will leave this computer." The first line of the engine line. */
 export function engineWords(plan: ReviewPlan): string {
+  const down = claudeDownWords(plan);
+  if (down && plan.choice === "automatic") return `${down}, so Automatic runs on this computer.`;
+  if (down && plan.choice === "claude") return `${down}, so this choice cannot run now.`;
   if (plan.refused) return plan.refused.endsWith(".") ? plan.refused : `${plan.refused}.`;
   const onClaude = plan.parts.filter((p) => p.engine === "claude");
   const name = onClaude.length ? "Claude" : "this computer";
@@ -28,7 +37,7 @@ export function engineWords(plan: ReviewPlan): string {
 /** "Cost: about USD 0.50, limit USD 15" (the last review's real cost, when there is one) or "Cost: limit USD 15". Null: nothing is sent. */
 export function costWords(plan: ReviewPlan): string | null {
   const limit = plan.cost.at_most_usd;
-  if (limit == null) return null;
+  if (limit == null || (claudeDownWords(plan) && plan.choice === "automatic")) return null;
   const last = plan.cost.last_review_usd;
   return last != null ? `Cost: about ${usd(last)}, limit ${usd(limit)}` : `Cost: limit ${usd(limit)}`;
 }
@@ -75,6 +84,21 @@ export function placeWords(p: ReviewPoint): string {
   const page = p.page != null ? `page ${p.page}` : "";
   const book = p.rule_book ? (p.clause ? `${p.rule_book}, clause ${p.clause}` : p.rule_book) : "";
   return [page, book].filter(Boolean).join(" · ");
+}
+
+/** The place of a group of alike points: the pages they stand on, listed once, then the rule book and clause they share. */
+export function groupPlaceWords(points: ReviewPoint[]): string {
+  const pages = [...new Set(points.map((p) => p.page).filter((n): n is number => n != null))].sort((a, b) => a - b);
+  const first = points[0];
+  const book = first.rule_book ? (first.clause ? `${first.rule_book}, clause ${first.clause}` : first.rule_book) : "";
+  const where = pages.length ? `${pages.length === 1 ? "page" : "pages"} ${pages.join(", ")}` : "";
+  return [where, book].filter(Boolean).join(" · ");
+}
+
+/** The tags a point's name carried, as the opened point says them. Empty when it had none. */
+export function tagsWords(p: ReviewPoint): string {
+  const n = p.tags?.length ?? 0;
+  return n === 0 ? "" : `Applies to: ${n} tag${n === 1 ? "" : "s"}`;
 }
 
 /** The words of the state of a decided point, with who decided (the AI's view stays the AI's until a person keeps it). */

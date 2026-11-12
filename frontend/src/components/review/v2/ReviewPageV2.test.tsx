@@ -124,8 +124,15 @@ describe("1 the header", () => {
     const line = await screen.findByTestId("v2-kind-line");
     await waitFor(() => expect(line).toHaveTextContent("pressure relief valve"));
     expect(line).toHaveTextContent("12 pages");
-    expect(line).toHaveTextContent("kind decided by the system (a guess)");
+    // ONE line says the guess once: the chip says it, the line does not repeat it.
     expect(screen.getByTestId("kind-chip")).toHaveTextContent("Datasheet?");
+    expect(line.textContent ?? "").not.toMatch(/kind decided by/);
+    expect((line.textContent ?? "").match(/guess/gi)).toHaveLength(1);
+  });
+  it("a confirmed kind says who decided it", async () => {
+    api.ofDocument.mockResolvedValue(ok({ document_kind: "datasheet", document_kind_state: "confirmed", equipment_type: "pressure_relief_valve" }));
+    mount(); await loaded();
+    await waitFor(() => expect(screen.getByTestId("v2-kind-line")).toHaveTextContent("kind decided by an engineer"));
   });
   it("has ONE engine choice with Automatic preselected and ONE Review button; the old two buttons are not here", async () => {
     mount(); await loaded();
@@ -457,5 +464,65 @@ describe("no code words", () => {
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
     expect(text).not.toMatch(/\bR-614e60d6\b/);
     expect(hasBannedWord(text)).toBe(false);
+  });
+});
+
+describe("U5 polish: chips by book, names without tags, groups with pages, Claude not available", () => {
+  const withBooks = (over: Partial<ReviewPoint>, ids: string[]) => point({ books: ids.map((id) => ({ id, name: id === "d1" ? "Book One" : "Book Two" })), no_book: ids.length === 0, ...over });
+  const bookListing = () => listing({
+    points: [
+      withBooks({ id: "p1", name: "Set pressure" }, ["d1"]),
+      withBooks({ id: "p2", name: "Orifice", rule_book: "Book Two" }, ["d2"]),
+      withBooks({ id: "p3", name: "Capacity", rule_book: "Book One" }, ["d1", "d2"]),
+      withBooks({ id: "p4", name: "Free comment", rule_book: null, clause: null }, []),
+    ],
+    counts: { ...listing().counts, rule_books: [{ id: "d1", name: "Book One", points: 2 }, { id: "d2", name: "Book Two", points: 2 }], no_rule_book_points: 1, other_rule_books_points: 0 },
+  });
+
+  it("one chip per rule book with its real name and count, plus No rule book; a chip filters by the book's identity", async () => {
+    api.list.mockResolvedValue(ok(bookListing()));
+    mount(); await loaded();
+    const chips = screen.getByTestId("v2-books");
+    expect(within(chips).getAllByRole("button").map((b) => b.textContent)).toEqual(["All rule books", "Book One (2)", "Book Two (2)", "No rule book (1)"]);
+    fireEvent.click(within(chips).getByRole("button", { name: "Book Two (2)" }));
+    expect(screen.getAllByTestId("v2-point").map((r) => r.textContent)).toHaveLength(2); // the point that cites both books is in both chips
+    fireEvent.click(within(chips).getByRole("button", { name: "No rule book (1)" }));
+    expect(screen.getAllByTestId("v2-point")).toHaveLength(1);
+    expect(screen.getByTestId("v2-point")).toHaveTextContent("Free comment");
+  });
+
+  it("a name carries no tag list; the opened point says 'Applies to: N tags' and expands to the list", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [point({ id: "t1", name: "Set pressure", tags: ["PSV-101", "PSV-102", "PSV-103"] })] })));
+    mount(); await loaded();
+    const row = screen.getByTestId("v2-point");
+    expect(row.textContent).not.toMatch(/PSV-10/);
+    fireEvent.click(within(row).getByRole("button", { name: /Set pressure/ }));
+    const tags = screen.getByTestId("v2-tags");
+    expect(tags).toHaveTextContent("Applies to: 3 tags");
+    expect(tags.tagName).toBe("DETAILS");
+    expect(tags).toHaveTextContent("PSV-101, PSV-102, PSV-103");
+  });
+
+  it("a group lists the pages it stands on", async () => {
+    mount(); await loaded();
+    expect(screen.getByTestId("v2-group-place")).toHaveTextContent("pages 3, 4, 5, 6");
+  });
+
+  it("when Claude is not available the engine line says so, the Claude choice is disabled with the reason, and no cost is promised", async () => {
+    api.plan.mockResolvedValue(ok(plan({ claude_standing_refusal: { cause: "usage_limit", words: "the Claude account's usage limit is reached", at: "2026-11-12T14:00:00+00:00" } })));
+    mount(); await loaded();
+    const line = await screen.findByTestId("v2-engine-line");
+    expect(line).toHaveTextContent("Claude is not available now (the Claude account's usage limit is reached), so Automatic runs on this computer.");
+    expect(line.textContent).not.toMatch(/leave this computer|Cost:/);
+    const claude = screen.getByRole("radio", { name: "Claude" });
+    expect(claude).toBeDisabled();
+    expect(claude).toHaveAttribute("title", "Claude is not available now (the Claude account's usage limit is reached)");
+    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
+  });
+
+  it("with Claude available the engine line is as before", async () => {
+    mount(); await loaded();
+    expect(screen.getByRole("radio", { name: "Claude" })).toBeEnabled();
+    expect(await screen.findByTestId("v2-engine-line")).toHaveTextContent("will leave this computer");
   });
 });

@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 
 import type { ReviewPoint } from "../../../api/reviewPoints";
-import { placeWords, stateWords } from "./words";
+import { groupPlaceWords, placeWords, stateWords, tagsWords } from "./words";
 
 type Decide = (body: { point_id: string; state: "keep" | "edit" | "remove"; text?: string; reason?: string }) => Promise<boolean>;
 
@@ -99,6 +99,12 @@ function Row({ p, open, onToggle, decide, busy, onViewPage }: {
       {open && (
         <div className="mt-3 space-y-3" data-testid="v2-open-point">
           {p.action && <p className="text-sm text-slateish-100">{p.action}</p>}
+          {tagsWords(p) && (
+            <details data-testid="v2-tags" className="text-xs text-slateish-300">
+              <summary className="cursor-pointer">{tagsWords(p)}</summary>
+              <p className="mt-1 break-words text-slateish-200">{(p.tags ?? []).join(", ")}</p>
+            </details>
+          )}
           {p.route_note && <p className="text-xs text-slateish-300">{p.route_note}</p>}
           <Boxes p={p} onViewPage={onViewPage} />
           <p className="text-xs text-slateish-400">
@@ -145,7 +151,7 @@ export function PointsList({ points, decide, keepAll, busy, onViewPage }: {
               <div className="flex min-w-[14rem] flex-1 flex-col items-start gap-1">
                 <Pill p={{ ...first, pill: `${first.pill.split(" · ")[0]} · ${it.points.length} alike` }} />
                 <span className="text-slateish-100">{first.name}</span>
-                <span className="text-xs text-slateish-400">{placeWords(first)}</span>
+                <span className="text-xs text-slateish-400" data-testid="v2-group-place">{groupPlaceWords(it.points)}</span>
               </div>
               <div className="flex gap-2 text-xs">
                 <button type="button" disabled={busy || undecided.length === 0} onClick={() => void keepAll(undecided.map((q) => q.id))}

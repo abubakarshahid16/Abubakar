@@ -4,6 +4,8 @@ import type { PointsListing } from "../../../api/reviewPoints";
 import { TILE_LABELS, TILE_ORDER, firmnessLine, tileLine } from "./words";
 
 export type TileKey = (typeof TILE_ORDER)[number];
+/** The chip for points that cite no rule book. */
+export const NO_BOOK = "__none__";
 
 export function Tiles({ counts, selected, onSelect }: { counts: PointsListing["counts"]; selected: TileKey | null; onSelect: (t: TileKey | null) => void }) {
   const firm = firmnessLine(counts);
@@ -36,11 +38,19 @@ export function BookChips({ counts, selected, onSelect }: { counts: PointsListin
   return (
     <div data-testid="v2-books" role="group" aria-label="Rule books" className="flex flex-wrap gap-2">
       <button type="button" aria-pressed={selected === null} className={chip(selected === null)} onClick={() => onSelect(null)}>All rule books</button>
-      {counts.rule_books.map((b) => (
-        <button key={b.name} type="button" aria-pressed={selected === b.name} className={chip(selected === b.name)} onClick={() => onSelect(selected === b.name ? null : b.name)}>
-          {b.name} ({b.points})
+      {counts.rule_books.map((b) => {
+        const key = b.id ?? b.name; // the book's identity; the name only for an answer without one
+        return (
+          <button key={key} type="button" aria-pressed={selected === key} className={chip(selected === key)} onClick={() => onSelect(selected === key ? null : key)}>
+            {b.name} ({b.points})
+          </button>
+        );
+      })}
+      {(counts.no_rule_book_points ?? 0) > 0 && (
+        <button type="button" aria-pressed={selected === NO_BOOK} className={chip(selected === NO_BOOK)} onClick={() => onSelect(selected === NO_BOOK ? null : NO_BOOK)}>
+          No rule book ({counts.no_rule_book_points})
         </button>
-      ))}
+      )}
       {counts.other_rule_books_points > 0 && (
         <span className="px-1 text-xs text-slateish-400" title={counts.other_rule_books_note ?? undefined}>
           {counts.other_rule_books_points} on rule books you may not read
