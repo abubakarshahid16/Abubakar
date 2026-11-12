@@ -49,7 +49,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1808,
         description="the runner takes the code lines back on a resume: they are capped to Query again",
         path=_K,
-        anchor='v.get("source") != calc.SOURCE',
+        anchor='str(v.get("source") or "").strip().casefold() != calc.SOURCE',
         replacement="True",
         target=_T,
         keyword="resumed_run",

@@ -18,6 +18,7 @@ Pure: no database, no model, no network. Words and ids only; no document text is
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
 
@@ -29,6 +30,8 @@ from .reader_api import _fold
 BY_CODE = (
     "decided by code"  # `agent_review_verdict.BY_CODE`; a test keeps the two equal
 )
+log = logging.getLogger(__name__)
+
 SOURCE = "code"
 COMPLIANT, NON_COMPLIANT = comparison.COMPLIANT, comparison.NON_COMPLIANT
 PASS, FAIL = "Pass", "Fail"
@@ -101,13 +104,41 @@ def _bound_next_to(quote: str, number: str) -> bool:
     return False
 
 
-def states(number: object, unit: object, quote: object) -> bool:
-    """The quote states the number (on number boundaries) and, when there is one, its unit."""
-    num = stored_text(number)
-    if not num or not numparse.value_in_text(num, quote):
+def number_stated(number: object, quote: object) -> bool:
+    """The quote states the number as its own token: the code's number reader finds it, and no letter or digit is glued to it on either side ("85" is not in
+    "x85", "PN85" or "85x"). A glued unit ("85dB") is therefore not found: a Query, never a proof."""
+    wanted = numparse.as_number(number)
+    if wanted is None:
         return False
+    text = numparse.fold(quote)
+    for n in numparse.find_numbers(text):
+        before = text[n.start - 1 : n.start] if n.start else ""
+        after = text[n.end : n.end + 1]
+        if (
+            n.value == wanted
+            and not n.joined
+            and not before.isalnum()
+            and not after.isalnum()
+        ):
+            return True
+    return False
+
+
+def unit_stated(unit: object, quote: object) -> bool:
+    """The quote states the unit as its own token: not the start of a longer unit or a basis mark ("bar" is not in "bar(g)", "barg" or "bar/h"). Case is kept
+    ("mPa" is not "MPa"). The unit's own brackets ("dB(A)") are part of the token."""
     u = stored_text(unit)
-    return not u or numparse.value_in_text(u, quote)
+    if not u:
+        return True
+    return (
+        re.search(rf"(?<![A-Za-z0-9]){re.escape(u)}(?![A-Za-z0-9(/])", str(quote or ""))
+        is not None
+    )
+
+
+def states(number: object, unit: object, quote: object) -> bool:
+    """The quote states the number and, when there is one, its unit, each as its own token."""
+    return number_stated(number, quote) and unit_stated(unit, quote)
 
 
 def paper_reason(observed: Mapping | None, quote: object) -> str | None:
@@ -137,6 +168,104 @@ def clause_reason(requirement: Mapping | None, quote: object) -> str | None:
     return None
 
 
+DIRECTION_WHY = "the clause's wording does not show the direction of the limit"
+_SENSE = {
+    ">=": "lower",
+    ">": "lower",
+    "min": "lower",
+    "<=": "upper",
+    "<": "upper",
+    "max": "upper",
+    "=": "equal",
+}
+#: words that follow a figure and give its direction ("90 dB(A) maximum", "5 bar or more"): the one small list this module adds to the comparator
+#: vocabulary of `claims` (which reads only what stands BEFORE a figure).
+_AFTER_DIRECTION = (
+    (
+        re.compile(
+            r"^\s*(?:[a-z\u00b0%()/0-9.]{1,12}\s+)?(?:or\s+(?:less|lower|fewer|below)|maximum|max\.?)\b",
+            re.IGNORECASE,
+        ),
+        "upper",
+    ),
+    (
+        re.compile(
+            r"^\s*(?:[a-z\u00b0%()/0-9.]{1,12}\s+)?(?:or\s+(?:more|higher|greater|above)|minimum|min\.?)\b",
+            re.IGNORECASE,
+        ),
+        "lower",
+    ),
+)
+_RANGE_WORD = re.compile(r"\bbetween\s*$", re.IGNORECASE)
+_RANGE_JOIN = re.compile(
+    r"^\s*(?:\S{0,12}\s+)?(?:and|to|-|\u2013|\u2014)\s", re.IGNORECASE
+)
+
+
+def _sense_before(prefix: str) -> str | None:
+    """The direction a comparator phrase at the END of `prefix` gives: the repo's one comparator vocabulary (`claims.comparator_ending`)."""
+    from . import claims
+
+    return _SENSE.get(claims.comparator_ending(prefix.strip()) or "")
+
+
+def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
+    """Why the clause quote does not show the DIRECTION of the stored limit; None when it does. The stored comparator (at least, at most, equal) or
+    range must agree with a direction word the quote carries next to the limit's figure: before it (claims' comparator vocabulary) or after it.
+    No word, or the opposite one, is a reason. A range needs "between" before the first end, or a joining "and" / "to" / dash before the second."""
+    req = requirement or {}
+    text, numbers = numparse.fold(str(quote or "")), limit_numbers(req)
+    if not numbers:
+        return DIRECTION_WHY
+    found = [
+        n for n in numparse.find_numbers(text) if n.value is not None and not n.joined
+    ]
+    spots = [
+        next((n for n in found if n.value == numparse.as_number(x)), None)
+        for x in numbers
+    ]
+    if any(spot is None for spot in spots):
+        return DIRECTION_WHY
+    if len(numbers) == 2:
+        first, second = sorted(spots, key=lambda n: n.start)
+        joined = _RANGE_WORD.search(text[: first.start]) or _RANGE_JOIN.match(
+            text[first.end : second.start] + " "
+        )
+        return None if joined else DIRECTION_WHY
+    want = _SENSE.get(str(req.get("operator") or ""))
+    spot = spots[0]
+    got = _sense_before(text[: spot.start])
+    if got is None:
+        after = text[spot.end :]
+        got = next((sense for rx, sense in _AFTER_DIRECTION if rx.match(after)), None)
+    return None if want is not None and got == want else DIRECTION_WHY
+
+
+SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
+
+
+def subject_reason(
+    rule_field: object, requirement: Mapping | None, quote: object
+) -> str | None:
+    """Why the clause quote is not ABOUT the rule's field, in words; None when it is. Every content word of the rule's own field name must stand in the
+    quote BEFORE the limit's figure: "The set pressure shall not exceed 110 %" is about set pressure; "Liquid service valves ... at 10 % or less
+    overpressure" is about liquid service valves, and a limit stated for a scope the code does not know is not applied to every paper."""
+    from . import agent_bind
+
+    words = agent_bind.content_words(str(rule_field or "").replace("_", " "))
+    text, numbers = numparse.fold(str(quote or "")), limit_numbers(requirement or {})
+    spots = [
+        n
+        for x in numbers
+        for n in numparse.find_numbers(text)
+        if n.value is not None and n.value == numparse.as_number(x) and not n.joined
+    ]
+    if not words or not spots:
+        return SUBJECT_WHY
+    before = text[: min(n.start for n in spots)]
+    return None if words <= agent_bind.content_words(before) else SUBJECT_WHY
+
+
 def recompute(requirement: Mapping, observed: Mapping) -> str | None:
     """The comparison made again on the stored requirement and value: COMPLIANT or NON_COMPLIANT, else None."""
     try:
@@ -149,7 +278,11 @@ def recompute(requirement: Mapping, observed: Mapping) -> str | None:
             },
             submittal_facts=None,
         )
-    except Exception:  # noqa: BLE001 - a comparison that cannot be redone proves nothing
+    except Exception as exc:  # noqa: BLE001 - a comparison that cannot be redone proves nothing
+        log.warning(
+            "code proof: the comparison could not be made again (%s)",
+            type(exc).__name__,
+        )
         return None
     status = got.get("status")
     return (
@@ -216,6 +349,21 @@ def _flags(line: Mapping) -> Mapping:
     return got if isinstance(got, Mapping) else {}
 
 
+def context_of(page_text: object, quote: object) -> str:
+    """The lines the quote lies on and the line directly above the first of them, as the page holds them: what the exit needs to ask the label test again."""
+    own, above = guards._own_and_above(page_text, quote)
+    return "\n".join(([above] if above else []) + own)
+
+
+def field_ok(line: Mapping) -> bool:
+    """The label test asked again from the line's own stored lines: the fact's field label stands on the quote's own line or the label line directly
+    above it (`agent_review_pass_guards.belongs`, the Pass guard's own rule)."""
+    label, context = str(line.get("field") or "").strip(), line.get("paper_context")
+    if not (label and isinstance(context, str) and context.strip()):
+        return False
+    return guards.belongs({"field_roles": [label]}, line.get("paper_quote"), context)[0]
+
+
 def numeric_proven(line: Mapping) -> bool:
     checked = _flags(line)
     req, obs = line.get("proof_requirement"), line.get("proof_fact")
@@ -226,7 +374,11 @@ def numeric_proven(line: Mapping) -> bool:
         and checked.get("clause") is True
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
+        and field_ok(line)
         and clause_reason(req, line.get("clause_quote")) is None
+        and direction_reason(req, line.get("clause_quote")) is None
+        and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
+        is None
         and _verdict_matches(line, recompute(req, obs))
     )
 

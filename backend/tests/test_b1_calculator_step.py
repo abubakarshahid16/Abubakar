@@ -128,10 +128,13 @@ def test_on_a_stored_fact_against_a_numeric_rule_is_a_proven_line_of_the_run_and
 
 
 def test_a_breach_is_a_proven_fail_on_the_contractor_copy(world, on):
-    frame_item(
-        comparator="<="
-    )  # the limit stays 0.2 (its clause quote must state it); read as a maximum, the 0.35 on the page breaks it
-    fact()
+    frame_item()  # at least 0.2 mm, as its clause says (the clause quote must state the limit and its direction): 0.1 on the page breaks it
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = REPLACE(text, '0.35 mm', '0.1 mm') WHERE document_id = ?",
+            (s.PAPER,),
+        )
+    fact(raw="0.1")
     run_id, job_id = start()
     run_job(job_id)
     (line,) = [v for k, v in code_lines(run_id).items() if v["word"] == "Fail"]
@@ -443,3 +446,15 @@ def test_a_located_cell_is_the_papers_quote_and_the_line_names_where_it_stands(
         line["paper_quote"] == "Coating thickness 0.35 mm"
         and line["quotes_checked"]["paper"] is True
     )
+
+
+def test_the_runner_of_a_resumed_run_never_takes_the_code_lines_as_its_own():
+    stored = {
+        "R-1": {"source": "rule", "verdict": "Pass"},
+        "R-2": {"source": "rule", "error": "x"},
+        "C-1-f": {"source": "code", "verdict": "Pass"},
+        "c-2": {"source": "CODE", "verdict": "Query"},
+    }
+    assert (
+        set(run_mod.runner_done(stored)) == {"R-1"}
+    )  # a code line has no plan item: re-capping it would turn a proven line into a Query
