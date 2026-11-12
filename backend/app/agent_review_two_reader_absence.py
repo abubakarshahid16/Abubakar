@@ -271,7 +271,9 @@ class AbsenceMixin:
                 model,
                 float(usd) / len(batch),
             )
-        self.settle_second([str(b["item"].get("item_id")) for b in batch], "two_reader_absence")
+        self.settle_second(
+            [str(b["item"].get("item_id")) for b in batch], "two_reader_absence"
+        )
 
     def _checked(
         self, item: dict, answer: dict, texts: dict[int, str]

@@ -287,9 +287,12 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         the next run asks again (never frozen)."""
         key = getattr(self._keys, "last", None)
         self._keys.last = None
-        if key is not None and self.answers is not None:
-            if any(reuse_mod.quote_failed(c) for c in checks):
-                self.answers.forget(key)
+        if (
+            key is not None
+            and self.answers is not None
+            and any(map(reuse_mod.quote_failed, checks))
+        ):
+            self.answers.forget(key)
 
     def settle_second(self, ids: Iterable[str], step: str) -> None:
         """`settle_reuse` for a second-reader batch: the quote checks its step stored on each line (`step` is the record's key)."""
