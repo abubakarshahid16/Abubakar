@@ -613,8 +613,26 @@ def _contractor_items(items: list) -> list:
     ]
 
 
-def _table(rows: list[list]) -> list[list]:
-    return [[_cell(v) for v in r] for r in rows]
+def comment_cell(value) -> str | None:
+    """The COMPANY Comments cell with its three parts on three lines: each line cleaned like any cell (whitespace, tabs, control
+    characters, never a formula), a real line break between the parts, and a full stop at the end of each part."""
+    if value is None:
+        return None
+    lines = [
+        " ".join(part.split())
+        for part in str(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
+    lines = [ln if ln[-1] in ".!?" else ln + "." for ln in lines if ln]
+    text = "\n".join(lines)
+    return " " + text if text[:1] in ("=", "+", "-", "@") else text
+
+
+def _table(rows: list[list], lines_col: int | None = None) -> list[list]:
+    """Every cell through `_cell` (one line, never a formula); the one `lines_col` (the comment) keeps its line breaks."""
+    return [
+        [comment_cell(v) if i == lines_col else _cell(v) for i, v in enumerate(r)]
+        for r in rows
+    ]
 
 
 def _other_sheet(others: list, missing: list, paper: str, first_no: int) -> dict:
@@ -681,7 +699,8 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
             [
                 _row(n, ln, paper, st, o, by)
                 for n, (ln, st, o) in enumerate(items, start=1)
-            ]
+            ],
+            lines_col=3,
         ),
         "statuses": [st for _l, st, _o in items],
     }
