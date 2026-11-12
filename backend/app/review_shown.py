@@ -93,18 +93,44 @@ def unshown_specifications(conn, run_id: str, document_ids) -> frozenset[str]:
     return frozenset(specs - (shown_ids(conn, run_id) or frozenset()))
 
 
-def cited_unshown(conn, run_id: str) -> int:
-    """How many specifications this run cites (applied to it) that were not on its shown list. For the run's note."""
-    try:
-        rows = conn.execute(
+def _cited_ids(conn, run_id: str) -> set[str]:
+    """Every document the run may carry beside its paper: the standards applied to it, the rules the AI reviewer asked (its plan
+    items) and the project papers of a general review (requested and accepted). A source whose table does not exist adds none."""
+    ids: set[str] = set()
+    queries = (
+        (
             "SELECT standard_document_id FROM review_applicable_standards"
-            " WHERE review_run_id = ? AND COALESCE(included, 1) = 1",
-            (run_id,),
-        ).fetchall()
-        return len(
-            unshown_specifications(
-                conn, run_id, [r["standard_document_id"] for r in rows]
-            )
-        )
+            " WHERE review_run_id = ? AND COALESCE(included, 1) = 1"
+        ),
+        (
+            "SELECT standard_document_id FROM agent_review_rule"
+            " WHERE run_id = ? AND asked = 1 AND standard_document_id IS NOT NULL"
+        ),
+    )
+    for sql in queries:
+        try:
+            ids |= {str(r[0]) for r in conn.execute(sql, (run_id,)) if r[0]}
+        except sqlite3.OperationalError:
+            continue
+    try:
+        row = conn.execute(
+            "SELECT requested_json, project_json FROM agent_review_general WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    for raw in (row or ()):
+        try:
+            got = json.loads(raw or "[]")
+        except ValueError:
+            continue
+        ids |= {str(d) for d in got if isinstance(d, str) and d} if isinstance(got, list) else set()
+    return ids
+
+
+def cited_unshown(conn, run_id: str) -> int:
+    """How many specifications this run carries beside its paper (see `_cited_ids`) that were not on its shown list. For the
+    run's note."""
+    try:
+        return len(unshown_specifications(conn, run_id, _cited_ids(conn, run_id)))
     except sqlite3.Error:
         return 0

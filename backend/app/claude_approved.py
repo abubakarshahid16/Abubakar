@@ -541,6 +541,11 @@ def _unshown_specifications(ids) -> frozenset[str]:
         return frozenset(ids)
 
 
+def unshown_specifications(ids) -> frozenset[str]:
+    """The declared specifications the review run in force holds because no list shown before the start names them."""
+    return _unshown_specifications(ids)
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
