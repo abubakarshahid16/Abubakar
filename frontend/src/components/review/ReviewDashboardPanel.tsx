@@ -11,13 +11,15 @@
  * review", not a bare 0. And the Needs Attention tile lists WHY, because a
  * tile reading "9" is a number a reader has to trust.
  */
+import { formatWhen } from "../../format/when";
+import { equipmentLabel } from "../../format/equipment";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
 import {
   LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
-  truncationNote, whenLabel,
+  truncationNote,
 } from "./reviewFormat";
 
 export interface ReviewDashboardPanelProps {
@@ -289,12 +291,13 @@ export function ReviewDashboardPanel(
                   <tr key={run.review_run_id} className="border-t border-ink-800">
                     <td className="px-3 py-2 text-slateish-200">
                       {run.submittal_filename}
-                      <span className="block text-slateish-500">{whenLabel(run.created_at)}</span>
+                      <span className="block text-slateish-500">{formatWhen(run.created_at)}</span>
+                    </td>
+                    <td className="px-3 py-2 text-slateish-300" title={run.equipment_tags.join(", ") || undefined}>
+                      {equipmentLabel(run.equipment_tags)}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
-                      {run.equipment_tags.join(", ")}
-                    </td>
-                    <td className="px-3 py-2 text-slateish-300">
+                      {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. */}
                       {run.findings_total.toLocaleString()}
                       {run.by_status.NON_COMPLIANT ? (
                         <span className={`ml-1 rounded-full border px-1.5 ${statusTone("NON_COMPLIANT")}`}>

@@ -73,7 +73,9 @@ carries the client's name; only the owner can rename it.
    `MATCH_ENGINE`, `VISION_READER_ENGINE`, `CRS_AI_WORDING_ENGINE`,
    `REVIEW_AI_CHECK_ENGINE`, `AI_CLAUSE_REVIEW_ENGINE`, `AI_DIVISION_SCOPE_ENGINE`,
    `AI_ENGINEERING_REVIEW_PASS_ENGINE` and, for the AI reviewer (rule review and
-   general review) alone, `AGENT_REVIEW_ENGINE` - owner decision 2026-10-12, #501;
+   general review) alone, `AGENT_REVIEW_ENGINE`, and for the chat alone `CHAT_MODEL_ENGINE`
+   (the picker offers Claude under per_task only when it says claude; the reader still
+   chooses per request) - owner decision 2026-10-12, #501;
    AI reviewer 12 Nov 2026; under per_task a normal review whose own engine
    settings are all local runs exactly as under ollama, no local-engine bar; owner
    decision of 12 Nov 2026, recorded on #1584 (comment 6806441133, item 5), to be

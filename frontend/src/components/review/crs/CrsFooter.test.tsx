@@ -68,10 +68,10 @@ describe("CrsFooter plain words and the signed line", () => {
   it("a signed review says Signed on <date>, never Not signed yet", () => {
     const at = "2026-10-16T10:00:00Z";
     const text = footerText(runOf({ crs_issued_at: at }));
-    expect(text).toContain(`Signed on ${new Date(at).toLocaleString()}.`);
+    expect(text).toMatch(/Signed on 16 Oct 2026, \d{2}:\d{2}\./);
     expect(text).not.toContain("Not signed yet");
     // Given by the caller, it wins.
-    expect(footerText(runOf({}), at)).toContain(`Signed on ${new Date(at).toLocaleString()}.`);
+    expect(footerText(runOf({}), at)).toMatch(/Signed on 16 Oct 2026, \d{2}:\d{2}\./);
   });
 
   it("an unsigned review still says Not signed yet", () => {
@@ -81,7 +81,7 @@ describe("CrsFooter plain words and the signed line", () => {
   it("says the review's date and the counts in plain words, without the run id", () => {
     const at = "2026-10-15T08:18:00Z";
     const text = footerText(runOf({ completed_at: at }));
-    expect(text).toContain(`Review of ${new Date(at).toLocaleString()}`);
+    expect(text).toMatch(/Review of 15 Oct 2026, \d{2}:\d{2}/);
     expect(text).not.toContain("run-made-up");
     expect(text).toContain("On this sheet: 3 comments, 1 needs your judgement, 2 met the standard, 0 not applicable, 1 for another document");
     expect(text).not.toMatch(/Rows on this sheet|\bRun\b/);

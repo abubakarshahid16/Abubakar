@@ -850,6 +850,9 @@ export interface PageCoverage {
     status: string; pages_total: number | null; incomplete_pages: number[];
     reasons: Record<string, boolean>; failed_pages?: Record<string, string>; notes?: string[];
   } | null;
+  /** An AI review whose page record was copied from an earlier review of the same paper: that review and when it was made. Absent when this run's own record stands. */
+  carried_from_run?: string | null;
+  carried_from_at?: string | null;
 }
 
 /** The four DEFAULT codes of master plan section 15. The labels a run offers

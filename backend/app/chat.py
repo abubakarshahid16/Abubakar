@@ -863,7 +863,7 @@ def ask(
         """The permission-filtered conversation for the model (chat_model)."""
         if not always and tier != "generated":
             return ""
-        local = (model == chat_model.LOCAL) or not chat_model.claude_ready()[0]
+        local = not chat_model.claude_will_answer(model)
         turns = chat_model.history(
             conversation_id, allowed_document_ids=history_allowed,
             before_ordinal=user_message["ordinal"],
@@ -1054,7 +1054,7 @@ def ask(
                     "Your documents don't cover this, so this answer is general knowledge."]}
     elif route_kind == intent_mod.GENERAL and routed["small_talk"]:
         result = chat_answers.small_talk(
-            routed["small_talk"],
+            routed["small_talk"], model=model,
             examples=intent_mod.example_questions(allowed_document_ids=allowed_document_ids))
         result["question"] = original
     elif route_kind == intent_mod.GENERAL:

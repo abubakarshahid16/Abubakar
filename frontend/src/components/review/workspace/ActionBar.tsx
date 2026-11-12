@@ -15,6 +15,7 @@ import { verdictPieces } from "./numbers";
 import { type PlainError, plainError } from "./plainError";
 import { PlainErrorLine } from "./PlainErrorLine";
 import { CrsLook } from "./sign/CrsLook";
+import { RULE_CHECK_STEPS_TITLE } from "../agent/plainWords";
 
 /** The data-count name of each step's number (the shared counts). */
 const STEP_COUNT: Record<Exclude<ActionStepId, "sign" | "code" | "preview">, "missingStandards" | "unreadPages" | "undecided"> = {
@@ -77,7 +78,7 @@ function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: 
   );
 }
 
-export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, onCodeRecorded, draftWaiting = 0 }: ActionBarProps) {
+export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, onCodeRecorded, draftWaiting = 0, aiReview = null }: ActionBarProps) {
   const [pagesOpen, setPagesOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -93,6 +94,10 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
   const [reread, setReread] = useState<Reread>({ busy: false, message: null, error: null });
   const pagesStep = steps.find((s) => s.id === "pages");
   const signHelp = steps.find((s) => s.id === "sign")?.detail ?? null;
+  // ONE step is "Next": the first one that can be done now and is not done.
+  // A step whose count is not known yet is not offered as the next one.
+  const nextId = steps.find((s) => s.id !== "preview" && !s.done && s.enabled
+    && !((s.id === "standards" || s.id === "pages") && s.count === null))?.id ?? null;
 
   const press = (step: ActionStep) => {
     if (step.id === "sign") { void signOff.sign(); return; }
@@ -119,7 +124,14 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
     <section role="region" aria-label="What you need to do" data-testid="ws-action-bar"
       className="space-y-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">What you need to do</h2>
-      <p data-testid="ws-verdict" className="text-base text-slateish-100">
+      <p className="text-sm font-semibold text-slateish-200" data-testid="ws-steps-owner">{RULE_CHECK_STEPS_TITLE}</p>
+      {aiReview && (
+        <p data-testid="ws-ai-headline" className="text-base text-slateish-100">
+          <span className="font-semibold">{aiReview.headline}</span> {aiReview.next}
+        </p>
+      )}
+      <p data-testid="ws-verdict" className={aiReview ? "text-sm text-slateish-300" : "text-base text-slateish-100"}>
+        {aiReview && "Rule check: "}
         {verdictPieces(numbers).map((piece, i) => (piece.count
           ? <span key={i} data-count={piece.count}>{piece.text}</span>
           : <span key={i}>{piece.text}</span>))}
@@ -129,7 +141,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
           line on screens up to 1440px wide. */}
       <ol aria-label="Steps, in order" className="flex flex-wrap items-center gap-2">
         {steps.map((step, i) => (
-          <li key={step.id} data-step-item={step.id} className="flex items-center gap-1">
+          <li key={step.id} data-step-item={step.id} className="flex flex-wrap items-center gap-1">
             {/* The step number is drawn beside the button, not in its name:
                 the list already says the order to a screen reader. */}
             <span aria-hidden="true" data-step-number={i + 1}
@@ -152,6 +164,14 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
               {step.done && step.id !== "sign" && <span aria-label="done">{"✓"}</span>}
               <StepLabel step={step} />
             </button>
+            {step.id === nextId && (
+              <span data-testid="ws-step-next" className="rounded-full bg-signal-500/20 px-2 py-0.5 text-xs font-semibold text-signal-300">Next</span>
+            )}
+            {!step.enabled && !step.done && step.id !== "preview" && (
+              <span data-testid={`ws-step-why-${step.id}`} className="basis-full text-xs text-slateish-400">
+                {step.detail ?? "Waits for the steps before it."}
+              </span>
+            )}
           </li>
         ))}
       </ol>

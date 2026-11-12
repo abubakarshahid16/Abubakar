@@ -68,11 +68,15 @@ def vocabulary() -> dict:
 def _confirmable() -> dict:
     """The cue file's kinds, plus "Test record" with PAPER_KIND_FIRST_ENABLED on
     (owner order 11 Nov step 2: a paper kind of the closed list; no cues, so
-    routing never suggests it). Off: as on main."""
+    routing never suggests it), and "Calculation" (K1b: a paper kind with a rule label kind of its own). Off: as on main."""
     from .config import settings
 
     on = settings.paper_kind_first_enabled
-    extra = {"test_record": {"label": "Test record"}} if on else {}
+    extra = (
+        {"test_record": {"label": "Test record"}, "calculation": {"label": "Calculation"}}
+        if on
+        else {}
+    )
     return {**vocabulary()["kinds"], **extra}
 
 

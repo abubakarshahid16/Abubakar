@@ -34,7 +34,21 @@ def test_without_a_page_every_run_comes_back_with_its_total():
     body = _client(doc).get("/api/reviews/runs").json()
     assert set(_ids(body)) == runs
     assert body["total"] == 3
-    assert body["limit"] is None and body["offset"] == 0
+    assert body["limit"] == 100 and body["offset"] == 0
+
+
+def test_a_list_longer_than_the_default_page_is_cut_and_total_says_so():
+    """V1b: no limit = 100 runs, never every run; `total` is the denominator, so a caller can see it was cut and page on."""
+    doc = _submittal()
+    for _ in range(105):
+        _run(doc)
+    client = _client(doc)
+    body = client.get("/api/reviews/runs").json()
+    assert len(body["runs"]) == 100 and body["total"] == 105
+    rest = client.get("/api/reviews/runs?offset=100").json()
+    assert len(rest["runs"]) == 5
+    assert set(_ids(body)) | set(_ids(rest)) == {r["review_run_id"] for r in body["runs"] + rest["runs"]}
+    assert len(set(_ids(body)) | set(_ids(rest))) == 105
 
 
 def test_pages_cover_every_run_once_in_list_order_and_keep_the_total():

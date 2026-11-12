@@ -12,6 +12,7 @@ import {
   CLASS_ORDER, CLASS_STYLE, DATA_ERROR_NOTE, GENERAL_CLASS_ORDER, MODEL_WORDS_MARK, NOT_REVIEWED_NOTE, PART_ORDER, PART_WORDS,
   lineView, tierWords,
 } from "./agentWords";
+import { lineName, plainReason } from "./plainWords";
 
 function Block({ title, mark, border, lines, onOpen, mode }: {
   title: string; mark: string; border: string; lines: AgentLine[]; onOpen: (itemId: string) => void; mode: AgentMode;
@@ -28,21 +29,22 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
           <caption className="sr-only">{title}</caption>
           <thead className="text-xs text-slateish-400">
             <tr>
-              <th scope="col" className="py-1 pr-3">Line</th><th scope="col" className="pr-3">Word</th>
+              <th scope="col" className="py-1 pr-3">Point</th><th scope="col" className="pr-3">Word</th>
               {general && <th scope="col" className="pr-3">Part</th>}<th scope="col" className="pr-3">Page</th><th scope="col" className="pr-3">Rule book</th>
               <th scope="col" className="pr-3">Clause</th><th scope="col" className="pr-3">Rule approval</th>
-              <th scope="col">Reason</th>
+              <th scope="col" className="pr-3">Reason</th><th scope="col" className="text-slateish-500">Id</th>
             </tr>
           </thead>
           <tbody>
             {lines.map((line) => {
               const view = lineView(line, mode);
+              const name = lineName(line);
               return (
                 <tr key={line.item_id} className="border-t border-ink-700 align-top">
                   <td className="py-1 pr-3">
                     <button type="button" onClick={() => onOpen(line.item_id)}
-                      aria-label={`Open the trace of line ${line.item_id}`}
-                      className="text-signal-300 underline-offset-2 hover:underline">{line.item_id}</button>
+                      aria-label={`Open the trace of ${name.title}`} title={`id ${name.id}`}
+                      className="text-left text-signal-300 underline-offset-2 hover:underline">{name.title}</button>
                   </td>
                   <td className="pr-3" data-testid={`word-${line.item_id}`}>
                     {view.word ?? view.klass ?? "unknown class"}
@@ -53,10 +55,12 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
                   <td className="pr-3">{line.rule_book}</td>
                   <td className="pr-3">{line.clause}</td>
                   <td className="pr-3">{tierWords(line.verdict_class, line.rule_tier)}</td>
-                  <td className="break-words">
-                    {line.reason}
+                  <td className="whitespace-pre-line break-words pr-3" data-testid={`reason-${line.item_id}`}>
+                    {/* a comment of three lines (the file's own text) is shown as it is; any other reason in plain words */}
+                    {line.reason?.includes("\n") ? line.reason : plainReason(line.reason)}
                     {line.text_source === "the model's words" && <span className="block text-xs text-slateish-400" data-testid={`model-words-${line.item_id}`}>{MODEL_WORDS_MARK}</span>}
                   </td>
+                  <td className="break-all text-xs text-slateish-500" data-testid={`id-${line.item_id}`}>{name.id}</td>
                 </tr>
               );
             })}

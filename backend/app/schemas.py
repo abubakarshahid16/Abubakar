@@ -183,7 +183,7 @@ class Document(BaseModel):
     )
     uploaded_at: str
     indexed_at: str | None = None
-    classification: "DocumentClassification | None" = Field(
+    classification: DocumentClassification | None = Field(
         None, description="this document's classification, carried on the "
                           "list so the Documents page makes ONE request, not "
                           "one per document. Same shape as "
@@ -1092,6 +1092,35 @@ class DocumentKindUpdate(BaseModel):
 class DocumentKindVocabulary(BaseModel):
     kinds: list[dict]
     counts: dict
+
+
+class DocumentReviewKind(BaseModel):
+    """GET /api/documents/{id}/review-kind: the kind the AI reviewer would decide, how, and which review it would get."""
+
+    document_id: str
+    kind: str
+    known: bool
+    source: str
+    decided_by: str
+    guess: bool
+    candidates: list[str] = []
+    not_sure_choose: bool = False
+    confirmed: bool
+    review: str
+    rules_of_kind: list[str]
+    checklist: str
+    equipment_type: str | None = None
+    choices: list[dict]
+    correct_with: str
+
+
+class TransmittalCheck(BaseModel):
+    """GET /api/documents/{id}/transmittal-check: documents listed on a transmittal against documents held (code only, no AI)."""
+
+    document_id: str
+    rows: list[dict]
+    counts: dict
+    boundary: str
 
 
 class DocumentKindRouted(BaseModel):
@@ -2452,6 +2481,9 @@ class CrsIssuedCopy(BaseModel):
     size_bytes: int
     issued_by: str
     issued_at: str
+    #: U2: the run's AI review at that moment: how many lines were open, and whether the signer said they had read them. Null for a run with no AI review (and for a copy issued before this was kept).
+    ai_open_points: int | None = None
+    ai_review_acknowledged: bool | None = None
 
 
 class CrsIssuedCopyList(ListPage):

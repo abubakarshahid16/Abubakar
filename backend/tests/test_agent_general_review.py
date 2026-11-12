@@ -815,11 +815,13 @@ def test_defect_a_the_whole_text_of_a_line_is_stored_and_written_never_cut_at_20
     cells = [
         c.value
         for row in load_workbook(world / "out-a" / "crs-internal.xlsx")[
-            "General review"
+            "Evidence"
         ].iter_rows()
         for c in row
     ]
-    assert long_what in cells
+    assert (
+        long_what in cells
+    )  # the whole text, on the Evidence sheet (never in the comment)
 
 
 @pytest.mark.parametrize(
@@ -1278,19 +1280,23 @@ def test_contractor_and_comment_only_copies_are_empty_whatever_the_lines_are(job
     agent_review_jobs.run(job_id, "w")
     folder = agent_review_jobs.run_dir(run_id)
     for name in ("crs-contractor.xlsx", "crs-scoring-comment-only.xlsx"):
-        ws = load_workbook(folder / name).active
-        assert [[c.value for c in row] for row in ws.iter_rows()] == [
-            ["general review: internal only"]
-        ]
+        wb = load_workbook(folder / name)
+        assert wb.sheetnames == ["CRS"]
+        rows = [[c.value for c in row] for row in wb["CRS"].iter_rows()]
+        head = next(i for i, r in enumerate(rows) if r[0] == "Item No")
+        assert (
+            rows[head + 1 :] == []
+        )  # nine columns, no rows: a general review proves no Fail
+        assert len([c for c in rows[head] if c]) == 9
     internal = load_workbook(folder / "crs-internal.xlsx")
-    assert set(internal.sheetnames) == {
-        "General review",
-        "Queries",
-        "Not checked",
-        "Papers used",
-        "Dropped (counts only)",
-    }
-    assert [r[0].value for r in internal["Papers used"].iter_rows(min_row=10)] == [PROJ]
+    assert internal.sheetnames == [
+        "CRS",
+        "Not reviewed or not applicable",
+        "Evidence",
+        "Notes",
+    ]
+    notes = {r[0].value: r[1].value for r in internal["Notes"].iter_rows(min_row=2)}
+    assert notes["Papers used"] not in ("", core.NO_PROJECT_PAPER)
 
 
 def test_a_resumed_job_does_not_pay_twice_and_replaces_its_own_lines(job_world):
@@ -2068,3 +2074,191 @@ def test_the_preflights_of_both_reviews_refuse_an_old_shape_before_any_call(job_
         agent_review_jobs.preflight(conn, PAPER, reading(kind="datasheet"), {}, {})
         == problem
     )
+
+
+# ---------------------------------------------------------------- order 13: the general review writes the ONE layout
+
+
+def _one_layout_lines():
+    note = core.finalize_line(
+        {"part": 3, "verdict_class": core.CLASS_NOTE, "subkind": core.SUB_SELF, "line_id": "n1", "document": "p.pdf",
+         "text": "the interval differs between two sections",
+         "quote_a": {"document": "p.pdf", "page": 1, "text": Q_A}, "quote_b": {"document": "p.pdf", "page": 3, "text": Q_B},
+         "quotes_verified_by_code": True, "figures": "figures differ: by code"}
+    )  # fmt: skip
+    query = core.finalize_line(
+        {"part": 2, "verdict_class": core.CLASS_QUERY, "subkind": core.SUB_CHECKLIST, "line_id": "q1", "document": "p.pdf",
+         "topic": "owner of each action", "text": "checklist: owner of each action: not found in the paper"}
+    )  # fmt: skip
+    held = core.finalize_line(
+        {"part": 1, "verdict_class": core.CLASS_NOT_CHECKED, "subkind": None, "line_id": "h1", "document": "p.pdf",
+         "text": "not checked against IEC 61511, rule book not held", "rule_book": "IEC 61511"}
+    )  # fmt: skip
+    return [held, query, note]
+
+
+def test_the_general_review_writes_the_one_layout_with_the_three_part_comment(tmp_path):
+    agent_general_crs.write_all(
+        _one_layout_lines(),
+        tmp_path,
+        {"paper": "p.pdf", "run_id": "r", "date": "d"},
+        [],
+        {},
+    )
+    wb = load_workbook(tmp_path / "crs-internal.xlsx")
+    rows = [[c.value for c in r] for r in wb["CRS"].iter_rows()]
+    head = next(i for i, r in enumerate(rows) if r[0] == "Item No")
+    assert rows[head][-1] == "Status" and len([c for c in rows[head] if c]) == 10
+    body = rows[head + 1 :]
+    assert [r[-1] for r in body] == ["AI opinion", "Query"]  # never Pass, never Fail
+    note_cell, query_cell = body[0][3], body[1][3]
+    assert note_cell.startswith(
+        "The paper must agree with itself"
+    ) and note_cell.endswith("confirm or correct it.")
+    assert f'"{Q_A}", page 1' in note_cell and f'"{Q_B}", page 3' in note_cell
+    assert (
+        "not proven by code" in note_cell
+        and "Figures: figures differ: by code" in note_cell
+    )
+    assert query_cell.startswith(
+        "Contractor to confirm owner of each action"
+    )  # a question is worded so
+    assert [r[8] for r in body] == [
+        "Medium",
+        "Low",
+    ]  # no rule is mandatory in a mode with no rule book
+    assert (
+        wb["Not reviewed or not applicable"]["E2"].value
+        == "Not checked: rule book not held"
+    )
+    assert {"Evidence", "Notes"} <= set(wb.sheetnames)
+
+
+def test_the_general_review_contractor_copy_holds_nine_columns_and_no_row(tmp_path):
+    agent_general_crs.write_all(
+        _one_layout_lines(),
+        tmp_path,
+        {"paper": "p.pdf", "run_id": "r", "date": "d"},
+        [],
+        {},
+    )
+    rows = [
+        [c.value for c in r]
+        for r in load_workbook(tmp_path / "crs-contractor.xlsx")["CRS"].iter_rows()
+    ]
+    head = next(i for i, r in enumerate(rows) if r[0] == "Item No")
+    assert len([c for c in rows[head] if c]) == 9 and rows[head + 1 :] == []
+    assert not any("Query" in str(c) or "AI opinion" in str(c) for r in rows for c in r)
+
+
+def _cells(path, sheet="CRS"):
+    return [[c.value for c in r] for r in load_workbook(path)[sheet].iter_rows()]
+
+
+def test_the_contractor_copies_carry_the_datasheet_header_and_no_verdict_word(tmp_path):
+    agent_general_crs.write_all(
+        _one_layout_lines(),
+        tmp_path,
+        {"paper": "p.pdf", "run_id": "r", "date": "d"},
+        [],
+        {},
+    )
+    for name in agent_general_crs.COPY_NAMES:
+        rows = _cells(tmp_path / name)
+        labels = [r[0] for r in rows if r[0] and str(r[0]).endswith(":")]
+        assert labels == [
+            "Project:", "Document number:", "Document title:", "Revision:", "Date:", "Discipline:",
+            "Rule books used (rows shown):",
+        ]  # fmt: skip
+        text = " ".join(str(c) for r in rows for c in r if c)
+        assert (
+            "Pass" not in text
+            and "Fail" not in text
+            and "general review" not in text.lower()
+        )
+    notes = " ".join(
+        str(c) for r in _cells(tmp_path / "crs-internal.xlsx", "Notes") for c in r
+    )
+    assert (
+        "no Pass or Fail" in notes
+    )  # the explanation is on the internal Notes sheet only
+
+
+def test_the_ai_free_text_never_enters_the_comment_only_the_evidence_sheet(tmp_path):
+    lines = _one_layout_lines()
+    lines[1]["topic"] = None
+    lines[1]["text"] = "SENTINEL words of the model about the paper"
+    agent_general_crs.write_all(
+        lines, tmp_path, {"paper": "p.pdf", "run_id": "r", "date": "d"}, [], {}
+    )
+    crs = " ".join(
+        str(c) for r in _cells(tmp_path / "crs-internal.xlsx") for c in r if c
+    )
+    assert "SENTINEL" not in crs
+    ev = " ".join(
+        str(c)
+        for r in _cells(tmp_path / "crs-internal.xlsx", "Evidence")
+        for c in r
+        if c
+    )
+    assert "SENTINEL" in ev
+
+
+def test_a_quote_that_code_did_not_verify_is_never_printed_as_what_the_paper_states(
+    tmp_path,
+):
+    lines = _one_layout_lines()
+    lines[2]["quotes_verified_by_code"] = False
+    comment = agent_general_crs.comment_of(lines[2], "AI opinion")
+    assert Q_A not in comment and "The paper states" not in comment
+    assert agent_general_crs.NO_QUOTE in comment  # the neutral sentence, exactly
+
+
+def test_the_neutral_sentence_is_exactly_the_one_ordered(tmp_path):
+    assert (
+        agent_general_crs.NO_QUOTE
+        == "The AI reviewer holds no verified quote from the paper for this point."
+    )
+    ln = core.finalize_line(
+        {"part": 5, "verdict_class": core.CLASS_NOTE, "subkind": core.SUB_ENGINEERING, "line_id": "x",
+         "text": "t", "quotes_verified_by_code": True}
+    )  # fmt: skip
+    assert (
+        agent_general_crs.comment_of(ln, "AI opinion")
+        .split("\n")[1]
+        .startswith(
+            "The AI reviewer holds no verified quote from the paper for this point."
+        )
+    )
+
+
+def test_the_header_names_no_rule_book_that_was_never_checked(tmp_path):
+    agent_general_crs.write_all(
+        _one_layout_lines(),
+        tmp_path,
+        {"paper": "p.pdf", "run_id": "r", "date": "d"},
+        [],
+        {},
+    )  # the lines hold one rule book we do NOT hold ("IEC 61511")
+
+    def books(path):
+        for row in _cells(path):
+            if row[0] and str(row[0]).startswith("Rule books used"):
+                return row[2]
+        raise AssertionError("no books row")
+
+    assert not books(tmp_path / "crs-contractor.xlsx")  # no rows: blank
+    assert not books(
+        tmp_path / "crs-internal.xlsx"
+    )  # no answered line used a book: blank
+    notes = " ".join(
+        str(c) for r in _cells(tmp_path / "crs-internal.xlsx", "Notes") for c in r
+    )
+    assert "IEC 61511" in notes  # the not-held book stays on the Notes sheet
+    lines = _one_layout_lines()
+    lines[2]["rule_book"] = "INV-BOOK-1"  # an answered line that used a held book
+    agent_general_crs.write_all(
+        lines, tmp_path / "b", {"paper": "p.pdf", "run_id": "r", "date": "d"}, [], {}
+    )
+    assert books(tmp_path / "b" / "crs-internal.xlsx") == "INV-BOOK-1"
+    assert not books(tmp_path / "b" / "crs-contractor.xlsx")

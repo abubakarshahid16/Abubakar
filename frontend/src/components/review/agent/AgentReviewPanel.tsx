@@ -11,10 +11,11 @@ import { AgentLines } from "./AgentLines";
 import { AgentSummary } from "./AgentSummary";
 import { AgentTrace } from "./AgentTrace";
 import { downloadAgentCrs } from "./downloadAgentCrs";
+import { CONTRACTOR_CRS_LINE, INTERNAL_CRS_LINE } from "./plainWords";
 
 export const NOT_AGENT_RUN = "This review was not made by the AI reviewer, so there is nothing to show here.";
 
-export function AgentReviewPanel({ runId }: { runId: string }) {
+export function AgentReviewPanel({ runId, onOpenRules }: { runId: string; onOpenRules?: () => void }) {
   const [summary, setSummary] = useState<AgentRunSummary | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "none" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +55,13 @@ export function AgentReviewPanel({ runId }: { runId: string }) {
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-100">
           Download CRS, contractor copy
         </button>
-        <span className="text-xs text-slateish-400">The contractor copy holds only the failures code proved.</span>
+        <span className="text-xs text-slateish-400">{INTERNAL_CRS_LINE} {CONTRACTOR_CRS_LINE}</span>
+        {onOpenRules && (
+          <button type="button" onClick={onOpenRules} data-testid="agent-open-rules"
+            className="text-sm text-signal-300 underline-offset-2 hover:underline">
+            Rules used
+          </button>
+        )}
         {fileError && <span role="alert" className="text-xs text-red-400">{fileError}</span>}
       </div>
       <AgentLines runId={runId} onOpenTrace={setTrace} mode={summary.mode} />

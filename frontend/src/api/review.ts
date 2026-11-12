@@ -127,6 +127,10 @@ async function fetchSpreadsheet(
   };
 }
 
+/** The page sizes the two lists are asked in (the server caps them at 1000 and 200). */
+const FINDINGS_PAGE = 500;
+const RUNS_PAGE = 200;
+
 export const reviews = {
   templates: (params?: { discipline?: string; deliverable_type?: string; active_only?: boolean }) => {
     const query = new URLSearchParams();
@@ -135,14 +139,28 @@ export const reviews = {
     if (params?.active_only !== undefined) query.set("active_only", String(params.active_only));
     return request<{ templates: ReviewTemplate[] }>(`/reviews/templates${query.toString() ? `?${query.toString()}` : ""}`);
   },
-  list: (params?: { document_id?: string; status?: string; review_run_id?: string }) => {
+  /** ONE page of findings (most severe first) with `total`, the denominator. A screen that shows a page says so. */
+  listPage: (params: { document_id?: string; status?: string; review_run_id?: string } | undefined, offset: number, limit: number) => {
     const query = new URLSearchParams();
     if (params?.document_id) query.set("document_id", params.document_id);
     if (params?.status) query.set("status", params.status);
     if (params?.review_run_id) query.set("review_run_id", params.review_run_id);
-    return request<{ findings: ReviewFinding[] }>(
-      `/reviews/findings${query.toString() ? `?${query.toString()}` : ""}`,
-    );
+    query.set("limit", String(limit));
+    query.set("offset", String(offset));
+    return request<{ findings: ReviewFinding[]; total?: number }>(`/reviews/findings?${query.toString()}`);
+  },
+  /** EVERY finding for the filter: the server answers in pages, so this asks for each page and joins them. No row is lost. */
+  list: async (params?: { document_id?: string; status?: string; review_run_id?: string }): Promise<Result<{ findings: ReviewFinding[] }>> => {
+    const found: ReviewFinding[] = [];
+    for (let offset = 0; ; offset += FINDINGS_PAGE) {
+      const page = await reviews.listPage(params, offset, FINDINGS_PAGE);
+      if (!page.ok) return page;
+      found.push(...page.data.findings);
+      const total = page.data.total;
+      if (page.data.findings.length < FINDINGS_PAGE || (typeof total === "number" && found.length >= total)) {
+        return { ok: true, data: { findings: found }, response: page.response };
+      }
+    }
   },
   create: (body: ReviewFindingCreate) =>
     request<ReviewFinding>("/reviews/findings", {
@@ -166,13 +184,21 @@ export const reviews = {
   history: (id: string) =>
     request<{ events: ReviewFindingEvent[] }>(`/reviews/findings/${encodeURIComponent(id)}/history`),
   traceability: (id: string) => request<ReviewTraceability>(`/reviews/findings/${encodeURIComponent(id)}/traceability`),
-  /** Review runs, newest first, over submittals the caller may read. */
-  reviewRuns: (documentId?: string) =>
-    request<ReviewRunList>(
-      `/reviews/runs${documentId ? `?document_id=${encodeURIComponent(documentId)}` : ""}`,
-      undefined,
-      hasArrayField("runs"),
-    ),
+  /** EVERY review run (newest first) over submittals the caller may read: the server answers in pages of 200, this joins them. */
+  reviewRuns: async (documentId?: string): Promise<Result<ReviewRunList>> => {
+    const runs: ReviewRunSummary[] = [];
+    for (let offset = 0; ; offset += RUNS_PAGE) {
+      const query = new URLSearchParams({ limit: String(RUNS_PAGE), offset: String(offset) });
+      if (documentId) query.set("document_id", documentId);
+      const page = await request<ReviewRunList>(`/reviews/runs?${query.toString()}`, undefined, hasArrayField("runs"));
+      if (!page.ok) return page;
+      runs.push(...page.data.runs);
+      const total = (page.data as { total?: number }).total;
+      if (page.data.runs.length < RUNS_PAGE || (typeof total === "number" && runs.length >= total)) {
+        return { ok: true, data: { ...page.data, runs, limit: null, offset: 0 }, response: page.response };
+      }
+    }
+  },
   /** #1131: one page of the runs, newest first, with `total` - every run the
    *  caller may read - so a screen can say how many it is showing of how many. */
   reviewRunsPage: (offset: number, limit: number) =>
@@ -425,13 +451,14 @@ export const reviews = {
   exportCrs: async (
     runId: string,
     copy: "internal" | "issue" = "internal",
+    options: { aiReviewRead?: boolean } = {},
   ): Promise<Result<{ blob: Blob; filename: string }>> => {
     // Owner order 2f: "internal" keeps the AI Review Comments column;
     // "issue" is the contractor's copy, with every unconfirmed AI item removed.
     // PF5 (#885): the contractor's copy is ISSUED (POST): the server refuses
     // it while a page is unread or a finding undecided, and keeps the copy.
     const run = encodeURIComponent(runId);
-    const path = copy === "issue" ? `/reviews/runs/${run}/crs/issue` : `/reviews/runs/${run}/crs?copy=${copy}`;
+    const path = copy === "issue" ? `/reviews/runs/${run}/crs/issue${options.aiReviewRead ? "?ai_review_read=true" : ""}` : `/reviews/runs/${run}/crs?copy=${copy}`;
     return fetchSpreadsheet(path, copy === "issue" ? "POST" : "GET", `CRS_${runId}.xlsx`);
   },
   /** PF5 (#885): the contractor copies already issued for a run, newest

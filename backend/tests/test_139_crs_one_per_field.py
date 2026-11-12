@@ -240,11 +240,11 @@ def test_one_row_never_hides_a_second_question_of_the_same_clause():
 
 
 def test_single_clause_row_text_is_unchanged():
-    """A field row of ONE clause prints today's sentence, byte for byte."""
+    """A field row of ONE clause prints today's three parts (order 13: one per line)."""
     [row] = _rows([_f("a", "4.3"), _f("a2", "4.3", equipment_tag="P-102")])
     assert row["comment"] == (
-        'STD-100 (edition not recorded) cl. 4.3 (p.4): "The value shall be stated per clause 4.3." '
-        "Datasheet p.2, Corrosion allowance (P-101, P-102) is left blank. "
+        'STD-100 (edition not recorded) cl. 4.3 (p.4): "The value shall be stated per clause 4.3."\n'
+        "Datasheet p.2, Corrosion allowance (P-101, P-102) is left blank.\n"
         "Contractor to complete the field 'Corrosion allowance' (left blank)."
     )
     assert row["crs_action"] is None

@@ -165,6 +165,11 @@ def ensure_schema() -> None:
             path TEXT NOT NULL,
             issued_by TEXT NOT NULL,
             issued_at TEXT NOT NULL)""")
+        issued_columns = {r[1] for r in conn.execute("PRAGMA table_info(crs_issued_copies)")}
+        if "ai_review_acknowledged" not in issued_columns:  # U2; older rows keep NULL
+            conn.execute("ALTER TABLE crs_issued_copies ADD COLUMN ai_review_acknowledged INTEGER")
+        if "ai_open_points" not in issued_columns:  # U2; older rows keep NULL
+            conn.execute("ALTER TABLE crs_issued_copies ADD COLUMN ai_open_points INTEGER")
     ensure_indexes()
 
 
@@ -566,10 +571,20 @@ def _archive_dir() -> Path:
     return path
 
 
-def archive(review_run_id: str, workbook: bytes, filename: str, *, actor: str) -> dict:
+def archive(
+    review_run_id: str,
+    workbook: bytes,
+    filename: str,
+    *,
+    actor: str,
+    ai_open_points: int | None = None,
+    ai_review_acknowledged: bool | None = None,
+) -> dict:
     """Keep the exact bytes issued to the contractor, with their sha256.
 
-    A9/#923: the DB ROW IS WRITTEN FIRST. The old order wrote the file, then
+    U2: when the run has an AI review, the row also records how many of its lines were open at that moment
+    (`ai_open_points`) and whether the signer said they had read them (`ai_review_acknowledged`); both stay NULL for a run
+    with no AI review. A9/#923: the DB ROW IS WRITTEN FIRST. The old order wrote the file, then
     the row - a crash between them left an untracked file on disk forever,
     invisible (no error, no record, just wasted disk). Writing the row first
     means the only way to fail now is a crash between the (committed) row
@@ -591,12 +606,14 @@ def archive(review_run_id: str, workbook: bytes, filename: str, *, actor: str) -
         "path": str(path),
         "issued_by": actor,
         "issued_at": _now(),
+        "ai_review_acknowledged": None if ai_review_acknowledged is None else int(ai_review_acknowledged),
+        "ai_open_points": ai_open_points,
     }
     conn = connect()
     with conn:
         conn.execute(
             "INSERT INTO crs_issued_copies (id, review_run_id, filename, sha256, size_bytes,"
-            " path, issued_by, issued_at) VALUES (?,?,?,?,?,?,?,?)",
+            " path, issued_by, issued_at, ai_review_acknowledged, ai_open_points) VALUES (?,?,?,?,?,?,?,?,?,?)",
             tuple(row.values()),
         )
     try:

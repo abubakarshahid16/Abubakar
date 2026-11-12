@@ -251,3 +251,35 @@ describe("audit 2026-09-30: what the block counts, in plain words", () => {
     expect(within(row).queryByText("queued")).toBeNull();
   });
 });
+
+describe("V1: the recent table reads plainly", () => {
+  it("shows the first equipment tag and 'and N more', with the whole list in the tooltip", async () => {
+    const tags = Array.from({ length: 30 }, (_, i) => `TAG-${i}`);
+    dashboard.mockResolvedValue({ ok: true, data: data({ recent: [run({ equipment_tags: tags })] }) });
+    panel();
+    const cell = await screen.findByText("TAG-0 and 29 more");
+    expect(cell).toHaveAttribute("title", tags.join(", "));
+    expect(screen.queryByText(new RegExp(tags.join(", ")))).toBeNull();
+  });
+
+  it("shows 0 for a run that found 0, never a made-up label", async () => {
+    dashboard.mockResolvedValue({
+      ok: true,
+      data: data({ recent: [run({ findings_total: 0, by_status: {}, recommended_code: null, equipment_tags: [] })] }),
+    });
+    panel();
+    const row = (await screen.findByText("drum.pdf")).closest("tr") as HTMLElement;
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(/^0$/);
+    expect(screen.queryByText(/No findings table|AI review/)).toBeNull();
+  });
+
+  it("keeps the count when there are findings", async () => {
+    panel();
+    expect(await screen.findByText("1,580")).toBeInTheDocument();
+      });
+
+  it("writes the run time in the one date format", async () => {
+    panel();
+    expect(await screen.findByText(/19 Sep 2026, \d{2}:\d{2}/)).toBeInTheDocument();
+  });
+});

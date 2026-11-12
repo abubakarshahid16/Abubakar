@@ -696,10 +696,8 @@ def engineer_comment_text(group: list[dict]) -> str:
         said = ("Not answered by any field read from the datasheet"
                 + (f" ({checked})" if checked else "") + ".")
     elif len({(_provided(g), g.get("contractor_page")) for g in group}) > 1:
-        # #725 F7: the tags in one row say different things - each tag's own
-        # value and page, never the first tag's value printed for all. Once
-        # each (order 139 part 2: a field row holds one finding per clause
-        # AND tag, and a tag's value is said once).
+        # #725 F7: the tags in one row say different things - each tag's own value and page, never the first tag's
+        # value printed for all; once each (order 139 part 2: one finding per clause AND tag, a tag's value said once).
         per_tag = "; ".join(dict.fromkeys(
             f"{crs_item_series.item_name(g)} {_provided(g)}"
             + (f" ({word_pages.at(g)})" if g.get("contractor_page") else "")
@@ -713,7 +711,9 @@ def engineer_comment_text(group: list[dict]) -> str:
         # row asking two or more things says what to do once, what the sheet
         # says once, then every clause behind it (capped, with the count).
         return "\n".join([group_action(group), said, *clause_lines])
-    return f"{lead} {said} {_action(crs_blank_fields.action_leader(group), field)}"
+    todo = _action(crs_blank_fields.action_leader(group), field)
+    # order 13: what the standard requires / what the document shows / what the contractor must do, one per line
+    return "\n".join(p for p in (lead, said, todo) if p)
 
 
 def _clauses(group: list[dict]) -> dict[tuple, list[dict]]:

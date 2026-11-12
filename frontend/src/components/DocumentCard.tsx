@@ -8,6 +8,7 @@
  *    viewer, because a quality gate over-rejecting an unfamiliar layout is
  *    otherwise completely silent
  */
+import { formatWhen } from "../format/when";
 import { useDocumentReading } from "./useDocumentReading";
 import { useState } from "react";
 
@@ -259,7 +260,7 @@ export function DocumentCard({
                 read by OCR
               </>
             )}
-            {doc.indexed_at && <> · finished {doc.indexed_at.replace("T", " ").replace("Z", "")}</>}
+            {doc.indexed_at && <> · finished {formatWhen(doc.indexed_at)}</>}
           </p>
         </div>
 

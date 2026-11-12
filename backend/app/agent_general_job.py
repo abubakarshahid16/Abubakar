@@ -36,6 +36,7 @@ from . import agent_general_review as core
 from . import agent_review_gate as gate
 from . import agent_review_request as request_mod
 from . import agent_review_run as runner_mod
+from . import crs_ai_header as crs_header
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -114,7 +115,11 @@ def store_lines(conn, run_id: str, lines: list[dict]) -> None:
             )
         )
     with conn:
-        conn.execute("DELETE FROM agent_review_line WHERE run_id = ?", (run_id,))
+        # only this mode's own lines: a run that also asked the rules of its kind keeps the rule lines it stored
+        conn.execute(
+            "DELETE FROM agent_review_line WHERE run_id = ? AND json_extract(line_json, '$.general') = 1",
+            (run_id,),
+        )
         conn.executemany(
             "INSERT INTO agent_review_line (run_id, item_id, verdict_class, word, page, clause, rule_book, reason, rule_tier,"
             " line_json, trace_json, decided_at, part, text_source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -158,6 +163,7 @@ def _finish(
     accepted,
     stop,
     name,
+    combined: bool = False,
 ) -> dict:
     lines = g.lines if g else []
     store_lines(conn, run_id, lines)
@@ -167,6 +173,8 @@ def _finish(
         "date": started[:10],
         "lead_models": sorted(g.lead_models) if g else [],
         "second_models": sorted(g.second_models) if g else [],
+        "header": crs_header.document_header(conn, submittal, None),
+        "kind": kind.kind,
     }
     dropped = g.dropped.as_json() if g else {}
     crs.write_all(lines, folder, meta, accepted, dropped)
@@ -182,28 +190,35 @@ def _finish(
     spent = g is not None and sum(g.calls.values()) > 0
     stopped = _stop_text(g, stop)
     partial = bool(stopped) or bool(g and g.failures)
+    usd = round(g.runner.run_usd, 6) if spent else None
+    models = sorted(g.lead_models | g.second_models) if g else []
     with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
-            " usd, models_json, stop_reason, counts_json, items_total, partial, rule_set_changed_by, started_at, finished_at,"
-            " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
-            (
-                run_id,
-                submittal,
-                kind.kind,
-                kind.source,
-                None,
-                round(g.runner.run_usd, 6) if spent else None,
-                json.dumps(sorted(g.lead_models | g.second_models) if g else []),
-                stopped or None,
-                json.dumps(counts, default=str),
-                len(lines),
-                1 if partial else 0,
-                started,
-                core_now(),
-                json.dumps({}),
-            ),
-        )
+        if combined:
+            _merge_run_row(
+                conn, run_id, counts, usd, models, stopped, partial, len(lines)
+            )
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
+                " usd, models_json, stop_reason, counts_json, items_total, partial, rule_set_changed_by, started_at, finished_at,"
+                " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
+                (
+                    run_id,
+                    submittal,
+                    kind.kind,
+                    kind.source,
+                    None,
+                    usd,
+                    json.dumps(models),
+                    stopped or None,
+                    json.dumps(counts, default=str),
+                    len(lines),
+                    1 if partial else 0,
+                    started,
+                    core_now(),
+                    json.dumps({}),
+                ),
+            )
         conn.execute(
             "INSERT INTO agent_review_general (run_id, requested_json, project_json) VALUES (?, '[]', ?)"
             " ON CONFLICT (run_id) DO UPDATE SET project_json = excluded.project_json",
@@ -215,6 +230,66 @@ def _finish(
         "usd": round(g.runner.run_usd, 6) if spent else None,
         "partial": partial,
     }
+
+
+def _merge_run_row(
+    conn, run_id, counts, usd, models, stopped, partial, n_lines
+) -> None:
+    """A run that asked the rules of its kind FIRST has its run row already: this adds the general review to it (counts under
+    `general_review`, the spend summed, the models joined, the stop reason kept, the line total summed). Nothing is replaced."""
+    row = conn.execute(
+        "SELECT * FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    old = json.loads(row["counts_json"] or "{}") if row else {}
+    spent = [x for x in (row["usd"] if row else None, usd) if x is not None]
+    joined = sorted(
+        set(json.loads(row["models_json"] or "[]") if row else []) | set(models)
+    )
+    conn.execute(
+        "UPDATE agent_review_run SET counts_json = ?, usd = ?, models_json = ?, stop_reason = COALESCE(stop_reason, ?),"
+        " items_total = COALESCE(items_total, 0) + ?, partial = MAX(COALESCE(partial, 0), ?), finished_at = ? WHERE run_id = ?",
+        (json.dumps({**old, "general_review": counts}, default=str), round(sum(spent), 6) if spent else None,
+         json.dumps(joined), stopped or None, n_lines, 1 if partial else 0, core_now(), run_id),
+    )  # fmt: skip
+
+
+def merge_results(rule: dict, general: dict) -> dict:
+    """The job's result of a run that did both parts: counts side by side (ints summed), the first stop reason, the spend summed."""
+    counts = dict(rule.get("counts") or {})
+    for k, v in (general.get("counts") or {}).items():
+        if isinstance(v, int) and not isinstance(v, bool):
+            counts[k] = counts.get(k, 0) + v
+    usd = [x for x in (rule.get("usd"), general.get("usd")) if x is not None]
+    return {
+        "counts": counts,
+        "stop_reason": rule.get("stop_reason") or general.get("stop_reason"),
+        "usd": round(sum(usd), 6) if usd else None,
+        "partial": bool(rule.get("partial") or general.get("partial")),
+    }
+
+
+def note_skipped(run_id: str, why: str) -> None:
+    """The general parts were not run because the rule part stopped: the run row says so (a cause, never silence)."""
+    conn = connect()
+    with conn:
+        row = conn.execute(
+            "SELECT counts_json FROM agent_review_run WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        old = json.loads(row["counts_json"] or "{}") if row else {}
+        conn.execute(
+            "UPDATE agent_review_run SET counts_json = ? WHERE run_id = ?",
+            (
+                json.dumps(
+                    {
+                        **old,
+                        "general_review": {
+                            "skipped": f"the rule part stopped first: {why}"
+                        },
+                    }
+                ),
+                run_id,
+            ),
+        )
 
 
 def _make_runner(submittal: str, kind, send, env, retry_base: float, trace_path: Path):
@@ -267,6 +342,7 @@ def run(
     name: str,
     lane: Callable[[], tuple],
     heartbeat: Callable[[], None] | None = None,
+    combined: bool = False,
 ) -> dict:
     """The whole general review of one paper. Returns what the job's `_done` needs (counts, stop reason, USD, partial)."""
     conn = connect()
@@ -294,6 +370,7 @@ def run(
             accepted=[],
             stop=f"refused: {refused}",
             name=name,
+            combined=combined,
         )
     g, runner, carrier = _build(
         conn, run_id, submittal, kind, decision, accepted, folder, lane
@@ -324,6 +401,7 @@ def run(
             accepted=accepted,
             stop="",
             name=name,
+            combined=combined,
         )
         log.info(
             "agent general review written: %d lines", done["counts"].get("lines", 0)

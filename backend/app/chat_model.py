@@ -6,7 +6,9 @@ through the one approved transport (`reader_transport`, via
 enforces BEFORE each call. The local Ollama engine stays the offline fallback.
 Which one answers is decided by `reasoning_provider.get_provider` - Claude only
 when REASONING_PROVIDER=claude AND both standards-reader egress flags AND a key
-are set - and the reader may narrow it to the local engine per question. They
+are set - and the reader may narrow it to the local engine per question.
+Under REASONING_PROVIDER=per_task the chat has its OWN engine setting (`chat_model_engine`): Claude is offered, and answers,
+only when it says claude AND the reader chose Claude for that request ("auto" stays local). They
 can never widen it: choosing Claude when it is not configured still gets the
 local engine, and the answer says which engine wrote it.
 
@@ -53,9 +55,41 @@ CLAUDE = "claude"
 PREFERENCES = ("auto", CLAUDE, LOCAL)
 
 
+def _gate() -> tuple[str | None, str]:
+    """(code, why) for the chat's Claude lane: None when Claude may be used in chat.
+
+    Under `REASONING_PROVIDER=per_task` the chat asks its OWN engine setting
+    (`chat_model_engine`), like every other step that has one; under `claude` and
+    `ollama` the master switch answers exactly as before (`claude_unavailable`)."""
+    if rp._provider_setting() == rp.PER_TASK:
+        return rp.claude_unavailable_for_task(settings.chat_model_engine)
+    return rp.claude_unavailable()
+
+
 def claude_ready() -> tuple[bool, str]:
-    """Whether the Claude lane is configured, and if not, why (never the key)."""
+    """Whether the Claude lane is configured for chat, and if not, why (never the key)."""
+    if rp._provider_setting() == rp.PER_TASK:
+        code, why = _gate()
+        return code is None, why
     return rp.claude_available()
+
+
+def claude_will_answer(preference: str | None) -> bool:
+    """Whether a request with this preference would be answered by Claude. Under `per_task` Claude answers
+    ONLY when the reader chose it; "auto" stays local (the reader picks per request)."""
+    if preference == LOCAL or not claude_ready()[0]:
+        return False
+    return preference == CLAUDE or rp._provider_setting() != rp.PER_TASK
+
+
+#: Plain words a reader may see, in the picker, for each closed reason. Never a setting
+#: name or value, never the key.
+_PICKER_WORDS = {
+    rp.UNAVAILABLE_PROVIDER_OFF: "Claude is switched off on this computer.",
+    rp.UNAVAILABLE_TASK_LOCAL: "Claude is switched off for chat on this computer.",
+    rp.UNAVAILABLE_EGRESS_OFF: "Claude access is switched off in the settings.",
+    rp.UNAVAILABLE_KEY_MISSING: "No Claude key is set on this computer.",
+}
 
 
 def available_models() -> dict:
@@ -64,20 +98,40 @@ def available_models() -> dict:
     The local engine is listed as available because it is the configured
     fallback; whether Ollama is up is a health question answered elsewhere
     (System Health), and a model that is down is reported on the answer.
+
+    Claude is listed with the reason in plain words when it cannot be used.
+    Under `per_task` the default stays the local model even when Claude is
+    offered: the reader chooses Claude per request.
     """
-    ok, why = claude_ready()
+    try:
+        code, _why = _gate()
+    except Exception as exc:  # noqa: BLE001 - the menu must still render
+        log.debug("chat_model: Claude reason unreadable (%s)", type(exc).__name__)
+        code = rp.UNAVAILABLE_PROVIDER_OFF
+    ok = code is None
     models = [
         {"id": CLAUDE, "label": "Claude", "model": settings.claude_reasoning_model,
-         "available": ok, "reason": None if ok else why},
+         "available": ok,
+         "reason": None if ok else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
         {"id": LOCAL, "label": "Local model", "model": settings.answer_model,
          "available": True, "reason": None},
     ]
-    return {"default": CLAUDE if ok else LOCAL, "models": models}
+    return {"default": CLAUDE if ok and rp._provider_setting() != rp.PER_TASK else LOCAL,
+            "models": models}
 
 
 def provider(preference: str | None = None) -> rp.ReasoningProvider:
-    """The engine for this answer. A preference can only NARROW to local."""
+    """The engine for this answer. A preference can only NARROW to local.
+
+    Under `per_task` Claude is built only for an explicit "claude" request on a
+    chat whose own engine setting says claude; it goes through the same
+    `ClaudeProvider` (`reader_transport`, `claude_spend` caps, the approved and
+    block lists at call time) as under `claude`."""
     if (preference or "auto") == LOCAL:
+        return rp.OllamaProvider()
+    if rp._provider_setting() == rp.PER_TASK:
+        if preference == CLAUDE and _gate()[0] is None:
+            return rp.ClaudeProvider(settings.claude_reasoning_model, step=CHAT_STEP)
         return rp.OllamaProvider()
     return rp.get_provider("reasoning", step=CHAT_STEP)
 
@@ -103,6 +157,7 @@ _UNAVAILABLE_WORDS = {
     rp.UNAVAILABLE_PROVIDER_OFF: "the system is not set up to use Claude",
     rp.UNAVAILABLE_EGRESS_OFF: "Claude access is switched off in the settings",
     rp.UNAVAILABLE_KEY_MISSING: "no Claude key is set",
+    rp.UNAVAILABLE_TASK_LOCAL: "Claude is switched off for chat on this computer",
 }
 
 
@@ -110,7 +165,7 @@ def unavailable_words() -> str | None:
     """Why Claude cannot be used right now, in plain words; None when it can
     be used or the cause cannot be read. Never raises, never the key."""
     try:
-        code, _why = rp.claude_unavailable()
+        code, _why = _gate()
     except Exception as exc:  # noqa: BLE001 - reporting must not crash
         log.debug("chat_model: Claude reason unreadable (%s)", type(exc).__name__)
         return None

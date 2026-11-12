@@ -12,6 +12,7 @@
 import type { ReviewRunSummary } from "../../../../types/api";
 import type { ReadyCounts } from "../../inbox/inboxState";
 import { ReviewJobControl } from "../../panels/ReviewJobControl";
+import { AiMark } from "../../agent/AiMark";
 import { PastReviewsButton } from "../PastReviewsButton";
 import { ReviewAgainButton } from "../ReviewAgainButton";
 import { dayTimeWords } from "./dateWords";
@@ -34,8 +35,10 @@ export function StatusChip({ tone, text }: { tone: ChipTone; text: string }) {
   );
 }
 
-export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, onOpenCrs, simple = false, onChanged }: {
+export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, onOpenCrs, simple = false, onChanged, aiMark = false }: {
   row: LandingRow;
+  /** The AI reviewer is on: mark the newest review when it has an AI review. */
+  aiMark?: boolean;
   counts: ReadyCounts | null;
   /** The page's whole runs list (All reviews of this file and the "asks first" check
    *  read it; no extra request). */
@@ -65,6 +68,8 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
           <p className="truncate font-semibold text-slateish-100">{row.filename}</p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slateish-400">
             <StatusChip tone={chip.tone} text={chip.text} />
+            {aiMark && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id}
+              earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {step && <span data-testid="row-step">Now: {step}</span>}
             {dayTimeWords(row.activityAt) && <span data-testid="row-date">{dayTimeWords(row.activityAt)}</span>}
