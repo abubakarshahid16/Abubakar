@@ -26,6 +26,17 @@ def line(verdict, ai=None, **kw):
         "ai_verdict": ai,
         "paper_quote": "Body material: carbon steel",
         "quotes_checked": {"paper": True, "clause": True},
+        # a PROVEN Pass is one the code compared (owner, 12 Nov 2026)
+        **(
+            {"compare": {"decided": True, "verdict": "meets"}}
+            if verdict == "Pass"
+            else {}
+        ),
+        **(
+            {"compare": {"decided": True, "verdict": "does_not_meet"}}
+            if verdict == "Fail"
+            else {}
+        ),
         **kw,
     }
 

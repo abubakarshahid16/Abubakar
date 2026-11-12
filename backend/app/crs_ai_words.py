@@ -94,6 +94,16 @@ PRIORITY_RULE = priority_rule(STATUSES)
 NORMAL_STATUSES = tuple(x for x in STATUSES if x != STATUS_AI_VERDICT)
 PRIORITY_RULE_NORMAL = priority_rule(NORMAL_STATUSES)
 
+#: The sentence of an "AI verdict" line says WHICH route earned it, each sentence true: the independent second-reader step, or the
+#: always-on route (owner, 12 Nov): a verdict one AI reader gave, checked and agreed by a second AI reader that SAW the first answer.
+VERDICT_PREFIX_INDEPENDENT = "The AI reviewer's verdict, reached independently by two AI readers and to be confirmed by an engineer: the requirement is "
+VERDICT_PREFIX_CHECKED = "One AI reader's verdict, checked and agreed by a second AI reader that saw the first answer, to be confirmed by an engineer: the requirement is "
+
+
+def verdict_prefix(independent: bool) -> str:
+    return VERDICT_PREFIX_INDEPENDENT if independent else VERDICT_PREFIX_CHECKED
+
+
 AI_VIEW_PREFIX = "The AI reviewer's view, not proven: the requirement is "
 AI_VIEW_MET = (
     AI_VIEW_PREFIX + "met."
@@ -152,6 +162,10 @@ WHY_PATTERNS: tuple[tuple[re.Pattern, str], ...] = tuple(
         (r"^not shown on the sheet", "the AI reviewer did not find it, but that could not be confirmed"),
         (r"clause quote is too short|is the clause heading", "the quoted rule text is too short to rely on"),
         (r"no figure with its unit", "no figure with its unit stands in both quotes, so nothing could be compared"),
+        (r"^the field's words are not on the quoted line", "the words of the rule's field are not on the quoted line or the line above it"),
+        (r"^the rule's field is not known to the code", "the rule's field is not known to the code, so the quoted line could not be matched to it"),
+        (r"^the quote given for the condition holds no word", "the quote given for the condition holds no word of the condition, or repeats the value quote"),
+        (r"^the AI reviewer holds no verified quote for the condition", "the paper is not quoted for the condition the rule applies under"),
         (r"^the AI did not give pass or fail", "the AI reviewer did not reach a view"),
         (r"^(?:the )?rule is (?:also )?not AI approved", "the rule has not been approved yet"),
         (r"^no second opinion", "no second AI reader confirmed it"),
@@ -170,6 +184,9 @@ CODE_PHRASES = {
     "needs_drawing_or_calc": "a drawing or a calculation is needed",
     "unclear_clause": "the rule text is unclear",
     "value_deferred": "the value is left open",
+    "pass_field_not_quoted": "the field's words are not on the quoted line or the line above it",
+    "pass_field_unknown": "the rule's field is not known",
+    "pass_condition_not_quoted": "the condition the rule applies under is not quoted",
     "ai_call_failed": "the AI reviewer gave no answer",
     "not_applicable": "does not apply",
     "verdict_and_reason_differ": "the answer was not consistent",

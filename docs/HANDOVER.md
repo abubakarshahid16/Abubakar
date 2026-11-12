@@ -484,6 +484,7 @@ proven only after the rule-book page context check. One exit (`Runner.exit_line`
 (label table) before it is stored, written to the CRS or served. Tables: `agent_review_run`, `_rule`, `_line`, `_missing_book`.
 CRS internal and contractor copies (xlsx) and the trace file go to `<data dir>/agent_reviews/<run id>/`.
 
+**Owner, 12 Nov 2026: "A Pass where the code compared nothing is 'AI verdict, two readers agree', internal copy only. Proven Pass always means the code compared a value."** (`agent_review_wording.code_compared` / `demote_uncompared_pass`, guards in `agent_review_pass_guards`.)
 **Wording classes (owner decision 2).** "Proven by code" (Pass / Fail), "AI opinion, engineer to confirm" (AI thinks: met / not
 met, with the reason it is not proven), "AI opinion, rule not yet approved", "Query for the engineer", "Not applicable", and
 "Not reviewed" (the AI gave no answer even after the batch was split: never a Query about the paper). The contractor copy holds

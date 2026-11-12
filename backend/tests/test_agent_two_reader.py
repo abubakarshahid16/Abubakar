@@ -271,11 +271,20 @@ def test_an_unapproved_rule_never_produces_the_class_and_is_never_asked(w, on):
     assert fake.reader2 == []
 
 
-def test_a_proven_pass_and_fail_are_untouched_and_buy_no_call(w, on):
-    fake = lane(w, agree=True)  # the old second opinion agrees: both are proven by code
+def test_a_textual_pass_and_fail_with_the_old_agreement_are_ai_verdicts_and_buy_no_call(
+    w, on
+):
+    fake = lane(w, agree=True)  # the old second opinion agrees
     got = lines_of(run_review())
-    assert (got["R-coat"]["word"], got["R-mark"]["word"]) == ("Pass", "Fail")
-    assert {got[i]["verdict_class"] for i in ("R-coat", "R-mark")} == {"Proven by code"}
+    # a Pass the code did not compare is "AI verdict: met" (owner, 12 Nov 2026); the Fail the code did not prove is "AI verdict: not met" (the lead's application of the same limit)
+    assert (got["R-coat"]["word"], got["R-mark"]["word"]) == (
+        "AI verdict: met",
+        "AI verdict: not met",
+    )
+    assert (got["R-coat"]["verdict_class"], got["R-mark"]["verdict_class"]) == (
+        CLASS,
+        CLASS,
+    )
     assert fake.reader2 == []
 
 
@@ -598,12 +607,12 @@ def test_the_class_is_reachable_only_by_the_rule_brute_force(ai):
             "R-9", verdict, ai, item=item, reason_code=code, model="lead-m", paper_page=2, field_label_ai="Nameplate material",
             quotes_checked={"paper": paper, "clause": clause, "clause_strong": strong},
             second_opinion={"agree": None, "model": "m"} if second_ok else {"agree": False, "model": "m"},
-            conditional_hold=hold, paper_quote="Nameplate: steel plate", reasoning="It is steel.",
+            conditional_hold=hold, pass_guard={"ok": True}, paper_quote="Nameplate: steel plate", reasoning="It is steel.",
             two_reader={
                 "verdict": sec_verdict, "model": "second-m" if differ else "lead-m-20260101",
                 "reason_code": "met" if ai == "Pass" else "not_met", "paper_quote": "Nameplate: steel plate",
                 "paper_page": 2, "spans": {"first": [0, 20], "second": [5, 25] if same_ev else [30, 50]},
-                "fail_guards": {"ok": guards}, "clause_quote": "Nameplates shall be steel and fixed",
+                "fail_guards": {"ok": guards}, "pass_guard": {"ok": True}, "clause_quote": "Nameplates shall be steel and fixed",
                 "field_label": "Other label",
                 "quotes_checked": {"paper": sec_paper, "clause": sec_clause, "clause_strong": sec_clause},
                 "says_absent": absent,
@@ -949,12 +958,10 @@ def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_ev
     monkeypatch.setattr(settings, "agent_review_enabled", True)
     conn = _old_database(tmp_path / "old.sqlite")
     before = _rows(conn)
-    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", False)
-    assert (
-        not schema.line_check_is_old(conn) and schema.shape_problem(conn) is None
-    )  # off: an existing table is never touched
-    monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
-    assert schema.line_check_is_old(conn) and schema.shape_problem(conn)
+    # the class is written whatever the switches say (a Pass the code did not compare): the old table is upgraded by default
+    for flag in (False, True):
+        monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", flag)
+        assert schema.line_check_is_old(conn) and schema.shape_problem(conn)
     schema.create_tables(conn)
     assert not schema.line_check_is_old(conn) and schema.shape_problem(conn) is None
     # every row, every column, equal (the new columns are NULL and sit after the old ones)
@@ -1037,12 +1044,12 @@ def _two(iid, ai, **kw):
     code, verdict_word = ("met", "met") if ai == "Pass" else ("not_met", "not met")
     kw.setdefault("rule_kind", None)
     return mk(
-        iid, "Query", ai, reason_code=code, why="no second opinion",
+        iid, "Query", ai, reason_code=code, why="no second opinion", pass_guard={"ok": True},
         quotes_checked={"paper": True, "clause": True, "clause_strong": True}, second_opinion=None,
         two_reader={
             "verdict": verdict_word, "model": "second-m", "reason_code": code, "paper_quote": "Nameplate: steel plate",
             "paper_page": 2, "clause_quote": "Nameplates shall be steel and fixed", "field_label": None,
-            "spans": {"first": [0, 16], "second": [0, 22]}, "fail_guards": {"ok": True},
+            "spans": {"first": [0, 16], "second": [0, 22]}, "fail_guards": {"ok": True}, "pass_guard": {"ok": True},
             "quotes_checked": {"paper": True, "clause": True, "clause_strong": True, "both": True}, "says_absent": False,
         },
         **kw,
@@ -1269,9 +1276,9 @@ def test_the_second_readers_label_only_quote_never_earns_the_class():
     second = "Coating layers"  # only the field's own label
     base = {"item_id": "R-9", "source": "rule", "standard": "S", "clause": "1", "verdict": "Query", "ai_verdict": "Pass", "reason_code": "met",
             "model": "lead-m", "paper_page": 1, "paper_quote": first, "field_label_ai": "Coating layers", "field": "Coating layers",
-            "quotes_checked": {"paper": True, "clause": True}, "reasoning": "r", "second_opinion": None}  # fmt: skip
+            "quotes_checked": {"paper": True, "clause": True}, "reasoning": "r", "second_opinion": None, "pass_guard": {"ok": True}}  # fmt: skip
     rec = {"verdict": "met", "model": "second-m", "reason_code": "met", "paper_page": 1, "paper_quote": second, "field_label": "Coating layers",
-           "spans": two.evidence_spans(page, first, second), "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "says_absent": False}  # fmt: skip
+           "spans": two.evidence_spans(page, first, second), "pass_guard": {"ok": True}, "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "says_absent": False}  # fmt: skip
     ok = W.apply(
         W.final_cap(
             {

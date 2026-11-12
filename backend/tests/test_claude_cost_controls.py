@@ -371,6 +371,7 @@ def test_the_report_counts_settled_lines_never_a_hold():
 
 
 def test_the_report_gives_usd_calls_stored_and_batch_per_step_with_its_denominator():
+    _send.calls = []  # the test used `_send.calls` set by an earlier test: its own state, so a shard that runs it first passes too
     with claude_spend.for_run("run-1"):
         call = claude_spend.metered(_send, "a-step")
         body = {

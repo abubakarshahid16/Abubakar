@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .agent_review_gate import enabled, require_on, two_reader_enabled
+from .agent_review_gate import enabled, require_on
 from .db import schema_once
 
 CLASSES = (
@@ -183,11 +183,10 @@ def line_shape_is_old(conn) -> bool:
 
 
 def line_check_is_old(conn) -> bool:
-    """True only when the second-reader switch is ON and `agent_review_line` exists with a CHECK that does not yet name the class
-    "AI verdict, two readers agree" (a table made before that class). With the switch off nothing is judged old, so a switched-off
-    app never touches an existing table. The upgrade is the one `create_tables` already does for the older shape."""
-    if not two_reader_enabled():
-        return False
+    """True when `agent_review_line` exists with a CHECK that does not yet name the classes "AI verdict, two readers agree",
+    "Not checked on this paper" and the words they carry (a table made before them). The class "AI verdict: met" is written ALWAYS
+    since the owner's decision of 12 Nov 2026 (a Pass the code did not compare), so this no longer waits for a switch; the upgrade
+    is the one `create_tables` already does for the older shape and runs only where the AI reviewer itself is on."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (LINE_TABLE,)
     ).fetchone()
@@ -263,6 +262,74 @@ def _record_upgrade(conn, old: str, rows: int) -> None:
     )
 
 
+RELABEL_ACTION = "agent_review_lines_relabelled_1778"
+
+
+def relabel_plan(line: dict) -> dict | None:
+    """The stored line of an earlier run re-labelled by the owner's rule (12 Nov 2026), or None when it stands. A line that says Pass or
+    Fail without a code comparison (Pass) or a failed comparison / the absence proof (Fail) becomes what `wording.demote_unproven` and
+    `wording.classify` say; every other field is kept as it was, and the old class and word are kept in the line's record."""
+    from . import agent_review_wording as wording
+
+    if line.get("class_before_1778") or line.get("verdict") not in ("Pass", "Fail"):
+        return None
+    new = wording.demote_unproven(line)
+    if new.get("verdict") == line.get("verdict"):
+        return None  # the code compared a value (or proved the absence): proven stays proven
+    return new
+
+
+def _relabel_old_lines(conn) -> int:
+    """ONCE, in the transaction that widens the table: every stored "Proven by code" Pass or Fail the rule above does not stand on is
+    re-labelled (class, word, reason and the line's own record; `class_before_1778` and `word_before_1778` keep the old pair). One audit
+    row with the counts. Idempotent (a re-labelled line is no longer "Proven by code"). Any error rolls the whole transaction back."""
+    import json
+
+    from . import agent_review_wording as wording
+    from .api import agent_review_schemas as contract
+
+    rows = conn.execute(
+        f"SELECT run_id, item_id, verdict_class, word, line_json FROM {LINE_TABLE} WHERE verdict_class = 'Proven by code' AND word IN ('Pass', 'Fail')"
+    ).fetchall()
+    counts: dict[str, int] = {}
+    for run_id, item_id, cls, word, raw in rows:
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue
+        new = relabel_plan(line) if isinstance(line, dict) else None
+        if new is None:
+            continue
+        got = wording.apply(
+            {
+                **new,
+                "class_before_1778": cls,
+                "word_before_1778": word,
+                "verdict_before_1778": line.get("verdict"),
+                "decided_by_before_1778": line.get("decided_by"),
+            }
+        )
+        label = contract.legal_word(got["verdict_class"], got["verdict_label"])
+        if label is None:
+            raise sqlite3.IntegrityError("a re-labelled line has no legal word")
+        conn.execute(
+            f"UPDATE {LINE_TABLE} SET verdict_class = ?, word = ?, reason = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
+            (got["verdict_class"], label, str(got.get("not_proven_reason") or ""),
+             json.dumps({**new, "class_before_1778": cls, "word_before_1778": word, "verdict_before_1778": line.get("verdict"), "decided_by_before_1778": line.get("decided_by")}, ensure_ascii=False, default=str), run_id, item_id),
+        )  # fmt: skip
+        counts[f"{word} -> {label}"] = counts.get(f"{word} -> {label}", 0) + 1
+    if counts:
+        from . import job_queue
+
+        conn.execute(
+            "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
+            " VALUES (?, NULL, 'system', ?, 'agent_review_line', ?, 'ok', ?)",
+            (job_queue.now_iso(), RELABEL_ACTION, LINE_TABLE,
+             f"lines re-labelled: {sum(counts.values())} (" + "; ".join(f"{k} x{v}" for k, v in sorted(counts.items())) + ")"),
+        )  # fmt: skip
+    return sum(counts.values())
+
+
 def create_tables(conn) -> None:
     """Create what is missing, all or none. Switch off: raises `FeatureOff` and creates nothing. No existing table is touched,
     except that an `agent_review_line` of the OLDER shape is upgraded in ONE transaction: renamed to
@@ -281,9 +348,12 @@ def create_tables(conn) -> None:
             conn.execute(statement)
         if old is not None:
             _record_upgrade(conn, old, _copy_old_rows(conn, old, old_columns))
+        _relabel_old_lines(
+            conn
+        )  # owner, 12 Nov 2026: earlier "Proven by code" lines follow the same rule, once, audited
     except BaseException as exc:
         conn.rollback()
-        if old is not None and isinstance(exc, sqlite3.Error):
+        if isinstance(exc, sqlite3.Error):
             raise UpgradeFailed(str(exc)) from exc
         raise
     conn.commit()
