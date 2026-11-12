@@ -69,6 +69,11 @@ When a mistake is called out on #692 or #1584, add one line here in your next PR
 - Approved a danger-zone label change from the gate alone (#1446, cloud-2 caught it): a tested-card verdict printed "proven" on the CRS because the words are built from the stored label; before approving, follow the value from where it is set to the cell the engineer reads.
 - Pushed a new `backend/app` module without `check_system_map.py` and `check_unused_modules.py`, so CI sent two PRs back (#1447, #1449): run both before the push.
 - Wrote client document names, numbers and tags on GitHub (issues, PRs, commits, code) in a public repo: write "Datasheet 1" or an invented tag; `check_client_identifiers.py` now blocks a listed one.
+- Accepted a dry trial whose rule list was empty as harmless, then told the owner the live review would ask the approved rules; it asked none (12 Nov, A-1752): a trial that asks no rules is a failed trial (`trial_on_copy.py --require-rules-asked`), and a count relayed to the owner is one a run produced.
+- Took a helper's "pushed" as done twice while the pre-push hook had refused (12 Nov): a push is done only when `git ls-remote` shows the same commit as `git rev-parse HEAD`.
+- A guard's reason stated a fact about the paper the code had not seen ("the paper gives no value", 12 Nov, #1759): a reason says only what the code saw; the banned-phrase test covers every `_WHY` constant.
+- Relayed a helper's finding to the owner without checking the document id it used ("the pump datasheet has no stored text", 12 Nov; the helper had read a different paper; corrected two minutes later): before a helper's claim about a real paper goes to the owner, check the id and the count yourself.
+- Merged main into a reviewed branch and found only at the push that one file had crossed the 800-line limit (12 Nov, #1763): when several open PRs add to the same long file, check the merged line count before starting the merge chain.
 
 ## Tooling traps that have already bitten
 
