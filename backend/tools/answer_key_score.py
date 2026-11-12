@@ -401,10 +401,24 @@ def _text(row) -> str:
     return " ".join(str(c) for c in row if c not in (None, ""))
 
 
+LAYOUT_NEW = "new layout (Status column, order 13)"
+LAYOUT_OLD = "old layout (Verdict column or sheet names)"
+
+
 def read_crs(path) -> list[Line]:
-    """Every comment line and pass line of a CRS workbook in the product's layout."""
+    """Every comment line and pass line of a CRS workbook in the product's layout (either layout; `read_crs_layout`)."""
+    return read_crs_layout(path)[0]
+
+
+def read_crs_layout(path) -> tuple[list[Line], str]:
+    """(the lines, which layout was read). NEW layout: the sheet "CRS" has a "Status" column: Pass is a pass line; Fail, Query and
+    AI opinion (not met) are comment lines; an AI opinion that says the requirement is met is no comment and no pass (the old
+    layout kept those on an unread sheet). OLD layout: the "Verdict" column, the sheet names, the tick marker."""
+    from app.crs_ai_words import AI_VIEW_MET
+
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    out = []
+    out: list[Line] = []
+    layout = LAYOUT_OLD
     for ws in wb.worksheets:
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
         first = fold(rows[0][0] if rows and rows[0] else "")
@@ -420,6 +434,8 @@ def read_crs(path) -> list[Line]:
         pi = head.index("Page No./Section")
         ci = head.index("COMPANY Comments") if "COMPANY Comments" in head else None
         vi = head.index("Verdict") if "Verdict" in head else None
+        sti = head.index("Status") if "Status" in head and vi is None else None
+        layout = LAYOUT_NEW if sti is not None else layout
         si = head.index("Standard Reference") if "Standard Reference" in head else None
         for number, row in enumerate(rows[hi + 1 :], start=hi + 2):
             if (
@@ -432,7 +448,17 @@ def read_crs(path) -> list[Line]:
             text = _text(row)
             comment = row[ci] if ci is not None else ""
             verdict = fold(row[vi]).split(",", 1)[0].strip() if vi is not None else ""
-            if verdict:
+            if sti is not None:
+                status = fold(row[sti])
+                if status == "ai opinion" and fold(AI_VIEW_MET) in fold(comment):
+                    continue  # the AI reviewer's own "met": not a comment, not a pass
+                kind = {
+                    "pass": "pass",
+                    "fail": "comment",
+                    "query": "comment",
+                    "ai opinion": "comment",
+                }.get(status, "unknown")
+            elif verdict:
                 kind = VERDICTS.get(verdict, "unknown")
                 if pass_sheet and kind != "pass":
                     kind = "unknown"  # a Fail or Query on the pass sheet: not read either way
@@ -451,7 +477,7 @@ def read_crs(path) -> list[Line]:
                     unknown_verdict=kind == "unknown",
                 )
             )
-    return out
+    return out, layout
 
 
 # ------------------------------------------------------------------ the score
@@ -631,7 +657,11 @@ def overlap(found: list, hand: list) -> dict:
 
 def score_files(key_path, crs_path, sheet: str | None = None) -> dict:
     rules, patterns = _registry()
-    return score(read_key(key_path, rules, sheet), read_crs(crs_path), patterns)
+    lines, layout = read_crs_layout(crs_path)
+    return {
+        **score(read_key(key_path, rules, sheet), lines, patterns),
+        "layout": layout,
+    }
 
 
 def summary(res: dict) -> dict:
@@ -639,6 +669,7 @@ def summary(res: dict) -> dict:
     of = res["of"]
     return {
         "source": SOURCE,
+        "layout_read": res.get("layout", ""),
         "problems_found": f"{len(res['problems_found'])} of {of['problem']}",
         "complies_confirmed": f"{len(res['complies_confirmed'])} of {of['complies']}",
         "clear_wrong": f"{len(res['clear_wrong'])} of {of['wrong']}",

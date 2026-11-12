@@ -1,17 +1,17 @@
 """CRS files of the AI reviewer: the internal and the contractor workbook (ported from the experiment's exp11/crs_lines.py).
 
-Own xlsx writer (crs_export.py is not touched). Every line shows: the verdict in plain words (Pass, Fail, "AI thinks: met",
-"AI thinks: not met" or Query for the engineer); "AI verdict" with the model id the API RESPONSE reported (never a configured
-name), or "decided by code" for a number line; the AI's reasoning in one or two plain sentences; the paper quote with its page;
-the clause quote with its clause and page; whether code checked both quotes; and a failed AI call. The top of every sheet says
-"AI review, engineer to confirm".
+ONE exporter: since order 13 (owner, 12 Nov 2026) the workbooks are drawn by `crs_layout.build_layout_crs` (the drawing code both reviewers share), in the app's own CRS
+layout, and this module decides what the cells say (words: `crs_ai_words`). Every line shows its Status in one of four short words:
+Pass (proven by code), Fail (proven by code), AI opinion (the AI reviewer's view, not proven by code) or Query.
 
 Workbooks:
-  internal     sheet "CRS": Fail and Query lines in the classic layout (8 heading rows, then the column headings); the summary
-               lines of the rules left out and the rule books NOT held (never counted against the system). "Passed" sheet:
-               Pass lines. Sheets for held AI "met" lines, not-applicable lines and rules not yet approved. "Run": counts.
-  contractor   sheet "CRS": proven Fail lines ONLY (never an "AI thinks" line, never a "should" line, never a rule that is not
-               approved), the comment only: no reasoning, model, quotes or queries.
+  internal     sheet "CRS": the company columns plus Status, Fail first, then AI opinion (not met), Query, AI opinion (met),
+               Pass; "Not reviewed or not applicable": the lines that are not item rows (does not apply, not reviewed, rule
+               not yet approved, rule book not held), numbered on from the CRS rows; "Evidence": one row per item (the AI's
+               reasoning, both quotes, whether each was verified, the second reader, models, reason code, internal ids);
+               "Notes": the priority rule, rule books used and not held, counts per Status, run facts.
+  contractor   sheet "CRS": proven Fail lines ONLY (never an opinion, never a "should" line, never a rule that is not approved)
+               and nothing else: no Evidence, no Notes, no model, no run number.
   comment-only the Fail and Query lines with the classic ten columns, for scoring beside the classic engine.
 
 DEFENCE IN DEPTH: every writer REFUSES (UnprovenLineRefused) a line that is Pass or Fail without a tier of owner, engineer or AI
@@ -59,37 +59,13 @@ NOT_APPLICABLE_SHEET = (
     "Not applicable (AI, to confirm)"  # Excel: 31 characters at most, no colon
 )
 UNAPPROVED_SHEET = "Rules not yet approved"  # Excel: 31 characters at most
-UNAPPROVED_NOTE = (
-    "AI opinion, rule not yet approved. The rule is not AI approved: never a Pass or a Fail, never sent to the "
-    "contractor. Not CRS comments."
-)
 NOT_REVIEWED_SHEET = "Not reviewed"
-NOT_REVIEWED_NOTE = (
-    "The AI call failed or its answer was cut off: these lines were NOT reviewed (nothing is said about the paper). "
-    "Not CRS comments."
-)
-NOT_APPLICABLE_NOTE = "Not applicable (AI, engineer to confirm). Not CRS comments."
 HELD_PASS_SHEET = "AI met, not proven by code"  # Excel: 31 characters at most, no colon
-HELD_PASS_NOTE = (
-    "AI says met, not proven by code: engineer to tick. The gate reason is in the comment and the "
-    "Quotes checked column. Not CRS comments."
-)
-RUN_SHEET = "Run"
 HEADING_ROWS = 8  # the old engine's CRS: 8 rows above the column headings
 OLD_HEADERS = (
     "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
     "Final Resolution", "Standard Reference", "Priority", "AI Review Comments",
 )  # fmt: skip
-INTERNAL_HEADERS = (
-    "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
-    "Final Resolution", "Standard Reference", "Priority", "Verdict", "Reason code", "AI reasoning", "Paper quote (page)",
-    "Clause quote (clause, page)", "Quotes checked by code", "AI call",
-)  # fmt: skip
-CONTRACTOR_HEADERS = (
-    "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Contractor's Response", "Final Resolution",
-    "Standard Reference",
-)  # fmt: skip
-VERDICT_WORDS = {PASS: "Pass", FAIL: "Fail", QUERY: "Query for the engineer"}
 MAX_REASON_SENTENCES = 2
 MAX_REASON_WORDS = 60
 MAX_COMMENT_WORDS = 40
@@ -243,7 +219,10 @@ def sheet_of(line: Mapping) -> str:
         return NOT_APPLICABLE_SHEET
     if is_held_pass(line):
         return HELD_PASS_SHEET
-    if line.get("verdict") == PASS:
+    if line.get("verdict") == PASS and line.get("verdict_class") in (
+        None,
+        wording.CLASS_PROVEN,
+    ):  # keyed on the class too: a Pass the exit did not prove is never a Pass row
         return PASSED_SHEET
     return CRS_SHEET
 
@@ -356,30 +335,6 @@ def comment_by(line: Mapping) -> str:
     return f"{BY_AI} ({model})"
 
 
-def verdict_cell(line: Mapping) -> str:
-    cell = _verdict_cell(line)
-    return f"{cell}; Recommendation (should)" if line.get("recommendation") else cell
-
-
-def _verdict_cell(line: Mapping) -> str:
-    if wording.is_opinion(
-        line
-    ):  # order 12: never "Pass" or "Fail" for what code did not prove
-        return f"{line['verdict_label']} ({line['verdict_class']}); not proven by code: {_clean(line.get('not_proven_reason'))}"
-    word = VERDICT_WORDS.get(line.get("verdict"), VERDICT_WORDS[QUERY])
-    if moved_by_guard(line):  # N9: the new reason
-        return f"{word}; not proven by code: {line['not_proven_reason']}"
-    if line.get("decided_by") == BY_CODE and line.get("verdict") in (PASS, FAIL):
-        return f"{word}, decided by code"
-    if line.get("decided_by") == BY_AI and line.get("verdict") in (PASS, FAIL):
-        return f"{word}, {BY_AI} ({_clean(line.get('model')) or 'model not reported'})"
-    if line.get("decided_by") == BY_ABSENCE and line.get("verdict") == FAIL:
-        return f"{word}, {BY_ABSENCE} ({_clean(line.get('model')) or 'model not reported'})"
-    if line.get("decided_by") == BY_FINAL_CHECK and line.get("verdict") in (PASS, FAIL):
-        return f"{word}, {BY_FINAL_CHECK} ({_clean(line.get('model')) or 'model not reported'})"
-    return word
-
-
 def reason_cell(line: Mapping) -> str | None:
     """The reason code (the AI's from a closed list, or code's own), with the searched pages for 'absent'."""
     code = _clean(line.get("reason_code"))
@@ -421,53 +376,6 @@ def quotes_checked_cell(line: Mapping) -> str:
 def ai_call_cell(line: Mapping) -> str:
     err = _clean(line.get("error"))
     return f"AI call failed: {err}" if err else "AI call answered"
-
-
-def internal_row(line: Mapping, paper: str) -> list:
-    return [
-        line.get("item_id"),
-        paper,
-        _page_cell(line_page(line)),
-        company_comment(line),
-        comment_by(line),
-        None,
-        None,
-        against(line) or None,
-        line.get("priority"),
-        verdict_cell(line),
-        reason_cell(line),
-        two_sentences(line.get("reasoning")) or None,
-        paper_quote_cell(line),
-        clause_quote_cell(line),
-        quotes_checked_cell(line),
-        ai_call_cell(line),
-    ]
-
-
-def held_row(line: Mapping, paper: str) -> list:
-    """A held AI Pass: the comment cell says what the AI found and why code did not accept it."""
-    row = internal_row(line, paper)
-    has = stated(line)
-    says = line.get("verdict_label") or "AI says met"
-    row[3] = (
-        f"{field_words(line)}: {says} ({against(line) or 'the requirement'})"
-        + (f'; the sheet states "{has}"' if has else "")
-        + f". Not proven by code: {_clean(line.get('why'))}."
-    )
-    return row
-
-
-def contractor_row(line: Mapping, paper: str) -> list:
-    """The comment only: no reasoning, no model, no quotes, no verdict words."""
-    return [
-        line.get("item_id"),
-        paper,
-        _page_cell(line_page(line)),
-        company_comment(line, contractor=True),
-        None,
-        None,
-        against(line) or None,
-    ]
 
 
 def old_row(line: Mapping, paper: str) -> list:
@@ -532,139 +440,21 @@ def _wb():
     return openpyxl.Workbook()
 
 
-def _rule_summary(ws_crs, block: Mapping | None) -> None:
-    """The rules not asked (counts, one summary line each) and the rule books the library does not hold."""
-    if not block:
-        return
-    ws_crs.append([])
-    for text in block.get("summary_lines") or []:
-        ws_crs.append([_cell(text)])
-    held_books = block.get("missing_rule_books") or []
-    if held_books:
-        ws_crs.append(
-            [
-                _cell(
-                    "Rule books not held by the library (not counted against the system, excluded from "
-                    "every score):"
-                )
-            ]
-        )
-        for b in held_books:
-            ws_crs.append([_cell(f"{b.get('rule_book')} ({b.get('why')})")])
-
-
-def _run_sheet(wb, all_lines: list[Mapping], meta: Mapping) -> None:
-    ws = wb.create_sheet(RUN_SHEET)
-    ws.append([TOP_TEXT])
-    counts = {**run_counts(all_lines), **(meta.get("order12_counts") or {})}
-    for key, value in counts.items():
-        ws.append(
-            [key, _cell(value if not isinstance(value, (dict, list)) else str(value))]
-        )
-
-
-def _extra_sheets(
-    wb, meta: Mapping, paper: str, not_reviewed: list, unapproved: list
-) -> None:
-    """The sheets that exist only when they have lines: Not reviewed, and the rules not yet approved."""
-    if not_reviewed:
-        _sheet(wb, NOT_REVIEWED_SHEET, meta, NOT_REVIEWED_NOTE, INTERNAL_HEADERS,
-               (internal_row(ln, paper) for ln in not_reviewed))  # fmt: skip
-    if unapproved:
-        _sheet(wb, UNAPPROVED_SHEET, meta, UNAPPROVED_NOTE, INTERNAL_HEADERS,
-               (internal_row(ln, paper) for ln in unapproved))  # fmt: skip
-
-
 def write_internal(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
+    """The internal copy: sheet 'CRS' (the item rows, Fail first), 'Not reviewed or not applicable', 'Evidence', 'Notes'."""
     _refuse_unproven(lines)
-    paper = str(meta.get("paper") or "")
-    all_lines = lines
-    on = {name: [ln for ln in lines if sheet_of(ln) == name] for name in sheet_rows([])}
-    problems, held, passed = on[CRS_SHEET], on[HELD_PASS_SHEET], on[PASSED_SHEET]
-    not_applicable, not_reviewed, unapproved = (
-        on[NOT_APPLICABLE_SHEET],
-        on[NOT_REVIEWED_SHEET],
-        on[UNAPPROVED_SHEET],
-    )
-    wb = _wb()
-    ws_crs = _sheet(
-        wb,
-        CRS_SHEET,
-        meta,
-        f"Fail and Query lines; Pass lines are on the sheet '{PASSED_SHEET}'.",
-        INTERNAL_HEADERS,
-        (internal_row(ln, paper) for ln in problems),
-        first=True,
-    )
-    _rule_summary(ws_crs, meta.get("rule_labels"))
-    _sheet(
-        wb,
-        PASSED_SHEET,
-        meta,
-        "Pass lines: the engineer ticks each one. Not CRS comments.",
-        INTERNAL_HEADERS,
-        (internal_row(ln, paper) for ln in passed),
-    )
-    _sheet(
-        wb,
-        NOT_APPLICABLE_SHEET,
-        meta,
-        NOT_APPLICABLE_NOTE,
-        INTERNAL_HEADERS,
-        (internal_row(ln, paper) for ln in not_applicable),
-    )
-    _sheet(
-        wb,
-        HELD_PASS_SHEET,
-        meta,
-        HELD_PASS_NOTE,
-        INTERNAL_HEADERS,
-        (held_row(ln, paper) for ln in held),
-    )
-    _extra_sheets(wb, meta, paper, not_reviewed, unapproved)
-    _run_sheet(wb, all_lines, meta)
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out)
-    return out
+    # imported here: `crs_ai_workbook` reads this module (it draws through `crs_layout`)
+    from . import crs_ai_workbook
+
+    return crs_ai_workbook.write(lines, path, meta, "internal")
 
 
 def write_contractor(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
+    """The contractor copy: sheet 'CRS' with the proven Fail rows ONLY. Nothing else in the file."""
     _refuse_unproven(lines)
-    paper = str(meta.get("paper") or "")
-    wb = _wb()
-    contractor_meta = {
-        **meta,
-        "lead_models": [],
-        "second_models": [],
-    }  # the contractor copy names no model
-    ws = wb.active
-    ws.title = CRS_SHEET
-    for r in (
-        [TOP_TEXT],
-        ["COMMENT RESOLUTION SHEET"],
-        ["Paper:", paper],
-        ["Date:", contractor_meta.get("date")],
-        [],
-        [],
-        [],
-        [],
-    ):
-        ws.append([_cell(v) for v in r])
-    ws.append(list(CONTRACTOR_HEADERS))
-    for ln in lines:
-        if (
-            ln.get("verdict") == FAIL
-            and wording.writer_refusal(ln) is None
-            and not wording.is_opinion(ln)
-            and not ln.get("recommendation")
-            and not wording.is_unapproved(ln)
-        ):  # proven Fail only; a 'should' never
-            ws.append([_cell(v) for v in contractor_row(ln, paper)])
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out)
-    return out
+    from . import crs_ai_workbook
+
+    return crs_ai_workbook.write(lines, path, meta, "contractor")
 
 
 def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) -> Path:
