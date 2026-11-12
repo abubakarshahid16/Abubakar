@@ -225,7 +225,14 @@ def add_document(conn, doc_id: str, filename: str, text: str) -> None:
     conn.execute(
         "INSERT INTO chunks(id, document_id, filename, ordinal, page_start, page_end, text, token_count, content_hash)"
         " VALUES (?,?,?,0,1,1,?,?,?)",
-        (f"{doc_id}:c0", doc_id, filename, text, len(text.split()), hashlib.sha256(text.encode()).hexdigest()),
+        (
+            f"{doc_id}:c0",
+            doc_id,
+            filename,
+            text,
+            len(text.split()),
+            hashlib.sha256(text.encode()).hexdigest(),
+        ),
     )
     conn.commit()
 

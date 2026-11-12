@@ -766,39 +766,24 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
         _progress(conn, job_id, 0, heartbeat)
-        read_nothing = False
-        try:
-            nothing_read.read_phase(submittal, scope, run_id)
-        except nothing_read.StoredFileAbsent:
-            raise
-        except nothing_read.NothingRead:
-            read_nothing = True  # said below with the paper's text state, on the run, never as a retried failure
-        text = agent_review_text.read(conn, submittal)
-        if read_nothing and text.stop is None:
-            raise nothing_read.NothingRead("nothing read: the document could not be read")
+        text = agent_review_text.read_step(conn, submittal, scope, run_id)
         _progress(conn, job_id, 1, heartbeat)
         kind = agent_review_kind.decide(submittal, scope)
         _write_run_start(run_id, submittal, kind, started)
-        # no stored text to read: stop BEFORE any rule is chosen and any call is made, and say so on the run. A general review
-        # (a procedure, a contract) chooses no rule book from the search chunks and reads the page text itself, so only "no
-        # text" stops it; "not indexed" stops the rule review, whose rule books are chosen from the chunks.
+        # no stored text to read: stop BEFORE any rule is chosen and any call is made, and say so on the run
         general = kind.known and agent_review_gate.general_kind_enabled(kind.kind)
-        if text.stop and not (general and text.state == "not indexed"):
-            plan = _nothing_asked(conn, submittal, text.sentence, text.stop)
-            plan["paper_text"] = text.as_dict()
-            _progress(conn, job_id, 2, heartbeat)
-            result = _execute(run_id, submittal, kind, plan, started)
-            _progress(conn, job_id, 3, heartbeat)
-            return _done(conn, job_id, run_id, result)
-        if general:
+        stops = text.stops_run(general)
+        if general and not stops:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat)  # fmt: skip
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)
-        plan = _plan(conn, run_id, submittal, scope, kind, heartbeat)
-        plan["paper_text"] = text.as_dict()  # a partly readable paper: its pages with no text are listed
+        plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops
+                else _plan(conn, run_id, submittal, scope, kind, heartbeat))  # fmt: skip
+        # a partly readable paper: its pages with no text are listed
+        plan["paper_text"] = text.as_dict()
         _progress(conn, job_id, 2, heartbeat)
         result = _execute(run_id, submittal, kind, plan, started)
         _progress(conn, job_id, 3, heartbeat)

@@ -51,6 +51,11 @@ class PaperText:
         code = self.stop_code
         return f"{code}: {self.sentence}" if code else None
 
+    def stops_run(self, general: bool) -> bool:
+        """True when the run must stop before any rule is chosen. A general review (a procedure, a contract) chooses no rule book
+        from the search chunks and reads the page text itself, so only "no text" stops it; "not indexed" stops the rule review."""
+        return self.stop_code is not None and not (general and self.state == "not indexed")
+
     def as_dict(self) -> dict:
         return {
             "state": self.state,
@@ -100,3 +105,22 @@ def read(conn, paper: str) -> PaperText:
             "partly readable", total, not_read, partly_sentence(not_read, total)
         )
     return PaperText("readable", total, [], None)
+
+
+def read_step(conn, submittal: str, scope, run_id: str) -> PaperText:
+    """The review's read step, then the paper's text state. A read step that found nothing (`NothingRead`) on a paper that holds
+    no text is said as the stop (on the run, never a retried failure); a stored file that is absent, or nothing read on a paper
+    that does hold text, stays a loud failure as before."""
+    from . import nothing_read
+
+    read_nothing = False
+    try:
+        nothing_read.read_phase(submittal, scope, run_id)
+    except nothing_read.StoredFileAbsent:
+        raise
+    except nothing_read.NothingRead:
+        read_nothing = True
+    text = read(conn, submittal)
+    if read_nothing and text.stop is None:
+        raise nothing_read.NothingRead("nothing read: the document could not be read")
+    return text

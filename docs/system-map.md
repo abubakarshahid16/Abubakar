@@ -64,6 +64,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_rules` | The AI reviewer's rule choice (core): a rule is asked only when its label kind is the paper's and its tier is usable; every other rule counted with one reason |
 | `agent_review_items` | The AI reviewer's item list (core): the right rules and approved checklist items for one paper, page hints, batches |
 | `agent_review_pages` | Page pictures for the AI reviewer (core): rendering and the image block; not wired into the first job (text pages only) |
+| `agent_review_text` | What the library holds for a paper to read: no text / not indexed (the AI review stops before any rule is chosen or any call is made, with one plain sentence) or partly readable (reviewed, pages with no text listed) |
 | `agent_review_absence` | The AI reviewer's absence proof (core): an absence Fail only when code proves it; off by default in the job |
 | `agent_review_wording` | The AI reviewer's words (core): Pass/Fail only when proven, else AI thinks met / not met; the one exit cap by current tier; counts per class |
 | `agent_review_pair` | The AI reviewer line's class and word in the contract's words, asked of the one table (`LINE_TABLE`); a refused pair is never stored |
