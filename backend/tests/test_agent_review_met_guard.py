@@ -76,7 +76,8 @@ def test_a_proven_pass_is_not_touched_even_with_odd_quote_fields():
     out = exit_of(
         met(
             verdict="Pass",
-            decided_by="AI verdict",
+            decided_by="decided by code",
+            compare={"decided": True, "verdict": "meets"},
             paper_quote="By Contractor",
             quotes_checked={},
         )
@@ -188,9 +189,14 @@ def test_met_with_a_failed_second_opinion_is_neither_agreement_nor_disagreement(
 def test_a_disagreeing_second_opinion_does_not_move_a_proven_pass_or_not_met():
     d = {"agree": False, "model": "m"}
     assert (
-        exit_of(met(verdict="Pass", decided_by="AI verdict", second_opinion=d))[
-            "verdict_label"
-        ]
+        exit_of(
+            met(
+                verdict="Pass",
+                decided_by="decided by code",
+                compare={"decided": True, "verdict": "meets"},
+                second_opinion=d,
+            )
+        )["verdict_label"]
         == "Pass"
     )
     assert (
@@ -238,6 +244,7 @@ def test_a_proven_fail_with_ai_met_is_never_touched(quote, checks):
         met(
             verdict="Fail",
             decided_by="decided by code",
+            compare={"decided": True, "verdict": "does_not_meet"},
             paper_quote=quote,
             quotes_checked=checks,
             second_opinion={"agree": False},
@@ -413,7 +420,12 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
         return W.final_cap({**base, **kw}, item)
 
     lines = [
-        mk("L-pass", verdict="Pass", decided_by="AI verdict"),
+        mk(
+            "L-pass",
+            verdict="Pass",
+            decided_by="decided by code",
+            compare={"decided": True, "verdict": "meets"},
+        ),
         mk("L-fail", verdict="Fail", decided_by="decided by code", ai_verdict="Fail"),
         mk("L-met"),
         mk("L-notmet", ai_verdict="Fail"),

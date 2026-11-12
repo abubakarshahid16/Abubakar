@@ -405,6 +405,7 @@ def test_the_tier_lookup_reads_the_label_table_now_and_final_cap_uses_it(conn):
         "verdict": "Fail",
         "ai_verdict": "Fail",
         "decided_by": "decided by code",
+        "compare": {"decided": True, "verdict": "does_not_meet"},
     }
     item = {
         "item_id": "R-ok",

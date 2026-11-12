@@ -176,7 +176,7 @@ def test_a_run_that_reuses_every_answer_and_buys_no_other_call_spent_zero_not_un
 
 def test_the_quote_check_runs_again_on_a_reused_answer(w, reuse_on):
     first = run_review()
-    assert lines_of(first)["R-coat"]["word"] == "Pass"
+    assert lines_of(first)["R-coat"]["word"] == "AI verdict: met"
     conn, asked = db.connect(), len(w["fake"].lead_asked)
     quote = s.ANSWERS["R-coat"]["paper_quote"]
     hit = [r for r in stored_rows() if quote in r["answer_json"]]
@@ -393,7 +393,7 @@ def test_a_stored_answer_the_run_cannot_read_is_dropped_and_asked_for_real(w, re
     second = run_review()
     assert (
         len(w["fake"].lead_asked) > asked
-        and lines_of(second)["R-coat"]["word"] == "Pass"
+        and lines_of(second)["R-coat"]["word"] == "AI verdict: met"
     )
 
 
@@ -697,7 +697,7 @@ def test_an_answer_with_a_quote_that_fails_the_check_is_never_frozen(w, reuse_on
     third = run_review()  # so this run asks again, gets the good answer, and a fully verified answer is kept
     assert (
         len(w["fake"].lead_asked) == asked + 1
-        and lines_of(third)["R-coat"]["word"] == "Pass"
+        and lines_of(third)["R-coat"]["word"] == "AI verdict: met"
     )
     assert hit[0]["request_key"] in {r["request_key"] for r in stored_rows()}
     assert (
@@ -766,7 +766,7 @@ def test_reuse_freezes_the_first_answer_until_a_fresh_run_the_stated_trade_off(
 ):
     """What reuse hides (the PR text): the first run's answer, right or wrong, is copied until a fresh run replaces it."""
     first = run_review()
-    assert lines_of(first)["R-coat"]["word"] == "Pass"
+    assert lines_of(first)["R-coat"]["word"] == "AI verdict: met"
     asked = len(w["fake"].lead_asked)
     w["fake"].answers["R-coat"] = {
         **s.ANSWERS["R-coat"],
@@ -779,7 +779,7 @@ def test_reuse_freezes_the_first_answer_until_a_fresh_run_the_stated_trade_off(
     )  # the reader would now say something else, but the stored answer stands
     assert (
         len(w["fake"].lead_asked) == asked
-        and lines_of(second)["R-coat"]["word"] == "Pass"
+        and lines_of(second)["R-coat"]["word"] == "AI verdict: met"
     )
     assert (
         counts_of(second).get("changed_since_previous", {}).get("changed") == 0

@@ -179,16 +179,18 @@ def test_summary_lines_trace_crs_and_rules_used_after_a_review(client):
     summary = client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()
     assert summary["paper_kind"] == "datasheet" and summary["stop_reason"] is None
     assert (
-        summary["counts_by_class"]["Proven by code"] == 3
+        summary["counts_by_class"]["Proven by code"]
+        == 1  # only the number Pass the code compared; the textual Pass and Fail are "AI verdict" lines
+        and summary["counts_by_class"]["AI verdict, two readers agree"] == 2
         and summary["not_reviewed"] == 1
     )
     assert summary["missing_books"] == ["INV-MISSING-9"] and summary["usd"] > 0
     lines = client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()
     words = {ln["item_id"]: ln["word"] for ln in lines["lines"]}
     assert words == {
-        "R-coat": "Pass",
+        "R-coat": "AI verdict: met",
         "R-frame": "Pass",
-        "R-mark": "Fail",
+        "R-mark": "AI verdict: not met",
         "R-colour": "Not reviewed",
     }
     assert lines["next"] is None
@@ -205,7 +207,8 @@ def test_summary_lines_trace_crs_and_rules_used_after_a_review(client):
         and trace["rule_book"] == "INV-STD-100"
     )
     assert any(
-        g["step"] == "decision" and g["outcome"] == "Fail" for g in trace["gate"]
+        g["step"] == "decision" and g["outcome"] == "AI verdict: not met"
+        for g in trace["gate"]
     )
     assert (
         client.get(f"/api/reviews/runs/{run_id}/agent/lines/NOPE/trace").status_code
