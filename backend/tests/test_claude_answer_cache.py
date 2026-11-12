@@ -357,6 +357,9 @@ def _library(monkeypatch, known: dict[str, str]):
         claude_approved, "_hashes_of", lambda ids: {d: known.get(d) for d in ids}
     )
     monkeypatch.setattr(claude_approved, "_blocked_ids", lambda hashes: frozenset())
+    monkeypatch.setattr(  # no database either: no document here is a contract
+        claude_approved, "contracts_without_yes", lambda ids: frozenset()
+    )
 
 
 def test_a_blocked_document_never_gets_a_stored_answer(tmp_path, monkeypatch):
