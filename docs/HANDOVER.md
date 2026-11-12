@@ -178,11 +178,13 @@ chat paths say the document is not approved and ask the reader to choose the Loc
 **Automatic list entries (#1584, owner decision, `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED`, off).** With the
 switch on, `claude_auto_approve` lists a contractor submittal, the subject of a review and a standard
 that review cites or that governs its equipment type; the register file (rule 3) and any blocked hash
-never. To block a file: a `status: blocked` row on the list, or its hash in
-`backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"]}`, outside git). The hash is
-the block; the name check is a backstop, and a re-saved copy needs its own hash. Before the switch is
-turned on that file must hold the owner's real register hash: absent, unreadable or empty, nothing
-carrying a document is sent. Blocks apply with the switch off too; off, an automatic row does not count.
+never. To block a file: a `status: blocked` row on the list, its hash in
+`backend/data/claude_blocked_hashes.json` (`{"blocked_sha256": ["<sha256>"], "blocked_names": ["<file name>"]}`, outside
+git), or its name there; `scripts/write_block_file.py --name <file name>` / `--file` / `--sha256` adds an entry and never drops
+one. Owner decision of 12 Nov 2026 afternoon (#1584): the register is blocked by its file name, built in (any case, spacing,
+extension, copy or date suffix; a longer name that contains it too), so the switch needs no block file; one that exists but
+cannot be read: nothing carrying a document is sent. A marked name matches the same way (at least 5 letters and digits).
+Blocks apply with the switch off too; off, an automatic row does not count.
 Sends are in the spend ledger (`sent_documents`), list changes in `audit_events`
 (`claude_auto_approved`, `claude_auto_blocked`, `claude_auto_withdrawn`). No route shows the list; read the file.
 

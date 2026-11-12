@@ -52,10 +52,12 @@ carries the client's name; only the owner can rename it.
    (order 270.3) sends STANDARDS text only, of the SAES, ISO, API, ASME and NACE
    families (owner, 3 Nov 2026, #1584), and never a datasheet, procedure or CRS. Every other
    outbound path for document content stays forbidden. Standing approval (owner decision of
-   12 Nov 2026, #1584 comment 6806441133, to be confirmed there by the owner): with
+   12 Nov 2026 afternoon, recorded on #1584): with
    `CLAUDE_AUTO_APPROVE_REVIEWS_ENABLED=true` the paper under review and the rule books of the rules the AI
-   reviewer asks join the approved list automatically; the register stays blocked by hash and name; the switch
-   is off by default and needs the block file. In chat, the user may choose Claude and explicitly
+   reviewer asks join the approved list automatically, and nothing else does; the register is blocked by its file name
+   (built in, any case, spacing, extension or copy suffix) and by checksum when the file is held; the block list
+   (`claude_blocked_hashes.json`) also holds the files, by name or checksum, that the owner marks; the switch needs no
+   block file, but a block file that cannot be read turns it off; the switch is off by default. In chat, the user may choose Claude and explicitly
    select the documents for that request; that selection is per-request consent
    for only those files. Local sends no file content to Claude; Claude without
    explicit document selection can answer general questions but gets no document

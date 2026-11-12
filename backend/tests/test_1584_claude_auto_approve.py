@@ -765,19 +765,16 @@ def test_a_blocked_row_beside_an_approved_one_wins():
 @pytest.mark.parametrize(
     "content",
     [
-        None,
         "{not json",
         "[]",
         '{"blocked_sha256": "aa"}',
         '{"blocked_sha256": ["not-a-hash"]}',
-        '{"blocked_sha256": []}',
+        '{"blocked_names": "x"}',
+        '{"blocked_names": ["ab"]}',
     ],
 )
 def test_an_unreadable_block_file_adds_nothing_and_sends_nothing(content):
-    if content is None:
-        claude_approved.block_file_path().unlink()
-    else:
-        claude_approved.block_file_path().write_text(content, encoding="utf-8")
+    claude_approved.block_file_path().write_text(content, encoding="utf-8")
     doc = _doc("doc_u", SHA_A)
     classification.set_role(doc, SUBMITTAL)
     assert not claude_approved.list_path().exists()

@@ -31,8 +31,8 @@ WHAT NEVER GETS ONE
   * a blocked hash: a `status: blocked` row on the list, or a hash in the local
     block file. Existing rows are never rewritten, so an owner's block or a
     `pending_owner` row stays exactly as it was written;
-  * a file named like the register (`claude_approved.is_register_name`): it gets
-    a `blocked` row instead, so the same bytes stay blocked under any other name.
+  * a file named like the register or like a file the owner marked in the block file
+    (`claude_approved.name_is_blocked`): it gets a `blocked` row instead, so the same bytes stay blocked under any other name.
     A blocked row beside an earlier approved row wins at the gate.
 
 FAIL CLOSED. If the list or the block file cannot be read, nothing is added and
@@ -145,9 +145,11 @@ def _apply(wanted: list[dict]) -> list[dict]:
         rows = data["documents"]
         try:
             blocks = claude_approved.blocked_hashes()
+            marked = claude_approved.marked_name_keys()
             readable = True
         except claude_approved.BlockListUnreadable:
             blocks = frozenset(claude_approved.blocked_rows(rows))
+            marked = frozenset()
             readable = False
         for want in wanted:
             sha = want["sha256"]
@@ -159,12 +161,12 @@ def _apply(wanted: list[dict]) -> list[dict]:
                 "document_id": want["document_id"],
                 "label": want["label"],
             }
-            if any(claude_approved.is_register_name(n) for n in want["names"]):
+            if any(claude_approved.name_is_blocked(n, marked) for n in want["names"]):
                 if sha not in blocks:
                     entry = {
                         **base,
                         "status": BLOCKED,
-                        "blocked_by": f"{AUTO_BY}: register file name",
+                        "blocked_by": f"{AUTO_BY}: file name on the block list",
                         "blocked_on": today,
                         "source": SOURCE,
                     }
@@ -278,8 +280,12 @@ def on_upload(document_id: str, uploaded_name: str | None = None) -> None:
             return []
         names = (uploaded_name,) if uploaded_name else ()
         role = row["document_role"]
+        try:
+            marked = claude_approved.marked_name_keys()
+        except claude_approved.BlockListUnreadable:
+            marked = frozenset()  # _apply approves nothing then; the register name is still caught
         if role == REVIEW_ROLE or any(
-            claude_approved.is_register_name(n) for n in (row["filename"], *names)
+            claude_approved.name_is_blocked(n, marked) for n in (row["filename"], *names)
         ):
             return [_want(row, SOURCE, *names)]
         return [_want(row, SOURCE, withdraw=True)] if role else []
