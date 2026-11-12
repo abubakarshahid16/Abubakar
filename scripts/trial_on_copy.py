@@ -564,6 +564,10 @@ def contractor_rows(blob: bytes) -> list[dict]:
     return out
 
 
+#: The two header labels of `crs_layout.engine_rows` (the engine, and the draft sentence of an unscored kind).
+ENGINE_HEADER_LABELS = ("Reviewed by:", "Note:")
+
+
 def _ai_word_cells(blob: bytes) -> int:
     """Cells of the whole contractor workbook (every sheet) with an AI opinion word or a code word."""
     from openpyxl import load_workbook
@@ -573,6 +577,8 @@ def _ai_word_cells(blob: bytes) -> int:
     n = 0
     for sheet in load_workbook(io.BytesIO(blob), read_only=True).worksheets:
         for row in sheet.iter_rows(values_only=True):
+            if row and row[0] in ENGINE_HEADER_LABELS:
+                continue  # the header rows that name the engine (12 Nov 2026, owner): they say "AI reviewer" on purpose
             for cell in row:
                 text = str(cell or "").lower()
                 if text and (

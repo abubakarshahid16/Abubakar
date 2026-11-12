@@ -802,23 +802,41 @@ def test_the_ai_header_names_the_engine_on_both_copies():
         ).lower().replace("review", "")
 
 
-def test_the_normal_header_names_the_engine():
+def test_the_normal_sheet_names_the_engine_in_its_title_and_keeps_its_row_geometry():
     from app import crs_normal
 
-    view = {"header": [], "applicable_standards": []}
-    pairs = crs_normal._pairs(
-        view, {"header": {"reviewed_by": "rule check on the local model"}}
-    )
-    assert ("Reviewed by:", "rule check on the local model") in pairs
+    def view(copy):
+        return {
+            "crs_copy": copy, "rows": [], "columns": [], "run_status_note": "", "title": "Company",
+            "header": [], "incomplete_notice": "", "recommended_code": "", "rulebook_v2_note": "",
+            "applicable_standards": [],
+        }  # fmt: skip
+
+    for copy in ("internal", "contractor"):
+        meta = {
+            "header": {
+                "reviewed_by": "rule check on the local model",
+                "draft_note": "A draft.",
+            }
+        }
+        got = crs_normal.layout_view(crs_normal.decorate(view(copy), meta), meta)
+        assert (
+            "Reviewed by: rule check on the local model" in got["title"]
+            and "Note: A draft." in got["title"]
+        )
+        assert got["gap"] == (1 if copy == "internal" else 0)
+        bare = crs_normal.layout_view(
+            crs_normal.decorate(view(copy), {"header": {}}), {"header": {}}
+        )
+        assert bare["title"] == "Company" and len(got["header"]) == len(
+            bare["header"]
+        )  # no row added
 
 
 def test_reviewed_by_reads_what_the_run_did(world, lane):
-    conn = db.connect()
     assert crs_ai_header.reviewed_by("r", ai=False) == "rule check on the local model"
     assert crs_ai_header.reviewed_by("r", ai=True, usd=0.5) == "AI reviewer on Claude"
-    assert "no model was asked" in crs_ai_header.reviewed_by(
-        conn, "r", ai=True, usd=None
-    )
+    assert "no model was asked" in crs_ai_header.reviewed_by("r", ai=True, usd=None)
     claude_spend.record(
         step="crs_wording",
         model="claude-sonnet-5",

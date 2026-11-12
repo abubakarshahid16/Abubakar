@@ -158,8 +158,10 @@ def _below(ws, below, last_row: int, ncols: int) -> None:
 
 
 def engine_rows(facts) -> list[tuple[str, str]]:
-    """The header rows that name the ENGINE (12 Nov 2026, owner decision, #1584) and, for a kind not scored against a key, the draft
-    sentence. ONE home for both reviewers' sheets and both copies; a fact that is not there adds no row."""
+    """The header facts that name the ENGINE (12 Nov 2026, owner decision, #1584) and, for a kind not scored against a key, the draft
+    sentence, as (label, value). ONE home for both reviewers' sheets and both copies; a fact that is not there adds nothing. The AI
+    reviewer's sheet prints them as header rows (`engine_rows`); the normal reviewer's sheet, whose row geometry is pinned, as
+    lines of its title cell (`engine_lines`): the same words."""
     got = facts or {}
     rows = []
     if got.get("reviewed_by"):
@@ -167,6 +169,11 @@ def engine_rows(facts) -> list[tuple[str, str]]:
     if got.get("draft_note"):
         rows.append(("Note:", str(got["draft_note"])))
     return rows
+
+
+def engine_lines(facts) -> list[str]:
+    """`engine_rows` as one line each ("Reviewed by: rule check on the local model")."""
+    return [f"{label} {value}" for label, value in engine_rows(facts)]
 
 
 def _header_block(ws, view: dict, ncols: int) -> int:

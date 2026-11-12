@@ -260,7 +260,11 @@ def is_contract_paper(document_id: str) -> bool:
         got = agent_review_kind.read_kind(connect(), document_id)
         return bool(got.get("known")) and got.get("kind") == "contract"
     except Exception as exc:  # noqa: BLE001 - the safe side: not listed
-        log.warning("contract check of %s unreadable (%s): treated as a contract", document_id, type(exc).__name__)
+        log.warning(
+            "contract check of %s unreadable (%s): treated as a contract",
+            document_id,
+            type(exc).__name__,
+        )
         return True
 
 

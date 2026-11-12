@@ -91,9 +91,7 @@ def _pairs(view: dict, meta: dict) -> list[tuple[str, str]]:
         ("Rule books used:", "; ".join(applied)),
     ]
     pairs += [(k, v) for k, v in old.items() if k != "Document Title:"]
-    from . import crs_layout
-
-    return pairs + crs_layout.engine_rows(h)
+    return pairs
 
 
 def _below(view: dict) -> list[tuple[int, str, str, int]]:
@@ -151,6 +149,11 @@ def decorate(view: dict, meta: dict) -> dict:
         view["columns"].append(ce.AI_COLUMN)
     if internal:
         view["header"] = [{"label": k, "value": v} for k, v in _pairs(view, meta)]
+    # The engine goes in the title cell, not in a new header row: the normal sheet's geometry is pinned by `crs_export`'s row
+    # constants (the importers and the contractor copy read them). Here, so the preview and both copies say it alike.
+    view["title"] = "\n".join(
+        p for p in (view["title"], *crs_layout.engine_lines(meta.get("header"))) if p
+    )
     return view
 
 
@@ -192,6 +195,10 @@ def layout_view(view: dict, meta: dict) -> dict:
         "rows": rows,
         "statuses": statuses,
     }
+    if engine := crs_layout.engine_lines(
+        meta.get("header")
+    ):  # the title cell already holds them (`decorate`)
+        out["title_height"] = out["title_height"] or 30 + 15 * len(engine)
     if internal:
         out["sentence"] = words.generated_by(meta.get("company_name", ""))
         out["evidence"] = {
