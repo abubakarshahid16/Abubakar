@@ -39,7 +39,9 @@ def test_an_unknown_reason_is_never_printed_raw():
 
 def test_a_reason_of_several_parts_is_joined_in_plain_words():
     got = words.why_phrase(V.SILENCE_WHY + "; the rule is also not AI approved: values")
-    assert got == "the paper does not state it; the rule has not been approved yet"
+    assert (
+        got == f"{words.WHY_PHRASES[V.SILENCE_WHY]}; the rule has not been approved yet"
+    )
 
 
 @pytest.mark.parametrize(
@@ -61,7 +63,9 @@ def test_plain_removes_ids_and_codes_and_drops_a_sentence_that_still_holds_a_cod
     got = words.plain(
         "Provide S-EQ-04 as sheet_silent says. The gate refused it. Give the value."
     )
-    assert got == "Provide as the paper is silent says. Give the value."
+    assert (
+        got == "Provide as the AI reviewer found the paper silent says. Give the value."
+    )
     assert words.plain("The guard said so.") == ""
 
 
@@ -131,3 +135,25 @@ def test_the_header_facts_are_what_the_app_holds_and_blank_otherwise():
         header.document_header(conn, "nobody", "safety_valve")["discipline"]
         == "safety valve"
     )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Qwen3",
+        "gpt4",
+        "reason-code",
+        "quote-check",
+        "verdict-class",
+        "qwen3.5:2b",
+        "claude-sonnet-5-5",
+    ],
+)
+def test_model_name_forms_and_hyphenated_code_words_are_banned(text):
+    assert words.has_banned(text)
+
+
+def test_the_ban_list_includes_every_configured_model_id():
+    from app import claude_spend
+
+    assert all(words.has_banned(m) for m in claude_spend.PRICES)

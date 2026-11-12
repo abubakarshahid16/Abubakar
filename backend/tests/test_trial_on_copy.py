@@ -377,15 +377,15 @@ def test_the_proof_check_reads_the_stored_lines(world):
     assert not check.ok and "rule quote not verified by code" in check.detail
 
 
-def sheet(statuses):
+def sheet(statuses, ref="B clause 4.1", extra=None):
     """A contractor copy as the app writes it since order 13: no item id, a Status column."""
     wb = Workbook()
     ws = wb.active
     ws.append(["COMMENT RESOLUTION SHEET"])
     ws.append([])
-    ws.append(["Item No", "Document Name", "Status"])
+    ws.append(["Item No", "Document Name", "Standard Reference", "Status"])
     for n, status in enumerate(statuses, start=1):
-        ws.append([n, "paper", status])
+        ws.append([n, extra or "paper", ref, status])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -410,6 +410,12 @@ def test_the_contractor_copy_may_hold_only_proven_fail_rows(world):
     bad = trial.contractor_check(ro, "r", sheet(["Fail", "Pass"]))
     assert not bad.ok and "1 row(s) that are not a proven Fail" in bad.detail
     assert not trial.contractor_check(ro, "r", None).ok
+    wrong_rule = trial.contractor_check(ro, "r", sheet(["Fail"], ref="OTHER clause 9"))
+    assert not wrong_rule.ok  # a Fail row for the wrong rule no longer passes
+    worded = trial.contractor_check(
+        ro, "r", sheet(["Fail"], extra="The AI reviewer's view, not proven")
+    )
+    assert not worded.ok and "AI wording" in worded.detail
 
 
 def test_the_normal_review_check_says_a_skipped_step_is_a_failure():
