@@ -300,6 +300,8 @@ describe("chat navigation", () => {
     const option = screen.getByRole("option", { name: /Claude/ }) as HTMLOptionElement;
     expect(option.disabled).toBe(true);
     expect(option.title).toBe("no API key");
+    // ... and the reason is on the screen in words, not only in the hover title
+    expect(screen.getByTestId("model-unavailable-reason")).toHaveTextContent("no API key");
     await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({

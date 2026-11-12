@@ -46,10 +46,7 @@ CHAT_STEP = "chat"
 #: Claude-first applies to a NEW question (not `explain_of`) when the caller
 #: did not narrow to the local engine and Claude is actually usable.
 def wants_claude_first(preference: str | None) -> bool:
-    if preference == chat_model.LOCAL:
-        return False
-    ok, _why = chat_model.claude_ready()
-    return ok
+    return chat_model.claude_will_answer(preference)
 
 
 SYSTEM_PROMPT = """You are the RAG Intelligence assistant for KJO engineers, reviewing \

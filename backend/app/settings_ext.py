@@ -549,6 +549,14 @@ class SettingsExt(BaseModel):
     #: both egress flags and a key; the approved-document list and the USD caps still apply on every call. Under
     #: REASONING_PROVIDER=ollama it changes nothing (the master switch is checked first). Env: AGENT_REVIEW_ENGINE.
     agent_review_engine: str = "ollama"
+    #: The chat's OWN engine (owner, 12 Nov 2026: "selecting local and Claude both models"), named like its siblings. It only
+    #: says whether Claude MAY BE OFFERED in chat under REASONING_PROVIDER=per_task; the reader still picks per request, and a
+    #: request that does not say "claude" stays local. "ollama" (default): chat stays local under per_task, exactly as before.
+    #: "claude": the picker offers Claude; with no document selected a question sends no document content, with documents
+    #: selected only those documents' passages go (per-request consent, the block list and the USD caps still apply on every
+    #: call). Under REASONING_PROVIDER=claude it changes nothing (as before); under ollama nothing leaves, whatever this says.
+    #: It is NOT a review engine: it never bars a review's local engine. Env: CHAT_MODEL_ENGINE.
+    chat_model_engine: str = "ollama"
     #: Owner order 13, C4 (12 Nov 2026): before the AI reviewer closes a line as "the paper does not state this", a second,
     #: different model reads the whole stored text of the page(s) where the field would stand (per silent line at most 1 re-read, 1 lead re-ask, the normal second opinion and the context check of a Fail
     #: line, same spend reservation and caps); a quote that code verifies on that page is decided again by the same gate.

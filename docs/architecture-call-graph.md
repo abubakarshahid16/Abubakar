@@ -104,7 +104,10 @@ model call and that no model output reached a finding; both are no longer true:
 `reasoning_provider.claude_unavailable_for_task(<setting>)`; the settings a normal review reads are listed once, in
 `local_engine_bar.REVIEW_ENGINE_SETTINGS` (`match_engine`, `vision_reader_engine`, `datasheet_ai_reader`,
 `crs_ai_wording_engine`, `review_ai_check_engine`, `ai_clause_review_engine`, `ai_division_scope_engine`,
-`ai_engineering_review_pass_engine`). The AI reviewer (rule review and general review) has its own,
+`ai_engineering_review_pass_engine`). The chat has its own, `chat_model_engine` (`CHAT_MODEL_ENGINE`, default ollama), which
+is not in that list and never bars a review: under `per_task` the model picker offers Claude, and an explicit "claude"
+request goes out through `ClaudeProvider` (`reader_transport`, `claude_spend` caps, approved and block lists), only when it
+says claude (`chat_model._gate`); the default stays the local model. The AI reviewer (rule review and general review) has its own,
 `agent_review_engine` (`AGENT_REVIEW_ENGINE`, default ollama): `agent_claude.gate_open` and
 `agent_review_gate.claude_lane_open` (the agent-status route) are open under `claude`, or under `per_task` only when that
 setting says claude; `ollama` closes both. `local_engine_bar.is_claude_lane_run` is true under `claude`, and under `per_task`

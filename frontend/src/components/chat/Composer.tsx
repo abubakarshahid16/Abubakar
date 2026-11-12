@@ -246,6 +246,12 @@ export function Composer({
             {value.length}/{MAX_QUESTION}
             {over ? " - too long to send" : ""}
           </span>
+          {models && model && models.models.filter((m) => !m.available && m.reason).map((m) => (
+            // Why a model cannot be chosen, in words, not only as a hover title.
+            <span key={m.id} role="note" data-testid="model-unavailable-reason" className="text-xs text-slateish-400">
+              {m.reason}
+            </span>
+          ))}
           {models && model && (
             <label className="flex items-center gap-1 rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300">
               <span>Model:</span>

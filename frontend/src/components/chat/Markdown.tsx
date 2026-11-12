@@ -66,7 +66,28 @@ export function blocksOf(text: string): Block[] {
 // [S1], [S1, S2], [S1 "the exact words"] - the quoted form is the Claude
 // lane's claim marker; the words were checked server-side and are shown in
 // the source preview, not repeated inline.
-const TOKEN = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\[S\d+(?:\s*,\s*S?\d+)*(?:\s+"[^"\n]*")?\]|(?<![\w*])\*[^*\s][^*\n]*\*(?!\w)|(?<!\w)_[^_\s][^_\n]*_(?!\w))/g;
+const TOKEN = /(\$\$[^$\n]+\$\$|\$(?!\s)(?:[^$\n]*[^\s$])?\$|\*\*[^*\n]+\*\*|`[^`\n]+`|\[S\d+(?:\s*,\s*S?\d+)*(?:\s+"[^"\n]*")?\]|(?<![\w*])\*[^*\s][^*\n]*\*(?!\w)|(?<!\w)_[^_\s][^_\n]*_(?!\w))/g;
+
+const TEX_WORDS: Record<string, string> = {
+  times: "×", cdot: "·", approx: "≈", leq: "≤", le: "≤", geq: "≥", ge: "≥", neq: "≠", pm: "±", Delta: "Δ", delta: "δ",
+  rightarrow: "→", to: "→", sigma: "σ", mu: "µ", rho: "ρ", pi: "π", alpha: "α", beta: "β", theta: "θ", degree: "°",
+};
+
+/** The chat does not typeset maths (no new package). A formula the model wrote in LaTeX is shown as plain readable
+ * characters instead of raw markup: `$P_{\text{bara}} = P + 1$` becomes `P_bara = P + 1`. A `$...$` span with no
+ * LaTeX mark in it (a price, "$5 to $10") is not a formula and is left as written. Returns null for those. */
+export function texToPlain(span: string): string | null {
+  const inner = span.replace(/^\$\$?|\$\$?$/g, "").trim();
+  if (!/[\\^_{}]/.test(inner)) return null;
+  let t = inner;
+  t = t.replace(/\\(?:text|mathrm|mathbf|textbf|mathit|operatorname)\s*\{([^{}]*)\}/g, "$1");
+  for (let i = 0; i < 3; i++) t = t.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "($1)/($2)");
+  t = t.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)");
+  t = t.replace(/\\(?:left|right)\b/g, "").replace(/\\[,;:! ]/g, " ");
+  t = t.replace(/\\([A-Za-z]+)/g, (_m, name: string) => TEX_WORDS[name] ?? name);
+  t = t.replace(/[_^]\{([^{}]*)\}/g, (m, x: string) => `${m[0]}${x}`).replace(/[{}]/g, "");
+  return t.replace(/\s+/g, " ").trim();
+}
 
 function Inline({
   text,
@@ -85,7 +106,10 @@ function Inline({
     const at = match.index ?? 0;
     if (at > last) out.push(text.slice(last, at));
     last = at + token.length;
-    if (token.startsWith("**")) {
+    if (token.startsWith("$")) {
+      const plain = texToPlain(token);
+      out.push(plain === null ? token : <code key={key++} data-testid="formula" className="rounded bg-ink-800 px-1 font-mono text-[0.92em]">{plain}</code>);
+    } else if (token.startsWith("**")) {
       out.push(<strong key={key++} className="font-semibold text-slateish-100">{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("`")) {
       out.push(<code key={key++} className="rounded bg-ink-800 px-1 font-mono text-[0.92em]">{token.slice(1, -1)}</code>);

@@ -203,7 +203,7 @@ def test_the_models_route_lists_only_what_can_run(monkeypatch):
     assert out["default"] == "local"
     by_id = {m["id"]: m for m in out["models"]}
     assert by_id["local"]["available"] is True
-    assert by_id["claude"]["available"] is False and "REASONING_PROVIDER" in by_id["claude"]["reason"]
+    assert by_id["claude"]["available"] is False and by_id["claude"]["reason"] == "Claude is switched off on this computer."
     assert KEY not in json.dumps(out)
 
 
