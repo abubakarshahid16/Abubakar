@@ -55,9 +55,7 @@ AI_NEEDS_CLAUDE_LOCAL = (
     "The AI review needs Claude and will not run; the rule check runs on this computer"
 )
 AI_ON_LOCAL = "the AI review runs on the local model: nothing leaves this computer"
-CLAUDE_REFUSED_WORDS = (
-    "Claude cannot be used now, so this review runs on this computer"
-)
+CLAUDE_REFUSED_WORDS = "Claude cannot be used now, so this review runs on this computer"
 AI_ON_LOCAL_RULES_ONLY = (
     "the AI review asks the rules of this kind on the local model: nothing leaves this computer; the general review (the paper against "
     "itself, the checklist) does not run on the local model yet"
