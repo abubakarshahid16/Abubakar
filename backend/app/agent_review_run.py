@@ -51,6 +51,7 @@ from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
 from .agent_review_decide import DecideMixin
+from .agent_review_local_run import LocalRunMixin
 from .agent_review_request import (
     ABSENCE_SECOND_SYSTEM,
     ANSWER_SHAPE,
@@ -91,7 +92,14 @@ from .agent_review_two_reader_run import TwoReaderMixin
 log = logging.getLogger(__name__)
 
 
-class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperMixin):
+class Runner(
+    DecideMixin,
+    RereadMixin,
+    TwoReaderMixin,
+    AbsenceMixin,
+    OtherPaperMixin,
+    LocalRunMixin,
+):
     _scope = threading.local()  # per-thread charge scope (`charged_scope`)
 
     def __init__(
@@ -125,6 +133,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
+        self._local_decided: dict = {}  # item id -> the pages SHOWN to the first reader (the second reader sees the same)
         self.local = local  # the local engine (`agent_review_local`): None = the Claude path, exactly as before
         self.model, concurrency, max_batch = self._local_limits(
             model, concurrency, max_batch
@@ -611,6 +620,13 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         return answer, usd, error, model
 
     def run_batch(self, batch: list[dict], allow_split: bool = True) -> None:
+        """One batch of the first reader: on the local engine one item a request, the part of the paper it needs (`agent_review_local_run`)."""
+        if self.local is not None:
+            self.run_batch_local(batch)
+        else:
+            self.run_batch_claude(batch, allow_split)
+
+    def run_batch_claude(self, batch: list[dict], allow_split: bool = True) -> None:
         """One lead call for the batch. An answer cut off at max_tokens (or unreadable) is asked again ONCE per half of the
         batch; items a readable answer left out are asked again once; an item still without an answer is a failed call
         ("not reviewed"), never a verdict."""
@@ -644,8 +660,8 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         if answer is None and allow_split and len(batch) > 1 and error in SPLITTABLE:
             self.trace_record({"type": "split", "item_ids": ids, "after": error})
             mid = (len(batch) + 1) // 2
-            self.run_batch(batch[:mid], False)
-            self.run_batch(batch[mid:], False)
+            self.run_batch_claude(batch[:mid], False)
+            self.run_batch_claude(batch[mid:], False)
             return
         self.trace_record(
             {
@@ -689,7 +705,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
             self.emit(self.reread_silent_line(it, line, model, box))
         self.settle_reuse(checks, key)
         if missing:
-            self.run_batch(missing, False)
+            self.run_batch_claude(missing, False)
 
     def restore(self) -> None:
         """Kept lines went through the exit again in `__init__` (the CURRENT tier); file them again so the table never holds a
@@ -767,5 +783,13 @@ def counts_of(lines: Iterable[Mapping], runner: Runner | None = None) -> dict:
     out["not_run"] = sum(
         1 for ln in ls if str(ln.get("error") or "").startswith("not run")
     )
-    local = runner.local.stats() if runner and runner.local is not None else {}
+    local = {}
+    if (
+        runner and runner.local is not None
+    ):  # a local run: what was asked, "asked N of M" (counts only)
+        local = {
+            **runner.local.stats(),
+            "local_items_total": len(ls),
+            "local_items_asked": sum(1 for ln in ls if not ln.get("error")),
+        }
     return {**out, **(runner.two_reader_counts() if runner else {}), **local}

@@ -31,9 +31,9 @@ reports on the line: "not asked: too long for the local model"). Nothing is cut.
 from __future__ import annotations
 
 import contextlib
+import logging
 import math
 import re
-import logging
 import sqlite3
 import threading
 import uuid
@@ -59,34 +59,43 @@ LOCAL_TOO_LONG = "not asked: too long for the local model"
 #: What a reader of the sheet sees for such a line: nothing was called, so it is never "AI call failed".
 NOT_ASKED_WORDS = "Not asked: too long for the local model. Not reviewed"
 NOT_ASKED_CODE = "not_asked_too_long"
+#: An item whose answer was "not found here" but whose paper was not asked in full (a window too long, an answer discarded, the limit of
+#: windows): never "not stated". Same shape as `LOCAL_TOO_LONG`: Not reviewed, with these words.
+NOT_ALL_ASKED = "not all of the paper could be asked"
+NOT_ALL_ASKED_WORDS = "Not all of the paper could be asked; it was not found in the part that was. Not reviewed"
 
 
 def failed_words(error: object) -> str:
     """Why a line has no answer. A request the local engine could not take was never called: it says so, never "AI call failed"."""
+    if error == NOT_ALL_ASKED:
+        return NOT_ALL_ASKED_WORDS
     return NOT_ASKED_WORDS if error == LOCAL_TOO_LONG else f"AI call failed: {error}"
 
 
 #: The one code of the second-reader step when it was switched off because model B could not be a second reader.
 OFF_SECOND_UNAVAILABLE = "second_reader_not_available_on_this_computer"
 SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (no second local model of another family): lines stay 'AI thinks'"
-#: TRUNCATION GUARD, three nets. (1) The SEND decision uses the repo's own fail-safe estimate (`context_budget.estimate_tokens`: a digit
-#: costs a token each, letters 3.5 to a token; it may over-estimate and must never under-estimate) for the whole prompt plus the output
-#: limit plus a margin; a request over the window is not sent. (2) After every call the engine's own `prompt_eval_count` is read from the
-#: JSON `model_transport` returns. `context_budget` measured that on an overflow the engine reports a count BELOW the window (1,026 of
-#: 1,536, 33% under), so a count at the window is not the test: an answer is thrown away when the count is missing, when it is at or over
-#: CUT_FRACTION of the window (a prompt admitted by (1) is at most about 0.7 of its estimate for prose; one that reads that full of the
-#: window is treated as cut, the safe side), or when it is below the lower bound of what the prompt must cost (a digit is at least a
-#: third of a token, other text at least a sixteenth of a token a character). (3) A per-call nonce starts the system text so the engine's
-#: prompt cache can never make a full prompt look short.
-CUT_FRACTION = 0.6
+#: TRUNCATION GUARD. WHAT AN OVERFLOW RETURNS (docs/benchmarks.md "The overflow", `context_budget.py`, measured 2026-09-05 with the deployed
+#: engine): the engine cuts a prompt that is longer than `num_ctx` WITHOUT saying so and reports a `prompt_eval_count` BELOW the window
+#: (1,026 at num_ctx 1,536: two thirds of it), which looks like an ordinary small prompt. A cut therefore cannot be told from the count
+#: alone; it must be prevented before the call. So: (1) the SEND decision uses the repo's own fail-safe estimate
+#: (`context_budget.estimate_tokens`: a digit costs a token each, letters 3.5 to a token; it may over-estimate, it must never
+#: under-estimate) for the whole prompt plus the output limit plus a margin: a prompt that passes it cannot be cut. (2) The count the engine
+#: reports (`prompt_eval_count`, in the JSON `model_transport` returns) is then a net, and an answer is thrown away when it is missing,
+#: when it reaches the room the prompt may use (the window less the output limit, less CUT_MARGIN: the engine used everything), when it is
+#: below the lower bound of what the prompt must cost (a digit at least a third of a token, other text at least a sixteenth), or when it is
+#: above the estimate (the estimate under-counted, so (1) cannot be trusted for this request). A prompt that used more than half the window is NOT
+#: discarded for that alone. (3) A per-call nonce starts the system text so the engine's prompt cache can never make a full prompt look short.
+CUT_MARGIN = 64
+ESTIMATE_SLACK = 64  # tokens the chat template adds to what the estimate counts
 MIN_CHARS_PER_DIGIT_TOKEN, MIN_CHARS_PER_WORD_TOKEN = 3, 16
 WINDOW_MARGIN_TOKENS = 256
 TIMEOUT_S = 600.0
 #: Smaller than the Claude path (it measured 1,000 + 1,100 x items with the reader's own thinking): thinking is off here, and the window
 #: is 8k. A reply cut off at its limit is split and retried by the runner exactly as on the Claude path.
-FIRST_BATCH_MAX = 3
+FIRST_BATCH_MAX = 1  # one item a request: the part of the paper it needs (`agent_review_excerpt`) is all a 16k window holds
 FIRST_TOKENS_BASE, FIRST_TOKENS_PER_ITEM, FIRST_TOKENS_CAP = 300, 380, 2400
-SECOND_BATCH_MAX = 3
+SECOND_BATCH_MAX = 1
 SECOND_TOKENS_BASE, SECOND_TOKENS_PER_ITEM, SECOND_TOKENS_CAP = 300, 330, 2000
 
 
@@ -208,6 +217,58 @@ def review_running() -> bool:
     return bool(rec and rec.get("kind") == LOCK_KIND and not heavy_lock.is_stale(rec))
 
 
+def _info(show: Any) -> dict:
+    info = show.get("model_info") if isinstance(show, dict) else None
+    return info if isinstance(info, dict) else {}
+
+
+def _num(info: dict, arch: str, key: str) -> float | None:
+    got = info.get(f"{arch}.{key}")
+    if isinstance(
+        got, list
+    ):  # a per-layer list (hybrid models): the largest, the safe side
+        got = max(
+            (x for x in got if isinstance(x, (int, float)) and not isinstance(x, bool)),
+            default=None,
+        )
+    return (
+        float(got)
+        if isinstance(got, (int, float)) and not isinstance(got, bool) and got > 0
+        else None
+    )
+
+
+def context_length(show: Any) -> int | None:
+    """The model's own context length in tokens from the engine's data (`<architecture>.context_length`), or None when it is not given."""
+    info = _info(show)
+    arch = str(info.get("general.architecture") or "")
+    got = _num(info, arch, "context_length")
+    return int(got) if got else None
+
+
+def kv_mb_per_1k(show: Any) -> float | None:
+    """An upper estimate of the memory the context costs per 1,000 tokens, in MB, from the model's own data: layers x kv heads x (key length +
+    value length) x 2 bytes (f16 cache). None when the data does not give it. A hybrid model keeps a cache in only some layers: this over-counts."""
+    info = _info(show)
+    arch = str(info.get("general.architecture") or "")
+    layers, heads = (
+        _num(info, arch, "block_count"),
+        _num(info, arch, "attention.head_count_kv")
+        or _num(info, arch, "attention.head_count"),
+    )
+    width, n_heads = (
+        _num(info, arch, "embedding_length"),
+        _num(info, arch, "attention.head_count"),
+    )
+    key = _num(info, arch, "attention.key_length") or (
+        width / n_heads if width and n_heads else None
+    )
+    value = _num(info, arch, "attention.value_length") or key
+    if not (layers and heads and key and value):
+        return None
+    return round(layers * heads * (key + value) * 2 * 1000 / 1e6, 1)
+
+
 def second_ready_for(
     a: str, b: str, show_a: Any = None, show_b: Any = None
 ) -> tuple[bool, str]:
@@ -253,14 +314,18 @@ def lower_bound_tokens(text: str) -> int:
     )
 
 
-def _cut_prompt(reported: Any, window: int, text: str) -> str | None:
+def _cut_prompt(
+    reported: Any, window: int, text: str, num_predict: int, estimate: int
+) -> str | None:
     """Why the prompt the engine reports cannot be trusted to be the whole request, or None when it can. Code only."""
     if isinstance(reported, bool) or not isinstance(reported, int) or reported <= 0:
         return "prompt size not reported"
-    if reported >= int(window * CUT_FRACTION):
-        return "prompt at or near the window"
+    if reported >= window - int(num_predict) - CUT_MARGIN:
+        return "prompt reached the room the window leaves it"
     if reported < lower_bound_tokens(text):
         return "prompt shorter than the request needs"
+    if reported > estimate + ESTIMATE_SLACK:
+        return "prompt longer than the estimate said"
     return None
 
 
@@ -313,6 +378,7 @@ class LocalEngine:
         self.unloads: list[str] = []
         self._ready: tuple[bool, str] | None = None
         self._show_of = show or _show
+        self._shows: dict[str, dict | None] = {}
         self.used: set[str] = (
             set()
         )  # the models THIS run loaded (only these are ever unloaded)
@@ -321,20 +387,28 @@ class LocalEngine:
     # ---- readiness of the second reader
     def second_ready(self) -> tuple[bool, str]:
         if self._ready is None:
-            sa = self._show_of(self.model_a) if self.model_b else None
-            sb = self._show_of(self.model_b) if self.model_b else None
+            sa = self.show(FIRST) if self.model_b else None
+            sb = self.show(SECOND) if self.model_b else None
             self._ready = second_ready_for(self.model_a, self.model_b, sa, sb)
         return self._ready
 
     # ---- budget
+    def show(self, role: str = FIRST) -> dict | None:
+        """The local engine's own data for the model of this role (`/api/show`), read once."""
+        name = self.model_b if role == SECOND else self.model_a
+        if name not in self._shows:
+            self._shows[name] = self._show_of(name) if name else None
+        return self._shows[name]
+
     def window(self, role: str = FIRST) -> int:
-        """The context window asked of the model of this role: the setting (0 = the shared local window), never below the shared window
-        (the transport raises a smaller one to it)."""
+        """The context window asked of the model of this role: the model's own context length (from `/api/show`) or, when the engine does
+        not say, the shared local window; never above the setting's cap (`agent_review_local_num_ctx`, default 16,384; `_b` for the second
+        reader, 0 = the same). Asking more than the shared window reloads that model once; that is the price of a prompt that fits."""
         if self._window:
             return int(self._window)
         from .config import settings
 
-        asked = int(
+        cap = int(
             getattr(
                 settings,
                 "agent_review_local_num_ctx_b"
@@ -344,13 +418,20 @@ class LocalEngine:
             )
             or 0
         )
-        if role == SECOND and not asked:
-            asked = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
-        return max(asked, model_transport.shared_window())
+        if role == SECOND and not cap:
+            cap = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
+        shared = model_transport.shared_window()
+        length = context_length(self.show(role))
+        if not length:
+            return shared  # the engine did not say how long the model's context is: only what is known to work
+        return min(length, cap) if cap else min(length, shared)
 
     def stats(self) -> dict:
         """Counts only (no text): requests by stage, requests not sent for length, answers discarded for a cut or unreported prompt."""
         return {
+            "local_window_first": self.window(FIRST),
+            "local_window_second": self.window(SECOND),
+            "local_kv_mb_per_1k_first": kv_mb_per_1k(self.show(FIRST)),
             "local_requests_first": self.calls[FIRST],
             "local_requests_second": self.calls[SECOND],
             "local_not_asked_too_long": self.not_asked,
@@ -463,7 +544,13 @@ class LocalEngine:
             exc.usd = 0.0
             raise exc
         reported = answer.get("prompt_eval_count")
-        why = _cut_prompt(reported, window, whole)
+        why = _cut_prompt(
+            reported,
+            window,
+            whole,
+            int(max_tokens),
+            sum(context_budget.estimate_tokens(m["content"]) for m in messages),
+        )
         if why:  # the engine may have cut the prompt: nothing it said is used (never a met / not met from a part of the paper)
             with self._lock:
                 self.discarded[why] += 1

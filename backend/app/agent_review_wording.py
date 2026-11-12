@@ -16,7 +16,12 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Iterable, Mapping
 
 from . import agent_review_two_reader as two_reader
-from .agent_review_local import LOCAL_TOO_LONG, NOT_ASKED_WORDS
+from .agent_review_local import (
+    LOCAL_TOO_LONG,
+    NOT_ALL_ASKED,
+    NOT_ALL_ASKED_WORDS,
+    NOT_ASKED_WORDS,
+)
 from .agent_review_verdict import (
     AI_TIER,
     BY_ABSENCE,
@@ -48,6 +53,7 @@ WORD_NOT_REVIEWED = "Not reviewed"
 ERROR_WORDS = {
     "stop_max_tokens": "no answer from the AI: answer cut off",
     LOCAL_TOO_LONG: NOT_ASKED_WORDS,
+    NOT_ALL_ASKED: NOT_ALL_ASKED_WORDS,
 }
 CLASSES = (
     CLASS_PROVEN,
