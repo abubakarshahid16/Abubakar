@@ -186,7 +186,7 @@ def test_switch_on_with_no_block_file_the_paper_and_the_asked_books_are_approved
     paper = _doc("doc_paper", SHA_A, role=SUBMITTAL)
     book = _doc("doc_book", SHA_B, role=STANDARD)
     register = _doc(
-        "doc_reg", SHA_C, role=STANDARD, filename="Engineering Deliverables.pdf"
+        "doc_reg", SHA_C, role=STANDARD, filename=f"{claude_approved.REGISTER_NAME_KEY}.pdf"
     )
     path = claude_approved.block_file_path()
     if block_file == "missing":

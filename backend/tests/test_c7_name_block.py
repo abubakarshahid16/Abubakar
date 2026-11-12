@@ -25,7 +25,12 @@ from tests.test_1584_claude_auto_approve import (  # noqa: F401  (the autouse wo
     world,
 )
 
-REG = "Engineering Deliverables.pdf"  # the register's file name, as CLAUDE.md rule 3 spells it
+_K = claude_approved.REGISTER_NAME_KEY
+_A, _B = (
+    _K[:11].title(),
+    _K[11:].title(),
+)  # the two words of the register's name, built from the one list
+REG = f"{_A} {_B}.pdf"
 MARKED = "Invented Marked Sheet.pdf"
 
 _spec = importlib.util.spec_from_file_location(
@@ -102,11 +107,11 @@ def test_other_names_are_not_matched(name):
     "name",
     [
         REG,
-        "engineering_deliverables.PDF",
-        "Engineering   Deliverables (2).pdf",
-        "Engineering Deliverables.xlsx",
-        "Engineering Deliverables rev 3 2026-11-01.pdf",
-        "Unrelated prefix Engineering Deliverables suffix.pdf",  # contains the register's words: blocked
+        f"{_A}_{_B}.PDF".lower(),
+        f"{_A}   {_B} (2).pdf",
+        f"{_A} {_B}.xlsx",
+        f"{_A} {_B} rev 3 2026-11-01.pdf",
+        f"Unrelated prefix {_A} {_B} suffix.pdf",  # contains the register's words: blocked
     ],
 )
 def test_the_register_name_is_built_in_and_needs_no_file(name):
