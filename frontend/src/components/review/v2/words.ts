@@ -74,7 +74,25 @@ export function firmnessLine(c: PointsListing["counts"]): string | null {
 export function placeWords(p: ReviewPoint): string {
   const page = p.page != null ? `page ${p.page}` : "";
   const book = p.rule_book ? (p.clause ? `${p.rule_book}, clause ${p.clause}` : p.rule_book) : "";
-  return [page, book].filter(Boolean).join(" · ");
+  const tags = p.tags?.length ? `${p.tags.length} tag${p.tags.length === 1 ? "" : "s"}` : "";
+  return [page, book, tags].filter(Boolean).join(" · ");
+}
+
+/** The place of a group of alike points: the pages they stand on, listed once, then the rule book and clause they share. */
+export function groupPlaceWords(points: ReviewPoint[]): string {
+  const pages = [...new Set(points.map((p) => p.page).filter((n): n is number => n != null))].sort((a, b) => a - b);
+  const first = points[0];
+  const book = first.rule_book ? (first.clause ? `${first.rule_book}, clause ${first.clause}` : first.rule_book) : "";
+  const where = pages.length ? `${pages.length === 1 ? "page" : "pages"} ${pages.join(", ")}` : "";
+  const all = new Set(points.flatMap((p) => p.tags ?? []));
+  const tags = all.size ? `${all.size} tag${all.size === 1 ? "" : "s"} in all` : "";
+  return [where, book, tags].filter(Boolean).join(" · ");
+}
+
+/** The tags a point's name carried, as the opened point says them. Empty when it had none. */
+export function tagsWords(p: ReviewPoint): string {
+  const n = p.tags?.length ?? 0;
+  return n === 0 ? "" : `Applies to: ${n} tag${n === 1 ? "" : "s"}`;
 }
 
 /** The words of the state of a decided point, with who decided (the AI's view stays the AI's until a person keeps it). */

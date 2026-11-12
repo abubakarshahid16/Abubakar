@@ -7,6 +7,7 @@
 import type { ReactNode } from "react";
 
 import { NOT_RECORDED, type Sourced } from "./howData";
+import { plainSource } from "./sourceWords";
 
 export interface HowSectionMeta {
   id: string;
@@ -59,7 +60,7 @@ export function Fact({ label, fact, detail, testId, missingText }: {
           {recorded ? factText(fact.value) : (missingText ?? NOT_RECORDED)}
         </span>
         {recorded && detail ? <span className="ml-1 text-sm text-slateish-300">{detail}</span> : null}
-        <span className="block text-xs text-slateish-500">from {fact.source}</span>
+        <span className="block text-xs text-slateish-500" title={fact.source}>from {plainSource(fact.source)}</span>
       </dd>
     </div>
   );
@@ -80,7 +81,7 @@ export function ReasonTable({ caption, rows, source, testId }: {
   return (
     <table data-testid={testId} className="w-full text-sm">
       <caption className="pb-1 text-left text-sm text-slateish-300">
-        {caption} <span className="text-xs text-slateish-500">(from {source})</span>
+        {caption} <span className="text-xs text-slateish-500" title={source}>(from {plainSource(source)})</span>
       </caption>
       <thead>
         <tr className="text-left text-xs text-slateish-400">

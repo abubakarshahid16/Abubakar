@@ -54,7 +54,14 @@ export interface ReviewPoint {
   other_kind: string | null;
   name: string;
   page: number | null;
+  /** The first readable rule book of the point (its own name). */
   rule_book: string | null;
+  /** Every rule book the point cites that the viewer may read, by identity (a document id) and the book's own name. */
+  books?: { id: string; name: string }[];
+  /** The equipment tags the point's name carried; shown in the opened point, never in the collapsed row. */
+  tags?: string[];
+  /** True when the point cites no rule book at all (it sits under "No rule book"). */
+  no_book?: boolean;
   clause: string | null;
   action: string | null;
   paper_quote: string | null;
@@ -96,7 +103,10 @@ export interface PointsListing {
   counts: {
     tiles: Record<ReviewPoint["tile"], TileCounts>;
     total: number;
-    rule_books: { name: string; points: number }[];
+    rule_books: { id?: string; name: string; points: number }[];
+    no_rule_book_points?: number;
+    /** Points that cite more than one readable rule book: each is counted under every one of its books. */
+    several_books_points?: number;
     other_rule_books_points: number;
     other_rule_books_note: string | null;
     not_held: { names: string[]; more: number; total: number; note: string | null };

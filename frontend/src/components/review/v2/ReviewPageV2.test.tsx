@@ -124,8 +124,15 @@ describe("1 the header", () => {
     const line = await screen.findByTestId("v2-kind-line");
     await waitFor(() => expect(line).toHaveTextContent("pressure relief valve"));
     expect(line).toHaveTextContent("12 pages");
-    expect(line).toHaveTextContent("kind decided by the system (a guess)");
+    // ONE line says the guess once: the chip says it, the line does not repeat it.
     expect(screen.getByTestId("kind-chip")).toHaveTextContent("Datasheet?");
+    expect(line.textContent ?? "").not.toMatch(/kind decided by/);
+    expect((line.textContent ?? "").match(/guess/gi)).toHaveLength(1);
+  });
+  it("a confirmed kind says who decided it", async () => {
+    api.ofDocument.mockResolvedValue(ok({ document_kind: "datasheet", document_kind_state: "confirmed", equipment_type: "pressure_relief_valve" }));
+    mount(); await loaded();
+    await waitFor(() => expect(screen.getByTestId("v2-kind-line")).toHaveTextContent("kind decided by an engineer"));
   });
   it("has ONE engine choice with Automatic preselected and ONE Review button; the old two buttons are not here", async () => {
     mount(); await loaded();
@@ -457,5 +464,74 @@ describe("no code words", () => {
     expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
     expect(text).not.toMatch(/\bR-614e60d6\b/);
     expect(hasBannedWord(text)).toBe(false);
+  });
+});
+
+describe("U5 polish: chips by book, names without tags, groups with pages, books counted once or said twice", () => {
+  const withBooks = (over: Partial<ReviewPoint>, ids: string[]) => point({ books: ids.map((id) => ({ id, name: id === "d1" ? "Book One" : "Book Two" })), no_book: ids.length === 0, ...over });
+  const bookListing = () => listing({
+    points: [
+      withBooks({ id: "p1", name: "Set pressure" }, ["d1"]),
+      withBooks({ id: "p2", name: "Orifice", rule_book: "Book Two" }, ["d2"]),
+      withBooks({ id: "p3", name: "Capacity", rule_book: "Book One" }, ["d1", "d2"]),
+      withBooks({ id: "p4", name: "Free comment", rule_book: null, clause: null }, []),
+    ],
+    counts: { ...listing().counts, rule_books: [{ id: "d1", name: "Book One", points: 2 }, { id: "d2", name: "Book Two", points: 2 }], no_rule_book_points: 1, other_rule_books_points: 0 },
+  });
+
+  it("one chip per rule book with its real name and count, plus No rule book; a chip filters by the book's identity", async () => {
+    api.list.mockResolvedValue(ok(bookListing()));
+    mount(); await loaded();
+    const chips = screen.getByTestId("v2-books");
+    expect(within(chips).getAllByRole("button").map((b) => b.textContent)).toEqual(["All rule books", "Book One (2)", "Book Two (2)", "No rule book (1)"]);
+    fireEvent.click(within(chips).getByRole("button", { name: "Book Two (2)" }));
+    expect(screen.getAllByTestId("v2-point").map((r) => r.textContent)).toHaveLength(2); // the point that cites both books is in both chips
+    fireEvent.click(within(chips).getByRole("button", { name: "No rule book (1)" }));
+    expect(screen.getAllByTestId("v2-point")).toHaveLength(1);
+    expect(screen.getByTestId("v2-point")).toHaveTextContent("Free comment");
+  });
+
+  it("a name carries no tag list; the opened point says 'Applies to: N tags' and expands to the list", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [point({ id: "t1", name: "Set pressure", tags: ["TG-1", "TG-2", "TG-3"] })] })));
+    mount(); await loaded();
+    const row = screen.getByTestId("v2-point");
+    expect(row.textContent).not.toMatch(/TG-/);
+    fireEvent.click(within(row).getByRole("button", { name: /Set pressure/ }));
+    const tags = screen.getByTestId("v2-tags");
+    expect(tags).toHaveTextContent("Applies to: 3 tags");
+    expect(tags.tagName).toBe("DETAILS");
+    expect(tags).toHaveTextContent("TG-1, TG-2, TG-3");
+  });
+
+  it("a group lists the pages it stands on", async () => {
+    mount(); await loaded();
+    expect(screen.getByTestId("v2-group-place")).toHaveTextContent("pages 3, 4, 5, 6");
+  });
+
+  it("says that a point citing two books is counted under each", async () => {
+    const l = bookListing();
+    l.counts = { ...l.counts, several_books_points: 1 };
+    api.list.mockResolvedValue(ok(l));
+    mount(); await loaded();
+    expect(screen.getByTestId("v2-several-books")).toHaveTextContent("1 point cites more than one rule book and is counted under each.");
+  });
+  it("says nothing of it when no point cites two books", async () => {
+    api.list.mockResolvedValue(ok(bookListing()));
+    mount(); await loaded();
+    expect(screen.queryByTestId("v2-several-books")).toBeNull();
+  });
+
+  it("a row and a group show their tag count, so alike names with different tag sets can be told apart before opening", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [
+      point({ id: "t1", name: "Set pressure", tags: ["TG-1", "TG-2", "TG-3", "TG-4"] }),
+      point({ id: "t2", name: "Set pressure", rank: 2, tile: "not_met", tags: ["TG-5"] }),
+      alike(1), alike(2),
+    ].map((p, i) => (i >= 2 ? { ...p, tags: [`TG-${10 + i}`, `TG-${20 + i}`] } : p)) })));
+    mount(); await loaded();
+    const rows = screen.getAllByTestId("v2-point");
+    expect(rows[0]).toHaveTextContent("4 tags");
+    expect(rows[1]).toHaveTextContent("1 tag");
+    expect(rows[0].textContent).not.toMatch(/TG-/);
+    expect(screen.getByTestId("v2-group-place")).toHaveTextContent("4 tags in all");
   });
 });
