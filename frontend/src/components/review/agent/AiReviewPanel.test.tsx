@@ -51,4 +51,17 @@ describe("AiReviewPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "See every point" }));
     expect(seen).toHaveBeenCalled();
   });
+  it("shows the two kinds of missing rule book apart, so the numbers agree", () => {
+    render(<AiReviewPanel runId="r1" overview={{ state: "ok", summary: SUMMARY, lines: [line({})], openPoints: 1, missing: { cited: 10, other: 2 } }} onSeeEvery={() => {}} />);
+    expect(screen.getByTestId("ai-panel-missing")).toHaveTextContent("10 rule books the paper names that we do not hold; 2 more that this equipment type needs.");
+  });
+  it("says plainly when the page record was taken from an earlier review, and says nothing otherwise", () => {
+    const ov = { state: "ok" as const, summary: SUMMARY, lines: [line({})], openPoints: 1, missing: null };
+    const { rerender } = render(<AiReviewPanel runId="r1" overview={ov} onSeeEvery={() => {}}
+      pageCoverage={{ carried_from_run: "old", carried_from_at: "2026-11-01T10:00:00Z" }} />);
+    expect(screen.getByTestId("ai-panel-pages")).toHaveTextContent("Pages read: taken from an earlier review of this paper, 2026-11-01");
+    rerender(<AiReviewPanel runId="r1" overview={ov} onSeeEvery={() => {}} pageCoverage={{}} />);
+    expect(screen.queryByTestId("ai-panel-pages")).toBeNull();
+    expect(screen.queryByTestId("ai-panel-missing")).toBeNull();
+  });
 });

@@ -506,7 +506,8 @@ export function ReviewWorkspace({
         )}
       </header>
       {/* U2: ONE place to look. When the run has an AI review, it comes first. */}
-      <AiReviewPanel runId={runId} overview={overview} onSeeEvery={() => onTab("agent")} />
+      <AiReviewPanel runId={runId} overview={overview} onSeeEvery={() => onTab("agent")}
+        pageCoverage={run.page_coverage as { carried_from_run?: string | null; carried_from_at?: string | null } | null | undefined} />
       <ReviewHelpLine words={aiHasOpen ? null : reviewHelpWords(numbers, steps)} />
       {run.submittal_document_id && data.documentRuns && data.documentRuns.length > 1 && (
         <div data-testid="ws-past-reviews">

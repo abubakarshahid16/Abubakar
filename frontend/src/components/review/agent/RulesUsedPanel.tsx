@@ -207,7 +207,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         ) : (
           <>
             <ul className="list-disc pl-5 text-sm text-slateish-100">
-              {data.missing_books.map((b) => <li key={b.name}>{b.name}: {b.why}</li>)}
+              {data.missing_books.map((b) => <li key={b.name}>{b.name}: {humanizeCode(b.why)}</li>)}
             </ul>
             <p className="text-xs text-slateish-400">Listed only: these are not counted against the review.</p>
           </>

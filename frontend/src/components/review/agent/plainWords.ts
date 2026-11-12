@@ -217,3 +217,27 @@ export function aiHeadline(open: number | null): { headline: string; next: strin
       next: "Next: read the AI review's points, then download the internal CRS.",
     };
 }
+
+// ---------------------------------------------------------------- missing rule books, apart
+
+export interface MissingSplit { cited: number; other: number }
+
+/** The rule books we do not hold, in the two kinds the record keeps apart:
+ *  those the paper names, and those its equipment type needs. */
+export function missingSplit(books: readonly { why: string }[]): MissingSplit {
+  const cited = books.filter((b) => /^cited by the paper/i.test(b.why)).length;
+  return { cited, other: books.length - cited };
+}
+
+export function missingWords(m: MissingSplit): string {
+  return `${m.cited.toLocaleString()} rule ${m.cited === 1 ? "book" : "books"} the paper names that we do not hold; `
+    + `${m.other.toLocaleString()} more that this equipment type needs.`;
+}
+
+/** The page record's source, when it was copied from an earlier review (never as if this run read the pages). */
+export function pagesTakenWords(cov: { carried_from_run?: string | null; carried_from_at?: string | null } | null | undefined): string | null {
+  if (!cov || !cov.carried_from_run) return null;
+  const d = cov.carried_from_at ? new Date(cov.carried_from_at) : null;
+  const day = d && !Number.isNaN(d.getTime()) ? `, ${d.toISOString().slice(0, 10)}` : "";
+  return `Pages read: taken from an earlier review of this paper${day}`;
+}

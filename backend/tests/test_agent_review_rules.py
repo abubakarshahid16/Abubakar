@@ -710,7 +710,7 @@ def test_the_filter_only_removes_rules_counts_by_family_and_says_so_on_the_crs(
         R.equipment_block(ctx, why),
     )
     assert (
-        "another equipment type: 1 rules not asked (pressure_relief 1)"
+        "another equipment type: 1 rules not asked (pressure relief 1)"
         in block["summary_lines"]
     )
     assert block["equipment"]["asked_by_equipment"] == {
@@ -993,3 +993,10 @@ def test_the_related_map_never_keeps_a_checklist_item_for_a_related_equipment(
         True,
         "same_equipment",
     )  # rules DO use related
+
+
+def test_summary_line_names_equipment_families_in_words_not_keys():
+    counts = {R.ANOTHER_EQUIPMENT: {"total": 4, "by_family": {"pressure_relief": 2, "static": 2}}}
+    line = [x for x in R.summary_lines(counts, "datasheet") if x.startswith("another equipment type")][0]
+    assert line == "another equipment type: 4 rules not asked (pressure relief 2, static 2)"
+    assert "_" not in line
