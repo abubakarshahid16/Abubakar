@@ -14,9 +14,9 @@ from tests.test_b1_review_points import on  # noqa: F401 - autouse switch fixtur
 
 
 def test_a_bracketed_list_of_tags_leaves_the_name_and_a_unit_stays():
-    assert review_points.split_tags("Set pressure (PSV-101, PSV-102, PSV-103)") == (
+    assert review_points.split_tags("Set pressure (TG-1, TG-2, TG-3)") == (
         "Set pressure",
-        ["PSV-101", "PSV-102", "PSV-103"],
+        ["TG-1", "TG-2", "TG-3"],
     )
     assert review_points.split_tags("Capacity [P-1A; P-1B; ... ]") == ("Capacity", ["P-1A", "P-1B"])
     assert review_points.split_tags("Design pressure (barg)") == ("Design pressure (barg)", [])
@@ -28,10 +28,10 @@ def test_a_bracketed_list_of_tags_leaves_the_name_and_a_unit_stays():
 def test_the_collapsed_name_carries_no_tags_and_the_opened_point_has_them():
     doc = _submittal()
     _submittal("doc_std", "STD-A-001.pdf")
-    ai_run(doc, [mk("R-1", "Query", None, why="a b", field="Set pressure (PSV-101, PSV-102, PSV-103, PSV-104)")])
+    ai_run(doc, [mk("R-1", "Query", None, why="a b", field="Set pressure (TG-1, TG-2, TG-3, TG-4)")])
     pt = points_of(_client(doc, "doc_std"), doc)["points"][0]
     assert pt["name"] == "Set pressure"
-    assert pt["tags"] == ["PSV-101", "PSV-102", "PSV-103", "PSV-104"]
+    assert pt["tags"] == ["TG-1", "TG-2", "TG-3", "TG-4"]
 
 
 # ------------------------------------------------------------------------------------------------ one chip per rule book
@@ -85,9 +85,9 @@ def test_the_same_field_on_several_pages_against_the_same_clause_is_one_group():
     ai_run(
         doc,
         [
-            mk("R-1", "Query", None, why="a b", field="Set pressure (PSV-1, PSV-2)", paper_page=2),
-            mk("R-2", "Query", None, why="a b", field="Set pressure (PSV-3, PSV-4)", paper_page=5),
-            mk("R-3", "Query", None, why="a b", field="Set pressure (PSV-5, PSV-6)", paper_page=9),
+            mk("R-1", "Query", None, why="a b", field="Set pressure (TG-1, TG-2)", paper_page=2),
+            mk("R-2", "Query", None, why="a b", field="Set pressure (TG-3, TG-4)", paper_page=5),
+            mk("R-3", "Query", None, why="a b", field="Set pressure (TG-5, TG-6)", paper_page=9),
             mk("R-4", "Query", None, why="a b", field="Set temperature", paper_page=2),
         ],
     )

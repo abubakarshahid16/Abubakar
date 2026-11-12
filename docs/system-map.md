@@ -193,6 +193,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_selection` | Choose the standards that apply to a submittal |
 | `claude_image_tokens` | How many input tokens an image block costs for the spend reservation: width x height / 750 after the long-edge scale-down, at most one image's maximum; the size from the PNG/JPEG header; an unreadable size counts the maximum |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more: per review run USD 5 per step, USD 10 for AI clause review and USD 15 in all; USD 25 per standard, USD 100 a day, the total |
+| `claude_standing_refusal` | Reads back from the spend ledger whether the Claude account is refusing every call (no credit, usage limit reached), so the review page does not promise Claude; closed words and a time only |
 | `claude_spend_report` | What the Claude lane really cost per step, from settled ledger lines, and the USD 100 a day |
 | `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |

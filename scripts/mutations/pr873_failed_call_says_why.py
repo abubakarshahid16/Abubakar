@@ -18,7 +18,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M873-02", phase=873,
              description="an empty credit balance is not told apart from any other 400",
              path=_S,
-             anchor='    if no_credit:\n        return f"{name}:http_{status}:{NO_CREDIT}"\n',
+             anchor='    if no_credit or limit:\n'
+                    '        return f"{name}:http_{status}:{NO_CREDIT if no_credit else standing.USAGE_LIMIT}"\n',
              replacement="",
              target=_T, keyword="closed_description or plain_words or names_no_credit or unbilled_failure",
              tags=("honesty",)),

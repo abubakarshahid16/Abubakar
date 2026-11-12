@@ -56,6 +56,7 @@ from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 
 from . import claude_spend_report as report_mod
+from . import claude_standing_refusal as standing
 from .claude_image_tokens import json_counts
 from .config import settings
 
@@ -628,12 +629,6 @@ def release(reservation: Reservation, reason: str) -> None:
 #: generic type `invalid_request_error`; only its message says so.
 NO_CREDIT = "no_credit"
 NO_CREDIT_WORDS = "the Claude account has no credit (the owner tops it up in the Anthropic console)"
-#: U5: the other standing refusal: the API answers a reached usage limit with HTTP 400 or 429; only its message says so.
-USAGE_LIMIT = "usage_limit"
-USAGE_LIMIT_WORDS = "the Claude account's usage limit is reached"
-#: How long a standing refusal is believed without a newer call: a limit may reset, and a screen that says "not available" stops the
-#: calls that would show it has.
-STANDING_REFUSAL_HOURS = 3
 _ERROR_TYPE = re.compile(r"[a-z][a-z_]{0,39}")
 
 
@@ -659,65 +654,19 @@ def failure_word(exc: BaseException) -> str:
         if isinstance(err, dict):
             stated = str(err.get("type") or "")
             kind = stated if _ERROR_TYPE.fullmatch(stated) else ""
-            message = str(err.get("message") or "").lower()
-            no_credit = status == 400 and "credit balance" in message
-            limit = status in (400, 429) and "usage limit" in message
+            no_credit = status == 400 and "credit balance" in str(err.get("message") or "").lower()
+            limit = status in (400, 429) and standing.mentions_limit(err)
     except (ValueError, TypeError, AttributeError, LookupError):
         # A body that is not the API's JSON says nothing more than its status.
         kind, no_credit, limit = "", False, False
-    if no_credit:
-        return f"{name}:http_{status}:{NO_CREDIT}"
-    if limit:
-        return f"{name}:http_{status}:{USAGE_LIMIT}"
+    if no_credit or limit:
+        return f"{name}:http_{status}:{NO_CREDIT if no_credit else standing.USAGE_LIMIT}"
     return f"{name}:http_{status}" + (f":{kind}" if kind else "")
 
 
 def failure_words(exc: BaseException) -> str | None:
-    """Plain words for a failure the owner must act on (no credit, usage limit reached), else None."""
-    word = failure_word(exc)
-    if word.endswith(":" + NO_CREDIT):
-        return NO_CREDIT_WORDS
-    return USAGE_LIMIT_WORDS if word.endswith(":" + USAGE_LIMIT) else None
-
-
-def standing_refusal(now: datetime | None = None) -> dict | None:
-    """The Claude lane's standing refusal as the ledger holds it: the NEWEST call that failed for no credit or a reached usage limit,
-    when no call has succeeded since, and it is not older than `STANDING_REFUSAL_HOURS`; else None (nothing is known, not "available").
-    `{"cause": "no_credit" | "usage_limit", "words": plain words, "at": ISO time}`. Counts and a closed word only; never a message, a
-    prompt or a key. Read only."""
-    now = now or datetime.now(UTC)
-    found: dict | None = None
-    for e in _raw_lines():
-        why = str(e.get("finish_reason") or e.get("reason") or "")
-        if e.get("releases") or e.get("settles") or "finish_reason" in e:
-            if why.endswith(":" + NO_CREDIT) or why.endswith(":" + USAGE_LIMIT):
-                cause = NO_CREDIT if why.endswith(":" + NO_CREDIT) else USAGE_LIMIT
-                found = {
-                    "cause": cause,
-                    "at": str(e.get("at") or ""),
-                    "words": NO_CREDIT_WORDS
-                    if cause == NO_CREDIT
-                    else USAGE_LIMIT_WORDS,
-                }
-            elif (
-                "finish_reason" in e
-                and not why.startswith(("failed:", "unbilled:"))
-                and not e.get("corrupt")
-                and not e.get("cached")
-                and e.get("input_tokens")
-            ):
-                found = None  # a call went through after it: the lane works
-    if found is None:
-        return None
-    try:
-        at = datetime.fromisoformat(found["at"])
-    except ValueError:
-        return None
-    if at.tzinfo is None:
-        at = at.replace(tzinfo=UTC)
-    return (
-        found if (now - at).total_seconds() <= STANDING_REFUSAL_HOURS * 3600 else None
-    )
+    """Plain words for the one failure the owner must act on, else None."""
+    return NO_CREDIT_WORDS if failure_word(exc).endswith(":" + NO_CREDIT) else None
 
 
 def settle_failure(reservation: Reservation, exc: BaseException, *, unbilled=None,

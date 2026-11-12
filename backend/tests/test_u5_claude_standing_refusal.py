@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from app import claude_spend
+from app import claude_standing_refusal as standing
 from app.config import settings
 
 NOW = datetime(2026, 11, 12, 15, 0, tzinfo=UTC)
@@ -38,37 +39,42 @@ def test_a_usage_limit_answer_is_a_closed_word_and_never_stores_the_message():
     err = httpx.HTTPStatusError("400", request=req, response=httpx.Response(
         400, request=req, json={"error": {"type": "invalid_request_error", "message": "You have reached your specified API usage limits. SECRET-ECHO"}}))
     assert claude_spend.failure_word(err) == "HTTPStatusError:http_400:usage_limit"
-    assert claude_spend.failure_words(err) == claude_spend.USAGE_LIMIT_WORDS
     assert "SECRET" not in claude_spend.failure_word(err)
 
 
 def test_the_newest_standing_refusal_is_read_back_with_its_time(ledger):
     put(ledger, release(NOW - timedelta(minutes=30), "no_credit"), release(NOW - timedelta(minutes=10), "usage_limit"))
-    got = claude_spend.standing_refusal(NOW)
-    assert got["cause"] == "usage_limit" and got["words"] == claude_spend.USAGE_LIMIT_WORDS and got["at"].startswith("2026-11-12T14:50")
+    got = standing.standing_refusal(NOW)
+    assert got["cause"] == "usage_limit" and got["words"] == standing.USAGE_LIMIT_WORDS and got["at"].startswith("2026-11-12T14:50")
 
 
 def test_a_call_that_went_through_since_clears_it_and_an_old_one_expires(ledger):
     put(ledger, release(NOW - timedelta(minutes=30), "usage_limit"), ok(NOW - timedelta(minutes=5)))
-    assert claude_spend.standing_refusal(NOW) is None
-    put(ledger, release(NOW - timedelta(hours=claude_spend.STANDING_REFUSAL_HOURS + 1), "usage_limit"))
-    assert claude_spend.standing_refusal(NOW) is None
+    assert standing.standing_refusal(NOW) is None
+    put(ledger, release(NOW - timedelta(hours=standing.STANDING_REFUSAL_HOURS + 1), "usage_limit"))
+    assert standing.standing_refusal(NOW) is None
 
 
 def test_an_ordinary_failure_or_an_empty_ledger_is_no_standing_refusal(ledger):
-    assert claude_spend.standing_refusal(NOW) is None
+    assert standing.standing_refusal(NOW) is None
     put(ledger, {"at": NOW.isoformat(), "releases": "r", "step": "x", "reason": "unbilled:ReadTimeout"})
-    assert claude_spend.standing_refusal(NOW) is None
+    assert standing.standing_refusal(NOW) is None
 
 
-def test_the_plan_carries_the_standing_refusal(monkeypatch):
-    from app import review_engine
+def test_the_plan_route_carries_the_standing_refusal_and_nothing_when_none(world, lane, monkeypatch):
+    from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(claude_spend, "standing_refusal", lambda *a, **k: {"cause": "usage_limit", "words": claude_spend.USAGE_LIMIT_WORDS, "at": "2026-11-12T14:50:00+00:00"})
-    from tests.test_b1_review_engine import open_facts
+    from app.main import app
 
-    monkeypatch.setattr(review_engine, "read_facts", lambda *a, **k: (open_facts(), None))
-    monkeypatch.setattr(review_engine, "_earlier_books", lambda *a, **k: [])
-    monkeypatch.setattr(review_engine, "_last_cost", lambda *a, **k: None)
-    got = review_engine.plan_for(None, "doc", frozenset(), "automatic")
-    assert got["claude_standing_refusal"]["words"] == claude_spend.USAGE_LIMIT_WORDS
+    client = TestClient(app)
+    params = {"submittal_document_id": world["sub"], "engine": "automatic"}
+    got = client.get("/api/reviews/plan", params=params, headers=world["admin"]).json()
+    assert got["claude_standing_refusal"] is None
+    stored = {"cause": "usage_limit", "words": standing.USAGE_LIMIT_WORDS, "at": "2026-11-12T14:50:00+00:00"}
+    monkeypatch.setattr(standing, "standing_refusal", lambda *a, **k: stored)
+    got = client.get("/api/reviews/plan", params=params, headers=world["admin"]).json()
+    assert got["claude_standing_refusal"] == stored
+
+
+from tests.test_b1_review_engine import lane  # noqa: E402, F401 - fixture
+from tests.test_p3_review_jobs import temp_storage, world  # noqa: E402, F401 - fixtures

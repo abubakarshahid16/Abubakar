@@ -496,11 +496,6 @@ def plan_for(conn, document_id: str, allowed: frozenset[str], choice: str) -> di
         "exact": False,
     }
     out["notes"] = _notes(facts, plan, settings)
-    # U5: the lane's standing refusal as the spend ledger holds it (no credit, usage limit reached), so the screen never promises
-    # Claude when every call would be refused. Closed words and a time only. None: nothing is known to stand in the way.
-    from . import claude_spend
-
-    out["claude_standing_refusal"] = claude_spend.standing_refusal()
     out["sentence"] = sentence_of(out)
     return out
 

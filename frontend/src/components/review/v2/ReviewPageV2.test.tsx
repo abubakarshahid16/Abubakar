@@ -492,15 +492,15 @@ describe("U5 polish: chips by book, names without tags, groups with pages, Claud
   });
 
   it("a name carries no tag list; the opened point says 'Applies to: N tags' and expands to the list", async () => {
-    api.list.mockResolvedValue(ok(listing({ points: [point({ id: "t1", name: "Set pressure", tags: ["PSV-101", "PSV-102", "PSV-103"] })] })));
+    api.list.mockResolvedValue(ok(listing({ points: [point({ id: "t1", name: "Set pressure", tags: ["TG-1", "TG-2", "TG-3"] })] })));
     mount(); await loaded();
     const row = screen.getByTestId("v2-point");
-    expect(row.textContent).not.toMatch(/PSV-10/);
+    expect(row.textContent).not.toMatch(/TG-/);
     fireEvent.click(within(row).getByRole("button", { name: /Set pressure/ }));
     const tags = screen.getByTestId("v2-tags");
     expect(tags).toHaveTextContent("Applies to: 3 tags");
     expect(tags.tagName).toBe("DETAILS");
-    expect(tags).toHaveTextContent("PSV-101, PSV-102, PSV-103");
+    expect(tags).toHaveTextContent("TG-1, TG-2, TG-3");
   });
 
   it("a group lists the pages it stands on", async () => {
