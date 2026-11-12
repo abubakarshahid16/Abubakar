@@ -4270,6 +4270,7 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),
             "code_only": {str(p): ai_run["reasons"][p] for p in sorted(ai_run["reasons"])},
+            "skipped_on_purpose": page_ledger.skipped_pages(ai_run["reasons"]),
             "unavailable": ai_run.get("unavailable"), "stopped": ai_run.get("stopped"),
             "timed_out": list(ai_run.get("timed_out") or []), "seconds": ai_run.get("seconds"),
             # #501: pages whose answer was cut off by the output limit; the
