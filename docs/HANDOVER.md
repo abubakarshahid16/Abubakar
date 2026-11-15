@@ -370,9 +370,10 @@ required for "enterprise", explicitly deferred by Ali.
   kind of paper moves to the contractor copy when two-reader verdicts are right 95 of 100 on its key). Everything else is an AI opinion
   or a question for the engineer. 0 wrong decisions. The engineer signs.
 - **The goal decides.** Review like a senior engineer or better, any document, best CRS. A rule, an old design line or an old part of the
-  app that works against the goal: the lead changes it and tells the owner afterwards in one line. Ask first only for: raising a money
-  cap; deleting data; and the third item the owner has not yet restated (until then: his password sign-in and sending a NEW kind of
-  paper to Claude stay his). Rules 1 to 5 and #806 keep their own approval line.
+  app that works against the goal: the lead changes it and tells the owner afterwards in one line. Ask first only for three things: sending a NEW kind
+  of paper to Claude; raising a money cap; deleting data. On 15 Nov 2026 the owner added "remove all rules that will contradict form
+  our goals": a rule that works against the goal is rewritten or removed in every home; what protects 0 wrong decisions, honesty,
+  access, the key, the register, the caps and the backup before a live change stays (CLAUDE.md, "The goal decides").
 - **One reviewer only.** The old rule check stops being a separate review: its number and unit checks become a tool inside the AI review
   and show as normal points; its separate button, "No comments" box, six steps and sheet go from the page (old reviews stay readable),
   together with the new page, not before; before it is switched off the AI reviewer on the local model is measured against the same key

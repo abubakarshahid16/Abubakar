@@ -17,10 +17,14 @@
 ## The goal decides (owner, 12 Nov 2026, standing)
 
 The goal: review like a senior engineer or better, any document, best CRS. If a written rule, an old design line or an old part of the
-app works against the goal, the lead changes it and tells the owner afterwards in one line. Ask the owner first only for: raising a
-money cap; deleting data; and the third item the owner has not yet restated (until he does: signing in with his password and sending
-a NEW kind of paper to Claude stay his). Everything else is the lead's decision: design, screens, wording, removing old parts, order
-of work. This section does not change the privacy and safety rules 1 to 5 or #806: those keep their own approval line above.
+app works against the goal, the lead changes it and tells the owner afterwards in one line. Ask the owner first only for three
+things: sending a NEW kind of paper to Claude; raising a money cap; deleting data. (The lead never handles the owner's password.)
+Everything else is the lead's decision: design, screens, wording, removing old parts, order of work. On 15 Nov 2026 the owner added:
+"remove all rules that will contradict form our goals". So a rule in this file, in `docs/` or in `.cowork/` that works against the goal
+is rewritten or removed by the lead, in every home it lives in, and the owner is told in one line. What is NOT a contradiction of the
+goal, because it is the goal or protects it: 0 wrong decisions and the tests, reviews and proof behind them; the honesty and access
+rules (4 and 5); never reading or printing the key (2); the client's register stays blocked (3); the money caps; a verified backup
+before a live change.
 
 ## One reviewer only (owner, 12 Nov 2026)
 
@@ -48,8 +52,9 @@ Read this first, every session. It is short on purpose; the long version is
 An offline, privacy-first document-intelligence system for engineering
 documents. Engineers ask questions and get answers **quoted from their own PDFs
 with document and page**, a cross-document summary, a gap analysis against a
-chosen baseline, and an advisory recommendation. Runs entirely on one machine.
-**Documents never leave it.** Client use case: **reviewing contractor
+chosen baseline, and an advisory recommendation. Runs on one machine.
+**A document leaves it only when the user chooses Claude** for a review or a chat request, and the screen lists what will be sent
+before the start; "Local only" sends nothing (rule 1). Client use case: **reviewing contractor
 submittals** against specifications.
 
 Product name everywhere: **RAG Intelligence System**. The old names (the earlier
@@ -187,8 +192,9 @@ One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mi
 - **Claude Code in VS Code (this file's reader):** backend, git, GitHub.
 - **Cowork (Claude in the desktop app):** frontend, tests, docs, designs,
   reviews, and VS Code prompts. Cowork may edit files VS Code is not touching.
-- **The user (Ali):** approves, runs demos, flips `.env` flags, renames the
-  GitHub repo, sends client questions. Prefers simple English, tables, ✅/❌.
+- **The user (Ali), the owner:** decides only three things first (a NEW kind of paper to Claude, raising a money cap,
+  deleting data; see "The goal decides"), signs in himself, renames the GitHub repo, sends client questions. The lead does the rest
+  (code, merges, backups, live updates, switch lines, restarts) and tells him after. Prefers simple English, tables, ✅/❌.
 
 ## Tooling traps
 
