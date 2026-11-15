@@ -29,6 +29,7 @@ import json
 import re
 from collections import Counter, defaultdict
 
+from . import agent_review_wording as wording
 from . import crs_ai_words as words
 
 #: rank -> (what it is, how firm). The pill is "what · how firm".
@@ -621,8 +622,10 @@ def ai_points_of_run(
     """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
     read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
     lines = [
-        stored_class_wins(
-            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
+        wording.read_time(
+            stored_class_wins(
+                {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
+            )
         )
         for r in conn.execute(
             "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",

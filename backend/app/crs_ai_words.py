@@ -291,7 +291,19 @@ def has_banned(text: object) -> bool:
     return bool(BANNED.search(str(text or "")))
 
 
+#: reasons built by `wording.reader_query_words` from a reason CODE (no model text): said as they are
+_SAID_AS_THEY_ARE = (
+    "the sheet does not state this",
+    "needs a drawing or a calculation to judge",
+    "the AI could not decide",
+    "the AI gave no answer",
+)
+
+
 def _one_why(raw: str) -> str | None:
+    if raw.startswith(_SAID_AS_THEY_ARE):
+        return raw
+
     if raw.startswith(
         DISAGREE_ONE_FOUND
     ):  # built by code from a page number it verified (`absence_disagree_why`): said as it is
