@@ -34,6 +34,7 @@ from . import agent_general_parts as parts
 from . import agent_general_prompts as prompts
 from . import agent_general_review as core
 from . import agent_review_gate as gate
+from . import agent_review_local as local_mod
 from . import agent_review_request as request_mod
 from . import agent_review_run as runner_mod
 from . import crs_ai_header as crs_header
@@ -61,7 +62,7 @@ def record_request(conn, run_id: str, project_ids: Iterable[str]) -> None:
 
 
 def preflight(
-    decision: dict, problems: list[str], shape: str | None = None
+    decision: dict, problems: list[str], shape: str | None = None, local: bool = False
 ) -> str | None:
     """Why this run is refused before any call, or None: the switch off, the paper or its kind refused by `decide_mode`, a project
     paper the requester may not use, a lead and a second model of the same family."""
@@ -75,9 +76,9 @@ def preflight(
         return str(decision.get("message") or "refused").removeprefix("REFUSED | ")
     if problems:
         return "project paper refused: " + "; ".join(problems)
-    if not agent_run_second.models_differ(
+    if not local and not agent_run_second.models_differ(
         [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
-    ):
+    ):  # a local run checks its two models at the engine
         return "the lead and the second model are of the same family"
     return None
 
@@ -151,6 +152,45 @@ def _write_missing(conn, run_id: str, not_held: list[dict]) -> None:
         )
 
 
+def _counts(g, lines: list, per_class: dict, dropped: dict) -> dict:
+    """The run's counts: lines by class, what was dropped, the parts, and for a local run its requests (numbers only)."""
+    return {
+        "lines": len(lines),
+        "not_reviewed": per_class.get(core.CLASS_NOT_REVIEWED, 0),
+        "mode": core.MODE_WORD,
+        "per_class": per_class,
+        "dropped": dropped,
+        "parts": {str(p): c for p, c in g.part_counts.items()} if g else {},
+        **(g.local.stats() if g and g.local is not None else {}),
+    }
+
+
+def _run_parts(g, runner, carrier, local, run_id, heartbeat) -> None:
+    """Run the five parts: on the local engine (nothing reaches Claude: no approval list, no spend context, no ledger; one big model
+    at a time) or on the Claude lane (approvals, spend context, the step gate)."""
+    if local is not None:
+        if heartbeat is not None:
+            heartbeat()
+        local.progress_cb = local_mod.progress_writer(run_id)
+        try:
+            with local.session():
+                g.run_all()
+        except (
+            local_mod.heavy_lock.HeavyJobBusy
+        ) as exc:  # nothing was asked: said in plain words, not a type name
+            g.stopped = local_mod.busy_words(exc)
+        return
+    with claude_approved.carrying(carrier), claude_spend.for_run(run_id):
+        runner.gate = request_mod.AppStepGate(
+            request_mod.app_cap(), claude_spend.step_spent(agent_claude.STEP)
+        )
+        _approval_stop(runner)
+        g.stopped = runner.stopped
+        if heartbeat is not None:
+            heartbeat()
+        g.run_all()
+
+
 def _finish(
     conn,
     *,
@@ -179,14 +219,7 @@ def _finish(
     dropped = g.dropped.as_json() if g else {}
     crs.write_all(lines, folder, meta, accepted, dropped)
     per_class = dict(Counter(ln["verdict_class"] for ln in lines))
-    counts = {
-        "lines": len(lines),
-        "not_reviewed": per_class.get(core.CLASS_NOT_REVIEWED, 0),
-        "mode": core.MODE_WORD,
-        "per_class": per_class,
-        "dropped": dropped,
-        "parts": {str(p): c for p, c in g.part_counts.items()} if g else {},
-    }
+    counts = _counts(g, lines, per_class, dropped)
     spent = g is not None and sum(g.calls.values()) > 0
     stopped = _stop_text(g, stop)
     partial = bool(stopped) or bool(g and g.failures)
@@ -292,7 +325,9 @@ def note_skipped(run_id: str, why: str) -> None:
         )
 
 
-def _make_runner(submittal: str, kind, send, env, retry_base: float, trace_path: Path):
+def _make_runner(
+    submittal: str, kind, send, env, retry_base: float, trace_path: Path, local=None
+):
     return runner_mod.Runner(
         paper=submittal,
         items=[],
@@ -304,6 +339,7 @@ def _make_runner(submittal: str, kind, send, env, retry_base: float, trace_path:
         paper_kind=kind.kind,
         trace_path=trace_path,
         retry_base=retry_base,
+        local=local,
     )
 
 
@@ -314,7 +350,7 @@ def _approval_stop(runner) -> None:
         runner._halt(agent_claude.AgentGateClosed(refusal[0]))
 
 
-def _build(conn, run_id, submittal, kind, decision, accepted, folder, lane):
+def _build(conn, run_id, submittal, kind, decision, accepted, folder, lane, local=None):
     """The run object, its runner and the carrier (the paper and the named project papers, nothing else)."""
     _write_missing(conn, run_id, decision["not_held"])
     items, info = core.checklist_items(conn, decision["kind"], submittal)
@@ -323,10 +359,12 @@ def _build(conn, run_id, submittal, kind, decision, accepted, folder, lane):
     docs = core.load_documents(conn, submittal, ids, carrier)
     send, env = lane()
     retry = 0.0 if send is not None else request_mod.RETRY_BASE_SECONDS
-    runner = _make_runner(submittal, kind, send, env, retry, folder / "trace.jsonl")
+    runner = _make_runner(
+        submittal, kind, send, env, retry, folder / "trace.jsonl", local
+    )
     g = parts.GeneralRun(
         paper=submittal, docs=docs, kind=decision["kind"], books=decision, items=items, items_info=info, project=ids,
-        run_dir=folder, runner=runner, unread=core.unread_pages(conn, submittal),
+        run_dir=folder, runner=runner, unread=core.unread_pages(conn, submittal), local=local,
     )  # fmt: skip
     return g, runner, carrier
 
@@ -343,7 +381,7 @@ def run(
     lane: Callable[[], tuple],
     heartbeat: Callable[[], None] | None = None,
     combined: bool = False,
-    refuse: str | None = None,
+    local=None,
 ) -> dict:
     """The whole general review of one paper. Returns what the job's `_done` needs (counts, stop reason, USD, partial)."""
     conn = connect()
@@ -358,9 +396,9 @@ def run(
     accepted, problems = core.check_project_papers(
         conn, submittal, requested_papers(conn, run_id), scope
     )
-    refused = refuse or preflight(
-        decision, problems, agent_review_schema.shape_problem(conn)
-    )  # `refuse`: the local engine does not run this review yet (said, nothing asked)
+    refused = preflight(
+        decision, problems, agent_review_schema.shape_problem(conn), local is not None
+    )
     if refused:
         return _finish(
             conn,
@@ -376,18 +414,10 @@ def run(
             combined=combined,
         )
     g, runner, carrier = _build(
-        conn, run_id, submittal, kind, decision, accepted, folder, lane
+        conn, run_id, submittal, kind, decision, accepted, folder, lane, local
     )
     try:
-        with claude_approved.carrying(carrier), claude_spend.for_run(run_id):
-            runner.gate = request_mod.AppStepGate(
-                request_mod.app_cap(), claude_spend.step_spent(agent_claude.STEP)
-            )
-            _approval_stop(runner)
-            g.stopped = runner.stopped
-            if heartbeat is not None:
-                heartbeat()
-            g.run_all()
+        _run_parts(g, runner, carrier, local, run_id, heartbeat)
     except BaseException as exc:
         if not g.stopped:
             g.stopped = request_mod.stop_reason(exc, runner.last_app_worst)[0]

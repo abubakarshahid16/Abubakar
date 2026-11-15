@@ -1025,7 +1025,12 @@ def test_only_the_models_this_run_loaded_are_unloaded_and_the_chat_menu_says_a_r
 # ---------------------------------------------------------------- R51 F8: the plan says what will and will not run
 
 
-def test_a_contract_or_procedure_with_no_rules_of_its_kind_is_not_planned_as_an_ai_review_on_local():
+def test_a_contract_or_procedure_with_no_rules_of_its_kind_is_not_planned_as_an_ai_review_on_local(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        local_mod, "GENERAL_ON_LOCAL", False
+    )  # the general review is not on the local model: the plan says what does not run
     for kind in ("contract", "procedure"):
         plan = E.decide(
             "local",
@@ -1058,7 +1063,12 @@ def test_a_contract_or_procedure_with_no_rules_of_its_kind_is_not_planned_as_an_
         )
 
 
-def test_a_contract_with_rules_of_its_kind_says_the_rules_run_and_the_general_review_does_not():
+def test_a_contract_with_rules_of_its_kind_says_the_rules_run_and_the_general_review_does_not(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        local_mod, "GENERAL_ON_LOCAL", False
+    )  # the general review is not on the local model: the plan says what does not run
     plan = E.decide(
         "local",
         open_facts(
