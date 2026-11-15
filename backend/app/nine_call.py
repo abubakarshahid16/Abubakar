@@ -258,13 +258,13 @@ def ask(
     if engine == "claude":
         not_sent = _dropped(run_id, blocks)
         kept_list = [b for b in blocks if b.document_id not in not_sent]
-    else:  # the local model reads no pictures: the text of the block is kept, the picture is named as not read
-        kept_list = [
-            b if b.picture is None else _text_only(b)
+    else:  # the local model reads no pictures: the text of a block is kept, a picture is named as not read
+        not_sent = {
+            b.document_id: "picture_not_read_locally"
             for b in blocks
-            if b.text is not None or b.picture is not None
-        ]
-        kept_list = [b for b in kept_list if b.text is not None]
+            if b.picture is not None
+        }
+        kept_list = [_text_only(b) for b in blocks if b.text is not None]
     dropped = tuple(sorted(not_sent.items()))
     if not kept_list:
         nine_record.call_refused(
@@ -675,3 +675,34 @@ class FakeTransport:
             "content": [{"type": "text", "text": str(item)}],
             "usage": dict(self.usage),
         }
+
+
+def record_reused(
+    run_id: str,
+    role_no: int,
+    blocks: list[Block],
+    request_sha256: str,
+    *,
+    engine: str = "claude",
+    model: str | None = None,
+    conn=None,
+) -> str:
+    """A role that finds a stored answer of the SAME request (a restart) does not call again: it records the call as `reused` (the
+    request digest and the blocks it read, no cost, no ledger line) and returns the call id. Never paid twice."""
+    conn = conn or connect()
+    if role_no not in STEP_OF_ROLE:
+        raise NineCallError(f"role {role_no} is code: it makes no model call")
+    call_id = uuid.uuid4().hex[:16]
+    nine_record.call_sent(
+        run_id,
+        role_no,
+        call_id,
+        step=STEP_OF_ROLE[role_no],
+        engine=engine,
+        model=model or agent_claude.LEAD_MODEL,
+        request_sha256=request_sha256,
+        reads=_reads(role_no, call_id, list(blocks)),
+        conn=conn,
+    )
+    nine_record.call_end(run_id, call_id, "reused", usd=None, conn=conn)
+    return call_id

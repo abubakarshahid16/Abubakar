@@ -288,3 +288,52 @@ def test_a_role_with_no_step_name_cannot_call_and_a_failed_call_is_recorded_with
     )
     call = nine_record.load_record("run1").calls[0]
     assert call.state == "failed" and "secret" not in json.dumps(call.__dict__)
+
+
+def test_on_the_local_model_a_picture_is_named_as_not_read_and_its_text_is_kept():
+    seen = []
+
+    def local(parts):
+        seen.append(parts)
+        return {"text": "{}", "model": "m"}
+
+    pic = {"media_type": "image/png", "data": "AAAA"}
+    answer = nine_call.ask(
+        "run1",
+        1,
+        [
+            Block("paper", "paper", (1,), "page words", picture=pic),
+            Block("paper", "paper", (2,), None, picture=pic),
+        ],
+        "q",
+        engine="local",
+        local_send=local,
+    )
+    assert answer.ok and ("paper", "picture_not_read_locally") in answer.not_sent
+    assert "AAAA" not in json.dumps(seen[0]) and "page words" in json.dumps(seen[0])
+    assert (
+        nine_record.load_record("run1").roles[0].reads[0].pictures == 0
+    )  # the record says what was sent: no picture
+
+
+def test_a_picture_on_claude_is_sent_and_counted_in_the_read_row():
+    pic = {"media_type": "image/png", "data": "AAAA"}
+    answer, t = ask(
+        role=1, blocks_=[Block("paper", "paper", (1,), "page words", picture=pic)]
+    )
+    assert answer.ok and any(
+        c.get("type") == "image" for m in t.bodies[0]["messages"] for c in m["content"]
+    )
+    assert nine_record.load_record("run1").roles[0].reads[0].pictures == 1
+
+
+def test_a_reused_answer_is_recorded_as_reused_with_no_cost_and_no_ledger_line():
+    call_id = nine_call.record_reused("run1", 4, blocks(), "a" * 64)
+    call = nine_record.load_record("run1").calls[0]
+    assert (
+        call.call_id == call_id
+        and call.state == "reused"
+        and call.usd is None
+        and ledger() == []
+    )
+    assert len(nine_record.load_record("run1").roles[3].reads) == 2
