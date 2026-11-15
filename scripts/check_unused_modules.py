@@ -41,6 +41,8 @@ ENTRY_POINTS = (
     "ocr_box_convert",
     # page pictures of the AI reviewer (drawings and scans): not wired into the job (text pages only)
     "agent_review_pages",
+    # nine-role reviewer, being wired: the shared shapes its roles are built against (remove this entry when a role imports it)
+    "nine_contract",
 )
 
 
