@@ -255,6 +255,45 @@ def numeric_line(
     return line
 
 
+def _checklist_base(
+    r: Mapping, cell: table_cell.Cell | None, page_texts: Mapping[int, str]
+) -> dict:
+    """A checklist result as a line before it is decided: the approved entry is its own clause; the quote is the value's cell, else the value."""
+    fact_id, value, page = r.get("fact_id"), r.get("value"), r.get("page")
+    on_page = _is_page(page) and (
+        table_cell.in_page(cell, page_texts.get(page))
+        and proof.states(value, "", cell.quote)
+        if cell
+        else value_near_label(r.get("field"), value, page_texts.get(page))
+    )
+    tag = r.get("equipment_tag")
+    return {
+        "item_id": f"{ID_PREFIX}{r.get('rule_id')}"
+        + (f"-{fact_id}" if fact_id else f"-{tag or 'sheet'}"),
+        "source": SOURCE,
+        "code_kind": "checklist",
+        "approved_checklist": True,
+        "rule_id": r.get("rule_id"),
+        "standard": r.get("standard") or APPROVED_CHECKLIST,
+        "clause": r.get("clause") or r.get("rule_id"),
+        "rule_kind": "limit",
+        "field": r.get("field"),
+        "equipment_tag": tag,
+        "clause_quote": str(r.get("text") or ""),
+        "paper_quote": cell.quote if cell else str(value or ""),
+        "cell_ref": cell.ref() if cell else None,
+        "cell_label": cell.label_text if cell else None,
+        "cell_note": cell.split if cell else None,
+        "paper_page": page,
+        "paper_page_count": max((k for k in page_texts if _is_page(k)), default=None),
+        # the clause side is the approved entry's own wording: nothing outside it to check against
+        "quotes_checked": {
+            "paper": bool(on_page),
+            "clause": bool(str(r.get("text") or "").strip()),
+        },
+    }
+
+
 def checklist_lines(
     results: list[Mapping],
     *,
@@ -277,44 +316,7 @@ def checklist_lines(
         cell = (
             (cells or {}).get(str(fact_id)) if fact_id else None
         )  # its quote: the row's two cells
-        line = {
-            "item_id": f"{ID_PREFIX}{r.get('rule_id')}"
-            + (f"-{fact_id}" if fact_id else f"-{r.get('equipment_tag') or 'sheet'}"),
-            "source": SOURCE,
-            "code_kind": "checklist",
-            "approved_checklist": True,
-            "rule_id": r.get("rule_id"),
-            "standard": r.get("standard") or APPROVED_CHECKLIST,
-            "clause": r.get("clause") or r.get("rule_id"),
-            "rule_kind": "limit",
-            "field": r.get("field"),
-            "equipment_tag": r.get("equipment_tag"),
-            "clause_quote": str(r.get("text") or ""),
-            "paper_quote": cell.quote if cell else str(value or ""),
-            "cell_ref": cell.ref() if cell else None,
-            "cell_label": cell.label_text if cell else None,
-            "cell_note": cell.split if cell else None,
-            "paper_page": page,
-            "paper_page_count": max(
-                (k for k in page_texts if _is_page(k)), default=None
-            ),
-            "quotes_checked": {
-                "paper": bool(
-                    _is_page(page)
-                    and (
-                        table_cell.in_page(cell, page_texts.get(page))
-                        and proof.states(value, "", cell.quote)
-                        if cell
-                        else value_near_label(
-                            r.get("field"), value, page_texts.get(page)
-                        )
-                    )
-                ),
-                "clause": bool(
-                    str(r.get("text") or "").strip()
-                ),  # the approved entry's own wording: nothing outside it to check against
-            },
-        }
+        line = _checklist_base(r, cell, page_texts)
         detail = str(r.get("detail") or "")[:200]
         decided = (
             status in (COMPLIANT, NON_COMPLIANT)
