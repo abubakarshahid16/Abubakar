@@ -5,7 +5,7 @@
  * answer ("switch off"), not an error, so no screen shows a red line for it.
  */
 import type {
-  AgentLineList, AgentRulesUsed, AgentRunSummary, AgentStatus, AgentTrace, ReviewRunSummary,
+  AgentLineList, AgentRulesUsed, AgentRunSummary, AgentStatus, AgentTrace,
 } from "../types/api";
 import { BASE, failureOf, humanMessage, markSession, request, type Result } from "./core";
 
@@ -48,12 +48,13 @@ const run = (runId: string) => `/reviews/runs/${encodeURIComponent(runId)}`;
 
 export const agentReview = {
   status: () => request<AgentStatus>("/reviews/agent-status"),
-  start: (submittalDocumentId: string) =>
-    request<ReviewRunSummary>("/reviews/agent-run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ submittal_document_id: submittalDocumentId }),
-    }),
+  /** Which of these runs (at most 100) have an AI review: one question, no 404 per run that has none. */
+  which: (runIds: string[]) =>
+    request<{ run_ids: string[] }>(
+      `/reviews/agent-runs?ids=${runIds.slice(0, 100).map(encodeURIComponent).join(",")}`,
+      undefined,
+      (b) => isObject(b) && Array.isArray(b.run_ids),
+    ),
   summary: (runId: string) => request<AgentRunSummary>(`${run(runId)}/agent/summary`, undefined, hasSummaryShape),
   lines: (runId: string, cursor?: string | null) =>
     request<AgentLineList>(
@@ -65,6 +66,9 @@ export const agentReview = {
   /** The AI reviewer's CRS file (its own route, not the old export); the filename is the server's. */
   crsFile: (runId: string, copy: "internal" | "contractor") =>
     fetchBlob(`${run(runId)}/agent/crs?copy=${copy}`, `CRS_${runId}_${copy}.xlsx`),
+  /** K4: the ONE file of a paper, drawn from the page's own points (every point the page counts); the filename is the server's. */
+  paperCrsFile: (documentId: string, copy: "team" | "contractor") =>
+    fetchBlob(`/reviews/papers/${encodeURIComponent(documentId)}/crs?copy=${copy}`, `CRS_${copy}.xlsx`),
 };
 
 /** Authenticated GET of a file: the session header, never a token in the URL. */

@@ -131,9 +131,10 @@ def hold_results(
     results: list[dict], facts: list[dict], rules: dict, wanted
 ) -> list[dict]:
     """`results` with every decided result about a deferred value turned into a query (switch ON).
-    The one exit of `datasheet_checks.evaluate`, so a Pass on an impossible sign is held here too (#1607)."""
-    from . import impossible_sign
+    The one exit of `datasheet_checks.evaluate`, so a Pass on an impossible sign (#1607), and a result on a value nobody can trust yet (`untrusted_value`), are held here too."""
+    from . import impossible_sign, untrusted_value
 
+    results = untrusted_value.hold_results(results, facts, rules, wanted)  # a value nobody can trust yet is no verdict
     results = impossible_sign.hold_results(results, facts, rules, wanted)
     if not settings.deferred_value_is_query_enabled or not results:
         return results

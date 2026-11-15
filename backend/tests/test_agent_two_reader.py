@@ -983,8 +983,8 @@ def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_ev
         len(kept) == 1 and _rows(conn, kept[0][0]) == before
     )  # the old table is kept, never dropped, with its rows
     audit = conn.execute(
-        "SELECT action, resource_id, detail FROM audit_events"
-    ).fetchall()
+        "SELECT action, resource_id, detail FROM audit_events WHERE action = 'agent_review_tables_upgraded'"
+    ).fetchall()  # (c11's one-time re-judgement writes its own marker row, counted below)
     assert [tuple(a) for a in audit] == [
         (
             "agent_review_tables_upgraded",
@@ -1001,7 +1001,18 @@ def test_an_older_line_table_is_upgraded_only_when_the_switch_is_on_and_keeps_ev
         ).fetchone()[0]
         == 1
     )
-    assert conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0] == 1
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE action = 'agent_review_tables_upgraded'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE action = 'agent_review_clause_quotes_rejudged_c11'"
+        ).fetchone()[0]
+        == 1
+    )  # once, and only once
     conn.execute(
         "INSERT INTO agent_review_line (run_id,item_id,verdict_class,word,line_json,decided_at) VALUES ('r','j',?,'AI verdict: met','{}','t')",
         (CLASS,),

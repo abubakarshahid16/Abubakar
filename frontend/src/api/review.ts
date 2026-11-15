@@ -297,13 +297,6 @@ export const reviews = {
   /** P3: cancel a queued review now, or a running one at its next step. */
   cancelJob: (jobId: string) =>
     request<BackgroundJob>(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
-  /** Start a review. Admin-gated, and refuses while one is already running. */
-  startReviewRun: (submittalDocumentId: string) =>
-    request<ReviewRunSummary>("/reviews/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ submittal_document_id: submittalDocumentId }),
-    }),
   /** The four cards of master plan section 20, under the caller's grants.
    *
    *  SHAPE-CHECKED, like every other list on this screen. Without it a body

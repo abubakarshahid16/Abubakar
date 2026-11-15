@@ -6,6 +6,7 @@ A child process turns the hook on and then kills itself with SIGBUS (the signal 
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,11 @@ inside_the_reader()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGBUS does not exist on Windows")
+@pytest.mark.skipif(
+    sys.platform == "darwin" and os.environ.get("RUN_CRASH_SIGNAL_TEST") != "1",
+    reason="this test kills a child Python with SIGBUS on purpose; on macOS every run writes a crash report and opens a "
+           "'Python quit unexpectedly' window. Set RUN_CRASH_SIGNAL_TEST=1 to run it on a Mac (Linux CI always runs it).",
+)
 def test_a_bus_error_leaves_the_stack_in_the_file(tmp_path):
     log = tmp_path / "logs" / "native-crash.log"
     done = subprocess.run(

@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { NewReviewDropZoneProps, NewReviewPhase } from "./contract";
+import { StartReviewStep } from "../panels/StartReviewStep";
 import { type AskFirst, type OfferMark, continueNewReview, markAndReview, markOfferWords, startNewReview } from "./newReview";
 import { priorDecisionWords } from "./priorDecisionWords";
 
@@ -24,6 +25,7 @@ function phaseWords(phase: NewReviewPhase, filename: string | null): string | nu
     case "marking": return `Marking ${name} as a document from a contractor…`;
     case "waiting": return `Reading ${name} in. This can take a few minutes…`;
     case "starting": return "Starting the review…";
+    case "ready": return `${name} is read in. Choose the engine below and see what will be sent.`;
     case "started": return "The review has started.";
     default: return null;
   }
@@ -49,6 +51,8 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
   /** v2.1: the dropped file is already a contractor submittal whose latest
    *  review is signed, coded or unchanged; asked before anything starts. */
   const [ask, setAsk] = useState<AskFirst | null>(null);
+  /** The file is read in; its pre-start step (engine, what will leave this Mac, the list) is open. */
+  const [ready, setReady] = useState<{ documentId: string; filename: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -66,13 +70,14 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
     setOffer(null);
     setConfirming(false);
     setAsk(null);
+    setReady(null);
     const outcome = await startNewReview(file, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
     if (!outcome.ok && "offerMark" in outcome && mounted.current) setOffer(outcome.offerMark);
     if (!outcome.ok && "askFirst" in outcome && mounted.current) setAsk(outcome.askFirst);
-    // Gone (the reader left): the review runs on, but never drag them back.
-    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+    // Read in: nothing starts by itself. The reader now chooses the engine and sees what will be sent (the one start).
+    if (outcome.ok && mounted.current) setReady({ documentId: outcome.documentId, filename: outcome.filename });
   }
 
   /** The administrator confirmed: re-mark through the existing role write,
@@ -85,7 +90,7 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
     const outcome = await markAndReview(target, filename ?? "your file", (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
-    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+    if (outcome.ok && mounted.current) setReady({ documentId: outcome.documentId, filename: outcome.filename });
   }
 
   /** The reader said yes to the ask-first question. */
@@ -96,7 +101,7 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
     const outcome = await continueNewReview(target, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
-    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+    if (outcome.ok && mounted.current) setReady({ documentId: outcome.documentId, filename: outcome.filename });
   }
 
   const words = phaseWords(phase, filename);
@@ -120,7 +125,7 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
         ].join(" ")}
       >
         <p className="text-sm text-slateish-300">
-          Drop a contractor's PDF or Word file here and the review starts by itself, or{" "}
+          Drop a contractor's PDF or Word file here, or{" "}
           <button
             type="button"
             disabled={busy}
@@ -129,6 +134,7 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
           >
             choose a file
           </button>
+          . After the upload you choose the engine and see what will be sent.
         </p>
         <input
           ref={inputRef}
@@ -141,6 +147,16 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
             e.target.value = "";
           }}
         />
+        {ready && (
+          <div className="mt-3 text-left" data-testid="drop-zone-step">
+            <StartReviewStep
+              documentId={ready.documentId}
+              filename={ready.filename}
+              onCancel={() => { setReady(null); setPhase({ kind: "idle" }); }}
+              onStarted={(runId) => { setReady(null); if (mounted.current) onStarted(runId); }}
+            />
+          </div>
+        )}
         {onlyFirst && (
           <p data-testid="only-first-file" className="mt-3 text-sm text-slateish-300">Only the first file was used: {onlyFirst}</p>
         )}

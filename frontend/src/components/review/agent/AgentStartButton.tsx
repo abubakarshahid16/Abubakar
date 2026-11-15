@@ -5,47 +5,43 @@
  */
 import { useState } from "react";
 
-import { agentReview } from "../../../api/agentReview";
-import type { AgentStatus, ReviewRunSummary } from "../../../types/api";
+import type { AgentStatus } from "../../../types/api";
+import { StartReviewStep } from "../panels/StartReviewStep";
 
 export const LANE_CLOSED_REASON =
   "The AI reviewer cannot start: the Claude connection is not open on this machine. An administrator opens it in the settings file.";
 
-export function AgentStartButton({ status, documentId, paperKind = null, onStarted }: {
+/** THE ONE START: the button opens the pre-start step (engine, what will leave this Mac, the list, the cost); its Start begins. */
+export function AgentStartButton({ status, documentId, filename = null, paperKind = null, onStarted }: {
   status: AgentStatus | null;
   /** The paper's kind when the screen knows it; null when not known. */
   paperKind?: string | null;
   documentId: string;
-  onStarted: (run: ReviewRunSummary) => void;
+  filename?: string | null;
+  onStarted: (runId: string) => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState(false);
   if (!status || !status.enabled) return null;
   // Datasheets only: a paper known to be of another kind gets no button.
   if (paperKind != null && paperKind !== "datasheet") return null;
   const closed = !status.claude_lane_open;
 
-  async function press() {
-    setBusy(true);
-    setError(null);
-    const result = await agentReview.start(documentId);
-    setBusy(false);
-    // 409 "kind_not_enabled": the server's own words, plainly, nothing else.
-    if (!result.ok) setError(result.error.message);
-    else onStarted(result.data);
-  }
-
   return (
     <span className="inline-flex flex-col items-start gap-1" data-testid="agent-start">
       <button
-        type="button" onClick={() => void press()} disabled={closed || busy}
+        type="button" onClick={() => setStep(true)} disabled={closed || step}
         aria-describedby={closed ? "agent-start-reason" : undefined}
         className="rounded-[var(--radius-sm)] border border-signal-300 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {busy ? "Starting…" : "Start AI review"}
+        Start AI review
       </button>
       {closed && <span id="agent-start-reason" className="text-xs text-slateish-400">{LANE_CLOSED_REASON}</span>}
-      {error && <span role="alert" className="text-xs text-red-400">{error}</span>}
+      {step && (
+        <span className="block w-full max-w-xl text-left">
+          <StartReviewStep documentId={documentId} filename={filename} onCancel={() => setStep(false)}
+            onStarted={(runId) => { setStep(false); onStarted(runId); }} />
+        </span>
+      )}
     </span>
   );
 }

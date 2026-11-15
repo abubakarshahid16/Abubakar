@@ -1,6 +1,6 @@
 /**
- * MUTATION PROOF: draw the button when enabled is false and the first test
- * fails; ignore claude_lane_open and the disabled test fails.
+ * MUTATION PROOF: draw the button when enabled is false and the first test fails; ignore claude_lane_open and the disabled test fails;
+ * start without the pre-start step and "opens the step first" fails.
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,10 +8,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentStartButton, LANE_CLOSED_REASON } from "./AgentStartButton";
 
-const start = vi.fn();
-vi.mock("../../../api/agentReview", () => ({ agentReview: { start: (...a: unknown[]) => start(...a) } }));
+const stepOpened = vi.fn();
+/** THE ONE START: the button opens the shared pre-start step; its Start is `POST /api/reviews/start` with the ids shown. */
+vi.mock("../panels/StartReviewStep", () => ({
+  StartReviewStep: ({ documentId, filename, onStarted, onCancel }: { documentId: string; filename?: string | null; onStarted: (id: string) => void; onCancel: () => void }) => {
+    stepOpened(documentId, filename ?? null);
+    return (
+      <div data-testid="start-review-step">
+        <button type="button" onClick={() => onStarted("r9")}>Start review</button>
+        <button type="button" onClick={onCancel}>Cancel step</button>
+      </div>
+    );
+  },
+}));
 
-beforeEach(() => start.mockReset());
+beforeEach(() => stepOpened.mockReset());
 
 describe("AgentStartButton", () => {
   it("draws nothing while the switch is off or unknown", () => {
@@ -27,19 +38,24 @@ describe("AgentStartButton", () => {
     expect(screen.getByText(LANE_CLOSED_REASON)).toBeInTheDocument();
     expect(button).toHaveAccessibleDescription(LANE_CLOSED_REASON);
   });
-  it("starts a run for the open document and hands the run over", async () => {
-    start.mockResolvedValue({ ok: true, data: { review_run_id: "r9" } });
+  it("opens the pre-start step first (nothing starts), and its Start hands the run over", async () => {
     const onStarted = vi.fn();
-    render(<AgentStartButton status={{ enabled: true, claude_lane_open: true }} documentId="doc-7" onStarted={onStarted} />);
+    render(<AgentStartButton status={{ enabled: true, claude_lane_open: true }} documentId="doc-7" filename="Pump.pdf" onStarted={onStarted} />);
     await userEvent.click(screen.getByRole("button", { name: "Start AI review" }));
-    expect(start).toHaveBeenCalledWith("doc-7");
-    expect(onStarted).toHaveBeenCalledWith({ review_run_id: "r9" });
+    expect(await screen.findByTestId("start-review-step")).toBeInTheDocument();
+    expect(stepOpened).toHaveBeenCalledWith("doc-7", "Pump.pdf");
+    expect(onStarted).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Start review" }));
+    expect(onStarted).toHaveBeenCalledWith("r9");
+    expect(screen.queryByTestId("start-review-step")).toBeNull();
   });
-  it("shows the server's refusal", async () => {
-    start.mockResolvedValue({ ok: false, disconnected: false, error: { code: "conflict", message: "A review is already running." } });
-    render(<AgentStartButton status={{ enabled: true, claude_lane_open: true }} documentId="d" onStarted={() => {}} />);
+  it("Cancel on the step starts nothing and brings the button back", async () => {
+    const onStarted = vi.fn();
+    render(<AgentStartButton status={{ enabled: true, claude_lane_open: true }} documentId="d" onStarted={onStarted} />);
     await userEvent.click(screen.getByRole("button", { name: "Start AI review" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("A review is already running.");
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel step" }));
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start AI review" })).toBeEnabled();
   });
 });
 
@@ -53,13 +69,5 @@ describe("AgentStartButton: datasheets only", () => {
     expect(screen.getByRole("button", { name: "Start AI review" })).toBeInTheDocument();
     rerender(<AgentStartButton status={on} documentId="d" paperKind={null} onStarted={() => {}} />);
     expect(screen.getByRole("button", { name: "Start AI review" })).toBeInTheDocument();
-  });
-  it("409 kind_not_enabled shows the server's message plainly and starts nothing", async () => {
-    start.mockResolvedValue({ ok: false, disconnected: false, error: { code: "kind_not_enabled", message: "AI review is on for datasheets only" } });
-    const onStarted = vi.fn();
-    render(<AgentStartButton status={on} documentId="d" onStarted={onStarted} />);
-    await userEvent.click(screen.getByRole("button", { name: "Start AI review" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/^AI review is on for datasheets only$/);
-    expect(onStarted).not.toHaveBeenCalled();
   });
 });

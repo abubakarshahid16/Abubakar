@@ -572,6 +572,11 @@ def _visible(report_row, scope: access.AccessScope) -> bool:
     return all(scope.may_read(d) for d in cited)
 
 
+def _file_present(row) -> bool:
+    stored = row["stored_path"]
+    return bool(stored) and Path(stored_paths.local(stored)).is_file()
+
+
 def _row_to_record(row) -> dict:
     docs = connect().execute(
         "SELECT * FROM report_documents WHERE report_id = ? ORDER BY filename",
@@ -595,6 +600,9 @@ def _row_to_record(row) -> dict:
             "text_source": d["text_source"],
         } for d in docs],
         "not_implemented_sections": list(NOT_INCLUDED),
+        # Whether the PDF is on this machine: a report written on another machine whose file did not come along is listed
+        # but cannot be downloaded, and the screen says so instead of offering a Download that answers 404 (V2).
+        "file_available": _file_present(row),
         # stored_path is NEVER here
     }
 

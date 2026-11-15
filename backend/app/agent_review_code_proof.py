@@ -24,7 +24,7 @@ from collections.abc import Mapping
 
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
-from . import comparison, hold_reason, numparse
+from . import comparison, hold_reason, numparse, table_cell
 from .reader_api import _fold
 
 BY_CODE = (
@@ -244,26 +244,70 @@ def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
 SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
 
 
+_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])\s+|\n+")
+#: what may stand directly before a lone field word that is the subject itself ("the pressure", "of pressure"); any other word there is a qualifier that makes it
+#: another field ("test pressure", "relief valve pressure")
+_BEFORE_HEAD = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "of",
+        "in",
+        "at",
+        "to",
+        "and",
+        "or",
+        "that",
+        "whose",
+        "with",
+        "no",
+        "any",
+        "each",
+        "its",
+        "this",
+        "all",
+    }
+)
+
+
+def _sentence_before_figure(quote: object, numbers: list[str]) -> str | None:
+    """The folded words of the SAME sentence (or table line) that states the limit, up to its figure: the first sentence or line of the quote that holds the limit's number."""
+    wanted = [numparse.as_number(x) for x in numbers]
+    for seg in _SENTENCE_BREAK.split(str(quote or "")):
+        text = numparse.fold(seg)
+        spots = [
+            n
+            for n in numparse.find_numbers(text)
+            if n.value is not None and n.value in wanted and not n.joined
+        ]
+        if spots:
+            return text[: min(n.start for n in spots)]
+    return None
+
+
 def subject_reason(
     rule_field: object, requirement: Mapping | None, quote: object
 ) -> str | None:
-    """Why the clause quote is not ABOUT the rule's field, in words; None when it is. Every content word of the rule's own field name must stand in the
-    quote BEFORE the limit's figure: "The set pressure shall not exceed 110 %" is about set pressure; "Liquid service valves ... at 10 % or less
-    overpressure" is about liquid service valves, and a limit stated for a scope the code does not know is not applied to every paper."""
+    """Why the clause quote is not ABOUT the rule's field, in words; None when it is. In the SAME sentence (or table line) as the limit's figure, before it,
+    the rule's own field stands as a whole phrase: the approved field list's own words for it (`agent_review_pass_guards`), no other approved field of the
+    list in that sentence, and a field of one common word only as the subject itself ("the pressure shall not exceed"), never as the end of a longer name
+    ("test pressure", "relief valve pressure"). "Noise level is reported separately. Valve body shall not exceed 90" is about the valve body."""
     from . import agent_bind
 
-    words = agent_bind.content_words(str(rule_field or "").replace("_", " "))
-    text, numbers = numparse.fold(str(quote or "")), limit_numbers(requirement or {})
-    spots = [
-        n
-        for x in numbers
-        for n in numparse.find_numbers(text)
-        if n.value is not None and n.value == numparse.as_number(x) and not n.joined
-    ]
-    if not words or not spots:
+    field = str(rule_field or "").replace("_", " ").strip()
+    sent = _sentence_before_figure(quote, limit_numbers(requirement or {}))
+    words = agent_bind.content_words(field)
+    if not (field and words and sent):
         return SUBJECT_WHY
-    before = text[: min(n.start for n in spots)]
-    return None if words <= agent_bind.content_words(before) else SUBJECT_WHY
+    if not guards._carries(sent, [field]) or guards._other_field_words(sent, [field]):
+        return SUBJECT_WHY
+    if len(words) == 1 and len(field.split()) == 1:  # one word as written
+        tokens = re.findall(r"[a-z0-9]+", sent)
+        lone = [i for i, t in enumerate(tokens) if agent_bind.content_words(t) == words]
+        if not any(i == 0 or tokens[i - 1] in _BEFORE_HEAD for i in lone):
+            return SUBJECT_WHY
+    return None
 
 
 def recompute(requirement: Mapping, observed: Mapping) -> str | None:
@@ -355,13 +399,113 @@ def context_of(page_text: object, quote: object) -> str:
     return "\n".join(([above] if above else []) + own)
 
 
-def field_ok(line: Mapping) -> bool:
-    """The label test asked again from the line's own stored lines: the fact's field label stands on the quote's own line or the label line directly
-    above it (`agent_review_pass_guards.belongs`, the Pass guard's own rule)."""
-    label, context = str(line.get("field") or "").strip(), line.get("paper_context")
-    if not (label and isinstance(context, str) and context.strip()):
+def _db_page_text(document_id: str, page: int) -> str | None:
+    """The stored text of one page of one document (a document is never edited in place: its id is its revision)."""
+    from .db import connect
+
+    row = (
+        connect()
+        .execute(
+            "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+            (document_id, page),
+        )
+        .fetchone()
+    )
+    return row["text"] if row is not None else None
+
+
+#: Where the exit reads a page from. One place, so a test can give it a page without a database.
+PAGE_SOURCE: list = [_db_page_text]
+
+
+def _db_page_tables(document_id: str, page: int) -> list:
+    """The stored table rows of one page (`pages.tables_json`), as `table_cell.tables_of` reads them."""
+    from .db import connect
+
+    row = (
+        connect()
+        .execute(
+            "SELECT tables_json FROM pages WHERE document_id = ? AND page_no = ?",
+            (document_id, page),
+        )
+        .fetchone()
+    )
+    return table_cell.tables_of(row["tables_json"]) if row is not None else []
+
+
+#: Where the exit reads a page's stored tables from (same reason).
+TABLE_SOURCE: list = [_db_page_tables]
+
+
+def page_text_of(line: Mapping) -> str | None:
+    """The page the line names, read again from the store by the document id and page ON the line. None when the line names none, or it cannot be read."""
+    doc, page = line.get("paper_document_id"), line.get("paper_page")
+    if not (
+        isinstance(doc, str)
+        and doc
+        and isinstance(page, int)
+        and not isinstance(page, bool)
+        and page >= 1
+    ):
+        return None
+    try:
+        text = PAGE_SOURCE[0](doc, page)
+    except Exception as exc:  # noqa: BLE001 - a page that cannot be read again proves nothing
+        log.warning(
+            "code proof: the page could not be read again (%s)", type(exc).__name__
+        )
+        return None
+    return text if isinstance(text, str) and text.strip() else None
+
+
+def _cell_ok(line: Mapping, label: str, text: str) -> bool:
+    """A located cell, asked again against the re-read page: the line's `cell_ref` names ONE stored row of the page's tables, and the label cell and the value cell
+    of the line stand in THAT row, at the columns it names (each is that cell's own text, not words found somewhere on the page); the quote starts with the label
+    cell; the label is that cell or a part of a compound label."""
+    ref, cell_label, quote = (
+        line.get("cell_ref"),
+        str(line.get("cell_label") or ""),
+        str(line.get("paper_quote") or ""),
+    )
+    names = [_fold(cell_label), *[_fold(x) for x in table_cell.label_parts(cell_label)]]
+    rest = _fold(quote)[len(_fold(cell_label)) :].strip()
+    if not (
+        label
+        and cell_label
+        and rest
+        and _fold(label) in names
+        and _fold(quote).startswith(_fold(cell_label))
+        and isinstance(ref, Mapping)
+    ):
         return False
-    return guards.belongs({"field_roles": [label]}, line.get("paper_quote"), context)[0]
+    try:
+        t, r, lc, vc = (ref[k] for k in ("table", "row", "label_col", "value_col"))
+        row = TABLE_SOURCE[0](line.get("paper_document_id"), line.get("paper_page"))[t][
+            r
+        ]
+        return bool(
+            0 <= lc < vc < len(row)
+            and _fold(row[lc]) == _fold(cell_label)
+            and _fold(row[vc]) == rest
+            and rest in _fold(text)
+        )
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False  # the row the line names is not on the page's tables: nothing is proven
+
+
+def paper_ok(line: Mapping) -> bool:
+    """The paper side asked again from the page's own stored text, never from a flag or a context carried on the line: the quote is found on the page the
+    line names; its field label stands on the quote's own line or the label line directly above it (`agent_review_pass_guards.belongs`, the Pass guard's
+    rule), or, for a located cell, the label is the row's own cell."""
+    label, text = str(line.get("field") or "").strip(), page_text_of(line)
+    if not (label and text):
+        return False
+    if isinstance(line.get("cell_ref"), Mapping):
+        return _cell_ok(line, label, text)
+    quote = line.get("paper_quote")
+    if not (stored_text(quote) and _fold(str(quote)) in _fold(text)):
+        return False
+    return guards.belongs({"field_roles": [label]}, quote, text)[0]
 
 
 def numeric_proven(line: Mapping) -> bool:
@@ -374,13 +518,25 @@ def numeric_proven(line: Mapping) -> bool:
         and checked.get("clause") is True
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
-        and field_ok(line)
+        and paper_ok(line)
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
         and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
         is None
         and _verdict_matches(line, recompute(req, obs))
     )
+
+
+def checklist_paper_ok(line: Mapping) -> bool:
+    """A checklist line's paper side asked again from the re-read page: a located cell as for a numeric line, else the value stands next to its label there."""
+    text = page_text_of(line)
+    if not text:
+        return False
+    if isinstance(line.get("cell_ref"), Mapping):
+        return _cell_ok(
+            line, str(line.get("field") or "").strip(), text
+        ) and number_stated(line.get("paper_value"), line.get("paper_quote"))
+    return value_near_label(line.get("field"), line.get("paper_quote"), text)
 
 
 def checklist_proven(line: Mapping) -> bool:
@@ -392,11 +548,11 @@ def checklist_proven(line: Mapping) -> bool:
         and line.get("rule_id") in approved.approved_check_ids()
         and line.get("rule_id")
         not in approved.presence_only_ids()  # a check that only asks a field be stated compares no value
-        and checked.get("paper") is True
         and checked.get("clause") is True
         and stored_text(line.get("clause_quote"))
         and value
         and _real_page(line)
+        and checklist_paper_ok(line)
         and line.get("verdict") in (PASS, FAIL)
         and isinstance(cmp, Mapping)
         and cmp.get("decided") is True

@@ -171,7 +171,8 @@ def test_the_baseline_holds_the_d2_count_and_says_which_switch_it_was_made_on(
 ):
     case_run = _named()[0]["run"]
     entry = next(b for b in _baseline() if b["case"]["run"] == case_run)
-    assert entry["replay"]["checklist_decided"] == 21
+    # 21 before #1814; 1 after: the 20 others were Meets resting on a value in conflict (A-1814, round 13 bench)
+    assert entry["replay"]["checklist_decided"] == 1
     assert entry["case"]["baseline"]["checklist_decided"] == 21
     assert _named()[0]["baseline"]["checklist_decided"] == 21
     # the saved run's own rows did not change

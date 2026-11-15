@@ -88,12 +88,31 @@ NO_CLAUSE_QUOTE = "No verified quote from the rule book clause for this point."
 NO_BOOK_ACCESS = "The rule book is not one you may read, so its text is not shown."
 PAPER_CHECK = "Checked by code: found on the page."
 CLAUSE_CHECK = "Checked by code: found in the clause."
+CLAUSE_CHECK_CUT = "Checked by code against the clause text read from the rule book; its pages were not searched for this quote."
+CLAUSE_SCANNED = " The book is a scan: this is its recognised text."
+CLAUSE_CHECK_PAGE = "Checked by code: found in the rule book on page {page}."
+CLAUSE_CHECK_OTHER_PAGE = "Checked by code: found in the rule book on page {page}, not on the page the rule cites (page {stated})."
 PASSAGE_PAPER_CHECK = "Checked by code: this passage is on the page."
 PASSAGE_CLAUSE_CHECK = "Checked by code: this passage is in the clause."
 ROUTE_INDEPENDENT = "Two readers reached this verdict independently."
 ROUTE_SAW_FIRST = "A second reader checked this verdict and saw the first answer."
 ENGINE_AI = "AI reviewer on Claude"
 ENGINE_RC = "Rule check"
+
+
+def _clause_note(line: dict) -> str:
+    """What code checked about the clause quote, with the TRUE page when it found the quote in the rule book's own pages (c11); the
+    clause text cut from the book says its pages were not searched; a line stored with no record of the check says the old words."""
+    book = line.get("clause_book")
+    if not isinstance(book, dict) or book.get("found") is not True:
+        return CLAUSE_CHECK
+    if book.get("where") == "the clause text cut from the book" or book.get("page") is None:
+        return CLAUSE_CHECK_CUT
+    stated = line.get("clause_page")
+    scanned = CLAUSE_SCANNED if book.get("scanned") else ""
+    if book.get("where") == "the stated page" or stated in (None, "", book["page"]):
+        return CLAUSE_CHECK_PAGE.format(page=book["page"]) + scanned
+    return CLAUSE_CHECK_OTHER_PAGE.format(page=book["page"], stated=stated) + scanned
 
 
 def _clean(value) -> str:
@@ -141,6 +160,24 @@ def group_key(
     )
 
 
+def code_question_key(line: dict) -> str | None:
+    """The reason of a question a CODE line (the calculator's) asks, with its field name and its numbers taken out, so that every check the sheet could not
+    make for the SAME reason is one group ("the sheet defers a value to the contractor", "the fluid phase is not stated"). None for any other line."""
+    if str(line.get("source") or "").strip().casefold() != "code":
+        return None
+    why = _clean(line.get("why") or (line.get("compare") or {}).get("reason")).lower()
+    for part in (
+        str(line.get("field") or "").lower(),
+        str(line.get("equipment_tag") or "").lower(),
+    ):
+        if part:
+            why = why.replace(part, " ")
+    why = re.sub(
+        r"\bpages?\s+[0-9]+(?:\s*[-,]\s*[0-9]+)*|\bp\.\s*[0-9]+", " ", why
+    )  # only the page references go: the numbers that make two questions different stay
+    return " ".join(why.split()) or None
+
+
 # ------------------------------------------------------------------------------------------------ a name is the field, not its tags
 
 _BRACKETS = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]")
@@ -153,12 +190,18 @@ def _is_tag_list(inner: str) -> list[str] | None:
     """The items of a bracketed group when it is a list of equipment tags (every item one token with a letter and a digit, two or more
     of them, or one that looks like a tag with its dash); None for a unit or a note like "(barg)" or "(2 mm)". General: it looks at
     the shape of the group, never at one paper's tag scheme."""
-    parts = [x.strip() for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner) if x.strip()]
+    parts = [
+        x.strip()
+        for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner)
+        if x.strip()
+    ]
     items = [x for x in parts if not _MORE.match(x)]
     if not items:
         return None
     if not all(
-        _TAG_ITEM.match(x) and any(c.isdigit() for c in x) and any(c.isalpha() for c in x)
+        _TAG_ITEM.match(x)
+        and any(c.isdigit() for c in x)
+        and any(c.isalpha() for c in x)
         for x in items
     ):
         return None
@@ -282,7 +325,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "paper_quote": paper_q,
         "clause_quote": clause_q,
         "paper_quote_note": PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
-        "clause_quote_note": CLAUSE_CHECK
+        "clause_quote_note": _clause_note(line)
         if clause_q
         else (NO_CLAUSE_QUOTE if book_readable else NO_BOOK_ACCESS),
         "route_note": (ROUTE_INDEPENDENT if is_independent(line) else ROUTE_SAW_FIRST)
@@ -297,11 +340,16 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             clause,
             str(reason),
             _plain(field),
+        )
+        if not ((code_why := code_question_key(line)) and rank == 4)
+        else group_key(
+            SOURCE_AI_REVIEW, rank, "approved checklist", "any check", code_why
         ),
         "tags": tags,
         "added_by": None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
     }
 
 
@@ -381,7 +429,9 @@ def rule_point(
         else ""
     )
     reason = (finding or {}).get("reason_code") or kind or ""
-    field, tags = split_tags(section.split(" - ", 1)[-1] if " - " in section else section)
+    field, tags = split_tags(
+        section.split(" - ", 1)[-1] if " - " in section else section
+    )
     name = (
         _plain(field)
         or _plain(" ".join(comment.split()[:7]))
@@ -426,6 +476,8 @@ def rule_point(
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_row_key": key,
+        "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
+        "_finding": finding,
     }
 
 
@@ -501,7 +553,9 @@ def counts(
         or (not p.get("books") and (p.get("_book_docs") or p.get("_book_doc")))
     )
     no_book = sum(
-        1 for p in points if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
+        1
+        for p in points
+        if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
     )
     out = {
         "tiles": tiles,
@@ -509,7 +563,9 @@ def counts(
         "total_counts": "points of this paper's review (the rule check and the AI review together)",
         "rule_books": [
             {"id": i, "name": names[i], "points": c}
-            for i, c in sorted(named.items(), key=lambda kv: (-kv[1], names[kv[0]], kv[0]))
+            for i, c in sorted(
+                named.items(), key=lambda kv: (-kv[1], names[kv[0]], kv[0])
+            )
         ],
         "no_rule_book_points": no_book,
         "several_books_points": several,  # counted under EACH of its books, so the chips can add up to more than the total
@@ -542,15 +598,34 @@ def _book_of(conn, run_id: str) -> dict[str, tuple[str | None, str | None]]:
     }
 
 
+def stored_class_wins(line: dict, row) -> dict:
+    """The class and the word the run STORED for a line (`agent_review_line.verdict_class` and `word`, written through the one exit
+    that refuses an unproven Pass) are the line's class. The line's own json keeps the label it had BEFORE that exit: a Pass the
+    exit would not stand behind is stored as "AI thinks: met", and the json still says "Proven by code" / "Pass". Read from the json
+    alone, such a line was a Question on the page and a Pass on the older sheet (K4: 4 lines of the valve review). Here the stored
+    class decides, so the page, the points list and the one CRS file all say what the run stored."""
+    from . import agent_review_wording as wording
+
+    out = dict(line)
+    cls, word = row["verdict_class"], row["word"]
+    if cls:
+        out["verdict_class"] = cls
+        if cls in (wording.CLASS_OPINION, wording.CLASS_UNAPPROVED) and word:
+            out["verdict_label"] = word
+    return out
+
+
 def ai_points_of_run(
     conn, run_id: str, paper_document_id: str, readable: frozenset[str]
 ) -> tuple[list[dict], list[str]]:
     """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
     read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
     lines = [
-        {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        stored_class_wins(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
+        )
         for r in conn.execute(
-            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
+            "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
             (run_id,),
         )
     ]

@@ -62,7 +62,23 @@ def count_findings(
     )
 
 
-def summary_counts(allowed_document_ids: frozenset[str] | None) -> dict:
+def latest_run_ids(allowed_document_ids: frozenset[str] | None) -> dict[str, str]:
+    """submittal document id -> the id of its LATEST review run (newest created_at, id as the tiebreak, the order
+    `submittal_review.list_review_runs` uses). None = no restriction; an empty set = nothing."""
+    if allowed_document_ids is not None and not allowed_document_ids:
+        return {}
+    sql, args = "SELECT id, submittal_document_id FROM review_runs", []
+    if allowed_document_ids is not None:
+        sql += " WHERE submittal_document_id IN (" + ",".join("?" for _ in allowed_document_ids) + ")"
+        args = sorted(allowed_document_ids)
+    sql += " ORDER BY created_at DESC, id DESC"
+    latest: dict[str, str] = {}
+    for row in connect().execute(sql, args).fetchall():
+        latest.setdefault(row["submittal_document_id"], row["id"])
+    return latest
+
+
+def summary_counts(allowed_document_ids: frozenset[str] | None, *, latest_run_ids: frozenset[str] | None = None) -> dict:
     """The management summary's finding numbers, counted in SQL (V1b).
 
     The same numbers `review.list_findings` + a Python loop gave, without reading every finding row: one GROUP BY over the
@@ -76,6 +92,13 @@ def summary_counts(allowed_document_ids: frozenset[str] | None) -> dict:
     if found is None:
         return out
     sql, args = found
+    if latest_run_ids is not None:
+        # Findings of the latest review of each paper, and findings that belong to no run (added by hand). V2: every run
+        # of every paper was counted, so 87 runs over 5 papers read as 186,778 findings.
+        marks = ",".join("?" for _ in latest_run_ids)
+        extra = "(review_run_id IS NULL" + (f" OR review_run_id IN ({marks})" if latest_run_ids else "") + ")"
+        sql = (sql + " AND " if sql else " WHERE ") + extra
+        args = [*args, *sorted(latest_run_ids)]
     rows = connect().execute(
         "SELECT severity, compliance_status, status, COALESCE(escalation_level, 0) > 0 AS esc, COUNT(*) AS n"
         " FROM review_findings" + sql + " GROUP BY severity, compliance_status, status, esc",
