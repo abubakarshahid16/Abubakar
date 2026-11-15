@@ -619,7 +619,7 @@ def _cell_ok(value: object) -> str | None:
     return (
         text
         if text
-        and len(text) <= nine_call.MAX_TOKEN_CHARS
+        and len(text) <= nine_call.MAX_CELL_CHARS
         and text == text.strip()
         and "\n" not in text
         else None
@@ -627,22 +627,29 @@ def _cell_ok(value: object) -> str | None:
 
 
 def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
-    """One derived block (kind review_record) per part and per source document, every cell something code can prove:
-    standards (the citation as printed in the quote, held/not_held, page number); overrides (the anchor: the app's field-list name or
-    the cited standard, a clause number found in both the reference and the quote or "-", a precedence code, page number); related
-    papers (document id); the earlier-revision follow-up (the field-list key, the stored word, the decision, still-open code).
-    Never a model paraphrase or a sentence of the paper. `sources` is the document each part came from (the seam gates each)."""
+    """One derived block (kind review_record) per part, per source document and per column shape, every cell something code can prove
+    and every column declared (`kinds`, checked by the seam at send time):
+    standards (the citation as printed in the quote: `source`; held/not_held: `enum`; the page: `number`);
+    overrides (the anchor: the app's field-list name `key`, or the printed citation `source`; the clause number `clause` when one is in
+    both the reference and the quote, else that column is left out; a precedence code `enum`; the page `number`);
+    related papers (document id `id`, `enum`); the earlier-revision follow-up (field-list key, the stored word, decision and still-open
+    codes: `key`, `enum`, `enum`, `enum`). Never a model paraphrase or a sentence of the paper. `sources` is the document each part
+    came from (the seam gates each)."""
     from . import rule_labels
 
-    by_doc: dict[tuple[str, str], list] = {}
+    by_doc: dict[tuple[str, str, tuple[str, ...]], list] = {}
     left = 0
 
-    def add(part: str, doc: str, cells) -> None:
+    def add(part: str, doc: str, cells, kinds: tuple[str, ...]) -> None:
         nonlocal left
         if cells is None or any(c is None for c in cells):
             left += 1
             return
-        by_doc.setdefault((part, doc), []).append(tuple(cells))
+        by_doc.setdefault((part, doc, kinds), []).append(tuple(cells))
+
+    def enum(word: object) -> str | None:
+        text = _cell_ok(word)
+        return text if text and nine_call.fold(text) in nine_call.DERIVED_ENUM else None
 
     for s in note.standards:
         add(
@@ -653,26 +660,25 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
                 "held" if s.held else "not_held",
                 str(int(s.source.page)),
             ),
+            ("source", "enum", "number"),
         )
     for o in note.overrides:
         q = o.project_rule.quote
-        anchor = _field_anchor(o.subject, q) or _standard_anchor(o.general_ref, q)
+        field = _field_anchor(o.subject, q)
+        anchor = field or _standard_anchor(o.general_ref, q)
         clause = next(
-            (c for c in _CLAUSE_NUMBER.findall(o.general_ref or "") if c in q),
-            "-",
+            (c for c in _CLAUSE_NUMBER.findall(o.general_ref or "") if c in q), None
         )
-        add(
-            "ctx_overrides",
-            o.project_rule.document_id,
-            (
-                _cell_ok(anchor),
-                clause,
-                precedence_code(o.order_of_precedence),
-                str(int(o.project_rule.page)),
-            ),
+        cells = [_cell_ok(anchor)] + ([clause] if clause else [])
+        cells += [precedence_code(o.order_of_precedence), str(int(o.project_rule.page))]
+        kinds = (
+            ("key" if field else "source",)
+            + (("clause",) if clause else ())
+            + ("enum", "number")
         )
+        add("ctx_overrides", o.project_rule.document_id, cells, kinds)
     for d in note.related_papers:
-        add("ctx_related", d, (_cell_ok(d), "related"))
+        add("ctx_related", d, (_cell_ok(d), "related"), ("id", "enum"))
     if note.earlier is not None:
         fields = set(rule_labels.field_list())
         decisions = {"keep", "edit", "remove"}
@@ -683,24 +689,33 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
                 note.earlier.document_id,
                 (
                     key if key in fields else None,
-                    _cell_ok(c.status_word),
-                    c.engineer_decision if c.engineer_decision in decisions else "-",
+                    enum(c.status_word),
+                    c.engineer_decision if c.engineer_decision in decisions else "none",
                     {True: "still_open", False: "changed", None: "cannot_tell"}[
                         c.still_open
                     ],
                 ),
+                ("key", "enum", "enum", "enum"),
             )
     if tally is not None:
         tally.parts_not_passed += left
-    return Parts(
-        tuple(
+    blocks = []
+    for (part, doc, kinds), rows in sorted(
+        by_doc.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2])
+    ):
+        name = part + (
+            "_" + "_".join(k[:3] for k in kinds) if part == "ctx_overrides" else ""
+        )
+        blocks.append(
             nine_call.Block(
-                "review_record", name=part, sources=(doc,), items=tuple(rows)
+                "review_record",
+                name=name,
+                sources=(doc,),
+                kinds=kinds,
+                items=tuple(rows),
             )
-            for (part, doc), rows in sorted(by_doc.items())
-        ),
-        left,
-    )
+        )
+    return Parts(tuple(blocks), left)
 
 
 def count_lines(tally: Tally) -> tuple[str, ...]:
