@@ -372,7 +372,9 @@ def clause_quote_cell(line: Mapping) -> str | None:
     if not quote:
         return None
     ref = against(line) or "clause"
-    page = line.get("clause_page")
+    book = line.get("clause_book")
+    found = isinstance(book, Mapping) and book.get("found") is True and book.get("page") is not None
+    page = book.get("page") if found else line.get("clause_page")  # c11: the page code found the quote on, not the page the rule cites
     return f"{quote} ({ref}{f', page {page}' if page not in (None, '') else ''})"
 
 

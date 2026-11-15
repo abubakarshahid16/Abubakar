@@ -21,7 +21,8 @@ B. CONDITION. When the clause quote or the requirement holds a condition (`agent
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -305,3 +306,139 @@ def check(
     """(reason code, reason) when a Pass of a rule without numbers must not stand, else None."""
     got = verdict_of(item, answer, pages, requirement)
     return None if got is None or got["ok"] else (str(got["code"]), str(got["why"]))
+
+
+# ---------------------------------------------------------------- C. THE CLAUSE QUOTE IN THE RULE BOOK (c11, 15 Nov 2026; audit V1 defect 3)
+# Before this, a clause quote was "verified" when it stood in the text the reader had been GIVEN: for a rule the stored requirement
+# row (`standard_requirements.source_text`), which is on its cited page only part of the time. That shows the reader copied what it
+# was handed, not that the words are in the book. Here the quote is searched in the book's stored pages by the same fold as the paper
+# quote (`reader_api._fold`: whitespace, case) plus the two things a printed page needs: a word split by a hyphen at a line end is
+# joined, and a quote that runs over a page break is found in the two pages together. Never the requirement row.
+#   locate(quote, book, page_hint) -> Located(found, page, where, why)   pure; `page_hint` = the stated page(s), first the stated one
+#   judge(book_of, item, quote, held_source, held_ok) -> (verified, Located)
+# The reader of the stored pages (`agent_review_standards.BookPages` / `verify`) lives beside the other readers of book text.
+
+MIN_QUOTE_CHARS = 8  # a shorter quote proves nothing (the paper quote's own floor is `agent_tools.MIN_QUOTE_CHARS`; this is checked too)
+WHERE_STATED = "the stated page"
+WHERE_NEXT = "the page after the stated page"
+WHERE_OTHER = "another page of the book"
+NOT_HELD = "the rule book's pages are not held"
+NOT_FOUND = "the quote is not in the rule book's stored pages"
+NO_QUOTE = "no clause quote"
+TOO_SHORT = "clause quote too short"
+
+
+@dataclass(frozen=True)
+class Located:
+    """`found`: the quote stands in the book's stored text. `page`: the page it starts on (the TRUE page). `where`: how that page
+    relates to the stated one. `why`: when not found, the reason in plain words."""
+
+    found: bool
+    page: int | None = None
+    where: str | None = None
+    why: str | None = None
+
+    def to_json(self) -> dict:
+        return {"found": self.found, "page": self.page, "where": self.where, "why": self.why}
+
+
+def _joined(text: str) -> str:
+    """A word split by a hyphen at a line end is one word again."""
+    return re.sub(r"-[ \t]*\n[ \t]*", "", text or "")
+
+
+class Book:
+    """The stored page text of one rule book, folded once per form (a run asks for many quotes of a few books)."""
+
+    def __init__(self, pages: Mapping[int, str]) -> None:
+        self.pages = {int(n): str(t or "") for n, t in pages.items() if str(t or "").strip()}
+        self._plain: dict[int, str] = {}
+        self._hyph: dict[int, str] = {}
+
+    def plain(self, n: int) -> str:
+        if n not in self._plain:
+            self._plain[n] = _fold(self.pages.get(n, ""))
+        return self._plain[n]
+
+    def hyph(self, n: int) -> str:
+        if n not in self._hyph:
+            self._hyph[n] = _fold(_joined(self.pages.get(n, "")))
+        return self._hyph[n]
+
+    def has_text(self) -> bool:
+        return bool(self.pages)
+
+
+def _on_page(plain: str, hyph: str, book: Book, n: int) -> bool:
+    return plain in book.plain(n) or (hyph != "" and hyph in book.hyph(n))
+
+
+def _over_break(plain: str, hyph: str, book: Book, n: int) -> bool:
+    """The quote STARTS on page n and runs over the break into page n+1 (a quote that stands wholly on n+1 is not this)."""
+    if n + 1 not in book.pages:
+        return False
+    for q, first, second in ((plain, book.plain(n), book.plain(n + 1)), (hyph, book.hyph(n), book.hyph(n + 1))):
+        at = f"{first} {second}".find(q) if q else -1
+        if 0 <= at < len(first) < at + len(q):
+            return True
+    return False
+
+
+def _hints(page_hint: Any) -> list[int]:
+    if isinstance(page_hint, bool):
+        return []
+    if isinstance(page_hint, int):
+        return [page_hint]
+    if isinstance(page_hint, Iterable) and not isinstance(page_hint, str | bytes):
+        return [p for p in page_hint if isinstance(p, int) and not isinstance(p, bool)]
+    return []
+
+
+def locate(quote: Any, book: Book, page_hint: Any = None) -> Located:
+    """Where the quote stands in the book's own stored pages: the stated page(s) first, the page after, then every page. The
+    answer carries the true page. Pure on its inputs."""
+    text = " ".join(str(quote or "").split())
+    if not text:
+        return Located(False, why=NO_QUOTE)
+    if len(text) < MIN_QUOTE_CHARS:
+        return Located(False, why=TOO_SHORT)
+    if not book.has_text():
+        return Located(False, why=NOT_HELD)
+    plain = _fold(text)
+    hyph = _fold(_joined(str(quote)))  # the same quote with a line-end hyphen joined; compared with the page joined the same way
+    hints = [p for p in _hints(page_hint) if p in book.pages]
+    stated = hints[0] if hints else None
+    for p in hints:
+        if _on_page(plain, hyph, book, p):
+            return Located(True, p, WHERE_STATED if p == stated else WHERE_OTHER)
+    for p in hints:
+        if _over_break(plain, hyph, book, p):
+            return Located(True, p, WHERE_STATED if p == stated else WHERE_OTHER)
+    for n in sorted(book.pages):
+        if n not in hints and _on_page(plain, hyph, book, n):
+            return Located(True, n, WHERE_OTHER)
+    for n in sorted(book.pages):
+        if n not in hints and _over_break(plain, hyph, book, n):
+            return Located(True, n, WHERE_OTHER)
+    return Located(False, why=NOT_FOUND)
+
+
+#: held-text sources that are the book's OWN text, cut out by code from its stored pages (`agent_review_standards._Standards.clause`,
+#: `.table_clause`); the stored requirement row ("rule_quote") is NOT one of them.
+BOOK_OWN_SOURCES = frozenset({"clause_span", "table_page"})
+
+
+def judge(book_of: Callable[[Any], Book], item: Mapping, quote: Any, held_source: str | None, held_ok: bool) -> tuple[bool, Located]:
+    """(verified, where) for the clause quote of one item. `held_ok`: the quote stands in the text the reader was given. A quote is
+    verified when it stands in the book's own stored pages (`locate`; the true page is returned). The clause text cut from the book by
+    code (`BOOK_OWN_SOURCES`) is the book's own text too: a quote in it that no single page holds (a long clause) stands on the clause's
+    start page. The stored requirement row is never a check."""
+    doc = item.get("standard_document_id")
+    hints = [p for p in (item.get("clause_page"), item.get("rule_page")) if isinstance(p, int) and not isinstance(p, bool)]
+    got = locate(quote, book_of(doc), hints)
+    if got.found:
+        return True, got
+    if held_ok and held_source in BOOK_OWN_SOURCES:
+        page = hints[0] if hints else None
+        return True, Located(True, page, WHERE_STATED, "read from the clause text cut from the book")
+    return False, got

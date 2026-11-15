@@ -6,6 +6,7 @@ confident; the one exit that finishes a line is `Runner.exit_line`.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -60,9 +61,10 @@ class DecideMixin:
         clause_text, held_kind = (
             (held[0]["text"], held[0]["kind"]) if held else (None, None)
         )
+        held_ref = held[0]["ref"] if held else None
         for h in held:
             if verdict.check_clause_quote(answer.get("clause_quote"), h["text"])[0]:
-                clause_text, held_kind = h["text"], h["kind"]
+                clause_text, held_kind, held_ref = h["text"], h["kind"], h["ref"]
                 break
         requirement = next(
             (h["text"] for h in held if h["kind"] == "requirement"), None
@@ -73,6 +75,7 @@ class DecideMixin:
             clause_text,
             requirement if held_kind == "requirement" else None,
         )
+        checks, book = self._clause_in_book(item, answer, checks, held_ref)
         ai = verdict.ai_verdict_word(answer.get("verdict"))
         reason_code, searched = reason_of(answer, ai, error, pages)
         if reason_code in TIGHTENING:
@@ -80,6 +83,7 @@ class DecideMixin:
         return {
             "held": held,
             "held_kind": held_kind,
+            "clause_book": book,
             "requirement": requirement,
             "checks": checks,
             "ai": ai,
@@ -87,6 +91,21 @@ class DecideMixin:
             "searched": searched,
             "absent": verdict.says_absent(answer),
         }
+
+    def _clause_in_book(
+        self, item: Mapping, answer: Mapping, checks: Any, held_ref: Any
+    ) -> tuple[Any, dict | None]:
+        """c11 (audit V1 defect 3): a clause quote is verified only when code finds it in the rule book's OWN stored pages
+        (`agent_review_pass_guards.locate`), never because it stands in the stored requirement row the reader was handed. Not found = the
+        quote is not verified (the line can no longer be a decision). Returns the checks and where the quote stands (None: no quote)."""
+        if not str(answer.get("clause_quote") or "").strip():
+            return checks, None
+        ok, got = pass_guards.judge(
+            self.books.book, item, answer.get("clause_quote"), self.clauses.source(held_ref), checks.clause
+        )
+        if checks.clause and not ok:
+            checks = dataclasses.replace(checks, clause=False, clause_why=got.why, clause_strong=False)
+        return checks, got.to_json()
 
     def _gate(
         self,
@@ -276,7 +295,10 @@ class DecideMixin:
             "field_label_ai": label or None,
             "paper_figure": answer.get("paper_figure") or None,
             "clause_figure": answer.get("clause_figure") or None,
+            "standard_document_id": item.get("standard_document_id"),
+            "rule_page": item.get("rule_page"),
             "clause_quote_from": ev["held_kind"],
+            "clause_book": ev.get("clause_book"),
             "reasoning": crs_lines.two_sentences(answer.get("reasoning")),
             "comment": words(g["comment"], crs_lines.MAX_COMMENT_WORDS),
             "paper_quote": answer.get("paper_quote") or None,

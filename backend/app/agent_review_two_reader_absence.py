@@ -28,6 +28,7 @@ from typing import Any
 
 from . import agent_claude, agent_run_second
 from . import agent_review_absence as absence
+from . import agent_review_pass_guards as pass_guards
 from . import agent_review_two_reader as two
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
@@ -308,17 +309,21 @@ class AbsenceMixin:
         requirement = next(
             (h["text"] for h in held if h["kind"] == "requirement"), None
         )
-        clause_text, whole = None, None
+        clause_text, whole, ref = None, None, None
         for h in held:
             if verdict.check_clause_quote(answer.get("clause_quote"), h["text"])[0]:
-                clause_text, whole = (
+                clause_text, ref, whole = (
                     h["text"],
+                    h["ref"],
                     requirement if h["kind"] == "requirement" else None,
                 )
                 break
         clause_ok, _why, strong = verdict.check_clause_quote(
             answer.get("clause_quote"), clause_text, whole
         )
+        if clause_ok:  # c11: the second reader's clause quote is verified in the rule book's own pages too, not in the stored requirement
+            in_book, _got = pass_guards.judge(self.books.book, item, answer.get("clause_quote"), self.clauses.source(ref), True)
+            clause_ok, strong = in_book, strong and in_book
         paper_ok = verdict.check_paper_quote(
             answer.get("paper_quote"), answer.get("page"), texts
         )[0]

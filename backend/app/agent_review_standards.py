@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 from pathlib import Path
+from typing import Any
 
+from . import agent_review_pass_guards as pass_guards
 from . import standard_ids, subject_scope
 
 
@@ -197,3 +200,45 @@ class _Standards:
             if head is not None and index not in text.bare:
                 found = head
         return found[1] if found else None
+
+
+def read_book(conn: Any, doc: str) -> pass_guards.Book:
+    """The stored pages of one book on the caller's own connection: `pages.text`, and for a page whose text is empty the recognised
+    text of the same page (`page_ocr`, no error)."""
+    rows = {int(r[0]): r[1] or "" for r in conn.execute("SELECT page_no, text FROM pages WHERE document_id = ?", (doc,))}
+    empty = [n for n, t in rows.items() if not t.strip()]
+    if empty or not rows:
+        try:
+            for n, t in conn.execute("SELECT page_no, text FROM page_ocr WHERE document_id = ? AND error IS NULL", (doc,)):
+                if int(n) not in rows or not rows[int(n)].strip():
+                    rows[int(n)] = t or ""
+        except Exception:  # noqa: BLE001  an old database without the table: the pages table stands alone
+            pass
+    return pass_guards.Book(rows)
+
+
+class BookPages:
+    """The books of one run, each read ONCE on the calling thread's own connection (a sqlite connection does not cross threads).
+    Kept for the life of the run, then dropped."""
+
+    def __init__(self) -> None:
+        self._books: dict[str, pass_guards.Book] = {}
+        self._lock = threading.Lock()
+
+    def book(self, doc: Any) -> pass_guards.Book:
+        key = str(doc or "")
+        with self._lock:
+            got = self._books.get(key)
+        if got is None:
+            from .db import connect
+
+            got = read_book(connect(), key) if key else pass_guards.Book({})
+            with self._lock:
+                got = self._books.setdefault(key, got)
+        return got
+
+
+def verify(book_id: Any, quote: Any, page_hint: Any = None, books: BookPages | None = None) -> pass_guards.Located:
+    """(book id, quote, page hint) -> found / true page / where, searching the book's stored pages, never the stored requirement row.
+    The ONE call the AI lines and the calculator's proof make. Pass one `BookPages` when asking many quotes (each book is read once)."""
+    return pass_guards.locate(quote, (books or BookPages()).book(book_id), page_hint)

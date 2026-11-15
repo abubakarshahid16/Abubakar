@@ -78,6 +78,7 @@ REREAD_OUTCOME_WHY = {
 #: not proven; it is "AI verdict, two readers agree" (internal copy only) when the quotes and the second reader hold, else "AI thinks".
 NO_COMPARISON_WHY = "the code compared no value on this line"
 NO_PROOF_WHY = "the code compared no value on this line and proved no absence"
+CLAUSE_NOT_IN_BOOK_WHY = "the clause quote is not in the rule book's stored pages (c11), so nothing on this line is proven"
 ONE_READER = "One AI reader's view, not confirmed: "
 SECOND_DISAGREED = "The second AI reader disagreed. "
 
@@ -269,6 +270,15 @@ def demote_unproven(line: Mapping) -> dict:
     the absence proof, is a Query that keeps the AI's verdict (`textual_pass` / `textual_fail`: it stood on two verified quotes and a
     second reader), classified by `classify`. Never touches a Query or what the code proved. Idempotent."""
     out = dict(line)
+    q = out.get("quotes_checked")
+    if (
+        out.get("verdict") in (PASS, FAIL)
+        and isinstance(q, Mapping)
+        and q.get("clause") is False
+        and not code_proof.is_code_line(out)
+    ):  # c11: a Pass or Fail stands on a clause quote verified in the rule book's own pages
+        out.update(verdict=QUERY, decided_by=BY_ENGINEER, why=CLAUSE_NOT_IN_BOOK_WHY)
+        return out
     if out.get("verdict") == PASS and not code_compared(out):
         out.update(
             verdict=QUERY,

@@ -47,6 +47,7 @@ from . import agent_review_absence as absence
 from . import agent_review_crs as crs_lines
 from . import agent_review_local as local_mod
 from . import agent_review_reuse as reuse_mod
+from . import agent_review_standards as standards_mod
 from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
@@ -124,6 +125,7 @@ class Runner(DecideMixin, RereadMixin, TwoReaderMixin, AbsenceMixin, OtherPaperM
         local: Any = None,
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
+        self.books = standards_mod.BookPages()  # the rule books' own stored pages, each read once, for the clause-quote check (c11)
         self.model, self.send, self.env = model, send, env
         self.local = local  # the local engine (`agent_review_local`): None = the Claude path, exactly as before
         self.model, concurrency, max_batch = self._local_limits(
