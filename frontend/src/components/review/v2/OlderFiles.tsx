@@ -2,6 +2,7 @@
 import { useState } from "react";
 
 import { downloadAgentCrs } from "../agent/downloadAgentCrs";
+import { OlderFileLine } from "../agent/OlderFileLine";
 import { downloadCrs } from "../downloadCrs";
 
 export function OlderFiles({ ruleCheckRun, aiRun }: { ruleCheckRun: string | null; aiRun: string | null }) {
@@ -14,15 +15,16 @@ export function OlderFiles({ ruleCheckRun, aiRun }: { ruleCheckRun: string | nul
     if (bad) setProblem(bad);
   }
   return (
-    <section data-testid="v2-older-files" aria-label="Older files" className="mt-3 space-y-2 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3">
-      <h3 className="text-sm font-semibold text-slateish-100">Older files, one per review</h3>
+    <details data-testid="v2-older-files" aria-label="Older files" className="mt-3 space-y-2 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-slateish-100">History: older files, one per review</summary>
       <p className="text-xs text-slateish-400">The buttons at the bottom give one file with every point on this page. These are the files of each single review, as before.</p>
       <div className="flex flex-wrap gap-2">
         {ruleCheckRun && <button type="button" className={btn} onClick={() => void get(() => downloadCrs(ruleCheckRun, "internal"))}>Rule check, internal copy</button>}
         {aiRun && <button type="button" className={btn} onClick={() => void get(() => downloadAgentCrs(aiRun, "internal"))}>AI review, internal copy</button>}
         {aiRun && <button type="button" className={btn} onClick={() => void get(() => downloadAgentCrs(aiRun, "contractor"))}>AI review, contractor working copy (older file, not the issued one)</button>}
       </div>
+      {aiRun && <OlderFileLine runId={aiRun} />}
       {problem && <p role="alert" className="text-xs text-danger-500">{problem}</p>}
-    </section>
+    </details>
   );
 }

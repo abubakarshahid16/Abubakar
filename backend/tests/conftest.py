@@ -51,6 +51,10 @@ from tests import env_isolation
 #: At import, not in a fixture: a test module imported during collection must
 #: never see the developer's values, even for the length of an import.
 _REMOVED_ENV = env_isolation.isolate(settings)
+# V3: every child process a test starts (a script, the app in a subprocess) inherits the closed model port, so none of
+# them can reach a real Ollama on a developer Mac. The in-process fixture below cannot reach a child; this does.
+if not env_isolation.real_model_allowed():
+    os.environ["OLLAMA_URL"] = env_isolation.DEAD_MODEL_URL
 # The shared heavy-job lock (#680) is a machine-wide file; a test run must
 # never take, wait on or collide with the real one. Tests of the lock itself
 # pass an explicit path.
@@ -251,6 +255,19 @@ def _no_test_reaches_past_loopback():
 
 
 @pytest.fixture(autouse=True)
+def _every_test_has_its_own_spend_ledger_and_cache(tmp_path, monkeypatch):
+    """A fresh Claude spend ledger and response cache for EVERY test (V3, review R72).
+
+    The session fixture points `claude_spend_log` at ONE file per worker, so a row one test appended was read by a later
+    test on the same worker (`claude_spend.entries() == []` failed in some full runs, depending on which tests shared a
+    worker). A test that sets its own path still wins: its own monkeypatch runs after this one.
+    """
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "claude_spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "claude_cache")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_test_reaches_the_real_local_model(monkeypatch):
     """No test may talk to a REAL Ollama on this machine (V2, 15 Nov).
 
@@ -275,7 +292,15 @@ def _no_test_reaches_the_real_local_model(monkeypatch):
             raise httpx.ConnectError("a test may not reach the real local model (conftest guard)", request=request)
         return real(self, request)
 
+    real_async = httpx.AsyncHTTPTransport.handle_async_request
+
+    async def handle_async(self, request):
+        if request.url.port == 11434:
+            raise httpx.ConnectError("a test may not reach the real local model (conftest guard)", request=request)
+        return await real_async(self, request)
+
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", handle_async)
     yield
 
 

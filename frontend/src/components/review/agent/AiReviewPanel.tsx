@@ -8,6 +8,7 @@ import { useState } from "react";
 
 import type { AgentOverview } from "./useAgentOverview";
 import { downloadAgentCrs } from "./downloadAgentCrs";
+import { OlderFileLine } from "./OlderFileLine";
 import {
   AI_PANEL_TITLE, AI_PANEL_WHAT, CONTRACTOR_CRS_LINE, CONTRACTOR_EMPTY_LINE, INTERNAL_CRS_LINE, classCountsSentence,
   countsSentence, missingWords, pagesTakenWords,
@@ -56,6 +57,7 @@ export function AiReviewPanel({ runId, overview, onSeeEvery, pageCoverage = null
           <span className="text-slateish-300">{CONTRACTOR_CRS_LINE}</span>
         </li>
       </ul>
+      <OlderFileLine runId={runId} where="the one CRS of the paper" />
       {provenFails === 0 && <p data-testid="ai-panel-contractor-empty" className="text-sm text-slateish-300">{CONTRACTOR_EMPTY_LINE}</p>}
       {fileError && <p role="alert" className="text-sm text-red-400">{fileError}</p>}
       <button type="button" onClick={onSeeEvery} className={`${BTN} border-ink-600 text-slateish-100`}>See every point</button>

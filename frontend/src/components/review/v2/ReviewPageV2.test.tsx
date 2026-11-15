@@ -709,4 +709,16 @@ describe("11 the list of documents that leave, before the start (owner, 12 Nov 2
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "automatic", ["doc1", "bk1"].slice(0, 1)));
   });
+
+  it("an opened point shows what the stored finding holds, as stored and not verified, with its reason and who checked it", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [point({
+      id: "s1", rank: 4, tile: "questions", firm: null, name: "Inlet rating", pill: "Question", paper_quote: null, clause_quote: null,
+      paper_value: "Rating 150", rule_text: "Inlet rating shall be class 300", reason_words: "A value of the datasheet could not be settled.", checked_by: "Rule check: datasheet checklist",
+    })] })));
+    mount(); await loaded();
+    fireEvent.click(within(screen.getByTestId("v2-point")).getByRole("button", { name: /Inlet rating/ }));
+    expect(screen.getByTestId("v2-paper-stored")).toHaveTextContent("As stored (not verified by code): \u201cRating 150\u201d");
+    expect(screen.getByTestId("v2-clause-stored")).toHaveTextContent("not verified by code");
+    expect(screen.getByTestId("v2-reason")).toHaveTextContent("Checked by: Rule check: datasheet checklist.");
+  });
 });

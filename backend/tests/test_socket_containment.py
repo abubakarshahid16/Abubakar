@@ -78,9 +78,10 @@ def test_a_loopback_model_url_is_accepted(url):
     assert base.startswith(("http://", "https://"))
 
 
-def test_the_default_setting_is_loopback_and_needs_no_flags():
+def test_the_default_setting_is_loopback_and_needs_no_flags(monkeypatch):
     """Stated as an assertion because it is the compatibility promise: the
     shipped default passes with both new settings at their defaults."""
+    monkeypatch.delenv("OLLAMA_URL", raising=False)  # the test session exports a closed port (V3); this is the code's default
     fresh = Settings()
     assert fresh.answer_model_allow_remote_host is False
     assert fresh.answer_model_allowed_hosts == ()

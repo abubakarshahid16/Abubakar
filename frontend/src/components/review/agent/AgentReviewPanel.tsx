@@ -11,6 +11,7 @@ import { AgentLines } from "./AgentLines";
 import { AgentSummary } from "./AgentSummary";
 import { AgentTrace } from "./AgentTrace";
 import { downloadAgentCrs } from "./downloadAgentCrs";
+import { OlderFileLine } from "./OlderFileLine";
 import { CONTRACTOR_CRS_LINE, INTERNAL_CRS_LINE } from "./plainWords";
 
 export const NOT_AGENT_RUN = "This review was not made by the AI reviewer, so there is nothing to show here.";
@@ -64,6 +65,7 @@ export function AgentReviewPanel({ runId, onOpenRules }: { runId: string; onOpen
         )}
         {fileError && <span role="alert" className="text-xs text-red-400">{fileError}</span>}
       </div>
+      <OlderFileLine runId={runId} where="the one CRS of the paper" />
       <AgentLines runId={runId} onOpenTrace={setTrace} mode={summary.mode} />
       {trace && <AgentTrace runId={runId} itemId={trace} onClose={() => setTrace(null)} />}
     </div>

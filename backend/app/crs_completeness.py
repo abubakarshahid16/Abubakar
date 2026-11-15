@@ -438,6 +438,84 @@ def file_or_refuse(paper_id: str, scope, copy: str, **build_kw) -> bytes:
     return data
 
 
+# ------------------------------------------------------------------------------------------------ the older stored files
+
+
+OLDER_LIST_AT_MOST = 8
+
+
+def _older_expected(conn, run_id: str, copy: str) -> int:
+    """How many rows the stored file of this run's AI review should hold, by the exporter's OWN selection (`crs_ai_workbook`:
+    `ordered_item_lines`, `other_lines`, `_contractor_items`; no second rule): internal = item rows + the other lines (the Evidence
+    sheet's rows); contractor = what its selection issues (nothing for a general review, whose contractor copies are empty by design)."""
+    if copy == "contractor" and conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone():
+        return 0
+    from . import agent_review_wording, crs_ai_workbook
+
+    lines = [
+        agent_review_wording.read_time({**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]})
+        for r in conn.execute("SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid", (run_id,))
+    ]
+    items = crs_ai_workbook.ordered_item_lines(lines)
+    if copy != "contractor":
+        return len(items) + len(crs_ai_workbook.other_lines(lines))
+    kind = conn.execute("SELECT paper_kind FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone()
+    return len(crs_ai_workbook._contractor_items(items, kind["paper_kind"] if kind else None))
+
+
+def older_report(run_id: str, copy: str, data: bytes) -> dict:
+    """The check of ONE stored file of an AI run (`copy`: internal | contractor): the rows read back from the workbook as stored against the
+    AI lines of THAT run in the database. The stored file holds the AI review's lines only, by design; it is not the paper's CRS."""
+    from . import crs_one
+
+    wb = load_workbook(BytesIO(data), read_only=False)
+    sheet, first = (crs_one.CONTRACTOR_SHEET, "Item No") if copy == "contractor" else (crs_one.EVIDENCE_SHEET, "Item No")
+    if sheet not in wb.sheetnames:  # a file from before this layout: its rows cannot be compared, so it is not given out as complete
+        return {
+            "ok": False, "copy": copy, "ai_lines": None, "expected": None, "rows_in_file": None, "missing": [],
+            "sentence": "This older CRS file was written before the completeness check and its rows cannot be compared with the lines of its run, "
+            "so it was not given out. Use the one CRS of the paper.",
+        }
+    rows = _table_rows(wb[sheet], first)
+    found = {r[0] for r in rows if isinstance(r[0], int)}
+    conn = connect()
+    expected = _older_expected(conn, run_id, copy)
+    ai_lines = conn.execute("SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", (run_id,)).fetchone()[0]
+    missing = [] if copy == "contractor" else [f"item {n}" for n in sorted(set(range(1, expected + 1)) - found)]
+    ok = len(rows) == expected and not missing
+    sentence = "Complete: the older file holds every line of its run."
+    if not ok:
+        shown = "; ".join(missing[:OLDER_LIST_AT_MOST]) + (f" and {len(missing) - OLDER_LIST_AT_MOST} more" if len(missing) > OLDER_LIST_AT_MOST else "")
+        sentence = (
+            f"This older CRS file is not complete and was not given out: its run holds {expected} line(s) for this copy, the file holds "
+            f"{len(rows)} row(s)." + (f" Missing: {shown}." if shown else "") + " Use the one CRS of the paper."
+        )
+    return {"ok": ok, "copy": copy, "ai_lines": ai_lines, "expected": expected, "rows_in_file": len(rows), "missing": missing, "sentence": sentence}
+
+
+def older_file_or_refuse(run_id: str, copy: str, path) -> None:
+    """The stored file of an AI run for a download: returns when its rows equal its run's lines, else `Incomplete` (409 with the sentence)."""
+    from pathlib import Path
+
+    report = older_report(run_id, copy, Path(path).read_bytes())
+    if not report["ok"]:
+        raise Incomplete(report)
+
+
+def older_counts(run_id: str, paper_id: str, scope) -> dict:
+    """What the page says under an Older files button: the AI review's lines of this run and the paper's complete CRS points (None when
+    that cannot be read: null renders as nothing, never 0)."""
+    from . import review_points_service as svc
+
+    ai = connect().execute("SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", (run_id,)).fetchone()[0]
+    try:
+        points = int(svc.export_listing(paper_id, scope)[0]["of"])
+    except Exception:  # a count that cannot be read is not a number
+        log.warning("older files: the paper's points could not be read")
+        points = None
+    return {"run_id": run_id, "ai_lines": ai or None, "paper_points": points}
+
+
 # ------------------------------------------------------------------------------------------------ stored with the run
 
 

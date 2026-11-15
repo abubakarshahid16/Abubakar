@@ -430,6 +430,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_points` | The merged list of POINTS of a paper's review (rule check and AI review): ranks worst first, pills, groups, tile counts, which quotes may be shown (12 Nov 2026, the redesigned page) |
 | `review_points_service` | Reads one paper's points with their decisions, the counts and the proposed code; the AI sheets drawn again with the decisions; the AI contractor copy archived at signing |
+| `review_points_content` | What a rule-check point holds, in words for the one CRS and the page: field, stored paper value and rule text (shown as stored, "not verified by code"), the AI's suggestion words, reason per kind, Checked by, page and rule reference; nothing invented |
 | `review_point_decisions` | Keep / Edit / Remove on a point (a reason for a removal, the original kept), the engineer's own added points, and how the sheets hold them |
 | `review_point_sync` | One decision on a rule-check point written to BOTH decision records and the findings behind it in one transaction; `disagreements` for the sign gate |
 | `review_code_proposal` | The proposed review code from one stated rule, with its reason line and "So far" wording |

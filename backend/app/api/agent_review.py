@@ -105,6 +105,14 @@ def agent_status(request: Request):
     )
 
 
+class AgentOlderCounts(BaseModel):
+    """What the page says under an Older files button (null renders as nothing, never 0)."""
+
+    run_id: str
+    ai_lines: int | None = None
+    paper_points: int | None = None
+
+
 class AgentRunsAmong(BaseModel):
     """Which of the asked runs have an AI review the caller may read."""
 
@@ -608,6 +616,12 @@ def agent_crs(
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="the CRS is not written yet")
+    from .. import crs_completeness  # THE HARD RULE reaches the older stored file too: its rows equal its run's lines, or it is refused
+
+    try:
+        crs_completeness.older_file_or_refuse(review_run_id, copy, path)
+    except crs_completeness.Incomplete as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
     from .. import (
         review_points_service,
     )  # 12 Nov: the sheet holds the engineer's decisions and added points
@@ -620,6 +634,20 @@ def agent_crs(
     )
     path = decided or path
     return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")
+
+
+@router.get("/api/reviews/runs/{review_run_id}/agent/crs/older", response_model=AgentOlderCounts)
+def agent_crs_older(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """What the page says under an Older files button: this run's AI lines and the paper's complete CRS points. Reads only."""
+    reject_unknown_params(request, set())
+    run = _run_or_404(review_run_id, scope)
+    from .. import crs_completeness
+
+    return crs_completeness.older_counts(review_run_id, run["submittal_document_id"], scope)
 
 
 def _coverage_for(rules: list) -> list[contract.AgentBookCoverage]:

@@ -66,6 +66,9 @@ export const agentReview = {
   /** The AI reviewer's CRS file (its own route, not the old export); the filename is the server's. */
   crsFile: (runId: string, copy: "internal" | "contractor") =>
     fetchBlob(`${run(runId)}/agent/crs?copy=${copy}`, `CRS_${runId}_${copy}.xlsx`),
+  /** What an older stored file holds: this run's AI lines and the paper's complete CRS points (null when not readable). */
+  crsOlder: (runId: string) =>
+    request<{ run_id: string; ai_lines: number | null; paper_points: number | null }>(`${run(runId)}/agent/crs/older`),
   /** K4: the ONE file of a paper, drawn from the page's own points (every point the page counts); the filename is the server's. */
   paperCrsFile: (documentId: string, copy: "team" | "contractor") =>
     fetchBlob(`/reviews/papers/${encodeURIComponent(documentId)}/crs?copy=${copy}`, `CRS_${copy}.xlsx`),

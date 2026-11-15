@@ -59,6 +59,18 @@ from app.config import BACKEND_DIR, Settings
 DIRECT_ENV_NAMES = ("ANTHROPIC_API_KEY", "RAG_LIVE_WRITER")
 DIRECT_ENV_PREFIXES = ("STANDARDS_READER_",)
 
+#: The model server address a test session uses (V3). A closed loopback port: nothing listens there, so a test that reaches
+#: the model transport without a fake gets a refused connection, exactly as in CI. The REAL Ollama port (11434) was the
+#: default and a Mac that runs Ollama loaded a 22 GB model during full runs, from child processes too. `conftest` exports
+#: it as OLLAMA_URL so every subprocess a test starts inherits it. TEST_DEAD_MODEL_URL moves it (the audit run does);
+#: ALLOW_REAL_LOCAL_MODEL_IN_TESTS=1 keeps the code's own default on purpose.
+DEAD_MODEL_URL = os.environ.get("TEST_DEAD_MODEL_URL", "http://127.0.0.1:9")
+
+
+def real_model_allowed(env=None) -> bool:
+    return (os.environ if env is None else env).get("ALLOW_REAL_LOCAL_MODEL_IN_TESTS") == "1"
+
+
 class OneOf(tuple):
     """An EGRESS_SAFE entry with more than one safe value."""
 
@@ -124,6 +136,9 @@ LOCK3_PINNED: tuple[str, ...] = (
     "transmittal_kit_enabled",
 )
 TEST_PINS.update(dict.fromkeys(LOCK3_PINNED, False))
+if not real_model_allowed():
+    # V3: the model server address is a closed port (see DEAD_MODEL_URL).
+    TEST_PINS["ollama_url"] = DEAD_MODEL_URL
 LIFT_ENV = "RAG_TEST_LIFT_LOCK3_PINS"
 
 #: The only values these fields may hold when a test session starts. A test
@@ -160,7 +175,7 @@ EGRESS_SAFE: dict[str, object] = {
     "chat_web_enabled": False,
     "review_web_standards_enabled": False,
     # --- the model lane (model_transport): loopback Ollama only
-    "ollama_url": "http://127.0.0.1:11434",
+    "ollama_url": "http://127.0.0.1:11434" if real_model_allowed() else DEAD_MODEL_URL,
     "answer_model_allow_remote_host": False,
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
