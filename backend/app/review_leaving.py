@@ -17,9 +17,17 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from . import claude_approved, nine_context
+from . import claude_approved
 
 log = logging.getLogger(__name__)
+
+
+def nine_switch_on() -> bool:
+    """`AGENT_REVIEW_NINE_ROLES_ENABLED`, read straight from the settings (the field is declared with the job; absent = off). The ONE
+    home of this question for the two B3 hooks: with the switch off no nine module is imported (every use below imports it lazily)."""
+    from .config import settings
+
+    return bool(getattr(settings, "agent_review_nine_roles_enabled", False))
 
 OTHER_DOCUMENT = "document"
 PAPER, RULE_BOOK, SPECIFICATION, PROJECT_PAPER, CONTRACT = (
@@ -206,7 +214,7 @@ def leaving_for(
         if out["leaving"]
         else LOCAL_WORDS
     )
-    if out["leaving"] and nine_context.nine_on():
+    if out["leaving"] and nine_switch_on():
         out["summary"] += "; " + CHAPTER_WORDS
     return _finish(out)
 
@@ -332,7 +340,7 @@ def _fill(
                 else PROJECT_PAPER
             )
             put(row, kind, WHY_CHOSEN)
-    if nine_context.nine_on():
+    if nine_switch_on():
         _project_context_rows(conn, document_id, put, allowed, explicit, out, seen)
 
 
@@ -342,6 +350,8 @@ def _project_context_rows(
     """The nine-role project context (role 2): the other papers of the paper's own project and its earlier revision, each with
     its kind and why. The client's register is never listed; a rule book is not a project paper. Rule 5 and the gate are
     applied by `put` (outside the starter's access: counted; held by the send gate: `not_sent`)."""
+    from . import nine_context  # lazy: only a switch-on review reaches here
+
     mine = conn.execute(
         "SELECT project FROM document_classification WHERE document_id = ?",
         (document_id,),

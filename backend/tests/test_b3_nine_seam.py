@@ -76,9 +76,7 @@ def test_the_chapter_titles_go_as_one_derived_block_sourced_to_the_books_and_gat
     rl = L.plan_reading("run1", books, shown={"book"}, allowed={"book"})
     titles = L.titles_for_model(rl, books)
     assert titles
-    t = FakeTransport(
-        [json.dumps({"chapters": [[titles[0][0], "c1"], ["book", "zz"]]})]
-    )
+    t = FakeTransport([json.dumps({"chapters": [[titles[0][0], "1"], ["book", "zz"]]})])
     got = L.extend_with_model(
         rl, books, L.seam_ask("run1", send=t, env=FakeTransport.ENV)
     )
@@ -112,8 +110,8 @@ def test_titles_are_the_raw_heading_prefix_and_rows_left_out_are_counted():
     assert (
         first == raw.lstrip()[:60] and first in raw
     )  # as it stands in the stored text, not normalised
-    assert block.kinds == ("id", "id", "source") and block.items[0][1] == "c1"
-    assert (back[("book", "c1")] == "1" and ("book", "c3") not in back) or True
+    assert block.kinds == ("id", "number", "source") and block.items[0][1] == "1"
+    assert back[("book", "1")] == "1" and ("book", "3") not in back
     assert nine_call.render((L.QUESTION_ID, {}))[0] == L.QUESTION_ID
 
 
@@ -194,3 +192,13 @@ def test_the_declared_kinds_of_the_context_blocks_pass_the_seams_cell_check_and_
         "ZZ 999 invented"
     )  # not in any source: that block is dropped and named, the rest goes
     assert any(code == "cell_not_from_sources" for _doc, code in bad.not_sent)
+
+
+def test_every_field_list_name_is_in_the_registered_vocabulary():
+    from app import rule_labels
+
+    folded = nine_call._VOCAB[nc.FIELDS_VOCAB]
+    assert len(folded) == len(rule_labels.field_list())
+    assert all(
+        nine_call.nine_record.fold(r) in folded for r in rule_labels.field_list()
+    )

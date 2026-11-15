@@ -32,14 +32,6 @@ from .nine_contract import (
 log = logging.getLogger(__name__)
 
 
-def nine_on() -> bool:
-    """`AGENT_REVIEW_NINE_ROLES_ENABLED` (off = today's requests and bytes). Read here once for the two B3 hooks; the flag itself
-    is declared with the job (B5)."""
-    from .config import settings
-
-    return bool(getattr(settings, "agent_review_nine_roles_enabled", False))
-
-
 # The five things a note says about, in this order.
 WHATS = (
     "contract",
@@ -211,7 +203,9 @@ Ask = Callable[["ProjectPaper", Sequence[int]], Mapping | None]
 None. The adapter sends NO text: only (kind, document id, pages) as a Block; `seam_ask` is the one adapter."""
 
 #: the app-owned vocabularies of the derived blocks of this role (registered once, at import)
-FIELDS_VOCAB = nine_call.vocabulary("ctx_fields", rule_labels.field_list())
+FIELDS_VOCAB = nine_call.vocabulary(
+    "ctx_fields", rule_labels.field_list()
+)  # all of them: each is an app key
 CODES_VOCAB = nine_call.vocabulary(
     "ctx_codes",
     (
