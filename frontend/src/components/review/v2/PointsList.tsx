@@ -28,6 +28,9 @@ function Boxes({ p, onViewPage }: { p: ReviewPoint; onViewPage: (documentId: str
         <p className="mb-1 text-xs font-semibold text-slateish-300">The paper{p.page != null ? `, page ${p.page}` : ""}</p>
         {p.paper_quote ? <blockquote className="text-slateish-100">{p.paper_quote}</blockquote> : null}
         <p className="mt-1 text-xs text-slateish-400">{p.paper_quote_note}</p>
+        {!p.paper_quote && p.paper_value && (
+          <p className="mt-1 text-xs text-slateish-300" data-testid="v2-paper-stored">As stored (not verified by code): &ldquo;{p.paper_value}&rdquo;</p>
+        )}
         {p.view_page && (
           <button type="button" onClick={() => onViewPage(p.view_page!.document_id, p.view_page!.page)}
             className="mt-2 text-xs text-signal-300 underline-offset-2 hover:underline">View page</button>
@@ -37,6 +40,9 @@ function Boxes({ p, onViewPage }: { p: ReviewPoint; onViewPage: (documentId: str
         <p className="mb-1 text-xs font-semibold text-slateish-300">{p.rule_book ? `${p.rule_book}${p.clause ? `, clause ${p.clause}` : ""}` : "The rule"}</p>
         {p.clause_quote ? <blockquote className="text-slateish-100">{p.clause_quote}</blockquote> : null}
         <p className="mt-1 text-xs text-slateish-400">{p.clause_quote_note}</p>
+        {!p.clause_quote && p.rule_text && (
+          <p className="mt-1 text-xs text-slateish-300" data-testid="v2-clause-stored">As stored (not verified by code): &ldquo;{p.rule_text}&rdquo;</p>
+        )}
       </div>
     </div>
   );
@@ -106,6 +112,7 @@ function Row({ p, open, onToggle, decide, busy, onViewPage }: {
             </details>
           )}
           {p.route_note && <p className="text-xs text-slateish-300">{p.route_note}</p>}
+          {p.reason_words && <p className="text-xs text-slateish-300" data-testid="v2-reason">{p.reason_words}{p.checked_by ? ` Checked by: ${p.checked_by}.` : ""}</p>}
           <Boxes p={p} onViewPage={onViewPage} />
           <p className="text-xs text-slateish-400">
             {p.source_words}{p.engine ? ` · ${p.engine}` : ""}{p.decision.state ? ` · ${stateWords(p)}` : " · Not decided"}
