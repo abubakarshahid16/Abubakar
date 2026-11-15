@@ -106,22 +106,17 @@ def not_checked_rows(record: ReviewRecord | None) -> list[list]:
                 [f"Role {r.role_no} {r.role} ran partly", None, r.why or UNKNOWN]
             )
         for key, value in r.produced.items():
-            if not any(mark in key for mark in _NOT_READ_KEYS):
+            head, _dot, reason = key.partition(".")
+            if not any(mark in head for mark in _NOT_READ_KEYS):
                 continue
-            if isinstance(value, dict):
-                rows += [
-                    [f"Role {r.role_no} {r.role}: {key.replace('_', ' ')}", n, str(why)]
-                    for why, n in value.items()
+            n = len(value) if isinstance(value, (list, tuple)) else value
+            rows.append(
+                [
+                    f"Role {r.role_no} {r.role}: {head.replace('_', ' ')}",
+                    n,
+                    reason or "see the role's reason",
                 ]
-            else:
-                n = len(value) if isinstance(value, (list, tuple)) else value
-                rows.append(
-                    [
-                        f"Role {r.role_no} {r.role}: {key.replace('_', ' ')}",
-                        n,
-                        "see the role's reason",
-                    ]
-                )
+            )
     return rows
 
 

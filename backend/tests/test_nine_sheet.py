@@ -83,7 +83,7 @@ def test_not_checked_rows_name_roles_not_run_and_what_was_not_read_by_reason():
             3,
             "ran_partly",
             "reading budget",
-            produced={"chapters_not_read": {"over the reading budget": 3}},
+            produced={"chapters_not_read.over the reading budget": 3},
         ),
     )
     rows = nine_sheet.not_checked_rows(rec)

@@ -167,25 +167,6 @@ def test_a_cancellation_is_never_swallowed():
         )
 
 
-def test_a_role_not_built_yet_is_named_not_pretended():
-    rec = FakeRecord()
-    args, _ = ctx_args()
-    nine_job.run_roles(
-        *args,
-        record=rec,
-        roles={n: nine_job._module_role(n) for n in (1,)}
-        | {
-            n: (lambda ctx: nine_job.RoleResult("ran", engine="code"))
-            for n in range(2, 10)
-        },
-    )
-    assert (
-        (rec.rows[("run1", 1)]["state"] == "not_run"
-        and "not wired" in rec.rows[("run1", 1)]["why"])
-        or "not built" in rec.rows[("run1", 1)]["why"]
-    )
-
-
 def test_the_writer_role_reuses_the_one_sheet_and_the_completeness_check():
     doc, rc, ai, client = world_with_both()
     ctx = nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)

@@ -20,7 +20,6 @@ word is written here. No model call is made here: every role that asks a model d
 
 from __future__ import annotations
 
-import importlib
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -28,16 +27,8 @@ from dataclasses import dataclass, field
 
 from . import crs_completeness, nine_checklist, nine_record
 from .db import connect
-from .nine_contract import ROLE_NAMES
 
 log = logging.getLogger(__name__)
-#: the roles that are run in order by a module of their own: role number -> (module, function); each takes a `RoleContext`
-ROLE_MODULES = {
-    1: "nine_reader",
-    2: "nine_context",
-    3: "nine_librarian",
-    4: "nine_reviewer",
-}
 
 
 @dataclass
@@ -65,6 +56,372 @@ class RoleContext:
         default_factory=dict
     )  # what one role hands the next (fact sheet, note, reading list, findings): in memory
     flags: dict = field(default_factory=dict)  # e.g. reviewer_failed
+
+
+# ------------------------------------------------------------------------------------------------ what the adapters read
+
+
+def _jobs():
+    from . import agent_review_jobs
+
+    return agent_review_jobs
+
+
+def _engine(ctx: RoleContext) -> str:
+    """ "local" when the run's stored plan puts the AI review on the local model, else "claude" (today's own test)."""
+    from . import agent_review_local
+
+    return "local" if agent_review_local.local_run(ctx.run_id) else "claude"
+
+
+def _choice(ctx: RoleContext) -> str:
+    from . import review_engine
+
+    return (review_engine.stored(connect(), ctx.run_id) or {}).get(
+        "choice"
+    ) or "automatic"
+
+
+def _scope(ctx: RoleContext) -> frozenset[str]:
+    """The access of the user who started the review (the same rebuild the job itself uses)."""
+    from . import review_jobs
+
+    row = (
+        connect()
+        .execute("SELECT created_by FROM jobs WHERE review_run_id = ?", (ctx.run_id,))
+        .fetchone()
+    )
+    return review_jobs._scope_of(row["created_by"] if row else None)
+
+
+def _paper_pages(ctx: RoleContext) -> dict[int, str]:
+    if "pages" not in ctx.store:
+        from . import agent_review_request
+
+        ctx.store["pages"] = dict(
+            agent_review_request.DbPages(connect(), ctx.submittal).pages
+        )
+    return ctx.store["pages"]
+
+
+def _seam_kwargs() -> dict:
+    send, env = (
+        _jobs().lane()
+    )  # (None, None) in the app: the real lane through `agent_claude`; tests put a fake model here
+    return {"send": send, "env": env}
+
+
+def _usd_of(role_no: int, run_id: str) -> float | None:
+    return nine_record.role_calls(run_id, role_no)[1]
+
+
+# ------------------------------------------------------------------------------------------------ role 1: the Reader
+
+
+def reader_role(ctx: RoleContext) -> RoleResult:
+    """Role 1: every page into the fact sheet through `nine_reader.read_paper` (every model call goes through `nine_call.ask`, role 1).
+    Pictures only on Claude. The sheet is stored per run (`nine_facts.store`); nothing is written to `submittal_facts`."""
+    from . import agent_review_pages, nine_facts, nine_reader
+
+    conn = connect()
+    engine = _engine(ctx)
+    pages = _paper_pages(ctx)
+    stored = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT * FROM submittal_facts WHERE submittal_document_id = ?",
+            (ctx.submittal,),
+        )
+    ]
+    picture_of = None
+    if engine == "claude":
+        ref = agent_review_pages.document_ref(conn, ctx.submittal)
+
+        def picture_of(page: int) -> bytes:
+            return agent_review_pages.page_image(ref, page)
+
+    got = nine_reader.read_paper(
+        run_id=ctx.run_id, paper_id=ctx.submittal, pages=pages, stored_facts=stored, engine=engine,
+        equipment_type=getattr(ctx.kind, "equipment_type", None), pages_total=max([*pages, 0]), picture_of=picture_of, conn=conn,
+        **_seam_kwargs(),
+    )  # fmt: skip
+    nine_facts.store(conn, got.sheet, got.produced)
+    ctx.store["fact_sheet"] = got.sheet
+    return RoleResult(
+        got.state,
+        got.why,
+        engine=engine,
+        models=tuple(got.sheet.models),
+        produced=got.produced,
+    )
+
+
+# ------------------------------------------------------------------------------------------------ role 2: the project context
+
+
+def _ask_context(ctx: RoleContext, engine: str):
+    from . import nine_call
+
+    question = (
+        "Name every rule-book standard this text says applies, and every project rule that replaces or tightens a general one. Each with the "
+        'page it stands on and a short quote copied exactly from that page. Answer with JSON only: {"standards": [{"name", "page", "quote"}], '
+        '"overrides": [{"subject", "page", "quote", "general_ref", "precedence"}]}.'
+    )
+
+    def ask(document_id: str, chunk) -> dict | None:
+        blocks = [
+            nine_call.Block(document_id, "project_document", (n,), text=t)
+            for n, t in chunk
+        ]
+        got = nine_call.ask(
+            ctx.run_id, 2, blocks, question, engine=engine, **_seam_kwargs()
+        )
+        return got.data if got.ok else None
+
+    return ask
+
+
+def context_role(ctx: RoleContext) -> RoleResult:
+    """Role 2: `nine_context.run`. Code finds the project's papers and admits each one (shown list, the starter's access, the engine
+    choice; a contract never under Automatic); a model, through `nine_call.ask`, may only NAME a standard or an override with a page
+    quote that code finds. Nothing held: no call, a note with the five "not available" lines.
+
+    WHAT IS PASSED ON: the note holds text of OTHER documents (their quotes), so it is NOT handed to the reviewer as one block under the
+    paper's id; only counts reach the record, and the record says so (`context_passed`)."""
+    from . import (
+        applicability,
+        kind_words,
+        nine_context,
+        review_shown,
+    )
+
+    conn = connect()
+    engine, scope = _engine(ctx), _scope(ctx)
+    shown = review_shown.shown_ids(conn, ctx.run_id)
+    mine = conn.execute(
+        "SELECT * FROM document_classification WHERE document_id = ?", (ctx.submittal,)
+    ).fetchone()
+    project = (mine["project"] if mine else None) or None
+    papers: list[nine_context.ProjectPaper] = []
+    rows = (
+        [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM document_classification WHERE project = ?", (project,)
+            )
+        ]
+        if project
+        else []
+    )
+    for r in rows:
+        doc = r["document_id"]
+        if doc == ctx.submittal:
+            continue
+        decided = kind_words.decided_kind(doc)
+        kind = (
+            nine_context.KIND_CONTRACT if decided == "contract"
+            else nine_context.KIND_SPEC if str(r.get("document_role") or "").upper() == "SPECIFICATION"
+            else nine_context.KIND_RELATED if kind_words.is_datasheet_like(decided)
+            else None
+        )  # fmt: skip
+        if kind is None:
+            continue
+        text = {
+            int(p["page_no"]): p["text"] or ""
+            for p in conn.execute(
+                "SELECT page_no, text FROM pages WHERE document_id = ?", (doc,)
+            )
+        }
+        papers.append(
+            nine_context.ProjectPaper(
+                doc, kind, text, shown is not None and doc in shown, doc in scope
+            )
+        )
+    new_values = {
+        f.field_label: f.value
+        for f in getattr(ctx.store.get("fact_sheet"), "facts", ())
+    }
+    library = applicability._library(frozenset(scope))
+    note, tally = nine_context.run(
+        ctx.run_id, project=project, papers=papers, paper_row=dict(mine) if mine else {}, rows=rows, earlier_points=None,
+        new_values=new_values, library=library, engine=_choice(ctx), ask=_ask_context(ctx, engine),
+    )  # fmt: skip
+    ctx.store["context_note"] = note
+    produced = nine_context.produced(note, tally)
+    produced["context_passed"] = "no"
+    produced["context_not_passed_because"] = (
+        "per_document_blocks_not_built"  # the note holds text of other documents
+    )
+    held = sum(1 for p in papers if p.accessible and p.shown)
+    state, why = (
+        ("ran", None)
+        if (held or not papers)
+        else (
+            "ran_partly",
+            "no project paper could be read (see the not available lines)",
+        )
+    )
+    return RoleResult(
+        state, why, engine=engine if tally.windows else "code", produced=produced
+    )
+
+
+# ------------------------------------------------------------------------------------------------ role 3: the Librarian
+
+
+def librarian_role(ctx: RoleContext) -> RoleResult:
+    """Role 3: the reading list by code (`nine_librarian.plan_reading`: books from the chosen rules, chapters cut by `nine_chapters`, a rank,
+    a budget, "chosen, not read" with the reason); one optional model call sees only chapter TITLES and can only ADD chapters (through
+    `nine_call.ask`, role 3). A book outside the starter's access is counted, never named."""
+    from . import (
+        agent_review_standards,
+        nine_call,
+        nine_chapters,
+        nine_librarian,
+        review_shown,
+    )
+
+    conn = connect()
+    engine, scope = _engine(ctx), _scope(ctx)
+    items = list(ctx.plan.get("items") or [])
+    book_ids = list(
+        dict.fromkeys(
+            str(i["standard_document_id"])
+            for i in items
+            if i.get("standard_document_id")
+        )
+    )
+    shown = review_shown.shown_ids(conn, ctx.run_id)
+    budget = (
+        nine_chapters.LOCAL_CALL_TOKENS
+        if engine == "local"
+        else nine_chapters.CLAUDE_CALL_TOKENS
+    )
+    inputs, cuts = [], {}
+    for b in book_ids:
+        if b not in scope:
+            continue
+        book = agent_review_standards.read_book(conn, b)
+        pages = sorted((n, t) for n, t in book.pages.items() if (t or "").strip())
+        cut = nine_chapters.cut(b, pages, max_tokens=budget, scanned=book.ocr)
+        cuts[b] = cut
+        inputs.append(
+            nine_librarian.BookInput(
+                b, cut, why=("holds a rule chosen for this paper",)
+            )
+        )
+    refs = [
+        nine_librarian.RuleRef(
+            str(i["standard_document_id"]), i.get("clause"), i.get("clause_page"), n
+        )
+        for n, i in enumerate(items, 1)
+        if i.get("standard_document_id")
+    ]
+    note = ctx.store.get("context_note")
+    context = [
+        nine_librarian.ClauseRef(s.book_id, None)
+        for s in getattr(note, "standards", ())
+        if s.held and s.book_id
+    ]
+    reading = nine_librarian.plan_reading(
+        ctx.run_id, inputs, rules=refs, context=context, equipment_words=[str(getattr(ctx.kind, "equipment_type", "") or "")],
+        shown=shown, allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
+    )  # fmt: skip
+
+    def ask(titles):
+        by_book: dict[str, list[str]] = {}
+        for b, c, t in titles:
+            by_book.setdefault(b, []).append(f"{b}|{c}|{t}")
+        blocks = [
+            nine_call.Block(b, "rule_book", (), text="\n".join(lines))
+            for b, lines in by_book.items()
+        ]
+        got = nine_call.ask(
+            ctx.run_id,
+            3,
+            blocks,
+            nine_librarian.titles_question([]),
+            engine=engine,
+            **_seam_kwargs(),
+        )
+        return nine_librarian.parse_choice(got.text) if got.ok else None
+
+    reading = nine_librarian.extend_with_model(reading, inputs, ask, engine=engine)
+    ctx.store["reading"], ctx.store["cuts"] = reading, cuts
+    produced = nine_librarian.produced(reading)
+    unread = produced["chapters_not_read"]
+    return RoleResult("ran_partly" if unread else "ran", ("some chapters were chosen but not read: " + ", ".join(unread)) if unread else None,
+                      engine=engine, produced=produced)  # fmt: skip
+
+
+# ------------------------------------------------------------------------------------------------ role 4: the Reviewer
+
+
+def reviewer_role(ctx: RoleContext) -> RoleResult:
+    """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
+    (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
+    No reading list, nothing chosen, a failed or empty reviewer: the role says so and role 5 asks EVERY item (never weaker than today's)."""
+    from . import agent_review_standards, nine_facts, nine_findings, nine_reviewer
+
+    reading, cuts = ctx.store.get("reading"), ctx.store.get("cuts") or {}
+    chosen = [
+        (b.book_id, i.chapter)
+        for b in getattr(reading, "books", ())
+        if b.on_shown_list
+        for i in b.items
+        if i.chosen
+    ]
+    if not chosen:
+        ctx.flags["reviewer_failed"] = True
+        return RoleResult(
+            "not_run",
+            "no chapter was chosen to read, so nothing was reviewed against a chapter",
+        )
+    engine = _engine(ctx)
+    pages = _paper_pages(ctx)
+    texts = [
+        nine_reviewer.ChapterText(book, ch.chapter_id, p.part_no, p.part_of, tuple(range(p.page_from, p.page_to + 1)), cuts[book].text(ch.chapter_id, p.part_no))
+        for book, ch in chosen
+        for p in ch.parts
+    ]  # fmt: skip
+    groups = nine_reviewer.group_chapters(texts)
+    sheet = ctx.store.get("fact_sheet")
+    digest = nine_facts.digest(sheet) if sheet is not None else ""
+    # the digest is derived from the paper; the project context holds other documents' text and is NOT passed (per-document blocks not built)
+    prefix = nine_reviewer.prefix_blocks(ctx.submittal, pages, digest, "")
+    ran = nine_reviewer.review(
+        ctx.run_id, prefix, groups, engine=engine, **_seam_kwargs()
+    )
+    if not ran.ok:
+        ctx.flags["reviewer_failed"] = True
+        return RoleResult("not_run", "the reviewer gave no usable finding (" + (", ".join(sorted(set(ran.errors))) or "nothing found") + ")", engine=engine, produced={"groups": ran.groups, "failed": ran.failed})  # fmt: skip
+    jobs = _jobs()
+    local = None
+    if engine == "local":
+        from . import agent_review_local
+
+        local = agent_review_local.engine_for(ctx.run_id)
+    runner = ctx.holder["runner"] = jobs._make_runner(
+        ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, local
+    )
+    built = nine_findings.process(
+        ran.raw, paper_pages=pages, books=agent_review_standards.BookPages(), rules=ctx.plan.get("items") or [],
+        plan_items={str(i["item_id"]): i for i in ctx.plan.get("items") or []}, tier_lookup=jobs._tier_lookup(ctx.kind),
+    )  # fmt: skip
+    if local is not None:
+        with local.session():
+            nine_findings.decide_all(runner, built, pages, runner.model)
+    else:
+        nine_findings.decide_all(runner, built, pages, runner.model)
+    ctx.store["findings"] = [b.finding for b in built]
+    produced = {
+        "groups": ran.groups,
+        "answered": ran.answered,
+        "failed": ran.failed,
+        "raw_findings": len(ran.raw),
+        "findings": len(built),
+    }
+    return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------------------ the roles that are code or today's path
@@ -162,28 +519,12 @@ def writer_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ the runner of one role
 
 
-def _module_role(n: int) -> Callable[[RoleContext], RoleResult]:
-    def run(ctx: RoleContext) -> RoleResult:
-        try:
-            mod = importlib.import_module(f"app.{ROLE_MODULES[n]}")
-        except ImportError:
-            return RoleResult(
-                "not_run", f"{ROLE_NAMES[n]} is not built in this version", engine=None
-            )
-        if not hasattr(mod, "run"):
-            return RoleResult(
-                "not_run",
-                f"{ROLE_NAMES[n]} is built but not wired into the job in this version",
-                engine=None,
-            )
-        return mod.run(ctx)
-
-    return run
-
-
 def default_roles() -> dict[int, Callable[[RoleContext], RoleResult]]:
     return {
-        **{n: _module_role(n) for n in ROLE_MODULES},
+        1: reader_role,
+        2: context_role,
+        3: librarian_role,
+        4: reviewer_role,
         5: checklist_role,
         6: second_reviewer_role,
         7: code_role,
@@ -241,6 +582,29 @@ def _record():
     return RealRecord()
 
 
+def flat(produced: dict) -> dict:
+    """The record keeps counts, ids and short codes only (`nine_record._counts_only`): a dict becomes one count per sub-key
+    ("chapters_not_read.over the reading budget": 3), a dict of reasons becomes a count per reason, a long text is dropped."""
+    out: dict = {}
+    for key, value in produced.items():
+        if isinstance(value, dict):
+            counts = (
+                value
+                if all(
+                    isinstance(v, int) and not isinstance(v, bool)
+                    for v in value.values()
+                )
+                else Counter(str(v) for v in value.values())
+            )
+            for sub, n in counts.items():
+                out[f"{key}.{sub}"[: nine_record.MAX_STRING]] = n
+        elif isinstance(value, str) and len(value) > nine_record.MAX_STRING:
+            continue
+        else:
+            out[key] = value
+    return out
+
+
 def _execute_role(
     n: int, ctx: RoleContext, fn, record, reraise: tuple[type[BaseException], ...]
 ) -> None:
@@ -263,7 +627,7 @@ def _execute_role(
     if result.state != "ran" and not result.why:
         result.why = "no reason recorded"  # a role that did not fully run always carries a reason
     record.role_finished(
-        ctx.run_id, n, state=result.state, why=result.why, engine=result.engine, models=list(result.models), produced=result.produced,
+        ctx.run_id, n, state=result.state, why=result.why, engine=result.engine, models=list(result.models), produced=flat(result.produced),
     )  # fmt: skip
 
 
