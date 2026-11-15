@@ -65,8 +65,25 @@ NOT_ALL_ASKED = "not all of the paper could be asked"
 NOT_ALL_ASKED_WORDS = "Not all of the paper could be asked; it was not found in the part that was. Not reviewed"
 
 
+#: The reader ANSWERED "Query" (it cannot decide, and says why in a reason code): a view, never "no answer". The gate's reason for it.
+AI_QUERY_WHY = "the AI reviewer answered that it cannot decide this"
+#: The reader gave NO verdict (the key missing or not Pass / Fail / Query). It is asked once more; still none = "Not reviewed".
+NO_VERDICT_WHY = "the AI gave no verdict"
+NO_VERDICT_CODE = "no_verdict"
+NO_VERDICT_WORDS = "the AI gave no answer"
+#: What earlier runs stored for both cases alike; read at read time by `wording.classify` (never rewritten).
+OLD_NO_PASS_FAIL_WHY = "the AI did not give pass or fail"
+
+
+def no_decision_words(ai_verdict: object) -> str:
+    """The gate's reason for a line the reader did not call Pass or Fail: its own Query is a view, no verdict at all is none."""
+    return NO_VERDICT_WHY if ai_verdict is None else AI_QUERY_WHY
+
+
 def failed_words(error: object) -> str:
     """Why a line has no answer. A request the local engine could not take was never called: it says so, never "AI call failed"."""
+    if error == NO_VERDICT_CODE:
+        return NO_VERDICT_WORDS
     if error == NOT_ALL_ASKED:
         return NOT_ALL_ASKED_WORDS
     return NOT_ASKED_WORDS if error == LOCAL_TOO_LONG else f"AI call failed: {error}"

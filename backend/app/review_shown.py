@@ -46,10 +46,12 @@ def record_in(conn, run_id: str, document_ids, now: str) -> None:
     )
 
 
-def shown_ids(conn, run_id: str | None) -> frozenset[str] | None:
+def shown_ids(conn, run_id: str | None, local: bool = False) -> frozenset[str] | None:
     """The ids the run was started with, or None when no list was stored for it (no table, no row). A damaged row reads as an
-    EMPTY list (nothing is on it); a database error propagates, so no caller reads "could not look" as "nothing to hold"."""
-    if not run_id:
+    EMPTY list (nothing is on it); a database error propagates, so no caller reads "could not look" as "nothing to hold".
+    `local`: the planning of a run that sends nothing; the list restricts what is SENT to Claude, so it reads as none (a Local-only
+    start stored `[]`, which would otherwise take every rule book out of the review)."""
+    if not run_id or local:
         return None
     has = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (TABLE,)
@@ -103,12 +105,12 @@ def unshown_specifications(conn, run_id: str, document_ids) -> frozenset[str]:
     return held_documents(conn, run_id, document_ids)
 
 
-def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
+def drop_unlisted(conn, run_id: str, doc: dict, local: bool = False) -> list[str]:
     """THE UPSTREAM DROP of the AI reviewer: with a stored list, the items of any rule book the list does not name are removed from
     the plan BEFORE a request is built, so their rules are not asked and none of their text is sent, and the run goes on with
     everything that is listed. Returns the dropped books' ids (the run counts them). Items with no rule book (checklists) stay.
     The send-time check in `claude_approved.refusal` remains the last line of defence. No list stored: nothing dropped."""
-    shown = shown_ids(conn, run_id)
+    shown = shown_ids(conn, run_id, local)
     if shown is None:
         return []
     from .agent_review_rules import NOT_ON_LIST
@@ -122,6 +124,14 @@ def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
         doc["items"] = [
             i for i in items if str(i.get("standard_document_id") or "") not in dropped
         ]
+        counts = {
+            "skill": 0,
+            "rule": 0,
+        }  # the item file's own counts stay equal to its items
+        for i in doc["items"]:
+            if i.get("source") in counts:
+                counts[i["source"]] += 1
+        doc["counts"] = counts
     # the rules `build_items_for_run` already left out of the plan (reason NOT_ON_LIST) belong to books dropped the same way
     left = (doc.get("rule_labels") or {}).get("left_out") or []
     dropped |= {
@@ -171,13 +181,24 @@ def _cited_ids(conn, run_id: str) -> set[str]:
     return ids
 
 
+def sends_nothing(conn, run_id: str) -> bool:
+    """Did the start of this run say nothing leaves (its stored plan sent no text)? False when there is no stored plan (the older routes)."""
+    from . import review_engine
+
+    got = review_engine.stored(conn, run_id)
+    return bool(got) and not (got.get("plan") or {}).get("text_leaves", True)
+
+
 def held_applied(
     conn, run_id: str, applied_run: str | None = None, extra=()
 ) -> list[str]:
     """The documents this run carries beside its paper (`_cited_ids`: the applied standards, the rules the AI reviewer asked, the
     project papers of a general review; also those of `applied_run`, the run the AI reviewer's standards were chosen on, and
-    `extra`) that the list shown before the start left out: what the gate holds. Empty on a database error."""
+    `extra`) that the list shown before the start left out: what the gate holds. Empty on a database error, and empty for a run whose
+    stored plan sent nothing (a local run: no book was "not sent" for it, whatever list an older start stored for it)."""
     try:
+        if sends_nothing(conn, run_id):
+            return []
         ids = _cited_ids(conn, run_id)
         if applied_run:
             ids |= _cited_ids(conn, applied_run)
@@ -192,7 +213,9 @@ def cited_unshown(conn, run_id: str, applied_run: str | None = None, extra=()) -
     return len(held_applied(conn, run_id, applied_run, extra))
 
 
-def held_rule_books(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
+def held_rule_books(
+    conn, run_id: str, applied_run: str | None = None, extra=()
+) -> list[str]:
     """Of the documents held for this run (`held_applied`), the rule books (not specifications): the books the review found only
     while it ran, which were not on the list shown before the start and so were not sent."""
     held = held_applied(conn, run_id, applied_run, extra)
@@ -209,7 +232,9 @@ def held_rule_books(conn, run_id: str, applied_run: str | None = None, extra=())
     return [d for d in held if d not in specs]
 
 
-def found_during_review(conn, run_id: str, applied_run: str | None = None, extra=()) -> int:
+def found_during_review(
+    conn, run_id: str, applied_run: str | None = None, extra=()
+) -> int:
     """How many rule books this run found only while it ran and did not send: the screen's "N more rule books apply to this paper"."""
     return len(held_rule_books(conn, run_id, applied_run, extra))
 
