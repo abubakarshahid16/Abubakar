@@ -208,17 +208,30 @@ class _Standards:
 
 def read_book(conn: Any, doc: str) -> pass_guards.Book:
     """The stored pages of one book on the caller's own connection: `pages.text`, and for a page whose text is empty the recognised
-    text of the same page (`page_ocr`, no error)."""
-    rows = {int(r[0]): r[1] or "" for r in conn.execute("SELECT page_no, text FROM pages WHERE document_id = ?", (doc,))}
-    empty = [n for n, t in rows.items() if not t.strip()]
-    if empty or not rows:
+    text of the same page (`page_ocr`, no error; those pages are marked as scanned)."""
+    rows = {
+        int(r[0]): r[1] or ""
+        for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ?", (doc,)
+        )
+    }
+    scanned: set[int] = set()
+    if not rows or any(not t.strip() for t in rows.values()):
         try:
-            for n, t in conn.execute("SELECT page_no, text FROM page_ocr WHERE document_id = ? AND error IS NULL", (doc,)):
+            for n, t in conn.execute(
+                "SELECT page_no, text FROM page_ocr WHERE document_id = ? AND error IS NULL",
+                (doc,),
+            ):
                 if int(n) not in rows or not rows[int(n)].strip():
                     rows[int(n)] = t or ""
-        except sqlite3.Error:  # an old database without the table: the pages table stands alone
-            log.debug("agent review: no recognised text table for the rule book %s", doc)
-    return pass_guards.Book(rows)
+                    scanned.add(int(n))
+        except (
+            sqlite3.Error
+        ):  # an old database without the table: the pages table stands alone
+            log.debug(
+                "agent review: no recognised text table for the rule book %s", doc
+            )
+    return pass_guards.Book(rows, scanned)
 
 
 class BookPages:
@@ -242,7 +255,9 @@ class BookPages:
         return got
 
 
-def verify(book_id: Any, quote: Any, page_hint: Any = None, books: BookPages | None = None) -> pass_guards.Located:
+def verify(
+    book_id: Any, quote: Any, page_hint: Any = None, books: BookPages | None = None
+) -> pass_guards.Located:
     """(book id, quote, page hint) -> found / true page / where, searching the book's stored pages, never the stored requirement row.
-    The ONE call the AI lines and the calculator's proof make. Pass one `BookPages` when asking many quotes (each book is read once)."""
+    The ONE function for this check (the calculator does not call it yet; the AI lines go through `pass_guards.judge`). Pass one `BookPages` when asking many quotes (each book is read once)."""
     return pass_guards.locate(quote, (books or BookPages()).book(book_id), page_hint)

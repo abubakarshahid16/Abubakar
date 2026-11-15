@@ -334,27 +334,35 @@ REJUDGE_ACTION = "agent_review_clause_quotes_rejudged_c11"
 
 
 def rejudge_plan(conn, line: dict, books: dict) -> dict | None:
-    """The stored line of an earlier run with its clause quote judged AGAIN the way a new line is (c11, audit V1 defect 3): the quote is
-    searched in the rule book's own stored pages (`agent_review_pass_guards.judge`), never accepted because it stands in the stored
-    requirement row. None when the line has no clause quote or was judged already (it carries `clause_book`). The result adds
-    `clause_book` (found, true page, where) and, when the old record called the quote verified and the book does not hold it, sets the
-    clause check to false; the old check is kept as `clause_checked_before_c11`."""
+    """The stored line of an earlier run with c11's OWN fall applied (audit V1 defect 3), or None. A line whose clause quote the old check
+    called verified and the rule book's own stored pages do not hold falls: its clause check becomes false (`clause_book` says why, the old
+    check is kept as `clause_checked_before_c11`). Nothing else is derived: a line whose quote IS in the book, a line with no clause quote,
+    a line judged already (it carries `clause_book`) and a line whose clause text was cut from the book by code come back None and are
+    never written."""
     from . import agent_review_pass_guards as guards
     from . import agent_review_standards as stds
 
-    if "clause_book" in line or not str(line.get("clause_quote") or "").strip():
+    q = dict(line.get("quotes_checked") or {})
+    if (
+        "clause_book" in line
+        or not q.get("clause")
+        or not str(line.get("clause_quote") or "").strip()
+    ):
         return None
     item_id = str(line.get("item_id") or "")
     doc, rule_page = line.get("standard_document_id"), line.get("rule_page")
     try:
         if doc is None and item_id.startswith("R-"):
             row = conn.execute(
-                "SELECT standard_document_id, page FROM standard_requirements WHERE id = ?", (item_id[2:],)
+                "SELECT standard_document_id, page FROM standard_requirements WHERE id = ?",
+                (item_id[2:],),
             ).fetchone()
             doc, rule_page = (row[0], row[1]) if row else (None, None)
         if doc is None and line.get("standard"):
             doc = stds._Standards(conn).resolve(str(line["standard"]), set())
-    except sqlite3.Error:  # an older database without the rule tables: the book is not identified, the quote is not verified
+    except (
+        sqlite3.Error
+    ):  # an older database without the rule tables: the book is not identified
         doc = None
 
     def book_of(d):
@@ -362,30 +370,60 @@ def rejudge_plan(conn, line: dict, books: dict) -> dict | None:
             books[d] = stds.read_book(conn, d) if d else guards.Book({})
         return books[d]
 
-    q = dict(line.get("quotes_checked") or {})
-    held_ok = bool(q.get("clause"))
-    source = "rule_quote" if line.get("clause_quote_from") == "requirement" else "clause_span"
-    ok, got = guards.judge(book_of, {"standard_document_id": doc, "clause_page": line.get("clause_page"), "rule_page": rule_page}, line.get("clause_quote"), source, held_ok)
-    out = {**line, "clause_book": got.to_json()}
-    if held_ok and not ok:
-        out["quotes_checked"] = {**q, "clause": False, "both": False, "clause_strong": False, "clause_why": got.why}
-        out["clause_checked_before_c11"] = True
-    return out
+    source = (
+        "rule_quote"
+        if line.get("clause_quote_from") == "requirement"
+        else "clause_span"
+    )
+    item = {
+        "standard_document_id": doc,
+        "clause_page": line.get("clause_page"),
+        "rule_page": rule_page,
+    }
+    ok, got = guards.judge(book_of, item, line.get("clause_quote"), source, True)
+    if ok:
+        return None  # in the book (or the book's own clause text): nothing to change, nothing written
+    return {
+        **line,
+        "clause_book": got.to_json(),
+        "quotes_checked": {
+            **q,
+            "clause": False,
+            "both": False,
+            "clause_strong": False,
+            "clause_why": got.why,
+        },
+        "clause_checked_before_c11": True,
+    }
+
+
+def _rank(cls: str) -> int:
+    from . import agent_review_wording as wording
+
+    return (
+        wording.CLASSES.index(cls) if cls in wording.CLASSES else len(wording.CLASSES)
+    )
 
 
 def _rejudge_old_clause_quotes(conn) -> int:
-    """ONCE, in the transaction that makes the tables: every stored line with a clause quote that was never searched in the rule book's own
-    pages is judged again (`rejudge_plan`); a line that falls (a decision, a "met" or a proven Pass or Fail whose clause quote the book does
-    not hold) is re-labelled by `wording.apply` and keeps its old class and word in the record (`class_before_c11`, `word_before_c11`,
-    `verdict_before_c11`, `decided_by_before_c11`). One audit row with the counts. Idempotent. Any error rolls the transaction back."""
+    """ONCE (the audit row is the marker), in the transaction that makes the tables: every stored line whose clause quote the book's own
+    pages do not hold falls (`rejudge_plan`) and is re-labelled by `wording.apply`; its old class, word, verdict and decided_by are kept
+    (`*_before_c11`). A class can never rise: a line whose new class would be MORE confident than the stored one is left as it was. One
+    audit row with the true counts (lines judged, lines that fell, class changes by pair). Any error rolls the transaction back."""
     import json
 
     from . import agent_review_wording as wording
     from .api import agent_review_schemas as contract
 
-    rows = conn.execute(f"SELECT run_id, item_id, verdict_class, word, line_json FROM {LINE_TABLE}").fetchall()
+    if conn.execute(
+        "SELECT 1 FROM audit_events WHERE action = ? LIMIT 1", (REJUDGE_ACTION,)
+    ).fetchone():
+        return 0
+    rows = conn.execute(
+        f"SELECT run_id, item_id, verdict_class, word, line_json FROM {LINE_TABLE}"
+    ).fetchall()
     books: dict = {}
-    seen = {"judged": 0, "not verified now": 0}
+    fell = kept = 0
     changed: dict[str, int] = {}
     for run_id, item_id, cls, word, raw in rows:
         try:
@@ -395,33 +433,40 @@ def _rejudge_old_clause_quotes(conn) -> int:
         new = rejudge_plan(conn, line, books) if isinstance(line, dict) else None
         if new is None:
             continue
-        seen["judged"] += 1
-        before = {"class_before_c11": cls, "word_before_c11": word, "verdict_before_c11": line.get("verdict"), "decided_by_before_c11": line.get("decided_by")}
-        got = wording.apply(new)
+        before = {
+            "class_before_c11": cls,
+            "word_before_c11": word,
+            "verdict_before_c11": line.get("verdict"),
+            "decided_by_before_c11": line.get("decided_by"),
+        }
+        demoted = wording.demote_unproven(
+            new
+        )  # a proven Pass or Fail without a clause quote in the book becomes a Query
+        got = wording.apply(demoted)
         label = contract.legal_word(got["verdict_class"], got["verdict_label"])
         if label is None:
             raise sqlite3.IntegrityError("a re-judged line has no legal word")
-        if new.get("clause_checked_before_c11"):
-            seen["not verified now"] += 1
-            demoted = wording.demote_unproven(new)  # a proven Pass or Fail without a clause quote in the book becomes a Query (the same function a new line meets)
-            new = {**demoted, **before}
-            if (cls, word) != (got["verdict_class"], label):
-                changed[f"{cls} / {word} -> {got['verdict_class']} / {label}"] = changed.get(f"{cls} / {word} -> {got['verdict_class']} / {label}", 0) + 1
+        if _rank(got["verdict_class"]) < _rank(cls):  # never up: min(old, new)
+            kept += 1
+            continue
+        fell += 1
+        pair = f"{cls} / {word} -> {got['verdict_class']} / {label}"
+        if (cls, word) != (got["verdict_class"], label):
+            changed[pair] = changed.get(pair, 0) + 1
         conn.execute(
             f"UPDATE {LINE_TABLE} SET verdict_class = ?, word = ?, reason = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
-            (got["verdict_class"], label, str(got.get("not_proven_reason") or ""), json.dumps(new, ensure_ascii=False, default=str), run_id, item_id),
+            (got["verdict_class"], label, str(got.get("not_proven_reason") or ""), json.dumps({**demoted, **before}, ensure_ascii=False, default=str), run_id, item_id),
         )  # fmt: skip
-    if seen["judged"]:
-        from . import job_queue
+    from . import job_queue
 
-        conn.execute(
-            "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
-            " VALUES (?, NULL, 'system', ?, 'agent_review_line', ?, 'ok', ?)",
-            (job_queue.now_iso(), REJUDGE_ACTION, LINE_TABLE,
-             f"lines judged again: {seen['judged']}; clause quote not in the rule book: {seen['not verified now']}; class changes: "
-             + ("; ".join(f"{k} x{v}" for k, v in sorted(changed.items())) or "none")),
-        )  # fmt: skip
-    return seen["judged"]
+    conn.execute(
+        "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
+        " VALUES (?, NULL, 'system', ?, 'agent_review_line', ?, 'ok', ?)",
+        (job_queue.now_iso(), REJUDGE_ACTION, LINE_TABLE,
+         f"lines read: {len(rows)}; clause quote not in the rule book: {fell + kept}; lines changed: {fell}; left as stored (a class would rise): {kept}; class changes: "
+         + ("; ".join(f"{k} x{v}" for k, v in sorted(changed.items())) or "none")),
+    )  # fmt: skip
+    return fell
 
 
 def create_tables(conn) -> None:
@@ -445,7 +490,9 @@ def create_tables(conn) -> None:
         _relabel_old_lines(
             conn
         )  # owner, 12 Nov 2026: earlier "Proven by code" lines follow the same rule, once, audited
-        _rejudge_old_clause_quotes(conn)  # c11, 15 Nov 2026: earlier clause quotes are searched in the rule book's own pages, once, audited
+        _rejudge_old_clause_quotes(
+            conn
+        )  # c11, 15 Nov 2026: earlier clause quotes are searched in the rule book's own pages, once, audited
     except BaseException as exc:
         conn.rollback()
         if isinstance(exc, sqlite3.Error):

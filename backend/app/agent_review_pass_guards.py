@@ -322,7 +322,11 @@ MIN_QUOTE_CHARS = 8  # a shorter quote proves nothing (the paper quote's own flo
 WHERE_STATED = "the stated page"
 WHERE_NEXT = "the page after the stated page"
 WHERE_OTHER = "another page of the book"
+WHERE_CUT = "the clause text cut from the book"  # the book's own text, but its pages were NOT searched for this quote
+OFF_PAGE_MIN = 20  # a quote shorter than this is searched on the stated page only: elsewhere it would match by chance
 NOT_HELD = "the rule book's pages are not held"
+NOT_RESOLVABLE = "not searched: the rule book is not resolvable"
+CUT_WHY = "not on a single page of the book: read from the clause text cut from it"
 NOT_FOUND = "the quote is not in the rule book's stored pages"
 NO_QUOTE = "no clause quote"
 TOO_SHORT = "clause quote too short"
@@ -337,6 +341,7 @@ class Located:
     page: int | None = None
     where: str | None = None
     why: str | None = None
+    scanned: bool = False  # the text of that page is the recognised text of a scan (`page_ocr`), not a text layer
 
     def to_json(self) -> dict:
         return {
@@ -344,6 +349,7 @@ class Located:
             "page": self.page,
             "where": self.where,
             "why": self.why,
+            **({"scanned": True} if self.scanned else {}),
         }
 
 
@@ -355,10 +361,13 @@ def _joined(text: str) -> str:
 class Book:
     """The stored page text of one rule book, folded once per form (a run asks for many quotes of a few books)."""
 
-    def __init__(self, pages: Mapping[int, str]) -> None:
+    def __init__(self, pages: Mapping[int, str], ocr: Iterable[int] = ()) -> None:
         self.pages = {
             int(n): str(t or "") for n, t in pages.items() if str(t or "").strip()
         }
+        self.ocr = frozenset(
+            int(n) for n in ocr
+        )  # the pages whose text is recognised text
         self._plain: dict[int, str] = {}
         self._hyph: dict[int, str] = {}
 
@@ -420,18 +429,27 @@ def locate(quote: Any, book: Book, page_hint: Any = None) -> Located:
     )  # the same quote with a line-end hyphen joined; compared with the page joined the same way
     hints = [p for p in _hints(page_hint) if p in book.pages]
     stated = hints[0] if hints else None
-    for p in hints:
+    short = len(text) < OFF_PAGE_MIN  # a short quote counts on the stated page only
+    near = [p for p in hints if not short or p == stated]
+    far = [] if short else sorted(n for n in book.pages if n not in hints)
+
+    def found(n: int) -> Located:
+        return Located(
+            True, n, WHERE_STATED if n == stated else WHERE_OTHER, scanned=n in book.ocr
+        )
+
+    for p in near:
         if _on_page(plain, hyph, book, p):
-            return Located(True, p, WHERE_STATED if p == stated else WHERE_OTHER)
-    for p in hints:
+            return found(p)
+    for p in near:
         if _over_break(plain, hyph, book, p):
-            return Located(True, p, WHERE_STATED if p == stated else WHERE_OTHER)
-    for n in sorted(book.pages):
-        if n not in hints and _on_page(plain, hyph, book, n):
-            return Located(True, n, WHERE_OTHER)
-    for n in sorted(book.pages):
-        if n not in hints and _over_break(plain, hyph, book, n):
-            return Located(True, n, WHERE_OTHER)
+            return found(p)
+    for n in far:
+        if _on_page(plain, hyph, book, n):
+            return found(n)
+    for n in far:
+        if _over_break(plain, hyph, book, n):
+            return found(n)
     return Located(False, why=NOT_FOUND)
 
 
@@ -457,12 +475,17 @@ def judge(
         for p in (item.get("clause_page"), item.get("rule_page"))
         if isinstance(p, int) and not isinstance(p, bool)
     ]
-    got = locate(quote, book_of(doc), hints)
+    got = locate(quote, book_of(doc) if doc else Book({}), hints)
+    if not doc:
+        got = Located(
+            False, why=NOT_RESOLVABLE
+        )  # no book to search: said so, never "found" on a page nobody looked at
     if got.found:
         return True, got
-    if held_ok and held_source in BOOK_OWN_SOURCES:
-        page = hints[0] if hints else None
+    if (
+        held_ok and held_source in BOOK_OWN_SOURCES
+    ):  # the clause text cut from the book: its own text, but the PAGES were not searched
         return True, Located(
-            True, page, WHERE_STATED, "read from the clause text cut from the book"
+            True, None, WHERE_CUT, NOT_RESOLVABLE if not doc else CUT_WHY
         )
     return False, got

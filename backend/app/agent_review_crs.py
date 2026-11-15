@@ -374,8 +374,11 @@ def clause_quote_cell(line: Mapping) -> str | None:
     ref = against(line) or "clause"
     book = line.get("clause_book")
     found = isinstance(book, Mapping) and book.get("found") is True and book.get("page") is not None
-    page = book.get("page") if found else line.get("clause_page")  # c11: the page code found the quote on, not the page the rule cites
-    return f"{quote} ({ref}{f', page {page}' if page not in (None, '') else ''})"
+    stated = line.get("clause_page")
+    page = book.get("page") if found else stated  # c11: the page code found the quote on, not the page the rule cites
+    differs = found and stated not in (None, "", page)
+    cited = f" (the rule cites page {stated})" if differs else ""
+    return f"{quote} ({ref}{f', page {page}{cited}' if page not in (None, '') else ''})"
 
 
 def quotes_checked_cell(line: Mapping) -> str:

@@ -88,6 +88,8 @@ NO_CLAUSE_QUOTE = "No verified quote from the rule book clause for this point."
 NO_BOOK_ACCESS = "The rule book is not one you may read, so its text is not shown."
 PAPER_CHECK = "Checked by code: found on the page."
 CLAUSE_CHECK = "Checked by code: found in the clause."
+CLAUSE_CHECK_CUT = "Checked by code against the clause text read from the rule book; its pages were not searched for this quote."
+CLAUSE_SCANNED = " The book is a scan: this is its recognised text."
 CLAUSE_CHECK_PAGE = "Checked by code: found in the rule book on page {page}."
 CLAUSE_CHECK_OTHER_PAGE = "Checked by code: found in the rule book on page {page}, not on the page the rule cites (page {stated})."
 PASSAGE_PAPER_CHECK = "Checked by code: this passage is on the page."
@@ -99,15 +101,18 @@ ENGINE_RC = "Rule check"
 
 
 def _clause_note(line: dict) -> str:
-    """What code checked about the clause quote, with the TRUE page when it found the quote in the rule book's own pages (c11); a line
-    stored before that check says the old words only when it carries no record of it."""
+    """What code checked about the clause quote, with the TRUE page when it found the quote in the rule book's own pages (c11); the
+    clause text cut from the book says its pages were not searched; a line stored with no record of the check says the old words."""
     book = line.get("clause_book")
-    if not isinstance(book, dict) or book.get("found") is not True or book.get("page") is None:
+    if not isinstance(book, dict) or book.get("found") is not True:
         return CLAUSE_CHECK
+    if book.get("where") == "the clause text cut from the book" or book.get("page") is None:
+        return CLAUSE_CHECK_CUT
     stated = line.get("clause_page")
+    scanned = CLAUSE_SCANNED if book.get("scanned") else ""
     if book.get("where") == "the stated page" or stated in (None, "", book["page"]):
-        return CLAUSE_CHECK_PAGE.format(page=book["page"])
-    return CLAUSE_CHECK_OTHER_PAGE.format(page=book["page"], stated=stated)
+        return CLAUSE_CHECK_PAGE.format(page=book["page"]) + scanned
+    return CLAUSE_CHECK_OTHER_PAGE.format(page=book["page"], stated=stated) + scanned
 
 
 def _clean(value) -> str:
