@@ -432,7 +432,7 @@ def titles_block(
         nine_call.DERIVED_KIND,
         name=BLOCK_NAME,
         sources=tuple(sorted({r[0] for r in rows})),
-        kinds=("id", "code", "source"),
+        kinds=("id", "id", "source"),
         items=tuple(rows),
     )
     return block, left, back
