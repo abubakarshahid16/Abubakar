@@ -749,7 +749,7 @@ def test_12_a_more_specific_field_of_the_approved_list_in_the_sentence_is_a_quer
 def test_12_a_field_that_stands_only_after_the_figure_is_not_the_subject():
     assert query(
         _subject_line(
-            "Valves shall be rated at 90 dB(A) with the design pressure.",
+            "Valves shall not exceed 90 dB(A) with the design pressure.",
             "design_pressure",
         ),
         "clause_subject_not_the_field",
