@@ -23,6 +23,7 @@ No document text is logged. Reads only; no model, no network.
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter
 from datetime import UTC, datetime
 from io import BytesIO
@@ -36,6 +37,7 @@ from . import review_points as rp
 from .agent_run_crs import _cell
 from .db import connect
 
+log = logging.getLogger(__name__)
 NOT_RECORDED = "not recorded"
 NOT_DECIDED = "not decided yet"
 CUT_MARK = "…"
@@ -344,9 +346,25 @@ def _sheet_table(
 # ------------------------------------------------------------------------------------------------ the team file
 
 
+def _outcome(run_id: str, scope) -> dict:
+    """The run's stored outcome; {} when it cannot be read (logged by type, never guessed, never document text)."""
+    from . import comparison
+
+    try:
+        return (
+            comparison.run_outcome(
+                run_id, allowed_document_ids=scope.allowed_document_ids
+            )
+            or {}
+        )
+    except Exception as exc:  # noqa: BLE001 - logged by type; the sheet then says "not recorded"
+        log.warning("crs_one: a run's outcome is unreadable (%s)", type(exc).__name__)
+        return {}
+
+
 def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
     """What the review did NOT check, in counts and plain words: from the stored runs only."""
-    from . import comparison, local_engine_bar, page_ledger
+    from . import local_engine_bar, page_ledger
 
     conn = connect()
     rows: list[list] = []
@@ -362,15 +380,7 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
     for run_id in (extra.get("rc_run"), extra.get("ai_run")):
         if not run_id:
             continue
-        try:
-            outcome = (
-                comparison.run_outcome(
-                    run_id, allowed_document_ids=scope.allowed_document_ids
-                )
-                or {}
-            )
-        except Exception:  # noqa: BLE001 - an unreadable record is said, not guessed
-            outcome = {}
+        outcome = _outcome(run_id, scope)
         cov = outcome.get("page_coverage")
         if cov and cov.get("pages_total") is not None:
             unread = page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome))
@@ -449,7 +459,7 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
 
 
 def _how_rows(extra: dict, scope) -> list[list]:
-    from . import comparison, page_ledger
+    from . import page_ledger
 
     conn = connect()
     rows: list[list] = []
@@ -467,15 +477,7 @@ def _how_rows(extra: dict, scope) -> list[list]:
         )
         if r.get("usd") is not None:
             rows.append([f"{r['what']}: cost (USD)", r["usd"]])
-        try:
-            outcome = (
-                comparison.run_outcome(
-                    r["run"], allowed_document_ids=scope.allowed_document_ids
-                )
-                or {}
-            )
-        except Exception:  # noqa: BLE001
-            outcome = {}
+        outcome = _outcome(r["run"], scope)
         cov = outcome.get("page_coverage")
         if cov and cov.get("pages_total") is not None:
             unread = page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome))
