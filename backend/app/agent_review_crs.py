@@ -495,12 +495,16 @@ def write_comment_only(lines: list[Mapping], path: str | Path, meta: Mapping) ->
 def run_counts(lines: list[Mapping]) -> dict:
     """Counts only (no text): lines, verdicts, how decided, quote check rate, AI call failures."""
     n = len(lines)
+    groups = [
+        ln for ln in lines if ln.get("source") == "group"
+    ]  # rule choice v2: a point for N rules, not a rule line
+    rule_lines = [ln for ln in lines if ln.get("source") != "group"]
     by_verdict = {
         v: sum(1 for ln in lines if ln.get("verdict") == v) for v in (PASS, FAIL, QUERY)
     }
     both = sum(
         1
-        for ln in lines
+        for ln in rule_lines
         if (ln.get("quotes_checked") or {}).get("paper")
         and (ln.get("quotes_checked") or {}).get("clause")
     )
@@ -525,7 +529,7 @@ def run_counts(lines: list[Mapping]) -> dict:
         "value_deferred": sum(
             1 for ln in lines if ln.get("reason_code") == "value_deferred"
         ),
-        "lines_with_a_verdict": f"{with_verdict} of {n}",
+        "lines_with_a_verdict": f"{with_verdict} of {len(rule_lines)}",
         "decided_by_ai": sum(
             1
             for ln in lines
@@ -546,6 +550,14 @@ def run_counts(lines: list[Mapping]) -> dict:
             for ln in lines
             if ln.get("decided_by") == BY_ABSENCE and ln.get("verdict") == FAIL
         ),
-        "both_quotes_checked": f"{both} of {n}",
+        "both_quotes_checked": f"{both} of {len(rule_lines)}",
         "ai_call_failures": errors,
+        **(
+            {
+                "grouped_points": len(groups),
+                "grouped_rules": sum(int(g.get("group_count") or 0) for g in groups),
+            }
+            if groups
+            else {}
+        ),
     }

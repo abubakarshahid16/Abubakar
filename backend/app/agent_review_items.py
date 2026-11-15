@@ -707,7 +707,11 @@ def build_items(
     v2_left: list[dict] = []
     if rule_budget is not None:  # rule choice v2 (off: this branch never runs)
         reqs, v2_left = rule_choice.partial_gate_rows(
-            conn, reqs, rules_mod.paper_equipment_types(conn, document_id), names
+            conn,
+            reqs,
+            rules_mod.paper_equipment_types(conn, document_id),
+            names,
+            eq_ctx,
         )
     unlisted = [
         {**r, "standard": names.get(r["standard_document_id"])}

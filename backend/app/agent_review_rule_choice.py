@@ -77,6 +77,7 @@ def partial_gate_rows(
     rows: list[dict],
     equipment_names: set[str],
     standard_labels: Mapping[str, str],
+    eq_ctx=None,
 ) -> tuple[list[dict], list[dict]]:
     """(kept rows, left-out records). A book the equipment takes only in part keeps the rules whose own words name the part,
     and also a rule whose label says a datasheet field is its subject (the two readers agreed on kind AND field): what a
@@ -95,7 +96,9 @@ def partial_gate_rows(
         standard_labels=dict(standard_labels),
         partial_standards=table.get("partial_standards") or {},
     )
-    rescued = _rescued_ids(conn, [it["requirement"].get("id") for it in got["items"]])
+    rescued = _rescued_ids(
+        conn, [it["requirement"].get("id") for it in got["items"]], eq_ctx
+    )
     kept = got["kept"] + [
         it["requirement"]
         for it in got["items"]
@@ -127,21 +130,38 @@ def partial_gate_rows(
     return got["kept"], left
 
 
-def _rescued_ids(conn, ids: list) -> set[str]:
-    """The rules among `ids` whose label names a datasheet field (kind datasheet, field agreed and on the list)."""
+def _rescued_ids(conn, ids: list, eq_ctx) -> set[str]:
+    """The rules among `ids` that the gate must keep: the label says a datasheet field is the subject (kind datasheet, a field
+    on the app's list, both agreed) AND the equipment label is AGREED and says this paper's equipment (the same type or
+    family) or general. A rule with no agreed equipment label, or about another equipment, is not rescued, so a vessel rule never
+    reaches a valve datasheet as an approved rule through this door."""
+    from . import agent_review_equipment as eqmod
+    from . import rule_equipment, rule_labels
+
+    if eq_ctx is None:
+        return set()
+    listed = set(rule_labels.field_list())
     out: set[str] = set()
     ids = [str(i) for i in ids if i]
     for start in range(0, len(ids), 500):
         part = ids[start : start + 500]
         try:
-            for r in conn.execute(
-                "SELECT rule_ref FROM rule_label WHERE source = 'requirement' AND paper_kind = 'datasheet' AND field IS NOT NULL"
-                f" AND rule_ref IN ({','.join('?' * len(part))})",
+            found = conn.execute(
+                "SELECT rule_ref, field FROM rule_label WHERE source = 'requirement' AND paper_kind = 'datasheet'"
+                f" AND field IS NOT NULL AND rule_ref IN ({','.join('?' * len(part))})",
                 part,
-            ):
-                out.add(str(r[0]))
+            ).fetchall()
         except sqlite3.Error:  # no label table: nothing is rescued
             return set()
+        for rid, field in found:
+            label = rule_equipment.label_for(conn, "requirement", str(rid)) or {}
+            if field not in listed or label.get("equip_state") != rule_equipment.AGREED:
+                continue
+            keep, why, _fam = eqmod.equipment_decision(
+                label, eq_ctx.eq, eq_ctx.tax, eq_ctx.mode, field
+            )
+            if keep and why in ("general", "same_equipment"):
+                out.add(str(rid))
     return out
 
 
@@ -178,10 +198,12 @@ def rank_and_cut(
     approved_fields: set[str],
     first_ids: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[dict], list[dict], dict]:
-    """(rows asked, left-out records below the limit, facts). Order among equal scores: books that govern this equipment by
+    """(rows asked, left-out records below the limit, facts). A rule that can be DECIDED (approved) is never cut in favour of one
+    that can only be an opinion: approved rules rank first, then the others, each by its score. Order among equal scores: books that govern this equipment by
     `governing_standards.json` (`first_ids`) before books only cited, then book, page, id (stable, no randomness)."""
     scored = [
         (
+            (why_kept.get(str(r.get(id_key))) or {}).get("tier") == "Not AI approved",
             -score(
                 r,
                 why_kept.get(str(r.get(id_key))) or {},
@@ -196,9 +218,9 @@ def rank_and_cut(
         )
         for r in kept
     ]
-    scored.sort(key=lambda t: t[:5])
-    top = [t[5] for t in scored[: max(0, int(limit))]]
-    cut = [t[5] for t in scored[max(0, int(limit)) :]]
+    scored.sort(key=lambda t: t[:6])
+    top = [t[6] for t in scored[: max(0, int(limit))]]
+    cut = [t[6] for t in scored[max(0, int(limit)) :]]
     left = [
         {
             "rule_version_id": r.get(id_key),

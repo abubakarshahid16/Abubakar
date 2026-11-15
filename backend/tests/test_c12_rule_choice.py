@@ -22,6 +22,7 @@ from tests.test_agent_review_items import (  # noqa: F401 - the fixture is used 
     SKILL,
     STD,
     _by_id,
+    _eq_label,
     _label,
     con,
 )
@@ -323,46 +324,44 @@ def test_needs_a_human_rules_that_are_not_asked_make_one_group_point_per_book_wi
 # ---------------------------------------------------------------- 2. the partial-standard gate
 
 
+def _gate_world(con):
+    from app import rule_equipment as REQ
+
+    REQ.create_tables(con)
+    con.execute(
+        "CREATE TABLE document_classification (document_id TEXT, equipment_type TEXT, title TEXT)"
+    )
+    con.execute(
+        "INSERT INTO document_classification VALUES (?, 'Pressure Safety Valve', NULL)",
+        (PAPER,),
+    )
+    return R.load_equipment(con, PAPER, "type")
+
+
+ASME = "ASME-Sec-VIII-Div1-2023.pdf"
+LABELS = {"d-asme": ASME, "d-other": "SAES-X-1.pdf"}
+
+
+def _row(rid, text, doc="d-asme"):
+    return {
+        "id": rid,
+        "standard_document_id": doc,
+        "requirement_text": text,
+        "standard": LABELS[doc],
+    }
+
+
 def test_the_partial_gate_leaves_out_the_rules_outside_the_governed_part_with_its_reason(
     con,
 ):
-    from app import rule_labels  # noqa: F401
-
-    rows = [
-        {
-            "id": "a",
-            "standard_document_id": "d-asme",
-            "requirement_text": "A pressure relief valve shall be marked",
-            "standard": "ASME-Sec-VIII-Div1-2023.pdf",
-        },
-        {
-            "id": "b",
-            "standard_document_id": "d-asme",
-            "requirement_text": "Weld seams shall be examined",
-            "standard": "ASME-Sec-VIII-Div1-2023.pdf",
-        },
-        {
-            "id": "c",
-            "standard_document_id": "d-asme",
-            "requirement_text": "A material shall be carbon steel",
-            "standard": "ASME-Sec-VIII-Div1-2023.pdf",
-        },
-        {
-            "id": "d",
-            "standard_document_id": "d-other",
-            "requirement_text": "Weld seams shall be examined",
-            "standard": "SAES-X-1.pdf",
-        },
-    ]
-    _label(
-        con, "c", state="ai_approved", field="body_material"
-    )  # a datasheet field is its subject: kept
-    kept, left = RC.partial_gate_rows(
-        con,
-        rows,
-        {"relief valve"},
-        {"d-asme": "ASME-Sec-VIII-Div1-2023.pdf", "d-other": "SAES-X-1.pdf"},
-    )
+    ctx = _gate_world(con)
+    rows = [_row("a", "A pressure relief valve shall be marked"), _row("b", "Weld seams shall be examined"),
+            _row("c", "A material shall be carbon steel"), _row("d", "Weld seams shall be examined", "d-other")]  # fmt: skip
+    _label(con, "c", state="ai_approved", field="body_material")
+    _eq_label(
+        con, "c", "agreed", general=1
+    )  # a datasheet field AND an agreed general equipment label: kept
+    kept, left = RC.partial_gate_rows(con, rows, {"relief valve"}, LABELS, ctx)
     assert {r["id"] for r in kept} == {"a", "c", "d"} and [
         r["rule_version_id"] for r in left
     ] == ["b"]
@@ -371,11 +370,158 @@ def test_the_partial_gate_leaves_out_the_rules_outside_the_governed_part_with_it
         and R.REASON_WORDS[RC.PART_OUTSIDE]
         == "this part of the book does not govern this equipment"
     )
-    # a paper of equipment the book governs whole is untouched
     kept2, left2 = RC.partial_gate_rows(
-        con, rows, {"pump"}, {"d-asme": "ASME-Sec-VIII-Div1-2023.pdf"}
-    )
+        con, rows, {"pump"}, LABELS, ctx
+    )  # a book the equipment governs whole is untouched
     assert len(kept2) == 4 and left2 == []
+
+
+def test_the_datasheet_field_exception_never_keeps_a_rule_of_another_equipment_or_of_unknown_equipment(
+    con,
+):
+    ctx = _gate_world(con)
+    rows = [
+        _row(k, "A material shall be carbon steel")
+        for k in ("same", "gen", "vessel", "family", "none", "unsure", "offlist")
+    ]
+    for k in rows:
+        _label(
+            con,
+            k["id"],
+            state="ai_approved",
+            field="zzz_not_on_the_list" if k["id"] == "offlist" else "body_material",
+        )
+    _eq_label(con, "same", "agreed", typ="relief_valve", fam="pressure_relief")
+    _eq_label(con, "gen", "agreed", general=1)
+    _eq_label(con, "vessel", "agreed", typ="pressure_vessel", fam="static")
+    _eq_label(con, "family", "agreed", fam="heat_transfer")
+    _eq_label(con, "unsure", "needs_human")
+    _eq_label(con, "offlist", "agreed", general=1)
+    kept, left = RC.partial_gate_rows(con, rows, {"relief valve"}, LABELS, ctx)
+    assert {r["id"] for r in kept} == {
+        "same",
+        "gen",
+    }  # not: another type, another family, no label, unsure, a field off the list
+    assert {r["rule_version_id"] for r in left} == {
+        "vessel",
+        "family",
+        "none",
+        "unsure",
+        "offlist",
+    }
+    assert (
+        RC.partial_gate_rows(con, rows, {"relief valve"}, LABELS, None)[0] == []
+    )  # no equipment context: nothing is rescued
+
+
+def test_the_gate_matches_a_word_and_its_plain_plural_in_any_book():
+    from app import subject_scope
+
+    table = {"relief valve": [{"standard": "ASME BPVC Section VIII Division 1", "applies_to": "x",
+                               "words": ["pressure relief device", "relief valve", "set pressure"]}]}  # fmt: skip
+
+    def kept(text):
+        got = subject_scope.partial_gate([{"id": "x", "standard_document_id": "d", "requirement_text": text}], equipment={"relief valve"},
+                                         standard_labels={"d": ASME}, partial_standards=table)  # fmt: skip
+        return bool(got["kept"])
+
+    for text in ("Pressure relief devices shall be marked", "Pressure relief device shall be marked", "Relief valves shall open",
+                 "The set pressures shall be stated", "Overpressure of the relief valve"):  # fmt: skip
+        assert kept(text), text
+    for text in (
+        "Relief valvex shall open",
+        "A pressure relief devicing step",
+        "Weld seams shall be examined",
+    ):
+        assert not kept(text), text
+
+
+def test_the_gate_is_called_by_the_plan_when_the_setting_is_on(con):
+    """The wiring: a book the equipment governs only in part loses its rules outside the part in `build_items` (and only then)."""
+    _gate_world(con)
+    con.execute("UPDATE documents SET filename = ? WHERE id = ?", (ASME, STD))
+    off = _plan(con, equipment_filter="type")
+    on = _plan(con, equipment_filter="type", rule_budget=150)
+    rules = lambda d: [i for i in d["items"] if i["source"] == "rule"]  # noqa: E731
+    assert rules(off) and not rules(on)
+    left = on["rule_labels"]["left_out"]
+    assert left and {
+        r["reason"]
+        for r in left
+        if r["rule_version_id"] in {i["rule_version_id"] for i in rules(off)}
+    } == {RC.PART_OUTSIDE}
+    assert (
+        on["rule_labels"]["counts"][RC.PART_OUTSIDE]
+        == len([r for r in left if r["reason"] == RC.PART_OUTSIDE])
+        > 0
+    )
+
+
+def test_an_approved_rule_is_never_cut_in_favour_of_a_rule_not_yet_approved():
+    gov = {"d-gov"}
+    approved_low = [
+        {
+            "id": f"ok{i}",
+            "standard_document_id": "d-cited",
+            "page": i,
+            "requirement_text": "it is",
+        }
+        for i in range(3)
+    ]
+    opinion_high = [
+        {
+            "id": f"op{i}",
+            "standard_document_id": "d-gov",
+            "page": i,
+            "requirement_text": "it shall",
+            "operator": "<=",
+            "value": 1.0,
+        }
+        for i in range(3)
+    ]
+    why = {r["id"]: {"tier": "AI approved"} for r in approved_low} | {r["id"]: {"tier": "Not AI approved", "field": "design_pressure"} for r in opinion_high}  # fmt: skip
+    assert RC.score(opinion_high[0], why["op0"], gov, {"design_pressure"}) > RC.score(
+        approved_low[0], why["ok0"], gov, set()
+    )
+    top, cut, facts = RC.rank_and_cut(
+        approved_low + opinion_high, why, "id", 3, gov, {"design_pressure"}
+    )
+    assert {r["id"] for r in top} == {"ok0", "ok1", "ok2"} and facts[
+        "below"
+    ] == 3  # a limit smaller than the approved set
+    top, _c, _f = RC.rank_and_cut(
+        approved_low + opinion_high, why, "id", 4, gov, {"design_pressure"}
+    )
+    assert {r["id"] for r in top} == {
+        "ok0",
+        "ok1",
+        "ok2",
+        "op0",
+    }  # then the opinions, by their score
+
+
+def test_a_grouped_point_is_not_counted_as_a_rule_line():
+    from app import agent_review_crs as C
+
+    rule = {
+        "item_id": "R-1",
+        "source": "rule",
+        "verdict": V.PASS,
+        "quotes_checked": {"paper": True, "clause": True},
+        "decided_by": "code",
+    }
+    group = W.apply(RC.group_line({"rule_book": "B", "count": 7, "book_id": "d"}))
+    got = C.run_counts(
+        [W.apply({**rule, "verdict_class": None}) if False else rule, group]
+    )
+    assert (
+        got["lines_with_a_verdict"] == "1 of 1"
+        and got["both_quotes_checked"] == "1 of 1"
+    )
+    assert got["grouped_points"] == 1 and got["grouped_rules"] == 7
+    assert "grouped_points" not in C.run_counts(
+        [rule]
+    )  # off: the counts are as they were
 
 
 def test_the_gate_reason_is_counted_and_said(con):
