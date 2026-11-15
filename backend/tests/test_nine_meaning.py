@@ -141,13 +141,13 @@ def test_five_more_changes_of_meaning():
     assert (
         m.refusal(
             base,
-            "Each unit must be marked in red before shipment, unless the buyer agrees, per tag PSV-4306.",
+            "Each unit must be marked in red before shipment, unless the buyer agrees, per tag Q7-b2.",
         )
         is not None
     )  # a tag added
 
 
 def test_a_tag_in_the_code_words_must_stay():
-    code = "Valve PSV-4306 shall be at least 12 bar."
+    code = "Valve Q7-b2 shall be at least 12 bar."
     assert m.refusal(code, "Valve shall be at least 12 bar.", []) == m.FIELD_DROPPED
-    assert m.refusal(code, "Valve PSV-4306 shall be at least 12 bar.", []) is None
+    assert m.refusal(code, "Valve Q7-b2 shall be at least 12 bar.", []) is None
