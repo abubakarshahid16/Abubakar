@@ -298,6 +298,13 @@ def _plain(text) -> str:
     return "" if not text or words.has_banned(text) else text
 
 
+def rule_book_hidden(book_doc, ctx: dict) -> bool:
+    """THE one readability test of a point's rule book (CLAUDE.md rule 5: classification is not access): the book is held and the viewer may
+    NOT read it. Both the AI point and the rule-check point use it; such a point carries no requirement text, no clause text, no book name
+    and nothing derived from the requirement (it is counted, never named)."""
+    return bool(book_doc) and book_doc not in ctx["readable"]
+
+
 def ai_point(line: dict, ctx: dict) -> dict | None:
     """One AI line as a point; None for a line that is not a point (a rule book not held). `ctx`: run_id, paper_document_id,
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
@@ -312,7 +319,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     book_doc, _name = ctx["book_of"].get(item, (None, None))
     book_name = (
         _plain(line.get("standard"))
-        if book_doc and book_doc in ctx["readable"]
+        if book_doc and not rule_book_hidden(book_doc, ctx)
         else None
     )
     clause = _clean(line.get("clause")) or None
@@ -476,9 +483,10 @@ def rule_point(
         int(m.group(1)) if m else None
     )  # the cited page, only of a document the caller may read
     book_doc = (finding or {}).get("standard_document_id")
+    hidden = rule_book_hidden(book_doc, ctx)
     book_name = (
         _plain(row.get("standard_reference"))
-        if book_doc and book_doc in ctx["readable"]
+        if book_doc and not hidden
         else None
     )
     paper_q = (
@@ -493,7 +501,7 @@ def rule_point(
     )
     reason = (finding or {}).get("reason_code") or kind or ""
     field, tags = split_tags(
-        content.field_of(section.split(" - ", 1)[-1] if " - " in section else "", row, finding),
+        content.field_of(section.split(" - ", 1)[-1] if " - " in section else "", row, finding, allow_rule=not hidden),
         ctx.get("known_tags") or frozenset(),
     )
     name = (
@@ -504,7 +512,8 @@ def rule_point(
     if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
         page = content.paper_value(finding)[1]
     value, value_page = content.paper_value(finding)
-    action, action_source = content.action_of(row, finding, _plain)
+    # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
+    action, action_source = content.action_of(row, None if hidden else finding, _plain)
     ref = content.rule_ref(row, finding)
     return {
         "id": f"rc:{key}",
@@ -518,20 +527,21 @@ def rule_point(
         "name": name,
         "page": page,
         "rule_book": book_name,
-        "clause": (ref["clause"] or None) if not (book_doc and not book_name) else None,
+        "clause": (ref["clause"] or None) if not hidden else None,
         "action": action or None,
         "action_source": action_source,
         # U5d: what the stored finding itself holds, never presented as verified unless code verified it
         "paper_value": value or None,
         "paper_value_page": value_page,
-        "rule_text": content.rule_text(finding) or None,
-        "rule_ref": ref if (ref["name"] or ref["clause"]) and not (book_doc and not book_name) else None,
+        "rule_text": None if hidden else (content.rule_text(finding) or None),
+        "rule_hidden": hidden,
+        "rule_ref": ref if (ref["name"] or ref["clause"]) and not hidden else None,
         "reason_words": content.reason_words(kind, finding),
         "checked_by": content.checked_by(kind),
         "paper_quote": paper_q or None,
         "clause_quote": clause_q or None,
         "paper_quote_note": PASSAGE_PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
-        "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else NO_CLAUSE_QUOTE,
+        "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": strength != "should",

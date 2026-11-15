@@ -26,8 +26,11 @@ FINDING = {"id": "f1", "standard_clause": "5.3", "requirement": "Both assessment
 
 
 def test_a_placeholder_or_a_page_label_is_never_the_field():
-    assert c.field_of("p.22", row(), FINDING).startswith("STD-9 (edition not recorded) cl. 5.3: Both assessments")
+    # a clause point is named by its reference and clause number, never by the first words of the book's sentence
+    assert c.field_of("p.22", row(), FINDING) == "STD-9 (edition not recorded) cl. 5.3"
+    assert "Both assessments" not in c.field_of("", row(), FINDING)
     assert c.field_of(PLACEHOLDER, row(), FINDING).startswith("STD-9")
+    assert c.field_of("", row(), FINDING, allow_rule=False) == c.HIDDEN_FIELD  # a book the viewer may not read: nothing derived from it
     assert "clause clause" not in c.field_of("", row(), FINDING) and "5.3 clause 5.3" not in c.field_of("", row(), FINDING)  # the clause is said once
     assert c.field_of("Set pressure", row(), FINDING) == "Set pressure"
     assert c.field_of("", row("playbook_check", comment="HAZOP scope and objectives", standard_reference=""), None) == "HAZOP scope and objectives"
@@ -135,6 +138,75 @@ def test_a_comment_with_no_rule_book_says_so_and_never_looks_rule_backed():
     got = crs_comments.group([{**p, "decision": {}, "tags": [], "page": None}])[0]
     assert got["book_held"] is False and crs_one.comment_full_texts(got)["clauses"] == c.NO_RULE_CITED
     # a held book the reader may not read: counted, not named, and not called "no rule book"
-    held = {**p, "_book_docs": ["doc_secret"]}
+    held = {**p, "_book_docs": ["doc_closed"]}
     assert crs_one.no_rule_words([held]) == c.UNREADABLE_BOOK
     assert crs_comments.group([{**held, "decision": {}, "tags": [], "page": None}])[0]["book_held"] is True
+
+
+# ------------------------------------------------------------------------------------------------ R73 F1: rule 5, the viewer's grants
+
+
+HIDDEN_TEXT, HIDDEN_CLAUSE, HIDDEN_NAME = "Zeta vessels shall be painted vermilion", "9.9.9", "CLOSED-777"
+OPEN_TEXT = "Alpha tags shall be engraved"
+
+
+def _two_books_world():
+    from app import db
+    from tests.test_crs_endpoint import NOW, _client, _finding, _run, _submittal
+
+    doc = _submittal()
+    _submittal("doc_open", "OPEN-100.pdf")
+    _submittal("doc_closed", HIDDEN_NAME + ".pdf")
+    rc = _run(doc, recommended="Approved with Comments")
+    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id="doc_open", requirement_source_text=OPEN_TEXT, requirement=OPEN_TEXT,
+             standard_clause="4.1", equipment_tag="TAG-OPEN")  # fmt: skip
+    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id="doc_closed", requirement_source_text=HIDDEN_TEXT, requirement=HIDDEN_TEXT,
+             standard_clause=HIDDEN_CLAUSE, equipment_tag="TAG-CLOSED")  # fmt: skip
+    return doc, _client(doc, "doc_open")  # the viewer may read the paper and ONE book
+
+
+def _every_string(obj):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _every_string(k)
+            yield from _every_string(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _every_string(v)
+    elif obj is not None:
+        yield str(obj)
+
+
+def test_a_viewer_who_may_not_read_a_rule_book_gets_nothing_of_it_on_the_page_or_in_either_file():
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from app import access, db, review_points_service
+
+    doc, client = _two_books_world()
+    scope = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc, "doc_open"}))
+    listing = review_points_service.assemble(doc, scope)
+    team = crs_one.build_team(doc, scope)
+    contractor = crs_one.build_contractor(doc, scope)
+    texts = list(_every_string(listing["points"])) + list(_every_string(listing["counts"]))
+    for data in (team, contractor):
+        wb = load_workbook(BytesIO(data))
+        texts += [str(x) for ws in wb.worksheets for r in ws.iter_rows(values_only=True) for x in r if x is not None]
+    blob = "\n".join(texts)
+    for hidden in (HIDDEN_TEXT, HIDDEN_CLAUSE, HIDDEN_NAME, "vermilion"):
+        assert hidden not in blob, hidden
+    # the readable book's content still appears, on the page and in the team file
+    assert OPEN_TEXT in blob and "OPEN-100" in blob
+    # the hidden point is counted and says so in words
+    assert any(p.get("rule_hidden") for p in review_points_service.export_listing(doc, scope)[1])
+    assert c.UNREADABLE_BOOK in blob or c.HIDDEN_FIELD in blob
+
+
+def test_the_same_world_read_by_a_viewer_of_both_books_shows_the_secret_content():
+    from app import access, review_points_service
+
+    doc, _client = _two_books_world()
+    scope = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc, "doc_open", "doc_closed"}))
+    blob = "\n".join(_every_string(review_points_service.assemble(doc, scope)["points"]))
+    assert HIDDEN_TEXT in blob  # the guard hides it from the other viewer only

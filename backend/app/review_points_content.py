@@ -78,7 +78,10 @@ def _head(text: str, words: int = 9) -> str:
     return " ".join(parts[:words]) + (" ..." if len(parts) > words else "")
 
 
-def field_of(section_tail: str, row: dict, finding: dict | None) -> str:
+HIDDEN_FIELD = "a requirement of a rule book you may not read"
+
+
+def field_of(section_tail: str, row: dict, finding: dict | None, allow_rule: bool = True) -> str:
     """The point's field: the sheet's own field label; when the row has none (or only a placeholder or a page label), the finding's
     section or phrase; for a clause point with no field, its clause and subject. Never a placeholder and never a page label."""
     f = finding or {}
@@ -89,12 +92,13 @@ def field_of(section_tail: str, row: dict, finding: dict | None) -> str:
         c = clean(cand)
         if c and not _PAGE_LABEL.match(c) and not is_placeholder(c):
             return c
+    if not allow_rule:  # the rule book is not the viewer's to read: nothing derived from it, not even its reference or clause number
+        return HIDDEN_FIELD
     ref, clause = clean(row.get("standard_reference")), clean(f.get("standard_clause"))
-    subject = _head(f.get("requirement") or f.get("requirement_source_text") or "")
+    # a clause point is named by its reference and clause number (the book's own sentence belongs in "What the rule requires")
     where = f"{ref} clause {clause}".strip() if clause and clause.lower() not in ref.lower() else ref
-    named = ": ".join(x for x in (where, subject) if x)
-    if named:
-        return named
+    if where:
+        return where
     comment = clean(row.get("comment"))
     return _head(comment, 7) if comment and not is_placeholder(comment) else ""
 

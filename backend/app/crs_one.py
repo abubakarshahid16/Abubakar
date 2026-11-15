@@ -138,6 +138,8 @@ def paper_shows(point: dict) -> str:
 def rule_requires(point: dict) -> str:
     if point.get("clause_quote"):
         return f'"{point["clause_quote"]}" ({point["clause_quote_note"]})'
+    if point.get("rule_hidden"):
+        return content.UNREADABLE_BOOK
     if point.get("rule_text"):
         return f'"{point["rule_text"]}" (as stored; {content.NOT_VERIFIED})'
     return content.NOTHING
