@@ -143,44 +143,69 @@ def group_key(
 
 # ------------------------------------------------------------------------------------------------ a name is the field, not its tags
 
-_BRACKETS = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]")
-_TAG_ITEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-/._]*$")
+_OPEN, _CLOSE = "([{", ")]}"
+_TAG_LEAD = re.compile(r"^[A-Za-z]{1,6}[-/]?\d[\w\-./]*$")  # the first token of a tag entry: letters then digits ("V-100", "P1A")
 _ONE_TAG = re.compile(r"^[A-Za-z]{1,6}-\d[\w\-./]*$")
 _MORE = re.compile(r"^(?:\.{2,}|\u2026|etc\.?|(?:and\s+)?\+?\d+\s+more)$", re.I)
+_SEPARATORS = ",;&+"
+
+
+def _top_level_groups(text: str) -> list[tuple[int, int]]:
+    """(start, end) of every outermost bracketed group (balanced, so a group inside a group stays inside it)."""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in _OPEN:
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch in _CLOSE and depth > 0:
+            depth -= 1
+            if depth == 0:
+                out.append((start, i + 1))
+    return out
+
+
+def _entries(inner: str) -> list[str]:
+    """The entries of a group: its text cut at "," ";" "&" "+" and the word "and" outside any inner bracket."""
+    parts, depth, cur, words = [], 0, [], inner.replace(" and ", " & ")
+    for ch in words:
+        depth += (ch in _OPEN) - (ch in _CLOSE)
+        if depth == 0 and ch in _SEPARATORS:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return [x.strip() for x in parts if x.strip()]
 
 
 def _is_tag_list(inner: str) -> list[str] | None:
-    """The items of a bracketed group when it is a list of equipment tags (every item one token with a letter and a digit, two or more
-    of them, or one that looks like a tag with its dash); None for a unit or a note like "(barg)" or "(2 mm)". General: it looks at
-    the shape of the group, never at one paper's tag scheme."""
-    parts = [x.strip() for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner) if x.strip()]
-    items = [x for x in parts if not _MORE.match(x)]
-    if not items:
+    """The entries of a bracketed group when it is a list of equipment tags: every entry LEADS with a tag-shaped token (letters then
+    digits, with or without a note after it, even a nested bracket), and there are two or more of them, or one that carries a dash
+    ("V-100"). None for a unit or a note like "(barg)", "(2 mm)", "(API 610)", "(H2 content)". General: it looks at the shape of the
+    group, never at one paper's tag scheme."""
+    items = [x for x in _entries(inner) if not _MORE.match(x)]
+    if not items or not all(_TAG_LEAD.match(x.split()[0].rstrip(",;")) for x in items):
         return None
-    if not all(
-        _TAG_ITEM.match(x) and any(c.isdigit() for c in x) and any(c.isalpha() for c in x)
-        for x in items
-    ):
-        return None
-    if len(items) == 1 and not _ONE_TAG.match(items[0]):
-        return None
-    return items
+    return items if len(items) > 1 or _ONE_TAG.match(items[0].split()[0]) else None
 
 
 def split_tags(name: str) -> tuple[str, list[str]]:
     """(the name with every bracketed list of equipment tags taken off, the tags in the order they stood). The tags belong in the
-    opened point ("Applies to: N tags"), never in the collapsed row's name."""
+    opened point ("Applies to: N tags"), never in the collapsed row's name. Nested brackets ("V-1 A/B (inlet, 10 & 19) & V-2") and
+    every separator the sheet uses are handled; a group that is not a tag list stays in the name."""
+    text = str(name or "")
     tags: list[str] = []
-
-    def take(m: re.Match) -> str:
-        got = _is_tag_list(m.group(1))
+    keep, last = [], 0
+    for start, end in _top_level_groups(text):
+        got = _is_tag_list(text[start + 1 : end - 1])
         if got is None:
-            return m.group(0)
+            continue
         tags.extend(got)
-        return ""
-
-    clean = _BRACKETS.sub(take, str(name or ""))
-    return _clean(clean), list(dict.fromkeys(tags))
+        keep.append(text[last:start].rstrip())
+        last = end
+    keep.append(text[last:])
+    return _clean(" ".join(x for x in keep if x)), list(dict.fromkeys(tags))
 
 
 def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None) -> str:

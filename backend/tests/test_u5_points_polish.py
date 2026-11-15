@@ -168,3 +168,27 @@ def test_decided_counts_points_not_groups():
     assert decide(client, doc, pts[1]["id"], "keep").status_code == 200
     got = points_of(client, doc)
     assert (got["decided"], got["of"]) == (2, 3)  # two members decided, not "one group"
+
+
+# ------------------------------------------------------------------------------------------------ U5b: the REAL shape of a rule-check name
+
+
+REAL_SHAPE = "p.1 - Corrosion allowance (V-1 A/B (Inlet nozzle N1, 10 & 19) & V-2 A/B (Outlet N2), V-3 A/B (N3, 10 & 19) & V-4 A/B (N4))"
+
+
+def test_nested_brackets_and_ampersands_are_one_tag_list():
+    name, tags = review_points.split_tags("Corrosion allowance (V-1 A/B (Inlet nozzle N1, 10 & 19) & V-2 A/B (Outlet N2), V-3)")
+    assert name == "Corrosion allowance"
+    assert tags == ["V-1 A/B (Inlet nozzle N1, 10 & 19)", "V-2 A/B (Outlet N2)", "V-3"]
+    # a unit, a standard's number and a quantity with an index are NOT tag lists
+    for keep in ("Cp/Cv (Cp/Cv)", "Rating (API 610)", "H2 content (H2 content)", "Gap (2 mm)", "Flow (m3/h)"):
+        assert review_points.split_tags(keep) == (keep, [])
+
+
+def test_a_rule_check_point_of_the_real_shape_has_a_clean_name_and_its_tags():
+    row = {"row_kind": "datasheet_check", "priority": 3, "page_section": REAL_SHAPE, "comment": "Contractor to confirm the value.", "finding_id": "f1"}
+    ctx = {"run_id": "r", "paper_document_id": "doc1", "readable": frozenset({"doc1"})}
+    p = review_points.rule_point(row, ctx, None, {})
+    assert p["name"] == "Corrosion allowance"
+    assert len(p["tags"]) == 4 and p["tags"][0].startswith("V-1 A/B")
+    assert "(" not in p["name"] and "V-2" not in p["name"]
