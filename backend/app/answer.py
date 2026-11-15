@@ -2119,7 +2119,7 @@ def _answer_from_documents(
             "answer_type": "model_unavailable",
             "provider": reasoning_provider.CLAUDE if claude_lane() else reasoning_provider.OLLAMA,
             "answer": None,
-            "reason": f"the answer model would not answer ({str(exc).split(':')[0]})",
+            "reason": reasoning_provider.refused_words(exc),
             "passages": passages,
             "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),

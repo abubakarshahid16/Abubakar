@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import urllib.parse
 
+import pytest
+
 from app import agent_review_calculator as calc
 from app import agent_review_jobs
+from tests import b1_pages
 from tests.test_agent_review_routes import client, finished_run  # noqa: F401 - fixture
 from tests.test_b1_calculator import CLAUSE, ITEM, exit_of, fact, line
 
@@ -17,7 +20,7 @@ def _stored(run_id, ln):
 
 def test_a_code_line_trace_is_its_proof_in_plain_fields_and_a_slash_in_the_id_is_200(
     client,
-):  # noqa: F811
+):
     run_id = finished_run(client)
     f = fact("85", tag="PSV-1 A/B")
     ln = calc.numeric_line(
@@ -70,3 +73,8 @@ def test_a_query_code_line_says_which_test_failed(client):  # noqa: F811
         steps["the value and its unit stated inside the paper quote"]["outcome"] == "no"
     )
     assert steps["decision"]["outcome"] != "Pass"
+
+
+@pytest.fixture(autouse=True)
+def _pages(monkeypatch):
+    return b1_pages.install(monkeypatch)

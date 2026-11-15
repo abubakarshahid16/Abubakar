@@ -7,7 +7,8 @@ import { DocumentKindChip } from "../../DocumentKindChip";
 type Cls = Awaited<ReturnType<typeof classification.ofDocument>>;
 type Kinds = Awaited<ReturnType<typeof classification.kinds>>;
 
-const HOW: Record<string, string> = { confirmed: "an engineer", suggested: "the system (a guess)", needs_engineer: "nobody yet" };
+/** Only a CONFIRMED kind says who decided it: a guessed kind is already said by the chip ("guessed, not confirmed"), and one line says it once. */
+const HOW: Record<string, string> = { confirmed: "an engineer" };
 
 export function KindLine({ documentId, pages, isAdmin }: { documentId: string | null; pages: number | null | undefined; isAdmin: boolean | undefined }) {
   const [cls, setCls] = useState<Cls | null>(null);

@@ -63,6 +63,18 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
     (
+        APP + "untrusted_value.py",
+        "holds a datasheet check that rests on a value in conflict or needing an engineer: never a Pass or Fail",
+    ),
+    (
+        APP + "table_cell.py",
+        "locates the one cell of a value on the stored table rows: the cell is the proof of a proven Pass or Fail",
+    ),
+    (
+        APP + "agent_review_calculator_cells.py",
+        "groups facts per tag, lifts or settles a held reading, picks a fact's cell: decides which value a proven line rests on",
+    ),
+    (
         APP + "agent_review_calculator.py",
         "makes a proven Pass or Fail of the one reviewer from a compared value",
     ),
@@ -77,7 +89,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
-    (APP + "agent_review_calculator_run.py", "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass"),
+    (
+        APP + "agent_review_calculator_run.py",
+        "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass",
+    ),
     (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
     (
         APP + "review_engine_start.py",
@@ -143,6 +158,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "plans a general review, declares what may be sent, stores its lines and run row",
     ),
     (
+        APP + "page_reading.py",
+        "the one unread-pages definition: the sign gate, the Pass hold, the page lines",
+    ),
+    (
         APP + "agent_review_reuse.py",
         "stands in for a reader's call: what is reused, and that no call is made",
     ),
@@ -155,6 +174,8 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
+    "agent_review_job_facts.py": "pure helpers moved out of the job file (stop sentence, equipment facts); decides nothing",
+    "agent_review_local.py": "the local transport seam of the AI reviewer; every verdict rule it feeds is the Claude path's own (a FULL review still applies: rule 14b)",
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
