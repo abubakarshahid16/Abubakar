@@ -14,7 +14,7 @@ No verdict, class or word is made here. Words and counts only; no document text 
 
 from __future__ import annotations
 
-import base64
+import hashlib
 import logging
 import time
 from collections import Counter
@@ -47,9 +47,6 @@ NOT_SENT = "not read: not sent"
 CODE_ONLY = "read by code: no field label found"
 BUDGET = "not read: the Reader's budget was reached (role_budget)"
 
-#: a page picture (PNG bytes) for a page number, or raises `agent_review_pages.PageImageUnavailable`
-PictureOf = Callable[[int], bytes]
-
 
 @dataclass
 class ReadResult:
@@ -61,16 +58,31 @@ class ReadResult:
     why: str | None = None
 
 
-def page_block(
-    document_id: str, page: int, text: str, picture: bytes | None = None
-) -> nine_call.Block:
-    """ONE block of one page, in the seam's shape (the same list is the request, the document declaration and the role record)."""
-    pic = (
-        {"media_type": "image/png", "data": base64.b64encode(picture).decode("ascii")}
-        if picture
-        else None
-    )
-    return nine_call.Block(document_id, "paper", (page,), text=text, picture=pic)
+def page_blocks(paper_id: str, page: int, picture: bool) -> list[nine_call.Block]:
+    """The blocks of one page, BY REFERENCE: the seam loads the stored page text and renders the picture itself (Claude only). No text passes here."""
+    blocks = [nine_call.Block("paper", paper_id, (page,))]
+    if picture:
+        blocks.append(nine_call.Block("paper", paper_id, (page,), picture=True))
+    return blocks
+
+
+_FORMS: dict[tuple[str, ...], str] = {}
+
+
+def form_template(group: list[Field]) -> str:
+    """The registered question of one field group: the form reader's own prompt (the app's fixed words and the reference data's field lines; NO page text),
+    registered once under an id that names its words. The page number is its only parameter."""
+    key = tuple(f.key for f in group)
+    if key not in _FORMS:
+        text = build_prompt(group, "", 0).rstrip()
+        head = text[: -len("PAGE 0:")]
+        assert text.endswith("PAGE 0:")
+        words = head.replace("{", "{{").replace("}", "}}") + "PAGE {page}:\n"
+        tid = (
+            "nine_reader_form_" + hashlib.sha256(words.encode("utf-8")).hexdigest()[:16]
+        )
+        _FORMS[key] = nine_call.template(tid, words, page="int")
+    return _FORMS[key]
 
 
 def estimate(
@@ -139,7 +151,7 @@ def _read_page(
     paper_id: str,
     page: int,
     text: str,
-    picture: bytes | None,
+    picture: bool,
     fields: list[Field],
     rules: Mapping,
     dropped: Counter,
@@ -152,10 +164,13 @@ def _read_page(
     out.unread = [f.key for g in groups for f in g]
     for group in groups:
         answer = ask(
-            [page_block(paper_id, page, text, picture)], build_prompt(group, "", page)
+            page_blocks(paper_id, page, picture), (form_template(group), {"page": page})
         )
-        if answer.not_sent:
-            out.not_sent = answer.not_sent[0][1]
+        held = [
+            code for _doc, code in answer.not_sent if not code.startswith("picture_")
+        ]  # a picture that could not be made is text only, not a held page
+        if held or (answer.reads and not _sent_this_text(answer, paper_id, text)):
+            out.not_sent = held[0] if held else "stored_text_differs"
             return out
         if answer.error_code == "role_budget":
             out.budget = True
@@ -178,14 +193,13 @@ def _read_page(
     return out
 
 
-def _picture(picture_of: PictureOf | None, page: int) -> bytes | None:
-    if picture_of is None:
-        return None
-    try:
-        return picture_of(page)
-    except Exception as exc:  # noqa: BLE001 - no picture for a page is "text only", never a failed review; only the class is logged
-        log.info("nine reader: no picture for a page (%s)", type(exc).__name__)
-        return None
+def _sent_this_text(answer: nine_call.Answer, paper_id: str, text: str) -> bool:
+    """What the seam really sent for the page is the text the quotes are checked against (its checksum is in the read row)."""
+    want = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return any(
+        r.document_id == paper_id and not r.pictures and r.text_sha256 == want
+        for r in answer.reads
+    )
 
 
 def _page_read(page: int, r: _Page) -> PageRead:
@@ -220,7 +234,7 @@ def _read_pages(
     paper_id: str,
     pages: Mapping[int, str],
     total: int,
-    picture_of: PictureOf | None,
+    pictures: bool,
     fields: list[Field],
     rules: Mapping,
     dropped: Counter,
@@ -262,7 +276,7 @@ def _read_pages(
                     paper_id,
                     page,
                     text,
-                    None if local else _picture(picture_of, page),
+                    pictures and not local,
                     fields,
                     rules,
                     dropped,
@@ -300,7 +314,7 @@ def read_paper(
     equipment_type: str | None = None,
     tables: Mapping[int, list] | None = None,
     pages_total: int | None = None,
-    picture_of: PictureOf | None = None,
+    pictures: bool = True,
     model: str | None = None,
     rules: Mapping | None = None,
     max_seconds: float | None = None,
@@ -329,7 +343,7 @@ def read_paper(
             paper_id,
             pages,
             total,
-            picture_of,
+            pictures,
             fields,
             rules,
             dropped,
@@ -412,6 +426,6 @@ __all__ = [
     "STEP",
     "ReadResult",
     "estimate",
-    "page_block",
+    "page_blocks",
     "read_paper",
 ]
