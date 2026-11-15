@@ -7,13 +7,16 @@ import { useEffect, useState } from "react";
 import { request } from "../../../api/core";
 
 export interface RoleRead {
-  document_kind: string;
+  document_id: string;
+  /** The document's title, resolved by the server at read time; null when it has none. Only documents the caller may read are listed. */
+  title: string | null;
+  kind: string;
   pages: number[];
+  chapter_id: string | null;
+  part_no: number | null;
+  part_of: number | null;
   chars: number;
   pictures: number;
-  readable: boolean;
-  /** The document's name, only when the caller may read it; null otherwise. */
-  name: string | null;
 }
 export interface RoleRow {
   role_no: number;
@@ -26,8 +29,10 @@ export interface RoleRow {
   usd: number | null;
   produced: Record<string, unknown>;
   reads: RoleRead[];
+  /** Documents this role read that the caller may not read: a count, never a name or an id. */
+  not_readable: number;
 }
-export interface RolesAnswer { roles: RoleRow[] }
+export interface RolesAnswer { roles: RoleRow[]; roles_line?: string }
 
 const STATE_WORDS: Record<RoleRow["state"], string> = { ran: "ran", ran_partly: "ran partly", not_run: "not run" };
 const ENGINE_WORDS: Record<string, string> = { claude: "Claude", local: "Local", code: "code only" };
@@ -40,15 +45,18 @@ function count(value: unknown): string {
   return String(value);
 }
 
-function ReadsLine({ reads }: { reads: RoleRead[] }) {
-  if (reads.length === 0) return null;
-  const hidden = reads.filter((r) => !r.readable).length;
-  const shown = reads.filter((r) => r.readable);
+function where(r: RoleRead): string {
+  const part = r.chapter_id ? `, chapter ${r.chapter_id}${r.part_no && r.part_of && r.part_of > 1 ? ` part ${r.part_no} of ${r.part_of}` : ""}` : "";
+  return `${r.title ?? "a document"} (${r.kind.replace(/_/g, " ")}${r.pages.length ? `, pages ${r.pages.join(", ")}` : ""}${part})`;
+}
+
+function ReadsLine({ reads, notReadable }: { reads: RoleRead[]; notReadable: number }) {
+  if (reads.length === 0 && notReadable === 0) return null;
   return (
     <p className="text-xs text-slateish-400" data-testid="role-reads">
-      Read {reads.length} block(s)
-      {shown.length > 0 && <>: {shown.map((r) => `${r.name ?? r.document_kind} (${r.document_kind.replace(/_/g, " ")}, pages ${r.pages.join(", ")})`).join("; ")}</>}
-      {hidden > 0 && <>{shown.length > 0 ? "; " : ": "}{hidden} document(s) you may not read</>}
+      Read {reads.length + notReadable} block(s)
+      {reads.length > 0 && <>: {reads.map(where).join("; ")}</>}
+      {notReadable > 0 && <>{reads.length > 0 ? "; " : ": "}{notReadable} document(s) you may not read</>}
     </p>
   );
 }
@@ -75,7 +83,7 @@ export function RolesView({ roles }: { roles: RoleRow[] | null }) {
             {Object.keys(r.produced).length > 0 && (
               <p className="text-xs text-slateish-400">{Object.entries(r.produced).map(([k, v]) => `${k.replace(/_/g, " ")}: ${count(v)}`).join("; ")}</p>
             )}
-            <ReadsLine reads={r.reads} />
+            <ReadsLine reads={r.reads} notReadable={r.not_readable ?? 0} />
           </li>
         ))}
       </ol>

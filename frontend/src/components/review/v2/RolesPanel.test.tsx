@@ -9,7 +9,7 @@ vi.mock("../../../api/core", () => ({ request: (...a: unknown[]) => api.request(
 const role = (n: number, over: Partial<RoleRow> = {}): RoleRow => ({
   role_no: n, role: ["", "Reader", "Project context", "Librarian", "Reviewer", "Checklist", "Second reviewer", "Code", "Decision rule", "Writer"][n],
   state: "ran", why: null, engine: n === 7 || n === 8 ? "code" : "claude", models: n === 7 || n === 8 ? [] : ["m1"], calls: 2, usd: 0.5,
-  produced: {}, reads: [], ...over,
+  produced: {}, reads: [], not_readable: 0, ...over,
 });
 const nine = (over: Record<number, Partial<RoleRow>> = {}) => Array.from({ length: 9 }, (_, i) => role(i + 1, over[i + 1]));
 
@@ -27,17 +27,15 @@ describe("RolesView", () => {
     expect(screen.getByTestId("role-4")).toHaveTextContent("cost (USD) not known");
     expect(screen.getByTestId("role-7")).not.toHaveTextContent("cost");
   });
-  it("shows a count for a document the user may not read, never its name", () => {
+  it("shows a count for a document the user may not read, never a name or an id", () => {
     const reads = [
-      { document_kind: "rule_book", pages: [3, 4], chars: 900, pictures: 0, readable: true, name: "Readable book" },
-      { document_kind: "project_document", pages: [1], chars: 400, pictures: 0, readable: false, name: null },
-      { document_kind: "project_document", pages: [2], chars: 400, pictures: 0, readable: false, name: "SECRET-NAME-LEAK" },
+      { document_id: "doc_ok", title: "Readable book", kind: "rule_book", pages: [3, 4], chapter_id: "5", part_no: 2, part_of: 3, chars: 900, pictures: 0 },
     ];
-    render(<RolesView roles={nine({ 4: { reads } })} />);
+    render(<RolesView roles={nine({ 4: { reads, not_readable: 2 } })} />);
     const line = screen.getByTestId("role-reads");
-    expect(line).toHaveTextContent("Readable book");
+    expect(line).toHaveTextContent("Read 3 block(s): Readable book (rule book, pages 3, 4, chapter 5 part 2 of 3)");
     expect(line).toHaveTextContent("2 document(s) you may not read");
-    expect(document.body.textContent).not.toContain("SECRET-NAME-LEAK");
+    expect(document.body.textContent).not.toContain("doc_ok");
   });
 });
 
