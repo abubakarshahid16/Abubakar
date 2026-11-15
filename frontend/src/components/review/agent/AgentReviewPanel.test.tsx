@@ -9,11 +9,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentReviewPanel, NOT_AGENT_RUN } from "./AgentReviewPanel";
 
-const api = { summary: vi.fn(), lines: vi.fn(), trace: vi.fn(), crsFile: vi.fn() };
+const api = { summary: vi.fn(), lines: vi.fn(), trace: vi.fn(), crsFile: vi.fn(), crsOlder: vi.fn(() => Promise.resolve({ ok: true, data: { run_id: "r1", ai_lines: 5, paper_points: 9 } })) };
 vi.mock("../../../api/agentReview", () => ({
   agentReview: {
     summary: (...a: unknown[]) => api.summary(...a), lines: (...a: unknown[]) => api.lines(...a),
-    trace: (...a: unknown[]) => api.trace(...a), crsFile: (...a: unknown[]) => api.crsFile(...a),
+    trace: (...a: unknown[]) => api.trace(...a), crsFile: (...a: unknown[]) => api.crsFile(...a), crsOlder: () => api.crsOlder(),
   },
   isFeatureOff: (r: { ok: boolean; error?: { code: string } }) => !r.ok && r.error?.code === "not_found",
 }));
