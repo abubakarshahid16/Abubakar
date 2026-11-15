@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from . import crs_comments
 from . import (
     evidence_boxes,
     review_code_proposal,
@@ -333,6 +334,9 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
         ],
         "contractor_copy": _contractor_copy(conn, ai_run),
     }
+    grouped = crs_comments.group(points)  # P2: the SAME function the CRS file uses, so the page and the file show the same comments
+    listing["comments"] = [crs_comments.public(c) for c in grouped]
+    listing["comment_count"] = len(grouped)
     return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
 
 

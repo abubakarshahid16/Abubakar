@@ -100,6 +100,8 @@ class PointsListingOut(BaseModel):
     of: int
     removed: list[PointOut]
     contractor_copy: dict[str, Any] = {}
+    comments: list[dict[str, Any]] = []
+    comment_count: int = 0
 
 
 class PageV2Status(BaseModel):

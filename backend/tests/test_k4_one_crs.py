@@ -72,7 +72,7 @@ def equality(doc, scope):
     page = review_points_service.assemble(doc, scope)
     data = crs_one.build_team(doc, scope)
     ws = sheet(data)
-    _head, crs_rows = rows_after(ws, "No")
+    _head, crs_rows = rows_after(sheet(data, crs_one.EVIDENCE_SHEET), "No")
     _h2, removed = rows_after(sheet(data, crs_one.REMOVED_SHEET), "No")
     return page["of"], len(crs_rows), len(removed), count_line_of(ws)
 
@@ -83,10 +83,8 @@ def equality(doc, scope):
 def test_the_team_file_holds_every_point_the_page_counts_and_says_so():
     doc, rc, ai, client = world_with_both()
     page, rows, removed, line = equality(doc, scope_all())
-    assert page == 4 and rows + removed == page
-    assert line.startswith(
-        f"{page} points on the page; {rows + removed} rows in this file"
-    )
+    assert page == 4 and rows == page
+    assert line.startswith(f"{page} points on the page; {rows} rows in this file")
 
 
 def test_a_removed_point_is_counted_once_and_sits_on_its_own_sheet_with_who_and_why():
@@ -97,7 +95,7 @@ def test_a_removed_point_is_counted_once_and_sits_on_its_own_sheet_with_who_and_
         == 200
     )
     page, rows, removed, _ = equality(doc, scope_all())
-    assert (page, removed) == (4, 1) and rows == 3
+    assert (page, removed) == (4, 1) and rows == 4
     _h, rem = rows_after(
         sheet(crs_one.build_team(doc, scope_all()), crs_one.REMOVED_SHEET), "No"
     )
@@ -107,9 +105,11 @@ def test_a_removed_point_is_counted_once_and_sits_on_its_own_sheet_with_who_and_
 def test_the_file_is_worst_first_like_the_page():
     doc, rc, ai, client = world_with_both()
     page = points_of(client, doc)["points"]
-    _h, rows = rows_after(sheet(crs_one.build_team(doc, scope_all())), "No")
+    _h, rows = rows_after(
+        sheet(crs_one.build_team(doc, scope_all()), crs_one.EVIDENCE_SHEET), "No"
+    )
     assert [r[0] for r in rows] == list(range(1, len(rows) + 1))
-    assert [r[2] for r in rows] == [p["pill"] for p in page]
+    assert [r[3] for r in rows] == [p["pill"] for p in page]
 
 
 def test_the_team_file_has_all_the_sheets():
@@ -118,7 +118,7 @@ def test_the_team_file_has_all_the_sheets():
 
     names = lw(io.BytesIO(crs_one.build_team(doc, scope_all()))).sheetnames
     assert names == [
-        "CRS", "Removed (record)", "Does not apply", "Rule books not held", "What was not checked", "How it was reviewed",
+        "CRS", "Evidence", "Removed (record)", "Does not apply", "Rule books not held", "What was not checked", "How it was reviewed",
     ]  # fmt: skip
 
 
@@ -348,14 +348,18 @@ def test_every_stored_run_of_the_data_copy_has_equal_counts(monkeypatch, tmp_pat
     checked = 0
     for doc in papers:
         page, rows, removed, line = equality(doc, scope)
-        assert rows + removed == page, doc
-        assert line.startswith(
-            f"{page} points on the page; {rows + removed} rows in this file"
-        )
+        assert rows == page, doc
+        assert line.startswith(f"{page} points on the page; {rows} rows in this file")
         from app import crs_completeness as cc
 
-        got = cc.checked_files(doc, scope)  # three counts agree, and no cell ends cut without the mark and its full text
-        assert got["team"][1]["ok"] and got["contractor"][1]["ok"], (doc, got["team"][1]["sentence"], got["contractor"][1]["sentence"])
+        got = cc.checked_files(
+            doc, scope
+        )  # three counts agree, and no cell ends cut without the mark and its full text
+        assert got["team"][1]["ok"] and got["contractor"][1]["ok"], (
+            doc,
+            got["team"][1]["sentence"],
+            got["contractor"][1]["sentence"],
+        )
         assert got["team"][1]["cut_problems"] == 0
         checked += 1
     db.reset_connection()
@@ -483,7 +487,8 @@ def test_the_first_sheet_states_the_counts_from_the_one_function():
 
     doc, rc, ai, client = world_with_both()
     team = sheet(crs_one.build_team(doc, scope_all()))
-    assert cc.team_statement(4) in [r[0] for r in team.iter_rows(values_only=True)]
+    c = review_points_service.assemble(doc, scope_all())["comment_count"]
+    assert cc.team_statement(4, c) in [r[0] for r in team.iter_rows(values_only=True)]
     con = sheet(crs_one.build_contractor(doc, scope_all()))
     first = [r[0] for r in con.iter_rows(values_only=True) if r[0]]
     assert any(
@@ -612,10 +617,15 @@ def test_a_removed_cut_mark_is_found_and_the_file_is_refused(monkeypatch):
     assert "cut" in str(e.value)
 
 
-def test_the_count_check_script_agrees_and_exits_one_on_a_difference(monkeypatch, capsys):
+def test_the_count_check_script_agrees_and_exits_one_on_a_difference(
+    monkeypatch, capsys
+):
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("crs_count_check", Path(__file__).resolve().parents[2] / "scripts" / "crs_count_check.py")
+    spec = importlib.util.spec_from_file_location(
+        "crs_count_check",
+        Path(__file__).resolve().parents[2] / "scripts" / "crs_count_check.py",
+    )
     script = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(script)
     doc, rc, ai, client = world_with_both()
@@ -631,3 +641,105 @@ def test_the_count_check_script_agrees_and_exits_one_on_a_difference(monkeypatch
     assert script.main([ai]) == 1
     assert "DIFFERENT" in capsys.readouterr().out
     assert script.main(["no-such-run"]) == 2
+
+
+# ------------------------------------------------------------------------------------------------ P2: one comment per field
+
+
+def _fp(i, rank, name="Design pressure", clause="4.1", page=1, state=None, **kw):
+    tile = review_points.TILE_OF_RANK[rank]
+    return {
+        "id": f"ai:r:{i}", "rank": rank, "tile": tile, "name": name, "clause": clause, "page": page, "rule_book": "STD-1",
+        "tags": [], "source": "ai_review", "decision": {"state": state} if state else {"state": None}, "pill": f"pill{rank}",
+        "firm": "one reader", "action": "x", **kw,
+    }  # fmt: skip
+
+
+def test_points_of_one_field_make_one_comment_listing_every_clause_and_page():
+    from app import crs_comments
+
+    pts = [
+        _fp(1, 3, clause="4.1", page=1),
+        _fp(2, 3, clause="4.2", page=2),
+        _fp(3, 3, clause="4.1", page=3),
+        _fp(4, 4, name="Other"),
+    ]
+    got = crs_comments.group(pts)
+    assert [c["n_points"] for c in got] == [3, 1]
+    assert got[0]["pages"] == [1, 2, 3] and {
+        (k["clause"], k["page"]) for k in got[0]["clauses"]
+    } >= {("4.1", 1), ("4.2", 2), ("4.1", 3)}
+    assert sorted(i for c in got for i in c["member_ids"]) == sorted(
+        p["id"] for p in pts
+    )  # nothing is dropped
+
+
+def test_the_strongest_status_wins_and_a_weaker_one_never_does():
+    from app import crs_comments
+
+    c = crs_comments.group([_fp(1, 4), _fp(2, 3), _fp(3, 4)])[0]
+    assert c["rank"] == 3 and c["pill"] == "pill3"
+    c = crs_comments.group([_fp(1, 5), _fp(2, 4)])[0]
+    assert c["rank"] == 4  # a Query is stronger than a Met
+    c = crs_comments.group([_fp(1, 7), _fp(2, 7)])[0]
+    assert c["rank"] == 7  # merging never raises a class
+    c = crs_comments.group([_fp(1, 1), _fp(2, 3)])[0]
+    assert c["rank"] == 1 and c["pill"] == "pill1"  # a proven Fail keeps its own class
+
+
+def test_a_contradiction_is_never_merged_silently():
+    from app import crs_comments
+
+    c = crs_comments.group([_fp(1, 5), _fp(2, 3)])[0]
+    assert (
+        c["disagree"]
+        and c["rank"] == 4
+        and "disagree" in c["pill"]
+        and c["n_points"] == 2
+    )
+    assert not crs_comments.group([_fp(1, 5), _fp(2, 6)])[0]["disagree"]
+
+
+def test_a_point_with_no_field_groups_by_clause_else_stands_alone():
+    from app import crs_comments
+
+    a = _fp(1, 4, name=None, clause="9.9")
+    b = _fp(2, 4, name=None, clause="9.9")
+    c = _fp(3, 4, name=None, clause=None, rule_book=None)
+    d = _fp(4, 4, name=None, clause=None, rule_book=None)
+    assert [x["n_points"] for x in crs_comments.group([a, b, c, d])] == [2, 1, 1]
+
+
+def test_the_page_and_the_file_show_the_same_comments_and_every_point_stays_on_evidence():
+    doc, rc, ai, client = world_with_both()
+    page = points_of(client, doc)
+    data = crs_one.build_team(doc, scope_all())
+    _h, rows = rows_after(sheet(data), "Comment")
+    assert [(r[0], r[4]) for r in rows] == [
+        (c["number"], c["n_points"]) for c in page["comments"]
+    ]
+    assert page["comment_count"] == len(rows)
+    _h, evidence = rows_after(sheet(data, crs_one.EVIDENCE_SHEET), "No")
+    assert len(evidence) == page["of"] and {r[1] for r in evidence} <= {
+        c["number"] for c in page["comments"]
+    } | {"removed"}
+
+
+def test_a_comment_that_loses_a_point_from_its_count_is_refused(monkeypatch):
+    from app import crs_comments, crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    real = crs_comments.group
+
+    def lossy(points):
+        out = real(points)
+        out[0] = {**out[0], "n_points": out[0]["n_points"] + 1}
+        return out
+
+    import types
+
+    # the builder's own grouping drifts (a point's count lost); the check reads the grouping function itself
+    monkeypatch.setattr(crs_one, "comments", types.SimpleNamespace(group=lossy, DISAGREE=crs_comments.DISAGREE))
+    with pytest.raises(cc.Incomplete) as e:
+        cc.file_or_refuse(doc, scope_all(), "team")
+    assert "do not add up" in str(e.value)

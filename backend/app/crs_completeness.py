@@ -48,8 +48,9 @@ class Incomplete(Exception):
 # ------------------------------------------------------------------------------------------------ the one statement
 
 
-def team_statement(n: int) -> str:
-    return f"{n} points reviewed, {n} in this file"
+def team_statement(n: int, comments: int | None = None) -> str:
+    as_comments = f", as {comments} comments" if comments is not None else ""
+    return f"{n} points reviewed, {n} in this file{as_comments}"
 
 
 def contractor_statement(n: int, m: int, reasons: dict[str, int]) -> str:
@@ -167,9 +168,7 @@ def rows_in_file(data: bytes, copy: str) -> tuple[int, list[int]]:
 
     wb = load_workbook(BytesIO(data), read_only=False)
     if copy == "team":
-        rows = _table_rows(wb[crs_one.TEAM_SHEET], "No") + _table_rows(
-            wb[crs_one.REMOVED_SHEET], "No"
-        )
+        rows = _table_rows(wb[crs_one.EVIDENCE_SHEET], "No")
         return len(rows), [r[0] for r in rows if isinstance(r[0], int)]
     rows = _table_rows(wb[crs_one.CONTRACTOR_SHEET], "Item No")
     return len(rows), []
@@ -183,7 +182,8 @@ def cut_report(data: bytes, raw: list[dict]) -> dict:
     beside them, "problems": cells that differ from the full text without the mark, or marked without the full text beside them}."""
     from . import crs_one
 
-    ws = load_workbook(BytesIO(data))[crs_one.TEAM_SHEET]
+    wb = load_workbook(BytesIO(data))
+    ws = wb[crs_one.EVIDENCE_SHEET]
     values = [list(r) for r in ws.iter_rows(values_only=True)]
     start = next(i for i, r in enumerate(values) if r and r[0] == "No")
     head = values[start]
@@ -218,7 +218,50 @@ def cut_report(data: bytes, raw: list[dict]) -> dict:
                 )
             else:
                 marked += 1
+    marked, problems = _comment_cuts(wb[crs_one.TEAM_SHEET], raw, marked, problems)
     return {"marked": marked, "problems": problems}
+
+
+def _comment_cuts(
+    ws, raw: list[dict], marked: int, problems: list[str]
+) -> tuple[int, list[str]]:
+    """The same rule for the sheet CRS: each comment's long cells against the full text of its strongest point and its clauses."""
+    from . import crs_comments, crs_one
+
+    values = [list(r) for r in ws.iter_rows(values_only=True)]
+    start = next(i for i, r in enumerate(values) if r and r[0] == "Comment")
+    head = values[start]
+    col = {name: head.index(name) for name in crs_one.COMMENT_COLUMNS}
+    spots = {
+        "action": col["What the contractor must do"],
+        "paper_shows": col["What the paper shows"],
+        "requires": col["What the rule requires"],
+        "reason": col["Reason"],
+        "clauses": col["Rule books and clauses"],
+    }
+    by_no = {c["number"]: c for c in crs_comments.group(raw)}
+    for r in values[start + 1 :]:
+        if not isinstance(r[0], int) or r[0] not in by_no:
+            continue
+        for key, full in crs_one.comment_full_texts(by_no[r[0]]).items():
+            shown = "" if r[spots[key]] is None else str(r[spots[key]])
+            want = crs_one._cell(full) if full else ""
+            if shown == (want or ""):
+                continue
+            body = shown[:-1].rstrip() if shown.endswith(CUT_MARK) else None
+            beside = str(r[col["Full text"]] or "")
+            if body is None:
+                problems.append(f"comment {r[0]}: {key} is cut without the mark")
+            elif (
+                not str(want).startswith(body)
+                or f"{key.replace('_', ' ')}: {full}" not in beside
+            ):
+                problems.append(
+                    f"comment {r[0]}: {key} has the mark but not its full text beside it"
+                )
+            else:
+                marked += 1
+    return marked, problems
 
 
 # ------------------------------------------------------------------------------------------------ the check
@@ -244,6 +287,30 @@ def sentence_of(report: dict) -> str:
         )
         parts.append(f"Missing: {shown}{more}.")
     return " ".join(parts)
+
+
+def _comment_accounting(data: bytes, raw: list[dict]) -> list[str]:
+    """The sheet CRS must hold every comment of the one grouping function, and its Points column must add up to the points that are in
+    a comment (every point of the page except the removed ones)."""
+    from . import crs_comments, crs_one
+
+    ws = load_workbook(BytesIO(data))[crs_one.TEAM_SHEET]
+    rows = _table_rows(ws, "Comment")
+    groups = crs_comments.group(raw)
+    head = next(
+        list(r) for r in ws.iter_rows(values_only=True) if r and r[0] == "Comment"
+    )
+    at = head.index("Points")
+    out = []
+    if len(rows) != len(groups):
+        out.append(
+            f"the sheet CRS has {len(rows)} comments, the grouping has {len(groups)}"
+        )
+    if sum(int(r[at] or 0) for r in rows) != sum(g["n_points"] for g in groups):
+        out.append(
+            "the comments on the sheet CRS do not add up to the points they cover"
+        )
+    return out
 
 
 def verify(
@@ -275,6 +342,8 @@ def verify(
     }
     gone = [i for i in db["ai_ids"] if i not in ai_on_page]
     missing += [f"an AI line ({i}) stored but not on the page" for i in gone]
+    if copy == "team":
+        missing += _comment_accounting(data, raw)
     cuts = cut_report(data, raw) if copy == "team" else {"marked": 0, "problems": []}
     missing += cuts["problems"]
     ok = page == db["total"] == accounted and not missing

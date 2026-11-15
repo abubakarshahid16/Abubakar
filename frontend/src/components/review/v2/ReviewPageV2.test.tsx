@@ -439,6 +439,11 @@ describe("11 the bottom row", () => {
     fireEvent.click(screen.getByRole("button", { name: /AI review, contractor working copy/ }));
     await waitFor(() => expect(api.downloadAgentCrs).toHaveBeenCalledWith("ai1", "contractor"));
   });
+  it("says how many comments the CRS file holds, from the backend's own count", async () => {
+    api.list.mockResolvedValue(ok(listing({ comment_count: 3 })));
+    mount(); await loaded();
+    expect(screen.getByTestId("v2-comment-count")).toHaveTextContent("as 3 comments");
+  });
   it("the contractor button says it is the working copy, and after signing still not the issued file", async () => {
     mount({ signed: true }); await loaded();
     expect(screen.getByRole("button", { name: "CRS for the contractor (working copy)" })).toBeInTheDocument();

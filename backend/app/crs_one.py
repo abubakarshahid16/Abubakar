@@ -32,6 +32,7 @@ from io import BytesIO
 from openpyxl import Workbook
 
 from . import crs_ai_words as words
+from . import crs_comments as comments
 from . import crs_completeness as completeness
 from . import crs_export_quality, crs_layout
 from . import review_point_decisions as decisions_mod
@@ -45,6 +46,7 @@ NOT_DECIDED = "not decided yet"
 CUT_MARK = completeness.CUT_MARK
 CELL_LIMIT = 500
 TEAM_SHEET, CONTRACTOR_SHEET = "CRS", "CRS"
+EVIDENCE_SHEET = "Evidence"
 REMOVED_SHEET = "Removed (record)"
 DNA_SHEET = "Does not apply"
 HELD_SHEET = "Rule books not held"
@@ -54,12 +56,17 @@ FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
 ISSUED_NAME = "crs-contractor-one.xlsx"
+COMMENT_COLUMNS = (
+    "Comment", "Pill", "Class", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
+    "What the paper shows", "What the rule requires", "Reason", "Decisions", "Note", "Full text",
+)  # fmt: skip
+COMMENT_WIDTHS = (9, 26, 14, 30, 8, 14, 52, 48, 48, 48, 36, 22, 34, 60)
 TEAM_COLUMNS = (
-    "No", "Source", "Pill", "Class", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
+    "No", "Comment", "Source", "Pill", "Class", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
     "What the paper shows", "What the rule requires", "Reason", "Decision", "Group", "First reader", "Second reader",
     "Agreed", "Full text",
 )  # fmt: skip
-TEAM_WIDTHS = (6, 16, 22, 14, 30, 7, 24, 12, 48, 48, 48, 36, 22, 18, 20, 20, 10, 60)
+TEAM_WIDTHS = (6, 9, 16, 22, 14, 30, 7, 24, 12, 48, 48, 48, 36, 22, 18, 20, 20, 10, 60)
 CONTRACTOR_COLUMNS = (
     "Item No",
     "Document Name",
@@ -189,7 +196,7 @@ def full_texts(point: dict) -> dict[str, str]:
     }
 
 
-def row_of(n: int, point: dict) -> tuple[list, int]:
+def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list, int]:
     """(the cells of one point, how many cells were shortened). The whole text of every shortened cell is in the last column."""
     first, second, agreed = readers_of(point)
     long_cells = full_texts(point)
@@ -203,7 +210,7 @@ def row_of(n: int, point: dict) -> tuple[list, int]:
         point.get("rule_book") or ""
     )
     cells = [
-        n, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""),
+        n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""),
         point.get("name"), point.get("page"), books or None, point.get("clause"), shown["action"] or None,
         shown["paper_shows"], shown["requires"], shown["reason"] or None, decision_words(point), group_words(point) or None,
         first, second, agreed, "\n".join(full) or None,
@@ -536,9 +543,53 @@ def _how_rows(extra: dict, scope) -> list[list]:
     return rows
 
 
-def count_line(listing: dict, rows_crs: int, rows_removed: int) -> str:
+def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     n = listing["of"]
-    return f"{n} points on the page; {rows_crs + rows_removed} rows in this file ({rows_crs} on this sheet, {rows_removed} on the sheet {REMOVED_SHEET})"
+    return (
+        f"{n} points on the page; {rows_evidence} rows in this file (the sheet {EVIDENCE_SHEET}, one row per point), "
+        f"read as {comments} comments on the sheet {TEAM_SHEET}"
+    )
+
+
+def comment_full_texts(c: dict) -> dict[str, str]:
+    """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text."""
+    out = full_texts(c["strongest"])
+    out["clauses"] = "; ".join(
+        " ".join(
+            x
+            for x in (k["book"], k["clause"], f"(p.{k['page']})" if k["page"] else "")
+            if x
+        )
+        for k in c["clauses"]
+    )
+    return out
+
+
+def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
+    """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
+    a shortened cell keeps its whole text in the column Full text."""
+    ms = [by_id[i] for i in c["member_ids"]]
+    long_cells = comment_full_texts(c)
+    shown, cut_n, full = {}, 0, []
+    for key, text in long_cells.items():
+        shown[key], cut = _cut(text)
+        if cut:
+            cut_n += 1
+            full.append(f"{key.replace('_', ' ')}: {text}")
+    decided = sum(1 for p in ms if (p.get("decision") or {}).get("state"))
+    note = (
+        comments.DISAGREE
+        if c["disagree"]
+        else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
+    )
+    note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
+    cells = [
+        c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), c["name"], c["n_points"],
+        ", ".join(str(x) for x in c["pages"]) or None, shown["clauses"] or None, shown["action"] or None,
+        shown["paper_shows"], shown["requires"], shown["reason"] or None, f"{decided} of {len(ms)} decided",
+        note.strip(" ;") or None, "\n".join(full) or None,
+    ]  # fmt: skip
+    return [_cell(x) for x in cells], cut_n
 
 
 def build_team(
@@ -549,44 +600,53 @@ def build_team(
     signed: bool = False,
     listing_raw=None,
 ) -> bytes:
-    """The ONE team workbook of a paper (see the module words)."""
+    """The ONE team workbook of a paper (see the module words): sheet CRS = one comment per field, sheet Evidence = every point."""
     from . import review_points_service as svc
 
     listing, raw, extra = listing_raw or svc.export_listing(paper_id, scope)
     exported = exported or datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    kept = [
-        p for p in raw if (p.get("decision") or {}).get("state") != decisions_mod.REMOVE
-    ]
     removed = [
         p for p in raw if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE
     ]
     numbers = {p["id"]: n for n, p in enumerate(raw, start=1)}
-    cells, cut = [], 0
-    for p in kept:
-        row, c = row_of(numbers[p["id"]], p)
-        cells.append(row)
-        cut += c
+    by_id = {p["id"]: p for p in raw}
+    grouped = comments.group(raw)
+    comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
+    evidence, cut = [], 0
+    for p in raw:
+        row, cc = row_of(numbers[p["id"]], p, comment_of.get(p["id"], "removed"))
+        evidence.append(row)
+        cut += cc
+    comment_rows = []
+    for c in grouped:
+        row, cc = comment_cells(c, by_id)
+        comment_rows.append(row)
+        cut += cc
     wb = Workbook()
     ws = wb.active
     ws.title = TEAM_SHEET
     lines = [
-        completeness.team_statement(listing["of"]),
-        count_line(listing, len(cells), len(removed)),
+        completeness.team_statement(listing["of"], len(grouped)),
+        count_line(listing, len(evidence), len(grouped)),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (
             f"; {cut} cell(s) shortened with {CUT_MARK} (the whole text is in the column Full text)"
             if cut
             else "; no cell shortened"
         ),
-        "Rule books used (rows shown): " + _books_line(kept),
+        "Rule books used (points): " + _books_line(raw),
     ]
     header_row = _put_block(
         ws,
         _header_pairs(paper_id, listing, extra, exported=exported, signed=signed),
         lines,
     )
-    _table(ws, header_row, TEAM_COLUMNS, cells, TEAM_WIDTHS)
-    ws.freeze_panes = ws.cell(header_row + 1, 3)
+    _table(ws, header_row, COMMENT_COLUMNS, comment_rows, COMMENT_WIDTHS)
+    ws.freeze_panes = ws.cell(header_row + 1, 2)
+    _sheet_table(
+        wb, EVIDENCE_SHEET, TEAM_COLUMNS, evidence, TEAM_WIDTHS,
+        note="Every point the page counts, one row each, linked to its comment by the column Comment (removed points are in no comment).",
+    )  # fmt: skip
     _sheet_table(
         wb, REMOVED_SHEET, ("No", "Field or item", "Page", "Removed by", "When", "Why"),
         [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("page"), (p["decision"].get("by") or NOT_RECORDED), p["decision"].get("at") or NOT_RECORDED, p["decision"].get("reason") or NOT_RECORDED)] for p in removed],
@@ -594,9 +654,9 @@ def build_team(
     )  # fmt: skip
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(
-        wb, DNA_SHEET, ("No on the sheet CRS", "Field or item", "What it is", "Page"),
+        wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page"),
         [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("other_kind") or words.KIND_NOT_APPLICABLE, p.get("page"))] for p in dna],
-        (12, 48, 30, 8), note="These points are also rows of the sheet CRS (they are counted on the page); listed here by themselves.",
+        (12, 48, 30, 8), note="These points are also rows of the sheet Evidence (they are counted on the page); listed here by themselves.",
     )  # fmt: skip
     held = extra.get("not_held") or []
     _sheet_table(

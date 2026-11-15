@@ -121,6 +121,9 @@ export interface PointsListing {
   removed: ReviewPoint[];
   /** What the AI review's contractor copy holds for this paper's kind, in the backend's own words. */
   contractor_copy?: { kind: string | null; words: string };
+  /** P2: the comments (one per field) the CRS file shows, from the same grouping function; every point is in exactly one comment or removed. */
+  comments?: { number: number; name: string | null; n_points: number; pill: string; pages: number[]; member_ids: string[]; disagree: boolean }[];
+  comment_count?: number;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
