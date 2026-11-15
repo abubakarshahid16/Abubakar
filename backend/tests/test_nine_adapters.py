@@ -58,7 +58,7 @@ def test_the_reader_adapter_hands_pages_stored_facts_and_the_engine_to_the_reade
         seen["engine"] == "claude"
         and seen["paper_id"] == doc
         and seen["equipment_type"] == "relief valve"
-        and callable(seen["picture_of"])
+        and seen["pictures"] is True
     )
     assert (
         got.state == "ran_partly"
@@ -87,7 +87,7 @@ def test_the_reader_has_no_picture_function_on_the_local_model(monkeypatch):
         ),
     )
     nine_job.reader_role(ctx_for(doc, ai))
-    assert seen["engine"] == "local" and seen["picture_of"] is None
+    assert seen["engine"] == "local" and seen["pictures"] is False
 
 
 def test_the_context_role_with_nothing_held_makes_no_call_and_says_the_five_things_are_not_available(
@@ -101,8 +101,7 @@ def test_the_context_role_with_nothing_held_makes_no_call_and_says_the_five_thin
     assert got.state == "ran" and [n.what for n in note.not_available] == list(
         nine_context.WHATS
     )
-    assert got.produced["context_passed"] == "no"
-    assert got.produced["context_not_passed_because"] == "per_document_blocks_not_built"
+    assert got.produced["context_parts"] == 0  # nothing held: no part to pass
 
 
 def test_the_librarian_with_no_chosen_rules_reads_nothing_and_says_so(monkeypatch):

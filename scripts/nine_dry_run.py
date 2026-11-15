@@ -83,7 +83,7 @@ def plan(conn: sqlite3.Connection, paper: str, run: str | None) -> list[dict]:
     )
     rules = (
         conn.execute(
-            "SELECT rule_key, standard_document_id, clause FROM agent_review_rule WHERE run_id = ? AND asked = 1",
+            "SELECT rule_key, standard_document_id, clause, quote_page, equipment FROM agent_review_rule WHERE run_id = ? AND asked = 1 ORDER BY rowid",
             (run,),
         ).fetchall()
         if run
@@ -107,13 +107,30 @@ def plan(conn: sqlite3.Connection, paper: str, run: str | None) -> list[dict]:
                 b, cut, why=("holds a rule chosen for this paper",)
             )
         )
+    # the stored order of the asked rules is the rank the job asked them in (the librarian's own rank adds the cited and context reasons)
     refs = [
-        nine_librarian.RuleRef(b, r["clause"], None, n)
-        for n, (b, rs) in enumerate(by_book.items(), 1)
-        for r in rs
+        nine_librarian.RuleRef(
+            r["standard_document_id"], r["clause"], r["quote_page"], n
+        )
+        for n, r in enumerate([r for r in rules if r["standard_document_id"]], 1)
     ]
+    words = sorted(
+        {
+            w
+            for r in rules
+            for w in str(r["equipment"] or "").replace(",", " ").split()
+            if len(w) > 3
+        }
+    )[:20]
+    listed = [*by_book, paper]
     reading = nine_librarian.plan_reading(
-        run or "dry", inputs, rules=refs, engine="claude"
+        run or "dry",
+        inputs,
+        rules=refs,
+        equipment_words=words,
+        shown=listed,
+        allowed=listed,
+        engine="claude",
     )
     titles = nine_librarian.titles_for_model(reading, inputs)
     t_in = sum(len(f"{b}|{c}|{t}") for b, c, t in titles) // 3 + 200
@@ -126,12 +143,12 @@ def plan(conn: sqlite3.Connection, paper: str, run: str | None) -> list[dict]:
         (b.book_id, i.chapter) for b in reading.books for i in b.items if i.chosen
     ]
     chapters = [
-        nine_reviewer.ChapterText(book, ch.chapter_id, p.part_no, p.part_of, tuple(range(p.page_from, p.page_to + 1)), texts[book].text(ch.chapter_id, p.part_no))
+        nine_reviewer.ChapterText(book, ch.chapter_id, p.part_no, p.part_of, tuple(range(p.page_from, p.page_to + 1)), p.chars)
         for book, ch in chosen for p in ch.parts
     ]  # fmt: skip
     groups = nine_reviewer.group_chapters(chapters)
     prefix_tokens = sum(len(t) for t in pages.values()) // 3 + 2_000
-    g_tokens = [sum(nine_reviewer.estimate_tokens(c.text) for c in g) for g in groups]
+    g_tokens = [sum(nine_reviewer.estimate_tokens(c.chars) for c in g) for g in groups]
     rows.append({
         "role": "4 Reviewer", "calls": len(groups), "tokens_in": sum(g_tokens) + prefix_tokens * min(1, len(groups)), "model": SONNET,
         "worst": sum(_worst(SONNET, prefix_tokens + g, 8_000) for g in g_tokens),
@@ -145,22 +162,26 @@ def plan(conn: sqlite3.Connection, paper: str, run: str | None) -> list[dict]:
         "worst": calls * _worst(SONNET, 6_000, 4_000), "expected": n_items * PER_ITEM_USD,
     })  # fmt: skip
     # role 6: a second reader for the lines that can become a decision (worst case: every rule)
-    cand = n_items
+    cand = (
+        sum(
+            1
+            for r in conn.execute(
+                "SELECT line_json FROM agent_review_line WHERE run_id = ?", (run,)
+            )
+            if '"two_reader"' in (r["line_json"] or "")
+        )
+        if run
+        else 0
+    )
+    cand = cand or n_items
     c6 = -(-cand // 8) if cand else 0
     rows.append({
         "role": "6 Second reviewer", "calls": c6, "tokens_in": c6 * 16_000, "model": OPUS,
         "worst": c6 * _worst(OPUS, 16_000, 4_000), "expected": c6 * _usd(OPUS, 16_000, 4_000) * 0.5,
     })  # fmt: skip
-    rows.append(
-        {
-            "role": "9 Writer",
-            "calls": 0,
-            "tokens_in": 0,
-            "model": "-",
-            "worst": 0.0,
-            "expected": 0.0,
-        }
-    )
+    # role 9: ONE call over short tokens (a row per comment: number, field, status, pages, clause); the answer is one comment per row
+    w_in = 600 + 25 * max(1, len(rules))
+    rows.append({"role": "9 Writer", "calls": 1, "tokens_in": w_in, "model": SONNET, "worst": _worst(SONNET, w_in, 8_000), "expected": _usd(SONNET, w_in, 40 * max(1, len(rules)))})  # fmt: skip
     for r in rows:
         r["worst"] = max(
             r["worst"], r["expected"]

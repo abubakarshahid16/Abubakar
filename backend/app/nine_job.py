@@ -131,7 +131,7 @@ def _usd_of(role_no: int, run_id: str) -> float | None:
 def reader_role(ctx: RoleContext) -> RoleResult:
     """Role 1: every page into the fact sheet through `nine_reader.read_paper` (every model call goes through `nine_call.ask`, role 1).
     Pictures only on Claude. The sheet is stored per run (`nine_facts.store`); nothing is written to `submittal_facts`."""
-    from . import agent_review_pages, nine_facts, nine_reader
+    from . import nine_facts, nine_reader
 
     conn = connect()
     engine = _engine(ctx)
@@ -143,17 +143,10 @@ def reader_role(ctx: RoleContext) -> RoleResult:
             (ctx.submittal,),
         )
     ]
-    picture_of = None
-    if engine == "claude":
-        ref = agent_review_pages.document_ref(conn, ctx.submittal)
-
-        def picture_of(page: int) -> bytes:
-            return agent_review_pages.page_image(ref, page)
-
     got = nine_reader.read_paper(
         run_id=ctx.run_id, paper_id=ctx.submittal, pages=pages, stored_facts=stored, engine=engine,
-        equipment_type=getattr(ctx.kind, "equipment_type", None), pages_total=max([*pages, 0]), picture_of=picture_of, conn=conn,
-        **_seam_kwargs(),
+        equipment_type=getattr(ctx.kind, "equipment_type", None), pages_total=max([*pages, 0]), pictures=engine == "claude",
+        conn=conn, **_seam_kwargs(),
     )  # fmt: skip
     nine_facts.store(conn, got.sheet, got.produced)
     ctx.store["fact_sheet"] = got.sheet
@@ -167,28 +160,6 @@ def reader_role(ctx: RoleContext) -> RoleResult:
 
 
 # ------------------------------------------------------------------------------------------------ role 2: the project context
-
-
-def _ask_context(ctx: RoleContext, engine: str):
-    from . import nine_call
-
-    question = (
-        "Name every rule-book standard this text says applies, and every project rule that replaces or tightens a general one. Each with the "
-        'page it stands on and a short quote copied exactly from that page. Answer with JSON only: {"standards": [{"name", "page", "quote"}], '
-        '"overrides": [{"subject", "page", "quote", "general_ref", "precedence"}]}.'
-    )
-
-    def ask(document_id: str, chunk) -> dict | None:
-        blocks = [
-            nine_call.Block(document_id, "project_document", (n,), text=t)
-            for n, t in chunk
-        ]
-        got = nine_call.ask(
-            ctx.run_id, 2, blocks, question, engine=engine, **_seam_kwargs()
-        )
-        return got.data if got.ok else None
-
-    return ask
 
 
 def _earlier_points(scope: frozenset[str]):
@@ -222,8 +193,8 @@ def context_role(ctx: RoleContext) -> RoleResult:
     choice; a contract never under Automatic); a model, through `nine_call.ask`, may only NAME a standard or an override with a page
     quote that code finds. Nothing held: no call, a note with the five "not available" lines.
 
-    WHAT IS PASSED ON: the note holds text of OTHER documents (their quotes), so it is NOT handed to the reviewer as one block under the
-    paper's id; only counts reach the record, and the record says so (`context_passed`)."""
+    WHAT IS PASSED ON: the note holds words of OTHER documents, so it is NOT handed to the reviewer as one block under the
+    paper's id; it goes to the reviewer as one derived block PER SOURCE document (tokens only), and role 4 records how many."""
     from . import (
         applicability,
         nine_context,
@@ -255,14 +226,13 @@ def context_role(ctx: RoleContext) -> RoleResult:
     library = applicability._library(frozenset(scope))
     note, tally = nine_context.run(
         ctx.run_id, project=project, papers=papers, paper_row=dict(mine) if mine else {}, rows=rows, earlier_points=_earlier_points(scope),
-        new_values=new_values, library=library, engine=_choice(ctx), ask=_ask_context(ctx, engine),
+        new_values=new_values, library=library, engine=_choice(ctx), ask=nine_context.seam_ask(ctx.run_id, **_seam_kwargs()),
     )  # fmt: skip
     ctx.store["context_note"] = note
     produced = nine_context.produced(note, tally)
-    produced["context_passed"] = "no"
-    produced["context_not_passed_because"] = (
-        "per_document_blocks_not_built"  # the note holds text of other documents
-    )
+    produced["context_parts"] = len(
+        _context_parts(note)
+    )  # passed to the reviewer one block per SOURCE document (role 4 records how many)
     held = sum(1 for p in papers if p.accessible and p.shown)
     state, why = (
         ("ran", None)
@@ -308,7 +278,6 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     a budget, "chosen, not read" with the reason); one optional model call sees only chapter TITLES and can only ADD chapters (through
     `nine_call.ask`, role 3). A book outside the starter's access is counted, never named."""
     from . import (
-        nine_call,
         nine_chapters,
         nine_librarian,
         review_shown,
@@ -349,25 +318,12 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
         shown=shown or (), allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
     )  # fmt: skip
 
-    def ask(titles):
-        by_book: dict[str, list[str]] = {}
-        for b, c, t in titles:
-            by_book.setdefault(b, []).append(f"{b}|{c}|{t}")
-        blocks = [
-            nine_call.Block(b, "rule_book", (), text="\n".join(lines))
-            for b, lines in by_book.items()
-        ]
-        got = nine_call.ask(
-            ctx.run_id,
-            3,
-            blocks,
-            nine_librarian.titles_question([]),
-            engine=engine,
-            **_seam_kwargs(),
-        )
-        return nine_librarian.parse_choice(got.text) if got.ok else None
-
-    reading = nine_librarian.extend_with_model(reading, inputs, ask, engine=engine)
+    reading = nine_librarian.extend_with_model(
+        reading,
+        inputs,
+        nine_librarian.seam_ask(ctx.run_id, **_seam_kwargs()),
+        engine=engine,
+    )
     ctx.store["reading"], ctx.store["cuts"] = reading, cuts
     produced = nine_librarian.produced(reading)
     unread = produced["chapters_not_read"]
@@ -378,11 +334,132 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ role 4: the Reviewer
 
 
+def _token(text: object) -> str:
+    return " ".join(str(text or "").split())[:60]
+
+
+def _digest_items(sheet) -> tuple[tuple[str, ...], ...]:
+    """The fact sheet as rows of short tokens (id, page, field, value and unit, tag, cell): derived from the paper alone."""
+    from . import nine_facts
+
+    if sheet is None:
+        return ()
+    rows = []
+    for f in sorted(nine_facts.usable(sheet), key=lambda f: (f.page, f.fact_id)):
+        shown = " ".join(x for x in (f.value, f.unit) if x) or "(printed, empty)"
+        rows.append(
+            tuple(
+                t
+                for t in (
+                    f.fact_id,
+                    f"p{f.page}",
+                    _token(f.field_label),
+                    _token(shown),
+                    _token(f.tag),
+                    _token(f.cell_ref),
+                )
+                if t
+            )
+        )
+    return tuple(rows)
+
+
+def _context_parts(note) -> list:
+    """The project context as ONE part per SOURCE document, rows of short tokens only (a standard's name, its page, the held book's id; an
+    override's subject and the clause it replaces): never a quote, never a text of another document under the paper's id."""
+    from . import nine_reviewer
+
+    by_source: dict[str, list[tuple[str, ...]]] = {}
+    for s in getattr(note, "standards", ()):
+        by_source.setdefault(s.source.document_id, []).append(
+            tuple(
+                t
+                for t in (
+                    "standard",
+                    _token(s.name),
+                    f"p{s.source.page}",
+                    _token(s.book_id),
+                )
+                if t
+            )
+        )
+    for o in getattr(note, "overrides", ()):
+        by_source.setdefault(o.project_rule.document_id, []).append(
+            tuple(
+                t
+                for t in (
+                    "override",
+                    _token(o.subject),
+                    f"p{o.project_rule.page}",
+                    _token(o.general_ref),
+                )
+                if t
+            )
+        )
+    return [
+        nine_reviewer.ContextPart(f"context_{i}", (doc,), tuple(rows))
+        for i, (doc, rows) in enumerate(sorted(by_source.items()), 1)
+    ]
+
+
+def _chapter_texts(chosen, cuts) -> list:
+    """The chosen chapters in reading order as NAMED parts (book, pages, character range into the joined stored text of those pages): the seam
+    loads the stored words itself. A part whose words cannot be located in the joined pages goes whole-pages (no range)."""
+    from . import agent_review_standards, nine_reviewer
+
+    conn = connect()
+    books: dict[str, dict[int, str]] = {}
+    out = []
+    for book, ch in chosen:
+        pages_of_book = books.setdefault(
+            book, dict(agent_review_standards.read_book(conn, book).pages)
+        )
+        for p in ch.parts:
+            pages = tuple(range(p.page_from, p.page_to + 1))
+            joined = "\n".join(pages_of_book[n] for n in pages if n in pages_of_book)
+            body = cuts[book].text(ch.chapter_id, p.part_no)
+            at = joined.find(body)
+            out.append(
+                nine_reviewer.ChapterText(
+                    book,
+                    ch.chapter_id,
+                    p.part_no,
+                    p.part_of,
+                    pages,
+                    len(body),
+                    at if at >= 0 else None,
+                    at + len(body) if at >= 0 else None,
+                )
+            )
+    return out
+
+
+def _rule_rows(plan: dict) -> list[dict]:
+    """The rule rows a finding is matched to ({id, standard_document_id, source_text}), from the plan's own items and clause cache: a rule the
+    review is asked to apply, with the clause words it was stored with. A rule not asked of this paper is not a candidate."""
+    cache = plan.get("cache") or {}
+    rows = []
+    for item in plan.get("items") or []:
+        iid = str(item.get("item_id") or "")
+        if not iid.startswith("R-"):
+            continue
+        ref = cache.get(str(item.get("clause_quote_ref") or f"Q-{iid}")) or {}
+        if ref.get("text") and ref.get("standard_document_id"):
+            rows.append(
+                {
+                    "id": iid.removeprefix("R-"),
+                    "standard_document_id": ref["standard_document_id"],
+                    "source_text": ref["text"],
+                }
+            )
+    return rows
+
+
 def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
     No reading list, nothing chosen, a failed or empty reviewer: the role says so and role 5 asks EVERY item (never weaker than today's)."""
-    from . import agent_review_standards, nine_facts, nine_findings, nine_reviewer
+    from . import agent_review_standards, nine_findings, nine_reviewer
 
     reading, cuts = ctx.store.get("reading"), ctx.store.get("cuts") or {}
     chosen = [
@@ -400,16 +477,13 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         )
     engine = _engine(ctx)
     pages = _paper_pages(ctx)
-    texts = [
-        nine_reviewer.ChapterText(book, ch.chapter_id, p.part_no, p.part_of, tuple(range(p.page_from, p.page_to + 1)), cuts[book].text(ch.chapter_id, p.part_no))
-        for book, ch in chosen
-        for p in ch.parts
-    ]  # fmt: skip
-    groups = nine_reviewer.group_chapters(texts)
+    groups = nine_reviewer.group_chapters(_chapter_texts(chosen, cuts))
     sheet = ctx.store.get("fact_sheet")
-    digest = nine_facts.digest(sheet) if sheet is not None else ""
-    # the digest is derived from the paper; the project context holds other documents' text and is NOT passed (per-document blocks not built)
-    prefix = nine_reviewer.prefix_blocks(ctx.submittal, pages, digest, "")
+    # the fact-sheet digest is derived from the paper alone (its only source); the project context goes as ONE derived block per source document
+    parts = _context_parts(ctx.store.get("context_note"))
+    prefix = nine_reviewer.prefix_blocks(
+        ctx.submittal, sorted(pages), _digest_items(sheet), parts
+    )
     ran = nine_reviewer.review(
         ctx.run_id, prefix, groups, engine=engine, **_seam_kwargs()
     )
@@ -426,7 +500,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, local
     )
     built = nine_findings.process(
-        ran.raw, paper_pages=pages, books=agent_review_standards.BookPages(), rules=ctx.plan.get("items") or [],
+        ran.raw, paper_pages=pages, books=agent_review_standards.BookPages(), rules=_rule_rows(ctx.plan),
         plan_items={str(i["item_id"]): i for i in ctx.plan.get("items") or []}, tier_lookup=jobs._tier_lookup(ctx.kind),
     )  # fmt: skip
     if local is not None:
@@ -442,6 +516,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         "raw_findings": len(ran.raw),
         "findings": len(built),
         "findings_kept": sum(b.underlying for b in built),
+        "context_parts_passed": len(parts),
     }
     return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
 
