@@ -38,8 +38,12 @@ SRC_FIELD = "field this kind of sheet must carry"
 class Coverage:
     required: tuple[RequiredItem, ...]
     to_ask: list[dict]  # the plan's items that go to today's batch path
-    skipped: dict[str, str] = field(default_factory=dict)  # item id -> the finding id that covers it
-    stated_missing: list[str] = field(default_factory=list)  # carried field roles with no fact (their Q- lines)
+    skipped: dict[str, str] = field(
+        default_factory=dict
+    )  # item id -> the finding id that covers it
+    stated_missing: list[str] = field(
+        default_factory=list
+    )  # carried field roles with no fact (their Q- lines)
 
 
 def _rule_id(item: Mapping) -> str | None:
@@ -75,7 +79,11 @@ def plan(
     skipped: dict[str, str] = {}
     to_ask: list[dict] = []
     for it in items:
-        cover = next((f for f in found if covers(f, it)), None) if (reviewer_ok and found) else None
+        cover = (
+            next((f for f in found if covers(f, it)), None)
+            if (reviewer_ok and found)
+            else None
+        )
         if cover is not None:
             skipped[str(it["item_id"])] = cover.finding_id
         else:
@@ -84,10 +92,14 @@ def plan(
     for it in items:
         iid = str(it.get("item_id"))
         source = SRC_RULE if iid.startswith("R-") else SRC_CHECKLIST
-        required.append(RequiredItem(item_id=iid, source=source, mentioned_by=skipped.get(iid)))  # type: ignore[arg-type]
+        required.append(
+            RequiredItem(item_id=iid, source=source, mentioned_by=skipped.get(iid))
+        )  # type: ignore[arg-type]
     missing = sorted(carried - fact_roles) if carried else []
     for role in missing:
-        required.append(RequiredItem(item_id=f"Q-{role}", source=SRC_FIELD, mentioned_by=None))  # type: ignore[arg-type]
+        required.append(
+            RequiredItem(item_id=f"Q-{role}", source=SRC_FIELD, mentioned_by=None)
+        )  # type: ignore[arg-type]
     return Coverage(tuple(required), to_ask, skipped, missing)
 
 
@@ -111,7 +123,7 @@ def not_stated_lines(roles: Iterable[str], total_pages: int) -> list[Built]:
             "verdict": word, "reason_code": "sheet_silent",
         }  # fmt: skip
         finding = Finding(
-            finding_id=iid, item_id=iid, origin="checklist", book_id=None, clause=None, clause_page=None, field_label=label, field_roles=(role,),
+            finding_id=iid, item_id=iid, origin="checklist", book_id=None, clause=None, clause_page=None, clause_where=None, clause_scanned=False, field_label=label, field_roles=(role,),
             tag=None, paper_page=None, paper_quote=None, clause_quote=None, ai_verdict="not_stated", matched_rule_id=None, rule_tier=None,
             members=(), contradiction=False, read_refs=(),
         )  # fmt: skip

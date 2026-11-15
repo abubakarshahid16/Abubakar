@@ -58,7 +58,9 @@ ANSWER_SHAPE = (
     '"clause_figure": "...", "condition_quote": "...", "condition_page": 1, "verdict": "met | not_met | not_stated | not_applicable | '
     'cannot_tell", "reasoning": "...", "comment": "...", "fact_ids": ["f:1:2"]}]}. Leave a key empty when you have nothing for it.'
 )
-PROMPT_VERSION = "nine-reviewer-" + hashlib.sha256((SYSTEM + ANSWER_SHAPE).encode()).hexdigest()[:10]
+PROMPT_VERSION = (
+    "nine-reviewer-" + hashlib.sha256((SYSTEM + ANSWER_SHAPE).encode()).hexdigest()[:10]
+)
 
 
 # ---------------------------------------------------------------- the seam (B1) and the blocks
@@ -79,7 +81,15 @@ class SeamResult:
 class Seam(Protocol):
     """`nine_call.ask` as this module uses it: the role number, the block list, the question; the system text and the output limit."""
 
-    def __call__(self, role: int, blocks: list[dict], question: str, *, system: str, max_tokens: int) -> SeamResult: ...
+    def __call__(
+        self,
+        role: int,
+        blocks: list[dict],
+        question: str,
+        *,
+        system: str,
+        max_tokens: int,
+    ) -> SeamResult: ...
 
 
 @dataclass(frozen=True)
@@ -99,7 +109,9 @@ def estimate_tokens(text: str) -> int:
     return -(-len(text) // CHARS_PER_TOKEN)
 
 
-def group_chapters(chapters: Iterable[ChapterText], limit: int = GROUP_TOKENS) -> list[list[ChapterText]]:
+def group_chapters(
+    chapters: Iterable[ChapterText], limit: int = GROUP_TOKENS
+) -> list[list[ChapterText]]:
     """Pack chapters into calls in their reading order (the librarian's rank): a call holds at most `limit` tokens of chapter text; one part
     that is alone over the limit still goes alone (the chapter cutter keeps parts under it)."""
     groups: list[list[ChapterText]] = []
@@ -114,17 +126,41 @@ def group_chapters(chapters: Iterable[ChapterText], limit: int = GROUP_TOKENS) -
     return groups
 
 
-def prefix_blocks(paper_id: str, paper_pages: Mapping[int, str], digest: str, context: str, run_id: str) -> list[dict]:
+def prefix_blocks(
+    paper_id: str,
+    paper_pages: Mapping[int, str],
+    digest: str,
+    context: str,
+    run_id: str,
+) -> list[dict]:
     """The part every call shares (cached after the first): the paper page by page, then the fact-sheet digest and the context note.
     The digest and the note are the run's own records (`review_record`), not a document."""
     blocks = [
-        {"document_id": paper_id, "document_kind": "paper", "pages": [n], "chapter_id": None, "part": None, "part_of": None, "text": t}
+        {
+            "document_id": paper_id,
+            "document_kind": "paper",
+            "pages": [n],
+            "chapter_id": None,
+            "part": None,
+            "part_of": None,
+            "text": t,
+        }
         for n, t in sorted(paper_pages.items())
         if str(t or "").strip()
     ]
     for label, text in (("fact sheet", digest), ("project context", context)):
         if str(text or "").strip():
-            blocks.append({"document_id": run_id, "document_kind": "review_record", "pages": [], "chapter_id": label, "part": None, "part_of": None, "text": text})
+            blocks.append(
+                {
+                    "document_id": run_id,
+                    "document_kind": "review_record",
+                    "pages": [],
+                    "chapter_id": label,
+                    "part": None,
+                    "part_of": None,
+                    "text": text,
+                }
+            )
     if blocks:
         blocks[-1] = {**blocks[-1], "cache": True}  # the shared part ends here
     return blocks
@@ -140,24 +176,46 @@ def chapter_blocks(group: Sequence[ChapterText]) -> list[dict]:
     ]  # fmt: skip
 
 
-def sent_of(call_id: str, blocks: Sequence[Mapping], model: str | None = None) -> nine_findings.Sent:
+def sent_of(
+    call_id: str, blocks: Sequence[Mapping], model: str | None = None
+) -> nine_findings.Sent:
     """What a call sent, DERIVED from the block list the request was built from (never from the model's answer)."""
     paper: set[int] = set()
     books: dict[str, set[int]] = {}
     refs: list[tuple[str, str, int]] = []
     for b in blocks:
-        pages = {int(p) for p in b.get("pages") or [] if isinstance(p, int) and not isinstance(p, bool)}
+        pages = {
+            int(p)
+            for p in b.get("pages") or []
+            if isinstance(p, int) and not isinstance(p, bool)
+        }
         if b.get("document_kind") == "paper":
             paper |= pages
         elif b.get("document_kind") == "rule_book":
             books.setdefault(str(b.get("document_id")), set()).update(pages)
-            refs.append((str(b.get("document_id")), str(b.get("chapter_id") or ""), int(b.get("part") or 1)))
-    return nine_findings.Sent(call_id, frozenset(paper), {k: frozenset(v) for k, v in books.items()}, model, tuple(dict.fromkeys(refs)))
+            refs.append(
+                (
+                    str(b.get("document_id")),
+                    str(b.get("chapter_id") or ""),
+                    int(b.get("part") or 1),
+                )
+            )
+    return nine_findings.Sent(
+        call_id,
+        frozenset(paper),
+        {k: frozenset(v) for k, v in books.items()},
+        model,
+        tuple(dict.fromkeys(refs)),
+    )
 
 
 def question_of(group: Sequence[ChapterText]) -> str:
     """The question of one call: which chapters it holds (ids only), then the answer shape."""
-    held = "; ".join(f"book {c.book_id} chapter {c.chapter_id} (part {c.part_no} of {c.part_of}, pages {c.pages[0]}-{c.pages[-1]})" for c in group if c.pages)
+    held = "; ".join(
+        f"book {c.book_id} chapter {c.chapter_id} (part {c.part_no} of {c.part_of}, pages {c.pages[0]}-{c.pages[-1]})"
+        for c in group
+        if c.pages
+    )
     return f"Chapters given in this call: {held}.\n\n{ANSWER_SHAPE}"
 
 
@@ -205,7 +263,9 @@ def parse_findings(text: str | None) -> list[RawFinding] | None:
         raw["paper_page"] = _int(item.get("paper_page"))
         raw["condition_page"] = _int(item.get("condition_page"))
         ids = item.get("fact_ids")
-        raw["fact_ids"] = [str(x) for x in ids if isinstance(x, str)] if isinstance(ids, list) else []
+        raw["fact_ids"] = (
+            [str(x) for x in ids if isinstance(x, str)] if isinstance(ids, list) else []
+        )
         if nine_findings.verdict_of(raw) is None:
             continue
         out.append(raw)  # type: ignore[arg-type]
@@ -255,7 +315,9 @@ def review(
         if should_stop():
             return None, []
         blocks = [*prefix, *chapter_blocks(group)]
-        return seam(ROLE_NO, blocks, question_of(group), system=SYSTEM, max_tokens=max_tokens), blocks
+        return seam(
+            ROLE_NO, blocks, question_of(group), system=SYSTEM, max_tokens=max_tokens
+        ), blocks
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         results = list(pool.map(one, groups))

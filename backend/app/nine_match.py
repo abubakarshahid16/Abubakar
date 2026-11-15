@@ -59,14 +59,17 @@ def _holds(quote: str, rule_text: str) -> bool:
     return len(r) >= MIN_SOURCE_CHARS and r in q
 
 
-def candidates(book_id: str | None, clause_quote: str | None, rules: Iterable[Mapping]) -> list[Mapping]:
+def candidates(
+    book_id: str | None, clause_quote: str | None, rules: Iterable[Mapping]
+) -> list[Mapping]:
     """The rule rows of the SAME book whose stored `source_text` the quote lies inside or holds whole."""
     if not book_id or not str(clause_quote or "").strip():
         return []
     return [
         r
         for r in rules
-        if str(r.get("standard_document_id") or "") == str(book_id) and _holds(str(clause_quote), str(r.get("source_text") or ""))
+        if str(r.get("standard_document_id") or "") == str(book_id)
+        and _holds(str(clause_quote), str(r.get("source_text") or ""))
     ]
 
 
@@ -87,6 +90,13 @@ def match(
         return Match(None, None, None, WHY_MANY, len(found))
     rule_id = str(found[0].get("id"))
     item_id = f"R-{rule_id}"
-    stub = {"item_id": item_id, "source": "rule", "rule_version_id": rule_id, "standard_document_id": str(book_id)}
-    tier = verdict.item_tier(stub, tier_lookup)  # the CURRENT tier by the one function; never promoted here
+    stub = {
+        "item_id": item_id,
+        "source": "rule",
+        "rule_version_id": rule_id,
+        "standard_document_id": str(book_id),
+    }
+    tier = verdict.item_tier(
+        stub, tier_lookup
+    )  # the CURRENT tier by the one function; never promoted here
     return Match(rule_id, item_id, tier, WHY_MATCHED, 1)

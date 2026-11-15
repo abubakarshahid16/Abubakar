@@ -2,7 +2,7 @@
 
 A finding is not a verdict. Code turns each joined finding into what the app already judges, an ITEM plus a first-reader ANSWER, and
 hands it to `Runner.decide` (number lines by `compare_figures`, text lines to the second reader, holds, the context check of a Fail),
-then `Runner.emit` (the one exit, `agent_review_wording.final_cap`). Nothing here writes a class, a word, a verdict of a line or
+then `Runner.emit` (the one exit, `final_cap`). Nothing here writes a class, a word, a verdict of a line or
 `decided_by`: there is no second way to make a decision.
 
 What code does, in order (SPEC D):
@@ -41,7 +41,9 @@ from .reader_api import _fold
 #: the reason a chapter finding with no approved rule row behind it carries (an opinion at most)
 NO_RULE_WHY = "read from the chapter; no approved rule row behind it"
 PAPER_NOT_SENT = "the paper quote is not on a paper page that was sent in that call"
-CLAUSE_NOT_SENT = "the clause quote is not on a page of the book that was sent in that call"
+CLAUSE_NOT_SENT = (
+    "the clause quote is not on a page of the book that was sent in that call"
+)
 CLAUSE_NOT_FOUND = "the clause quote is not in the rule book's stored pages"
 CLAUSE_AMBIGUOUS = "the clause quote is in more than one of the books sent in that call"
 NO_BOOK = "the call sent no rule book page to find the clause quote in"
@@ -70,7 +72,9 @@ class Sent:
     paper_pages: frozenset[int]
     book_pages: Mapping[str, frozenset[int]]
     model: str | None = None
-    read_refs: tuple[tuple[str, str, int], ...] = ()  # (book id, chapter id, part no) in this call
+    read_refs: tuple[
+        tuple[str, str, int], ...
+    ] = ()  # (book id, chapter id, part no) in this call
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,8 @@ class Checked:
     clause_ok: bool
     clause_page: int | None
     clause_why: str | None
+    clause_where: str | None = None
+    clause_scanned: bool = False
 
 
 # ---------------------------------------------------------------- 1. verify
@@ -92,57 +98,126 @@ class Checked:
 
 def verdict_of(raw: Mapping) -> AiVerdict | None:
     """The finding's verdict word, folded; None when it is none of the five (such a finding says nothing and is dropped by the caller)."""
-    word = str(raw.get("verdict") or "").strip().lower().replace(" ", "_").replace("-", "_")
+    word = (
+        str(raw.get("verdict") or "")
+        .strip()
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+    )
     return word if word in ANSWER_OF else None  # type: ignore[return-value]
 
 
-def verify_sent(book_id: str, quote: Any, hint: Any, sent_pages: frozenset[int], books: standards.BookPages) -> tuple[int | None, str | None]:
-    """(page, why not): the clause quote found by `agent_review_standards.verify` AND standing on a page that was sent. When the first place
-    it was found is a page that was not sent, it is searched again among the sent pages only: the same text can stand on both."""
+def verify_sent(
+    book_id: str,
+    quote: Any,
+    hint: Any,
+    sent_pages: frozenset[int],
+    books: standards.BookPages,
+) -> guards.Located:
+    """The clause quote found by `agent_review_standards.verify` (a wrapper of the one check, `pass_guards.locate`) AND standing on a page that
+    was sent: a found `Located` (true page, where, scanned) or a not-found one whose `why` says which. When the first place it was found is a
+    page that was not sent, it is searched again among the sent pages only: the same text can stand on both."""
     got = standards.verify(book_id, quote, hint, books)
     if not got.found:
-        return None, got.why or CLAUSE_NOT_FOUND
+        return got
     if got.page in sent_pages:
-        return got.page, None
+        return got
     book = books.book(book_id)
-    only = guards.Book({n: t for n, t in book.pages.items() if n in sent_pages}, ocr=book.ocr & sent_pages)
-    again = guards.locate(quote, only, [p for p in (hint if isinstance(hint, Iterable) else [hint]) if isinstance(p, int)])
-    return (again.page, None) if again.found else (None, CLAUSE_NOT_SENT)
+    only = guards.Book(
+        {n: t for n, t in book.pages.items() if n in sent_pages},
+        ocr=book.ocr & sent_pages,
+    )
+    again = guards.locate(
+        quote,
+        only,
+        [
+            p
+            for p in (hint if isinstance(hint, Iterable) else [hint])
+            if isinstance(p, int)
+        ],
+    )
+    return again if again.found else guards.Located(False, why=CLAUSE_NOT_SENT)
 
 
-def check_raw(raw: Mapping, call: Sent, paper_pages: Mapping[int, str], books: standards.BookPages) -> Checked:
+def check_raw(
+    raw: Mapping, call: Sent, paper_pages: Mapping[int, str], books: standards.BookPages
+) -> Checked:
     """Verify one raw finding. The paper quote is checked on the paper pages that were sent; the clause quote in the book's own pages
     on a page that was sent, the book being the raw finding's `book_id` when it names one, else the only book of the call that holds it."""
     sent_paper = {n: t for n, t in paper_pages.items() if n in call.paper_pages}
-    paper_ok, paper_why = verdict.check_paper_quote(raw.get("paper_quote"), raw.get("paper_page"), sent_paper)
-    if not paper_ok and raw.get("paper_page") not in call.paper_pages and str(raw.get("paper_quote") or "").strip():
+    paper_ok, paper_why = verdict.check_paper_quote(
+        raw.get("paper_quote"), raw.get("paper_page"), sent_paper
+    )
+    if (
+        not paper_ok
+        and raw.get("paper_page") not in call.paper_pages
+        and str(raw.get("paper_quote") or "").strip()
+    ):
         paper_why = PAPER_NOT_SENT
     quote = raw.get("clause_quote")
     named = str(raw.get("book_id") or "") or None
-    wanted = [named] if named in call.book_pages else ([] if named else sorted(call.book_pages))
+    wanted = (
+        [named]
+        if named in call.book_pages
+        else ([] if named else sorted(call.book_pages))
+    )
     if not str(quote or "").strip():
-        return Checked(raw, call, None, paper_ok, paper_why, False, None, "no clause quote")
+        return Checked(
+            raw, call, None, paper_ok, paper_why, False, None, "no clause quote"
+        )
     if not wanted:
         return Checked(raw, call, None, paper_ok, paper_why, False, None, NO_BOOK)
-    hits: list[tuple[str, int]] = []
+    hits: list[tuple[str, guards.Located]] = []
     last_why: str | None = None
     for book_id in wanted:
-        page, why = verify_sent(book_id, quote, sorted(call.book_pages[book_id]), call.book_pages[book_id], books)
-        if page is not None:
-            hits.append((book_id, page))
+        got = verify_sent(
+            book_id,
+            quote,
+            sorted(call.book_pages[book_id]),
+            call.book_pages[book_id],
+            books,
+        )
+        if got.found and got.page is not None:
+            hits.append((book_id, got))
         else:
-            last_why = why
+            last_why = got.why
     if len(hits) == 1:
-        return Checked(raw, call, hits[0][0], paper_ok, paper_why, True, hits[0][1], None)
+        book_id, got = hits[0]
+        return Checked(
+            raw,
+            call,
+            book_id,
+            paper_ok,
+            paper_why,
+            True,
+            got.page,
+            None,
+            got.where,
+            got.scanned,
+        )
     if len(hits) > 1:
-        return Checked(raw, call, None, paper_ok, paper_why, False, None, CLAUSE_AMBIGUOUS)
-    return Checked(raw, call, named if len(wanted) == 1 else None, paper_ok, paper_why, False, None, last_why or CLAUSE_NOT_FOUND)
+        return Checked(
+            raw, call, None, paper_ok, paper_why, False, None, CLAUSE_AMBIGUOUS
+        )
+    return Checked(
+        raw,
+        call,
+        named if len(wanted) == 1 else None,
+        paper_ok,
+        paper_why,
+        False,
+        None,
+        last_why or CLAUSE_NOT_FOUND,
+    )
 
 
 # ---------------------------------------------------------------- 3. join
 
 
-def field_key(label: str | None, rules: Mapping | None = None, prefer: frozenset = frozenset()) -> tuple[str, tuple[str, ...]]:
+def field_key(
+    label: str | None, rules: Mapping | None = None, prefer: frozenset = frozenset()
+) -> tuple[str, tuple[str, ...]]:
     """(the key, the registry roles): the registry role of the printed label (`datasheet_roles`), else the folded label itself."""
     text = str(label or "").strip()
     if not text:
@@ -152,9 +227,13 @@ def field_key(label: str | None, rules: Mapping | None = None, prefer: frozenset
     return (role, (role,)) if role else (_fold(text), ())
 
 
-def finding_id(book_id: str | None, clause: str | None, key: str, tag: str | None) -> str:
-    """"F-<12 hex>" of (book, clause number, field key, tag): stable, so a finding keeps its id from run to run."""
-    raw = "\x00".join(str(x or "") for x in (book_id, _fold(str(clause or "")), key, tag))
+def finding_id(
+    book_id: str | None, clause: str | None, key: str, tag: str | None
+) -> str:
+    """ "F-<12 hex>" of (book, clause number, field key, tag): stable, so a finding keeps its id from run to run."""
+    raw = "\x00".join(
+        str(x or "") for x in (book_id, _fold(str(clause or "")), key, tag)
+    )
     return "F-" + hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 
@@ -196,8 +275,20 @@ def join(
         if word is None:
             continue
         key, roles = field_key(str(c.raw.get("field_label") or ""), rules, prefer_roles)
-        tag = next((fact_tags[f] for f in (c.raw.get("fact_ids") or []) if fact_tags and f in fact_tags and fact_tags[f]), None)
-        k = (str(c.book_id or ""), _fold(str(c.raw.get("clause") or "")), key, str(tag or ""))
+        tag = next(
+            (
+                fact_tags[f]
+                for f in (c.raw.get("fact_ids") or [])
+                if fact_tags and f in fact_tags and fact_tags[f]
+            ),
+            None,
+        )
+        k = (
+            str(c.book_id or ""),
+            _fold(str(c.raw.get("clause") or "")),
+            key,
+            str(tag or ""),
+        )
         groups.setdefault(k, []).append(c)
         keyed[id(c)] = (key, roles, tag)
     out: list[Joined] = []
@@ -223,7 +314,11 @@ def clause_sentence(quote: str, page_text: str) -> str:
     """The text the item holds as the requirement: the ONE whole sentence of the book's page that holds the verified quote when there is
     exactly one (`verdict.widen_to_sentence`), else the quote itself. Always contains the quote."""
     got = verdict.widen_to_sentence(quote, page_text)
-    return (got or quote)[:MAX_CLAUSE_ENTRY_CHARS] if _fold(quote) in _fold(got or quote) else quote[:MAX_CLAUSE_ENTRY_CHARS]
+    return (
+        (got or quote)[:MAX_CLAUSE_ENTRY_CHARS]
+        if _fold(quote) in _fold(got or quote)
+        else quote[:MAX_CLAUSE_ENTRY_CHARS]
+    )
 
 
 @dataclass
@@ -256,16 +351,25 @@ def build(
     ref = None
     matched = nine_match.Match(None, None, None, nine_match.WHY_NO_QUOTE, 0)
     if lead.clause_ok and lead.clause_page is not None and j.book_id:
-        text = clause_sentence(str(raw.get("clause_quote")), book_text(j.book_id, lead.clause_page))
+        text = clause_sentence(
+            str(raw.get("clause_quote")), book_text(j.book_id, lead.clause_page)
+        )
         ref = f"N-{fid}"
         cache[ref] = {
             "standard_document_id": j.book_id, "standard": book_label(j.book_id), "clause": j.clause, "page": lead.clause_page,
             "source": "clause_span", "text": text, "truncated": False,
         }  # fmt: skip
-        matched = nine_match.match(j.book_id, str(raw.get("clause_quote")), rules, tier_lookup)
+        matched = nine_match.match(
+            j.book_id, str(raw.get("clause_quote")), rules, tier_lookup
+        )
     base = plan_items.get(matched.item_id or "") if matched.matched else None
     if base is not None:
-        item = {**base, "clause_quote_ref": ref, "clause": base.get("clause") or j.clause, "clause_page": lead.clause_page}
+        item = {
+            **base,
+            "clause_quote_ref": ref,
+            "clause": base.get("clause") or j.clause,
+            "clause_page": lead.clause_page,
+        }
         item["page_hint"] = [p for p in (raw.get("paper_page"),) if isinstance(p, int)]
         item["page_hint_source"] = "nine reviewer"
         item_id, tier = str(base.get("item_id")), matched.tier
@@ -289,12 +393,14 @@ def build(
         "comment": raw.get("comment") or "", "verdict": answer_word, "reason_code": reason,
     }  # fmt: skip
     if j.ai_verdict == "not_stated":
-        answer["pages_searched"] = sorted(lead.call.paper_pages)  # only pages the reviewer was given
+        answer["pages_searched"] = sorted(
+            lead.call.paper_pages
+        )  # only pages the reviewer was given
     if j.contradiction:
         answer["reasoning"] = DISAGREE
         answer["comment"] = DISAGREE
     finding = Finding(
-        finding_id=fid, item_id=item_id, origin=origin, book_id=j.book_id, clause=j.clause, clause_page=lead.clause_page,
+        finding_id=fid, item_id=item_id, origin=origin, book_id=j.book_id, clause=j.clause, clause_page=lead.clause_page, clause_where=lead.clause_where, clause_scanned=lead.clause_scanned,
         field_label=j.field_label, field_roles=tuple(j.field_roles), tag=j.tag, paper_page=raw.get("paper_page") if isinstance(raw.get("paper_page"), int) else None,
         paper_quote=str(raw.get("paper_quote") or "") or None, clause_quote=str(raw.get("clause_quote") or "") or None,
         ai_verdict=j.ai_verdict, matched_rule_id=matched.rule_id if base is not None else None, rule_tier=tier,
@@ -310,10 +416,18 @@ def build(
 def register(runner: Any, built: Built) -> None:
     """Make the finding's item known to the runner (its exit looks an item up by id) and its clause entry known to the run's cache."""
     runner.items_by_id[str(built.item["item_id"])] = built.item
-    runner.clauses._data.update(built.cache)  # the run's ClauseCache: the verified sentence is the book's own text
+    runner.clauses._data.update(
+        built.cache
+    )  # the run's ClauseCache: the verified sentence is the book's own text
 
 
-def decide_all(runner: Any, built: Iterable[Built], paper_pages: Mapping[int, str], model: str | None, usd_share: float = 0.0) -> list[dict]:
+def decide_all(
+    runner: Any,
+    built: Iterable[Built],
+    paper_pages: Mapping[int, str],
+    model: str | None,
+    usd_share: float = 0.0,
+) -> list[dict]:
     """Every finding through the runner's own path: `decide` (gate, holds, context check), the silent-line step, then `emit` (the one
     exit, `final_cap`). Returns the stored lines. This module never sets a class, a word or a decision."""
     lines: list[dict] = []
@@ -329,7 +443,11 @@ def decide_all(runner: Any, built: Iterable[Built], paper_pages: Mapping[int, st
 
 def not_reviewed_reason(c: Checked) -> str | None:
     """Why a finding's quotes were not both verified (for the record); None when both were."""
-    return None if c.paper_ok and c.clause_ok else (c.paper_why if not c.paper_ok else c.clause_why)
+    return (
+        None
+        if c.paper_ok and c.clause_ok
+        else (c.paper_why if not c.paper_ok else c.clause_why)
+    )
 
 
 def process(
@@ -348,12 +466,21 @@ def process(
     """Verify, join, match and build, in that order: raw findings with the call each came from -> the items and answers `decide_all` takes."""
     rules = list(rules)
     checked = [check_raw(raw, sent, paper_pages, books) for raw, sent in raws]
-    joined = join(checked, fact_tags=fact_tags, rules=registry, prefer_roles=prefer_roles)
+    joined = join(
+        checked, fact_tags=fact_tags, rules=registry, prefer_roles=prefer_roles
+    )
 
     def text_of(book_id: str, page: int) -> str:
         return books.book(book_id).pages.get(page, "")
 
     return [
-        build(j, rules=rules, plan_items=plan_items, tier_lookup=tier_lookup, book_text=text_of, book_label=book_label)
+        build(
+            j,
+            rules=rules,
+            plan_items=plan_items,
+            tier_lookup=tier_lookup,
+            book_text=text_of,
+            book_label=book_label,
+        )
         for j in joined
     ]
