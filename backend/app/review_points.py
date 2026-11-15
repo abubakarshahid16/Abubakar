@@ -31,8 +31,8 @@ from collections import Counter, defaultdict
 
 from . import agent_review_wording as wording
 from . import crs_ai_actions as actions
-from . import review_points_content as content
 from . import crs_ai_words as words
+from . import review_points_content as content
 
 #: rank -> (what it is, how firm). The pill is "what · how firm".
 RANKS: dict[int, tuple[str, str]] = {

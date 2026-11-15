@@ -59,7 +59,7 @@ STATUS_WORDS = {
     "COMPLIANT": "recorded as meeting the requirement",
 }
 
-_PAGE_LABEL = re.compile(r"^(?:p\.?|pp\.?|page)\s*\d[\d,\s\-–]*$", re.I)
+_PAGE_LABEL = re.compile(r"^(?:p\.?|pp\.?|page)\s*\d[\d,\s\-]*$", re.I)
 
 
 def clean(value) -> str:
