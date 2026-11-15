@@ -311,6 +311,40 @@ def rule_book_hidden(book_doc, ctx: dict, proof: tuple[bool, bool] | None = None
     return bool(book_doc) and book_doc not in ctx["readable"]
 
 
+def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
+    """May the AI point's FREE text (its reasoning) reach this viewer? Fail closed. A whole-library viewer: yes. A linked book: only when he may
+    read it. No linked book: the point's cited reference must resolve to held books he may ALL read; a point that cites no rule at all is
+    shown only when its free text names no held book he may not read (the same matcher, `standard_ids`, against the held books' names)."""
+    if "library" not in ctx:
+        return not rule_book_hidden(book_doc, ctx)
+    if ctx.get("everything"):
+        return True
+    if book_doc:
+        return book_doc in ctx["readable"]
+    from . import applicability, standard_ids
+
+    cited = " ".join(str(line.get("standard") or "").split())
+    library, readable = ctx["library"], ctx["readable"]
+
+    def hits(text: str) -> list[str]:
+        out = []
+        for name in standard_ids.cited_standards(text) or ([text] if text else []):
+            out += [e["id"] for e in library if any(standard_ids.same_standard(name, n) for n in applicability._library_names(e))]
+        return out
+
+    if cited:  # it cites a rule: the reference must resolve, and only to books the viewer may read
+        found = hits(cited)
+        return bool(found) and all(h in readable for h in found)
+    text = " ".join(str(line.get("reasoning") or "").split())
+    # cites none: no held book he may not read may be NAMED in the words (`standard_ids.names_standard`, the matcher that finds a standard in text)
+    return not any(
+        standard_ids.names_standard(text, n)
+        for e in library
+        if e["id"] not in readable
+        for n in applicability._library_names(e)
+    )
+
+
 def ai_point(line: dict, ctx: dict) -> dict | None:
     """One AI line as a point; None for a line that is not a point (a rule book not held). `ctx`: run_id, paper_document_id,
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
@@ -408,9 +442,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "shall": not bool(line.get("recommendation")),
         # P6: the priority comes from the finding (`crs_ai_words.priority_ai`); P5: the AI's own reasoning, labelled, never for a proven line
         "priority": words.priority_ai(status, line, order) if status else "",
-        "ai_reasoning": ""
-        if rule_book_hidden(book_doc, ctx)
-        else actions.reasoning_part(line, status or "", "").strip(),  # a hidden book: the AI's free words can name it, so the field is removed
+        "ai_reasoning": actions.reasoning_part(line, status or "", "").strip() if ai_free_text_ok(line, book_doc, ctx) else "",  # free words that can name a book the viewer may not read: the field is removed
         "group_key": group_key(
             SOURCE_AI_REVIEW,
             rank,
@@ -458,6 +490,7 @@ def rule_point(
     *,
     strength: str = "unknown",
     proof: tuple[bool, bool] | None = None,
+    app_text_only: bool = False,
 ) -> dict:
     """One CRS row of the rule check as a point. `finding`: its stored finding (or None); `sides`: {"submittal": .., "standard": ..}
     as `evidence_boxes.side` answered (document None when the side cannot be shown)."""
@@ -523,7 +556,7 @@ def rule_point(
         page = content.paper_value(finding)[1]
     value, value_page = content.paper_value(finding)
     # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
-    action, action_source = content.action_of(row, finding, _plain, own_only=hidden)
+    action, action_source = content.action_of(row, finding, _plain, own_only=hidden, comment_only=app_text_only)
     ref = content.rule_ref(row, finding)
     return {
         "id": f"rc:{key}",
@@ -724,6 +757,12 @@ def stored_class_wins(line: dict, row) -> dict:
     return out
 
 
+def library_of(conn):
+    from .agent_review_rules import library_of as _library_of
+
+    return _library_of(conn)
+
+
 def ai_points_of_run(
     conn, run_id: str, paper_document_id: str, readable: frozenset[str]
 ) -> tuple[list[dict], list[str]]:
@@ -752,6 +791,8 @@ def ai_points_of_run(
         "paper_document_id": paper_document_id,
         "book_of": _book_of(conn, run_id),
         "readable": readable,
+        "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
+        "everything": {r[0] for r in conn.execute("SELECT id FROM documents")} <= readable,
     }
     return [p for p in (ai_point(ln, ctx) for ln in lines) if p is not None], held
 

@@ -164,16 +164,23 @@ def _sides(finding: dict, scope) -> dict:
     return out
 
 
-def _checklist_origin(finding: dict | None) -> bool:
-    """The finding's text is the app's OWN approved checklist: its stored origin is the datasheet check AND the checklist entry it names is
-    in `reference/datasheet_checks.json`. Proven from stored data; when the entry cannot be found it is not proven (hidden)."""
+def _checklist_entry_of(finding: dict | None) -> tuple[str, dict] | None:
+    """(entry id, the entry) of the approved checklist the finding's text comes from: its stored origin is the datasheet check AND the entry
+    it names is in `reference/datasheet_checks.json` with a text of its own. None when that cannot be proven."""
     f = finding or {}
     if f.get("origin") != "datasheet_check":
-        return False
+        return None
     import re
 
     m = re.search(r"\b([A-Z][A-Z0-9]*-[A-Z0-9]+):", str(f.get("requirement_source_text") or ""))
-    return bool(m and _checklist_entry(m.group(1)) is not None)
+    entry = _checklist_entry(m.group(1)) if m else None
+    return (m.group(1), entry) if entry and str(entry.get("text") or "").strip() else None
+
+
+def _checklist_origin(finding: dict | None) -> bool:
+    """The finding's text is the app's OWN approved checklist: its stored origin is the datasheet check AND the checklist entry it names is
+    in `reference/datasheet_checks.json`. Proven from stored data; when the entry cannot be found it is not proven (hidden)."""
+    return _checklist_entry_of(finding) is not None
 
 
 def _ref_state(reference: str, library: list[dict], readable: frozenset[str]) -> str:
@@ -250,7 +257,14 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
         sides = _sides(finding, scope) if finding else {}
         docs = _book_docs_of_row(row, finding, {})
         proof = readability_proof(row, finding, docs, ctx["readable"], library, everything)
-        p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding), proof=proof)
+        app_text = False
+        if not everything and not docs and proof[0] and (hit := _checklist_entry_of(finding)):
+            app_text = True
+            # the checklist is app content every user may see, but ONLY the text in the approved file itself: read from the JSON entry, never
+            # from the stored row (a stored row can carry words of a book)
+            text = f"Datasheet check {hit[0]}: {' '.join(str(hit[1]['text']).split())}"
+            finding = {**finding, "requirement_source_text": text, "requirement": text}
+        p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding), proof=proof, app_text_only=app_text)
         p["_book_docs"] = docs
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
@@ -478,7 +492,7 @@ def _unread_pages(run_id: str | None, scope) -> int | None:
         if not cov or cov.get("pages_total") is None:
             return None
         return len(page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome)))
-    except Exception as exc:  # noqa: BLE001 - an unreadable record is "not known", never 0
+    except Exception as exc:
         logging.getLogger(__name__).warning(
             "review points: the page record is unreadable (%s)", type(exc).__name__
         )

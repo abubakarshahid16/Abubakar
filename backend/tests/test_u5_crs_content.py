@@ -254,7 +254,7 @@ def _unlinked_world():
     # unlinked, no checklist origin, no reference: unproven
     _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, requirement_source_text="Gamma flanges shall be lined with teflon", requirement="Gamma flanges shall be lined with teflon", standard_clause="7.7.7", equipment_tag="TAG-A")  # fmt: skip
     # checklist origin, proven by the stored column and the entry id
-    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, origin="datasheet_check", requirement_source_text="Datasheet check DS-C1: Delta plates are riveted", requirement="Datasheet check DS-C1: Delta plates are riveted", equipment_tag="TAG-B")  # fmt: skip
+    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, origin="datasheet_check", requirement_source_text="Datasheet check DS-C1: Delta plates are riveted per Zulu-Book clause 3.3", requirement="Datasheet check DS-C1: Delta plates are riveted per Zulu-Book clause 3.3", ai_rationale="Zulu-Book clause 3.3 says Delta plates", equipment_tag="TAG-B")  # fmt: skip
     # a checklist-looking text whose entry does not exist and whose origin is not the checklist: unproven
     _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, origin="datasheet_check", requirement_source_text="Datasheet check NOT-AN-ENTRY-9: Epsilon rods are copper", requirement="Epsilon rods are copper", equipment_tag="TAG-C")  # fmt: skip
     return doc
@@ -281,13 +281,16 @@ def test_a_restricted_viewer_gets_no_unproven_requirement_words_and_the_proven_o
     got, listing = blob(restricted)
     for hidden in ("Gamma flanges", "teflon", "7.7.7", "Epsilon rods", "copper", "OPEN-100", "NOT-AN-ENTRY"):
         assert hidden not in got, hidden
-    assert "Delta plates are riveted" in got  # the app's own checklist text: proven, so shown
+    # the app's own checklist: shown, but ONLY the text of the approved file (read from the JSON by the proven entry id), never the stored row's words
+    json_text = "The design pressure should be at least the operating pressure."
+    assert json_text in got and "Delta plates" not in got and "Zulu-Book" not in got and "clause 3.3" not in got
     flags = {p["rule_hidden"] for p in listing["points"] if p["source"] == "rule_check"}
     assert flags == {True, False}
     assert c.UNREADABLE_BOOK in got or c.HIDDEN_FIELD in got
     # a viewer who may read every document sees all of it (nothing is hidden for him)
     seen, listing2 = blob(full)
     assert "Gamma flanges" in seen and "Epsilon rods" in seen and not any(p.get("rule_hidden") for p in listing2["points"])
+    assert "Delta plates are riveted per Zulu-Book" in seen  # a viewer of the whole library sees the stored text, as before
 
 
 def test_a_hidden_point_never_uses_the_ais_or_the_findings_words_and_the_hand_revert_fails():
@@ -307,3 +310,55 @@ def test_a_hidden_point_never_uses_the_ais_or_the_findings_words_and_the_hand_re
             "standard_document_id": "doc_closed", "quotes_checked": {}}  # fmt: skip
     ai = review_points.ai_point(line, {"run_id": "r", "paper_document_id": "paper", "book_of": {"R-1": ("doc_closed", "CLOSED-777")}, "readable": frozenset({"paper"})})
     assert ai["ai_reasoning"] == "" and "CLOSED-777" not in str(review_points.public(ai))
+
+
+# ------------------------------------------------------------------------------------------------ R73c: checklist text from the file, AI free text, matched phrase
+
+
+def test_r1_a_checklist_point_for_a_restricted_viewer_takes_no_ai_or_finding_words():
+    placeholder_row = row("datasheet_check", ai_review_comment="Per Zulu-Book clause 3.3 the plates are wrong.")  # comment is the placeholder
+    p = review_points.rule_point(placeholder_row, CTX, FINDING, {}, proof=(True, True), app_text_only=True)
+    assert p["action"] == c.HIDDEN_ACTION and "Zulu" not in str(review_points.public(p))
+    full = review_points.rule_point(placeholder_row, CTX, FINDING, {}, proof=(True, True))
+    assert "Zulu-Book" in full["action"]  # a whole-library viewer: unchanged
+
+
+def test_r1_the_json_entry_text_is_what_a_restricted_viewer_gets_and_an_entry_without_text_is_hidden():
+    from app import review_points_service as svc
+
+    hit = svc._checklist_entry_of({"origin": "datasheet_check", "requirement_source_text": "Datasheet check DS-C1: stored words"})
+    assert hit and hit[0] == "DS-C1" and hit[1]["text"] == "The design pressure should be at least the operating pressure."
+    assert svc._checklist_entry_of({"origin": "datasheet_check", "requirement_source_text": "Datasheet check NO-SUCH-1: x"}) is None
+    assert svc._checklist_entry_of({"origin": None, "requirement_source_text": "Datasheet check DS-C1: x"}) is None
+
+
+def _ai_line(**kw):
+    base = {"item_id": "S-1", "source": "skill", "standard": "", "clause": "", "verdict": "Query", "quotes_checked": {}, "reasoning": "The sheet is silent."}
+    return {**base, **kw}
+
+
+def _ai_ctx(readable, everything=False):
+    return {"run_id": "r", "paper_document_id": "paper", "book_of": {}, "readable": frozenset(readable), "library": LIB, "everything": everything}
+
+
+def test_r2_ai_free_text_with_no_linked_book_is_shown_only_when_it_cannot_name_a_closed_book():
+    ok = _ai_ctx({"paper", "doc_open"})
+    # cites no rule and names no held book the viewer may not read: kept
+    assert review_points.ai_point(_ai_line(), ok)["ai_reasoning"]
+    # its free words name a held book the viewer may not read (the same matcher): dropped
+    assert review_points.ai_point(_ai_line(reasoning="Per CLOSED-777 the rod is wrong."), ok)["ai_reasoning"] == ""
+    # a book he may read may be named
+    assert "OPEN-100" in review_points.ai_point(_ai_line(reasoning="Per OPEN-100 the rod is right."), ok)["ai_reasoning"]
+    # it cites a reference: the reference must resolve to books he may ALL read
+    assert review_points.ai_point(_ai_line(standard="OPEN-100"), ok)["ai_reasoning"]
+    assert review_points.ai_point(_ai_line(standard="CLOSED-777"), ok)["ai_reasoning"] == ""
+    assert review_points.ai_point(_ai_line(standard="NOWHERE-5"), ok)["ai_reasoning"] == ""  # unresolved
+    # a whole-library viewer sees it all
+    assert review_points.ai_point(_ai_line(reasoning="Per CLOSED-777 the rod is wrong."), _ai_ctx({"paper", "doc_open", "doc_closed"}, True))["ai_reasoning"]
+
+
+def test_r3_the_matched_phrase_comes_from_the_requirement_and_needs_the_rule_content_to_be_visible():
+    f = {"matched_phrase": "Flange face finish", "contractor_section": "Section 4"}
+    assert c.field_of("", row(standard_reference=""), f, allow_rule=False) == "Section 4"  # the paper's own label stays
+    assert c.field_of("", row(standard_reference=""), f, allow_rule=True) == "Flange face finish"
+    assert c.field_of("", row(), {"matched_phrase": "Flange face finish"}, allow_rule=False) == c.HIDDEN_FIELD

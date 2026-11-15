@@ -88,7 +88,8 @@ def field_of(section_tail: str, row: dict, finding: dict | None, allow_rule: boo
     tail = clean(section_tail)
     if tail and not is_placeholder(tail) and not _PAGE_LABEL.match(tail):
         return tail
-    for cand in (f.get("matched_phrase"), f.get("contractor_section")):
+    # the paper's own section label stays; the matched phrase comes from the requirement, so it needs the rule content to be visible
+    for cand in ((f.get("matched_phrase") if allow_rule else None), f.get("contractor_section")):
         c = clean(cand)
         if c and not _PAGE_LABEL.match(c) and not is_placeholder(c):
             return c
@@ -137,7 +138,7 @@ def rule_ref(row: dict, finding: dict | None) -> dict:
 HIDDEN_ACTION = "Engineer to check this point: it rests on a rule book you may not read (not named)."
 
 
-def action_of(row: dict, finding: dict | None, scrub=clean, own_only: bool = False) -> tuple[str, str]:
+def action_of(row: dict, finding: dict | None, scrub=clean, own_only: bool = False, comment_only: bool = False) -> tuple[str, str]:
     """(the words of the action, where they come from): the row's own comment; when that is the placeholder, the real words of the AI's
     suggestion that the placeholder points to (the row's AI-review comment, else the finding's required action or its text). source is
     "check" (the check's own comment), "ai_suggestion" (internal only) or ""."""
@@ -146,6 +147,8 @@ def action_of(row: dict, finding: dict | None, scrub=clean, own_only: bool = Fal
     comment = clean(row.get("comment"))
     if comment and not is_placeholder(comment) and (got := scrub(comment)):
         return got, "check"
+    if comment_only:  # the app's own checklist text for a restricted viewer: no AI or finding words (they can carry a book's wording)
+        return HIDDEN_ACTION, "hidden"
     f = finding or {}
     for cand in (row.get("ai_review_comment"), f.get("required_action"), f.get("finding"), f.get("ai_rationale")):
         c = clean(cand)
