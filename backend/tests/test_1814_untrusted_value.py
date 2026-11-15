@@ -213,3 +213,54 @@ def test_nothing_is_held_when_no_fact_is_untrusted():
         )
         == []
     )
+
+
+def _kit_row(fact_id="f1"):
+    # a kit card's pass: already a question that remembers what the rule read
+    return {
+        "rule_id": "PSV-24",
+        "status": "NEEDS_ENGINEER_REVIEW",
+        "rule_said": "COMPLIANT",
+        "kit": True,
+        "checklist": True,
+        "role": "set_pressure",
+        "fact_id": fact_id,
+        "equipment_tag": None,
+        "detail": "tested card",
+        "hold_reason": "rule_not_proven",
+    }
+
+
+def _hold(row, facts):
+    from app import datasheet_roles
+
+    rules = datasheet_checks.load_rules()
+    return untrusted_value.hold_results(
+        [row], facts, rules, datasheet_roles.wanted_roles(PSV, rules)
+    )[0]
+
+
+@pytest.mark.parametrize("state", STATES)
+def test_a_kit_card_pass_on_an_untrusted_value_is_no_longer_a_pass_in_the_list_of_passes(
+    state,
+):
+    f = {**fact("set pressure", "10", "barg"), "id": "f1", **state}
+    held = _hold(_kit_row(), [f])
+    assert (
+        held["rule_said"] is None
+        and held["status"] == "NEEDS_ENGINEER_REVIEW"
+        and held["hold_reason"] == "other"
+    )
+    assert (
+        held["detail"].startswith("Could not be judged: Set pressure: ")
+        and "The check read COMPLIANT" in held["detail"]
+    )
+
+
+def test_a_kit_card_pass_on_a_trusted_value_is_untouched_and_a_kit_row_that_said_nothing_is_too():
+    f = {**fact("set pressure", "10", "barg"), "id": "f1"}
+    row = _kit_row()
+    assert _hold(row, [f]) == row
+    bad = {**f, "validation_state": "conflict"}
+    undecided = {**row, "rule_said": None}
+    assert _hold(undecided, [bad]) == undecided  # it never claimed a pass

@@ -56,9 +56,12 @@ def hold_results(
     by_id = {f.get("id"): f for f in facts}
     out = []
     for r in results:
-        if r.get("status") not in _DECIDED:
+        # a kit card's pass is already a question (status NEEDS_ENGINEER_REVIEW) that remembers what the rule read: `rule_said` (as `deferred_value` handles it)
+        kit_pass = bool(r.get("kit")) and r.get("rule_said") in _DECIDED
+        if r.get("status") not in _DECIDED and not kit_pass:
             out.append(r)
             continue
+        said = r["rule_said"] if kit_pass else r["status"]
         roles = {r.get("role"), right_of.get(r.get("rule_id"))} | (
             set(deferred_value.CALC_INPUT_ROLES) if r.get("calc") else set()
         )
@@ -78,12 +81,15 @@ def hold_results(
         if not hit:
             out.append(r)
             continue
-        out.append(
-            {
-                **r,
-                "status": _QUERY,
-                hold_reason.KEY: hold_reason.OTHER,
-                "detail": f"Could not be judged: {hit[0]}: {hit[1]}. The check read {r['status']}; engineer to confirm. {r.get('detail') or ''}".strip(),
-            }
-        )
+        held = {
+            **r,
+            "status": _QUERY,
+            hold_reason.KEY: hold_reason.OTHER,
+            "detail": f"Could not be judged: {hit[0]}: {hit[1]}. The check read {said}; engineer to confirm. {r.get('detail') or ''}".strip(),
+        }
+        if kit_pass:
+            held["rule_said"] = (
+                None  # no longer "the rule said Pass": a list of passes (`compliance_list`) must not carry it
+            )
+        out.append(held)
     return out

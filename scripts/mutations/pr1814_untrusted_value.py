@@ -66,4 +66,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="presence_check",
         tags=_TAGS,
     ),
+    Mutation(
+        id="M1814-06",
+        phase=1814,
+        description="a kit card's pass (already a question that remembers rule_said COMPLIANT) on an untrusted value is not held: it stays listed as a pass",
+        path=_U,
+        anchor='        kit_pass = bool(r.get("kit")) and r.get("rule_said") in _DECIDED\n',
+        replacement="        kit_pass = False\n",
+        target=_T,
+        keyword="kit_card_pass",
+        tags=_TAGS,
+    ),
 )
