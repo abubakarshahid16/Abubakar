@@ -56,7 +56,9 @@ def _point(point_id: str, name: str, action: str) -> dict:
     }
 
 
-def pages_point(run_id: str, unread: list[int] | None, total: int | None) -> dict | None:
+def pages_point(
+    run_id: str, unread: list[int] | None, total: int | None
+) -> dict | None:
     """Pages the review did not read: None when none were left unread, or when the run's record says nothing about its pages (not known is not zero)."""
     if not unread:
         return None
@@ -119,18 +121,29 @@ def notes_of_run(run_id: str, paper_id: str, scope, not_held: list[str]) -> list
 
     out: list[dict] = []
     try:
-        outcome = comparison.run_outcome(run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+        outcome = (
+            comparison.run_outcome(
+                run_id, allowed_document_ids=scope.allowed_document_ids
+            )
+            or {}
+        )
         unread = page_ledger.run_unread_pages_of(outcome)
         total = (outcome.get("page_coverage") or {}).get("pages_total")
         if page := pages_point(run_id, unread, total):
             out.append(page)
     except Exception as exc:  # noqa: BLE001 - an unreadable record is said, never "all pages read"
-        out.append(_failed(run_id, "pages-read record", exc))
+        out.append(
+            _failed(run_id, "pages-read record", exc)
+        )  # logged by type in _failed
     out.extend(missing_book_points(run_id, not_held))
     try:
-        check = applicability.standards_check(paper_id, allowed_document_ids=frozenset(scope.allowed_document_ids))
+        check = applicability.standards_check(
+            paper_id, allowed_document_ids=frozenset(scope.allowed_document_ids)
+        )
         if cited := not_cited_point(run_id, check):
             out.append(cited)
     except Exception as exc:  # noqa: BLE001
-        out.append(_failed(run_id, "standards-cited check", exc))
+        out.append(
+            _failed(run_id, "standards-cited check", exc)
+        )  # logged by type in _failed
     return out
