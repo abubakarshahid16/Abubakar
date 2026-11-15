@@ -35,8 +35,8 @@ from .. import (
     agent_review_kind,
     agent_review_schema,
     agent_review_text,
-    crs_ai_workbook,
     agent_review_wording,
+    crs_ai_workbook,
     errors,
     review_jobs,
     schemas,
@@ -248,6 +248,10 @@ def agent_summary(
             (review_run_id,),
         )
     ]
+    groups, no_answer = _query_groups(conn, review_run_id)
+    if no_answer:  # earlier runs stored a line with no verdict as a Query: read as "Not reviewed", never rewritten
+        counts["Not reviewed"] = counts.get("Not reviewed", 0) + no_answer
+        counts[agent_review_wording.CLASS_QUERY] = max(0, counts.get(agent_review_wording.CLASS_QUERY, 0) - no_answer)
     books = [
         r["name"]
         for r in conn.execute(
@@ -265,6 +269,7 @@ def agent_summary(
         stop_reason=run["stop_reason"],
         missing_books=books,
         not_reviewed=counts.get("Not reviewed", 0),
+        query_groups=groups,
         **_mode_of(conn, review_run_id),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
@@ -276,6 +281,30 @@ def agent_summary(
         page_reread_stopped=_equipment(run).get("page_reread"),
         answers_reused=_counts_of(run).get("answers_reused"),
         changed_since_previous=_counts_of(run).get("changed_since_previous"),
+    )
+
+
+def _query_groups(conn, run_id: str) -> tuple[contract.AgentQueryGroups, int]:
+    """(the reader's own Query by group, the lines of this run that carry no verdict at all), from the stored lines, read only."""
+    lines = []
+    for r in conn.execute(
+        "SELECT line_json FROM agent_review_line WHERE run_id = ? AND verdict_class = ?",
+        (run_id, agent_review_wording.CLASS_QUERY),
+    ):
+        try:
+            line = json.loads(r["line_json"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(line, dict):
+            lines.append(line)
+    got = agent_review_wording.query_group_counts(lines)
+    return (
+        contract.AgentQueryGroups(
+            contractor_silent=got[agent_review_wording.GROUP_SILENT],
+            engineer_drawing=got[agent_review_wording.GROUP_DRAWING],
+            could_not_decide=got[agent_review_wording.GROUP_COULD_NOT],
+        ),
+        sum(1 for ln in lines if agent_review_wording.no_verdict(ln)),
     )
 
 
@@ -325,9 +354,10 @@ def _read_line(row: dict) -> contract.AgentLine:
     (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
     still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
     row = {k: v for k, v in row.items() if k != "rid"}
-    row["reason"] = crs_ai_workbook.screen_text(row.pop("line_json", None)) or row.get(
-        "reason"
-    )  # the file's three lines
+    raw = row.pop("line_json", None)
+    row["reason"] = crs_ai_workbook.screen_text(raw) or row.get("reason")  # the file's three lines
+    if _no_verdict_line(raw):  # an earlier run stored the reader's missing verdict as a Query: shown as "Not reviewed" (not rewritten)
+        row.update(verdict_class="Not reviewed", word="Not reviewed", reason=agent_review_wording.NO_VERDICT_WORDS)
     word = contract.legal_word(str(row.get("verdict_class")), str(row.get("word")))
     if word is not None:
         row["word"] = word
@@ -346,6 +376,14 @@ def _read_line(row: dict) -> contract.AgentLine:
             reason="a stored line could not be read: its class, word or tier is not allowed by the contract",
             rule_tier=None,
         )
+
+
+def _no_verdict_line(raw: str | None) -> bool:
+    try:
+        line = json.loads(raw or "")
+    except ValueError:
+        return False
+    return isinstance(line, dict) and agent_review_wording.no_verdict(line)
 
 
 def _mode_of(conn, run_id: str) -> dict:
@@ -523,7 +561,9 @@ def agent_crs(
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="the CRS is not written yet")
-    from .. import review_points_service  # 12 Nov: the sheet holds the engineer's decisions and added points
+    from .. import (
+        review_points_service,  # 12 Nov: the sheet holds the engineer's decisions and added points
+    )
 
     decided = review_points_service.decided_ai_sheet(
         review_run_id, _run_or_404(review_run_id, scope)["submittal_document_id"], copy, path.parent

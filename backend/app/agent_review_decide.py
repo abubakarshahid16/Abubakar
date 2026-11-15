@@ -16,6 +16,7 @@ from . import agent_review_context as ctxc
 from . import agent_review_crs as crs_lines
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_verdict as verdict
+from .agent_review_local import NO_VERDICT_CODE
 from .agent_review_request import (
     ABSENCE_SECOND_MAX_TOKENS,
     ABSENCE_SECOND_SYSTEM,
@@ -166,6 +167,8 @@ class DecideMixin:
         answer = answer or {}
         if answer == {} and not error:
             error = "no_answer_for_item"
+        elif answer and not error and verdict.ai_verdict_word(answer.get("verdict")) is None:
+            error = NO_VERDICT_CODE  # asked again once already (`run_batch_claude`, `_run_item_local`): still no verdict = "Not reviewed"
         ev = self._evidence(item, answer, pages, error)
         g = self._gate(item, answer, ev, lead_model, error, box)
         # F1 (conditional rule), F3 (table row or note), then THE cap of a rule that is not approved

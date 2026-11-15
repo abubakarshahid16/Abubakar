@@ -55,6 +55,13 @@ export interface AgentDecisions {
   total: number;
 }
 
+/** The lines the READER called Query, by the reason it gave (P3, 15 Nov 2026), counted apart. A reader's own Query is a view, never "no answer". The group "does not apply" is the class "Not applicable"; "no answer" is the class "Not reviewed". */
+export interface AgentQueryGroups {
+  contractor_silent: number;
+  engineer_drawing: number;
+  could_not_decide: number;
+}
+
 export interface AgentPaperText {
   state: AgentPaperTextState;
   /** null when the library holds no page count for the paper. */
@@ -106,6 +113,8 @@ export interface AgentRunSummary {
   changed_since_previous?: AgentChangedSincePrevious | null;
   /** lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class. */
   not_reviewed: number;
+  /** the reader's own Query by group, counted apart from the other classes (read from the stored lines; earlier runs read the same way). */
+  query_groups?: AgentQueryGroups | null;
   /** "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise. */
   mode: AgentMode;
   /** the project papers a general review was checked against (empty for a rule review, or when none was named). */

@@ -124,7 +124,7 @@ LINES = [
         "S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"}
     ),  # a checklist Fail
     mk("R-7", "Query", None, reason_code="not_applicable"),
-    mk("R-8", "Query", None, why="the AI did not give pass or fail"),  # a Query
+    mk("R-8", "Query", "Query", why="the AI reviewer answered that it cannot decide this", reason_code="sheet_silent"),  # a Query
 ]
 
 
@@ -322,7 +322,7 @@ def test_an_ai_opinion_is_the_ai_reviewers_view_never_pass_or_fail():
 
 
 def test_a_query_is_worded_as_a_crs_comment_that_starts_contractor_to_confirm():
-    line = mk("R-8", "Query", None, why="the AI did not give pass or fail")
+    line = mk("R-8", "Query", "Query", why="the AI reviewer answered that it cannot decide this", reason_code="sheet_silent")
     assert WB.status_of(line) == ("Query", words.ORDER_QUERY)
     assert WB.layout_comment(line, *WB.status_of(line)).startswith(
         "Contractor to confirm Field R8 against STD-1 clause 4.1"

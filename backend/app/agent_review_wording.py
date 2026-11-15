@@ -19,10 +19,15 @@ from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as code_proof
 from . import agent_review_two_reader as two_reader
 from .agent_review_local import (
+    AI_QUERY_WHY,
     LOCAL_TOO_LONG,
+    NO_VERDICT_CODE,
+    NO_VERDICT_WHY,
+    NO_VERDICT_WORDS,
     NOT_ALL_ASKED,
     NOT_ALL_ASKED_WORDS,
     NOT_ASKED_WORDS,
+    OLD_NO_PASS_FAIL_WHY,
 )
 from .agent_review_verdict import (
     AI_TIER,
@@ -57,7 +62,74 @@ ERROR_WORDS = {
     "stop_max_tokens": "no answer from the AI: answer cut off",
     LOCAL_TOO_LONG: NOT_ASKED_WORDS,
     NOT_ALL_ASKED: NOT_ALL_ASKED_WORDS,
+    NO_VERDICT_CODE: NO_VERDICT_WORDS,
 }
+
+# ---- the reader's OWN Query, routed by its reason code (P3, 15 Nov 2026): ONE function for the page and the CRS
+GROUP_SILENT, GROUP_DRAWING, GROUP_NOT_APPLICABLE, GROUP_COULD_NOT = "silent", "drawing", "not_applicable", "could_not_decide"
+GROUP_OF_CODE = {"sheet_silent": GROUP_SILENT, "needs_drawing_or_calc": GROUP_DRAWING, "not_applicable": GROUP_NOT_APPLICABLE}
+#: the plain reason of each group: what the engineer reads beside the Query (a question for the contractor, for the engineer, or neither)
+GROUP_WORDS = {
+    GROUP_SILENT: "the sheet does not state this: a question for the contractor",
+    GROUP_DRAWING: "needs a drawing or a calculation to judge: a question for the engineer, not the contractor",
+    GROUP_NOT_APPLICABLE: "the AI judged the rule not applicable to this paper",
+    GROUP_COULD_NOT: "the AI could not decide",
+}
+COULD_NOT_BECAUSE = {
+    "unclear_clause": "the rule's clause is not clear enough to apply",
+    "other": "it gave another reason",
+}
+
+
+def no_verdict(line: Mapping) -> bool:
+    """The reader gave NO verdict for the item (read time, so earlier runs follow): no AI verdict word, no error, a Query whose gate
+    reason says so. Never a reader's own Query (that is a view)."""
+    return (
+        line.get("ai_verdict") is None
+        and not line.get("error")
+        and line.get("verdict") == QUERY
+        and str(line.get("why") or "") in (NO_VERDICT_WHY, OLD_NO_PASS_FAIL_WHY)
+    )
+
+
+def reader_query_group(line: Mapping) -> str | None:
+    """The group of a line the READER called Query (it cannot decide and says why in a reason code), routed by that code; None for any
+    other line. Earlier runs stored the gate's old sentence for these: they are read the same way, never rewritten."""
+    if line.get("ai_verdict") != QUERY or line.get("error"):
+        return None
+    code = str(line.get("reason_code") or line.get("reason_code_ai") or "")
+    silent_hold = bool(line.get("silence_query")) and code == "sheet_silent"  # the silence hold wrote its own reason
+    if not silent_hold and str(line.get("why") or "") not in (AI_QUERY_WHY, OLD_NO_PASS_FAIL_WHY):
+        return None
+    return GROUP_OF_CODE.get(code, GROUP_COULD_NOT)
+
+
+GROUP_LABELS = {
+    GROUP_SILENT: "Questions for the contractor: the sheet does not state it",
+    GROUP_DRAWING: "Questions for the engineer: needs a drawing or a calculation",
+    GROUP_COULD_NOT: "The AI could not decide",
+}
+
+
+def query_group_counts(lines: Iterable[Mapping]) -> dict[str, int]:
+    """How many of the lines the reader called Query sit in each group (ONE count for the page and the first sheet). The group
+    "does not apply" is the class "Not applicable" and is counted there."""
+    out = dict.fromkeys(GROUP_LABELS, 0)
+    for ln in lines:
+        if classify(ln)["verdict_class"] == CLASS_QUERY and (group := reader_query_group(ln)) in out:
+            out[group] += 1
+    return out
+
+
+def reader_query_words(line: Mapping) -> str | None:
+    """The plain reason of a reader's own Query by its group (None when the line is not one)."""
+    group = reader_query_group(line)
+    if group is None:
+        return None
+    if group == GROUP_COULD_NOT:
+        because = COULD_NOT_BECAUSE.get(str(line.get("reason_code") or line.get("reason_code_ai") or ""))
+        return f"{GROUP_WORDS[group]}: {because}" if because else GROUP_WORDS[group]
+    return GROUP_WORDS[group]
 CLASSES = (
     CLASS_PROVEN,
     CLASS_TWO_READERS,
@@ -102,15 +174,12 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
 def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
     """Steps 1, 2 and 2b of `classify`: the AI gave no answer (Not reviewed); a silent paper (Query); an AI "met" whose paper
     defers the value or whose quotes code could not verify (Query, N9). None when none applies."""
-    if line.get(
-        "error"
-    ):  # 1. not reviewed, never a Query about the paper, whatever the rule's tier
+    error = line.get("error") or (NO_VERDICT_CODE if no_verdict(line) else None)
+    if error:  # 1. not reviewed, never a Query about the paper, whatever the rule's tier
         return {
             "verdict_label": WORD_NOT_REVIEWED,
             "verdict_class": CLASS_NOT_REVIEWED,
-            "not_proven_reason": ERROR_WORDS.get(
-                str(line["error"]), f"no answer from the AI: {line['error']}"
-            ),
+            "not_proven_reason": ERROR_WORDS.get(str(error), f"no answer from the AI: {error}"),
         }
     also = "; the rule is also not AI approved" if unapproved else ""
     if line.get(
@@ -222,7 +291,8 @@ def classify(line: Mapping) -> dict:
     return {
         "verdict_label": WORD_QUERY,
         "verdict_class": CLASS_QUERY,
-        "not_proven_reason": str(line.get("why") or line.get("reason_code") or "")
+        "not_proven_reason": reader_query_words(line)
+        or str(line.get("why") or line.get("reason_code") or "")
         or None,
     }
 
@@ -459,6 +529,7 @@ def counts(lines: Iterable[Mapping]) -> dict:
         )
 
     dec = decisions_of((ln["verdict_class"], ln["verdict_label"]) for ln in ls)
+    qg = query_group_counts(ls)
     return {
         "decisions": dec["total"],
         "decisions_code": dec["code"],
@@ -487,6 +558,9 @@ def counts(lines: Iterable[Mapping]) -> dict:
             if ln["verdict_class"] == CLASS_NOT_REVIEWED
             and ln.get("error") == "stop_max_tokens"
         ),
+        "query_contractor_silent": qg[GROUP_SILENT],
+        "query_engineer_drawing": qg[GROUP_DRAWING],
+        "query_ai_could_not_decide": qg[GROUP_COULD_NOT],
         "silent_paper_queries": sum(1 for ln in ls if ln.get("silence_query")),
         "recommendation_lines": sum(1 for ln in ls if ln[RECOMMENDATION]),
     }
@@ -502,6 +576,7 @@ __all__ = [
     "CLASS_QUERY",
     "CLASS_TWO_READERS",
     "CLASS_UNAPPROVED",
+    "NO_VERDICT_WORDS",
     "THINKS_MET",
     "THINKS_NOT_MET",
     "apply",
@@ -514,5 +589,9 @@ __all__ = [
     "is_opinion",
     "is_two_reader",
     "is_unapproved",
+    "no_verdict",
+    "query_group_counts",
+    "reader_query_group",
+    "reader_query_words",
     "writer_refusal",
 ]
