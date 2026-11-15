@@ -309,3 +309,32 @@ def test_when_even_the_narrowed_facts_do_not_fit_the_chapter_is_sent_once_per_pa
     assert (
         len(sent) == 600 and ctx.store["digest_counts"]["never_sent"] == 1200
     )  # the other fields, counted with their reason
+
+
+def test_the_reviewer_record_names_what_the_gate_held_not_a_chapter_group_that_was_read():
+    """Run 2 of the valve: 3 of 3 groups answered, 24 of 24 chapters read, and the record said "some chapter groups were not read". What had been held was
+    the fact-sheet block (text_from_held_document). The words say which block and which code, and a fully read run does not claim unread groups."""
+    from app import nine_reviewer as rev
+
+    run = rev.ReviewerRun(
+        groups=3,
+        answered=3,
+        no_context_available=True,
+        not_sent=[("derived:fact_sheet", "text_from_held_document")] * 3,
+    )
+    state, why = run.state()
+    assert (
+        state == "ran_partly"
+        and why
+        == "not sent, held by the gate: derived:fact_sheet (text_from_held_document)"
+    )
+    assert "chapter group" not in why
+    p = run.produced()
+    assert (
+        p["blocks_not_sent"] == 3
+        and p["not_sent"] == "derived:fact_sheet (text_from_held_document)"
+    )
+    assert rev.ReviewerRun(groups=3, answered=3, no_context_available=True).state() == (
+        "ran",
+        None,
+    )

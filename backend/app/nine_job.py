@@ -461,7 +461,15 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
             ctx
         ),  # the fact rows the reviewer was given, in how many parts, and how many never went (with the reasons)
     }
-    return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
+    state, why = (
+        ran.state()
+    )  # the reviewer's own words: WHICH condition made it partly (a group not read, a block the gate held, a call that failed)
+    produced |= {
+        k: v
+        for k, v in ran.produced().items()
+        if k in ("blocks_not_sent", "not_sent", "not_asked", "unread_groups")
+    }
+    return RoleResult(state, why, engine=engine, produced=produced)
 
 
 # ------------------------------------------------------------------------------------------------ the roles that are code or today's path

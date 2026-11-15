@@ -396,7 +396,7 @@ class ReviewerRun:
             if self.not_asked:
                 parts.append(f"{self.not_asked} chapter group(s) not asked")
             if self.not_sent:
-                parts.append(f"{len(self.not_sent)} document(s) held by the gate")
+                parts.append("not sent, held by the gate: " + self.not_sent_words())
             tail = (
                 f"; {len(self.unread)} of {self.groups} chapter group(s) not read"
                 if self.unread
@@ -404,6 +404,15 @@ class ReviewerRun:
             )
             return "ran_partly", "; ".join(parts) + tail
         return "ran", None
+
+    def not_sent_words(self) -> str:
+        """What the gate held back, as `name (code)`, each once: a document id or a derived block's name (`derived:<name>`) and the code that held
+        it. Names and codes only, never a word of a document."""
+        pairs = dict.fromkeys(f"{name} ({code})" for name, code in self.not_sent)
+        shown = list(pairs)[:6]
+        return ", ".join(shown) + (
+            f" and {len(pairs) - 6} more" if len(pairs) > 6 else ""
+        )
 
     def produced(self) -> dict[str, int | str]:
         """Counts only, for `produced_json` of the record."""
@@ -417,6 +426,14 @@ class ReviewerRun:
             "context_parts": len(self.context_offered),
             "context_parts_held": len(self.context_dropped),
             "context_passed": int(self.context_passed),
+            **(
+                {
+                    "blocks_not_sent": len(self.not_sent),
+                    "not_sent": self.not_sent_words()[:200],
+                }
+                if self.not_sent
+                else {}
+            ),
             **(
                 {"context": self.NO_CONTEXT_AVAILABLE}
                 if self.no_context_available and not self.context_offered
