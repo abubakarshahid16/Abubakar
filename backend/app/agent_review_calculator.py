@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as proof
 from . import agent_review_pass_guards as guards
 from . import agent_review_verdict as verdict_mod
@@ -264,10 +265,13 @@ def checklist_lines(
     wording (`APPROVED_CHECKLIST`, the entry id as the clause): no document, so its quote is the entry itself. The paper quote must be found on
     its page. A result not decided (COMPLIANT or NON_COMPLIANT), or held, is a Query with its detail; a check that does not apply is no line."""
     out: list[dict] = []
+    presence_only = approved_code.presence_only_ids()
     for r in results:
         status = r.get("status")
         if status == comparison.NOT_APPLICABLE:
             continue
+        if status == COMPLIANT and r.get("rule_id") in presence_only:
+            continue  # "stated" compares no value: not a proven Pass, and nothing to ask the engineer
         fact_id = r.get("fact_id")
         value, page = r.get("value"), r.get("page")
         cell = (

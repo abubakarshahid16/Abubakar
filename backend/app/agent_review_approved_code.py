@@ -42,6 +42,43 @@ def approved_check_ids() -> frozenset[str]:
     return found
 
 
+_PRESENCE: list[frozenset[str]] = []
+
+
+def presence_only_ids() -> frozenset[str]:
+    """The approved checks that only ask a field be STATED (`rule.kind` "required"): a pass of one compares no value, so it is never a proven Pass (owner, 12 Nov:
+    'Proven by code: Pass' only when the code compared a value). Remembered only when the data loaded."""
+    if _PRESENCE:
+        return _PRESENCE[0]
+    from . import datasheet_checks
+
+    ids: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, Mapping):
+            rule = node.get("rule")
+            if (
+                isinstance(node.get("id"), str)
+                and isinstance(rule, Mapping)
+                and rule.get("kind") == "required"
+            ):
+                ids.add(node["id"])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    try:
+        walk(datasheet_checks.load_rules().get("checklists"))
+    except (OSError, ValueError):
+        return frozenset()
+    found = frozenset(ids)
+    if found:
+        _PRESENCE.append(found)
+    return found
+
+
 def is_approved_code_item(item: Mapping | None) -> bool:
     """Source "code", the marker, and a rule id that EXISTS in the approved data."""
     return (
