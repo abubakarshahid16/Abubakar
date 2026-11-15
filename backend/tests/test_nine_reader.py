@@ -23,6 +23,7 @@ from app import (
     agent_claude,
     claude_spend,
     db,
+    nine_call,
     nine_facts,
     nine_reader,
     nine_record,
@@ -118,6 +119,15 @@ def read(pages, tx=None, stored=(), engine="claude", local=None, **kw):
         if engine == "local"
         else {"send": tx or Tx(), "env": FakeTransport.ENV}
     )
+    with (
+        db.connect() as conn
+    ):  # the seam loads the stored page text itself: store exactly these pages
+        conn.execute("DELETE FROM pages WHERE document_id = 'paper'")
+        for n, t in pages.items():
+            conn.execute(
+                "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('paper', ?, ?, ?, 0)",
+                (n, t, len(t)),
+            )
     return nine_reader.read_paper(
         run_id="run1",
         paper_id="paper",
@@ -127,6 +137,24 @@ def read(pages, tx=None, stored=(), engine="claude", local=None, **kw):
         **extra,
         **kw,
     )
+
+
+class Render:
+    """Stands in for the seam's picture renderer (`agent_review_pages.page_image`): a PNG for each page, or the failure for the pages named."""
+
+    def __init__(self, monkeypatch, fail=()):
+        from app import agent_review_pages as pages_mod
+
+        self.calls: list[int] = []
+        monkeypatch.setattr(pages_mod, "document_ref", lambda conn, doc: {})
+
+        def page_image(ref, page, **kw):
+            self.calls.append(page)
+            if page in fail:
+                raise pages_mod.PageImageUnavailable("render_failed")
+            return png(100, 100)
+
+        monkeypatch.setattr(pages_mod, "page_image", page_image)
 
 
 def png(w, h) -> bytes:
@@ -221,16 +249,11 @@ def test_a_page_with_no_text_on_local_is_not_read_with_the_reason_and_no_model_i
     assert res.sheet.pages[0].text_read is True
 
 
-def test_local_reads_text_only_says_so_and_never_sends_a_picture():
+def test_local_reads_text_only_says_so_and_never_sends_a_picture(monkeypatch):
     local = Local()
-    called = []
-    res = read(
-        {1: PAGE1},
-        engine="local",
-        local=local,
-        picture_of=lambda n: called.append(n) or png(100, 100),
-    )
-    assert called == [] and res.produced["pictures"] == nine_reader.PICTURES_LOCAL
+    render = Render(monkeypatch)
+    res = read({1: PAGE1}, engine="local", local=local, pictures=True)
+    assert render.calls == [] and res.produced["pictures"] == nine_reader.PICTURES_LOCAL
     assert res.produced["pages_with_picture"] == 0
     assert "image" not in json.dumps(local.parts)
     assert all(not f.source.endswith("picture") for f in res.sheet.facts)
@@ -246,9 +269,12 @@ def test_picture_tokens_are_counted_by_the_image_rule_not_as_text():
     assert est["picture_tokens"] != len(pic) // 3
 
 
-def test_claude_gets_the_picture_in_the_same_block_as_the_text_and_the_fact_says_so():
+def test_claude_gets_the_page_text_and_picture_as_blocks_by_reference_and_the_fact_says_so(
+    monkeypatch,
+):
+    Render(monkeypatch)
     tx = Tx()
-    res = read({1: PAGE1}, tx, picture_of=lambda n: png(100, 100))
+    res = read({1: PAGE1}, tx, pictures=True)
     content = tx.bodies[0]["messages"][0]["content"]
     kinds = [c["type"] for c in content]
     assert kinds.count("image") == 1 and PAGE1 in [c.get("text") for c in content]
@@ -258,14 +284,15 @@ def test_claude_gets_the_picture_in_the_same_block_as_the_text_and_the_fact_says
     assert res.produced["pages_with_picture"] == 1
     assert {f.source for f in res.sheet.facts} == {"ai_picture"}
     reads = nine_record.load_record("run1").roles[0].reads
-    assert [(r.document_id, r.pages, r.pictures) for r in reads] == [("paper", (1,), 1)]
+    assert [(r.document_id, r.pages, r.pictures) for r in reads] == [
+        ("paper", (1,), 0),
+        ("paper", (1,), 1),
+    ]
 
 
-def test_a_missing_picture_is_text_only_not_a_failure():
-    def none(n):
-        raise RuntimeError("no image")
-
-    res = read({1: PAGE1}, picture_of=none)
+def test_a_missing_picture_is_text_only_not_a_failure(monkeypatch):
+    Render(monkeypatch, fail={1})
+    res = read({1: PAGE1}, pictures=True)
     assert res.state == "ran" and res.produced["pages_with_picture"] == 0
 
 
@@ -324,9 +351,10 @@ def test_the_role_budget_ends_the_reader_ran_partly_and_names_the_pages():
     assert res.state == "ran_partly" and res.produced["pages_read"] == 0
 
 
-def test_the_page_without_stored_text_is_never_read_on_claude_either():
+def test_the_page_without_stored_text_is_never_read_on_claude_either(monkeypatch):
     tx = Tx()
-    res = read({1: PAGE1, 2: ""}, tx, picture_of=lambda n: png(10, 10))
+    Render(monkeypatch)
+    res = read({1: PAGE1, 2: ""}, tx, pictures=True)
     assert len(tx.bodies) == 1
     assert res.sheet.pages[1].not_read_why == nine_reader.NO_TEXT_CLAUDE
 
@@ -463,7 +491,7 @@ def test_a_page_with_text_and_no_field_label_is_read_by_code_not_by_the_model():
     assert res.state == "ran"  # nothing was left unread that a model should have read
 
 
-def test_the_source_of_a_value_is_per_page_picture_only_where_one_was_sent():
+def test_the_source_of_a_value_is_per_page_picture_only_where_one_was_sent(monkeypatch):
     tx = Tx(
         lambda p: (
             answer(
@@ -475,13 +503,8 @@ def test_the_source_of_a_value_is_per_page_picture_only_where_one_was_sent():
             )
         )
     )
-    res = read(
-        {1: PAGE1, 2: PAGE1},
-        tx,
-        picture_of=lambda n: (
-            png(50, 50) if n == 1 else (_ for _ in ()).throw(RuntimeError("x"))
-        ),
-    )
+    Render(monkeypatch, fail={2})
+    res = read({1: PAGE1, 2: PAGE1}, tx, pictures=True)
     assert {(f.page, f.source) for f in res.sheet.facts} == {
         (1, "ai_picture"),
         (2, "ai_text"),
@@ -548,12 +571,20 @@ def test_a_stored_value_whose_quote_is_not_on_the_page_is_not_usable():
 
 
 def _ask_with(pictures: int):
+    import hashlib
+
+    sha = hashlib.sha256(PAGE1.encode("utf-8")).hexdigest()
+
     def ask(blocks, question):
-        reads = (
+        reads = [
             ReadEntry(
-                1, "c", "paper", "paper", (1,), None, None, None, 10, "x", pictures
-            ),
-        )
+                1, "c", "paper", "paper", (1,), None, None, None, len(PAGE1), sha, 0
+            )
+        ]
+        if pictures:
+            reads.append(
+                ReadEntry(1, "c", "paper", "paper", (1,), None, None, None, 0, sha, 1)
+            )
         return Answer(
             True,
             "c",
@@ -564,9 +595,10 @@ def _ask_with(pictures: int):
             None,
             None,
             "m",
+            "claude",
             ("paper",),
             (),
-            reads,
+            tuple(reads),
         )
 
     return ask
@@ -583,7 +615,7 @@ def test_a_page_is_a_picture_page_only_when_the_seam_really_sent_the_picture(
     rules = nine_reader.datasheet_checks.load_rules()
     fields = nine_reader.field_list_for(None, dict(rules))
     page = nine_reader._read_page(
-        _ask_with(sent), "paper", 1, PAGE1, png(10, 10), fields, rules, Counter()
+        _ask_with(sent), "paper", 1, PAGE1, True, fields, rules, Counter()
     )
     rec = nine_reader._page_read(1, page)
     assert rec.picture_read is bool(pictures) and rec.text_read is True
@@ -610,3 +642,48 @@ def test_a_partly_read_page_names_the_fields_nobody_read(monkeypatch):
     assert "fields not read: design_temperature" in res.sheet.pages[0].not_read_why
     text = nine_facts.digest(res.sheet)
     assert "PAGES NOT READ:" in text and "fields not read: design_temperature" in text
+
+
+def _direct(pages, tx=None):
+    return nine_reader.read_paper(
+        run_id="run1",
+        paper_id="paper",
+        pages=pages,
+        stored_facts=[],
+        engine="claude",
+        pictures=False,
+        send=tx or Tx(),
+        env=FakeTransport.ENV,
+    )
+
+
+def test_the_question_is_a_registered_template_with_the_page_number_as_its_only_parameter():
+    tx = Tx()
+    read({1: PAGE1, 2: PAGE2}, tx)
+    rules = nine_reader.datasheet_checks.load_rules()
+    tid = nine_reader.form_template(
+        nine_reader.field_list_for(None, dict(rules))
+    )  # one form, one template, for every page
+    text, params = nine_call._TEMPLATES[tid]
+    assert params == {"page": "int"} and "Design pressure: 12" not in text
+    asked = [b["messages"][0]["content"][-1]["text"] for b in tx.bodies]
+    assert [a.rstrip().splitlines()[-1] for a in asked] == ["PAGE 1:", "PAGE 2:"]
+
+
+def test_a_page_whose_stored_text_the_seam_does_not_have_is_not_read_never_read():
+    res = _direct({1: PAGE1})  # nothing stored for the paper in the database
+    assert res.sheet.pages[0].text_read is False and res.sheet.pages[
+        0
+    ].not_read_why.startswith(nine_reader.NOT_SENT)
+    assert res.sheet.facts == ()
+
+
+def test_a_page_whose_sent_text_is_not_the_text_the_quotes_would_be_checked_against_is_not_read():
+    read({1: PAGE1})  # stores PAGE1 for the paper
+    tx = Tx()
+    res = _direct({1: PAGE1 + "Extra line: 99 barg\n"}, tx)
+    assert (
+        res.sheet.pages[0].not_read_why
+        == f"{nine_reader.NOT_SENT} (stored_text_differs)"
+    )
+    assert res.sheet.facts == ()
