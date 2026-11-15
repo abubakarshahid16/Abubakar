@@ -475,3 +475,63 @@ def test_an_old_stored_reader_query_is_worded_truly_in_the_listing_the_points_an
     assert agent_review_wording.read_time({"source": "general"}) == {
         "source": "general"
     }
+
+
+def _old_query_lines(client, codes):
+    """A finished run whose first lines are rewritten, in the table, to what the 12 Nov run stored for a reader's own Query."""
+    from app import db
+    from tests.test_agent_review_routes import finished_run
+
+    run_id = finished_run(client)
+    conn = db.connect()
+    rows = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+        (run_id,),
+    ).fetchall()
+    ids = []
+    for row, code in zip(rows, codes, strict=False):
+        line = json.loads(row["line_json"])
+        line.update(
+            ai_verdict="Query", verdict="Query", decided_by="engineer", error=None, why=OLD, not_proven_reason=OLD,
+            silence_query=False, quotes_checked={"paper": True, "clause": True}, textual_pass=False,
+        )  # fmt: skip
+        line.pop("reason_code", None) if code is None else line.update(reason_code=code)
+        ids.append(row["item_id"])
+        conn.execute(
+            "UPDATE agent_review_line SET verdict_class = 'Query for the engineer', word = 'Query', reason = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
+            (OLD, json.dumps(line), run_id, row["item_id"]),
+        )
+    conn.commit()
+    return run_id, ids, conn
+
+
+def test_the_points_of_an_old_run_carry_the_true_reason_in_their_group_key(
+    client, monkeypatch
+):
+    """R62b N1: `review_points.ai_points_of_run` reads the stored line through `read_time`; reverting that must fail this."""
+    from app import review_points
+
+    run_id, ids, conn = _old_query_lines(
+        client, [None]
+    )  # no reason code: the stored sentence is the reason of the group
+    monkeypatch.setattr(
+        review_points,
+        "_book_of",
+        lambda _c, _r: {i: ("doc_std", "INV-STD") for i in ids},
+    )
+    points, _held = review_points.ai_points_of_run(
+        conn, run_id, "doc_paper", frozenset({"doc_std"})
+    )
+    keys = [p["group_key"] for p in points if p.get("group_key")]
+    assert keys, "the invented run's point must group (a Query with a book and a field)"
+    blob = " ".join(keys).lower()
+    assert "the ai could not decide" in blob and "did not give pass or fail" not in blob
+
+
+def test_the_evidence_trace_of_an_old_line_says_the_true_reason(client):
+    """R62b N2: the gate step "decision" of the trace reads the stored line through `read_time` too."""
+    run_id, ids, conn = _old_query_lines(client, ["needs_drawing_or_calc"])
+    body = client.get(f"/api/reviews/runs/{run_id}/agent/lines/{ids[0]}/trace").json()
+    decision = [g for g in body["gate"] if g["step"] == "decision"][0]
+    assert "needs a drawing or a calculation to judge" in decision["reason"]
+    assert "did not give pass or fail" not in json.dumps(body)

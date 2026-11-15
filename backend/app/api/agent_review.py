@@ -538,7 +538,7 @@ def agent_trace(
         rule_book=str(line.get("standard") or ""),
         clause=str(line.get("clause") or ""),
         model=str(line.get("model") or ""),
-        reason=str(row["reason"] or ""),
+        reason=str(line.get("not_proven_reason") or row["reason"] or ""),  # read time: the same words as a new line
         gate=_gate_steps(line),
     )
 
