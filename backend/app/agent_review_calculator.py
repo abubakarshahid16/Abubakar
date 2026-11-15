@@ -273,7 +273,7 @@ def checklist_lines(
         value, page = r.get("value"), r.get("page")
         cell = (
             (cells or {}).get(str(fact_id)) if fact_id else None
-        )  # the value's own located cell: its quote is the row's two cells
+        )  # its quote: the row's two cells
         line = {
             "item_id": f"{ID_PREFIX}{r.get('rule_id')}"
             + (f"-{fact_id}" if fact_id else f"-{r.get('equipment_tag') or 'sheet'}"),
