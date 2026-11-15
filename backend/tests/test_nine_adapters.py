@@ -18,6 +18,24 @@ def on(monkeypatch):
     monkeypatch.setattr(settings, "review_page_v2_enabled", True)
 
 
+def store_claude(run_id, docs, bar=False):
+    """What the tightened seam needs for Claude: the run's stored engine choice (text leaves) and its stored shown list."""
+    from app import review_engine, review_shown
+
+    with db.connect() as conn:
+        review_shown.ensure_schema(conn)
+        review_shown.record_in(conn, run_id, list(docs), "2026-11-16T00:00:00Z")
+        review_engine.record_in(
+            conn,
+            run_id,
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=bar,
+            now="2026-11-16T00:00:00Z",
+        )
+
+
 def ctx_for(doc, ai, items=()):
     return nine_job.RoleContext(
         ai,
@@ -40,6 +58,7 @@ def test_the_reader_adapter_hands_pages_stored_facts_and_the_engine_to_the_reade
     monkeypatch,
 ):
     doc, rc, ai, client = world_with_both()
+    store_claude(ai, [doc])
     seen = {}
 
     def fake(**kw):
@@ -70,6 +89,7 @@ def test_the_reader_adapter_hands_pages_stored_facts_and_the_engine_to_the_reade
 
 def test_the_reader_has_no_picture_function_on_the_local_model(monkeypatch):
     doc, rc, ai, client = world_with_both()
+    store_claude(ai, [doc])
     seen = {}
     monkeypatch.setattr(nine_job, "_engine", lambda ctx: "local")
     monkeypatch.setattr(
@@ -94,6 +114,7 @@ def test_the_context_role_with_nothing_held_makes_no_call_and_says_the_five_thin
     monkeypatch,
 ):
     doc, rc, ai, client = world_with_both()
+    store_claude(ai, [doc])
     no_calls(monkeypatch)
     ctx = ctx_for(doc, ai)
     got = nine_job.context_role(ctx)
@@ -106,6 +127,7 @@ def test_the_context_role_with_nothing_held_makes_no_call_and_says_the_five_thin
 
 def test_the_librarian_with_no_chosen_rules_reads_nothing_and_says_so(monkeypatch):
     doc, rc, ai, client = world_with_both()
+    store_claude(ai, [doc])
     no_calls(monkeypatch)
     ctx = ctx_for(doc, ai)
     got = nine_job.librarian_role(ctx)
@@ -232,6 +254,7 @@ def _writer_world(monkeypatch, wording):
 
     doc, rc, ai, client = world_with_both()
     nine_record.start_run(ai)
+    store_claude(ai, [doc])
     seen = {}
 
     def fake_ask(run_id, role_no, blocks, question, **kw):

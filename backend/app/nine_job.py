@@ -77,11 +77,12 @@ def _jobs():
     return agent_review_jobs
 
 
-def _engine(ctx: RoleContext) -> str:
-    """ "local" when the run's stored plan puts the AI review on the local model, else "claude" (today's own test)."""
-    from . import agent_review_local
+NO_DECISION = "no engine decision is stored for this run, so no model was asked"
 
-    return "local" if agent_review_local.local_run(ctx.run_id) else "claude"
+
+def _engine(ctx: RoleContext) -> str:
+    """The run's engine as the call seam derives it: "claude", "local", or "none" (no stored decision: default deny, no model is asked)."""
+    return nine_call.engine_of_run(ctx.run_id)
 
 
 def _choice(ctx: RoleContext) -> str:
@@ -135,6 +136,8 @@ def reader_role(ctx: RoleContext) -> RoleResult:
 
     conn = connect()
     engine = _engine(ctx)
+    if engine == "none":
+        return RoleResult("not_run", NO_DECISION)
     pages = _paper_pages(ctx)
     stored = [
         dict(r)
@@ -203,6 +206,8 @@ def context_role(ctx: RoleContext) -> RoleResult:
 
     conn = connect()
     engine, scope = _engine(ctx), _scope(ctx)
+    if engine == "none":
+        return RoleResult("not_run", NO_DECISION)
     shown = review_shown.shown_ids(conn, ctx.run_id)
     mine = conn.execute(
         "SELECT * FROM document_classification WHERE document_id = ?", (ctx.submittal,)
@@ -285,6 +290,8 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
 
     conn = connect()
     engine, scope = _engine(ctx), _scope(ctx)
+    if engine == "none":
+        return RoleResult("not_run", NO_DECISION)
     items = list(ctx.plan.get("items") or [])
     book_ids = list(
         dict.fromkeys(
@@ -476,6 +483,9 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
             "no chapter was chosen to read, so nothing was reviewed against a chapter",
         )
     engine = _engine(ctx)
+    if engine == "none":
+        ctx.flags["reviewer_failed"] = True
+        return RoleResult("not_run", NO_DECISION)
     pages = _paper_pages(ctx)
     groups = nine_reviewer.group_chapters(_chapter_texts(chosen, cuts))
     sheet = ctx.store.get("fact_sheet")
@@ -585,24 +595,26 @@ def code_role(ctx: RoleContext) -> RoleResult:
     )
 
 
+_STATUS_ENUM = {"not_met": "not met", "met": "met"}
+
+
 def _writer_items(
     grouped: list[dict],
 ) -> tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]:
-    """Rows of SHORT tokens for the writer's derived block (number, field, status, pages, clause: each at most 60 characters, one line) and
-    the documents they came from (the paper's id is added by the caller; the books of the clauses are here)."""
+    """Rows for the writer's derived block, one per comment, with DECLARED cell kinds (id, source, enum, code): the comment number, its field
+    (a `source` cell: it must occur in the paper or a book the block names), its status as an enum word, its first page. And the documents
+    the rows came from: the books of the comments' clauses (the paper is added by the caller)."""
     rows, books = [], []
     for c in grouped:
-        clause = "; ".join(f"{k['clause']}" for k in c["clauses"] if k.get("clause"))[
-            :60
-        ]
-        row = (
-            f"c{c['number']}",
-            (c["name"] or "")[:60],
-            c["pill"][:60],
-            ("p" + ",".join(str(x) for x in c["pages"]))[:60],
-            clause,
+        page = f"p{c['pages'][0]}" if c["pages"] else "p0"
+        rows.append(
+            (
+                f"c{c['number']}",
+                (c["name"] or "").replace("\n", " ")[:60],
+                _STATUS_ENUM.get(c["tile"], "unknown"),
+                page,
+            )
         )
-        rows.append(tuple(t for t in row if t and "\n" not in t))
         books += [
             str(b["id"])
             for p in c["members_points"]
@@ -626,7 +638,11 @@ def writer_role(ctx: RoleContext) -> RoleResult:
     conn = connect()
     engine = nine_call.engine_of_run(ctx.run_id, conn)
     produced: dict = {}
-    why = "comments worded by code: no AI wording on the local model"
+    why = (
+        "comments worded by code: no AI wording on the local model"
+        if engine == "local"
+        else "comments worded by code: no engine decision is stored for this run"
+    )
     if engine == "claude":
         _listing, raw, _facts = svc.export_listing(
             ctx.submittal, access.unrestricted_scope()
@@ -648,6 +664,7 @@ def writer_role(ctx: RoleContext) -> RoleResult:
                 "review_record",
                 name="comments",
                 sources=(ctx.submittal, *books),
+                kinds=("id", "source", "enum", "code"),
                 items=items,
             )
             got = nine_call.ask(

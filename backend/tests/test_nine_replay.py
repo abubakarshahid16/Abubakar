@@ -100,6 +100,22 @@ def test_a_whole_nine_role_run_with_recorded_answers_writes_nine_rows_and_the_re
 
     monkeypatch.setattr(agent_review_jobs, "lane", lambda: (composite, env))
     run_id, job_id = start()
+    from app import review_engine, review_shown
+
+    with db.connect() as conn:
+        review_shown.ensure_schema(conn)
+        review_shown.record_in(
+            conn, run_id, ["doc_paper", "doc_std"], "2026-11-16T00:00:00Z"
+        )
+        review_engine.record_in(
+            conn,
+            run_id,
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=False,
+            now="2026-11-16T00:00:00Z",
+        )
     assert run_job(job_id) == "done"
     assert "today" in seen  # the checklist asked today's way
     rows = {
