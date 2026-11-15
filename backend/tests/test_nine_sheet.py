@@ -245,3 +245,25 @@ def test_the_fourth_check_refuses_the_file_when_a_finding_is_missing_from_the_li
     )
     with pytest.raises(crs_completeness.Incomplete):
         crs_completeness.file_or_refuse(doc, scope_all(), "team")
+
+
+def test_a_role_with_its_switch_off_a_role_with_no_call_and_a_role_that_produced_nothing_are_worded_plainly():
+    rec = record(
+        r2=role(2, engine="code", usd=None, produced={"related_papers": 0, "windows": 0, "not_available": 5}),
+        r3=role(3, usd=None, produced={"books": 3, "chapters_chosen": 24}),
+        r9=role(9, usd=None, produced={"sheet_by": "code", "ai_wording": "not_used_in_this_version"}),
+    )
+    rows = dict(nine_sheet.how_rows(RoleRecordsWithZeroCalls(rec)))
+    assert rows["Role 9 Writer"].startswith("off (its switch is off)") and "Claude" not in rows["Role 9 Writer"]
+    assert "ran and produced nothing (not available 5)" in rows["Role 2 Project context"]
+    three = rows["Role 3 Librarian"]
+    assert "Claude" not in three.split(";")[1] and "no model call was made" in three and "produced nothing" not in three
+    assert "produced nothing" not in rows["Role 1 Reader"] and "Claude" in rows["Role 1 Reader"]  # a role with calls keeps its words
+
+
+def RoleRecordsWithZeroCalls(rec):
+    """The same record with 0 calls for roles 2, 3 and 9 (the test helper's roles have 2 calls each)."""
+    from dataclasses import replace
+
+    roles = tuple(replace(r, calls=0) if r.role_no in (2, 3, 9) else r for r in rec.roles)
+    return replace(rec, roles=roles)

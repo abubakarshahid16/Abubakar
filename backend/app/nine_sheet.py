@@ -69,22 +69,56 @@ def _reads(role: RoleRecord) -> str:
     return parts + (f", {pictures} picture(s)" if pictures else "")
 
 
+OFF_WORDS = "off (its switch is off)"
+
+
+def _writer_off(role: RoleRecord) -> bool:
+    """Role 9 with the AI wording not used in this version: its setting is off, so the record says so, not "ran; Claude"."""
+    return role.role_no == 9 and str(role.produced.get("ai_wording", "")).startswith("not_used")
+
+
+def _is_not_read_key(key: str) -> bool:
+    return any(mark in key.partition(".")[0] for mark in _NOT_READ_KEYS)
+
+
+def _produced_nothing(role: RoleRecord) -> bool:
+    """A role that ran made no model call and every count it kept is 0 (a "not available" count is what it could not get, not what it made)."""
+    counts = [v for k, v in role.produced.items() if not _is_not_read_key(k) and isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return role.calls == 0 and bool(role.produced) and all(v == 0 for v in counts) and len(counts) == sum(
+        1 for k in role.produced if not _is_not_read_key(k)
+    )
+
+
+def _nothing_reason(role: RoleRecord) -> str:
+    why = [f"{k.partition('.')[0].replace('_', ' ')} {_count_of(v)}" for k, v in role.produced.items() if _is_not_read_key(k) and v]
+    return " (" + "; ".join(why) + ")" if why else " (the record gives no reason)"
+
+
 def how_rows(record: ReviewRecord | None) -> list[list]:
     """[label, detail] per role; [] when the run has no record (the sheet's first line already says "not recorded")."""
     if record is None:
         return []
     out: list[list] = []
     for r in record.roles:
-        bits = [STATE_WORDS.get(r.state, r.state)]
-        if r.engine:
-            bits.append(ENGINE_WORDS.get(r.engine, r.engine))
-        if r.models:
+        off = _writer_off(r)
+        bits = [OFF_WORDS if off else STATE_WORDS.get(r.state, r.state)]
+        engine = "code" if (r.engine == "claude" and (r.calls == 0 or off)) else r.engine  # no model call, no "Claude"
+        if engine:
+            bits.append(
+                ENGINE_WORDS.get(engine, engine)
+                + (" (no model call was made)" if engine != r.engine and not off else "")
+            )
+        if r.models and engine != "code":
             bits.append(", ".join(r.models))
         bits.append(f"{r.calls} call(s)")
-        if r.engine == "claude":
+        if engine == "claude":
             bits.append("cost (USD) " + (UNKNOWN if r.usd is None else f"{r.usd:.2f}"))
         if r.why and r.state != "ran":
             bits.append("why: " + r.why)
+        if off:
+            bits.append("the comments are the code's words (the AI wording is not used)")
+        elif r.state == "ran" and _produced_nothing(r):
+            bits.append("ran and produced nothing" + _nothing_reason(r))
         for extra in (_produced(r), _reads(r)):
             if extra:
                 bits.append(extra)

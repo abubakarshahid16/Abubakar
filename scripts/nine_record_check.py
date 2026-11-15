@@ -49,6 +49,17 @@ TYPED_KINDS = ("number", "clause", "standard", "enum", "vocab", "id", "unit")
 MAX_TYPED_CELL = 64
 
 
+def read_ledger(path: Path) -> list[dict]:
+    """The ledger as CALLS, read by the app's own reader (`claude_spend.entries`: a settled reservation shows as its settle line only, a
+    released one not at all, an open one at its reserved worst case). This tool does not pair lines itself."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+    from app import claude_spend
+    from app.config import settings
+
+    settings.claude_spend_log = Path(path)
+    return claude_spend.entries()
+
+
 def fold(text: str) -> str:
     """The same folding as `nine_record.fold` (this tool imports nothing from the app): lower case, white space runs as one space."""
     return re.sub(r"\s+", " ", str(text)).strip().lower()
@@ -324,11 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     ledger_path = a.ledger or (a.copy / "claude_spend.jsonl")
     ledger = None
     if ledger_path.is_file():
-        ledger = [
-            json.loads(line)
-            for line in ledger_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        ledger = read_ledger(ledger_path)
     if _has(conn, "agent_review_role"):
         print(report(conn, a.run))
     problems = check(conn, a.run, ledger)

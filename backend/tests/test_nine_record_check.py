@@ -274,3 +274,13 @@ def test_a_legacy_code_kind_cell_is_a_planted_fault():
         "unknown cell kind code" in p
         for p in chk._cell_problems(conn, "r", reads, calls)
     )
+
+
+def test_the_file_reader_pairs_a_reservation_with_its_settle_line(run):
+    """The real ledger holds a RESERVATION line and a SETTLE line per call: read raw, a call "matches 2 ledger lines" (the fault on the
+    first paid run); read by the app's own reader, it matches its settle line only and the record passes."""
+    path = Path(settings.claude_spend_log)
+    raw = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    assert any(e.get("reserved") for e in raw) and any(e.get("settles") for e in raw)  # the shape under test is really there
+    assert any("matches 2 ledger line" in p for p in problems(ledger=raw))  # what today's raw read did
+    assert problems(ledger=chk.read_ledger(path)) == []
