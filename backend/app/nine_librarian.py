@@ -17,6 +17,7 @@ Rules the output keeps:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -39,6 +40,8 @@ WHY_LIBRARIAN = "chosen by the librarian"
 #: how many titles the one model call may see, and how long a title is cut
 MAX_TITLES = 400
 TITLE_CHARS = 120
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -355,7 +358,8 @@ def extend_with_model(
         return reading
     try:
         returned = ask(titles)
-    except Exception:  # noqa: BLE001 - any failure of the call leaves the code-only list
+    except Exception as exc:  # noqa: BLE001 - any failure of the call leaves the code-only list
+        log.warning("librarian title call failed: %s", type(exc).__name__)
         return reading
     return apply_model_choice(reading, books, titles, returned or (), engine=engine)
 
