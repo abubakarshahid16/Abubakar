@@ -44,6 +44,15 @@ def _holds(decision: Mapping) -> dict:
     }
 
 
+def _book_fields(item: Mapping, ev: Mapping) -> dict:
+    """What the clause-quote check keeps on the stored line: the rule book, the page the rule row cites, and where code found the quote."""
+    return {
+        "standard_document_id": item.get("standard_document_id"),
+        "rule_page": item.get("rule_page"),
+        "clause_book": ev.get("clause_book"),
+    }
+
+
 class DecideMixin:
     # ---- per item
     def _tiered(self, item: dict) -> dict:
@@ -101,10 +110,16 @@ class DecideMixin:
         if not str(answer.get("clause_quote") or "").strip():
             return checks, None
         ok, got = pass_guards.judge(
-            self.books.book, item, answer.get("clause_quote"), self.clauses.source(held_ref), checks.clause
+            self.books.book,
+            item,
+            answer.get("clause_quote"),
+            self.clauses.source(held_ref),
+            checks.clause,
         )
         if checks.clause and not ok:
-            checks = dataclasses.replace(checks, clause=False, clause_why=got.why, clause_strong=False)
+            checks = dataclasses.replace(
+                checks, clause=False, clause_why=got.why, clause_strong=False
+            )
         return checks, got.to_json()
 
     def _gate(
@@ -295,10 +310,8 @@ class DecideMixin:
             "field_label_ai": label or None,
             "paper_figure": answer.get("paper_figure") or None,
             "clause_figure": answer.get("clause_figure") or None,
-            "standard_document_id": item.get("standard_document_id"),
-            "rule_page": item.get("rule_page"),
             "clause_quote_from": ev["held_kind"],
-            "clause_book": ev.get("clause_book"),
+            **_book_fields(item, ev),
             "reasoning": crs_lines.two_sentences(answer.get("reasoning")),
             "comment": words(g["comment"], crs_lines.MAX_COMMENT_WORDS),
             "paper_quote": answer.get("paper_quote") or None,

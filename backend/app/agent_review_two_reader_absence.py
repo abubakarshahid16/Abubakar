@@ -322,7 +322,13 @@ class AbsenceMixin:
             answer.get("clause_quote"), clause_text, whole
         )
         if clause_ok:  # c11: the second reader's clause quote is verified in the rule book's own pages too, not in the stored requirement
-            in_book, _got = pass_guards.judge(self.books.book, item, answer.get("clause_quote"), self.clauses.source(ref), True)
+            in_book, _got = pass_guards.judge(
+                self.books.book,
+                item,
+                answer.get("clause_quote"),
+                self.clauses.source(ref),
+                True,
+            )
             clause_ok, strong = in_book, strong and in_book
         paper_ok = verdict.check_paper_quote(
             answer.get("paper_quote"), answer.get("page"), texts

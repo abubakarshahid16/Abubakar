@@ -339,7 +339,12 @@ class Located:
     why: str | None = None
 
     def to_json(self) -> dict:
-        return {"found": self.found, "page": self.page, "where": self.where, "why": self.why}
+        return {
+            "found": self.found,
+            "page": self.page,
+            "where": self.where,
+            "why": self.why,
+        }
 
 
 def _joined(text: str) -> str:
@@ -351,7 +356,9 @@ class Book:
     """The stored page text of one rule book, folded once per form (a run asks for many quotes of a few books)."""
 
     def __init__(self, pages: Mapping[int, str]) -> None:
-        self.pages = {int(n): str(t or "") for n, t in pages.items() if str(t or "").strip()}
+        self.pages = {
+            int(n): str(t or "") for n, t in pages.items() if str(t or "").strip()
+        }
         self._plain: dict[int, str] = {}
         self._hyph: dict[int, str] = {}
 
@@ -377,7 +384,10 @@ def _over_break(plain: str, hyph: str, book: Book, n: int) -> bool:
     """The quote STARTS on page n and runs over the break into page n+1 (a quote that stands wholly on n+1 is not this)."""
     if n + 1 not in book.pages:
         return False
-    for q, first, second in ((plain, book.plain(n), book.plain(n + 1)), (hyph, book.hyph(n), book.hyph(n + 1))):
+    for q, first, second in (
+        (plain, book.plain(n), book.plain(n + 1)),
+        (hyph, book.hyph(n), book.hyph(n + 1)),
+    ):
         at = f"{first} {second}".find(q) if q else -1
         if 0 <= at < len(first) < at + len(q):
             return True
@@ -405,7 +415,9 @@ def locate(quote: Any, book: Book, page_hint: Any = None) -> Located:
     if not book.has_text():
         return Located(False, why=NOT_HELD)
     plain = _fold(text)
-    hyph = _fold(_joined(str(quote)))  # the same quote with a line-end hyphen joined; compared with the page joined the same way
+    hyph = _fold(
+        _joined(str(quote))
+    )  # the same quote with a line-end hyphen joined; compared with the page joined the same way
     hints = [p for p in _hints(page_hint) if p in book.pages]
     stated = hints[0] if hints else None
     for p in hints:
@@ -428,17 +440,29 @@ def locate(quote: Any, book: Book, page_hint: Any = None) -> Located:
 BOOK_OWN_SOURCES = frozenset({"clause_span", "table_page"})
 
 
-def judge(book_of: Callable[[Any], Book], item: Mapping, quote: Any, held_source: str | None, held_ok: bool) -> tuple[bool, Located]:
+def judge(
+    book_of: Callable[[Any], Book],
+    item: Mapping,
+    quote: Any,
+    held_source: str | None,
+    held_ok: bool,
+) -> tuple[bool, Located]:
     """(verified, where) for the clause quote of one item. `held_ok`: the quote stands in the text the reader was given. A quote is
     verified when it stands in the book's own stored pages (`locate`; the true page is returned). The clause text cut from the book by
     code (`BOOK_OWN_SOURCES`) is the book's own text too: a quote in it that no single page holds (a long clause) stands on the clause's
     start page. The stored requirement row is never a check."""
     doc = item.get("standard_document_id")
-    hints = [p for p in (item.get("clause_page"), item.get("rule_page")) if isinstance(p, int) and not isinstance(p, bool)]
+    hints = [
+        p
+        for p in (item.get("clause_page"), item.get("rule_page"))
+        if isinstance(p, int) and not isinstance(p, bool)
+    ]
     got = locate(quote, book_of(doc), hints)
     if got.found:
         return True, got
     if held_ok and held_source in BOOK_OWN_SOURCES:
         page = hints[0] if hints else None
-        return True, Located(True, page, WHERE_STATED, "read from the clause text cut from the book")
+        return True, Located(
+            True, page, WHERE_STATED, "read from the clause text cut from the book"
+        )
     return False, got
