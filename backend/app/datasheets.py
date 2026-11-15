@@ -2216,6 +2216,16 @@ def facts_reader_stale(document_id: str) -> bool:
     return any(r["extractor_version"] != current for r in rows)
 
 
+def _page_text_sha(document_id: str, page: int | None) -> str | None:
+    """The checksum of the stored text of one page (None when there is none): what a fact read from it remembers, so later code can tell that the page changed."""
+    import hashlib
+
+    if page is None:
+        return None
+    row = connect().execute("SELECT text FROM pages WHERE document_id = ? AND page_no = ?", (document_id, page)).fetchone()
+    return hashlib.sha256((row[0] or "").encode("utf-8")).hexdigest() if row and row[0] else None
+
+
 def create_fact(
     *, submittal_document_id: str, chunk_id: str, field_label: str,
     raw_value: str | None, page: int | None, section: str | None = None,
@@ -2315,6 +2325,7 @@ def create_fact(
         "extractor_version": extractor_version,
         "input_hash": input_hash,
         "value_column": value_column,
+        "page_text_sha": _page_text_sha(submittal_document_id, page if page is not None else chunk["page_start"]),
         # B4: where on the page the value sits (JSON), when the reader knows -
         # the geometry reader's boxes and table cell. NULL otherwise.
         "bbox": bbox,
@@ -2330,7 +2341,7 @@ def create_fact(
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
             value_min, value_max, equipment_tag, validation_state,
-            extractor_version, input_hash, value_column, bbox, value_note)
+            extractor_version, input_hash, value_column, bbox, value_note, page_text_sha)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
@@ -2338,7 +2349,7 @@ def create_fact(
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
                    :equipment_tag, :validation_state,
-                   :extractor_version, :input_hash, :value_column, :bbox, :value_note)""")
+                   :extractor_version, :input_hash, :value_column, :bbox, :value_note, :page_text_sha)""")
     if commit:
         with conn:
             conn.execute(insert, row)

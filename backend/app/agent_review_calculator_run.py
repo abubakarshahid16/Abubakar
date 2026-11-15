@@ -26,6 +26,7 @@ from . import (
     agent_review_calculator as calc,
 )
 from . import agent_review_calculator_cells as cells_mod
+from . import agent_review_calculator_reader as reader_mod
 from . import agent_review_pass_guards as guards
 from . import (
     agent_review_wording as wording,
@@ -214,10 +215,26 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
 
     if not (kind.known and kind.kind == "datasheet"):
         return [], _note("the paper is not a datasheet")
-    raw = datasheets.list_facts(submittal, allowed_document_ids=frozenset({submittal}))
-    if not raw:
-        return [], _note("no datasheet value is stored for this paper yet")
+    stored_facts = datasheets.list_facts(
+        submittal, allowed_document_ids=frozenset({submittal})
+    )
     pages, tables = DbPages(conn, submittal).pages, _tables(conn, submittal)
+    # the reader comes first: only values of the paper's CURRENT text are compared; a page with none is read before the calculator runs
+    current, stale = reader_mod.split_current(stored_facts, pages)
+    read_facts, read_note = reader_mod.read_missing(submittal, pages, current)
+    raw = current + read_facts
+    if not raw:
+        why = (
+            "no datasheet value of the paper's current text is stored"
+            if stored_facts
+            else "no datasheet value is stored for this paper yet"
+        )
+        return [], {
+            **_note(why),
+            "stale_values": stale,
+            "stale_note": f"{stale} {reader_mod.STALE_WORDS}" if stale else None,
+            "reader_first": read_note,
+        }
     settled = [
         cells_mod.settle(f, raw, tables) for f in raw
     ]  # a hold that was only other tags' values is lifted, in words
@@ -251,6 +268,9 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
         "ran": True,
         "lines": len(made),
         "facts": len(facts),
+        "stale_values": stale,
+        "stale_note": f"{stale} {reader_mod.STALE_WORDS}" if stale else None,
+        "reader_first": read_note,
         "groups": len(cells_mod.groups(facts)),
         "holds_lifted": sum(lifted.values()),
         "rules_considered": considered,

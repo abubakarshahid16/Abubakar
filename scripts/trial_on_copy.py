@@ -225,9 +225,10 @@ def apply_settings(cfg: TrialConfig) -> dict:
         settings.standards_reader_enabled = False
         settings.standards_reader_allow_public_egress = False
         settings.anthropic_api_key = ""
-        settings.ollama_url = (
-            "http://127.0.0.1:9"  # a dead address: no local model can answer
-        )
+        if not cfg.allow_local_models:  # `--allow-local-models`: the local reader (DATASHEET_AI_READER=ollama) may answer; Claude stays closed
+            settings.ollama_url = (
+                "http://127.0.0.1:9"  # a dead address: no local model can answer
+            )
         for name in ("ANTHROPIC_API_KEY",):
             os.environ.pop(name, None)
         os.environ["REASONING_PROVIDER"] = "ollama"
