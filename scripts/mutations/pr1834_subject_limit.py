@@ -1,6 +1,6 @@
-"""PR #1832 (owner, 16 Nov 2026: the corrosion allowance of a vessel is a code-proven Pass): "The maximum/minimum <subject> shall be <value> <unit>" is a number rule
+"""PR #1834 (owner, 16 Nov 2026: the corrosion allowance of a vessel is a code-proven Pass): "The maximum/minimum <subject> shall be <value> <unit>" is a number rule
 and its proof is asked of the clause quote as the limit is PRINTED. Each entry deletes one control; `tests/test_ca_subject_limit.py` must notice.
-Ids M1832-01 onwards (CLAUDE.md rule 12); the PR number is provisional until the PR is opened."""
+Ids M1834-01 onwards (CLAUDE.md rule 12)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ _TAGS = ("honesty", "critical", "numbers")
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
-        id="M1832-01",
-        phase=1832,
+        id="M1834-01",
+        phase=1834,
         description="the extractor does not read the shape: the clause stays a statement and nothing is compared",
         path=APP / "requirements_3b.py",
         anchor="        return own_value_limit.parse(sentence) or own_value_limit.subject_be(sentence) or own_value_limit.trailing(sentence)\n",
@@ -22,8 +22,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-02",
-        phase=1832,
+        id="M1834-02",
+        phase=1834,
         description="a registered field NAME that starts with a comparator word is read as a limit on something",
         path=APP / "own_value_limit.py",
         anchor='    if datasheet_roles.roles_of(\n        f"{match.group(\'cmp\')} {match.group(\'ref\')}", _role_rules()\n    ):\n',
@@ -33,8 +33,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-03",
-        phase=1832,
+        id="M1834-03",
+        phase=1834,
         description="the proof asks the clause quote for the normalised limit (3200 um), not the limit as printed (3.2 mm)",
         path=APP / "agent_review_calculator.py",
         anchor='        "raw_value": proof.stored_text(\n            item.get("raw_value")\n            if item.get("raw_value") not in (None, "") and item.get("raw_unit")\n            else value\n        )\n        or None,\n',
@@ -44,8 +44,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-04",
-        phase=1832,
+        id="M1834-04",
+        phase=1834,
         description="the direction of the shape is not read from the clause's own comparator word: no direction is shown",
         path=APP / "agent_review_code_proof.py",
         anchor='        got = _subject_be_sense(str(quote or ""), numbers[0])\n',
@@ -55,8 +55,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-05",
-        phase=1832,
+        id="M1834-05",
+        phase=1834,
         description="a dotted abbreviation ends the sentence that names the subject",
         path=APP / "agent_review_code_proof.py",
         anchor='_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])(?<!\\b[A-Za-z]\\.[A-Za-z]\\.)\\s+|\\n+")\n',
@@ -66,8 +66,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-06",
-        phase=1832,
+        id="M1834-06",
+        phase=1834,
         description="a field spelling written without full stops does not match the text written with them (C.A.)",
         path=APP / "agent_review_pass_guards.py",
         anchor='            or re.search(rf"(?<!\\w){re.escape(sp)}(?!\\w)", undotted)\n',
@@ -77,8 +77,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-07",
-        phase=1832,
+        id="M1834-07",
+        phase=1834,
         description="the exit does not ask again whether the clause and the paper's label qualify the field the same way (external / internal)",
         path=APP / "agent_review_code_proof.py",
         anchor='        and qualifier_reason(\n            line.get("rule_field"), req, line.get("clause_quote"), line.get("field")\n        )\n        is None\n',
@@ -88,8 +88,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-08",
-        phase=1832,
+        id="M1834-08",
+        phase=1834,
         description="the calculator does not compare the qualifier of the field's name in the clause with the paper's label before it proves a line",
         path=APP / "agent_review_calculator.py",
         anchor='        and proof.qualifier_reason(\n            base["rule_field"], base["proof_requirement"], base["clause_quote"], label\n        )\n        is None\n',
@@ -99,8 +99,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-09",
-        phase=1832,
+        id="M1834-09",
+        phase=1834,
         description="the two lines of one wrapped text value are different values again (a conflict that holds every verdict on the field)",
         path=APP / "datasheets.py",
         anchor='    return _fold(raw_value) == _fold(fact["field_value"]) or _wrapped_continuation(raw_value, fact["field_value"])\n',
@@ -110,8 +110,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=_TAGS,
     ),
     Mutation(
-        id="M1832-10",
-        phase=1832,
+        id="M1834-10",
+        phase=1834,
         description="a wrapped reading that differs by a deferred-value marker, a bound or another figure is taken as the same value",
         path=APP / "datasheets.py",
         anchor='    return not (blank_markers.classify(" ".join(extra))[0] or any(w in _QUALIFIER_WORDS or (figures and any(ch.isdigit() for ch in w)) for w in extra))\n',
