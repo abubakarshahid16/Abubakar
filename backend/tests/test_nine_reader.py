@@ -699,6 +699,13 @@ def test_a_page_whose_sent_text_is_not_the_text_the_quotes_would_be_checked_agai
     assert res.sheet.facts == ()
 
 
+def _stored(res):
+    """The digest is built AFTER the sheet is stored: the seam looks each fact id up among this run's stored facts."""
+    with db.connect() as conn:
+        nine_facts.store(conn, res.sheet, res.produced)
+    return res
+
+
 def _send_block(block, tx=None):
     tx = tx or FakeTransport(["{}"])
     template = nine_call.template(
@@ -712,6 +719,7 @@ def _send_block(block, tx=None):
 
 def test_the_digest_is_derived_blocks_the_seam_accepts_cell_by_cell():
     res = read({1: PAGE1})
+    _stored(res)
     blocks, counts = nine_facts.digest_blocks(res.sheet, {1: PAGE1})
     assert counts == {"rows_tagged": 0, "rows_untagged": 2, "left_out": 0}
     assert [b.name for b in blocks] == ["fact_sheet_untagged"] and blocks[
@@ -732,6 +740,7 @@ def test_the_digest_carries_conflicts_as_conflict_and_leaves_out_what_the_page_d
             stored("Design pressure", "10", "barg", quote="Design pressure: 12 barg")
         ],
     )
+    _stored(res)
     blocks, counts = nine_facts.digest_blocks(res.sheet, {1: PAGE1})
     rows = [r for b in blocks for r in b.items]
     assert (
@@ -762,6 +771,7 @@ def test_a_tag_is_document_text_a_printed_tag_is_a_source_cell_an_unprinted_one_
             ),
         ],
     )
+    _stored(res)
     blocks, _ = nine_facts.digest_blocks(res.sheet, {1: page})
     by = {b.name: b for b in blocks}
     assert [r[4] for r in by["fact_sheet"].items] == ["T1, T2"] and by[
@@ -778,7 +788,7 @@ def test_a_tag_that_is_not_on_the_paper_cannot_be_a_source_cell_the_seam_drops_t
         kinds=nine_facts.TAGGED_KINDS,
         items=(("f:1:1", "design_pressure", "12 barg", "1", "ZZ-999", "agreed"),),
     )
-    read({1: PAGE1})
+    _stored(read({1: PAGE1}))
     ans, _ = _send_block(bad)
     assert (not ans.ok and ans.error_code == "refused") or ans.state == "refused"
 
@@ -789,3 +799,20 @@ def test_no_row_gives_no_block():
         [],
         {"rows_tagged": 0, "rows_untagged": 0, "left_out": 0},
     )
+
+
+def test_a_fact_id_nobody_stored_is_not_an_app_id_the_seam_drops_the_block():
+    res = read({1: PAGE1})  # NOT stored: the lookup finds no fact of this run
+    blocks, _ = nine_facts.digest_blocks(res.sheet, {1: PAGE1})
+    ans, _tx = _send_block(blocks[0])
+    assert not ans.ok and ans.not_sent == (
+        ("derived:fact_sheet_untagged", "cell_wrong_kind"),
+    )
+    _stored(res)
+    assert _send_block(blocks[0])[0].ok
+
+
+def test_a_role_key_longer_than_the_vocabulary_limit_loses_its_underscores_by_one_rule():
+    assert nine_facts._short("design_pressure") == "design_pressure"
+    assert nine_facts._short("superimposed_back_pressure") == "superimposedbackpressure"
+    assert nine_facts._short("x" * 25) is None
