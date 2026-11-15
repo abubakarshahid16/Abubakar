@@ -337,3 +337,27 @@ def test_a_proven_line_whose_clause_is_changed_to_another_kind_of_the_field_is_r
     assert line["verdict"] in ("Pass", "Fail") and proof.line_proven(line)
     changed = {**line, "clause_quote": same.replace("external", "internal")}
     assert not proof.line_proven(changed)
+
+
+# ---- the "c.a." spelling of the corrosion allowance collides with no other field ---------------------------------------------------------------------------
+
+
+def test_no_other_registered_field_carries_the_two_letter_dotted_abbreviation():
+    """ "c.a." was added to the corrosion allowance's spellings. A two-letter dotted abbreviation is the most collision-prone spelling there is, so: no other field
+    group lists a spelling of two single letters, and the text "c.a." carries the words of no registry field except the corrosion allowance."""
+    from app import agent_review_absence as absence
+    from app import agent_review_pass_guards as guards
+
+    two_letters = [
+        (group, sp)
+        for group, spellings in absence._synonym_groups().items()
+        for sp in spellings
+        if len(sp.replace(" ", "")) <= 2 and " " in sp
+    ]
+    assert two_letters == [("corrosion allowance", "c a")]
+    carriers = [
+        role
+        for role, words in guards._all_fields()
+        if guards._hit("the maximum c.a. shall be", words)
+    ]
+    assert carriers == ["corrosion_allowance"]
