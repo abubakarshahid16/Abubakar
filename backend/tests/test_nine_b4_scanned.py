@@ -6,9 +6,13 @@ from __future__ import annotations
 
 import json
 
-from app import db, nine_call, review_shown
+from app import db, nine_call, nine_facts, review_shown
 from app.nine_call import FakeTransport
-from tests.test_nine_b4_seam import NOW, reply, world  # noqa: F401  (the invented seam world, autouse)
+from tests.test_nine_b4_seam import (  # noqa: F401  (the invented seam world, autouse)
+    NOW,
+    reply,
+    world,
+)
 
 TITLE = "Scope of this standard"
 Q = nine_call.template("nine_b4_scanned_q", "List the chapters.")
@@ -280,7 +284,7 @@ def test_a_digest_over_one_block_carries_only_the_facts_of_the_chapters_fields_e
                 )
         rows = _digest_rows_of(prefix(i, _g))
         assert all(
-            r[1] == "set_pressure" for r in rows
+            r[1] == nine_facts.ROLE_CODES["set_pressure"] for r in rows
         )  # only the fields this chapter's book is asked about
         sent |= {r[0] for r in rows}
     c = ctx.store["digest_counts"]
@@ -338,3 +342,328 @@ def test_the_reviewer_record_names_what_the_gate_held_not_a_chapter_group_that_w
         "ran",
         None,
     )
+
+
+# ---------------------------------------------------------------- field codes: no ordinary phrase goes to the held-text guard (run 2: 51 of 94 rows tripped it)
+
+
+def test_every_field_code_is_short_stable_unique_and_in_the_legend():
+    import re
+
+    codes = nine_facts.ROLE_CODES
+    assert codes and len(set(codes.values())) == len(codes)
+    assert all(
+        re.fullmatch(r"[a-z0-9]+", c) and len(c) < 12 for c in codes.values()
+    )  # under the guard's 12 characters
+    assert codes["set_pressure"] == nine_facts.role_code(
+        "set_pressure"
+    )  # stable: derived from the name alone
+    legend = nine_facts.legend().splitlines()
+    assert (
+        len(legend) == len(codes)
+        and f"{codes['set_pressure']} = set pressure" in legend
+    )
+    assert nine_facts.codes_of(["set_pressure", "no_such_role"]) == {
+        codes["set_pressure"]
+    }
+
+
+def test_a_digest_row_with_a_field_code_passes_the_held_text_guard_and_a_held_phrase_still_trips_it():
+    from app import nine_support  # noqa: F401
+
+    sheet, pages = _sheet(6, pages_n=1)
+    blocks, _c = nine_facts.digest_blocks(sheet, pages)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = 'paper'")
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('paper', 1, ?, ?, 0)",
+            (pages[1], len(pages[1])),
+        )
+        nine_facts.store(conn, sheet)
+    ok, _t = _ask_blocks(blocks)
+    assert (
+        ok.ok
+        and ok.not_sent == ()
+        and any(r.document_kind == "review_record" for r in ok.reads)
+    )
+    from tests.test_nine_b4_seam import HELD_RULE
+
+    bad = nine_call.Block(
+        "review_record",
+        name="fact_sheet",
+        sources=("paper",),
+        kinds=("source",),
+        items=((HELD_RULE,),),
+    )
+    held, _t2 = _ask_blocks([nine_call.Block("paper", "paper", (1,)), bad])
+    assert held.not_sent == (
+        ("derived:fact_sheet", "text_from_held_document"),
+    )  # the guard is NOT exempted: a held-document phrase still drops the block
+
+
+def _ask_blocks(blocks):
+    t = FakeTransport([reply()])
+    first = (
+        [nine_call.Block("paper", "paper", (1,))]
+        if not any(b.document_kind == "paper" for b in blocks)
+        else []
+    )
+    ans = nine_call.ask(
+        "run1", 4, [*first, *blocks], (Q, {}), send=t, env=FakeTransport.ENV
+    )
+    return ans, t
+
+
+# ---------------------------------------------------------------- the blank fields: "printed, blank" (rows 52 and 53 of the valve: spring and bellows material)
+
+
+def _sheet_with_blanks():
+    from app import nine_contract as nc
+
+    facts = []
+    for i, (role, value) in enumerate(
+        [
+            ("set_pressure", "150.5"),
+            ("spring_material", None),
+            ("spring_material", None),
+            ("bellows_material", None),
+            (None, None),
+        ]
+    ):
+        facts.append(
+            nc.Fact(
+                f"f:1:{i}",
+                1,
+                "L",
+                role,
+                value,
+                None,
+                "L",
+                True,
+                None,
+                None,
+                "stored",
+                "stored_only",
+                None,
+                "m",
+            )
+        )
+    sheet = nc.FactSheet(
+        "run1",
+        "paper",
+        1,
+        (nc.PageRead(1, True, False, None),),
+        tuple(facts),
+        0,
+        "claude",
+        ("m",),
+    )
+    return sheet, {1: "L 150.5 barg\nL\n"}
+
+
+def test_blank_fields_go_to_the_reviewer_as_one_line_list_of_codes_and_pages_without_a_value():
+    sheet, pages = _sheet_with_blanks()
+    rows, left = nine_facts.blank_rows(sheet)
+    codes = nine_facts.ROLE_CODES
+    assert [(r[1], r[2]) for r in rows] == [
+        (codes["spring_material"], "1"),
+        (codes["bellows_material"], "1"),
+    ]  # one row per field and page, no value
+    assert dict(left) == {"blank of a field the registry does not name": 1}
+    block = nine_facts.blank_block("paper", rows)
+    assert block.name == "fact_sheet_blank" and all(len(r) == 3 for r in block.items)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = 'paper'")
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('paper', 1, ?, ?, 0)",
+            (pages[1], len(pages[1])),
+        )
+        nine_facts.store(conn, sheet)
+    ans, _t = _ask_blocks([block])
+    assert (
+        ans.ok
+        and ans.not_sent == ()
+        and any(
+            r.chapter_id == "fact_sheet_blank"
+            for r in ans.reads
+            if r.document_kind == "review_record"
+        )
+    )
+
+
+def test_the_prefix_carries_the_blank_block_and_narrows_it_to_the_chapters_fields_when_the_digest_is_split():
+    from app import nine_support
+
+    sheet, pages = _sheet_with_blanks()
+    ctx = _ctx(sheet, ["spring_material"])
+    prefix, groups, _n = nine_support._prefix(ctx, pages, _group())
+    names = [b.name for b in prefix if b.document_kind == "review_record"]
+    assert "fact_sheet_blank" in names and ctx.store["digest_counts"]["rows_blank"] == 2
+
+
+# ---------------------------------------------------------------- the per-request ceiling (provisional, from three groups of run 2)
+
+
+def test_a_request_over_the_ceiling_is_refused_before_anything_is_sent():
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = 'paper'")
+        big = "word " * (nine_call.MAX_REQUEST_CHARS // 5 + 1000)
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('paper', 1, ?, ?, 0)",
+            (big, len(big)),
+        )
+    ans, t = _ask_blocks([])
+    assert (
+        not ans.ok and ans.error_code == nine_call.REQUEST_TOO_LARGE and t.bodies == []
+    )
+
+
+def test_pieces_of_whole_pages_never_pass_the_limit_and_cover_the_range_in_order():
+    from app import nine_support
+
+    pages = dict.fromkeys(range(1, 9), "x" * 100)  # 8 pages of 100 characters, joined by a line break: 807 characters
+    cuts = nine_support._page_cuts(tuple(range(1, 9)), pages, 0, 807, 250)
+    assert [c[0] for c in cuts] == [(1, 2), (3, 4), (5, 6), (7, 8)]
+    assert (
+        all(hi - lo <= 250 for _p, lo, hi in cuts)
+        and cuts[0][1] == 0
+        and cuts[-1][1:] == (0, 201)
+    )  # offsets are relative to each piece's first page
+    one = nine_support._page_cuts((1, 2), {1: "a" * 500, 2: "b" * 10}, 0, 511, 250)
+    assert [c[0] for c in one] == [
+        (1,),
+        (2,),
+    ]  # a page alone over the limit is a piece of its own
+
+
+def test_chapters_are_packed_by_characters_up_to_the_budget_and_an_oversize_part_goes_alone():
+    from app import nine_reviewer as rev
+
+    parts = [
+        rev.ChapterText("b", str(i), 1, 1, (i,), n)
+        for i, n in enumerate([30_000, 30_000, 30_000, 90_000, 10_000], 1)
+    ]
+    groups = rev.group_chapters(parts, limit_chars=60_000)
+    assert [[c.chars for c in g] for g in groups] == [
+        [30_000, 30_000],
+        [30_000],
+        [90_000],
+        [10_000],
+    ]
+
+
+def test_the_chapter_budget_is_the_ceiling_less_what_every_request_already_carries():
+    from app import nine_support
+
+    sheet, pages = _sheet(60)
+    ctx = _ctx(sheet, ["set_pressure"])
+    budget = nine_support.chapter_budget(ctx, pages)
+    shared = sum(len(t) for t in pages.values())
+    assert (
+        nine_call.MAX_REQUEST_CHARS
+        - shared
+        - 30_000
+        - nine_support.REQUEST_OVERHEAD_CHARS
+        <= budget
+        < nine_call.MAX_REQUEST_CHARS - shared
+    )
+
+
+def test_a_cut_piece_slices_its_own_pages_so_what_is_sent_is_exactly_the_range():
+    from app import nine_support
+
+    pages = {1: "a" * 100, 2: "b" * 100, 3: "c" * 100}
+    joined = "\n".join(pages[n] for n in (1, 2, 3))
+    cuts = nine_support._page_cuts((1, 2, 3), pages, 50, 250, 120)
+    got = "".join(("\n".join(pages[n] for n in pg))[lo:hi] for pg, lo, hi in cuts)
+    assert got == joined[50:250].replace(
+        "\n", ""
+    )  # the pieces together are the range, each cut from its own pages
+    assert all(hi - lo <= 120 for _p, lo, hi in cuts)
+
+
+# ---------------------------------------------------------------- the title list: a heading that is also in a held document is left out, the rest goes
+
+
+def test_a_title_that_also_occurs_in_a_held_document_is_left_out_and_counted_and_the_rest_of_the_list_goes():
+    from app import nine_librarian
+    from tests.test_nine_b4_seam import HELD_RULE
+
+    _scan()
+    ask = nine_librarian.seam_ask(
+        "run1", send=FakeTransport([reply()]), env=FakeTransport.ENV
+    )
+    got = ask(
+        [("scan", "1", TITLE), ("scan", "2", HELD_RULE[:40])]
+    )  # the second heading is words of the held document ("held")
+    assert (
+        ask.left_out == 1 and nine_librarian.model_step_refusal(ask) is None
+    )  # one row left out, the call ran with the other
+    assert got == []  # the stub answered with no chapters
+
+
+def test_screen_titles_leaves_out_only_rows_that_hit_a_held_document():
+    from app import nine_librarian
+    from tests.test_nine_b4_seam import HELD_RULE
+
+    _scan()
+    keep, left = nine_librarian.screen_titles(
+        "run1",
+        [("scan", "1", TITLE), ("scan", "2", HELD_RULE[:40]), ("scan", "3", "short")],
+    )
+    assert [t[1] for t in keep] == [
+        "1",
+        "3",
+    ] and left == 1  # a heading under 12 characters is not text for the guard
+
+
+# ---------------------------------------------------------------- the held-text guard reads a scanned held document through its recognised text
+
+
+def test_the_held_text_guard_sees_the_recognised_text_of_a_scanned_held_document():
+    from app import nine_record
+
+    _scan()  # the scan has no stored text; its words are in page_ocr only. "scan" is NOT on the run's list in this check: hold it back
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_shown_lists SET documents_json = ? WHERE run_id = 'run1'",
+            (json.dumps(["paper", "book"]),),
+        )
+        assert nine_record.held_text_hits(conn, "run1", [TITLE]) == {TITLE}
+        assert (
+            nine_record.held_text_hits(
+                conn, "run1", ["words that no document holds anywhere at all"]
+            )
+            == set()
+        )
+
+
+def test_a_chapter_part_over_the_budget_is_cut_into_numbered_pieces_of_whole_pages():
+    from types import SimpleNamespace as NS
+
+    from app import nine_support
+
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at) VALUES ('bk','bk.pdf','b',1,'bk.pdf','ready',4,?)",
+            (NOW,),
+        )
+        for n in range(1, 5):
+            conn.execute(
+                "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('bk', ?, ?, 100, 0)",
+                (n, chr(96 + n) * 100),
+            )
+    joined = "\n".join(chr(96 + n) * 100 for n in range(1, 5))
+    part = NS(page_from=1, page_to=4, part_no=1, part_of=1)
+    chosen = [("bk", NS(chapter_id="7", parts=[part]))]
+    cuts = {"bk": NS(text=lambda _c, _p: joined)}
+    whole = nine_support._chapter_texts(chosen, cuts)
+    assert len(whole) == 1 and whole[0].chars == len(joined)
+    cut = nine_support._chapter_texts(chosen, cuts, max_chars=250)
+    assert [(c.part_no, c.part_of, c.pages) for c in cut] == [
+        (1, 2, (1, 2)),
+        (2, 2, (3, 4)),
+    ]
+    assert (
+        all(c.chars <= 250 for c in cut) and cut[1].char_from == 0
+    )  # a piece's range is relative to its own first page

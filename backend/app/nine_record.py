@@ -524,7 +524,10 @@ def _run_facts(conn, run_id: str):
         ).fetchone()
         paper = (row["submittal_document_id"] if row else "") or ""
     except sqlite3.Error as exc:
-        log.warning("nine run facts: a read failed (%s); the safe default stands", type(exc).__name__)  # nothing read: the safe defaults below stand
+        log.warning(
+            "nine run facts: a read failed (%s); the safe default stands",
+            type(exc).__name__,
+        )  # nothing read: the safe defaults below stand
     choice = "automatic"
     try:
         row = conn.execute(
@@ -533,7 +536,10 @@ def _run_facts(conn, run_id: str):
         if row and row["choice"] in ("automatic", "claude", "local"):
             choice = row["choice"]
     except sqlite3.Error as exc:
-        log.warning("nine run facts: a read failed (%s); the safe default stands", type(exc).__name__)  # nothing read: the safe defaults below stand
+        log.warning(
+            "nine run facts: a read failed (%s); the safe default stands",
+            type(exc).__name__,
+        )  # nothing read: the safe defaults below stand
     shown = None
     try:
         from . import review_shown
@@ -541,7 +547,10 @@ def _run_facts(conn, run_id: str):
         got = review_shown.shown_ids(conn, run_id)
         shown = None if got is None else tuple(sorted(got))
     except sqlite3.Error as exc:
-        log.warning("nine run facts: a read failed (%s); the safe default stands", type(exc).__name__)  # nothing read: the safe defaults below stand
+        log.warning(
+            "nine run facts: a read failed (%s); the safe default stands",
+            type(exc).__name__,
+        )  # nothing read: the safe defaults below stand
     return paper, choice, shown
 
 
@@ -655,6 +664,19 @@ def reset_held_cache() -> None:
     _HELD_CACHE.clear()
 
 
+def _refused_texts(conn, refused: set[str]) -> list[str]:
+    """The folded text, page by page, of every refused document, read the way a stored block of it would be (`read_book`: the stored page text and, for a
+    page with none, its recognised text). A scanned held document has no stored text at all: reading the `pages` table alone would see nothing of it."""
+    from . import agent_review_standards
+
+    out: list[str] = []
+    for doc in sorted(refused):
+        for text in agent_review_standards.read_book(conn, doc).pages.values():
+            if str(text or "").strip():
+                out.append(hfold(text))
+    return out
+
+
 def _held_index(conn, run_id: str) -> _HeldIndex | None:
     """The index of the refused documents of this run, cached per run for five minutes and while the stored pages and the run's shown
     list stay as they were."""
@@ -665,12 +687,18 @@ def _held_index(conn, run_id: str) -> _HeldIndex | None:
     )
     pages = conn.execute("SELECT COUNT(*), MAX(page_no) FROM pages").fetchone()
     try:
+        ocr = conn.execute(
+            "SELECT COUNT(*) FROM page_ocr WHERE error IS NULL"
+        ).fetchone()[0]
+    except sqlite3.Error:
+        ocr = 0
+    try:
         listed = conn.execute(
             "SELECT documents_json FROM review_shown_lists WHERE run_id = ?", (run_id,)
         ).fetchone()
     except sqlite3.Error:
         listed = None
-    key = (path, run_id, pages[0], pages[1], listed[0] if listed else None)
+    key = (path, run_id, pages[0], pages[1], ocr, listed[0] if listed else None)
     hit = _HELD_CACHE.get(run_id)
     if hit and hit[0] == key and time.monotonic() - hit[1] < _HELD_TTL_SECONDS:
         return hit[2]
@@ -678,11 +706,7 @@ def _held_index(conn, run_id: str) -> _HeldIndex | None:
     refused = set(refused_documents(run_id, docs))
     index = None
     if refused:
-        texts = [
-            hfold(r["text"])
-            for r in conn.execute("SELECT document_id, text FROM pages")
-            if r["document_id"] in refused
-        ]
+        texts = _refused_texts(conn, refused)
         index = _HeldIndex(texts)
     _HELD_CACHE.clear()
     _HELD_CACHE[run_id] = (key, time.monotonic(), index)
@@ -747,9 +771,7 @@ def _counts_only(produced: dict) -> dict:
     for key, value in produced.items():
         if not isinstance(key, str) or len(key) > MAX_STRING:
             raise ValueError("a produced key is a short name")
-        if isinstance(value, bool) or value is None or isinstance(value, (int, float)):
-            out[key] = value
-        elif isinstance(value, str) and len(value) <= MAX_STRING:
+        if isinstance(value, bool) or value is None or isinstance(value, (int, float)) or (isinstance(value, str) and len(value) <= MAX_STRING):
             out[key] = value
         elif isinstance(value, (list, tuple)) and all(
             isinstance(v, (int, float)) or (isinstance(v, str) and len(v) <= MAX_STRING)

@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import nine_call, nine_findings
+from . import nine_call, nine_facts, nine_findings
 from .nine_contract import RawFinding
 
 ROLE_NO = 4
@@ -53,7 +53,10 @@ SYSTEM = (
     "number with its unit, taken from inside your two quotes; code compares the numbers, not you. issue: at most 25 words. "
     "reasoning: at most two plain sentences. comment: one sentence for the contractor, without your reasoning. When the requirement "
     "holds a condition (a service, 'when', 'where', 'if', 'unless'), a met also needs condition_quote and condition_page. "
-    "fact_ids: the ids of the digest values you used. Never state confidence. If you find nothing, return an empty list."
+    "fact_ids: the ids of the digest values you used. Never state confidence. If you find nothing, return an empty list. "
+    "The block fact_sheet_blank lists the fields the paper prints and leaves EMPTY (field code and page, no value): a requirement on such a field is "
+    "not stated by the paper. In the digest each field is a short code (the second column of a row); the codes are the app's own, one per line as code = field name:\n"
+    + nine_facts.legend()
 )
 ANSWER_SHAPE = (
     'Reply with ONE JSON object and nothing else: {"findings": [{"issue": "...", "field_label": "the field name as printed on the '
@@ -113,15 +116,19 @@ def estimate_tokens(chars: int) -> int:
 
 
 def group_chapters(
-    chapters: Iterable[ChapterText], limit: int = GROUP_TOKENS
+    chapters: Iterable[ChapterText],
+    limit: int = GROUP_TOKENS,
+    limit_chars: int | None = None,
 ) -> list[list[ChapterText]]:
-    """Pack chapters into calls in their reading order (the librarian's rank): a call holds at most `limit` tokens of chapter text; one part
-    that is alone over the limit still goes alone (the chapter cutter keeps parts under it)."""
+    """Pack chapters into calls in their reading order (the librarian's rank). With `limit_chars` a call holds at most that many CHARACTERS of chapter
+    text (the per-request ceiling less what every request already carries); otherwise at most `limit` tokens. One part that is alone over the limit still
+    goes alone (the caller cuts parts to the ceiling first: `nine_support._chapter_texts`)."""
     groups: list[list[ChapterText]] = []
     size = 0
     for c in chapters:
-        need = estimate_tokens(c.chars)
-        if not groups or size + need > limit:
+        need = c.chars if limit_chars is not None else estimate_tokens(c.chars)
+        cap = limit_chars if limit_chars is not None else limit
+        if not groups or size + need > cap:
             groups.append([])
             size = 0
         groups[-1].append(c)

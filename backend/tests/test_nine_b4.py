@@ -1213,3 +1213,62 @@ def test_the_same_sentence_matches_when_the_clause_number_or_the_rule_page_agree
         .item["item_id"]
         .startswith("F-")
     )  # no headings: the number is unchecked, no page match
+
+
+# ---------------------------------------------------------------- the book is decided by code (run 2 of the valve: all 14 findings failed on this)
+
+
+def _two_books():
+    return books_of(**{BOOK: {1: RULE_A}, OTHER: {1: FILL}}), sent(
+        **{BOOK: {1}, OTHER: {1}}
+    )
+
+
+def test_a_book_id_the_model_invents_is_ignored_and_the_quote_is_searched_in_the_books_of_the_call():
+    books, call = _two_books()
+    for named in ("SAES-J-600", "doc_not_in_this_call", "", None):
+        c = nf.check_raw(raw(book_id=named), call, PAPER, books)
+        assert (c.clause_ok, c.book_id) == (True, BOOK), (
+            named
+        )  # found in exactly one book of the call: that is the book
+
+
+def test_a_quote_in_no_book_of_the_call_or_in_two_is_not_verified_with_a_reason():
+    books, call = _two_books()
+    none = nf.check_raw(
+        raw(
+            book_id="x",
+            clause_quote="A sentence that no page of any book of this call holds at all.",
+        ),
+        call,
+        PAPER,
+        books,
+    )
+    assert not none.clause_ok and none.clause_why
+    both = books_of(**{BOOK: {1: RULE_A}, OTHER: {1: RULE_A}})
+    two = nf.check_raw(raw(book_id="x"), sent(**{BOOK: {1}, OTHER: {1}}), PAPER, both)
+    assert not two.clause_ok and two.clause_why == nf.CLAUSE_AMBIGUOUS
+    # a book the call did not carry is never searched, whatever the model named
+    outside = nf.check_raw(
+        raw(book_id="elsewhere"),
+        sent(**{OTHER: {1}}),
+        PAPER,
+        books_of(**{BOOK: {1: RULE_A}, OTHER: {1: FILL}}),
+    )
+    assert not outside.clause_ok
+
+
+def test_a_rule_book_block_label_carries_the_apps_document_id_so_the_model_can_cite_it():
+    label = nine_call_label()
+    assert "book doc_abc123" in label and "pages 5 to 6" in label
+
+
+def nine_call_label():
+    from app import nine_call
+
+    return nine_call._label(
+        7,
+        nine_call.Block(
+            "rule_book", "doc_abc123", (5, 6), chapter_id="4", part_no=1, part_of=1
+        ),
+    )

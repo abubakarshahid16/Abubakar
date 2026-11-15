@@ -24,6 +24,7 @@ from app import (
     claude_spend,
     db,
     nine_call,
+    nine_contract,
     nine_facts,
     nine_reader,
     nine_record,
@@ -33,7 +34,6 @@ from app import (
 )
 from app import agent_review_calculator_reader as reader_mod
 from app.config import settings
-from app import nine_contract
 from app.nine_call import Answer, FakeTransport, RoleGate
 from app.nine_contract import ReadEntry
 
@@ -741,8 +741,9 @@ def test_the_digest_is_derived_blocks_the_seam_accepts_cell_by_cell():
     assert blocks[0].kinds == nine_facts.UNTAGGED_KINDS
     ans, tx = _send_block(blocks[0])
     assert ans.ok and ans.not_sent == ()
-    assert "f:1:1 | design_pressure | 12 barg | 1 | none | ai_only" in json.dumps(
-        tx.bodies[0]
+    assert (
+        f"f:1:1 | {nine_facts.ROLE_CODES['design_pressure']} | 12 barg | 1 | none | ai_only"
+        in json.dumps(tx.bodies[0])
     )
 
 
@@ -839,7 +840,10 @@ def test_every_word_of_the_three_vocabularies_matches_the_seams_shape_and_the_lo
         assert words and all(
             re.fullmatch(r"[a-z0-9_]+", w) and len(w) <= 32 for w in words
         ), name
-    assert "superimposed_back_pressure" in nine_call._VOCAB[nine_facts.FIELD_KEYS]
+    assert (
+        nine_facts.ROLE_CODES["superimposed_back_pressure"]
+        in nine_call._VOCAB[nine_facts.FIELD_KEYS]
+    )
 
 
 @pytest.fixture
@@ -1045,3 +1049,56 @@ def test_the_cut_keeps_page_order_and_never_splits_a_row():
         and all(r in rows for r in kept)
     )
     assert all(r[1] == "set_pressure" for r in kept)  # known fields first
+
+
+# ---------------------------------------------------------------- a malformed reply is asked once more and its SHAPE is kept
+
+
+def test_a_malformed_reply_is_asked_a_second_time_and_a_good_second_answer_reads_the_page():
+    calls = {"n": 0}
+
+    def text_of(page):
+        calls["n"] += 1
+        return (
+            "Here are the fields: not json at all"
+            if calls["n"] == 1
+            else answer(GOOD, TEMP)
+        )
+
+    res = read({1: PAGE1}, Tx(text_of))
+    assert (
+        calls["n"] == 2 and res.sheet.pages[0].text_read is True
+    )  # the second reply was usable
+    assert res.produced["malformed_retried"] == 1
+    assert (
+        "not json" in res.produced["malformed_reply_shapes"]
+        and "starts letter" in res.produced["malformed_reply_shapes"]
+    )
+    assert "Here are" not in json.dumps(res.produced)  # the shape, never the words
+
+
+def test_a_page_whose_reply_is_malformed_twice_is_named_with_both_shapes_and_not_read():
+    res = read({1: PAGE1}, Tx(lambda page: json.dumps({"results": [1, 2]})))
+    assert (
+        res.sheet.pages[0].text_read is False
+        and "model_malformed" in res.sheet.pages[0].not_read_why
+    )
+    shapes = res.produced["malformed_reply_shapes"]
+    assert (
+        shapes.count("dict; starts brace") == 2
+        and "keys results" in shapes
+        and res.produced["malformed_retried"] == 1
+    )
+
+
+def test_reply_shape_keeps_no_content():
+    s = nine_reader.reply_shape(
+        '```json\n{"fields": "x", "secret words": 1, "ok_key": 2}\n```'
+    )
+    assert (
+        s.startswith("dict; starts fence")
+        and "keys fields,ok_key" in s
+        and "secret" not in s
+        and "x" not in s.split("keys")[0].replace("chars", "")
+    )
+    assert nine_reader.reply_shape("[1,2]").startswith("list; starts bracket")

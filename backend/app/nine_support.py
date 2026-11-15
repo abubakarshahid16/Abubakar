@@ -138,9 +138,52 @@ def _rule_rows(plan: dict) -> list[dict]:
     return rows
 
 
-def _chapter_texts(chosen, cuts) -> list:
+def _page_cuts(
+    pages: tuple[int, ...], pages_of_book: dict[int, str], lo: int, hi: int, limit: int
+) -> list[tuple[tuple[int, ...], int, int]]:
+    """Cut the character range [lo, hi) of the joined pages (joined with one line break) into pieces of whole pages that are each at most `limit`
+    characters (a page that is alone over the limit is a piece of its own): [(pages, char_from, char_to)] in order. Offsets are into the joined text."""
+    start, at = {}, 0
+    for n in pages:
+        text = pages_of_book.get(n)
+        if text is None:
+            continue
+        start[n] = (at, at + len(text))
+        at += len(text) + 1
+    cuts: list[tuple[tuple[int, ...], int, int]] = []
+    now: list[int] = []
+    first = lo
+
+    def close() -> None:
+        base = start[
+            now[0]
+        ][
+            0
+        ]  # a piece's own joined text begins at its first page: its offsets are relative to that
+        cuts.append((tuple(now), first - base, min(start[now[-1]][1], hi) - base))
+
+    for n in pages:
+        if n not in start:
+            continue
+        a, b = max(start[n][0], lo), min(start[n][1], hi)
+        if b <= a:
+            continue
+        if now and b - first > limit:
+            close()
+            now, first = [], a
+        if not now:
+            first = a
+        now.append(n)
+    if now:
+        close()
+    return cuts
+
+
+def _chapter_texts(chosen, cuts, max_chars: int | None = None) -> list:
     """The chosen chapters in reading order as NAMED parts (book, pages, character range into the joined stored text of those pages): the seam
-    loads the stored words itself. A part whose words cannot be located in the joined pages goes whole-pages (no range)."""
+    loads the stored words itself. A part whose words cannot be located in the joined pages goes whole-pages (no range). With `max_chars` a part longer
+    than that is cut on page boundaries into several parts (each its own request), numbered `part n of m` of its chapter; the first part keeps the
+    chapter's own number when nothing is cut."""
     from . import agent_review_standards, nine_reviewer
 
     conn = connect()
@@ -150,23 +193,56 @@ def _chapter_texts(chosen, cuts) -> list:
         pages_of_book = books.setdefault(
             book, dict(agent_review_standards.read_book(conn, book).pages)
         )
+        pieces = []  # (pages, char_from, char_to, chars, original part number, original parts of) per piece of this chapter, in order
+        cut_any = False
         for p in ch.parts:
             pages = tuple(range(p.page_from, p.page_to + 1))
             joined = "\n".join(pages_of_book[n] for n in pages if n in pages_of_book)
             body = cuts[book].text(ch.chapter_id, p.part_no)
             at = joined.find(body)
+            located = at >= 0
+            lo, hi = (
+                (at, at + len(body)) if located else (0, len(joined))
+            )  # what the seam will really send: the range, or the whole pages
+            if max_chars is not None and hi - lo > max_chars:
+                got = _page_cuts(pages, pages_of_book, lo, hi, max_chars)
+                if len(got) > 1:
+                    cut_any = True
+                    pieces += [
+                        (
+                            pg,
+                            a if located else None,
+                            b if located else None,
+                            b - a,
+                            p.part_no,
+                            p.part_of,
+                        )
+                        for pg, a, b in got
+                    ]
+                    continue
+            pieces.append(
+                (
+                    pages,
+                    at if located else None,
+                    at + len(body) if located else None,
+                    hi - lo,
+                    p.part_no,
+                    p.part_of,
+                )
+            )
+        for k, (pg, lo, hi, chars, no, of) in enumerate(pieces, 1):
             out.append(
                 nine_reviewer.ChapterText(
                     book,
                     ch.chapter_id,
-                    p.part_no,
-                    p.part_of,
-                    pages,
-                    len(body),
-                    at if at >= 0 else None,
-                    at + len(body) if at >= 0 else None,
+                    k if cut_any else no,
+                    len(pieces) if cut_any else of,
+                    pg,
+                    chars,
+                    lo,
+                    hi,
                 )
-            )
+            )  # a chapter that was cut is renumbered 1..m of m, so every piece is its own part
     return out
 
 
@@ -231,6 +307,57 @@ def _roles_by_book(plan: dict) -> dict[str, set[str]]:
     return out
 
 
+#: what one request carries beyond the chapters: the labels and the question (characters, a margin)
+REQUEST_OVERHEAD_CHARS = 3_000
+#: a request never gives the chapters less than this, however large the shared part is
+MIN_CHAPTER_CHARS = 15_000
+
+
+def chapter_budget(ctx, pages: dict[int, str]) -> int:
+    """How many characters of chapter text one reviewer request may carry: the per-request ceiling (`nine_call.MAX_REQUEST_CHARS`) less what every
+    request already carries (the paper's pages, the fact digest at its largest one block per kind, the blank list, the project context) and a margin."""
+    shared = sum(len(t) for t in pages.values())
+    sheet = ctx.store.get("fact_sheet")
+    if sheet is not None:
+        tagged, untagged, _left = nine_facts.digest_rows(sheet, pages)
+        blank, _b = nine_facts.blank_rows(sheet)
+        cap = nine_call.MAX_DERIVED_CHARS
+        shared += (
+            min(nine_facts._cost(tagged), cap)
+            + min(nine_facts._cost(untagged), cap)
+            + nine_facts._cost(blank)
+        )
+    shared += sum(
+        nine_facts._cost(b.items) for b in ctx.store.get("context_blocks") or ()
+    )
+    return max(
+        nine_call.MAX_REQUEST_CHARS - shared - REQUEST_OVERHEAD_CHARS, MIN_CHAPTER_CHARS
+    )
+
+
+def request_groups(ctx, pages: dict[int, str], chosen, cuts) -> list:
+    """The chapter groups of the reviewer's requests: chapters cut on page boundaries to the per-request budget and packed by characters up to it. Records
+    the plan (the budget and how many parts the cutting added) in `ctx.store["request_plan"]` for the role's record."""
+    from . import nine_reviewer
+
+    budget = chapter_budget(ctx, pages)
+    texts = _chapter_texts(chosen, cuts, max_chars=budget)
+    ctx.store["request_plan"] = {
+        "chapter_budget_chars": budget,
+        "chapter_parts_added_by_cutting": len(texts)
+        - sum(len(ch.parts) for _b, ch in chosen),
+    }
+    return nine_reviewer.group_chapters(texts, limit_chars=budget)
+
+
+def _blank(paper_id: str, rows: list, roles: set | None) -> list:
+    """The blank-fields block (one line list), narrowed to the chapter's fields when `roles` are given, and cut to one derived block if it came to more."""
+    keep = [r for r in rows if not roles or r[1] in roles]
+    keep, _cut = nine_facts.fit_rows(keep)
+    block = nine_facts.blank_block(paper_id, keep)
+    return [block] if block else []
+
+
 def _with_cache(blocks: list) -> list:
     import dataclasses
 
@@ -253,9 +380,12 @@ def _prefix(ctx, pages: dict[int, str], groups: list | None = None):
     if sheet is None:
         return _with_cache([*base, *context]), groups, not context
     tagged, untagged, left = nine_facts.digest_rows(sheet, pages)
+    blank, blank_left = nine_facts.blank_rows(sheet)
+    left.update(blank_left)
     total = len(tagged) + len(untagged)
     counts = {
         "rows": total,
+        "rows_blank": len(blank),
         "parts": 1,
         "never_sent": 0,
         "left_out_reasons": dict(left),
@@ -267,6 +397,7 @@ def _prefix(ctx, pages: dict[int, str], groups: list | None = None):
                 [
                     *base,
                     *nine_facts.rows_blocks(sheet.paper_id, tagged, untagged),
+                    *_blank(sheet.paper_id, blank, None),
                     *context,
                 ]
             ),
@@ -276,16 +407,28 @@ def _prefix(ctx, pages: dict[int, str], groups: list | None = None):
     by_book = _roles_by_book(ctx.plan)
     expanded, plans, sent = [], [], set()
     for g in groups or [[]]:
-        roles = set().union(*(by_book.get(c.book_id, set()) for c in g)) if g else set()
+        roles = (
+            nine_facts.codes_of(
+                set().union(*(by_book.get(c.book_id, set()) for c in g))
+            )
+            if g
+            else set()
+        )
         parts, _lost = nine_facts.digest_parts(
             sheet.paper_id, tagged, untagged, roles or None
         )
         for part in parts or [[]]:
             expanded.append(g)
-            plans.append(_with_cache([*base, *part, *context]))
+            plans.append(
+                _with_cache(
+                    [*base, *part, *_blank(sheet.paper_id, blank, roles), *context]
+                )
+            )
             sent.update(str(row[0]) for b in part for row in b.items)
     never = [r for r in (*tagged, *untagged) if str(r[0]) not in sent]
-    all_roles = set().union(*by_book.values()) if by_book else set()
+    all_roles = (
+        nine_facts.codes_of(set().union(*by_book.values())) if by_book else set()
+    )
     why = Counter(
         "field not asked from any chapter's book"
         if (all_roles and r[1] not in all_roles)

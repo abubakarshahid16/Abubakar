@@ -15,7 +15,9 @@ No verdict, class or word is made here. Words and counts only; no document text 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import re
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -178,6 +180,42 @@ class _Page:
     answered_keys: list[str] = field(
         default_factory=list
     )  # the field keys the model was ASKED and answered (an answer of "not on the page" included)
+    shapes: list[str] = field(
+        default_factory=list
+    )  # the SHAPE of each reply the parser rejected (never content)
+    retried: int = 0  # groups asked a second time because the first reply was malformed
+
+
+def reply_shape(text: object) -> str:
+    """The SHAPE of a reply the parser rejected, for the record: how long it is, how it starts (a class of character, never a character of content), the
+    type of its first level and the key names there (only names of letters and underscores, at most six, each cut at 24 characters). No value, no
+    sentence: what the model wrote is not kept."""
+    raw = str(text or "")
+    first = raw.lstrip()[:1]
+    start = (
+        "brace"
+        if first == "{"
+        else "bracket"
+        if first == "["
+        else "fence"
+        if first == "`"
+        else "letter"
+        if first.isalpha()
+        else "other"
+    )
+    kind, keys = "not json", ""
+    try:
+        body = json.loads(form_reader.unfenced_whole(raw))
+        kind = type(body).__name__
+        if isinstance(body, dict):
+            keys = ",".join(
+                k[:24]
+                for k in body
+                if isinstance(k, str) and re.fullmatch(r"[A-Za-z_]+", k)
+            )[:60]
+    except (ValueError, TypeError):
+        pass
+    return f"{kind}; starts {start}; chars {len(raw)}; keys {keys or '-'}"
 
 
 def _read_page(
@@ -206,21 +244,34 @@ def _read_page(
         except QuestionNotRegistered:
             out.errors.append("question_not_registered")
             continue
-        answer = ask(page_blocks(paper_id, page, picture), question)
-        held = [
-            code for _doc, code in answer.not_sent if not code.startswith("picture_")
-        ]  # a picture that could not be made is text only, not a held page
-        if held or (answer.reads and not _sent_this_text(answer, paper_id, text)):
-            out.not_sent = held[0] if held else "stored_text_differs"
-            return out
-        if answer.error_code == "role_budget":
-            out.budget = True
-            return out
+        for attempt in (
+            1,
+            2,
+        ):  # a malformed reply is asked ONE more time (the first page of a datasheet is the most important one)
+            answer = ask(page_blocks(paper_id, page, picture), question)
+            held = [
+                code
+                for _doc, code in answer.not_sent
+                if not code.startswith("picture_")
+            ]  # a picture that could not be made is text only, not a held page
+            if held or (answer.reads and not _sent_this_text(answer, paper_id, text)):
+                out.not_sent = held[0] if held else "stored_text_differs"
+                return out
+            if answer.error_code == "role_budget":
+                out.budget = True
+                return out
+            if not answer.ok or answer.text is None:
+                break
+            parsed, err = form_reader.parse_answer(answer.text, {f.key for f in group})
+            if err is not form_reader.Reason.MODEL_MALFORMED:
+                break
+            out.shapes.append(reply_shape(answer.text))
+            if attempt == 1:
+                out.retried += 1
         if not answer.ok or answer.text is None:
             dropped[form_reader.Reason.MODEL_FAILED.value] += len(group)
             out.errors.append(answer.error_code or answer.state)
             continue
-        parsed, err = form_reader.parse_answer(answer.text, {f.key for f in group})
         if err is not None:
             dropped[err.value] += len(group)
             out.errors.append(err.value)
@@ -284,6 +335,7 @@ def _read_pages(
     local: bool,
     unread: dict[int, list[str]],
     asked: dict[int, list[str]],
+    notes: dict[str, Any],
 ) -> tuple[list[dict], list[PageRead], str | None]:
     facts: list[dict] = []
     reads: list[PageRead] = []
@@ -337,6 +389,11 @@ def _read_pages(
                 continue
             if r.budget:
                 stopped = "role_budget"
+            if r.shapes:
+                notes.setdefault("shapes", []).append(
+                    f"p{page}: " + " / ".join(r.shapes)
+                )
+            notes["retried"] = notes.get("retried", 0) + r.retried
             facts.extend(r.facts)
             if r.unread and r.answered:
                 unread[page] = r.unread
@@ -383,6 +440,9 @@ def read_paper(
 
     unread: dict[int, list[str]] = {}
     asked: dict[int, list[str]] = {}
+    notes: dict[
+        str, Any
+    ] = {}  # malformed replies: their SHAPES (never content) and how many groups were asked a second time
     try:
         read, reads, stopped = _read_pages(
             ask,
@@ -397,6 +457,7 @@ def read_paper(
             engine == "local",
             unread,
             asked,
+            notes,
         )
     except Exception as exc:  # noqa: BLE001 - a failing reader never fails the review; the role says it did not run and why
         log.warning("nine reader: did not run (%s)", type(exc).__name__)
@@ -431,6 +492,12 @@ def read_paper(
         "facts": len(facts),
         "pages_read": sum(r.text_read for r in reads),
         "pages_read_by_code_only": len(by_code),
+        **({"malformed_retried": notes["retried"]} if notes.get("retried") else {}),
+        **(
+            {"malformed_reply_shapes": " | ".join(notes["shapes"])[:200]}
+            if notes.get("shapes")
+            else {}
+        ),
         "pages_with_picture": len(picture_pages),
         "conflicts": sheet.conflicts,
         "fields_not_read": {str(p): u for p, u in unread.items()},

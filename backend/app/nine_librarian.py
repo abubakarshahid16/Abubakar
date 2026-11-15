@@ -438,10 +438,32 @@ def titles_block(
     return block, left, back
 
 
+def screen_titles(
+    run_id: str, titles: Sequence[tuple[str, str, str]]
+) -> tuple[list[tuple[str, str, str]], int]:
+    """(the titles that may go, how many were left out): a heading that also occurs, in words, in a document the gate holds back for this run (not on
+    the run's list) would make the seam drop the WHOLE title block (`text_from_held_document`). Such a row is left out and counted: the same guard,
+    applied row by row, so the rest of the list can go. Nothing is exempted: a left-out row is simply not sent."""
+    from . import nine_record
+    from .db import connect
+
+    conn = connect()
+    keep, left = [], 0
+    for book, chapter, title in titles:
+        cell = title.lstrip()[:TOKEN]
+        if cell and nine_record.held_text_hits(conn, run_id, [cell]):
+            left += 1
+            continue
+        keep.append((book, chapter, title))
+    return keep, left
+
+
 def seam_ask(run_id: str, *, engine: str | None = None, **seam):
     """The adapter `extend_with_model` takes: ONE call of role 3 through `nine_call.ask`. A refused or failed call: None (the code list stands)."""
 
     def ask(titles: Sequence[tuple[str, str, str]]):
+        titles, held = screen_titles(run_id, titles)
+        ask.left_out = held  # type: ignore[attr-defined]
         block, _left, back = titles_block(titles)
         if block is None:
             ask.refusal = "no title row could be sent"
@@ -457,6 +479,7 @@ def seam_ask(run_id: str, *, engine: str | None = None, **seam):
             return None
         return [(b, back[(b, c)]) for b, c in parse_choice(got.text) if (b, c) in back]
 
+    ask.left_out = 0  # type: ignore[attr-defined]
     ask.refusal = None  # type: ignore[attr-defined]  # why the call did not go or came back unusable (codes only); None when it answered
     return ask
 

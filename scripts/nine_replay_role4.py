@@ -165,10 +165,13 @@ def main(argv: list[str] | None = None) -> int:
         for b, c in pairs
         if b in cuts and cuts[b].chapter(c) is not None
     ]
-    groups = nine_reviewer.group_chapters(nine_support._chapter_texts(chosen, cuts))
     plan = {"items": [{"item_id": f"R-{n}", "standard_document_id": b, "field_roles": sorted(roles)} for n, (b, roles) in enumerate(_roles_of_stored_plan(conn, args.run).items(), 1)]}  # fmt: skip
     ctx = nine_job.RoleContext(NEW_RUN, args.paper, None, plan, {}, lambda *_a: None)
     ctx.store["fact_sheet"] = sheet
+    budget = nine_support.chapter_budget(ctx, pages)
+    texts = nine_support._chapter_texts(chosen, cuts, max_chars=budget)
+    groups = nine_reviewer.group_chapters(texts, limit_chars=budget)
+    print(f"chapter budget per request {budget} characters (ceiling {nine_call.MAX_REQUEST_CHARS}); chapter parts {len(texts)} (cut by the ceiling: {len(texts) - sum(len(ch.parts) for _b, ch in chosen)})")  # fmt: skip
     prefix, groups, _no_context = nine_support._prefix(ctx, pages, groups)
     counts = ctx.store.get("digest_counts") or {}
     for i, g in enumerate(groups, 1):

@@ -328,6 +328,11 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     )
     ctx.store["reading"], ctx.store["cuts"] = reading, cuts
     produced = nine_librarian.produced(reading)
+    left_out = getattr(title_ask, "left_out", 0)
+    if left_out:
+        produced["title_rows_left_out"] = (
+            left_out  # headings that also occur in a held document: not sent (the rest of the list was)
+        )
     refused = nine_librarian.model_step_refusal(
         title_ask
     )  # the optional title step: refused or failed is said, never "ran"
@@ -383,6 +388,7 @@ def _fact_counts(ctx: RoleContext) -> dict:
     c = ctx.store.get("digest_counts") or {}
     out = {
         "fact_rows": c.get("rows"),
+        "fact_rows_blank": c.get("rows_blank"),
         "fact_parts": c.get("parts"),
         "fact_requests": c.get("requests"),
         "fact_rows_never_sent": c.get("never_sent"),
@@ -411,7 +417,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         ctx.flags["reviewer_failed"] = True
         return RoleResult("not_run", NO_DECISION)
     pages = _paper_pages(ctx)
-    groups = nine_reviewer.group_chapters(_chapter_texts(chosen, cuts))
+    groups = nine_support.request_groups(ctx, pages, chosen, cuts)
     prefix, groups, no_context = _prefix(ctx, pages, groups)
     ran = nine_reviewer.review(
         ctx.run_id,
@@ -457,6 +463,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         "findings": len(to_emit),
         "findings_kept": sum(b.underlying for b in to_emit),
         "context_parts_passed": len(ctx.store.get("context_blocks") or ()),
+        **ctx.store.get("request_plan", {}),
         **_fact_counts(
             ctx
         ),  # the fact rows the reviewer was given, in how many parts, and how many never went (with the reasons)

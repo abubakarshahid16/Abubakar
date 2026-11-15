@@ -238,11 +238,9 @@ def check_raw(
         paper_why = PAPER_NOT_SENT
     quote = raw.get("clause_quote")
     named = str(raw.get("book_id") or "") or None
-    wanted = (
-        [named]
-        if named in call.book_pages
-        else ([] if named else sorted(call.book_pages))
-    )
+    # CODE decides the book: the model's `book_id` is taken only when it is a book of THIS call; an unknown or missing one is ignored and the quote is searched
+    # in the books of this call (exact folded containment, on the sent text): found in exactly one = that book; none or several = not verified, with the reason code
+    wanted = [named] if named in call.book_pages else sorted(call.book_pages)
     if not str(quote or "").strip():
         return Checked(
             raw, call, None, paper_ok, paper_why, False, None, "no clause quote"

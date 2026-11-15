@@ -15,6 +15,7 @@ No verdict class or word is made here (SPEC E). Ids, numbers, field labels and q
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import re
 import sqlite3
@@ -324,7 +325,37 @@ def digest(sheet: FactSheet, max_chars: int = 8000) -> str:
 #: the app's own vocabularies, fixed at import (`nine_call.vocabulary`): the field keys of the reference data (+ "unknown" for a value no role names), the
 #: states of a fact, and the form of a tag the paper does not print as the sheet has it
 _ROLE_WORDS = frozenset(datasheet_checks.load_rules()["roles"])
-FIELD_KEYS = nine_call.vocabulary("nine_field_keys", [*_ROLE_WORDS, "unknown"])
+#: Each field of the registry goes to the model as a SHORT STABLE CODE (`k` + 6 hex digits of the field's name: 7 characters, `[a-z0-9]+`, the same
+#: code whatever else the registry holds). The words themselves ("set pressure") are ordinary phrases that occur in many held documents, and the
+#: held-text guard (12 characters and more) would drop the whole block for them; a code of fewer than 12 characters is not text, and the legend (code =
+#: the registry's field name) is app text that goes in the reviewer's own fixed words, never as a document block.
+UNKNOWN_CODE = "unknown"
+
+
+def role_code(role: str) -> str:
+    return "k" + hashlib.sha256(str(role).encode("utf-8")).hexdigest()[:6]
+
+
+ROLE_CODES: dict[str, str] = {r: role_code(r) for r in sorted(_ROLE_WORDS)}
+if len(set(ROLE_CODES.values())) != len(
+    ROLE_CODES
+):  # a collision is a defect of the registry's names, found at import, never in a run
+    raise RuntimeError("two registry fields have the same short code")
+FIELD_KEYS = nine_call.vocabulary(
+    "nine_field_keys", [*ROLE_CODES.values(), UNKNOWN_CODE]
+)
+
+
+def legend() -> str:
+    """`code = field name` for every field of the registry, one per line: the app's own words (not a document's)."""
+    return "\n".join(f"{c} = {r.replace('_', ' ')}" for r, c in ROLE_CODES.items())
+
+
+def codes_of(roles) -> set[str]:
+    """The short codes of the registry fields named in `roles` (a name the registry does not hold has no code and is left out)."""
+    return {ROLE_CODES[r] for r in roles if r in ROLE_CODES}
+
+
 STATES = nine_call.vocabulary(
     "nine_fact_states",
     ["agreed", "conflict", "ai_only", "stored_only", "needs_engineer", "stale"],
@@ -431,7 +462,7 @@ def digest_rows(
         if shown is None:
             left_out["value not printed on the page"] += 1
             continue
-        key = f.field_role if f.field_role in _ROLE_WORDS else "unknown"
+        key = ROLE_CODES.get(f.field_role or "", UNKNOWN_CODE)
         head = (f.fact_id, key, shown, str(f.page))
         if (
             f.tag
@@ -531,6 +562,48 @@ def digest_parts(
         if blocks:
             parts.append(blocks)
     return parts, left
+
+
+BLANK_KINDS = ("id", f"vocab:{FIELD_KEYS}", "number")
+
+
+def blank_rows(sheet: FactSheet) -> tuple[list[tuple[str, ...]], Counter]:
+    """(rows, left out): the fields the paper PRINTS and leaves EMPTY, one row per (field, page): fact id, the field's short code, the page. No value (there is
+    none): the block's name, `fact_sheet_blank`, says "printed, blank". A reviewer needs these rows to find a required item the paper leaves blank. A blank
+    of a field the registry has no code for, or whose label is not on its page, is counted, not listed."""
+    out: list[tuple[str, ...]] = []
+    left: Counter = Counter()
+    seen: set[tuple[str, int]] = set()
+    for f in sorted(sheet.facts, key=lambda f: (f.page, f.fact_id)):
+        if f.state == "stale" or f.value is not None:
+            continue
+        code = ROLE_CODES.get(f.field_role or "")
+        if code is None:
+            left["blank of a field the registry does not name"] += 1
+            continue
+        if not f.quote_verified:
+            left["blank whose label is not on its page"] += 1
+            continue
+        if (code, f.page) in seen:
+            continue
+        seen.add((code, f.page))
+        out.append((f.fact_id, code, str(f.page)))
+    return out, left
+
+
+def blank_block(
+    paper_id: str, rows: Sequence[tuple[str, ...]]
+) -> nine_call.Block | None:
+    """The blank fields as ONE derived block, `fact_sheet_blank` (its own words say "printed, blank"; the reviewer's fixed text explains the name)."""
+    if not rows:
+        return None
+    return nine_call.Block(
+        "review_record",
+        name="fact_sheet_blank",
+        sources=(paper_id,),
+        kinds=BLANK_KINDS,
+        items=tuple(rows),
+    )
 
 
 def digest_blocks(

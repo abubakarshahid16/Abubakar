@@ -78,6 +78,11 @@ DEFAULT_MAX_TOKENS = 2048
 STORED_KINDS = ("paper", "rule_book", "project_document", "earlier_revision")
 DERIVED_KIND = "review_record"
 MAX_DERIVED_CHARS = 30_000  # a derived block is a digest, not a copy
+#: One request carries at most this many characters of block text (paper, digest, chapters together). PROVISIONAL, from three groups of the second
+#: paid valve run: a group of 131,890 characters of chapters (61,000 input tokens) gave 0 findings in 5 seconds; two of about 79,000 characters gave 7
+#: findings each. Re-measure on the next run before treating it as settled.
+MAX_REQUEST_CHARS = 80_000
+REQUEST_TOO_LARGE = "request_too_large"
 MAX_CELL_CHARS = 200
 MAX_TEMPLATE_CHARS = 20_000
 TEXT_NOT_FROM_BLOCK = "text_not_from_block"
@@ -110,9 +115,7 @@ PARAM_NOT_APP_ID = "param_not_app_id"
 _VOCAB: dict[str, frozenset[str]] = {}
 _ID_SHAPES: dict[str, re.Pattern] = {}
 UNITS = frozenset(
-    "bar barg bara psi psig psia kpa mpa pa mbar mm cm m km in ft yd c f k kg g mg lb t kw w mw hp rpm hz khz v kv a ma kva l ml m3 "
-    "m2 mm2 cm2 s ms min h hr day nm kn n kgf lbf j kj mj ppm ppb db dba pct % deg degc degf bpm gpm lpm cfm scfm nm3 mol kmol "
-    "cst cp ohm".split()
+    ["bar", "barg", "bara", "psi", "psig", "psia", "kpa", "mpa", "pa", "mbar", "mm", "cm", "m", "km", "in", "ft", "yd", "c", "f", "k", "kg", "g", "mg", "lb", "t", "kw", "w", "mw", "hp", "rpm", "hz", "khz", "v", "kv", "a", "ma", "kva", "l", "ml", "m3", "m2", "mm2", "cm2", "s", "ms", "min", "h", "hr", "day", "nm", "kn", "n", "kgf", "lbf", "j", "kj", "mj", "ppm", "ppb", "db", "dba", "pct", "%", "deg", "degc", "degf", "bpm", "gpm", "lpm", "cfm", "scfm", "nm3", "mol", "kmol", "cst", "cp", "ohm"]
 )
 
 
@@ -928,11 +931,12 @@ def _label(n: int, b: Block) -> str:
             if len(b.pages) == 1
             else f", pages {b.pages[0]} to {b.pages[-1]}"
         )
+    doc = (
+        f", book {b.document_id}" if b.document_kind == "rule_book" else ""
+    )  # the app's own document id: the model cites it as `book_id`
     chap = f", chapter {b.chapter_id}" if b.chapter_id else ""
     part = f", part {b.part_no} of {b.part_of}" if b.part_no and b.part_of else ""
-    return (
-        f"[document block {n}: {b.document_kind.replace('_', ' ')}{pages}{chap}{part}]"
-    )
+    return f"[document block {n}: {b.document_kind.replace('_', ' ')}{doc}{pages}{chap}{part}]"
 
 
 def _content(loaded: list[Loaded], question: str) -> list[dict]:
@@ -1134,6 +1138,12 @@ def ask(
     dropped = tuple(sorted(not_sent.items()))
     if not loaded:
         return refused("no_block_left", dropped=dropped)
+
+    sent_chars = sum(len(item.text) for item in loaded if item.text)
+    if (
+        sent_chars > MAX_REQUEST_CHARS
+    ):  # one request carries at most this much of block text: a bigger one is not made (the caller splits it)
+        return refused(REQUEST_TOO_LARGE, dropped=dropped)
 
     content = _content(loaded, question_text)
     reads = _reads(role_no, call_id, loaded)
