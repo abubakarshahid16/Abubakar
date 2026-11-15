@@ -161,7 +161,8 @@ def test_a_datasheets_project_papers_are_checked_the_same_way_with_the_switch_on
 
 
 def test_a_related_paper_already_listed_by_the_paper_is_not_listed_twice(
-    lib, monkeypatch
+    lib,  # noqa: F811
+    monkeypatch,
 ):
     monkeypatch.setattr(nine_context, "nine_on", lambda: True)
     monkeypatch.setattr(nine_context, "paper_scored", lambda conn, d: False)
