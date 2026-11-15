@@ -3,6 +3,7 @@ placed clause headings read from the stored pages by the same reader `get_clause
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 import threading
@@ -47,6 +48,9 @@ def _paper_pages(conn: sqlite3.Connection, doc: str) -> list[tuple[int, str]]:
             (doc,),
         )
     ]
+
+
+log = logging.getLogger(__name__)
 
 
 class _Standards:
@@ -212,8 +216,8 @@ def read_book(conn: Any, doc: str) -> pass_guards.Book:
             for n, t in conn.execute("SELECT page_no, text FROM page_ocr WHERE document_id = ? AND error IS NULL", (doc,)):
                 if int(n) not in rows or not rows[int(n)].strip():
                     rows[int(n)] = t or ""
-        except Exception:  # noqa: BLE001  an old database without the table: the pages table stands alone
-            pass
+        except sqlite3.Error:  # an old database without the table: the pages table stands alone
+            log.debug("agent review: no recognised text table for the rule book %s", doc)
     return pass_guards.Book(rows)
 
 
