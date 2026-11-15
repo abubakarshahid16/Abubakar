@@ -86,10 +86,16 @@ def field_of(section_tail: str, row: dict, finding: dict | None, allow_rule: boo
     section or phrase; for a clause point with no field, its clause and subject. Never a placeholder and never a page label."""
     f = finding or {}
     tail = clean(section_tail)
-    if tail and not is_placeholder(tail) and not _PAGE_LABEL.match(tail):
+    # The row's section tail (`page_section`, built by `crs_mapping._page_section` from `_field_label`) is the paper's own label when the
+    # sheet printed one, BUT `_field_label` falls back to the matched phrase and, for a field not found on the sheet, to the CLAUSE'S OWN
+    # subject (`requirement_limit.subject`, crs_mapping.py: "NOT FOUND ON THE SHEET: the clause's own subject names the field"). So it can
+    # hold requirement wording and is used only when the rule content is visible.
+    if allow_rule and tail and not is_placeholder(tail) and not _PAGE_LABEL.match(tail):
         return tail
-    # the paper's own section label stays; the matched phrase comes from the requirement, so it needs the rule content to be visible
-    for cand in ((f.get("matched_phrase") if allow_rule else None), f.get("contractor_section")):
+    # a hidden point keeps the paper's own labels only: the field the datasheet read (`submittal_facts.field_name`) and the finding's
+    # contractor section; the matched phrase comes from the requirement
+    fact_label = (f.get("_fact") or {}).get("field_name")
+    for cand in (None if allow_rule else fact_label, (f.get("matched_phrase") if allow_rule else None), f.get("contractor_section")):
         c = clean(cand)
         if c and not _PAGE_LABEL.match(c) and not is_placeholder(c):
             return c
@@ -135,7 +141,7 @@ def rule_ref(row: dict, finding: dict | None) -> dict:
     return {"name": name, "clause": clause, "page": page}
 
 
-HIDDEN_ACTION = "Engineer to check this point: it rests on a rule book you may not read (not named)."
+HIDDEN_ACTION = "Engineer to check this point: its rule book is not one you may read, or the point is not linked to a held rule book (not named)."
 
 
 def action_of(row: dict, finding: dict | None, scrub=clean, own_only: bool = False, comment_only: bool = False) -> tuple[str, str]:

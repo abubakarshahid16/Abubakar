@@ -362,3 +362,18 @@ def test_r3_the_matched_phrase_comes_from_the_requirement_and_needs_the_rule_con
     assert c.field_of("", row(standard_reference=""), f, allow_rule=False) == "Section 4"  # the paper's own label stays
     assert c.field_of("", row(standard_reference=""), f, allow_rule=True) == "Flange face finish"
     assert c.field_of("", row(), {"matched_phrase": "Flange face finish"}, allow_rule=False) == c.HIDDEN_FIELD
+
+
+def test_r3b_a_hidden_point_never_takes_its_name_from_the_rows_section_tail():
+    tail = "Gamma flanges shall be lined with teflon"  # a clause's own subject can fill the row's section tail
+    assert c.field_of(tail, row(standard_reference=""), {}, allow_rule=False) == c.HIDDEN_FIELD
+    assert c.field_of(tail, row(standard_reference=""), {}, allow_rule=True) == tail  # visible rule content: unchanged
+    # what remains for a hidden point is the paper's own label
+    assert c.field_of(tail, row(standard_reference=""), {"contractor_section": "Section 4"}, allow_rule=False) == "Section 4"
+    assert c.field_of(tail, row(standard_reference=""), {"_fact": {"field_name": "Inlet rating"}}, allow_rule=False) == "Inlet rating"
+    hidden = review_points.rule_point(row(page_section="p.4 - " + tail, standard_reference=""), CTX, {"id": "f"}, {}, proof=(False, False))
+    assert hidden["name"] == c.HIDDEN_FIELD and "Gamma" not in str(review_points.public(hidden))
+
+
+def test_the_fixed_sentence_is_true_for_a_book_you_may_not_read_and_for_a_point_with_no_held_book():
+    assert "not one you may read" in c.HIDDEN_ACTION and "not linked to a held rule book" in c.HIDDEN_ACTION
