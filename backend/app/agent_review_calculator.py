@@ -159,13 +159,13 @@ def _checks(
             base["rule_field"], base["proof_requirement"], base["clause_quote"], label
         )
         is None
-        and proof.condition_reason(base["proof_requirement"], base["clause_quote"])
-        is None
+    )
+    # a condition in the limit's own sentence, or another sentence of the clause (the quote and the stored clause text) that carries a figure, a condition, an
+    # exception or an override: the field IS the subject, the clause says MORE than the limit (its own reason below)
+    single = (
+        proof.condition_reason(base["proof_requirement"], base["clause_quote"]) is None
         and proof.single_limit_reason(
-            base["proof_requirement"],
-            base["clause_quote"],
-            clause_text,
-            base.get("clause"),
+            base["proof_requirement"], base["clause_quote"], clause_text
         )
         is None
     )
@@ -174,7 +174,7 @@ def _checks(
     )
     return {
         "paper": found and value and field,
-        "clause": c_found and limit and way and subject,
+        "clause": c_found and limit and way and subject and single,
         "paper_found": found,
         "paper_value": value,
         "field": field,
@@ -182,6 +182,7 @@ def _checks(
         "clause_limit": limit,
         "clause_direction": way,
         "clause_subject": subject,
+        "clause_single": single,
     }
 
 
@@ -194,6 +195,7 @@ _QUOTE_FAILS = (
     ("clause_limit", "clause_limit_not_in_quote", "the quote from the clause does not state the limit that was compared, with its unit"),
     ("clause_direction", "clause_direction_not_shown", "the clause's wording does not show the direction of the limit"),
     ("clause_subject", "clause_subject_not_the_field", "the clause's wording does not make the field the subject of the limit"),
+    ("clause_single", "clause_says_more_than_the_limit", "the clause says more than the limit: engineer to read the whole clause"),
 )  # fmt: skip
 
 
