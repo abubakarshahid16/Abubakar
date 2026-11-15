@@ -1245,9 +1245,12 @@ def _hold_on_unsure_type(selected: dict, check: dict, library: list, profile: di
 def select(
     submittal_document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, persist: bool = True,
-    actor: dict | None = None, heartbeat=None,
+    actor: dict | None = None, heartbeat=None, ask_model: bool = True,
 ) -> dict:
     """Which standards apply to this submittal, why, and what is missing.
+
+    `ask_model=False` is the read-only look the pre-start plan takes (`review_leaving`): every selection route runs EXCEPT the AI
+    scope-clause reading, which calls a model; what only that step would add is found during the run.
 
     Runs every rule, keeps the STRONGEST reason per standard, and reports what
     the submittal cites that the library does not hold.
@@ -1312,7 +1315,10 @@ def select(
 
     # B5: THE SCOPE DECISION, by AI reasoning (#736) or when off the taxonomy path.
     from .config import settings as _settings
-    if _settings.applicability_reasoning_enabled:
+    if not ask_model:
+        scope_candidates = []
+        decisions, scope_not_run = {}, "scope clauses are not read before the start"
+    elif _settings.applicability_reasoning_enabled:
         # #946: cap the pool asked about; the non-AI taxonomy path below scans the whole library.
         scope_candidates = _scope_reasoning_candidates(
             library, selected, submittal_document_id, allowed_document_ids,

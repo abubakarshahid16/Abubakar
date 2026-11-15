@@ -50,7 +50,7 @@ _TAG_ID = re.compile(r"[A-Za-z0-9]*\d[A-Za-z0-9\-/]*")
 
 
 def _tag_ids(fact: Mapping) -> frozenset[str]:
-    """The identifiers a tag names (tokens with a digit: "PSV-4301"), else the folded tag itself; empty when the fact has no tag."""
+    """The identifiers a tag names (tokens with a digit: "XV-101"), else the folded tag itself; empty when the fact has no tag."""
     tag = str(fact.get("equipment_tag") or "").strip()
     if not tag:
         return frozenset()

@@ -455,13 +455,13 @@ def on_standard_cited(
     _run("citation", standard_document_id, build)
 
 
-def _note_unshown(review_run_id: str) -> None:
+def _note_unshown(review_run_id: str, applied_run: str | None = None, extra=()) -> None:
     """Put on the run how many cited specifications the gate holds because no list shown before the start names them."""
     from . import review_shown
 
     try:
         conn = connect()
-        count = review_shown.cited_unshown(conn, review_run_id)
+        count = review_shown.cited_unshown(conn, review_run_id, applied_run, extra)
         row = conn.execute(
             "SELECT outcome_json FROM review_runs WHERE id = ?", (review_run_id,)
         ).fetchone()
@@ -469,7 +469,12 @@ def _note_unshown(review_run_id: str) -> None:
             return
         outcome = json.loads(row["outcome_json"] or "{}")
         if count:
-            outcome[SHOWN_KEY] = {"not_sent": count}
+            outcome[SHOWN_KEY] = {
+                "not_sent": count,
+                "found_during_review": review_shown.found_during_review(
+                    conn, review_run_id, applied_run, extra
+                ),
+            }
         elif SHOWN_KEY in outcome:
             del outcome[SHOWN_KEY]
         else:
@@ -483,6 +488,11 @@ def _note_unshown(review_run_id: str) -> None:
         log.warning(
             "claude shown-list run note %s: %s", review_run_id, type(exc).__name__
         )
+
+
+def note_unshown_for(review_run_id: str, applied_run: str, extra=()) -> None:
+    """The AI reviewer's run: the standards were applied on `applied_run`; say how many the list shown before the start left out."""
+    _note_unshown(review_run_id, applied_run, extra)
 
 
 def record_on_run(review_run_id: str) -> None:
@@ -543,12 +553,23 @@ def run_lines(outcome: dict) -> list[dict]:
     check still read those standards, so the sheet is not called incomplete."""
     unlisted = outcome.get(RUN_KEY) or {}
     out = []
+    found = (outcome.get(SHOWN_KEY) or {}).get("found_during_review")
+    if found:
+        out.append(
+            {
+                "part": SHOWN_KEY,
+                "line": f"{found} more rule book(s) apply to this paper. They were not sent because they were not on "
+                "the list you saw. Review again to include them.",
+                "note": "Not read by the cloud model",
+                "detail": True,
+            }
+        )
     held = (outcome.get(SHOWN_KEY) or {}).get("not_sent")
     if held:
         out.append(
             {
                 "part": SHOWN_KEY,
-                "line": f"Not sent: {held} specification(s) this review cites were not on the list shown before "
+                "line": f"Not sent: {held} document(s) this review cites were not on the list shown before "
                 "the start, so the cloud model did not read them.",
                 "note": "Not read by the cloud model",
                 "detail": True,

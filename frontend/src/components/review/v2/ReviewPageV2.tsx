@@ -16,7 +16,7 @@ import { CodeBox } from "./CodeBox";
 import { EngineBar } from "./EngineBar";
 import { KindLine } from "./KindLine";
 import { PointsList } from "./PointsList";
-import { BookChips, NotHeldLine, type TileKey, Tiles } from "./Tiles";
+import { BookChips, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
 import { usePoints } from "./usePoints";
 
 export type V2Tab = "points" | "sheet" | "how";
@@ -34,7 +34,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
   const [viewing, setViewing] = useState<{ page: number } | null>(null);
   const listing = pts.listing.state === "ok" ? pts.listing.data : null;
 
-  const shown = useMemo(() => (listing?.points ?? []).filter((p) => (tile ? p.tile === tile : true) && (book ? p.rule_book === book : true)), [listing, tile, book]);
+  const shown = useMemo(() => (listing?.points ?? []).filter((p) => (tile ? p.tile === tile : true) && (book === null ? true : book === NO_BOOK ? p.no_book === true : (p.books ?? []).some((b) => b.id === book) || (!p.books && p.rule_book === book))), [listing, tile, book]);
   const undecided = listing ? listing.of - listing.decided : 0;
 
   return (

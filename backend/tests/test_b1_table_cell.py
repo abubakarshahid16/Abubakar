@@ -273,9 +273,9 @@ def test_the_lift_needs_every_rival_under_another_KNOWN_tag():
 
 
 def test_two_tags_of_one_header_overlap_but_two_headers_without_a_shared_identifier_do_not():
-    a = {"equipment_tag": "PSV-4301 A/B & PSV-3301 A/B"}
-    assert not cells.other_tags(a, {"equipment_tag": "PSV-3301 A/B"})
-    assert cells.other_tags(a, {"equipment_tag": "PSV-4303 A/B & PSV-3303 A/B"})
+    a = {"equipment_tag": "XV-101 A/B & XV-201 A/B"}
+    assert not cells.other_tags(a, {"equipment_tag": "XV-201 A/B"})
+    assert cells.other_tags(a, {"equipment_tag": "XV-103 A/B & XV-203 A/B"})
     assert not cells.other_tags(a, {"equipment_tag": None}) and not cells.other_tags(
         {}, a
     )
