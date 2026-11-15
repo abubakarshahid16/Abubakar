@@ -11,7 +11,7 @@ from collections.abc import Mapping
 
 from . import agent_review_two_reader as two
 from . import crs_ai_words as words
-from .agent_review_verdict import SILENCE_CODES, quote_defers
+from .agent_review_verdict import SILENCE_CODES, SILENCE_WHY, quote_defers
 
 _SAYS = (words.STATUS_AI, words.STATUS_AI_VERDICT, words.STATUS_QUERY)
 REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
@@ -34,6 +34,17 @@ def action_case(line: Mapping) -> str:
     if silent or line.get("verdict_label") == two.WORD_NOT_STATED:
         return "blank"
     return "unknown"
+
+
+STATED_REASON = "a value is stated on the paper (a quote code verified); it is not proven that it meets the rule"
+
+
+def reason_for(line: Mapping, why: str) -> str:
+    """The reason shown with a line, made to agree with what code verified: a value STATED on the paper (a verified quote) means the sheet
+    is not silent, so a stored "the paper is silent" reason is not shown (the action and the reason say the same)."""
+    silent = line.get("reason_code") in SILENCE_CODES or line.get("silence_query")
+    silent = silent or SILENCE_WHY.rstrip(".").lower() in str(why or "").lower()
+    return STATED_REASON if silent and action_case(line) == "stated" else why
 
 
 def query_action(line: Mapping, what: str, ref: str) -> str:

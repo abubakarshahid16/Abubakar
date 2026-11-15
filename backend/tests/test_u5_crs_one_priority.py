@@ -91,3 +91,17 @@ def test_a_comment_sits_by_its_strongest_point_not_by_its_first_and_numbers_foll
     assert [c["name"] for c in got] == ["A", "C", "B"]  # A holds a rank 3 point; then the questions, High before Low
     assert [c["number"] for c in got] == [1, 2, 3]
     assert [c["member_ids"] for c in got] == [["2", "3"], ["4"], ["1"]]
+
+
+def test_the_completeness_cut_check_covers_the_reasoning_column():
+    from app import crs_completeness, review_points_service
+
+    doc, rc, ai, client = world_with_both()
+    raw = review_points_service.export_listing(doc, scope_all())[1]
+    data = crs_one.build_team(doc, scope_all())
+    assert crs_completeness.cut_report(data, raw)["problems"] == []
+    # a reasoning cell shortened WITHOUT its text elsewhere is a problem: change the stored full text under the file
+    changed = [{**p, "ai_reasoning": (p.get("ai_reasoning") or "") + (" 480 characters of reasoning." * 17 if p.get("ai_reasoning") else "")} for p in raw]
+    assert any(p.get("ai_reasoning") for p in raw)
+    problems = crs_completeness.cut_report(data, changed)["problems"]
+    assert any("reasoning is shortened or changed" in x for x in problems)

@@ -41,7 +41,7 @@ from .agent_review_verdict import (
     moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
-from .crs_ai_actions import query_action, reasoning_part
+from .crs_ai_actions import query_action, reason_for, reasoning_part
 
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"
@@ -213,7 +213,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
-    why = words.why_phrase(guard or line.get("not_proven_reason"))
+    why = reason_for(line, words.why_phrase(guard or line.get("not_proven_reason")))
     if (
         status in (words.STATUS_AI, words.STATUS_QUERY)
         and why

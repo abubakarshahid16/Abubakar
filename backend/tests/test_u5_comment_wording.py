@@ -145,3 +145,29 @@ def test_the_reasoning_is_never_cut_by_a_character_limit_and_the_contractor_comm
     assert cells[crs_one.TEAM_COLUMNS.index(crs_one.REASONING_COLUMN)] == part.strip() and cut == 0
     # no `reasoning`: the model's contractor-facing `comment` is not printed under the AI-reasoning label
     assert actions.reasoning_part(query(reasoning="", comment="Contractor to state the value."), words.STATUS_QUERY, "") == ""
+
+
+# ------------------------------------------------------------------------------------------------ R68b
+
+
+def test_a_checklist_entry_that_states_its_own_strength_is_believed():
+    safety = "The relief valve shall be sized for fire exposure."
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=safety, source="skill") == "High"
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=safety, source="skill", strength="should") == "Low"
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=safety, source="skill", recommendation=True) == "Low"
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote="The tag shall be steel.", source="skill", strength="advice") == "Low"
+
+
+def test_a_verified_quote_means_the_sheet_is_not_silent_and_action_and_reason_agree():
+    line = query(quotes_checked={"paper": True, "clause": True}, paper_quote="Body: steel", reason_code="sheet_silent",
+                 not_proven_reason="the paper is silent on this; a missing statement is not a failure")  # fmt: skip
+    assert action_of(line).startswith("Contractor to confirm or justify")
+    assert actions.reason_for(line, "the AI reviewer found the paper silent on this") == actions.STATED_REASON
+    cell = wb.layout_comment(line, words.STATUS_QUERY, words.ORDER_QUERY)
+    assert "silent" not in cell.split("\n")[1].lower() and actions.STATED_REASON in cell
+    from app import crs_one
+
+    assert "silent" not in crs_one.reason_of({"_line": line, "source": "ai_review"}).lower()
+    # without a verified quote the stored reason stands
+    bare = query(reason_code="sheet_silent")
+    assert actions.reason_for(bare, "the paper is silent") == "the paper is silent"
