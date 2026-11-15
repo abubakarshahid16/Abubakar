@@ -100,6 +100,9 @@ class ContextPart:
     name: str
     sources: tuple[str, ...]
     items: tuple[tuple[str, ...], ...]
+    kinds: tuple[str, ...] | None = (
+        None  # one declared kind per column (B1: id, code, key, number, clause, standard, enum, unit, source)
+    )
 
 
 FACT_SHEET = "fact_sheet"
@@ -129,7 +132,9 @@ def group_chapters(
 def token(text: object) -> str:
     """One short one-line token for a derived row (the seam refuses anything longer or with a line break)."""
     one = " ".join(str(text or "").split())
-    return one[: nine_call.MAX_TOKEN_CHARS] or "-"
+    return (
+        one[: nine_call.MAX_CELL_CHARS] or "-"
+    )  # the seam's own cell cap; a typed column is checked there, never cut to fit
 
 
 def _rows(items: Iterable[Iterable[object]]) -> tuple[tuple[str, ...], ...]:
@@ -141,6 +146,7 @@ def prefix_blocks(
     paper_pages: Sequence[int],
     digest_items: Iterable[Iterable[object]] = (),
     context_parts: Sequence[ContextPart] = (),
+    digest_kinds: Sequence[str] | None = None,
 ) -> list[nine_call.Block]:
     """The part every call shares (cached after the first): the paper's pages (NAMED; the seam loads their stored text), the fact-sheet digest
     (a derived block whose only source is the paper) and each part of the project context as its OWN derived block with ITS sources, so the
@@ -152,7 +158,11 @@ def prefix_blocks(
     if rows:
         blocks.append(
             nine_call.Block(
-                "review_record", name=FACT_SHEET, sources=(paper_id,), items=rows
+                "review_record",
+                name=FACT_SHEET,
+                sources=(paper_id,),
+                items=rows,
+                kinds=tuple(digest_kinds) if digest_kinds else None,
             )
         )
     for part in context_parts:
@@ -163,6 +173,7 @@ def prefix_blocks(
                     name=part.name,
                     sources=tuple(part.sources),
                     items=_rows(part.items),
+                    kinds=tuple(part.kinds) if part.kinds else None,
                 )
             )
     if blocks:
@@ -194,14 +205,15 @@ def sent_of(
     answer: nine_call.Answer, offered: Sequence[ChapterText] = ()
 ) -> nine_findings.Sent:
     """What a call really sent, read from the ANSWER (`Answer.reads`: one entry per block the gate kept), never from the blocks that were
-    offered. A document the gate held is not in it, so a quote from its pages is unverified. For a kept part of a long chapter the CHARACTER
-    RANGE is the one that part was offered with (`offered`, matched by book, chapter and part number: the gate keeps or drops a whole block and
-    never changes its range); a quote outside that range was not sent. A kept block with no matching offer counts as whole pages."""
+    offered. A document the gate held is not in it, so a quote from its pages is unverified. The CHARACTER RANGE is the one the seam really sent
+    (`Answer.ranges`, same order as `reads`); only when the answer carries none does it fall back to the range the part was offered with
+    (`offered`, matched by book, chapter and part number). A quote outside that range was not sent."""
     paper: set[int] = set()
     books: dict[str, set[int]] = {}
     blocks: dict[str, list[tuple[tuple[int, ...], int | None, int | None]]] = {}
     refs: list[tuple[str, str, int]] = []
-    for r in answer.reads:
+    ranges = tuple(answer.ranges or ())
+    for i, r in enumerate(answer.reads):
         pages = {
             int(p) for p in r.pages if isinstance(p, int) and not isinstance(p, bool)
         }
@@ -220,13 +232,15 @@ def sent_of(
                 ),
                 None,
             )
-            blocks.setdefault(book, []).append(
-                (
-                    tuple(sorted(pages)),
-                    part.char_from if part else None,
-                    part.char_to if part else None,
-                )
+            sent_range = (
+                ranges[i] if i < len(ranges) else None
+            )  # the range the seam really sent
+            lo, hi = (
+                sent_range
+                if sent_range
+                else (part.char_from if part else None, part.char_to if part else None)
             )
+            blocks.setdefault(book, []).append((tuple(sorted(pages)), lo, hi))
             refs.append((book, str(r.chapter_id or ""), int(r.part_no or 1)))
     return nine_findings.Sent(
         answer.call_id, frozenset(paper), {k: frozenset(v) for k, v in books.items()}, answer.model, tuple(dict.fromkeys(refs)),
@@ -326,8 +340,10 @@ class ReviewerRun:
     context_dropped: list[str] = field(
         default_factory=list
     )  # parts a call did NOT send (a source the gate held): named in the record
+    no_context_available: bool = False  # role 2 found NOTHING to pass (no project document held): zero parts offered is then not a gap
 
-    NO_CONTEXT_OFFERED = "no project context offered"
+    NO_CONTEXT_NOT_OFFERED = "project context not passed (none offered)"
+    NO_CONTEXT_AVAILABLE = "no project context was available"  # role 2 found nothing to pass: that fact is role 2's own row, not a gap here
 
     @property
     def context_passed(self) -> bool:
@@ -362,14 +378,16 @@ class ReviewerRun:
                 )
             )
             return "not_run", why
-        if self.partly or not self.context_offered:
+        not_offered = not self.context_offered and not self.no_context_available
+        if self.partly or not_offered:
             parts = []
-            if not self.context_offered:
-                parts.append(self.NO_CONTEXT_OFFERED)
+            if not_offered:
+                parts.append(self.NO_CONTEXT_NOT_OFFERED)
             if self.context_dropped:
                 parts.append(
-                    "project context part(s) held by the gate: "
+                    f"project context not passed ({len(self.context_dropped)} part(s) held: "
                     + ", ".join(self.context_dropped)
+                    + ")"
                 )
             if self.budget_stopped:
                 parts.append("role budget reached")
@@ -387,7 +405,7 @@ class ReviewerRun:
             return "ran_partly", "; ".join(parts) + tail
         return "ran", None
 
-    def produced(self) -> dict[str, int]:
+    def produced(self) -> dict[str, int | str]:
         """Counts only, for `produced_json` of the record."""
         return {
             "raw_findings": len(self.raw),
@@ -399,6 +417,11 @@ class ReviewerRun:
             "context_parts": len(self.context_offered),
             "context_parts_held": len(self.context_dropped),
             "context_passed": int(self.context_passed),
+            **(
+                {"context": self.NO_CONTEXT_AVAILABLE}
+                if self.no_context_available and not self.context_offered
+                else {}
+            ),
         }
 
 
@@ -418,13 +441,18 @@ def review(
     gate: nine_call.RoleGate | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     concurrency: int = CONCURRENCY,
+    no_context_available: bool = False,
 ) -> ReviewerRun:
     """One call per chapter group through the seam, `concurrency` at a time, each with prefix + that group's blocks. A group is `not_asked`
     when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
     a failed or refused call is counted and its code kept (codes only). What each call SENT is read from its Answer. Results follow the
     group order, so the same inputs give the same findings."""
     offered = context_names(prefix)
-    run = ReviewerRun(groups=len(groups), context_offered=offered)
+    run = ReviewerRun(
+        groups=len(groups),
+        context_offered=offered,
+        no_context_available=no_context_available,
+    )
     gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
     stop = {"budget": False}
 

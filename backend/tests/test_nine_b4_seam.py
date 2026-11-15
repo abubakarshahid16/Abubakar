@@ -8,7 +8,15 @@ from typing import ClassVar
 
 import pytest
 
-from app import agent_claude, db, nine_call, nine_record, review_shown, submittal_review
+from app import (
+    agent_claude,
+    db,
+    nine_call,
+    nine_record,
+    review_engine,
+    review_shown,
+    submittal_review,
+)
 from app import agent_review_pass_guards as G
 from app import agent_review_standards as standards
 from app import nine_checklist as checklist
@@ -59,6 +67,15 @@ def world(tmp_path, monkeypatch):
         review_shown.record_in(
             conn, "run1", ["paper", "book"], NOW
         )  # the stored list names the paper and the book, not "held"
+        review_engine.record_in(
+            conn,
+            "run1",
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=False,
+            now=NOW,
+        )  # default deny: only a stored Claude decision opens the lane
     nine_record.start_run("run1")
     yield
     db.reset_connection()
@@ -118,7 +135,10 @@ def test_blocks_are_named_not_copied_and_the_seam_sends_the_stored_words():
         and sent.book_pages == {"book": frozenset({4})}
         and sent.read_refs == (("book", "4", 1),)
     )
-    assert got.ok and got.state() == ("ran_partly", "no project context offered")
+    assert got.ok and got.state() == (
+        "ran_partly",
+        "project context not passed (none offered)",
+    )
 
 
 def test_the_prompt_goes_as_registered_templates_and_nothing_else():
@@ -175,13 +195,18 @@ def test_a_book_the_gate_held_is_not_sent_and_a_quote_from_its_pages_is_unverifi
 
 
 def test_a_context_part_with_a_held_source_is_dropped_and_named_the_others_go_on():
-    ok = rev.ContextPart("override_list", ("paper",), (("pressure", "from paper"),))
+    ok = rev.ContextPart(
+        "override_list",
+        ("paper",),
+        (("coating", "Coating thickness: 0.35 mm"),),
+        ("key", "source"),
+    )
     held = rev.ContextPart(
         "project_spec", ("held",), (("rule", "token of the held doc"),)
     )
     got, t = run_review([reply(finding())], [group()], pre=prefix([ok, held]))
     body = json.dumps(t.bodies[0])
-    assert "from paper" in body and "token of the held doc" not in body
+    assert "Coating thickness: 0.35 mm" in body and "token of the held doc" not in body
     assert (
         got.context_offered == ("override_list", "project_spec")
         and got.context_dropped == ["project_spec"]
@@ -190,7 +215,7 @@ def test_a_context_part_with_a_held_source_is_dropped_and_named_the_others_go_on
     state, why = got.state()
     assert (
         state == "ran_partly"
-        and "project context part(s) held by the gate: project_spec" in why
+        and "project context not passed (1 part(s) held: project_spec)" in why
     )
     assert (
         got.produced()["context_parts"] == 2
@@ -199,7 +224,12 @@ def test_a_context_part_with_a_held_source_is_dropped_and_named_the_others_go_on
 
 
 def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is_said_in_words():
-    ok = rev.ContextPart("override_list", ("paper",), (("pressure", "from paper"),))
+    ok = rev.ContextPart(
+        "override_list",
+        ("paper",),
+        (("coating", "Coating thickness: 0.35 mm"),),
+        ("key", "source"),
+    )
     got, _t = run_review([reply(finding())], [group()], pre=prefix([ok]))
     assert (
         got.context_passed is True
@@ -210,8 +240,32 @@ def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is
     assert (
         none.context_passed is False
         and none.context_offered == ()
-        and none.state() == ("ran_partly", "no project context offered")
+        and none.state() == ("ran_partly", "project context not passed (none offered)")
     )
+
+
+def test_no_context_available_is_ran_not_partly_and_is_said_in_words():
+    """Case (b): role 2 found nothing to pass (no project paper held). The reviewer RAN; the record says why there is no context."""
+    got, _t = run_review([reply(finding())], [group()], no_context_available=True)
+    assert got.state() == ("ran", None) and got.context_passed is False
+    p = got.produced()
+    assert (
+        p["context_parts"] == 0 and p["context"] == "no project context was available"
+    )
+    # case (a) with the same empty prefix and the flag off is a gap, not a clean run
+    gap, _t2 = run_review([reply(finding())], [group()])
+    assert gap.state()[0] == "ran_partly" and "context" not in gap.produced()
+
+
+def test_available_flag_does_not_hide_a_held_part():
+    ok = rev.ContextPart(
+        "override_list", ("held",), (("coating", "four rivets"),), ("key", "source")
+    )
+    got, _t = run_review(
+        [reply(finding())], [group()], pre=prefix([ok]), no_context_available=True
+    )
+    assert got.state()[0] == "ran_partly" and "held: override_list" in got.state()[1]
+    assert "context" not in got.produced()
 
 
 class OnceGate(nine_call.RoleGate):
@@ -413,7 +467,7 @@ def test_a_clause_quote_outside_the_character_range_that_was_sent_does_not_count
     )
 
 
-def test_a_kept_part_with_no_matching_offer_counts_as_whole_pages_never_as_a_wider_range():
+def test_the_range_is_the_one_the_seam_reports_not_the_one_offered():
     _long_world()
     part = rev.ChapterText("long", "4", 1, 2, (3,), 10, 0, 10)
     answer = nine_call.ask(
@@ -424,5 +478,11 @@ def test_a_kept_part_with_no_matching_offer_counts_as_whole_pages_never_as_a_wid
         "long": (((3,), 0, 10),)
     }  # the offered range
     assert rev.sent_of(answer, []).book_blocks == {
+        "long": (((3,), 0, 10),)
+    }  # read from Answer.ranges: no offer needed
+    import dataclasses as _dc
+
+    old = _dc.replace(answer, ranges=())
+    assert rev.sent_of(old, []).book_blocks == {
         "long": (((3,), None, None),)
-    }  # no offer to read a range from: whole pages
+    }  # an answer with no ranges and no offer: whole pages, never a wider range
