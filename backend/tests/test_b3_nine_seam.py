@@ -90,32 +90,59 @@ def test_the_chapter_titles_go_as_one_derived_block_sourced_to_the_books_and_gat
     assert t2.bodies == []
 
 
-def test_titles_are_short_tokens_and_the_question_takes_no_parameter_from_a_document():
-    long = "x" * 200
-    block = L.titles_block(
-        [("book", "1", long), ("book", "2", "   "), ("book", "3", "Scope\nand more")]
+def test_titles_are_the_raw_heading_prefix_and_rows_left_out_are_counted():
+    raw = "  4.1 Design pressure of the casing, all cases of loading and the like, more words follow here"
+    block, left = L.titles_block(
+        [
+            ("book", "1", raw),
+            ("book", "2", "   "),
+            ("book", "3", "Scope\tand more"),
+            ("book", "4", "x" * 200),
+        ]
     )
-    assert all(len(c) <= 60 and "\n" not in c for row in block.items for c in row)
-    assert len(block.items) == 2 and block.sources == ("book",)
+    assert left == 2 and len(block.items) == 2 and block.sources == ("book",)
+    first = block.items[0][2]
+    assert (
+        first == raw.lstrip()[:60] and first in raw
+    )  # as it stands in the stored text, not normalised
     assert nine_call.render((L.QUESTION_ID, {}))[0] == L.QUESTION_ID
 
 
-def test_the_note_goes_on_as_per_source_derived_blocks_of_tokens_and_never_a_quote():
-    src = nc.SourceQuote("book", 4, QUOTE, True)
+def test_the_note_goes_on_as_per_source_blocks_of_provable_cells_and_never_a_quote_or_a_paraphrase():
+    quote = "The design pressure of the pump shall follow API 610 clause 6.1 as written"
+    src = nc.SourceQuote("book", 4, quote, True)
     note = nc.build_note(
         "run1",
         project="P",
         admission=nc.Admission((_paper(kind=nc.KIND_RELATED),), (), {}),
         standards=(nc.StandardNamed("API 610", None, False, src),),
-        overrides=(nc.Override("set pressure", None, src, "project first"),),
+        overrides=(
+            nc.Override(
+                "design pressure",
+                "API Std 610 clause 6.1",
+                src,
+                "the project rule prevails over it",
+            ),
+            nc.Override(
+                "paint colour", None, src, None
+            ),  # no anchor code can prove: left out, counted
+        ),
         earlier=None,
         earlier_held=False,
     )
-    blocks = nc.context_blocks(note)
-    assert {(b.name, b.sources) for b in blocks} == {
+    tally = nc.Tally()
+    parts = nc.context_blocks(note, tally)
+    assert {(b.name, b.sources) for b in parts.blocks} == {
         ("ctx_standards", ("book",)),
         ("ctx_overrides", ("book",)),
         ("ctx_related", ("book",)),
     }
-    flat = " ".join(c for b in blocks for row in b.items for c in row)
-    assert QUOTE not in flat and "not held" in flat and "p4" in flat
+    assert parts.not_passed == 1 and tally.parts_not_passed == 1
+    rows = {b.name: b.items for b in parts.blocks}
+    assert rows["ctx_standards"] == (("API 610", "not_held", "4"),)
+    assert rows["ctx_overrides"] == (
+        ("design_pressure", "6.1", "project_over_general", "4"),
+    )
+    flat = " ".join(c for b in parts.blocks for row in b.items for c in row)
+    assert quote not in flat and "prevails" not in flat
+    assert any("not provable by code" in line for line in nc.count_lines(tally))

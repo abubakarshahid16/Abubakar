@@ -243,6 +243,10 @@ class Tally:
     standards_dropped: int = 0
     overrides_dropped: int = 0
     unheld_standards: int = 0
+    standards_unrecognised: int = 0  # named with a true whole-token citation, of a family the app's reader does not know
+    parts_not_passed: int = (
+        0  # rows left out of the blocks for the reviewer: not provable by code
+    )
 
 
 def read_papers(
@@ -295,49 +299,91 @@ def _quote(raw: Mapping, p: ProjectPaper) -> SourceQuote | None:
     )
 
 
-def _name_in_quote(name: str, quote: str) -> bool:
-    """The quote itself CITES the standard: the app's own identifier reader (`standard_ids.cited_standards`, whole tokens of the raw
-    quote, in order) finds a citation that is `same_standard` as the name. A bare letter group or number inside another word
-    ("API" in "rapid", "610" in "1610") is not a citation."""
+def _matched_citation(name: str, quote: str) -> str | None:
+    """The citation, as printed in the quote, that the app's own identifier reader (`standard_ids.cited_standards`, whole tokens of
+    the raw quote) finds and that is `same_standard` as the name; None when the quote does not cite it. A bare letter group or number
+    inside another word ("API" in "rapid", "610" in "1610") is not a citation."""
     from . import standard_ids
 
-    return any(
-        standard_ids.same_standard(name, c) for c in standard_ids.cited_standards(quote)
+    return next(
+        (
+            c
+            for c in standard_ids.cited_standards(quote)
+            if standard_ids.same_standard(name, c)
+        ),
+        None,
     )
+
+
+def _printed_whole(name: str, quote: str) -> bool:
+    """An identifier-like name (letters AND digits) printed in the quote as whole tokens, in order, though the app's reader does not
+    know its family: said apart from a dropped name ("not recognised by the app's reader"), never silent."""
+    if not (re.search(r"[A-Za-z]", name) and re.search(r"\d", name)):
+        return False
+    toks = re.findall(r"[A-Za-z0-9]+", name)
+    pat = (
+        r"(?<![A-Za-z0-9])"
+        + r"[^A-Za-z0-9]{0,3}".join(re.escape(t) for t in toks)
+        + r"(?![A-Za-z0-9])"
+    )
+    return bool(re.search(pat, quote, re.I))
 
 
 _CLAUSE_NUMBER = re.compile(r"(?<![0-9A-Za-z.])\d+(?:\.\d+)+(?![0-9A-Za-z])")
 
 
-def _subject_in_quote(subject: str, quote: str) -> bool:
-    """Every word of the subject (3 letters or more) is a WHOLE word of the quote, and the override has an anchor the common words
-    cannot give: a field name from the app's field list (`rule_labels.field_list`) that is in both the subject and the quote, or a
-    standard citation or a clause number in the quote."""
-    from . import rule_labels, standard_ids
+def _field_anchor(subject: str, quote: str) -> str | None:
+    """The app's field-list name (`rule_labels.field_list`, e.g. design_pressure) that stands in BOTH the subject and the quote."""
+    from . import rule_labels
 
-    words = [w for w in re.findall(r"[a-z0-9]+", subject.casefold()) if len(w) >= 3]
-    q_words = re.findall(r"[a-z0-9]+", quote.casefold())
-    if not words or not all(w in set(q_words) for w in words):
-        return False
-    if standard_ids.cited_standards(quote) or _CLAUSE_NUMBER.search(quote):
-        return True
-    s_words, q_text = (
-        " " + " ".join(re.findall(r"[a-z0-9]+", subject.casefold())) + " ",
-        " " + " ".join(q_words) + " ",
-    )
+    def flat(t):
+        return " " + " ".join(re.findall(r"[a-z0-9]+", t.casefold())) + " "
+
+    s_, q_ = flat(subject), flat(quote)
     for role in rule_labels.field_list():
         phrase = " " + role.replace("_", " ") + " "
-        if phrase in s_words and phrase in q_text:
-            return True
-    return False
+        if phrase in s_ and phrase in q_:
+            return role
+    return None
+
+
+def _standard_anchor(general_ref: str | None, quote: str) -> str | None:
+    """The citation in the quote that is the standard being overridden: the one the override's own general reference names."""
+    from . import standard_ids
+
+    refs = standard_ids.cited_standards(general_ref or "")
+    return next(
+        (
+            c
+            for c in standard_ids.cited_standards(quote)
+            if any(standard_ids.same_standard(r, c) for r in refs)
+        ),
+        None,
+    )
+
+
+def _subject_in_quote(subject: str, quote: str, general_ref: str | None = None) -> bool:
+    """Every word of the subject (3 letters or more) is a WHOLE word of the quote, and the anchor BELONGS to the subject: the
+    field-list name in both the subject and the quote, or the quote cites the standard the override says it overrides. A clause
+    number alone is not an anchor (a stray "see 3.2" would carry any override)."""
+    words = [w for w in re.findall(r"[a-z0-9]+", subject.casefold()) if len(w) >= 3]
+    q_words = set(re.findall(r"[a-z0-9]+", quote.casefold()))
+    if not words or not all(w in q_words for w in words):
+        return False
+    return bool(_field_anchor(subject, quote) or _standard_anchor(general_ref, quote))
 
 
 def _keep_standard(raw, p, library, out, tally) -> None:
     name = str((raw or {}).get("name") or "").strip()
     src = _quote(raw or {}, p) if name else None
-    if src is None or not _name_in_quote(name, src.quote):
-        tally.standards_dropped += 1
+    cited = _matched_citation(name, src.quote) if src is not None else None
+    if cited is None:
+        if src is not None and _printed_whole(name, src.quote):
+            tally.standards_unrecognised += 1
+        else:
+            tally.standards_dropped += 1
         return
+    name = cited  # the citation as the paper prints it, not the model's spelling
     entry = applicability.find_standard(library, name)
     book = str(entry.get("id") or entry.get("document_id")) if entry else None
     if book is None:
@@ -350,10 +396,10 @@ def _keep_standard(raw, p, library, out, tally) -> None:
 def _keep_override(raw, p, out, tally) -> None:
     subject = str((raw or {}).get("subject") or "").strip()
     src = _quote(raw or {}, p) if subject else None
-    if src is None or not _subject_in_quote(subject, src.quote):
+    ref = (raw.get("general_ref") or None) and str(raw.get("general_ref")).strip()
+    if src is None or not _subject_in_quote(subject, src.quote, ref):
         tally.overrides_dropped += 1
         return
-    ref = (raw.get("general_ref") or None) and str(raw.get("general_ref")).strip()
     prec = (raw.get("precedence") or None) and str(raw.get("precedence")).strip()
     out.setdefault(
         (_norm(subject), _norm(src.quote)), Override(subject, ref, src, prec)
@@ -414,6 +460,8 @@ def produced(note: ContextNote, tally: Tally | None = None) -> dict:
             windows=tally.windows,
             failed_windows=tally.failed_windows,
             dropped_no_quote=tally.standards_dropped + tally.overrides_dropped,
+            standards_unrecognised=tally.standards_unrecognised,
+            parts_not_passed=tally.parts_not_passed,
         )
     return out
 
@@ -546,65 +594,129 @@ def find_papers(
     return out
 
 
-# ---------------------------------------------------------------- the note's parts, per source, as derived blocks (short tokens only)
+# ---------------------------------------------------------------- the note's parts, per source, as derived blocks (provable cells only)
+
+#: the fixed set of precedence codes (the model's free words are never passed on)
+PRECEDENCE_CODES = ("project_over_general", "not_stated")
+_PRECEDES = re.compile(
+    r"project.*(prevail|overrid|preced|govern|supersed|take)|(prevail|overrid|preced).*project",
+    re.I,
+)
 
 
-def _tok(value: object) -> str | None:
-    """One short one-line token, or None (the seam takes 60 characters; a longer value is left out, never cut into a new word)."""
-    text = re.sub(r"\s+", " ", str(value or "")).strip()
-    return text if text and len(text) <= nine_call.MAX_TOKEN_CHARS else None
+def precedence_code(text: str | None) -> str:
+    return "project_over_general" if text and _PRECEDES.search(text) else "not_stated"
 
 
-def _row(*cells: object) -> tuple[str, ...] | None:
-    out = [_tok(c) for c in cells]
-    return None if out[0] is None or any(c is None for c in out) else tuple(out)  # type: ignore[arg-type]
+@dataclass(frozen=True)
+class Parts:
+    blocks: tuple[nine_call.Block, ...]
+    not_passed: int  # rows left out because code cannot prove every cell: counted, said in the note and the record
 
 
-def context_blocks(note: ContextNote) -> list[nine_call.Block]:
-    """One derived block (kind review_record) per part and per source document: standards named (name, held book id or "not held", page),
-    overrides (subject, the general reference, precedence, page: never the quote), related papers (document id), the earlier-revision
-    follow-up (field, stored word, decision, still open). `sources` is the document each part came from, so the seam gates each one."""
+def _cell_ok(value: object) -> str | None:
+    text = str(value or "")
+    return (
+        text
+        if text
+        and len(text) <= nine_call.MAX_TOKEN_CHARS
+        and text == text.strip()
+        and "\n" not in text
+        else None
+    )
+
+
+def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
+    """One derived block (kind review_record) per part and per source document, every cell something code can prove:
+    standards (the citation as printed in the quote, held/not_held, page number); overrides (the anchor: the app's field-list name or
+    the cited standard, a clause number found in both the reference and the quote or "-", a precedence code, page number); related
+    papers (document id); the earlier-revision follow-up (the field-list key, the stored word, the decision, still-open code).
+    Never a model paraphrase or a sentence of the paper. `sources` is the document each part came from (the seam gates each)."""
+    from . import rule_labels
+
     by_doc: dict[tuple[str, str], list] = {}
+    left = 0
 
-    def add(part: str, doc: str, row) -> None:
-        if row is not None:
-            by_doc.setdefault((part, doc), []).append(row)
+    def add(part: str, doc: str, cells) -> None:
+        nonlocal left
+        if cells is None or any(c is None for c in cells):
+            left += 1
+            return
+        by_doc.setdefault((part, doc), []).append(tuple(cells))
 
     for s in note.standards:
         add(
             "ctx_standards",
             s.source.document_id,
-            _row(s.name, s.book_id or "not held", f"p{s.source.page}"),
+            (
+                _cell_ok(s.name),
+                "held" if s.held else "not_held",
+                str(int(s.source.page)),
+            ),
         )
     for o in note.overrides:
+        q = o.project_rule.quote
+        anchor = _field_anchor(o.subject, q) or _standard_anchor(o.general_ref, q)
+        clause = next(
+            (c for c in _CLAUSE_NUMBER.findall(o.general_ref or "") if c in q),
+            "-",
+        )
         add(
             "ctx_overrides",
             o.project_rule.document_id,
-            _row(
-                o.subject,
-                o.general_ref or "-",
-                o.order_of_precedence or "-",
-                f"p{o.project_rule.page}",
+            (
+                _cell_ok(anchor),
+                clause,
+                precedence_code(o.order_of_precedence),
+                str(int(o.project_rule.page)),
             ),
         )
     for d in note.related_papers:
-        add("ctx_related", d, _row(d, "related"))
+        add("ctx_related", d, (_cell_ok(d), "related"))
     if note.earlier is not None:
+        fields = set(rule_labels.field_list())
+        decisions = {"keep", "edit", "remove"}
         for c in note.earlier.comments:
-            state = {True: "still open", False: "changed", None: "cannot tell"}[
-                c.still_open
-            ]
+            key = re.sub(r"[^a-z0-9]+", "_", (c.field or "").casefold()).strip("_")
             add(
                 "ctx_earlier",
                 note.earlier.document_id,
-                _row(
-                    c.field or "-",
-                    c.status_word or "-",
-                    c.engineer_decision or "-",
-                    state,
+                (
+                    key if key in fields else None,
+                    _cell_ok(c.status_word),
+                    c.engineer_decision if c.engineer_decision in decisions else "-",
+                    {True: "still_open", False: "changed", None: "cannot_tell"}[
+                        c.still_open
+                    ],
                 ),
             )
-    return [
-        nine_call.Block("review_record", name=part, sources=(doc,), items=tuple(rows))
-        for (part, doc), rows in sorted(by_doc.items())
-    ]
+    if tally is not None:
+        tally.parts_not_passed += left
+    return Parts(
+        tuple(
+            nine_call.Block(
+                "review_record", name=part, sources=(doc,), items=tuple(rows)
+            )
+            for (part, doc), rows in sorted(by_doc.items())
+        ),
+        left,
+    )
+
+
+def count_lines(tally: Tally) -> tuple[str, ...]:
+    """The counted lines the sheet says beside the note (each only when it is more than none): the role never looks as if the
+    project documents named less than they did."""
+    lines = []
+    if tally.standards_unrecognised:
+        lines.append(
+            f"{tally.standards_unrecognised} named standards not recognised by the app's reader"
+        )
+    if tally.standards_dropped or tally.overrides_dropped:
+        lines.append(
+            f"{tally.standards_dropped + tally.overrides_dropped} names dropped: the quote did not show them"
+        )
+    if tally.parts_not_passed:
+        lines.append(
+            f"{tally.parts_not_passed} parts not passed to the reviewer: not provable by code"
+        )
+    return tuple(lines)

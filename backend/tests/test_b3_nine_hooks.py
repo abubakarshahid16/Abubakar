@@ -158,3 +158,38 @@ def test_a_datasheets_project_papers_are_checked_the_same_way_with_the_switch_on
         ["x"],
         frozenset({"a"}),
     )  # the same access and kinds checks run
+
+
+def test_a_related_paper_already_listed_by_the_paper_is_not_listed_twice(
+    lib, monkeypatch
+):
+    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(nine_context, "paper_scored", lambda conn, d: False)
+    rel = _doc("cit_1", "85" * 32, None, filename="SAES-D-002 invented layout.pdf")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, suggested_by, project) VALUES (?, 'test', 'P-1')",
+            (rel,),
+        )
+        conn.execute(
+            "UPDATE document_classification SET project = 'P-1' WHERE document_id = ?",
+            (lib["sub"],),
+        )
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,2,?,1,0)",
+            (lib["sub"], "Also per SAES-D-002."),
+        )
+    lib["scope"] = lib["scope"] | {rel}
+    from tests.test_b1_review_engine import open_facts
+
+    out = review_leaving.leaving_for(
+        db.connect(),
+        lib["sub"],
+        lib["scope"],
+        open_facts(),
+        equipment_type=None,
+        leaves=True,
+        explicit=False,
+    )
+    ids = [r["id"] for r in out["leaving"] + out["not_sent"] if r.get("id")]
+    assert ids.count(rel) == 1
