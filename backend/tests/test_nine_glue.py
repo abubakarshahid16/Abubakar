@@ -191,6 +191,9 @@ def test_chosen_chapters_and_real_shaped_findings_become_lines_through_the_real_
         assert lines[k]["verdict_class"] not in ("Proven by code",) and ln.get(
             "not_proven_reason"
         )  # an opinion at most, with its reason
+    assert (
+        lines["R-coat"]["verdict_class"] == "AI verdict, two readers agree"
+    )  # the REAL tier lookup over a real label row: a matched, covered rule reaches the two-reader class
     assert {"R-coat", "R-mark", "R-frame"} <= set(
         lines
     )  # the covered rule, the unmentioned one and the contradicted one

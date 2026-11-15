@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import types
 
@@ -265,8 +266,9 @@ def test_execute_with_the_switch_off_calls_the_old_ask_with_the_same_arguments(
 # ------------------------------------------------------------------------------------------------ R69: failure, cancellation, resume
 
 
-def test_the_checklist_restores_the_whole_plan_even_when_the_batch_path_raises():
-    """The batch path is asked for a SHORTER list (the reviewer covered one rule); when it raises the plan must still hold both items."""
+def test_the_batch_path_gets_the_whole_plan_and_the_plan_is_never_changed_even_when_it_raises():
+    """The runner asks only items with no line yet, and the reviewer's covered items already have theirs: the plan is NOT shortened (a shortened
+    plan hides the covered rules from the exit, whose tier would then read "not approved")."""
     items = [{"item_id": "R-1"}, {"item_id": "R-2"}]
     plan = {"items": list(items)}
     seen = {}
@@ -281,10 +283,33 @@ def test_the_checklist_restores_the_whole_plan_even_when_the_batch_path_raises()
     )
     with pytest.raises(RuntimeError):
         nine_job.checklist_role(ctx)
-    assert seen["during"] == ["R-2"]  # the call really saw the shortened list
-    assert (
-        plan["items"] == items
-    )  # `_finish` and the CRS read the whole list: without the finally this stays shortened
+    assert seen["during"] == ["R-1", "R-2"] and plan["items"] == items
+
+
+def test_a_finding_whose_matched_rule_tier_did_not_resolve_does_not_cover_the_rule():
+    from app import nine_checklist
+    from app.nine_contract import Finding
+    from app.nine_findings import Built
+
+    def built(tier):
+        f = Finding(
+            finding_id="F-1", item_id="R-7", origin="reviewer", book_id="b", clause="4.1", clause_page=3, clause_where=None, clause_scanned=False,
+            field_label="x", field_roles=(), tag=None, paper_page=1, paper_quote="q", clause_quote="c", ai_verdict="met", matched_rule_id="7",
+            rule_tier=tier, members=("c1#1",), contradiction=False, read_refs=(),
+        )  # fmt: skip
+        return Built(f, {"item_id": "R-7", "source": "rule"}, {"item_id": "R-7"}, {})
+
+    items = [{"item_id": "R-7"}]
+    for tier, covered in (
+        ("AI approved", True),
+        ("not_approved", False),
+        (None, False),
+    ):
+        got = nine_job._covering_only_when_tier_resolved([built(tier)])
+        _emit, coverage = nine_checklist.cover(items, got, reviewer_ok=True)
+        assert (coverage.to_ask == []) is covered, (
+            tier
+        )  # an unresolved tier leaves the rule to today's own ask
 
 
 def test_an_error_in_todays_path_roles_is_raised_as_today_and_only_the_new_roles_are_recorded_failed():
@@ -386,3 +411,48 @@ def test_a_restart_that_skips_a_role_that_ran_hands_over_what_it_made(monkeypatc
         ctx.store["chosen"] == [("doc_book", "5.1")]
         and ctx.store["context_blocks"][0].name == "ctx_a"
     )
+
+
+def test_role_6_counts_from_the_stored_second_opinion_of_real_shaped_lines():
+    """Real lines carry `second_opinion` (a mapping with `agree`), never a "two_reader" key: the record must count them."""
+    from tests.test_b1_review_points import world_with_both
+
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ?", (ai,)
+        ).fetchall()
+        for r, second in zip(
+            rows,
+            (
+                {"agree": True, "model": "m", "reason": "r"},
+                {"agree": False, "model": "m", "reason": "r"},
+                None,
+            ),
+            strict=False,
+        ):
+            line = json.loads(r["line_json"])
+            line["second_opinion"] = second
+            conn.execute(
+                "UPDATE agent_review_line SET line_json = ? WHERE run_id = ? AND item_id = ?",
+                (json.dumps(line), ai, r["item_id"]),
+            )
+    got = nine_job.second_reviewer_role(
+        nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)
+    )
+    assert (
+        got.state == "ran"
+        and got.produced["asked"] == 2
+        and got.produced["agreed"] == 1
+        and got.produced["disagreed"] == 1
+    )
+    assert got.produced["candidates"] >= 2
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_line SET line_json = json_set(line_json, '$.second_opinion', NULL) WHERE run_id = ?",
+            (ai,),
+        )
+    none = nine_job.second_reviewer_role(
+        nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)
+    )
+    assert none.state == "not_run" and none.produced["asked"] == 0

@@ -20,6 +20,7 @@ word is written here. No model call is made here: every role that asks a model d
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -215,6 +216,20 @@ def _earlier_points(scope: frozenset[str]):
     return points
 
 
+def _usable_documents(ctx: RoleContext, engine: str) -> frozenset[str]:
+    """THE ONE answer to "which documents may this run use?", for roles 2 and 3 (B1's seam applies the same two rules to every block): the access
+    of the user who started the review (rule 5), narrowed by the list shown before the start WHERE ONE WAS STORED. A start that sends nothing
+    stores no list (it restricts only what is SENT to Claude): on a Local run the usable documents are then everything the starter may read;
+    on Claude a missing list means none (default deny)."""
+    from . import review_shown
+
+    scope = _scope(ctx)
+    listed = review_shown.shown_ids(connect(), ctx.run_id)
+    if listed is not None:
+        return scope & listed
+    return scope if engine == "local" else frozenset()
+
+
 def context_role(ctx: RoleContext) -> RoleResult:
     """Role 2: `nine_context.run`. Code finds the project's papers and admits each one (shown list, the starter's access, the engine
     choice; a contract never under Automatic); a model, through `nine_call.ask`, may only NAME a standard or an override with a page
@@ -224,14 +239,13 @@ def context_role(ctx: RoleContext) -> RoleResult:
     paper's id; it goes to the reviewer as one derived block PER SOURCE document (tokens only), and role 4 records how many."""
     from . import (
         applicability,
-        review_shown,
     )
 
     conn = connect()
     engine, scope = _engine(ctx), _scope(ctx)
     if engine == "none":
         return RoleResult("not_run", NO_DECISION)
-    shown = review_shown.shown_ids(conn, ctx.run_id)
+    shown = _usable_documents(ctx, engine)
     mine = conn.execute(
         "SELECT * FROM document_classification WHERE document_id = ?", (ctx.submittal,)
     ).fetchone()
@@ -246,7 +260,7 @@ def context_role(ctx: RoleContext) -> RoleResult:
         if project
         else []
     )
-    papers = nine_context.find_papers(conn, ctx.submittal, scope, shown or ())
+    papers = nine_context.find_papers(conn, ctx.submittal, scope, shown)
     new_values = {
         f.field_label: f.value
         for f in getattr(ctx.store.get("fact_sheet"), "facts", ())
@@ -310,7 +324,6 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     `nine_call.ask`, role 3). A book outside the starter's access is counted, never named."""
     from . import (
         nine_chapters,
-        review_shown,
     )
 
     conn = connect()
@@ -325,7 +338,7 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
             if i.get("standard_document_id")
         )
     )
-    shown = review_shown.shown_ids(conn, ctx.run_id)
+    shown = _usable_documents(ctx, engine)
     budget = (
         nine_chapters.LOCAL_CALL_TOKENS
         if engine == "local"
@@ -347,7 +360,7 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     ]
     reading = nine_librarian.plan_reading(
         ctx.run_id, inputs, rules=refs, context=context, equipment_words=[str(getattr(ctx.kind, "equipment_type", "") or "")],
-        shown=shown or (), allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
+        shown=shown, allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
     )  # fmt: skip
 
     reading = nine_librarian.extend_with_model(
@@ -414,6 +427,9 @@ def _rule_rows(plan: dict) -> list[dict]:
                     "id": iid.removeprefix("R-"),
                     "standard_document_id": ref["standard_document_id"],
                     "source_text": ref["text"],
+                    "rule_version_id": item.get(
+                        "rule_version_id"
+                    ),  # the rule's CURRENT tier is looked up by this
                 }
             )
     return rows
@@ -469,6 +485,49 @@ def _chosen_chapters(ctx: RoleContext) -> tuple[list, dict]:
     ], cuts
 
 
+def _covering_only_when_tier_resolved(built: list) -> list:
+    """A finding that matched a rule covers it only when the match's tier RESOLVED to one a verdict may stand on. If the lookup failed the rule
+    would get only an opinion where today's own ask could have been stronger: the finding then does not cover it (its clause page is
+    withheld from the coverage decision, so `cover` emits it as an F- item and the rule goes to the batch path)."""
+    import dataclasses
+
+    from . import agent_review_verdict as verdict
+
+    out = []
+    for b in built:
+        f = b.finding
+        if f.matched_rule_id is not None and f.rule_tier not in verdict.USABLE_TIERS:
+            b = dataclasses.replace(b, finding=dataclasses.replace(f, clause_page=None))
+        out.append(b)
+    return out
+
+
+def _decide(ctx: RoleContext, runner, local, to_emit, pages) -> None:
+    """Emit the reviewer's findings through the runner EXACTLY as `Runner.run` would work: the runner restored from the lines already stored,
+    its step gate set, and on Claude inside `claude_approved.carrying(<the documents the run may declare>)` and `claude_spend.for_run(run)` (so a
+    second reader's request is declared and metered like any other); on Local inside the local session. Without this a second reader is refused
+    ("undeclared_documents") and no finding could reach the two-reader class."""
+    from . import agent_claude, claude_approved, claude_spend
+    from . import agent_review_run as run_mod
+
+    runner.restore()
+    if local is not None:
+        runner.gate = run_mod.AppStepGate(float("inf"), 0.0)
+        with local.session():
+            nine_findings.decide_all(runner, to_emit, pages, runner.model)
+        return
+    runner.gate = run_mod.AppStepGate(
+        run_mod.app_cap(), claude_spend.step_spent(agent_claude.STEP)
+    )
+    declared = {ctx.submittal} | {
+        str(i["standard_document_id"])
+        for i in ctx.plan.get("items") or []
+        if i.get("standard_document_id")
+    }
+    with claude_approved.carrying(sorted(declared)), claude_spend.for_run(ctx.run_id):
+        nine_findings.decide_all(runner, to_emit, pages, runner.model)
+
+
 def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
@@ -518,14 +577,11 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
     )  # fmt: skip
     # THE ONE step order (B4's `cover`): the findings to emit (a finding that matched a rule it does not cover stays an F- item of its own) and the
     # coverage; emit the first list with `decide_all`, then role 5 asks `Coverage.to_ask` through today's batch path
+    built = _covering_only_when_tier_resolved(built)
     to_emit, coverage = nine_checklist.cover(
         ctx.plan.get("items") or [], built, reviewer_ok=True
     )
-    if local is not None:
-        with local.session():
-            nine_findings.decide_all(runner, to_emit, pages, runner.model)
-    else:
-        nine_findings.decide_all(runner, to_emit, pages, runner.model)
+    _decide(ctx, runner, local, to_emit, pages)
     ctx.store["coverage"] = coverage
     ctx.store["findings"] = [b.finding for b in to_emit]
     produced = {
@@ -563,12 +619,11 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
         items, findings, reviewer_ok=not ctx.flags.get("reviewer_failed")
     )
     asked = coverage.to_ask
-    ctx.plan["items"] = asked
-    try:
-        if asked:
-            ctx.ask(ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, ctx.holder)
-    finally:  # the plan keeps its whole item list whatever happens: `_finish` and the CRS read it
-        ctx.plan["items"] = items
+    # The batch path gets the WHOLE plan: the runner asks only the items that have no line yet, and every item the reviewer covered has its
+    # line already (stored by role 4). Shortening the plan would hide those items from the runner's exit and `_finish`, which then cannot
+    # find the rule of a stored line (its tier would read "not approved"). The plan is never changed here.
+    if asked:
+        ctx.ask(ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, ctx.holder)
     return RoleResult(
         "ran",
         engine=None,
@@ -581,23 +636,39 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
 
 
 def second_reviewer_role(ctx: RoleContext) -> RoleResult:
-    """Role 6: today's two-reader step ran inside the checklist's ask (findings arrive as items, so they are candidates like any line).
-    Its counts are read from the stored lines."""
-    challenged = agreed = 0
+    """Role 6: today's two-reader step ran inside the asks (findings arrive as items, so they are candidates like any line). Its counts are
+    read from the stored lines: a line's `second_opinion` is the second reader's stored answer (a mapping with `agree`), None when none was
+    asked. Candidates are the lines `agent_review_two_reader.is_candidate` says could take a second reader."""
+    from . import agent_review_two_reader as two
+
+    candidates = asked = agreed = disagreed = 0
     for r in connect().execute(
         "SELECT line_json FROM agent_review_line WHERE run_id = ?", (ctx.run_id,)
     ):
-        text = r["line_json"] or ""
-        if '"two_reader"' in text:
-            challenged += 1
-            agreed += '"agrees": true' in text
-    if not challenged:
-        return RoleResult(
-            "not_run", "no line was a candidate for a second reader", engine=None
+        try:
+            line = json.loads(r["line_json"] or "{}")
+        except ValueError:
+            continue
+        second = line.get("second_opinion")
+        candidates += bool(two.is_candidate(line) or isinstance(second, dict))
+        if isinstance(second, dict) and second.get("agree") is not None:
+            asked += 1
+            agreed += bool(second["agree"])
+            disagreed += not second["agree"]
+    produced = {
+        "candidates": candidates,
+        "asked": asked,
+        "agreed": agreed,
+        "disagreed": disagreed,
+    }
+    if not asked:
+        why = (
+            "no line was a candidate for a second reader"
+            if not candidates
+            else "candidates existed but no second reader answered"
         )
-    return RoleResult(
-        "ran", engine=None, produced={"challenged": challenged, "agreed": agreed}
-    )
+        return RoleResult("not_run", why, engine=None, produced=produced)
+    return RoleResult("ran", engine=None, produced=produced)
 
 
 def code_role(ctx: RoleContext) -> RoleResult:

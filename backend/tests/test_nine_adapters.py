@@ -4,6 +4,8 @@ be made, and every model call is shown to go through `nine_call.ask`."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app import crs_one, db, nine_call, nine_context, nine_facts, nine_job, nine_reader
@@ -459,3 +461,126 @@ def test_earlier_points_come_from_the_earlier_papers_own_list_and_only_when_the_
         and all(p["value"] is None for p in got)
     )
     assert nine_job._earlier_points(frozenset())(doc) == ()
+
+
+# ------------------------------------------------------------------------------------------------ R71: the documents a run may use
+
+
+BOOK_TEXT = (
+    "4.1 Frame\nThe coating thickness shall be at least 0.2 mm on every outside surface.\n"
+    * 40
+)
+
+
+def _book_world(engine_decision: dict | None, listed: list[str] | None):
+    """A paper, a rule book with a numbered chapter, and (optionally) a stored engine decision and a stored shown list."""
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        for n in (1, 2):
+            conn.execute(
+                "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,?,?,?,0)",
+                ("doc_std", n, BOOK_TEXT, len(BOOK_TEXT)),
+            )
+        if engine_decision is not None:
+            from app import review_engine
+
+            review_engine.record_in(
+                conn,
+                ai,
+                engine_decision,
+                "starter1",
+                then_ai=False,
+                bar_claude=engine_decision.get("choice") == "local",
+                now="2026-11-16T00:00:00Z",
+            )
+        if listed is not None:
+            from app import review_shown
+
+            review_shown.ensure_schema(conn)
+            review_shown.record_in(conn, ai, listed, "2026-11-16T00:00:00Z")
+    items = [
+        {
+            "item_id": "R-1",
+            "standard_document_id": "doc_std",
+            "clause": "4.1",
+            "clause_page": 1,
+        }
+    ]
+    return (
+        doc,
+        ai,
+        nine_job.RoleContext(
+            ai,
+            doc,
+            type("K", (), {"equipment_type": None, "kind": "datasheet"})(),
+            {"items": items},
+            {},
+            lambda *a: None,
+        ),
+    )
+
+
+@pytest.fixture
+def local_lane(monkeypatch):
+    """Every local model call of the nine roles answers `{}`-like text from a fake (no Ollama is ever reached)."""
+    monkeypatch.setattr(
+        nine_job,
+        "_seam_kwargs",
+        lambda ctx=None: {
+            "local_send": lambda parts: {"text": '{"chapters": []}', "model": "m"}
+        },
+    )
+
+
+def test_a_local_run_with_no_stored_list_may_use_everything_the_starter_may_read_and_the_librarian_chooses_chapters(
+    local_lane,
+):
+    """A start that sends nothing stores NO list (#1827): on Local the usable documents are the starter's access, so the chapters are CHOSEN (not
+    "not on the list shown") and the reason words never say a list."""
+    doc, ai, ctx = _book_world(
+        {"choice": "local", "text_leaves": False, "parts": []}, None
+    )
+    got = nine_job.librarian_role(ctx)
+    assert got.produced["chapters_chosen"] >= 1, got
+    assert "list" not in (
+        got.why or ""
+    ) and "not on the list shown before the start" not in json.dumps(got.produced)
+
+
+def test_a_claude_run_with_a_stored_list_that_omits_the_book_reads_nothing_of_it(
+    local_lane,
+):
+    doc, ai, ctx = _book_world(
+        {"choice": "claude", "text_leaves": True, "parts": []}, ["doc_sub"]
+    )
+    assert (
+        nine_job.librarian_role(ctx).produced["chapters_chosen"] == 0
+    )  # the book is not on the list shown: not read
+
+
+def test_a_claude_run_whose_list_names_the_book_reads_it(local_lane):
+    doc, ai, ctx = _book_world(
+        {"choice": "claude", "text_leaves": True, "parts": []}, ["doc_sub", "doc_std"]
+    )
+    assert nine_job.librarian_role(ctx).produced["chapters_chosen"] >= 1
+
+
+def test_a_claude_run_with_no_stored_list_uses_no_document(local_lane):
+    doc, ai, ctx = _book_world(
+        {"choice": "claude", "text_leaves": True, "parts": []}, None
+    )
+    assert nine_job._usable_documents(ctx, "claude") == frozenset()
+
+
+def test_usable_documents_is_the_starters_access_on_local_and_narrowed_by_a_stored_list():
+    doc, ai, ctx = _book_world(
+        {"choice": "local", "text_leaves": False, "parts": []}, None
+    )
+    assert {"doc_sub", "doc_std"} <= nine_job._usable_documents(ctx, "local")
+
+
+def test_usable_documents_with_a_stored_list_on_local_is_the_list_within_the_access():
+    doc, ai, ctx = _book_world(
+        {"choice": "local", "text_leaves": False, "parts": []}, ["doc_std"]
+    )
+    assert nine_job._usable_documents(ctx, "local") == frozenset({"doc_std"})
