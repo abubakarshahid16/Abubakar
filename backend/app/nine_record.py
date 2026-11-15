@@ -41,7 +41,7 @@ ROLES_TABLE, CALLS_TABLE, READS_TABLE, CELLS_TABLE = (
     "agent_review_role_cell",
 )
 #: the kinds of a derived cell: a typed token, or text found in one of the block's own sources
-CELL_KINDS = ("number", "clause", "standard", "enum", "code", "id", "unit", "source")
+CELL_KINDS = ("number", "clause", "standard", "enum", "vocab", "id", "unit", "source")
 #: a typed cell is at most this long (a source cell may be longer: it is checked against the stored text instead)
 MAX_TYPED_CELL = 64
 HELD_MIN_CHARS = (
@@ -155,7 +155,7 @@ def ensure_schema(conn=None) -> None:
             block_name         TEXT NOT NULL,
             row_no             INTEGER NOT NULL,
             col_no             INTEGER NOT NULL,
-            kind               TEXT NOT NULL CHECK (kind IN ('number','clause','standard','enum','code','id','unit','source')),
+            kind               TEXT NOT NULL CHECK (kind IN ('number','clause','standard','enum','vocab','id','unit','source')),
             chars              INTEGER NOT NULL,
             cell_sha256        TEXT NOT NULL,
             source_document_id TEXT,
@@ -592,7 +592,6 @@ def cells_of(run_id: str, call_id: str, conn=None) -> list[CellEntry]:
 
 
 WHY_WITHHELD = "why_withheld_held_text"
-_WHY_CODE = re.compile(r"^[a-z][a-z0-9_]{1,60}$")
 
 
 def refused_documents(run_id: str, ids) -> dict[str, str]:
@@ -608,37 +607,86 @@ def refused_documents(run_id: str, ids) -> dict[str, str]:
     return out
 
 
+_SEPARATORS = re.compile(r"[\s\-_:.]+")
+
+
+def hfold(text: str) -> str:
+    """The folding of every HELD-TEXT comparison (cells, rows, parameters, reasons): lower case, and white space, hyphens, underscores,
+    colons and full stops all as one space, so a sentence joined by `-` or `_` is still that sentence."""
+    return _SEPARATORS.sub(" ", str(text).lower()).strip()
+
+
+_BULK_PROBES = 30
+
+
 def held_text_hits(
     conn, run_id: str, values, *, min_chars: int = HELD_MIN_CHARS
 ) -> set[str]:
-    """The values of `values` (strings of `min_chars` or more) that occur in the stored text of a document the gate refuses for this
-    run, case and white space folded. The other half of the typed-or-sourced rule: whatever a source or a type admits, words of a
-    held document never go. One query per value over the stored pages."""
-    hits: set[str] = set()
-    for value in values:
-        probe = fold(value)
-        if len(probe) < min_chars:
-            continue
-        rows = conn.execute(
-            "SELECT DISTINCT document_id FROM pages WHERE instr(lower(replace(replace(replace(text, char(10), ' '), char(13), ' '),"
-            " char(9), ' ')), ?) > 0 OR instr(text, ?) > 0",
-            (probe, str(value)),
-        ).fetchall()
-        if rows and refused_documents(run_id, [r["document_id"] for r in rows]):
-            hits.add(value)
-    return hits
+    """The values of `values` (of `min_chars` or more characters once folded by `hfold`) that occur, folded the same way, in the stored
+    text of a document the gate refuses for this run. A few values are looked up page by page; many (a derived block's rows and
+    windows) are checked against the folded text of the refused documents, anchored on each value's longest word."""
+    probes = {v: hfold(v) for v in values}
+    probes = {v: f for v, f in probes.items() if len(f) >= min_chars}
+    if not probes:
+        return set()
+    longest = {v: max(f.split(), key=len) for v, f in probes.items()}
+    few = len(probes) <= _BULK_PROBES and all(w.isascii() for w in longest.values())
+    if few:  # a prefilter on the longest word (ASCII), then the folded comparison on the candidate pages
+        hits: set[str] = set()
+        gate: dict[str, bool] = {}
+        for v, f in probes.items():
+            rows = conn.execute(
+                "SELECT document_id, text FROM pages WHERE instr(lower(text), ?) > 0",
+                (longest[v],),
+            ).fetchall()
+            for r in rows:
+                if hfold(r["text"]).find(f) < 0:
+                    continue
+                doc = r["document_id"]
+                if doc not in gate:
+                    gate[doc] = bool(refused_documents(run_id, [doc]))
+                if gate[doc]:
+                    hits.add(v)
+                    break
+        return hits
+    docs = [r[0] for r in conn.execute("SELECT DISTINCT document_id FROM pages")]
+    refused = set(refused_documents(run_id, docs))
+    if not refused:
+        return set()
+    texts: list[str] = []
+    words: set[str] = set()
+    for r in conn.execute("SELECT document_id, text FROM pages"):
+        if r["document_id"] in refused:
+            folded = hfold(r["text"])
+            texts.append(folded)
+            words.update(folded.split())
+    return {
+        v
+        for v, f in probes.items()
+        if longest[v] in words and any(f in t for t in texts)
+    }
+
+
+WHY_CODES = frozenset(
+    {
+        "not_reached", "not reached", "no_stored_text", "no_block_left", "run_is_local", "no_engine_decision", "role_budget",
+        "text_from_held_document", "cell_not_from_sources", "cell_not_in_vocabulary", "cell_wrong_kind", "no_model_answer",
+        "model_failed", "budget_stop", "gate_closed", "not_on_list", "outside_access", "read_nothing",
+    }
+)  # fmt: skip
 
 
 def _short_why(why: str | None, conn=None, run_id: str | None = None) -> str | None:
-    """A reason is a code (`not_reached`) or one short plain sentence. A sentence is checked against the stored text of every refused
-    document: three words (12 characters or more) of it in a held document's pages replace the whole reason by a code."""
+    """A reason is a code of the fixed set `WHY_CODES` or one short plain sentence. Anything else is checked, folded by `hfold`, against
+    the stored text of every refused document: the whole of it, or any three consecutive words, found there replaces the reason by a
+    code. One token of code shape is not exempt: only the fixed set is."""
     text = str(why or "").strip()
     if len(text) > MAX_WHY or "\n" in text or "\r" in text:
         raise ValueError(f"a reason is at most {MAX_WHY} characters on one line")
-    if text and conn is not None and run_id and not _WHY_CODE.match(text):
-        words = text.split()
+    if text and text not in WHY_CODES and conn is not None and run_id:
+        words = hfold(text).split()
         windows = {" ".join(words[i : i + 3]) for i in range(max(1, len(words) - 2))}
-        if held_text_hits(conn, run_id, windows):
+        if held_text_hits(conn, run_id, windows | {text}):
             return WHY_WITHHELD
     return text or None
 
