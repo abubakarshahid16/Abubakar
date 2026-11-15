@@ -91,20 +91,23 @@ def contractor_split(raw: list[dict]) -> tuple[list[dict], dict[str, int]]:
 # ------------------------------------------------------------------------------------------------ the database count
 
 
-def rule_rows_in_database(run_id: str, paper_id: str, scope) -> int:
-    """The rule check's rows for the paper as its own sheet builder returns them, plus the removed points whose row left the sheet but
-    whose decision keeps them in the record: counted without making a single point."""
+def rule_row_ids(run_id: str, paper_id: str, scope) -> dict[str, str]:
+    """{point id: a plain label} of the rule check's rows for the paper as its own sheet builder returns them, plus the removed points
+    whose row left the sheet but whose decision keeps them in the record: the ids a point of the page must carry, made without a point."""
     from . import main as main_mod
     from . import review as review_mod
 
     rows = main_mod._crs_content(
         run_id, scope, "internal", apply_point_decisions=False
     )[0]
+    out: dict[str, str] = {}
     shown = set()
     for row in rows:
         shown.add(row.get("finding_id"))
         shown.update(row.get("finding_ids") or [])
-    stubs = 0
+        key = str(row.get("finding_id") or row.get("crs_row_key") or "")
+        page = f", page {row['page_section']}" if row.get("page_section") else ""
+        out[f"rc:{key}"] = f"a rule-check row{page}"
     for pid, d in decisions_mod.latest(paper_id).items():
         key = pid.removeprefix("rc:")
         if (
@@ -118,36 +121,48 @@ def rule_rows_in_database(run_id: str, paper_id: str, scope) -> int:
                 and finding.get("review_run_id") == run_id
                 and scope.may_read(finding["document_id"])
             ):
-                stubs += 1
-    return len(rows) + stubs
+                out[pid] = "a removed rule-check point"
+    return out
 
 
 def database_lines(paper_id: str, scope, facts: dict) -> dict:
-    """{"ai": lines of the AI run, "rule_check": rule rows, "added": the engineer's added points, "total": their sum, "ai_ids": the
-    item ids of the AI lines}."""
+    """{"ai": lines of the AI run, "rule_check": rule rows, "added": the engineer's added points, "total": their sum, "ids": every
+    point id the database says the page must carry, with a plain label}."""
     conn = connect()
-    ai_ids: list[str] = []
+    ids: dict[str, str] = {}
+    ai = 0
     if facts.get("ai_run"):
-        ai_ids = [
-            r["item_id"]
-            for r in conn.execute(
-                "SELECT item_id FROM agent_review_line WHERE run_id = ?",
-                (facts["ai_run"],),
+        for r in conn.execute(
+            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ?",
+            (facts["ai_run"],),
+        ):
+            try:
+                line = json.loads(r["line_json"] or "{}")
+            except ValueError:
+                line = {}
+            page = f", page {line['paper_page']}" if line.get("paper_page") else ""
+            ids[f"ai:{facts['ai_run']}:{r['item_id']}"] = (
+                f"an AI line ({_clean(line.get('field')) or r['item_id']}{page})"
             )
-        ]
-    rc = (
-        rule_rows_in_database(facts["rc_run"], paper_id, scope)
-        if facts.get("rc_run")
-        else 0
+            ai += 1
+    rc_ids = (
+        rule_row_ids(facts["rc_run"], paper_id, scope) if facts.get("rc_run") else {}
     )
-    added = len(decisions_mod.added(paper_id))
+    ids.update(rc_ids)
+    added_rows = decisions_mod.added(paper_id)
+    for r in added_rows:
+        ids[f"add:{r['id']}"] = "a point the engineer added"
     return {
-        "ai": len(ai_ids),
-        "rule_check": rc,
-        "added": added,
-        "total": len(ai_ids) + rc + added,
-        "ai_ids": ai_ids,
+        "ai": ai,
+        "rule_check": len(rc_ids),
+        "added": len(added_rows),
+        "total": ai + len(rc_ids) + len(added_rows),
+        "ids": ids,
     }
+
+
+def _clean(text) -> str:
+    return " ".join(str(text or "").split())
 
 
 # ------------------------------------------------------------------------------------------------ rows as built
@@ -337,11 +352,17 @@ def verify(
         accounted = in_file + sum(reasons.values())
         if in_file != len(mine):
             missing = [f"{len(mine) - in_file} row(s) of the contractor file"]
-    ai_on_page = {
-        p["id"].rsplit(":", 1)[-1] for p in raw if p.get("source") == "ai_review"
-    }
-    gone = [i for i in db["ai_ids"] if i not in ai_on_page]
-    missing += [f"an AI line ({i}) stored but not on the page" for i in gone]
+    on_page = {p["id"]: p for p in raw}
+    missing += [
+        f"{label} is stored but not on the page"
+        for pid, label in db["ids"].items()
+        if pid not in on_page
+    ]
+    missing += [
+        f"{_named(p)} is on the page but not in the database"
+        for pid, p in on_page.items()
+        if pid not in db["ids"]
+    ]
     if copy == "team":
         missing += _comment_accounting(data, raw)
     cuts = cut_report(data, raw) if copy == "team" else {"marked": 0, "problems": []}
@@ -351,7 +372,7 @@ def verify(
         "ok": ok,
         "copy": copy,
         "page": page,
-        "database": {k: v for k, v in db.items() if k != "ai_ids"},
+        "database": {k: v for k, v in db.items() if k != "ids"},
         "rows_in_file": in_file,
         "accounted": accounted,
         "missing": missing,
@@ -446,3 +467,48 @@ def record_after_run(run_id: str) -> dict | None:
             "crs completeness: the check could not run (%s)", type(exc).__name__
         )
         return None
+
+
+def stored(run_id: str | None) -> dict | None:
+    """The result stored with a run, for the page: {"ok", "page", "database", "team_rows", "contractor_rows", "missing", "sentence",
+    "checked_at"}; None when the run has none (a run from before the check, or a check that could not run): the page then says nothing."""
+    if not run_id:
+        return None
+    try:
+        row = (
+            connect()
+            .execute(
+                "SELECT ok, page, database_lines, team_rows, contractor_rows, detail_json, checked_at FROM crs_completeness WHERE run_id = ?",
+                (run_id,),
+            )
+            .fetchone()
+        )
+    except Exception as exc:  # noqa: BLE001 - logged by type; no table yet means no stored result
+        log.debug("crs completeness: no stored result (%s)", type(exc).__name__)
+        return None
+    if row is None:
+        return None
+    detail = json.loads(row["detail_json"] or "{}")
+    missing = list(
+        dict.fromkeys(
+            [
+                *(detail.get("team") or {}).get("missing", []),
+                *(detail.get("contractor") or {}).get("missing", []),
+            ]
+        )
+    )
+    bad = [
+        (detail.get(c) or {}).get("sentence")
+        for c in ("team", "contractor")
+        if not (detail.get(c) or {}).get("ok", True)
+    ]
+    return {
+        "ok": bool(row["ok"]), "page": row["page"], "database": row["database_lines"], "team_rows": row["team_rows"],
+        "contractor_rows": row["contractor_rows"], "missing": missing, "sentence": (bad or [None])[0], "checked_at": row["checked_at"],
+    }  # fmt: skip
+
+
+def stored_latest(*run_ids: str | None) -> dict | None:
+    """The newest stored result among a paper's runs (each check covers the whole paper at the time it ran)."""
+    got = [r for r in (stored(i) for i in run_ids) if r]
+    return max(got, key=lambda r: r["checked_at"]) if got else None

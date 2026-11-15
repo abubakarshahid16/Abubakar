@@ -15,6 +15,7 @@ from app import (
     db,
     review_engine,
     review_engine_start,
+    review_jobs,
     review_leaving,
     review_shown,
 )
@@ -222,8 +223,19 @@ def test_the_stored_list_is_only_what_was_shown_and_still_allowed(lib):
     assert review_shown.shown_ids(db.connect(), run_id) == frozenset({lib["sub"]})
 
 
-def test_a_start_that_showed_no_list_stores_none(lib):
-    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "automatic")
+def test_a_start_that_showed_no_list_stores_none_and_is_refused_when_text_would_leave(lib, monkeypatch):
+    # text would leave (Automatic resolves to Claude here): refused, nothing queued
+    before = db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0]
+    with pytest.raises(review_engine_start.StartRefused) as refused:
+        review_engine_start.start(lib["sub"], lib["scope"], "adm", "automatic")
+    assert refused.value.code == "LIST_NOT_SHOWN" and "the list of documents was not shown" in refused.value.sentence
+    assert db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0] == before
+    client = TestClient(app)
+    for engine in ("claude", "automatic"):
+        r = client.post("/api/reviews/start", json={"submittal_document_id": lib["sub"], "engine": engine}, headers=lib["admin"])
+        assert r.status_code == 409 and "the list of documents was not shown" in r.text
+    # Local only sends nothing: it may omit the list
+    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "local")
     assert review_shown.shown_ids(db.connect(), run_id) is None
 
 
@@ -248,7 +260,7 @@ def test_a_run_with_a_stored_list_sends_only_what_the_list_names(lib):
 def test_a_run_without_a_stored_list_keeps_todays_behaviour_for_the_paper_and_rule_books(
     lib,
 ):
-    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "automatic")
+    run_id, _ = review_jobs.enqueue(lib["sub"], allowed_document_ids=lib["scope"], requested_by="adm")  # no list
     with (
         claude_approved.carrying([lib["sub"], lib["std"]]),
         claude_approved.reviewing(run_id),
@@ -531,3 +543,30 @@ def test_the_stored_plan_holds_ids_and_counts_never_a_file_name(lib):
         "rule_books" not in stored["documents"]
         and "rule_books_count" in stored["documents"]
     )
+
+
+def test_the_old_one_click_start_is_refused_when_the_claude_lane_is_open_and_serves_a_local_start(lib, monkeypatch):
+    from app import review_engine_start
+
+    client = TestClient(app)
+    # closed lane: nothing can leave, so the old route keeps working (scripts and tests use this path)
+    monkeypatch.setattr(review_engine, "read_facts", lambda *a, **k: (open_facts(lane_open=False), None))
+    assert review_engine_start.legacy_start_blocked(db.connect(), lib["sub"], lib["scope"]) is None
+    ok = client.post("/api/reviews/run", json={"submittal_document_id": lib["sub"]}, headers=lib["admin"])
+    assert ok.status_code == 200, ok.text
+    # open lane set to Claude: refused with one plain sentence, nothing queued
+    monkeypatch.setattr(review_engine, "read_facts", lambda *a, **k: (open_facts(), None))
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'completed' WHERE submittal_document_id = ?", (lib["sub"],))
+        conn.execute("UPDATE jobs SET state = 'done' WHERE document_id = ?", (lib["sub"],))
+    before = db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0]
+    refused = client.post("/api/reviews/run", json={"submittal_document_id": lib["sub"]}, headers=lib["admin"])
+    assert refused.status_code == 409 and "start from the review page: it shows what will be sent" in refused.text
+    assert db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0] == before
+    # the review page's start with Local only is still served
+    local = client.post(
+        "/api/reviews/start",
+        json={"submittal_document_id": lib["sub"], "engine": "local", "shown_document_ids": []},
+        headers=lib["admin"],
+    )
+    assert local.status_code == 200, local.text

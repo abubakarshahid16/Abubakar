@@ -30,7 +30,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { reviews as reviewsApi } from "../../../../api/client";
+import { reviewPlan } from "../../../../api/reviewPlan";
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import type { ReadyCounts } from "../../inbox/inboxState";
 import type { WorkspaceTab } from "../contract";
@@ -163,7 +163,8 @@ export function WorkspaceLanding({
     const refused: BatchResult["refused"] = [];
     let queued = 0;
     for (const target of notReviewed) {
-      const result = await reviewsApi.startReviewRun(target.documentId);
+      // "Review all" runs on THIS COMPUTER only: nothing leaves, so no list is needed. A paper's own page chooses Claude.
+      const result = await reviewPlan.start(target.documentId, "local", []);
       if (result.ok) {
         queued += 1;
         watchRun(result.data.review_run_id, result.data.submittal_filename ?? target.filename);
@@ -221,7 +222,7 @@ export function WorkspaceLanding({
           {confirmAll && !batching ? (
             <span role="group" aria-label="Start all the reviews?" className="flex flex-wrap items-center gap-2 text-slateish-200">
               <span data-testid="review-all-question">
-                Start {notReviewed.length.toLocaleString("en-US")} review{notReviewed.length === 1 ? "" : "s"}? They run one after another.
+                Start {notReviewed.length.toLocaleString("en-US")} review{notReviewed.length === 1 ? "" : "s"}? They run one after another, on this computer only: nothing is sent to Claude. Open a paper to choose Claude and see what will be sent.
               </span>
               <button
                 type="button"

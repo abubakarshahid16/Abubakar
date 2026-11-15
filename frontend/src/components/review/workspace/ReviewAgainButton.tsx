@@ -16,7 +16,8 @@ import { useState } from "react";
 
 import type { ReviewRunSummary } from "../../../types/api";
 import type { ReviewAgainButtonProps } from "./contract";
-import { type PriorDecision, loadPriorDecision, reviewAgain } from "./newReview";
+import { StartReviewStep } from "../panels/StartReviewStep";
+import { type PriorDecision, loadPriorDecision } from "./newReview";
 import { priorDecisionWords } from "./priorDecisionWords";
 
 /** `onOpenRun`: opens a run (the one already running). Left out, `onStarted`
@@ -64,15 +65,12 @@ export function useReviewAgain({
   /** The document the question or answer below is about. A different
    *  document chosen since (the landing's select) hides them. */
   const [forDoc, setForDoc] = useState(documentId);
+  const [stepFor, setStepFor] = useState<string | null>(null);
   const current = forDoc === documentId;
 
-  async function start() {
-    setBusy(true);
-    const outcome = await reviewAgain(documentId, filename);
-    setBusy(false);
-    if (outcome.ok) { onStarted(outcome.runId); return; }
-    setError(outcome.message);
-    setRunningRunId("runningRunId" in outcome ? outcome.runningRunId : null);
+  /** THE ONE START: a fresh review opens the pre-start step (engine, what will leave this Mac, the list, the cost); its Start begins. */
+  function start() {
+    setStepFor(documentId);
   }
 
   async function check() {
@@ -84,7 +82,7 @@ export function useReviewAgain({
     const prior = runs ? await loadPriorDecision(documentId, runs) : await loadPriorDecision(documentId);
     setBusy(false);
     if (prior.kind !== "none") { setAsking(prior); return; }
-    await start();
+    start();
   }
 
   function press() {
@@ -96,7 +94,7 @@ export function useReviewAgain({
 
   function confirm() {
     setAsking(null);
-    void start();
+    start();
   }
 
   const askingNow = asking !== null && current;
@@ -107,6 +105,17 @@ export function useReviewAgain({
           <span>{askWords(asking)}</span>
           <button type="button" onClick={confirm} className={primary}>Yes, start a new review</button>
           <button type="button" onClick={() => setAsking(null)} className={secondary}>Cancel</button>
+        </span>
+      )}
+      {stepFor === documentId && (
+        <span className="block w-full max-w-xl text-left">
+          <StartReviewStep
+            documentId={documentId}
+            filename={filename}
+            onCancel={() => setStepFor(null)}
+            onOpenRunning={(runId) => (onOpenRun ?? onStarted)(runId)}
+            onStarted={(runId) => { setStepFor(null); onStarted(runId); }}
+          />
         </span>
       )}
       {error && current && <span role="alert" className="text-xs text-danger-500">{error}</span>}
@@ -121,7 +130,7 @@ export function useReviewAgain({
       )}
     </>
   );
-  return { busy, asking: askingNow, press, question };
+  return { busy, asking: askingNow || stepFor === documentId, press, question };
 }
 
 export function ReviewAgainButton({

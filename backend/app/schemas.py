@@ -1959,6 +1959,8 @@ class ReportRecord(BaseModel):
     documents: list[ReportDocumentRow]
     not_implemented_sections: list[str] = Field(
         description="named on page 1 of the PDF as not included")
+    file_available: bool = Field(
+        True, description="false when the PDF is not on this machine (the record is listed, the file cannot be downloaded)")
 
 
 class ReportList(BaseModel):
@@ -2049,6 +2051,11 @@ class ExpectedDeliverable(BaseModel):
     status: str | None
     state: Literal["registered", "missing"]
     origin: Literal["manual", "inferred"]
+    #: Where an inferred expectation came from, so a row is named by its source and not only "Inferred ... requirement".
+    #: null when there is none (a manual row) or it was not recorded (a row made before the page was stored).
+    source_document_id: str | None = None
+    source_name: str | None = None
+    source_page: int | None = None
 
 
 class ExpectedDeliverableList(ListPage):
@@ -3093,7 +3100,10 @@ class ReviewDashboard(BaseModel):
     standards_referenced_missing: int = 0
     reviews_running: int = 0
     reviews_awaiting_decision: int = 0
+    #: Latest review of each paper (earlier runs of the same paper are not counted here; see `earlier_runs_not_counted`).
     reviews_total: int = 0
+    papers_with_a_review: int = 0
+    earlier_runs_not_counted: int = 0
     needs_attention: int = 0
     #: Why each run counts as needing attention, so the tile is auditable
     #: rather than a number a reader has to trust.
@@ -3261,6 +3271,8 @@ class ManagementSummary(BaseModel):
     deliverables_total: int
     deliverables_by_status: dict[str, int]
     review_findings_total: int
+    #: Whose findings `review_findings_total` and the two breakdowns count (a count states its boundary, rule 4).
+    findings_boundary: str = ""
     findings_by_severity: dict[str, int]
     findings_by_status: dict[str, int]
     escalated_findings: int
@@ -4116,6 +4128,24 @@ class AdminGrantResult(BaseModel):
 class AdminDbTable(BaseModel):
     name: str
     row_count: int
+
+
+class AuditEvent(BaseModel):
+    """One row of the audit log. `detail` holds ids and role names only (the writer's own rule); never a document text."""
+
+    id: int
+    at: str
+    actor_user_id: str | None = None
+    actor_username: str | None = None
+    action: str
+    resource_type: str | None = None
+    resource_id: str | None = None
+    outcome: str | None = None
+    detail: str | None = None
+
+
+class AuditLogPage(ListPage):
+    events: list[AuditEvent]
 
 
 class AdminDbTableList(ListPage):

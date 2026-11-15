@@ -24,12 +24,16 @@ vi.mock("../../../../api/client", () => ({
   auth: { me: async () => ({ ok: true, data: { required: true, user: { id: "u-1", roles: ["admin"] } } }) },
   classification: {},
   reviews: {
-    startReviewRun: (...a: unknown[]) => startReviewRun(...a),
     readiness: (...a: unknown[]) => readiness(...a),
     cancelJob: (...a: unknown[]) => cancelJob(...a),
     reviewRunCounts: (...a: unknown[]) => reviewRunCounts(...a),
     reviewRuns: async () => ({ ok: true, data: { runs: [] } }),
   },
+}));
+/** THE ONE START: a review starts through `reviewPlan.start` from the pre-start step; "Review all" runs Local only. */
+const planFor = vi.fn();
+vi.mock("../../../../api/reviewPlan", () => ({
+  reviewPlan: { plan: (...a: unknown[]) => planFor(...a), start: (...a: unknown[]) => startReviewRun(...a) },
 }));
 vi.mock("../reviewWatch", () => ({ watchRun: (...a: unknown[]) => watchRun(...a) }));
 vi.mock("../NewReviewDropZone", () => ({
@@ -69,7 +73,9 @@ const RUNS = [
 const loadCounts = vi.fn();
 
 beforeEach(() => {
-  for (const m of [startReviewRun, readiness, cancelJob, reviewRunCounts, watchRun, loadCounts]) m.mockReset();
+  for (const m of [startReviewRun, readiness, cancelJob, reviewRunCounts, watchRun, loadCounts, planFor]) m.mockReset();
+  planFor.mockResolvedValue({ ok: true, data: { choice: "automatic", parts: [], text_leaves: false, refused: null,
+    documents: { leaving: [], not_sent: [], not_readable: 0 } } });
   startReviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-new", submittal_filename: "Pump datasheet rev B.pdf" } });
   readiness.mockResolvedValue({ ok: true, data: { nothing_changed: false } });
   cancelJob.mockResolvedValue({ ok: true, data: {} });
@@ -113,8 +119,12 @@ describe("WorkspaceLanding: the New review card (L1)", () => {
     const card = screen.getByTestId("new-review-card");
     await userEvent.selectOptions(within(card).getByLabelText("Choose a submittal"), "doc-1");
     await userEvent.click(within(card).getByRole("button", { name: "Start review" }));
+    // THE ONE START: the pre-start step opens first (engine, what will leave this Mac, the list); nothing has started yet
+    expect(await within(card).findByTestId("start-review-step")).toBeInTheDocument();
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await userEvent.click(await within(card).findByRole("button", { name: "Start review" }));
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-new"));
-    expect(startReviewRun).toHaveBeenCalledWith("doc-1");
+    expect(startReviewRun).toHaveBeenCalledWith("doc-1", "automatic", []);
     expect(onOpenRun).not.toHaveBeenCalledWith("run-1");
     expect(watchRun).toHaveBeenCalledWith("run-new", "Pump datasheet rev B.pdf"); // L6
   });
@@ -184,6 +194,9 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     expect(onOpenRun).toHaveBeenCalledWith("run-1");
     expect(startReviewRun).not.toHaveBeenCalled();
     await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "New review of Pump datasheet rev B.pdf" }));
+    expect(await within(rowOf("Pump")).findByTestId("start-review-step")).toBeInTheDocument(); // the step first
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await userEvent.click(await within(rowOf("Pump")).findByRole("button", { name: "Start review" }));
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-new"));
     expect(watchRun).toHaveBeenCalledWith("run-new", "Pump datasheet rev B.pdf");
   });
@@ -241,13 +254,14 @@ describe("WorkspaceLanding: All reviews and Review all (L5, L7)", () => {
     const { onReload, onOpenRun } = renderLanding({ documents: docs });
     await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (2 of the contractor documents listed here)" }));
     // Asks once before anything starts.
-    expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 2 reviews? They run one after another.");
+    expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 2 reviews? They run one after another, on this computer only: nothing is sent to Claude.");
     expect(startReviewRun).not.toHaveBeenCalled();
     await userEvent.click(within(screen.getByRole("group", { name: "Start all the reviews?" })).getByRole("button", { name: "Yes" }));
     expect(await screen.findByText("Queued 1 of 2 reviews asked for.")).toBeInTheDocument();
     expect(screen.getByText(/Compressor sheet.pdf: A review of this document is already running./)).toBeInTheDocument();
     expect(watchRun).toHaveBeenCalledTimes(1);
     expect(watchRun).toHaveBeenCalledWith("run-doc-4", "Heat exchanger sheet.pdf");
+    expect(startReviewRun.mock.calls.every((c) => c[1] === "local" && Array.isArray(c[2]) && c[2].length === 0)).toBe(true);
     expect(onReload).toHaveBeenCalled();
     expect(onOpenRun).not.toHaveBeenCalled();
   });
@@ -315,7 +329,7 @@ describe("WorkspaceLanding: Review all asks once (L7)", () => {
   it("Cancel starts nothing and brings the button back", async () => {
     renderLanding();
     await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (1 of the contractor documents listed here)" }));
-    expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 1 review? They run one after another.");
+    expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 1 review? They run one after another, on this computer only: nothing is sent to Claude.");
     await userEvent.click(within(screen.getByRole("group", { name: "Start all the reviews?" })).getByRole("button", { name: "Cancel" }));
     expect(startReviewRun).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Review all not reviewed (1 of the contractor documents listed here)" })).toBeInTheDocument();

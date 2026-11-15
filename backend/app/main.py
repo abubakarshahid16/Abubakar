@@ -78,6 +78,7 @@ from . import deliverables as deliverables_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
+from . import crs_copy_words
 from . import stored_paths as stored_paths_mod
 from . import submittal_review as submittal_review_mod
 from . import vector_store as vector_store_mod
@@ -1133,9 +1134,11 @@ def download_report(report_id: str,
                     scope: access.AccessScope = Depends(access.current_scope)):
     path = _report_or_404(reports_mod.stored_path, report_id, scope)
     if not path.exists():
+        # The record exists and the caller may read it: say what is wrong, not "no report" (V2).
         raise HTTPException(
             status_code=404,
-            detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
+            detail=errors.safe_error(
+                errors.NOT_FOUND, "the file of this report is not on this machine, so it cannot be downloaded"),
         )
     # private, no-store - NOT the max-age page images use. A page image is a
     # fragment; this is the assembled evidence with quoted client text in it.
@@ -1503,6 +1506,14 @@ def review_dashboard(
     runs = submittal_review_mod.list_review_runs(allowed_document_ids=allowed)
     reviewed = {run["submittal_document_id"] for run in runs
                 if (run.get("status") or "") == "completed"}
+    # THE LATEST REVIEW OF EACH PAPER (V2, audit: 87 runs over 5 papers made "82 awaiting a decision" and "81 need
+    # attention" read as 82 and 81 open jobs). `list_review_runs` is newest first, so the first run of a paper is its
+    # latest. Earlier runs stay readable in the review list; they are not counted on these cards.
+    all_runs, seen_papers, runs = runs, set(), []
+    for run in all_runs:
+        if run["submittal_document_id"] not in seen_papers:
+            seen_papers.add(run["submittal_document_id"])
+            runs.append(run)
     running = sum(1 for run in runs if (run.get("status") or "") == "running")
     awaiting = sum(1 for run in runs
                    if (run.get("status") or "") == "completed"
@@ -1558,6 +1569,8 @@ def review_dashboard(
         "reviews_running": running,
         "reviews_awaiting_decision": awaiting,
         "reviews_total": len(runs),
+        "papers_with_a_review": len(runs),
+        "earlier_runs_not_counted": len(all_runs) - len(runs),
         "needs_attention": sum(reasons.values()),
         "needs_attention_reasons": reasons,
         "recent": recent,
@@ -1662,6 +1675,11 @@ def start_review_run(
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
+    from . import review_engine_start
+
+    blocked = review_engine_start.legacy_start_blocked(connect(), document_id, scope.allowed_document_ids)
+    if blocked:  # no list was shown and the Claude lane is open: the review page's start step is the way
+        raise HTTPException(status_code=409, detail=errors.safe_error(errors.INVALID_PARAMETER, blocked))
     # P3: QUEUED, NOT RUN HERE. The run and its job are created together under
     # one write lock (no second active review of this submittal), and the
     # worker runs it under THIS caller's grants. The response is the queued
@@ -3190,7 +3208,7 @@ def review_vision_reader_status(
 def export_review_crs(
     review_run_id: str,
     request: Request,
-    copy: Literal["internal", "issue"] = "internal",
+    copy: str = Query("internal", description="internal or company; contractor or issue"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The run's findings as a Comment Resolution Sheet (.xlsx).
@@ -3216,6 +3234,7 @@ def export_review_crs(
     reviewing their own work in progress needs no gate.
     """
     reject_unknown_params(request, {"copy"})
+    copy = crs_copy_words.rule_check_copy(copy)  # V2: one set of copy words on every CRS route
     if copy == "issue":
         if submittal_review_mod.get_review_run(
                 review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
@@ -3524,7 +3543,7 @@ def review_run_coverage(
 def preview_review_crs(
     review_run_id: str,
     request: Request,
-    copy: Literal["internal", "issue"] = "internal",
+    copy: str = Query("internal", description="internal or company; contractor or issue"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The same Comment Resolution Sheet, as JSON a browser can render.
@@ -3547,6 +3566,7 @@ def preview_review_crs(
     sheet has seven columns whether or not anyone has answered yet.
     """
     reject_unknown_params(request, {"copy"})
+    copy = crs_copy_words.rule_check_copy(copy)
     rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope, copy)
     return crs_export_mod.build_crs_view(rows, meta)
 

@@ -259,12 +259,12 @@ Owns: `newReview.ts`, `reviewWatch.ts`, `NewReviewDropZone.tsx`,
 (only to `export` `uploadOne`, no behaviour change).
 Accept:
 - drop a file -> upload -> `markAsContractorSubmittal` -> wait for the
-  document to be read in -> `startReviewRun` -> `onStarted(runId)`, in that
-  order (mock each call, assert order); 3 clicks or fewer from the landing.
+  document to be read in -> the pre-start step (engine, what will leave this Mac, the list; THE ONE START, `StartReviewStep`) ->
+  `POST /api/reviews/start` -> `onStarted(runId)`, in that order (mock each call, assert order). An upload starts nothing by itself.
 - a non-admin role refusal (404 from setRoleBulk) shows a plain message and
   does not start a review.
-- "Review again" calls `startReviewRun(documentId)` and opens the new run;
-  a refusal (review already running) is shown as the API said it.
+- "Review again" opens the same pre-start step and, on its Start, opens the new run;
+  a refusal (review already running) is shown in plain words.
 - a watched run turning completed shows the notice on another view, with
   "Open it"; dismiss works; watch list survives a re-mount (sessionStorage in
   try/catch).

@@ -27,10 +27,17 @@ vi.mock("../../../api/client", () => ({
   auth: { me: (...a: unknown[]) => { calls.push("me"); return me(...a); } },
   classification: { setRoleBulk: (...a: unknown[]) => { calls.push("mark"); return setRoleBulk(...a); } },
   reviews: {
-    startReviewRun: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
     reviewRun: (...a: unknown[]) => reviewRun(...a),
     reviewRunSummary: async () => ({ ok: false, error: { code: "not_found", message: "" } }),
+  },
+}));
+/** THE ONE START: after the read-in the pre-start step opens; its Start is `reviewPlan.start` (POST /reviews/start). */
+const planFor = vi.fn();
+vi.mock("../../../api/reviewPlan", () => ({
+  reviewPlan: {
+    plan: (...a: unknown[]) => planFor(...a),
+    start: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
   },
 }));
 vi.mock("../../Uploader", () => ({
@@ -47,10 +54,10 @@ vi.mock("../DocumentsFromContractors", () => ({
 import { NewReviewDropZone } from "./NewReviewDropZone";
 import { ReviewAgainButton } from "./ReviewAgainButton";
 import { NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE } from "./newReview";
-import { WATCH_STORAGE_KEY } from "./reviewWatch";
 import { SubmittalsLandingView } from "../../../views/SubmittalsLandingView";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
+const pressStart = async () => userEvent.click(await screen.findByRole("button", { name: "Start review" }));
 
 beforeEach(() => {
   calls.length = 0;
@@ -62,6 +69,9 @@ beforeEach(() => {
   setRoleBulk.mockResolvedValue({ ok: true, data: { document_role: "CONTRACTOR_SUBMITTAL", requested: 1, updated: ["doc-1"], unchanged: [], failed: [] } });
   document.mockResolvedValue({ ok: true, data: { id: "doc-1", status: "ready" } });
   startReviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-1", submittal_filename: "Pump datasheet rev B.pdf" } });
+  planFor.mockReset();
+  planFor.mockResolvedValue({ ok: true, data: { choice: "automatic", parts: [], text_leaves: false, refused: null,
+    documents: { leaving: [], not_sent: [], not_readable: 0 } } });
   reviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-1", status: "running" } });
   documents.mockResolvedValue({ ok: true, data: [] });
   reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
@@ -76,9 +86,15 @@ describe("NewReviewDropZone", () => {
     await user.click(screen.getByRole("button", { name: "choose a file" }));    // click 1
     await user.upload(screen.getByLabelText("Choose a contractor file to review"), file); // click 2
 
+    // read in: NOTHING has started; the pre-start step (engine, what will leave this Mac, the list) is open
+    expect(await screen.findByTestId("drop-zone-step")).toBeInTheDocument();
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document"]);
+    expect(screen.getByText(/After the upload you choose the engine and see what will be sent/)).toBeInTheDocument();
+    await pressStart();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document", "start"]);
-    expect(screen.getByRole("status")).toHaveTextContent("The review has started.");
+    expect(startReviewRun).toHaveBeenCalledWith("doc-1", "automatic", []);
   });
 
   it("a non-admin is told to ask an administrator and nothing is uploaded", async () => {
@@ -100,28 +116,13 @@ describe("NewReviewDropZone", () => {
     expect(calls).toEqual([]);
   });
 
-  it("leaving mid-way: the review still starts and is watched, but the reader is not moved to it", async () => {
-    let release!: () => void;
-    startReviewRun.mockImplementation(() => new Promise((resolve) => {
-      release = () => resolve({ ok: true, data: { review_run_id: "run-5", submittal_filename: "Pump datasheet rev B.pdf" } });
-    }));
-    const onStarted = vi.fn();
-    const { unmount } = render(<NewReviewDropZone onStarted={onStarted} />);
-    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
-    await vi.waitFor(() => expect(startReviewRun).toHaveBeenCalled());
-
-    unmount();
-    release();
-    await vi.waitFor(() => expect(sessionStorage.getItem(WATCH_STORAGE_KEY) ?? "").toContain("run-5"));
-    expect(onStarted).not.toHaveBeenCalled();
-  });
-
   it("several files dropped: the first is used and the page says so", async () => {
     const onStarted = vi.fn();
     render(<NewReviewDropZone onStarted={onStarted} />);
     const second = new File(["%PDF-1.7"], "Valve datasheet rev A.pdf", { type: "application/pdf" });
     const zone = screen.getByTestId("new-review-drop-zone").querySelector("div")!;
     fireEvent.drop(zone, { dataTransfer: { files: [file, second] } });
+    await pressStart();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(uploadOne).toHaveBeenCalledTimes(1);
     expect(uploadOne.mock.calls[0][0]).toBe(file);
@@ -132,6 +133,7 @@ describe("NewReviewDropZone", () => {
     const onStarted = vi.fn();
     render(<NewReviewDropZone onStarted={onStarted} />);
     fireEvent.drop(screen.getByTestId("new-review-drop-zone").querySelector("div")!, { dataTransfer: { files: [file] } });
+    await pressStart();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(screen.queryByTestId("only-first-file")).toBeNull();
   });
@@ -154,8 +156,9 @@ describe("ReviewAgainButton", () => {
     const onStarted = vi.fn();
     render(<ReviewAgainButton documentId="doc-1" filename="Pump datasheet rev B.pdf" onStarted={onStarted} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
+    await pressStart();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-2"));
-    expect(startReviewRun).toHaveBeenCalledWith("doc-1");
+    expect(startReviewRun).toHaveBeenCalledWith("doc-1", "automatic", []);
   });
 
   it("already running: plain words, no raw run id, and a button that opens the running review", async () => {
@@ -165,6 +168,7 @@ describe("ReviewAgainButton", () => {
     const onOpenRun = vi.fn();
     render(<ReviewAgainButton documentId="doc-1" onStarted={onStarted} onOpenRun={onOpenRun} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
+    await pressStart();
     expect(await screen.findByRole("alert")).toHaveTextContent("A review of this document is already running");
     expect(screen.getByRole("alert").textContent).not.toContain("run-1");
     await userEvent.click(screen.getByRole("button", { name: "Open the review that is running" }));
@@ -177,6 +181,7 @@ describe("ReviewAgainButton", () => {
     startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     render(<ReviewAgainButton documentId="doc-1" onStarted={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
+    await pressStart();
     expect(await screen.findByRole("alert")).toHaveTextContent("Only an administrator can start a review.");
     expect(screen.queryByRole("button", { name: "Open the review that is running" })).toBeNull();
   });
@@ -208,6 +213,7 @@ describe("SubmittalsLandingView with the workspace switch", () => {
     const zone = within(card).getByTestId("new-review-drop-zone");
     await user.click(within(zone).getByRole("button", { name: "choose a file" }));
     await user.upload(within(zone).getByLabelText("Choose a contractor file to review"), file);
+    await user.click(await screen.findByRole("button", { name: "Start review" }));
     await vi.waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-1"));
   });
 });
@@ -237,6 +243,7 @@ describe("NewReviewDropZone: a file already in the library under another role (v
     expect(screen.getByRole("group", { name: "Mark as contractor submittal?" })).toHaveTextContent("company standard");
     calls.length = 0;
     await user.click(screen.getByRole("button", { name: "Yes, mark it and start the review" }));
+    await user.click(await screen.findByRole("button", { name: "Start review" }));
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(setRoleBulk).toHaveBeenCalledWith({ document_ids: ["doc-8"], document_role: "CONTRACTOR_SUBMITTAL" });
     expect(calls).toEqual(["mark", "document", "start"]);
@@ -275,6 +282,7 @@ describe("NewReviewDropZone: a file already in the library as a contractor submi
 
     await user.upload(screen.getByLabelText("Choose a contractor file to review"), file);
     await user.click(within(await screen.findByTestId("drop-ask-first")).getByRole("button", { name: "Yes, start a new review" }));
+    await user.click(await screen.findByRole("button", { name: "Start review" }));
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(startReviewRun).toHaveBeenCalledTimes(1);
     expect(setRoleBulk).not.toHaveBeenCalled();

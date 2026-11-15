@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections import Counter
 from datetime import UTC, datetime
 from io import BytesIO
@@ -685,12 +684,9 @@ def build_team(
 # ------------------------------------------------------------------------------------------------ the contractor file
 
 
-_PLACEHOLDER = re.compile(r"\bAI\b|awaiting|confirm", re.IGNORECASE)
-
-
 def issuable_text(p: dict) -> str:
     """The words a contractor may be given for one point, or "": the engineer's own text (an edit, an added point), else, for a point
-    PROVEN by code to be Not met, the code's own action line. Never an AI wording and never a waiting placeholder."""
+    PROVEN by code to be Not met, the code's own action line. Never the stored waiting placeholder (`NOTE_PARKED`); the engineer's own sentence is issued whatever words it uses."""
     d = p.get("decision") or {}
     if p.get("source") == rp.SOURCE_ADDED or d.get("state") == decisions_mod.EDIT:
         text = _clean(
@@ -702,7 +698,9 @@ def issuable_text(p: dict) -> str:
         text = _clean(p.get("action"))
     else:
         return ""
-    return "" if _PLACEHOLDER.search(text) else text
+    return (
+        "" if comments.is_parked(text) else text
+    )  # the stored placeholder is recognised by what it IS, never by words
 
 
 def contractor_points(raw: list[dict]) -> tuple[list[dict], int]:

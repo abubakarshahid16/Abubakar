@@ -315,6 +315,37 @@ def admin_confirm_company_standard(
 # fine, so masking on the client would be decoration over a disclosure.
 
 
+@router.get("/api/admin/audit-log", response_model=schemas.AuditLogPage,
+            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_audit_log(
+    request: Request,
+    action: str | None = Query(None, max_length=100, description="only this action"),
+    actor: str | None = Query(None, max_length=200, description="only this actor (user name as recorded)"),
+    limit: int = Query(100, ge=1, le=500, description="page size (default 100)"),
+    offset: int = Query(0, ge=0),
+    admin: dict | None = Depends(admin_mod.current_admin),
+):
+    """The audit log, newest first, one page at a time, with `total` as the denominator (V2: the table was only
+    readable through the raw table explorer). Read only. The rows are the ones the writer made: ids, role names and
+    outcomes; the writer never stores a document text or a token there."""
+    reject_unknown_params(request, {"action", "actor", "limit", "offset"})
+    where, args = [], []
+    if action:
+        where.append("action = ?")
+        args.append(action)
+    if actor:
+        where.append("actor_username = ?")
+        args.append(actor)
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    conn = connect()
+    total = conn.execute("SELECT COUNT(*) FROM audit_events" + clause, args).fetchone()[0]
+    rows = conn.execute(
+        "SELECT id, at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail"
+        " FROM audit_events" + clause + " ORDER BY id DESC LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
+    events = [{**dict(r), "detail": (r["detail"] or "")[:1000] or None} for r in rows]
+    return {"events": events, "total": total, "limit": limit, "offset": offset}
+
+
 @router.get("/api/admin/db/tables", response_model=schemas.AdminDbTableList,
             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def admin_db_tables(

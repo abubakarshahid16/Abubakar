@@ -6,6 +6,7 @@ confident; the one exit that finishes a line is `Runner.exit_line`.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -15,6 +16,7 @@ from . import agent_review_absence as absence
 from . import agent_review_context as ctxc
 from . import agent_review_crs as crs_lines
 from . import agent_review_pass_guards as pass_guards
+from . import agent_review_standards as standards_mod
 from . import agent_review_verdict as verdict
 from .agent_review_request import (
     ABSENCE_SECOND_MAX_TOKENS,
@@ -43,7 +45,23 @@ def _holds(decision: Mapping) -> dict:
     }
 
 
+def _book_fields(item: Mapping, ev: Mapping) -> dict:
+    """What the clause-quote check keeps on the stored line: the rule book, the page the rule row cites, and where code found the quote."""
+    return {
+        "standard_document_id": item.get("standard_document_id"),
+        "rule_page": item.get("rule_page"),
+        "clause_book": ev.get("clause_book"),
+    }
+
+
 class DecideMixin:
+    @property
+    def books(self) -> Any:
+        """The rule books' own stored pages for the clause-quote check, each read once on the thread that needs it, kept for the run."""
+        if getattr(self, "_books", None) is None:
+            self._books = standards_mod.BookPages()
+        return self._books
+
     # ---- per item
     def _tiered(self, item: dict) -> dict:
         """The item marked not approved when the core's `item_tier` (the CURRENT label table, via `tier_lookup`) says so, so the
@@ -60,9 +78,10 @@ class DecideMixin:
         clause_text, held_kind = (
             (held[0]["text"], held[0]["kind"]) if held else (None, None)
         )
+        held_ref = held[0]["ref"] if held else None
         for h in held:
             if verdict.check_clause_quote(answer.get("clause_quote"), h["text"])[0]:
-                clause_text, held_kind = h["text"], h["kind"]
+                clause_text, held_kind, held_ref = h["text"], h["kind"], h["ref"]
                 break
         requirement = next(
             (h["text"] for h in held if h["kind"] == "requirement"), None
@@ -73,6 +92,7 @@ class DecideMixin:
             clause_text,
             requirement if held_kind == "requirement" else None,
         )
+        checks, book = self._clause_in_book(item, answer, checks, held_ref)
         ai = verdict.ai_verdict_word(answer.get("verdict"))
         reason_code, searched = reason_of(answer, ai, error, pages)
         if reason_code in TIGHTENING:
@@ -80,6 +100,7 @@ class DecideMixin:
         return {
             "held": held,
             "held_kind": held_kind,
+            "clause_book": book,
             "requirement": requirement,
             "checks": checks,
             "ai": ai,
@@ -87,6 +108,27 @@ class DecideMixin:
             "searched": searched,
             "absent": verdict.says_absent(answer),
         }
+
+    def _clause_in_book(
+        self, item: Mapping, answer: Mapping, checks: Any, held_ref: Any
+    ) -> tuple[Any, dict | None]:
+        """c11 (audit V1 defect 3): a clause quote is verified only when code finds it in the rule book's OWN stored pages
+        (`agent_review_pass_guards.locate`), never because it stands in the stored requirement row the reader was handed. Not found = the
+        quote is not verified (the line can no longer be a decision). Returns the checks and where the quote stands (None: no quote)."""
+        if not str(answer.get("clause_quote") or "").strip():
+            return checks, None
+        ok, got = pass_guards.judge(
+            self.books.book,
+            item,
+            answer.get("clause_quote"),
+            self.clauses.source(held_ref),
+            checks.clause,
+        )
+        if checks.clause and not ok:
+            checks = dataclasses.replace(
+                checks, clause=False, clause_why=got.why, clause_strong=False
+            )
+        return checks, got.to_json()
 
     def _gate(
         self,
@@ -277,6 +319,7 @@ class DecideMixin:
             "paper_figure": answer.get("paper_figure") or None,
             "clause_figure": answer.get("clause_figure") or None,
             "clause_quote_from": ev["held_kind"],
+            **_book_fields(item, ev),
             "reasoning": crs_lines.two_sentences(answer.get("reasoning")),
             "comment": words(g["comment"], crs_lines.MAX_COMMENT_WORDS),
             "paper_quote": answer.get("paper_quote") or None,

@@ -13,6 +13,7 @@ import json
 import pytest
 
 from app import agent_review_absence as absence
+from app import db
 from app import agent_review_pass_guards as G
 from app import agent_review_request as request_mod
 from app import agent_review_two_reader as two
@@ -262,9 +263,11 @@ def test_no_registry_field_accepts_another_fields_own_line_except_the_registrys_
 
 
 @pytest.fixture
-def conditional(monkeypatch):
+def conditional(monkeypatch, w):
     quote = "The coating shall be applied in two layers for sour service."
     monkeypatch.setitem(s.RULES, "R-coat", (quote, "4.4", None, None, None, None))
+    with db.connect() as conn:  # the rule book's own page holds the sentence: a clause quote is verified in the book (c11)
+        conn.execute("UPDATE pages SET text = text || ? WHERE document_id = ? AND page_no = 1", ("\n" + quote, s.STD))
     return quote
 
 

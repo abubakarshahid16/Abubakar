@@ -183,13 +183,14 @@ def test_needs_attention_says_why_and_the_reasons_sum_to_the_number():
     """A BARE TILE READING "3" IS A NUMBER A READER HAS TO TRUST. The
     breakdown is what makes it auditable, and a breakdown that does not add
     up to the total is worse than none."""
-    doc = _document("doc_a", "CONTRACTOR_SUBMITTAL")
-    _run(doc, "failed")
-    _run(doc, "completed", comparison.CODE_MANUAL)
-    _run(doc, "completed", comparison.CODE_REJECTED)
-    _run(doc, "completed", comparison.CODE_APPROVED)
+    # one paper each (V2: only the latest review of a paper is counted)
+    docs = [_document(f"doc_{i}", "CONTRACTOR_SUBMITTAL") for i in range(4)]
+    _run(docs[0], "failed")
+    _run(docs[1], "completed", comparison.CODE_MANUAL)
+    _run(docs[2], "completed", comparison.CODE_REJECTED)
+    _run(docs[3], "completed", comparison.CODE_APPROVED)
 
-    body = _dashboard(doc)
+    body = _dashboard(*docs)
 
     assert body["needs_attention"] == 3, "an approved run needs no attention"
     assert sum(body["needs_attention_reasons"].values()) == body["needs_attention"]
@@ -252,11 +253,11 @@ def test_an_empty_grant_set_counts_nothing():
 def test_the_recent_table_stays_compact():
     """Rule 10 says ONE COMPACT TABLE. Six runs, five rows - a dashboard
     that grows without bound is the metrics dump the rule forbids."""
-    doc = _document("doc_a", "CONTRACTOR_SUBMITTAL")
-    for _ in range(6):
+    docs = [_document(f"doc_{i}", "CONTRACTOR_SUBMITTAL") for i in range(6)]
+    for doc in docs:
         _run(doc, "completed", comparison.CODE_APPROVED)
 
-    body = _dashboard(doc)
+    body = _dashboard(*docs)
 
     assert body["reviews_total"] == 6
     assert len(body["recent"]) == 5
@@ -281,3 +282,22 @@ def test_a_cited_standard_the_library_holds_is_not_counted_missing():
 
     assert body["standards_referenced_total"] == 2
     assert body["standards_referenced_missing"] == 1
+
+
+def test_V2_only_the_latest_review_of_each_paper_is_counted_and_the_card_says_so():
+    """V2 (audit): 87 runs over 5 papers made "82 awaiting a decision" and "81 need attention". Each paper counts once,
+    by its latest run; the older runs are reported apart."""
+    doc = _document("doc_a", "CONTRACTOR_SUBMITTAL")
+    other = _document("doc_b", "CONTRACTOR_SUBMITTAL")
+    old1, old2, newest = (_run(doc, "completed", comparison.CODE_APPROVED) for _ in range(3))
+    _run(other, "completed", comparison.CODE_APPROVED)
+    with db.connect() as conn:
+        for run_id, stamp in ((old1, "2026-01-01T00:00:00Z"), (old2, "2026-02-01T00:00:00Z"),
+                              (newest, "2026-03-01T00:00:00Z")):
+            conn.execute("UPDATE review_runs SET created_at = ? WHERE id = ?", (stamp, run_id))
+        conn.execute("UPDATE review_runs SET engineer_final_code = ? WHERE id = ?",
+                     (comparison.CODE_APPROVED, newest))
+    body = _dashboard(doc, other)
+    assert body["papers_with_a_review"] == 2 and body["reviews_total"] == 2
+    assert body["earlier_runs_not_counted"] == 2
+    assert body["reviews_awaiting_decision"] == 1  # the older runs of `doc` are not open jobs; `other` is

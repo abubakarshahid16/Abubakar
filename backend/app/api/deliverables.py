@@ -203,10 +203,13 @@ def management_summary(scope: access.AccessScope = Depends(access.current_scope)
     items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
     alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
     review_mod.ensure_schema()
-    counts = finding_query.summary_counts(scope.allowed_document_ids)
+    latest = finding_query.latest_run_ids(scope.allowed_document_ids)
+    counts = finding_query.summary_counts(scope.allowed_document_ids, latest_run_ids=frozenset(latest.values()))
     by_status = {status: sum(1 for item in items if item["status"] == status)
                  for status in {item["status"] for item in items}}
     return {"deliverables_total": len(items), "deliverables_by_status": by_status,
+            "findings_boundary": (f"the latest review of each of {len(latest):,} paper{'' if len(latest) == 1 else 's'}, "
+                                  "and findings that belong to no run; earlier runs are not counted"),
             "review_findings_total": counts["total"], "findings_by_severity": counts["by_severity"],
             "findings_by_status": counts["by_status"], "escalated_findings": counts["escalated"],
             "overdue_alerts": len(alerts), "alerts": alerts}

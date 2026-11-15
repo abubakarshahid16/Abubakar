@@ -279,12 +279,17 @@ export function RulesUsedPanel({ runId }: { runId: string }) {
   useEffect(() => {
     let live = true;
     setState("loading"); setData(null);
-    void Promise.all([agentReview.rulesUsed(runId), agentReview.summary(runId)]).then(([r, sum]) => {
+    void (async () => {
+      // Ask first whether this run has an AI review: a run with none answers 404 twice below (V2).
+      const which = await agentReview.which([runId]);
+      if (!live) return;
+      if (which.ok && !which.data.run_ids.includes(runId)) { setState("none"); return; }
+      const [r, sum] = await Promise.all([agentReview.rulesUsed(runId), agentReview.summary(runId)]);
       if (!live) return;
       if (r.ok) { setGeneral(sum.ok && sum.data.mode === "general review"); setData(r.data); setState("ok"); return; }
       if (isFeatureOff(r)) { setState("none"); return; }
       setError(r.error.message); setState("error");
-    });
+    })();
     return () => { live = false; };
   }, [runId]);
   if (state === "loading") return <p role="status" className="text-sm text-slateish-400">Reading the rules used…</p>;

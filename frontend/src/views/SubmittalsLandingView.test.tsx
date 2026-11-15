@@ -8,7 +8,7 @@
  * the one that exists); drop the `startReviewRun` call and the second
  * test fails.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,10 +26,15 @@ vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
   reviews: {
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
-    startReviewRun: (...args: unknown[]) => startReviewRun(...args),
     reviewRunSummary: (...args: unknown[]) => reviewRunSummary(...args),
     reviewRunCounts: (...args: unknown[]) => reviewRunCounts(...args),
   },
+}));
+
+/** THE ONE START: a review starts through `reviewPlan.start` (POST /reviews/start) from the pre-start step; "Review all" runs Local only. */
+const planFor = vi.fn();
+vi.mock("../api/reviewPlan", () => ({
+  reviewPlan: { plan: (...args: unknown[]) => planFor(...args), start: (...args: unknown[]) => startReviewRun(...args) },
 }));
 
 // Order 132 item 3: the drop zone is told who the reader is (its own behaviour is NewReviewDropZone.test.tsx's).
@@ -41,6 +46,8 @@ beforeEach(() => {
   documents.mockReset();
   reviewRuns.mockReset();
   startReviewRun.mockReset();
+  planFor.mockReset().mockResolvedValue({ ok: true, data: { choice: "automatic", parts: [], text_leaves: false, refused: null,
+    documents: { leaving: [], not_sent: [], not_readable: 0 } } });
   reviewRunSummary.mockReset();
   reviewRunCounts.mockReset().mockResolvedValue({ ok: true, data: { boundary: "", counts: {} } });
 });
@@ -129,8 +136,12 @@ describe("SubmittalsLandingView", () => {
     const onOpenRun = vi.fn();
     render(<SubmittalsLandingView onOpenRun={onOpenRun} />);
     await userEvent.click(await screen.findByRole("button", { name: "Review" }));
-    expect(startReviewRun).toHaveBeenCalledWith("doc-2");
-    expect(onOpenRun).toHaveBeenCalledWith("run-new");
+    // THE ONE START: the pre-start step opens first; nothing has started yet
+    expect(await screen.findByTestId("start-review-step")).toBeInTheDocument();
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
+    await waitFor(() => expect(startReviewRun).toHaveBeenCalledWith("doc-2", "automatic", []));
+    await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-new"));
   });
 
   it("shows the refusal as the server gave it, and does not navigate", async () => {
@@ -142,7 +153,8 @@ describe("SubmittalsLandingView", () => {
     const onOpenRun = vi.fn();
     render(<SubmittalsLandingView onOpenRun={onOpenRun} />);
     await userEvent.click(await screen.findByRole("button", { name: "Review" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("a review of this submittal is already running");
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("already running");
     expect(onOpenRun).not.toHaveBeenCalled();
   });
 
@@ -202,7 +214,8 @@ describe("SubmittalsLandingView", () => {
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent("Queued 1 of 2 reviews asked for.");
     expect(status).toHaveTextContent("b.pdf: a review of this submittal is already running");
-    expect(startReviewRun.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
+    // "Review all" runs on this computer only: Local only, no list needed
+    expect(startReviewRun.mock.calls.map((call) => call.slice(0, 3))).toEqual([["a", "local", []], ["b", "local", []]]);
     expect(onOpenRun).not.toHaveBeenCalled();
     expect(reviewRuns).toHaveBeenCalledTimes(2);
   });

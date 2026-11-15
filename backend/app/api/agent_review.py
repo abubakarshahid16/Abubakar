@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from .. import (
     access,
@@ -36,6 +36,7 @@ from .. import (
     agent_review_schema,
     agent_review_text,
     crs_ai_workbook,
+    crs_copy_words,
     agent_review_wording,
     errors,
     review_jobs,
@@ -104,6 +105,34 @@ def agent_status(request: Request):
     )
 
 
+class AgentRunsAmong(BaseModel):
+    """Which of the asked runs have an AI review the caller may read."""
+
+    run_ids: list[str]
+
+
+@router.get("/api/reviews/agent-runs", response_model=AgentRunsAmong, responses=schemas.ERRORS_422)
+def agent_runs_among(
+    request: Request,
+    ids: str = Query(..., max_length=4000, description="run ids, comma separated (at most 100)"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Which of these runs have an AI review (V2). A list page used to ask every run for its AI summary and got a 404 for
+    each run that has none: 15 failed requests on one page. One question, no failures. Runs the caller may not read are
+    left out like runs that have no AI review, so the answer says nothing about them."""
+    reject_unknown_params(request, {"ids"})
+    asked = list(dict.fromkeys(i for i in (x.strip() for x in ids.split(",")) if i))[:100]
+    conn = connect()
+    if not asked or not agent_review_schema.has_tables(conn):
+        return {"run_ids": []}
+    marks = ",".join("?" for _ in asked)
+    rows = conn.execute(
+        f"SELECT run_id, submittal_document_id FROM agent_review_run WHERE run_id IN ({marks})", asked).fetchall()
+    allowed = scope.allowed_document_ids
+    found = {r["run_id"] for r in rows if allowed is None or r["submittal_document_id"] in allowed}
+    return {"run_ids": [i for i in asked if i in found]}
+
+
 @router.post(
     "/api/reviews/agent-run",
     response_model=schemas.ReviewRunSummary,
@@ -128,6 +157,11 @@ def start_agent_run(
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
+    from .. import review_engine_start
+
+    blocked = review_engine_start.legacy_start_blocked(connect(), document_id, scope.allowed_document_ids)
+    if blocked:  # no engine choice and no list: with the Claude lane open the review page's start step is the way
+        raise HTTPException(status_code=409, detail=errors.safe_error(errors.INVALID_PARAMETER, blocked))
     reading = agent_review_kind.decide(document_id, scope.allowed_document_ids)
     no_text = agent_review_text.read(connect(), document_id).state == "no text"
     # a paper with no stored text is queued whatever its kind: the run stops before any call and says why (never a 409 about kind)
@@ -430,6 +464,15 @@ def _gate_steps(line: dict) -> list[contract.AgentGateStep]:
     return [contract.AgentGateStep(step=a, outcome=b, reason=c) for a, b, c in steps]
 
 
+def _code_gate(line: dict) -> list[contract.AgentGateStep]:
+    from .. import agent_review_code_trace
+
+    return [
+        contract.AgentGateStep(step=a, outcome=b, reason=c)
+        for a, b, c in agent_review_code_trace.steps(line)
+    ]
+
+
 def _general_trace(item_id: str, line: dict, reason: str) -> contract.AgentTrace:
     """The trace of a general review line: the verified quote(s), what code checked, the second model's answer. No rule."""
     q_a = line.get("quote_a") or line.get("quote_paper") or {}
@@ -467,7 +510,7 @@ def _general_trace(item_id: str, line: dict, reason: str) -> contract.AgentTrace
 
 
 @router.get(
-    "/api/reviews/runs/{review_run_id}/agent/lines/{item_id}/trace",
+    "/api/reviews/runs/{review_run_id}/agent/lines/{item_id:path}/trace",
     response_model=contract.AgentTrace,
 )
 def agent_trace(
@@ -492,6 +535,9 @@ def agent_trace(
     if line.get("general"):
         return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")
+    code_line = (
+        str(line.get("source") or "").strip().casefold() == "code"
+    )  # the calculator's line: its trace is its stored proof
     return contract.AgentTrace(
         item_id=item_id,
         page=page if isinstance(page, int) and page >= 1 else None,
@@ -501,7 +547,7 @@ def agent_trace(
         clause=str(line.get("clause") or ""),
         model=str(line.get("model") or ""),
         reason=str(row["reason"] or ""),
-        gate=_gate_steps(line),
+        gate=_code_gate(line) if code_line else _gate_steps(line),
     )
 
 
@@ -515,18 +561,24 @@ def agent_trace(
 def agent_crs(
     review_run_id: str,
     request: Request,
-    copy: Literal["internal", "contractor"] = Query(...),
+    copy: str = Query(..., description="internal or company; contractor or issue"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"copy"})
+    copy = crs_copy_words.agent_copy(copy)  # V2: one set of copy words on every CRS route
     _run_or_404(review_run_id, scope)
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="the CRS is not written yet")
-    from .. import review_points_service  # 12 Nov: the sheet holds the engineer's decisions and added points
+    from .. import (
+        review_points_service,
+    )  # 12 Nov: the sheet holds the engineer's decisions and added points
 
     decided = review_points_service.decided_ai_sheet(
-        review_run_id, _run_or_404(review_run_id, scope)["submittal_document_id"], copy, path.parent
+        review_run_id,
+        _run_or_404(review_run_id, scope)["submittal_document_id"],
+        copy,
+        path.parent,
     )
     path = decided or path
     return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")

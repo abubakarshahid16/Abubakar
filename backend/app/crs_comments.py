@@ -16,12 +16,12 @@ A point an engineer removed is not part of a comment (it stays on Evidence and i
 
 from __future__ import annotations
 
-import logging
+import re
 
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
+from .crs_export_quality import NOTE_PARKED
 
-log = logging.getLogger(__name__)
 DISAGREE = "the readers disagree on this field"
 DISAGREE_RANK = 4  # a Query: the point's own question rank
 _NOT_MET, _MET = ("not_met",), ("met",)
@@ -31,22 +31,39 @@ def _norm(text) -> str:
     return " ".join(str(text or "").split()).lower()
 
 
+_PAGE_LABEL = re.compile(r"^(?:pp?|pages?)\.?\s*\d+(?:\s*[-,]\s*\d+)*$", re.IGNORECASE)
+_SECTION_TITLE = re.compile(
+    r"^(?:(?:section|clause|annex|appendix|table|figure)\b|\d+(?:\.\d+)+\s)",
+    re.IGNORECASE,
+)
+_PARKED = _norm(NOTE_PARKED).split(" - ")[0]
+
+
+def is_parked(text) -> bool:
+    """True when `text` IS the stored placeholder of a rule-check row an engineer has not decided (`NOTE_PARKED`): recognised by what
+    it is, never by words that an engineer's own sentence may also use."""
+    return _norm(text).startswith(_PARKED)
+
+
+def is_field(name: str) -> bool:
+    """A real field name: not empty, not a page label ("p.22"), not the parked placeholder, not a section title. General: no word
+    list of any paper."""
+    n = " ".join(str(name or "").split())
+    return bool(n) and not (
+        _PAGE_LABEL.match(n) or is_parked(n) or _SECTION_TITLE.match(n)
+    )
+
+
 def _field_of(point: dict) -> str:
-    """The point's field: its name, with a tag list taken off by `review_points.split_tags` when that function is present (U2's #1823
-    owns the tag scanner: it is called, never copied)."""
-    name = point.get("name")
-    split = getattr(rp, "split_tags", None)
-    if split and name:
-        try:
-            name = split(name)[0]
-        except Exception:  # noqa: BLE001 - an unexpected shape: the plain name is the field
-            log.debug("crs_comments: split_tags gave no field")
-    return _norm(name)
+    """The point's field: its name with the tag list taken off by `review_points.split_tags` (called, never copied: the tag scanner
+    is review_points', #1823); "" when the name is not a field."""
+    name = rp.split_tags(point.get("name") or "")[0]
+    return _norm(name) if is_field(name) else ""
 
 
 def key_of(point: dict) -> str:
     """The comment a point belongs to: its FIELD (the tags and pages it applies to are listed on the comment, they do not split it);
-    a point with no field, by its rule book and clause; else the point itself."""
+    a point whose name is not a field, by its rule book and clause; else the point itself."""
     field = _field_of(point)
     if field:
         return f"field|{field}"

@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import crs_comments
+from . import crs_comments, crs_completeness
 from . import (
     evidence_boxes,
     review_code_proposal,
@@ -18,6 +18,10 @@ from . import (
 from . import (
     review_points as rp,
 )
+from . import (
+    review_points_notes as notes_mod,
+)
+from .config import settings
 from .db import connect
 
 DONE = ("complete", "completed")
@@ -238,18 +242,28 @@ def resolve_books(points: list[dict], readable: frozenset[str]) -> None:
         books = [
             {"id": d, "name": names[d]}
             for d in p.get("_book_docs") or []
-            if d in names  # `names` holds readable books only (the ONE guard: `ids` above)
+            if d
+            in names  # `names` holds readable books only (the ONE guard: `ids` above)
         ]
         p["books"] = books
         # a point that cites a book the caller may not read is counted apart for it, even when another of its books is readable
-        p["_other_books"] = any(d not in names or d not in readable for d in p.get("_book_docs") or [])
-        p["no_book"] = not (p.get("_book_docs") or p.get("_book_doc"))  # cites no rule book at all
+        p["_other_books"] = any(
+            d not in names or d not in readable for d in p.get("_book_docs") or []
+        )
+        p["no_book"] = not (
+            p.get("_book_docs") or p.get("_book_doc")
+        )  # cites no rule book at all
         if books:
             p["rule_book"] = books[0]["name"]
         elif p.get("_book_docs") or p.get("_book_doc"):
-            p["rule_book"], p["clause"] = None, None  # held but not readable (or not found): not named
+            p["rule_book"], p["clause"] = (
+                None,
+                None,
+            )  # held but not readable (or not found): not named
         else:
-            p["rule_book"] = None  # no identity, no chip: a display string is never parsed into a book
+            p["rule_book"] = (
+                None  # no identity, no chip: a display string is never parsed into a book
+            )
 
 
 def _names(ids) -> dict[str, str]:
@@ -275,6 +289,9 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
         rp.ai_points_of_run(conn, ai_run, paper_id, readable) if ai_run else ([], [])
     )
     rc_pts = _rule_points(rc_run, paper_id, scope) if rc_run else []
+    # the AI review is the only reviewer: its notes are points of the one list (a rule check lists its own); the notes are the calculator's: behind its setting
+    if ai_run and not rc_run and settings.ai_review_calculator_enabled:
+        ai_pts += notes_mod.notes_of_run(ai_run, paper_id, scope, not_held)
     names = _names(decisions_mod.people(paper_id))
     add_pts = [
         decisions_mod.added_point(r, names.get(r["added_by"]) or r["added_by"])
@@ -301,8 +318,6 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
-    from .config import settings
-
     proposal = review_code_proposal.propose(
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),
@@ -333,10 +348,12 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             if p["decision"]["state"] == decisions_mod.REMOVE
         ],
         "contractor_copy": _contractor_copy(conn, ai_run),
+        "found_during_review": _found_during_review(conn, rc_run, ai_run),
     }
     grouped = crs_comments.group(points)  # P2: the SAME function the CRS file uses, so the page and the file show the same comments
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
+    listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
     return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
 
 
@@ -347,6 +364,31 @@ def assemble(paper_id: str, scope) -> dict:
 def export_listing(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     """The listing, the raw points (private keys kept) and the facts for the ONE CRS file (`crs_one`): the same list the page reads."""
     return _assemble(paper_id, scope)
+
+
+def _found_during_review(conn, *run_ids) -> int:
+    """How many rule books the paper's review found only while it ran and so did not send (they were not on the list shown before
+    the start): the UNION over the paper's runs (the rule check and the AI review), each book once. 0 when none: the screen then
+    says nothing."""
+    import sqlite3
+
+    from . import agent_review_rules, review_shown
+
+    books: set[str] = set()
+    for run_id in filter(None, run_ids):
+        try:
+            dropped = [
+                str(r[0])
+                for r in conn.execute(
+                    "SELECT DISTINCT standard_document_id FROM agent_review_rule WHERE run_id = ? AND asked = 0"
+                    " AND left_out_reason = ? AND standard_document_id IS NOT NULL",
+                    (run_id, agent_review_rules.REASON_WORDS[agent_review_rules.NOT_ON_LIST]),
+                )
+            ]
+        except sqlite3.OperationalError:
+            dropped = []
+        books |= set(review_shown.held_rule_books(conn, run_id, extra=dropped))
+    return len(books)
 
 
 def _unread_pages(run_id: str | None, scope) -> int | None:

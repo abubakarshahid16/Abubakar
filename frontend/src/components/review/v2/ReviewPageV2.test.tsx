@@ -11,7 +11,7 @@ import { ReviewPageV2 } from "./ReviewPageV2";
 import { costWords, engineWords, signWaits, tileLine, wontRunWords } from "./words";
 
 const api = {
-  list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(), recordYes: vi.fn(),
+  list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(),
   ofDocument: vi.fn(), kinds: vi.fn(), confirmKind: vi.fn(), decideCode: vi.fn(), downloadCrs: vi.fn(), downloadAgentCrs: vi.fn(), downloadPaperCrs: vi.fn(),
 };
 vi.mock("../../../api/reviewPoints", async (orig) => ({
@@ -19,7 +19,6 @@ vi.mock("../../../api/reviewPoints", async (orig) => ({
   reviewPoints: {
     list: (...a: unknown[]) => api.list(...a), plan: (...a: unknown[]) => api.plan(...a), decide: (...a: unknown[]) => api.decide(...a),
     keepAll: (...a: unknown[]) => api.keepAll(...a), add: (...a: unknown[]) => api.add(...a), start: (...a: unknown[]) => api.start(...a),
-    recordYes: (...a: unknown[]) => api.recordYes(...a),
   },
 }));
 vi.mock("../../../api/documents", () => ({
@@ -91,7 +90,15 @@ function listing(over: Partial<PointsListing> = {}): PointsListing {
 const plan = (over: Partial<ReviewPlan> = {}): ReviewPlan => ({
   choice: "automatic", parts: [{ name: "rule_check", engine: "claude", why: "x" }, { name: "ai_review", engine: "claude", why: "y" }],
   text_leaves: true, refused: null, refused_code: null, needs_yes: false, unscored: false, wont_run: [], kind: "datasheet",
-  documents: { paper: true, rule_books: ["API 610", "Other Book", "Third", "Fourth"], rule_books_note: null },
+  documents: {
+    paper: true, rule_books: ["API 610", "Other Book", "Third", "Fourth"], rule_books_note: null,
+    leaving: [
+      { id: "doc1", title: "Pump datasheet.pdf", kind: "paper", why: "paper under review", contract: false },
+      { id: "bk1", title: "API 610 rule book.pdf", kind: "rule book", why: "cited by the paper", contract: false },
+    ],
+    not_sent: [{ name: "API 999", kind: "rule book", why: "cited by the paper", reason: "not held in the library" }],
+    not_readable: 1,
+  },
   cost: { at_most_usd: 30, by_part_at_most_usd: { rule_check: 15, ai_review: 15 }, basis: "b", last_review_usd: 0.5, last_review_note: "n", exact: false },
   notes: [], sentence: "s", contract_yes: null, ...over,
 });
@@ -153,7 +160,7 @@ describe("1 the header", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Local only" }));
     await waitFor(() => expect(api.plan).toHaveBeenLastCalledWith("doc1", "local"));
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
-    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "local"));
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "local", []));
     await waitFor(() => expect(props.onOpenRun).toHaveBeenCalledWith("run-new"));
   });
   it("a non-admin is told who can start a review", async () => {
@@ -191,14 +198,11 @@ describe("2 the engine line", () => {
     expect(await screen.findByText(/Claude cannot be used for this paper/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
   });
-  it("a contract on Claude shows the owner's yes and, for an admin, the button that records it", async () => {
-    api.plan.mockResolvedValueOnce(ok(plan({ needs_yes: true }))).mockResolvedValue(ok(plan({ needs_yes: false })));
-    api.recordYes.mockResolvedValue(ok({}));
+  it("a contract paper on Automatic says Automatic keeps it here and to choose Claude; there is no yes button any more", async () => {
+    api.plan.mockResolvedValue(ok(plan({ needs_yes: true })));
     mount(); await loaded();
-    expect(await screen.findByTestId("v2-needs-yes")).toHaveTextContent("needs the owner's yes for this upload");
-    fireEvent.click(screen.getByRole("button", { name: "Record the owner's yes" }));
-    await waitFor(() => expect(api.recordYes).toHaveBeenCalledWith("doc1"));
-    await waitFor(() => expect(screen.queryByTestId("v2-needs-yes")).toBeNull());
+    expect(await screen.findByTestId("v2-needs-yes")).toHaveTextContent("choose Claude to send it to Claude");
+    expect(screen.queryByRole("button", { name: "Record the owner's yes" })).toBeNull();
   });
   it("the words come from one place", () => {
     expect(engineWords(plan({ text_leaves: true }))).toContain("will leave this computer");
@@ -444,6 +448,17 @@ describe("11 the bottom row", () => {
     mount(); await loaded();
     expect(screen.getByTestId("v2-comment-count")).toHaveTextContent("as 3 comments");
   });
+  it("shows a banner naming what is missing when the three counts differ, and nothing when they agree", async () => {
+    const bad = { ok: false, page: 3, database: 4, team_rows: 3, contractor_rows: 0, missing: ["an AI line (Design pressure, page 2) is stored but not on the page"], sentence: "x", checked_at: "t" };
+    api.list.mockResolvedValue(ok(listing({ completeness: bad })));
+    const first = mount(); await loaded();
+    expect(screen.getByTestId("v2-incomplete")).toHaveTextContent("Design pressure, page 2");
+    expect(screen.getByTestId("v2-incomplete")).toHaveTextContent("the page has 3 points, the database 4 lines");
+    first.unmount();
+    api.list.mockResolvedValue(ok(listing({ completeness: { ...bad, ok: true, missing: [] } })));
+    mount(); await loaded();
+    expect(screen.queryByTestId("v2-incomplete")).toBeNull();
+  });
   it("the contractor button says it is the working copy, and after signing still not the issued file", async () => {
     mount({ signed: true }); await loaded();
     expect(screen.getByRole("button", { name: "CRS for the contractor (working copy)" })).toBeInTheDocument();
@@ -555,5 +570,143 @@ describe("U5 polish: chips by book, names without tags, groups with pages, books
     api.list.mockResolvedValue(ok(listing({ points: [1, 2, 3, 4].map((i) => ({ ...alike(i), paper_quote: `value number ${i}` })) })));
     mount(); await loaded();
     expect(screen.getByTestId("v2-group-values")).toHaveTextContent("4 different values in the paper");
+  });
+});
+
+describe("11 the list of documents that leave, before the start (owner, 12 Nov 2026, #1584)", () => {
+  const titles = () => screen.getByTestId("v2-leaving");
+
+  it("shows the list from the plan with the engine line, before anything starts", async () => {
+    mount(); await loaded();
+    expect(await screen.findByText("These documents will be sent to Claude")).toBeInTheDocument();
+    expect(within(titles()).getByText("API 610 rule book.pdf")).toBeInTheDocument();
+    expect(within(titles()).getByText(/not held in the library/)).toBeInTheDocument();
+    expect(within(titles()).getByText(/1 more document\(s\) cited are ones you may not read/)).toBeInTheDocument();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it("Review opens the step first; Start sends exactly the ids shown through the one start", async () => {
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    const { props } = mount(); await loaded();
+    await screen.findByTestId("v2-leaving");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    const step = await screen.findByTestId("v2-prestart");
+    expect(api.start).not.toHaveBeenCalled(); // the step is first
+    expect(within(step).getByText("Pump datasheet.pdf")).toBeInTheDocument();
+    expect(within(step).getByText(/together at most|Cost: about USD 0.50, limit USD 30/)).toBeInTheDocument();
+    fireEvent.click(within(step).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "automatic", ["doc1", "bk1"]));
+    await waitFor(() => expect(props.onOpenRun).toHaveBeenCalledWith("run-new"));
+  });
+
+  it("Cancel closes the step and starts nothing", async () => {
+    mount(); await loaded();
+    await screen.findByTestId("v2-leaving");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("v2-prestart")).toBeNull();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it("fails closed: when the plan cannot be loaded, no Claude start is offered, and Local only starts at once with no list", async () => {
+    api.plan.mockResolvedValue({ ok: false, error: { message: "plan failed" } });
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    mount(); await loaded();
+    expect(await screen.findByTestId("v2-failed-closed")).toHaveTextContent("Claude is not offered");
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Local only" }));
+    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "local", []));
+  });
+
+  it("fails closed when the plan gives no list of documents (an older server) or says it could not work it out", async () => {
+    api.plan.mockResolvedValue(ok(plan({ documents: { paper: true, rule_books: [], rule_books_note: null } })));
+    mount(); await loaded();
+    expect(await screen.findByTestId("v2-no-list")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+  });
+
+  it("Local only says nothing leaves this Mac and starts without a step", async () => {
+    api.plan.mockResolvedValue(ok(plan({
+      choice: "local", text_leaves: false, cost: { ...plan().cost, at_most_usd: null },
+      parts: [{ name: "rule_check", engine: "local", why: "z" }, { name: "ai_review", engine: "not_run", why: "x" }],
+      documents: { paper: false, rule_books: [], rule_books_note: null, leaving: [], not_sent: [], not_readable: 0 },
+    })));
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    mount(); await loaded();
+    fireEvent.click(screen.getByRole("radio", { name: "Local only" }));
+    expect(await screen.findByText("Nothing leaves this Mac.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.queryByTestId("v2-prestart")).toBeNull();
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "local", []));
+  });
+
+  it("a contract on the list shows the one plain line before Start when Claude was chosen, and not on Automatic", async () => {
+    const withContract = plan({
+      documents: { ...plan().documents, leaving: [{ id: "doc1", title: "Supply contract.pdf", kind: "paper", why: "paper under review", contract: true }] },
+    });
+    api.plan.mockResolvedValue(ok(withContract));
+    mount(); await loaded();
+    await screen.findByTestId("v2-leaving");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.queryByTestId("v2-contract-line")).toBeNull(); // Automatic is not a choice of Claude
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    await waitFor(() => expect(api.plan).toHaveBeenLastCalledWith("doc1", "claude"));
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    expect(await screen.findByTestId("v2-contract-line")).toHaveTextContent(
+      "This sends the contract's text to Claude (Anthropic). You chose Claude for this review.",
+    );
+  });
+
+  it("a rule book found only during the review is said on the result, with the way to include it", async () => {
+    api.list.mockResolvedValue(ok(listing({ found_during_review: 2 })));
+    mount(); await loaded();
+    expect(await screen.findByTestId("found-during-review")).toHaveTextContent(
+      "2 more rule book(s) apply to this paper. They were not sent because they were not on the list you saw. Review again to include them.",
+    );
+  });
+
+  it("nothing leaving on Automatic: Review starts at once with an empty list and no step (removing that shortcut must fail this)", async () => {
+    api.plan.mockResolvedValue(ok(plan({
+      text_leaves: false, cost: { ...plan().cost, at_most_usd: null },
+      parts: [{ name: "rule_check", engine: "local", why: "z" }, { name: "ai_review", engine: "not_run", why: "x" }],
+      documents: { paper: false, rule_books: [], rule_books_note: null, leaving: [], not_sent: [], not_readable: 0 },
+    })));
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    mount(); await loaded();
+    await screen.findByTestId("v2-engine-line");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.queryByTestId("v2-prestart")).toBeNull();
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "automatic", []));
+  });
+
+  it("out-of-order plans: an earlier choice answering late is never shown, Review waits for the plan of the choice on screen, and Start sends that choice with those ids", async () => {
+    const answers: Record<string, (v: unknown) => void> = {};
+    api.plan.mockImplementation((_id: string, engine: string) => new Promise((resolve) => { answers[engine] = resolve; }));
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    mount(); await loaded();
+    await waitFor(() => expect(answers.automatic).toBeDefined());
+    fireEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    await waitFor(() => expect(answers.claude).toBeDefined());
+    fireEvent.click(screen.getByRole("radio", { name: "Automatic" }));
+    await waitFor(() => expect(api.plan).toHaveBeenCalledTimes(3));
+    // the plan on screen is not yet the plan for Automatic: Review is not offered
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    const contract = { id: "CONTRACT", title: "Supply contract.pdf", kind: "contract", why: "cited by the paper", contract: true };
+    const forAutomatic = plan({ documents: { ...plan().documents, leaving: [{ id: "doc1", title: "Pump datasheet.pdf", kind: "paper", why: "paper under review", contract: false }] } });
+    const forClaude = plan({ documents: { ...plan().documents, leaving: [{ id: "doc1", title: "Pump datasheet.pdf", kind: "paper", why: "paper under review", contract: false }, contract] } });
+    // the LAST request (Automatic) answers first, the earlier one (Claude) answers late
+    answers.automatic(ok(forAutomatic));
+    await screen.findByTestId("v2-leaving");
+    answers.claude(ok(forClaude));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("Supply contract.pdf")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "automatic", ["doc1", "bk1"].slice(0, 1)));
   });
 });
