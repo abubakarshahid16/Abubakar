@@ -1,31 +1,34 @@
-"""THE ONE CALL SEAM of the nine-role review (owner order, 15 Nov 2026; SPEC sections B and F; strict by construction after review R63).
+"""THE ONE CALL SEAM of the nine-role review (owner order, 15 Nov 2026; SPEC sections B and F; strict by construction after reviews R63, R63b).
 
 Every model call of roles 1 to 6 and 9 is made by `ask(...)` and by nothing else. Nothing a caller hands in is trusted as TEXT:
 
-* THE ENGINE IS DERIVED FROM THE RUN. `ask` reads the run's own stored decision (`review_engine.bar_state`, the context bar): a run whose
-  plan kept the AI review on this computer is Local, whatever context the caller is in. A caller may ask for Local, never for Claude
-  over a Local run (`run_is_local`).
-* QUESTION AND SYSTEM WORDS ARE TEMPLATES, never free strings: `template(id, text, **params)` registers fixed words with named
-  parameters of four kinds (`id`, `int`, `token`, `role`: ids, counts, short tokens with no newline); `ask(system=(id, params),
-  question=(id, params))`. A value that is not of its kind is refused (`text_not_from_block`). The template id and a digest of the
-  parameters are written in the call's record row.
-* TEXT BLOCKS ARE LOADED BY THE SEAM. A stored-text block names `(document_id, pages[, char_from, char_to])`; the seam reads the stored
-  page text itself (`agent_review_standards.read_book`: the pages, and the recognised text of a scanned page) and slices it. A caller
-  cannot put other words under a document's id. A picture block names `(document_id, one page)` and is rendered by the seam
-  (`agent_review_pages.page_image`).
-* A DERIVED block (the fact-sheet digest, the context note, earlier findings) is the kind `review_record`: it names `sources`, every
-  document any of its words came from, and carries `items`, rows of short tokens that code renders. The gate must pass for EVERY
-  source, else the block is dropped and named. Each source gets a read row (kind `review_record`, the block name as its chapter).
-  What code CAN enforce: sources present, every source gated, tokens short and one-line, total length capped. What stays a builder
-  obligation: that the tokens really come from those sources; `scripts/nine_record_check.py` verifies the rows afterwards.
+* THE ENGINE IS DERIVED FROM THE RUN, DEFAULT DENY (`engine_decision`). "claude" only when the run's own STORED decision says so: a stored
+  choice that does not bar Claude, a stored plan with text leaving, a stored shown list, no bar in the context and none on the job.
+  Anything else is Local, and a caller who asks for Claude is refused (`run_is_local`, or `no_engine_decision` when nothing is stored).
+* THE STARTER'S ACCESS applies to every block on every engine (`outside_access`; rule 5: intersection); the shown list and the approval
+  gate (`claude_approved.refusal`) apply on top for Claude.
+* QUESTION AND SYSTEM WORDS ARE TEMPLATES (`template(id, text, **kinds)`), parameters only of the typed kinds `id`, `int`, `role`, `code`
+  (a number, a page, a clause, an enum word, a standard id, a short code), `clause`, `standard`, `number`: never free text. A parameter
+  of 12 or more characters that occurs in the stored text of a document the gate refuses in this run is refused
+  (`text_from_held_document`). The template id and a digest of the parameters are written in the call's record row.
+* TEXT BLOCKS ARE LOADED BY THE SEAM: `(document_id, pages[, char_from, char_to])` -> the stored page text; a picture block -> the page
+  rendered by the seam. A caller cannot put other words under a document's id.
+* A DERIVED BLOCK (`review_record`: the fact-sheet digest, the context note, earlier findings) names its `sources` and carries `items`, rows
+  of short cells. At send time, for Claude, EVERY CELL is checked: (a) it is a typed token (number, page, clause, standard id read by
+  `standard_ids`, an enum word from `DERIVED_ENUM`, a short code of 11 characters or fewer, an id of 12 to 40 characters), or (b) it
+  occurs (case and whitespace folded) in the stored text of one of the block's OWN sources: then the source, the page and the span
+  are written in `agent_review_role_cell`, and `scripts/nine_record_check.py` re-reads that span and compares its checksum. A cell of 12
+  or more characters that occurs in the stored text of a document the gate refuses in this run is refused whatever the sources say
+  (`text_from_held_document`). Every source must pass the gate or the whole block is dropped. What stays a builder obligation: that
+  the cells of kinds (a) really describe those sources (a typed token carries at most 40 characters and is never prose).
 
 The SAME block list is (a) the request, (b) the declaration to the approval gate (`claude_approved.carrying`), and (c) the role record
-(`nine_record`: one read row per block, one per source of a derived block). The `sent` row is written by a transport wrapper only AFTER
-the spend reservation succeeded, so a call refused at the reservation has no read rows.
+(`nine_record`: one read row per block, one per source of a derived block, one cell row per cell). The `sent` row is written by a
+transport wrapper only AFTER the spend reservation succeeded, so a call refused at the reservation has no read rows.
 
-A HELD DOCUMENT NEVER REACHES A BODY: each document (and each source) is put to the one gate (`claude_approved.refusal` inside the
-run): not on the stored list, not approved, blocked (the register), a contract without the explicit choice, or a barred run. A refused
-block is dropped before the request is built and named in `Answer.not_sent`; none left = the call is `refused`, no body, no ledger line.
+A HELD DOCUMENT NEVER REACHES A BODY: each document (and each source) is put to the one gate: not on the stored list, not approved, blocked
+(the register), a contract without the explicit choice, or a barred run. A refused block is dropped before the request is built and named in
+`Answer.not_sent`; none left = the call is `refused`, no body, no ledger line.
 
 MONEY. One step name per role (`nine_contract.STEP_OF_ROLE`): its own ledger line and USD 5 cap in `claude_spend`, which is NOT changed.
 A role's design budget (`ROLE_BUDGET_USD`, not a cap) counts known costs and, for a failed call of unknown cost, the reserved amount.
@@ -66,13 +69,48 @@ DEFAULT_MAX_TOKENS = 2048
 STORED_KINDS = ("paper", "rule_book", "project_document", "earlier_revision")
 DERIVED_KIND = "review_record"
 MAX_DERIVED_CHARS = 30_000  # a derived block is a digest, not a copy
-MAX_TOKEN_CHARS = 60
+MAX_CELL_CHARS = 200
 MAX_TEMPLATE_CHARS = 20_000
 TEXT_NOT_FROM_BLOCK = "text_not_from_block"
+HELD_TEXT = "text_from_held_document"
+NO_DECISION = "no_engine_decision"
+OUTSIDE_ACCESS = "outside_access"
+NOT_ON_LIST = "not_on_list"
+CELL_NOT_FROM_SOURCES = "cell_not_from_sources"
+CELL_WRONG_KIND = "cell_wrong_kind"
+#: the words a derived cell may be without being found in a source (a fixed set, not prose)
+DERIVED_ENUM = frozenset(
+    {
+        "met", "not met", "not_met", "pass", "fail", "partly", "partly met", "unknown", "yes", "no", "true", "false",
+        "paper", "rule_book", "project_document", "earlier_revision", "claude", "local", "code", "high", "medium", "low",
+        "shall", "should", "may", "must", "held", "not_held", "related",
+    }
+)  # fmt: skip
 
 _ID = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
-_TOKEN = re.compile(r"^[^\s\x00-\x1f][^\x00-\x1f]{0,%d}$" % (MAX_TOKEN_CHARS - 1))
 _ROLE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
+_CODE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9_.:\-]{0,10}$"
+)  # a short code: 11 characters or fewer
+_LONG_ID = re.compile(
+    r"^(?=.*\d)[A-Za-z0-9][A-Za-z0-9_.:\-]{11,39}$"
+)  # an id of 12 to 40 characters carries a digit
+_NUMBER = re.compile(r"^[+-]?\d{1,12}([.,]\d{1,9})?%?$")
+_CLAUSE = re.compile(r"^\d{1,3}(\.\d{1,3}){1,5}[a-z]?$")
+_UNIT = re.compile(r"^[A-Za-z%/\u00b0\u00b5\u00b2\u00b3.\-]{1,12}$")
+_LINE = re.compile(r"^[^\s\x00-\x1f][^\x00-\x1f]{0,%d}$" % (MAX_CELL_CHARS - 1))
+DECLARED_KINDS = (
+    "id",
+    "code",
+    "key",
+    "number",
+    "clause",
+    "standard",
+    "enum",
+    "unit",
+    "source",
+)
+PARAM_KINDS = ("id", "int", "role", "code", "clause", "number", "unit", "standard")
 
 
 class NineCallError(ValueError):
@@ -88,29 +126,47 @@ class TemplateError(NineCallError):
 # --------------------------------------------------------------------------------------------------------- templates
 
 _TEMPLATES: dict[str, tuple[str, dict[str, str]]] = {}
-_PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*)\}")
+_PLACEHOLDER = re.compile(r"(?<!\{)\{([a-z][a-z0-9_]*)\}(?!\})")
 
 
 def template(template_id: str, text: str, **params: str) -> str:
-    """Register the FIXED words of a question or system prompt. `params` maps each `{name}` placeholder of `text` to its kind: `id`
-    (letters, digits, `_ . : -`, 64 at most), `int` (a count), `token` (one line, 60 characters at most) or `role` (a lower-case name).
-    Called by a role module at import. The same id with other words is refused. Returns the id."""
+    """Register the FIXED words of a question or system prompt. `params` maps each `{name}` placeholder of `text` to its kind, all typed:
+    `id` (letters, digits, `_ . : -`, 64 at most), `int` (a count), `role` (a lower-case name), `code` (a short code, 11 characters or
+    fewer), `clause` (a clause number), `number`, `unit` (a short unit) or `standard` (one standard id read by `standard_ids`). There is
+    no free-text kind. Called by a role module at import. The same id with other words is refused. Returns the id."""
     if not _ID.match(template_id) or len(text) > MAX_TEMPLATE_CHARS:
         raise NineCallError(
             "a template has an id of letters and digits and words under 20,000 characters"
         )
     names = set(_PLACEHOLDER.findall(text))
-    if names != set(params) or any(
-        k not in ("id", "int", "token", "role") for k in params.values()
-    ):
+    if names != set(params) or any(k not in PARAM_KINDS for k in params.values()):
         raise NineCallError(
-            "a template names exactly its parameters, each an id, int, token or role"
+            "a template names exactly its parameters, each of a typed kind: "
+            + ", ".join(PARAM_KINDS)
         )
+    try:  # a trial render with dummy values of the declared kinds: a stray brace, `{0}` or `{x.attr}` fails here, at import
+        text.format(**{k: ("1" if v == "int" else "x") for k, v in params.items()})
+    except (KeyError, IndexError, ValueError, AttributeError, TypeError) as exc:
+        raise NineCallError(
+            f"template {template_id!r} does not render: only plain {{name}} placeholders (a literal brace is doubled)"
+        ) from exc
     known = _TEMPLATES.get(template_id)
     if known is not None and known != (text, dict(params)):
         raise NineCallError(f"template {template_id!r} already holds other words")
     _TEMPLATES[template_id] = (text, dict(params))
     return template_id
+
+
+def _is_standard(text: str) -> bool:
+    from . import standard_ids
+
+    found = standard_ids.find_citations(text)
+    return (
+        len(text) <= nine_record.MAX_TYPED_CELL
+        and len(found) == 1
+        and found[0][1] <= 1
+        and found[0][2] >= len(text.rstrip()) - 1
+    )
 
 
 def _check_param(kind: str, value) -> str:
@@ -126,15 +182,20 @@ def _check_param(kind: str, value) -> str:
     ok = (
         (kind == "id" and _ID.match(text))
         or (kind == "role" and _ROLE.match(text))
-        or (kind == "token" and _TOKEN.match(text))
+        or (kind == "code" and _CODE.match(text))
+        or (kind == "clause" and _CLAUSE.match(text))
+        or (kind == "number" and _NUMBER.match(text))
+        or (kind == "unit" and _UNIT.match(text))
+        or (kind == "standard" and text and _is_standard(text))
     )
     if not ok:
         raise TemplateError(f"a {kind} parameter is not from the app's own words")
     return text
 
 
-def render(use: tuple[str, dict]) -> tuple[str, str, str]:
-    """(id, the words, the digest of id + parameters) of one template use. Raises `TemplateError` for any value that is not of its kind."""
+def render_full(use: tuple[str, dict]) -> tuple[str, str, str, list[str]]:
+    """(id, the words, the digest of id + parameters, the parameter values as strings) of one template use. Raises `TemplateError` for
+    any value that is not of its kind."""
     template_id, params = use
     if template_id not in _TEMPLATES:
         raise TemplateError("an unknown template")
@@ -145,7 +206,12 @@ def render(use: tuple[str, dict]) -> tuple[str, str, str]:
     digest = hashlib.sha256(
         json.dumps([template_id, values], sort_keys=True).encode("utf-8")
     ).hexdigest()
-    return template_id, text.format(**values), digest
+    return template_id, text.format(**values), digest, list(values.values())
+
+
+def render(use: tuple[str, dict]) -> tuple[str, str, str]:
+    """(id, the words, the digest) of one template use."""
+    return render_full(use)[:3]
 
 
 # ------------------------------------------------------------------------------------------------------------ blocks
@@ -154,7 +220,7 @@ def render(use: tuple[str, dict]) -> tuple[str, str, str]:
 @dataclass(frozen=True)
 class Block:
     """One block of a request. A STORED-TEXT block names where its words are stored (the seam loads them); a picture block names one page;
-    a DERIVED block (`review_record`) names its sources and carries rows of short tokens. Nothing here is free text."""
+    a DERIVED block (`review_record`) names its sources and carries rows of short cells, each typed or found in a source (checked at send time). Nothing here is free text."""
 
     document_kind: str
     document_id: str = (
@@ -174,6 +240,9 @@ class Block:
     name: str = ""
     sources: tuple[str, ...] = ()
     items: tuple[tuple[str, ...], ...] = ()
+    kinds: tuple[
+        str, ...
+    ] = ()  # optional: the declared kind of each column of `items` (DECLARED_KINDS)
 
     def __post_init__(self) -> None:
         if self.document_kind in STORED_KINDS:
@@ -196,9 +265,18 @@ class Block:
                 )
             for row in self.items:
                 if not row or any(
-                    not isinstance(c, str) or not _TOKEN.match(c) for c in row
+                    not isinstance(c, str) or not _LINE.match(c) for c in row
                 ):
-                    raise TemplateError("a derived row holds short one-line tokens")
+                    raise TemplateError("a derived row holds short one-line cells")
+            if self.kinds and (
+                any(k not in DECLARED_KINDS for k in self.kinds)
+                or any(len(row) != len(self.kinds) for row in self.items)
+            ):
+                raise NineCallError(
+                    "declared cell kinds are of "
+                    + ", ".join(DECLARED_KINDS)
+                    + " and every row has one cell per kind"
+                )
             if sum(len(c) + 3 for row in self.items for c in row) > MAX_DERIVED_CHARS:
                 raise TemplateError("a derived block is a digest, not a copy")
         else:
@@ -253,45 +331,69 @@ class Answer:
         tuple[str, str], ...
     ]  # (document id, code): blocks dropped before the request was built
     reads: tuple[ReadEntry, ...] = field(default=())
+    #: one entry per read, in the same order: (char_from, char_to) of the stored text actually sent (the slice of a chapter part, or the
+    #: whole joined text of the pages: (0, chars)); None for a picture or a derived block
+    ranges: tuple[tuple[int, int] | None, ...] = field(default=())
 
 
 # ------------------------------------------------------------------------------------------------------- the engine
 
 
-def engine_of_run(run_id: str, conn=None) -> str:
-    """ "local" for a run whose stored decision keeps Claude out (`review_engine.bar_state`, and the context bar), else "claude". A run
-    with no stored decision and no job (a test) follows the context bar alone."""
-    from . import review_engine
+def _decision(run_id: str, conn) -> tuple[str, str | None]:
+    """(engine, the starter's user id). DEFAULT DENY: "claude" only when the run's own stored decision says so (a stored choice that does
+    not bar Claude, a stored plan with text leaving and a stored shown list) and nothing bars it; "none" when no decision is stored."""
+    from . import review_engine, review_shown
 
-    conn = conn or connect()
+    got = review_engine.stored(conn, run_id)
+    starter = (got or {}).get("requested_by")
     if review_engine.claude_barred():
-        return "local"
+        return "local", starter
     job = conn.execute(
         "SELECT id FROM jobs WHERE review_run_id = ? ORDER BY started_at DESC LIMIT 1",
         (run_id,),
     ).fetchone()
-    if job is not None:
-        barred, _why = review_engine.bar_state(conn, job["id"])
-        if barred:
-            return "local"
-    elif (stored := review_engine.stored(conn, run_id)) is not None and stored[
-        "bar_claude"
-    ]:
-        return "local"
-    return "claude"
+    if job is not None and review_engine.bar_state(conn, job["id"])[0]:
+        return "local", starter
+    if got is None:
+        return "none", None
+    if got["bar_claude"]:
+        return "local", starter
+    leaves = (got.get("plan") or {}).get("text_leaves") is True
+    if leaves and review_shown.shown_ids(conn, run_id) is not None:
+        return "claude", starter
+    return "local", starter
+
+
+def engine_of_run(run_id: str, conn=None) -> str:
+    """ "claude" only on an explicit stored decision that says so (see `_decision`); "local" when the run is kept on this computer;
+    "none" when no decision is stored for it (a caller then gets `no_engine_decision` unless it asks for the local model)."""
+    return _decision(run_id, conn or connect())[0]
 
 
 # ------------------------------------------------------------------------------------------------------ the gate
 
 
-def _dropped(run_id: str, blocks: list[Block]) -> dict[str, str]:
-    """{document id: code} for each document (and each source of a derived block) the one gate refuses in this run."""
+def _dropped(
+    run_id: str, blocks: list[Block], conn, starter: str | None, engine: str
+) -> dict[str, str]:
+    """{document id: code} for each document (and each source of a derived block) this run may not use on THIS engine. On every engine:
+    outside the starter's access (rule 5: intersection) and, where a shown list is stored, not on it. On Claude also the one gate."""
+    from . import review_jobs, review_shown
+
+    allowed = review_jobs._scope_of(starter)
+    listed = review_shown.shown_ids(conn, run_id)
+    ids = list(dict.fromkeys(i for b in blocks for i in b.gate_ids()))
     out: dict[str, str] = {}
-    for doc in dict.fromkeys(i for b in blocks for i in b.gate_ids()):
-        with claude_approved.carrying([doc]), claude_approved.reviewing(run_id):
-            found = claude_approved.refusal()
-        if found is not None:
-            out[doc] = found[0]
+    for doc in ids:
+        if doc not in allowed:
+            out[doc] = OUTSIDE_ACCESS
+        elif engine != "claude" and listed is not None and doc not in listed:
+            out[doc] = NOT_ON_LIST
+    if engine == "claude":
+        for doc, code in nine_record.refused_documents(
+            run_id, [i for i in ids if i not in out]
+        ).items():
+            out[doc] = code
     return out
 
 
@@ -303,6 +405,9 @@ class Loaded:
     block: Block
     text: str | None = None
     picture: dict | None = None  # {"media_type", "data"}
+    cells: tuple[
+        nine_record.CellEntry, ...
+    ] = ()  # a derived block sent to Claude: how each cell was admitted
 
 
 def _sha(text: str) -> str:
@@ -363,6 +468,142 @@ def _load(
             continue
         out.append(Loaded(b, text=text))
     return out, missing
+
+
+# ---------------------------------------------------------------------------------------------------- derived cells
+
+
+_DECLARED_RE = {
+    "id": _ID,
+    "code": re.compile(r"^[A-Za-z0-9\-][A-Za-z0-9_.:\-]{0,39}$"),
+    "key": re.compile(r"^[A-Za-z0-9\-][A-Za-z0-9_.:\-]{0,39}$"),
+    "number": _NUMBER,
+    "clause": _CLAUSE,
+    "unit": _UNIT,
+}
+
+
+def _declared_ok(kind: str, cell: str) -> str | None:
+    """The recorded kind when `cell` is a value of its DECLARED kind, else None. `source` is checked elsewhere (it must occur in a source)."""
+    text = cell.strip()
+    if kind in _DECLARED_RE:
+        return (
+            ("code" if kind == "key" else kind)
+            if _DECLARED_RE[kind].match(text)
+            else None
+        )
+    if kind == "enum":
+        return "enum" if fold(text) in DERIVED_ENUM else None
+    if kind == "standard":
+        return "standard" if _is_standard(text) else None
+    return None
+
+
+def _typed_kind(cell: str) -> str | None:
+    """The kind of a cell that is a typed token (never prose), or None."""
+    text = cell.strip()
+    if _NUMBER.match(text):
+        return "number"
+    if _CLAUSE.match(text):
+        return "clause"
+    if fold(text) in DERIVED_ENUM:
+        return "enum"
+    if _is_standard(text):
+        return "standard"
+    if _CODE.match(text):
+        return "code"
+    if _LONG_ID.match(text):
+        return "id"
+    return None
+
+
+def fold(text: str) -> str:
+    return nine_record.fold(text)
+
+
+def _source_pages(conn, doc: str, cache: dict) -> dict[int, str]:
+    if doc not in cache:
+        cache[doc] = {
+            r["page_no"]: fold(r["text"])
+            for r in conn.execute(
+                "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+                (doc,),
+            )
+        }
+    return cache[doc]
+
+
+def _verify_derived(
+    conn, run_id: str, b: Block
+) -> tuple[tuple[nine_record.CellEntry, ...], str | None]:
+    """Admit each cell of a derived block or name why not: (the cell rows, None) or ((), the code that drops the whole block).
+    1. a cell of 12 or more characters that occurs in the stored text of a document the gate refuses in this run: `text_from_held_document`
+       (whatever the sources say);
+    2. else the cell is a typed token (`_typed_kind`);
+    3. else it must occur in the stored text of one of the block's OWN sources: the first source and page that hold it are recorded;
+    4. else `cell_not_from_sources`."""
+    held = nine_record.held_text_hits(
+        conn,
+        run_id,
+        {
+            c
+            for row in b.items
+            for c in row
+            if len(fold(c)) >= nine_record.HELD_MIN_CHARS
+        },
+    )
+    if held:
+        return (), HELD_TEXT
+    cache: dict = {}
+    out: list[nine_record.CellEntry] = []
+    for r, row in enumerate(b.items):
+        for c, cell in enumerate(row):
+            probe = fold(cell)
+            sha = _sha(probe)
+            declared = b.kinds[c] if b.kinds else None
+            if declared is None or declared == "source":
+                kind = (
+                    _typed_kind(cell)
+                    if declared is None and len(cell) <= nine_record.MAX_TYPED_CELL
+                    else None
+                )
+            else:  # declared typed: it must be a value of that kind, or the block is dropped (never read as prose)
+                kind = (
+                    _declared_ok(declared, cell)
+                    if len(cell) <= nine_record.MAX_TYPED_CELL
+                    else None
+                )
+                if kind is None:
+                    return (), CELL_WRONG_KIND
+            if kind is not None:
+                out.append(nine_record.CellEntry(b.name, r, c, kind, len(cell), sha))
+                continue
+            found = None
+            for doc in b.sources:
+                for page, text in _source_pages(conn, doc, cache).items():
+                    at = text.find(probe) if probe else -1
+                    if at >= 0:
+                        found = (doc, page, at)
+                        break
+                if found:
+                    break
+            if found is None:
+                return (), CELL_NOT_FROM_SOURCES
+            out.append(
+                nine_record.CellEntry(
+                    b.name,
+                    r,
+                    c,
+                    "source",
+                    len(cell),
+                    sha,
+                    found[0],
+                    found[1],
+                    found[2],
+                    len(probe),
+                )
+            )
+    return tuple(out), None
 
 
 # ------------------------------------------------------------------------------------------------------- the request
@@ -445,6 +686,21 @@ def _reads(role_no: int, call_id: str, loaded: list[Loaded]) -> list[ReadEntry]:
     return rows
 
 
+def _ranges(loaded: list[Loaded]) -> list[tuple[int, int] | None]:
+    """One entry per row of `_reads`: the character range of the stored text actually sent (a slice starts at its `char_from`)."""
+    out: list[tuple[int, int] | None] = []
+    for item in loaded:
+        b = item.block
+        if b.document_kind == DERIVED_KIND:
+            out += [None] * len(b.sources)
+        elif item.text is None:
+            out.append(None)
+        else:
+            start = b.char_from or 0
+            out.append((start, start + len(item.text)))
+    return out
+
+
 def _json_of(text: str) -> dict | None:
     return agent_claude.parse_json_object(text)
 
@@ -480,13 +736,15 @@ def ask(
         raise NineCallError(f"role {role_no} is code: it makes no model call")
     if not blocks:
         raise NineCallError("a request holds at least one block")
-    question_id, question_text, q_digest = render(question)
-    system_id, system_text, s_digest = render(system) if system else (None, None, "")
+    question_id, question_text, q_digest, q_values = render_full(question)
+    system_id, system_text, s_digest, s_values = (
+        render_full(system) if system else (None, None, "", [])
+    )
     params_sha = _sha(q_digest + s_digest)
     nine_record.ensure_schema(conn)
     step = STEP_OF_ROLE[role_no]
-    derived = engine_of_run(run_id, conn)
-    wanted = engine or derived
+    derived, starter = _decision(run_id, conn)
+    wanted = engine or ("local" if derived == "none" else derived)
     if wanted not in ("claude", "local"):
         raise NineCallError("a model call is on Claude or on the local model")
     call_id = call_id or uuid.uuid4().hex[:16]
@@ -523,15 +781,37 @@ def ask(
             tuple(dropped),
         )
 
-    if wanted == "claude" and derived == "local":
+    if derived == "none" and engine is None:
+        return refused(NO_DECISION)  # no stored decision: default deny
+    if wanted == "claude" and derived != "claude":
         return refused(
-            "run_is_local"
-        )  # this run's plan keeps Claude out: a caller cannot choose it
+            NO_DECISION if derived == "none" else "run_is_local"
+        )  # a caller cannot choose Claude: only the run's stored decision can
+    if wanted == "claude" and nine_record.held_text_hits(
+        conn, run_id, [*q_values, *s_values]
+    ):
+        return refused(
+            HELD_TEXT
+        )  # a parameter holds words of a document the gate refuses
 
-    not_sent: dict[str, str] = _dropped(run_id, blocks) if wanted == "claude" else {}
+    not_sent: dict[str, str] = _dropped(run_id, blocks, conn, starter, wanted)
     gated = [b for b in blocks if not any(i in not_sent for i in b.gate_ids())]
     loaded, missing = _load(conn, gated, wanted)
     not_sent.update(missing)
+    cells: list[nine_record.CellEntry] = []
+    if wanted == "claude":
+        checked: list[Loaded] = []
+        for item in loaded:
+            if item.block.document_kind != DERIVED_KIND:
+                checked.append(item)
+                continue
+            got, why = _verify_derived(conn, run_id, item.block)
+            if why:
+                not_sent["derived:" + item.block.name] = why
+                continue
+            cells += got
+            checked.append(Loaded(item.block, text=item.text, cells=got))
+        loaded = checked
     dropped = tuple(sorted(not_sent.items()))
     if not loaded:
         return refused("no_block_left", dropped=dropped)
@@ -548,8 +828,14 @@ def ask(
                 "cache_control": dict(agent_claude._CACHE),
             }
         ]
-    meta = dict(question_id=question_id, system_id=system_id, params_sha256=params_sha)
+    meta = dict(
+        question_id=question_id,
+        system_id=system_id,
+        params_sha256=params_sha,
+        ranges=tuple(_ranges(loaded)),
+    )
     if wanted == "claude":
+        meta["cells"] = tuple(cells)
         return _ask_claude(
             run_id,
             role_no,
@@ -898,6 +1184,7 @@ def _finish(
         kept_ids,
         dropped,
         tuple(reads) if written["sent"] else (),
+        tuple(meta.get("ranges") or ()) if written["sent"] else (),
     )
 
 
@@ -960,6 +1247,7 @@ def record_reused(
         model=model or agent_claude.LEAD_MODEL,
         request_sha256=request_sha256,
         reads=_reads(role_no, call_id, loaded),
+        ranges=_ranges(loaded),
         conn=conn,
     )
     nine_record.call_end(run_id, call_id, "reused", usd=None, conn=conn)
