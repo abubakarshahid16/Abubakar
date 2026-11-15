@@ -28,6 +28,9 @@ from .db import connect
 log = logging.getLogger(__name__)
 
 
+NOTHING_LEAVES_WORDS = "AI review not started: this review was started with nothing leaving this computer; start again and choose Claude to send it"
+
+
 class StartRefused(Exception):
     """The plan refused the start; `code` and the plain sentence."""
 
@@ -163,13 +166,20 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
         return None
     # The plan is made again: approvals and caps may have changed since the button was pressed. A part that is no longer
     # allowed is not started, and the record says why in words.
-    again = review_engine.plan_for(conn, doc, scope, got["choice"])
+    # THE START DECIDES: a start whose screen said nothing leaves (its stored plan sent no text) can never send anything for its whole
+    # life. Its follow-up is planned as Local only, so it can stay local or not start, never widen to Claude (a re-plan may only narrow).
+    sends = bool((got["plan"] or {}).get("text_leaves"))
+    again = review_engine.plan_for(
+        conn, doc, scope, got["choice"] if sends else review_engine.LOCAL
+    )
     ai = next(p for p in again["parts"] if p["name"] == review_engine.AI_REVIEW)
     if again["refused"] or ai["engine"] not in (
         review_engine.ON_CLAUDE,
         review_engine.ON_LOCAL,
     ):
-        _note(conn, run_id, f"not started: {ai['why']}")
+        _note(
+            conn, run_id, f"not started: {ai['why']}" if sends else NOTHING_LEAVES_WORDS
+        )
         return None
     on_local = (
         ai["engine"] == review_engine.ON_LOCAL

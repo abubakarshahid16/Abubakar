@@ -181,13 +181,24 @@ def _cited_ids(conn, run_id: str) -> set[str]:
     return ids
 
 
+def sends_nothing(conn, run_id: str) -> bool:
+    """Did the start of this run say nothing leaves (its stored plan sent no text)? False when there is no stored plan (the older routes)."""
+    from . import review_engine
+
+    got = review_engine.stored(conn, run_id)
+    return bool(got) and not (got.get("plan") or {}).get("text_leaves", True)
+
+
 def held_applied(
     conn, run_id: str, applied_run: str | None = None, extra=()
 ) -> list[str]:
     """The documents this run carries beside its paper (`_cited_ids`: the applied standards, the rules the AI reviewer asked, the
     project papers of a general review; also those of `applied_run`, the run the AI reviewer's standards were chosen on, and
-    `extra`) that the list shown before the start left out: what the gate holds. Empty on a database error."""
+    `extra`) that the list shown before the start left out: what the gate holds. Empty on a database error, and empty for a run whose
+    stored plan sent nothing (a local run: no book was "not sent" for it, whatever list an older start stored for it)."""
     try:
+        if sends_nothing(conn, run_id):
+            return []
         ids = _cited_ids(conn, run_id)
         if applied_run:
             ids |= _cited_ids(conn, applied_run)
