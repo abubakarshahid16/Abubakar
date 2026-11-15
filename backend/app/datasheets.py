@@ -2888,37 +2888,7 @@ def _geometry_agrees(raw_value: str, is_blank: bool, fact: dict) -> bool:
         if left is not None and right is not None:
             return left == right
         return _fold(number) == _fold(fact["raw_value"])
-    return _fold(raw_value) == _fold(fact["field_value"]) or _wrapped_continuation(raw_value, fact["field_value"])
-
-
-#: words that change what a stated value MEANS when only one of two readings carries them: a scope, a condition, a place, a finish, a bound, an alternative, a rating
-#: suffix. Their presence in the words ONE reading adds says the readings are not the same value: they stay a conflict (a question for the engineer).
-_MEANING_WORDS = frozenset(
-    "max min maximum minimum approx approximately about typ typical nominal avg average up to of not no per or and with without only except for at in on by from "
-    "inside outside internal external inlet outlet upstream downstream hot cold gross net gauge absolute clad cladding lined lining coated coating overlay overlaid "
-    "galvanised galvanized plated painted insulated jacketed shell tube side tubes rf ff rtj rj rtjf lb lbs class rating grade type".split()
-)
-
-
-def _wrapped_continuation(reading: str | None, stored: str | None) -> bool:
-    """One text value that wraps over two lines is read twice: the whole value, and one of its lines alone. The READING agrees with the STORED value when the
-    reading is the SHORTER and its words (two at least, not all numbers) are the exact start or end of the stored one's words AND the words the stored one adds say
-    nothing that changes the value: no figure, no word of `_MEANING_WORDS` (a scope, a condition, a finish, a bound, an alternative, a rating), no deferred-value
-    marker ("By Contractor"), no single letter. When the reading is the LONGER one nothing merges: a merge may never lose words, so the longer reading is a
-    conflict for the engineer, whichever reader wrote first. Numbers never come here alone: they compare as numbers."""
-    short, long_ = _fold(reading or "").split(), _fold(stored or "").split()
-    if len(short) < 2 or len(short) >= len(long_) or all(numparse.as_number(w) is not None for w in short):
-        return False
-    if long_[: len(short)] == short:
-        extra = long_[len(short):]
-    elif long_[-len(short):] == short:
-        extra = long_[: len(long_) - len(short)]
-    else:
-        return False
-    return not (
-        blank_markers.classify(" ".join(extra))[0]
-        or any(w in _MEANING_WORDS or len(w.strip("+-.,()")) <= 1 and w.strip("+-.,()") != "" or any(ch.isdigit() for ch in w) for w in extra)
-    )
+    return _fold(raw_value) == _fold(fact["field_value"])
 
 
 #: #175: the confidence written for a fact recovered only by the OCR (or

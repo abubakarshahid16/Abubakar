@@ -157,9 +157,9 @@ def test_the_direction_and_the_subject_of_the_shape_are_shown_by_the_clause_quot
         == proof.DIRECTION_WHY
     )
     other = MAX_CLAUSE.replace("C.A.", "wall thickness")
-    assert proof.subject_reason("corrosion_allowance", req, other) in (
-        proof.SUBJECT_WHY,
-        proof.SUBJECT_PHRASE_WHY,
+    assert (
+        proof.subject_reason("corrosion_allowance", req, other)
+        == proof.SUBJECT_PHRASE_WHY
     )
 
 
@@ -186,9 +186,12 @@ def test_a_clause_that_names_another_field_before_the_figure_is_still_not_about_
         is None
     )
     wrong = "The maximum design pressure drop shall be 3.2 mm of the C.A."
-    assert proof.subject_reason(
-        "corrosion_allowance", calc.requirement_from_item(ITEM), wrong
-    ) in (proof.SUBJECT_WHY, proof.SUBJECT_PHRASE_WHY)
+    assert (
+        proof.subject_reason(
+            "corrosion_allowance", calc.requirement_from_item(ITEM), wrong
+        )
+        == proof.SUBJECT_PHRASE_WHY
+    )
 
 
 def test_a_different_value_a_blank_or_another_unit_family_is_never_proven():
@@ -325,7 +328,10 @@ def test_the_checks_of_the_line_say_the_clause_is_not_about_that_field_when_the_
     line = _pressure_line(
         "Internal design pressure", "Internal design pressure : 3.5 bar"
     )
-    assert line["quotes_checked"]["clause_subject"] is False
+    assert (
+        line["quotes_checked"]["clause_subject"] is False
+        and line["reason_code"] == "clause_subject_not_the_field"
+    )
 
 
 def test_a_proven_line_whose_clause_is_changed_to_another_kind_of_the_field_is_refused_at_the_exit_too():
@@ -626,3 +632,206 @@ def test_m1_the_calculator_says_so_in_the_checks_of_the_line():
     assert (
         line["quotes_checked"]["clause_subject"] is False and line["verdict"] == "Query"
     )
+
+
+@pytest.mark.parametrize("header", ["Internal", "External", "Inlet", "Outlet"])
+def test_a_table_header_that_says_internal_external_inlet_or_outlet_is_a_condition_column(
+    header,
+):
+    """The qualifier of a whole column stands in its HEADER, not in the row label: with two such columns the value under one of them is not the rule's (a question)."""
+    from app import table_cell
+    from tests.test_b1_calculator_proof import _col
+
+    assert table_cell.condition_words(header) == {header.lower()}
+    base = {"rule_field": "pressure", "field": "Pressure"}
+    assert (
+        calc.column_not_the_rules(base, _col(header, conditions=2))
+        == f"the table column is {header}; the rule does not say which"
+    )
+    assert (
+        calc.column_not_the_rules(base, _col(header, conditions=1)) is None
+    )  # the only value column of the label
+
+
+# ---- R74b ------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+LIMIT = "The corrosion allowance shall not exceed 3.2 mm."
+
+
+def _ca_item(clause):
+    return _item(
+        "corrosion_allowance", "<=", "3.2", "mm", clause, value=3200.0, norm_unit="um"
+    )
+
+
+@pytest.mark.parametrize(
+    "more",
+    [
+        "Where the service is sour, 6 mm applies.",
+        "For stainless steel 1 mm applies.",
+        "This does not apply to nozzles.",
+        "The owner may agree a higher value.",
+        "Higher values are permitted for piping.",
+        "The paragraph above is superseded by 7.4.",
+        "In sour service the corrosion allowance shall be at least 6 mm.",
+        "See note 3.",
+        "Note 3: applies to shells only.",
+    ],
+)
+def test_a_the_whole_clause_must_be_the_limit_another_sentence_with_a_condition_an_override_or_a_figure_makes_it_a_query(
+    more,
+):
+    clause = f"{LIMIT} {more}"
+    out, _ = _verdict(_ca_item(clause), "Corrosion allowance", "5", "mm", clause)
+    assert out["verdict_class"] != "Proven by code" and out["verdict"] == "Query"
+    assert (
+        proof.single_limit_reason(calc.requirement_from_item(_ca_item(clause)), clause)
+        == proof.MORE_WHY
+    )
+    plain, _ = _verdict(
+        _ca_item(LIMIT), "Corrosion allowance", "5", "mm", LIMIT
+    )  # control: the single limit sentence proves the breach
+    assert (plain["verdict_class"], plain["verdict"]) == ("Proven by code", "Fail")
+
+
+def test_a_the_stored_clause_text_around_the_quote_is_read_too():
+    """The clause continues after the part the reader quoted: the further sentences count (the row's own stored text, the same gated source)."""
+    item = _ca_item(LIMIT)
+    full = LIMIT + " Where the service is sour, 6 mm applies."
+    fact = {
+        "id": "f9",
+        "field_label": "Corrosion allowance",
+        "raw_value": "5",
+        "raw_unit": "mm",
+        "unit": "mm",
+        "page": 1,
+        "is_blank": False,
+        "source_text": "Corrosion allowance : 5 mm",
+        "equipment_tag": "T1",
+    }
+    ln = calc.numeric_line(
+        item,
+        calc.requirement_from_item(item),
+        fact,
+        submittal_facts=[fact],
+        page_text="Corrosion allowance : 5 mm\n",
+        clause_quote=LIMIT,
+        clause_text=full,
+        page_count=1,
+    )
+    assert (
+        ln["verdict"] == "Query"
+        and _exit(ln, item)["verdict_class"] != "Proven by code"
+    )
+    good = calc.numeric_line(
+        item,
+        calc.requirement_from_item(item),
+        fact,
+        submittal_facts=[fact],
+        page_text="Corrosion allowance : 5 mm\n",
+        clause_quote=LIMIT,
+        clause_text=LIMIT,
+        page_count=1,
+    )
+    assert proof.line_proven(good) and not proof.line_proven(
+        {**good, "clause_text": full}
+    )  # the exit asks again from the clause text the line carries
+
+
+def test_a_a_heading_line_and_a_clause_number_are_not_more_than_the_limit():
+    clause = "7.1.2 Corrosion allowance\n7.1.2.3 " + LIMIT
+    out, _ = _verdict(_ca_item(clause), "Corrosion allowance", "5", "mm", clause)
+    assert out["verdict_class"] == "Proven by code"
+
+
+COND_LABEL = "Corrosion allowance unless otherwise agreed"
+COND_CLAUSE = "The corrosion allowance shall not exceed 3.2 mm unless otherwise agreed."
+
+
+def test_m1_the_calculator_holds_a_condition_of_the_limit_sentence_when_nothing_else_does():
+    """The label carries the same extra words, so the qualifier sets are equal and the clause is no more than one sentence: only the condition read is left."""
+    _, ln = _verdict(_ca_item(COND_CLAUSE), COND_LABEL, "5", "mm", COND_CLAUSE)
+    assert (
+        proof.qualifier_reason(
+            "corrosion_allowance",
+            calc.requirement_from_item(_ca_item(COND_CLAUSE)),
+            COND_CLAUSE,
+            COND_LABEL,
+        )
+        is None
+    )
+    assert ln["verdict"] == "Query" and ln["quotes_checked"]["clause_subject"] is False
+
+
+def test_m1_the_exit_asks_again_for_the_condition_when_nothing_else_does(monkeypatch):
+    item = _ca_item(COND_CLAUSE)
+    with monkeypatch.context() as m:
+        m.setattr(
+            proof, "condition_reason", lambda *a, **k: None
+        )  # a calculator that did not see the condition
+        _, ln = _verdict(item, COND_LABEL, "5", "mm", COND_CLAUSE)
+        assert ln["verdict"] == "Fail"
+    assert not proof.line_proven(ln)
+
+
+def test_each_any_and_all_are_quantity_words_not_joins():
+    req = calc.requirement_from_item(_ca_item(LIMIT))
+    for label in (
+        "Each corrosion allowance",
+        "Any corrosion allowance",
+        "All corrosion allowance",
+    ):
+        assert (
+            proof.qualifier_reason("corrosion_allowance", req, LIMIT, label)
+            == proof.QUALIFIER_WHY
+        )
+    assert (
+        proof.qualifier_reason("corrosion_allowance", req, LIMIT, "Corrosion allowance")
+        is None
+    )
+
+
+def test_a_name_that_only_a_role_pattern_carries_is_still_found():
+    import re
+
+    from app import agent_review_absence as absence
+    from app import agent_review_proof_words as pw
+
+    words = absence.FieldWords(
+        role="x",
+        canonical=None,
+        patterns=(re.compile("zz widget(?:s)?"),),
+        spellings=("zz gadget",),
+        source="t",
+    )
+    got = pw.qualifier_sets("the zz widgets shall not exceed", words, "zz gadget")
+    assert got == (set(), set())  # found by the pattern, nothing else qualifies
+
+
+def test_the_five_nominal_plate_thickness_rows_prove_only_against_that_exact_label():
+    clause = "(2) The minimum nominal plate thickness shall be 0.249 in."
+    item = _item(
+        "nominal_plate_thickness",
+        ">=",
+        "0.249",
+        "in",
+        clause,
+        value=6324.6,
+        norm_unit="um",
+    )
+    assert (
+        subject_be(clause) is not None
+    )  # the row parses: the sentence names no component
+    ok = _verdict(item, "Nominal plate thickness", "0.3", "in", clause)[0]
+    assert (ok["verdict_class"], ok["verdict"]) == ("Proven by code", "Pass")
+    for label in (
+        "Plate thickness",
+        "Nominal plate thickness (shell)",
+        "Nominal plate thickness for heads",
+        "Maximum nominal plate thickness",
+    ):
+        assert (
+            _verdict(item, label, "0.3", "in", clause)[0]["verdict_class"]
+            != "Proven by code"
+        ), label

@@ -161,6 +161,10 @@ def _checks(
         is None
         and proof.condition_reason(base["proof_requirement"], base["clause_quote"])
         is None
+        and proof.single_limit_reason(
+            base["proof_requirement"], base["clause_quote"], clause_text
+        )
+        is None
     )
     way = (
         proof.direction_reason(base["proof_requirement"], base["clause_quote"]) is None
@@ -271,6 +275,9 @@ def numeric_line(
     base = _numeric_base(
         item, requirement, fact, clause_quote, page_count, cell, document_id
     )
+    base["clause_text"] = str(clause_text or "")[
+        :8000
+    ]  # the clause around the quote: the exit asks again whether it says more than the limit
     got = comparison.compare(
         dict(requirement), dict(fact) if fact else None, submittal_facts=submittal_facts
     )

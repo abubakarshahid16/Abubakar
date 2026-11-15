@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
 from . import comparison, hold_reason, numparse, table_cell
+from .agent_review_proof_words import MORE_WHY, more_than_the_limit
 from .agent_review_proof_words import qualifier_sets as _qualifier_sets
 from .reader_api import _fold
 
@@ -360,6 +361,33 @@ _CONDITION = re.compile(
 CONDITION_WHY = "the clause states a condition (for example for a material, unless, where, if, when, except), so the limit is not proven against the paper without it"
 
 
+def single_limit_reason(
+    requirement: Mapping | None, clause_quote: object, clause_text: object = None
+) -> str | None:
+    """Why the clause says MORE than the limit, in words; None when the quote (and the stored clause text around it, when the line carries it) is the limit sentence
+    and nothing else that matters. Every OTHER sentence must be free of a figure with a unit, a condition, an exception, an override ("Where the service is sour, 6 mm
+    applies", "This does not apply to nozzles", "The owner may agree a higher value", "See note 3"), a scope word: a proof rests on the whole clause, not on one sentence
+    of it."""
+    wanted = [numparse.as_number(x) for x in limit_numbers(requirement or {})]
+    for source in (clause_quote, clause_text):
+        pieces = _SENTENCE_BREAK.split(str(source or ""))
+        at = next(
+            (
+                i
+                for i, piece in enumerate(pieces)
+                if any(
+                    n.value in wanted and not n.joined
+                    for n in numparse.find_numbers(numparse.fold(piece))
+                    if n.value is not None
+                )
+            ),
+            None,
+        )
+        if more_than_the_limit(pieces, at):
+            return MORE_WHY
+    return None
+
+
 def condition_reason(requirement: Mapping | None, clause_quote: object) -> str | None:
     """The condition READ FROM THE CLAUSE QUOTE itself: the stored row's `condition` column is not the only home of it (a row stored before the condition reader has
     none). A limit sentence that opens with "For ..." / "Unless ..." / "Where ..." / "If ..." / "When ..." / "Except ..." or carries one of them is held."""
@@ -655,6 +683,8 @@ def numeric_proven(line: Mapping) -> bool:
         )
         is None
         and condition_reason(req, line.get("clause_quote")) is None
+        and single_limit_reason(req, line.get("clause_quote"), line.get("clause_text"))
+        is None
         and _verdict_matches(line, recompute(req, obs))
     )
 

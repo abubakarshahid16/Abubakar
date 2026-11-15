@@ -98,7 +98,8 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 59 on 15 Nov: main's own additions (round 11) and the two table-cell files together
     # raised to 60 on 15 Nov (#1814): the second exit of the datasheet evaluator, a value nobody can trust is not a verdict
     # raised to 61 on 15 Nov (#1828): crs_ai_actions.py words the action of a CRS row by case
-    assert len(vp.VERDICT_PATH) <= 61
+    # raised to 62 on 16 Nov (#1834): agent_review_proof_words.py decides which words qualify a field in the code proof (a proven Pass or Fail rests on it)
+    assert len(vp.VERDICT_PATH) <= 62
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

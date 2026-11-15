@@ -15,6 +15,15 @@ from tests import b1_pages
 from tests.test_b1_calculator import ITEM, exit_of, fact, line
 
 
+@pytest.fixture(autouse=True)
+def _the_guards_of_1814_alone(monkeypatch):
+    """This file tests the guards of #1814 (subject, direction, quotes, field) ALONE. The guards added by #1834 (the qualifier sets, the plain-name subject, the condition and
+    the single-limit reads) refuse many of these lines first and would hide the old guards from their mutation entries; their own tests are in test_ca_subject_limit.py."""
+    for name in ("qualifier_reason", "condition_reason", "single_limit_reason"):
+        monkeypatch.setattr(proof, name, lambda *a, **k: None)
+    monkeypatch.setattr(proof, "_subject_phrase_reason", lambda *a, **k: None)
+
+
 def proven(ln) -> bool:
     return exit_of(ln)["verdict_class"] == "Proven by code"
 
@@ -594,13 +603,10 @@ def test_10_a_limit_stated_for_another_subject_is_not_applied_to_this_field():
 
 
 @pytest.mark.parametrize(
-    "clause",
-    ["The noise level shall not exceed 90 dB(A).", "Noise level: maximum 90 dB(A)."],
+    "clause", ["The noise level shall not exceed 90 dB(A).", "Noise: maximum 90 dB(A)."]
 )
 def test_10_a_clause_about_the_field_still_proves(clause):
-    assert proven(
-        _subject_line(clause, "noise level")
-    )  # the label names the field the clause is about, in the same words
+    assert proven(_dir_line(clause))
 
 
 @pytest.mark.parametrize("field", [None, "", "pressure", "liquid"])
@@ -683,43 +689,29 @@ def test_8_a_checklist_line_is_asked_again_from_the_page_too(_pages):
 
 
 def _subject_line(clause, field):
-    it = {
-        **ITEM,
-        "field_roles": [field],
-        "rule_label": {"tier": "AI approved"},
-        "question": clause,
-    }
-    f = fact(
-        "85",
-        field_label=field.replace("_", " ").capitalize(),
-        source_text=f"{field.replace('_', ' ').capitalize()} 85 dB(A)",
-    )  # the paper's label names the rule's field (the pairing guarantees it in a run)
-    return calc.numeric_line(
-        it, calc.requirement_from_item(it), f, submittal_facts=[f], page_text=f"{field.replace("_", " ").capitalize()} 85 dB(A)",
-        clause_quote=clause, clause_text=clause, page_count=3,
-    )  # fmt: skip
+    return _dir_line(
+        clause, item={"field_roles": [field], "rule_label": {"tier": "AI approved"}}
+    )
 
 
 def test_12_the_field_in_another_sentence_is_not_the_subject_of_the_limit():
     clause = "Noise level is reported separately. Valve body shall not exceed 90 dB(A)."
-    ln = _subject_line(clause, "noise level")
+    ln = _subject_line(clause, "noise")
     assert query(ln, "clause_subject_not_the_field")
     assert proven(
         _subject_line(
             "Valve body is reported separately. Noise level shall not exceed 90 dB(A).",
-            "noise level",
+            "noise",
         )
     )
 
 
 def test_12_a_table_line_is_its_own_sentence():
     assert query(
-        _subject_line("Noise level\nValve body maximum 90 dB(A)", "noise level"),
+        _subject_line("Noise level\nValve body maximum 90 dB(A)", "noise"),
         "clause_subject_not_the_field",
     )
-    assert proven(
-        _subject_line("Valve body\nNoise level maximum 90 dB(A)", "noise level")
-    )
+    assert proven(_subject_line("Valve body\nNoise level maximum 90 dB(A)", "noise"))
 
 
 @pytest.mark.parametrize(

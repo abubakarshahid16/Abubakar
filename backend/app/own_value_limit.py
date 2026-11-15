@@ -151,8 +151,56 @@ def _alternative_agrees(tail: str, main) -> str | None:
 
 #: words that make a subject MORE than a field's name: a preposition (another component or scope follows), a conjunction (two subjects), a condition, a second comparator
 SUBJECT_STOP = frozenset(
-    "of for at per on in by to with without from under over during between within inside outside into through across as than after before while when where "
-    "if unless except and or nor not each every all any both either neither only other maximum minimum max min".split()
+    [
+        "of",
+        "for",
+        "at",
+        "per",
+        "on",
+        "in",
+        "by",
+        "to",
+        "with",
+        "without",
+        "from",
+        "under",
+        "over",
+        "during",
+        "between",
+        "within",
+        "inside",
+        "outside",
+        "into",
+        "through",
+        "across",
+        "as",
+        "than",
+        "after",
+        "before",
+        "while",
+        "when",
+        "where",
+        "if",
+        "unless",
+        "except",
+        "and",
+        "or",
+        "nor",
+        "not",
+        "each",
+        "every",
+        "all",
+        "any",
+        "both",
+        "either",
+        "neither",
+        "only",
+        "other",
+        "maximum",
+        "minimum",
+        "max",
+        "min",
+    ]
 )
 ARTICLES = frozenset({"the", "a", "an"})
 MAX_SUBJECT_WORDS = 4

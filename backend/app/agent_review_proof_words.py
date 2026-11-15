@@ -25,13 +25,10 @@ _JOIN_WORDS = frozenset(
         "whose",
         "with",
         "no",
-        "any",
-        "each",
         "its",
         "this",
-        "all",
     ]
-)
+)  # "each", "any" and "all" are quantity words, not joins
 
 #: the closed list of words a limit's sentence or a label may carry without saying anything about WHICH quantity it is: articles, the verbs and the comparator
 #: phrase of the limit itself. Every other word that is not the field's name, a figure or a unit is a QUALIFIER, and the qualifiers of the clause and of the label
@@ -57,16 +54,14 @@ _BOUND_FAMILY = frozenset(
         "allowable",
         "permissible",
         "actual",
-        "design",
     }
-    - {"design"}
 )
 _OR_COMPARATIVE = re.compile(
     r"\bor\s+(?:more|less|higher|lower|greater|fewer|below|above|over|under)\b"
 )
 
 
-def _is_unit_word(token: str) -> bool:
+def is_unit_word(token: str) -> bool:
     from . import claims
 
     try:
@@ -130,8 +125,39 @@ def qualifier_sets(
     for t in rest:
         if t in _COMPARATOR_WORDS:
             comp.add(_COMPARATOR_WORDS[t])
-        elif t in WEAK_WORDS or numparse.as_number(t) is not None or _is_unit_word(t):
+        elif t in WEAK_WORDS or numparse.as_number(t) is not None or is_unit_word(t):
             continue
         else:
             qual.add(t)
     return qual, comp
+
+
+#: words that make ANOTHER sentence of a clause more than a plain limit: a condition, an exception, an override or an alternative, a note reference, a scope word
+_MORE_WORDS = re.compile(
+    r"\b(?:where|if|when|unless|except|provided|apply|applies|applying|applicable|supersede|supersedes|superseded|superseding|higher|lower|relax\w*|agree|agreed|agrees|"
+    r"permit|permits|permitted|waive|waived|waives|note|notes|see|refer|refers|referred|only|per|for|in\s+case)\b",
+    re.IGNORECASE,
+)
+MORE_WHY = "the clause says more than the limit (another sentence of it carries a figure with a unit, a condition, an exception, an override or a note)"
+
+
+def has_figure_with_unit(text: str) -> bool:
+    """The text states a figure followed by a unit the code knows ("6 mm", "3.5 bar")."""
+    from . import requirements_3b as r3b
+
+    for m in re.finditer(
+        r"[-+]?" + r3b._VALUE + r"\s*(" + r3b._UNIT + r")(?![\w/])", text or ""
+    ):
+        if is_unit_word(m.group(1)) or r3b.unit_token(m.group(1)):
+            return True
+    return False
+
+
+def more_than_the_limit(sentences: list[str], limit_at: int | None) -> bool:
+    """True when any sentence other than the limit's own (`limit_at`) carries a figure with a unit or one of `_MORE_WORDS`."""
+    for i, sent in enumerate(sentences):
+        if i == limit_at or not sent.strip():
+            continue
+        if has_figure_with_unit(sent) or _MORE_WORDS.search(sent):
+            return True
+    return False

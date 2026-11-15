@@ -83,6 +83,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "the proof behind a proven Pass or Fail: recomputed from the line's own texts and values",
     ),
     (
+        APP + "agent_review_proof_words.py",
+        "the words that qualify a field in the code proof: a proven Pass or Fail rests on their comparison",
+    ),
+    (
         APP + "agent_review_approved_code.py",
         "which approved checklist ids stand as an owner-tier item",
     ),
@@ -129,7 +133,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_absence.py", "decides a Fail by absence"),
     (APP + "crs_ai_words.py", "the fixed words a reader sees on the AI reviewer's CRS"),
     (APP + "crs_ai_workbook.py", "what the cells of the AI reviewer's CRS say"),
-    (APP + "crs_ai_actions.py", "what the contractor is told to do, by case, on the AI reviewer's CRS rows"),
+    (
+        APP + "crs_ai_actions.py",
+        "what the contractor is told to do, by case, on the AI reviewer's CRS rows",
+    ),
     (
         APP + "agent_review_jobs.py",
         "decides which review a paper gets and what it asks, and writes the run",
