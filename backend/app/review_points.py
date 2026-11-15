@@ -30,6 +30,7 @@ import re
 from collections import Counter, defaultdict
 
 from . import agent_review_wording as wording
+from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 
 #: rank -> (what it is, how firm). The pill is "what · how firm".
@@ -181,50 +182,102 @@ def code_question_key(line: dict) -> str | None:
 
 # ------------------------------------------------------------------------------------------------ a name is the field, not its tags
 
-_BRACKETS = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]")
-_TAG_ITEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-/._]*$")
+_OPEN, _CLOSE = "([{", ")]}"
+_TAG_LEAD = re.compile(r"^[A-Za-z]{1,6}[-/]\d[\w\-./]*$")  # the first token of a tag entry: letters, a dash or slash, digits ("V-100"); never letters+digits alone ("M12", "H2")
 _ONE_TAG = re.compile(r"^[A-Za-z]{1,6}-\d[\w\-./]*$")
 _MORE = re.compile(r"^(?:\.{2,}|\u2026|etc\.?|(?:and\s+)?\+?\d+\s+more)$", re.I)
+_SEPARATORS = ",;&+"
 
 
-def _is_tag_list(inner: str) -> list[str] | None:
-    """The items of a bracketed group when it is a list of equipment tags (every item one token with a letter and a digit, two or more
-    of them, or one that looks like a tag with its dash); None for a unit or a note like "(barg)" or "(2 mm)". General: it looks at
-    the shape of the group, never at one paper's tag scheme."""
-    parts = [
-        x.strip()
-        for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner)
-        if x.strip()
-    ]
-    items = [x for x in parts if not _MORE.match(x)]
+def _top_level_groups(text: str) -> list[tuple[int, int]]:
+    """(start, end) of every outermost bracketed group (balanced, so a group inside a group stays inside it)."""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in _OPEN:
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch in _CLOSE and depth > 0:
+            depth -= 1
+            if depth == 0:
+                out.append((start, i + 1))
+    return out
+
+
+def _entries(inner: str) -> list[str]:
+    """The entries of a group: its text cut at "," ";" "&" "+" and the word "and" outside any inner bracket."""
+    parts, depth, cur, words = [], 0, [], inner.replace(" and ", " & ")
+    for ch in words:
+        depth += (ch in _OPEN) - (ch in _CLOSE)
+        if depth == 0 and ch in _SEPARATORS:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return [x.strip() for x in parts if x.strip()]
+
+
+def _fold_tag(text: str) -> str:
+    return "".join(str(text or "").upper().split())
+
+
+_TAG_SUFFIX = re.compile(r"^(?:[A-Z0-9]{1,2}|[A-Z0-9]{1,3}/[A-Z0-9]{1,3})$")  # "A", "10", "A/B": a range or suffix of a tag, never a word
+
+
+def _tag_shaped(entry: str) -> bool:
+    """The FALLBACK test of one entry: its lead token has the dash/slash tag shape, and whatever follows the lead (outside a bracketed note)
+    is only a range ("A/B") or another tag, never words: "V-1 A/B (inlet)" is a tag, "V-1 shall be painted" is a sentence."""
+    lead, _, rest = re.sub(r"\([^()]*\)", " ", entry).strip().partition(" ")
+    if not _TAG_LEAD.match(lead.rstrip(",;")):
+        return False
+    return all(_TAG_SUFFIX.match(t) or _TAG_LEAD.match(t) for t in rest.split())
+
+
+def _is_known(entry: str, known: frozenset[str]) -> bool:
+    """An entry IS a known tag: its lead token equals one (folded), or is a suffix form of one ("V-1A" for "V-1"), or stands inside a
+    known tag value that lists several tags; and whatever follows the lead token is a range/suffix ("A/B") or a bracketed note, never a
+    word. So "V-1 A/B (inlet)" is a tag of a known "V-1", and "M12 bolts" is NOT a tag of a known "M12" (it merely contains one)."""
+    lead, _, rest = re.sub(r"\([^()]*\)", " ", entry.split("(")[0]).strip().partition(" ")
+    folded = _fold_tag(lead)
+    if len(folded) < 3 or not all(_TAG_SUFFIX.match(t) for t in rest.split()):
+        return False
+    return any(folded == k or folded in k or (folded.startswith(k) and len(folded) - len(k) <= 2) for k in known)
+
+
+def _is_tag_list(inner: str, known: frozenset[str] = frozenset()) -> list[str] | None:
+    """The entries of a bracketed group when every entry IS a tag. PREFERRED: the review knows this paper's tags (`known`, folded):
+    each entry must be one of them, whole or as a part of one (a range or suffix: "V-1 A/B" for "V-1"; a tag value that lists several tags). FALLBACK, when the paper has no known tag:
+    each entry's lead token has the dash/slash tag shape ("V-100"; never letters and digits alone: "M12", "H2"). A unit, a standard's
+    number, a quantity or a note ("(barg)", "(API 610)", "(H2 and CO2 content)", "(M12 bolts, M16 nuts)") is NOT a tag list. When in doubt
+    the bracket STAYS in the name: a tag left in a name is ugly, a name word removed is wrong."""
+    items = [x for x in _entries(inner) if not _MORE.match(x)]
     if not items:
         return None
-    if not all(
-        _TAG_ITEM.match(x)
-        and any(c.isdigit() for c in x)
-        and any(c.isalpha() for c in x)
-        for x in items
-    ):
-        return None
-    if len(items) == 1 and not _ONE_TAG.match(items[0]):
-        return None
-    return items
+    if known:
+        ok = all(_is_known(x, known) for x in items)
+    else:
+        ok = all(_tag_shaped(x) for x in items)
+        ok = ok and (len(items) > 1 or bool(_ONE_TAG.match(items[0].split()[0])))
+    return items if ok else None
 
 
-def split_tags(name: str) -> tuple[str, list[str]]:
+def split_tags(name: str, known: frozenset[str] = frozenset()) -> tuple[str, list[str]]:
     """(the name with every bracketed list of equipment tags taken off, the tags in the order they stood). The tags belong in the
-    opened point ("Applies to: N tags"), never in the collapsed row's name."""
+    opened point ("Applies to: N tags"), never in the collapsed row's name. Nested brackets ("V-1 A/B (inlet, 10 & 19) & V-2") and
+    every separator the sheet uses are handled; a group that is not a tag list stays in the name."""
+    text = str(name or "")
     tags: list[str] = []
-
-    def take(m: re.Match) -> str:
-        got = _is_tag_list(m.group(1))
+    keep, last = [], 0
+    for start, end in _top_level_groups(text):
+        got = _is_tag_list(text[start + 1 : end - 1], known)
         if got is None:
-            return m.group(0)
+            continue
         tags.extend(got)
-        return ""
-
-    clean = _BRACKETS.sub(take, str(name or ""))
-    return _clean(clean), list(dict.fromkeys(tags))
+        keep.append(text[last:start].rstrip())
+        last = end
+    keep.append(text[last:])
+    return _clean(" ".join(x for x in keep if x)), list(dict.fromkeys(tags))
 
 
 def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None) -> str:
@@ -282,7 +335,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
-    field, tags = split_tags(wb.field_name(line))
+    field, tags = split_tags(wb.field_name(line), ctx.get("known_tags") or frozenset())
     name = (
         _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
@@ -334,6 +387,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         else None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": not bool(line.get("recommendation")),
+        # P6: the priority comes from the finding (`crs_ai_words.priority_ai`); P5: the AI's own reasoning, labelled, never for a proven line
+        "priority": words.priority_ai(status, line, order) if status else "",
+        "ai_reasoning": actions.reasoning_part(line, status or "", "").strip(),
         "group_key": group_key(
             SOURCE_AI_REVIEW,
             rank,
@@ -431,7 +487,7 @@ def rule_point(
     )
     reason = (finding or {}).get("reason_code") or kind or ""
     field, tags = split_tags(
-        section.split(" - ", 1)[-1] if " - " in section else section
+        section.split(" - ", 1)[-1] if " - " in section else section, ctx.get("known_tags") or frozenset()
     )
     name = (
         _plain(field)
@@ -460,6 +516,8 @@ def rule_point(
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": strength != "should",
         "strength_unknown": strength == "unknown",
+        "priority": words.priority(status, {}, words.ORDER_AI_NOT_MET),  # the rule check's own vocabulary (`crs_normal.decorate`)
+        "ai_reasoning": "",
         "group_key": group_key(
             SOURCE_RULE_CHECK,
             rank,
@@ -482,13 +540,23 @@ def rule_point(
     }
 
 
+#: Priority words, worst first (a point with none sorts after the ones that have one).
+PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+
+
 def order_points(points: list[dict]) -> list[dict]:
-    """Worst first: by rank, then a 'shall' rule before a 'should' rule, then the order they came in (stable)."""
+    """Worst first: by rank (proven Fail, two-reader not met, AI not met, question, met), then by priority (High first), then a 'shall' rule
+    before a 'should' rule, then the order they came in (stable)."""
     return [
         p
         for _i, p in sorted(
             enumerate(points),
-            key=lambda ip: (ip[1]["rank"], 0 if ip[1].get("shall", True) else 1, ip[0]),
+            key=lambda ip: (
+                ip[1]["rank"],
+                PRIORITY_ORDER.get(ip[1].get("priority") or "", 3),
+                0 if ip[1].get("shall", True) else 1,
+                ip[0],
+            ),
         )
     ]
 

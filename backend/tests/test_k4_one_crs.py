@@ -740,7 +740,7 @@ def test_the_page_and_the_file_show_the_same_comments_and_every_point_stays_on_e
     page = points_of(client, doc)
     data = crs_one.build_team(doc, scope_all())
     _h, rows = rows_after(sheet(data), "Comment")
-    assert [(r[0], r[4]) for r in rows] == [
+    assert [(r[0], r[crs_one.COMMENT_COLUMNS.index("Points")]) for r in rows] == [
         (c["number"], c["n_points"]) for c in page["comments"]
     ]
     assert page["comment_count"] == len(rows)

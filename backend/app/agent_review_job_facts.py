@@ -1,9 +1,10 @@
-"""Small pure helpers of the AI reviewer job (moved unchanged out of `agent_review_jobs`, file size): the run's stop sentence and
-the equipment facts of the rule block. No I/O."""
+"""Small helpers of the AI reviewer job (moved out of `agent_review_jobs`, file size): the run's stop sentence, the equipment facts
+of the rule block, and `reusable_scope_run` (one read-only database query)."""
 
 from __future__ import annotations
 
 from . import crs_ai_header as crs_header
+from . import review_jobs
 from .db import connect
 
 EQUIPMENT_LINES = (
@@ -42,3 +43,15 @@ def _header_facts(submittal: str, equipment_type: str | None) -> dict:
     """The CRS header block's facts (project, document number, title, revision, date, discipline) as the app holds them."""
     with connect() as conn:
         return crs_header.document_header(conn, submittal, equipment_type)
+
+
+def reusable_scope_run(conn, submittal: str) -> str | None:
+    """The finished rule-check run (same code version, with stored scope decisions) the AI job reuses; None: selection runs inline."""
+    row = conn.execute(
+        "SELECT r.id FROM review_runs r JOIN jobs j ON j.review_run_id = r.id"
+        " WHERE r.submittal_document_id = ? AND r.status = 'completed' AND j.stage = ? AND j.code_version = ?"
+        " AND EXISTS (SELECT 1 FROM review_scope_decisions s WHERE s.review_run_id = r.id)"
+        " ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+        (submittal, review_jobs.STAGE, review_jobs.review_code_version()),
+    ).fetchone()
+    return row["id"] if row else None

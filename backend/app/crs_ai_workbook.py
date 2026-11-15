@@ -2,8 +2,8 @@
 
 `agent_review_crs` decides WHERE a line goes (`sheet_of`, still the one decision); this module reads it (`status_of`) and decides the words
 (fixed sentences and the plain-phrase table are in `crs_ai_words`). `crs_layout` draws the workbook. Every count printed on the Notes sheet
-is the length of the rows written, taken from the same lists. No new AI call: only what the stored line holds.
-"""
+is the length of the rows written, taken from the same lists. No new AI call: only what the stored line holds. U5: the Query action and
+the AI's reasoning line come from `crs_ai_actions`, the priority from `crs_ai_words.priority_ai`."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ from .agent_review_verdict import (
     moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
+from .crs_ai_actions import query_action, reason_for, reasoning_part
 
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"
@@ -212,7 +213,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     if status == words.STATUS_AI:
         view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
-    why = words.why_phrase(guard or line.get("not_proven_reason"))
+    why = reason_for(line, words.why_phrase(guard or line.get("not_proven_reason")))
     if (
         status in (words.STATUS_AI, words.STATUS_QUERY)
         and why
@@ -231,7 +232,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         )
     ):
         out += f" {wording.ONE_READER}{view}"  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion
-    return out
+    return out + reasoning_part(line, status, guard)
 
 
 def _contractor_to(line: Mapping, status: str, order: int) -> str:
@@ -256,7 +257,7 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
-    return f"Contractor to state {what}, or the page where it is shown."
+    return query_action(line, what, ref)
 
 
 def layout_comment(line: Mapping, status: str, order: int) -> str:
@@ -273,10 +274,6 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
     )
 
 
-def _mandatory_rank(line: Mapping, status: str, order: int) -> str:
-    return words.priority(status, line, order)
-
-
 def _row(
     n: int,
     line: Mapping,
@@ -291,7 +288,7 @@ def _row(
     ):  # a flagged kind's "not met" row, worded as a comment with no AI word
         return [
             n, paper, _page_text(line), layout_comment(line, words.STATUS_FAIL, words.ORDER_FAIL), by, None, None,
-            against(line) or None, _mandatory_rank(line, status, order) or None, CONTRACTOR_COMMENT,
+            against(line) or None, words.priority_ai(status, line, order) or None, CONTRACTOR_COMMENT,
         ]  # fmt: skip
     return [
         n,
@@ -302,7 +299,7 @@ def _row(
         None,
         None,
         against(line) or None,
-        _mandatory_rank(line, status, order) or None,
+        words.priority_ai(status, line, order) or None,
         status,
     ]
 
@@ -524,7 +521,7 @@ def _notes_rows(
     count = {s: sum(1 for _l, st, _o in items if st == s) for s in words.STATUSES}
     kinds = {k: sum(1 for _l, kk in others if kk == k) for k in words.OTHER_KINDS}
     kinds[words.KIND_NOT_HELD] = len(missing)
-    rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE)]
+    rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE_AI)]
     if any(ln.get("source") == "skill" for ln, _s, _o in items):
         have = any(
             checklist_wording(ln.get("item_id"))
