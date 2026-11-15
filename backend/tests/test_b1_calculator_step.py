@@ -369,26 +369,31 @@ def test_a_rule_that_names_no_field_says_why_it_did_not_pair(world, on):
     }
 
 
+def _two_tags(rival_tag="T2", mine_tag="T1"):
+    mine = fact(tag=mine_tag)
+    other = datasheets.create_fact(
+        submittal_document_id=s.PAPER, chunk_id=f"{s.PAPER}:c0", field_label="Coating thickness", raw_value="0.9", page=1, unit="mm",
+        equipment_tag=rival_tag, source_text="Coating thickness: 0.9 mm",
+    )  # fmt: skip
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET validation_state = 'conflict', bbox = ? WHERE id = ?",
+            (json.dumps({"conflicts_with": [other["id"]]}), mine["id"]),
+        )
+    return mine, other
+
+
 def test_a_value_held_only_because_another_tag_states_another_value_is_decided_inside_its_own_group(
     world, on
 ):
     frame_item()
-    mine = fact(tag="T1")
-    with db.connect() as conn:
-        conn.execute(
-            "UPDATE submittal_facts SET validation_state = 'conflict', bbox = ? WHERE id = ?",
-            (json.dumps({"conflict_pages": [1, 2]}), mine["id"]),
-        )
-    datasheets.create_fact(
-        submittal_document_id=s.PAPER, chunk_id=f"{s.PAPER}:c0", field_label="Coating thickness", raw_value="0.9", page=1, unit="mm",
-        equipment_tag="T2", source_text="Coating thickness: 0.9 mm",
-    )  # fmt: skip
+    mine, _other = _two_tags()
     run_id, job_id = start()
     run_job(job_id)
     got = lines_of(run_id)[f"C-R-frame-{mine['id']}"]
     assert (
         got["verdict_class"] == "Proven by code" and got["word"] == "Pass"
-    )  # held before, as a conflict with the other tag's page
+    )  # held before, as a conflict with the other tag's value
     assert (
         outcome(run_id)["calculator"]["holds_lifted"] >= 1
         and outcome(run_id)["calculator"]["groups"] == 2
@@ -402,6 +407,20 @@ def test_a_value_held_only_because_another_tag_states_another_value_is_decided_i
         .fetchone()[0]
     )
     assert "other tags" in line["settled_note"] and line["equipment_tag"] == "T1"
+
+
+def test_a_conflict_with_a_tagless_continuation_is_not_lifted_and_no_value_is_compared(
+    world, on
+):
+    frame_item()
+    mine, _other = _two_tags(
+        rival_tag=None
+    )  # the rival has no tag: it is a continuation of the same sheet
+    run_id, job_id = start()
+    run_job(job_id)
+    got = lines_of(run_id)[f"C-R-frame-{mine['id']}"]
+    assert got["verdict_class"] != "Proven by code" and got["word"] == "Query"
+    assert outcome(run_id)["calculator"]["holds_lifted"] == 0
 
 
 def test_a_located_cell_is_the_papers_quote_and_the_line_names_where_it_stands(
@@ -441,6 +460,7 @@ def test_a_located_cell_is_the_papers_quote_and_the_line_names_where_it_stands(
         "row": 0,
         "label_col": 1,
         "value_col": 3,
+        "header": None,
     }
     assert (
         line["paper_quote"] == "Coating thickness 0.35 mm"
@@ -471,3 +491,44 @@ def test_the_run_counts_carry_how_the_presence_checks_came_out(world, on):
     assert (
         note["presence_checked"] == note["presence_stated"] + note["presence_missing"]
     )
+
+
+def test_two_readings_in_one_tag_give_a_question_naming_both_never_a_pass_or_fail(
+    world, on
+):
+    frame_item()
+    mine, _other = _two_tags(rival_tag="T1")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET source_text = '0.35 mm' WHERE id = ?",
+            (mine["id"],),
+        )
+        conn.execute(
+            "UPDATE pages SET tables_json = ? WHERE document_id = ? AND page_no = 1",
+            (
+                json.dumps(
+                    {
+                        "v": 1,
+                        "tables": [{"rows": [["Coating thickness", "", "0.35 mm"]]}],
+                    }
+                ),
+                s.PAPER,
+            ),
+        )
+    run_id, job_id = start()
+    run_job(job_id)
+    both = [
+        json.loads(v["line_json"])
+        for k, v in code_lines(run_id).items()
+        if k.startswith("C-R-frame")
+    ]
+    assert both and all(
+        x["verdict"] == "Query" and x["verdict_class"] != "Proven by code" for x in both
+    )
+    named = [x for x in both if x.get("reason_code") == "reading_conflict"]
+    assert (
+        named
+        and "two readings: 0.35 and 0.9; the table cell beside the label holds 0.35; confirm"
+        in named[0]["why"]
+    )
+    assert outcome(run_id)["calculator"]["holds_lifted"] == 0

@@ -34,6 +34,9 @@ from tests.test_crs_endpoint import (  # noqa: F401 - fixture
 def on(monkeypatch):
     monkeypatch.setattr(settings, "agent_review_enabled", True)
     monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    monkeypatch.setattr(
+        settings, "ai_review_calculator_enabled", True
+    )  # the notes are the calculator's: behind its setting (R48m 3)
     monkeypatch.setattr(settings, "review_code_resubmit_at_kept_mandatory_not_met", 0)
     monkeypatch.setattr(
         applicability, "standards_check", lambda *a, **k: {"required_not_cited": []}
@@ -342,3 +345,32 @@ def test_the_run_counts_carry_the_presence_numbers_and_the_list_shows_the_summar
         )
     got = [p for p in notes(points_of(client, doc)) if p["id"].endswith(":presence")]
     assert len(got) == 1 and "4 fields are only checked as stated" in got[0]["action"]
+
+
+def test_with_the_calculator_setting_off_the_list_has_no_notes_at_all(monkeypatch):
+    monkeypatch.setattr(settings, "ai_review_calculator_enabled", False)
+    doc, ai, client = world(
+        {"pages_total": 12, "pages_not_read_into_fields": [3, 7]},
+        missing=("Invented Spec A",),
+    )
+    assert notes(points_of(client, doc)) == []  # byte-same as before the notes existed
+
+
+def test_the_numbers_that_make_two_questions_different_stay_in_the_group_key_but_the_page_goes():
+    from app import review_points as rp
+
+    def key(why, field="Rate"):
+        return rp.code_question_key(
+            {"source": "code", "field": field, "equipment_tag": "T1", "why": why}
+        )
+
+    assert key("two values conflict: 10 vs 12") != key("two values conflict: 7 vs 9")
+    assert key("two values conflict: 10 vs 12", "Rate") == key(
+        "two values conflict: 10 vs 12", "Other"
+    )  # the field name goes
+    assert key("is marked 'By Contractor' on page 3") == key(
+        "is marked 'By Contractor' on page 4"
+    )
+    assert key("is marked 'By Contractor' on pages 1-5; state it") == key(
+        "is marked 'By Contractor' on page 2; state it"
+    )

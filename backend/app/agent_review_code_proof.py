@@ -418,6 +418,25 @@ def _db_page_text(document_id: str, page: int) -> str | None:
 PAGE_SOURCE: list = [_db_page_text]
 
 
+def _db_page_tables(document_id: str, page: int) -> list:
+    """The stored table rows of one page (`pages.tables_json`), as `table_cell.tables_of` reads them."""
+    from .db import connect
+
+    row = (
+        connect()
+        .execute(
+            "SELECT tables_json FROM pages WHERE document_id = ? AND page_no = ?",
+            (document_id, page),
+        )
+        .fetchone()
+    )
+    return table_cell.tables_of(row["tables_json"]) if row is not None else []
+
+
+#: Where the exit reads a page's stored tables from (same reason).
+TABLE_SOURCE: list = [_db_page_tables]
+
+
 def page_text_of(line: Mapping) -> str | None:
     """The page the line names, read again from the store by the document id and page ON the line. None when the line names none, or it cannot be read."""
     doc, page = line.get("paper_document_id"), line.get("paper_page")
@@ -440,19 +459,38 @@ def page_text_of(line: Mapping) -> str | None:
 
 
 def _cell_ok(line: Mapping, label: str, text: str) -> bool:
-    """A located cell, asked again against the re-read page: the quote starts with the label cell, the label is that cell or a part of a compound label,
-    and each of the two cells' words stands on the page."""
-    cell_label, quote = (
+    """A located cell, asked again against the re-read page: the line's `cell_ref` names ONE stored row of the page's tables, and the label cell and the value cell
+    of the line stand in THAT row, at the columns it names (each is that cell's own text, not words found somewhere on the page); the quote starts with the label
+    cell; the label is that cell or a part of a compound label."""
+    ref, cell_label, quote = (
+        line.get("cell_ref"),
         str(line.get("cell_label") or ""),
         str(line.get("paper_quote") or ""),
     )
     names = [_fold(cell_label), *[_fold(x) for x in table_cell.label_parts(cell_label)]]
     rest = _fold(quote)[len(_fold(cell_label)) :].strip()
-    flat = _fold(text)
-    return bool(
-        label and cell_label and _fold(label) in names and _fold(quote).startswith(_fold(cell_label)) and rest
-        and _fold(cell_label) in flat and rest in flat
-    )  # fmt: skip
+    if not (
+        label
+        and cell_label
+        and rest
+        and _fold(label) in names
+        and _fold(quote).startswith(_fold(cell_label))
+        and isinstance(ref, Mapping)
+    ):
+        return False
+    try:
+        t, r, lc, vc = (ref[k] for k in ("table", "row", "label_col", "value_col"))
+        row = TABLE_SOURCE[0](line.get("paper_document_id"), line.get("paper_page"))[t][
+            r
+        ]
+        return bool(
+            0 <= lc < vc < len(row)
+            and _fold(row[lc]) == _fold(cell_label)
+            and _fold(row[vc]) == rest
+            and rest in _fold(text)
+        )
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False  # the row the line names is not on the page's tables: nothing is proven
 
 
 def paper_ok(line: Mapping) -> bool:

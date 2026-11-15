@@ -229,6 +229,7 @@ def apply_settings(cfg: TrialConfig) -> dict:
             settings.ollama_url = (
                 "http://127.0.0.1:9"  # a dead address: no local model can answer
             )
+        # `--allow-local-models` keeps the local engine address (the lane stays closed: no key, no Claude flag): the local reader (DATASHEET_AI_READER=ollama) and the AI reviewer's local run can reach the model
         for name in ("ANTHROPIC_API_KEY",):
             os.environ.pop(name, None)
         os.environ["REASONING_PROVIDER"] = "ollama"
@@ -1201,13 +1202,21 @@ def engine_follow(
     checks.append(Check("rule check completed", final == "completed", final))
     follow = None
     deadline = time.time() + cfg.timeout
-    while cfg.engine != "local" and time.time() < deadline:
+    while (
+        time.time() < deadline
+    ):  # "local" too: with AGENT_REVIEW_LOCAL_ENGINE_ENABLED on its plan runs the AI review locally
         conn = ro(db)
         try:
             row = conn.execute(
                 "SELECT followed_by, then_ai FROM review_engine_choice WHERE run_id = ?",
                 (first,),
             ).fetchone()
+        except (
+            sqlite3.OperationalError
+        ):  # no choice table: nothing was started from the one button
+            row = None
+            if cfg.engine == "local":
+                break
         finally:
             conn.close()
         if row is not None and not row["then_ai"]:
@@ -1242,7 +1251,14 @@ def engine_follow(
             )
         finally:
             conn.close()
-        checks.append(Check("no AI review ran (Local only)", not ai))
+        if (
+            follow is None
+        ):  # the switch is off: Local only runs the rule check, as before
+            checks.append(Check("no AI review ran (Local only)", not ai))
+        else:  # the switch is on: the AI review ran on the local model, and still not one Claude call (the check above)
+            checks.append(
+                Check("the AI review ran on the local model (switch on)", bool(ai))
+            )
     return follow, checks
 
 
@@ -1263,6 +1279,15 @@ def run_trial(
     for name in cfg.sets:
         if _bad_name(name):
             raise Refused("--set will not carry a secret-looking name")
+    local_ai = cfg.engine == "local" and any(
+        str(k).strip().upper() == "AGENT_REVIEW_LOCAL_ENGINE_ENABLED"
+        and str(v).strip().lower() in ("1", "true", "yes", "on")
+        for k, v in cfg.sets.items()
+    )
+    if local_ai and not cfg.allow_local_models:
+        raise Refused(
+            "--engine local with AGENT_REVIEW_LOCAL_ENGINE_ENABLED loads local models: add --allow-local-models to say you mean it"
+        )
     if cfg.normal_review and not cfg.allow_local_models:
         raise Refused(
             "--normal-review may load a local model: add --allow-local-models to say you mean it"
