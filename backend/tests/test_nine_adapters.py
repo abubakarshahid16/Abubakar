@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import db, nine_call, nine_context, nine_facts, nine_job, nine_reader
+from app import crs_one, db, nine_call, nine_context, nine_facts, nine_job, nine_reader
 from app.config import settings
 from tests.test_b1_review_points import world_with_both
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
@@ -256,6 +256,7 @@ def _writer_world(monkeypatch, wording):
     doc, rc, ai, client = world_with_both()
     nine_record.start_run(ai)
     store_claude(ai, [doc])
+    monkeypatch.setattr(settings, "agent_review_nine_writer_enabled", True)
     seen = {}
 
     def fake_ask(run_id, role_no, blocks, question, **kw):
@@ -291,6 +292,57 @@ def _scope(doc):
     )
 
 
+def _cells(data):
+    import io
+
+    from openpyxl import load_workbook
+
+    return [
+        [None if c is None else str(c) for c in r]
+        for r in load_workbook(io.BytesIO(data))["CRS"].iter_rows(values_only=True)
+    ]
+
+
+def _comment_rows(data):
+    rows = _cells(data)
+    start = next(i for i, r in enumerate(rows) if r[0] == "Comment")
+    return rows[start], [r for r in rows[start + 1 :] if r[0] and r[0].isdigit()]
+
+
+def _record_writer(ai, got):
+    from app import nine_record
+
+    nine_record.role_end(
+        ai,
+        9,
+        "ran",
+        produced={k: v for k, v in got.produced.items() if isinstance(v, (int, str))},
+        engine="claude",
+    )
+
+
+def test_with_the_writer_setting_off_there_is_no_call_and_the_record_says_the_sheet_was_written_by_code(
+    monkeypatch,
+):
+    doc, rc, ai, client = world_with_both()
+    store_claude(ai, [doc])
+
+    def boom(*a, **k):
+        raise AssertionError("a paid call was made")
+
+    monkeypatch.setattr(nine_call, "ask", boom)
+    got = nine_job.writer_role(ctx_for(doc, ai))
+    assert got.state == "ran" and got.why is None
+    assert (
+        got.produced["sheet_by"] == "code"
+        and got.produced["ai_wording"] == "not_used_in_this_version"
+    )
+    head, _rows = _comment_rows(crs_one.build_team(doc, _scope(doc)))
+    assert (
+        crs_one.SUGGESTED not in head
+    )  # no suggestion column while the setting is off
+
+
 def test_the_writer_asks_through_the_seam_with_a_template_and_one_derived_block_whose_sources_are_documents(
     monkeypatch,
 ):
@@ -308,52 +360,52 @@ def test_the_writer_asks_through_the_seam_with_a_template_and_one_derived_block_
     assert all(len(t) <= 60 and "\n" not in t for row in block.items for t in row)
 
 
-def test_a_locked_wording_is_what_the_comment_shows_and_the_code_words_stay_beside_it(
+def test_a_wording_that_passes_the_lock_is_shown_only_in_its_own_column_and_never_replaces_the_code_words(
     monkeypatch,
 ):
-    from app import crs_completeness, crs_one
+    from app import crs_completeness
 
+    code_rows = (
+        _comment_rows(crs_one.build_team(world_with_both()[0], _scope(None)))[1]
+        if False
+        else None
+    )
     doc, ai, seen = _writer_world(
         monkeypatch, lambda code: {"1": code["1"].rstrip(".") + "."}
     )
+    before_head, before = _comment_rows(crs_one.build_team(doc, _scope(doc)))
     got = nine_job.writer_role(ctx_for(doc, ai))
-    assert got.produced["ai_wordings_kept"] == 1 and got.produced["dropped"] == 0
-    import io
-
-    from openpyxl import load_workbook
-
-    data = crs_one.build_team(doc, _scope(doc))
-    ws = load_workbook(io.BytesIO(data))["CRS"]
-    text = "\n".join(
-        str(c) for r in ws.iter_rows(values_only=True) for c in r if c is not None
-    )
     assert (
-        "worded by the writer, checked by code: no fact changed" in text
-        and "code words: " in text
+        got.produced["suggestions_shown"] == 1
+        and got.produced["suggestions_refused"] == 0
     )
+    _record_writer(ai, got)
+    head, rows = _comment_rows(crs_one.build_team(doc, _scope(doc)))
+    action, suggested = (
+        head.index("What the contractor must do"),
+        head.index(crs_one.SUGGESTED),
+    )
+    assert rows[0][suggested]  # the suggestion is shown in its own column
+    assert [r[action] for r in rows] == [
+        r[action] for r in before
+    ]  # the comment cell is the code's words, every comment, every time
     assert all(
         r["ok"] for _d, r in crs_completeness.checked_files(doc, _scope(doc)).values()
     )
+    assert before_head
 
 
-def test_a_wording_that_changes_a_number_is_refused_the_code_words_stay_and_the_first_sheet_counts_it(
+def test_a_wording_that_changes_a_fact_is_refused_the_column_stays_empty_and_the_first_sheet_counts_it(
     monkeypatch,
 ):
-    import io
-
-    from openpyxl import load_workbook
-
-    from app import crs_one, nine_record
-
     doc, ai, seen = _writer_world(
         monkeypatch,
         lambda code: {"1": code["1"].replace("1", "7").replace("2", "8") + " 99 bar"},
     )
     got = nine_job.writer_role(ctx_for(doc, ai))
     assert (
-        got.produced["ai_wordings_kept"] == 0
-        and got.produced["dropped"] == 1
-        and "kept in code words" in got.why
+        got.produced["suggestions_shown"] == 0
+        and got.produced["suggestions_refused"] == 1
     )
     assert (
         db.connect()
@@ -361,30 +413,13 @@ def test_a_wording_that_changes_a_number_is_refused_the_code_words_stay_and_the_
         .fetchone()[0]
         == 0
     )
-    nine_record.role_end(
-        ai,
-        9,
-        "ran_partly",
-        why=got.why[:100],
-        produced={k: v for k, v in got.produced.items() if isinstance(v, int)},
-        engine="claude",
-    )
-    text = "\n".join(
-        str(c)
-        for ws in load_workbook(io.BytesIO(crs_one.build_team(doc, _scope(doc))))
-        for r in ws.iter_rows(values_only=True)
-        for c in r
-        if c is not None
-    )
-    assert (
-        "1 comments kept in code words: the writer changed a fact" in text
-        and "99 bar" not in text
-    )
+    _record_writer(ai, got)
+    data = crs_one.build_team(doc, _scope(doc))
+    text = "\n".join(str(c) for r in _cells(data) for c in r if c)
+    assert "0 suggested wordings shown, 1 refused" in text and "99 bar" not in text
 
 
 def test_the_contractor_file_is_never_reworded(monkeypatch):
-    from app import crs_one
-
     doc, ai, seen = _writer_world(
         monkeypatch, lambda code: {"1": code["1"].rstrip(".") + "."}
     )
@@ -393,7 +428,7 @@ def test_the_contractor_file_is_never_reworded(monkeypatch):
     assert crs_one.build_contractor(doc, _scope(doc), exported="x") == before
 
 
-def test_on_the_local_model_the_writer_makes_no_call_and_says_the_comments_are_worded_by_code(
+def test_on_the_local_model_the_writer_makes_no_call_even_with_the_setting_on(
     monkeypatch,
 ):
     doc, ai, seen = _writer_world(monkeypatch, lambda code: {"1": "x"})

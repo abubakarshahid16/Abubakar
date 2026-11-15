@@ -59,6 +59,7 @@ COMMENT_COLUMNS = (
     "Comment", "Pill", "Class", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
     "What the paper shows", "What the rule requires", "Reason", "Decisions", "Note", "Full text",
 )  # fmt: skip
+SUGGESTED = "Suggested wording (AI, not checked for meaning)"
 
 
 def _ns():
@@ -76,6 +77,32 @@ def nine_on() -> bool:
 
 
 COMMENT_WIDTHS = (9, 26, 14, 30, 8, 14, 52, 48, 48, 48, 36, 22, 34, 60)
+
+
+def writer_on() -> bool:
+    """The Writer's AI wording setting (and the nine-role switch): only then does the sheet CRS carry the column of suggested wordings."""
+    from .config import settings
+
+    return nine_on() and bool(
+        getattr(settings, "agent_review_nine_writer_enabled", False)
+    )
+
+
+def comment_columns(on: bool | None = None) -> tuple[str, ...]:
+    """The columns of the sheet CRS: the suggestion column (before "Full text") only when the writer setting is on."""
+    on = writer_on() if on is None else on
+    return (
+        (*COMMENT_COLUMNS[:-1], SUGGESTED, COMMENT_COLUMNS[-1])
+        if on
+        else COMMENT_COLUMNS
+    )
+
+
+def comment_widths(on: bool | None = None) -> tuple[int, ...]:
+    on = writer_on() if on is None else on
+    return (*COMMENT_WIDTHS[:-1], 48, COMMENT_WIDTHS[-1]) if on else COMMENT_WIDTHS
+
+
 TEAM_COLUMNS = (
     "No", "Comment", "Source", "Pill", "Class", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
     "What the paper shows", "What the rule requires", "Reason", "Decision", "Group", "First reader", "Second reader",
@@ -643,13 +670,10 @@ def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     )
 
 
-def comment_full_texts(c: dict, wordings: dict | None = None) -> dict[str, str]:
-    """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text. When the
-    writer's LOCKED wording of this comment exists, it is what the cell shows (the code's words go to the column Full text)."""
+def comment_full_texts(c: dict) -> dict[str, str]:
+    """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text. The cell
+    "What the contractor must do" is ALWAYS the code's words; an AI suggestion has its own column."""
     out = full_texts(c["strongest"])
-    if wordings and c["key"] in wordings:
-        out["code_words"] = out["action"]
-        out["action"] = wordings[c["key"]]
     out["clauses"] = "; ".join(
         " ".join(
             x
@@ -665,19 +689,23 @@ def comment_cells(
     c: dict, by_id: dict, wordings: dict | None = None
 ) -> tuple[list, int]:
     """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
-    a shortened cell keeps its whole text in the column Full text."""
+    a shortened cell keeps its whole text in the column Full text. `wordings` (the Writer's suggestions, only when its setting is on) go in
+    their OWN column, shortened with the mark and the full text beside it like any cell; they never replace the code's words."""
     ms = [by_id[i] for i in c["member_ids"]]
-    long_cells = comment_full_texts(c, wordings)
+    long_cells = comment_full_texts(c)
     shown, cut_n, full = {}, 0, []
     for key, text in long_cells.items():
         shown[key], cut = _cut(text)
-        if (
-            key == "code_words"
-        ):  # the code's own words always stay beside a worded comment
-            full.append(f"code words: {text}")
-        elif cut:
+        if cut:
             cut_n += 1
             full.append(f"{key.replace('_', ' ')}: {text}")
+    suggestion = None
+    if wordings is not None:
+        text = wordings.get(c["key"]) or ""
+        suggestion, cut = _cut(text)
+        if cut:
+            cut_n += 1
+            full.append(f"suggested wording: {text}")
     decided = sum(1 for p in ms if (p.get("decision") or {}).get("state"))
     note = (
         comments.DISAGREE
@@ -685,16 +713,11 @@ def comment_cells(
         else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
     )
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    note += (
-        " ; worded by the writer, checked by code: no fact changed"
-        if "code_words" in long_cells
-        else ""
-    )
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), c["name"], c["n_points"],
         ", ".join(str(x) for x in c["pages"]) or None, shown["clauses"] or None, shown["action"] or None,
         shown["paper_shows"], shown["requires"], shown["reason"] or None, f"{decided} of {len(ms)} decided",
-        note.strip(" ;") or None, "\n".join(full) or None,
+        note.strip(" ;") or None, *([suggestion or None] if wordings is not None else []), "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(x) for x in cells], cut_n
 
@@ -718,7 +741,9 @@ def build_team(
     numbers = {p["id"]: n for n, p in enumerate(raw, start=1)}
     by_id = {p["id"]: p for p in raw}
     grouped = comments.group(raw)
-    wordings = _ns().load_wordings(connect(), extra.get("ai_run")) if nine_on() else {}
+    wordings = (
+        _ns().load_wordings(connect(), extra.get("ai_run")) if writer_on() else None
+    )
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
     evidence, cut = [], 0
     for p in raw:
@@ -755,7 +780,7 @@ def build_team(
         _header_pairs(paper_id, listing, extra, exported=exported, signed=signed),
         lines,
     )
-    _table(ws, header_row, COMMENT_COLUMNS, comment_rows, COMMENT_WIDTHS)
+    _table(ws, header_row, comment_columns(), comment_rows, comment_widths())
     ws.freeze_panes = ws.cell(header_row + 1, 2)
     _sheet_table(
         wb, EVIDENCE_SHEET, team_columns(), evidence, team_widths(),

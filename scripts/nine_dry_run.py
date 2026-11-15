@@ -179,9 +179,7 @@ def plan(conn: sqlite3.Connection, paper: str, run: str | None) -> list[dict]:
         "role": "6 Second reviewer", "calls": c6, "tokens_in": c6 * 16_000, "model": OPUS,
         "worst": c6 * _worst(OPUS, 16_000, 4_000), "expected": c6 * _usd(OPUS, 16_000, 4_000) * 0.5,
     })  # fmt: skip
-    # role 9: ONE call over short tokens (a row per comment: number, field, status, pages, clause); the answer is one comment per row
-    w_in = 600 + 25 * max(1, len(rules))
-    rows.append({"role": "9 Writer", "calls": 1, "tokens_in": w_in, "model": SONNET, "worst": _worst(SONNET, w_in, 8_000), "expected": _usd(SONNET, w_in, 40 * max(1, len(rules)))})  # fmt: skip
+    # role 9, the Writer: no paid call in this version (AGENT_REVIEW_NINE_WRITER_ENABLED is off by default); the sheet is written by code
     for r in rows:
         r["worst"] = max(
             r["worst"], r["expected"]

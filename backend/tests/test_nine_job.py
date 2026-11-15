@@ -172,10 +172,12 @@ def test_the_writer_role_reuses_the_one_sheet_and_the_completeness_check():
     ctx = nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)
     got = nine_job.writer_role(ctx)
     assert (
-        got.state == "ran_partly"
+        got.state == "ran"
         and got.produced["points"] == got.produced["database_lines"] == 4
     )
-    assert "worded by code" in got.why
+    assert (
+        got.produced["sheet_by"] == "code"
+    )  # the writer setting is off by default: no call, the sheet is the code's
     stored = (
         db.connect()
         .execute("SELECT ok FROM crs_completeness WHERE run_id = ?", (ai,))
@@ -264,16 +266,25 @@ def test_execute_with_the_switch_off_calls_the_old_ask_with_the_same_arguments(
 
 
 def test_the_checklist_restores_the_whole_plan_even_when_the_batch_path_raises():
+    """The batch path is asked for a SHORTER list (the reviewer covered one rule); when it raises the plan must still hold both items."""
     items = [{"item_id": "R-1"}, {"item_id": "R-2"}]
     plan = {"items": list(items)}
+    seen = {}
 
-    def boom(*a):
+    def boom(run_id, submittal, kind, plan_, holder):
+        seen["during"] = [i["item_id"] for i in plan_["items"]]
         raise RuntimeError("transient")
 
     ctx = nine_job.RoleContext("run1", "doc1", object(), plan, {}, boom)
+    ctx.store["coverage"] = types.SimpleNamespace(
+        to_ask=[items[1]], required=(), skipped={"R-1": "F-x"}
+    )
     with pytest.raises(RuntimeError):
         nine_job.checklist_role(ctx)
-    assert plan["items"] == items  # `_finish` and the CRS read the whole list
+    assert seen["during"] == ["R-2"]  # the call really saw the shortened list
+    assert (
+        plan["items"] == items
+    )  # `_finish` and the CRS read the whole list: without the finally this stays shortened
 
 
 def test_an_error_in_todays_path_roles_is_raised_as_today_and_only_the_new_roles_are_recorded_failed():

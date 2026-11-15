@@ -217,8 +217,10 @@ def load_wordings(conn, run_id: str | None) -> dict[str, str]:
 
 
 def writer_line(record: ReviewRecord | None) -> str | None:
-    """ "N comments kept in code words: the writer changed a fact" when the writer's wordings were refused by the lock; else None."""
+    """ "N suggested wordings shown, M refused" when the writer asked for wordings (its setting was on); None otherwise."""
     if record is None:
         return None
-    n = int(record.roles[8].produced.get("dropped") or 0)
-    return f"{n} comments kept in code words: the writer changed a fact" if n else None
+    produced = record.roles[8].produced
+    if "suggestions_shown" not in produced:
+        return None
+    return f"{int(produced.get('suggestions_shown') or 0)} suggested wordings shown, {int(produced.get('suggestions_refused') or 0)} refused"

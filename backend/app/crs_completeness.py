@@ -48,12 +48,12 @@ class Incomplete(Exception):
 # ------------------------------------------------------------------------------------------------ the one statement
 
 
-def _wordings(ai_run) -> dict:
+def _wordings(ai_run) -> dict | None:
     """The writer's locked wordings of a run; none with the nine-role switch off (the nine-role sheet module is then never imported)."""
     from . import crs_one
 
-    if not crs_one.nine_on():
-        return {}
+    if not crs_one.writer_on():
+        return None
     from . import nine_sheet
 
     return nine_sheet.load_wordings(connect(), ai_run)
@@ -270,7 +270,8 @@ def cut_report(data: bytes, raw: list[dict], wordings: dict | None = None) -> di
                 problems.append(f"row {r[0]}: {key} is cut without the mark")
             elif (
                 not str(want).startswith(body)
-                or f"{key.replace('_', ' ')}: {full}" not in beside
+                or f"{'suggested wording' if key == 'suggestion' else key.replace('_', ' ')}: {full}"
+                not in beside
             ):
                 problems.append(
                     f"row {r[0]}: {key} has the mark but not its full text beside it"
@@ -292,7 +293,7 @@ def _comment_cuts(
     values = [list(r) for r in ws.iter_rows(values_only=True)]
     start = next(i for i, r in enumerate(values) if r and r[0] == "Comment")
     head = values[start]
-    col = {name: head.index(name) for name in crs_one.COMMENT_COLUMNS}
+    col = {name: head.index(name) for name in crs_one.comment_columns()}
     spots = {
         "action": col["What the contractor must do"],
         "paper_shows": col["What the paper shows"],
@@ -304,13 +305,13 @@ def _comment_cuts(
     for r in values[start + 1 :]:
         if not isinstance(r[0], int) or r[0] not in by_no:
             continue
-        for key, full in crs_one.comment_full_texts(by_no[r[0]], wordings).items():
-            if key == "code_words":
-                if f"code words: {full}" not in str(r[col["Full text"]] or ""):
-                    problems.append(
-                        f"comment {r[0]}: worded without the code's words beside it"
-                    )
-                continue
+        texts = dict(crs_one.comment_full_texts(by_no[r[0]]))
+        if (
+            wordings is not None
+        ):  # the suggestion column: the same cut rule (the mark and the full text beside it)
+            texts["suggestion"] = wordings.get(by_no[r[0]]["key"]) or ""
+            spots["suggestion"] = col[crs_one.SUGGESTED]
+        for key, full in texts.items():
             shown = "" if r[spots[key]] is None else str(r[spots[key]])
             want = crs_one._cell(full) if full else ""
             if shown == (want or ""):

@@ -126,28 +126,33 @@ def ask_wordings(
     return kept, dropped, (None if got.ok else got.error_code)
 
 
+def enabled() -> bool:
+    """`AGENT_REVIEW_NINE_WRITER_ENABLED`: the AI wording is OFF unless this is on (the nine-role switch must be on too)."""
+    from .config import settings
+
+    return bool(getattr(settings, "agent_review_nine_writer_enabled", False))
+
+
 def write(
     run_id: str, submittal: str, engine: str, *, ask=nine_call.ask, **seam
 ) -> tuple[dict, str | None]:
-    """The writer's part of role 9: (counts for the record, why it only ran partly or None). Claude asks and locks and stores; anything else
-    leaves the code's words."""
+    """The writer's part of role 9: (counts for the record, why it only ran partly or None). The code's words are ALWAYS the comment. With the
+    writer setting OFF (the default) no call is made and the record says the sheet was written by code. With it ON on Claude, ONE call is asked
+    and each wording that passes the lock (`crs_wording.lock` + `nine_meaning`) is stored as a SUGGESTION shown in its own column beside the code's
+    words; a refused one is counted. Local, or no stored engine decision: no call."""
+    if not enabled():
+        return {"sheet_by": "code", "ai_wording": "not_used_in_this_version"}, None
     if engine != "claude":
-        return {}, CODE_WORDS_LOCAL if engine == "local" else CODE_WORDS_NO_DECISION
+        return {
+            "sheet_by": "code"
+        }, CODE_WORDS_LOCAL if engine == "local" else CODE_WORDS_NO_DECISION
     grouped = comments_of(submittal)
     kept, dropped, error = ask_wordings(run_id, submittal, grouped, ask=ask, **seam)
     nine_sheet.store_wordings(connect(), run_id, kept)
     produced = {
-        "comments": len(grouped), "ai_wordings_kept": len(kept), "dropped": sum(dropped.values()),
-        **{f"dropped.{k}": n for k, n in dropped.items()},
+        "comments": len(grouped), "suggestions_shown": len(kept), "suggestions_refused": sum(dropped.values()),
+        **{f"refused.{k}": n for k, n in dropped.items()},
     }  # fmt: skip
     if error:
-        return (
-            produced,
-            f"the writer's call did not answer ({error}): comments worded by code",
-        )
-    if dropped:
-        return (
-            produced,
-            f"{sum(dropped.values())} comments kept in code words: the writer changed a fact",
-        )
+        return produced, f"the writer's call did not answer ({error}): no suggestion"
     return produced, None

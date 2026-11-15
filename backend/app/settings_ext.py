@@ -578,6 +578,11 @@ class SettingsExt(BaseModel):
     #: one stored record per role. Needs the AI reviewer on. OFF: `agent_review_jobs._execute` runs exactly today's code (same requests,
     #: same stored lines); no nine-role table is made. Env: AGENT_REVIEW_NINE_ROLES_ENABLED.
     agent_review_nine_roles_enabled: bool = False
+    #: The nine-role Writer's AI WORDING of the CRS comments (owner/lead decision, 16 Nov 2026): OFF (default, also for the first scored runs): role 9
+    #: makes NO paid call and the sheet is written by code (one comment per field, worst first). ON: ONE call; a wording that passes
+    #: `crs_wording.lock` and `nine_meaning` is shown ONLY in its own column "Suggested wording (AI, not checked for meaning)" beside the code's
+    #: words, never in place of them and never on the contractor file. Needs the nine-role switch. Env: AGENT_REVIEW_NINE_WRITER_ENABLED.
+    agent_review_nine_writer_enabled: bool = False
     #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
     #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
     #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with
