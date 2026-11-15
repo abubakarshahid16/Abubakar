@@ -26,9 +26,9 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import crs_completeness
+from . import crs_completeness, nine_checklist, nine_record
 from .db import connect
-from .nine_contract import NOT_REACHED, ROLE_NAMES
+from .nine_contract import ROLE_NAMES
 
 log = logging.getLogger(__name__)
 #: the roles that are run in order by a module of their own: role number -> (module, function); each takes a `RoleContext`
@@ -83,18 +83,11 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
     """Role 5: today's batch path. Asked only for the required items the reviewer did not cover; when the reviewer failed, was stopped
     or found nothing, EVERY item is asked (never weaker than today's). The module `nine_checklist` (B4) names the items to skip."""
     items = list(ctx.plan.get("items") or [])
-    asked = items
     findings = ctx.store.get("findings") or []
-    if findings and not ctx.flags.get("reviewer_failed"):
-        try:
-            skip = set(
-                importlib.import_module("app.nine_checklist").covered_item_ids(
-                    ctx.store
-                )
-            )
-            asked = [i for i in items if i.get("id") not in skip]
-        except (ImportError, AttributeError):  # no coverage module: ask everything
-            asked = items
+    coverage = nine_checklist.plan(
+        items, findings, reviewer_ok=not ctx.flags.get("reviewer_failed")
+    )
+    asked = coverage.to_ask
     ctx.plan["items"] = asked
     if asked:
         ctx.ask(ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, ctx.holder)
@@ -177,6 +170,12 @@ def _module_role(n: int) -> Callable[[RoleContext], RoleResult]:
             return RoleResult(
                 "not_run", f"{ROLE_NAMES[n]} is not built in this version", engine=None
             )
+        if not hasattr(mod, "run"):
+            return RoleResult(
+                "not_run",
+                f"{ROLE_NAMES[n]} is built but not wired into the job in this version",
+                engine=None,
+            )
         return mod.run(ctx)
 
     return run
@@ -193,8 +192,53 @@ def default_roles() -> dict[int, Callable[[RoleContext], RoleResult]]:
     }
 
 
+class RealRecord:
+    """B1's `nine_record` behind the four calls the job makes. Calls, cost and models follow the call rows there (written by the seam),
+    never this job's own numbers."""
+
+    @staticmethod
+    def ensure_schema() -> None:
+        nine_record.ensure_schema()
+
+    @staticmethod
+    def begin_run(run_id: str) -> None:
+        nine_record.start_run(
+            run_id
+        )  # nine rows, all "not run: not reached" (idempotent)
+
+    @staticmethod
+    def role_state(run_id: str, n: int) -> str | None:
+        row = (
+            connect()
+            .execute(
+                "SELECT state, finished_at FROM agent_review_role WHERE run_id = ? AND role_no = ?",
+                (run_id, n),
+            )
+            .fetchone()
+        )
+        return row["state"] if row is not None and row["finished_at"] else None
+
+    @staticmethod
+    def role_started(run_id: str, n: int) -> None:
+        nine_record.role_start(run_id, n, "code")
+
+    @staticmethod
+    def role_finished(
+        run_id: str, n: int, *, state, why, engine, models, produced
+    ) -> None:
+        nine_record.role_end(
+            run_id,
+            n,
+            state,
+            why=why,
+            produced=produced,
+            models=tuple(models),
+            engine=engine,
+        )
+
+
 def _record():
-    return importlib.import_module("app.nine_record")
+    return RealRecord()
 
 
 def _execute_role(
@@ -219,8 +263,7 @@ def _execute_role(
     if result.state != "ran" and not result.why:
         result.why = "no reason recorded"  # a role that did not fully run always carries a reason
     record.role_finished(
-        ctx.run_id, n, state=result.state, why=result.why, engine=result.engine, models=list(result.models), calls=result.calls,
-        usd=result.usd, produced=result.produced,
+        ctx.run_id, n, state=result.state, why=result.why, engine=result.engine, models=list(result.models), produced=result.produced,
     )  # fmt: skip
 
 
@@ -240,7 +283,7 @@ def run_roles(
     must stop the job (the caller passes its cancellation); a BaseException that is not an Exception always propagates."""
     record = record or _record()
     record.ensure_schema()
-    record.begin_run(run_id, reason=NOT_REACHED)
+    record.begin_run(run_id)
     ctx = RoleContext(run_id, submittal, kind, plan, holder, ask)
     table = {**default_roles(), **(roles or {})}
     for n in (1, 2, 3, 4, 5, 6, 7, 8, 9):

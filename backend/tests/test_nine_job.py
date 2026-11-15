@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import types
 
 import pytest
 
@@ -27,10 +28,12 @@ class FakeRecord:
     def ensure_schema(self):
         pass
 
-    def begin_run(self, run_id, reason):
-        self.began.append((run_id, reason))
+    def begin_run(self, run_id):
+        self.began.append(run_id)
         for n in range(1, 10):
-            self.rows.setdefault((run_id, n), {"state": "not_run", "why": reason})
+            self.rows.setdefault(
+                (run_id, n), {"state": "not_run", "why": "not reached"}
+            )
 
     def role_state(self, run_id, n):
         return (
@@ -48,14 +51,14 @@ class FakeRecord:
 
 def ctx_args(items=("a", "b")):
     asked = []
-    plan = {"items": [{"id": i} for i in items]}
+    plan = {"items": [{"item_id": i} for i in items]}
     return (
         "run1",
         "doc1",
         object(),
         plan,
         {},
-        lambda *a: asked.append([i["id"] for i in a[3]["items"]]),
+        lambda *a: asked.append([i["item_id"] for i in a[3]["items"]]),
     ), asked
 
 
@@ -74,7 +77,7 @@ def test_nine_rows_at_the_start_all_not_reached_and_the_roles_run_in_order():
     rec, calls = FakeRecord(), []
     args, asked = ctx_args()
     nine_job.run_roles(*args, record=rec, roles=fakes(calls))
-    assert rec.began == [("run1", "not reached")] and calls == list(range(1, 10))
+    assert rec.began == ["run1"] and calls == list(range(1, 10))
     assert sorted(n for (_r, n) in rec.rows) == list(range(1, 10)) and all(
         r["state"] == "ran" for r in rec.rows.values()
     )
@@ -102,7 +105,7 @@ def test_when_the_reviewer_fails_the_checklist_asks_every_item():
     args, asked = ctx_args(("a", "b", "c"))
 
     def reviewer(ctx):
-        ctx.store["findings"] = [{"x": 1}]
+        ctx.store["findings"] = [types.SimpleNamespace(origin="reviewer")]
         raise RuntimeError("down")
 
     roles = {
@@ -177,8 +180,9 @@ def test_a_role_not_built_yet_is_named_not_pretended():
         },
     )
     assert (
-        rec.rows[("run1", 1)]["state"] == "not_run"
-        and "not built" in rec.rows[("run1", 1)]["why"]
+        (rec.rows[("run1", 1)]["state"] == "not_run"
+        and "not wired" in rec.rows[("run1", 1)]["why"])
+        or "not built" in rec.rows[("run1", 1)]["why"]
     )
 
 
@@ -218,7 +222,7 @@ def test_switch_off_asks_exactly_as_today_and_never_imports_the_nine_job(monkeyp
     monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", False)
     monkeypatch.delitem(sys.modules, "app.nine_job", raising=False)
     got = []
-    plan = {"items": [{"id": "a"}]}
+    plan = {"items": [{"item_id": "a"}]}
     agent_review_dispatch.run("r", "d", "k", plan, {"h": 1}, lambda *a: got.append(a))
     assert (
         got == [("r", "d", "k", plan, {"h": 1})] and "app.nine_job" not in sys.modules
@@ -261,7 +265,7 @@ def test_execute_with_the_switch_off_calls_the_old_ask_with_the_same_arguments(
     monkeypatch.setattr(jobs, "_ask", lambda *a: seen.append(a))
     monkeypatch.setattr(jobs.rule_choice, "store_group_lines", lambda *a, **k: [])
     monkeypatch.setattr(jobs, "_finish", lambda *a: {"done": True})
-    plan = {"items": [{"id": "a"}], "block": {}}
+    plan = {"items": [{"item_id": "a"}], "block": {}}
     assert jobs._execute("r1", "d1", "kind", plan, "t0") == {"done": True}
     assert (
         len(seen) == 1

@@ -134,6 +134,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "decides which review a paper gets and what it asks, and writes the run",
     ),
     (
+        APP + "agent_review_calculator_reader.py",
+        "which stored values are current for the paper's text: a stale value never reaches the calculator",
+    ),
+    (
         APP + "agent_review_dispatch.py",
         "the one branch between today's AI review and the nine-role review",
     ),

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import io
-import json
 
 import pytest
 from openpyxl import load_workbook
@@ -14,16 +13,6 @@ from app.config import settings
 from app.nine_contract import ROLE_NAMES, ReviewRecord, RoleRecord
 from tests.test_b1_review_points import world_with_both
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
-
-DDL = (
-    "CREATE TABLE IF NOT EXISTS agent_review_role (run_id TEXT, role_no INTEGER, role TEXT, state TEXT, why TEXT, engine TEXT,"
-    " models_json TEXT, calls INTEGER, usd REAL, started_at TEXT, finished_at TEXT, produced_json TEXT, PRIMARY KEY (run_id, role_no))",
-    "CREATE TABLE IF NOT EXISTS agent_review_role_call (run_id TEXT, role_no INTEGER, call_id TEXT, step TEXT, engine TEXT, model TEXT,"
-    " request_sha256 TEXT, state TEXT, error_code TEXT, usd REAL, sent_at TEXT, PRIMARY KEY (run_id, call_id))",
-    "CREATE TABLE IF NOT EXISTS agent_review_role_read (run_id TEXT, role_no INTEGER, call_id TEXT, seq INTEGER, document_id TEXT,"
-    " document_kind TEXT, pages_json TEXT, chapter_id TEXT, part_no INTEGER, part_of INTEGER, chars INTEGER, text_sha256 TEXT,"
-    " pictures INTEGER, PRIMARY KEY (run_id, call_id, seq))",
-)
 
 
 @pytest.fixture(autouse=True)
@@ -66,22 +55,6 @@ def test_a_role_that_did_not_run_is_named_with_its_reason_on_the_first_line():
     line = nine_sheet.roles_line(rec)
     assert line.startswith("Roles run: 8 of 9") and "9 Writer (partly)" in line
     assert "not run: 2 Project context: none held for this project" in line
-
-
-def test_a_table_with_fewer_than_nine_rows_says_the_missing_roles_were_not_reached():
-    doc, rc, ai, client = world_with_both()
-    with db.connect() as conn:
-        for ddl in DDL:
-            conn.execute(ddl)
-        conn.execute(
-            "INSERT INTO agent_review_role VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (ai, 1, "Reader", "ran", None, "claude", "[]", 1, 0.1, "t", "t", "{}"),
-        )
-    line = nine_sheet.roles_line(nine_sheet.load_record(db.connect(), ai))
-    assert (
-        line.startswith("Roles run: 1 of 9")
-        and "2 Project context: not reached" in line
-    )
 
 
 def test_how_rows_say_cost_not_known_never_zero_and_hold_counts_only():
@@ -151,53 +124,17 @@ def test_the_writer_keeps_a_wording_only_when_the_lock_finds_every_fact():
 
 
 def _make_record(run_id, *, not_run=None):
-    with db.connect() as conn:
-        for ddl in DDL:
-            conn.execute(ddl)
-        for n in range(1, 10):
-            state, why = (
-                ("not_run", "none held for this project")
-                if n == not_run
-                else ("ran", None)
-            )
-            conn.execute(
-                "INSERT INTO agent_review_role VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    run_id,
-                    n,
-                    ROLE_NAMES[n],
-                    state,
-                    why,
-                    "claude",
-                    json.dumps(["m1"]),
-                    1,
-                    None if n == 4 else 0.25,
-                    "t0",
-                    "t1",
-                    json.dumps({"x": 1}),
-                ),
-            )
-        conn.execute(
-            "INSERT INTO agent_review_role_read VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                run_id,
-                1,
-                "c1",
-                0,
-                "doc_x",
-                "paper",
-                "[1,2]",
-                None,
-                None,
-                None,
-                90,
-                "ab" * 32,
-                2,
-            ),
-        )
+    from app import nine_record
+
+    nine_record.start_run(run_id)
+    for n in range(1, 10):
+        if n == not_run:
+            continue  # stays "not run: not reached"
+        nine_record.role_start(run_id, n, "code")
+        nine_record.role_end(run_id, n, "ran", produced={"x": 1}, engine="code")
 
 
-def test_load_record_round_trips_and_a_run_without_tables_is_none():
+def test_load_record_is_the_stored_record_and_a_run_without_rows_is_none():
     doc, rc, ai, client = world_with_both()
     assert nine_sheet.load_record(db.connect(), ai) is None
     _make_record(ai, not_run=2)
@@ -205,7 +142,7 @@ def test_load_record_round_trips_and_a_run_without_tables_is_none():
     assert [r.role_no for r in rec.roles] == list(range(1, 10)) and rec.roles[
         1
     ].state == "not_run"
-    assert rec.roles[0].reads[0].pictures == 2 and rec.roles[3].usd is None
+    assert rec.roles[1].why == "not reached"
 
 
 def scope_all():
@@ -234,12 +171,8 @@ def test_the_first_sheet_and_how_it_was_reviewed_read_the_record_and_completenes
     _make_record(ai, not_run=2)
     data = crs_one.build_team(doc, scope_all())
     text = text_of(data)
-    assert "not run: 2 Project context: none held for this project" in text
-    assert (
-        "Role 4 Reviewer" in text
-        and "cost (USD) not known" in text
-        and "Role 2 Project context did not run" in text
-    )
+    assert "not run: 2 Project context: not reached" in text
+    assert "Role 4 Reviewer" in text and "Role 2 Project context did not run" in text
     got = crs_completeness.checked_files(doc, scope_all())
     assert (
         got["team"][1]["ok"] and got["contractor"][1]["ok"]

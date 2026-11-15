@@ -17,16 +17,10 @@ No model, no network, no write.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections import Counter
 
 from .nine_contract import (
-    NOT_REACHED,
-    ROLE_NAMES,
-    ROLE_NUMBERS,
-    CallEntry,
-    ReadEntry,
     ReviewRecord,
     RoleRecord,
 )
@@ -160,71 +154,10 @@ def apply_wordings(
 # ------------------------------------------------------------------------------------------------ reading the stored record
 
 
-def _has(conn, table: str) -> bool:
-    return (
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
-        ).fetchone()
-        is not None
-    )
-
-
 def load_record(conn: sqlite3.Connection, run_id: str | None) -> ReviewRecord | None:
-    """The run's record from `agent_review_role`, `agent_review_role_call` and `agent_review_role_read`; None when the run has no role
-    rows (or the tables are not there: a review before the record). Reads only; it never makes a table."""
-    if not run_id or not _has(conn, "agent_review_role"):
+    """The run's record from B1's `nine_record` (read only); None when the run has no role rows (a review before the record)."""
+    if not run_id:
         return None
-    rows = conn.execute(
-        "SELECT * FROM agent_review_role WHERE run_id = ? ORDER BY role_no", (run_id,)
-    ).fetchall()
-    if not rows:
-        return None
-    reads: dict[int, list[ReadEntry]] = {}
-    if _has(conn, "agent_review_role_read"):
-        for r in conn.execute(
-            "SELECT * FROM agent_review_role_read WHERE run_id = ? ORDER BY role_no, call_id, seq",
-            (run_id,),
-        ):
-            reads.setdefault(r["role_no"], []).append(
-                ReadEntry(
-                    role_no=r["role_no"], call_id=r["call_id"], document_id=r["document_id"], document_kind=r["document_kind"],
-                    pages=tuple(json.loads(r["pages_json"] or "[]")), chapter_id=r["chapter_id"], part_no=r["part_no"],
-                    part_of=r["part_of"], chars=r["chars"] or 0, text_sha256=r["text_sha256"] or "", pictures=r["pictures"] or 0,
-                )
-            )  # fmt: skip
-    calls: list[CallEntry] = []
-    if _has(conn, "agent_review_role_call"):
-        for c in conn.execute(
-            "SELECT * FROM agent_review_role_call WHERE run_id = ? ORDER BY sent_at",
-            (run_id,),
-        ):
-            calls.append(
-                CallEntry(
-                    role_no=c["role_no"], call_id=c["call_id"], step=c["step"], engine=c["engine"], model=c["model"] or "",
-                    request_sha256=c["request_sha256"] or "", state=c["state"], error_code=c["error_code"], usd=c["usd"],
-                    sent_at=c["sent_at"] or "",
-                )
-            )  # fmt: skip
-    roles = tuple(
-        RoleRecord(
-            role_no=r["role_no"], role=r["role"], state=r["state"], why=r["why"], engine=r["engine"],
-            models=tuple(json.loads(r["models_json"] or "[]")), calls=r["calls"] or 0, usd=r["usd"],
-            produced=json.loads(r["produced_json"] or "{}"), reads=tuple(reads.get(r["role_no"], ())),
-            started_at=r["started_at"], finished_at=r["finished_at"],
-        )
-        for r in rows
-    )  # fmt: skip
-    held = {r.role_no: r for r in roles}
-    roles = tuple(  # a table that holds fewer than nine rows says so: the missing roles are "not run: not reached", never skipped
-        held.get(n)
-        or RoleRecord(n, ROLE_NAMES[n], "not_run", NOT_REACHED, None, (), 0, None)
-        for n in ROLE_NUMBERS
-    )
-    return ReviewRecord(
-        run_id=run_id,
-        paper_id="",
-        engine_choice="automatic",
-        roles=roles,
-        calls=tuple(calls),
-        shown_document_ids=None,
-    )
+    from . import nine_record
+
+    return nine_record.load_record(run_id, conn)
