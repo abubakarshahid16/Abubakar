@@ -401,6 +401,7 @@ _NAMED_PATTERNS = {
     "claims.py": "the lexical shape of a number in the measurement regex; sign is numparse's",
     "corpus.py": "number WORDS for count questions",
     "fts_index.py": "joins digit groups inside identifiers for the keyword index",
+    "nine_call.py": "the SHAPE of a typed number cell on the nine-role sheet (does the cell look like a number?); it never turns text into a value: values are numparse's",
     "numparse.py": "the parser",
 }
 _NAMED = re.compile(r"^(?:_NUMBER|_THOUSANDS)\s*=", re.MULTILINE)

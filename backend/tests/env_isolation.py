@@ -175,6 +175,8 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_ai_wording_engine": "ollama",  # #819: "claude" sends CRS rows (standard references) out
     "ai_engineering_review_pass_engine": "ollama",  # lane 6: "claude" sends the draft CRS and the pages out
     "ai_engineering_review_pass_enabled": False,  # lane 6: off unless a test turns it on
+    "agent_review_nine_roles_enabled": False,  # the nine-role reviewer: off unless a test turns it on
+    "agent_review_nine_writer_enabled": False,  # the nine-role Writer's AI wording: off
     "agent_review_enabled": False,  # #1690: agent loop, off unless a test turns it on
     "agent_review_reread_silent_enabled": False,  # C4: page re-read, off
     "agent_review_reuse_answers_enabled": False,  # point E: stored first-reader answers reused, off
