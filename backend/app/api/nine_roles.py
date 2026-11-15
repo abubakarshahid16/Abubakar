@@ -111,7 +111,9 @@ def public(record, allowed: frozenset[str]) -> dict:
         "roles": roles,
         "documents_on_the_shown_list": None
         if record.shown_document_ids is None
-        else len(record.shown_document_ids),
+        else len(
+            [d for d in record.shown_document_ids if d in allowed]
+        ),  # only what the caller may read: the stated boundary
         "boundary": "documents you may read",
     }
 

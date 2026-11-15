@@ -63,7 +63,8 @@ def ensure_schema(conn=None) -> None:
             finished_at   TEXT,
             produced_json TEXT NOT NULL DEFAULT '{{}}',
             PRIMARY KEY (run_id, role_no),
-            CHECK (state = 'ran' OR (why IS NOT NULL AND length(trim(why)) > 0))
+            CHECK (state = 'ran' OR (why IS NOT NULL AND length(trim(why)) > 0)),
+            CHECK (why IS NULL OR (length(why) <= 120 AND instr(why, char(10)) = 0))
         )"""
     )
     conn.execute(
@@ -78,6 +79,10 @@ def ensure_schema(conn=None) -> None:
             state          TEXT NOT NULL CHECK (state IN ('sent', 'answered', 'failed', 'refused', 'reused')),
             error_code     TEXT,
             usd            REAL CHECK (usd IS NULL OR usd >= 0),
+            usd_reserved   REAL CHECK (usd_reserved IS NULL OR usd_reserved >= 0),
+            question_id    TEXT,
+            system_id      TEXT,
+            params_sha256  TEXT,
             sent_at        TEXT NOT NULL,
             PRIMARY KEY (run_id, call_id)
         )"""
@@ -148,7 +153,8 @@ def role_end(
     ensure_schema(conn)
     _check_role(role_no)
     _check(state, ROLE_STATES, "state")
-    if state != "ran" and not str(why or "").strip():
+    why = _short_why(why)
+    if state != "ran" and not why:
         raise ValueError(f"role {role_no} did not run in full and gives no reason")
     if engine is not None:
         _check(engine, ENGINES, "engine")
@@ -162,7 +168,7 @@ def role_end(
             f" finished_at = ?, produced_json = ? WHERE run_id = ? AND role_no = ?",
             (
                 state,
-                None if state == "ran" else str(why).strip(),
+                None if state == "ran" else why,
                 engine,
                 json.dumps(models_all),
                 calls,
@@ -195,6 +201,19 @@ def role_calls(
     )
 
 
+def role_spend(run_id: str, role_no: int, conn=None) -> float:
+    """What the role's budget gate counts: known costs, and for a call of unknown cost (a failure after the body was sent) the amount
+    that was RESERVED for it: conservative, never 0. A refused call counts nothing (it never left)."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    row = conn.execute(
+        f"SELECT COALESCE(SUM(COALESCE(usd, usd_reserved, 0)), 0) FROM {CALLS_TABLE}"
+        " WHERE run_id = ? AND role_no = ? AND state != 'refused'",
+        (run_id, role_no),
+    ).fetchone()
+    return float(row[0])
+
+
 def role_usd(run_id: str, role_no: int, conn=None) -> float:
     """What this role has cost in this run so far (known costs only): the role gate's own meter."""
     return role_calls(run_id, role_no, conn)[1] or 0.0
@@ -213,9 +232,13 @@ def call_sent(
     model: str,
     request_sha256: str,
     reads: list[ReadEntry],
+    question_id: str | None = None,
+    system_id: str | None = None,
+    params_sha256: str | None = None,
     conn=None,
 ) -> None:
-    """The `sent` row and one read row per document block of the request, in ONE transaction, before the body leaves."""
+    """The `sent` row and one read row per document block of the request, in ONE transaction. Written when the body is about to be
+    handed to the transport, AFTER the spend reservation succeeded: a call refused at the reservation never has these rows."""
     conn = conn or connect()
     ensure_schema(conn)
     _check_role(role_no)
@@ -226,9 +249,21 @@ def call_sent(
             raise ValueError("a read entry names another role or call")
     with conn:
         conn.execute(
-            f"INSERT INTO {CALLS_TABLE} (run_id, role_no, call_id, step, engine, model, request_sha256, state, sent_at)"
-            " VALUES (?,?,?,?,?,?,?,'sent',?)",
-            (run_id, role_no, call_id, step, engine, model, request_sha256, now()),
+            f"INSERT INTO {CALLS_TABLE} (run_id, role_no, call_id, step, engine, model, request_sha256, state, question_id, system_id,"
+            " params_sha256, sent_at) VALUES (?,?,?,?,?,?,?,'sent',?,?,?,?)",
+            (
+                run_id,
+                role_no,
+                call_id,
+                step,
+                engine,
+                model,
+                request_sha256,
+                question_id,
+                system_id,
+                params_sha256,
+                now(),
+            ),
         )
         for seq, r in enumerate(reads):
             conn.execute(
@@ -282,10 +317,12 @@ def call_end(
     *,
     error_code: str | None = None,
     usd: float | None = None,
+    usd_reserved: float | None = None,
     model: str | None = None,
     conn=None,
 ) -> None:
-    """The end state of a call. `model` is the model that ANSWERED (from the reply), when it is known."""
+    """The end state of a call. `model` is the model that ANSWERED (from the reply), when it is known. `usd_reserved`: the amount held
+    for a call whose cost is not known (a failure after the body was sent); the role budget counts it, the role's `usd` does not."""
     conn = conn or connect()
     ensure_schema(conn)
     _check(state, CALL_STATES, "state")
@@ -295,8 +332,9 @@ def call_end(
         raise ValueError("a cost is never negative")
     with conn:
         conn.execute(
-            f"UPDATE {CALLS_TABLE} SET state = ?, error_code = ?, usd = ?, model = COALESCE(?, model) WHERE run_id = ? AND call_id = ?",
-            (state, error_code, usd, model, run_id, call_id),
+            f"UPDATE {CALLS_TABLE} SET state = ?, error_code = ?, usd = ?, usd_reserved = ?,"
+            " model = COALESCE(?, model) WHERE run_id = ? AND call_id = ?",
+            (state, error_code, usd, usd_reserved, model, run_id, call_id),
         )
 
 
@@ -438,6 +476,16 @@ def _check_role(role_no: int) -> None:
 def _check(value, allowed, what: str) -> None:
     if value not in allowed:
         raise ValueError(f"unknown {what} {value!r}")
+
+
+MAX_WHY = 120  # a reason is a code or one short plain sentence: never document text
+
+
+def _short_why(why: str | None) -> str | None:
+    text = str(why or "").strip()
+    if len(text) > MAX_WHY or "\n" in text or "\r" in text:
+        raise ValueError(f"a reason is at most {MAX_WHY} characters on one line")
+    return text or None
 
 
 MAX_STRING = 80  # a produced value is a count, an id, a code or a short word: never document text
