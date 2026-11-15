@@ -46,10 +46,12 @@ def record_in(conn, run_id: str, document_ids, now: str) -> None:
     )
 
 
-def shown_ids(conn, run_id: str | None) -> frozenset[str] | None:
+def shown_ids(conn, run_id: str | None, local: bool = False) -> frozenset[str] | None:
     """The ids the run was started with, or None when no list was stored for it (no table, no row). A damaged row reads as an
-    EMPTY list (nothing is on it); a database error propagates, so no caller reads "could not look" as "nothing to hold"."""
-    if not run_id:
+    EMPTY list (nothing is on it); a database error propagates, so no caller reads "could not look" as "nothing to hold".
+    `local`: the planning of a run that sends nothing; the list restricts what is SENT to Claude, so it reads as none (a Local-only
+    start stored `[]`, which would otherwise take every rule book out of the review)."""
+    if not run_id or local:
         return None
     has = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (TABLE,)
@@ -103,12 +105,12 @@ def unshown_specifications(conn, run_id: str, document_ids) -> frozenset[str]:
     return held_documents(conn, run_id, document_ids)
 
 
-def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
+def drop_unlisted(conn, run_id: str, doc: dict, local: bool = False) -> list[str]:
     """THE UPSTREAM DROP of the AI reviewer: with a stored list, the items of any rule book the list does not name are removed from
     the plan BEFORE a request is built, so their rules are not asked and none of their text is sent, and the run goes on with
     everything that is listed. Returns the dropped books' ids (the run counts them). Items with no rule book (checklists) stay.
     The send-time check in `claude_approved.refusal` remains the last line of defence. No list stored: nothing dropped."""
-    shown = shown_ids(conn, run_id)
+    shown = shown_ids(conn, run_id, local)
     if shown is None:
         return []
     from .agent_review_rules import NOT_ON_LIST

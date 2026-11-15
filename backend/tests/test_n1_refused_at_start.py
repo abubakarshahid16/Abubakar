@@ -50,9 +50,16 @@ def _job_world(tmp_path, monkeypatch, listed):
         seen["shown"] = shown
         cache.update({k: dict(v) for k, v in cache_src.items()})
         out = json.loads(json.dumps(doc))
-        if shown is not None:  # what the real builder does: a book not on the list is left out of the rules
-            out["items"] = [i for i in out["items"] if i["standard_document_id"] in shown]
-            out["counts"] = {"skill": sum(i["source"] == "skill" for i in out["items"]), "rule": sum(i["source"] == "rule" for i in out["items"])}
+        if (
+            shown is not None
+        ):  # what the real builder does: a book not on the list is left out of the rules
+            out["items"] = [
+                i for i in out["items"] if i["standard_document_id"] in shown
+            ]
+            out["counts"] = {
+                "skill": sum(i["source"] == "skill" for i in out["items"]),
+                "rule": sum(i["source"] == "rule" for i in out["items"]),
+            }
         return out
 
     cache_src = cache
@@ -60,32 +67,52 @@ def _job_world(tmp_path, monkeypatch, listed):
     monkeypatch.setattr(agent_review_jobs.items_mod, "build_items_for_run", fake_build)
     monkeypatch.setattr(agent_review_jobs, "_write_rules", lambda *_a: None)
     monkeypatch.setattr(claude_auto_approve, "on_review_start", lambda *_a: None)
-    monkeypatch.setattr(claude_auto_approve, "note_unshown_for", lambda *_a: seen.setdefault("noted", True))
-    kind = agent_review_jobs.agent_review_kind.PaperReading("datasheet", True, "r", "t", False, None, None)
+    monkeypatch.setattr(
+        claude_auto_approve,
+        "_note_unshown",
+        lambda *_a: seen.setdefault("noted", True),
+    )
+    kind = agent_review_jobs.agent_review_kind.PaperReading(
+        "datasheet", True, "r", "t", False, None, None
+    )
     return conn, kind, seen
 
 
 def _plan(conn, kind):
-    return agent_review_jobs._plan(conn, "rr", s.PAPER, frozenset({s.PAPER, s.STD}), kind, lambda: None)
+    return agent_review_jobs._plan(
+        conn, "rr", s.PAPER, frozenset({s.PAPER, s.STD}), kind, lambda: None
+    )
 
 
-def test_a_local_run_with_a_stored_empty_list_keeps_every_book_and_is_not_refused(tmp_path, monkeypatch):
+def test_a_local_run_with_a_stored_empty_list_keeps_every_book_and_is_not_refused(
+    tmp_path, monkeypatch
+):
     conn, kind, seen = _job_world(tmp_path, monkeypatch, [])
     monkeypatch.setattr(local_mod, "local_run", lambda _r: True)
     plan = _plan(conn, kind)
-    assert plan["stop"] is None and len(plan["items"]) == 5  # the checklist item and the four rules: nothing was dropped
-    assert seen["shown"] is None and "noted" not in seen  # the list was not read, and no "not sent" note was made
+    assert (
+        plan["stop"] is None and len(plan["items"]) == 5
+    )  # the checklist item and the four rules: nothing was dropped
+    assert (
+        seen["shown"] is None and "noted" not in seen
+    )  # the list was not read, and no "not sent" note was made
 
 
-def test_the_same_empty_list_on_a_claude_run_still_sends_nothing_but_is_not_a_refusal_either(tmp_path, monkeypatch):
+def test_the_same_empty_list_on_a_claude_run_still_sends_nothing_but_is_not_a_refusal_either(
+    tmp_path, monkeypatch
+):
     conn, kind, seen = _job_world(tmp_path, monkeypatch, [])
     monkeypatch.setattr(local_mod, "local_run", lambda _r: False)
     plan = _plan(conn, kind)
-    assert plan["items"] == [] and not str(plan["stop"] or "").startswith("refused")  # nothing shown, nothing asked; counts stay consistent
+    assert plan["items"] == [] and not str(plan["stop"] or "").startswith(
+        "refused"
+    )  # nothing shown, nothing asked; counts stay consistent
     assert seen["shown"] == frozenset() and seen["noted"] is True
 
 
-def test_a_claude_run_with_a_list_that_names_the_book_is_unchanged(tmp_path, monkeypatch):
+def test_a_claude_run_with_a_list_that_names_the_book_is_unchanged(
+    tmp_path, monkeypatch
+):
     conn, kind, seen = _job_world(tmp_path, monkeypatch, [s.STD])
     monkeypatch.setattr(local_mod, "local_run", lambda _r: False)
     plan = _plan(conn, kind)
@@ -101,7 +128,10 @@ def test_dropping_a_book_keeps_the_item_files_counts_equal_to_its_items():
     with conn:
         review_shown.record_in(conn, "rx", ["b2"], "t")
     assert review_shown.drop_unlisted(conn, "rx", doc) == ["b1"]
-    assert [i["item_id"] for i in doc["items"]] == ["R-2"] and doc["counts"] == {"skill": 0, "rule": 1}
+    assert [i["item_id"] for i in doc["items"]] == ["R-2"] and doc["counts"] == {
+        "skill": 0,
+        "rule": 1,
+    }
 
 
 # ---------------------------------------------------------------- a refusal says which check and which item
@@ -112,7 +142,11 @@ def test_a_refusal_names_the_check_and_the_item_in_plain_words(tmp_path, monkeyp
     doc, cache = s.item_doc()
     doc["counts"] = {"skill": 17, "rule": 0}  # the live string
     why = agent_review_jobs.preflight(conn, s.PAPER, kind, doc, cache)
-    assert why.startswith("the item list failed its checks: counts ") and "do not match items" in why and why.endswith("(1 problem(s))")
+    assert (
+        why.startswith("the item list failed its checks: counts ")
+        and "do not match items" in why
+        and why.endswith("(1 problem(s))")
+    )
     doc, cache = s.item_doc()
     doc["items"][0]["question"] = ""
     why = agent_review_jobs.preflight(conn, s.PAPER, kind, doc, cache)
@@ -123,19 +157,38 @@ def test_a_refusal_names_the_check_and_the_item_in_plain_words(tmp_path, monkeyp
 # ---------------------------------------------------------------- the start stores no list when nothing leaves
 
 
-def test_a_start_that_sends_nothing_stores_no_list_and_one_that_sends_stores_what_was_shown(world, monkeypatch):
+def test_a_start_that_sends_nothing_stores_no_list_and_one_that_sends_stores_what_was_shown(
+    world, monkeypatch
+):
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
-    run_id, plan = review_engine_start.start(world["sub"], world["scope"], "adm", "local", shown_document_ids=())
+    run_id, plan = review_engine_start.start(
+        world["sub"], world["scope"], "adm", "local", shown_document_ids=()
+    )
     assert plan["text_leaves"] is False
-    assert review_shown.shown_ids(db.connect(), run_id) is None  # an empty list would have meant "no book may be used"
+    assert (
+        review_shown.shown_ids(db.connect(), run_id) is None
+    )  # an empty list would have meant "no book may be used"
     real = review_engine.plan_for
 
     def leaving(*a, **k):
         got = real(*a, **k)
-        return {**got, "text_leaves": True, "documents": {**(got.get("documents") or {}), "leaving": [{"id": world["std"], "kind": "k", "why": "w"}]}}
+        return {
+            **got,
+            "text_leaves": True,
+            "documents": {
+                **(got.get("documents") or {}),
+                "leaving": [{"id": world["std"], "kind": "k", "why": "w"}],
+            },
+        }
 
     monkeypatch.setattr(review_engine, "plan_for", leaving)
     with db.connect() as conn:
-        conn.execute("UPDATE review_runs SET status = 'completed' WHERE id = ?", (run_id,))
-    run_b, _plan_b = review_engine_start.start(world["sub"], world["scope"], "adm", "local", shown_document_ids=(world["std"],))
-    assert review_shown.shown_ids(db.connect(), run_b) == frozenset({world["std"]})  # a start that sends still stores its list
+        conn.execute(
+            "UPDATE review_runs SET status = 'completed' WHERE id = ?", (run_id,)
+        )
+    run_b, _plan_b = review_engine_start.start(
+        world["sub"], world["scope"], "adm", "local", shown_document_ids=(world["std"],)
+    )
+    assert review_shown.shown_ids(db.connect(), run_b) == frozenset(
+        {world["std"]}
+    )  # a start that sends still stores its list

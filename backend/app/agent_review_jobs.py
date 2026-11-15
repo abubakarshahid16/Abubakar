@@ -415,13 +415,11 @@ def _plan(
     cache: dict = {}
     # Inline selection stores BOOKS only: the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type, shown=None if local else review_shown.shown_ids(conn, run_id),
+                                        equipment_type=kind.equipment_type, shown=review_shown.shown_ids(conn, run_id, bool(local)),
                                         **rule_choice.plan_args(bool(local), ASK_UNAPPROVED))  # fmt: skip
     # A book the list shown before the start does not name is dropped HERE, before any request: none of its text is sent.
-    # the list restricts what is SENT to Claude: a local run sends nothing, so it keeps every held book of the paper
-    left_out = [] if local else review_shown.drop_unlisted(conn, run_id, doc)
-    if not local:
-        claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
+    left_out = review_shown.drop_unlisted(conn, run_id, doc, local=bool(local))
+    claude_auto_approve.note_unshown_for(run_id, scope_run, left_out, bool(local))
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache, local)
     if refused:
