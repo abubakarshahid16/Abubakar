@@ -16,6 +16,7 @@ from . import agent_review_absence as absence
 from . import agent_review_context as ctxc
 from . import agent_review_crs as crs_lines
 from . import agent_review_pass_guards as pass_guards
+from . import agent_review_standards as standards_mod
 from . import agent_review_verdict as verdict
 from .agent_review_request import (
     ABSENCE_SECOND_MAX_TOKENS,
@@ -54,6 +55,13 @@ def _book_fields(item: Mapping, ev: Mapping) -> dict:
 
 
 class DecideMixin:
+    @property
+    def books(self) -> Any:
+        """The rule books' own stored pages for the clause-quote check, each read once on the thread that needs it, kept for the run."""
+        if getattr(self, "_books", None) is None:
+            self._books = standards_mod.BookPages()
+        return self._books
+
     # ---- per item
     def _tiered(self, item: dict) -> dict:
         """The item marked not approved when the core's `item_tier` (the CURRENT label table, via `tier_lookup`) says so, so the
