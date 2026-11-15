@@ -117,3 +117,11 @@ def test_the_pages_line_cannot_contradict_itself_and_the_files_line_has_no_api_p
     wb = load_workbook(BytesIO(data))
     every = "\n".join(str(x) for ws in wb.worksheets for r in ws.iter_rows(values_only=True) for x in r if x is not None)
     assert "/api/" not in every and "GET " not in every
+
+
+def test_the_value_a_datasheet_check_read_is_the_papers_stored_value_with_its_page():
+    f = {"id": "f", "fact_id": "x", "_fact": {"field_name": "Set pressure", "field_value": "12", "unit": "bar", "page": 3}}
+    assert c.paper_value(f) == ("Set pressure: 12 bar", 3)
+    assert c.paper_value({"_fact": {"field_name": "Set pressure", "field_value": "", "unit": None, "page": 3}}) == ("", 3)  # blank: no value invented
+    p = review_points.rule_point(row("datasheet_check", comment="Datasheet check: Set pressure was read."), CTX, f, {})
+    assert p["paper_value"] == "Set pressure: 12 bar" and p["page"] == 3 and p["paper_quote"] is None  # stored, not verified

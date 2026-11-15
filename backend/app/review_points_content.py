@@ -101,8 +101,11 @@ def paper_value(finding: dict | None) -> tuple[str, int | None]:
     """The stored value or contractor quote of the finding, and its page ("" when nothing is stored). NOT proof: the caller says whether
     code verified it."""
     f = finding or {}
+    fact = f.get("_fact") or {}  # the datasheet value the check read (`submittal_facts`), attached by the caller
     text = clean(f.get("contractor_evidence_text"))
-    page = f.get("contractor_page")
+    if not text and clean(fact.get("field_value")):
+        text = clean(f"{fact.get('field_name') or ''}: {fact.get('field_value')} {fact.get('unit') or ''}").lstrip(": ")
+    page = f.get("contractor_page") or fact.get("page")
     page = page if isinstance(page, int) and not isinstance(page, bool) and page >= 1 else None
     return text, page
 
