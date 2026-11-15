@@ -281,6 +281,7 @@ from .api import document_classification as api_document_classification  # noqa:
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
 from .api import review_points as api_review_points  # noqa: E402
+from .api import nine_roles as api_nine_roles  # noqa: E402
 from .api import review_start as api_review_start  # noqa: E402
 from .api import review_templates as api_review_templates  # noqa: E402
 from .api import run_standards as api_run_standards  # noqa: E402
@@ -293,6 +294,7 @@ for _r in (api_documents, api_document_classification, api_document_files, api_a
 app.include_router(auth_session_mod.router)
 app.include_router(api_run_summary.router)
 app.include_router(api_review_start.router)
+app.include_router(api_nine_roles.router)  # nine-role record: 404 feature_off while the switch is off (checked at request time)
 app.include_router(api_review_points.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
