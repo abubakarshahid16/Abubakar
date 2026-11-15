@@ -324,15 +324,19 @@ def checklist_lines(
         )
         if not decided:
             out.append(
-                {
-                    **line,
-                    **_query(detail or "the check could not decide", "not_decided"),
-                    "compare": {"decided": False, "reason": detail},
-                }
+                _undecided(
+                    line, detail or "the check could not decide", "not_decided", detail
+                )
             )
         elif not line["quotes_checked"]["paper"]:
-            out.append({**line, **_query("the value's quote was not found on its page, so it was not compared into a Pass or Fail", "paper_quote_unverified"),
-                        "compare": {"decided": False, "reason": detail}})  # fmt: skip
+            out.append(
+                _undecided(
+                    line,
+                    "the value's quote was not found on its page, so it was not compared into a Pass or Fail",
+                    "paper_quote_unverified",
+                    detail,
+                )
+            )
         else:
             met = status == COMPLIANT
             out.append({**line, "verdict": PASS if met else FAIL, "decided_by": verdict_mod.BY_CODE,
