@@ -63,7 +63,8 @@ def pages_to_read(current: Sequence[Mapping], pages: Mapping[int, str]) -> list[
 
 
 def enabled() -> bool:
-    return bool(settings.ai_review_reader_first_enabled)
+    # guarded: #1824's setting is not on this branch (the nine-role Reader never calls this; reading first stays off here)
+    return bool(getattr(settings, "ai_review_reader_first_enabled", False))
 
 
 def _fact_of(page: int, i: int, f: Mapping, engine: str) -> dict:

@@ -1,11 +1,12 @@
-"""Role 1, the Reader: reads EVERY page of the paper (text, and for Claude the page picture too) and writes the paper's fact sheet (SPEC A, rows 1).
+"""Role 1, the Reader: reads EVERY page of the paper (text, and for Claude the page picture too) and writes the paper's fact sheet (SPEC A, row 1).
 
   * the equipment type's FIXED field list (`form_reader_fields.field_list_for`, from the reference data; no layout is known here) is the question;
-  * Claude: one request per page batch, the page text and the page picture as BLOCKS handed to the one call seam (`ask`, B1's `nine_call.ask`); no
-    other path out. Local: text only, through `form_reader.read_form` (the local model; nothing leaves). A page with no stored text on Local is
-    "not read" with the reason; recognised text (`page_ocr`) counts as stored text when held;
-  * code decides what is kept: a value whose quote is not on the page (or whose value, label or unit fails `form_reader.verify`) is DROPPED and
-    counted by reason; stored and read values are merged in `nine_facts.merge` (a disagreement is `conflict`, never used; a stale stored value is not used);
+  * every request is made by the ONE call seam (`nine_call.ask`, role 1): one `Block` per page (its text, and on Claude its picture), the field list as
+    the question. The seam gates what may leave, records the call and the read rows, and drops the pictures on the local model (nothing leaves there);
+  * code decides what is kept: a value whose quote is not on the page (or whose value, label or unit fails `form_reader.verify`) is DROPPED and counted
+    by reason; stored and read values are merged in `nine_facts.merge` (a disagreement is `conflict`, never used; a stale stored value is not used);
+  * a page with no stored text is "not read" with the reason (recognised text counts as stored text when the caller passes it); a page whose block the
+    gate held comes back in `Answer.not_sent` and is "not read: not sent", never "read"; the role's budget (`RoleGate`) ends the role "ran partly";
   * nothing is written to `submittal_facts`; the sheet goes to `nine_facts.store` per run.
 
 No verdict, class or word is made here. Words and counts only; no document text is logged.
@@ -13,18 +14,15 @@ No verdict, class or word is made here. Words and counts only; no document text 
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
-from . import (
-    datasheet_checks,
-    form_reader,
-    nine_facts,
-)
+from . import datasheet_checks, form_reader, nine_call, nine_facts
 from .claude_spend import StopRun
 from .form_reader_fields import (
     FOUND,
@@ -44,20 +42,10 @@ NO_TEXT_LOCAL = "no stored text and pictures are not read on the local model"
 NO_TEXT_CLAUDE = (
     "no stored text: a quote from a picture alone cannot be checked by code"
 )
-#: a page batch is asked once on Claude (the second run of the form reader is for the free local model)
-CLAUDE_RUNS = 1
+PICTURES_LOCAL = "pictures not read on Local"
+NOT_SENT = "not read: not sent"
+BUDGET = "not read: the Reader's budget was reached (role_budget)"
 
-
-class Answer(Protocol):
-    """What the call seam gives back for one request (B1's `nine_call.ask` result): the model's text, or none with why."""
-
-    text: str | None
-    state: str  # answered | failed | refused | reused
-    error_code: str | None
-
-
-#: `ask(role_no, blocks, question) -> Answer`. A block is `{document_id, document_kind, pages, chapter_id, part, text | picture}`.
-Seam = Callable[[int, list[dict], str], Answer]
 #: a page picture (PNG bytes) for a page number, or raises `agent_review_pages.PageImageUnavailable`
 PictureOf = Callable[[int], bytes]
 
@@ -73,21 +61,15 @@ class ReadResult:
 
 
 def page_block(
-    document_id: str, page: int, text: str | None = None, picture: bytes | None = None
-) -> dict:
-    """ONE block of one page, in the shape the seam serialises and records from (the same list is the request, the document declaration and the role record)."""
-    block: dict[str, Any] = {
-        "document_id": document_id,
-        "document_kind": "paper",
-        "pages": [page],
-        "chapter_id": None,
-        "part": None,
-    }
-    if text is not None:
-        block["text"] = text
-    if picture is not None:
-        block["picture"] = picture
-    return block
+    document_id: str, page: int, text: str, picture: bytes | None = None
+) -> nine_call.Block:
+    """ONE block of one page, in the seam's shape (the same list is the request, the document declaration and the role record)."""
+    pic = (
+        {"media_type": "image/png", "data": base64.b64encode(picture).decode("ascii")}
+        if picture
+        else None
+    )
+    return nine_call.Block(document_id, "paper", (page,), text=text, picture=pic)
 
 
 def estimate(
@@ -105,137 +87,87 @@ def estimate(
     }
 
 
-# ------------------------------------------------------------------ Claude: one page, through the seam
+# ------------------------------------------------------------------ one page, through the seam
 
 
-def _drop(counts: Counter, reason: str, n: int = 1) -> None:
-    counts[reason] += n
-
-
-def _claude_batch(
-    seam: Seam,
-    document_id: str,
-    page: int,
-    text: str,
-    picture: bytes | None,
+def _verified(
+    parsed: Mapping[str, dict],
     group: list[Field],
+    text: str,
+    page: int,
     rules: Mapping,
     dropped: Counter,
-) -> tuple[list[dict], str | None]:
-    """(verified readings of one batch on one page, an error word). The question names the fields; the page goes as blocks."""
-    blocks = [page_block(document_id, page, text=text)]
-    if picture is not None:
-        blocks.append(page_block(document_id, page, picture=picture))
-    question = build_prompt(group, "", page)
-    answer = seam(ROLE_NO, blocks, question)
-    if answer.state not in ("answered", "reused") or answer.text is None:
-        _drop(dropped, form_reader.Reason.MODEL_FAILED.value, len(group))
-        return [], answer.error_code or answer.state
-    keys = {f.key for f in group}
-    parsed, err = form_reader.parse_answer(answer.text, keys)
-    if err is not None:
-        _drop(dropped, err.value, len(group))
-        return [], err.value
+) -> list[dict]:
+    """The readings of one batch that code accepts. A value whose quote is not on the page, whose value is not in its quote, ... is dropped and counted."""
     out: list[dict] = []
     for f in group:
         item = parsed.get(f.key)
         if item is None:
-            _drop(dropped, form_reader.Reason.FIELD_NOT_ANSWERED.value)
+            dropped[form_reader.Reason.FIELD_NOT_ANSWERED.value] += 1
+        elif item["status"] == form_reader.NOT_ON_PAGE:
             continue
-        if item["status"] == form_reader.NOT_ON_PAGE:
-            continue
-        if item["status"] not in (FOUND, LEFT_BLANK):
-            _drop(dropped, form_reader.Reason.STATUS_UNKNOWN.value)
-            continue
-        if item["status"] == LEFT_BLANK:
-            reason = form_reader.verify_blank(f, item, text, dict(rules))
+        elif item["status"] not in (FOUND, LEFT_BLANK):
+            dropped[form_reader.Reason.STATUS_UNKNOWN.value] += 1
         else:
-            item = form_reader.reading_as_printed(item, text)
-            reason = form_reader.verify(f, item, text, dict(rules))
-        if reason is not None:
-            _drop(
-                dropped, reason.value
-            )  # the quote is not on the page, the value is not in the quote, ...: dropped and counted
-            continue
-        out.append(form_reader._fact(f, item, page))
-    return out, None
+            if item["status"] == LEFT_BLANK:
+                reason = form_reader.verify_blank(f, item, text, dict(rules))
+            else:
+                item = form_reader.reading_as_printed(item, text)
+                reason = form_reader.verify(f, item, text, dict(rules))
+            if reason is None:
+                out.append(form_reader._fact(f, item, page))
+            else:
+                dropped[reason.value] += 1
+    return out
 
 
-def _read_claude(
-    seam: Seam,
-    document_id: str,
-    pages: Mapping[int, str],
-    picture_of: PictureOf | None,
+@dataclass
+class _Page:
+    facts: list[dict] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    picture: bool = False
+    not_sent: str | None = None
+    budget: bool = False
+    asked: int = 0
+
+
+def _read_page(
+    ask: Callable[..., nine_call.Answer],
+    paper_id: str,
+    page: int,
+    text: str,
+    picture: bytes | None,
     fields: list[Field],
     rules: Mapping,
-    pages_total: int,
     dropped: Counter,
-    deadline: float | None,
-) -> tuple[list[dict], list[PageRead], str | None]:
-    facts: list[dict] = []
-    reads: list[PageRead] = []
-    stopped: str | None = None
-    for page in range(1, pages_total + 1):
-        text = pages.get(page, "")
-        if not text.strip():
-            reads.append(PageRead(page, False, False, NO_TEXT_CLAUDE))
-            continue
-        if stopped:
-            reads.append(
-                PageRead(
-                    page,
-                    False,
-                    False,
-                    f"not read: a limit stopped the Reader ({stopped})",
-                )
-            )
-            continue
-        if deadline is not None and time.monotonic() >= deadline:
-            stopped = "time_budget"
-            reads.append(
-                PageRead(
-                    page, False, False, "not read: the Reader's time budget ran out"
-                )
-            )
-            continue
-        picture = _picture(picture_of, page)
-        asked = [
-            f for f in fields if form_reader.label_on_page(f, text, dict(rules))
-        ] or []
-        errors: list[str] = []
-        got: list[dict] = []
-        try:
-            for group in batches(asked):
-                one, err = _claude_batch(
-                    seam, document_id, page, text, picture, group, rules, dropped
-                )
-                got.extend(one)
-                if err:
-                    errors.append(err)
-        except StopRun as exc:
-            stopped = exc.count_key
-            reads.append(
-                PageRead(
-                    page,
-                    False,
-                    False,
-                    f"not read: a limit stopped the Reader ({stopped})",
-                )
-            )
-            continue
-        facts.extend(got)
-        failed = bool(errors) and len(errors) >= max(1, len(batches(asked)))
-        reads.append(
-            PageRead(
-                page,
-                not failed,
-                picture is not None and not failed,
-                f"not read: the model gave no usable answer ({errors[0]})"
-                if failed
-                else None,
-            )
+) -> _Page:
+    out = _Page()
+    groups = batches(
+        [f for f in fields if form_reader.label_on_page(f, text, dict(rules))]
+    )
+    out.asked = len(groups)
+    for group in groups:
+        answer = ask(
+            [page_block(paper_id, page, text, picture)], build_prompt(group, "", page)
         )
-    return facts, reads, stopped
+        if answer.not_sent:
+            out.not_sent = answer.not_sent[0][1]
+            return out
+        if answer.error_code == "role_budget":
+            out.budget = True
+            return out
+        if not answer.ok or answer.text is None:
+            dropped[form_reader.Reason.MODEL_FAILED.value] += len(group)
+            out.errors.append(answer.error_code or answer.state)
+            continue
+        parsed, err = form_reader.parse_answer(answer.text, {f.key for f in group})
+        if err is not None:
+            dropped[err.value] += len(group)
+            out.errors.append(err.value)
+            continue
+        out.facts.extend(_verified(parsed, group, text, page, rules, dropped))
+        out.picture = out.picture or picture is not None
+    return out
 
 
 def _picture(picture_of: PictureOf | None, page: int) -> bytes | None:
@@ -248,51 +180,88 @@ def _picture(picture_of: PictureOf | None, page: int) -> bytes | None:
         return None
 
 
-# ------------------------------------------------------------------ Local: text only, through the form reader
-
-
-def _read_local(
-    local_call: Callable[[str], str] | None,
-    pages: Mapping[int, str],
-    equipment_type: str | None,
-    rules: Mapping,
-    fields: list[Field],
-    pages_total: int,
-    dropped: Counter,
-    max_seconds: float | None,
-) -> tuple[list[dict], list[PageRead], str | None]:
-    text_pages = {p: t for p, t in pages.items() if t.strip() and p <= pages_total}
-    reading = form_reader.FormReading(fields=fields)
-    if text_pages:
-        call = local_call or _default_local()
-        reading = form_reader.read_form(
-            text_pages,
-            equipment_type,
-            call,
-            rules=dict(rules),
-            fields=fields,
-            max_seconds=max_seconds,
+def _page_read(page: int, r: _Page) -> PageRead:
+    if r.not_sent:
+        return PageRead(page, False, False, f"{NOT_SENT} ({r.not_sent})")
+    if r.budget:
+        return PageRead(page, False, False, BUDGET)
+    if r.errors and len(r.errors) >= max(1, r.asked):
+        return PageRead(
+            page,
+            False,
+            False,
+            f"not read: the model gave no usable answer ({r.errors[0]})",
         )
-    for r in reading.rejected:
-        _drop(dropped, r["reason"])
+    return PageRead(page, True, r.picture, None)
+
+
+def _read_pages(
+    ask: Callable[..., nine_call.Answer],
+    paper_id: str,
+    pages: Mapping[int, str],
+    total: int,
+    picture_of: PictureOf | None,
+    fields: list[Field],
+    rules: Mapping,
+    dropped: Counter,
+    deadline: float | None,
+    local: bool,
+) -> tuple[list[dict], list[PageRead], str | None]:
+    facts: list[dict] = []
     reads: list[PageRead] = []
-    for page in range(1, pages_total + 1):
-        if page not in text_pages:
-            reads.append(PageRead(page, False, False, NO_TEXT_LOCAL))
-        elif page in reading.errors:
-            reads.append(PageRead(page, False, False, reading.errors[page]))
+    stopped: str | None = None
+    for page in range(1, total + 1):
+        text = pages.get(page, "")
+        if not text.strip():
+            reads.append(
+                PageRead(page, False, False, NO_TEXT_LOCAL if local else NO_TEXT_CLAUDE)
+            )
+        elif stopped:
+            reads.append(
+                PageRead(
+                    page,
+                    False,
+                    False,
+                    BUDGET
+                    if stopped == "role_budget"
+                    else f"not read: a limit stopped the Reader ({stopped})",
+                )
+            )
+        elif deadline is not None and time.monotonic() >= deadline:
+            stopped = "time_budget"
+            reads.append(
+                PageRead(
+                    page, False, False, "not read: the Reader's time budget ran out"
+                )
+            )
         else:
-            reads.append(PageRead(page, True, False, None))
-    return list(reading.facts), reads, reading.stopped
-
-
-def _default_local() -> Callable[[str], str]:
-    from . import datasheet_ai
-
-    call, why = datasheet_ai.model_call_for("ollama")
-    if call is None:
-        raise RuntimeError(why or "no local model")
-    return call
+            try:
+                r = _read_page(
+                    ask,
+                    paper_id,
+                    page,
+                    text,
+                    None if local else _picture(picture_of, page),
+                    fields,
+                    rules,
+                    dropped,
+                )
+            except StopRun as exc:
+                stopped = exc.count_key
+                reads.append(
+                    PageRead(
+                        page,
+                        False,
+                        False,
+                        f"not read: a limit stopped the Reader ({stopped})",
+                    )
+                )
+                continue
+            if r.budget:
+                stopped = "role_budget"
+            facts.extend(r.facts)
+            reads.append(_page_read(page, r))
+    return facts, reads, stopped
 
 
 # ------------------------------------------------------------------ the role
@@ -308,54 +277,40 @@ def read_paper(
     equipment_type: str | None = None,
     tables: Mapping[int, list] | None = None,
     pages_total: int | None = None,
-    seam: Seam | None = None,
     picture_of: PictureOf | None = None,
-    local_call: Callable[[str], str] | None = None,
     model: str | None = None,
     rules: Mapping | None = None,
     max_seconds: float | None = None,
+    gate: nine_call.RoleGate | None = None,
+    **seam_kwargs: Any,
 ) -> ReadResult:
-    """The whole paper, page by page, into one fact sheet. `engine` is the review's choice ("claude" needs `seam`; "local" sends nothing).
-    Never raises into the review: a page that could not be read says why, and the role is "ran partly"."""
+    """The whole paper, page by page, into one fact sheet. `engine` is the review's choice ("claude" or "local"); `seam_kwargs` go to `nine_call.ask`
+    unchanged (`conn`, `meter`, and for tests `send`, `env`, `local_send`). Never raises into the review: a page that could not be read says why, and the
+    role is "ran partly"."""
     rules = rules if rules is not None else datasheet_checks.load_rules()
     total = pages_total if pages_total is not None else max([*pages, 0])
     fields = field_list_for(equipment_type, dict(rules))
     dropped: Counter = Counter()
     deadline = time.monotonic() + max_seconds if max_seconds else None
-    if engine == "claude" and seam is None:
-        return _not_run(run_id, paper_id, total, engine, "the call seam was not given")
+    gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
+
+    def ask(blocks: list[nine_call.Block], question: str) -> nine_call.Answer:
+        return nine_call.ask(
+            run_id, ROLE_NO, blocks, question, engine=engine, gate=gate, **seam_kwargs
+        )
+
     try:
-        if engine == "claude":
-            assert seam is not None
-            read, reads, stopped = _read_claude(
-                seam,
-                paper_id,
-                pages,
-                picture_of,
-                fields,
-                rules,
-                total,
-                dropped,
-                deadline,
-            )
-        else:
-            read, reads, stopped = _read_local(
-                local_call,
-                pages,
-                equipment_type,
-                rules,
-                fields,
-                total,
-                dropped,
-                max_seconds,
-            )
-    except StopRun as exc:
-        return _not_run(
-            run_id,
+        read, reads, stopped = _read_pages(
+            ask,
             paper_id,
+            pages,
             total,
-            engine,
-            f"a limit stopped the Reader ({exc.count_key})",
+            picture_of,
+            fields,
+            rules,
+            dropped,
+            deadline,
+            engine == "local",
         )
     except Exception as exc:  # noqa: BLE001 - a failing reader never fails the review; the role says it did not run and why
         log.warning("nine reader: did not run (%s)", type(exc).__name__)
@@ -367,9 +322,10 @@ def read_paper(
             f"the reader did not run: an error ({type(exc).__name__})",
         )
     picture_pages = {r.page for r in reads if r.picture_read}
+    readings = [{**f, "tag": f.get("tag")} for f in read]
     facts, counts = nine_facts.merge(
         stored_facts,
-        [_as_reading(f) for f in read],
+        readings,
         pages,
         read_source="ai_picture" if picture_pages else "ai_text",
         model=model,
@@ -380,7 +336,7 @@ def read_paper(
         run_id, paper_id, total, reads, facts, engine, [model] if model else []
     )
     not_read = {r.page: r.not_read_why for r in reads if not r.text_read}
-    produced = {
+    produced: dict[str, Any] = {
         "facts": len(facts),
         "pages_read": sum(r.text_read for r in reads),
         "pages_with_picture": len(picture_pages),
@@ -392,6 +348,8 @@ def read_paper(
         "stored_only": counts.get("rules_only", 0),
         "agreed": counts.get("agreed", 0),
     }
+    if engine == "local":
+        produced["pictures"] = PICTURES_LOCAL
     partly = bool(not_read) or bool(stopped)
     why = None
     if partly:
@@ -400,19 +358,6 @@ def read_paper(
             or f"a limit stopped the Reader ({stopped})"
         )
     return ReadResult(sheet, produced, "ran_partly" if partly else "ran", why)
-
-
-def _as_reading(f: Mapping) -> dict:
-    """A form-reader fact as the merge reads it (`field`, `value`, `unit`, `quote`, `page`, `kind`)."""
-    return {
-        "field": f.get("field"),
-        "value": f.get("value"),
-        "unit": f.get("unit"),
-        "quote": f.get("quote"),
-        "page": f.get("page"),
-        "kind": f.get("kind") or "offered",
-        "tag": f.get("tag"),
-    }
 
 
 def _not_run(
@@ -425,8 +370,11 @@ def _not_run(
 
 
 __all__ = [
+    "BUDGET",
+    "NOT_SENT",
     "NO_TEXT_CLAUDE",
     "NO_TEXT_LOCAL",
+    "PICTURES_LOCAL",
     "ROLE_NAMES",
     "STEP",
     "ReadResult",
