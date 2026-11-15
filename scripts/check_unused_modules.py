@@ -47,6 +47,9 @@ ENTRY_POINTS = (
     "nine_reader",
     "nine_facts",
     "agent_review_calculator_reader",
+    # nine-role reviewer, B1: the stored record and the one call seam, being wired (remove when `nine_job` imports them)
+    "nine_record",
+    "nine_call",
 )
 
 
