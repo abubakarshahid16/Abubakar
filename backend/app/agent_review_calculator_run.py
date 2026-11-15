@@ -44,11 +44,14 @@ def enabled() -> bool:
 
 def runner_done(stored: dict) -> dict:
     """The stored lines the runner may resume from: a code line has no plan item, so the runner never re-caps it."""
+    from . import agent_review_rule_choice as rule_choice
+
     return {
         k: v
         for k, v in stored.items()
         if not v.get("error")
         and str(v.get("source") or "").strip().casefold() != calc.SOURCE
+        and not rule_choice.is_group_line(v)  # a rule choice's group line is not a plan item either
     }
 
 
@@ -81,6 +84,7 @@ def finish(plan: dict, runner) -> tuple[list[dict], dict]:
         if runner
         else []
     )
+    lines += plan.get("extra_lines") or []  # the rule choice's group lines
     lines += plan.get("code_lines") or []
     return lines, counts_with(runner_mod.counts_of(lines, runner), plan)
 

@@ -77,6 +77,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_pass_guards` | Two guards on a textual Pass (a rule without numbers): the verified paper quote must stand on, or next to, a page line that carries the words of the rule's own field, and a conditional rule needs a verified quote for its condition; a guard can only take a Pass away (the line becomes "AI thinks: met"), never touches a Fail or a number rule |
 | `agent_review_context` | The AI reviewer's context check F4 (core): a Fail is proven only after one call with the rule-book page; it can only hold |
 | `agent_review_rules` | The AI reviewer's rule choice (core): a rule is asked only when its label kind is the paper's and its tier is usable; every other rule counted with one reason |
+| `agent_review_rule_choice` | Rule choice v2 of the AI reviewer (off by default): the partial-standard gate, rank and budget per review, the plain marker of a rule not yet approved, one grouped point per rule book |
 | `agent_review_items` | The AI reviewer's item list (core): the right rules and approved checklist items for one paper, page hints, batches |
 | `agent_review_pages` | Page pictures for the AI reviewer (core): rendering and the image block; not wired into the first job (text pages only) |
 | `agent_review_text` | What the library holds for a paper to read: no text / not indexed (the AI review stops before any rule is chosen or any call is made, with one plain sentence) or partly readable (reviewed, pages with no text listed) |

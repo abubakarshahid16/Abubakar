@@ -22,6 +22,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from . import agent_review_rule_choice as rule_choice
 from . import rule_equipment, rule_labels
 from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment filter lives in its own module
     ANOTHER_EQUIPMENT,
@@ -63,7 +64,10 @@ REASONS = (
     *PAPER_EQUIPMENT_REASONS,
     PART_EXCLUDED,
     TWO_READERS_OTHER,
+    rule_choice.PART_OUTSIDE,
+    rule_choice.BELOW_LIMIT,
 )
+V2_REASONS = (rule_choice.PART_OUTSIDE, rule_choice.BELOW_LIMIT)
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
     NEEDS_HUMAN: "needs a human",
@@ -77,9 +81,15 @@ REASON_WORDS = {
     UNREADABLE: "the paper's equipment could not be read",
     PART_EXCLUDED: "a part excluded by a value the paper states",
     TWO_READERS_OTHER: "both labelling readers named other equipment",
+    rule_choice.PART_OUTSIDE: rule_choice.WORDS[rule_choice.PART_OUTSIDE],
+    rule_choice.BELOW_LIMIT: rule_choice.WORDS[rule_choice.BELOW_LIMIT],
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
-ASK_UNAPPROVED_MODES = ("off", "both")
+ASK_UNAPPROVED_MODES = (
+    "off",
+    "both",
+    "agreed_field",
+)  # agreed_field: rule choice v2 (the field must be agreed too)
 #: A rule we cannot quote cleanly is not shown to an engineer as a rule, so these disagreement parts exclude it.
 UNQUOTABLE_PARTS = frozenset({"ocr_low_confidence", "unreadable_quote"})
 #: `usable_tier` reason word -> the left-out reason of this module
@@ -176,7 +186,8 @@ def _decide_label(
     parts = _parts(label.get("disagreement"))
     page = label.get("quote_page")
     if (
-        ask_unapproved == "both"
+        ask_unapproved in ("both", "agreed_field")
+        and (ask_unapproved == "both" or bool(label.get("field")))
         and got.reason == rule_labels.NEEDS_A_HUMAN
         and state == rule_labels.NEEDS_HUMAN
         and isinstance(page, int)
@@ -186,7 +197,11 @@ def _decide_label(
         out.update(
             ask=True,
             tier=TIER_NOT_APPROVED,
-            unapproved_why=", ".join(sorted(parts)) or "not agreed",
+            unapproved_why=(
+                rule_choice.unapproved_sentence(parts)
+                if ask_unapproved == "agreed_field"
+                else ", ".join(sorted(parts)) or "not agreed"
+            ),
         )
         return out
     out["reason"] = _REASON_OF.get(got.reason, NOT_LABELLED)
@@ -328,7 +343,12 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
         if r["reason"] == ANOTHER_PAPER
     )
     out: dict[str, Any] = {
-        r: c.get(r, 0) for r in REASONS if r not in (ANOTHER_PAPER, ANOTHER_EQUIPMENT)
+        r: c.get(r, 0)
+        for r in REASONS
+        if r not in (ANOTHER_PAPER, ANOTHER_EQUIPMENT)
+        and (
+            c.get(r) or r not in V2_REASONS
+        )  # rule choice v2 words appear only when used: off, the counts are as they were
     }
     parts: Counter = (
         Counter()
@@ -412,6 +432,11 @@ def summary_lines(
     if counts.get(TWO_READERS_OTHER):
         lines.append(
             f"both labelling readers named other equipment: {counts[TWO_READERS_OTHER]} rules not asked"
+        )
+    if counts.get(rule_choice.PART_OUTSIDE):
+        lines.append(
+            f"{counts[rule_choice.PART_OUTSIDE]} rules of a book that governs this equipment only in part were not asked: "
+            f"{rule_choice.WORDS[rule_choice.PART_OUTSIDE]}"
         )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"

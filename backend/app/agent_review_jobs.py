@@ -54,6 +54,7 @@ from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
 from . import agent_review_reread as reread_mod
 from . import agent_review_reuse as reuse_mod
+from . import agent_review_rule_choice as rule_choice
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
@@ -96,8 +97,8 @@ STEPS = (
     "writing the CRS and the record",
 )
 ACTIVE_RUN = review_jobs.ACTIVE_RUN
-#: Rules that are not AI approved are NOT asked in the app (lead decision, 11 Nov 2026 night): "measured 11 Nov: no key row
-#: gained, more wrong opinions". The cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
+#: Rules not AI approved are NOT asked (lead, 11 Nov 2026: no key row gained, more wrong opinions) unless rule choice v2 is on;
+#: the cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
 ASK_UNAPPROVED = "off"
 
 
@@ -411,17 +412,13 @@ def _plan(
     scope_run = _scope_run_id(conn, submittal, run_id, scope, heartbeat)
     local = local_mod.local_run(run_id)
     if not local:  # a local run approves nothing for Claude
-        claude_auto_approve.on_review_start(
-            scope_run
-        )  # a cited standard joins the list too (when auto-approve is on)
+        claude_auto_approve.on_review_start(scope_run)  # a cited standard joins the list too (when auto-approve is on)  # fmt: skip
     cache: dict = {}
-    # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
-    # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
+    # Inline selection stores BOOKS only: the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED,
-                                        shown=review_shown.shown_ids(conn, run_id))  # fmt: skip
-    # A rule book the list shown before the start does not name is dropped HERE, before any request is built: its rules are not
-    # asked, none of its text is sent, the run goes on with the listed books, and the result counts what was left out.
+                                        equipment_type=kind.equipment_type, shown=review_shown.shown_ids(conn, run_id),
+                                        **rule_choice.plan_args(bool(local), ASK_UNAPPROVED))  # fmt: skip
+    # A book the list shown before the start does not name is dropped HERE, before any request: none of its text is sent.
     left_out = review_shown.drop_unlisted(conn, run_id, doc)
     claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
     _write_rules(run_id, doc, cache, kind.kind)
@@ -443,6 +440,7 @@ def _plan(
         "items": list(doc.get("items") or []),
         "cache": cache,
         "stop": None,
+        **rule_choice.plan_extra(doc),
     }
 
 
@@ -634,6 +632,7 @@ def _execute(
         if plan["items"]:
             _ask(run_id, submittal, kind, plan, holder)
     finally:  # the CRS and the run row are written for a partial run too
+        plan["extra_lines"] = rule_choice.store_group_lines(run_id, plan, store_line)  # fmt: skip
         result = _finish(run_id, submittal, kind, plan, holder.get("runner"), started)
     return result
 

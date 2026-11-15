@@ -74,6 +74,8 @@ LeftOutReason = Literal[
     "the paper's equipment could not be read",
     "a part excluded by a value the paper states",
     "both labelling readers named other equipment",
+    "this part of the book does not govern this equipment",
+    "below the limit for one review",
 ]
 
 #: The closed table every line must match: class -> (allowed words, allowed

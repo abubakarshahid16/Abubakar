@@ -520,6 +520,14 @@ class SettingsExt(BaseModel):
     #: Agent proof test (#1690, part of #805): a lead reviewer agent loop (`agent_loop`) with tools. OFF by default.
     #: Env: AGENT_REVIEW_ENABLED. Claude calls go only through reader_transport and claude_spend.metered.
     agent_review_enabled: bool = False
+    #: Owner order 15 Nov 2026 (rule choice v2): the AI reviewer asks the rules a datasheet can answer, not 37 of 4,418. ON: the
+    #: partial-standard gate, "needs a human" rules whose kind AND field the two labelling readers agree on are asked (marked "rule
+    #: not yet approved by an engineer"; an AI opinion or a Query at most, never a decision), a rank and a budget per review, and one
+    #: grouped point per rule book for the rest. OFF (default): the plan and every request are exactly what they were.
+    #: Env: AGENT_REVIEW_RULE_CHOICE_V2_ENABLED. The budgets (rules asked in one review): AGENT_REVIEW_BUDGET_CLAUDE, AGENT_REVIEW_BUDGET_LOCAL.
+    agent_review_rule_choice_v2_enabled: bool = False
+    agent_review_budget_claude: int = 150
+    agent_review_budget_local: int = 40
     #: Owner order 13, 12 Nov 2026 (point 10): the class "AI verdict, two readers agree" for the AI reviewer. After the first reader
     #: answers, a second reader of a different model family answers the SAME question independently (it never sees the first
     #: answer); a line is of the class only when both verdicts agree, code verified both readers' quotes and no guard objects.
