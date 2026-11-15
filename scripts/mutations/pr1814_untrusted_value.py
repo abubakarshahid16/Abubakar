@@ -14,9 +14,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1814-01",
         phase=1814,
-        description="the evaluator's second exit is not applied: a result on a value in conflict stays a Pass or Fail, in the classic path and the calculator",
-        path=APP / "datasheet_checks.py",
-        anchor="    out = untrusted_value.hold_results(out, facts, rules, wanted)  # a value nobody can trust yet\n",
+        description="the evaluator's exit does not call the untrusted-value hold: a result on a value in conflict stays a Pass or Fail, in the classic path and the calculator",
+        path=APP / "deferred_value.py",
+        anchor="    results = untrusted_value.hold_results(results, facts, rules, wanted)  # a value nobody can trust yet is no verdict\n",
         replacement="    pass\n",
         target=_T,
         keyword="reviewers_case or classic_path",

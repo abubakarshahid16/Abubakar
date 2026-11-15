@@ -22,7 +22,7 @@ REASON_IN_WORDS = {
 def evaluate(facts, equipment_type=None, held=True, monkeypatch=None):
     if not held:  # the evaluator without its second exit: what main does today
         monkeypatch.setattr(
-            datasheet_checks.untrusted_value,
+            untrusted_value,
             "hold_results",
             lambda results, *a: results,
         )

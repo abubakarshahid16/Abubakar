@@ -34,15 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import (
-    absence,
-    blank_markers,
-    claims,
-    datasheet_roles,
-    kit_core,
-    severity_rule,
-    untrusted_value,
-)
+from . import absence, blank_markers, claims, datasheet_roles, kit_core, severity_rule
 from . import hold_reason as why_held
 from .at_limit import hold as _hold
 from .checklist_scope import governs, sources
@@ -394,7 +386,6 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                            ("A revision block was found." if has_block else
                             "No revision block was found on the datasheet pages read."),
                            None, "revision_block", None))
-    out = untrusted_value.hold_results(out, facts, rules, wanted)  # a value nobody can trust yet
     return hold_results(out, facts, rules, wanted)
 
 

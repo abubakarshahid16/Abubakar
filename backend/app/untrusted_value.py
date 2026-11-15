@@ -1,7 +1,7 @@
 """A checklist result that rests on a value nobody can trust yet is a QUESTION, never a Pass or Fail (lead, 15 Nov 2026; R48n; the rule of `comparison.low_trust_reason`,
 which the standards comparison already applies, made true for the datasheet checks too, whichever path calls them and whether or not any trust switch is on).
 
-`hold_results` is the second exit of `datasheet_checks.evaluate`, beside `deferred_value.hold_results`. A COMPLIANT or NON_COMPLIANT result is turned into
+`hold_results` is called first by `deferred_value.hold_results`, the one exit of `datasheet_checks.evaluate` (the evaluator itself is untouched). A COMPLIANT or NON_COMPLIANT result is turned into
 NEEDS_ENGINEER_REVIEW (hold code `hold_reason.OTHER`, the check's own reading kept in the words) when it RESTS on an untrusted fact: the fact it is about, the fact of
 the role it is checked against, or, for a calculation, a fact of its input roles. "Untrusted": the value carries two readings (`reading_conflict`, made by the calculator
 step), or `comparison.low_trust_reason` names a reason (a state of conflict or needing an engineer, a model reading whose quote is not proved), unless an engineer has
