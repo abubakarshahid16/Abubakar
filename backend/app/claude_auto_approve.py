@@ -490,9 +490,13 @@ def _note_unshown(review_run_id: str, applied_run: str | None = None, extra=()) 
         )
 
 
-def note_unshown_for(review_run_id: str, applied_run: str, extra=()) -> None:
-    """The AI reviewer's run: the standards were applied on `applied_run`; say how many the list shown before the start left out."""
-    _note_unshown(review_run_id, applied_run, extra)
+def note_unshown_for(
+    review_run_id: str, applied_run: str, extra=(), local: bool = False
+) -> None:
+    """The AI reviewer's run: the standards were applied on `applied_run`; say how many the list shown before the start left out.
+    A local run sends nothing, so no book was "not sent" for it (a stored empty list is not read for it)."""
+    if not local:
+        _note_unshown(review_run_id, applied_run, extra)
 
 
 def record_on_run(review_run_id: str) -> None:

@@ -18,6 +18,7 @@ from . import agent_review_crs as crs_lines
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_standards as standards_mod
 from . import agent_review_verdict as verdict
+from .agent_review_local import NO_VERDICT_CODE
 from .agent_review_request import (
     ABSENCE_SECOND_MAX_TOKENS,
     ABSENCE_SECOND_SYSTEM,
@@ -55,6 +56,11 @@ def _book_fields(item: Mapping, ev: Mapping) -> dict:
 
 
 class DecideMixin:
+    @staticmethod
+    def unanswered(got: Mapping | None) -> bool:
+        """The reader left the item out, or gave it no verdict (not Pass, Fail or Query): it is asked once more (`run_batch_claude`)."""
+        return got is None or verdict.ai_verdict_word(got.get("verdict")) is None
+
     @property
     def books(self) -> Any:
         """The rule books' own stored pages for the clause-quote check, each read once on the thread that needs it, kept for the run."""
@@ -208,6 +214,12 @@ class DecideMixin:
         answer = answer or {}
         if answer == {} and not error:
             error = "no_answer_for_item"
+        elif (
+            answer
+            and not error
+            and verdict.ai_verdict_word(answer.get("verdict")) is None
+        ):
+            error = NO_VERDICT_CODE  # asked again once already (`run_batch_claude`, `_run_item_local`): still no verdict = "Not reviewed"
         ev = self._evidence(item, answer, pages, error)
         g = self._gate(item, answer, ev, lead_model, error, box)
         # F1 (conditional rule), F3 (table row or note), then THE cap of a rule that is not approved

@@ -28,6 +28,18 @@ from .db import connect
 log = logging.getLogger(__name__)
 
 
+NOTHING_LEAVES_WORDS = "AI review not started: this review was started with nothing leaving this computer; start again and choose Claude to send it"
+
+
+def _why_local_off(ai: dict) -> str:
+    """The plain reason the local AI review did not start: the local reviewer switched off on this install, else the plan's own words."""
+    from . import agent_review_local
+
+    if not agent_review_local.switch_on():
+        return "the local AI reviewer is switched off on this install"
+    return str(ai.get("why") or "the plan did not allow it")
+
+
 class StartRefused(Exception):
     """The plan refused the start; `code` and the plain sentence."""
 
@@ -66,9 +78,11 @@ def start(
     )
     bar = parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
     # The cap: only what the screen showed AND what is still allowed now. None = no list was shown (the older behaviour).
+    # A run that sends nothing (Local only, or Automatic that fell back to the local model) stores NO list: the list only restricts
+    # what is SENT, and an empty one would read as "no book may be used" (live, 15 Nov 2026: the AI review was refused at the start).
     shown = (
         None
-        if shown_document_ids is None
+        if shown_document_ids is None or not plan["text_leaves"]
         else review_shown.cap(plan, shown_document_ids)
     )
     stored_plan = review_shown.without_titles(plan)
@@ -161,13 +175,24 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
         return None
     # The plan is made again: approvals and caps may have changed since the button was pressed. A part that is no longer
     # allowed is not started, and the record says why in words.
-    again = review_engine.plan_for(conn, doc, scope, got["choice"])
+    # THE START DECIDES: a start whose screen said nothing leaves (its stored plan sent no text) can never send anything for its whole
+    # life. Its follow-up is planned as Local only, so it can stay local or not start, never widen to Claude (a re-plan may only narrow).
+    sends = bool((got["plan"] or {}).get("text_leaves"))
+    again = review_engine.plan_for(
+        conn, doc, scope, got["choice"] if sends else review_engine.LOCAL
+    )
     ai = next(p for p in again["parts"] if p["name"] == review_engine.AI_REVIEW)
     if again["refused"] or ai["engine"] not in (
         review_engine.ON_CLAUDE,
         review_engine.ON_LOCAL,
     ):
-        _note(conn, run_id, f"not started: {ai['why']}")
+        _note(
+            conn,
+            run_id,
+            f"not started: {ai['why']}"
+            if sends
+            else f"{NOTHING_LEAVES_WORDS} ({_why_local_off(ai)})",
+        )
         return None
     on_local = (
         ai["engine"] == review_engine.ON_LOCAL

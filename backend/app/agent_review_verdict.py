@@ -61,7 +61,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import agent_bind, agent_run_second, agent_tools, blank_markers
-from .agent_review_local import failed_words
+from .agent_review_local import failed_words, no_decision_words
 from .reader_api import _fold
 
 PASS, FAIL, QUERY = "Pass", "Fail", "Query"
@@ -228,7 +228,7 @@ def textual_verdict(
     if error:
         return _query(failed_words(error), second_opinion="not asked")
     if ai_verdict not in (PASS, FAIL):
-        return _query("the AI did not give pass or fail", second_opinion="not asked")
+        return _query(no_decision_words(ai_verdict), second_opinion="not asked")
     if not checks.paper:
         return _query(
             f"paper quote not verified by code ({checks.paper_why})",

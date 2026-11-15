@@ -46,6 +46,13 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
           {summary.decisions.not_stated > 0 && `; of which: not stated on the paper ${summary.decisions.not_stated}`}
         </p>
       )}
+      {summary.query_groups && (
+        <p data-testid="agent-query-groups" className="text-sm text-slateish-100">
+          The AI reviewer's own questions, counted apart: for the contractor (the sheet does not state it) {summary.query_groups.contractor_silent};
+          for the engineer (needs a drawing or a calculation) {summary.query_groups.engineer_drawing}; the AI could not decide {summary.query_groups.could_not_decide}
+          {summary.not_reviewed > 0 && `. Not reviewed (the AI gave no answer): ${summary.not_reviewed}`}
+        </p>
+      )}
       {summary.two_reader_step && (
         <p data-testid="two-reader-step" className="text-sm text-slateish-100">
           Second AI reader (internal): {summary.two_reader_step.candidates} lines were candidates, {summary.two_reader_step.asked} asked in{" "}
