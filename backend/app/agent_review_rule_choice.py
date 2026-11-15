@@ -100,6 +100,7 @@ def partial_gate_rows(
         equipment=set(equipment_names),
         standard_labels=dict(standard_labels),
         partial_standards=table.get("partial_standards") or {},
+        plural=True,  # rule choice v2 only: this function runs only with the switch on
     )
     rescued, unagreed = _rescued_ids(
         conn, [it["requirement"].get("id") for it in got["items"]], eq_ctx

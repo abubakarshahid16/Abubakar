@@ -422,7 +422,7 @@ def test_the_gate_matches_a_word_and_its_plain_plural_in_any_book():
 
     def kept(text):
         got = subject_scope.partial_gate([{"id": "x", "standard_document_id": "d", "requirement_text": text}], equipment={"relief valve"},
-                                         standard_labels={"d": ASME}, partial_standards=table)  # fmt: skip
+                                         standard_labels={"d": ASME}, partial_standards=table, plural=True)  # fmt: skip
         return bool(got["kept"])
 
     for text in ("Pressure relief devices shall be marked", "Pressure relief device shall be marked", "Relief valves shall open",
@@ -678,7 +678,7 @@ def test_a_process_word_takes_no_plural_and_a_device_word_does(tmp_path):
 
     def kept(text, e=entry):
         got = subject_scope.partial_gate([{"id": "x", "standard_document_id": "d", "requirement_text": text}], equipment={"relief valve"},
-                                         standard_labels={"d": ASME}, partial_standards={"relief valve": [e]})  # fmt: skip
+                                         standard_labels={"d": ASME}, partial_standards={"relief valve": [e]}, plural=True)  # fmt: skip
         return bool(got["kept"])
 
     assert kept("The relief valves shall open") and kept(
@@ -701,3 +701,54 @@ def test_the_real_data_lists_only_words_of_the_entry_under_no_plural():
     for entries in table["partial_standards"].values():
         for e in entries:
             assert set(e.get("no_plural", [])) <= set(e["words"])
+
+
+# ---------------------------------------------------------------- off is silent: the old rule check keeps its exact singular scope
+
+
+def test_without_the_switch_the_gate_is_the_old_singular_one_for_every_caller():
+    from app import subject_scope
+
+    table = {"relief valve": [{"standard": "ASME BPVC Section VIII Division 1", "applies_to": "x",
+                               "words": ["pressure relief device", "relief valve", "accumulation"], "no_plural": ["accumulation"]}]}  # fmt: skip
+
+    def gate(text, **kw):
+        got = subject_scope.partial_gate([{"id": "x", "standard_document_id": "d", "requirement_text": text}], equipment={"relief valve"},
+                                         standard_labels={"d": ASME}, partial_standards=table, **kw)  # fmt: skip
+        return bool(got["kept"])
+
+    for text in (
+        "Pressure relief devices shall be marked",
+        "The relief valves shall open",
+    ):
+        assert not gate(text) and gate(
+            text, plural=True
+        )  # off: left out as on main; the AI reviewer's v2 path: kept
+    for text in (
+        "Pressure relief device shall be marked",
+        "The accumulation shall be limited",
+        "Weld seams shall be examined",
+    ):
+        assert (
+            gate(text) == gate(text, plural=True) == ("Weld" not in text)
+        )  # the singular words behave the same either way
+
+
+def test_the_old_rule_checks_equipment_scope_is_the_singular_gate_on_invented_data():
+    import inspect
+
+    from app import (
+        equipment_scope,
+    )
+
+    src = inspect.getsource(equipment_scope)
+    assert (
+        "partial_gate(" in src
+        and "plural" not in src.split("partial_gate(", 1)[1].split(")", 1)[0]
+    )  # it never asks for the plural
+
+
+def test_the_rule_choice_path_asks_for_the_plural():
+    import inspect
+
+    assert "plural=True" in inspect.getsource(RC.partial_gate_rows)

@@ -14,7 +14,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="relief_valve_review_does_not_check", tags=("applicability", "critical")),
     Mutation(id="M761-02", phase=761, description="every requirement of a partial standard is kept",
              path=APP / "subject_scope.py",
-             anchor="        if any(re.search(r\"(?<![a-z0-9])\" + re.escape(_fold(w)) + (\"\" if w in e.get(\"no_plural\", ()) else r\"(?:e?s)?\") + r\"(?![a-z0-9])\", text) for w in e[\"words\"]):\n",
+             anchor="        if any(re.search(r\"(?<![a-z0-9])\" + re.escape(_fold(w)) + r\"(?![a-z0-9])\", text) for w in e[\"words\"]):\n",
              replacement="        if True:\n",
              target=_T, keyword="only_the_parts", tags=("applicability",)),
     Mutation(id="M761-03", phase=761, description="a partial standard applies to every equipment type",
