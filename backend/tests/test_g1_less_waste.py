@@ -96,8 +96,10 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 56 on 12 Nov (ONE REVIEWER, PR 3 on R48e): the calculator, its proof, its step and the approved-id module decide a proven Pass or Fail
     # raised to 58 on 12 Nov (ONE REVIEWER, table cell): the cell locator and the per-tag step decide which value a proven line rests on
     # raised to 59 on 15 Nov: main's own additions (round 11) and the two table-cell files together
+    # raised to 60 on 15 Nov (reader first): the module that decides which stored values are current
     # raised to 60 on 15 Nov (#1814): the second exit of the datasheet evaluator, a value nobody can trust is not a verdict
-    assert len(vp.VERDICT_PATH) <= 60
+    # raised to 61 on 15 Nov: both of the two lines above are on the list together
+    assert len(vp.VERDICT_PATH) <= 61
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

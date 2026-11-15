@@ -587,6 +587,9 @@ class SettingsExt(BaseModel):
     #: "Proven by code" only with a compared value and both quotes found by code. Needs the AI reviewer on; off (default): the job is byte-for-byte
     #: what it was. Env: AI_REVIEW_CALCULATOR_ENABLED.
     ai_review_calculator_enabled: bool = False
+    # ONE REVIEWER (lead A): with the calculator on, a page that has no value of the paper's current text is read FIRST by the datasheet reader (`DATASHEET_AI_READER`'s engine,
+    # its gates and caps; values are kept in memory for the run, nothing is written to the facts table). Off (default): the calculator uses the stored facts only.
+    ai_review_reader_first_enabled: bool = False
     #: Owner, 12 Nov 2026 (the review code of the redesigned page). N > 0: when the engineer has KEPT at least N AI "not met" points
     #: (two-reader verdicts and one-reader views, never a code-proven Fail) on mandatory ("shall") rules, the proposed code is
     #: "Rejected / Revise and Resubmit", with the count in the reason line. 0 (default) = OFF: those points propose at most

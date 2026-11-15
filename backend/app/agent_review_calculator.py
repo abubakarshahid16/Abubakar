@@ -30,7 +30,7 @@ from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as proof
 from . import agent_review_pass_guards as guards
 from . import agent_review_verdict as verdict_mod
-from . import comparison, hold_reason, table_cell
+from . import comparison, deferred_value, hold_reason, table_cell
 from .reader_api import _fold
 
 SOURCE = "code"
@@ -210,6 +210,15 @@ def _numeric_base(
     }  # fmt: skip
 
 
+def _deferred_breach_words(note: str, base: Mapping, requirement: Mapping) -> str:
+    """Plain words for a stated figure that breaches its limit although the sheet defers the value to the contractor."""
+    obs, lim = base.get("observed") or {}, base.get("limit") or {}
+    return (
+        f"the sheet marks this value as by the contractor ({note}); the figure stated is {obs.get('raw_value')} {obs.get('raw_unit') or ''}".strip()
+        + f", which breaches {requirement.get('operator') or ''} {lim.get('raw_value')} {lim.get('raw_unit') or ''}".rstrip()
+    )
+
+
 def column_not_the_rules(base: Mapping, cell: table_cell.Cell | None) -> str | None:
     """Plain words when the value sits in a column that is not clearly the rule's, else None:
     (1) the column header marks another state of the value (previous, old, superseded, a revision): "the value is under the column '<header>'";
@@ -254,9 +263,12 @@ def numeric_line(
     base = _numeric_base(
         item, requirement, fact, clause_quote, page_count, cell, document_id
     )
+    note = deferred_value.note_of(fact) if fact else None
     got = comparison.compare(
-        dict(requirement), dict(fact) if fact else None, submittal_facts=submittal_facts
-    )
+        dict(requirement),
+        {**fact, "value_note": None} if note else (dict(fact) if fact else None),
+        submittal_facts=submittal_facts,
+    )  # a deferred figure: the arithmetic is asked WITHOUT the deferral, so a stated breach can be told from a pass
     if fact is None:
         return _undecided(
             base, "no value read from the paper answers this rule", "no_fact"
@@ -271,6 +283,16 @@ def numeric_line(
     base["limit"], base["observed"] = got.get("limit"), got.get("observed")
     reason = str(got.get("rationale") or "")[:200]
     status = got.get("status")
+    if note:
+        if got.get("status") != NON_COMPLIANT or got.get(hold_reason.KEY):
+            return _undecided(
+                base,
+                f"the sheet defers {base['field']} to the contractor: confirm the value",
+                "deferred_value",
+                reason,
+            )
+        base["deferred_note"] = note
+        reason = _deferred_breach_words(note, base, requirement)
     if status not in (COMPLIANT, NON_COMPLIANT) or not (
         got.get("limit") and got.get("observed")
     ):

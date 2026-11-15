@@ -225,12 +225,11 @@ def apply_settings(cfg: TrialConfig) -> dict:
         settings.standards_reader_enabled = False
         settings.standards_reader_allow_public_egress = False
         settings.anthropic_api_key = ""
-        if not (cfg.engine == "local" and cfg.allow_local_models):
+        if not cfg.allow_local_models:  # `--allow-local-models`: the local reader (DATASHEET_AI_READER=ollama) may answer; Claude stays closed
             settings.ollama_url = (
                 "http://127.0.0.1:9"  # a dead address: no local model can answer
             )
-        # `--engine local --allow-local-models`: the lane stays closed (no key, no Claude flag) but the local engine address is kept,
-        # so the AI reviewer's local run (AGENT_REVIEW_LOCAL_ENGINE_ENABLED, set with --set) can reach the local model
+        # `--allow-local-models` keeps the local engine address (the lane stays closed: no key, no Claude flag): the local reader (DATASHEET_AI_READER=ollama) and the AI reviewer's local run can reach the model
         for name in ("ANTHROPIC_API_KEY",):
             os.environ.pop(name, None)
         os.environ["REASONING_PROVIDER"] = "ollama"

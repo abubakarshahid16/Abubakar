@@ -24,7 +24,7 @@ from collections.abc import Mapping
 
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
-from . import comparison, hold_reason, numparse, table_cell
+from . import blank_markers, comparison, hold_reason, numparse, table_cell
 from .reader_api import _fold
 
 BY_CODE = (
@@ -508,6 +508,23 @@ def paper_ok(line: Mapping) -> bool:
     return guards.belongs({"field_roles": [label]}, quote, text)[0]
 
 
+def deferral_marked(line: Mapping) -> bool:
+    """The value is printed with a deferral phrase ("By Contractor", "TBA"): on the line, in its quote, or on the lines of the re-read page the quote lies on."""
+    if line.get("deferred_note") or blank_markers.names_a_marker(
+        str(line.get("paper_quote") or "")
+    ):
+        return True
+    text = page_text_of(line)
+    own, _above = (
+        guards._own_and_above(text, line.get("paper_quote")) if text else ([], None)
+    )
+    return blank_markers.names_a_marker(" ".join(own))
+
+
+def _deferred_pass(line: Mapping) -> bool:
+    return line.get("verdict") == PASS and deferral_marked(line)
+
+
 def numeric_proven(line: Mapping) -> bool:
     checked = _flags(line)
     req, obs = line.get("proof_requirement"), line.get("proof_fact")
@@ -519,6 +536,7 @@ def numeric_proven(line: Mapping) -> bool:
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
         and paper_ok(line)
+        and not _deferred_pass(line)
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
         and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
