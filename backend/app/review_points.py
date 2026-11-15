@@ -141,6 +141,24 @@ def group_key(
     )
 
 
+def code_question_key(line: dict) -> str | None:
+    """The reason of a question a CODE line (the calculator's) asks, with its field name and its numbers taken out, so that every check the sheet could not
+    make for the SAME reason is one group ("the sheet defers a value to the contractor", "the fluid phase is not stated"). None for any other line."""
+    if str(line.get("source") or "").strip().casefold() != "code":
+        return None
+    why = _clean(line.get("why") or (line.get("compare") or {}).get("reason")).lower()
+    for part in (
+        str(line.get("field") or "").lower(),
+        str(line.get("equipment_tag") or "").lower(),
+    ):
+        if part:
+            why = why.replace(part, " ")
+    why = re.sub(
+        r"\bpages?\s+[0-9]+(?:\s*[-,]\s*[0-9]+)*|\bp\.\s*[0-9]+", " ", why
+    )  # only the page references go: the numbers that make two questions different stay
+    return " ".join(why.split()) or None
+
+
 # ------------------------------------------------------------------------------------------------ a name is the field, not its tags
 
 _BRACKETS = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]")
@@ -153,12 +171,18 @@ def _is_tag_list(inner: str) -> list[str] | None:
     """The items of a bracketed group when it is a list of equipment tags (every item one token with a letter and a digit, two or more
     of them, or one that looks like a tag with its dash); None for a unit or a note like "(barg)" or "(2 mm)". General: it looks at
     the shape of the group, never at one paper's tag scheme."""
-    parts = [x.strip() for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner) if x.strip()]
+    parts = [
+        x.strip()
+        for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner)
+        if x.strip()
+    ]
     items = [x for x in parts if not _MORE.match(x)]
     if not items:
         return None
     if not all(
-        _TAG_ITEM.match(x) and any(c.isdigit() for c in x) and any(c.isalpha() for c in x)
+        _TAG_ITEM.match(x)
+        and any(c.isdigit() for c in x)
+        and any(c.isalpha() for c in x)
         for x in items
     ):
         return None
@@ -297,6 +321,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             clause,
             str(reason),
             _plain(field),
+        )
+        if not ((code_why := code_question_key(line)) and rank == 4)
+        else group_key(
+            SOURCE_AI_REVIEW, rank, "approved checklist", "any check", code_why
         ),
         "tags": tags,
         "added_by": None,
@@ -381,7 +409,9 @@ def rule_point(
         else ""
     )
     reason = (finding or {}).get("reason_code") or kind or ""
-    field, tags = split_tags(section.split(" - ", 1)[-1] if " - " in section else section)
+    field, tags = split_tags(
+        section.split(" - ", 1)[-1] if " - " in section else section
+    )
     name = (
         _plain(field)
         or _plain(" ".join(comment.split()[:7]))
@@ -501,7 +531,9 @@ def counts(
         or (not p.get("books") and (p.get("_book_docs") or p.get("_book_doc")))
     )
     no_book = sum(
-        1 for p in points if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
+        1
+        for p in points
+        if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
     )
     out = {
         "tiles": tiles,
@@ -509,7 +541,9 @@ def counts(
         "total_counts": "points of this paper's review (the rule check and the AI review together)",
         "rule_books": [
             {"id": i, "name": names[i], "points": c}
-            for i, c in sorted(named.items(), key=lambda kv: (-kv[1], names[kv[0]], kv[0]))
+            for i, c in sorted(
+                named.items(), key=lambda kv: (-kv[1], names[kv[0]], kv[0])
+            )
         ],
         "no_rule_book_points": no_book,
         "several_books_points": several,  # counted under EACH of its books, so the chips can add up to more than the total

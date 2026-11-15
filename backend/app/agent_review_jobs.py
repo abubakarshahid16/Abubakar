@@ -32,6 +32,7 @@ from pathlib import Path
 from . import (
     agent_general_job as general_job,
 )
+from . import agent_review_calculator_run as calculator_run
 from . import agent_review_crs as crs_lines
 from . import (
     agent_review_gate,
@@ -469,7 +470,7 @@ def _make_runner(
     send, env = lane()
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
-    done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error")}
+    done = calculator_run.runner_done(stored_lines(run_id))
     answers = None
     if (
         local is None and reuse_mod.enabled()
@@ -553,8 +554,7 @@ def _finish(
 ) -> dict:
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
-    lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
-    counts = runner_mod.counts_of(lines, runner)
+    lines, counts = calculator_run.finish(plan, runner)
     n_cut = reread_mod.cut_off_count(lines)
     if (
         runner is not None and runner.answers is not None
@@ -630,6 +630,7 @@ def _execute(
     _write_missing(run_id, plan["block"].get("missing_rule_books") or [])
     holder: dict = {}
     try:
+        calculator_run.step_job(run_id, submittal, kind, plan, _tier_lookup(kind))
         if plan["items"]:
             _ask(run_id, submittal, kind, plan, holder)
     finally:  # the CRS and the run row are written for a partial run too

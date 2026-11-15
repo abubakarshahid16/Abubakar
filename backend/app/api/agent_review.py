@@ -435,6 +435,15 @@ def _gate_steps(line: dict) -> list[contract.AgentGateStep]:
     return [contract.AgentGateStep(step=a, outcome=b, reason=c) for a, b, c in steps]
 
 
+def _code_gate(line: dict) -> list[contract.AgentGateStep]:
+    from .. import agent_review_code_trace
+
+    return [
+        contract.AgentGateStep(step=a, outcome=b, reason=c)
+        for a, b, c in agent_review_code_trace.steps(line)
+    ]
+
+
 def _general_trace(item_id: str, line: dict, reason: str) -> contract.AgentTrace:
     """The trace of a general review line: the verified quote(s), what code checked, the second model's answer. No rule."""
     q_a = line.get("quote_a") or line.get("quote_paper") or {}
@@ -472,7 +481,7 @@ def _general_trace(item_id: str, line: dict, reason: str) -> contract.AgentTrace
 
 
 @router.get(
-    "/api/reviews/runs/{review_run_id}/agent/lines/{item_id}/trace",
+    "/api/reviews/runs/{review_run_id}/agent/lines/{item_id:path}/trace",
     response_model=contract.AgentTrace,
 )
 def agent_trace(
@@ -497,6 +506,9 @@ def agent_trace(
     if line.get("general"):
         return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")
+    code_line = (
+        str(line.get("source") or "").strip().casefold() == "code"
+    )  # the calculator's line: its trace is its stored proof
     return contract.AgentTrace(
         item_id=item_id,
         page=page if isinstance(page, int) and page >= 1 else None,
@@ -506,7 +518,7 @@ def agent_trace(
         clause=str(line.get("clause") or ""),
         model=str(line.get("model") or ""),
         reason=str(row["reason"] or ""),
-        gate=_gate_steps(line),
+        gate=_code_gate(line) if code_line else _gate_steps(line),
     )
 
 
@@ -528,10 +540,15 @@ def agent_crs(
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="the CRS is not written yet")
-    from .. import review_points_service  # 12 Nov: the sheet holds the engineer's decisions and added points
+    from .. import (
+        review_points_service,
+    )  # 12 Nov: the sheet holds the engineer's decisions and added points
 
     decided = review_points_service.decided_ai_sheet(
-        review_run_id, _run_or_404(review_run_id, scope)["submittal_document_id"], copy, path.parent
+        review_run_id,
+        _run_or_404(review_run_id, scope)["submittal_document_id"],
+        copy,
+        path.parent,
     )
     path = decided or path
     return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")

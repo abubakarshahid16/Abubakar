@@ -17,6 +17,10 @@ from . import (
 from . import (
     review_points as rp,
 )
+from . import (
+    review_points_notes as notes_mod,
+)
+from .config import settings
 from .db import connect
 
 DONE = ("complete", "completed")
@@ -283,6 +287,9 @@ def assemble(paper_id: str, scope) -> dict:
         rp.ai_points_of_run(conn, ai_run, paper_id, readable) if ai_run else ([], [])
     )
     rc_pts = _rule_points(rc_run, paper_id, scope) if rc_run else []
+    # the AI review is the only reviewer: its notes are points of the one list (a rule check lists its own); the notes are the calculator's: behind its setting
+    if ai_run and not rc_run and settings.ai_review_calculator_enabled:
+        ai_pts += notes_mod.notes_of_run(ai_run, paper_id, scope, not_held)
     names = _names(decisions_mod.people(paper_id))
     add_pts = [
         decisions_mod.added_point(r, names.get(r["added_by"]) or r["added_by"])
@@ -309,8 +316,6 @@ def assemble(paper_id: str, scope) -> dict:
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
-    from .config import settings
-
     proposal = review_code_proposal.propose(
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),

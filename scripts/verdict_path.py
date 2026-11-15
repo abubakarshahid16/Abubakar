@@ -63,6 +63,18 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
     (
+        APP + "untrusted_value.py",
+        "holds a datasheet check that rests on a value in conflict or needing an engineer: never a Pass or Fail",
+    ),
+    (
+        APP + "table_cell.py",
+        "locates the one cell of a value on the stored table rows: the cell is the proof of a proven Pass or Fail",
+    ),
+    (
+        APP + "agent_review_calculator_cells.py",
+        "groups facts per tag, lifts or settles a held reading, picks a fact's cell: decides which value a proven line rests on",
+    ),
+    (
         APP + "agent_review_calculator.py",
         "makes a proven Pass or Fail of the one reviewer from a compared value",
     ),
@@ -77,6 +89,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
+    (
+        APP + "agent_review_calculator_run.py",
+        "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass",
+    ),
     (APP + "review_engine.py", "the resolver: which engine reads a paper, what leaves"),
     (
         APP + "review_engine_start.py",
@@ -165,6 +181,7 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
     "agent_review_context.py": "builds the page context a reader sees; decides nothing",
+    "agent_review_code_trace.py": "words the stored proof of a code line for the trace screen; decides nothing",
     "agent_review_coverage.py": "counts coverage for display",
     "agent_review_crs.py": "places a line on a sheet; words are in crs_ai_words",
     "agent_review_gate.py": "the on/off switch only",
