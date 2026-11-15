@@ -478,11 +478,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
     state, why = (
         ran.state()
     )  # the reviewer's own words: WHICH condition made it partly (a group not read, a block the gate held, a call that failed)
-    produced |= {
-        k: v
-        for k, v in ran.produced().items()
-        if k in REVIEWER_RECORD_KEYS
-    }
+    produced |= {k: v for k, v in ran.produced().items() if k in REVIEWER_RECORD_KEYS}
     return RoleResult(state, why, engine=engine, produced=produced)
 
 
