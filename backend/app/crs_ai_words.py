@@ -17,6 +17,7 @@ from collections.abc import Mapping
 
 from . import agent_review_absence as absence
 from .agent_review_two_reader import DISAGREE_ONE_FOUND
+from .clause_check_rank import is_safety
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
     DEFERRED_WHY,
@@ -378,8 +379,38 @@ def priority(status: str, line: Mapping, order: int | None = None) -> str:
     return ""
 
 
+#: The AI reviewer's own Priority rule (U5, P6): from the FINDING, never from the reader's free guess.
+PRIORITY_RULE_AI = (
+    "Priority is set by one rule. Fail (proven by code) = High. For an AI opinion (not met), an AI verdict (not met) and a Query: "
+    "High when the rule is mandatory ('shall') and its clause is about safety (the closed safety vocabulary); Medium when the rule is "
+    "mandatory; otherwise Low. A point that has no clause has no priority. AI opinion (met), AI verdict (met) and Pass = blank. "
+    "Mandatory means a held rule that is not marked as a recommendation ('should'); a checklist item has no stored strength and counts "
+    "as not mandatory."
+)
+
+
+def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
+    """THE AI reviewer's priority (`PRIORITY_RULE_AI`). The normal reviewer keeps `priority`."""
+    if status == STATUS_FAIL:
+        return HIGH
+    not_met = (status == STATUS_AI and order == ORDER_AI_NOT_MET) or (
+        status == STATUS_AI_VERDICT and order == ORDER_AI_VERDICT_NOT_MET
+    )
+    if not (not_met or status == STATUS_QUERY):
+        return ""
+    text = _clean(line.get("clause_quote") or line.get("requirement"))
+    if not (text or _clean(line.get("clause"))):
+        return ""
+    mandatory = line.get("source") == "rule" and line.get("rule_kind") != "advice"
+    if mandatory and is_safety(text):
+        return HIGH
+    return MEDIUM if mandatory else LOW
+
+
 __all__ = [
     "BANNED",
+    "PRIORITY_RULE_AI",
+    "priority_ai",
     "NORMAL_STATUSES",
     "OTHER_SHEET",
     "PRIORITY_RULE",

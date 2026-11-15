@@ -39,9 +39,11 @@ from .agent_review_verdict import (
     SILENCE_CODES,
     met_unsafe_why,
     moved_by_guard,
+    quote_defers,
 )
 from .agent_run_crs import _cell, _page_cell
 
+REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"
 
@@ -231,7 +233,24 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         )
     ):
         out += f" {wording.ONE_READER}{view}"  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion
+    elif status in (words.STATUS_AI, words.STATUS_AI_VERDICT, words.STATUS_QUERY) and (
+        view := words.plain(" ".join(str(line.get("reasoning") or line.get("comment") or "").split())[:400])
+    ):
+        out += f" {REASONING_LABEL} {view}"  # P5: the AI's own reasoning, labelled as its view; a proven Pass or Fail has none
     return out
+
+
+def action_case(line: Mapping) -> str:
+    """What the line HOLDS about the value, decided by code (never by the reader's words): "stated" (a paper quote code verified),
+    "deferred" (the stored reason says so, or the verified quote defers it), "blank" (the paper is silent on the field) or "unknown"."""
+    checked = (line.get("quotes_checked") or {}).get("paper")
+    verified = bool(checked and " ".join(str(line.get("paper_quote") or "").split()))
+    if line.get("reason_code") == "value_deferred" or (verified and quote_defers(line.get("paper_quote"))):
+        return "deferred"
+    if verified:
+        return "stated"
+    silent = line.get("reason_code") in SILENCE_CODES or line.get("silence_query")
+    return "blank" if silent or line.get("verdict_label") == two.WORD_NOT_STATED else "unknown"
 
 
 def _contractor_to(line: Mapping, status: str, order: int) -> str:
@@ -259,6 +278,13 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
+    case = action_case(line)  # a Query: the action follows what the line holds
+    if case == "stated":
+        return f"Contractor to confirm or justify {what}{' against ' + ref if ref else ''}."
+    if case == "deferred":
+        return f"Contractor to provide {what}; it is deferred on the sheet."
+    if case == "unknown":
+        return f"Engineer to check {what}."
     return f"Contractor to state {what}, or the page where it is shown."
 
 
@@ -275,7 +301,7 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
 
 
 def _mandatory_rank(line: Mapping, status: str, order: int) -> str:
-    return words.priority(status, line, order)
+    return words.priority_ai(status, line, order)
 
 
 def _row(
@@ -525,7 +551,7 @@ def _notes_rows(
     count = {s: sum(1 for _l, st, _o in items if st == s) for s in words.STATUSES}
     kinds = {k: sum(1 for _l, kk in others if kk == k) for k in words.OTHER_KINDS}
     kinds[words.KIND_NOT_HELD] = len(missing)
-    rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE)]
+    rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE_AI)]
     if any(ln.get("source") == "skill" for ln, _s, _o in items):
         have = any(
             checklist_wording(ln.get("item_id"))
