@@ -24,7 +24,8 @@ Everything else is the lead's decision: design, screens, wording, removing old p
 is rewritten or removed by the lead, in every home it lives in, and the owner is told in one line. What is NOT a contradiction of the
 goal, because it is the goal or protects it: 0 wrong decisions and the tests, reviews and proof behind them; the honesty and access
 rules (4 and 5); never reading or printing the key (2); the client's register stays blocked (3); the money caps; a verified backup
-before a live change.
+before a live change. This section does not change the privacy and safety rules 1 to 5 or #806 (rule 1 says what may leave the
+machine): those keep their own approval line above; the owner changes them himself, on #1584.
 
 ## One reviewer only (owner, 12 Nov 2026)
 
@@ -53,8 +54,10 @@ An offline, privacy-first document-intelligence system for engineering
 documents. Engineers ask questions and get answers **quoted from their own PDFs
 with document and page**, a cross-document summary, a gap analysis against a
 chosen baseline, and an advisory recommendation. Runs on one machine.
-**A document leaves it only when the user chooses Claude** for a review or a chat request, and the screen lists what will be sent
-before the start; "Local only" sends nothing (rule 1). Client use case: **reviewing contractor
+**A document leaves this machine only through the Claude lane**, which is closed unless the owner's switches open it. When open,
+text goes only for a review started on Claude or on Automatic (which picks Claude when the kind, the approvals and the caps allow)
+and for a chat request where the user chose Claude and selected the documents. The screen lists what will be sent before a review
+starts. "Local only" sends nothing (rule 1). Client use case: **reviewing contractor
 submittals** against specifications.
 
 Product name everywhere: **RAG Intelligence System**. The old names (the earlier
