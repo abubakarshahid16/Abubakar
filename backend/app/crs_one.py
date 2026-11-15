@@ -36,6 +36,7 @@ from . import crs_completeness as completeness
 from . import crs_export_quality, crs_layout
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
+from . import review_points_content as content
 from .agent_run_crs import _cell
 from .crs_ai_actions import reason_for
 from .db import connect
@@ -60,15 +61,15 @@ ISSUED_NAME = "crs-contractor-one.xlsx"
 REASONING_COLUMN = "The AI reviewer's reasoning"
 COMMENT_COLUMNS = (
     "Comment", "Pill", "Class", "Priority", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
-    "What the paper shows", REASONING_COLUMN, "What the rule requires", "Reason", "Decisions", "Note", "Full text",
+    "What the paper shows", REASONING_COLUMN, "What the rule requires", "Reason", "Checked by", "Decisions", "Note", "Full text",
 )  # fmt: skip
-COMMENT_WIDTHS = (9, 26, 14, 10, 30, 8, 14, 52, 48, 48, 48, 48, 36, 22, 34, 60)
+COMMENT_WIDTHS = (9, 26, 14, 10, 30, 8, 14, 52, 48, 48, 48, 48, 36, 30, 22, 34, 60)
 TEAM_COLUMNS = (
     "No", "Comment", "Source", "Pill", "Class", "Priority", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
-    "What the paper shows", REASONING_COLUMN, "What the rule requires", "Reason", "Decision", "Group", "First reader", "Second reader",
+    "What the paper shows", REASONING_COLUMN, "What the rule requires", "Reason", "Checked by", "Decision", "Group", "First reader", "Second reader",
     "Agreed", "Full text",
 )  # fmt: skip
-TEAM_WIDTHS = (6, 9, 16, 22, 14, 10, 30, 7, 24, 12, 48, 48, 48, 48, 36, 22, 18, 20, 20, 10, 60)
+TEAM_WIDTHS = (6, 9, 16, 22, 14, 10, 30, 7, 24, 12, 48, 48, 48, 48, 36, 30, 22, 18, 20, 20, 10, 60)
 CONTRACTOR_COLUMNS = (
     "Item No",
     "Document Name",
@@ -118,6 +119,8 @@ def reason_of(point: dict) -> str:
         if why and why != words.UNKNOWN_WHY:
             return _clean(reason_for(line, why))
         return _clean(reason_for(line, code))
+    if point.get("reason_words"):
+        return _clean(point["reason_words"])
     code = finding.get("reason_code") or row.get("row_kind") or ""
     return _clean(words.code_phrase(code)) if code else ""
 
@@ -126,13 +129,18 @@ def paper_shows(point: dict) -> str:
     """Only a quote code verified, with its check note, or the page's own words for "no verified quote"."""
     if point.get("paper_quote"):
         return f'"{point["paper_quote"]}" ({point["paper_quote_note"]})'
-    return _clean(point.get("paper_quote_note")) or rp.NO_PAPER_QUOTE
+    if point.get("paper_value"):  # stored, but code did not verify it: shown as stored, never as verified
+        page = point.get("paper_value_page")
+        return f'"{point["paper_value"]}" (as stored{f", page {page}" if page else ""}; {content.NOT_VERIFIED})'
+    return content.NOTHING
 
 
 def rule_requires(point: dict) -> str:
     if point.get("clause_quote"):
         return f'"{point["clause_quote"]}" ({point["clause_quote_note"]})'
-    return _clean(point.get("clause_quote_note")) or rp.NO_CLAUSE_QUOTE
+    if point.get("rule_text"):
+        return f'"{point["rule_text"]}" (as stored; {content.NOT_VERIFIED})'
+    return content.NOTHING
 
 
 def readers_of(point: dict) -> tuple[str, str, str]:
@@ -190,6 +198,8 @@ def full_texts(point: dict) -> dict[str, str]:
         if d.get("state") == decisions_mod.EDIT and d.get("text")
         else point.get("action")
     )
+    if action and point.get("action_source") == "ai_suggestion" and not (d.get("state") == decisions_mod.EDIT and d.get("text")):
+        action = f"{content.AI_SUGGESTION[0].upper()}{content.AI_SUGGESTION[1:]}: {action}"  # internal copy only (the contractor file never reads this)
     return {
         "action": action,
         "paper_shows": paper_shows(point),
@@ -213,14 +223,29 @@ def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list,
     )
     cells = [
         n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""), point.get("priority") or None,
-        point.get("name"), point.get("page"), books or None, point.get("clause"), shown["action"] or None,
-        shown["paper_shows"], point.get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, decision_words(point), group_words(point) or None,
+        point.get("name"), point.get("page") or NOT_RECORDED, books or None, point.get("clause"), shown["action"] or None,
+        shown["paper_shows"], point.get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, point.get("checked_by") or None, decision_words(point), group_words(point) or None,
         first, second, agreed, "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(c) for c in cells], cut_any
 
 
 # ------------------------------------------------------------------------------------------------ the facts of the paper and its runs
+
+
+def _engine_of(conn, run_id: str, model: str, part: str) -> str:
+    """The engine of a run: from its stored model name; else from the engine choice stored with the run (Claude or Local, "model name not
+    recorded"); else NOT_RECORDED. Never a guess."""
+    if model:
+        return "Claude" if model.startswith("claude") else "Local"
+    try:
+        row = conn.execute("SELECT plan_json FROM review_engine_choice WHERE run_id = ?", (run_id,)).fetchone()
+        for p in (json.loads(row["plan_json"]).get("parts") or []) if row else []:
+            if p.get("name") == part and p.get("engine") in ("claude", "local"):
+                return f"{'Claude' if p['engine'] == 'claude' else 'Local'} (model name not recorded)"
+    except Exception:  # noqa: BLE001 - no stored choice (an older run, or no table): not recorded
+        logging.getLogger(__name__).debug("no engine choice stored for run %s", run_id)
+    return NOT_RECORDED
 
 
 def _run_facts(extra: dict) -> list[dict]:
@@ -232,7 +257,7 @@ def _run_facts(extra: dict) -> list[dict]:
         r = conn.execute("SELECT * FROM review_runs WHERE id = ?", (rc,)).fetchone()
         model = (r["model_name"] if r else None) or ""
         out.append({
-            "what": "Rule check", "run": rc, "engine": NOT_RECORDED if not model else ("Claude" if model.startswith("claude") else "Local"),
+            "what": "Rule check", "run": rc, "engine": _engine_of(conn, rc, model, "rule_check"),
             "models": [model] if model else [], "date": (r["completed_at"] or r["started_at"]) if r else None, "kind": None,
             "equipment": None, "usd": None,
         })  # fmt: skip
@@ -400,13 +425,13 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
         cov = outcome.get("page_coverage")
         if cov and cov.get("pages_total") is not None:
             unread = page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome))
-            rows.append(
-                [
-                    "Pages not fully read",
-                    len(unread),
-                    f"of {cov['pages_total']} pages ({', '.join(str(p) for p in unread) or 'none'})",
-                ]
-            )
+            line = [
+                "Pages not fully read",
+                len(unread),
+                f"of {cov['pages_total']} pages ({', '.join(str(p) for p in unread) or 'none'})",
+            ]
+            if line not in rows:  # the rule check and the AI review of one paper share one page record: said once
+                rows.append(line)
             if cov.get("ai_skipped_line"):
                 rows.append(
                     [
@@ -497,12 +522,7 @@ def _how_rows(extra: dict, scope) -> list[list]:
         cov = outcome.get("page_coverage")
         if cov and cov.get("pages_total") is not None:
             unread = page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome))
-            rows.append(
-                [
-                    f"{r['what']}: pages",
-                    f"{cov['pages_total']} pages; {len(unread)} not fully read; {len(cov.get('pages_read') or [])} read",
-                ]
-            )
+            rows.append([f"{r['what']}: pages", pages_line(cov, unread)])
         if r["what"] == "AI review":
             asked = conn.execute(
                 "SELECT COUNT(*) FROM agent_review_rule WHERE run_id = ? AND asked = 1",
@@ -537,12 +557,22 @@ def _how_rows(extra: dict, scope) -> list[list]:
     rows.append(
         [
             "Older files of each run (history)",
-            "GET /api/reviews/runs/<run id>/crs?copy=internal (rule check), GET /api/reviews/runs/<run id>/agent/crs?copy=internal (AI review)",
+            "under Older files on the review page (one file per earlier run, kept as it was)",
         ]
     )
     for r in _run_facts(extra):
         rows.append([f"{r['what']}: run id", r["run"]])
     return rows
+
+
+def pages_line(cov: dict, unread: list) -> str:
+    """"N pages: R read, P not fully read (pages ...)" that cannot contradict itself: the read count is said only when the run recorded
+    which pages it read; otherwise the line says that is not recorded (never "0 read" for an unknown)."""
+    n, read = cov["pages_total"], cov.get("pages_read") or []
+    partly = f"{len(unread)} not fully read" + (f" (pages {', '.join(str(p) for p in unread)})" if unread else "")
+    if read:
+        return f"{n} pages: {len(read)} read, {partly}"
+    return f"{n} pages: {partly}; how many were read in full is not recorded"
 
 
 def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
@@ -593,8 +623,8 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
-        ", ".join(str(x) for x in c["pages"]) or None, shown["clauses"] or None, shown["action"] or None,
-        shown["paper_shows"], c["strongest"].get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, f"{decided} of {len(ms)} decided",
+        ", ".join(str(x) for x in c["pages"]) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
+        shown["paper_shows"], c["strongest"].get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, c["strongest"].get("checked_by") or None, f"{decided} of {len(ms)} decided",
         note.strip(" ;") or None, "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(x) for x in cells], cut_n
@@ -704,7 +734,8 @@ def issuable_text(p: dict) -> str:
             else p.get("action")
         )
     elif p.get("rank") == 1 and d.get("state") == decisions_mod.KEEP:
-        text = _clean(p.get("action"))
+        # never the AI's suggestion (a stored finding's words that code did not prove); only the check's own comment
+        text = "" if p.get("action_source") == "ai_suggestion" else _clean(p.get("action"))
     else:
         return ""
     return (

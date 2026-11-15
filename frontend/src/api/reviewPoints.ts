@@ -68,6 +68,12 @@ export interface ReviewPoint {
   books?: { id: string; name: string }[];
   /** The equipment tags the point's name carried; shown in the opened point, never in the collapsed row. */
   tags?: string[];
+  /** What the stored finding holds (U5d): shown as stored, never as verified. */
+  paper_value?: string | null;
+  rule_text?: string | null;
+  reason_words?: string | null;
+  checked_by?: string | null;
+  action_source?: string | null;
   /** True when the point cites no rule book at all (it sits under "No rule book"). */
   no_book?: boolean;
   clause: string | null;

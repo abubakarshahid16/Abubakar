@@ -31,6 +31,7 @@ from collections import Counter, defaultdict
 
 from . import agent_review_wording as wording
 from . import crs_ai_actions as actions
+from . import review_points_content as content
 from . import crs_ai_words as words
 
 #: rank -> (what it is, how firm). The pill is "what · how firm".
@@ -376,6 +377,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "rule_book": book_name,
         "clause": clause if book_name else None,
         "action": action or None,
+        # U5d: the line's STORED words when code did not verify them (shown as stored, "not verified by code"); never when the book is unreadable
+        "paper_value": (None if paper_q else (_clean(line.get("paper_quote")) or None)),
+        "paper_value_page": page,
+        "rule_text": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
+        "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
         "clause_quote": clause_q,
         "paper_quote_note": PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
@@ -487,13 +493,19 @@ def rule_point(
     )
     reason = (finding or {}).get("reason_code") or kind or ""
     field, tags = split_tags(
-        section.split(" - ", 1)[-1] if " - " in section else section, ctx.get("known_tags") or frozenset()
+        content.field_of(section.split(" - ", 1)[-1] if " - " in section else "", row, finding),
+        ctx.get("known_tags") or frozenset(),
     )
     name = (
         _plain(field)
         or _plain(" ".join(comment.split()[:7]))
         or "A point of the rule check"
     )
+    if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
+        page = content.paper_value(finding)[1]
+    value, value_page = content.paper_value(finding)
+    action, action_source = content.action_of(row, finding, _plain)
+    ref = content.rule_ref(row, finding)
     return {
         "id": f"rc:{key}",
         "source": SOURCE_RULE_CHECK,
@@ -506,8 +518,16 @@ def rule_point(
         "name": name,
         "page": page,
         "rule_book": book_name,
-        "clause": None,
-        "action": _plain(comment) or None,
+        "clause": (ref["clause"] or None) if not (book_doc and not book_name) else None,
+        "action": action or None,
+        "action_source": action_source,
+        # U5d: what the stored finding itself holds, never presented as verified unless code verified it
+        "paper_value": value or None,
+        "paper_value_page": value_page,
+        "rule_text": content.rule_text(finding) or None,
+        "rule_ref": ref if (ref["name"] or ref["clause"]) and not (book_doc and not book_name) else None,
+        "reason_words": content.reason_words(kind, finding),
+        "checked_by": content.checked_by(kind),
         "paper_quote": paper_q or None,
         "clause_quote": clause_q or None,
         "paper_quote_note": PASSAGE_PAPER_CHECK if paper_q else NO_PAPER_QUOTE,

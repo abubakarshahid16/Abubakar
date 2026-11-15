@@ -76,8 +76,11 @@ def key_of(point: dict) -> str:
 def _clauses(members: list[dict]) -> list[dict]:
     seen: dict[tuple, dict] = {}
     for p in members:
-        books = [b["name"] for b in p.get("books") or []] or (
-            [p["rule_book"]] if p.get("rule_book") else []
+        ref = p.get("rule_ref") or {}  # a cited standard the review names but holds no document for: the reference as stored
+        books = (
+            [b["name"] for b in p.get("books") or []]
+            or ([p["rule_book"]] if p.get("rule_book") else [])
+            or ([ref["name"]] if ref.get("name") else [])
         )
         for book in books or [None]:
             if not book and not p.get("clause"):
