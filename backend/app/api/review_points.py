@@ -109,6 +109,27 @@ class PageV2Status(BaseModel):
     enabled: bool
 
 
+class CrsFileCheckOut(BaseModel):
+    """The completeness check of ONE file (`crs_completeness.verify`): the three counts, what is missing, one plain sentence."""
+
+    ok: bool
+    copy: str
+    page: int
+    database: dict[str, Any]
+    rows_in_file: int
+    accounted: int
+    missing: list[str]
+    cut_cells_marked: int
+    cut_problems: int
+    checked_at: str
+    sentence: str | None = None
+
+
+class CrsCheckOut(BaseModel):
+    team: CrsFileCheckOut
+    contractor: CrsFileCheckOut
+
+
 class DecisionRequest(BaseModel):
     point_id: str
     state: Literal["keep", "edit", "remove"]
@@ -256,7 +277,7 @@ def one_crs(
     return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
-@router.get("/api/reviews/papers/{document_id}/crs/check", dependencies=ON, responses={**schemas.ERRORS_404})
+@router.get("/api/reviews/papers/{document_id}/crs/check", dependencies=ON, response_model=CrsCheckOut, responses={**schemas.ERRORS_404})
 def one_crs_check(
     document_id: str,
     request: Request,
