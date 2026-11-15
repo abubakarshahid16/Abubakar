@@ -17,7 +17,6 @@ from collections.abc import Mapping
 
 from . import agent_review_absence as absence
 from .agent_review_two_reader import DISAGREE_ONE_FOUND
-from .clause_check_rank import is_safety
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
     DEFERRED_WHY,
@@ -29,6 +28,7 @@ from .agent_review_verdict import (
     UNVERIFIED_CLAUSE_WHY,
     UNVERIFIED_PAPER_WHY,
 )
+from .clause_check_rank import is_safety
 
 # ---------------------------------------------------------------- the four Status words, their order, the priority rule
 

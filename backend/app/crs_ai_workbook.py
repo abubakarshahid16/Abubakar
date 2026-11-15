@@ -16,7 +16,6 @@ from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
 from . import crs_export, crs_layout, kind_review_table
-from .crs_ai_actions import REASONING_LABEL, action_case, query_action, reasoning_part  # noqa: F401
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
@@ -42,6 +41,7 @@ from .agent_review_verdict import (
     moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
+from .crs_ai_actions import query_action, reasoning_part
 
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"

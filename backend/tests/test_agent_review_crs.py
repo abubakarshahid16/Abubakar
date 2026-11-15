@@ -11,6 +11,7 @@ import pytest
 from app import agent_review_crs as C
 from app import agent_review_verdict as V
 from app import agent_review_wording as W
+from app import crs_ai_actions as actions
 from app import crs_ai_words as words
 from app import crs_ai_workbook as WB
 from app import crs_layout
@@ -860,7 +861,7 @@ def test_the_fallback_is_a_statement_about_the_reviewer_and_makes_no_claim_about
                 if got is None:
                     continue
                 # the AI reviewer's own reasoning is labelled as its view (U5 P5): it is not a claim in the code's voice
-                line2 = WB.layout_comment(line, *got).split("\n")[1].lower().split(WB.REASONING_LABEL.lower())[0]
+                line2 = WB.layout_comment(line, *got).split("\n")[1].lower().split(actions.REASONING_LABEL.lower())[0]
                 assert "not confirmed: it could not be confirmed" not in line2, (
                     verdict,
                     ai,
@@ -886,7 +887,7 @@ def test_the_fallback_is_a_statement_about_the_reviewer_and_makes_no_claim_about
     )
     got2 = WB.layout_comment(bare, *WB.status_of(bare)).split("\n")[1]
     assert got2.startswith(FALLBACK)
-    assert got2[len(FALLBACK) :].strip().startswith(WB.REASONING_LABEL)  # only the AI's labelled reasoning follows (U5 P5)
+    assert got2[len(FALLBACK) :].strip().startswith(actions.REASONING_LABEL)  # only the AI's labelled reasoning follows (U5 P5)
 
 
 def test_no_phrase_of_the_table_is_a_tautology_of_its_own_label():

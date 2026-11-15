@@ -3,6 +3,7 @@ comes from the finding. Invented lines only; no model, no network."""
 
 from __future__ import annotations
 
+from app import crs_ai_actions as actions
 from app import crs_ai_words as words
 from app import crs_ai_workbook as wb
 
@@ -25,7 +26,7 @@ def action_of(line: dict) -> str:
 
 def test_a_value_stated_on_the_paper_is_confirmed_or_justified_never_stated_again():
     line = query(quotes_checked={"paper": True, "clause": True}, paper_quote="Set pressure 12 bar")
-    assert wb.action_case(line) == "stated"
+    assert actions.action_case(line) == "stated"
     got = action_of(line)
     assert got == "Contractor to confirm or justify Set pressure against STD-1 clause 4.1."
     assert "to state" not in got
@@ -35,25 +36,25 @@ def test_a_value_deferred_on_the_sheet_is_provided_and_says_it_is_deferred():
     by_quote = query(quotes_checked={"paper": True, "clause": True}, paper_quote="Set pressure: by vendor")
     by_code = query(reason_code="value_deferred")
     for line in (by_quote, by_code):
-        assert wb.action_case(line) == "deferred"
+        assert actions.action_case(line) == "deferred"
         assert action_of(line) == "Contractor to provide Set pressure; it is deferred on the sheet."
 
 
 def test_a_blank_field_is_to_be_stated():
     line = query(reason_code="sheet_silent")
-    assert wb.action_case(line) == "blank"
+    assert actions.action_case(line) == "blank"
     assert action_of(line) == "Contractor to state Set pressure, or the page where it is shown."
 
 
 def test_when_code_cannot_tell_the_engineer_checks_and_the_contractor_is_not_asked():
     line = query(reason_code="needs_drawing_or_calc")  # no verified quote, not silent, not deferred
-    assert wb.action_case(line) == "unknown"
+    assert actions.action_case(line) == "unknown"
     assert action_of(line) == "Engineer to check Set pressure."
 
 
 def test_the_case_comes_from_the_verified_quote_not_from_the_readers_words():
     line = query(paper_quote="Set pressure 12 bar", reasoning="The paper states the value clearly.")  # quote NOT verified
-    assert wb.action_case(line) != "stated"
+    assert actions.action_case(line) != "stated"
 
 
 def test_a_proven_fail_and_an_opinion_keep_their_own_sentences():
