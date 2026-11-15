@@ -68,9 +68,20 @@ def test_a_role_that_did_not_run_is_named_with_its_reason_on_the_first_line():
     assert "not run: 2 Project context: none held for this project" in line
 
 
-def test_an_incomplete_record_is_said_not_passed_as_nine_roles():
-    rec = ReviewRecord("r", "d", "automatic", (role(1),), (), None)
-    assert "1 of 9 roles (incomplete)" in nine_sheet.roles_line(rec)
+def test_a_table_with_fewer_than_nine_rows_says_the_missing_roles_were_not_reached():
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        for ddl in DDL:
+            conn.execute(ddl)
+        conn.execute(
+            "INSERT INTO agent_review_role VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (ai, 1, "Reader", "ran", None, "claude", "[]", 1, 0.1, "t", "t", "{}"),
+        )
+    line = nine_sheet.roles_line(nine_sheet.load_record(db.connect(), ai))
+    assert (
+        line.startswith("Roles run: 1 of 9")
+        and "2 Project context: not reached" in line
+    )
 
 
 def test_how_rows_say_cost_not_known_never_zero_and_hold_counts_only():
@@ -79,7 +90,7 @@ def test_how_rows_say_cost_not_known_never_zero_and_hold_counts_only():
             4, usd=None, produced={"raw_findings": 12, "contradictions": ["a", "b"]}
         )
     )
-    rows = {a: b for a, b in nine_sheet.how_rows(rec)}
+    rows = dict(nine_sheet.how_rows(rec))
     four = rows["Role 4 Reviewer"]
     assert (
         "cost (USD) not known" in four

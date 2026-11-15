@@ -22,7 +22,9 @@ import sqlite3
 from collections import Counter
 
 from .nine_contract import (
+    NOT_REACHED,
     ROLE_NAMES,
+    ROLE_NUMBERS,
     CallEntry,
     ReadEntry,
     ReviewRecord,
@@ -43,8 +45,6 @@ def roles_line(record: ReviewRecord | None) -> str:
     """The first-sheet line. Words only from the record: a role that did not run is NAMED with its reason."""
     if record is None or not record.roles:
         return NOT_RECORDED_LINE
-    if len(record.roles) != len(ROLE_NAMES):
-        return f"Roles: the record holds {len(record.roles)} of {len(ROLE_NAMES)} roles (incomplete)"
     return record.roles_line()
 
 
@@ -214,6 +214,12 @@ def load_record(conn: sqlite3.Connection, run_id: str | None) -> ReviewRecord | 
         )
         for r in rows
     )  # fmt: skip
+    held = {r.role_no: r for r in roles}
+    roles = tuple(  # a table that holds fewer than nine rows says so: the missing roles are "not run: not reached", never skipped
+        held.get(n)
+        or RoleRecord(n, ROLE_NAMES[n], "not_run", NOT_REACHED, None, (), 0, None)
+        for n in ROLE_NUMBERS
+    )
     return ReviewRecord(
         run_id=run_id,
         paper_id="",

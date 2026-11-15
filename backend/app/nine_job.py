@@ -28,10 +28,9 @@ from dataclasses import dataclass, field
 
 from . import crs_completeness
 from .db import connect
-from .nine_contract import ROLE_NAMES
+from .nine_contract import NOT_REACHED, ROLE_NAMES
 
 log = logging.getLogger(__name__)
-NOT_REACHED = "not reached"
 #: the roles that are run in order by a module of their own: role number -> (module, function); each takes a `RoleContext`
 ROLE_MODULES = {
     1: "nine_reader",

@@ -245,3 +245,31 @@ def test_switch_on_hands_the_job_to_the_nine_roles(monkeypatch):
         "r", "d", "k", {"items": []}, {}, lambda *a: None, reraise=(KeyError,)
     )
     assert seen and seen[0][1] == {"reraise": (KeyError,)}
+
+
+def test_execute_with_the_switch_off_calls_the_old_ask_with_the_same_arguments(
+    monkeypatch,
+):
+    """The hook in `_execute`: switch off, the review asks exactly as before and no nine-role table is made."""
+    from app import agent_review_jobs as jobs
+
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", False)
+    seen = []
+    monkeypatch.setattr(jobs, "_write_missing", lambda *a: None)
+    monkeypatch.setattr(jobs.calculator_run, "step_job", lambda *a: None)
+    monkeypatch.setattr(jobs, "_tier_lookup", lambda k: None)
+    monkeypatch.setattr(jobs, "_ask", lambda *a: seen.append(a))
+    monkeypatch.setattr(jobs.rule_choice, "store_group_lines", lambda *a, **k: [])
+    monkeypatch.setattr(jobs, "_finish", lambda *a: {"done": True})
+    plan = {"items": [{"id": "a"}], "block": {}}
+    assert jobs._execute("r1", "d1", "kind", plan, "t0") == {"done": True}
+    assert (
+        len(seen) == 1
+        and seen[0][:4] == ("r1", "d1", "kind", plan)
+        and seen[0][4] == {}
+    )
+    assert (
+        not db.connect()
+        .execute("SELECT name FROM sqlite_master WHERE name LIKE 'agent_review_role%'")
+        .fetchall()
+    )

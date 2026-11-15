@@ -134,6 +134,14 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "decides which review a paper gets and what it asks, and writes the run",
     ),
     (
+        APP + "agent_review_dispatch.py",
+        "the one branch between today's AI review and the nine-role review",
+    ),
+    (
+        APP + "nine_job.py",
+        "runs the nine roles in order and decides which required items the checklist asks",
+    ),
+    (
         APP + "agent_general_review.py",
         "the single exit of a general review's lines (no verdict word), the mode decision",
     ),
