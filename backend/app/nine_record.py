@@ -1,0 +1,511 @@
+"""The stored record of a nine-role review (owner order, 15 Nov 2026, STATE section 60; SPEC section B): what each role READ and PRODUCED.
+
+Three tables, owned by this module (its own `ensure_schema`; `agent_review_schema.py` is not touched):
+
+    agent_review_role        one row per run and role (nine, written at the run's start, all "not run: not reached"); each role
+                             updates its own row at its start and its end
+    agent_review_role_call   one row per model call of a nine-role request: step, engine, model, the request's digest, the state,
+                             the error code and the cost (NULL = not known, never 0)
+    agent_review_role_read   one row per document block of that request: document id and kind, pages, chapter, part, size, checksum
+
+IDS, NUMBERS, CODES AND CHECKSUMS ONLY. Never a title, a file name or any text of a document, and no model output: the rows are
+written by CODE from the block list a request was built from (`nine_call.ask`), so the record cannot say something else than what
+was sent. A role's "sent" row is written in the function that hands the body to the transport, BEFORE it leaves; the end state after.
+
+This module opens no socket, calls no model and reads no document text.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import UTC, datetime
+
+from .db import connect
+from .nine_contract import (
+    ROLE_NAMES,
+    CallEntry,
+    ReadEntry,
+    ReviewRecord,
+    RoleRecord,
+)
+
+ROLES_TABLE, CALLS_TABLE, READS_TABLE = (
+    "agent_review_role",
+    "agent_review_role_call",
+    "agent_review_role_read",
+)
+NOT_REACHED = "not reached"
+CALL_STATES = ("sent", "answered", "failed", "refused", "reused")
+ROLE_STATES = ("ran", "ran_partly", "not_run")
+ENGINES = ("claude", "local", "code")
+KINDS = ("paper", "rule_book", "project_document", "earlier_revision", "review_record")
+
+
+def now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def ensure_schema(conn=None) -> None:
+    conn = conn or connect()
+    conn.execute(
+        f"""CREATE TABLE IF NOT EXISTS {ROLES_TABLE} (
+            run_id        TEXT NOT NULL,
+            role_no       INTEGER NOT NULL CHECK (role_no BETWEEN 1 AND 9),
+            role          TEXT NOT NULL,
+            state         TEXT NOT NULL CHECK (state IN ('ran', 'ran_partly', 'not_run')),
+            why           TEXT,
+            engine        TEXT CHECK (engine IS NULL OR engine IN ('claude', 'local', 'code')),
+            models_json   TEXT NOT NULL DEFAULT '[]',
+            calls         INTEGER NOT NULL DEFAULT 0,
+            usd           REAL CHECK (usd IS NULL OR usd >= 0),
+            started_at    TEXT,
+            finished_at   TEXT,
+            produced_json TEXT NOT NULL DEFAULT '{{}}',
+            PRIMARY KEY (run_id, role_no),
+            CHECK (state = 'ran' OR (why IS NOT NULL AND length(trim(why)) > 0)),
+            CHECK (why IS NULL OR (length(why) <= 120 AND instr(why, char(10)) = 0))
+        )"""
+    )
+    conn.execute(
+        f"""CREATE TABLE IF NOT EXISTS {CALLS_TABLE} (
+            run_id         TEXT NOT NULL,
+            role_no        INTEGER NOT NULL CHECK (role_no BETWEEN 1 AND 9),
+            call_id        TEXT NOT NULL,
+            step           TEXT NOT NULL,
+            engine         TEXT NOT NULL CHECK (engine IN ('claude', 'local', 'code')),
+            model          TEXT NOT NULL,
+            request_sha256 TEXT NOT NULL,
+            state          TEXT NOT NULL CHECK (state IN ('sent', 'answered', 'failed', 'refused', 'reused')),
+            error_code     TEXT,
+            usd            REAL CHECK (usd IS NULL OR usd >= 0),
+            usd_reserved   REAL CHECK (usd_reserved IS NULL OR usd_reserved >= 0),
+            question_id    TEXT,
+            system_id      TEXT,
+            params_sha256  TEXT,
+            sent_at        TEXT NOT NULL,
+            PRIMARY KEY (run_id, call_id)
+        )"""
+    )
+    conn.execute(
+        f"""CREATE TABLE IF NOT EXISTS {READS_TABLE} (
+            run_id        TEXT NOT NULL,
+            role_no       INTEGER NOT NULL CHECK (role_no BETWEEN 1 AND 9),
+            call_id       TEXT NOT NULL,
+            seq           INTEGER NOT NULL,
+            document_id   TEXT NOT NULL,
+            document_kind TEXT NOT NULL CHECK (document_kind IN
+                ('paper', 'rule_book', 'project_document', 'earlier_revision', 'review_record')),
+            pages_json    TEXT NOT NULL DEFAULT '[]',
+            chapter_id    TEXT,
+            part_no       INTEGER,
+            part_of       INTEGER,
+            chars         INTEGER NOT NULL DEFAULT 0,
+            text_sha256   TEXT NOT NULL,
+            pictures      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (run_id, call_id, seq)
+        )"""
+    )
+
+
+# ------------------------------------------------------------------------------------------------------ the nine rows
+
+
+def start_run(run_id: str, conn=None) -> None:
+    """Nine rows, all "not run: not reached" (idempotent: a restart keeps a row a role already finished)."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    with conn:
+        for no, name in ROLE_NAMES.items():
+            conn.execute(
+                f"INSERT OR IGNORE INTO {ROLES_TABLE} (run_id, role_no, role, state, why) VALUES (?,?,?,'not_run',?)",
+                (run_id, no, name, NOT_REACHED),
+            )
+
+
+def role_start(run_id: str, role_no: int, engine: str, conn=None) -> None:
+    conn = conn or connect()
+    ensure_schema(conn)
+    _check_role(role_no)
+    _check(engine, ENGINES, "engine")
+    start_run(run_id, conn)
+    with conn:
+        conn.execute(
+            f"UPDATE {ROLES_TABLE} SET engine = ?, started_at = ?, finished_at = NULL WHERE run_id = ? AND role_no = ?",
+            (engine, now(), run_id, role_no),
+        )
+
+
+def role_end(
+    run_id: str,
+    role_no: int,
+    state: str,
+    *,
+    why: str | None = None,
+    produced: dict | None = None,
+    models: tuple[str, ...] | list[str] = (),
+    engine: str | None = None,
+    conn=None,
+) -> None:
+    """A role's end. `why` is required unless it ran in full. `calls`, `usd` and `models` follow the call rows (a NULL cost stays NULL:
+    never 0 for "not known"); `produced` is counts and ids only (checked: no long text, no nested document text)."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    _check_role(role_no)
+    _check(state, ROLE_STATES, "state")
+    why = _short_why(why)
+    if state != "ran" and not why:
+        raise ValueError(f"role {role_no} did not run in full and gives no reason")
+    if engine is not None:
+        _check(engine, ENGINES, "engine")
+    produced = _counts_only(produced or {})
+    calls, usd, seen = role_calls(run_id, role_no, conn)
+    models_all = sorted({*models, *seen})
+    start_run(run_id, conn)
+    with conn:
+        conn.execute(
+            f"UPDATE {ROLES_TABLE} SET state = ?, why = ?, engine = COALESCE(?, engine), models_json = ?, calls = ?, usd = ?,"
+            f" finished_at = ?, produced_json = ? WHERE run_id = ? AND role_no = ?",
+            (
+                state,
+                None if state == "ran" else why,
+                engine,
+                json.dumps(models_all),
+                calls,
+                usd,
+                now(),
+                json.dumps(produced, sort_keys=True),
+                run_id,
+                role_no,
+            ),
+        )
+
+
+def role_calls(
+    run_id: str, role_no: int, conn=None
+) -> tuple[int, float | None, list[str]]:
+    """(calls made, USD known so far or None when no call's cost is known, the models that answered). A call that was refused or
+    failed before it was sent is not a call made."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    rows = conn.execute(
+        f"SELECT state, usd, model FROM {CALLS_TABLE} WHERE run_id = ? AND role_no = ?",
+        (run_id, role_no),
+    ).fetchall()
+    made = [r for r in rows if r["state"] in ("sent", "answered", "failed", "reused")]
+    known = [r["usd"] for r in rows if r["usd"] is not None]
+    return (
+        len(made),
+        (round(sum(known), 6) if known else None),
+        sorted({r["model"] for r in made if r["model"]}),
+    )
+
+
+def role_spend(run_id: str, role_no: int, conn=None) -> float:
+    """What the role's budget gate counts: known costs, and for a call of unknown cost (a failure after the body was sent) the amount
+    that was RESERVED for it: conservative, never 0. A refused call counts nothing (it never left)."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    row = conn.execute(
+        f"SELECT COALESCE(SUM(COALESCE(usd, usd_reserved, 0)), 0) FROM {CALLS_TABLE}"
+        " WHERE run_id = ? AND role_no = ? AND state != 'refused'",
+        (run_id, role_no),
+    ).fetchone()
+    return float(row[0])
+
+
+def role_usd(run_id: str, role_no: int, conn=None) -> float:
+    """What this role has cost in this run so far (known costs only): the role gate's own meter."""
+    return role_calls(run_id, role_no, conn)[1] or 0.0
+
+
+# ----------------------------------------------------------------------------------------------------------- calls
+
+
+def call_sent(
+    run_id: str,
+    role_no: int,
+    call_id: str,
+    *,
+    step: str,
+    engine: str,
+    model: str,
+    request_sha256: str,
+    reads: list[ReadEntry],
+    question_id: str | None = None,
+    system_id: str | None = None,
+    params_sha256: str | None = None,
+    conn=None,
+) -> None:
+    """The `sent` row and one read row per document block of the request, in ONE transaction. Written when the body is about to be
+    handed to the transport, AFTER the spend reservation succeeded: a call refused at the reservation never has these rows."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    _check_role(role_no)
+    _check(engine, ENGINES, "engine")
+    for r in reads:
+        _check(r.document_kind, KINDS, "document_kind")
+        if r.role_no != role_no or r.call_id != call_id:
+            raise ValueError("a read entry names another role or call")
+    with conn:
+        conn.execute(
+            f"INSERT INTO {CALLS_TABLE} (run_id, role_no, call_id, step, engine, model, request_sha256, state, question_id, system_id,"
+            " params_sha256, sent_at) VALUES (?,?,?,?,?,?,?,'sent',?,?,?,?)",
+            (
+                run_id,
+                role_no,
+                call_id,
+                step,
+                engine,
+                model,
+                request_sha256,
+                question_id,
+                system_id,
+                params_sha256,
+                now(),
+            ),
+        )
+        for seq, r in enumerate(reads):
+            conn.execute(
+                f"INSERT INTO {READS_TABLE} (run_id, role_no, call_id, seq, document_id, document_kind, pages_json, chapter_id,"
+                " part_no, part_of, chars, text_sha256, pictures) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    role_no,
+                    call_id,
+                    seq,
+                    r.document_id,
+                    r.document_kind,
+                    json.dumps(list(r.pages)),
+                    r.chapter_id,
+                    r.part_no,
+                    r.part_of,
+                    r.chars,
+                    r.text_sha256,
+                    r.pictures,
+                ),
+            )
+
+
+def call_refused(
+    run_id: str,
+    role_no: int,
+    call_id: str,
+    *,
+    step: str,
+    engine: str,
+    model: str,
+    error_code: str,
+    conn=None,
+) -> None:
+    """A call that never left (a gate, a budget, no block left): state `refused`, no digest, no cost, no read row, no ledger line."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    _check_role(role_no)
+    with conn:
+        conn.execute(
+            f"INSERT INTO {CALLS_TABLE} (run_id, role_no, call_id, step, engine, model, request_sha256, state, error_code, sent_at)"
+            " VALUES (?,?,?,?,?,?,?,'refused',?,?)",
+            (run_id, role_no, call_id, step, engine, model, "", error_code, now()),
+        )
+
+
+def call_end(
+    run_id: str,
+    call_id: str,
+    state: str,
+    *,
+    error_code: str | None = None,
+    usd: float | None = None,
+    usd_reserved: float | None = None,
+    model: str | None = None,
+    conn=None,
+) -> None:
+    """The end state of a call. `model` is the model that ANSWERED (from the reply), when it is known. `usd_reserved`: the amount held
+    for a call whose cost is not known (a failure after the body was sent); the role budget counts it, the role's `usd` does not."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    _check(state, CALL_STATES, "state")
+    if state == "sent":
+        raise ValueError("a call ends answered, failed, refused or reused")
+    if usd is not None and usd < 0:
+        raise ValueError("a cost is never negative")
+    with conn:
+        conn.execute(
+            f"UPDATE {CALLS_TABLE} SET state = ?, error_code = ?, usd = ?, usd_reserved = ?,"
+            " model = COALESCE(?, model) WHERE run_id = ? AND call_id = ?",
+            (state, error_code, usd, usd_reserved, model, run_id, call_id),
+        )
+
+
+# ---------------------------------------------------------------------------------------------------------- reading
+
+
+def load_record(run_id: str, conn=None) -> ReviewRecord | None:
+    """The whole record of a run as the shared shapes, or None for a run that has no role rows (every review before this)."""
+    conn = conn or connect()
+    if not _has(conn, ROLES_TABLE):
+        return None
+    rows = conn.execute(
+        f"SELECT * FROM {ROLES_TABLE} WHERE run_id = ? ORDER BY role_no", (run_id,)
+    ).fetchall()
+    if not rows:
+        return None
+    reads = _reads(conn, run_id)
+    roles = tuple(
+        RoleRecord(
+            role_no=r["role_no"],
+            role=r["role"],
+            state=r["state"],
+            why=r["why"],
+            engine=r["engine"],
+            models=tuple(json.loads(r["models_json"] or "[]")),
+            calls=r["calls"],
+            usd=r["usd"],
+            produced=json.loads(r["produced_json"] or "{}"),
+            reads=tuple(e for e in reads if e.role_no == r["role_no"]),
+            started_at=r["started_at"],
+            finished_at=r["finished_at"],
+        )
+        for r in rows
+    )
+    calls = (
+        tuple(
+            CallEntry(
+                role_no=c["role_no"],
+                call_id=c["call_id"],
+                step=c["step"],
+                engine=c["engine"],
+                model=c["model"],
+                request_sha256=c["request_sha256"],
+                state=c["state"],
+                error_code=c["error_code"],
+                usd=c["usd"],
+                sent_at=c["sent_at"],
+            )
+            for c in conn.execute(
+                f"SELECT * FROM {CALLS_TABLE} WHERE run_id = ? ORDER BY sent_at, call_id",
+                (run_id,),
+            )
+        )
+        if _has(conn, CALLS_TABLE)
+        else ()
+    )
+    paper, choice, shown = _run_facts(conn, run_id)
+    return ReviewRecord(
+        run_id=run_id,
+        paper_id=paper,
+        engine_choice=choice,
+        roles=roles,
+        calls=calls,
+        shown_document_ids=shown,
+    )
+
+
+def _reads(conn, run_id: str) -> list[ReadEntry]:
+    if not _has(conn, READS_TABLE):
+        return []
+    return [
+        ReadEntry(
+            role_no=r["role_no"],
+            call_id=r["call_id"],
+            document_id=r["document_id"],
+            document_kind=r["document_kind"],
+            pages=tuple(json.loads(r["pages_json"] or "[]")),
+            chapter_id=r["chapter_id"],
+            part_no=r["part_no"],
+            part_of=r["part_of"],
+            chars=r["chars"],
+            text_sha256=r["text_sha256"],
+            pictures=r["pictures"],
+        )
+        for r in conn.execute(
+            f"SELECT * FROM {READS_TABLE} WHERE run_id = ? ORDER BY role_no, call_id, seq",
+            (run_id,),
+        )
+    ]
+
+
+def _run_facts(conn, run_id: str):
+    """(paper id, engine choice, the stored shown list or None): read, never invented."""
+    paper = ""
+    try:
+        row = conn.execute(
+            "SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        paper = (row["submittal_document_id"] if row else "") or ""
+    except sqlite3.Error:
+        pass
+    choice = "automatic"
+    try:
+        row = conn.execute(
+            "SELECT choice FROM review_engine_choice WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row and row["choice"] in ("automatic", "claude", "local"):
+            choice = row["choice"]
+    except sqlite3.Error:
+        pass
+    shown = None
+    try:
+        from . import review_shown
+
+        got = review_shown.shown_ids(conn, run_id)
+        shown = None if got is None else tuple(sorted(got))
+    except sqlite3.Error:
+        pass
+    return paper, choice, shown
+
+
+# --------------------------------------------------------------------------------------------------------- helpers
+
+
+def _has(conn, table: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _check_role(role_no: int) -> None:
+    if role_no not in ROLE_NAMES:
+        raise ValueError(f"no role {role_no!r}")
+
+
+def _check(value, allowed, what: str) -> None:
+    if value not in allowed:
+        raise ValueError(f"unknown {what} {value!r}")
+
+
+MAX_WHY = 120  # a reason is a code or one short plain sentence: never document text
+
+
+def _short_why(why: str | None) -> str | None:
+    text = str(why or "").strip()
+    if len(text) > MAX_WHY or "\n" in text or "\r" in text:
+        raise ValueError(f"a reason is at most {MAX_WHY} characters on one line")
+    return text or None
+
+
+MAX_STRING = 80  # a produced value is a count, an id, a code or a short word: never document text
+
+
+def _counts_only(produced: dict) -> dict:
+    """`produced_json` holds counts and ids only. A long string or a nested dict is refused, so no document text can be written here."""
+    out: dict = {}
+    for key, value in produced.items():
+        if not isinstance(key, str) or len(key) > MAX_STRING:
+            raise ValueError("a produced key is a short name")
+        if isinstance(value, bool) or value is None or isinstance(value, (int, float)):
+            out[key] = value
+        elif isinstance(value, str) and len(value) <= MAX_STRING:
+            out[key] = value
+        elif isinstance(value, (list, tuple)) and all(
+            isinstance(v, (int, float)) or (isinstance(v, str) and len(v) <= MAX_STRING)
+            for v in value
+        ):
+            out[key] = list(value)
+        else:
+            raise ValueError(f"produced {key!r} is not a count, an id or a short code")
+    return out

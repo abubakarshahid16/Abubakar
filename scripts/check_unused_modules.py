@@ -46,6 +46,9 @@ ENTRY_POINTS = (
     "nine_chapters",  # B3: the chapter cut, until the librarian imports it
     "nine_context",  # B3: the project context (role 2), until the job calls it
     "nine_librarian",  # B3: the reading list, until the job calls it
+    # nine-role reviewer, B1: the stored record and the one call seam, being wired (remove when `nine_job` imports them)
+    "nine_record",
+    "nine_call",
 )
 
 

@@ -228,12 +228,24 @@ def _transport(send: Callable | None) -> Callable:
     return found
 
 
-def _metered(send: Callable):
+def request_digest(body: dict) -> str:
+    """The digest of a finished request body, the SAME one the spend ledger keeps on its line (`claude_spend.metered`): a planner can
+    match a request in a role record to one ledger line. A function of the body, never of the key."""
+    import hashlib
+
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, ensure_ascii=False, default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _metered(send: Callable, step: str = STEP):
     from app import reader_transport
 
     return claude_spend.metered(
         send,
-        step=STEP,
+        step=step,
         unbilled=reader_transport.unbilled,
         keep_if=lambda _answer: False,
     )  # a loop turn is never replayed from the cache
@@ -351,13 +363,15 @@ def _answered_model(answer: Any) -> str:
     return name.strip() if isinstance(name, str) and name.strip() else "unknown"
 
 
-def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | None]:
+def _send_once(
+    raw: Callable, request: dict, body: dict, step: str = STEP
+) -> tuple[Any, tuple | None]:
     """One metered send. (answer, None) or (None, (kind, code, billed)); the original error is not carried out."""
     from app import reader_transport
 
     recorded_failure: tuple | None = None
     try:
-        return _metered(raw)(
+        return _metered(raw, step)(
             request["url"],
             headers=request["headers"],
             body=body,
@@ -391,7 +405,9 @@ def _call(
     send: Callable | None,
     env: dict | None,
     meter: SpendMeter | None = None,
+    step: str = STEP,
 ) -> tuple[dict, float]:
+    """`step` names the ledger line (default: today's `agent_review`, so every caller of today is byte-for-byte the same)."""
     from app import claude_approved
 
     declared = claude_approved.carried()
@@ -414,7 +430,7 @@ def _call(
     body = dict(request["body"])
     body.update(body_parts)
     body["model"], body["max_tokens"] = model, int(max_tokens)
-    answer, failure = _send_once(raw, request, body)
+    answer, failure = _send_once(raw, request, body, step)
     # the headers (the key) leave this frame before any error is raised from it
     del request
     if failure is not None:
