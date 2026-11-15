@@ -103,7 +103,7 @@ def available() -> bool:
 #: credential, and rule 1 forbids document text in a log. So a rejection is reported as its TYPE plus, only for a closed list,
 #: OUR OWN fixed sentence; the one pattern-matched case fills it with the numbers or the date parsed from the message. Anything
 #: else is the type alone. (A 400 with no readable cause cost a day: 12 Nov 2026.)
-_DIGITS = r"(\d{1,9})"
+_DIGITS = r"([0-9]{1,9})"
 #: (error types that may carry a sentence, anchored regex of the API's message or None, OUR sentence with {0} {1} for the
 #: parsed numbers/date). `None`: the type alone decides and nothing is read from the message.
 _SAFE: tuple[tuple[tuple[str, ...], str | None, str], ...] = (
@@ -127,7 +127,7 @@ _SAFE: tuple[tuple[tuple[str, ...], str | None, str], ...] = (
     ),
     (
         ("invalid_request_error",),
-        r"You have reached your specified API usage limits\. You will regain access on (\d{4}-\d{2}-\d{2})(?: at [0-9:]{4,8} UTC)?\.?",
+        r"You have reached your specified API usage limits\. You will regain access on ([0-9]{4}-[0-9]{2}-[0-9]{2})(?: at [0-9:]{4,8} UTC)?\.?",
         "The Claude account's usage limit is reached; access returns on {0}.",
     ),
     (
@@ -143,7 +143,7 @@ _SAFE: tuple[tuple[tuple[str, ...], str | None, str], ...] = (
 )
 #: Our own sentences as patterns, so a later layer can tell one from free text.
 _SENTENCES = tuple(
-    re.compile(re.sub(r"\\\{\d\\\}", r"[0-9-]{1,10}", re.escape(template)))
+    re.compile(re.sub(r"\\\{[0-9]\\\}", r"[0-9-]{1,10}", re.escape(template)))
     for _, _, template in _SAFE
 )
 

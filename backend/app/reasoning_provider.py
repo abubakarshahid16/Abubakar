@@ -917,7 +917,9 @@ def claude_for_task(engine: str | None, role: str = "reasoning", *, step: str | 
     return ClaudeProvider(model, step=step)
 
 
-_REJECTED = re.compile(r"(?P<status>\d{3}) from [A-Za-z0-9.\-]{1,80} \((?P<kind>[a-z][a-z_]{0,39})(?:: (?P<sentence>.{1,200}))?\)")
+_REJECTED = re.compile(  # anchored: the rejection report is the whole text or what follows "<type>: ", and it ends the text; ASCII digits only
+    r"(?:^|: )(?P<status>[0-9]{3}) from [A-Za-z0-9.\-]{1,80} \((?P<kind>[a-z][a-z_]{0,39})(?:: (?P<sentence>.{1,200}))?\)$"
+)
 
 
 def refused_words(exc: BaseException) -> str:

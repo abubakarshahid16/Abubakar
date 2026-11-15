@@ -215,3 +215,20 @@ def test_an_earlier_document_turn_adds_only_the_readers_own_words_never_an_answe
 
 def test_the_settings_the_old_shape_needs_are_still_what_the_request_builder_uses():
     assert settings.claude_reasoning_model  # the one setting the chat's model comes from
+
+
+def test_the_rejection_patterns_read_ascii_digits_only_and_the_report_must_end_the_text():
+    """R54b LOW: a Unicode digit is not a status or a number, and text after the report means it is not the report."""
+    arabic = "٤٠٠"  # three non-ASCII digits that `\d` would have accepted
+    words = rp.refused_words(
+        rp.ProviderRefused(f"claude: HTTPStatusError: {arabic} from api.anthropic.com (invalid_request_error)")
+    )
+    assert words == "the answer model would not answer (the provider refused the request)"
+    trailing = rp.refused_words(
+        rp.ProviderRefused("claude: HTTPStatusError: 400 from api.anthropic.com (invalid_request_error) and more text")
+    )
+    assert trailing == "the answer model would not answer (the provider refused the request)"
+    ok = rp.refused_words(
+        rp.ProviderRefused("claude: HTTPStatusError: 400 from api.anthropic.com (invalid_request_error)")
+    )
+    assert ok == "the answer model would not answer (400, invalid_request_error)"
