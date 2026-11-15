@@ -13,6 +13,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from . import agent_review_rule_choice as rule_choice
 from . import agent_review_rules as rules_mod
 from . import (
     agent_review_text,
@@ -619,6 +620,7 @@ def build_items_for_run(
     equipment_type,
     ask_unapproved,
     shown=None,
+    rule_budget: int | None = None,
 ) -> dict:
     """`build_items` for the AI reviewer's job. The candidates are ALWAYS the rules of the books the selection included, the
     path a fresh run takes; stored per-rule scope decisions (a finished classic review of the paper, reused by the job) ADD
@@ -638,7 +640,7 @@ def build_items_for_run(
         rows = [r for r in rows if r["standard_document_id"] in shown]
     doc = build_items(conn, document_id, kind, run_id=scope_run, cache=cache, equipment_type=equipment_type,
                       equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows,
-                      unlisted_rows=unlisted)  # fmt: skip
+                      unlisted_rows=unlisted, rule_budget=rule_budget)  # fmt: skip
     block = doc.setdefault("rule_labels", {})
     other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
     books = agent_review_text.books_included(conn, scope_run, allowed)
@@ -680,6 +682,7 @@ def build_items(
     ask_unapproved: str = "off",
     equipment_filter: str = "off",
     unlisted_rows: list[dict] | None = None,
+    rule_budget: int | None = None,
 ) -> dict:
     """The item list for one paper, from the database (read only; `conn` is the caller's connection).
 
@@ -701,6 +704,11 @@ def build_items(
     eq_ctx = rules_mod.load_equipment(conn, document_id, equipment_filter)
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]
+    v2_left: list[dict] = []
+    if rule_budget is not None:  # rule choice v2 (off: this branch never runs)
+        reqs, v2_left = rule_choice.partial_gate_rows(
+            conn, reqs, rules_mod.paper_equipment_types(conn, document_id), names
+        )
     unlisted = [
         {**r, "standard": names.get(r["standard_document_id"])}
         for r in unlisted_rows or []
@@ -720,6 +728,21 @@ def build_items(
         rules_mod.left_out_record(r, {"reason": rules_mod.NOT_ON_LIST}, "id")
         for r in unlisted
     ]
+    v2_facts: dict | None = None
+    groups: list[dict] = []
+    if (
+        rule_budget is not None
+    ):  # rank and budget, then the grouped points: every rule left out has its reason and is listed
+        reqs, below, v2_facts = rule_choice.rank_and_cut(
+            reqs, why_kept, "id", rule_budget,
+            rule_choice.governing_book_ids(
+                conn, run_id, rules_mod.paper_equipment_types(conn, document_id), names
+            ), rule_choice.approved_field_names(equipment_type),
+            rule_choice.equipment_governing_ids(rules_mod.paper_equipment_types(conn, document_id), names),
+        )  # fmt: skip
+        why_kept = {str(r["id"]): why_kept[str(r["id"])] for r in reqs}
+        lab_left += v2_left + below
+        groups = rule_choice.group_points(lab_left, rules_mod.NEEDS_HUMAN)
     block = rules_mod.label_block(
         rules_mod.count_left_out(lab_left),
         lab_left,
@@ -730,6 +753,11 @@ def build_items(
         ),
         None if eq_ctx is None else rules_mod.equipment_block(eq_ctx, why_kept),
     )
+    if v2_facts is not None:
+        sentence = rule_choice.below_line_sentence(v2_facts)
+        if sentence:
+            block.setdefault("summary_lines", []).append(sentence)
+        block["rule_choice"] = {**v2_facts, "group_points": groups}
     rules = [
         rule_item(r, stds, cache, names.get(r["standard_document_id"]), pages)
         for r in reqs
@@ -742,7 +770,9 @@ def build_items(
         conn, stds, cache, rules, block, kind, known, skills, document_id, pages, eq_ctx
     )
     items = sk + rules
+    extra = {} if v2_facts is None else {"group_points": groups}
     return {
+        **extra,
         "rule_labels": block,
         "paper": document_id,
         "paper_kind": paper_kind,

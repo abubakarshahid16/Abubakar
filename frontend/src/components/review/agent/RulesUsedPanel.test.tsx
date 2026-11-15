@@ -190,6 +190,20 @@ describe("RulesUsedView: both labelling readers named other equipment", () => {
   });
 });
 
+describe("RulesUsedView: rule choice v2 reasons", () => {
+  it("shows the part-of-book and the below-the-limit reasons in their contract words", () => {
+    render(<RulesUsedView data={data({
+      left_out: [
+        { rule_book: "Book A", clause: "7", reason: "this part of the book does not govern this equipment" },
+        { rule_book: "Book A", clause: "8", reason: "below the limit for one review" },
+      ],
+      left_out_counts: { "this part of the book does not govern this equipment": 5, "below the limit for one review": 9 },
+    })} />);
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("this part of the book does not govern this equipment: 5");
+    expect(screen.getByTestId("left-out-counts")).toHaveTextContent("below the limit for one review: 9");
+  });
+});
+
 describe("RulesUsedView: where the rules came from", () => {
   it("says the source, the repeats, and the other-book count with its boundary", () => {
     render(<RulesUsedView data={data({

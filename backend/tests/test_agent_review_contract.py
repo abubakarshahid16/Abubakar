@@ -82,6 +82,8 @@ def test_vocabularies_are_exactly_the_owner_words():
         "the paper's equipment could not be read",
         "a part excluded by a value the paper states",
         "both labelling readers named other equipment",
+        "this part of the book does not govern this equipment",
+        "below the limit for one review",
     ]
 
 
