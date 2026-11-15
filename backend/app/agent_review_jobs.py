@@ -554,7 +554,7 @@ def _finish(
 ) -> dict:
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
-    lines, counts = calculator_run.finish(plan, runner)  # the runner's lines and the calculator's (none: setting off)
+    lines, counts = calculator_run.finish(plan, runner)
     n_cut = reread_mod.cut_off_count(lines)
     if (
         runner is not None and runner.answers is not None
@@ -630,7 +630,7 @@ def _execute(
     _write_missing(run_id, plan["block"].get("missing_rule_books") or [])
     holder: dict = {}
     try:
-        calculator_run.step(connect(), run_id, submittal, kind, plan, store=lambda ln, t: store_line(run_id, ln, t), tier_lookup=_tier_lookup(kind))  # fmt: skip
+        calculator_run.step_job(run_id, submittal, kind, plan, _tier_lookup(kind))
         if plan["items"]:
             _ask(run_id, submittal, kind, plan, holder)
     finally:  # the CRS and the run row are written for a partial run too

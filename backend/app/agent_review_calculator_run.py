@@ -52,6 +52,22 @@ def runner_done(stored: dict) -> dict:
     }
 
 
+def step_job(run_id: str, submittal: str, kind, plan: dict, tier_lookup) -> list[dict]:
+    """`step` as the review job calls it: the job's own database connection, and its `store_line` as the place the lines are kept before the first reader call."""
+    from . import agent_review_jobs
+    from .db import connect
+
+    return step(
+        connect(),
+        run_id,
+        submittal,
+        kind,
+        plan,
+        store=lambda line, trace: agent_review_jobs.store_line(run_id, line, trace),
+        tier_lookup=tier_lookup,
+    )
+
+
 def finish(plan: dict, runner) -> tuple[list[dict], dict]:
     """The lines of a finished (or stopped) run, the runner's then the calculator's, and the counts of both with the calculator's summary."""
     from . import agent_review_run as runner_mod
