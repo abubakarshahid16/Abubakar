@@ -81,6 +81,11 @@ class Sent:
     read_refs: tuple[
         tuple[str, str, int], ...
     ] = ()  # (book id, chapter id, part no) in this call
+    #: per book id, the blocks that were sent: (pages, char_from, char_to). A part of a long chapter is a CHARACTER RANGE into the joined
+    #: text of its pages (joined with a newline): a quote on stored text outside that range was not sent. Empty = whole pages.
+    book_blocks: Mapping[
+        str, tuple[tuple[tuple[int, ...], int | None, int | None], ...]
+    ] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -120,6 +125,34 @@ def verdict_of(raw: Mapping) -> AiVerdict | None:
     return word if word in ANSWER_OF else None  # type: ignore[return-value]
 
 
+def sent_book(
+    book: guards.Book, blocks: Sequence[tuple[tuple[int, ...], int | None, int | None]]
+) -> list[guards.Book]:
+    """One `Book` per sent block, holding ONLY the text that block carried: its pages, and for a character range the slice of the joined text
+    of those pages ("\n" between pages, as the seam joins them) that lies inside the range, cut back onto the pages it came from."""
+    out: list[guards.Book] = []
+    for pages, lo, hi in blocks:
+        ordered = sorted(p for p in pages if p in book.pages)
+        if lo is None and hi is None:
+            out.append(
+                guards.Book(
+                    {p: book.pages[p] for p in ordered}, ocr=book.ocr & set(ordered)
+                )
+            )
+            continue
+        a, b = lo or 0, hi if hi is not None else 1 << 60
+        kept: dict[int, str] = {}
+        at = 0
+        for p in ordered:
+            text = book.pages[p]
+            start, end = at, at + len(text)
+            if end > a and start < b:
+                kept[p] = text[max(a - start, 0) : max(min(b - start, len(text)), 0)]
+            at = end + 1
+        out.append(guards.Book(kept, ocr=book.ocr & set(kept)))
+    return out
+
+
 def _short(quote: Any) -> bool:
     return len(" ".join(str(quote or "").split())) < guards.OFF_PAGE_MIN
 
@@ -131,45 +164,40 @@ def verify_sent(
     sent_pages: frozenset[int],
     books: standards.BookPages,
     claimed_page: int | None = None,
+    sent_blocks: Sequence[tuple[tuple[int, ...], int | None, int | None]] = (),
 ) -> guards.Located:
-    """The clause quote found by `agent_review_standards.verify` (a wrapper of the one check, `pass_guards.locate`) AND standing on a page that
-    was sent: a found `Located` (true page, where, scanned) or a not-found one whose `why` says which. When the first place it was found is a
-    page that was not sent, it is searched again among the sent pages only: the same text can stand on both. A SHORT quote (under
-    `guards.OFF_PAGE_MIN` characters) matches by chance, so it counts only on the one page the finding claims, which must have been sent."""
-    if _short(quote):
-        if claimed_page is None or claimed_page not in sent_pages:
-            return guards.Located(False, why=SHORT_NEEDS_PAGE)
-        got = standards.verify(book_id, quote, [claimed_page], books)
-        return (
-            got
-            if got.found and got.page == claimed_page
-            else guards.Located(False, why=got.why or SHORT_NEEDS_PAGE)
-        )
-    hint = (
-        [claimed_page, *sorted(sent_pages)]
-        if claimed_page in sent_pages
-        else (hint if hint is not None else sorted(sent_pages))
-    )
-    got = standards.verify(book_id, quote, hint, books)
+    """The clause quote found by `agent_review_standards.verify` (a wrapper of the one check, `pass_guards.locate`) AND standing on text that
+    was SENT: on a page of a block of that call and, for a part of a long chapter, inside the CHARACTER RANGE of that block (`sent_blocks`;
+    none given = the whole pages in `sent_pages`). The answer is a found `Located` (true page, where, scanned) or a not-found one whose `why`
+    says which. The same text can stand on a sent and an unsent place: the sent one counts. A SHORT quote (under `guards.OFF_PAGE_MIN`
+    characters) matches by chance, so it counts only on the one page the finding claims, which must have been sent."""
+    short = _short(quote)
+    if short and (claimed_page is None or claimed_page not in sent_pages):
+        return guards.Located(False, why=SHORT_NEEDS_PAGE)
+    got = standards.verify(book_id, quote, [claimed_page] if short else hint, books)
     if not got.found:
         return got
-    if got.page in sent_pages:
-        return got
     book = books.book(book_id)
-    only = guards.Book(
-        {n: t for n, t in book.pages.items() if n in sent_pages},
-        ocr=book.ocr & sent_pages,
+    pools = (
+        sent_book(book, sent_blocks)
+        if sent_blocks
+        else [
+            guards.Book(
+                {n: t for n, t in book.pages.items() if n in sent_pages},
+                ocr=book.ocr & sent_pages,
+            )
+        ]
     )
-    again = guards.locate(
-        quote,
-        only,
-        [
-            p
-            for p in (hint if isinstance(hint, Iterable) else [hint])
-            if isinstance(p, int)
-        ],
+    order = (
+        [claimed_page]
+        if short
+        else ([claimed_page] if claimed_page in sent_pages else []) + sorted(sent_pages)
     )
-    return again if again.found else guards.Located(False, why=CLAUSE_NOT_SENT)
+    for pool in pools:
+        again = guards.locate(quote, pool, order)
+        if again.found and (not short or again.page == claimed_page):
+            return again
+    return guards.Located(False, why=SHORT_NEEDS_PAGE if short else CLAUSE_NOT_SENT)
 
 
 def clause_number_status(book: guards.Book, clause: str | None, page: int) -> str:
@@ -237,6 +265,7 @@ def check_raw(
             call.book_pages[book_id],
             books,
             claimed,
+            call.book_blocks.get(book_id, ()),
         )
         if got.found and got.page is not None:
             hits.append((book_id, got))
@@ -392,10 +421,10 @@ def fields_agree(
 ) -> bool:
     """Is the finding about the same FIELD as the stored rule it matched on text? The rule's field (the plan item's `field_roles`, the rule row's
     field) is compared with the finding's: registry roles when both resolve, else the content words of the two names. A rule that names no
-    field is matched only by a finding that names none (code cannot show a named field is about the value the rule compares). A finding about "design pressure" must not ride a rule about coating thickness to a decision."""
+    field is never matched (code cannot show any finding is about the value the rule compares). A finding about "design pressure" must not ride a rule about coating thickness to a decision."""
     fields = [str(f).strip() for f in (rule_fields or []) if str(f or "").strip()]
-    if not fields:  # the rule names no field: a finding that names one cannot be shown to be about THIS rule's value
-        return not (roles or str(label or "").strip())
+    if not fields:  # the rule names no field: NOTHING shows the finding is about this rule's value, whatever the finding names (or not)
+        return False
     rules = rules or absence.registry()
     known: set[str] = set()
     for f in fields:

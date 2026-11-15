@@ -884,7 +884,7 @@ def test_a_design_pressure_finding_does_not_ride_a_coating_thickness_rule():
     assert right.item["item_id"] == "R-1" and right.finding.matched_rule_id == "1"
 
 
-def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_field_is_matched_only_by_a_finding_with_none():
+def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_field_is_never_matched():
     assert (
         nf.fields_agree("Design pressure", ("design_pressure",), ["design_pressure"])
         is True
@@ -901,7 +901,8 @@ def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_
         nf.fields_agree("Anything", (), []) is False
         and nf.fields_agree("Anything", (), None)
         is False  # R65b N2: a rule with no field is not matched by a finding that names one
-        and nf.fields_agree("", (), []) is True
+        and nf.fields_agree("", (), [])
+        is False  # R65c A1: both sides name no field: still no match
     )
 
 
@@ -1044,9 +1045,9 @@ def test_a_finding_on_any_field_cannot_ride_a_rule_that_names_no_field_to_a_deci
         nf.join([nf.check_raw(raw(field_label=""), sent(**{BOOK: {1}}), PAPER, books_of(**{BOOK: {1: RULE_A}}))])[0], rules=RULES,
         plan_items={"R-1": {"item_id": "R-1", "source": "rule", "rule_version_id": "1"}}, tier_lookup=lookup_ai, book_text=lambda *_a: RULE_A,
     )  # fmt: skip
-    assert (
-        plain.item["item_id"] == "R-1"
-    )  # no field on either side: nothing to contradict
+    assert plain.item["item_id"].startswith(
+        "F-"
+    )  # R65c A1: no field on either side is no match either
 
 
 # ---------------------------------------------------------------- R65b N3: one member per underlying finding

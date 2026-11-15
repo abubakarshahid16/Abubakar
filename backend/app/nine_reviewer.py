@@ -190,11 +190,16 @@ def chapter_blocks(group: Sequence[ChapterText]) -> list[nine_call.Block]:
     ]  # fmt: skip
 
 
-def sent_of(answer: nine_call.Answer) -> nine_findings.Sent:
+def sent_of(
+    answer: nine_call.Answer, offered: Sequence[ChapterText] = ()
+) -> nine_findings.Sent:
     """What a call really sent, read from the ANSWER (`Answer.reads`: one entry per block the gate kept), never from the blocks that were
-    offered. A document the gate held is not in it, so a quote from its pages is unverified."""
+    offered. A document the gate held is not in it, so a quote from its pages is unverified. For a kept part of a long chapter the CHARACTER
+    RANGE is the one that part was offered with (`offered`, matched by book, chapter and part number: the gate keeps or drops a whole block and
+    never changes its range); a quote outside that range was not sent. A kept block with no matching offer counts as whole pages."""
     paper: set[int] = set()
     books: dict[str, set[int]] = {}
+    blocks: dict[str, list[tuple[tuple[int, ...], int | None, int | None]]] = {}
     refs: list[tuple[str, str, int]] = []
     for r in answer.reads:
         pages = {
@@ -203,17 +208,30 @@ def sent_of(answer: nine_call.Answer) -> nine_findings.Sent:
         if r.document_kind == "paper":
             paper |= pages
         elif r.document_kind == "rule_book":
-            books.setdefault(str(r.document_id), set()).update(pages)
-            refs.append(
-                (str(r.document_id), str(r.chapter_id or ""), int(r.part_no or 1))
+            book = str(r.document_id)
+            books.setdefault(book, set()).update(pages)
+            part = next(
+                (
+                    c
+                    for c in offered
+                    if c.book_id == book
+                    and c.chapter_id == str(r.chapter_id or "")
+                    and c.part_no == int(r.part_no or 1)
+                ),
+                None,
             )
+            blocks.setdefault(book, []).append(
+                (
+                    tuple(sorted(pages)),
+                    part.char_from if part else None,
+                    part.char_to if part else None,
+                )
+            )
+            refs.append((book, str(r.chapter_id or ""), int(r.part_no or 1)))
     return nine_findings.Sent(
-        answer.call_id,
-        frozenset(paper),
-        {k: frozenset(v) for k, v in books.items()},
-        answer.model,
-        tuple(dict.fromkeys(refs)),
-    )
+        answer.call_id, frozenset(paper), {k: frozenset(v) for k, v in books.items()}, answer.model, tuple(dict.fromkeys(refs)),
+        {k: tuple(v) for k, v in blocks.items()},
+    )  # fmt: skip
 
 
 def context_sent(answer: nine_call.Answer) -> set[str]:
@@ -309,6 +327,8 @@ class ReviewerRun:
         default_factory=list
     )  # parts a call did NOT send (a source the gate held): named in the record
 
+    NO_CONTEXT_OFFERED = "no project context offered"
+
     @property
     def context_passed(self) -> bool:
         """Context parts were offered and every one of them went (none held by the gate)."""
@@ -342,8 +362,10 @@ class ReviewerRun:
                 )
             )
             return "not_run", why
-        if self.partly:
+        if self.partly or not self.context_offered:
             parts = []
+            if not self.context_offered:
+                parts.append(self.NO_CONTEXT_OFFERED)
             if self.context_dropped:
                 parts.append(
                     "project context part(s) held by the gate: "
@@ -446,6 +468,6 @@ def review(
             for n in offered
             if n not in context_sent(res) and n not in run.context_dropped
         )
-        sent = sent_of(res)
+        sent = sent_of(res, group)
         run.raw.extend((r, sent) for r in parsed)
     return run
