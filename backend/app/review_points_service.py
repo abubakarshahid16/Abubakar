@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from . import agent_review_wording as wording
 from . import (
     evidence_boxes,
     review_code_proposal,
@@ -237,18 +238,28 @@ def resolve_books(points: list[dict], readable: frozenset[str]) -> None:
         books = [
             {"id": d, "name": names[d]}
             for d in p.get("_book_docs") or []
-            if d in names  # `names` holds readable books only (the ONE guard: `ids` above)
+            if d
+            in names  # `names` holds readable books only (the ONE guard: `ids` above)
         ]
         p["books"] = books
         # a point that cites a book the caller may not read is counted apart for it, even when another of its books is readable
-        p["_other_books"] = any(d not in names or d not in readable for d in p.get("_book_docs") or [])
-        p["no_book"] = not (p.get("_book_docs") or p.get("_book_doc"))  # cites no rule book at all
+        p["_other_books"] = any(
+            d not in names or d not in readable for d in p.get("_book_docs") or []
+        )
+        p["no_book"] = not (
+            p.get("_book_docs") or p.get("_book_doc")
+        )  # cites no rule book at all
         if books:
             p["rule_book"] = books[0]["name"]
         elif p.get("_book_docs") or p.get("_book_doc"):
-            p["rule_book"], p["clause"] = None, None  # held but not readable (or not found): not named
+            p["rule_book"], p["clause"] = (
+                None,
+                None,
+            )  # held but not readable (or not found): not named
         else:
-            p["rule_book"] = None  # no identity, no chip: a display string is never parsed into a book
+            p["rule_book"] = (
+                None  # no identity, no chip: a display string is never parsed into a book
+            )
 
 
 def _names(ids) -> dict[str, str]:
@@ -379,7 +390,9 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
         return None
     conn = connect()
     lines = [
-        {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        wording.read_time(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        )
         for r in conn.execute(
             "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
             (run_id,),

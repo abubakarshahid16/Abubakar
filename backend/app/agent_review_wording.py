@@ -336,6 +336,16 @@ def classify(line: Mapping) -> dict:
     }
 
 
+def read_time(line: Mapping) -> dict:
+    """A stored line of ANY run as every reader of it sees it: an item row (rule or checklist) gets the reason sentence the SAME rule gives a
+    new line (`classify`), so an earlier run's stored reason (the gate's old sentence for a reader's own Query) is worded truly on the page,
+    in the points and in a CRS built from it. Only the reason is taken: the stored class and every other key stay as they are (the
+    defences that read the stored class keep working); never rewritten in the table. Any other line is returned as it is."""
+    if line.get("source") not in ("rule", "skill"):
+        return dict(line)
+    return {**line, "not_proven_reason": classify(line)["not_proven_reason"]}
+
+
 def apply(line: Mapping) -> dict:
     """The line with the words added (idempotent). A 'should' rule is marked a recommendation. A line the second reader
     re-read says what the code saw after its reason (`reread.outcome`: no_value, quote_not_found or not_confirmed); a failed
@@ -631,6 +641,7 @@ __all__ = [
     "is_unapproved",
     "no_verdict",
     "query_group_counts",
+    "read_time",
     "reader_query_action",
     "reader_query_group",
     "reader_query_words",

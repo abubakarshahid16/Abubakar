@@ -367,3 +367,111 @@ def test_the_local_reader_that_gives_no_verdict_is_asked_once_more_and_then_not_
             got["R-coat"]["verdict_class"] == "Not reviewed"
             and got["R-coat"]["reason"] == "the AI gave no answer"
         )
+
+
+def test_an_old_stored_reader_query_is_worded_truly_in_the_listing_the_points_and_a_built_crs(
+    client, tmp_path
+):
+    """R62 F1: at read time the REASON is mapped too, everywhere a stored line is read; the false sentence appears nowhere."""
+    from app import agent_review_wording, db, review_points
+    from tests.test_agent_review_routes import finished_run
+
+    run_id = finished_run(client)
+    conn = db.connect()
+    rows = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+        (run_id,),
+    ).fetchall()
+    stored = {}
+    for row, code in zip(
+        rows[:3],
+        ("needs_drawing_or_calc", "unclear_clause", "sheet_silent"),
+        strict=False,
+    ):
+        line = json.loads(row["line_json"])
+        line.update(
+            ai_verdict="Query",
+            verdict="Query",
+            decided_by="engineer",
+            error=None,
+            reason_code=code,
+            why=OLD,
+            not_proven_reason=OLD,
+            silence_query=False,
+            quotes_checked={"paper": True, "clause": True},
+            textual_pass=False,
+        )  # what the 12 Nov run stored
+        stored[row["item_id"]] = (code, line)
+        conn.execute(
+            "UPDATE agent_review_line SET verdict_class = 'Query for the engineer', word = 'Query', reason = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
+            (OLD, json.dumps(line), run_id, row["item_id"]),
+        )
+    conn.commit()
+    before = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+        (run_id,),
+    ).fetchall()
+    false_words = ("did not reach a view", "did not give pass or fail")
+    # 1. the HTTP listing
+    shown = {
+        ln["item_id"]: ln
+        for ln in client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()["lines"]
+    }
+    for iid, (code, _line) in stored.items():
+        text = shown[iid]["reason"]
+        assert not any(f in text for f in false_words), (code, text)
+    assert (
+        "needs a drawing or a calculation to judge"
+        in shown[
+            next(i for i, (c, _) in stored.items() if c == "needs_drawing_or_calc")
+        ]["reason"]
+    )
+    assert (
+        "Engineer to judge this"
+        in shown[
+            next(i for i, (c, _) in stored.items() if c == "needs_drawing_or_calc")
+        ]["reason"]
+    )
+    assert (
+        "the AI could not decide"
+        in shown[next(i for i, (c, _) in stored.items() if c == "unclear_clause")][
+            "reason"
+        ]
+    )
+    # 2. a CRS built from the stored lines of the old run
+    lines = [
+        json.loads(r["line_json"])
+        for r in conn.execute(
+            "SELECT line_json FROM agent_review_line WHERE run_id = ?", (run_id,)
+        )
+    ]
+    path = WB.write(lines, tmp_path / "old.xlsx", META, "internal")
+    cells = json.dumps(
+        [
+            list(r)
+            for sh in openpyxl.load_workbook(path)
+            for r in sh.iter_rows(values_only=True)
+        ],
+        default=str,
+    )
+    assert not any(f in cells for f in false_words)
+    assert (
+        "needs a drawing or a calculation to judge" in cells
+        and "the AI could not decide" in cells
+    )
+    # 3. the points of the run (the page that signs)
+    points, _held = review_points.ai_points_of_run(
+        conn, run_id, "doc_paper", frozenset()
+    )
+    assert not any(f in json.dumps(points, default=str) for f in false_words)
+    # nothing was rewritten
+    assert (
+        conn.execute(
+            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+            (run_id,),
+        ).fetchall()
+        == before
+    )
+    assert agent_review_wording.read_time({"source": "general"}) == {
+        "source": "general"
+    }

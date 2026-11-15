@@ -526,7 +526,7 @@ def agent_trace(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="no such line")
-    line = json.loads(row["line_json"])
+    line = agent_review_wording.read_time(json.loads(row["line_json"]))  # read time: the same words as a new line
     if line.get("general"):
         return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")

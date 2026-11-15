@@ -733,6 +733,7 @@ def screen_text(line_json: str | None) -> str:
         line = json.loads(line_json or "")
     except ValueError:
         return ""
+    line = wording.read_time(line) if isinstance(line, dict) else line  # read time
     ruled = isinstance(line, dict) and line.get("source") in (
         "rule",
         "skill",
@@ -747,6 +748,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     no model, no run number."""
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
+    lines = [wording.read_time(ln) for ln in lines]  # read time
     items = ordered_item_lines(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)
