@@ -513,15 +513,17 @@ def plan_for(
             "the AI review on the local model costs USD 0: no Claude call, no spend line"
         )
         from .agent_review_local import local_time
+        from .agent_review_local import window_plan_words as local_window_words
 
         out["time"] = local_time(
             conn, document_id, agent_review_gate.two_reader_enabled()
         )
     out["notes"] = _notes(plan, settings)
     if plan.part(AI_REVIEW).engine == ON_LOCAL:
-        out["notes"].append(
-            out["time"]["basis"]
-        )  # the start screen says before the start: the time, and that other reviews wait
+        out["notes"] += [
+            out["time"]["basis"],
+            local_window_words(),
+        ]  # before the start: the time, that others wait, the window
     out["sentence"] = sentence_of(out)
     return out
 

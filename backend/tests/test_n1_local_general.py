@@ -34,6 +34,13 @@ SHOWS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_real_engine(monkeypatch):
+    """No test asks a real engine for a model's size, or reads the chat's state."""
+    monkeypatch.setattr(local_mod, "_model_size_mb", lambda _m: None)
+    monkeypatch.setattr(local_mod, "_chat_active", lambda: False)
+
+
 class GLocal:
     """The local engine for the general review: the invented Claude's handlers, answered by model name; every request recorded."""
 
@@ -51,7 +58,7 @@ class GLocal:
         fake_reply = self.fake(None, headers={}, body={**claude_body, "model": body["model"]}, timeout=1)  # fmt: skip
         text = fake_reply["content"][0]["text"]
         self.log.append((body["model"], system[:30]))
-        tokens = (sum(len(m["content"]) for m in body["messages"]) // 3) + 1
+        tokens = (sum(len(m["content"]) for m in body["messages"]) // 4) + 1
         if self.cut_when and self.cut_when in user:
             tokens = body["options"][
                 "num_ctx"
