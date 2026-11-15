@@ -181,41 +181,18 @@ def _ask_context(ctx: RoleContext, engine: str):
     return ask
 
 
-def context_role(ctx: RoleContext) -> RoleResult:
-    """Role 2: `nine_context.run`. Code finds the project's papers and admits each one (shown list, the starter's access, the engine
-    choice; a contract never under Automatic); a model, through `nine_call.ask`, may only NAME a standard or an override with a page
-    quote that code finds. Nothing held: no call, a note with the five "not available" lines.
-
-    WHAT IS PASSED ON: the note holds text of OTHER documents (their quotes), so it is NOT handed to the reviewer as one block under the
-    paper's id; only counts reach the record, and the record says so (`context_passed`)."""
-    from . import (
-        applicability,
-        kind_words,
-        nine_context,
-        review_shown,
-    )
+def _project_papers(
+    submittal: str, rows: list[dict], scope: frozenset[str], shown
+) -> list:
+    """The project's other papers as candidates (ids and page text; the access and the shown list are facts of each, the admission is
+    `nine_context.admit`'s). Only a contract, a specification or a related datasheet is a candidate."""
+    from . import kind_words, nine_context
 
     conn = connect()
-    engine, scope = _engine(ctx), _scope(ctx)
-    shown = review_shown.shown_ids(conn, ctx.run_id)
-    mine = conn.execute(
-        "SELECT * FROM document_classification WHERE document_id = ?", (ctx.submittal,)
-    ).fetchone()
-    project = (mine["project"] if mine else None) or None
     papers: list[nine_context.ProjectPaper] = []
-    rows = (
-        [
-            dict(r)
-            for r in conn.execute(
-                "SELECT * FROM document_classification WHERE project = ?", (project,)
-            )
-        ]
-        if project
-        else []
-    )
     for r in rows:
         doc = r["document_id"]
-        if doc == ctx.submittal:
+        if doc == submittal:
             continue
         decided = kind_words.decided_kind(doc)
         kind = (
@@ -237,6 +214,40 @@ def context_role(ctx: RoleContext) -> RoleResult:
                 doc, kind, text, shown is not None and doc in shown, doc in scope
             )
         )
+    return papers
+
+
+def context_role(ctx: RoleContext) -> RoleResult:
+    """Role 2: `nine_context.run`. Code finds the project's papers and admits each one (shown list, the starter's access, the engine
+    choice; a contract never under Automatic); a model, through `nine_call.ask`, may only NAME a standard or an override with a page
+    quote that code finds. Nothing held: no call, a note with the five "not available" lines.
+
+    WHAT IS PASSED ON: the note holds text of OTHER documents (their quotes), so it is NOT handed to the reviewer as one block under the
+    paper's id; only counts reach the record, and the record says so (`context_passed`)."""
+    from . import (
+        applicability,
+        nine_context,
+        review_shown,
+    )
+
+    conn = connect()
+    engine, scope = _engine(ctx), _scope(ctx)
+    shown = review_shown.shown_ids(conn, ctx.run_id)
+    mine = conn.execute(
+        "SELECT * FROM document_classification WHERE document_id = ?", (ctx.submittal,)
+    ).fetchone()
+    project = (mine["project"] if mine else None) or None
+    rows = (
+        [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM document_classification WHERE project = ?", (project,)
+            )
+        ]
+        if project
+        else []
+    )
+    papers = _project_papers(ctx.submittal, rows, scope, shown)
     new_values = {
         f.field_label: f.value
         for f in getattr(ctx.store.get("fact_sheet"), "facts", ())
@@ -269,12 +280,34 @@ def context_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ role 3: the Librarian
 
 
+def _book_inputs(
+    conn, book_ids: list[str], scope: frozenset[str], budget: int
+) -> tuple[list, dict]:
+    """The rule books inside the starter's access, each read once and cut into chapters (a book outside the access is counted by the
+    caller, never named)."""
+    from . import agent_review_standards, nine_chapters, nine_librarian
+
+    inputs, cuts = [], {}
+    for b in book_ids:
+        if b not in scope:
+            continue
+        book = agent_review_standards.read_book(conn, b)
+        pages = sorted((n, t) for n, t in book.pages.items() if (t or "").strip())
+        cut = nine_chapters.cut(b, pages, max_tokens=budget, scanned=book.ocr)
+        cuts[b] = cut
+        inputs.append(
+            nine_librarian.BookInput(
+                b, cut, why=("holds a rule chosen for this paper",)
+            )
+        )
+    return inputs, cuts
+
+
 def librarian_role(ctx: RoleContext) -> RoleResult:
     """Role 3: the reading list by code (`nine_librarian.plan_reading`: books from the chosen rules, chapters cut by `nine_chapters`, a rank,
     a budget, "chosen, not read" with the reason); one optional model call sees only chapter TITLES and can only ADD chapters (through
     `nine_call.ask`, role 3). A book outside the starter's access is counted, never named."""
     from . import (
-        agent_review_standards,
         nine_call,
         nine_chapters,
         nine_librarian,
@@ -297,19 +330,7 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
         if engine == "local"
         else nine_chapters.CLAUDE_CALL_TOKENS
     )
-    inputs, cuts = [], {}
-    for b in book_ids:
-        if b not in scope:
-            continue
-        book = agent_review_standards.read_book(conn, b)
-        pages = sorted((n, t) for n, t in book.pages.items() if (t or "").strip())
-        cut = nine_chapters.cut(b, pages, max_tokens=budget, scanned=book.ocr)
-        cuts[b] = cut
-        inputs.append(
-            nine_librarian.BookInput(
-                b, cut, why=("holds a rule chosen for this paper",)
-            )
-        )
+    inputs, cuts = _book_inputs(conn, book_ids, scope, budget)
     refs = [
         nine_librarian.RuleRef(
             str(i["standard_document_id"]), i.get("clause"), i.get("clause_page"), n
