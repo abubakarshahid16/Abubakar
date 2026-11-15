@@ -229,9 +229,6 @@ def _checklist_lines(
         results = [
             {**r, "equipment_tag": r.get("equipment_tag") or key} for r in results
         ]
-        results = cells_mod.hold_untrusted(
-            results, gfacts, stored.get("equipment_type") or kind.equipment_type
-        )  # a result that rests on a value in conflict, or needing an engineer, is a question, never a Pass or Fail
         presence.update(calc.presence_counts(results))
         for line in calc.checklist_lines(
             results,

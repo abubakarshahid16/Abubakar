@@ -63,6 +63,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "api/agent_review_schemas.py", "the one class, word and tier table"),
     (APP + "agent_review_wording.py", "the words of a verdict"),
     (
+        APP + "untrusted_value.py",
+        "holds a datasheet check that rests on a value in conflict or needing an engineer: never a Pass or Fail",
+    ),
+    (
         APP + "table_cell.py",
         "locates the one cell of a value on the stored table rows: the cell is the proof of a proven Pass or Fail",
     ),
