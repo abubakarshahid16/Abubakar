@@ -674,3 +674,88 @@ def test_8_a_checklist_line_is_asked_again_from_the_page_too(_pages):
     )
     assert lines[0]["quotes_checked"]["paper"] is True
     assert exit_of(lines[0], lines[0])["verdict_class"] != "Proven by code"
+
+
+# ---------------------------------------------------------------------------------------- 12 (R48i 2): the field is the subject of the SAME sentence, as a whole phrase
+
+
+def _subject_line(clause, field):
+    return _dir_line(
+        clause, item={"field_roles": [field], "rule_label": {"tier": "AI approved"}}
+    )
+
+
+def test_12_the_field_in_another_sentence_is_not_the_subject_of_the_limit():
+    clause = "Noise level is reported separately. Valve body shall not exceed 90 dB(A)."
+    ln = _subject_line(clause, "noise")
+    assert query(ln, "clause_subject_not_the_field")
+    assert proven(
+        _subject_line(
+            "Valve body is reported separately. Noise level shall not exceed 90 dB(A).",
+            "noise",
+        )
+    )
+
+
+def test_12_a_table_line_is_its_own_sentence():
+    assert query(
+        _subject_line("Noise level\nValve body maximum 90 dB(A)", "noise"),
+        "clause_subject_not_the_field",
+    )
+    assert proven(_subject_line("Valve body\nNoise level maximum 90 dB(A)", "noise"))
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "The test pressure shall not exceed 90 dB(A).",
+        "The relief valve pressure shall not exceed 90 dB(A).",
+        "Design pressure shall not exceed 90 dB(A).",
+    ],
+)
+def test_12_a_lone_common_word_does_not_accept_a_longer_name_that_ends_in_it(clause):
+    assert query(_subject_line(clause, "pressure"), "clause_subject_not_the_field")
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "The pressure shall not exceed 90 dB(A).",
+        "Pressure shall not exceed 90 dB(A).",
+        "Pressure: maximum 90 dB(A).",
+    ],
+)
+def test_12_the_lone_word_as_the_subject_itself_proves(clause):
+    assert proven(_subject_line(clause, "pressure"))
+
+
+def test_12_a_more_specific_field_of_the_approved_list_in_the_sentence_is_a_query():
+    assert proven(
+        _subject_line("The set pressure shall not exceed 90 dB(A).", "set_pressure")
+    )
+    assert query(
+        _subject_line("The design pressure shall not exceed 90 dB(A).", "set_pressure"),
+        "clause_subject_not_the_field",
+    )
+    assert query(
+        _subject_line(
+            "The set pressure and the design pressure shall not exceed 90 dB(A).",
+            "set_pressure",
+        ),
+        "clause_subject_not_the_field",
+    )
+
+
+def test_12_a_field_that_stands_only_after_the_figure_is_not_the_subject():
+    assert query(
+        _subject_line(
+            "Valves shall be rated at 90 dB(A) with the design pressure.",
+            "design_pressure",
+        ),
+        "clause_subject_not_the_field",
+    )
+    assert proven(
+        _subject_line(
+            "The design pressure shall not exceed 90 dB(A).", "design_pressure"
+        )
+    )

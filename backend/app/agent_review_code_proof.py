@@ -244,26 +244,70 @@ def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
 SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
 
 
+_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])\s+|\n+")
+#: what may stand directly before a lone field word that is the subject itself ("the pressure", "of pressure"); any other word there is a qualifier that makes it
+#: another field ("test pressure", "relief valve pressure")
+_BEFORE_HEAD = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "of",
+        "in",
+        "at",
+        "to",
+        "and",
+        "or",
+        "that",
+        "whose",
+        "with",
+        "no",
+        "any",
+        "each",
+        "its",
+        "this",
+        "all",
+    }
+)
+
+
+def _sentence_before_figure(quote: object, numbers: list[str]) -> str | None:
+    """The folded words of the SAME sentence (or table line) that states the limit, up to its figure: the first sentence or line of the quote that holds the limit's number."""
+    wanted = [numparse.as_number(x) for x in numbers]
+    for seg in _SENTENCE_BREAK.split(str(quote or "")):
+        text = numparse.fold(seg)
+        spots = [
+            n
+            for n in numparse.find_numbers(text)
+            if n.value is not None and n.value in wanted and not n.joined
+        ]
+        if spots:
+            return text[: min(n.start for n in spots)]
+    return None
+
+
 def subject_reason(
     rule_field: object, requirement: Mapping | None, quote: object
 ) -> str | None:
-    """Why the clause quote is not ABOUT the rule's field, in words; None when it is. Every content word of the rule's own field name must stand in the
-    quote BEFORE the limit's figure: "The set pressure shall not exceed 110 %" is about set pressure; "Liquid service valves ... at 10 % or less
-    overpressure" is about liquid service valves, and a limit stated for a scope the code does not know is not applied to every paper."""
+    """Why the clause quote is not ABOUT the rule's field, in words; None when it is. In the SAME sentence (or table line) as the limit's figure, before it,
+    the rule's own field stands as a whole phrase: the approved field list's own words for it (`agent_review_pass_guards`), no other approved field of the
+    list in that sentence, and a field of one common word only as the subject itself ("the pressure shall not exceed"), never as the end of a longer name
+    ("test pressure", "relief valve pressure"). "Noise level is reported separately. Valve body shall not exceed 90" is about the valve body."""
     from . import agent_bind
 
-    words = agent_bind.content_words(str(rule_field or "").replace("_", " "))
-    text, numbers = numparse.fold(str(quote or "")), limit_numbers(requirement or {})
-    spots = [
-        n
-        for x in numbers
-        for n in numparse.find_numbers(text)
-        if n.value is not None and n.value == numparse.as_number(x) and not n.joined
-    ]
-    if not words or not spots:
+    field = str(rule_field or "").replace("_", " ").strip()
+    sent = _sentence_before_figure(quote, limit_numbers(requirement or {}))
+    words = agent_bind.content_words(field)
+    if not (field and words and sent):
         return SUBJECT_WHY
-    before = text[: min(n.start for n in spots)]
-    return None if words <= agent_bind.content_words(before) else SUBJECT_WHY
+    if not guards._carries(sent, [field]) or guards._other_field_words(sent, [field]):
+        return SUBJECT_WHY
+    if len(words) == 1:
+        tokens = re.findall(r"[a-z0-9]+", sent)
+        lone = [i for i, t in enumerate(tokens) if agent_bind.content_words(t) == words]
+        if not any(i == 0 or tokens[i - 1] in _BEFORE_HEAD for i in lone):
+            return SUBJECT_WHY
+    return None
 
 
 def recompute(requirement: Mapping, observed: Mapping) -> str | None:
