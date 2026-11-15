@@ -161,3 +161,40 @@ def more_than_the_limit(sentences: list[str], limit_at: int | None) -> bool:
         if has_figure_with_unit(sent) or _MORE_WORDS.search(sent):
             return True
     return False
+
+
+_CLAUSE_LINE = re.compile(r"^\s*(\d{1,2}(?:\.\d{1,3}){1,5})\.?\s+([A-Za-z(][^\n]*)$")
+
+
+def _clause_key(number: str) -> tuple[int, ...] | None:
+    return (
+        tuple(int(x) for x in number.split("."))
+        if re.fullmatch(r"\d{1,2}(?:\.\d{1,3}){0,5}", number.strip())
+        else None
+    )
+
+
+def clause_own_text(text: object, clause: object) -> str:
+    """The stored clause text cut where the clause ENDS: at the first line that starts with a clause number of the same numbering scheme that is strictly later in
+    order and is not a sub-clause of this one (7.1.2.4, 7.1.3, 7.2 and 8 after 7.1.2.3; 7.1.2.3.1 is part of it), followed by a word. The stored heading structure
+    reads a clause to the end of the book when a later clause is written like body text, so this is the only end that can be established; when the clause number is not
+    a plain number, or no such line is found, the text is returned as it is (the proof then reads all of it: a Query, never a guess). Not a boundary: a number inside a
+    sentence, a list item ("1.", "(a)": earlier in order or not a number), a line that starts with a figure and a unit ("7.5 mm"), a line that starts with a digit."""
+    body, here = str(text or ""), _clause_key(str(clause or ""))
+    if here is None:
+        return body
+    offset = 0
+    for line in body.splitlines(keepends=True):
+        m = _CLAUSE_LINE.match(line.rstrip("\n"))
+        if m and offset:
+            there = _clause_key(m.group(1))
+            first_word = m.group(2).split()[0].strip("()") if m.group(2).split() else ""
+            if (
+                there
+                and there > here
+                and there[: len(here)] != here
+                and not is_unit_word(first_word)
+            ):
+                return body[:offset]
+        offset += len(line)
+    return body

@@ -162,7 +162,10 @@ def _checks(
         and proof.condition_reason(base["proof_requirement"], base["clause_quote"])
         is None
         and proof.single_limit_reason(
-            base["proof_requirement"], base["clause_quote"], clause_text
+            base["proof_requirement"],
+            base["clause_quote"],
+            clause_text,
+            base.get("clause"),
         )
         is None
     )

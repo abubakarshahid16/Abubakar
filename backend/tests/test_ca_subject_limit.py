@@ -835,3 +835,91 @@ def test_the_five_nominal_plate_thickness_rows_prove_only_against_that_exact_lab
             _verdict(item, label, "0.3", "in", clause)[0]["verdict_class"]
             != "Proven by code"
         ), label
+
+
+# ---- the end of a clause: the stored text of a clause may run on into the following clauses ------------------------------------------------------------------
+
+
+def _own(text, clause="7.1.2.3"):
+    from app.agent_review_proof_words import clause_own_text
+
+    return clause_own_text(text, clause)
+
+
+LIM_LINE = "7.1.2.3 The corrosion allowance shall not exceed 3.2 mm."
+
+
+def test_the_clause_text_ends_at_the_next_clause_number_at_the_start_of_a_line():
+    for nxt in ("7.1.2.4", "7.1.3", "7.2", "8"):
+        if (
+            nxt == "8"
+        ):  # a one-component number is a section number: it ends the clause only when written as a heading line of its own words
+            continue
+        text = f"{LIM_LINE}\n{nxt} Where the service is sour, 6 mm applies.\n"
+        assert _own(text) == LIM_LINE + "\n", nxt
+
+
+@pytest.mark.parametrize(
+    "inside",
+    [
+        "7.1.2.3.1 For stainless steel 1 mm applies.",  # a sub-clause is part of the clause
+        "1. Where the service is sour, 6 mm applies.",  # a list item: earlier in order, one component
+        "2. Where the service is sour, 6 mm applies.",
+        "(a) Where the service is sour, 6 mm applies.",
+        "See 7.1.2.4 where the service is sour.",  # a cross-reference in a sentence
+        "7.5 mm applies for piping.",  # a line that starts with a figure and a unit
+        "7.5 12 mm applies for piping.",  # a table row that starts with a number and a figure
+        "7.1.1 Where the service is sour, 6 mm applies.",  # an EARLIER clause number
+    ],
+)
+def test_what_is_not_a_clause_boundary_stays_inside_the_clause_text(inside):
+    text = f"{LIM_LINE}\n{inside}\n"
+    assert _own(text) == text
+
+
+def test_when_no_end_can_be_established_the_whole_text_is_read_today_s_behaviour():
+    text = LIM_LINE + "\nWhere the service is sour, 6 mm applies.\n"
+    assert _own(text) == text
+    assert (
+        _own(text, "Appendix A") == text and _own(text, None) == text
+    )  # not a plain clause number: nothing is cut
+
+
+def test_a_clause_that_continues_into_the_next_clause_proves_on_its_own_text_and_not_on_the_next_clauses():
+    nxt = "7.1.2.4 Where the service is sour, 6 mm applies."
+    item = _ca_item(LIM_LINE)
+    fact = {
+        "id": "f9",
+        "field_label": "Corrosion allowance",
+        "raw_value": "5",
+        "raw_unit": "mm",
+        "unit": "mm",
+        "page": 1,
+        "is_blank": False,
+        "source_text": "Corrosion allowance : 5 mm",
+        "equipment_tag": "T1",
+    }
+
+    def build(text):
+        return calc.numeric_line(
+            {**item, "clause": "7.1.2.3"},
+            calc.requirement_from_item(item),
+            fact,
+            submittal_facts=[fact],
+            page_text="Corrosion allowance : 5 mm\n",
+            clause_quote=LIM_LINE,
+            clause_text=text,
+            page_count=1,
+        )
+
+    cut = build(f"{LIM_LINE}\n{nxt}\n")
+    assert cut["verdict"] == "Fail" and proof.line_proven(
+        cut
+    )  # the next clause is not this clause
+    inside = build(f"{LIM_LINE}\nWhere the service is sour, 6 mm applies.\n{nxt}\n")
+    assert inside["verdict"] == "Query" and not proof.line_proven(
+        {
+            **cut,
+            "clause_text": f"{LIM_LINE}\nWhere the service is sour, 6 mm applies.\n{nxt}\n",
+        }
+    )

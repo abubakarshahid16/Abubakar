@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
 from . import comparison, hold_reason, numparse, table_cell
-from .agent_review_proof_words import MORE_WHY, more_than_the_limit
+from .agent_review_proof_words import MORE_WHY, clause_own_text, more_than_the_limit
 from .agent_review_proof_words import qualifier_sets as _qualifier_sets
 from .reader_api import _fold
 
@@ -362,14 +362,17 @@ CONDITION_WHY = "the clause states a condition (for example for a material, unle
 
 
 def single_limit_reason(
-    requirement: Mapping | None, clause_quote: object, clause_text: object = None
+    requirement: Mapping | None,
+    clause_quote: object,
+    clause_text: object = None,
+    clause: object = None,
 ) -> str | None:
     """Why the clause says MORE than the limit, in words; None when the quote (and the stored clause text around it, when the line carries it) is the limit sentence
     and nothing else that matters. Every OTHER sentence must be free of a figure with a unit, a condition, an exception, an override ("Where the service is sour, 6 mm
     applies", "This does not apply to nozzles", "The owner may agree a higher value", "See note 3"), a scope word: a proof rests on the whole clause, not on one sentence
     of it."""
     wanted = [numparse.as_number(x) for x in limit_numbers(requirement or {})]
-    for source in (clause_quote, clause_text):
+    for source in (clause_quote, clause_own_text(clause_text, clause)):
         pieces = _SENTENCE_BREAK.split(str(source or ""))
         at = next(
             (
@@ -683,7 +686,9 @@ def numeric_proven(line: Mapping) -> bool:
         )
         is None
         and condition_reason(req, line.get("clause_quote")) is None
-        and single_limit_reason(req, line.get("clause_quote"), line.get("clause_text"))
+        and single_limit_reason(
+            req, line.get("clause_quote"), line.get("clause_text"), line.get("clause")
+        )
         is None
         and _verdict_matches(line, recompute(req, obs))
     )
