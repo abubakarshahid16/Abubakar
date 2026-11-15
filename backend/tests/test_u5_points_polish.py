@@ -233,3 +233,11 @@ def test_a_known_tag_is_matched_as_a_tag_never_as_a_word_that_contains_one():
     assert review_points.split_tags("Rating (M12, V-1 A/B (inlet))", known) == ("Rating", ["M12", "V-1 A/B (inlet)"])
     # a known tag value that lists several tags contains each of them
     assert review_points.split_tags("Rating (V-2, V-3)", frozenset({"V-2A/B&V-3A/B"})) == ("Rating", ["V-2", "V-3"])
+
+
+def test_in_the_fallback_a_dash_lead_followed_by_words_is_a_sentence_not_a_tag():
+    for keep in ("Vessel (V-1 shall be painted)", "Vessel (V-1 shall be painted, V-2 inspected)", "Rating (V-1 and then words)"):
+        assert review_points.split_tags(keep) == (keep, []), keep
+    # a range, another tag, and a bracketed note after the lead are still tags
+    assert review_points.split_tags("Vessel (V-1 A/B (inlet), V-2)") == ("Vessel", ["V-1 A/B (inlet)", "V-2"])
+    assert review_points.split_tags("Vessel (V-1 V-2, V-3 10)") == ("Vessel", ["V-1 V-2", "V-3 10"])

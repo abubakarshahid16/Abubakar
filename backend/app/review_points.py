@@ -225,6 +225,15 @@ def _fold_tag(text: str) -> str:
 _TAG_SUFFIX = re.compile(r"^(?:[A-Z0-9]{1,2}|[A-Z0-9]{1,3}/[A-Z0-9]{1,3})$")  # "A", "10", "A/B": a range or suffix of a tag, never a word
 
 
+def _tag_shaped(entry: str) -> bool:
+    """The FALLBACK test of one entry: its lead token has the dash/slash tag shape, and whatever follows the lead (outside a bracketed note)
+    is only a range ("A/B") or another tag, never words: "V-1 A/B (inlet)" is a tag, "V-1 shall be painted" is a sentence."""
+    lead, _, rest = re.sub(r"\([^()]*\)", " ", entry).strip().partition(" ")
+    if not _TAG_LEAD.match(lead.rstrip(",;")):
+        return False
+    return all(_TAG_SUFFIX.match(t) or _TAG_LEAD.match(t) for t in rest.split())
+
+
 def _is_known(entry: str, known: frozenset[str]) -> bool:
     """An entry IS a known tag: its lead token equals one (folded), or is a suffix form of one ("V-1A" for "V-1"), or stands inside a
     known tag value that lists several tags; and whatever follows the lead token is a range/suffix ("A/B") or a bracketed note, never a
@@ -248,7 +257,7 @@ def _is_tag_list(inner: str, known: frozenset[str] = frozenset()) -> list[str] |
     if known:
         ok = all(_is_known(x, known) for x in items)
     else:
-        ok = all(_TAG_LEAD.match(x.split()[0].rstrip(",;")) for x in items)
+        ok = all(_tag_shaped(x) for x in items)
         ok = ok and (len(items) > 1 or bool(_ONE_TAG.match(items[0].split()[0])))
     return items if ok else None
 
