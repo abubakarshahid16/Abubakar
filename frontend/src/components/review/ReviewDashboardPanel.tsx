@@ -26,7 +26,9 @@ import {
 function boundary(data: ReviewDashboard): string {
   if (typeof data.papers_with_a_review !== "number") return "";
   const n = data.papers_with_a_review;
-  return ` · of ${n.toLocaleString()} paper${n === 1 ? "" : "s"}, latest review each`;
+  const earlier = data.earlier_runs_not_counted ?? 0;
+  return ` · of ${n.toLocaleString()} paper${n === 1 ? "" : "s"}, latest review each`
+    + (earlier > 0 ? ` · ${earlier.toLocaleString()} earlier review${earlier === 1 ? "" : "s"} not counted` : "");
 }
 
 export interface ReviewDashboardPanelProps {

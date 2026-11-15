@@ -289,10 +289,11 @@ describe("V2: the review cards say whose reviews they count", () => {
   it("adds 'of N papers, latest review each' when the server says how many papers", async () => {
     dashboard.mockResolvedValue({ ok: true, data: data({ papers_with_a_review: 5, earlier_runs_not_counted: 82 }) });
     panel();
-    expect(await screen.findByText("0 running · 8 awaiting an engineer's code · of 5 papers, latest review each"))
+    expect(await screen.findByText(
+      "0 running · 8 awaiting an engineer's code · of 5 papers, latest review each · 82 earlier reviews not counted"))
       .toBeInTheDocument();
     const tile = screen.getByText("Needs attention").parentElement!;
-    expect(within(tile).getByText(/of 5 papers, latest review each/)).toBeInTheDocument();
+    expect(within(tile).getByText(/of 5 papers, latest review each · 82 earlier reviews not counted/)).toBeInTheDocument();
   });
   it("says nothing extra from an older server that does not send the count", async () => {
     panel();

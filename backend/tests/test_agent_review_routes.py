@@ -196,6 +196,31 @@ def test_status_says_enabled_and_whether_the_lane_is_open(client, monkeypatch):
     }
 
 
+def test_the_agent_crs_route_takes_company_like_internal_and_contractor_like_issue(client):
+    """V2: one set of copy words on every CRS route. company = internal, issue = contractor, other words 422."""
+    run_id = finished_run(client)
+    get = lambda copy: client.get(f"/api/reviews/runs/{run_id}/agent/crs?copy={copy}")  # noqa: E731
+    internal, company = get("internal"), get("company")
+    contractor, issue = get("contractor"), get("issue")
+    assert all(r.status_code == 200 for r in (internal, company, contractor, issue))
+    assert company.content == internal.content and issue.content == contractor.content
+    assert internal.content != contractor.content  # the two copies really differ
+    assert get("other").status_code == 422 and get("draft").status_code == 422
+
+
+def test_agent_runs_leaves_out_a_run_the_caller_may_not_read_like_an_unknown_one(client):
+    """V2 (rule 5): a caller who may not read the paper learns nothing: its run id is dropped like an unknown id."""
+    run_id = finished_run(client)
+    assert client.get(f"/api/reviews/agent-runs?ids={run_id}").json() == {"run_ids": [run_id]}
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id="stranger", allowed_document_ids=frozenset({"some-other-document"}))
+    try:
+        stranger = client.get(f"/api/reviews/agent-runs?ids={run_id},no-such-run").json()
+    finally:
+        app.dependency_overrides.pop(access.current_scope, None)
+    assert stranger == {"run_ids": []}
+
+
 def test_which_runs_have_an_ai_review_is_one_question_without_a_404_per_run(client):
     """V2: the list page asked every run for its AI summary and got a 404 for each run that has none (15 failed requests
     on one page). `agent-runs?ids=` answers for all of them at once; unknown and unreadable ids are simply left out."""

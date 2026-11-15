@@ -81,3 +81,12 @@ def test_V2_findings_of_old_runs_of_a_paper_are_not_counted_and_the_boundary_is_
     out = deliverables_api.management_summary(scope=SimpleNamespace(allowed_document_ids=None))
     assert out["review_findings_total"] == 2 + 1 + 1  # newest run of doc, the one run of other, the hand-made one
     assert "2 papers" in out["findings_boundary"] and "earlier runs are not counted" in out["findings_boundary"]
+    assert "findings that belong to no run" in out["findings_boundary"]
+    # rule 5: a caller allowed ONE of the two papers is counted for that paper only, and the sentence says "1 paper"
+    mine = deliverables_api.management_summary(scope=SimpleNamespace(allowed_document_ids=frozenset({doc})))
+    assert mine["review_findings_total"] == 2 + 1  # the latest run of `doc` and the finding with no run (on `doc`)
+    assert "of 1 paper," in mine["findings_boundary"]
+    theirs = deliverables_api.management_summary(scope=SimpleNamespace(allowed_document_ids=frozenset({other})))
+    assert theirs["review_findings_total"] == 1 and "of 1 paper," in theirs["findings_boundary"]
+    nobody = deliverables_api.management_summary(scope=SimpleNamespace(allowed_document_ids=frozenset()))
+    assert nobody["review_findings_total"] == 0 and "of 0 papers," in nobody["findings_boundary"]

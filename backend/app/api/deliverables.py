@@ -209,7 +209,7 @@ def management_summary(scope: access.AccessScope = Depends(access.current_scope)
                  for status in {item["status"] for item in items}}
     return {"deliverables_total": len(items), "deliverables_by_status": by_status,
             "findings_boundary": (f"the latest review of each of {len(latest):,} paper{'' if len(latest) == 1 else 's'}, "
-                                  "and findings added by hand; earlier runs are not counted"),
+                                  "and findings that belong to no run; earlier runs are not counted"),
             "review_findings_total": counts["total"], "findings_by_severity": counts["by_severity"],
             "findings_by_status": counts["by_status"], "escalated_findings": counts["escalated"],
             "overdue_alerts": len(alerts), "alerts": alerts}
