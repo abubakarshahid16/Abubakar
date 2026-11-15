@@ -138,6 +138,7 @@ def _init_db() -> None:
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     _init_db()
+    nine_call.freeze()  # the nine-role vocabularies and id sources are registered at import only
     # The ONLY wiring authentication needs. It hands access.py an identity
     # resolver and refuses to start on a weak secret when auth is required -
     # at startup rather than at first login, because a system that boots and
@@ -281,6 +282,7 @@ from .api import document_classification as api_document_classification  # noqa:
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
 from .api import review_points as api_review_points  # noqa: E402
+from . import nine_call  # noqa: E402
 from .api import nine_roles as api_nine_roles  # noqa: E402
 from .api import review_start as api_review_start  # noqa: E402
 from .api import review_templates as api_review_templates  # noqa: E402

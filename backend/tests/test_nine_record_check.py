@@ -22,6 +22,11 @@ from app import (
 from app.config import settings
 from app.nine_call import Block, FakeTransport
 
+nine_call.id_source(
+    "t_fact",
+    r"f:\d{1,9}(:\d{1,9}){0,3}",
+    "SELECT 1 FROM t_facts WHERE run_id = ? AND fid = ?",
+)
 Q = nine_call.template("chk_q", "Which clause of {book}?", book="id")
 
 SPEC = importlib.util.spec_from_file_location(
@@ -72,12 +77,16 @@ def run(tmp_path, monkeypatch):
                     "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,?,?,?,0)",
                     (doc, n, text, len(text)),
                 )
+        conn.execute("CREATE TABLE t_facts (run_id TEXT, fid TEXT)")
+        conn.execute("INSERT INTO t_facts VALUES ('r', 'f:1:1')")
         conn.execute("CREATE TABLE agent_review_fact (run_id TEXT)")
         conn.execute("CREATE TABLE agent_review_line (run_id TEXT)")
         for _ in range(3):
             conn.execute("INSERT INTO agent_review_fact VALUES ('r')")
         conn.execute("INSERT INTO agent_review_line VALUES ('r')")
     nine_record.start_run("r")
+    nine_record.reset_held_cache()
+    nine_call._thaw_for_tests()
     t = FakeTransport(['{"a": 1}'])
     blocks = [
         Block("paper", "paper", (1, 2)),
@@ -242,3 +251,26 @@ def test_a_verified_derived_block_passes_and_each_planted_cell_fault_fails(run):
     assert any(
         "no cell rows" in p for p in problems()
     )  # (c) a derived block sent with no cells
+
+
+def test_a_legacy_code_kind_cell_is_a_planted_fault():
+    # the checker must not allow the removed `code` kind: adding it to TYPED_KINDS makes this test fail
+    assert "code" not in chk.TYPED_KINDS
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        "CREATE TABLE agent_review_role (run_id, role_no, state, produced_json);"
+        "CREATE TABLE agent_review_role_read (run_id, role_no, call_id, document_id, document_kind, chapter_id, pages_json);"
+        "CREATE TABLE agent_review_role_call (run_id, role_no, call_id, engine, state);"
+        "CREATE TABLE agent_review_role_cell (run_id, role_no, call_id, block_name, row_no, col_no, kind, chars, cell_sha256,"
+        " source_document_id, source_page, span_start, span_len);"
+        "INSERT INTO agent_review_role_call VALUES ('r', 4, 'c1', 'claude', 'answered');"
+        "INSERT INTO agent_review_role_read VALUES ('r', 4, 'c1', 'paper', 'review_record', 'notes', '[]');"
+        "INSERT INTO agent_review_role_cell VALUES ('r', 4, 'c1', 'notes', 0, 0, 'code', 5, 'x', NULL, NULL, NULL, NULL);"
+    )
+    reads = conn.execute("SELECT * FROM agent_review_role_read").fetchall()
+    calls = conn.execute("SELECT * FROM agent_review_role_call").fetchall()
+    assert any(
+        "unknown cell kind code" in p
+        for p in chk._cell_problems(conn, "r", reads, calls)
+    )

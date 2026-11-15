@@ -51,6 +51,7 @@ import hashlib
 import json
 import logging
 import re
+import sqlite3
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -115,35 +116,170 @@ UNITS = frozenset(
 )
 
 
+_FROZEN = False
+MAX_VOCAB_WORDS = 300
+MAX_VOCAB_WORD_CHARS = 24
+MAX_SHAPE_CHARS = 64
+_ID_SOURCES: dict[str, tuple[re.Pattern, str | None, bool]] = {}
+
+
+def freeze() -> None:
+    """Close the registries (app startup, after every role module has been imported): `vocabulary`, `id_shape` and `id_source` raise
+    afterwards. What a run may send as a typed word is fixed by the code that shipped, never by a run."""
+    global _FROZEN
+    _FROZEN = True
+
+
+def _thaw_for_tests() -> None:
+    global _FROZEN
+    _FROZEN = False
+
+
+def _closed() -> None:
+    if _FROZEN:
+        raise NineCallError(
+            "the vocabularies and id shapes are frozen: they are registered at import only"
+        )
+
+
 def vocabulary(name: str, words) -> str:
-    """Register an APP-OWNED vocabulary (called by app code at import): the words a `vocab:<name>` column or parameter may hold. Folded
-    by `nine_record.fold`. The same name with other words is refused. Returns the name."""
+    """Register an APP-OWNED vocabulary (called by app code at import, before `freeze`): the words a `vocab:<name>` column or parameter
+    may hold: at most 300 words of at most 24 characters. Folded by `nine_record.fold`. The same name with other words is refused."""
+    _closed()
     folded = frozenset(nine_record.fold(w) for w in words)
-    if not _ID.match(name) or not folded or any(not w or len(w) > 40 for w in folded):
-        raise NineCallError("a vocabulary has a name and short words")
+    if (
+        not _ID.match(name)
+        or not folded
+        or len(folded) > MAX_VOCAB_WORDS
+        or any(not w or len(w) > MAX_VOCAB_WORD_CHARS for w in folded)
+    ):
+        raise NineCallError(
+            "a vocabulary has a name and up to 300 short words (24 characters at most)"
+        )
     if _VOCAB.get(name, folded) != folded:
         raise NineCallError(f"vocabulary {name!r} already holds other words")
     _VOCAB[name] = folded
     return name
 
 
-def id_shape(name: str, pattern: str) -> str:
-    """Register a shape of ids the APP issues (fact ids, chapter codes, rule ids): a pattern that matches the whole id."""
-    compiled = re.compile(pattern)
-    if _ID_SHAPES.get(name, compiled).pattern != pattern:
-        raise NineCallError(f"id shape {name!r} already holds another pattern")
-    _ID_SHAPES[name] = compiled
+def _check_shape(pattern: str) -> re.Pattern:
+    """A shape of ids is bounded and narrow: no `.`, no negated or word-wide class, no unbounded repeat, at most 64 characters wide."""
+    from re import _constants as c
+    from re import _parser
+
+    parsed = _parser.parse(pattern)
+    if parsed.getwidth()[1] > MAX_SHAPE_CHARS:
+        raise NineCallError("an id shape is bounded: 64 characters wide at most")
+
+    def walk(items) -> None:
+        for op, arg in items:
+            if op in (c.ANY, c.NOT_LITERAL):
+                raise NineCallError("an id shape has no `.` and no negation")
+            if op is c.IN:
+                for sub_op, sub_arg in arg:
+                    if sub_op is c.NEGATE or (
+                        sub_op is c.CATEGORY and sub_arg is not c.CATEGORY_DIGIT
+                    ):
+                        raise NineCallError(
+                            "an id shape names its characters: no negated class, no \\w, \\S"
+                        )
+            elif op in (c.MAX_REPEAT, c.MIN_REPEAT):
+                _lo, hi, sub = arg
+                if hi == c.MAXREPEAT:
+                    raise NineCallError("an id shape has bounded repeats")
+                walk(sub)
+            elif op is c.SUBPATTERN:
+                walk(arg[3])
+            elif op is c.BRANCH:
+                for branch in arg[1]:
+                    walk(branch)
+            elif op is c.CATEGORY and arg is not c.CATEGORY_DIGIT:
+                raise NineCallError("an id shape names its characters")
+
+    walk(parsed)
+    return re.compile(pattern)
+
+
+def id_source(
+    name: str, pattern: str, lookup_sql: str | None, *, per_run: bool = True
+) -> str:
+    """Register ONE kind of id the app issues (before `freeze`): a bounded, narrow whole-id `pattern` AND a lookup that finds the id among
+    the ids the app really issued: `lookup_sql` is `SELECT 1 FROM <table> WHERE ... = ?`, run with (run_id, id) when `per_run` (its
+    first `?` is the run id) or with (id) alone; None = the ids come from the call itself (chapter codes of its blocks). A shape alone
+    never admits an id."""
+    _closed()
+    compiled = _check_shape(pattern)
+    if lookup_sql is not None and (
+        not lookup_sql.startswith("SELECT 1 FROM ")
+        or ";" in lookup_sql
+        or lookup_sql.count("?") != (2 if per_run else 1)
+    ):
+        raise NineCallError(
+            "an id lookup is one SELECT 1 FROM ... with the run id (when per run) and the id as parameters"
+        )
+    known = _ID_SOURCES.get(name)
+    if known is not None and (known[0].pattern, known[1], known[2]) != (
+        pattern,
+        lookup_sql,
+        per_run,
+    ):
+        raise NineCallError(f"id source {name!r} already holds another definition")
+    _ID_SOURCES[name] = (compiled, lookup_sql, per_run)
     return name
 
 
+def id_shape(name: str, pattern: str) -> str:
+    """Removed: a shape alone admits nothing. Use `id_source` with a lookup."""
+    raise NineCallError(
+        "an id shape needs a lookup: register it with id_source(name, pattern, lookup_sql)"
+    )
+
+
 vocabulary("derived_enum", DERIVED_ENUM)
-for _name, _pattern in (
-    ("chapter", r"c\d{1,4}"),
-    ("fact", r"f:\d{1,9}(:\d{1,9}){0,3}"),
-    ("hex", r"(?=[0-9a-f]*\d)[0-9a-f]{8,64}"),
-    ("issued", r"(run|job|call|doc|rule|fact|ch)[_:\-][0-9a-f]{4,32}"),
+for _name, _pattern, _sql, _per_run in (
+    (
+        "document",
+        r"[A-Za-z0-9_\-]{1,64}",
+        "SELECT 1 FROM documents WHERE id = ?",
+        False,
+    ),
+    (
+        "document_sha",
+        r"[0-9a-f]{64}",
+        "SELECT 1 FROM documents WHERE sha256 = ?",
+        False,
+    ),
+    ("run", r"[A-Za-z0-9_\-]{1,64}", "SELECT 1 FROM review_runs WHERE id = ?", False),
+    (
+        "call",
+        r"[0-9a-f]{16}",
+        "SELECT 1 FROM agent_review_role_call WHERE run_id = ? AND call_id = ?",
+        True,
+    ),
+    (
+        "read_sha",
+        r"[0-9a-f]{64}",
+        "SELECT 1 FROM agent_review_role_read WHERE run_id = ? AND text_sha256 = ?",
+        True,
+    ),
+    (
+        "rule",
+        r"[A-Za-z0-9_:\-]{1,64}",
+        "SELECT 1 FROM agent_review_rule WHERE run_id = ? AND rule_key = ?",
+        True,
+    ),
+    ("chapter", r"c\d{1,4}", None, True),
 ):
-    id_shape(_name, _pattern)
+    id_source(_name, _pattern, _sql, per_run=_per_run)
+
+
+@dataclass(frozen=True)
+class IdContext:
+    """Where an id is looked up: the connection, the run, and the chapter codes of the call's own blocks."""
+
+    conn: object
+    run_id: str
+    chapters: frozenset[str] = frozenset()
 
 
 def _is_unit(text: str) -> bool:
@@ -163,15 +299,28 @@ def _in_vocabulary(kind: str, text: str) -> bool:
     return nine_record.fold(text) in _VOCAB.get(name, frozenset())
 
 
-def _app_id(conn, text: str) -> bool:
-    """An id the app issues: a registered shape, or a document id or run id that exists."""
+def _app_id(ctx: IdContext, text: str) -> bool:
+    """An id the app really issued: it fits a registered bounded shape AND the lookup of that source finds it (for this run or in the
+    library); a chapter code must be one of the chapter codes of this call's own blocks."""
     text = text.strip()
-    if any(p.fullmatch(text) for p in _ID_SHAPES.values()):
-        return True
-    return any(
-        conn.execute(f"SELECT 1 FROM {t} WHERE id = ?", (text,)).fetchone() is not None
-        for t in ("documents", "review_runs")
-    )
+    for pattern, sql, per_run in _ID_SOURCES.values():
+        if not pattern.fullmatch(text):
+            continue
+        if sql is None:
+            if text in ctx.chapters:
+                return True
+            continue
+        try:
+            row = ctx.conn.execute(
+                sql, (ctx.run_id, text) if per_run else (text,)
+            ).fetchone()
+        except (
+            sqlite3.Error
+        ):  # the table is not there yet (an older database): nothing is issued from it
+            continue
+        if row is not None:
+            return True
+    return False
 
 
 class NineCallError(ValueError):
@@ -544,11 +693,11 @@ def _load(
 # ---------------------------------------------------------------------------------------------------- derived cells
 
 
-def _declared_ok(conn, kind: str, cell: str) -> str | None:
+def _declared_ok(ctx: IdContext, kind: str, cell: str) -> str | None:
     """The recorded kind when `cell` is a value of its DECLARED kind, else None. `source` is checked elsewhere (it must occur in a source)."""
     text = cell.strip()
     if kind == "id":
-        return "id" if _ID.match(text) and _app_id(conn, text) else None
+        return "id" if _ID.match(text) and _app_id(ctx, text) else None
     if kind == "number":
         return "number" if _NUMBER.match(text) else None
     if kind == "clause":
@@ -564,7 +713,7 @@ def _declared_ok(conn, kind: str, cell: str) -> str | None:
     return None
 
 
-def _typed_kind(conn, cell: str) -> str | None:
+def _typed_kind(ctx: IdContext, cell: str) -> str | None:
     """The kind of an UNDECLARED cell that is a typed value (never prose), or None. A plain word is not a code."""
     text = cell.strip()
     if _NUMBER.match(text):
@@ -577,7 +726,7 @@ def _typed_kind(conn, cell: str) -> str | None:
         return "standard"
     if _is_unit(text):
         return "unit"
-    if _ID.match(text) and _app_id(conn, text):
+    if _ID.match(text) and _app_id(ctx, text):
         return "id"
     return None
 
@@ -599,7 +748,7 @@ def _source_pages(conn, doc: str, cache: dict) -> dict[int, str]:
 
 
 def _verify_derived(
-    conn, run_id: str, b: Block
+    conn, run_id: str, b: Block, chapters: frozenset[str] = frozenset()
 ) -> tuple[tuple[nine_record.CellEntry, ...], str | None]:
     """Admit each cell of a derived block or name why not: (the cell rows, None) or ((), the code that drops the whole block).
     1. a cell of 12 or more characters that occurs in the stored text of a document the gate refuses in this run: `text_from_held_document`
@@ -607,6 +756,7 @@ def _verify_derived(
     2. else the cell is a typed token (`_typed_kind`);
     3. else it must occur in the stored text of one of the block's OWN sources: the first source and page that hold it are recorded;
     4. else `cell_not_from_sources`."""
+    ctx = IdContext(conn, run_id, chapters)
     flat = [c for row in b.items for c in row]
     probes = set(
         flat
@@ -624,13 +774,13 @@ def _verify_derived(
             declared = b.kinds[c] if b.kinds else None
             if declared is None or declared == "source":
                 kind = (
-                    _typed_kind(conn, cell)
+                    _typed_kind(ctx, cell)
                     if declared is None and len(cell) <= nine_record.MAX_TYPED_CELL
                     else None
                 )
             else:  # declared typed: it must be a value of that kind, or the block is dropped (never read as prose)
                 kind = (
-                    _declared_ok(conn, declared, cell)
+                    _declared_ok(ctx, declared, cell)
                     if len(cell) <= nine_record.MAX_TYPED_CELL
                     else None
                 )
@@ -864,7 +1014,12 @@ def ask(
         return refused(
             HELD_TEXT
         )  # a parameter holds words of a document the gate refuses
-    if any(not _app_id(conn, i) for i in [*q_ids, *s_ids]):
+    ctx = IdContext(
+        conn,
+        run_id,
+        frozenset(b.chapter_id for b in blocks if getattr(b, "chapter_id", None)),
+    )
+    if any(not _app_id(ctx, i) for i in [*q_ids, *s_ids]):
         return refused(
             PARAM_NOT_APP_ID
         )  # an id parameter is an id the app issues, never a word
@@ -880,7 +1035,7 @@ def ask(
             if item.block.document_kind != DERIVED_KIND:
                 checked.append(item)
                 continue
-            got, why = _verify_derived(conn, run_id, item.block)
+            got, why = _verify_derived(conn, run_id, item.block, ctx.chapters)
             if why:
                 not_sent["derived:" + item.block.name] = why
                 continue
