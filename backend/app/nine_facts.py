@@ -321,14 +321,8 @@ def digest(sheet: FactSheet, max_chars: int = 8000) -> str:
 
 #: the app's own vocabularies, fixed at import (`nine_call.vocabulary`): the field keys of the reference data (+ "unknown" for a value no role names), the
 #: states of a fact, and the form of a tag the paper does not print as the sheet has it
-def _short(key: str) -> str | None:
-    """A vocabulary word is 24 characters at most: a longer role key loses its underscores (one rule, no per-key list); still longer = None ("unknown")."""
-    out = key if len(key) <= 24 else key.replace("_", "")
-    return out if len(out) <= 24 else None
-
-
-_ROLE_WORDS = {k: w for k in datasheet_checks.load_rules()["roles"] if (w := _short(k))}
-FIELD_KEYS = nine_call.vocabulary("nine_field_keys", [*_ROLE_WORDS.values(), "unknown"])
+_ROLE_WORDS = frozenset(datasheet_checks.load_rules()["roles"])
+FIELD_KEYS = nine_call.vocabulary("nine_field_keys", [*_ROLE_WORDS, "unknown"])
 STATES = nine_call.vocabulary(
     "nine_fact_states",
     ["agreed", "conflict", "ai_only", "stored_only", "needs_engineer", "stale"],
@@ -393,7 +387,7 @@ def digest_blocks(
         if shown is None:
             left_out += 1
             continue
-        key = _ROLE_WORDS.get(f.field_role or "", "unknown")
+        key = f.field_role if f.field_role in _ROLE_WORDS else "unknown"
         head = (f.fact_id, key, shown, str(f.page))
         if (
             f.tag

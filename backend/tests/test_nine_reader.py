@@ -812,7 +812,12 @@ def test_a_fact_id_nobody_stored_is_not_an_app_id_the_seam_drops_the_block():
     assert _send_block(blocks[0])[0].ok
 
 
-def test_a_role_key_longer_than_the_vocabulary_limit_loses_its_underscores_by_one_rule():
-    assert nine_facts._short("design_pressure") == "design_pressure"
-    assert nine_facts._short("superimposed_back_pressure") == "superimposedbackpressure"
-    assert nine_facts._short("x" * 25) is None
+def test_every_word_of_the_three_vocabularies_matches_the_seams_shape_and_the_long_key_is_registered_as_it_is():
+    import re
+
+    for name in (nine_facts.FIELD_KEYS, nine_facts.STATES, nine_facts.TAG_FORMS):
+        words = nine_call._VOCAB[name]
+        assert words and all(
+            re.fullmatch(r"[a-z0-9_]+", w) and len(w) <= 32 for w in words
+        ), name
+    assert "superimposed_back_pressure" in nine_call._VOCAB[nine_facts.FIELD_KEYS]
