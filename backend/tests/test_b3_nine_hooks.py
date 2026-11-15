@@ -51,7 +51,7 @@ def test_off_lists_no_project_context(lib, monkeypatch):  # noqa: F811
     assert "whole chapters" not in plan["summary"]
 
 
-def test_on_lists_project_context_with_kind_and_why(lib, monkeypatch):
+def test_on_lists_project_context_with_kind_and_why(lib, monkeypatch):  # noqa: F811
     from app import claude_approved
 
     real = claude_approved.blocked_by_name
@@ -59,7 +59,7 @@ def test_on_lists_project_context_with_kind_and_why(lib, monkeypatch):
         claude_approved,
         "blocked_by_name",
         lambda n: "blocked register" in (n or "") or real(n),
-    )  # noqa: F811
+    )
     monkeypatch.setattr(nine_context, "nine_on", lambda: True)
     rel, old, reg = _setup(lib)
     plan = _plan(lib, engine="claude")
@@ -90,3 +90,71 @@ def test_datasheet_project_papers_need_the_switch(monkeypatch):
         )
     except HTTPException as exc:
         assert exc.status_code == 422
+
+
+def test_the_register_held_only_by_checksum_is_never_listed(lib, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    _rel, _old, reg = _setup(lib)
+    sha = "83" * 32
+    from app import claude_approved
+
+    monkeypatch.setattr(claude_approved, "blocked_hashes", lambda: frozenset({sha}))
+    plan = _plan(lib, engine="claude")
+    assert reg not in _ids(plan)
+
+
+def test_an_unscored_related_paper_is_not_leaving_under_automatic(lib, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(nine_context, "paper_scored", lambda conn, d: False)
+    rel, _old, _reg = _setup(lib)
+    from tests.test_b1_review_engine import open_facts
+
+    def listing(explicit):
+        return _ids(
+            review_leaving.leaving_for(
+                db.connect(),
+                lib["sub"],
+                lib["scope"],
+                open_facts(),
+                equipment_type=None,
+                leaves=True,
+                explicit=explicit,
+            )
+        )
+
+    assert listing(False)[rel]["reason"] == nine_context.WHY_UNSCORED
+    assert "reason" not in listing(True)[rel]  # the explicit choice of Claude lists it
+
+
+def test_a_datasheets_project_papers_are_checked_the_same_way_with_the_switch_on(
+    monkeypatch,
+):
+    from fastapi import HTTPException
+
+    from app.api import agent_review as ar
+    from app.api import agent_review_schemas as c
+
+    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    seen = {}
+
+    def fake(conn, paper, ids, allowed):
+        seen["args"] = (paper, list(ids), frozenset(allowed))
+        return [], ["no such document for this caller"]
+
+    monkeypatch.setattr(ar.agent_general_review, "check_project_papers", fake)
+    monkeypatch.setattr(ar, "require_document", lambda d, scope: None)
+
+    class Scope:
+        allowed_document_ids = frozenset({"a"})
+
+    body = c.AgentRunRequest(submittal_document_id="d", project_document_ids=["x"])
+    try:
+        ar._checked_project_papers(body, "d", Scope(), False)
+        raise AssertionError("a refused paper was accepted")
+    except HTTPException as exc:
+        assert exc.status_code == 422 and "no such document" in str(exc.detail)
+    assert seen["args"] == (
+        "d",
+        ["x"],
+        frozenset({"a"}),
+    )  # the same access and kinds checks run

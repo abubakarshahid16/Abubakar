@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,12 +47,12 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class BookInput:
     """One rule book the review may read. `why` is the book-level reason ("cited by the paper", "governs the equipment type", ...);
-    `partial_words`: the words a book that governs this equipment only in part names its governed parts with (empty: it governs whole)."""
+    `label`: the book's standard label (as `governing_standards.json` names it), used by the one partial-standard gate."""
 
     book_id: str
     cut: CutBook
     why: tuple[str, ...] = ()
-    partial_words: frozenset[str] = frozenset()
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,21 +121,23 @@ def plan_reading(
     cited: Sequence[ClauseRef] = (),
     context: Sequence[ClauseRef] = (),
     equipment_words: Sequence[str] = (),
-    shown: Iterable[str] | None = None,
-    allowed: Iterable[str] | None = None,
+    shown: Iterable[str] = (),
+    allowed: Iterable[str] = (),
+    equipment: Iterable[str] = (),
     engine: str = "claude",
     wanted_not_listed: int = 0,
 ) -> ReadingList:
     """The reading list: books with why, chapters with why and rank, chosen or "not read" with the reason. Pure and deterministic."""
-    shown_set = None if shown is None else frozenset(str(s) for s in shown)
-    allowed_set = None if allowed is None else frozenset(str(s) for s in allowed)
+    # default DENY: a caller that passes no shown list or no access reads nothing
+    shown_set = frozenset(str(s) for s in shown)
+    allowed_set = frozenset(str(s) for s in allowed)
     local = engine == "local"
     review_limit = LOCAL_REVIEW_TOKENS if local else CLAUDE_REVIEW_TOKENS
     book_limit = LOCAL_REVIEW_TOKENS if local else CLAUDE_BOOK_TOKENS
     hidden = int(wanted_not_listed)
     listed: list[BookInput] = []
     for b in books:
-        if allowed_set is not None and b.book_id not in allowed_set:
+        if b.book_id not in allowed_set:
             hidden += 1  # counted, never named
             continue
         listed.append(b)
@@ -174,9 +176,11 @@ def plan_reading(
                 add(book, chapter, why)
     words = [w for w in equipment_words if w]
     for book in listed:
-        names = list(words) + sorted(book.partial_words)
+        hits = _partial_hits(book, equipment)
         for chapter in book.cut.chapters:
-            if names and _word_hit(_title(book.cut, chapter), names):
+            if (words and _word_hit(_title(book.cut, chapter), words)) or (
+                chapter.chapter_id in hits
+            ):
                 add(book, chapter, WHY_TITLE)
 
     # 2. rank: rule chapters first (by their best rule rank), then cited or named, then title matches; then book and reading order
@@ -213,7 +217,7 @@ def plan_reading(
         book, chapter = slot["book"], slot["chapter"]
         tokens = tokens_of(sum(p.chars for p in chapter.parts))
         reason = None
-        if shown_set is not None and book.book_id not in shown_set:
+        if book.book_id not in shown_set:
             reason = "not on the list shown before the start"
         elif not chapter.chars:
             reason = "no stored text"
@@ -235,7 +239,7 @@ def plan_reading(
         BookChoice(
             b.book_id,
             b.why,
-            shown_set is None or b.book_id in shown_set,
+            b.book_id in shown_set,
             tuple(items[b.book_id]),
         )
         for b in listed
@@ -421,29 +425,39 @@ def parse_choice(text: str | None) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------- the data the librarian reads (no list in code)
 
 
-def partial_words_by_book(
-    equipment_names: Iterable[str], standard_labels: Mapping[str, str]
-) -> dict[str, frozenset[str]]:
-    """{book id: the words it names its governed parts with} for a book the equipment takes only in part
-    (`governing_standards.json` `partial_standards`, matched by the one identifier matcher)."""
-    from . import standard_ids
+def _partial_hits(book: BookInput, equipment: Iterable[str]) -> set[str]:
+    """Chapter ids whose title names a governed part of a book the equipment takes only in part: the ONE gate
+    (`subject_scope.partial_gate`, plural matching, `no_plural` honoured). A book with no entry for this equipment: none."""
+    from . import subject_scope
 
+    equipment = set(equipment)
+    if not equipment or not book.label:
+        return set()
     table = json.loads(
         (Path(__file__).parent / "reference" / "governing_standards.json").read_text(
             encoding="utf-8"
         )
     )
-    entries = [
-        e
-        for name in equipment_names
-        for e in (table.get("partial_standards") or {}).get(name, [])
+    kw = {
+        "equipment": equipment,
+        "standard_labels": {book.book_id: book.label},
+        "partial_standards": table.get("partial_standards") or {},
+        "plural": True,
+    }
+    probe = {"id": "", "subject": "", "standard_document_id": book.book_id}
+    if not subject_scope.partial_gate([probe], **kw)["items"]:
+        return (
+            set()
+        )  # an empty text names nothing: it is dropped only when the book has an entry
+    reqs = [
+        {
+            "id": c.chapter_id,
+            "subject": _title(book.cut, c),
+            "standard_document_id": book.book_id,
+        }
+        for c in book.cut.chapters
     ]
-    out: dict[str, frozenset[str]] = {}
-    for doc_id, label in standard_labels.items():
-        for e in entries:
-            if label and standard_ids.same_standard(label, e["standard"]):
-                out[str(doc_id)] = frozenset(str(w) for w in e.get("words", []))
-    return out
+    return {r["id"] for r in subject_scope.partial_gate(reqs, **kw)["kept"]}
 
 
 __all__ = [
@@ -458,7 +472,6 @@ __all__ = [
     "apply_model_choice",
     "extend_with_model",
     "parse_choice",
-    "partial_words_by_book",
     "plan_reading",
     "produced",
     "titles_for_model",

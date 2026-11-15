@@ -58,6 +58,7 @@ WHY_NOT_SHOWN = "held, not on the list shown before the start"
 WHY_NO_ACCESS = "held, outside the access of the user who started the review"
 WHY_AUTOMATIC = "goes to Claude only when you choose Claude"
 WHY_NO_TEXT = "held, no stored text"
+WHY_UNSCORED = "a kind of paper not scored against an answer key goes to Claude only when you choose Claude"
 WHY_NO_REVISION = "no earlier revision of this paper is held"
 WHY_NO_COMMENTS = "the earlier revision has no stored comments"
 WHY_NOT_READ = "no project paper was read, so no comment could be followed"
@@ -74,6 +75,7 @@ class ProjectPaper:
     shown: bool
     accessible: bool
     register: bool = False
+    scored: bool = True  # the paper's kind is scored against an answer key (`kind_review_table.scored`)
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,8 @@ def admit(papers: Iterable[ProjectPaper], *, engine: str) -> Admission:
             why = WHY_NOT_SHOWN
         elif p.kind == KIND_CONTRACT and engine == "automatic":
             why = WHY_AUTOMATIC
+        elif p.kind == KIND_RELATED and not p.scored and engine == "automatic":
+            why = WHY_UNSCORED
         elif not any((t or "").strip() for t in p.pages.values()):
             why = WHY_NO_TEXT
         if why is None:
@@ -263,10 +267,27 @@ def _quote(raw: Mapping, p: ProjectPaper) -> SourceQuote | None:
     )
 
 
+def _key(text: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(text or "").casefold())
+
+
+def _name_in_quote(name: str, quote: str) -> bool:
+    """The standard's name, spelling and spacing aside, stands IN the quote: a true sentence that does not name it proves nothing."""
+    k = _key(name)
+    return len(k) >= 3 and k in _key(quote)
+
+
+def _subject_in_quote(subject: str, quote: str) -> bool:
+    """Every word of the subject (3 letters or more) occurs in the quote."""
+    words = [w for w in re.findall(r"[a-z0-9]+", subject.casefold()) if len(w) >= 3]
+    have = set(re.findall(r"[a-z0-9]+", quote.casefold()))
+    return bool(words) and all(w in have for w in words)
+
+
 def _keep_standard(raw, p, library, out, tally) -> None:
     name = str((raw or {}).get("name") or "").strip()
     src = _quote(raw or {}, p) if name else None
-    if src is None:
+    if src is None or not _name_in_quote(name, src.quote):
         tally.standards_dropped += 1
         return
     entry = applicability.find_standard(library, name)
@@ -281,7 +302,7 @@ def _keep_standard(raw, p, library, out, tally) -> None:
 def _keep_override(raw, p, out, tally) -> None:
     subject = str((raw or {}).get("subject") or "").strip()
     src = _quote(raw or {}, p) if subject else None
-    if src is None:
+    if src is None or not _subject_in_quote(subject, src.quote):
         tally.overrides_dropped += 1
         return
     ref = (raw.get("general_ref") or None) and str(raw.get("general_ref")).strip()
@@ -388,3 +409,89 @@ def run(
         earlier_held=prior is not None,
     )
     return note, tally
+
+
+# ---------------------------------------------------------------- the one finder the job calls
+
+
+def is_register(filename: str | None, sha256: str | None) -> bool:
+    """The client's register, by name OR by checksum. A block list that cannot be read counts as blocked (fail closed)."""
+    from . import claude_approved
+
+    try:
+        if claude_approved.blocked_by_name(filename):
+            return True
+        return bool(sha256) and str(sha256).lower() in claude_approved.blocked_hashes()
+    except Exception as exc:  # noqa: BLE001 - an unreadable block list blocks
+        log.warning(
+            "block list unreadable, the paper is treated as blocked: %s",
+            type(exc).__name__,
+        )
+        return True
+
+
+def paper_scored(conn, document_id: str) -> bool:
+    """The paper's kind is scored against an answer key (an unknown kind is not)."""
+    from . import agent_review_kind, kind_review_table
+
+    got = agent_review_kind.read_kind(conn, document_id)
+    return bool(
+        got.get("known") and got.get("kind") and kind_review_table.scored(got["kind"])
+    )
+
+
+def find_papers(
+    conn, document_id: str, allowed: Iterable[str], shown: Iterable[str]
+) -> list[ProjectPaper]:
+    """THE finder: the other papers of the paper's own project and the paper it replaced, with `shown`, `accessible`,
+    `register` (name or checksum) and `scored` worked out HERE, so a caller cannot forget one. A rule book is not a project
+    paper. The register is returned flagged (never read, never listed); the text of a paper is loaded only when it may be read."""
+    allowed_set, shown_set = frozenset(allowed), frozenset(shown)
+    mine = conn.execute(
+        "SELECT project FROM document_classification WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    project = (mine["project"] if mine else None) or None
+    rows = conn.execute(
+        "SELECT d.id AS id, d.filename AS filename, d.sha256 AS sha256, c.document_role AS role, c.project AS project,"
+        " c.superseded_by AS superseded_by FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
+        " WHERE d.id != ? AND d.id NOT IN (SELECT DISTINCT standard_document_id FROM standard_requirements) ORDER BY d.id",
+        (document_id,),
+    ).fetchall()
+    out: list[ProjectPaper] = []
+    for r in rows:
+        earlier = r["superseded_by"] == document_id
+        if not earlier and not (project and r["project"] == project):
+            continue
+        kind = (
+            KIND_CONTRACT
+            if r["role"] == "CONTRACT_DOCUMENT"
+            else KIND_SPEC
+            if r["role"] == "SPECIFICATION"
+            else KIND_RELATED
+        )
+        register = is_register(r["filename"], r["sha256"])
+        ok = not register and r["id"] in allowed_set and r["id"] in shown_set
+        pages = (
+            {
+                int(x["page_no"]): x["text"] or ""
+                for x in conn.execute(
+                    "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+                    (r["id"],),
+                )
+            }
+            if ok
+            else {}
+        )
+        out.append(
+            ProjectPaper(
+                r["id"],
+                kind,
+                pages,
+                r["id"] in shown_set,
+                r["id"] in allowed_set,
+                register,
+                paper_scored(conn, r["id"]) if ok and kind == KIND_RELATED else True,
+            )
+        )
+    return out
