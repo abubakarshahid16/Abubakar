@@ -31,7 +31,8 @@ from app import (
 )
 from app import agent_review_calculator_reader as reader_mod
 from app.config import settings
-from app.nine_call import FakeTransport, RoleGate
+from app.nine_call import Answer, FakeTransport, RoleGate
+from app.nine_contract import ReadEntry
 
 NOW = "2026-11-16T00:00:00Z"
 PAGE1 = "Design pressure: 12 barg\nDesign temperature: 150 C\n"
@@ -515,14 +516,16 @@ def test_a_page_stopped_after_some_groups_answered_is_read_partly_and_keeps_its_
 
 
 def test_a_stopped_page_by_the_budget_or_the_gate_is_partly_read_in_words():
-    r = nine_reader._Page(asked=3, answered=1, budget=True)
+    r = nine_reader._Page(asked=3, answered=1, budget=True, unread=["a", "b"])
     assert (
         nine_reader._page_read(4, r).not_read_why
-        == "read partly: 1 of 3 field groups (the Reader's budget was reached (role_budget))"
+        == "read partly: 1 of 3 field groups (the Reader's budget was reached (role_budget)); fields not read: a, b"
     )
-    r = nine_reader._Page(asked=3, answered=1, not_sent="document_not_listed")
+    r = nine_reader._Page(
+        asked=3, answered=1, not_sent="document_not_listed", unread=["a", "b"]
+    )
     assert (
-        "read partly: 1 of 3 field groups (not sent (document_not_listed))"
+        "read partly: 1 of 3 field groups (not sent (document_not_listed)); fields not read: a, b"
         == nine_reader._page_read(4, r).not_read_why
     )
 
@@ -542,3 +545,68 @@ def test_a_stored_value_whose_quote_is_not_on_the_page_is_not_usable():
         nine_facts.usable(nine_facts.sheet_of("r", "p", 1, [], facts, "claude", []))
         == ()
     )
+
+
+def _ask_with(pictures: int):
+    def ask(blocks, question):
+        reads = (
+            ReadEntry(
+                1, "c", "paper", "paper", (1,), None, None, None, 10, "x", pictures
+            ),
+        )
+        return Answer(
+            True,
+            "c",
+            1,
+            "answered",
+            None,
+            answer(GOOD, TEMP),
+            None,
+            None,
+            "m",
+            ("paper",),
+            (),
+            reads,
+        )
+
+    return ask
+
+
+@pytest.mark.parametrize(
+    ("sent", "source", "pictures"), [(0, "ai_text", 0), (1, "ai_picture", 1)]
+)
+def test_a_page_is_a_picture_page_only_when_the_seam_really_sent_the_picture(
+    sent, source, pictures
+):
+    from collections import Counter
+
+    rules = nine_reader.datasheet_checks.load_rules()
+    fields = nine_reader.field_list_for(None, dict(rules))
+    page = nine_reader._read_page(
+        _ask_with(sent), "paper", 1, PAGE1, png(10, 10), fields, rules, Counter()
+    )
+    rec = nine_reader._page_read(1, page)
+    assert rec.picture_read is bool(pictures) and rec.text_read is True
+    facts, _ = nine_facts.merge(
+        [], page.facts, {1: PAGE1}, picture_pages={1} if rec.picture_read else ()
+    )
+    assert {f.source for f in facts} == {source}
+
+
+def test_a_partly_read_page_names_the_fields_nobody_read(monkeypatch):
+    monkeypatch.setattr(nine_reader, "batches", lambda fs: [[f] for f in fs])
+
+    class Second(Tx):
+        n = 0
+
+        def __call__(self, url, *, headers, body, timeout):
+            self.n += 1
+            if self.n == 2:
+                raise RuntimeError("boom")
+            return super().__call__(url, headers=headers, body=body, timeout=timeout)
+
+    res = read({1: PAGE1}, Second(lambda p: answer(GOOD)))
+    assert res.produced["fields_not_read"] == {"1": ["design_temperature"]}
+    assert "fields not read: design_temperature" in res.sheet.pages[0].not_read_why
+    text = nine_facts.digest(res.sheet)
+    assert "PAGES NOT READ:" in text and "fields not read: design_temperature" in text

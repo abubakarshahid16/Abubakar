@@ -131,6 +131,7 @@ class _Page:
     budget: bool = False
     asked: int = 0
     answered: int = 0
+    unread: list[str] = field(default_factory=list)  # the field keys no answer covered
 
 
 def _read_page(
@@ -148,6 +149,7 @@ def _read_page(
         [f for f in fields if form_reader.label_on_page(f, text, dict(rules))]
     )
     out.asked = len(groups)
+    out.unread = [f.key for g in groups for f in g]
     for group in groups:
         answer = ask(
             [page_block(paper_id, page, text, picture)], build_prompt(group, "", page)
@@ -169,6 +171,7 @@ def _read_page(
             continue
         out.facts.extend(_verified(parsed, group, text, page, rules, dropped))
         out.answered += 1
+        out.unread = [k for k in out.unread if k not in {f.key for f in group}]
         out.picture = (
             out.picture or sum(r.pictures for r in answer.reads) > 0
         )  # the picture counts only when the seam really sent it
@@ -208,7 +211,7 @@ def _page_read(page: int, r: _Page) -> PageRead:
         page,
         False,
         r.picture,
-        f"read partly: {r.answered} of {r.asked} field groups ({stop})",
+        f"read partly: {r.answered} of {r.asked} field groups ({stop}); fields not read: {', '.join(r.unread)}",
     )
 
 
@@ -223,6 +226,7 @@ def _read_pages(
     dropped: Counter,
     deadline: float | None,
     local: bool,
+    unread: dict[int, list[str]],
 ) -> tuple[list[dict], list[PageRead], str | None]:
     facts: list[dict] = []
     reads: list[PageRead] = []
@@ -277,6 +281,8 @@ def _read_pages(
             if r.budget:
                 stopped = "role_budget"
             facts.extend(r.facts)
+            if r.unread and r.answered:
+                unread[page] = r.unread
             reads.append(_page_read(page, r))
     return facts, reads, stopped
 
@@ -316,6 +322,7 @@ def read_paper(
             run_id, ROLE_NO, blocks, question, engine=engine, gate=gate, **seam_kwargs
         )
 
+    unread: dict[int, list[str]] = {}
     try:
         read, reads, stopped = _read_pages(
             ask,
@@ -328,6 +335,7 @@ def read_paper(
             dropped,
             deadline,
             engine == "local",
+            unread,
         )
     except Exception as exc:  # noqa: BLE001 - a failing reader never fails the review; the role says it did not run and why
         log.warning("nine reader: did not run (%s)", type(exc).__name__)
@@ -364,6 +372,7 @@ def read_paper(
         "pages_read_by_code_only": len(by_code),
         "pages_with_picture": len(picture_pages),
         "conflicts": sheet.conflicts,
+        "fields_not_read": {str(p): u for p, u in unread.items()},
         "pages_not_read": {str(p): w for p, w in not_read.items()},
         "dropped_by_reason": dict(sorted(dropped.items())),
         "dropped": sum(dropped.values()),
