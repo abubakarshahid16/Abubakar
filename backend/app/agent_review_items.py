@@ -399,6 +399,7 @@ def rule_item(
         "clause": clause,
         "clause_from": clause_from,
         "clause_page": cpage if cpage is not None else r.get("page"),
+        "rule_page": r.get("page"),  # the page the rule row cites; the clause check searches here too (c11)
         "rule_kind": _rule_kind(r),
         "requirement_type": r.get("requirement_type"),
         "rule_row_found": True,  # the stored requirement row was read: what `agent_review_absence.required` asks for
@@ -456,6 +457,7 @@ def skill_item(
         "rule_version_id": None,
         "standard": first.get("standard"),
         "clause": first.get("clause"),
+        "standard_document_id": first.get("standard_document_id"),
         "clause_page": first.get("clause_page"),
         "rule_kind": None,
         "comparator": None,
