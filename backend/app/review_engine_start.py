@@ -113,7 +113,8 @@ def legacy_start_blocked(conn, document_id: str, allowed: frozenset[str]) -> str
     install it keeps working, because nothing can leave: a local-only or closed-lane start (scripts and tests keep that path)."""
     facts, _reading = review_engine.read_facts(conn, document_id, allowed)
     claude_set = facts.provider == "claude" or (
-        facts.provider == "per_task" and (facts.agent_engine_claude or facts.step_engine_claude)
+        facts.provider == "per_task"
+        and (facts.agent_engine_claude or facts.step_engine_claude)
     )
     return LEGACY_START_WORDS if facts.lane_open and claude_set else None
 
