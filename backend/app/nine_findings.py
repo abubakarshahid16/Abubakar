@@ -466,6 +466,9 @@ class Built:
     ] = ()  # what code could not check ("clause number not checked"); put on the stored line
     underlying: int = 1  # how many joined raw findings this one finding stands for (every one stays countable)
     issue: str = ""  # the model's one-line issue (kept for the F- item a non-covering finding becomes)
+    member_verdicts: tuple[
+        tuple[str, str, str], ...
+    ] = ()  # (member id, its own verdict word, its field key): what each underlying finding said
 
 
 def build(
@@ -518,6 +521,10 @@ def build(
         item["page_hint"] = [p for p in (raw.get("paper_page"),) if isinstance(p, int)]
         item["page_hint_source"] = "nine reviewer"
         item_id, tier = str(base.get("item_id")), matched.tier
+        if tier == verdict.RULE_NOT_APPROVED:
+            item["rule_tier"] = (
+                verdict.RULE_NOT_APPROVED
+            )  # the match's tier is the rule row's CURRENT one: the item is never better than it
     else:
         item_id, tier = fid, None
         item = {
@@ -560,6 +567,14 @@ def build(
         lead.notes,
         len(j.members),
         str(raw.get("issue") or "")[:400],
+        tuple(
+            (
+                f"{m.call.call_id}#{m.index}",
+                verdict_of(m.raw),
+                field_key(m.raw.get("field_label"))[0],
+            )
+            for m in j.members
+        ),
     )
 
 
@@ -600,6 +615,7 @@ def _merge_two(a: Built, b: Built) -> Built:
         {**other.cache, **lead.cache},
         tuple(dict.fromkeys([*a.notes, *b.notes])),
         a.underlying + b.underlying,
+        member_verdicts=tuple(dict.fromkeys([*a.member_verdicts, *b.member_verdicts])),
     )
 
 
@@ -680,12 +696,27 @@ def decide_all(
             **line,
             "nine_members": list(b.finding.members),
             "nine_underlying": b.underlying,
+            "nine_member_verdicts": _member_words(b),
             "nine_notes": list(b.notes),
         }
         runner.emit(line)
         done.add(str(b.item["item_id"]))
         lines.append(runner.lines[str(b.item["item_id"])])
     return lines
+
+
+def _member_words(b: Built) -> list[dict]:
+    """One entry per member, in the order of `nine_members`: the member's own verdict word and its field key (the sheet prints what each
+    underlying finding said)."""
+    by_id = {m: (w, k) for m, w, k in b.member_verdicts}
+    return [
+        {
+            "member": m,
+            "verdict": by_id.get(m, ("", ""))[0],
+            "field_key": by_id.get(m, ("", ""))[1],
+        }
+        for m in b.finding.members
+    ]
 
 
 def not_reviewed_reason(c: Checked) -> str | None:

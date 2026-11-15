@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from app import agent_claude, db
+from app import agent_claude, claude_approved, db
 from app import agent_review_pass_guards as G
 from app import agent_review_request as request_mod
 from app import agent_review_run as run_mod
@@ -457,13 +457,13 @@ def world(tmp_path, monkeypatch):
     return s.FakeModel()
 
 
-def _runner(fake, tier=V.AI_TIER, items=None):
+def _runner(fake, tier=V.AI_TIER, items=None, lookup=None):
     doc, cache = s.item_doc()
     plan = {i["item_id"]: i for i in doc["items"]}
     runner = run_mod.Runner(
         paper=s.PAPER, items=list(plan.values()) if items is None else items, pages=request_mod.DbPages(db.connect(), s.PAPER),
         clauses=request_mod.ClauseCache(cache), model=agent_claude.LEAD_MODEL, send=fake, env=s.ENV, paper_kind="datasheet",
-        tier_lookup=lambda _item: tier,
+        tier_lookup=lookup or (lambda _item: tier),
     )  # fmt: skip
     return runner, plan
 
@@ -1089,3 +1089,75 @@ def test_the_rules_field_is_read_from_its_label_as_well_as_its_roles():
         .item["item_id"]
         .startswith("F-")
     )
+
+
+def _mark_line(world, lookup, row_version="ver-mark"):
+    world.agree = True
+    runner, plan = _runner(world, lookup=lookup)
+    plan["R-mark"]["rule_version_id"] = (
+        "ver-mark"  # the plan item's own version id (not the rule id)
+    )
+    call = nf.Sent("c1", frozenset({1}), {s.STD: frozenset({1})}, "m1", ())
+    rows = [
+        {"id": "mark", "rule_version_id": row_version, "standard_document_id": s.STD, "source_text": s.RULES["R-mark"][0]}
+    ]  # fmt: skip
+    built = nf.process(
+        [(raw(clause_quote=s.RULES["R-mark"][0], paper_quote="Marking blue", paper_page=1, verdict="met", field_label="Marking"), call)],
+        paper_pages={1: s.PAPER_PAGE}, books=standards.BookPages(), rules=rows, plan_items=plan, tier_lookup=lookup,
+    )  # fmt: skip
+    with claude_approved.carrying(
+        [s.PAPER, s.STD]
+    ):  # the declaration the real run makes: the second reader's call carries these documents
+        line = nf.decide_all(runner, built, {1: s.PAPER_PAGE}, "fake-lead-model-1")[0]
+    return built[0], line
+
+
+def _by_version(item):
+    return V.AI_TIER if item.get("rule_version_id") == "ver-mark" else None
+
+
+def test_a_finding_matched_to_an_approved_rule_by_its_version_id_reaches_the_two_reader_class(
+    world,
+):
+    b, line = _mark_line(world, _by_version)
+    assert b.item["item_id"] == "R-mark" and b.finding.rule_tier == V.AI_TIER
+    assert line["verdict_class"] == "AI verdict, two readers agree"
+
+
+def test_the_same_finding_on_a_rule_that_is_not_approved_does_not(world):
+    b, line = _mark_line(world, lambda _i: None)
+    assert b.item["item_id"] == "R-mark" and b.finding.rule_tier == V.RULE_NOT_APPROVED
+    assert line["verdict_class"] != "AI verdict, two readers agree"
+    # the rule row names a version the label table does not approve: the match takes THAT tier, never a better one
+    b2, line2 = _mark_line(world, _by_version, row_version="ver-other")
+    assert b2.finding.rule_tier == V.RULE_NOT_APPROVED
+    assert line2["verdict_class"] != "AI verdict, two readers agree"
+
+
+def test_the_line_stores_what_each_underlying_finding_said(world):
+    world.agree = True
+    runner, plan = _runner(world)
+    call = nf.Sent("c1", frozenset({1}), {s.STD: frozenset({1})}, "m1", ())
+    rows = [
+        {
+            "id": "mark",
+            "standard_document_id": s.STD,
+            "source_text": s.RULES["R-mark"][0],
+        }
+    ]
+
+    def mk(v):
+        return raw(
+            clause_quote=s.RULES["R-mark"][0], paper_quote="Marking blue",
+            paper_page=1, verdict=v, field_label="Marking",
+        )  # fmt: skip
+
+    built = nf.process(
+        [(mk("met"), call), (mk("not_met"), call)],
+        paper_pages={1: s.PAPER_PAGE}, books=standards.BookPages(), rules=rows, plan_items=plan, tier_lookup=lambda _i: V.AI_TIER,
+    )  # fmt: skip
+    line = nf.decide_all(runner, built, {1: s.PAPER_PAGE}, "fake-lead-model-1")[0]
+    words = line["nine_member_verdicts"]
+    assert [w["member"] for w in words] == line["nine_members"] and len(words) == 2
+    assert sorted(w["verdict"] for w in words) == ["met", "not_met"]
+    assert all(w["field_key"] for w in words)

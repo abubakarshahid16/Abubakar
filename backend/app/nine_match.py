@@ -94,7 +94,8 @@ def match(
     stub = {
         "item_id": item_id,
         "source": "rule",
-        "rule_version_id": rule_id,
+        "rule_version_id": found[0].get("rule_version_id")
+        or rule_id,  # the plan item's own version id when the rule row carries it: the tier is the rule's CURRENT one
         "standard_document_id": str(book_id),
     }
     tier = verdict.item_tier(
