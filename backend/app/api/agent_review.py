@@ -105,6 +105,14 @@ def agent_status(request: Request):
     )
 
 
+class AgentOlderCounts(BaseModel):
+    """What the page says under an Older files button (null renders as nothing, never 0)."""
+
+    run_id: str
+    ai_lines: int | None = None
+    paper_points: int | None = None
+
+
 class AgentRunsAmong(BaseModel):
     """Which of the asked runs have an AI review the caller may read."""
 
@@ -628,7 +636,7 @@ def agent_crs(
     return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")
 
 
-@router.get("/api/reviews/runs/{review_run_id}/agent/crs/older")
+@router.get("/api/reviews/runs/{review_run_id}/agent/crs/older", response_model=AgentOlderCounts)
 def agent_crs_older(
     review_run_id: str,
     request: Request,
