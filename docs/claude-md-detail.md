@@ -74,6 +74,8 @@ When a mistake is called out on #692 or #1584, add one line here in your next PR
 - A guard's reason stated a fact about the paper the code had not seen ("the paper gives no value", 12 Nov, #1759): a reason says only what the code saw; the banned-phrase test covers every `_WHY` constant.
 - Relayed a helper's finding to the owner without checking the document id it used ("the pump datasheet has no stored text", 12 Nov; the helper had read a different paper; corrected two minutes later): before a helper's claim about a real paper goes to the owner, check the id and the count yourself.
 - Merged main into a reviewed branch and found only at the push that one file had crossed the 800-line limit (12 Nov, #1763): when several open PRs add to the same long file, check the merged line count before starting the merge chain.
+- A merge conflict was resolved to an EMPTY file and nobody saw it (nine/combined, 16 Nov: `test_g1_less_waste.py` stored as 0 bytes, 349 + 352 lines lost): after every merge list every file that is shorter than BOTH parents (and every empty file) before the first test run.
+- A helper said "tests pass" and the pushed tree was not the tree it tested (nine, 16 Nov): check a helper's "tests pass" against the PUSHED tree (`git diff <tested head> <pushed head>`, then run the named tests on the pushed head).
 
 ## Tooling traps that have already bitten
 
