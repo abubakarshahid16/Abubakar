@@ -228,9 +228,13 @@ def _prefix(ctx, pages: dict[int, str]) -> tuple[list, bool]:
     blocks = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
     sheet = ctx.store.get("fact_sheet")
     if sheet is not None:
+        digest, counts = nine_facts.digest_blocks(sheet, pages)
         blocks.extend(
-            nine_facts.digest_blocks(sheet, pages)[0]
+            digest
         )  # the fact sheet: tagged and untagged rows, the paper their only source
+        ctx.store["digest_counts"] = (
+            counts  # what was passed and what did not fit a derived block: role 4 records it
+        )
     context = list(ctx.store.get("context_blocks") or ())
     blocks.extend(context)
     if blocks:

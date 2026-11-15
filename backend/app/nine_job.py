@@ -324,15 +324,25 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
         shown=shown, allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
     )  # fmt: skip
 
+    title_ask = nine_librarian.seam_ask(ctx.run_id, **_seam_kwargs(ctx))
     reading = nine_librarian.extend_with_model(
-        reading,
-        inputs,
-        nine_librarian.seam_ask(ctx.run_id, **_seam_kwargs(ctx)),
-        engine=engine,
+        reading, inputs, title_ask, engine=engine
     )
     ctx.store["reading"], ctx.store["cuts"] = reading, cuts
     produced = nine_librarian.produced(reading)
+    refused = nine_librarian.model_step_refusal(
+        title_ask
+    )  # the optional title step: refused or failed is said, never "ran"
+    if refused:
+        produced["model_step"] = refused
     unread = produced["chapters_not_read"]
+    if refused and not unread:
+        return RoleResult(
+            "ran_partly",
+            f"the reading list was chosen by code; the model's title step did not run ({refused})",
+            engine=engine,
+            produced=produced,
+        )
     return RoleResult("ran_partly" if unread else "ran", ("some chapters were chosen but not read: " + ", ".join(unread)) if unread else None,
                       engine=engine, produced=produced)  # fmt: skip
 
@@ -435,6 +445,11 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         "findings": len(to_emit),
         "findings_kept": sum(b.underlying for b in to_emit),
         "context_parts_passed": len(ctx.store.get("context_blocks") or ()),
+        **{
+            f"fact_{k}": v
+            for k, v in (ctx.store.get("digest_counts") or {}).items()
+            if k in ("rows_tagged", "rows_untagged", "rows_cut_for_size")
+        },  # how many fact rows the reviewer was given and how many did not fit a derived block
     }
     return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
 
@@ -497,7 +512,8 @@ def writer_role(ctx: RoleContext) -> RoleResult:
             engine="code",
             produced=produced,
         )
-    return RoleResult("ran" if why is None else "ran_partly", why, engine="claude" if engine == "claude" else "code", produced=produced)  # fmt: skip
+    return RoleResult("ran" if why is None else "ran_partly", why, engine="claude" if engine == "claude" and produced.get("sheet_by") != "code" else "code", produced=produced)  # fmt: skip
+    # the record names the engine that really wrote: the writer is off in this version (`sheet_by` code), so it says code, never claude
 
 
 def default_roles() -> dict[int, Callable[[RoleContext], RoleResult]]:
@@ -590,6 +606,26 @@ def flat(produced: dict) -> dict:
     return out
 
 
+def failure_detail(exc: BaseException) -> dict:
+    """What the record keeps of a role that FAILED, so the sheet can word it without a value or a document word: the error's type name, a reason code
+    from the closed list `nine_call.FAILURE_REASONS` (`other` for any error that does not carry one), and, where the error names them, the
+    template (or derived block) NAME and the declared cell kind. Stored in the role's `produced` as `failure_error`, `failure_reason`,
+    `failure_template`, `failure_cell_kind` (the last two only when known)."""
+    reason = getattr(exc, "reason", "other")
+    out = {
+        "failure_error": type(exc).__name__,
+        "failure_reason": reason if reason in nine_call.FAILURE_REASONS else "other",
+    }
+    for key, attr in (
+        ("failure_template", "template"),
+        ("failure_cell_kind", "cell_kind"),
+    ):
+        value = getattr(exc, attr, None)
+        if isinstance(value, str) and value:
+            out[key] = value[: nine_record.MAX_STRING]
+    return out
+
+
 def _execute_role(
     n: int, ctx: RoleContext, fn, record, reraise: tuple[type[BaseException], ...]
 ) -> None:
@@ -609,7 +645,9 @@ def _execute_role(
         ):  # today's batch path and its code roles behave EXACTLY as today (retry, poison): never swallowed here
             raise
         log.warning("nine roles: role %s failed (%s)", n, type(exc).__name__)
-        result = RoleResult("not_run", f"failed ({type(exc).__name__})")
+        result = RoleResult(
+            "not_run", f"failed ({type(exc).__name__})", produced=failure_detail(exc)
+        )
         if n == 4:
             ctx.flags["reviewer_failed"] = True
     if n == 4 and result.state == "not_run":

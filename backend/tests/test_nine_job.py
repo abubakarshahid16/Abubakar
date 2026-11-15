@@ -456,3 +456,39 @@ def test_role_6_counts_from_the_stored_second_opinion_of_real_shaped_lines():
         nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)
     )
     assert none.state == "not_run" and none.produced["asked"] == 0
+
+
+def test_the_writer_is_recorded_as_code_when_the_run_is_on_claude_but_the_writer_made_no_call():
+    """The first real valve run recorded role 9 "ran; engine claude" with the writer off: the record said Claude wrote a sheet the code wrote."""
+    from app import review_engine, review_shown
+
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        review_shown.ensure_schema(conn)
+        review_shown.record_in(conn, ai, [doc], "2026-11-16T00:00:00Z")
+        review_engine.record_in(conn, ai, {"choice": "claude", "text_leaves": True, "parts": []}, "u", then_ai=False, bar_claude=False, now="2026-11-16T00:00:00Z")  # fmt: skip
+    assert nine_job.nine_call.engine_of_run(ai) == "claude"
+    got = nine_job.writer_role(
+        nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)
+    )
+    assert got.produced["sheet_by"] == "code" and got.engine == "code"
+
+
+def test_a_failed_role_stores_its_detail_with_the_record_codes_only():
+    rec = FakeRecord()
+
+    def too_big(ctx):
+        raise nine_job.nine_call.TemplateError(
+            "secret words", reason="derived_block_too_large", template="fact_sheet"
+        )
+
+    args, _ = ctx_args()
+    nine_job.run_roles(*args, record=rec, roles=fakes([], {4: too_big}))
+    row = rec.rows[("run1", 4)]
+    assert row["why"] == "failed (TemplateError)"
+    assert row["produced"] == {
+        "failure_error": "TemplateError",
+        "failure_reason": "derived_block_too_large",
+        "failure_template": "fact_sheet",
+    }
+    assert "secret" not in str(row)

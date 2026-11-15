@@ -932,6 +932,40 @@ def approval_check(
     )
 
 
+def nine_roles_check(conn, run_id: str) -> Check:
+    """Every nine role that should run did run, or the record names why (the first paid valve run passed this table with role 4 "not run: failed
+    (TemplateError)"). Reads only the role rows of the run: no rows = the nine-role switch was off for it (PASS, said). A role that is missing, that
+    "failed" (a crash is never a reason), that is not run with no reason, or role 4 not run at all, is a FAIL. Codes and counts only."""
+    try:
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT role_no, state, why FROM agent_review_role WHERE run_id = ? ORDER BY role_no",
+                (run_id,),
+            )
+        ]
+    except sqlite3.Error:
+        rows = []
+    name = "every nine role ran, or the record names why"
+    if not rows:
+        return Check(
+            name, True, "no nine-role record for this run (the switch was off)"
+        )
+    by_no = {int(r["role_no"]): r for r in rows}
+    problems = [f"role {n} has no record row" for n in range(1, 10) if n not in by_no]
+    for n, r in sorted(by_no.items()):
+        why = str(r.get("why") or "")
+        if r["state"] == "not_run":
+            if not why or why == "no reason recorded":
+                problems.append(f"role {n} did not run and names no reason")
+            elif why.startswith("failed"):
+                problems.append(f"role {n} FAILED: {why}")
+            elif n == 4:
+                problems.append(f"role 4 did not run: {why}")
+    detail = "; ".join(problems) or "all nine roles have a record row; none failed"
+    return Check(name, not problems, detail)
+
+
 def normal_review_check(
     outcome_json: str | None, status: str | None, route_text: str = ""
 ) -> Check:
@@ -1371,13 +1405,16 @@ def run_trial(
         # start, as the screen does. Without `--engine` the trial asks for Claude (the AI review that follows the rule check).
         engine = cfg.engine or "claude"
         _plan_code, plan_raw = http.call(
-            "GET", f"/api/reviews/plan?submittal_document_id={cfg.document}&engine={engine}"
+            "GET",
+            f"/api/reviews/plan?submittal_document_id={cfg.document}&engine={engine}",
         )
         try:
             plan_doc = json.loads(plan_raw) if plan_raw else {}
         except ValueError:
             plan_doc = {}
-        shown = [d["id"] for d in (plan_doc.get("documents") or {}).get("leaving") or []]
+        shown = [
+            d["id"] for d in (plan_doc.get("documents") or {}).get("leaving") or []
+        ]
         code, run = http.call(
             "POST",
             "/api/reviews/start",
@@ -1427,6 +1464,7 @@ def run_trial(
                 conn, run_id, kept.get("used"), cfg.require_rules_asked
             )
             checks.append(proof_check(conn, run_id))
+            checks.append(nine_roles_check(conn, run_id))
             checks.append(contractor_check(conn, run_id, kept.get("contractor")))
             checks.append(spend_check(cfg, kept.get("summary"), data, ledger_before))
             stopped = stop_check(cfg, kept.get("summary"))

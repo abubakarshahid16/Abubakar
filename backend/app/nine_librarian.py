@@ -444,15 +444,26 @@ def seam_ask(run_id: str, *, engine: str | None = None, **seam):
     def ask(titles: Sequence[tuple[str, str, str]]):
         block, _left, back = titles_block(titles)
         if block is None:
+            ask.refusal = "no title row could be sent"
             return None
         got = nine_call.ask(
             run_id, 3, [block], (QUESTION_ID, {}), engine=engine, **seam
         )
         if not got.ok:
+            codes = [str(c) for _d, c in got.not_sent]
+            ask.refusal = ": ".join(
+                [str(got.error_code or got.state), *dict.fromkeys(codes)]
+            )  # codes only, never a title
             return None
         return [(b, back[(b, c)]) for b, c in parse_choice(got.text) if (b, c) in back]
 
+    ask.refusal = None  # type: ignore[attr-defined]  # why the call did not go or came back unusable (codes only); None when it answered
     return ask
+
+
+def model_step_refusal(ask) -> str | None:
+    """Why the optional title call did not produce an answer (codes only), or None when it did (or was never needed)."""
+    return getattr(ask, "refusal", None)
 
 
 def parse_choice(text: str | None) -> list[tuple[str, str]]:

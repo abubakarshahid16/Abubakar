@@ -328,8 +328,42 @@ def _app_id(ctx: IdContext, text: str) -> bool:
     return False
 
 
+#: THE CLOSED LIST of reasons a wrong use of the seam names (stored with the role's record; the sheet words each one). Codes only: never a value,
+#: never a word of a document.
+FAILURE_REASONS = (
+    "derived_block_too_large",  # the cells of one derived block are more than MAX_DERIVED_CHARS
+    "derived_row_not_a_short_line",  # a cell is empty, has a line break or is longer than MAX_CELL_CHARS
+    "derived_block_malformed",  # no name, no sources, no rows, or a document id on a derived block
+    "declared_kinds_invalid",  # a declared cell kind that does not exist, or a row with another number of cells than kinds
+    "stored_block_malformed",  # a stored-text block without a document or pages, or with derived parts
+    "unknown_block_kind",
+    "template_unknown",
+    "template_parameters_differ",  # a template used with other parameters than it declares
+    "template_parameter_not_of_its_kind",
+    "other",
+)
+
+
 class NineCallError(ValueError):
-    """A wrong use of the seam: a programming error, never a document fact."""
+    """A wrong use of the seam: a programming error, never a document fact. `reason` is from `FAILURE_REASONS`; `template` is the template or
+    derived block NAME (app-owned) and `cell_kind` the declared kind that was refused, so the record can say what failed without a value."""
+
+    reason: str = "other"
+    template: str | None = None
+    cell_kind: str | None = None
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        reason: str | None = None,
+        template: str | None = None,
+        cell_kind: str | None = None,
+    ):
+        super().__init__(message)
+        if reason is not None:
+            self.reason = reason if reason in FAILURE_REASONS else "other"
+        self.template, self.cell_kind = template, cell_kind
 
 
 class TemplateError(NineCallError):
@@ -400,7 +434,11 @@ def _check_param(kind: str, value) -> str:
             or not isinstance(value, int)
             or not 0 <= value <= 10**9
         ):
-            raise TemplateError("an int parameter is a count")
+            raise TemplateError(
+                "an int parameter is a count",
+                reason="template_parameter_not_of_its_kind",
+                cell_kind="int",
+            )
         return str(value)
     text = value if isinstance(value, str) else ""
     ok = (
@@ -413,7 +451,11 @@ def _check_param(kind: str, value) -> str:
         or (kind.startswith("vocab:") and _in_vocabulary(kind, text))
     )
     if not ok:
-        raise TemplateError(f"a {kind} parameter is not from the app's own words")
+        raise TemplateError(
+            f"a {kind} parameter is not from the app's own words",
+            reason="template_parameter_not_of_its_kind",
+            cell_kind=kind.split(":")[0],
+        )
     return text
 
 
@@ -422,11 +464,19 @@ def render_full(use: tuple[str, dict]) -> tuple[str, str, str, list[str], list[s
     any value that is not of its kind."""
     template_id, params = use
     if template_id not in _TEMPLATES:
-        raise TemplateError("an unknown template")
+        raise TemplateError("an unknown template", reason="template_unknown")
     text, kinds = _TEMPLATES[template_id]
     if set(params) != set(kinds):
-        raise TemplateError("a template use gives exactly its parameters")
-    values = {k: _check_param(kinds[k], params[k]) for k in kinds}
+        raise TemplateError(
+            "a template use gives exactly its parameters",
+            reason="template_parameters_differ",
+            template=template_id,
+        )
+    try:
+        values = {k: _check_param(kinds[k], params[k]) for k in kinds}
+    except TemplateError as exc:
+        exc.template = template_id
+        raise
     digest = hashlib.sha256(
         json.dumps([template_id, values], sort_keys=True).encode("utf-8")
     ).hexdigest()
@@ -473,10 +523,13 @@ class Block:
         if self.document_kind in STORED_KINDS:
             if not self.document_id or not self.pages or self.items or self.sources:
                 raise NineCallError(
-                    "a stored-text block names a document and its pages, and nothing derived"
+                    "a stored-text block names a document and its pages, and nothing derived",
+                    reason="stored_block_malformed",
                 )
             if self.picture and len(self.pages) != 1:
-                raise NineCallError("a picture block names one page")
+                raise NineCallError(
+                    "a picture block names one page", reason="stored_block_malformed"
+                )
         elif self.document_kind == DERIVED_KIND:
             if (
                 not _ID.match(self.name)
@@ -486,13 +539,19 @@ class Block:
                 or self.picture
             ):
                 raise NineCallError(
-                    "a derived block has a name, its source documents and rows of tokens"
+                    "a derived block has a name, its source documents and rows of tokens",
+                    reason="derived_block_malformed",
+                    template=self.name if _ID.match(self.name or "") else None,
                 )
             for row in self.items:
                 if not row or any(
                     not isinstance(c, str) or not _LINE.match(c) for c in row
                 ):
-                    raise TemplateError("a derived row holds short one-line cells")
+                    raise TemplateError(
+                        "a derived row holds short one-line cells",
+                        reason="derived_row_not_a_short_line",
+                        template=self.name,
+                    )
             if self.kinds and (
                 any(
                     k not in DECLARED_KINDS
@@ -505,12 +564,21 @@ class Block:
                     "declared cell kinds are of "
                     + ", ".join(DECLARED_KINDS)
                     + ", vocab:<registered vocabulary>"
-                    + " and every row has one cell per kind"
+                    + " and every row has one cell per kind",
+                    reason="declared_kinds_invalid",
+                    template=self.name,
                 )
             if sum(len(c) + 3 for row in self.items for c in row) > MAX_DERIVED_CHARS:
-                raise TemplateError("a derived block is a digest, not a copy")
+                raise TemplateError(
+                    "a derived block is a digest, not a copy",
+                    reason="derived_block_too_large",
+                    template=self.name,
+                )
         else:
-            raise NineCallError(f"unknown block kind {self.document_kind!r}")
+            raise NineCallError(
+                f"unknown block kind {self.document_kind!r}",
+                reason="unknown_block_kind",
+            )
 
     def gate_ids(self) -> tuple[str, ...]:
         return (
@@ -746,14 +814,26 @@ def fold(text: str) -> str:
 
 
 def _source_pages(conn, doc: str, cache: dict) -> dict[int, str]:
+    """The folded text of each page of a source document: the SAME words a stored block of that document would send (`read_book`: the stored page
+    text, and for a page with none the recognised text of its picture). A scanned book has no stored text at all, so reading the `pages` table
+    alone refused every cell that was copied from it (found on the first real run). The text is still only that document's own, and only when
+    it is a declared and gated source."""
     if doc not in cache:
-        cache[doc] = {
-            r["page_no"]: fold(r["text"])
-            for r in conn.execute(
-                "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
-                (doc,),
-            )
-        }
+        from . import agent_review_standards
+
+        try:
+            pages = dict(agent_review_standards.read_book(conn, doc).pages)
+        except Exception:  # noqa: BLE001 - a document the reader cannot open falls back to the stored page text alone
+            pages = {}
+        if not any(str(t).strip() for t in pages.values()):
+            pages = {
+                r["page_no"]: r["text"]
+                for r in conn.execute(
+                    "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+                    (doc,),
+                )
+            }
+        cache[doc] = {n: fold(t) for n, t in sorted(pages.items())}
     return cache[doc]
 
 

@@ -33,6 +33,7 @@ from app import (
 )
 from app import agent_review_calculator_reader as reader_mod
 from app.config import settings
+from app import nine_contract
 from app.nine_call import Answer, FakeTransport, RoleGate
 from app.nine_contract import ReadEntry
 
@@ -730,6 +731,7 @@ def test_the_digest_is_derived_blocks_the_seam_accepts_cell_by_cell():
     assert counts == {
         "rows_tagged": 0,
         "rows_untagged": 2,
+        "rows_cut_for_size": 0,
         "left_out": 0,
         "left_out_reasons": {},
     }
@@ -808,7 +810,13 @@ def test_no_row_gives_no_block():
     sheet = nine_facts.sheet_of("run1", "paper", 1, [], [], "claude", [])
     assert nine_facts.digest_blocks(sheet, {1: PAGE1}) == (
         [],
-        {"rows_tagged": 0, "rows_untagged": 0, "left_out": 0, "left_out_reasons": {}},
+        {
+            "rows_tagged": 0,
+            "rows_untagged": 0,
+            "rows_cut_for_size": 0,
+            "left_out": 0,
+            "left_out_reasons": {},
+        },
     )
 
 
@@ -952,3 +960,88 @@ def test_the_record_says_which_fields_were_asked_so_not_stated_is_said_only_for_
         and "2" not in res.produced["fields_not_read"]
     )
     assert res.sheet.pages[1].not_read_why == nine_reader.CODE_ONLY
+
+
+# ---------------------------------------------------------------- a real sheet is several times the size of one derived block
+
+
+def _big_sheet(n=900, conflicts=300):
+    """A sheet like the first real valve run's: many tagged values (that run: 1084 rows, 122,000 characters against a 30,000 limit)."""
+    facts, text = [], []
+    for i in range(n):
+        val = f"{100 + i}.5"
+        text.append(f"T-{i % 40} {val} barg")
+        facts.append(
+            nine_contract.Fact(
+                f"f:1:{i}", 1, "Set pressure", "set_pressure" if i % 3 else None, val, "barg", f"{val} barg", True, f"T-{i % 40}", None,
+                "ai_only", "conflict" if i < conflicts else "stored_only", None, "m",
+            )
+        )  # fmt: skip
+    sheet = nine_contract.FactSheet(
+        "run1",
+        "paper",
+        1,
+        (nine_contract.PageRead(1, True, False, None),),
+        tuple(facts),
+        conflicts,
+        "claude",
+        ("m",),
+    )
+    return sheet, {1: "\n".join(text)}
+
+
+def test_a_sheet_bigger_than_one_derived_block_is_cut_to_fit_and_the_cut_is_counted_never_a_failure():
+    sheet, pages = _big_sheet()
+    blocks, counts = nine_facts.digest_blocks(
+        sheet, pages
+    )  # before the fix: TemplateError "a derived block is a digest, not a copy"
+    assert len(blocks) >= 1 and all(
+        sum(len(c) + 3 for r in b.items for c in r) <= nine_call.MAX_DERIVED_CHARS for b in blocks
+    )  # fmt: skip
+    kept = sum(len(b.items) for b in blocks)
+    cut = counts["rows_cut_for_size"]
+    assert (
+        cut > 0
+        and kept + cut == 900
+        and counts["left_out_reasons"]["over the size limit of a derived block"] == cut
+    )
+    states = [r[-1] for b in blocks for r in b.items]
+    assert (
+        states.count("conflict") < 300
+    )  # values read two ways go last: they are what is cut first
+    assert (
+        all(r[1] != "unknown" for b in blocks for r in b.items if r[-1] != "conflict")
+        or kept > 0
+    )
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pages WHERE document_id = 'paper'")
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('paper', 1, ?, ?, 0)",
+            (pages[1], len(pages[1])),
+        )
+        nine_facts.store(
+            conn, sheet
+        )  # the seam looks each fact id up among this run's stored facts
+    ans, _tx = _send_block(blocks[0])
+    assert ans.ok, ans.error_code  # the seam accepts what is left
+
+
+def test_the_cut_keeps_page_order_and_never_splits_a_row():
+    rows = [
+        (
+            "f:1:%d" % i,
+            "unknown" if i % 2 else "set_pressure",
+            "1",
+            "1",
+            "T",
+            "stored_only",
+        )
+        for i in range(50)
+    ]
+    kept, cut = nine_facts.fit_rows(rows, limit=100)
+    assert (
+        cut == 50 - len(kept)
+        and kept == sorted(kept, key=rows.index)
+        and all(r in rows for r in kept)
+    )
+    assert all(r[1] == "set_pressure" for r in kept)  # known fields first

@@ -650,3 +650,37 @@ def test_a_general_review_asks_no_rule_by_design_and_the_trial_says_so(monkeypat
         if c.name == "rules asked > 0, or the plan says why none"
     )
     assert not again.ok  # a rule review with an empty plan and no word stays a failure
+
+
+def _role_db(rows):
+    import sqlite3
+
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    c.execute(
+        "CREATE TABLE agent_review_role (run_id TEXT, role_no INTEGER, state TEXT, why TEXT)"
+    )
+    c.executemany("INSERT INTO agent_review_role VALUES ('r', ?, ?, ?)", rows)
+    return c
+
+
+def test_the_nine_roles_check_fails_a_failed_role_and_passes_a_run_where_each_role_ran_or_says_why():
+    ok = [(n, "ran", None) for n in range(1, 10)]
+    assert trial.nine_roles_check(_role_db(ok), "r").ok
+    failed = [(n, "ran", None) for n in range(1, 10) if n != 4] + [
+        (4, "not_run", "failed (TemplateError)")
+    ]
+    got = trial.nine_roles_check(_role_db(failed), "r")
+    assert not got.ok and got.word == "FAIL" and "role 4 FAILED" in got.detail
+    named = [(n, "ran", None) for n in range(1, 10) if n != 9] + [
+        (9, "not_run", "the writer is off")
+    ]
+    assert trial.nine_roles_check(_role_db(named), "r").detail.startswith("all nine")
+    assert (
+        "no reason"
+        in trial.nine_roles_check(
+            _role_db([(n, "ran", None) for n in range(1, 9)] + [(9, "not_run", None)]),
+            "r",
+        ).detail
+    )
+    assert "no nine-role record" in trial.nine_roles_check(_role_db([]), "r").detail

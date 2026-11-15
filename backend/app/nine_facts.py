@@ -383,6 +383,30 @@ def fold_text(text: object) -> str:
     return nine_record.fold(str(text or ""))
 
 
+def _row_priority(row: tuple[str, ...]) -> int:
+    """0: a value of a field the app knows (a role) that is not in conflict; 1: a value of an unknown field; 2: a value read two ways (it is kept
+    only to say "do not take this for a value", so it goes last)."""
+    return 2 if row[-1] == "conflict" else (0 if row[1] != "unknown" else 1)
+
+
+def fit_rows(
+    rows: Sequence[tuple[str, ...]], limit: int | None = None
+) -> tuple[list[tuple[str, ...]], int]:
+    """(the rows that fit one derived block, how many were left out). A derived block is a digest, not a copy: the seam refuses more than
+    `nine_call.MAX_DERIVED_CHARS` characters of cells in one block, and a real sheet can be several times that. Rows are kept by priority (a known
+    field first, then an unknown one, then values read two ways), each priority in its own page order, whole rows only; the kept rows go back to
+    page order. The cap is never raised and the block is never split to get round it: what does not fit is COUNTED, and the record says so."""
+    cap = nine_call.MAX_DERIVED_CHARS if limit is None else limit
+    keep: set[int] = set()
+    used = 0
+    for i in sorted(range(len(rows)), key=lambda i: (_row_priority(rows[i]), i)):
+        cost = sum(len(c) + 3 for c in rows[i])
+        if used + cost <= cap:
+            keep.add(i)
+            used += cost
+    return [r for i, r in enumerate(rows) if i in keep], len(rows) - len(keep)
+
+
 def digest_blocks(
     sheet: FactSheet, pages: Mapping[int, str]
 ) -> tuple[list[nine_call.Block], dict[str, int]]:
@@ -416,10 +440,17 @@ def digest_blocks(
         else:
             untagged.append((*head, "not_printed" if f.tag else "none", f.state))
     blocks = []
+    cut_rows: dict[str, int] = {}
+    kept: dict[str, int] = {}
     for name, kinds, rows in (
         ("fact_sheet", TAGGED_KINDS, tagged),
         ("fact_sheet_untagged", UNTAGGED_KINDS, untagged),
     ):
+        rows, cut = fit_rows(rows)
+        if cut:
+            left_out["over the size limit of a derived block"] += cut
+            cut_rows[name] = cut
+        kept[name] = len(rows)
         if rows:
             blocks.append(
                 nine_call.Block(
@@ -431,8 +462,9 @@ def digest_blocks(
                 )
             )
     return blocks, {
-        "rows_tagged": len(tagged),
-        "rows_untagged": len(untagged),
+        "rows_tagged": kept["fact_sheet"],
+        "rows_untagged": kept["fact_sheet_untagged"],
+        "rows_cut_for_size": sum(cut_rows.values()),
         "left_out": sum(left_out.values()),
         "left_out_reasons": dict(left_out),
     }
