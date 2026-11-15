@@ -11,6 +11,7 @@ import pytest
 from app import agent_review_calculator as calc
 from app import agent_review_code_proof as proof
 from app import agent_review_verdict as V
+from tests import b1_pages
 from tests.test_b1_calculator import ITEM, exit_of, fact, line
 
 
@@ -448,7 +449,7 @@ def test_7_the_exit_asks_again_a_flipped_comparator_on_a_stored_line_is_demoted(
 
 def test_8_a_quote_of_another_field_with_the_flag_true_is_demoted_at_the_exit():
     good = line("85")
-    assert proven(good) and "noise level" in good["paper_context"]
+    assert proven(good)
     forged = {
         **good,
         "paper_quote": "Operating pressure 85 dB(A)",
@@ -461,12 +462,52 @@ def test_8_a_quote_of_another_field_with_the_flag_true_is_demoted_at_the_exit():
     )
 
 
+def test_8_the_page_is_read_again_so_a_forged_flag_quote_and_context_together_prove_nothing(
+    _pages,
+):
+    good = line("85")
+    assert proven(good)
+    _pages[("doc1", 1)] = (
+        "Noise level 70 dB(A)\nOperating pressure 85 dB(A)\n"  # what the store really holds
+    )
+    other = {
+        **good,
+        "paper_quote": "Operating pressure 85 dB(A)",
+        "paper_context": "Noise level 85 dB(A)",
+    }  # a real line of the page, another field
+    assert (
+        other["quotes_checked"]["paper"] is True
+        and exit_of(other)["verdict_class"] != "Proven by code"
+    )
+    off_page = {
+        **good,
+        "paper_quote": "Noise level 85 dB(A)",
+        "paper_context": "Noise level 85 dB(A)",
+    }  # a quote the page does not hold
+    assert exit_of(off_page)["verdict_class"] != "Proven by code"
+
+
 @pytest.mark.parametrize(
-    "context", [None, "", 5, ["Noise level"], "Design pressure 85 dB(A)"]
+    "change",
+    [
+        {"paper_document_id": None},
+        {"paper_document_id": ""},
+        {"paper_document_id": "other"},
+        {"paper_page": 2},
+        {"paper_page": True},
+        {"paper_page": None},
+    ],
 )
-def test_8_without_the_fields_own_lines_nothing_is_proven(context):
-    forged = {**line("85"), "paper_context": context}
-    assert exit_of(forged)["verdict_class"] != "Proven by code"
+def test_8_a_line_that_names_no_readable_page_is_not_proven(change):
+    assert exit_of({**line("85"), **change})["verdict_class"] != "Proven by code"
+
+
+def test_8_a_page_that_cannot_be_read_again_proves_nothing(monkeypatch):
+    def boom(doc, page):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(proof, "PAGE_SOURCE", [boom])
+    assert exit_of(line("85"))["verdict_class"] != "Proven by code"
 
 
 def test_8_the_label_line_directly_above_still_proves_through_the_stored_lines():
@@ -475,7 +516,7 @@ def test_8_the_label_line_directly_above_still_proves_through_the_stored_lines()
         page_text="Noise level\n85 dB(A)\nOperating pressure 12 bar",
         source_text="85 dB(A)",
     )
-    assert proven(ok) and ok["paper_context"].splitlines()[0].startswith("noise level")
+    assert proven(ok)
 
 
 # ---------------------------------------------------------------------------------------- 9 (R48f low): tokens, on both sides, and the basis of a unit
@@ -613,3 +654,23 @@ def test_11_a_compared_check_still_proves_and_the_exit_demotes_a_forged_presence
     forged = {**lines[0], "rule_id": "PSV-06"}
     out = exit_of(forged, forged)
     assert out["verdict"] == "Query" and out["verdict_class"] != "Proven by code"
+
+
+@pytest.fixture(autouse=True)
+def _pages(monkeypatch):
+    return b1_pages.install(monkeypatch)
+
+
+def test_8_a_checklist_line_is_asked_again_from_the_page_too(_pages):
+    lines = calc.checklist_lines(
+        [_result("PSV-16")], page_texts={1: "Over pressure % 21", 2: "x"}
+    )
+    assert (
+        lines[0]["verdict"] == "Pass"
+        and exit_of(lines[0], lines[0])["verdict_class"] == "Proven by code"
+    )
+    _pages[("doc1", 1)] = (
+        "Something else 21"  # the stored page does not hold the value next to its label
+    )
+    assert lines[0]["quotes_checked"]["paper"] is True
+    assert exit_of(lines[0], lines[0])["verdict_class"] != "Proven by code"

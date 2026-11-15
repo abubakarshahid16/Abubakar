@@ -9,6 +9,7 @@ from ._base import APP, Mutation
 _T = "tests/test_b1_table_cell.py"
 _C = APP / "agent_review_calculator_cells.py"
 _K = APP / "table_cell.py"
+_P = APP / "agent_review_code_proof.py"
 _TAGS = ("honesty", "critical", "calculator")
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -44,4 +45,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="the questions of code lines are not grouped by their reason: every deferred value and every unstated phase is its own point again",
              path=APP / "review_points.py", anchor="if (code_why := code_question_key(line)) and rank == 4", replacement="if False",
              target="tests/test_b1_review_notes.py", keyword="same_reason_are_one_group", tags=_TAGS),
+    Mutation(id="M1808-15", phase=1808,
+             description="the exit does not read the page again: the context carried on the line is trusted (R48i 1)",
+             path=_P, anchor="        text = PAGE_SOURCE[0](doc, page)\n", replacement='        text = line.get("paper_context")\n',
+             target="tests/test_b1_calculator_proof.py", keyword="test_8", tags=_TAGS),
+    Mutation(id="M1808-16", phase=1808,
+             description="a checklist line is not asked again from the re-read page: its flag is trusted (R48i 1)",
+             path=_P, anchor='    return value_near_label(line.get("field"), line.get("paper_quote"), text)\n', replacement="    return True\n",
+             target="tests/test_b1_calculator_proof.py", keyword="test_8", tags=_TAGS),
 )

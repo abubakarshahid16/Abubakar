@@ -154,7 +154,7 @@ def _tables(conn, submittal: str) -> dict:
 
 
 def _numeric_lines(
-    items, facts, sheet, pages, tables, cache, kind, tier_lookup, unpaired
+    items, facts, sheet, pages, tables, cache, kind, tier_lookup, unpaired, submittal
 ) -> tuple[list[dict], int, int]:
     """The numeric lines, PER TAG GROUP: a rule is paired with the facts of one group and compared with that group's facts only."""
     made, considered, paired = [], 0, 0
@@ -171,7 +171,7 @@ def _numeric_lines(
                 line = calc.numeric_line(
                     item, req, fact, submittal_facts=gfacts, page_text=pages.get(fact.get("page")),
                     clause_quote=cache.text(item.get("rule_quote_ref")), clause_text=cache.text(item.get("clause_quote_ref")),
-                    page_count=count, cell=cells.get(str(fact.get("id"))),
+                    page_count=count, cell=cells.get(str(fact.get("id"))), document_id=submittal,
                 )  # fmt: skip
                 if fact.get("settled_note"):
                     line["settled_note"] = fact["settled_note"]
@@ -197,7 +197,10 @@ def _checklist_lines(
             {**r, "equipment_tag": r.get("equipment_tag") or key} for r in results
         ]
         for line in calc.checklist_lines(
-            results, page_texts=pages, cells=cells_mod.cells_of(gfacts, tables, counts)
+            results,
+            page_texts=pages,
+            cells=cells_mod.cells_of(gfacts, tables, counts),
+            document_id=submittal,
         ):
             made.append(
                 wording.final_cap(line, line, tier_lookup, paper_kind=kind.kind)
@@ -233,6 +236,7 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
         kind,
         tier_lookup,
         unpaired,
+        submittal,
     )
     made += _checklist_lines(facts, stored, pages, tables, submittal, kind, tier_lookup)
     for (

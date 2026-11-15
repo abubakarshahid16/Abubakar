@@ -184,6 +184,7 @@ def numeric_line(
     clause_text: str | None,
     page_count: int | None = None,
     cell: table_cell.Cell | None = None,
+    document_id: str | None = None,
 ) -> dict:
     """ONE line for one rule item and the fact paired with it. `page_text`: the stored text of the fact's page; `clause_quote`: the quote of the rule
     the line shows; `clause_text`: the clause's own text it must stand in. The caller pairs (`subject_pairing`) and fetches the texts; this decides,
@@ -203,6 +204,7 @@ def numeric_line(
         "clause_quote": clause_quote or "",
         "paper_quote": cell.quote if cell else (_paper_quote(fact) if fact else ""),
         "paper_page": f.get("page"),
+        "paper_document_id": document_id,
         "rule_field": (guards.field_names(item) or [None])[0],
         "paper_context": proof.context_of(page_text, _paper_quote(fact)) if fact else "",
         "paper_page_count": page_count,
@@ -256,7 +258,10 @@ def numeric_line(
 
 
 def _checklist_base(
-    r: Mapping, cell: table_cell.Cell | None, page_texts: Mapping[int, str]
+    r: Mapping,
+    cell: table_cell.Cell | None,
+    page_texts: Mapping[int, str],
+    document_id: str | None,
 ) -> dict:
     """A checklist result as a line before it is decided: the approved entry is its own clause; the quote is the value's cell, else the value."""
     fact_id, value, page = r.get("fact_id"), r.get("value"), r.get("page")
@@ -285,6 +290,8 @@ def _checklist_base(
         "cell_label": cell.label_text if cell else None,
         "cell_note": cell.split if cell else None,
         "paper_page": page,
+        "paper_document_id": document_id,
+        "paper_value": value,
         "paper_page_count": max((k for k in page_texts if _is_page(k)), default=None),
         # the clause side is the approved entry's own wording: nothing outside it to check against
         "quotes_checked": {
@@ -299,6 +306,7 @@ def checklist_lines(
     *,
     page_texts: Mapping[int, str],
     cells: Mapping[str, table_cell.Cell] | None = None,
+    document_id: str | None = None,
 ) -> list[dict]:
     """The approved checklist's results (`datasheet_checks.evaluate`: pure, code only) as lines. The clause side is the approved entry's own
     wording (`APPROVED_CHECKLIST`, the entry id as the clause): no document, so its quote is the entry itself. The paper quote must be found on
@@ -316,7 +324,7 @@ def checklist_lines(
         cell = (
             (cells or {}).get(str(fact_id)) if fact_id else None
         )  # its quote: the row's two cells
-        line = _checklist_base(r, cell, page_texts)
+        line = _checklist_base(r, cell, page_texts, document_id)
         detail = str(r.get("detail") or "")[:200]
         decided = (
             status in (COMPLIANT, NON_COMPLIANT)

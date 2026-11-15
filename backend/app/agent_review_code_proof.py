@@ -355,27 +355,75 @@ def context_of(page_text: object, quote: object) -> str:
     return "\n".join(([above] if above else []) + own)
 
 
-def field_ok(line: Mapping) -> bool:
-    """The label test asked again from the line's own stored lines: the fact's field label stands on the quote's own line or the label line directly
-    above it (`agent_review_pass_guards.belongs`, the Pass guard's own rule)."""
-    label, context = str(line.get("field") or "").strip(), line.get("paper_context")
-    if isinstance(
-        line.get("cell_ref"), Mapping
-    ):  # a located cell: the label is the row's own cell (or a part of a compound label), and the quote starts with it
-        cell_label = str(line.get("cell_label") or "")
-        names = [
-            _fold(cell_label),
-            *[_fold(x) for x in table_cell.label_parts(cell_label)],
-        ]
-        return bool(
-            label
-            and cell_label
-            and _fold(label) in names
-            and _fold(str(line.get("paper_quote") or "")).startswith(_fold(cell_label))
+def _db_page_text(document_id: str, page: int) -> str | None:
+    """The stored text of one page of one document (a document is never edited in place: its id is its revision)."""
+    from .db import connect
+
+    row = (
+        connect()
+        .execute(
+            "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+            (document_id, page),
         )
-    if not (label and isinstance(context, str) and context.strip()):
+        .fetchone()
+    )
+    return row["text"] if row is not None else None
+
+
+#: Where the exit reads a page from. One place, so a test can give it a page without a database.
+PAGE_SOURCE: list = [_db_page_text]
+
+
+def page_text_of(line: Mapping) -> str | None:
+    """The page the line names, read again from the store by the document id and page ON the line. None when the line names none, or it cannot be read."""
+    doc, page = line.get("paper_document_id"), line.get("paper_page")
+    if not (
+        isinstance(doc, str)
+        and doc
+        and isinstance(page, int)
+        and not isinstance(page, bool)
+        and page >= 1
+    ):
+        return None
+    try:
+        text = PAGE_SOURCE[0](doc, page)
+    except Exception as exc:  # noqa: BLE001 - a page that cannot be read again proves nothing
+        log.warning(
+            "code proof: the page could not be read again (%s)", type(exc).__name__
+        )
+        return None
+    return text if isinstance(text, str) and text.strip() else None
+
+
+def _cell_ok(line: Mapping, label: str, text: str) -> bool:
+    """A located cell, asked again against the re-read page: the quote starts with the label cell, the label is that cell or a part of a compound label,
+    and each of the two cells' words stands on the page."""
+    cell_label, quote = (
+        str(line.get("cell_label") or ""),
+        str(line.get("paper_quote") or ""),
+    )
+    names = [_fold(cell_label), *[_fold(x) for x in table_cell.label_parts(cell_label)]]
+    rest = _fold(quote)[len(_fold(cell_label)) :].strip()
+    flat = _fold(text)
+    return bool(
+        label and cell_label and _fold(label) in names and _fold(quote).startswith(_fold(cell_label)) and rest
+        and _fold(cell_label) in flat and rest in flat
+    )  # fmt: skip
+
+
+def paper_ok(line: Mapping) -> bool:
+    """The paper side asked again from the page's own stored text, never from a flag or a context carried on the line: the quote is found on the page the
+    line names; its field label stands on the quote's own line or the label line directly above it (`agent_review_pass_guards.belongs`, the Pass guard's
+    rule), or, for a located cell, the label is the row's own cell."""
+    label, text = str(line.get("field") or "").strip(), page_text_of(line)
+    if not (label and text):
         return False
-    return guards.belongs({"field_roles": [label]}, line.get("paper_quote"), context)[0]
+    if isinstance(line.get("cell_ref"), Mapping):
+        return _cell_ok(line, label, text)
+    quote = line.get("paper_quote")
+    if not (stored_text(quote) and _fold(str(quote)) in _fold(text)):
+        return False
+    return guards.belongs({"field_roles": [label]}, quote, text)[0]
 
 
 def numeric_proven(line: Mapping) -> bool:
@@ -388,13 +436,25 @@ def numeric_proven(line: Mapping) -> bool:
         and checked.get("clause") is True
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
-        and field_ok(line)
+        and paper_ok(line)
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
         and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
         is None
         and _verdict_matches(line, recompute(req, obs))
     )
+
+
+def checklist_paper_ok(line: Mapping) -> bool:
+    """A checklist line's paper side asked again from the re-read page: a located cell as for a numeric line, else the value stands next to its label there."""
+    text = page_text_of(line)
+    if not text:
+        return False
+    if isinstance(line.get("cell_ref"), Mapping):
+        return _cell_ok(
+            line, str(line.get("field") or "").strip(), text
+        ) and number_stated(line.get("paper_value"), line.get("paper_quote"))
+    return value_near_label(line.get("field"), line.get("paper_quote"), text)
 
 
 def checklist_proven(line: Mapping) -> bool:
@@ -406,11 +466,11 @@ def checklist_proven(line: Mapping) -> bool:
         and line.get("rule_id") in approved.approved_check_ids()
         and line.get("rule_id")
         not in approved.presence_only_ids()  # a check that only asks a field be stated compares no value
-        and checked.get("paper") is True
         and checked.get("clause") is True
         and stored_text(line.get("clause_quote"))
         and value
         and _real_page(line)
+        and checklist_paper_ok(line)
         and line.get("verdict") in (PASS, FAIL)
         and isinstance(cmp, Mapping)
         and cmp.get("decided") is True

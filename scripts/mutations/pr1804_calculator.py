@@ -99,7 +99,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1804-15", phase=1804,
              description="the exit does not ask the label test again from the line's stored lines: a quote of another field with the flag true stands (R48f a)",
              path=APP / "agent_review_code_proof.py",
-             anchor="        and field_ok(line)\n",
+             anchor="        and paper_ok(line)\n",
              replacement="",
              target=_TP, keyword="test_8", tags=_TAGS),
     Mutation(id="M1804-16", phase=1804,
