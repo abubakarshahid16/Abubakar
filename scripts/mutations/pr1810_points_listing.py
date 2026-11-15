@@ -23,7 +23,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1810-03", phase=1810,
              description="a rule book the caller may not read is named on a point (rule 5)",
              path=APP / "review_points_service.py",
-             anchor="            if d in readable and d in names\n",
-             replacement="            if d in names\n",
+             anchor='    ids = {d for p in points for d in p.get("_book_docs") or [] if d in readable}\n',
+             replacement='    ids = {d for p in points for d in p.get("_book_docs") or []}\n',
              target=_T, keyword="unreadable_one_is_not_named", tags=("privacy", "critical")),
 )

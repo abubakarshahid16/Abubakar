@@ -89,6 +89,14 @@ export function groupPlaceWords(points: ReviewPoint[]): string {
   return [where, book, tags].filter(Boolean).join(" · ");
 }
 
+/** What a group's members differ in, in one line: the distinct code-verified paper values (short ones listed, else counted), so "Keep all"
+ *  is never blind. Empty when the members show no verified value or all show the same one. */
+export function groupValuesWords(points: ReviewPoint[]): string {
+  const values = [...new Set(points.map((p) => p.paper_quote).filter((v): v is string => !!v))];
+  if (values.length < 2) return "";
+  return values.length <= 3 && values.every((v) => v.length <= 40) ? `Values in the paper: ${values.join(" / ")}` : `${values.length} different values in the paper`;
+}
+
 /** The tags a point's name carried, as the opened point says them. Empty when it had none. */
 export function tagsWords(p: ReviewPoint): string {
   const n = p.tags?.length ?? 0;

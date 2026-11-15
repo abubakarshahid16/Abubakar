@@ -237,7 +237,7 @@ def resolve_books(points: list[dict], readable: frozenset[str]) -> None:
         books = [
             {"id": d, "name": names[d]}
             for d in p.get("_book_docs") or []
-            if d in readable and d in names
+            if d in names  # `names` holds readable books only (the ONE guard: `ids` above)
         ]
         p["books"] = books
         # a point that cites a book the caller may not read is counted apart for it, even when another of its books is readable

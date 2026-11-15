@@ -534,4 +534,20 @@ describe("U5 polish: chips by book, names without tags, groups with pages, books
     expect(rows[0].textContent).not.toMatch(/TG-/);
     expect(screen.getByTestId("v2-group-place")).toHaveTextContent("4 tags in all");
   });
+
+  it("a group says what its members differ in, so Keep all is not blind", async () => {
+    const mk = (i: number, q: string | null) => ({ ...alike(i), paper_quote: q });
+    api.list.mockResolvedValue(ok(listing({ points: [mk(1, "2.2 bar"), mk(2, "3.0 bar"), mk(3, "2.2 bar"), mk(4, null)] })));
+    mount(); await loaded();
+    expect(screen.getByTestId("v2-group-values")).toHaveTextContent("Values in the paper: 2.2 bar / 3.0 bar");
+  });
+  it("a group whose members show the same value, or none, says nothing of values; many values are counted", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [1, 2, 3, 4].map((i) => ({ ...alike(i), paper_quote: "2.2 bar" })) })));
+    const { unmount } = mount(); await loaded();
+    expect(screen.queryByTestId("v2-group-values")).toBeNull();
+    unmount();
+    api.list.mockResolvedValue(ok(listing({ points: [1, 2, 3, 4].map((i) => ({ ...alike(i), paper_quote: `value number ${i}` })) })));
+    mount(); await loaded();
+    expect(screen.getByTestId("v2-group-values")).toHaveTextContent("4 different values in the paper");
+  });
 });

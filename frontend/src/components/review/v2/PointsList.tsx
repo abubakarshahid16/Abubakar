@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 
 import type { ReviewPoint } from "../../../api/reviewPoints";
-import { groupPlaceWords, placeWords, stateWords, tagsWords } from "./words";
+import { groupPlaceWords, groupValuesWords, placeWords, stateWords, tagsWords } from "./words";
 
 type Decide = (body: { point_id: string; state: "keep" | "edit" | "remove"; text?: string; reason?: string }) => Promise<boolean>;
 
@@ -152,6 +152,7 @@ export function PointsList({ points, decide, keepAll, busy, onViewPage }: {
                 <Pill p={{ ...first, pill: `${first.pill.split(" · ")[0]} · ${it.points.length} alike` }} />
                 <span className="text-slateish-100">{first.name}</span>
                 <span className="text-xs text-slateish-400" data-testid="v2-group-place">{groupPlaceWords(it.points)}</span>
+                {groupValuesWords(it.points) && <span className="text-xs text-slateish-300" data-testid="v2-group-values">{groupValuesWords(it.points)}</span>}
               </div>
               <div className="flex gap-2 text-xs">
                 <button type="button" disabled={busy || undecided.length === 0} onClick={() => void keepAll(undecided.map((q) => q.id))}
