@@ -407,17 +407,20 @@ def fit_rows(
     return [r for i, r in enumerate(rows) if i in keep], len(rows) - len(keep)
 
 
-def digest_blocks(
+def digest_rows(
     sheet: FactSheet, pages: Mapping[int, str]
-) -> tuple[list[nine_call.Block], dict[str, int]]:
-    """(Call AFTER `store`: the seam looks each fact id up among this run's stored facts.) The fact sheet for the later roles as DERIVED blocks of the seam (`review_record`, the paper its only source): a row per fact that is not stale and
-    has a value the page prints. Conflicts stay in, with the state "conflict", so no later role takes them for a value. Returns (the blocks, counts:
-    rows per block and the facts left out because the page does not print the value)."""
+) -> tuple[list[tuple[str, ...]], list[tuple[str, ...]], Counter]:
+    """(tagged rows, untagged rows, what was left out and why), in page order, BEFORE any size fitting. A row per fact that is not stale and has a
+    value the page prints; conflicts stay in with the state "conflict" so no later role takes them for a value."""
     tagged: list[tuple[str, ...]] = []
     untagged: list[tuple[str, ...]] = []
     left_out: Counter = Counter()
     for f in sorted(sheet.facts, key=lambda f: (f.page, f.fact_id)):
-        if f.state == "stale" or f.value is None:
+        if f.state == "stale":
+            left_out["stored value belongs to an earlier text of the page"] += 1
+            continue
+        if f.value is None:
+            left_out["printed but empty (no value)"] += 1
             continue
         if (
             not f.quote_verified
@@ -439,32 +442,118 @@ def digest_blocks(
             tagged.append((*head, f.tag, f.state))
         else:
             untagged.append((*head, "not_printed" if f.tag else "none", f.state))
-    blocks = []
-    cut_rows: dict[str, int] = {}
-    kept: dict[str, int] = {}
+    return tagged, untagged, left_out
+
+
+def _cost(rows: Sequence[tuple[str, ...]]) -> int:
+    return sum(len(c) + 3 for r in rows for c in r)
+
+
+def digest_fits(tagged: Sequence, untagged: Sequence) -> bool:
+    """Whether each of the two digest blocks is within ONE derived block (`nine_call.MAX_DERIVED_CHARS`)."""
+    return (
+        _cost(tagged) <= nine_call.MAX_DERIVED_CHARS
+        and _cost(untagged) <= nine_call.MAX_DERIVED_CHARS
+    )
+
+
+def rows_blocks(
+    paper_id: str, tagged: Sequence, untagged: Sequence
+) -> list[nine_call.Block]:
+    out = []
     for name, kinds, rows in (
         ("fact_sheet", TAGGED_KINDS, tagged),
         ("fact_sheet_untagged", UNTAGGED_KINDS, untagged),
     ):
+        if rows:
+            out.append(
+                nine_call.Block(
+                    "review_record", name=name, sources=(paper_id,), kinds=kinds, items=tuple(rows)
+                )
+            )  # fmt: skip
+    return out
+
+
+def split_by_page(
+    rows: Sequence[tuple[str, ...]],
+) -> tuple[list[list[tuple[str, ...]]], int]:
+    """(chunks, rows left out): the rows (in page order) cut into chunks that each fit ONE derived block, on a page boundary. Only a single page
+    that is larger than a block by itself is cut inside (`fit_rows`: known fields first), and what it loses is counted."""
+    chunks: list[list[tuple[str, ...]]] = []
+    cut = 0
+    by_page: dict[str, list[tuple[str, ...]]] = {}
+    for r in rows:
+        by_page.setdefault(r[3], []).append(r)
+    cap = nine_call.MAX_DERIVED_CHARS
+    now: list[tuple[str, ...]] = []
+    for page_rows in by_page.values():
+        if _cost(page_rows) > cap:
+            page_rows, lost = fit_rows(page_rows)
+            cut += lost
+        if now and _cost(now) + _cost(page_rows) > cap:
+            chunks.append(now)
+            now = []
+        now = [*now, *page_rows]
+    if now:
+        chunks.append(now)
+    return chunks, cut
+
+
+def digest_parts(
+    paper_id: str,
+    tagged: Sequence[tuple[str, ...]],
+    untagged: Sequence[tuple[str, ...]],
+    roles: Collection[str] | None = None,
+) -> tuple[list[list[nine_call.Block]], Counter]:
+    """(the parts, what was left out and why) of the facts ONE request needs. `roles` (the field roles of the rules asked from this chapter's book)
+    narrows the rows to those fields; none = every row. If what is left does not fit ONE block per kind, the rows go into several PARTS on page
+    boundaries (the caller sends the chapter once per part and says so). Nothing is dropped without a count and a reason."""
+    left: Counter = Counter()
+
+    def narrow(rows):
+        if not roles:
+            return list(rows)
+        keep = [r for r in rows if r[1] in roles]
+        left["field not asked from this chapter's book"] += len(rows) - len(keep)
+        return keep
+
+    t_chunks, t_cut = split_by_page(narrow(tagged))
+    u_chunks, u_cut = split_by_page(narrow(untagged))
+    if t_cut + u_cut:
+        left["over the size limit of a derived block"] += t_cut + u_cut
+    parts = []
+    for k in range(max(len(t_chunks), len(u_chunks), 1)):
+        blocks = rows_blocks(
+            paper_id,
+            t_chunks[k] if k < len(t_chunks) else (),
+            u_chunks[k] if k < len(u_chunks) else (),
+        )
+        if blocks:
+            parts.append(blocks)
+    return parts, left
+
+
+def digest_blocks(
+    sheet: FactSheet, pages: Mapping[int, str]
+) -> tuple[list[nine_call.Block], dict[str, int]]:
+    """(Call AFTER `store`: the seam looks each fact id up among this run's stored facts.) The whole fact sheet as DERIVED blocks of the seam
+    (`review_record`, the paper its only source), fitted to ONE block per kind when it is bigger (rows kept by priority, the rest COUNTED). A caller
+    that must not lose rows uses `digest_rows` and `digest_parts` instead. Returns (the blocks, counts)."""
+    tagged, untagged, left_out = digest_rows(sheet, pages)
+    cut_rows = 0
+    kept: dict[str, int] = {}
+    fitted = []
+    for name, rows in (("fact_sheet", tagged), ("fact_sheet_untagged", untagged)):
         rows, cut = fit_rows(rows)
         if cut:
             left_out["over the size limit of a derived block"] += cut
-            cut_rows[name] = cut
+            cut_rows += cut
         kept[name] = len(rows)
-        if rows:
-            blocks.append(
-                nine_call.Block(
-                    "review_record",
-                    name=name,
-                    sources=(sheet.paper_id,),
-                    kinds=kinds,
-                    items=tuple(rows),
-                )
-            )
-    return blocks, {
+        fitted.append(rows)
+    return rows_blocks(sheet.paper_id, *fitted), {
         "rows_tagged": kept["fact_sheet"],
         "rows_untagged": kept["fact_sheet_untagged"],
-        "rows_cut_for_size": sum(cut_rows.values()),
+        "rows_cut_for_size": cut_rows,
         "left_out": sum(left_out.values()),
         "left_out_reasons": dict(left_out),
     }

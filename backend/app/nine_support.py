@@ -219,24 +219,83 @@ def _book_inputs(
     return inputs, cuts
 
 
-def _prefix(ctx, pages: dict[int, str]) -> tuple[list, bool]:
-    """The part every reviewer call shares: the paper's pages (named), the fact-sheet digest (B2's derived block: the paper its only source) and
-    the project context as ONE derived block PER SOURCE document (B3's `context_blocks`), the last one marked for the prompt cache. Also whether
-    NO context could be passed (the reviewer's question says so)."""
+def _roles_by_book(plan: dict) -> dict[str, set[str]]:
+    """{rule book id: the field roles of the rules asked from it}: what a chapter of that book is read for."""
+    out: dict[str, set[str]] = {}
+    for item in plan.get("items") or []:
+        book = item.get("standard_document_id")
+        if book:
+            out.setdefault(str(book), set()).update(
+                str(r) for r in item.get("field_roles") or []
+            )
+    return out
+
+
+def _with_cache(blocks: list) -> list:
     import dataclasses
 
-    blocks = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
-    sheet = ctx.store.get("fact_sheet")
-    if sheet is not None:
-        digest, counts = nine_facts.digest_blocks(sheet, pages)
-        blocks.extend(
-            digest
-        )  # the fact sheet: tagged and untagged rows, the paper their only source
-        ctx.store["digest_counts"] = (
-            counts  # what was passed and what did not fit a derived block: role 4 records it
-        )
-    context = list(ctx.store.get("context_blocks") or ())
-    blocks.extend(context)
     if blocks:
         blocks[-1] = dataclasses.replace(blocks[-1], cache=True)
-    return blocks, not context
+    return blocks
+
+
+def _prefix(ctx, pages: dict[int, str], groups: list | None = None):
+    """(what the reviewer sends before each chapter group, the groups to send, whether NO context could be passed). The shared part is the paper's pages
+    (named), the fact-sheet digest (derived blocks, the paper their only source) and the project context as ONE derived block PER SOURCE document.
+
+    When the digest fits one derived block (30,000 characters) it is shared by every request (cached). When it does not, each request carries only the
+    facts of the fields the rules asked from THAT chapter's book are about, and if even those do not fit one block the chapter is sent once per PART of
+    the rows (on page boundaries). Nothing is dropped without a count: `ctx.store["digest_counts"]` holds the rows, the parts and what never went."""
+    base = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
+    context = list(ctx.store.get("context_blocks") or ())
+    sheet = ctx.store.get("fact_sheet")
+    groups = list(groups or [])
+    if sheet is None:
+        return _with_cache([*base, *context]), groups, not context
+    tagged, untagged, left = nine_facts.digest_rows(sheet, pages)
+    total = len(tagged) + len(untagged)
+    counts = {
+        "rows": total,
+        "parts": 1,
+        "never_sent": 0,
+        "left_out_reasons": dict(left),
+    }
+    ctx.store["digest_counts"] = counts
+    if nine_facts.digest_fits(tagged, untagged):
+        return (
+            _with_cache(
+                [
+                    *base,
+                    *nine_facts.rows_blocks(sheet.paper_id, tagged, untagged),
+                    *context,
+                ]
+            ),
+            groups,
+            not context,
+        )
+    by_book = _roles_by_book(ctx.plan)
+    expanded, plans, sent = [], [], set()
+    for g in groups or [[]]:
+        roles = set().union(*(by_book.get(c.book_id, set()) for c in g)) if g else set()
+        parts, _lost = nine_facts.digest_parts(
+            sheet.paper_id, tagged, untagged, roles or None
+        )
+        for part in parts or [[]]:
+            expanded.append(g)
+            plans.append(_with_cache([*base, *part, *context]))
+            sent.update(str(row[0]) for b in part for row in b.items)
+    never = [r for r in (*tagged, *untagged) if str(r[0]) not in sent]
+    all_roles = set().union(*by_book.values()) if by_book else set()
+    why = Counter(
+        "field not asked from any chapter's book"
+        if (all_roles and r[1] not in all_roles)
+        else "over the size limit of a derived block"
+        for r in never
+    )
+    counts.update(
+        parts=max(len(plans) // max(len(groups), 1), 1),
+        requests=len(plans),
+        never_sent=len(never),
+    )
+    counts["left_out_reasons"] = {**left, **dict(why)}
+    return (lambda i, _g: plans[i]), expanded, not context

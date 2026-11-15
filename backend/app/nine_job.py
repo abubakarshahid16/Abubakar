@@ -174,13 +174,11 @@ def reader_role(ctx: RoleContext) -> RoleResult:
     if engine == "none":
         return RoleResult("not_run", NO_DECISION)
     pages = _paper_pages(ctx)
-    stored = [
-        dict(r)
-        for r in conn.execute(
-            "SELECT * FROM submittal_facts WHERE submittal_document_id = ?",
-            (ctx.submittal,),
-        )
-    ]
+    from . import datasheets
+
+    stored = datasheets.list_facts(
+        ctx.submittal, allowed_document_ids=frozenset({ctx.submittal})
+    )  # THE paper's facts, as the rule check and the one CRS take them: current rows only (superseded rows and earlier runs' never enter)
     got = nine_reader.read_paper(
         run_id=ctx.run_id, paper_id=ctx.submittal, pages=pages, stored_facts=stored, engine=engine,
         equipment_type=getattr(ctx.kind, "equipment_type", None), pages_total=max([*pages, 0]), pictures=engine == "claude",
@@ -381,6 +379,20 @@ def _chosen_chapters(ctx: RoleContext) -> tuple[list, dict]:
     ], cuts
 
 
+def _fact_counts(ctx: RoleContext) -> dict:
+    c = ctx.store.get("digest_counts") or {}
+    out = {
+        "fact_rows": c.get("rows"),
+        "fact_parts": c.get("parts"),
+        "fact_requests": c.get("requests"),
+        "fact_rows_never_sent": c.get("never_sent"),
+    }
+    out |= {
+        f"fact_left_out.{k}": v for k, v in (c.get("left_out_reasons") or {}).items()
+    }
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
@@ -400,7 +412,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         return RoleResult("not_run", NO_DECISION)
     pages = _paper_pages(ctx)
     groups = nine_reviewer.group_chapters(_chapter_texts(chosen, cuts))
-    prefix, no_context = _prefix(ctx, pages)
+    prefix, groups, no_context = _prefix(ctx, pages, groups)
     ran = nine_reviewer.review(
         ctx.run_id,
         prefix,
@@ -445,11 +457,9 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         "findings": len(to_emit),
         "findings_kept": sum(b.underlying for b in to_emit),
         "context_parts_passed": len(ctx.store.get("context_blocks") or ()),
-        **{
-            f"fact_{k}": v
-            for k, v in (ctx.store.get("digest_counts") or {}).items()
-            if k in ("rows_tagged", "rows_untagged", "rows_cut_for_size")
-        },  # how many fact rows the reviewer was given and how many did not fit a derived block
+        **_fact_counts(
+            ctx
+        ),  # the fact rows the reviewer was given, in how many parts, and how many never went (with the reasons)
     }
     return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
 

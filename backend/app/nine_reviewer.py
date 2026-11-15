@@ -427,7 +427,8 @@ class ReviewerRun:
 
 def review(
     run_id: str,
-    prefix: Sequence[nine_call.Block],
+    prefix: Sequence[nine_call.Block]
+    | Callable[[int, Sequence[ChapterText]], Sequence[nine_call.Block]],
     groups: Sequence[Sequence[ChapterText]],
     *,
     ask: Callable[..., nine_call.Answer] = nine_call.ask,
@@ -447,7 +448,10 @@ def review(
     when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
     a failed or refused call is counted and its code kept (codes only). What each call SENT is read from its Answer. Results follow the
     group order, so the same inputs give the same findings."""
-    offered = context_names(prefix)
+    # `prefix` is ONE shared list, or a function of (the group's number, the group) when the facts a request needs differ by chapter or the
+    # digest is sent in parts (the caller repeats a group once per part)
+    prefix_of = prefix if callable(prefix) else (lambda _i, _g: prefix)
+    offered = context_names(prefix_of(0, groups[0])) if groups else ()
     run = ReviewerRun(
         groups=len(groups),
         context_offered=offered,
@@ -456,11 +460,12 @@ def review(
     gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
     stop = {"budget": False}
 
-    def one(group: Sequence[ChapterText]) -> nine_call.Answer | None:
+    def one(numbered: tuple[int, Sequence[ChapterText]]) -> nine_call.Answer | None:
+        i, group = numbered
         if should_stop() or stop["budget"]:
             return None
         got = ask(
-            run_id, ROLE_NO, [*prefix, *chapter_blocks(group)], (QUESTION_ID, {}), engine=engine, system=(SYSTEM_ID, {}), model=model,
+            run_id, ROLE_NO, [*prefix_of(i, group), *chapter_blocks(group)], (QUESTION_ID, {}), engine=engine, system=(SYSTEM_ID, {}), model=model,
             max_tokens=max_tokens, send=send, local_send=local_send, env=env, meter=meter, gate=gate,
         )  # fmt: skip
         if got.error_code == "role_budget":
@@ -468,7 +473,7 @@ def review(
         return got
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        results = list(pool.map(one, groups))
+        results = list(pool.map(one, enumerate(groups)))
     for group, res in zip(groups, results, strict=True):
         if res is None:
             run.not_asked += 1
