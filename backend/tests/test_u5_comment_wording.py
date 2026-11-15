@@ -110,5 +110,5 @@ def test_a_line_with_no_clause_has_no_priority_and_the_rule_sheet_says_why():
 
 
 def test_the_workbooks_priority_is_the_new_one_and_the_normal_reviewer_is_untouched():
-    assert wb._mandatory_rank(query(clause_quote="The valve shall resist fire."), words.STATUS_QUERY, words.ORDER_QUERY) == "High"
+    assert words.priority_ai(words.STATUS_QUERY, query(clause_quote="The valve shall resist fire."), words.ORDER_QUERY) == "High"
     assert words.priority(words.STATUS_QUERY, {}, words.ORDER_QUERY) == words.LOW  # the normal reviewer's own rule, unchanged

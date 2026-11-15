@@ -1,0 +1,57 @@
+"""What the contractor is asked, and what the AI reviewer says, on a Query of the AI reviewer's CRS comment (U5, P4 and P5).
+
+The ACTION follows what the line HOLDS about the value, decided by code and never by the reader's words (P4): a value stated on the paper
+(a quote code verified) is confirmed or justified, never "stated" again; a value the sheet defers is provided, and the sentence says it is
+deferred; a blank field is stated; when code cannot tell, the engineer checks and the contractor is not asked. The comment's second line
+carries the AI reviewer's own reasoning, labelled as its view (P5); a proven Pass or Fail has none. No model, no network."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from . import agent_review_two_reader as two
+from . import crs_ai_words as words
+from .agent_review_verdict import SILENCE_CODES, quote_defers
+
+_SAYS = (words.STATUS_AI, words.STATUS_AI_VERDICT, words.STATUS_QUERY)
+REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
+
+
+def action_case(line: Mapping) -> str:
+    """The case: "stated" (a paper quote code verified), "deferred" (the stored reason says so, or the verified quote defers the value), "blank"
+    (the paper is silent on the field) or "unknown"."""
+    checked = (line.get("quotes_checked") or {}).get("paper")
+    verified = bool(checked and " ".join(str(line.get("paper_quote") or "").split()))
+    if line.get("reason_code") == "value_deferred":
+        return "deferred"
+    if verified and quote_defers(line.get("paper_quote")):
+        return "deferred"
+    if verified:
+        return "stated"
+    silent = line.get("reason_code") in SILENCE_CODES or line.get("silence_query")
+    if silent or line.get("verdict_label") == two.WORD_NOT_STATED:
+        return "blank"
+    return "unknown"
+
+
+def query_action(line: Mapping, what: str, ref: str) -> str:
+    """Part 3 of a Query: the sentence for the case the line is in."""
+    case = action_case(line)
+    if case == "stated":
+        return f"Contractor to confirm or justify {what}{' against ' + ref if ref else ''}."
+    if case == "deferred":
+        return f"Contractor to provide {what}; it is deferred on the sheet."
+    if case == "unknown":
+        return f"Engineer to check {what}."
+    return f"Contractor to state {what}, or the page where it is shown."
+
+
+def reasoning_part(line: Mapping, status: str, guard: str) -> str:
+    """The AI reviewer's own reasoning, plain and labelled as its view, for an opinion, a two-reader verdict or a Query; "" for a proven
+    line, and "" when a guard's own view sentence is already printed."""
+    if guard or status not in _SAYS:
+        return ""
+    view = words.plain(
+        " ".join(str(line.get("reasoning") or line.get("comment") or "").split())[:400]
+    )
+    return f" {REASONING_LABEL} {view}" if view else ""

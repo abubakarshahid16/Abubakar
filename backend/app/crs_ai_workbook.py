@@ -2,8 +2,8 @@
 
 `agent_review_crs` decides WHERE a line goes (`sheet_of`, still the one decision); this module reads it (`status_of`) and decides the words
 (fixed sentences and the plain-phrase table are in `crs_ai_words`). `crs_layout` draws the workbook. Every count printed on the Notes sheet
-is the length of the rows written, taken from the same lists. No new AI call: only what the stored line holds.
-"""
+is the length of the rows written, taken from the same lists. No new AI call: only what the stored line holds. U5: the Query action and
+the AI's reasoning line come from `crs_ai_actions`, the priority from `crs_ai_words.priority_ai`."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
 from . import crs_export, crs_layout, kind_review_table
+from .crs_ai_actions import REASONING_LABEL, action_case, query_action, reasoning_part  # noqa: F401
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
@@ -39,11 +40,9 @@ from .agent_review_verdict import (
     SILENCE_CODES,
     met_unsafe_why,
     moved_by_guard,
-    quote_defers,
 )
 from .agent_run_crs import _cell, _page_cell
 
-REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"
 
@@ -233,24 +232,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         )
     ):
         out += f" {wording.ONE_READER}{view}"  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion
-    elif status in (words.STATUS_AI, words.STATUS_AI_VERDICT, words.STATUS_QUERY) and (
-        view := words.plain(" ".join(str(line.get("reasoning") or line.get("comment") or "").split())[:400])
-    ):
-        out += f" {REASONING_LABEL} {view}"  # P5: the AI's own reasoning, labelled as its view; a proven Pass or Fail has none
-    return out
-
-
-def action_case(line: Mapping) -> str:
-    """What the line HOLDS about the value, decided by code (never by the reader's words): "stated" (a paper quote code verified),
-    "deferred" (the stored reason says so, or the verified quote defers it), "blank" (the paper is silent on the field) or "unknown"."""
-    checked = (line.get("quotes_checked") or {}).get("paper")
-    verified = bool(checked and " ".join(str(line.get("paper_quote") or "").split()))
-    if line.get("reason_code") == "value_deferred" or (verified and quote_defers(line.get("paper_quote"))):
-        return "deferred"
-    if verified:
-        return "stated"
-    silent = line.get("reason_code") in SILENCE_CODES or line.get("silence_query")
-    return "blank" if silent or line.get("verdict_label") == two.WORD_NOT_STATED else "unknown"
+    return out + reasoning_part(line, status, guard)
 
 
 def _contractor_to(line: Mapping, status: str, order: int) -> str:
@@ -278,14 +260,7 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
-    case = action_case(line)  # a Query: the action follows what the line holds
-    if case == "stated":
-        return f"Contractor to confirm or justify {what}{' against ' + ref if ref else ''}."
-    if case == "deferred":
-        return f"Contractor to provide {what}; it is deferred on the sheet."
-    if case == "unknown":
-        return f"Engineer to check {what}."
-    return f"Contractor to state {what}, or the page where it is shown."
+    return query_action(line, what, ref)
 
 
 def layout_comment(line: Mapping, status: str, order: int) -> str:
@@ -302,10 +277,6 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
     )
 
 
-def _mandatory_rank(line: Mapping, status: str, order: int) -> str:
-    return words.priority_ai(status, line, order)
-
-
 def _row(
     n: int,
     line: Mapping,
@@ -320,7 +291,7 @@ def _row(
     ):  # a flagged kind's "not met" row, worded as a comment with no AI word
         return [
             n, paper, _page_text(line), layout_comment(line, words.STATUS_FAIL, words.ORDER_FAIL), by, None, None,
-            against(line) or None, _mandatory_rank(line, status, order) or None, CONTRACTOR_COMMENT,
+            against(line) or None, words.priority_ai(status, line, order) or None, CONTRACTOR_COMMENT,
         ]  # fmt: skip
     return [
         n,
@@ -331,7 +302,7 @@ def _row(
         None,
         None,
         against(line) or None,
-        _mandatory_rank(line, status, order) or None,
+        words.priority_ai(status, line, order) or None,
         status,
     ]
 
