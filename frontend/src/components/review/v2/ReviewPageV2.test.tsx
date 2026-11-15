@@ -11,7 +11,7 @@ import { ReviewPageV2 } from "./ReviewPageV2";
 import { costWords, engineWords, signWaits, tileLine, wontRunWords } from "./words";
 
 const api = {
-  list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(), recordYes: vi.fn(),
+  list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(),
   ofDocument: vi.fn(), kinds: vi.fn(), confirmKind: vi.fn(), decideCode: vi.fn(), downloadCrs: vi.fn(), downloadAgentCrs: vi.fn(), downloadPaperCrs: vi.fn(),
 };
 vi.mock("../../../api/reviewPoints", async (orig) => ({
@@ -19,7 +19,6 @@ vi.mock("../../../api/reviewPoints", async (orig) => ({
   reviewPoints: {
     list: (...a: unknown[]) => api.list(...a), plan: (...a: unknown[]) => api.plan(...a), decide: (...a: unknown[]) => api.decide(...a),
     keepAll: (...a: unknown[]) => api.keepAll(...a), add: (...a: unknown[]) => api.add(...a), start: (...a: unknown[]) => api.start(...a),
-    recordYes: (...a: unknown[]) => api.recordYes(...a),
   },
 }));
 vi.mock("../../../api/documents", () => ({

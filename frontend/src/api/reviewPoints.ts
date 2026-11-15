@@ -175,8 +175,6 @@ export const reviewPoints = {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ submittal_document_id: documentId, engine, ...(shown ? { shown_document_ids: shown } : {}) }),
     }),
-  recordYes: (documentId: string) =>
-    request<unknown>("/reviews/contract-yes", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ document_id: documentId }) }),
 };
 
 export type { Result };
