@@ -69,9 +69,13 @@ def page_blocks(paper_id: str, page: int, picture: bool) -> list[nine_call.Block
 _FORMS: dict[tuple[str, ...], str] = {}
 
 
-def form_template(group: list[Field]) -> str:
-    """The registered question of one field group: the form reader's own prompt (the app's fixed words and the reference data's field lines; NO page text),
-    registered once under an id that names its words. The page number is its only parameter."""
+class QuestionNotRegistered(LookupError):
+    """A field group the app did not register at import (a field list that changed after the app started): the page says so; nothing is sent."""
+
+
+def register_group(group: list[Field]) -> str:
+    """Register the question of one field group (IMPORT time only: the registries are frozen when the app starts): the form reader's own prompt (the app's
+    fixed words and the reference data's field lines; NO page text) under an id that names its words. The page number is its only parameter."""
     key = tuple(f.key for f in group)
     if key not in _FORMS:
         text = build_prompt(group, "", 0).rstrip()
@@ -83,6 +87,33 @@ def form_template(group: list[Field]) -> str:
         )
         _FORMS[key] = nine_call.template(tid, words, page="int")
     return _FORMS[key]
+
+
+def form_template(group: list[Field]) -> str:
+    """The registered question of a field group; never registers (a run cannot add words to the app)."""
+    try:
+        return _FORMS[tuple(f.key for f in group)]
+    except KeyError:
+        raise QuestionNotRegistered from None
+
+
+def _register_forms() -> None:
+    """Every field group the Reader can ask, from the app's fixed field lists: one list per equipment-type key of the reference data (the mandatory
+    table, the checklist table) and the generic one, cut into batches exactly as `batches` cuts them at run time."""
+    rules = datasheet_checks.load_rules()
+    types: list[str | None] = [
+        None,
+        *rules["mandatory"],
+        *(rules.get("checklists") or {}),
+    ]
+    for t in dict.fromkeys(
+        t for t in types if t is None or not t.startswith("_") or t == "_generic"
+    ):
+        for group in batches(field_list_for(t, rules)):
+            register_group(group)
+
+
+_register_forms()
 
 
 def estimate(
@@ -157,15 +188,22 @@ def _read_page(
     dropped: Counter,
 ) -> _Page:
     out = _Page()
-    groups = batches(
-        [f for f in fields if form_reader.label_on_page(f, text, dict(rules))]
-    )
+    # a group is asked whole when ANY of its fields' labels is printed on the page (the group's words are fixed and registered; a page that prints none of
+    # them is read by code, not asked)
+    groups = [
+        g
+        for g in batches(fields)
+        if any(form_reader.label_on_page(f, text, dict(rules)) for f in g)
+    ]
     out.asked = len(groups)
     out.unread = [f.key for g in groups for f in g]
     for group in groups:
-        answer = ask(
-            page_blocks(paper_id, page, picture), (form_template(group), {"page": page})
-        )
+        try:
+            question = (form_template(group), {"page": page})
+        except QuestionNotRegistered:
+            out.errors.append("question_not_registered")
+            continue
+        answer = ask(page_blocks(paper_id, page, picture), question)
         held = [
             code for _doc, code in answer.not_sent if not code.startswith("picture_")
         ]  # a picture that could not be made is text only, not a held page

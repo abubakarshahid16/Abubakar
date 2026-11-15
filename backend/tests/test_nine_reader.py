@@ -521,12 +521,18 @@ def test_the_source_of_a_value_is_per_page_picture_only_where_one_was_sent(monke
     }
 
 
+def _one_field_groups(monkeypatch):
+    """Cut the form into one field per group (the groups are registered like at import: the registry is not frozen in these tests)."""
+    monkeypatch.setattr(nine_reader, "batches", lambda fs: [[f] for f in fs])
+    rules = nine_reader.datasheet_checks.load_rules()
+    for f in nine_reader.field_list_for(None, dict(rules)):
+        nine_reader.register_group([f])
+
+
 def test_a_page_stopped_after_some_groups_answered_is_read_partly_and_keeps_its_verified_values(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        nine_reader, "batches", lambda fs: [[f] for f in fs]
-    )  # one field per group: two groups on the page
+    _one_field_groups(monkeypatch)  # one field per group: two groups on the page
 
     class Second(Tx):
         n = 0
@@ -636,7 +642,7 @@ def test_a_page_is_a_picture_page_only_when_the_seam_really_sent_the_picture(
 
 
 def test_a_partly_read_page_names_the_fields_nobody_read(monkeypatch):
-    monkeypatch.setattr(nine_reader, "batches", lambda fs: [[f] for f in fs])
+    _one_field_groups(monkeypatch)
 
     class Second(Tx):
         n = 0
@@ -821,3 +827,49 @@ def test_every_word_of_the_three_vocabularies_matches_the_seams_shape_and_the_lo
             re.fullmatch(r"[a-z0-9_]+", w) and len(w) <= 32 for w in words
         ), name
     assert "superimposed_back_pressure" in nine_call._VOCAB[nine_facts.FIELD_KEYS]
+
+
+@pytest.fixture
+def frozen():
+    """The app's state after start: every registry closed (`nine_call.freeze()` runs in the lifespan). Thawed again for the other tests."""
+    nine_call.freeze()
+    yield
+    nine_call._thaw_for_tests()
+
+
+@pytest.mark.parametrize(
+    "equipment_type",
+    ["Pressure Safety Valve", "Heat Exchanger", None, "a type nobody listed"],
+)
+def test_with_the_registry_frozen_the_reader_still_reads_a_page_for_any_equipment_type(
+    frozen, equipment_type
+):
+    rules = nine_reader.datasheet_checks.load_rules()
+    fields = nine_reader.field_list_for(equipment_type, dict(rules))
+    page = "\n".join(
+        f"{f.name}: 5" for f in fields
+    )  # every field label is printed: every group is asked
+    tx = Tx(lambda p: answer())
+    res = read({1: page}, tx, equipment_type=equipment_type)
+    assert len(tx.bodies) == len(nine_reader.batches(fields)) > 0
+    assert "question_not_registered" not in json.dumps(res.produced) + str(
+        res.sheet.pages
+    )
+    assert res.sheet.pages[0].not_read_why is None
+
+
+def test_with_the_registry_frozen_a_group_that_was_not_registered_at_import_is_not_asked_and_says_so(
+    frozen, monkeypatch
+):
+    fake = nine_reader.Field("zz_unlisted_field", "Zz unlisted field", None, ())
+    monkeypatch.setattr(
+        nine_reader, "batches", lambda fs: [[fake]]
+    )  # a group nobody registered
+    monkeypatch.setattr(nine_reader.form_reader, "label_on_page", lambda *a, **k: True)
+    with pytest.raises(nine_call.NineCallError):
+        nine_reader.register_group([fake])  # registering now is refused (frozen)
+    tx = Tx()
+    res = read({1: PAGE1}, tx)
+    assert (
+        tx.bodies == [] and "question_not_registered" in res.sheet.pages[0].not_read_why
+    )
