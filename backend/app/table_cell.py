@@ -3,7 +3,7 @@
 Reads `pages.tables_json` (the stored table rows of a page: cell strings, no coordinates) and answers, for a field label and the text of the value the
 reader took, WHICH cell that is: one row, the label's cell, the value's cell to its right with only empty cells between them. The cell is the proof
 the datasheet's own row gives: the quote is the row's own two cells, as stored, each found on the page text. More than one candidate is a refusal
-with the reason, never a guess. A compound row ("Inlet/Outlet pressure | 23.5 / 11.03 barg") is split by position only when the counts match
+with the reason, never a guess. A compound row ("Inlet/Outlet pressure | 7.5 / 3.25 barg") is split by position only when the counts match
 and the unit applies to every part (`split_compound`); anything else is a refusal. Pure: no database, no model, no network; no document text logged.
 """
 

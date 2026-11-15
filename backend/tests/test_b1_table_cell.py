@@ -108,18 +108,18 @@ def test_a_note_column_is_never_the_value_of_a_case():
 def test_a_two_part_compound_splits_by_position_and_says_so_in_plain_words():
     k, figure, unit, words = T.split_compound(
         "Inlet/Outlet pressure",
-        "23.5 / 11.03 barg (Note - 3)",
+        "7.5 / 3.25 barg (Note - 9)",
         "Outlet pressure",
     )
     assert (k, figure, unit) == (
         1,
-        "11.03",
+        "3.25",
         "barg",
     ) and words == "read as the second of two values in 'Inlet/Outlet pressure'"
     first = T.split_compound(
-        "Inlet/Outlet pressure", "23.5 / 11.03 barg", "Inlet pressure"
+        "Inlet/Outlet pressure", "7.5 / 3.25 barg", "Inlet pressure"
     )
-    assert first[:3] == (0, "23.5", "barg") and "first of two values" in first[3]
+    assert first[:3] == (0, "7.5", "barg") and "first of two values" in first[3]
 
 
 def test_a_three_part_compound_and_a_unit_repeated_on_each_part():
@@ -136,30 +136,30 @@ def test_a_three_part_compound_and_a_unit_repeated_on_each_part():
     [
         (
             "Inlet/Outlet pressure",
-            "23.5 / 11.03 / 9 barg",
+            "7.5 / 3.25 / 9 barg",
             "Inlet pressure",
         ),  # unequal counts
         (
             "Inlet/Outlet pressure",
-            "23.5 barg / 11.03",
+            "7.5 barg / 3.25",
             "Inlet pressure",
         ),  # the unit on the first part only
         (
             "Inlet/Outlet pressure",
-            "23.5 bar / 11.03 psi",
+            "7.5 bar / 3.25 psi",
             "Inlet pressure",
         ),  # two different units
         (
             "Inlet/Outlet pressure",
-            "23.5 / 11.03 barg",
+            "7.5 / 3.25 barg",
             "Set pressure",
         ),  # not one of the label's parts
         (
             "Inlet/Outlet pressure",
-            "see note / 11.03 barg",
+            "see note / 3.25 barg",
             "Inlet pressure",
         ),  # a part with no number
-        ("Pressure", "23.5 / 11.03 barg", "Pressure"),  # not a compound label
+        ("Pressure", "7.5 / 3.25 barg", "Pressure"),  # not a compound label
     ],
 )
 def test_a_compound_that_does_not_split_cleanly_is_not_split(label, cell, wanted):
@@ -167,11 +167,11 @@ def test_a_compound_that_does_not_split_cleanly_is_not_split(label, cell, wanted
 
 
 def test_a_compound_row_is_found_only_once_on_a_page():
-    row = ["5", "Inlet/Outlet pressure", "", "23.5 / 11.03 barg", "", "", "", ""]
+    row = ["5", "Inlet/Outlet pressure", "", "7.5 / 3.25 barg", "", "", "", ""]
     got, figure, unit = T.locate_compound([tbl(row)], page=1, label="Inlet pressure")
     assert (
         got
-        and (figure, unit) == ("23.5", "barg")
+        and (figure, unit) == ("7.5", "barg")
         and got.split
         and got.quote.endswith("barg")
     )
@@ -306,8 +306,8 @@ def test_with_several_tags_on_a_page_the_cell_is_the_tags_own_column_and_never_a
 
 
 def test_a_compound_row_gives_the_part_whose_figure_is_the_facts_number():
-    rows = {1: [tbl(["5", "Inlet/Outlet pressure", "", "23.5 / 11.03 barg"])]}
-    first = cells.cell_of(f(1, "Inlet pressure", "23.5", "T1"), rows)
+    rows = {1: [tbl(["5", "Inlet/Outlet pressure", "", "7.5 / 3.25 barg"])]}
+    first = cells.cell_of(f(1, "Inlet pressure", "7.5", "T1"), rows)
     assert first and "first of two" in first.split
     assert cells.cell_of(f(1, "Inlet pressure", "99", "T1"), rows) is None
 

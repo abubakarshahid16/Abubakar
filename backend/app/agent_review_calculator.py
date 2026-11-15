@@ -262,8 +262,7 @@ def checklist_lines(
 ) -> list[dict]:
     """The approved checklist's results (`datasheet_checks.evaluate`: pure, code only) as lines. The clause side is the approved entry's own
     wording (`APPROVED_CHECKLIST`, the entry id as the clause): no document, so its quote is the entry itself. The paper quote must be found on
-    its page. A result that is not a decided COMPLIANT or NON_COMPLIANT, or that was held, is a Query with its detail; a check that does not
-    apply is not a line."""
+    its page. A result not decided (COMPLIANT or NON_COMPLIANT), or held, is a Query with its detail; a check that does not apply is no line."""
     out: list[dict] = []
     for r in results:
         status = r.get("status")
