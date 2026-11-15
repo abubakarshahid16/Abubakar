@@ -147,6 +147,17 @@ def test_chosen_chapters_and_real_shaped_findings_become_lines_through_the_real_
         review_shown.record_in(
             conn, run_id, [s.PAPER, s.STD, STD2], "2026-11-16T00:00:00Z"
         )
+        from app import review_engine
+
+        review_engine.record_in(
+            conn,
+            run_id,
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=False,
+            now="2026-11-16T00:00:00Z",
+        )
     assert run_job(job_id) == "done"
 
     rows = {
@@ -174,16 +185,26 @@ def test_chosen_chapters_and_real_shaped_findings_become_lines_through_the_real_
     )  # members kept, not dropped
     f_lines = {k: ln for k, ln in by_member.items() if k.startswith("F-")}
     assert (
-        len(f_lines) == 2
-    )  # the colour finding and the finding whose clause page was not sent
+        len(f_lines) == 3
+    )  # the colour finding, the one whose clause page was not sent, and the disagreeing pair (it matched a rule it does not cover)
     for k, ln in f_lines.items():
         assert lines[k]["verdict_class"] not in ("Proven by code",) and ln.get(
             "not_proven_reason"
         )  # an opinion at most, with its reason
+    assert {"R-coat", "R-mark", "R-frame"} <= set(
+        lines
+    )  # the covered rule, the unmentioned one and the contradicted one
     assert (
-        "R-coat" in lines and "R-mark" in lines
-    )  # the approved rule line and the rule only the checklist could cover
-
+        by_member["R-coat"].get("nine_underlying") == 1
+        and by_member["R-coat"]["nine_members"]
+    )  # a matched finding is the rule's own line
+    assert (
+        "nine_underlying" not in by_member["R-mark"]
+    )  # the checklist's line is today's line
+    asked = [i for batch in world.lead_asked for i in batch]
+    assert "R-coat" not in asked and {"R-mark", "R-frame"} <= set(
+        asked
+    )  # covered is not asked again; contradicted and unmentioned are
     # the record, the completeness (N points = N lines = N rows) and the checker of the role record
     from app import access
     from app import review_points_service as svc

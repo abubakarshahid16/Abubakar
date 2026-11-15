@@ -227,9 +227,12 @@ def context_role(ctx: RoleContext) -> RoleResult:
     )  # fmt: skip
     ctx.store["context_note"] = note
     produced = nine_context.produced(note, tally)
-    produced["context_parts"] = len(
-        _context_parts(note)
-    )  # passed to the reviewer one block per SOURCE document (role 4 records how many)
+    parts = nine_context.context_blocks(
+        note, tally
+    )  # one derived block per SOURCE document and column shape
+    ctx.store["context_blocks"] = parts.blocks
+    produced["context_parts"] = len(parts.blocks)
+    produced["context_rows_not_passed"] = parts.not_passed
     held = sum(1 for p in papers if p.accessible and p.shown)
     state, why = (
         ("ran", None)
@@ -333,74 +336,6 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ role 4: the Reviewer
 
 
-def _token(text: object) -> str:
-    return " ".join(str(text or "").split())[:60]
-
-
-def _digest_items(sheet) -> tuple[tuple[str, ...], ...]:
-    """The fact sheet as rows of short tokens (id, page, field, value and unit, tag, cell): derived from the paper alone."""
-    from . import nine_facts
-
-    if sheet is None:
-        return ()
-    rows = []
-    for f in sorted(nine_facts.usable(sheet), key=lambda f: (f.page, f.fact_id)):
-        shown = " ".join(x for x in (f.value, f.unit) if x) or "(printed, empty)"
-        rows.append(
-            tuple(
-                t
-                for t in (
-                    f.fact_id,
-                    f"p{f.page}",
-                    _token(f.field_label),
-                    _token(shown),
-                    _token(f.tag),
-                    _token(f.cell_ref),
-                )
-                if t
-            )
-        )
-    return tuple(rows)
-
-
-def _context_parts(note) -> list:
-    """The project context as ONE part per SOURCE document, rows of short tokens only (a standard's name, its page, the held book's id; an
-    override's subject and the clause it replaces): never a quote, never a text of another document under the paper's id."""
-    from . import nine_reviewer
-
-    by_source: dict[str, list[tuple[str, ...]]] = {}
-    for s in getattr(note, "standards", ()):
-        by_source.setdefault(s.source.document_id, []).append(
-            tuple(
-                t
-                for t in (
-                    "standard",
-                    _token(s.name),
-                    f"p{s.source.page}",
-                    _token(s.book_id),
-                )
-                if t
-            )
-        )
-    for o in getattr(note, "overrides", ()):
-        by_source.setdefault(o.project_rule.document_id, []).append(
-            tuple(
-                t
-                for t in (
-                    "override",
-                    _token(o.subject),
-                    f"p{o.project_rule.page}",
-                    _token(o.general_ref),
-                )
-                if t
-            )
-        )
-    return [
-        nine_reviewer.ContextPart(f"context_{i}", (doc,), tuple(rows))
-        for i, (doc, rows) in enumerate(sorted(by_source.items()), 1)
-    ]
-
-
 def _chapter_texts(chosen, cuts) -> list:
     """The chosen chapters in reading order as NAMED parts (book, pages, character range into the joined stored text of those pages): the seam
     loads the stored words itself. A part whose words cannot be located in the joined pages goes whole-pages (no range)."""
@@ -454,6 +389,26 @@ def _rule_rows(plan: dict) -> list[dict]:
     return rows
 
 
+def _prefix(ctx: RoleContext, pages: dict[int, str]) -> tuple[list, bool]:
+    """The part every reviewer call shares: the paper's pages (named), the fact-sheet digest (B2's derived block: the paper its only source) and
+    the project context as ONE derived block PER SOURCE document (B3's `context_blocks`), the last one marked for the prompt cache. Also whether
+    NO context could be passed (the reviewer's question says so)."""
+    import dataclasses
+
+    from . import nine_facts
+
+    blocks = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
+    sheet = ctx.store.get("fact_sheet")
+    digest = nine_facts.digest_block(sheet, pages)[0] if sheet is not None else None
+    if digest is not None:
+        blocks.append(digest)
+    context = list(ctx.store.get("context_blocks") or ())
+    blocks.extend(context)
+    if blocks:
+        blocks[-1] = dataclasses.replace(blocks[-1], cache=True)
+    return blocks, not context
+
+
 def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
@@ -480,14 +435,14 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         return RoleResult("not_run", NO_DECISION)
     pages = _paper_pages(ctx)
     groups = nine_reviewer.group_chapters(_chapter_texts(chosen, cuts))
-    sheet = ctx.store.get("fact_sheet")
-    # the fact-sheet digest is derived from the paper alone (its only source); the project context goes as ONE derived block per source document
-    parts = _context_parts(ctx.store.get("context_note"))
-    prefix = nine_reviewer.prefix_blocks(
-        ctx.submittal, sorted(pages), _digest_items(sheet), parts
-    )
+    prefix, no_context = _prefix(ctx, pages)
     ran = nine_reviewer.review(
-        ctx.run_id, prefix, groups, engine=engine, **_seam_kwargs()
+        ctx.run_id,
+        prefix,
+        groups,
+        engine=engine,
+        no_context_available=no_context,
+        **_seam_kwargs(),
     )
     if not ran.ok:
         ctx.flags["reviewer_failed"] = True
@@ -505,20 +460,26 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         ran.raw, paper_pages=pages, books=agent_review_standards.BookPages(), rules=_rule_rows(ctx.plan),
         plan_items={str(i["item_id"]): i for i in ctx.plan.get("items") or []}, tier_lookup=jobs._tier_lookup(ctx.kind),
     )  # fmt: skip
+    # THE ONE step order (B4's `cover`): the findings to emit (a finding that matched a rule it does not cover stays an F- item of its own) and the
+    # coverage; emit the first list with `decide_all`, then role 5 asks `Coverage.to_ask` through today's batch path
+    to_emit, coverage = nine_checklist.cover(
+        ctx.plan.get("items") or [], built, reviewer_ok=True
+    )
     if local is not None:
         with local.session():
-            nine_findings.decide_all(runner, built, pages, runner.model)
+            nine_findings.decide_all(runner, to_emit, pages, runner.model)
     else:
-        nine_findings.decide_all(runner, built, pages, runner.model)
-    ctx.store["findings"] = [b.finding for b in built]
+        nine_findings.decide_all(runner, to_emit, pages, runner.model)
+    ctx.store["coverage"] = coverage
+    ctx.store["findings"] = [b.finding for b in to_emit]
     produced = {
         "groups": ran.groups,
         "answered": ran.answered,
         "failed": ran.failed,
         "raw_findings": len(ran.raw),
-        "findings": len(built),
-        "findings_kept": sum(b.underlying for b in built),
-        "context_parts_passed": len(parts),
+        "findings": len(to_emit),
+        "findings_kept": sum(b.underlying for b in to_emit),
+        "context_parts_passed": len(ctx.store.get("context_blocks") or ()),
     }
     return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
 
@@ -540,7 +501,9 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
     or found nothing, EVERY item is asked (never weaker than today's). The module `nine_checklist` (B4) names the items to skip."""
     items = list(ctx.plan.get("items") or [])
     findings = ctx.store.get("findings") or []
-    coverage = nine_checklist.plan(
+    coverage = (
+        ctx.store.get("coverage") if not ctx.flags.get("reviewer_failed") else None
+    ) or nine_checklist.plan(
         items, findings, reviewer_ok=not ctx.flags.get("reviewer_failed")
     )
     asked = coverage.to_ask
