@@ -118,7 +118,7 @@ def test_blocks_are_named_not_copied_and_the_seam_sends_the_stored_words():
         and sent.book_pages == {"book": frozenset({4})}
         and sent.read_refs == (("book", "4", 1),)
     )
-    assert got.ok and got.state() == ("ran", None)
+    assert got.ok and got.state() == ("ran_partly", "no project context offered")
 
 
 def test_the_prompt_goes_as_registered_templates_and_nothing_else():
@@ -198,7 +198,7 @@ def test_a_context_part_with_a_held_source_is_dropped_and_named_the_others_go_on
     )
 
 
-def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is_not_an_error():
+def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is_said_in_words():
     ok = rev.ContextPart("override_list", ("paper",), (("pressure", "from paper"),))
     got, _t = run_review([reply(finding())], [group()], pre=prefix([ok]))
     assert (
@@ -210,7 +210,7 @@ def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is
     assert (
         none.context_passed is False
         and none.context_offered == ()
-        and none.state() == ("ran", None)
+        and none.state() == ("ran_partly", "no project context offered")
     )
 
 
@@ -350,3 +350,79 @@ def test_cost_unknown_is_never_zero_on_the_local_engine():
         concurrency=1,
     )
     assert got.answered == 1 and got.usd is None
+
+
+# ---------------------------------------------------------------- R65c A3: a part of a long chapter is a character range
+
+
+LONG = (
+    "Clause 4.1 "
+    + RULE
+    + " "
+    + "padding sentence of the invented chapter. " * 6
+    + "Clause 4.2 "
+    + OTHER_RULE
+)
+
+
+def _long_world():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at) VALUES ('long','long.pdf','l'||'l'||'l'||'l'||'l'||'l'||'l'||'l',1,'long.pdf','ready',1,?)",
+            (NOW,),
+        )
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('long', 3, ?, ?, 0)",
+            (LONG, len(LONG)),
+        )
+        review_shown.record_in(conn, "run1", ["paper", "book", "long"], NOW)
+
+
+def test_a_clause_quote_outside_the_character_range_that_was_sent_does_not_count_as_sent():
+    _long_world()
+    first_end = LONG.index("Clause 4.2")
+    part1 = [
+        rev.ChapterText("long", "4", 1, 2, (3,), first_end, 0, first_end)
+    ]  # the first part only
+    got, t = run_review(
+        [reply(finding(), finding(clause_quote=OTHER_RULE, label="Housing colour"))],
+        [part1],
+    )
+    assert RULE in json.dumps(t.bodies[0]) and OTHER_RULE not in json.dumps(
+        t.bodies[0]
+    )  # the seam really sliced the stored text
+    sent = got.raw[0][1]
+    assert sent.book_blocks == {
+        "long": (((3,), 0, first_end),)
+    }  # the range the part was offered with
+    books = standards.BookPages()
+    books._books["long"] = G.Book({3: LONG})  # the whole stored page exists locally
+    checked = [nf.check_raw(raw, s, PAPER, books) for raw, s in got.raw]
+    assert checked[0].clause_ok is True  # inside the range
+    assert (
+        checked[1].clause_ok is False and checked[1].clause_why == nf.CLAUSE_NOT_SENT
+    )  # the same page, but outside the range that went
+    whole = nf.Sent(
+        "c9", frozenset({1, 2}), {"long": frozenset({3})}, "m", (), {}
+    )  # a call that sent the whole page
+    assert (
+        nf.check_raw(
+            raw=got.raw[1][0], call=whole, paper_pages=PAPER, books=books
+        ).clause_ok
+        is True
+    )
+
+
+def test_a_kept_part_with_no_matching_offer_counts_as_whole_pages_never_as_a_wider_range():
+    _long_world()
+    part = rev.ChapterText("long", "4", 1, 2, (3,), 10, 0, 10)
+    answer = nine_call.ask(
+        "run1", 4, [*rev.prefix_blocks("paper", [1], DIGEST), *rev.chapter_blocks([part])], (rev.QUESTION_ID, {}), system=(rev.SYSTEM_ID, {}),
+        send=FakeTransport([reply()]), env=FakeTransport.ENV,
+    )  # fmt: skip
+    assert rev.sent_of(answer, [part]).book_blocks == {
+        "long": (((3,), 0, 10),)
+    }  # the offered range
+    assert rev.sent_of(answer, []).book_blocks == {
+        "long": (((3,), None, None),)
+    }  # no offer to read a range from: whole pages
