@@ -145,6 +145,7 @@ def group(points: list[dict]) -> list[dict]:
                 "pages": pages,
                 "tags": tags,
                 "clauses": _clauses(ms),
+                "book_held": any(p.get("_book_docs") or p.get("_book_doc") for p in ms),  # cites a held book (named or not)
                 "disagree": disagree,
             }
         )

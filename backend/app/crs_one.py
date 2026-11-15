@@ -223,7 +223,7 @@ def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list,
     )
     cells = [
         n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""), point.get("priority") or None,
-        point.get("name"), point.get("page") or NOT_RECORDED, books or None, point.get("clause"), shown["action"] or None,
+        point.get("name"), point.get("page") or NOT_RECORDED, books or no_rule_words([point]), point.get("clause"), shown["action"] or None,
         shown["paper_shows"], point.get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, point.get("checked_by") or None, decision_words(point), group_words(point) or None,
         first, second, agreed, "\n".join(full) or None,
     ]  # fmt: skip
@@ -583,6 +583,13 @@ def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     )
 
 
+def no_rule_words(points: list[dict]) -> str:
+    """What the rule-books cell says when no book is named: a rule book the reader may not read is counted and not named; otherwise the
+    comment rests on NO rule book and says so (a field check never looks like a rule-backed comment)."""
+    held = any(p.get("_book_docs") or p.get("_book_doc") for p in points)
+    return content.UNREADABLE_BOOK if held else content.NO_RULE_CITED
+
+
 def comment_full_texts(c: dict) -> dict[str, str]:
     """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text."""
     out = full_texts(c["strongest"])
@@ -593,7 +600,7 @@ def comment_full_texts(c: dict) -> dict[str, str]:
             if x
         )
         for k in c["clauses"]
-    )
+    ) or (content.UNREADABLE_BOOK if c.get("book_held") else content.NO_RULE_CITED)
     return out
 
 

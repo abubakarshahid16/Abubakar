@@ -16,6 +16,8 @@ import re
 PLACEHOLDER = "AI suggestion awaiting an engineer's decision"
 NOTHING = "nothing recorded for this point"
 NOT_VERIFIED = "not verified by code"
+NO_RULE_CITED = "no rule book cited: a field check"
+UNREADABLE_BOOK = "a rule book you may not read (not named)"
 AI_SUGGESTION = "the AI's suggestion (internal; not issued to the contractor until an engineer confirms it)"
 
 #: "Checked by": which part of the review raised the point.

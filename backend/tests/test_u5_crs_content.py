@@ -125,3 +125,16 @@ def test_the_value_a_datasheet_check_read_is_the_papers_stored_value_with_its_pa
     assert c.paper_value({"_fact": {"field_name": "Set pressure", "field_value": "", "unit": None, "page": 3}}) == ("", 3)  # blank: no value invented
     p = review_points.rule_point(row("datasheet_check", comment="Datasheet check: Set pressure was read."), CTX, f, {})
     assert p["paper_value"] == "Set pressure: 12 bar" and p["page"] == 3 and p["paper_quote"] is None  # stored, not verified
+
+
+def test_a_comment_with_no_rule_book_says_so_and_never_looks_rule_backed():
+    p = review_points.rule_point(row("playbook_check", standard_reference="", comment="HAZOP scope"), CTX, None, {})
+    assert crs_one.no_rule_words([p]) == c.NO_RULE_CITED == "no rule book cited: a field check"
+    from app import crs_comments
+
+    got = crs_comments.group([{**p, "decision": {}, "tags": [], "page": None}])[0]
+    assert got["book_held"] is False and crs_one.comment_full_texts(got)["clauses"] == c.NO_RULE_CITED
+    # a held book the reader may not read: counted, not named, and not called "no rule book"
+    held = {**p, "_book_docs": ["doc_secret"]}
+    assert crs_one.no_rule_words([held]) == c.UNREADABLE_BOOK
+    assert crs_comments.group([{**held, "decision": {}, "tags": [], "page": None}])[0]["book_held"] is True
