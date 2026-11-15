@@ -398,6 +398,14 @@ QUESTION_ID = nine_call.template(
     "only, that apply to a datasheet review of the equipment the paper describes and are not covered by the chapters already chosen. "
     'Answer with JSON only: {{"chapters": [["book", 1], ...]}}. Use the book and the row number exactly as written.',
 )
+QUESTION_ID_STATEMENTS = nine_call.template(
+    "nine_librarian_titles_statements",
+    "The derived block lists chapter titles of rule books, one per row as book | row number | title. Name the chapters, from this list "
+    "only, that apply to a review of the paper and are not covered by the chapters already chosen. "
+    'Answer with JSON only: {{"chapters": [["book", 1], ...]}}. Use the book and the row number exactly as written.',
+)
+#: wording (`kind_review_table.wording`) -> the registered question: a closed set
+QUESTION_OF = {"fields": QUESTION_ID, "statements": QUESTION_ID_STATEMENTS}
 #: the titles go as ONE derived block of kind review_record (rows of short tokens), sources = the books the titles come from, so the
 #: seam gates every book; the heading pages are not sent as blocks (a title is a short token, a page is a chapter's words).
 BLOCK_NAME = "chapter_titles"
@@ -458,7 +466,7 @@ def screen_titles(
     return keep, left
 
 
-def seam_ask(run_id: str, *, engine: str | None = None, **seam):
+def seam_ask(run_id: str, *, engine: str | None = None, wording: str = "fields", **seam):
     """The adapter `extend_with_model` takes: ONE call of role 3 through `nine_call.ask`. A refused or failed call: None (the code list stands)."""
 
     def ask(titles: Sequence[tuple[str, str, str]]):
@@ -469,7 +477,7 @@ def seam_ask(run_id: str, *, engine: str | None = None, **seam):
             ask.refusal = "no title row could be sent"
             return None
         got = nine_call.ask(
-            run_id, 3, [block], (QUESTION_ID, {}), engine=engine, **seam
+            run_id, 3, [block], (QUESTION_OF[wording], {}), engine=engine, **seam
         )
         if not got.ok:
             codes = [str(c) for _d, c in got.not_sent]

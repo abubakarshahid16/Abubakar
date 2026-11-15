@@ -145,6 +145,22 @@ def no_main_equipment_kinds() -> tuple[str, ...]:
     return tuple(k for k, r in _kinds().items() if r["no_main_equipment"])
 
 
+#: the two closed wordings of the nine-role reviewer's fixed texts: a kind that has a field list (a sheet of values: today's words) and a kind that
+#: has none (a paper of statements)
+WORDING_FIELDS, WORDING_STATEMENTS = "fields", "statements"
+
+
+def has_field_list(kind: str | None) -> bool:
+    """Has this kind of paper a fixed field list to read? A kind whose row says it has no main equipment has no equipment type, so no field
+    list; this is read from the row, never from the kind's name."""
+    return not bool(row(kind)["no_main_equipment"])
+
+
+def wording(kind: str | None) -> str:
+    """Which of the two closed wordings the nine roles' fixed texts use for this kind (decided from `has_field_list`)."""
+    return WORDING_FIELDS if has_field_list(kind) else WORDING_STATEMENTS
+
+
 def checklist_ending(kind: str | None) -> str | None:
     return row(kind)["checklist_skill_ending"]
 

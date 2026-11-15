@@ -108,6 +108,16 @@ def _jobs():
 
 
 NO_DECISION = "no engine decision is stored for this run, so no model was asked"
+#: closed-list reasons (`nine_record.WHY_CODES`): the sheet names them
+NO_FIELD_LIST = "this kind of paper has no field list"
+NO_CHECKLIST = "no approved checklist for this kind of paper"
+
+
+def _wording(ctx: RoleContext) -> str:
+    """The closed wording of this paper's kind (`kind_review_table.wording`: fields = today's words, statements = a kind with no field list)."""
+    from . import kind_review_table
+
+    return kind_review_table.wording(getattr(ctx.kind, "kind", None))
 
 
 def _engine(ctx: RoleContext) -> str:
@@ -169,6 +179,12 @@ def reader_role(ctx: RoleContext) -> RoleResult:
     """Role 1: every page into the fact sheet through `nine_reader.read_paper` (every model call goes through `nine_call.ask`, role 1).
     Pictures only on Claude. The sheet is stored per run (`nine_facts.store`); nothing is written to `submittal_facts`."""
 
+    from . import kind_review_table
+
+    if not kind_review_table.has_field_list(getattr(ctx.kind, "kind", None)):
+        # a kind with no equipment and no field list: no datasheet field is asked of it (no call, USD 0); role 4 then works from the paper's own
+        # pages with no facts block (`nine_support._prefix`: no fact sheet in the store)
+        return RoleResult("not_run", NO_FIELD_LIST)
     conn = connect()
     engine = _engine(ctx)
     if engine == "none":
@@ -250,7 +266,7 @@ def context_role(ctx: RoleContext) -> RoleResult:
     library = applicability._library(frozenset(scope))
     note, tally = nine_context.run(
         ctx.run_id, project=project, papers=papers, paper_row=dict(mine) if mine else {}, rows=rows, earlier_points=_earlier_points(scope),
-        new_values=new_values, library=library, engine=_choice(ctx), ask=nine_context.seam_ask(ctx.run_id, **_seam_kwargs(ctx)),
+        new_values=new_values, library=library, engine=_choice(ctx), ask=nine_context.seam_ask(ctx.run_id, wording=_wording(ctx), **_seam_kwargs(ctx)),
     )  # fmt: skip
     ctx.store["context_note"] = note
     produced = nine_context.produced(note, tally)
@@ -322,7 +338,7 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
         shown=shown, allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
     )  # fmt: skip
 
-    title_ask = nine_librarian.seam_ask(ctx.run_id, **_seam_kwargs(ctx))
+    title_ask = nine_librarian.seam_ask(ctx.run_id, wording=_wording(ctx), **_seam_kwargs(ctx))
     reading = nine_librarian.extend_with_model(
         reading, inputs, title_ask, engine=engine
     )
@@ -432,6 +448,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         groups,
         engine=engine,
         no_context_available=no_context,
+        wording=_wording(ctx),
         ask=nine_resume.guarded_ask(ctx),
         should_stop=ctx.should_stop,
         **_seam_kwargs(),
@@ -501,15 +518,16 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
     # find the rule of a stored line (its tier would read "not approved"). The plan is never changed here.
     if asked:
         ctx.ask(ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, ctx.holder)
-    return RoleResult(
-        "ran",
-        engine=None,
-        produced={
-            "required": len(items),
-            "mentioned": len(items) - len(asked),
-            "asked": len(asked),
-        },
-    )
+    produced = {
+        "required": len(items),
+        "mentioned": len(items) - len(asked),
+        "asked": len(asked),
+    }
+    if not any(i.get("source") == "skill" for i in items) and _wording(ctx) == "statements":
+        # a kind with no field list and no checklist item in the plan (it has no approved checklist, or the route leaves it to the general review):
+        # said on the sheet, never silent. A datasheet's record is unchanged.
+        return RoleResult("ran_partly", NO_CHECKLIST, engine=None, produced=produced)
+    return RoleResult("ran", engine=None, produced=produced)
 
 
 def writer_role(ctx: RoleContext) -> RoleResult:
@@ -522,6 +540,7 @@ def writer_role(ctx: RoleContext) -> RoleResult:
         ctx.submittal,
         engine,
         ask=nine_resume.guarded_ask(ctx),
+        wording=_wording(ctx),
         **_seam_kwargs(ctx),
     )
     got = crs_completeness.record_after_run(ctx.run_id)

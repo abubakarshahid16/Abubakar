@@ -743,6 +743,7 @@ WHY_CODES = frozenset(
         "not_reached", "not reached", "no_stored_text", "no_block_left", "run_is_local", "no_engine_decision", "role_budget",
         "text_from_held_document", "cell_not_from_sources", "cell_not_in_vocabulary", "cell_wrong_kind", "no_model_answer",
         "model_failed", "budget_stop", "gate_closed", "not_on_list", "outside_access", "read_nothing",
+        "this kind of paper has no field list", "no approved checklist for this kind of paper",
     }
 )  # fmt: skip
 

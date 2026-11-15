@@ -223,9 +223,19 @@ QUESTION_ID = nine_call.template(
     '"quote": "", "precedence": ""}}]}}. A quote is copied exactly from that page; page is the page number shown for it. '
     "Name nothing the document does not say.",
 )
+QUESTION_ID_STATEMENTS = nine_call.template(
+    "nine_context_read_statements",
+    "Read the project document in the block. Name the standards it says apply to the paper under review, and any project rule "
+    "that replaces or tightens a general one, with the order of precedence when it states one. Answer with JSON only: "
+    '{{"standards": [{{"name": "", "page": 0, "quote": ""}}], "overrides": [{{"subject": "", "general_ref": "", "page": 0, '
+    '"quote": "", "precedence": ""}}]}}. A quote is copied exactly from that page; page is the page number shown for it. '
+    "Name nothing the document does not say.",
+)
+#: wording (`kind_review_table.wording`) -> the registered question: a closed set
+QUESTION_OF = {"fields": QUESTION_ID, "statements": QUESTION_ID_STATEMENTS}
 
 
-def seam_ask(run_id: str, *, engine: str | None = None, **seam) -> Ask:
+def seam_ask(run_id: str, *, engine: str | None = None, wording: str = "fields", **seam) -> Ask:
     """The adapter the job gives `read_papers`: ONE call of role 2 through `nine_call.ask`, the paper as a block by reference.
     `seam` passes `send`, `env`, `gate`, `conn` ... to the seam (tests give a FakeTransport). A refused or failed call: None."""
 
@@ -233,7 +243,7 @@ def seam_ask(run_id: str, *, engine: str | None = None, **seam) -> Ask:
         kind = "earlier_revision" if paper.earlier else "project_document"
         block = nine_call.Block(kind, paper.document_id, tuple(pages))
         got = nine_call.ask(
-            run_id, 2, [block], (QUESTION_ID, {}), engine=engine, **seam
+            run_id, 2, [block], (QUESTION_OF[wording], {}), engine=engine, **seam
         )
         return got.data if got.ok else None
 

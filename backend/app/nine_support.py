@@ -307,6 +307,37 @@ def _roles_by_book(plan: dict) -> dict[str, set[str]]:
     return out
 
 
+#: the most paper text ONE reviewer request carries. A paper whose pages come to more is read in page windows (each request carries one window and
+#: one chapter group; a window starts one page back), because the whole paper plus a chapter group would pass the seam's per-request ceiling and
+#: every request would be refused (`request_too_large`)
+PAPER_WINDOW_CHARS = 40_000
+
+
+def paper_windows(
+    pages: dict[int, str], limit: int = PAPER_WINDOW_CHARS
+) -> list[list[int]]:
+    """The paper's pages as windows of consecutive pages of at most `limit` characters (one page alone may be over it), each starting one page
+    back. A paper that fits is ONE window holding every page: the request is then built exactly as before."""
+    numbers = sorted(int(n) for n in pages)
+    if sum(len(pages[n]) for n in numbers) <= limit:
+        return [numbers]
+    out: list[list[int]] = []
+    i = 0
+    while i < len(numbers):
+        window, used, j = [], 0, i
+        while j < len(numbers) and (
+            not window or used + len(pages[numbers[j]]) <= limit
+        ):
+            window.append(numbers[j])
+            used += len(pages[numbers[j]])
+            j += 1
+        out.append(window)
+        if j >= len(numbers):
+            break
+        i = max(i + 1, j - 1)
+    return out
+
+
 #: what one request carries beyond the chapters: the labels and the question (characters, a margin)
 REQUEST_OVERHEAD_CHARS = 3_000
 #: a request never gives the chapters less than this, however large the shared part is
@@ -316,7 +347,9 @@ MIN_CHAPTER_CHARS = 15_000
 def chapter_budget(ctx, pages: dict[int, str]) -> int:
     """How many characters of chapter text one reviewer request may carry: the per-request ceiling (`nine_call.MAX_REQUEST_CHARS`) less what every
     request already carries (the paper's pages, the fact digest at its largest one block per kind, the blank list, the project context) and a margin."""
-    shared = sum(len(t) for t in pages.values())
+    shared = (
+        max(sum(len(pages[n]) for n in w) for w in paper_windows(pages)) if pages else 0
+    )
     sheet = ctx.store.get("fact_sheet")
     if sheet is not None:
         tagged, untagged, _left = nine_facts.digest_rows(sheet, pages)
@@ -344,6 +377,7 @@ def request_groups(ctx, pages: dict[int, str], chosen, cuts) -> list:
     texts = _chapter_texts(chosen, cuts, max_chars=budget)
     ctx.store["request_plan"] = {
         "chapter_budget_chars": budget,
+        "paper_windows": len(paper_windows(pages)),
         "chapter_parts_added_by_cutting": len(texts)
         - sum(len(ch.parts) for _b, ch in chosen),
     }
@@ -367,13 +401,30 @@ def _with_cache(blocks: list) -> list:
 
 
 def _prefix(ctx, pages: dict[int, str], groups: list | None = None):
+    """The reviewer's prefixes and groups for a paper in ONE window (exactly `_prefix_core`), or, for a paper over `PAPER_WINDOW_CHARS`, for each
+    window in turn: the groups are repeated once per window (as they are once per part of the digest) and the prefix of each repeat carries only
+    that window's pages. What a request really sent is read from its answer, so a quote from a page outside its window is never verified by it."""
+    windows = paper_windows(pages)
+    if len(windows) == 1:
+        return _prefix_core(ctx, pages, groups, windows[0])
+    plans, expanded, no_context = [], [], True
+    for w in windows:
+        pre, grp, none = _prefix_core(ctx, pages, groups, w)
+        no_context = no_context and none
+        for k, g in enumerate(grp):
+            plans.append(pre(k, g) if callable(pre) else pre)
+            expanded.append(g)
+    return (lambda i, _g: plans[i]), expanded, no_context
+
+
+def _prefix_core(ctx, pages: dict[int, str], groups: list | None, window: list[int]):
     """(what the reviewer sends before each chapter group, the groups to send, whether NO context could be passed). The shared part is the paper's pages
     (named), the fact-sheet digest (derived blocks, the paper their only source) and the project context as ONE derived block PER SOURCE document.
 
     When the digest fits one derived block (30,000 characters) it is shared by every request (cached). When it does not, each request carries only the
     facts of the fields the rules asked from THAT chapter's book are about, and if even those do not fit one block the chapter is sent once per PART of
     the rows (on page boundaries). Nothing is dropped without a count: `ctx.store["digest_counts"]` holds the rows, the parts and what never went."""
-    base = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
+    base = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in window]
     context = list(ctx.store.get("context_blocks") or ())
     sheet = ctx.store.get("fact_sheet")
     groups = list(groups or [])

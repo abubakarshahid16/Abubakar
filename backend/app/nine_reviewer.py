@@ -65,6 +65,31 @@ ANSWER_SHAPE = (
     '"clause_figure": "...", "condition_quote": "...", "condition_page": 1, "verdict": "met | not_met | not_stated | not_applicable | '
     'cannot_tell", "reasoning": "...", "comment": "...", "fact_ids": ["f:1:2"]}]}. Leave a key empty when you have nothing for it.'
 )
+#: The wording for a kind of paper with NO field list (`kind_review_table.wording`): the paper's own statements are read against what the rule books
+#: require. The answer shape, its keys and the checks on it are the same; no list of facts is given, so nothing here speaks of one.
+SYSTEM_STATEMENTS = (
+    "You are a senior engineer who signs the review of a paper that states what will be done: its statements, commitments, method steps, "
+    "responsibilities, acceptance criteria and the documents it refers to. You are given, in this order: the whole paper (page by page), "
+    "a note on the project's own context, and then ONE group of chapters copied from the held rule books. Read the chapters against the "
+    "paper like a reviewer: find every place where the paper's statements do not meet what a chapter requires, every requirement of these "
+    "chapters the paper meets, and every requirement it does not state. "
+    "Write ONE finding per issue (never two findings for one issue; never a finding about something the chapters do not say). "
+    "For each finding copy, character for character: paper_quote (the paper words, with paper_page) and clause_quote (the chapter "
+    "words, with clause_page (the page of the book the quote stands on), the clause number as the chapter prints it and book_id as the chapter block names it). The quotes must be from the "
+    "pages and chapters you were given; code checks every quote against the stored text and a quote it cannot find makes the finding "
+    "a question. verdict is one of: met, not_met, not_stated (the requirement asks the paper to state it and it does not), "
+    "not_applicable, cannot_tell. When the requirement is a limit, give paper_figure and clause_figure: the exact words holding each "
+    "number with its unit, taken from inside your two quotes; code compares the numbers, not you. issue: at most 25 words. "
+    "reasoning: at most two plain sentences. comment: one sentence for the author of the paper, without your reasoning. When the requirement "
+    "holds a condition ('when', 'where', 'if', 'unless'), a met also needs condition_quote and condition_page. "
+    "No list of facts is given with this paper: leave fact_ids empty. Never state confidence. If you find nothing, return an empty list."
+)
+ANSWER_SHAPE_STATEMENTS = (
+    'Reply with ONE JSON object and nothing else: {"findings": [{"issue": "...", "field_label": "the subject of the statement as the paper '
+    'words it", "paper_page": 1, "paper_quote": "...", "book_id": "...", "clause": "4.1.2", "clause_page": 12, "clause_quote": "...", "paper_figure": "...", '
+    '"clause_figure": "...", "condition_quote": "...", "condition_page": 1, "verdict": "met | not_met | not_stated | not_applicable | '
+    'cannot_tell", "reasoning": "...", "comment": "...", "fact_ids": []}]}. Leave a key empty when you have nothing for it.'
+)
 PROMPT_VERSION = (
     "nine-reviewer-" + hashlib.sha256((SYSTEM + ANSWER_SHAPE).encode()).hexdigest()[:10]
 )
@@ -75,6 +100,14 @@ SYSTEM_ID = nine_call.template(
 QUESTION_ID = nine_call.template(
     "nine_reviewer_question", ANSWER_SHAPE.replace("{", "{{").replace("}", "}}")
 )  # the seam renders with str.format: braces doubled
+SYSTEM_ID_STATEMENTS = nine_call.template(
+    "nine_reviewer_system_statements", SYSTEM_STATEMENTS.replace("{", "{{").replace("}", "}}")
+)
+QUESTION_ID_STATEMENTS = nine_call.template(
+    "nine_reviewer_question_statements", ANSWER_SHAPE_STATEMENTS.replace("{", "{{").replace("}", "}}")
+)
+#: wording -> (system template, question template): the closed set (`kind_review_table.WORDING_*`)
+TEMPLATES_OF = {"fields": (SYSTEM_ID, QUESTION_ID), "statements": (SYSTEM_ID_STATEMENTS, QUESTION_ID_STATEMENTS)}
 
 
 # ---------------------------------------------------------------- the seam (B1) and the blocks
@@ -608,6 +641,7 @@ def review(
     should_stop: Callable[[], bool] = lambda: False,
     concurrency: int = CONCURRENCY,
     no_context_available: bool = False,
+    wording: str = "fields",
 ) -> ReviewerRun:
     """One call per chapter group through the seam, `concurrency` at a time, each with prefix + that group's blocks. A group is `not_asked`
     when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
@@ -632,7 +666,7 @@ def review(
 
     def call(i: int, group: Sequence[ChapterText], tokens: int) -> nine_call.Answer:
         return ask(
-            run_id, ROLE_NO, [*prefix_of(i, group), *chapter_blocks(group)], (QUESTION_ID, {}), engine=engine, system=(SYSTEM_ID, {}), model=model,
+            run_id, ROLE_NO, [*prefix_of(i, group), *chapter_blocks(group)], (TEMPLATES_OF[wording][1], {}), engine=engine, system=(TEMPLATES_OF[wording][0], {}), model=model,
             max_tokens=tokens, send=send, local_send=local_send, env=env, meter=meter, gate=gate,
         )  # fmt: skip
 
