@@ -346,28 +346,28 @@ def assemble(paper_id: str, scope) -> dict:
 
 
 def _found_during_review(conn, *run_ids) -> int:
-    """How many rule books the review found only while it ran and so did not send (they were not on the list shown before the
-    start): the largest count of the paper's runs. 0 when none; the screen then says nothing."""
-    import json
+    """How many rule books the paper's review found only while it ran and so did not send (they were not on the list shown before
+    the start): the UNION over the paper's runs (the rule check and the AI review), each book once. 0 when none: the screen then
+    says nothing."""
+    import sqlite3
 
-    from .claude_auto_approve import SHOWN_KEY
+    from . import agent_review_rules, review_shown
 
-    best = 0
+    books: set[str] = set()
     for run_id in filter(None, run_ids):
-        row = conn.execute(
-            "SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)
-        ).fetchone()
         try:
-            got = (
-                json.loads((row["outcome_json"] if row else None) or "{}").get(
-                    SHOWN_KEY
+            dropped = [
+                str(r[0])
+                for r in conn.execute(
+                    "SELECT DISTINCT standard_document_id FROM agent_review_rule WHERE run_id = ? AND asked = 0"
+                    " AND left_out_reason = ? AND standard_document_id IS NOT NULL",
+                    (run_id, agent_review_rules.REASON_WORDS[agent_review_rules.NOT_ON_LIST]),
                 )
-                or {}
-            ).get("found_during_review")
-        except ValueError:
-            got = None
-        best = max(best, got if isinstance(got, int) else 0)
-    return best
+            ]
+        except sqlite3.OperationalError:
+            dropped = []
+        books |= set(review_shown.held_rule_books(conn, run_id, extra=dropped))
+    return len(books)
 
 
 def _unread_pages(run_id: str | None, scope) -> int | None:

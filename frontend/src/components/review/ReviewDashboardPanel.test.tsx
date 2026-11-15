@@ -11,7 +11,7 @@
  * the response now; this file asserts the panel's half of that - a result it
  * cannot use renders nothing rather than crashing.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,13 +20,14 @@ import type { ReviewDashboard, ReviewRunSummary } from "../../types/api";
 
 const dashboard = vi.fn();
 const documents = vi.fn();
-const startReviewRun = vi.fn();
+const planFor = vi.fn();
+const startReviewRun = vi.fn(); // the ONE start: POST /reviews/start through reviewPlan.start
 vi.mock("../../api/client", () => ({
   api: { documents: (...a: unknown[]) => documents(...a) },
-  reviews: {
-    dashboard: () => dashboard(),
-    startReviewRun: (...a: unknown[]) => startReviewRun(...a),
-  },
+  reviews: { dashboard: () => dashboard() },
+}));
+vi.mock("../../api/reviewPlan", () => ({
+  reviewPlan: { plan: (...a: unknown[]) => planFor(...a), start: (...a: unknown[]) => startReviewRun(...a) },
 }));
 
 function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
@@ -62,6 +63,9 @@ beforeEach(() => {
   dashboard.mockReset();
   documents.mockReset();
   startReviewRun.mockReset();
+  planFor.mockReset();
+  planFor.mockResolvedValue({ ok: true, data: { choice: "automatic", parts: [], text_leaves: false, refused: null,
+    documents: { leaving: [], not_sent: [], not_readable: 0 } } });
   dashboard.mockResolvedValue({ ok: true, data: data() });
   documents.mockResolvedValue({
     ok: true, data: [{ id: "doc_sub", filename: "drum.pdf" }],
@@ -131,8 +135,12 @@ describe("the one button", () => {
     await userEvent.selectOptions(
       screen.getByLabelText(/already loaded/i), "doc_sub");
     await userEvent.click(screen.getByRole("button", { name: /^Run AI review$/ }));
+    // THE ONE START: the pre-start step opens first; nothing has started yet.
+    expect(await screen.findByTestId("start-review-step")).toBeInTheDocument();
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
 
-    expect(startReviewRun).toHaveBeenCalledWith("doc_sub");
+    await waitFor(() => expect(startReviewRun).toHaveBeenCalledWith("doc_sub", "automatic", []));
     // THE READER PRESSED A BUTTON THAT SAYS IT RUNS A REVIEW. Landing them
     // back on the dashboard would make them go looking for what they asked for.
     expect(onOpenReview).toHaveBeenCalledWith("run-9");
@@ -150,9 +158,10 @@ describe("the one button", () => {
     await userEvent.selectOptions(
       screen.getByLabelText(/already loaded/i), "doc_sub");
     await userEvent.click(screen.getByRole("button", { name: /^Run AI review$/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "a review of this submittal is already running");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "already running");
     expect(onOpenReview).not.toHaveBeenCalled();
   });
 

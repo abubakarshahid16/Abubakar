@@ -531,3 +531,30 @@ def test_the_stored_plan_holds_ids_and_counts_never_a_file_name(lib):
         "rule_books" not in stored["documents"]
         and "rule_books_count" in stored["documents"]
     )
+
+
+def test_the_old_one_click_start_is_refused_when_the_claude_lane_is_open_and_serves_a_local_start(lib, monkeypatch):
+    from app import review_engine_start
+
+    client = TestClient(app)
+    # closed lane: nothing can leave, so the old route keeps working (scripts and tests use this path)
+    monkeypatch.setattr(review_engine, "read_facts", lambda *a, **k: (open_facts(lane_open=False), None))
+    assert review_engine_start.legacy_start_blocked(db.connect(), lib["sub"], lib["scope"]) is None
+    ok = client.post("/api/reviews/run", json={"submittal_document_id": lib["sub"]}, headers=lib["admin"])
+    assert ok.status_code == 200, ok.text
+    # open lane set to Claude: refused with one plain sentence, nothing queued
+    monkeypatch.setattr(review_engine, "read_facts", lambda *a, **k: (open_facts(), None))
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'completed' WHERE submittal_document_id = ?", (lib["sub"],))
+        conn.execute("UPDATE jobs SET state = 'done' WHERE document_id = ?", (lib["sub"],))
+    before = db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0]
+    refused = client.post("/api/reviews/run", json={"submittal_document_id": lib["sub"]}, headers=lib["admin"])
+    assert refused.status_code == 409 and "start from the review page: it shows what will be sent" in refused.text
+    assert db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0] == before
+    # the review page's start with Local only is still served
+    local = client.post(
+        "/api/reviews/start",
+        json={"submittal_document_id": lib["sub"], "engine": "local", "shown_document_ids": []},
+        headers=lib["admin"],
+    )
+    assert local.status_code == 200, local.text

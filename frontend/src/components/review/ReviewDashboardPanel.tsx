@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
+import { StartReviewStep } from "./panels/StartReviewStep";
 import {
   LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
   truncationNote,
@@ -57,6 +58,7 @@ export function ReviewDashboardPanel(
   const [picking, setPicking] = useState(false);
   const [target, setTarget] = useState("");
   const [launch, setLaunch] = useState<Launch>({ kind: "idle" });
+  const [stepFor, setStepFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await reviewsApi.dashboard();
@@ -88,20 +90,11 @@ export function ReviewDashboardPanel(
     });
   }, []);
 
-  async function run() {
+  /** THE ONE START: the button opens the pre-start step (engine, what will leave this Mac, the list, the cost); its Start begins. */
+  function run() {
     if (!target) return;
-    setLaunch({ kind: "running" });
-    const result = await reviewsApi.startReviewRun(target);
-    if (!result.ok) {
-      setLaunch({ kind: "error", message: result.error.message });
-      return;
-    }
     setLaunch({ kind: "idle" });
-    setPicking(false);
-    // STRAIGHT TO THE FINDINGS. The reader pressed a button that says it
-    // runs a review; landing them back on a dashboard would make them go
-    // looking for the thing they just asked for.
-    onOpenReview(result.data.review_run_id);
+    setStepFor(target);
   }
 
   // Still loading: nothing yet, as before. Failed: the block stays, says
@@ -227,13 +220,24 @@ export function ReviewDashboardPanel(
                 ))}
               </select>
               <button
-                type="button" onClick={() => void run()}
-                disabled={!target || launch.kind === "running"}
+                type="button" onClick={run}
+                disabled={!target || launch.kind === "running" || stepFor !== null}
                 className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
               >
                 {launch.kind === "running" ? "Running…" : "Run AI review"}
               </button>
             </div>
+            {stepFor && (
+              <div className="mt-2">
+                <StartReviewStep
+                  documentId={stepFor}
+                  filename={(submittals ?? []).find((d) => d.id === stepFor)?.filename ?? null}
+                  onCancel={() => setStepFor(null)}
+                  // STRAIGHT TO THE FINDINGS: landing the reader back on a dashboard would make them look for what they asked for.
+                  onStarted={(runId) => { setStepFor(null); setPicking(false); onOpenReview(runId); }}
+                />
+              </div>
+            )}
             {launch.kind === "running" && (
               <p aria-live="polite" className="mt-2 text-xs text-slateish-300">
                 Selecting applicable standards and comparing requirements.

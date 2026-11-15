@@ -104,6 +104,20 @@ def start(
     return run_id, plan
 
 
+LEGACY_START_WORDS = "start from the review page: it shows what will be sent"
+
+
+def legacy_start_blocked(conn, document_id: str, allowed: frozenset[str]) -> str | None:
+    """The older one-click start (`POST /api/reviews/run`) shows no list and has no engine choice. On an install whose Claude lane is
+    open and set to Claude it is refused, in one plain sentence (the screen's start step shows what will be sent); on any other
+    install it keeps working, because nothing can leave: a local-only or closed-lane start (scripts and tests keep that path)."""
+    facts, _reading = review_engine.read_facts(conn, document_id, allowed)
+    claude_set = facts.provider == "claude" or (
+        facts.provider == "per_task" and (facts.agent_engine_claude or facts.step_engine_claude)
+    )
+    return LEGACY_START_WORDS if facts.lane_open and claude_set else None
+
+
 def follow_up(job_id: str, state: str) -> str | None:
     """After a rule-check job: start the AI review its plan asked for. Returns the new run id or None. Never raises: a start that
     cannot be made is recorded on the run's choice (`followed_by`), and the rule check's result stands."""

@@ -65,8 +65,14 @@ vi.mock("../crs/saveCrsDecisions", () => ({ saveCrsDecisions: (...a: unknown[]) 
 const reviewAgain = vi.fn();
 const loadPriorDecision = vi.fn();
 vi.mock("./newReview", () => ({
-  reviewAgain: (...a: unknown[]) => reviewAgain(...a),
   loadPriorDecision: (...a: unknown[]) => loadPriorDecision(...a),
+}));
+/** THE ONE START: a fresh review opens the pre-start step first. `reviewAgain` records that the step opened for a document. */
+vi.mock("../panels/StartReviewStep", () => ({
+  StartReviewStep: ({ documentId, filename, onStarted }: { documentId: string; filename?: string | null; onStarted: (id: string) => void }) => {
+    reviewAgain(documentId, filename ?? null);
+    return <button type="button" onClick={() => onStarted("run-9")}>Start review</button>;
+  },
 }));
 vi.mock("./decide/useSignerName", () => ({
   useSignerName: () => "Sam Engineer", useSigner: () => ({ name: "Sam Engineer", signInOff: false }),
@@ -282,7 +288,9 @@ describe("ReviewWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Upload missing standards (1)" }));
     expect(screen.getByTestId("missing-standards-panel")).toHaveTextContent("missing API 610");
     await user.click(screen.getByRole("button", { name: "Review again after uploading" }));
-    expect(reviewAgain).toHaveBeenCalledWith("doc-sub", "Pump datasheet rev B.pdf");
+    expect(reviewAgain).toHaveBeenCalledWith("doc-sub", "Pump datasheet rev B.pdf"); // the step opened first
+    expect(onOpenRun).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Start review" }));
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-9"));
     // The full list is one press away.
     await user.click(screen.getByRole("button", { name: "Upload missing standards (1)" }));
@@ -305,6 +313,7 @@ describe("ReviewWorkspace", () => {
     expect(ask).toHaveTextContent("already signed");
     expect(reviewAgain).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Yes, start a new review" }));
+    await user.click(await screen.findByRole("button", { name: "Start review" }));
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-9"));
   });
 

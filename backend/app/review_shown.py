@@ -192,20 +192,26 @@ def cited_unshown(conn, run_id: str, applied_run: str | None = None, extra=()) -
     return len(held_applied(conn, run_id, applied_run, extra))
 
 
-def found_during_review(
-    conn, run_id: str, applied_run: str | None = None, extra=()
-) -> int:
-    """Of those, the rule books (not specifications): the ones the review found only while it ran, the screen's "N more rule books
-    apply to this paper"."""
+def held_rule_books(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
+    """Of the documents held for this run (`held_applied`), the rule books (not specifications): the books the review found only
+    while it ran, which were not on the list shown before the start and so were not sent."""
     held = held_applied(conn, run_id, applied_run, extra)
     if not held:
-        return 0
+        return []
     marks = ",".join("?" for _ in held)
-    specs = conn.execute(
-        f"SELECT COUNT(*) FROM document_classification WHERE document_role = ? AND document_id IN ({marks})",
-        [SPECIFICATION_ROLE, *held],
-    ).fetchone()[0]
-    return len(held) - specs
+    specs = {
+        r["document_id"]
+        for r in conn.execute(
+            f"SELECT document_id FROM document_classification WHERE document_role = ? AND document_id IN ({marks})",
+            [SPECIFICATION_ROLE, *held],
+        )
+    }
+    return [d for d in held if d not in specs]
+
+
+def found_during_review(conn, run_id: str, applied_run: str | None = None, extra=()) -> int:
+    """How many rule books this run found only while it ran and did not send: the screen's "N more rule books apply to this paper"."""
+    return len(held_rule_books(conn, run_id, applied_run, extra))
 
 
 def cap(plan: dict, shown_document_ids) -> list[str]:

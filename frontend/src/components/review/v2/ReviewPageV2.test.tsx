@@ -653,4 +653,44 @@ describe("11 the list of documents that leave, before the start (owner, 12 Nov 2
       "2 more rule book(s) apply to this paper. They were not sent because they were not on the list you saw. Review again to include them.",
     );
   });
+
+  it("nothing leaving on Automatic: Review starts at once with an empty list and no step (removing that shortcut must fail this)", async () => {
+    api.plan.mockResolvedValue(ok(plan({
+      text_leaves: false, cost: { ...plan().cost, at_most_usd: null },
+      parts: [{ name: "rule_check", engine: "local", why: "z" }, { name: "ai_review", engine: "not_run", why: "x" }],
+      documents: { paper: false, rule_books: [], rule_books_note: null, leaving: [], not_sent: [], not_readable: 0 },
+    })));
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    mount(); await loaded();
+    await screen.findByTestId("v2-engine-line");
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.queryByTestId("v2-prestart")).toBeNull();
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "automatic", []));
+  });
+
+  it("out-of-order plans: an earlier choice answering late is never shown, Review waits for the plan of the choice on screen, and Start sends that choice with those ids", async () => {
+    const answers: Record<string, (v: unknown) => void> = {};
+    api.plan.mockImplementation((_id: string, engine: string) => new Promise((resolve) => { answers[engine] = resolve; }));
+    api.start.mockResolvedValue(ok({ review_run_id: "run-new" }));
+    mount(); await loaded();
+    await waitFor(() => expect(answers.automatic).toBeDefined());
+    fireEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    await waitFor(() => expect(answers.claude).toBeDefined());
+    fireEvent.click(screen.getByRole("radio", { name: "Automatic" }));
+    await waitFor(() => expect(api.plan).toHaveBeenCalledTimes(3));
+    // the plan on screen is not yet the plan for Automatic: Review is not offered
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    const contract = { id: "CONTRACT", title: "Supply contract.pdf", kind: "contract", why: "cited by the paper", contract: true };
+    const forAutomatic = plan({ documents: { ...plan().documents, leaving: [{ id: "doc1", title: "Pump datasheet.pdf", kind: "paper", why: "paper under review", contract: false }] } });
+    const forClaude = plan({ documents: { ...plan().documents, leaving: [{ id: "doc1", title: "Pump datasheet.pdf", kind: "paper", why: "paper under review", contract: false }, contract] } });
+    // the LAST request (Automatic) answers first, the earlier one (Claude) answers late
+    answers.automatic(ok(forAutomatic));
+    await screen.findByTestId("v2-leaving");
+    answers.claude(ok(forClaude));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("Supply contract.pdf")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith("doc1", "automatic", ["doc1", "bk1"].slice(0, 1)));
+  });
 });

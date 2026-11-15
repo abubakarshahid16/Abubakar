@@ -142,7 +142,7 @@ export function InboxList(
             {reviewingAll ? "Queuing reviews…" : `Review all not reviewed (${notReviewed.length})`}
           </button>
           <span className="text-xs text-slateish-400">
-            Each runs in the background, one at a time; this list shows where each stands.
+            Each runs in the background, one at a time, on this computer only (nothing is sent to Claude; open a paper to choose Claude and see what will be sent); this list shows where each stands.
             New datasheets are uploaded on the Documents page, several at once.
           </span>
         </p>

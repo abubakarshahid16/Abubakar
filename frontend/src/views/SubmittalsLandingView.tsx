@@ -12,6 +12,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
+import { reviewPlan } from "../api/reviewPlan";
+import { StartReviewStep } from "../components/review/panels/StartReviewStep";
 import { loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
 import type { WorkspaceTab } from "../components/review/workspace/contract";
 import { WorkspaceLanding } from "../components/review/workspace/landing/WorkspaceLanding";
@@ -72,7 +74,9 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
   const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
   const [documentsFailed, setDocumentsFailed] = useState(false);
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
-  const [startingDocumentId, setStartingDocumentId] = useState<string | null>(null);
+  const [startingDocumentId] = useState<string | null>(null);
+  /** The paper whose pre-start step is open (the one start path). */
+  const [stepDocumentId, setStepDocumentId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batching, setBatching] = useState(false);
@@ -121,23 +125,15 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
     return () => window.clearInterval(timer);
   }, [moving, load]);
 
-  async function reviewDocument(documentId: string) {
+  function reviewDocument(documentId: string) {
     const existing = groupRunsByDocument(runs).find((group) => group.documentId === documentId);
     if (existing) {
       onOpenRun(existing.latest.review_run_id);
       return;
     }
+    // THE ONE START: the pre-start step (engine, what will leave this Mac, the list, the cost) opens first; its Start begins.
     setStartError(null);
-    setStartingDocumentId(documentId);
-    const result = await reviewsApi.startReviewRun(documentId);
-    setStartingDocumentId(null);
-    if (!result.ok) {
-      // SHOWN AS THE API RETURNED IT - a refusal (a review already running
-      // for this document) is a real answer, not a reason to retry silently.
-      setStartError(result.error.message);
-      return;
-    }
-    onOpenRun(result.data.review_run_id);
+    setStepDocumentId(documentId);
   }
 
   /** Order 95 piece 3: queue a background review for each document never
@@ -150,7 +146,8 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
     const refused: BatchResult["refused"] = [];
     let queued = 0;
     for (const target of targets) {
-      const result = await reviewsApi.startReviewRun(target.documentId);
+      // "Review all" runs on THIS COMPUTER only, so no list is needed: nothing leaves. A paper's own review page chooses Claude.
+      const result = await reviewPlan.start(target.documentId, "local", []);
       if (result.ok) queued += 1;
       else refused.push({ filename: target.filename, message: result.error.message });
     }
@@ -182,6 +179,13 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
         </p>
       )}
       {phase.kind === "error" && workspace && <PlainLoadError failure={phase.failure} />}
+      {stepDocumentId && (
+        <StartReviewStep
+          documentId={stepDocumentId}
+          onCancel={() => setStepDocumentId(null)}
+          onStarted={(runId) => { setStepDocumentId(null); onOpenRun(runId); }}
+        />
+      )}
       {startError && (
         <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
           {startError}

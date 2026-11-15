@@ -1662,6 +1662,11 @@ def start_review_run(
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
+    from . import review_engine_start
+
+    blocked = review_engine_start.legacy_start_blocked(connect(), document_id, scope.allowed_document_ids)
+    if blocked:  # no list was shown and the Claude lane is open: the review page's start step is the way
+        raise HTTPException(status_code=409, detail=errors.safe_error(errors.INVALID_PARAMETER, blocked))
     # P3: QUEUED, NOT RUN HERE. The run and its job are created together under
     # one write lock (no second active review of this submittal), and the
     # worker runs it under THIS caller's grants. The response is the queued
