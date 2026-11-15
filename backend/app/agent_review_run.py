@@ -133,7 +133,6 @@ class Runner(
     ) -> None:
         self.paper, self.pages, self.clauses = paper, pages, clauses
         self.model, self.send, self.env = model, send, env
-        self._local_decided: dict = {}  # item id -> the pages SHOWN to the first reader (the second reader sees the same)
         self.local = local  # the local engine (`agent_review_local`): None = the Claude path, exactly as before
         self.model, concurrency, max_batch = self._local_limits(
             model, concurrency, max_batch
@@ -193,6 +192,7 @@ class Runner(
 
     def _local_limits(self, model: str, concurrency: int, max_batch: int) -> tuple:
         """With the local engine: model A, one request at a time, small batches; else exactly what was given."""
+        self._local_decided: dict = {}  # item id -> the pages SHOWN to the first reader (the second reader sees the same)
         if self.local is None:
             return model, concurrency, max_batch
         return self.local.model_a, 1, min(max_batch, local_mod.FIRST_BATCH_MAX)
