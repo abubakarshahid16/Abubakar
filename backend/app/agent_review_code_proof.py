@@ -498,9 +498,7 @@ def numeric_proven(line: Mapping) -> bool:
         and _real_page(line)
         and paper_reason(obs, line.get("paper_quote")) is None
         and paper_ok(line)
-        and not _deferred_pass(
-            line
-        )  # a value the sheet defers is not final: no proven Pass, a stated breach may be a Fail
+        and not _deferred_pass(line)
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
         and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
