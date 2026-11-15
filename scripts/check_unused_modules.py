@@ -43,6 +43,9 @@ ENTRY_POINTS = (
     "agent_review_pages",
     # nine-role reviewer, being wired: the shared shapes its roles are built against (remove this entry when a role imports it)
     "nine_contract",
+    # nine-role reviewer, B1: the stored record and the one call seam, being wired (remove when `nine_job` imports them)
+    "nine_record",
+    "nine_call",
 )
 
 
