@@ -549,8 +549,8 @@ def test_comment_by_is_the_ai_reviewer_and_the_discipline_when_known(tmp_path):
                 item={"source": "skill", "item_id": "S-1"},
                 why="x",
             ),
-            "Low",
-        ),  # a checklist item: not mandatory
+            "Medium",
+        ),  # a checklist item of the approved list is mandatory (U5 R68 F2); no safety clause, so Medium
         (mk("R-8", "Query", None, why="x"), "Medium"),  # Query, mandatory
         (mk("R-8", "Query", None, why="x", rule_kind="advice"), "Low"),
         (mk("R-4", "Query", "Pass", why="x"), None),  # AI opinion met

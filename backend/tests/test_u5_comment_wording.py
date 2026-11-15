@@ -90,7 +90,7 @@ def prio(status, order, **kw) -> str:
 
 
 def test_a_proven_fail_is_always_high():
-    assert prio(words.STATUS_FAIL, words.ORDER_FAIL, source="checklist", clause="") == "High"
+    assert prio(words.STATUS_FAIL, words.ORDER_FAIL, source="skill", clause="") == "High"
 
 
 def test_mandatory_and_safety_is_high_mandatory_is_medium_else_low():
@@ -100,7 +100,10 @@ def test_mandatory_and_safety_is_high_mandatory_is_medium_else_low():
     plain = "The nameplate shall be of stainless steel."
     assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=plain) == "Medium"
     assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=plain, rule_kind="advice") == "Low"
-    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=safety, source="checklist") == "Low"
+    # an item of the engineer's approved checklist is mandatory too: safety + checklist = High, checklist without safety = Medium
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=safety, source="skill") == "High"
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=plain, source="skill") == "Medium"
+    assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote=plain, source="skill", rule_kind="advice") == "Low"
 
 
 def test_a_line_with_no_clause_has_no_priority_and_the_rule_sheet_says_why():
@@ -113,3 +116,32 @@ def test_a_line_with_no_clause_has_no_priority_and_the_rule_sheet_says_why():
 def test_the_workbooks_priority_is_the_new_one_and_the_normal_reviewer_is_untouched():
     assert words.priority_ai(words.STATUS_QUERY, query(clause_quote="The valve shall resist fire."), words.ORDER_QUERY) == "High"
     assert words.priority(words.STATUS_QUERY, {}, words.ORDER_QUERY) == words.LOW  # the normal reviewer's own rule, unchanged
+
+
+# ------------------------------------------------------------------------------------------------ R68: disagreement, no cut, no contractor comment
+
+
+def test_when_the_readers_disagree_the_action_says_so_instead_of_confirm_or_justify():
+    from app import agent_review_two_reader as two
+
+    line = query(quotes_checked={"paper": True, "clause": True}, paper_quote="Set pressure 12 bar", ai_verdict="Pass",
+                 **{two.FIELD: {"verdict": two.V_NOT_MET}})  # fmt: skip
+    assert two.disagrees(line)  # code's own flag: the second reader reached the opposite verdict
+    assert actions.action_case(line) == "disagree"
+    assert action_of(line) == "Engineer to check Set pressure: the readers disagree."
+    agreeing = {k: v for k, v in line.items() if k != two.FIELD}
+    assert action_of(agreeing).startswith("Contractor to confirm or justify")
+
+
+def test_the_reasoning_is_never_cut_by_a_character_limit_and_the_contractor_comment_is_never_used():
+    long_text = "The AI read the sheet and compared the value. " * 11  # about 506 characters
+    assert len(long_text) > 480
+    line = query(reasoning=long_text)
+    part = actions.reasoning_part(line, words.STATUS_QUERY, "")
+    assert " ".join(long_text.split()) in part and not part.endswith("…")
+    from app import crs_one
+
+    cells, cut = crs_one.row_of(1, {"id": "x", "ai_reasoning": part.strip(), "tile": "questions", "pill": "Question", "name": "F", "decision": {}})
+    assert cells[crs_one.TEAM_COLUMNS.index(crs_one.REASONING_COLUMN)] == part.strip() and cut == 0
+    # no `reasoning`: the model's contractor-facing `comment` is not printed under the AI-reasoning label
+    assert actions.reasoning_part(query(reasoning="", comment="Contractor to state the value."), words.STATUS_QUERY, "") == ""

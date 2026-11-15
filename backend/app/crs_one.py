@@ -55,7 +55,7 @@ FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
 ISSUED_NAME = "crs-contractor-one.xlsx"
-#: The AI reviewer's own reasoning, labelled as its view (never a code-proven line's). At most about 450 characters at its source, so it is never cut.
+#: The AI reviewer's own reasoning, labelled as its view (never a code-proven line's). The WHOLE reasoning: it is never cut, so no mark and no Full text entry are needed.
 REASONING_COLUMN = "The AI reviewer's reasoning"
 COMMENT_COLUMNS = (
     "Comment", "Pill", "Class", "Priority", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",

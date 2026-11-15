@@ -20,6 +20,8 @@ REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
 def action_case(line: Mapping) -> str:
     """The case: "stated" (a paper quote code verified), "deferred" (the stored reason says so, or the verified quote defers the value), "blank"
     (the paper is silent on the field) or "unknown"."""
+    if two.disagrees(line) or two.absence_disagrees(line):
+        return "disagree"  # the two readers reached opposite verdicts: code's own flag
     checked = (line.get("quotes_checked") or {}).get("paper")
     verified = bool(checked and " ".join(str(line.get("paper_quote") or "").split()))
     if line.get("reason_code") == "value_deferred":
@@ -41,6 +43,8 @@ def query_action(line: Mapping, what: str, ref: str) -> str:
         return f"Contractor to confirm or justify {what}{' against ' + ref if ref else ''}."
     if case == "deferred":
         return f"Contractor to provide {what}; it is deferred on the sheet."
+    if case == "disagree":
+        return f"Engineer to check {what}: the readers disagree."
     if case == "unknown":
         return f"Engineer to check {what}."
     return f"Contractor to state {what}, or the page where it is shown."
@@ -51,7 +55,7 @@ def reasoning_part(line: Mapping, status: str, guard: str) -> str:
     line, and "" when a guard's own view sentence is already printed."""
     if guard or status not in _SAYS:
         return ""
-    view = words.plain(
-        " ".join(str(line.get("reasoning") or line.get("comment") or "").split())[:400]
-    )
+    # the AI's own `reasoning`, WHOLE (no character cut: a cell is never cut without the mark and its full text); never the model's
+    # contractor-facing `comment` under this label
+    view = words.plain(" ".join(str(line.get("reasoning") or "").split()))
     return f" {REASONING_LABEL} {view}" if view else ""
