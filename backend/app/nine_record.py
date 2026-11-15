@@ -616,55 +616,99 @@ def hfold(text: str) -> str:
     return _SEPARATORS.sub(" ", str(text).lower()).strip()
 
 
-_BULK_PROBES = 30
+_HELD_TTL_SECONDS = 300.0
+_HELD_CACHE: dict = {}
+
+
+class _HeldIndex:
+    """The folded stored text of every document the gate refuses for one run, built ONCE and reused: the folded pages, the set of their
+    words, and a bit table of their word 3-grams (a prefilter: a probe whose first three words are not in it cannot be in the text)."""
+
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.words: set[str] = set()
+        total = 0
+        for t in texts:
+            total += t.count(" ") + 1
+        bits = 1 << max(20, min(30, (max(total, 1) * 32).bit_length()))
+        self.mask = bits - 1
+        self.table = bytearray(bits >> 3)
+        for t in texts:
+            ws = t.split()
+            self.words.update(ws)
+            for i in range(len(ws) - 2):
+                three = " ".join(ws[i : i + 3])
+                for h in (hash(three) & self.mask, hash(three + "\x00") & self.mask):
+                    self.table[h >> 3] |= 1 << (h & 7)
+
+    def maybe(self, three: str) -> bool:
+        return all(
+            self.table[h >> 3] & (1 << (h & 7))
+            for h in (hash(three) & self.mask, hash(three + "\x00") & self.mask)
+        )
+
+
+def reset_held_cache() -> None:
+    _HELD_CACHE.clear()
+
+
+def _held_index(conn, run_id: str) -> _HeldIndex | None:
+    """The index of the refused documents of this run, cached per run for five minutes and while the stored pages and the run's shown
+    list stay as they were."""
+    import time
+
+    path = next(
+        (r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), ""
+    )
+    pages = conn.execute("SELECT COUNT(*), MAX(page_no) FROM pages").fetchone()
+    try:
+        listed = conn.execute(
+            "SELECT documents_json FROM review_shown_lists WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    except sqlite3.Error:
+        listed = None
+    key = (path, run_id, pages[0], pages[1], listed[0] if listed else None)
+    hit = _HELD_CACHE.get(run_id)
+    if hit and hit[0] == key and time.monotonic() - hit[1] < _HELD_TTL_SECONDS:
+        return hit[2]
+    docs = [r[0] for r in conn.execute("SELECT DISTINCT document_id FROM pages")]
+    refused = set(refused_documents(run_id, docs))
+    index = None
+    if refused:
+        texts = [
+            hfold(r["text"])
+            for r in conn.execute("SELECT document_id, text FROM pages")
+            if r["document_id"] in refused
+        ]
+        index = _HeldIndex(texts)
+    _HELD_CACHE.clear()
+    _HELD_CACHE[run_id] = (key, time.monotonic(), index)
+    return index
 
 
 def held_text_hits(
     conn, run_id: str, values, *, min_chars: int = HELD_MIN_CHARS
 ) -> set[str]:
-    """The values of `values` (of `min_chars` or more characters once folded by `hfold`) that occur, folded the same way, in the stored
-    text of a document the gate refuses for this run. A few values are looked up page by page; many (a derived block's rows and
-    windows) are checked against the folded text of the refused documents, anchored on each value's longest word."""
+    """The first of `values` (of `min_chars` or more characters once folded by `hfold`) that occurs, folded the same way, in the stored
+    text of a document the gate refuses for this run; an empty set when none does (a caller needs only whether any does). One index
+    per run (`_HeldIndex`), built once: one word is looked up among the words, two words are scanned, three or more must pass the
+    3-gram table on their first three whole words and are then confirmed by an exact scan."""
     probes = {v: hfold(v) for v in values}
     probes = {v: f for v, f in probes.items() if len(f) >= min_chars}
     if not probes:
         return set()
-    longest = {v: max(f.split(), key=len) for v, f in probes.items()}
-    few = len(probes) <= _BULK_PROBES and all(w.isascii() for w in longest.values())
-    if few:  # a prefilter on the longest word (ASCII), then the folded comparison on the candidate pages
-        hits: set[str] = set()
-        gate: dict[str, bool] = {}
-        for v, f in probes.items():
-            rows = conn.execute(
-                "SELECT document_id, text FROM pages WHERE instr(lower(text), ?) > 0",
-                (longest[v],),
-            ).fetchall()
-            for r in rows:
-                if hfold(r["text"]).find(f) < 0:
-                    continue
-                doc = r["document_id"]
-                if doc not in gate:
-                    gate[doc] = bool(refused_documents(run_id, [doc]))
-                if gate[doc]:
-                    hits.add(v)
-                    break
-        return hits
-    docs = [r[0] for r in conn.execute("SELECT DISTINCT document_id FROM pages")]
-    refused = set(refused_documents(run_id, docs))
-    if not refused:
+    index = _held_index(conn, run_id)
+    if index is None:
         return set()
-    texts: list[str] = []
-    words: set[str] = set()
-    for r in conn.execute("SELECT document_id, text FROM pages"):
-        if r["document_id"] in refused:
-            folded = hfold(r["text"])
-            texts.append(folded)
-            words.update(folded.split())
-    return {
-        v
-        for v, f in probes.items()
-        if longest[v] in words and any(f in t for t in texts)
-    }
+    for v, f in probes.items():
+        words = f.split()
+        if len(words) == 1:
+            if f in index.words:
+                return {v}
+        elif len(words) == 2 or index.maybe(" ".join(words[:3])):
+            if any(f in t for t in index.texts):
+                return {v}
+    return set()
 
 
 WHY_CODES = frozenset(
