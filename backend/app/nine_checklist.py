@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 from . import agent_review_verdict as verdict
 from .nine_contract import Finding, RequiredItem
-from .nine_findings import ANSWER_OF, Built
+from .nine_findings import ANSWER_OF, Built, as_unmatched
 
 COVERING_VERDICTS = ("met", "not_met")
 REQUIRED_NOT_STATED = "required item not stated"
@@ -134,3 +134,28 @@ def not_stated_lines(roles: Iterable[str], total_pages: int) -> list[Built]:
         )  # fmt: skip
         out.append(Built(finding, item, answer, {}))
     return out
+
+
+def cover(
+    items: Iterable[dict],
+    built: Iterable[Built],
+    *,
+    reviewer_ok: bool = True,
+    carried: frozenset[str] | None = None,
+    fact_roles: frozenset[str] = frozenset(),
+) -> tuple[list[Built], Coverage]:
+    """THE ONE call that fixes the step order: (the findings to emit, the coverage). A finding that matched a rule it does NOT cover is emitted
+    as an `F-` item of its own, never as that rule's line: the rule is in `to_ask` and today's batch path writes ITS line (the runner asks only
+    items with no line yet, so a finding that took the rule's id would leave the rule never asked). Emit the first list with
+    `nine_findings.decide_all`, then ask `Coverage.to_ask` through the batch path."""
+    built = list(built)
+    cov = plan(
+        items,
+        [b.finding for b in built],
+        reviewer_ok=reviewer_ok,
+        carried=carried,
+        fact_roles=fact_roles,
+    )
+    asked = {str(i["item_id"]) for i in cov.to_ask}
+    emit = [as_unmatched(b) if str(b.item["item_id"]) in asked else b for b in built]
+    return emit, cov

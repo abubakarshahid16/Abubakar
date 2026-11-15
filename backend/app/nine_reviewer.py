@@ -65,8 +65,12 @@ PROMPT_VERSION = (
     "nine-reviewer-" + hashlib.sha256((SYSTEM + ANSWER_SHAPE).encode()).hexdigest()[:10]
 )
 #: the reviewer's words are REGISTERED templates (B1's seam sends no free text): no parameter, so no document word can enter them
-SYSTEM_ID = nine_call.template("nine_reviewer_system", SYSTEM.replace("{", "{{").replace("}", "}}"))
-QUESTION_ID = nine_call.template("nine_reviewer_question", ANSWER_SHAPE.replace("{", "{{").replace("}", "}}"))  # the seam renders with str.format: braces doubled
+SYSTEM_ID = nine_call.template(
+    "nine_reviewer_system", SYSTEM.replace("{", "{{").replace("}", "}}")
+)
+QUESTION_ID = nine_call.template(
+    "nine_reviewer_question", ANSWER_SHAPE.replace("{", "{{").replace("}", "}}")
+)  # the seam renders with str.format: braces doubled
 
 
 # ---------------------------------------------------------------- the seam (B1) and the blocks
@@ -141,13 +145,26 @@ def prefix_blocks(
     """The part every call shares (cached after the first): the paper's pages (NAMED; the seam loads their stored text), the fact-sheet digest
     (a derived block whose only source is the paper) and each part of the project context as its OWN derived block with ITS sources, so the
     one gate sees where every token came from: a part with a held source is dropped whole and named, the rest goes on."""
-    blocks = [nine_call.Block("paper", paper_id, (int(n),)) for n in sorted(paper_pages)]
+    blocks = [
+        nine_call.Block("paper", paper_id, (int(n),)) for n in sorted(paper_pages)
+    ]
     rows = _rows(digest_items)
     if rows:
-        blocks.append(nine_call.Block("review_record", name=FACT_SHEET, sources=(paper_id,), items=rows))
+        blocks.append(
+            nine_call.Block(
+                "review_record", name=FACT_SHEET, sources=(paper_id,), items=rows
+            )
+        )
     for part in context_parts:
         if part.sources and part.items:
-            blocks.append(nine_call.Block("review_record", name=part.name, sources=tuple(part.sources), items=_rows(part.items)))
+            blocks.append(
+                nine_call.Block(
+                    "review_record",
+                    name=part.name,
+                    sources=tuple(part.sources),
+                    items=_rows(part.items),
+                )
+            )
     if blocks:
         last = blocks[-1]
         blocks[-1] = dataclasses.replace(last, cache=True)  # the shared part ends here
@@ -156,7 +173,11 @@ def prefix_blocks(
 
 def context_names(prefix: Sequence[nine_call.Block]) -> tuple[str, ...]:
     """The context parts a prefix OFFERS (derived blocks other than the fact sheet)."""
-    return tuple(b.name for b in prefix if b.document_kind == nine_call.DERIVED_KIND and b.name != FACT_SHEET)
+    return tuple(
+        b.name
+        for b in prefix
+        if b.document_kind == nine_call.DERIVED_KIND and b.name != FACT_SHEET
+    )
 
 
 def chapter_blocks(group: Sequence[ChapterText]) -> list[nine_call.Block]:
@@ -176,18 +197,34 @@ def sent_of(answer: nine_call.Answer) -> nine_findings.Sent:
     books: dict[str, set[int]] = {}
     refs: list[tuple[str, str, int]] = []
     for r in answer.reads:
-        pages = {int(p) for p in r.pages if isinstance(p, int) and not isinstance(p, bool)}
+        pages = {
+            int(p) for p in r.pages if isinstance(p, int) and not isinstance(p, bool)
+        }
         if r.document_kind == "paper":
             paper |= pages
         elif r.document_kind == "rule_book":
             books.setdefault(str(r.document_id), set()).update(pages)
-            refs.append((str(r.document_id), str(r.chapter_id or ""), int(r.part_no or 1)))
-    return nine_findings.Sent(answer.call_id, frozenset(paper), {k: frozenset(v) for k, v in books.items()}, answer.model, tuple(dict.fromkeys(refs)))
+            refs.append(
+                (str(r.document_id), str(r.chapter_id or ""), int(r.part_no or 1))
+            )
+    return nine_findings.Sent(
+        answer.call_id,
+        frozenset(paper),
+        {k: frozenset(v) for k, v in books.items()},
+        answer.model,
+        tuple(dict.fromkeys(refs)),
+    )
 
 
 def context_sent(answer: nine_call.Answer) -> set[str]:
     """The names of the context parts a call really sent (a derived block is read once per source: its name is the read's chapter id)."""
-    return {str(r.chapter_id) for r in answer.reads if r.document_kind == nine_call.DERIVED_KIND and r.chapter_id and r.chapter_id != FACT_SHEET}
+    return {
+        str(r.chapter_id)
+        for r in answer.reads
+        if r.document_kind == nine_call.DERIVED_KIND
+        and r.chapter_id
+        and r.chapter_id != FACT_SHEET
+    }
 
 
 # ---------------------------------------------------------------- the answer
@@ -265,8 +302,12 @@ class ReviewerRun:
         default_factory=list
     )  # (document id, code) the gate held, over every call
     unread: list[list[ChapterText]] = field(default_factory=list)
-    context_offered: tuple[str, ...] = ()  # the context parts the prefix offered (derived blocks with their sources)
-    context_dropped: list[str] = field(default_factory=list)  # parts a call did NOT send (a source the gate held): named in the record
+    context_offered: tuple[
+        str, ...
+    ] = ()  # the context parts the prefix offered (derived blocks with their sources)
+    context_dropped: list[str] = field(
+        default_factory=list
+    )  # parts a call did NOT send (a source the gate held): named in the record
 
     @property
     def context_passed(self) -> bool:
@@ -280,7 +321,11 @@ class ReviewerRun:
     @property
     def partly(self) -> bool:
         return bool(
-            self.failed or self.not_asked or self.budget_stopped or self.not_sent or self.context_dropped
+            self.failed
+            or self.not_asked
+            or self.budget_stopped
+            or self.not_sent
+            or self.context_dropped
         )
 
     def state(self) -> tuple[str, str | None]:
@@ -300,7 +345,10 @@ class ReviewerRun:
         if self.partly:
             parts = []
             if self.context_dropped:
-                parts.append("project context part(s) held by the gate: " + ", ".join(self.context_dropped))
+                parts.append(
+                    "project context part(s) held by the gate: "
+                    + ", ".join(self.context_dropped)
+                )
             if self.budget_stopped:
                 parts.append("role budget reached")
             if self.failed:
@@ -393,7 +441,11 @@ def review(
             run.unread.append(list(group))
             continue
         run.answered += 1
-        run.context_dropped.extend(n for n in offered if n not in context_sent(res) and n not in run.context_dropped)
+        run.context_dropped.extend(
+            n
+            for n in offered
+            if n not in context_sent(res) and n not in run.context_dropped
+        )
         sent = sent_of(res)
         run.raw.extend((r, sent) for r in parsed)
     return run
