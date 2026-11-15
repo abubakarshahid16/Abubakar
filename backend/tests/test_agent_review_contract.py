@@ -84,6 +84,7 @@ def test_vocabularies_are_exactly_the_owner_words():
         "both labelling readers named other equipment",
         "this part of the book does not govern this equipment",
         "below the limit for one review",
+        "an approved rule whose equipment label is not agreed",
     ]
 
 
