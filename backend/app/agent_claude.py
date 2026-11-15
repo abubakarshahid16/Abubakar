@@ -406,11 +406,8 @@ def _call(
     env: dict | None,
     meter: SpendMeter | None = None,
     step: str = STEP,
-    on_request: Callable[[str, dict], None] | None = None,
 ) -> tuple[dict, float]:
-    """`step` names the ledger line (default: today's `agent_review`, so every caller of today is byte-for-byte the same).
-    `on_request(digest, body)`, when given, is called with the FINISHED body just before it is handed to the transport (the nine-role
-    record writes its `sent` row there); it must not keep the body."""
+    """`step` names the ledger line (default: today's `agent_review`, so every caller of today is byte-for-byte the same)."""
     from app import claude_approved
 
     declared = claude_approved.carried()
@@ -433,8 +430,6 @@ def _call(
     body = dict(request["body"])
     body.update(body_parts)
     body["model"], body["max_tokens"] = model, int(max_tokens)
-    if on_request is not None:
-        on_request(request_digest(body), body)
     answer, failure = _send_once(raw, request, body, step)
     # the headers (the key) leave this frame before any error is raised from it
     del request
