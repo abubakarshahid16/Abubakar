@@ -173,6 +173,43 @@ _QUOTE_FAILS = (
 )  # fmt: skip
 
 
+def _numeric_base(
+    item: Mapping,
+    requirement: Mapping,
+    fact: Mapping | None,
+    clause_quote: str | None,
+    page_count: int | None,
+    cell,
+    document_id: str | None,
+) -> dict:
+    """The numeric line before it is decided: what it is about and what it rests on (the exit asks the proof again from the page itself)."""
+    f = fact or {}
+    return {
+        "item_id": f"{ID_PREFIX}{item.get('item_id')}" + (f"-{f.get('id')}" if f.get("id") else ""),
+        "source": SOURCE,
+        "code_kind": "numeric",
+        "standard": item.get("standard"),
+        "clause": item.get("clause"),
+        "rule_kind": item.get("rule_kind"),
+        "rule_version_id": item.get("rule_version_id"),
+        "field": f.get("field_label") or f.get("field_name"),
+        "field_roles": item.get("field_roles") or [],
+        "equipment_tag": f.get("equipment_tag"),
+        "clause_quote": clause_quote or "",
+        "paper_quote": cell.quote if cell else (_paper_quote(fact) if fact else ""),
+        "paper_page": f.get("page"),
+        "paper_document_id": document_id,
+        "rule_field": (guards.field_names(item) or [None])[0],
+        "paper_page_count": page_count,
+        "cell_ref": cell.ref() if cell else None,
+        "cell_label": cell.label_text if cell else None,
+        "cell_note": cell.split if cell else None,
+        "quotes_checked": {"paper": False, "clause": False},
+        "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
+        "proof_fact": {"raw_value": f.get("raw_value"), "raw_unit": f.get("raw_unit")} if fact else None,
+    }  # fmt: skip
+
+
 def numeric_line(
     item: Mapping,
     requirement: Mapping,
@@ -189,32 +226,9 @@ def numeric_line(
     """ONE line for one rule item and the fact paired with it. `page_text`: the stored text of the fact's page; `clause_quote`: the quote of the rule
     the line shows; `clause_text`: the clause's own text it must stand in. The caller pairs (`subject_pairing`) and fetches the texts; this decides,
     by `compare`, and proves the quotes (`agent_review_code_proof`): each must be found, carry the number it stands for, and the paper's sit with its label."""
-    f = fact or {}
-    base = {
-        "item_id": f"{ID_PREFIX}{item.get('item_id')}" + (f"-{f.get('id')}" if f.get("id") else ""),
-        "source": SOURCE,
-        "code_kind": "numeric",
-        "standard": item.get("standard"),
-        "clause": item.get("clause"),
-        "rule_kind": item.get("rule_kind"),
-        "rule_version_id": item.get("rule_version_id"),
-        "field": f.get("field_label") or f.get("field_name"),
-        "field_roles": item.get("field_roles") or [],
-        "equipment_tag": f.get("equipment_tag"),
-        "clause_quote": clause_quote or "",
-        "paper_quote": cell.quote if cell else (_paper_quote(fact) if fact else ""),
-        "paper_page": f.get("page"),
-        "paper_document_id": document_id,
-        "rule_field": (guards.field_names(item) or [None])[0],
-        "paper_context": proof.context_of(page_text, _paper_quote(fact)) if fact else "",
-        "paper_page_count": page_count,
-        "cell_ref": cell.ref() if cell else None,
-        "cell_label": cell.label_text if cell else None,
-        "cell_note": cell.split if cell else None,
-        "quotes_checked": {"paper": False, "clause": False},
-        "proof_requirement": {k: requirement.get(k) for k in proof.REQUIREMENT_KEYS},
-        "proof_fact": {"raw_value": f.get("raw_value"), "raw_unit": f.get("raw_unit")} if fact else None,
-    }  # fmt: skip
+    base = _numeric_base(
+        item, requirement, fact, clause_quote, page_count, cell, document_id
+    )
     got = comparison.compare(
         dict(requirement), dict(fact) if fact else None, submittal_facts=submittal_facts
     )
