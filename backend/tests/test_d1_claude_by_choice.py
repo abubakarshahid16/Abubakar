@@ -15,6 +15,7 @@ from app import (
     db,
     review_engine,
     review_engine_start,
+    review_jobs,
     review_shown,
 )
 from app.config import settings
@@ -168,7 +169,8 @@ def test_the_register_is_refused_even_when_listed_and_consented_and_shown_blocke
 
 
 def test_a_start_without_a_list_behaves_as_today(lib):
-    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "claude")
+    # a run queued without a list (a script or a retry path): no list, no consent
+    run_id, _ = review_jobs.enqueue(lib["sub"], allowed_document_ids=lib["scope"], requested_by="adm")
     assert review_shown.consent_of(db.connect(), run_id) is None
     found = _gate(run_id, [lib["sub"], lib["con"]])
     assert found is not None  # no contract without the owner's yes

@@ -15,6 +15,7 @@ from app import (
     db,
     review_engine,
     review_engine_start,
+    review_jobs,
     review_leaving,
     review_shown,
 )
@@ -222,8 +223,19 @@ def test_the_stored_list_is_only_what_was_shown_and_still_allowed(lib):
     assert review_shown.shown_ids(db.connect(), run_id) == frozenset({lib["sub"]})
 
 
-def test_a_start_that_showed_no_list_stores_none(lib):
-    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "automatic")
+def test_a_start_that_showed_no_list_stores_none_and_is_refused_when_text_would_leave(lib, monkeypatch):
+    # text would leave (Automatic resolves to Claude here): refused, nothing queued
+    before = db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0]
+    with pytest.raises(review_engine_start.StartRefused) as refused:
+        review_engine_start.start(lib["sub"], lib["scope"], "adm", "automatic")
+    assert refused.value.code == "LIST_NOT_SHOWN" and "the list of documents was not shown" in refused.value.sentence
+    assert db.connect().execute("SELECT COUNT(*) FROM review_runs").fetchone()[0] == before
+    client = TestClient(app)
+    for engine in ("claude", "automatic"):
+        r = client.post("/api/reviews/start", json={"submittal_document_id": lib["sub"], "engine": engine}, headers=lib["admin"])
+        assert r.status_code == 409 and "the list of documents was not shown" in r.text
+    # Local only sends nothing: it may omit the list
+    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "local")
     assert review_shown.shown_ids(db.connect(), run_id) is None
 
 
@@ -248,7 +260,7 @@ def test_a_run_with_a_stored_list_sends_only_what_the_list_names(lib):
 def test_a_run_without_a_stored_list_keeps_todays_behaviour_for_the_paper_and_rule_books(
     lib,
 ):
-    run_id, _ = review_engine_start.start(lib["sub"], lib["scope"], "adm", "automatic")
+    run_id, _ = review_jobs.enqueue(lib["sub"], allowed_document_ids=lib["scope"], requested_by="adm")  # no list
     with (
         claude_approved.carrying([lib["sub"], lib["std"]]),
         claude_approved.reviewing(run_id),

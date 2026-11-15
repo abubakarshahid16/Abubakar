@@ -16,9 +16,7 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   documentId: string | null; isAdmin: boolean | undefined; onStarted: (runId: string) => void;
 }) {
   const [engine, setEngine] = useState<EngineChoice>("automatic");
-  const { plan: loadedPlan, forEngine } = usePlan(documentId, engine);
-  // The plan on screen is used only when it is the plan for the choice on screen (an earlier choice answering late is never shown).
-  const plan = forEngine === engine ? loadedPlan : ({ state: "loading" } as const);
+  const { plan } = usePlan(documentId, engine);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);

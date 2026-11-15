@@ -31,4 +31,12 @@ describe("the one start", () => {
     expect(posts.every((p) => p.endsWith('"/reviews/start"'))).toBe(true);
     expect(posts.length).toBeGreaterThan(0);
   });
+
+  it("no frontend source posts to the AI review's own start route or calls its client function (the one start is /reviews/start)", () => {
+    const offenders = sources(join(process.cwd(), "src")).filter((file) => {
+      const text = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      return /["'`]\/reviews\/agent-run["'`]/.test(text) || /agentReview\.start\b/.test(text);
+    });
+    expect(offenders).toEqual([]);
+  });
 });

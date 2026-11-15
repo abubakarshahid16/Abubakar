@@ -66,5 +66,8 @@ export function usePlan(documentId: string | null, engine: EngineChoice) {
   }, [documentId, engine]);
   useEffect(() => { setPlan({ state: "loading" }); setForEngine(null); void reload(); }, [reload]);
   useEffect(() => () => { latest.current += 1; }, []);
-  return { plan, reload, forEngine };
+  // The plan on screen is used only for the choice on screen: in the render between a changed choice and the effect that clears the
+  // old plan, nothing is offered (Review is disabled, no list is shown).
+  const masked: Loaded<ReviewPlan> = forEngine === engine ? plan : { state: "loading" };
+  return { plan: masked, reload, forEngine };
 }

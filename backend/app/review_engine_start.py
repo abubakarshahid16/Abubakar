@@ -54,6 +54,9 @@ def start(
     )
     if plan["refused"]:
         raise StartRefused(plan["refused_code"] or "REFUSED", plan["refused"])
+    if shown_document_ids is None and plan["text_leaves"]:
+        # The list of the documents that would leave must have been SHOWN: a start that sends text without it is refused.
+        raise StartRefused("LIST_NOT_SHOWN", LIST_NOT_SHOWN_WORDS)
     parts = {p["name"]: p for p in plan["parts"]}
     plan["project_document_ids"] = list(project_document_ids)
     plan["fresh"] = bool(fresh)
@@ -104,6 +107,7 @@ def start(
     return run_id, plan
 
 
+LIST_NOT_SHOWN_WORDS = "the list of documents was not shown: start from the review page, which shows what will be sent"
 LEGACY_START_WORDS = "start from the review page: it shows what will be sent"
 
 
