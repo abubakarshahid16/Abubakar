@@ -20,7 +20,6 @@ word is written here. No model call is made here: every role that asks a model d
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -32,11 +31,15 @@ from . import (
     nine_chapters,
     nine_checklist,
     nine_record,
+    nine_resume,
     nine_writer,
 )
 from .db import connect
 
 log = logging.getLogger(__name__)
+_guarded_ask = nine_resume.guarded_ask  # kept under its old names for the tests
+_handover_save = nine_resume.handover_save
+_handover_load = nine_resume.handover_load
 WRITER_QUESTION = nine_writer.WRITER_QUESTION
 WRITER_SYSTEM = nine_writer.WRITER_SYSTEM
 
@@ -485,7 +488,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         groups,
         engine=engine,
         no_context_available=no_context,
-        ask=_guarded_ask(ctx),
+        ask=nine_resume.guarded_ask(ctx),
         should_stop=ctx.should_stop,
         **_seam_kwargs(),
     )
@@ -604,7 +607,11 @@ def writer_role(ctx: RoleContext) -> RoleResult:
     engine = nine_call.engine_of_run(ctx.run_id)
     ctx.check_stop()
     produced, why = nine_writer.write(
-        ctx.run_id, ctx.submittal, engine, ask=_guarded_ask(ctx), **_seam_kwargs()
+        ctx.run_id,
+        ctx.submittal,
+        engine,
+        ask=nine_resume.guarded_ask(ctx),
+        **_seam_kwargs(),
     )
     got = crs_completeness.record_after_run(ctx.run_id)
     if got is None:
@@ -715,99 +722,13 @@ def flat(produced: dict) -> dict:
     return out
 
 
-def _job_cancelled(run_id: str) -> bool:
-    row = (
-        connect()
-        .execute(
-            "SELECT cancel_requested FROM jobs WHERE review_run_id = ? ORDER BY rowid DESC LIMIT 1",
-            (run_id,),
-        )
-        .fetchone()
-    )
-    return bool(row and row["cancel_requested"])
-
-
-def _guarded_ask(ctx: RoleContext):
-    """`nine_call.ask` that honours the job's cancellation BEFORE every call (a paid call is never started after a cancel)."""
-
-    def ask(*args, **kwargs):
-        ctx.check_stop()
-        return nine_call.ask(*args, **kwargs)
-
-    return ask
-
-
-HANDOVER = "agent_review_role_handover"
-
-
-def _handover_save(run_id: str, key: str, value) -> None:
-    conn = connect()
-    with conn:
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {HANDOVER} (run_id TEXT NOT NULL, key TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (run_id, key))"
-        )
-        conn.execute(
-            f"INSERT OR REPLACE INTO {HANDOVER} (run_id, key, payload) VALUES (?,?,?)",
-            (run_id, key, json.dumps(value)),
-        )
-
-
-def _handover_load(run_id: str, key: str):
-    conn = connect()
-    if not conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (HANDOVER,)
-    ).fetchone():
-        return None
-    row = conn.execute(
-        f"SELECT payload FROM {HANDOVER} WHERE run_id = ? AND key = ?", (run_id, key)
-    ).fetchone()
-    return json.loads(row["payload"]) if row else None
-
-
-def _hand_over(ctx: RoleContext, n: int) -> None:
-    """After a role: keep what the next role needs, so a restart that skips this role (it "ran") still hands it over. Ids and structure only: the
-    fact sheet is already stored by `nine_facts`; the context blocks are rows of typed tokens; the reading list is the chosen (book, chapter) pairs."""
-    if n == 2 and ctx.store.get("context_blocks") is not None:
-        _handover_save(ctx.run_id, "context_blocks", [
-            {"name": b.name, "sources": list(b.sources), "kinds": list(b.kinds or ()) or None, "items": [list(r) for r in b.items]}
-            for b in ctx.store["context_blocks"]
-        ])  # fmt: skip
-    if n == 3 and ctx.store.get("reading") is not None:
-        _handover_save(
-            ctx.run_id,
-            "chosen",
-            [
-                [b.book_id, i.chapter.chapter_id]
-                for b in ctx.store["reading"].books
-                if b.on_shown_list
-                for i in b.items
-                if i.chosen
-            ],
-        )
-
-
-def _reload(ctx: RoleContext, n: int) -> None:
-    """A role that ran is skipped on a restart: reload what it handed over."""
-    from . import nine_facts
-
-    if n == 1:
-        ctx.store["fact_sheet"] = nine_facts.load(connect(), ctx.run_id)
-    elif n == 2 and (rows := _handover_load(ctx.run_id, "context_blocks")) is not None:
-        ctx.store["context_blocks"] = tuple(
-            nine_call.Block("review_record", name=r["name"], sources=tuple(r["sources"]), kinds=tuple(r["kinds"]) if r["kinds"] else None, items=tuple(tuple(x) for x in r["items"]))
-            for r in rows
-        )  # fmt: skip
-    elif n == 3 and (chosen := _handover_load(ctx.run_id, "chosen")) is not None:
-        ctx.store["chosen"] = [tuple(x) for x in chosen]
-
-
 def _execute_role(
     n: int, ctx: RoleContext, fn, record, reraise: tuple[type[BaseException], ...]
 ) -> None:
     if (
         record.role_state(ctx.run_id, n) == "ran"
     ):  # RESUME: a role that ran is not run again, so nothing is paid twice; what it handed over is reloaded
-        _reload(ctx, n)
+        nine_resume.reload(ctx, n)
         return
     record.role_started(ctx.run_id, n)
     try:
@@ -830,7 +751,7 @@ def _execute_role(
     record.role_finished(
         ctx.run_id, n, state=result.state, why=result.why, engine=result.engine, models=list(result.models), produced=flat(result.produced),
     )  # fmt: skip
-    _hand_over(ctx, n)
+    nine_resume.hand_over(ctx, n)
 
 
 def run_roles(
@@ -858,7 +779,7 @@ def run_roles(
         plan,
         holder,
         ask,
-        should_stop=should_stop or (lambda: _job_cancelled(run_id)),
+        should_stop=should_stop or (lambda: nine_resume.job_cancelled(run_id)),
         cancel_exc=reraise[0] if reraise else RuntimeError,
     )
     table = {**default_roles(), **(roles or {})}
