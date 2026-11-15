@@ -32,6 +32,7 @@ from pathlib import Path
 from . import agent_general_job as general_job
 from . import agent_review_calculator_run as calculator_run
 from . import agent_review_crs as crs_lines
+from . import agent_review_dispatch as dispatch
 from . import (
     agent_review_gate,
     agent_review_kind,
@@ -40,7 +41,6 @@ from . import (
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
-    agent_review_dispatch as dispatch,
     crs_completeness,
     job_queue,
     nothing_read,
