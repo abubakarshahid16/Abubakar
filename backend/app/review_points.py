@@ -115,11 +115,19 @@ def rank_of_ai_line(line: dict) -> tuple[int, str | None, int | None]:
 
 
 def group_key(
-    source: str, rank: int, book: str | None, clause: str | None, reason: str | None
+    source: str,
+    rank: int,
+    book: str | None,
+    clause: str | None,
+    reason: str | None,
+    field: str | None = None,
 ) -> str | None:
-    """THE one definition of "N alike": a repeated question is the same rule clause (the same book and clause) asked for the same
-    reason. Only a question or a not-met point of the same source can group; a point with no book and clause never groups."""
-    if rank not in (3, 4) or not _clean(book) or not _clean(clause):
+    """THE one definition of "N alike" (owner: "Group repeated questions"): points that ask the same thing of the same field against
+    the same clause of the same rule book. The key is the rule book's identity (its document id), the clause, the field (the name with
+    its tag list taken off) and the reason code; the PAGE is not in it, so the same field on several pages with the same wording is
+    one group. Only a question or a not-met point of the same source can group; a point with no rule book, or with neither a clause
+    nor a field to compare, never groups."""
+    if rank not in (3, 4) or not _clean(book) or not (_clean(clause) or _clean(field)):
         return None
     return "|".join(
         (
@@ -127,9 +135,52 @@ def group_key(
             str(rank),
             _clean(book).lower(),
             _clean(clause).lower(),
+            _clean(field).lower(),
             _clean(reason).lower(),
         )
     )
+
+
+# ------------------------------------------------------------------------------------------------ a name is the field, not its tags
+
+_BRACKETS = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]")
+_TAG_ITEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-/._]*$")
+_ONE_TAG = re.compile(r"^[A-Za-z]{1,6}-\d[\w\-./]*$")
+_MORE = re.compile(r"^(?:\.{2,}|\u2026|etc\.?|(?:and\s+)?\+?\d+\s+more)$", re.I)
+
+
+def _is_tag_list(inner: str) -> list[str] | None:
+    """The items of a bracketed group when it is a list of equipment tags (every item one token with a letter and a digit, two or more
+    of them, or one that looks like a tag with its dash); None for a unit or a note like "(barg)" or "(2 mm)". General: it looks at
+    the shape of the group, never at one paper's tag scheme."""
+    parts = [x.strip() for x in re.split(r"[,;]|\band\b|\+(?=\s*[A-Za-z0-9])", inner) if x.strip()]
+    items = [x for x in parts if not _MORE.match(x)]
+    if not items:
+        return None
+    if not all(
+        _TAG_ITEM.match(x) and any(c.isdigit() for c in x) and any(c.isalpha() for c in x)
+        for x in items
+    ):
+        return None
+    if len(items) == 1 and not _ONE_TAG.match(items[0]):
+        return None
+    return items
+
+
+def split_tags(name: str) -> tuple[str, list[str]]:
+    """(the name with every bracketed list of equipment tags taken off, the tags in the order they stood). The tags belong in the
+    opened point ("Applies to: N tags"), never in the collapsed row's name."""
+    tags: list[str] = []
+
+    def take(m: re.Match) -> str:
+        got = _is_tag_list(m.group(1))
+        if got is None:
+            return m.group(0)
+        tags.extend(got)
+        return ""
+
+    clean = _BRACKETS.sub(take, str(name or ""))
+    return _clean(clean), list(dict.fromkeys(tags))
 
 
 def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None) -> str:
@@ -187,11 +238,14 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
+    field, tags = split_tags(wb.field_name(line))
     name = (
-        _plain(wb.field_name(line))
+        _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
         or "A point of the AI review"
     )
+    # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)
+    # are never one group, so "Keep all" never decides them unseen.
     reason = line.get("reason_code") or line.get("not_proven_reason") or ""
     shown = (
         line
@@ -236,9 +290,18 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         else None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": not bool(line.get("recommendation")),
-        "group_key": group_key(SOURCE_AI_REVIEW, rank, book_name, clause, str(reason)),
+        "group_key": group_key(
+            SOURCE_AI_REVIEW,
+            rank,
+            book_doc if book_name else None,
+            clause,
+            str(reason),
+            _plain(field),
+        ),
+        "tags": tags,
         "added_by": None,
         "_book_doc": book_doc,
+        "_book_docs": [book_doc] if book_doc else [],
     }
 
 
@@ -318,8 +381,9 @@ def rule_point(
         else ""
     )
     reason = (finding or {}).get("reason_code") or kind or ""
+    field, tags = split_tags(section.split(" - ", 1)[-1] if " - " in section else section)
     name = (
-        _plain(section.split(" - ", 1)[-1] if " - " in section else section)
+        _plain(field)
         or _plain(" ".join(comment.split()[:7]))
         or "A point of the rule check"
     )
@@ -345,13 +409,22 @@ def rule_point(
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": strength != "should",
         "strength_unknown": strength == "unknown",
-        "group_key": group_key(SOURCE_RULE_CHECK, rank, book_name, None, str(reason)),
+        "group_key": group_key(
+            SOURCE_RULE_CHECK,
+            rank,
+            book_doc if book_name else None,
+            None,
+            str(reason),
+            _plain(field),
+        ),
+        "tags": tags,
         "added_by": added_by,
         "finding_ids": list(
             row.get("finding_ids")
             or ([row["finding_id"]] if row.get("finding_id") else [])
         ),
         "_book_doc": book_doc,
+        "_book_docs": [book_doc] if book_doc else [],
         "_row_key": key,
     }
 
@@ -408,16 +481,38 @@ def counts(
                 None  # a "does not apply" is never a compared value
             )
         tiles[tile] = entry
-    named = Counter(p["rule_book"] for p in points if p.get("rule_book"))
-    unnamed = sum(1 for p in points if not p.get("rule_book") and p.get("_book_doc"))
+    # ONE chip per rule book: by the book's identity (its document id), never by a display string. A point that cites several clauses
+    # of one book counts once for that book; a point that cites two books counts once for each; the name is the book's own.
+    named: Counter = Counter()
+    names: dict[str, str] = {}
+    for p in points:
+        seen: set[str] = set()
+        for b in p.get("books") or []:
+            if b["id"] in seen:
+                continue
+            seen.add(b["id"])
+            named[b["id"]] += 1
+            names[b["id"]] = b["name"]
+    several = sum(1 for p in points if len({b["id"] for b in p.get("books") or []}) > 1)
+    unnamed = sum(
+        1
+        for p in points
+        if p.get("_other_books")
+        or (not p.get("books") and (p.get("_book_docs") or p.get("_book_doc")))
+    )
+    no_book = sum(
+        1 for p in points if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
+    )
     out = {
         "tiles": tiles,
         "total": len(points),
         "total_counts": "points of this paper's review (the rule check and the AI review together)",
         "rule_books": [
-            {"name": n, "points": c}
-            for n, c in sorted(named.items(), key=lambda kv: (-kv[1], kv[0]))
+            {"id": i, "name": names[i], "points": c}
+            for i, c in sorted(named.items(), key=lambda kv: (-kv[1], names[kv[0]], kv[0]))
         ],
+        "no_rule_book_points": no_book,
+        "several_books_points": several,  # counted under EACH of its books, so the chips can add up to more than the total
         "other_rule_books_points": unnamed,
         "other_rule_books_note": "points on rule books you may not read: counted, not named"
         if unnamed
@@ -515,6 +610,7 @@ def removed_stub(finding: dict, ctx: dict, *, strength: str = "unknown") -> dict
         "name": _plain(finding.get("matched_phrase")) or "A point of the rule check",
         "page": page, "rule_book": None, "clause": None, "action": (_plain(finding.get("required_action")) or None) if book_ok else None,
         "paper_quote": None, "clause_quote": None, "paper_quote_note": NO_PAPER_QUOTE, "clause_quote_note": NO_CLAUSE_QUOTE,
-        "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": strength != "should", "strength_unknown": strength == "unknown", "group_key": None,
+        "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": strength != "should", "strength_unknown": strength == "unknown", "group_key": None, "tags": [],
         "added_by": None, "finding_ids": [finding["id"]], "_book_doc": finding.get("standard_document_id"),
+        "_book_docs": [finding["standard_document_id"]] if finding.get("standard_document_id") else [],
     }  # fmt: skip

@@ -2,6 +2,7 @@
  *  `pages_ai_not_read`) and `requirement_split.reader`. */
 import type { ReviewRunSummary } from "../../../types/api";
 import { pageList } from "../reviewFormat";
+import { plainSource } from "./sourceWords";
 import { NOT_RECORDED, incompleteWords, pageFacts, pagesMeaning, readerOf } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
 
@@ -26,10 +27,10 @@ export function PagesSection({ run }: { run: ReviewRunSummary }) {
         {p.aiOff ? (
           <Fact label="Read by the AI reader" testId="pages-ai"
             fact={{ value: "AI reader off", source: "requirement_split.reader.engine" }}
-            detail={`- not asked; pages given to the readers: ${p.aiPages.value ?? NOT_RECORDED} (requirement_split.reader.pages)`} />
+            detail={plainSource(`- not asked; pages given to the readers: ${p.aiPages.value ?? NOT_RECORDED} (requirement_split.reader.pages)`)} />
         ) : (
           <Fact label="Read by the AI reader" fact={p.readByAi} testId="pages-ai"
-            detail={p.aiPages.value !== null ? `of ${p.aiPages.value} (requirement_split.reader.pages)` : undefined} />
+            detail={p.aiPages.value !== null ? plainSource(`of ${p.aiPages.value} (requirement_split.reader.pages)`) : undefined} />
         )}
         <Fact label="Not read by the AI reader" testId="pages-ai-not-read"
           fact={{ value: aiNotRead === null ? null : aiNotRead.length, source: p.aiNotRead.source }}
@@ -46,11 +47,11 @@ export function PagesSection({ run }: { run: ReviewRunSummary }) {
             detail={noField.length ? `(pages ${pageList(noField)})` : undefined} />
         )}
         <Fact label="Scanned pages without OCR" fact={p.withoutOcr} testId="pages-no-ocr"
-          detail={p.ocrDone.value !== null ? `(OCR done on ${p.ocrDone.value}, from ${p.ocrDone.source})` : undefined} />
+          detail={p.ocrDone.value !== null ? `(OCR done on ${p.ocrDone.value}, from ${plainSource(p.ocrDone.source)})` : undefined} />
         <Fact label="Reading status" testId="pages-reading"
           fact={{ value: p.reading ? p.reading.status : null, source: "page_coverage.reading.status" }}
           detail={p.reading && p.reading.incomplete_pages.length
-            ? `(${incompleteWords(run.page_coverage ?? null, p.reading.incomplete_pages)}, from page_coverage.reading.incomplete_pages)` : undefined} />
+            ? plainSource(`(${incompleteWords(run.page_coverage ?? null, p.reading.incomplete_pages)}, from page_coverage.reading.incomplete_pages)`) : undefined} />
       </FactList>
       {notRead && notRead.length > 0 && (
         <ul data-testid="pages-not-read-reasons" className="list-disc ps-5 text-sm text-slateish-300">
@@ -68,12 +69,12 @@ export function PagesSection({ run }: { run: ReviewRunSummary }) {
       )}
       {reader && reader.engine !== "off" && reader.code_only && Object.keys(reader.code_only).length > 0 && (
         <p className="text-sm text-slateish-300">
-          Left to the code readers by the AI reader (from requirement_split.reader.code_only):{" "}
+          Left to the code readers by the AI reader ({plainSource("from requirement_split.reader.code_only")}):{" "}
           {Object.entries(reader.code_only).map(([page, why]) => `page ${page} (${why})`).join("; ")}.
         </p>
       )}
       <p data-testid="pages-meaning" className="text-sm text-slateish-200">
-        <span className="font-medium">What this means:</span> {pagesMeaning(run)}
+        <span className="font-medium">What this means:</span> {plainSource(pagesMeaning(run))}
       </p>
     </HowSection>
   );

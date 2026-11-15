@@ -31,9 +31,9 @@ reports on the line: "not asked: too long for the local model"). Nothing is cut.
 from __future__ import annotations
 
 import contextlib
+import logging
 import math
 import re
-import logging
 import sqlite3
 import threading
 import uuid
@@ -79,6 +79,13 @@ SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (
 #: third of a token, other text at least a sixteenth of a token a character). (3) A per-call nonce starts the system text so the engine's
 #: prompt cache can never make a full prompt look short.
 CUT_FRACTION = 0.6
+#: The general review on the local engine: windows of pages, checklist batches and project-paper groups that fit the window under the
+#: engine's output ceiling (units: `agent_general_review.tokens_of`, characters / 4). A paper longer than one window is read in windows;
+#: the sheet says which pages were and were not read.
+GENERAL_WINDOW_TOKENS = 2600
+GENERAL_P2_BATCH = 3
+GENERAL_GROUP_TOKENS = 1200
+GENERAL_OUTPUT_CAP = 1400
 MIN_CHARS_PER_DIGIT_TOKEN, MIN_CHARS_PER_WORD_TOKEN = 3, 16
 WINDOW_MARGIN_TOKENS = 256
 TIMEOUT_S = 600.0
@@ -140,9 +147,14 @@ def local_run(run_id: str) -> bool:
     return review_engine.ai_review_engine(connect(), run_id) == review_engine.ON_LOCAL
 
 
-def engine_for(run_id: str) -> LocalEngine | None:
-    """The local engine of this run (models from the settings), or None for a Claude-path run."""
-    return LocalEngine(*models_from_settings()) if local_run(run_id) else None
+def engine_for(run_id: str, general: bool = False) -> LocalEngine | None:
+    """The local engine of this run (models from the settings), or None for a Claude-path run. `general`: the general review, whose
+    windows fit under `GENERAL_OUTPUT_CAP`, the ceiling put on every request's output limit."""
+    if not local_run(run_id):
+        return None
+    return LocalEngine(
+        *models_from_settings(), output_cap=GENERAL_OUTPUT_CAP if general else None
+    )
 
 
 _ROOT = re.compile(r"[a-z]+")
@@ -513,9 +525,8 @@ ITEMS_PER_FIRST_REQUEST = 2.3  # the stable batches are halved on a hash until a
 SHARE_ASKED_SECOND = (
     0.5  # a guess: about half the lines are candidates for the second reader
 )
-GENERAL_ON_LOCAL = False  # the general review does not run on the local model yet (a second change turns this on)
+GENERAL_ON_LOCAL = True  # the general review runs on the local model (staged; `agent_general_parts.run_all_local`)
 WAIT_WORDS = "other reviews wait behind it (one review at a time), and chat answers may be slower while it runs"
-GENERAL_REFUSED = "the general review (a procedure or a contract with no rule book) does not run on the local model yet; nothing was asked"
 
 
 def local_time(conn, document_id: str, two_readers: bool = False) -> dict:
