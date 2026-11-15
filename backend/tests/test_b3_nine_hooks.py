@@ -15,7 +15,7 @@ def _setup(w):
         "spec_2", "84" * 32, "SPECIFICATION", filename="Invented project spec.pdf"
     )
     old = _doc("old_1", "82" * 32, None, filename="Invented datasheet rev A.pdf")
-    reg = _doc("reg_1", "83" * 32, None, filename="Engineering Deliverables.pdf")
+    reg = _doc("reg_1", "83" * 32, None, filename="Invented blocked register.pdf")
     with db.connect() as conn:
         for d in (rel, old, reg, sp2):
             conn.execute(
@@ -51,7 +51,15 @@ def test_off_lists_no_project_context(lib, monkeypatch):  # noqa: F811
     assert "whole chapters" not in plan["summary"]
 
 
-def test_on_lists_project_context_with_kind_and_why(lib, monkeypatch):  # noqa: F811
+def test_on_lists_project_context_with_kind_and_why(lib, monkeypatch):
+    from app import claude_approved
+
+    real = claude_approved.blocked_by_name
+    monkeypatch.setattr(
+        claude_approved,
+        "blocked_by_name",
+        lambda n: "blocked register" in (n or "") or real(n),
+    )  # noqa: F811
     monkeypatch.setattr(nine_context, "nine_on", lambda: True)
     rel, old, reg = _setup(lib)
     plan = _plan(lib, engine="claude")
