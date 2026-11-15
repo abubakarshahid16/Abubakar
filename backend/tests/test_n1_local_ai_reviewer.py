@@ -1843,3 +1843,79 @@ def test_the_plan_says_how_the_window_is_chosen_before_the_start(w, monkeypatch)
             and "states the window it chose and why" in words
         )
     assert "memory budget (24000 MB)" in local_mod.window_plan_words()
+
+
+# ---------------------------------------------------------------- R51f N1, N2, N5
+
+
+def test_a_fail_is_held_when_the_condition_sits_only_in_the_cut_off_part_of_the_clause():
+    from app import agent_review_verdict as V
+
+    fail = {"verdict": V.FAIL, "decided_by": V.BY_AI, "why": None}
+    unconditional = "The coating shall be applied in two layers of equal depth."
+    whole = "NOTE 2: this requirement does not apply except where the service is sour."
+    assert (
+        V.hold_conditional_fail(fail, unconditional, unconditional)["verdict"] == V.FAIL
+    )  # the model's quote and the rule say nothing conditional
+    held = V.hold_conditional_fail(fail, unconditional, unconditional, whole)
+    assert held["verdict"] == V.QUERY and held["conditional"] is True
+    item = {"item_id": "R-x", "clause_condition_text": whole}
+    assert (
+        V.apply_holds(
+            fail, item, clause_quote=unconditional, requirement=unconditional
+        )["verdict"]
+        == V.QUERY
+    )  # the path the runner uses
+    assert (
+        V.apply_holds(
+            fail,
+            {"item_id": "R-x"},
+            clause_quote=unconditional,
+            requirement=unconditional,
+        )["verdict"]
+        == V.FAIL
+    )  # a Claude-path item is unchanged
+    restored = V.restore_holds(
+        {
+            **fail,
+            "verdict": V.FAIL,
+            "clause_quote": unconditional,
+            "requirement": unconditional,
+        },
+        item,
+    )
+    assert restored["verdict"] == V.QUERY and restored.get("conditional_hold") is True
+
+
+def test_on_a_local_run_the_class_needs_the_whole_paper_for_both_readers_and_no_marker_is_not_full():
+    from app import agent_review_two_reader as T
+
+    base = {"item_id": "R-1", "ai_verdict": "Pass", "verdict": "Query", "reason_code": "met", "tier": "AI approved",
+            "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "paper_quote": "Coating layers two", "paper_page": 1,
+            "clause_quote": "x" * 50}  # fmt: skip
+    claude = T.is_candidate(
+        base
+    )  # a Claude-path line has no engine marker and is judged as before
+    assert T.is_candidate({**base, "engine": "local", "decided_on": "full"}) is claude
+    assert T.is_candidate({**base, "engine": "local", "decided_on": "excerpt"}) is False
+    assert (
+        T.is_candidate({**base, "engine": "local"}) is False
+    )  # no `decided_on` on a local run: not a candidate
+    assert T.is_candidate({**base, "engine": "local", "decided_on": None}) is False
+
+
+def test_an_implausible_cache_cost_is_named_plainly_in_the_refusal(monkeypatch):
+    monkeypatch.setattr(settings, "agent_review_local_memory_budget_mb", 21_500)
+    eng = local_mod.LocalEngine(
+        A_NAME,
+        B_NAME,
+        post=lambda *a, **k: {},
+        show=SHOWS.get,
+        size_mb=lambda m: 21_000.0,
+    )
+    with pytest.raises(local_mod.LocalMemoryRefused) as caught:
+        eng.call(A_NAME, numeric_parts("small"), 100)
+    assert (
+        "the engine reports a context memory cost this computer cannot hold: 81.9 MB per 1,000 tokens"
+        in caught.value.code
+    )

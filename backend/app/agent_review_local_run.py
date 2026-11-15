@@ -207,7 +207,9 @@ class LocalRunMixin:
             part
             and whole is not None
             and self.two_reader_on()
-            and two.is_candidate(self.exit_line(line))
+            and two.is_candidate(
+                {**self.exit_line(line), "decided_on": "full", "engine": "local"}
+            )
         ):
             # a line the second reader may confirm: the first reader reads the whole paper too, and that reading decides
             a, spent, err, mdl = self._ask_window(item, whole, clauses, held_of)
@@ -225,7 +227,11 @@ class LocalRunMixin:
                           "pages_read": sorted(full), "lead_model": model, "lead_error": error, "lead_answer": got}  # fmt: skip
         if model and model != "unknown":
             self.lead_models.add(model)
-        line["windows_asked"], line["windows_total"] = asked, total
+        line["windows_asked"], line["windows_total"], line["engine"] = (
+            asked,
+            total,
+            "local",
+        )
         notes = (
             [self.EXCERPT_WORDS if decided_on.label else self.PART_WORDS]
             if part

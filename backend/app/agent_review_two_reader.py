@@ -115,6 +115,8 @@ def is_candidate(line: Mapping) -> bool:
     ai = line.get("ai_verdict")
     if ai not in (verdict.PASS, verdict.FAIL) or line.get("verdict") != verdict.QUERY:
         return False
+    if line.get("engine") == "local" and line.get("decided_on") != "full":
+        return False  # local: fail closed, a decision needs the whole paper read (no `decided_on` is not "full")
     if (
         line.get("rule_kind") in verdict.NUMBER_KINDS
         or line.get("decided_on") == "excerpt"

@@ -540,7 +540,10 @@ class LocalEngine:
                 w -= STEP_TOKENS
             w = max(w, shared)
             if size + kv * w / 1000 > budget:
-                self.memory_refused = f"model {size:.0f} MB + context {kv * w / 1000:.0f} MB over the memory budget {budget} MB"
+                self.memory_refused = (
+                    f"the engine reports a context memory cost this computer cannot hold: {kv} MB per 1,000 tokens "
+                    f"(model {size:.0f} MB, memory budget {budget} MB); nothing was loaded"
+                )
             if w < want:
                 why = f"{w} tokens: shrunk from {want} so the model ({size:.0f} MB) and its context ({kv * w / 1000:.0f} MB at about {kv} MB per 1,000 tokens) stay under the memory budget ({budget} MB)"
             else:
@@ -631,7 +634,7 @@ class LocalEngine:
             raise LocalStageRefused
         self.window(role)
         if self.memory_refused:
-            raise LocalMemoryRefused
+            raise LocalMemoryRefused(self.memory_refused)
         if role == SECOND:
             ready, _why = self.second_ready()
             if not ready:
