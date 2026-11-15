@@ -298,10 +298,16 @@ def _plain(text) -> str:
     return "" if not text or words.has_banned(text) else text
 
 
-def rule_book_hidden(book_doc, ctx: dict) -> bool:
-    """THE one readability test of a point's rule book (CLAUDE.md rule 5: classification is not access): the book is held and the viewer may
-    NOT read it. Both the AI point and the rule-check point use it; such a point carries no requirement text, no clause text, no book name
-    and nothing derived from the requirement (it is counted, never named)."""
+def rule_book_hidden(book_doc, ctx: dict, proof: tuple[bool, bool] | None = None) -> bool:
+    """THE one readability test of a point's rule content (CLAUDE.md rule 5: classification is not access; a filter only narrows). Both the
+    AI point and the rule-check point use it. A rule-check point passes the PROOF the service computed once (`review_points_service`):
+    its requirement-derived content is shown only when readability is PROVEN for this viewer (a linked book he may read; a stored reference
+    that resolves to held books he may all read; the app's own approved checklist as the proven origin; or a viewer who may read the whole
+    library); anything else is hidden. An AI point passes no proof: its book is hidden when it is held and the viewer may not read it.
+    A hidden point carries no requirement text, no clause text, no book name and nothing derived from the requirement (it is counted,
+    never named)."""
+    if proof is not None:
+        return not proof[0]
     return bool(book_doc) and book_doc not in ctx["readable"]
 
 
@@ -402,7 +408,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "shall": not bool(line.get("recommendation")),
         # P6: the priority comes from the finding (`crs_ai_words.priority_ai`); P5: the AI's own reasoning, labelled, never for a proven line
         "priority": words.priority_ai(status, line, order) if status else "",
-        "ai_reasoning": actions.reasoning_part(line, status or "", "").strip(),
+        "ai_reasoning": ""
+        if rule_book_hidden(book_doc, ctx)
+        else actions.reasoning_part(line, status or "", "").strip(),  # a hidden book: the AI's free words can name it, so the field is removed
         "group_key": group_key(
             SOURCE_AI_REVIEW,
             rank,
@@ -449,6 +457,7 @@ def rule_point(
     sides: dict,
     *,
     strength: str = "unknown",
+    proof: tuple[bool, bool] | None = None,
 ) -> dict:
     """One CRS row of the rule check as a point. `finding`: its stored finding (or None); `sides`: {"submittal": .., "standard": ..}
     as `evidence_boxes.side` answered (document None when the side cannot be shown)."""
@@ -483,7 +492,8 @@ def rule_point(
         int(m.group(1)) if m else None
     )  # the cited page, only of a document the caller may read
     book_doc = (finding or {}).get("standard_document_id")
-    hidden = rule_book_hidden(book_doc, ctx)
+    hidden = rule_book_hidden(book_doc, ctx, proof if proof is not None else (not (book_doc and book_doc not in ctx["readable"]), True))
+    ref_hidden = hidden or (proof is not None and not proof[1])  # the stored reference names a book: only when that is proven readable too
     book_name = (
         _plain(row.get("standard_reference"))
         if book_doc and not hidden
@@ -501,7 +511,7 @@ def rule_point(
     )
     reason = (finding or {}).get("reason_code") or kind or ""
     field, tags = split_tags(
-        content.field_of(section.split(" - ", 1)[-1] if " - " in section else "", row, finding, allow_rule=not hidden),
+        content.field_of(section.split(" - ", 1)[-1] if " - " in section else "", row, finding, allow_rule=not ref_hidden),
         ctx.get("known_tags") or frozenset(),
     )
     name = (
@@ -513,7 +523,7 @@ def rule_point(
         page = content.paper_value(finding)[1]
     value, value_page = content.paper_value(finding)
     # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
-    action, action_source = content.action_of(row, None if hidden else finding, _plain)
+    action, action_source = content.action_of(row, finding, _plain, own_only=hidden)
     ref = content.rule_ref(row, finding)
     return {
         "id": f"rc:{key}",
@@ -527,7 +537,7 @@ def rule_point(
         "name": name,
         "page": page,
         "rule_book": book_name,
-        "clause": (ref["clause"] or None) if not hidden else None,
+        "clause": (ref["clause"] or None) if not ref_hidden else None,
         "action": action or None,
         "action_source": action_source,
         # U5d: what the stored finding itself holds, never presented as verified unless code verified it
@@ -535,7 +545,7 @@ def rule_point(
         "paper_value_page": value_page,
         "rule_text": None if hidden else (content.rule_text(finding) or None),
         "rule_hidden": hidden,
-        "rule_ref": ref if (ref["name"] or ref["clause"]) and not hidden else None,
+        "rule_ref": ref if (ref["name"] or ref["clause"]) and not ref_hidden else None,
         "reason_words": content.reason_words(kind, finding),
         "checked_by": content.checked_by(kind),
         "paper_quote": paper_q or None,

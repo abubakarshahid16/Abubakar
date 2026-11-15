@@ -210,3 +210,100 @@ def test_the_same_world_read_by_a_viewer_of_both_books_shows_the_secret_content(
     scope = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc, "doc_open", "doc_closed"}))
     blob = "\n".join(_every_string(review_points_service.assemble(doc, scope)["points"]))
     assert HIDDEN_TEXT in blob  # the guard hides it from the other viewer only
+
+
+# ------------------------------------------------------------------------------------------------ R73b: fail closed when readability is not proven
+
+
+LIB = [{"id": "doc_open", "filename": "OPEN-100.pdf", "document_number": "OPEN-100"}, {"id": "doc_closed", "filename": "CLOSED-777.pdf", "document_number": "CLOSED-777"}]
+READ = frozenset({"paper", "doc_open"})
+
+
+def proof(reference="", finding=None, docs=(), readable=READ, everything=False):
+    from app import review_points_service as svc
+
+    return svc.readability_proof({"standard_reference": reference}, finding, list(docs), readable, LIB, everything)
+
+
+def test_the_readability_proof_is_proven_or_hidden():
+    # (a) a linked book: all linked books must be readable
+    assert proof(docs=["doc_open"]) == (True, True)
+    assert proof(docs=["doc_open", "doc_closed"]) == (False, False)
+    assert proof(docs=["doc_closed"]) == (False, False)
+    # (b) no link: the stored reference must resolve to held books that are ALL readable
+    assert proof("OPEN-100 cl. 4.1") == (True, True)
+    assert proof("CLOSED-777 cl. 9.9") == (False, False)  # resolves to a book the viewer may not read
+    assert proof("NOWHERE-5 cl. 1") == (False, False)  # unresolved
+    assert proof("") == (False, False)  # no reference at all
+    # (c) the app's own approved checklist proves the origin from the stored column and the entry id; the reference still needs its books
+    chk = {"origin": "datasheet_check", "requirement_source_text": "Datasheet check DS-C1: the tag is stated."}
+    assert proof("", chk) == (True, True)
+    assert proof("CLOSED-777 cl. 9.9", chk) == (True, False)  # the text is the app's own; the closed book's NAME is not shown
+    assert proof("", {"origin": "datasheet_check", "requirement_source_text": "Datasheet check NOT-AN-ENTRY-9: x"}) == (False, False)  # cannot be proven: hidden
+    assert proof("", {"origin": None, "requirement_source_text": "Datasheet check DS-C1: the tag is stated."}) == (False, False)  # the origin is the stored column, not the wording
+    # a viewer who may read the whole library is not restricted
+    assert proof("NOWHERE-5", everything=True) == (True, True)
+
+
+def _unlinked_world():
+    from tests.test_crs_endpoint import _client, _finding, _run, _submittal
+
+    doc = _submittal()
+    _submittal("doc_open", "OPEN-100.pdf")
+    rc = _run(doc, recommended="Approved with Comments")
+    # unlinked, no checklist origin, no reference: unproven
+    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, requirement_source_text="Gamma flanges shall be lined with teflon", requirement="Gamma flanges shall be lined with teflon", standard_clause="7.7.7", equipment_tag="TAG-A")  # fmt: skip
+    # checklist origin, proven by the stored column and the entry id
+    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, origin="datasheet_check", requirement_source_text="Datasheet check DS-C1: Delta plates are riveted", requirement="Datasheet check DS-C1: Delta plates are riveted", equipment_tag="TAG-B")  # fmt: skip
+    # a checklist-looking text whose entry does not exist and whose origin is not the checklist: unproven
+    _finding(doc, rc, "NEEDS_ENGINEER_REVIEW", standard_document_id=None, origin="datasheet_check", requirement_source_text="Datasheet check NOT-AN-ENTRY-9: Epsilon rods are copper", requirement="Epsilon rods are copper", equipment_tag="TAG-C")  # fmt: skip
+    return doc
+
+
+def test_a_restricted_viewer_gets_no_unproven_requirement_words_and_the_proven_ones_stay():
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from app import access, review_points_service
+
+    doc = _unlinked_world()
+    restricted = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc}))
+    full = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc, "doc_open"}))
+
+    def blob(scope):
+        listing = review_points_service.assemble(doc, scope)
+        texts = list(_every_string(listing["points"]))
+        for data in (crs_one.build_team(doc, scope), crs_one.build_contractor(doc, scope)):
+            texts += [str(x) for ws in load_workbook(BytesIO(data)).worksheets for r in ws.iter_rows(values_only=True) for x in r if x is not None]
+        return "\n".join(texts), listing
+
+    got, listing = blob(restricted)
+    for hidden in ("Gamma flanges", "teflon", "7.7.7", "Epsilon rods", "copper", "OPEN-100", "NOT-AN-ENTRY"):
+        assert hidden not in got, hidden
+    assert "Delta plates are riveted" in got  # the app's own checklist text: proven, so shown
+    flags = {p["rule_hidden"] for p in listing["points"] if p["source"] == "rule_check"}
+    assert flags == {True, False}
+    assert c.UNREADABLE_BOOK in got or c.HIDDEN_FIELD in got
+    # a viewer who may read every document sees all of it (nothing is hidden for him)
+    seen, listing2 = blob(full)
+    assert "Gamma flanges" in seen and "Epsilon rods" in seen and not any(p.get("rule_hidden") for p in listing2["points"])
+
+
+def test_a_hidden_point_never_uses_the_ais_or_the_findings_words_and_the_hand_revert_fails():
+    hidden_row = row(ai_review_comment="Check against OPEN-100 clause 4.1 as the book says.")
+    p = review_points.rule_point(hidden_row, CTX, FINDING, {}, proof=(False, False))
+    assert p["rule_hidden"] is True and p["rule_text"] is None and p["clause"] is None and p["rule_ref"] is None
+    assert p["action"] == c.HIDDEN_ACTION and p["action_source"] == "hidden"  # not the row's AI-review comment, not the finding's
+    assert "OPEN-100" not in p["action"] and p["ai_reasoning"] == ""
+    proven = review_points.rule_point(hidden_row, CTX, FINDING, {}, proof=(True, True))
+    assert proven["rule_hidden"] is False and proven["action_source"] == "ai_suggestion"
+    # the reference may be withheld while the app's own checklist text stays
+    half = review_points.rule_point(row("datasheet_check", comment="A check.", standard_reference="CLOSED-777 cl. 9.9"), CTX, FINDING, {}, proof=(True, False))
+    assert half["rule_hidden"] is False and half["rule_ref"] is None and half["clause"] is None and half["rule_text"]
+    assert "CLOSED-777" not in str(half["name"])
+    # an AI point of a hidden book drops the AI's free words too
+    line = {"item_id": "R-1", "source": "rule", "standard": "CLOSED-777", "clause": "9.9", "verdict": "Query", "reasoning": "Per CLOSED-777 the rod is wrong.",
+            "standard_document_id": "doc_closed", "quotes_checked": {}}  # fmt: skip
+    ai = review_points.ai_point(line, {"run_id": "r", "paper_document_id": "paper", "book_of": {"R-1": ("doc_closed", "CLOSED-777")}, "readable": frozenset({"paper"})})
+    assert ai["ai_reasoning"] == "" and "CLOSED-777" not in str(review_points.public(ai))

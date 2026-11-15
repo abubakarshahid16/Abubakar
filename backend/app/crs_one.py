@@ -744,7 +744,7 @@ def issuable_text(p: dict) -> str:
         )
     elif p.get("rank") == 1 and d.get("state") == decisions_mod.KEEP:
         # never the AI's suggestion (a stored finding's words that code did not prove); only the check's own comment
-        text = "" if p.get("action_source") == "ai_suggestion" else _clean(p.get("action"))
+        text = "" if p.get("action_source") in ("ai_suggestion", "hidden") else _clean(p.get("action"))
     else:
         return ""
     return (

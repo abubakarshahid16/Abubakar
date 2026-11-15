@@ -7,8 +7,9 @@ import logging
 from pathlib import Path
 
 from . import agent_review_wording as wording
-from . import crs_comments, crs_completeness
 from . import (
+    crs_comments,
+    crs_completeness,
     evidence_boxes,
     review_code_proposal,
 )
@@ -163,6 +164,56 @@ def _sides(finding: dict, scope) -> dict:
     return out
 
 
+def _checklist_origin(finding: dict | None) -> bool:
+    """The finding's text is the app's OWN approved checklist: its stored origin is the datasheet check AND the checklist entry it names is
+    in `reference/datasheet_checks.json`. Proven from stored data; when the entry cannot be found it is not proven (hidden)."""
+    f = finding or {}
+    if f.get("origin") != "datasheet_check":
+        return False
+    import re
+
+    m = re.search(r"\b([A-Z][A-Z0-9]*-[A-Z0-9]+):", str(f.get("requirement_source_text") or ""))
+    return bool(m and _checklist_entry(m.group(1)) is not None)
+
+
+def _ref_state(reference: str, library: list[dict], readable: frozenset[str]) -> str:
+    """How a stored standard reference resolves to the held library: "readable" (it resolves, and EVERY book it resolves to is readable),
+    "unreadable" (it resolves to a book the viewer may not read), "unresolved" (a cited standard that no held book matches) or "none"."""
+    from . import applicability, standard_ids
+
+    text = " ".join(str(reference or "").split())
+    if not text:
+        return "none"
+    state = "readable"
+    for cited in standard_ids.cited_standards(text) or [text]:
+        hits = [
+            e["id"]
+            for e in library
+            if any(standard_ids.same_standard(cited, n) for n in applicability._library_names(e))
+        ]
+        if not hits:
+            return "unresolved"
+        if any(h not in readable for h in hits):
+            state = "unreadable"
+    return state
+
+
+def readability_proof(row: dict, finding: dict | None, docs: list[str], readable: frozenset[str], library: list[dict], everything: bool) -> tuple[bool, bool]:
+    """(content, reference): may this viewer see the requirement-derived CONTENT of a rule-check point, and the stored REFERENCE (a book
+    name)? Fail closed: shown only when readability is PROVEN. A viewer who may read the whole library is not restricted. Linked books: all
+    must be readable. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
+    reference that resolves to readable held books only proves both. Everything else is hidden."""
+    if everything:
+        return True, True
+    if docs:
+        ok = all(d in readable for d in docs)
+        return ok, ok
+    state = _ref_state((row or {}).get("standard_reference"), library, readable)
+    if _checklist_origin(finding):
+        return True, state != "unreadable"
+    return state == "readable", state == "readable"
+
+
 def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
     from . import main as main_mod
 
@@ -182,6 +233,11 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
             )
         ),
     }
+    from .agent_review_rules import library_of
+
+    conn = connect()
+    library = library_of(conn)
+    everything = {r[0] for r in conn.execute("SELECT id FROM documents")} <= ctx["readable"]
     out = []
     for row in rows:
         fid = row.get("finding_id")
@@ -192,8 +248,10 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
         if finding is not None and not scope.may_read(finding["document_id"]):
             finding = None
         sides = _sides(finding, scope) if finding else {}
-        p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding))
-        p["_book_docs"] = _book_docs_of_row(row, finding, p)
+        docs = _book_docs_of_row(row, finding, {})
+        proof = readability_proof(row, finding, docs, ctx["readable"], library, everything)
+        p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding), proof=proof)
+        p["_book_docs"] = docs
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
             bool(row.get("engineer_rejected")),

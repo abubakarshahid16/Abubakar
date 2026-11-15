@@ -134,10 +134,15 @@ def rule_ref(row: dict, finding: dict | None) -> dict:
     return {"name": name, "clause": clause, "page": page}
 
 
-def action_of(row: dict, finding: dict | None, scrub=clean) -> tuple[str, str]:
+HIDDEN_ACTION = "Engineer to check this point: it rests on a rule book you may not read (not named)."
+
+
+def action_of(row: dict, finding: dict | None, scrub=clean, own_only: bool = False) -> tuple[str, str]:
     """(the words of the action, where they come from): the row's own comment; when that is the placeholder, the real words of the AI's
     suggestion that the placeholder points to (the row's AI-review comment, else the finding's required action or its text). source is
     "check" (the check's own comment), "ai_suggestion" (internal only) or ""."""
+    if own_only:  # a hidden point: the fixed sentence only. The check's comment, the AI's and the finding's words can all quote the book
+        return HIDDEN_ACTION, "hidden"
     comment = clean(row.get("comment"))
     if comment and not is_placeholder(comment) and (got := scrub(comment)):
         return got, "check"
