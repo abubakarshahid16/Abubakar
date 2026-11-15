@@ -471,6 +471,16 @@ class Built:
     ] = ()  # (member id, its own verdict word, its field key): what each underlying finding said
 
 
+def same_place(clause: str | None, lead: Checked, base: Mapping) -> bool:
+    """The stored line's clause and page must be a pair code found TOGETHER. A text match is kept only when the finding's clause number (checked
+    against the book's headings: not "not checked") is the rule's own clause, or the rule's own page is the page the quote was verified on."""
+    if lead.clause_page is not None and base.get("clause_page") == lead.clause_page:
+        return True
+    mine = set(standards._clause_keys(str(clause or "")))
+    theirs = set(standards._clause_keys(str(base.get("clause") or "")))
+    return bool(mine & theirs) and CLAUSE_NUMBER_NOT_CHECKED not in lead.notes
+
+
 def build(
     j: Joined,
     *,
@@ -511,6 +521,11 @@ def build(
             None,
             nine_match.Match(None, None, None, nine_match.WHY_FIELD, 1),
         )  # a different field: no match, an F- item
+    if base is not None and not same_place(j.clause, lead, base):
+        base, matched = (
+            None,
+            nine_match.Match(None, None, None, nine_match.WHY_PLACE, 1),
+        )  # the same sentence under another clause on another page: an F- item that keeps ITS OWN clause and page
     if base is not None:
         item = {
             **base,

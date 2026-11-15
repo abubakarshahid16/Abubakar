@@ -308,6 +308,7 @@ def test_the_role_budget_ends_the_reviewer_ran_partly_and_the_checklist_asks_wha
     plan = {
         "R-1": {
             "item_id": "R-1",
+            "clause_page": 4,
             "source": "rule",
             "field_roles": ["coating_thickness"],
         },
