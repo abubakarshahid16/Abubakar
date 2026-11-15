@@ -250,6 +250,35 @@ def _no_test_reaches_past_loopback():
         pytest.fail("this test tried to leave the machine: " + "; ".join(attempts))
 
 
+@pytest.fixture(autouse=True)
+def _no_test_reaches_the_real_local_model(monkeypatch):
+    """No test may talk to a REAL Ollama on this machine (V2, 15 Nov).
+
+    `ollama_url` is pinned to http://127.0.0.1:11434 and the network guard lets loopback through, so on a developer Mac
+    that runs Ollama a test that reaches the model transport without a fake REALLY called the model: a 22 GB model was
+    found loaded for 5 hours after a full run. In CI nothing listens there, so the same tests already see a refused
+    connection; this makes a developer machine see the same. The REAL transport is refused (httpx.MockTransport and the
+    tests' own fakes of model_transport are untouched). Set ALLOW_REAL_LOCAL_MODEL_IN_TESTS=1 to turn the guard off on
+    purpose.
+    """
+    import os
+
+    if os.environ.get("ALLOW_REAL_LOCAL_MODEL_IN_TESTS") == "1":
+        yield
+        return
+    import httpx
+
+    real = httpx.HTTPTransport.handle_request
+
+    def handle(self, request):
+        if request.url.port == 11434:
+            raise httpx.ConnectError("a test may not reach the real local model (conftest guard)", request=request)
+        return real(self, request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle)
+    yield
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _the_model_tier_is_off_unless_a_test_asks_for_it():
     """Pin `match_enabled` off for the suite, for the same reason as above.

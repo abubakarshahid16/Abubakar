@@ -13,11 +13,12 @@ import { NOT_AGENT_RULES, RulesUsedPanel, RulesUsedView } from "./RulesUsedPanel
 
 const rulesUsed = vi.fn();
 const summaryFn = vi.fn();
+const which = vi.fn();
 vi.mock("../../../api/agentReview", () => ({
-  agentReview: { rulesUsed: (...a: unknown[]) => rulesUsed(...a), summary: (...a: unknown[]) => summaryFn(...a) },
+  agentReview: { rulesUsed: (...a: unknown[]) => rulesUsed(...a), summary: (...a: unknown[]) => summaryFn(...a), which: (...a: unknown[]) => which(...a) },
   isFeatureOff: (r: { ok: boolean; error?: { code: string } }) => !r.ok && r.error?.code === "not_found",
 }));
-beforeEach(() => { rulesUsed.mockReset(); summaryFn.mockReset().mockResolvedValue({ ok: true, data: { mode: "rule review" } }); });
+beforeEach(() => { which.mockReset().mockImplementation(async (ids: string[]) => ({ ok: true, data: { run_ids: ids } })); rulesUsed.mockReset(); summaryFn.mockReset().mockResolvedValue({ ok: true, data: { mode: "rule review" } }); });
 
 function data(over: Partial<AgentRulesUsed> = {}): AgentRulesUsed {
   return {
@@ -101,6 +102,13 @@ describe("RulesUsedView", () => {
 });
 
 describe("RulesUsedPanel", () => {
+  it("V2: a run with no AI review is told so without asking for the rules or the summary (no 404s)", async () => {
+    which.mockResolvedValue({ ok: true, data: { run_ids: [] } });
+    render(<RulesUsedPanel runId="r1" />);
+    expect(await screen.findByText(NOT_AGENT_RULES)).toBeInTheDocument();
+    expect(rulesUsed).not.toHaveBeenCalled();
+    expect(summaryFn).not.toHaveBeenCalled();
+  });
   it("a review the AI reviewer did not make says so", async () => {
     rulesUsed.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "x" } });
     render(<RulesUsedPanel runId="r1" />);

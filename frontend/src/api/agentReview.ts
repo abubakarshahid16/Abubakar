@@ -48,6 +48,13 @@ const run = (runId: string) => `/reviews/runs/${encodeURIComponent(runId)}`;
 
 export const agentReview = {
   status: () => request<AgentStatus>("/reviews/agent-status"),
+  /** Which of these runs (at most 100) have an AI review: one question, no 404 per run that has none. */
+  which: (runIds: string[]) =>
+    request<{ run_ids: string[] }>(
+      `/reviews/agent-runs?ids=${runIds.slice(0, 100).map(encodeURIComponent).join(",")}`,
+      undefined,
+      (b) => isObject(b) && Array.isArray(b.run_ids),
+    ),
   summary: (runId: string) => request<AgentRunSummary>(`${run(runId)}/agent/summary`, undefined, hasSummaryShape),
   lines: (runId: string, cursor?: string | null) =>
     request<AgentLineList>(

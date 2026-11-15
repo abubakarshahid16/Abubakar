@@ -70,6 +70,8 @@ def _ensure_tables() -> None:
                               "INTEGER NOT NULL DEFAULT 0")
         add_column_if_missing(conn, "deliverable_expectations",
                               "source_document_id", "TEXT")
+        # V2: the page of the source passage an inferred expectation came from (null for rows made before this).
+        add_column_if_missing(conn, "deliverable_expectations", "source_page", "INTEGER")
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverable_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
@@ -206,8 +208,9 @@ def expected_missing(*, wbs_code: str | None = None,
         join_scope = f" AND (d.org_wide = 1 OR d.document_id IN ({marks}))"
         args.extend(sorted(allowed_document_ids))
         where.append(f"(e.source_document_id IS NULL OR e.source_document_id IN ({marks}))")
-    sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
-          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type" + join_scope
+    sql = "SELECT e.*, d.id AS deliverable_id, d.status, s.filename AS source_name FROM deliverable_expectations e " \
+          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type" + join_scope + \
+          " LEFT JOIN documents s ON s.id = e.source_document_id"
     if allowed_document_ids is not None:
         args.extend(sorted(allowed_document_ids))
     if wbs_code:
@@ -247,9 +250,9 @@ def infer_expectations(*, allowed_document_ids: frozenset[str] | None = None) ->
         lowered=text.lower()
         deliverable_type = "drawing" if "drawing" in lowered else "report" if "report" in lowered else "engineering submittal"
         title = f"Inferred {deliverable_type} requirement"
-        item={"wbs_code": wbs.group(1), "deliverable_type": deliverable_type, "title": title, "required": 1, "inferred": 1, "source_document_id": row["document_id"], "id": str(uuid.uuid4()), "created_at": _now()}
+        item={"wbs_code": wbs.group(1), "deliverable_type": deliverable_type, "title": title, "required": 1, "inferred": 1, "source_document_id": row["document_id"], "source_page": row["page_start"], "id": str(uuid.uuid4()), "created_at": _now()}
         with connect() as conn:
-            conn.execute("""INSERT INTO deliverable_expectations(id,wbs_code,deliverable_type,title,required,inferred,source_document_id,created_at) VALUES (:id,:wbs_code,:deliverable_type,:title,:required,:inferred,:source_document_id,:created_at) ON CONFLICT(wbs_code,deliverable_type) DO UPDATE SET inferred=1, source_document_id=excluded.source_document_id""", item)
+            conn.execute("""INSERT INTO deliverable_expectations(id,wbs_code,deliverable_type,title,required,inferred,source_document_id,source_page,created_at) VALUES (:id,:wbs_code,:deliverable_type,:title,:required,:inferred,:source_document_id,:source_page,:created_at) ON CONFLICT(wbs_code,deliverable_type) DO UPDATE SET inferred=1, source_document_id=excluded.source_document_id, source_page=excluded.source_page""", item)
         results.append(item)
     return results
 

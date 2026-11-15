@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from .. import (
     access,
@@ -36,6 +36,7 @@ from .. import (
     agent_review_schema,
     agent_review_text,
     crs_ai_workbook,
+    crs_copy_words,
     agent_review_wording,
     errors,
     review_jobs,
@@ -102,6 +103,34 @@ def agent_status(request: Request):
     return contract.AgentStatus(
         enabled=True, claude_lane_open=agent_review_gate.claude_lane_open()
     )
+
+
+class AgentRunsAmong(BaseModel):
+    """Which of the asked runs have an AI review the caller may read."""
+
+    run_ids: list[str]
+
+
+@router.get("/api/reviews/agent-runs", response_model=AgentRunsAmong, responses=schemas.ERRORS_422)
+def agent_runs_among(
+    request: Request,
+    ids: str = Query(..., max_length=4000, description="run ids, comma separated (at most 100)"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Which of these runs have an AI review (V2). A list page used to ask every run for its AI summary and got a 404 for
+    each run that has none: 15 failed requests on one page. One question, no failures. Runs the caller may not read are
+    left out like runs that have no AI review, so the answer says nothing about them."""
+    reject_unknown_params(request, {"ids"})
+    asked = list(dict.fromkeys(i for i in (x.strip() for x in ids.split(",")) if i))[:100]
+    conn = connect()
+    if not asked or not agent_review_schema.has_tables(conn):
+        return {"run_ids": []}
+    marks = ",".join("?" for _ in asked)
+    rows = conn.execute(
+        f"SELECT run_id, submittal_document_id FROM agent_review_run WHERE run_id IN ({marks})", asked).fetchall()
+    allowed = scope.allowed_document_ids
+    found = {r["run_id"] for r in rows if allowed is None or r["submittal_document_id"] in allowed}
+    return {"run_ids": [i for i in asked if i in found]}
 
 
 @router.post(
@@ -532,10 +561,11 @@ def agent_trace(
 def agent_crs(
     review_run_id: str,
     request: Request,
-    copy: Literal["internal", "contractor"] = Query(...),
+    copy: str = Query(..., description="internal or company; contractor or issue"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"copy"})
+    copy = crs_copy_words.agent_copy(copy)  # V2: one set of copy words on every CRS route
     _run_or_404(review_run_id, scope)
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():
