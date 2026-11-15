@@ -23,6 +23,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import nine_call
 from .nine_chapters import (
     CLAUDE_BOOK_TOKENS,
     CLAUDE_REVIEW_TOKENS,
@@ -391,15 +392,55 @@ def produced(reading: ReadingList) -> dict:
     }
 
 
-def titles_question(titles: Sequence[tuple[str, str, str]]) -> str:
-    """The one question of the model step: only titles, and the answer shape."""
-    lines = "\n".join(f"{b}|{c}|{t}" for b, c, t in titles)
-    return (
-        "Below are chapter titles of rule books, one per line as book|chapter|title. Name the chapters, from this list only, that apply to "
-        "a datasheet review of the equipment the paper describes and are not covered by the chapters already chosen. Answer with JSON only: "
-        '{"chapters": [["book", "chapter"], ...]}. Use the book and chapter exactly as written.\n'
-        + lines
+QUESTION_ID = nine_call.template(
+    "nine_librarian_titles",
+    "The derived block lists chapter titles of rule books, one per row as book | chapter | title. Name the chapters, from this list "
+    "only, that apply to a datasheet review of the equipment the paper describes and are not covered by the chapters already chosen. "
+    'Answer with JSON only: {{"chapters": [["book", "chapter"], ...]}}. Use the book and chapter exactly as written.',
+)
+#: the titles go as ONE derived block of kind review_record (rows of short tokens), sources = the books the titles come from, so the
+#: seam gates every book; the heading pages are not sent as blocks (a title is a short token, a page is a chapter's words).
+BLOCK_NAME = "chapter_titles"
+TOKEN = nine_call.MAX_TOKEN_CHARS
+
+
+def titles_block(titles: Sequence[tuple[str, str, str]]) -> nine_call.Block | None:
+    """The titles as a derived block: rows (book, chapter, title), each a one-line token of 60 characters at most (a title is cut to
+    that; a row whose book or chapter id is longer is left out), at most the seam's digest size. None when no row remains."""
+    rows, used = [], 0
+    for book, chapter, title in titles:
+        t = re.sub(r"\s+", " ", title).strip()[:TOKEN].strip()
+        row = (book, chapter, t)
+        if not t or any(len(c) > TOKEN for c in row) or book != book.strip():
+            continue
+        cost = sum(len(c) + 3 for c in row)
+        if used + cost > nine_call.MAX_DERIVED_CHARS:
+            break
+        rows.append(row)
+        used += cost
+    if not rows:
+        return None
+    return nine_call.Block(
+        nine_call.DERIVED_KIND,
+        name=BLOCK_NAME,
+        sources=tuple(sorted({r[0] for r in rows})),
+        items=tuple(rows),
     )
+
+
+def seam_ask(run_id: str, *, engine: str | None = None, **seam):
+    """The adapter `extend_with_model` takes: ONE call of role 3 through `nine_call.ask`. A refused or failed call: None (the code list stands)."""
+
+    def ask(titles: Sequence[tuple[str, str, str]]):
+        block = titles_block(titles)
+        if block is None:
+            return None
+        got = nine_call.ask(
+            run_id, 3, [block], (QUESTION_ID, {}), engine=engine, **seam
+        )
+        return parse_choice(got.text) if got.ok else None
+
+    return ask
 
 
 def parse_choice(text: str | None) -> list[tuple[str, str]]:
@@ -474,6 +515,7 @@ __all__ = [
     "parse_choice",
     "plan_reading",
     "produced",
+    "seam_ask",
+    "titles_block",
     "titles_for_model",
-    "titles_question",
 ]

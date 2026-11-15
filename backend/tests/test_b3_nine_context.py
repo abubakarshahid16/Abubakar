@@ -3,7 +3,7 @@
 from app import nine_context as nc
 
 PG = "The vessel shall be designed for a corrosion allowance of three millimetres on all wetted parts."
-STD = "Welding shall follow standard ZX-100 for all pressure parts."
+STD = "Welding shall follow API 610 for all pressure parts."
 
 
 def paper(did, kind, shown=True, accessible=True, register=False, pages=None):
@@ -50,13 +50,13 @@ def test_nothing_held_gives_five_lines_and_no_call():
 
 
 def test_unfound_quote_is_dropped_and_found_quote_kept():
-    def ask(doc, chunk):
+    def ask(paper, pages):
         return {
             "standards": [
                 {
-                    "name": "ZX-100",
+                    "name": "API 610",
                     "page": 1,
-                    "quote": "Welding shall follow standard ZX-100",
+                    "quote": "Welding shall follow API 610",
                 },
                 {
                     "name": "QQ-9",
@@ -81,9 +81,9 @@ def test_unfound_quote_is_dropped_and_found_quote_kept():
     note, tally = go(
         [paper("d1", nc.KIND_SPEC)],
         ask,
-        library=[{"id": "b1", "document_number": "ZX-100"}],
+        library=[{"id": "b1", "document_number": "API 610"}],
     )
-    assert [s.name for s in note.standards] == ["ZX-100"]
+    assert [s.name for s in note.standards] == ["API 610"]
     assert (
         note.standards[0].held
         and note.standards[0].book_id == "b1"
@@ -180,14 +180,14 @@ def test_no_client_words_in_source():
 
 
 def test_a_name_not_in_its_quote_and_a_subject_not_in_its_quote_are_dropped():
-    def ask(doc, chunk):
+    def ask(paper, pages):
         return {
             "standards": [
                 # the reviewer's probe: a name the paper never mentions, with an unrelated TRUE sentence from the page
                 {
                     "name": "WX-777",
                     "page": 1,
-                    "quote": "Welding shall follow standard ZX-100 for all pressure parts.",
+                    "quote": "Welding shall follow API 610 for all pressure parts.",
                 },
             ],
             "overrides": [
@@ -227,3 +227,57 @@ def test_an_unscored_related_paper_is_not_read_under_automatic_but_under_claude(
     p = nc.ProjectPaper("r1", nc.KIND_RELATED, {1: STD}, True, True, False, False)
     assert nc.admit([p], engine="automatic").readable == ()
     assert nc.admit([p], engine="claude").readable == (p,)
+
+
+def _kept(name, quote, subject=None):
+    pages = {1: quote}
+    p = nc.ProjectPaper("d1", nc.KIND_SPEC, pages, True, True)
+    raw = {"standards": [{"name": name, "page": 1, "quote": quote}]}
+    if subject:
+        raw = {"overrides": [{"subject": subject, "page": 1, "quote": quote}]}
+    standards, overrides, _t = nc.read_papers([p], lambda *a: raw, [], engine="claude")
+    return standards or overrides
+
+
+def test_a_standard_is_kept_only_when_its_quote_cites_it_by_whole_tokens():
+    assert not _kept(
+        "API", "A rapid test of the flow was run on site"
+    )  # "api" inside "rapid"
+    assert not _kept(
+        "ISO", "The isolation valve is closed during work"
+    )  # "iso" inside "isolation"
+    assert not _kept(
+        "610", "The pressure shall be 1610 kPa at the inlet"
+    )  # "610" inside "1610"
+    assert not _kept(
+        "API 610", "The rapid 610 mm flow is measured daily"
+    )  # the two parts apart
+    assert _kept(
+        "API 610", "The pump shall follow API 610 for its design"
+    )  # a true citation
+    assert _kept(
+        "API Std 610", "The pump shall follow API 610 for its design"
+    )  # another spelling, same standard
+
+
+def test_an_override_needs_whole_words_and_an_anchor_that_common_words_cannot_give():
+    common = "The vessel shall be painted with the approved colour on all outer parts"
+    assert not _kept(
+        "", common, subject="painted colour outer parts"
+    )  # whole words but no anchor
+    assert not _kept(
+        "", "The design pressure is shown elsewhere", subject="pressure designs"
+    )  # not a whole word
+    assert _kept(
+        "",
+        "The design pressure shall be 12 bar at the inlet",
+        subject="design pressure",
+    )  # a field name of the app
+    assert _kept(
+        "",
+        "Clause 4.2.1 requires the outer parts to be painted",
+        subject="painted parts",
+    )  # a clause number
+    assert _kept(
+        "", "Per API 610 the outer parts shall be painted", subject="painted parts"
+    )  # a standard citation
