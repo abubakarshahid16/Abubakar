@@ -458,3 +458,16 @@ def test_the_runner_of_a_resumed_run_never_takes_the_code_lines_as_its_own():
     assert (
         set(run_mod.runner_done(stored)) == {"R-1"}
     )  # a code line has no plan item: re-capping it would turn a proven line into a Query
+
+
+def test_the_run_counts_carry_how_the_presence_checks_came_out(world, on):
+    frame_item()
+    fact()
+    run_id, job_id = start()
+    run_job(job_id)
+    note = outcome(run_id)["calculator"]
+    keys = ("presence_checked", "presence_stated", "presence_missing")
+    assert all(isinstance(note[k], int) for k in keys)
+    assert (
+        note["presence_checked"] == note["presence_stated"] + note["presence_missing"]
+    )

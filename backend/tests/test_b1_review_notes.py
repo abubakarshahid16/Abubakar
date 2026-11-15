@@ -288,3 +288,57 @@ def test_a_model_question_and_a_code_proof_failure_are_not_pulled_into_a_code_gr
     model = rp.ai_point(mk("R-1", "Query", None, why="x y"), ctx)
     assert model["group_key"] is None  # no book, no clause: never grouped (as before)
     assert rp.code_question_key(mk("R-1", "Query", None, why="x y")) is None
+
+
+# ---------------------------------------------------------------------------------------- the checks that are only "stated" are summed in ONE point
+
+
+def test_the_presence_summary_is_one_internal_point_with_the_counts():
+    from app import review_points_notes as N
+
+    calc = {"presence_checked": 81, "presence_stated": 70, "presence_missing": 11}
+    got = N.presence_point("run1", calc)
+    assert (
+        got["id"] == "note:run1:presence"
+        and got["rank"] == 4
+        and got["tile"] == "questions"
+        and got["firm"] is None
+    )
+    assert (
+        "81 fields are only checked as stated (not compared): stated 70, missing 11"
+        in got["action"]
+    )
+    assert (
+        N.presence_point(
+            "r", {"presence_checked": 0, "presence_stated": 0, "presence_missing": 0}
+        )
+        is None
+    )
+    assert (
+        N.presence_point("r", None) is None
+        and N.presence_point("r", {"presence_checked": "x"}) is None
+    )
+
+
+def test_the_run_counts_carry_the_presence_numbers_and_the_list_shows_the_summary(
+    monkeypatch,
+):
+    doc, ai, client = world()
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_run SET counts_json = ? WHERE run_id = ?",
+            (
+                json.dumps(
+                    {
+                        "calculator": {
+                            "presence_checked": 4,
+                            "presence_stated": 3,
+                            "presence_missing": 1,
+                        }
+                    }
+                ),
+                ai,
+            ),
+        )
+    got = [p for p in notes(points_of(client, doc)) if p["id"].endswith(":presence")]
+    assert len(got) == 1 and "4 fields are only checked as stated" in got[0]["action"]

@@ -182,7 +182,7 @@ def _numeric_lines(
 
 
 def _checklist_lines(
-    facts, stored, pages, tables, submittal, kind, tier_lookup
+    facts, stored, pages, tables, submittal, kind, tier_lookup, presence
 ) -> list[dict]:
     """The approved checklist, PER TAG GROUP; a group-level result (no fact) is named by its group."""
     from . import checklist_scope, degraded_read
@@ -196,6 +196,7 @@ def _checklist_lines(
         results = [
             {**r, "equipment_tag": r.get("equipment_tag") or key} for r in results
         ]
+        presence.update(calc.presence_counts(results))
         for line in calc.checklist_lines(
             results,
             page_texts=pages,
@@ -238,7 +239,10 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
         unpaired,
         submittal,
     )
-    made += _checklist_lines(facts, stored, pages, tables, submittal, kind, tier_lookup)
+    presence: Counter = Counter()
+    made += _checklist_lines(
+        facts, stored, pages, tables, submittal, kind, tier_lookup, presence
+    )
     for (
         line
     ) in made:  # stored BEFORE the first reader call: a run that stops early keeps them
@@ -252,6 +256,9 @@ def _run(conn, submittal, kind, plan, *, store, tier_lookup) -> tuple[list[dict]
         "rules_considered": considered,
         "pairs": paired,
         "not_paired": dict(unpaired),
+        "presence_checked": presence["presence_checked"],
+        "presence_stated": presence["presence_stated"],
+        "presence_missing": presence["presence_missing"],
         "by_class": dict(Counter(ln.get("verdict_class") for ln in made)),
         "reasons": dict(
             Counter(

@@ -18,6 +18,7 @@ no document text is logged.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 
 from . import review_points as rp
@@ -72,6 +73,28 @@ def pages_point(
     )
 
 
+def presence_point(run_id: str, calc: dict | None) -> dict | None:
+    """ONE summary of the fields the checklist only checks as STATED (not compared): how many were stated and how many missing (each missing one is already its
+    own question). Information for the engineer, internal copy, never a verdict; none when the run recorded no such check."""
+    calc = calc if isinstance(calc, dict) else {}
+    checked, stated, missing = (
+        calc.get(k) for k in ("presence_checked", "presence_stated", "presence_missing")
+    )
+    if not (
+        isinstance(checked, int)
+        and checked > 0
+        and isinstance(stated, int)
+        and isinstance(missing, int)
+    ):
+        return None
+    return _point(
+        f"note:{run_id}:presence",
+        "Fields only checked as stated",
+        f"{checked} fields are only checked as stated (not compared): stated {stated}, missing {missing}. A field that is stated is not shown as met; "
+        "each missing one is its own question in this list.",
+    )
+
+
 def missing_book_points(run_id: str, names: list[str]) -> list[dict]:
     """One point per rule book the review wanted and the library does not hold."""
     out = []
@@ -79,7 +102,7 @@ def missing_book_points(run_id: str, names: list[str]) -> list[dict]:
         clean = rp._plain(name)
         if not clean:
             continue
-        key = hashlib.sha1(clean.lower().encode("utf-8")).hexdigest()[:10]  # noqa: S324 - an id, not a secret
+        key = hashlib.sha1(clean.lower().encode("utf-8")).hexdigest()[:10]
         out.append(
             _point(
                 f"note:{run_id}:book:{key}",
@@ -136,6 +159,25 @@ def notes_of_run(run_id: str, paper_id: str, scope, not_held: list[str]) -> list
             _failed(run_id, "pages-read record", exc)
         )  # logged by type in _failed
     out.extend(missing_book_points(run_id, not_held))
+    try:
+        from .db import connect
+
+        row = (
+            connect()
+            .execute(
+                "SELECT counts_json FROM agent_review_run WHERE run_id = ?", (run_id,)
+            )
+            .fetchone()
+        )
+        if point := presence_point(
+            run_id,
+            (json.loads(row["counts_json"] or "{}") if row else {}).get("calculator"),
+        ):
+            out.append(point)
+    except Exception as exc:  # noqa: BLE001 - an unreadable count is said, never "nothing was only stated"
+        out.append(
+            _failed(run_id, "presence summary", exc)
+        )  # logged by type in _failed
     try:
         check = applicability.standards_check(
             paper_id, allowed_document_ids=frozenset(scope.allowed_document_ids)

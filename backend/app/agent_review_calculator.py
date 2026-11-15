@@ -301,6 +301,22 @@ def _checklist_base(
     }
 
 
+def presence_counts(results: list[Mapping]) -> dict:
+    """How the checks that only ask a field be STATED came out: checked, stated (they make no line), missing (each is already its own Query line)."""
+    only = approved_code.presence_only_ids()
+    mine = [
+        r
+        for r in results
+        if r.get("rule_id") in only and r.get("status") != comparison.NOT_APPLICABLE
+    ]
+    stated = sum(1 for r in mine if r.get("status") == COMPLIANT)
+    return {
+        "presence_checked": len(mine),
+        "presence_stated": stated,
+        "presence_missing": len(mine) - stated,
+    }
+
+
 def checklist_lines(
     results: list[Mapping],
     *,

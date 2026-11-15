@@ -759,3 +759,23 @@ def test_12_a_field_that_stands_only_after_the_figure_is_not_the_subject():
             "The design pressure shall not exceed 90 dB(A).", "design_pressure"
         )
     )
+
+
+def test_11_the_presence_counts_say_how_many_were_stated_and_how_many_are_missing():
+    results = [
+        _result("PSV-06"),
+        _result("PSV-06"),
+        _result("PSV-06", "MISSING_INFORMATION"),
+        _result("PSV-06", "NOT_APPLICABLE"),
+        _result("PSV-16"),
+    ]  # PSV-16 is a compared check
+    assert calc.presence_counts(results) == {
+        "presence_checked": 3,
+        "presence_stated": 2,
+        "presence_missing": 1,
+    }
+    assert calc.presence_counts([]) == {
+        "presence_checked": 0,
+        "presence_stated": 0,
+        "presence_missing": 0,
+    }

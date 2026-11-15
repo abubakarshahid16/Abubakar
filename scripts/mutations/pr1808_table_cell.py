@@ -65,4 +65,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="another approved field of the list in the same sentence no longer makes the subject doubtful (R48i 2)",
              path=_P, anchor="    if not guards._carries(sent, [field]) or guards._other_field_words(sent, [field]):\n", replacement="    if not guards._carries(sent, [field]):\n",
              target="tests/test_b1_calculator_proof.py", keyword="test_12", tags=_TAGS),
+    Mutation(id="M1808-20", phase=1808,
+             description="the presence summary counts every stated check as missing: the point says a wrong number of fields were stated (R48k)",
+             path=APP / "agent_review_calculator.py", anchor='        "presence_stated": stated,\n        "presence_missing": len(mine) - stated,\n',
+             replacement='        "presence_stated": 0,\n        "presence_missing": len(mine),\n',
+             target="tests/test_b1_calculator_proof.py", keyword="presence_counts", tags=_TAGS),
 )
