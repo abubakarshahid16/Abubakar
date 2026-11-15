@@ -345,11 +345,16 @@ _PLACEHOLDER = re.compile(r"(?<!\{)\{([a-z][a-z0-9_]*)\}(?!\})")
 
 
 def template(template_id: str, text: str, **params: str) -> str:
-    """Register the FIXED words of a question or system prompt. `params` maps each `{name}` placeholder of `text` to its kind, all typed:
-    `id` (letters, digits, `_ . : -`, 64 at most), `int` (a count), `role` (a lower-case name), `code` (a short code, 11 characters or
-    fewer), `clause` (a clause number), `number`, `unit` (a short unit) or `standard` (one standard id read by `standard_ids`). There is
-    no free-text kind. Called by a role module at import. The same id with other words is refused. Returns the id."""
-    if not _ID.match(template_id) or len(text) > MAX_TEMPLATE_CHARS:
+    """Register the FIXED words of a question or system prompt. `params` maps each `{name}` placeholder of `text` to its typed kind: `id`
+    (an id the app issued), `int`, `role`, `clause`, `number`, `unit`, `standard` or `vocab:<registered vocabulary>`; there is no free-text
+    kind. Called by a role module at import with a string literal, before `freeze`: a later call raises (a template is free text that goes
+    into every body). The same id with other words is refused. Returns the id."""
+    _closed()
+    if (
+        not isinstance(text, str)
+        or not _ID.match(template_id)
+        or len(text) > MAX_TEMPLATE_CHARS
+    ):
         raise NineCallError(
             "a template has an id of letters and digits and words under 20,000 characters"
         )

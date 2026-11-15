@@ -940,6 +940,10 @@ def test_registrations_are_refused_once_the_registries_are_frozen_and_are_capped
         ):
             with pytest.raises(nine_call.NineCallError):
                 late()
+        with pytest.raises(
+            nine_call.NineCallError
+        ):  # a template registered at run time could carry document text
+            nine_call.template("t_late_template", "words {v}", v="id")
         # a cell of a vocabulary that could not be registered at run time is refused, however it is interleaved with numbers
         block = Block(
             "review_record",
