@@ -779,3 +779,58 @@ def test_11_the_presence_counts_say_how_many_were_stated_and_how_many_are_missin
         "presence_stated": 0,
         "presence_missing": 0,
     }
+
+
+# ---------------------------------------------------------------------------------------- 13 (lead B): a deferred value may be a proven FAIL by its stated figure, never a proven Pass
+
+
+def _deferred(raw, note="By Contractor, as per Code"):
+    text = f"Noise level {raw} dB(A) {note}"
+    return line(raw, page_text=text, source_text=text, value_note=note)
+
+
+def test_13_a_stated_figure_that_breaches_its_limit_is_a_proven_fail_in_plain_words():
+    ln = _deferred("95")
+    out = exit_of(ln)
+    assert (out["verdict"], out["verdict_class"]) == ("Fail", "Proven by code") and ln[
+        "deferred_note"
+    ].startswith("By Contractor")
+    words = ln["compare"]["reason"]
+    assert (
+        "the sheet marks this value as by the contractor" in words
+        and "the figure stated is 95 dB(A)" in words
+        and "which breaches <= 90 dB(A)" in words
+    )
+
+
+def test_13_a_deferred_figure_within_its_limit_is_a_question_never_a_pass():
+    ln = _deferred("85")
+    assert ln["verdict"] == "Query" and ln["reason_code"] == "deferred_value"
+    assert (
+        "defers Noise level to the contractor: confirm the value" in ln["why"]
+        and exit_of(ln)["verdict_class"] != "Proven by code"
+    )
+
+
+def test_13_a_plain_value_is_unchanged_and_a_deferred_pass_is_demoted_at_the_exit():
+    assert proven(line("85")) and proven(line("95"))
+    fail = _deferred("95")
+    forged = {
+        **fail,
+        "verdict": "Pass",
+        "compare": {"decided": True, "verdict": "meets", "reason": ""},
+    }
+    assert exit_of(forged)["verdict"] == "Query"  # the line says it is deferred
+    no_note = {k: v for k, v in forged.items() if k != "deferred_note"}
+    assert exit_of(no_note)["verdict"] == "Query"  # and so does the page the line names
+
+
+def test_13_a_deferral_phrase_beside_the_figure_on_the_page_demotes_a_forged_pass(
+    _pages,
+):
+    good = line("85")
+    assert proven(good)
+    _pages[("doc1", 1)] = (
+        "Noise level 85 dB(A) TBA vendor to advise"  # what the store holds now
+    )
+    assert exit_of(good)["verdict_class"] != "Proven by code"
