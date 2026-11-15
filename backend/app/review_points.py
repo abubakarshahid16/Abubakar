@@ -88,7 +88,7 @@ SOURCE_WORDS = {
 }
 NO_PAPER_QUOTE = "No verified quote from the paper for this point."
 NO_CLAUSE_QUOTE = "No verified quote from the rule book clause for this point."
-NO_BOOK_ACCESS = "The rule book is not one you may read, so its text is not shown."
+NO_BOOK_ACCESS = "Not shown: the rule book is not one you may read, or the point is not linked to a held rule book."
 PAPER_CHECK = "Checked by code: found on the page."
 CLAUSE_CHECK = "Checked by code: found in the clause."
 CLAUSE_CHECK_CUT = "Checked by code against the clause text read from the rule book; its pages were not searched for this quote."

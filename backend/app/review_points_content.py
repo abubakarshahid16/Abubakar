@@ -17,7 +17,7 @@ PLACEHOLDER = "AI suggestion awaiting an engineer's decision"
 NOTHING = "nothing recorded for this point"
 NOT_VERIFIED = "not verified by code"
 NO_RULE_CITED = "no rule book cited: a field check"
-UNREADABLE_BOOK = "a rule book you may not read (not named)"
+UNREADABLE_BOOK = "not shown: not a rule book you may read, or not linked to a held one (not named)"
 AI_SUGGESTION = "the AI's suggestion (internal; not issued to the contractor until an engineer confirms it)"
 
 #: "Checked by": which part of the review raised the point.
@@ -78,7 +78,7 @@ def _head(text: str, words: int = 9) -> str:
     return " ".join(parts[:words]) + (" ..." if len(parts) > words else "")
 
 
-HIDDEN_FIELD = "a requirement of a rule book you may not read"
+HIDDEN_FIELD = "a requirement not shown: its rule book is not one you may read, or the point is not linked to a held rule book"
 
 
 def field_of(section_tail: str, row: dict, finding: dict | None, allow_rule: bool = True) -> str:
