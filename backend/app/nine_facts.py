@@ -318,10 +318,11 @@ def digest(sheet: FactSheet, max_chars: int = 8000) -> str:
 
 # ------------------------------------------------------------------ the digest as a DERIVED block for the seam
 
+
 #: the app's own vocabularies, fixed at import (`nine_call.vocabulary`): the field keys of the reference data (+ "unknown" for a value no role names), the
 #: states of a fact, and the form of a tag the paper does not print as the sheet has it
-_ROLE_KEYS = frozenset(datasheet_checks.load_rules()["roles"])
-FIELD_KEYS = nine_call.vocabulary("nine_field_keys", [*_ROLE_KEYS, "unknown"])
+_ROLE_WORDS = frozenset(datasheet_checks.load_rules()["roles"])
+FIELD_KEYS = nine_call.vocabulary("nine_field_keys", [*_ROLE_WORDS, "unknown"])
 STATES = nine_call.vocabulary(
     "nine_fact_states",
     ["agreed", "conflict", "ai_only", "stored_only", "needs_engineer", "stale"],
@@ -331,6 +332,13 @@ TAG_FORMS = nine_call.vocabulary("nine_tag_forms", ["none", "not_printed"])
 #: vocabularies above. Value as printed and the TAG are DOCUMENT TEXT: kind `source`, found in the paper's own stored text. The page: a number.
 #: Two blocks: facts WITH a tag printed on the paper (a `source` tag column), and facts without one (a tag-form word: "none", or "not_printed" when the
 #: sheet has a tag the page does not print in that spelling).
+#: fact ids are ids the app issued: an id cell is accepted only when this lookup finds it among the facts STORED for this run (`store` first, then build the
+#: digest blocks). Registered at import; `nine_call.freeze()` closes the registries at app start, so this module must be imported by then.
+FACT_ID = nine_call.id_source(
+    "nine_fact_sheet",
+    r"f:\d{1,9}(:\d{1,9}){0,3}",
+    "SELECT 1 FROM agent_review_fact WHERE run_id = ? AND fact_id = ?",
+)
 TAGGED_KINDS = (
     "id",
     f"vocab:{FIELD_KEYS}",
@@ -366,7 +374,7 @@ def fold_text(text: object) -> str:
 def digest_blocks(
     sheet: FactSheet, pages: Mapping[int, str]
 ) -> tuple[list[nine_call.Block], dict[str, int]]:
-    """The fact sheet for the later roles as DERIVED blocks of the seam (`review_record`, the paper its only source): a row per fact that is not stale and
+    """(Call AFTER `store`: the seam looks each fact id up among this run's stored facts.) The fact sheet for the later roles as DERIVED blocks of the seam (`review_record`, the paper its only source): a row per fact that is not stale and
     has a value the page prints. Conflicts stay in, with the state "conflict", so no later role takes them for a value. Returns (the blocks, counts:
     rows per block and the facts left out because the page does not print the value)."""
     tagged: list[tuple[str, ...]] = []
@@ -379,7 +387,7 @@ def digest_blocks(
         if shown is None:
             left_out += 1
             continue
-        key = f.field_role if f.field_role in _ROLE_KEYS else "unknown"
+        key = f.field_role if f.field_role in _ROLE_WORDS else "unknown"
         head = (f.fact_id, key, shown, str(f.page))
         if (
             f.tag
