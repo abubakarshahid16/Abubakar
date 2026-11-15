@@ -17,7 +17,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 from . import (
     agent_review_calculator_cells as cells_mod,
@@ -126,7 +126,7 @@ def merge(
     read: Sequence[Mapping],
     pages: Mapping[int, str],
     *,
-    read_source: str = "ai_text",
+    picture_pages: Collection[int] = (),
     model: str | None = None,
     tables: Mapping[int, list] | None = None,
     rules: Mapping | None = None,
@@ -137,7 +137,15 @@ def merge(
     stale = [f for f in stored if not reader_mod.is_current(f, pages)]
     n_stale = len(stale)
     cur = [_stored_shape(f, i) for i, f in enumerate(current)]
-    ais = [dict(f, kind=f.get("kind") or "offered") for f in read]
+    # a read value counts only when its quote is on the page it names: checked HERE, so no caller can hand in an unverified reading
+    ais = [
+        dict(f, kind=f.get("kind") or "offered")
+        for f in read
+        if form_reader.quote_on_page(
+            str(f.get("quote") or ""), pages.get(f.get("page") or 0, "")
+        )
+    ]
+    unverified = len(read) - len(ais)
     cells = (
         _cell_refs(cur + [_read_shape(f, i) for i, f in enumerate(ais)], tables or {})
         if tables
@@ -186,7 +194,7 @@ def merge(
             quote_verified=True,
             tag=a.get("tag"),
             cell_ref=ai_cell.get(id(a)),
-            source=read_source,
+            source="ai_picture" if page in picture_pages else "ai_text",
             state=state,
             sha=reader_mod.page_sha(pages.get(page, "")),
             model=model,
@@ -209,24 +217,31 @@ def merge(
     counts = {
         **counts,
         "stale": n_stale,
+        "unverified_dropped": unverified,
         "conflict_facts": sum(f.state == "conflict" for f in out),
     }
     return tuple(out), counts
 
 
 def _cross_page(facts: list[Fact]) -> list[Fact]:
-    """The same field of one tag printed with two different values on the paper (on one page or two): every one of those values is `conflict`.
-    Code compares; the engineer decides which is meant. The field is the registry's role when code found one, else the printed label."""
-    groups: dict[tuple[str, str], list[int]] = {}
+    """The same field printed with two different values on the paper (one page or two): both are `conflict`, UNLESS both values stand under different KNOWN tags
+    (`agent_review_calculator_cells.other_tags`: both tagged, identifiers that do not overlap). A value with no tag, a tag list, or a tag that starts like the
+    other's is never "another tag". Code compares; the engineer decides which is meant. The field is the registry's role when code found one, else the label."""
+    groups: dict[str, list[int]] = {}
     for i, f in enumerate(facts):
         if f.state in USABLE_STATES and f.value is not None:
-            groups.setdefault(
-                (f.field_role or _fold(f.field_label), _fold(f.tag)), []
-            ).append(i)
+            groups.setdefault(f.field_role or _fold(f.field_label), []).append(i)
     bad: set[int] = set()
     for idx in groups.values():
-        if len({_identity(facts[i].value, facts[i].unit) for i in idx}) > 1:
-            bad.update(idx)
+        for n, i in enumerate(idx):
+            for j in idx[n + 1 :]:
+                a, b = facts[i], facts[j]
+                if _identity(a.value, a.unit) != _identity(
+                    b.value, b.unit
+                ) and not cells_mod.other_tags(
+                    {"equipment_tag": a.tag}, {"equipment_tag": b.tag}
+                ):
+                    bad.update((i, j))
     return [
         dataclasses.replace(f, state="conflict") if i in bad else f
         for i, f in enumerate(facts)
@@ -256,7 +271,9 @@ def sheet_of(
 
 def usable(sheet: FactSheet) -> tuple[Fact, ...]:
     """The values a later role may compare or cite: never a conflict, a stale value or a value an engineer has to decide."""
-    return tuple(f for f in sheet.facts if f.state in USABLE_STATES)
+    return tuple(
+        f for f in sheet.facts if f.state in USABLE_STATES and f.quote_verified
+    )
 
 
 def digest(sheet: FactSheet, max_chars: int = 8000) -> str:

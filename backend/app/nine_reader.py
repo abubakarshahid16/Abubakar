@@ -44,6 +44,7 @@ NO_TEXT_CLAUDE = (
 )
 PICTURES_LOCAL = "pictures not read on Local"
 NOT_SENT = "not read: not sent"
+CODE_ONLY = "read by code: no field label found"
 BUDGET = "not read: the Reader's budget was reached (role_budget)"
 
 #: a page picture (PNG bytes) for a page number, or raises `agent_review_pages.PageImageUnavailable`
@@ -129,6 +130,8 @@ class _Page:
     not_sent: str | None = None
     budget: bool = False
     asked: int = 0
+    answered: int = 0
+    unread: list[str] = field(default_factory=list)  # the field keys no answer covered
 
 
 def _read_page(
@@ -146,6 +149,7 @@ def _read_page(
         [f for f in fields if form_reader.label_on_page(f, text, dict(rules))]
     )
     out.asked = len(groups)
+    out.unread = [f.key for g in groups for f in g]
     for group in groups:
         answer = ask(
             [page_block(paper_id, page, text, picture)], build_prompt(group, "", page)
@@ -166,7 +170,11 @@ def _read_page(
             out.errors.append(err.value)
             continue
         out.facts.extend(_verified(parsed, group, text, page, rules, dropped))
-        out.picture = out.picture or picture is not None
+        out.answered += 1
+        out.unread = [k for k in out.unread if k not in {f.key for f in group}]
+        out.picture = (
+            out.picture or sum(r.pictures for r in answer.reads) > 0
+        )  # the picture counts only when the seam really sent it
     return out
 
 
@@ -181,18 +189,30 @@ def _picture(picture_of: PictureOf | None, page: int) -> bytes | None:
 
 
 def _page_read(page: int, r: _Page) -> PageRead:
-    if r.not_sent:
-        return PageRead(page, False, False, f"{NOT_SENT} ({r.not_sent})")
-    if r.budget:
-        return PageRead(page, False, False, BUDGET)
-    if r.errors and len(r.errors) >= max(1, r.asked):
+    """What the page's record says. A page is read only when EVERY field group got a usable answer; a page nobody asked about is read by code, not by the
+    model; a page stopped part of the way keeps the verified values of the groups that answered and says "read partly" (never read)."""
+    if r.asked == 0:
+        return PageRead(page, False, False, CODE_ONLY)
+    why = f"{NOT_SENT} ({r.not_sent})" if r.not_sent else BUDGET if r.budget else None
+    if r.answered == r.asked:
+        return PageRead(page, True, r.picture, None)
+    if r.answered == 0:
         return PageRead(
             page,
             False,
             False,
-            f"not read: the model gave no usable answer ({r.errors[0]})",
+            why
+            or f"not read: the model gave no usable answer ({r.errors[0] if r.errors else 'none'})",
         )
-    return PageRead(page, True, r.picture, None)
+    stop = (why or f"no usable answer ({r.errors[0] if r.errors else 'none'})").replace(
+        "not read: ", ""
+    )
+    return PageRead(
+        page,
+        False,
+        r.picture,
+        f"read partly: {r.answered} of {r.asked} field groups ({stop}); fields not read: {', '.join(r.unread)}",
+    )
 
 
 def _read_pages(
@@ -206,6 +226,7 @@ def _read_pages(
     dropped: Counter,
     deadline: float | None,
     local: bool,
+    unread: dict[int, list[str]],
 ) -> tuple[list[dict], list[PageRead], str | None]:
     facts: list[dict] = []
     reads: list[PageRead] = []
@@ -260,6 +281,8 @@ def _read_pages(
             if r.budget:
                 stopped = "role_budget"
             facts.extend(r.facts)
+            if r.unread and r.answered:
+                unread[page] = r.unread
             reads.append(_page_read(page, r))
     return facts, reads, stopped
 
@@ -299,6 +322,7 @@ def read_paper(
             run_id, ROLE_NO, blocks, question, engine=engine, gate=gate, **seam_kwargs
         )
 
+    unread: dict[int, list[str]] = {}
     try:
         read, reads, stopped = _read_pages(
             ask,
@@ -311,6 +335,7 @@ def read_paper(
             dropped,
             deadline,
             engine == "local",
+            unread,
         )
     except Exception as exc:  # noqa: BLE001 - a failing reader never fails the review; the role says it did not run and why
         log.warning("nine reader: did not run (%s)", type(exc).__name__)
@@ -322,12 +347,13 @@ def read_paper(
             f"the reader did not run: an error ({type(exc).__name__})",
         )
     picture_pages = {r.page for r in reads if r.picture_read}
+    by_code = {r.page for r in reads if r.not_read_why == CODE_ONLY}
     readings = [{**f, "tag": f.get("tag")} for f in read]
     facts, counts = nine_facts.merge(
         stored_facts,
         readings,
         pages,
-        read_source="ai_picture" if picture_pages else "ai_text",
+        picture_pages=picture_pages,
         model=model,
         tables=tables,
         rules=rules,
@@ -335,15 +361,22 @@ def read_paper(
     sheet = nine_facts.sheet_of(
         run_id, paper_id, total, reads, facts, engine, [model] if model else []
     )
-    not_read = {r.page: r.not_read_why for r in reads if not r.text_read}
+    not_read = {
+        r.page: r.not_read_why
+        for r in reads
+        if not r.text_read and r.page not in by_code
+    }
     produced: dict[str, Any] = {
         "facts": len(facts),
         "pages_read": sum(r.text_read for r in reads),
+        "pages_read_by_code_only": len(by_code),
         "pages_with_picture": len(picture_pages),
         "conflicts": sheet.conflicts,
+        "fields_not_read": {str(p): u for p, u in unread.items()},
         "pages_not_read": {str(p): w for p, w in not_read.items()},
         "dropped_by_reason": dict(sorted(dropped.items())),
         "dropped": sum(dropped.values()),
+        "unverified_dropped": counts.get("unverified_dropped", 0),
         "stale_stored_values": counts.get("stale", 0),
         "stored_only": counts.get("rules_only", 0),
         "agreed": counts.get("agreed", 0),

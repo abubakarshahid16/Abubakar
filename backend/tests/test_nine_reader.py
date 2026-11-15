@@ -31,7 +31,8 @@ from app import (
 )
 from app import agent_review_calculator_reader as reader_mod
 from app.config import settings
-from app.nine_call import FakeTransport, RoleGate
+from app.nine_call import Answer, FakeTransport, RoleGate
+from app.nine_contract import ReadEntry
 
 NOW = "2026-11-16T00:00:00Z"
 PAGE1 = "Design pressure: 12 barg\nDesign temperature: 150 C\n"
@@ -394,3 +395,218 @@ def test_no_module_of_the_reader_names_a_verdict_class(name):
         "decided_by",
     ):
         assert word not in text
+
+
+def _merge(stored_facts, read_facts, pages):
+    return nine_facts.merge(stored_facts, read_facts, pages)[0]
+
+
+def _states(facts):
+    return [(f.page, f.tag, f.state) for f in facts]
+
+
+@pytest.mark.parametrize(
+    ("tag1", "tag2", "conflict"),
+    [
+        ("T1", None, True),  # a continuation page with no tag
+        ("T1, T2", "T1", True),  # a tag list that overlaps
+        ("T1", "T1A", True),  # one tag starts like the other
+        (None, None, True),
+        (
+            "T1",
+            "T2",
+            False,
+        ),  # both tagged, different identifiers: two things, each usable
+    ],
+)
+def test_one_field_with_two_values_is_conflict_unless_both_tagged_with_other_tags(
+    tag1, tag2, conflict
+):
+    pages = {1: "Design pressure: 12 barg\n", 2: "Design pressure: 14 barg\n"}
+    a = stored("Design pressure", "12", "barg", page=1, equipment_tag=tag1)
+    b = stored("Design pressure", "14", "barg", page=2, equipment_tag=tag2)
+    facts = _merge([a, b], [], pages)
+    assert all(f.state == "conflict" for f in facts) is conflict
+    sheet = nine_facts.sheet_of("run1", "paper", 2, [], facts, "claude", [])
+    assert (nine_facts.usable(sheet) == ()) is conflict
+
+
+def test_merge_rechecks_the_quote_of_a_read_value_and_drops_an_unverified_one():
+    bad = {
+        "field": "Design pressure",
+        "value": "99",
+        "unit": "barg",
+        "quote": "Design pressure: 99 barg",
+        "page": 1,
+    }
+    ok = {
+        "field": "Design temperature",
+        "value": "150",
+        "unit": "C",
+        "quote": "Design temperature: 150 C",
+        "page": 1,
+    }
+    facts, counts = nine_facts.merge([], [bad, ok], {1: PAGE1})
+    assert [f.value for f in facts] == ["150"] and counts["unverified_dropped"] == 1
+
+
+def test_a_page_with_text_and_no_field_label_is_read_by_code_not_by_the_model():
+    tx = Tx()
+    res = read({1: "Cover sheet. Revision history.", 2: PAGE1}, tx)
+    p1 = res.sheet.pages[0]
+    assert (p1.text_read, p1.not_read_why) == (False, nine_reader.CODE_ONLY)
+    assert (
+        len(tx.bodies) == 1
+        and res.produced["pages_read"] == 1
+        and res.produced["pages_read_by_code_only"] == 1
+    )
+    assert res.state == "ran"  # nothing was left unread that a model should have read
+
+
+def test_the_source_of_a_value_is_per_page_picture_only_where_one_was_sent():
+    tx = Tx(
+        lambda p: (
+            answer(
+                ("design_pressure", "12", "barg", "Design pressure: 12 barg", "found")
+            )
+            if p == 1
+            else answer(
+                ("design_temperature", "150", "C", "Design temperature: 150 C", "found")
+            )
+        )
+    )
+    res = read(
+        {1: PAGE1, 2: PAGE1},
+        tx,
+        picture_of=lambda n: (
+            png(50, 50) if n == 1 else (_ for _ in ()).throw(RuntimeError("x"))
+        ),
+    )
+    assert {(f.page, f.source) for f in res.sheet.facts} == {
+        (1, "ai_picture"),
+        (2, "ai_text"),
+    }
+
+
+def test_a_page_stopped_after_some_groups_answered_is_read_partly_and_keeps_its_verified_values(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        nine_reader, "batches", lambda fs: [[f] for f in fs]
+    )  # one field per group: two groups on the page
+
+    class Second(Tx):
+        n = 0
+
+        def __call__(self, url, *, headers, body, timeout):
+            self.n += 1
+            if self.n == 2:
+                raise RuntimeError("boom")
+            return super().__call__(url, headers=headers, body=body, timeout=timeout)
+
+    res = read({1: PAGE1}, Second(lambda p: answer(GOOD)))
+    p = res.sheet.pages[0]
+    assert p.text_read is False and p.not_read_why.startswith(
+        "read partly: 1 of 2 field groups"
+    )
+    assert [f.field_label for f in res.sheet.facts] == [
+        "Design pressure"
+    ] and res.state == "ran_partly"
+    assert res.produced["pages_read"] == 0
+
+
+def test_a_stopped_page_by_the_budget_or_the_gate_is_partly_read_in_words():
+    r = nine_reader._Page(asked=3, answered=1, budget=True, unread=["a", "b"])
+    assert (
+        nine_reader._page_read(4, r).not_read_why
+        == "read partly: 1 of 3 field groups (the Reader's budget was reached (role_budget)); fields not read: a, b"
+    )
+    r = nine_reader._Page(
+        asked=3, answered=1, not_sent="document_not_listed", unread=["a", "b"]
+    )
+    assert (
+        "read partly: 1 of 3 field groups (not sent (document_not_listed)); fields not read: a, b"
+        == nine_reader._page_read(4, r).not_read_why
+    )
+
+
+def test_a_stored_value_whose_quote_is_not_on_the_page_is_not_usable():
+    text = "Design pressure: 12 barg\n"
+    s = stored(
+        "Design pressure",
+        "12",
+        "barg",
+        quote="a quote that left the page",
+        sha=reader_mod.page_sha(text),
+    )
+    facts = _merge([s], [], {1: text})
+    assert [(f.state, f.quote_verified) for f in facts] == [("stored_only", False)]
+    assert (
+        nine_facts.usable(nine_facts.sheet_of("r", "p", 1, [], facts, "claude", []))
+        == ()
+    )
+
+
+def _ask_with(pictures: int):
+    def ask(blocks, question):
+        reads = (
+            ReadEntry(
+                1, "c", "paper", "paper", (1,), None, None, None, 10, "x", pictures
+            ),
+        )
+        return Answer(
+            True,
+            "c",
+            1,
+            "answered",
+            None,
+            answer(GOOD, TEMP),
+            None,
+            None,
+            "m",
+            ("paper",),
+            (),
+            reads,
+        )
+
+    return ask
+
+
+@pytest.mark.parametrize(
+    ("sent", "source", "pictures"), [(0, "ai_text", 0), (1, "ai_picture", 1)]
+)
+def test_a_page_is_a_picture_page_only_when_the_seam_really_sent_the_picture(
+    sent, source, pictures
+):
+    from collections import Counter
+
+    rules = nine_reader.datasheet_checks.load_rules()
+    fields = nine_reader.field_list_for(None, dict(rules))
+    page = nine_reader._read_page(
+        _ask_with(sent), "paper", 1, PAGE1, png(10, 10), fields, rules, Counter()
+    )
+    rec = nine_reader._page_read(1, page)
+    assert rec.picture_read is bool(pictures) and rec.text_read is True
+    facts, _ = nine_facts.merge(
+        [], page.facts, {1: PAGE1}, picture_pages={1} if rec.picture_read else ()
+    )
+    assert {f.source for f in facts} == {source}
+
+
+def test_a_partly_read_page_names_the_fields_nobody_read(monkeypatch):
+    monkeypatch.setattr(nine_reader, "batches", lambda fs: [[f] for f in fs])
+
+    class Second(Tx):
+        n = 0
+
+        def __call__(self, url, *, headers, body, timeout):
+            self.n += 1
+            if self.n == 2:
+                raise RuntimeError("boom")
+            return super().__call__(url, headers=headers, body=body, timeout=timeout)
+
+    res = read({1: PAGE1}, Second(lambda p: answer(GOOD)))
+    assert res.produced["fields_not_read"] == {"1": ["design_temperature"]}
+    assert "fields not read: design_temperature" in res.sheet.pages[0].not_read_why
+    text = nine_facts.digest(res.sheet)
+    assert "PAGES NOT READ:" in text and "fields not read: design_temperature" in text
