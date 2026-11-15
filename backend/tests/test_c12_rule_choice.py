@@ -606,3 +606,98 @@ def test_the_books_governing_this_equipment_are_found_by_the_one_identifier_matc
         RC.equipment_governing_ids({"no such equipment"}, {"d1": "API-520-I.pdf"})
         == set()
     )
+
+
+# ---------------------------------------------------------------- R58b: N1 process words, N2 unagreed labels listed apart, N3 the agreed condition
+
+
+def test_the_rescue_needs_an_agreed_equipment_label_not_just_a_datasheet_field(con):
+    ctx = _gate_world(con)
+    rows = [
+        _row("agreed", "A material shall be carbon steel"),
+        _row("unsure", "A material shall be carbon steel"),
+        _row("nolabel", "A material shall be carbon steel"),
+    ]
+    for r in rows:
+        _label(con, r["id"], state="ai_approved", field="body_material")
+    _eq_label(con, "agreed", "agreed", general=1)
+    _eq_label(con, "unsure", "needs_human")
+    kept, left = RC.partial_gate_rows(con, rows, {"relief valve"}, LABELS, ctx)
+    assert [r["id"] for r in kept] == ["agreed"] and {
+        r["rule_version_id"] for r in left
+    } == {"unsure", "nolabel"}
+
+
+def test_an_approved_rule_dropped_for_an_unagreed_label_is_listed_apart_with_its_own_reason(
+    con,
+):
+    ctx = _gate_world(con)
+    rows = [
+        _row("appr", "A material shall be carbon steel"),
+        _row("human", "A material shall be carbon steel"),
+        _row("plain", "Weld seams shall be examined"),
+    ]
+    _label(
+        con, "appr", state="ai_approved", field="body_material"
+    )  # approved, datasheet field, no agreed equipment label
+    _label(
+        con, "human", state="needs_human", field="body_material"
+    )  # not approved: not this reason
+    _label(con, "plain", state="ai_approved", field=None)  # no field: not this reason
+    _kept, left = RC.partial_gate_rows(con, rows, {"relief valve"}, LABELS, ctx)
+    by = {r["rule_version_id"]: r["reason"] for r in left}
+    assert by == {
+        "appr": RC.LABEL_UNAGREED,
+        "human": RC.PART_OUTSIDE,
+        "plain": RC.PART_OUTSIDE,
+    }
+    assert (
+        R.REASON_WORDS[RC.LABEL_UNAGREED]
+        == "an approved rule whose equipment label is not agreed"
+    )
+    counts = R.count_left_out(left)
+    assert counts[RC.LABEL_UNAGREED] == 1 and RC.LABEL_UNAGREED not in R.count_left_out(
+        []
+    )
+    lines = R.summary_lines(counts, "datasheet")
+    assert (
+        "1 approved rules were not asked: their equipment label is not agreed; an engineer agrees the label (listed under Rules used)"
+        in lines
+    )
+
+
+def test_a_process_word_takes_no_plural_and_a_device_word_does(tmp_path):
+    from app import subject_scope
+
+    entry = {
+        "standard": "ASME BPVC Section VIII Division 1",
+        "applies_to": "x",
+        "words": ["relief valve", "accumulation"],
+        "no_plural": ["accumulation"],
+    }
+
+    def kept(text, e=entry):
+        got = subject_scope.partial_gate([{"id": "x", "standard_document_id": "d", "requirement_text": text}], equipment={"relief valve"},
+                                         standard_labels={"d": ASME}, partial_standards={"relief valve": [e]})  # fmt: skip
+        return bool(got["kept"])
+
+    assert kept("The relief valves shall open") and kept(
+        "The accumulation shall be limited"
+    )
+    assert not kept("Cutting accumulations of chips shall be removed")
+    assert kept(
+        "Cutting accumulations of chips shall be removed", {**entry, "no_plural": []}
+    )  # the data line decides
+
+
+def test_the_real_data_lists_only_words_of_the_entry_under_no_plural():
+    import json
+
+    table = json.loads(
+        (
+            RC.Path(RC.__file__).parent / "reference" / "governing_standards.json"
+        ).read_text()
+    )
+    for entries in table["partial_standards"].values():
+        for e in entries:
+            assert set(e.get("no_plural", [])) <= set(e["words"])

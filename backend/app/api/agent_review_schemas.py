@@ -76,6 +76,7 @@ LeftOutReason = Literal[
     "both labelling readers named other equipment",
     "this part of the book does not govern this equipment",
     "below the limit for one review",
+    "an approved rule whose equipment label is not agreed",
 ]
 
 #: The closed table every line must match: class -> (allowed words, allowed

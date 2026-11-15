@@ -66,8 +66,9 @@ REASONS = (
     TWO_READERS_OTHER,
     rule_choice.PART_OUTSIDE,
     rule_choice.BELOW_LIMIT,
+    rule_choice.LABEL_UNAGREED,
 )
-V2_REASONS = (rule_choice.PART_OUTSIDE, rule_choice.BELOW_LIMIT)
+V2_REASONS = (rule_choice.PART_OUTSIDE, rule_choice.BELOW_LIMIT, rule_choice.LABEL_UNAGREED)
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
     NEEDS_HUMAN: "needs a human",
@@ -83,6 +84,7 @@ REASON_WORDS = {
     TWO_READERS_OTHER: "both labelling readers named other equipment",
     rule_choice.PART_OUTSIDE: rule_choice.WORDS[rule_choice.PART_OUTSIDE],
     rule_choice.BELOW_LIMIT: rule_choice.WORDS[rule_choice.BELOW_LIMIT],
+    rule_choice.LABEL_UNAGREED: rule_choice.WORDS[rule_choice.LABEL_UNAGREED],
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = (
@@ -437,6 +439,11 @@ def summary_lines(
         lines.append(
             f"{counts[rule_choice.PART_OUTSIDE]} rules of a book that governs this equipment only in part were not asked: "
             f"{rule_choice.WORDS[rule_choice.PART_OUTSIDE]}"
+        )
+    if counts.get(rule_choice.LABEL_UNAGREED):
+        lines.append(
+            f"{counts[rule_choice.LABEL_UNAGREED]} approved rules were not asked: their equipment label is not agreed; "
+            "an engineer agrees the label (listed under Rules used)"
         )
     rest = [
         f"{REASON_WORDS[r]} {counts[r]}"

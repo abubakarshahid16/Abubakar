@@ -511,8 +511,9 @@ def partial_gate(requirements: list[dict], *, equipment: set[str], standard_labe
         kind, e = entry
         text = _fold(" ".join(str(requirement.get(k) or "")
                               for k in ("subject", "requirement_text", "source_text")))
-        # a word or phrase and its plain plural ("relief device", "relief devices"; "-es" after s, x, z, ch, sh): any entry, any book
-        if any(re.search(r"(?<![a-z0-9])" + re.escape(_fold(w)) + r"(?:e?s)?(?![a-z0-9])", text) for w in e["words"]):
+        # a word or phrase and its plain plural ("relief device", "relief devices"; "-es" after s, x, z, ch, sh) unless the entry lists
+        # it under `no_plural` (a process word such as "accumulation", not a device or part): any entry, any book
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(_fold(w)) + ("" if w in e.get("no_plural", ()) else r"(?:e?s)?") + r"(?![a-z0-9])", text) for w in e["words"]):
             kept.append(requirement)
             continue
         items.append({"requirement": requirement, "code": "outside_partial_scope",

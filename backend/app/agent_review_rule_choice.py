@@ -29,7 +29,9 @@ log = logging.getLogger(__name__)
 
 PART_OUTSIDE = "outside_governed_part"
 BELOW_LIMIT = "below_review_limit"
+LABEL_UNAGREED = "approved_rule_equipment_label_not_agreed"
 WORDS = {
+    LABEL_UNAGREED: "an approved rule whose equipment label is not agreed",
     PART_OUTSIDE: "this part of the book does not govern this equipment",
     BELOW_LIMIT: "below the limit for one review",
 }
@@ -99,7 +101,7 @@ def partial_gate_rows(
         standard_labels=dict(standard_labels),
         partial_standards=table.get("partial_standards") or {},
     )
-    rescued = _rescued_ids(
+    rescued, unagreed = _rescued_ids(
         conn, [it["requirement"].get("id") for it in got["items"]], eq_ctx
     )
     kept = got["kept"] + [
@@ -121,7 +123,9 @@ def partial_gate_rows(
             "standard_document_id": it["requirement"].get("standard_document_id"),
             "clause": it["requirement"].get("clause"),
             "page": it["requirement"].get("page"),
-            "reason": PART_OUTSIDE,
+            "reason": LABEL_UNAGREED
+            if str(it["requirement"].get("id")) in unagreed
+            else PART_OUTSIDE,
             "disagreement": None,
             "equipment_family": None,
             "needs_paper_kind": None,
@@ -133,39 +137,45 @@ def partial_gate_rows(
     return got["kept"], left
 
 
-def _rescued_ids(conn, ids: list, eq_ctx) -> set[str]:
-    """The rules among `ids` that the gate must keep: the label says a datasheet field is the subject (kind datasheet, a field
-    on the app's list, both agreed) AND the equipment label is AGREED and says this paper's equipment (the same type or
-    family) or general. A rule with no agreed equipment label, or about another equipment, is not rescued, so a vessel rule never
-    reaches a valve datasheet as an approved rule through this door."""
+def _rescued_ids(conn, ids: list, eq_ctx) -> tuple[set[str], set[str]]:
+    """(rescued, unagreed) among `ids`. RESCUED: the label says a datasheet field is the subject (kind datasheet, a field on the
+    app's list, both agreed) AND the equipment decision on the rule's label is "general" or "same equipment", which only an AGREED
+    label can give; so a vessel rule never reaches a valve datasheet as an approved rule through this door. UNAGREED: an AI-approved
+    rule of that kind whose equipment label is missing or not agreed: it is not rescued and is listed apart (an engineer can agree the
+    label). No equipment context: nothing is rescued."""
     from . import agent_review_equipment as eqmod
     from . import rule_equipment, rule_labels
 
     if eq_ctx is None:
-        return set()
+        return set(), set()
     listed = set(rule_labels.field_list())
     out: set[str] = set()
+    unagreed: set[str] = set()
     ids = [str(i) for i in ids if i]
     for start in range(0, len(ids), 500):
         part = ids[start : start + 500]
         try:
             found = conn.execute(
-                "SELECT rule_ref, field FROM rule_label WHERE source = 'requirement' AND paper_kind = 'datasheet'"
+                "SELECT rule_ref, field, state FROM rule_label WHERE source = 'requirement' AND paper_kind = 'datasheet'"
                 f" AND field IS NOT NULL AND rule_ref IN ({','.join('?' * len(part))})",
                 part,
             ).fetchall()
         except sqlite3.Error:  # no label table: nothing is rescued
-            return set()
-        for rid, field in found:
-            label = rule_equipment.label_for(conn, "requirement", str(rid)) or {}
-            if field not in listed or label.get("equip_state") != rule_equipment.AGREED:
+            return set(), set()
+        for rid, field, state in found:
+            if field not in listed:
                 continue
+            label = rule_equipment.label_for(conn, "requirement", str(rid)) or {}
             keep, why, _fam = eqmod.equipment_decision(
                 label, eq_ctx.eq, eq_ctx.tax, eq_ctx.mode, field
             )
             if keep and why in ("general", "same_equipment"):
                 out.add(str(rid))
-    return out
+            elif (
+                keep and state == "ai_approved"
+            ):  # why is "equipment_not_known": the label is missing or not agreed
+                unagreed.add(str(rid))
+    return out, unagreed
 
 
 # ---- 3. rank and budget -----------------------------------------------------------------------------------------------------
@@ -394,6 +404,7 @@ def store_group_lines(run_id: str, plan: Mapping, store_line) -> list[dict]:
 
 __all__: list[Any] = [
     "BELOW_LIMIT",
+    "LABEL_UNAGREED",
     "PART_OUTSIDE",
     "WORDS",
     "approved_field_names",
