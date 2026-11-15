@@ -552,7 +552,9 @@ def _notes_rows(
         )
     )
     rows += [(f"Count: {s}", count[s]) for s in words.STATUSES]
-    rows += wording.group_rows(ln for ln, _st, _o in items)  # the reader's own Query by group
+    rows += wording.group_rows(
+        ln for ln, _st, _o in items
+    )  # the reader's own Query by group
     dec = wording.decisions_of(
         (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
     )
