@@ -259,6 +259,19 @@ class AgentDecisions(BaseModel):
     total: Count = 0
 
 
+class AgentQueryGroups(BaseModel):
+    """The lines the READER called Query, by the reason it gave (P3, 15 Nov 2026), counted apart. A reader's own Query is a view, never
+    "no answer". The group "does not apply" is the class "Not applicable"; "no answer" is the class "Not reviewed"."""
+
+    contractor_silent: Count = (
+        0  # the sheet does not state it: a question for the contractor
+    )
+    engineer_drawing: Count = 0  # needs a drawing or a calculation: a question for the engineer, internal copy
+    could_not_decide: Count = (
+        0  # the AI could not decide (unclear clause or another reason)
+    )
+
+
 class AgentRunSummary(BaseModel):
     """GET /api/reviews/runs/{id}/agent/summary. Counts are per class, over the
     lines of this run only; there is no percentage."""
@@ -286,6 +299,8 @@ class AgentRunSummary(BaseModel):
     changed_since_previous: AgentChangedSincePrevious | None = None
     #: lines the AI gave no answer for (class "Not reviewed"); also inside counts_by_class.
     not_reviewed: Count = 0
+    #: the reader's own Query by group, counted apart from the other classes (read from the stored lines; earlier runs read the same way).
+    query_groups: AgentQueryGroups | None = None
     #: "general review" for a procedure or a contract (no rule book, no Pass or Fail); "rule review" otherwise.
     mode: Mode = "rule review"
     #: the project papers a general review was checked against (empty for a rule review, or when none was named).

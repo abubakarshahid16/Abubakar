@@ -168,3 +168,76 @@ def test_decided_counts_points_not_groups():
     assert decide(client, doc, pts[1]["id"], "keep").status_code == 200
     got = points_of(client, doc)
     assert (got["decided"], got["of"]) == (2, 3)  # two members decided, not "one group"
+
+
+# ------------------------------------------------------------------------------------------------ U5b: the REAL shape of a rule-check name
+
+
+REAL_SHAPE = "p.1 - Corrosion allowance (V-1 A/B (Inlet nozzle N1, 10 & 19) & V-2 A/B (Outlet N2), V-3 A/B (N3, 10 & 19) & V-4 A/B (N4))"
+
+
+def test_nested_brackets_and_ampersands_are_one_tag_list():
+    name, tags = review_points.split_tags("Corrosion allowance (V-1 A/B (Inlet nozzle N1, 10 & 19) & V-2 A/B (Outlet N2), V-3)")
+    assert name == "Corrosion allowance"
+    assert tags == ["V-1 A/B (Inlet nozzle N1, 10 & 19)", "V-2 A/B (Outlet N2)", "V-3"]
+    # a unit, a standard's number and a quantity with an index are NOT tag lists
+    for keep in ("Cp/Cv (Cp/Cv)", "Rating (API 610)", "H2 content (H2 content)", "Gap (2 mm)", "Flow (m3/h)"):
+        assert review_points.split_tags(keep) == (keep, [])
+
+
+def test_a_rule_check_point_of_the_real_shape_has_a_clean_name_and_its_tags():
+    row = {"row_kind": "datasheet_check", "priority": 3, "page_section": REAL_SHAPE, "comment": "Contractor to confirm the value.", "finding_id": "f1"}
+    ctx = {"run_id": "r", "paper_document_id": "doc1", "readable": frozenset({"doc1"})}
+    p = review_points.rule_point(row, ctx, None, {})
+    assert p["name"] == "Corrosion allowance"
+    assert len(p["tags"]) == 4 and p["tags"][0].startswith("V-1 A/B")
+    assert "(" not in p["name"] and "V-2" not in p["name"]
+
+
+# ------------------------------------------------------------------------------------------------ R60: a name word is never taken for a tag
+
+
+def test_name_words_in_brackets_stay_whole_without_known_tags():
+    for keep in ("Gas (H2 and CO2 content)", "Fasteners (M12 bolts, M16 nuts)", "Casing (M12, M16)", "Rating (P1 & P2)"):
+        assert review_points.split_tags(keep) == (keep, [])
+    # the real nested shape still splits (entries lead with a dash tag)
+    assert review_points.split_tags("Corrosion allowance (V-1 A/B (Inlet nozzle N1, 10 & 19) & V-2 A/B (Outlet N2))") == (
+        "Corrosion allowance",
+        ["V-1 A/B (Inlet nozzle N1, 10 & 19)", "V-2 A/B (Outlet N2)"],
+    )
+
+
+def test_with_the_papers_known_tags_only_those_entries_are_tags():
+    known = frozenset({"V-1", "V-2"})
+    assert review_points.split_tags("Corrosion allowance (V-1 A/B (note), V-2)", known) == ("Corrosion allowance", ["V-1 A/B (note)", "V-2"])
+    # an entry the review does not know as a tag keeps the whole bracket in the name, even with the dash shape
+    assert review_points.split_tags("Rating (V-1, X-9)", known) == ("Rating (V-1, X-9)", [])
+    assert review_points.split_tags("Gas (H2 and CO2 content)", known) == ("Gas (H2 and CO2 content)", [])
+
+
+def test_fields_that_differ_only_by_such_a_bracket_never_share_a_group():
+    a = review_points.split_tags("Fasteners (M12 bolts)")[0]
+    b = review_points.split_tags("Fasteners (M16 nuts)")[0]
+    assert a != b
+    ka = review_points.group_key("ai_review", 4, "d1", "4.1", "r", a.lower())
+    kb = review_points.group_key("ai_review", 4, "d1", "4.1", "r", b.lower())
+    assert ka != kb
+
+
+def test_a_known_tag_is_matched_as_a_tag_never_as_a_word_that_contains_one():
+    known = frozenset({"M12", "V-1"})
+    # "M12 bolts" merely CONTAINS the known tag M12: it is a name word, so the bracket stays
+    assert review_points.split_tags("Fasteners (M12 bolts)", known) == ("Fasteners (M12 bolts)", [])
+    assert review_points.split_tags("Fasteners (M12 bolts, M12 nuts)", known) == ("Fasteners (M12 bolts, M12 nuts)", [])
+    # the tag itself, its range form and a bracketed note are tags
+    assert review_points.split_tags("Rating (M12, V-1 A/B (inlet))", known) == ("Rating", ["M12", "V-1 A/B (inlet)"])
+    # a known tag value that lists several tags contains each of them
+    assert review_points.split_tags("Rating (V-2, V-3)", frozenset({"V-2A/B&V-3A/B"})) == ("Rating", ["V-2", "V-3"])
+
+
+def test_in_the_fallback_a_dash_lead_followed_by_words_is_a_sentence_not_a_tag():
+    for keep in ("Vessel (V-1 shall be painted)", "Vessel (V-1 shall be painted, V-2 inspected)", "Rating (V-1 and then words)"):
+        assert review_points.split_tags(keep) == (keep, []), keep
+    # a range, another tag, and a bracketed note after the lead are still tags
+    assert review_points.split_tags("Vessel (V-1 A/B (inlet), V-2)") == ("Vessel", ["V-1 A/B (inlet)", "V-2"])
+    assert review_points.split_tags("Vessel (V-1 V-2, V-3 10)") == ("Vessel", ["V-1 V-2", "V-3 10"])

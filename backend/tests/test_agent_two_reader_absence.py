@@ -413,8 +413,8 @@ def test_a_not_stated_line_in_the_crs_has_the_status_priority_and_only_establish
     view = WB.layout_view([ln], META, "internal")
     row = view["rows"][0]
     assert (
-        row[9] == "AI verdict" and row[8] == "High"
-    )  # Priority as for "not met", mandatory
+        row[9] == "AI verdict" and row[8] == "Medium"
+    )  # Priority: mandatory rule, no safety clause (U5 P6)
     assert (
         row[3].count(
             "Not stated (AI, two readers agree): two AI readers each read every page of the paper and found no Design pressure."

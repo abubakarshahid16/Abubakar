@@ -35,9 +35,9 @@ from .. import (
     agent_review_kind,
     agent_review_schema,
     agent_review_text,
-    crs_ai_workbook,
     crs_copy_words,
     agent_review_wording,
+    crs_ai_workbook,
     errors,
     review_jobs,
     review_leaving,
@@ -283,6 +283,10 @@ def agent_summary(
             (review_run_id,),
         )
     ]
+    groups, no_answer = _query_groups(conn, review_run_id)
+    if no_answer:  # earlier runs stored a line with no verdict as a Query: read as "Not reviewed", never rewritten
+        counts["Not reviewed"] = counts.get("Not reviewed", 0) + no_answer
+        counts[agent_review_wording.CLASS_QUERY] = max(0, counts.get(agent_review_wording.CLASS_QUERY, 0) - no_answer)
     books = [
         r["name"]
         for r in conn.execute(
@@ -300,6 +304,7 @@ def agent_summary(
         stop_reason=run["stop_reason"],
         missing_books=books,
         not_reviewed=counts.get("Not reviewed", 0),
+        query_groups=groups,
         **_mode_of(conn, review_run_id),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
@@ -311,6 +316,30 @@ def agent_summary(
         page_reread_stopped=_equipment(run).get("page_reread"),
         answers_reused=_counts_of(run).get("answers_reused"),
         changed_since_previous=_counts_of(run).get("changed_since_previous"),
+    )
+
+
+def _query_groups(conn, run_id: str) -> tuple[contract.AgentQueryGroups, int]:
+    """(the reader's own Query by group, the lines of this run that carry no verdict at all), from the stored lines, read only."""
+    lines = []
+    for r in conn.execute(
+        "SELECT line_json FROM agent_review_line WHERE run_id = ? AND verdict_class = ?",
+        (run_id, agent_review_wording.CLASS_QUERY),
+    ):
+        try:
+            line = json.loads(r["line_json"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(line, dict):
+            lines.append(line)
+    got = agent_review_wording.query_group_counts(lines)
+    return (
+        contract.AgentQueryGroups(
+            contractor_silent=got[agent_review_wording.GROUP_SILENT],
+            engineer_drawing=got[agent_review_wording.GROUP_DRAWING],
+            could_not_decide=got[agent_review_wording.GROUP_COULD_NOT],
+        ),
+        sum(1 for ln in lines if agent_review_wording.no_verdict(ln)),
     )
 
 
@@ -360,9 +389,10 @@ def _read_line(row: dict) -> contract.AgentLine:
     (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
     still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
     row = {k: v for k, v in row.items() if k != "rid"}
-    row["reason"] = crs_ai_workbook.screen_text(row.pop("line_json", None)) or row.get(
-        "reason"
-    )  # the file's three lines
+    raw = row.pop("line_json", None)
+    row["reason"] = crs_ai_workbook.screen_text(raw) or row.get("reason")  # the file's three lines
+    if _no_verdict_line(raw):  # an earlier run stored the reader's missing verdict as a Query: shown as "Not reviewed" (not rewritten)
+        row.update(verdict_class="Not reviewed", word="Not reviewed", reason=agent_review_wording.NO_VERDICT_WORDS)
     word = contract.legal_word(str(row.get("verdict_class")), str(row.get("word")))
     if word is not None:
         row["word"] = word
@@ -381,6 +411,14 @@ def _read_line(row: dict) -> contract.AgentLine:
             reason="a stored line could not be read: its class, word or tier is not allowed by the contract",
             rule_tier=None,
         )
+
+
+def _no_verdict_line(raw: str | None) -> bool:
+    try:
+        line = json.loads(raw or "")
+    except ValueError:
+        return False
+    return isinstance(line, dict) and agent_review_wording.no_verdict(line)
 
 
 def _mode_of(conn, run_id: str) -> dict:
@@ -532,7 +570,7 @@ def agent_trace(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="no such line")
-    line = json.loads(row["line_json"])
+    line = agent_review_wording.read_time(json.loads(row["line_json"]))  # read time: the same words as a new line
     if line.get("general"):
         return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")
@@ -547,7 +585,7 @@ def agent_trace(
         rule_book=str(line.get("standard") or ""),
         clause=str(line.get("clause") or ""),
         model=str(line.get("model") or ""),
-        reason=str(row["reason"] or ""),
+        reason=str(line.get("not_proven_reason") or row["reason"] or ""),  # read time: the same words as a new line
         gate=_code_gate(line) if code_line else _gate_steps(line),
     )
 

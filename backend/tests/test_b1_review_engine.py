@@ -542,7 +542,8 @@ def test_the_ai_review_follows_the_rule_check_and_is_checked_again(
     world, lane, monkeypatch
 ):
     run_id, _job = _enqueue(world)
-    plan = {"choice": "automatic", "project_document_ids": [], "fresh": False}
+    # a start whose screen showed text leaving (a stored plan that says nothing leaves can only follow up on the local model)
+    plan = {"choice": "automatic", "text_leaves": True, "project_document_ids": [], "fresh": False}
     review_engine.record(
         db.connect(),
         run_id,

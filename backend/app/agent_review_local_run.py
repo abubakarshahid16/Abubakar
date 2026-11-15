@@ -169,6 +169,7 @@ class LocalRunMixin:
             None  # the last answer that was not decisive (this window lacks it)
         )
         got, model, error, usd, decided_on = None, None, None, 0.0, None
+        best_win = None
         for win in wins[:MAX_WINDOWS]:
             a, spent, err, mdl = self._ask_window(item, win, clauses, held_of)
             usd += spent
@@ -183,7 +184,8 @@ class LocalRunMixin:
             if decisive(a):
                 got, decided_on, error = a, win, None
                 break
-            best = a or best
+            if a:
+                best, best_win = a, win
         complete = failed == 0 and asked == total and total <= MAX_WINDOWS and total > 0
         if got is None:
             if best is not None and complete:
@@ -200,6 +202,23 @@ class LocalRunMixin:
                 error = (
                     local_mod.LOCAL_TOO_LONG
                 )  # nothing fits the window with this item's own text
+        redo = decided_on or best_win
+        if (
+            got is not None
+            and verdict.ai_verdict_word(got.get("verdict")) is None
+            and redo is not None
+            and not self._stop.is_set()
+        ):
+            # the reader gave NO verdict: asked ONCE more on the same window (same local budget rules); still none = "Not reviewed"
+            a, spent, err, mdl = self._ask_window(item, redo, clauses, held_of)
+            usd += spent
+            asked += 1
+            if (
+                not err
+                and isinstance(a, dict)
+                and verdict.ai_verdict_word(a.get("verdict")) is not None
+            ):
+                got, model = a, mdl or model
         line = self._decide_local(item, got, full, model, error, box, usd)
         whole = next((w for w in wins if w.is_full(full)), None)
         part = decided_on is not None and not decided_on.is_full(full)

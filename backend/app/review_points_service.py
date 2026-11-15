@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from . import agent_review_wording as wording
 from . import crs_comments, crs_completeness
 from . import (
     evidence_boxes,
@@ -172,6 +173,14 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
         "run_id": run_id,
         "paper_document_id": paper_id,
         "readable": frozenset(scope.allowed_document_ids),
+        # the tags THIS review knows for the paper (its findings' equipment tags): a bracket group is a tag list only when its entries ARE these
+        "known_tags": frozenset(
+            "".join(str(r[0]).upper().split())
+            for r in connect().execute(
+                "SELECT DISTINCT equipment_tag FROM review_findings WHERE review_run_id = ? AND equipment_tag IS NOT NULL AND equipment_tag != ''",
+                (run_id,),
+            )
+        ),
     }
     out = []
     for row in rows:
@@ -436,7 +445,9 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
         return None
     conn = connect()
     lines = [
-        {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        wording.read_time(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        )
         for r in conn.execute(
             "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
             (run_id,),

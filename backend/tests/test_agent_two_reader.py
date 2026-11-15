@@ -1084,7 +1084,13 @@ CRS_LINES = [
     _two("R-5", "Pass"),
     _two("R-6", "Fail"),
     _two("R-7", "Fail", rule_kind="advice"),
-    mk("R-8", "Query", None, why="the AI did not give pass or fail"),
+    mk(
+        "R-8",
+        "Query",
+        "Query",
+        why="the AI reviewer answered that it cannot decide this",
+        reason_code="sheet_silent",
+    ),
 ]
 
 
@@ -1106,11 +1112,13 @@ def test_the_class_lines_are_the_fifth_status_with_the_stated_order_priority_and
         "Pass",
     ]
     verdict_rows = [r for r in rows if r["Status"] == "AI verdict"]
+    # #1828 (U5, P6): the AI reviewer's own priority: High only when the rule is mandatory AND its clause is about safety, Medium when
+    # mandatory, otherwise Low; met: blank (the clauses of these lines are not about safety)
     assert [r["Priority"] for r in verdict_rows] == [
-        "High",
         "Medium",
+        "Low",
         None,
-    ]  # not met: High when mandatory else Medium; met: blank
+    ]
     assert (
         "\nNot met (AI, two readers agree, quotes verified): "
         in verdict_rows[0]["COMPANY Comments"]

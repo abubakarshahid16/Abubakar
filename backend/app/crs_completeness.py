@@ -278,10 +278,28 @@ def cut_report(data: bytes, raw: list[dict], wordings: dict | None = None) -> di
                 )
             else:
                 marked += 1
+    problems += _reasoning_cuts(head, values[start + 1 :], by_no)
     marked, problems = _comment_cuts(
         wb[crs_one.TEAM_SHEET], raw, marked, problems, wordings
     )
     return {"marked": marked, "problems": problems}
+
+
+def _reasoning_cuts(head: list, rows: list, by_no: dict) -> list[str]:
+    """The AI reviewer's reasoning cell is never shortened: each must equal the point's whole `ai_reasoning` (an empty cell for a point
+    with none). A cell that differs is a cut, marked or not: the column has no Full text entry, so any difference is a problem."""
+    from . import crs_one
+
+    col, out = head.index(crs_one.REASONING_COLUMN), []
+    for r in rows:
+        if not isinstance(r[0], int) or r[0] not in by_no:
+            continue
+        want = crs_one._cell(by_no[r[0]].get("ai_reasoning")) or ""
+        if str("" if r[col] is None else r[col]) != str(want):
+            out.append(
+                f"row {r[0]}: the AI reviewer's reasoning is shortened or changed"
+            )
+    return out
 
 
 def _comment_cuts(
@@ -302,9 +320,15 @@ def _comment_cuts(
         "clauses": col["Rule books and clauses"],
     }
     by_no = {c["number"]: c for c in crs_comments.group(raw)}
+    rcol = col[crs_one.REASONING_COLUMN]
     for r in values[start + 1 :]:
         if not isinstance(r[0], int) or r[0] not in by_no:
             continue
+        want_r = crs_one._cell(by_no[r[0]]["strongest"].get("ai_reasoning")) or ""
+        if str("" if r[rcol] is None else r[rcol]) != str(want_r):
+            problems.append(
+                f"comment {r[0]}: the AI reviewer's reasoning is shortened or changed"
+            )
         texts = dict(crs_one.comment_full_texts(by_no[r[0]]))
         if (
             wordings is not None

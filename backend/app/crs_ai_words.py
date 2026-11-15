@@ -28,6 +28,7 @@ from .agent_review_verdict import (
     UNVERIFIED_CLAUSE_WHY,
     UNVERIFIED_PAPER_WHY,
 )
+from .clause_check_rank import is_safety
 
 # ---------------------------------------------------------------- the four Status words, their order, the priority rule
 
@@ -291,7 +292,19 @@ def has_banned(text: object) -> bool:
     return bool(BANNED.search(str(text or "")))
 
 
+#: reasons built by `wording.reader_query_words` from a reason CODE (no model text): said as they are
+_SAID_AS_THEY_ARE = (
+    "the sheet does not state this",
+    "needs a drawing or a calculation to judge",
+    "the AI could not decide",
+    "the AI gave no answer",
+)
+
+
 def _one_why(raw: str) -> str | None:
+    if raw.startswith(_SAID_AS_THEY_ARE):
+        return raw
+
     if raw.startswith(
         DISAGREE_ONE_FOUND
     ):  # built by code from a page number it verified (`absence_disagree_why`): said as it is
@@ -378,11 +391,49 @@ def priority(status: str, line: Mapping, order: int | None = None) -> str:
     return ""
 
 
+#: The AI reviewer's own Priority rule (U5, P6): from the FINDING, never from the reader's free guess.
+PRIORITY_RULE_AI = (
+    "Priority is set by one rule. Fail (proven by code) = High. For an AI opinion (not met), an AI verdict (not met) and a Query: "
+    "High when the rule is mandatory ('shall') and its clause is about safety (the closed safety vocabulary); Medium when the rule is "
+    "mandatory; otherwise Low. A point that has no clause has no priority. AI opinion (met), AI verdict (met) and Pass = blank. "
+    "Mandatory means a held rule that is not marked as a recommendation ('should'), or an item of the engineer's approved checklist (an entry that states its own strength, 'should' or advice, is not mandatory)."
+)
+
+
+def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
+    """THE AI reviewer's priority (`PRIORITY_RULE_AI`). The normal reviewer keeps `priority`."""
+    if status == STATUS_FAIL:
+        return HIGH
+    not_met = (status == STATUS_AI and order == ORDER_AI_NOT_MET) or (
+        status == STATUS_AI_VERDICT and order == ORDER_AI_VERDICT_NOT_MET
+    )
+    if not (not_met or status == STATUS_QUERY):
+        return ""
+    text = _clean(line.get("clause_quote") or line.get("requirement"))
+    if not (text or _clean(line.get("clause"))):
+        return ""
+    # mandatory: a held rule, or an item of the engineer's approved checklist ("skill"), that is not marked as advice (a "should")
+    # an entry that states its own strength is believed: a "should" / recommendation / advice is not mandatory
+    advice = (
+        line.get("rule_kind") == "advice"
+        or line.get("recommendation")
+        or (
+            str(line.get("strength") or "").lower()
+            in ("should", "recommendation", "advice")
+        )
+    )
+    mandatory = line.get("source") in ("rule", "skill") and not advice
+    if mandatory and is_safety(text):
+        return HIGH
+    return MEDIUM if mandatory else LOW
+
+
 __all__ = [
     "BANNED",
     "NORMAL_STATUSES",
     "OTHER_SHEET",
     "PRIORITY_RULE",
+    "PRIORITY_RULE_AI",
     "PRIORITY_RULE_NORMAL",
     "STATUSES",
     "UNKNOWN_WHY",
@@ -393,5 +444,6 @@ __all__ = [
     "has_banned",
     "plain",
     "priority",
+    "priority_ai",
     "why_phrase",
 ]

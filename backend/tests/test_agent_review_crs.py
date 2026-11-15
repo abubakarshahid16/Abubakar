@@ -11,6 +11,7 @@ import pytest
 from app import agent_review_crs as C
 from app import agent_review_verdict as V
 from app import agent_review_wording as W
+from app import crs_ai_actions as actions
 from app import crs_ai_words as words
 from app import crs_ai_workbook as WB
 from app import crs_layout
@@ -124,7 +125,13 @@ LINES = [
         "S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"}
     ),  # a checklist Fail
     mk("R-7", "Query", None, reason_code="not_applicable"),
-    mk("R-8", "Query", None, why="the AI did not give pass or fail"),  # a Query
+    mk(
+        "R-8",
+        "Query",
+        "Query",
+        why="the AI reviewer answered that it cannot decide this",
+        reason_code="sheet_silent",
+    ),  # a Query
 ]
 
 
@@ -322,7 +329,13 @@ def test_an_ai_opinion_is_the_ai_reviewers_view_never_pass_or_fail():
 
 
 def test_a_query_is_worded_as_a_crs_comment_that_starts_contractor_to_confirm():
-    line = mk("R-8", "Query", None, why="the AI did not give pass or fail")
+    line = mk(
+        "R-8",
+        "Query",
+        "Query",
+        why="the AI reviewer answered that it cannot decide this",
+        reason_code="sheet_silent",
+    )
     assert WB.status_of(line) == ("Query", words.ORDER_QUERY)
     assert WB.layout_comment(line, *WB.status_of(line)).startswith(
         "Contractor to confirm Field R8 against STD-1 clause 4.1"
@@ -391,7 +404,7 @@ def test_the_rule_books_not_held_and_the_rules_not_asked_are_on_the_notes_sheet(
 def test_the_notes_counts_equal_the_rows_and_the_priority_rule_is_printed(tmp_path):
     path = C.write_internal(LINES, tmp_path / "i.xlsx", META)
     notes = {r["Topic"]: r["Detail"] for r in rows_of_notes(path)}
-    assert notes["Priority rule"] == words.PRIORITY_RULE
+    assert notes["Priority rule"] == words.PRIORITY_RULE_AI
     statuses = [r["Status"] for r in rows_of(path)]
     for status in words.STATUSES:
         assert int(notes[f"Count: {status}"]) == statuses.count(status)
@@ -534,11 +547,11 @@ def test_comment_by_is_the_ai_reviewer_and_the_discipline_when_known(tmp_path):
         (mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"}), "High"),
         (
             mk("R-3", "Query", "Fail", why="x"),
-            "High",
-        ),  # AI opinion not met, mandatory rule
+            "Medium",
+        ),  # AI opinion not met, mandatory rule, no safety clause (U5 P6: High needs a safety clause)
         (
             mk("R-3", "Query", "Fail", why="x", rule_kind="advice"),
-            "Medium",
+            "Low",
         ),  # a 'should'
         (
             mk(
@@ -549,7 +562,7 @@ def test_comment_by_is_the_ai_reviewer_and_the_discipline_when_known(tmp_path):
                 why="x",
             ),
             "Medium",
-        ),  # a checklist item
+        ),  # a checklist item of the approved list is mandatory (U5 R68 F2); no safety clause, so Medium
         (mk("R-8", "Query", None, why="x"), "Medium"),  # Query, mandatory
         (mk("R-8", "Query", None, why="x", rule_kind="advice"), "Low"),
         (mk("R-4", "Query", "Pass", why="x"), None),  # AI opinion met
@@ -859,7 +872,8 @@ def test_the_fallback_is_a_statement_about_the_reviewer_and_makes_no_claim_about
                 got = WB.status_of(line)
                 if got is None:
                     continue
-                line2 = WB.layout_comment(line, *got).split("\n")[1].lower()
+                # the AI reviewer's own reasoning is labelled as its view (U5 P5): it is not a claim in the code's voice
+                line2 = WB.layout_comment(line, *got).split("\n")[1].lower().split(actions.REASONING_LABEL.lower())[0]
                 assert "not confirmed: it could not be confirmed" not in line2, (
                     verdict,
                     ai,
@@ -883,7 +897,9 @@ def test_the_fallback_is_a_statement_about_the_reviewer_and_makes_no_claim_about
         paper_quote=None,
         quotes_checked={"paper": False, "clause": True},
     )
-    assert WB.layout_comment(bare, *WB.status_of(bare)).split("\n")[1] == FALLBACK
+    got2 = WB.layout_comment(bare, *WB.status_of(bare)).split("\n")[1]
+    assert got2.startswith(FALLBACK)
+    assert got2[len(FALLBACK) :].strip().startswith(actions.REASONING_LABEL)  # only the AI's labelled reasoning follows (U5 P5)
 
 
 def test_no_phrase_of_the_table_is_a_tautology_of_its_own_label():
