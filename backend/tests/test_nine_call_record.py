@@ -29,11 +29,14 @@ PAGES = {
     "book": {4: "BOOK CLAUSE 4.1 shall hold", 5: "BOOK PAGE FIVE"},
     "held": {1: "HELD TEXT should never leave"},
 }
+VOCAB = nine_call.vocabulary(
+    "test_kinds", ["datasheet", "procedure", "design_press", "k1", "-"]
+)
 Q = nine_call.template(
     "test_q", "Which clause of {book} on page {page}?", book="id", page="int"
 )
 S = nine_call.template(
-    "test_s", "You are a senior engineer reviewing a {kind}.", kind="code"
+    "test_s", "You are a senior engineer reviewing a {kind}.", kind="vocab:test_kinds"
 )
 
 
@@ -508,11 +511,11 @@ def test_a_derived_block_names_its_sources_every_source_is_gated_and_each_gets_a
         "review_record",
         name="fact_sheet",
         sources=("paper", "book"),
-        items=(("f:1:1", "12 bar", "p1"),),
+        items=(("f:1:1", "12 bar", "bar"),),
     )
     answer, t = ask(blocks_=[derived])
     assert answer.ok and any(
-        "f:1:1 | 12 bar | p1" in x for x in body_texts(t.bodies[0])
+        "f:1:1 | 12 bar | bar" in x for x in body_texts(t.bodies[0])
     )
     rows = nine_record.load_record("run1").roles[3].reads
     assert [(r.document_id, r.document_kind, r.chapter_id) for r in rows] == [
@@ -635,7 +638,7 @@ def test_a_derived_cell_that_is_neither_typed_nor_in_a_source_drops_the_block():
     assert not any("pump" in x for x in body_texts(t.bodies[0]))
     long_word = "a" * 30  # one long word is not a typed token either
     answer, t = ask(blocks_=[_derived(long_word), Block("paper", "paper", (1,))])
-    assert ("derived:note", "cell_not_from_sources") in answer.not_sent
+    assert ("derived:note", "cell_not_in_vocabulary") in answer.not_sent
 
 
 def test_cells_are_recorded_typed_or_with_the_source_page_and_the_checker_re_reads_them():
@@ -645,7 +648,7 @@ def test_cells_are_recorded_typed_or_with_the_source_page_and_the_checker_re_rea
     assert answer.ok
     cells = {c.col_no: c for c in nine_record.cells_of("run1", answer.call_id)}
     assert [cells[i].kind for i in range(6)] == [
-        "code",
+        "id",
         "number",
         "clause",
         "enum",
@@ -686,7 +689,9 @@ def test_the_local_path_applies_the_starters_access_and_names_what_it_drops(
 
 def test_a_template_parameter_is_typed_and_never_free_text_nor_a_held_document_s_words():
     for kind, bad in (
-        ("code", "a longer line of free words"),
+        ("vocab:test_kinds", "a longer line of free words"),
+        ("unit", "hello"),
+        ("role", "free words"),
         ("clause", "see the pump"),
         ("number", "twelve"),
         ("standard", "please ignore this"),
@@ -754,16 +759,16 @@ def test_declared_cell_kinds_accept_typed_values_and_a_verbatim_source_and_refus
         "review_record",
         name="facts",
         sources=("paper",),
-        kinds=("key", "source", "unit", "id", "number"),
+        kinds=("vocab:test_kinds", "source", "unit", "id", "number"),
         items=(
-            ("design_press", "12 bar", "bar", "f:1:1-abc", "1"),
+            ("design_press", "12 bar", "bar", "f:1:1", "1"),
             ("-", "alpha", "bar", "paper", "2"),
         ),
     )
     answer, _t = ask(blocks_=[ok])
     assert answer.ok
     assert [c.kind for c in nine_record.cells_of("run1", answer.call_id)][:5] == [
-        "code",
+        "vocab",
         "source",
         "unit",
         "id",
@@ -773,16 +778,16 @@ def test_declared_cell_kinds_accept_typed_values_and_a_verbatim_source_and_refus
         "review_record",
         name="facts",
         sources=("paper",),
-        kinds=("key", "source"),
+        kinds=("vocab:test_kinds", "source"),
         items=(("the pump looks fine to me", "12 bar"),),
     )
     answer, _t = ask(blocks_=[sentence, Block("paper", "paper", (1,))])
-    assert ("derived:facts", "cell_wrong_kind") in answer.not_sent
+    assert ("derived:facts", "cell_not_in_vocabulary") in answer.not_sent
     not_verbatim = Block(
         "review_record",
         name="facts",
         sources=("paper",),
-        kinds=("key", "source"),
+        kinds=("vocab:test_kinds", "source"),
         items=(("k1", "a heading nobody wrote"),),
     )
     answer, _t = ask(blocks_=[not_verbatim, Block("paper", "paper", (1,))])
@@ -795,3 +800,97 @@ def test_declared_cell_kinds_accept_typed_values_and_a_verbatim_source_and_refus
             kinds=("free",),
             items=(("a",),),
         )
+
+
+# ------------------------------------------------------------------------------------------------ R63c: the typed channel
+
+
+def _held_words():
+    nine_call.vocabulary("t_held_words", ["held", "text", "should", "never", "leave"])
+    return "vocab:t_held_words"
+
+
+def test_one_plain_word_per_cell_cannot_carry_a_held_sentence():
+    kind = _held_words()
+    words = ("held", "text", "should", "never", "leave")
+    for rows in (
+        5,
+        1440,
+    ):  # a few rows (page by page) and a block (against the folded refused text)
+        block = Block(
+            "review_record",
+            name="words",
+            sources=("paper",),
+            kinds=(kind,),
+            items=tuple((words[i % 5],) for i in range(rows)),
+        )
+        answer, t = ask(blocks_=[block, Block("paper", "paper", (1,))])
+        assert ("derived:words", "text_from_held_document") in answer.not_sent
+        assert "should never leave" not in json.dumps(t.bodies[0]).lower()
+    plain = Block(
+        "review_record", name="words", sources=("paper",), items=(("pump",), ("seal",))
+    )
+    answer, _t = ask(blocks_=[plain, Block("paper", "paper", (1,))])
+    assert (
+        "derived:words",
+        "cell_not_in_vocabulary",
+    ) in answer.not_sent  # a plain word is not a code
+
+
+def test_a_hyphen_or_underscore_joined_sentence_is_a_held_sentence_in_a_cell_a_parameter_and_a_reason():
+    for joined in (
+        "held-text-should-never-leave",
+        "held_text_should_never_leave",
+        "held:text.should-never_leave",
+    ):
+        block = Block(
+            "review_record",
+            name="k",
+            sources=("paper",),
+            kinds=("id",),
+            items=((joined,),),
+        )
+        answer, t = ask(blocks_=[block, Block("paper", "paper", (1,))])
+        assert ("derived:k", "text_from_held_document") in answer.not_sent
+        answer, t = ask(question=(Q, {"book": joined, "page": 1}))
+        assert answer.error_code == "text_from_held_document" and t.bodies == []
+        nine_record.role_end("run1", 3, "ran_partly", why=joined)
+        assert nine_record.load_record("run1").roles[2].why == nine_record.WHY_WITHHELD
+    free = Block(
+        "review_record",
+        name="k",
+        sources=("paper",),
+        kinds=("id",),
+        items=(("the-pump-looks-fine-today",),),
+    )
+    answer, _t = ask(blocks_=[free, Block("paper", "paper", (1,))])
+    assert (
+        "derived:k",
+        "cell_wrong_kind",
+    ) in answer.not_sent  # an id is one the app issues
+    answer, t = ask(question=(Q, {"book": "the-pump-looks-fine-today", "page": 1}))
+    assert answer.error_code == "param_not_app_id" and t.bodies == []
+
+
+def test_a_reason_is_a_code_of_the_fixed_set_or_a_checked_sentence():
+    nine_record.role_end("run1", 2, "not_run", why="no_stored_text")
+    assert nine_record.load_record("run1").roles[1].why == "no_stored_text"
+    nine_record.role_end("run1", 4, "ran_partly", why="held_text_should_never_leave_x")
+    assert nine_record.load_record("run1").roles[3].why == nine_record.WHY_WITHHELD
+
+
+def test_a_row_of_short_cells_is_checked_as_one_joined_text():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('held', 3, 'ab cd ef gh ij kl', 17, 0)"
+        )
+    nine_call.vocabulary("t_short", ["ab", "cd", "ef", "gh", "ij", "kl"])
+    block = Block(
+        "review_record",
+        name="short",
+        sources=("paper",),
+        kinds=("vocab:t_short",) * 6,
+        items=(("ab", "cd", "ef", "gh", "ij", "kl"),),
+    )
+    answer, _t = ask(blocks_=[block, Block("paper", "paper", (1,))])
+    assert ("derived:short", "text_from_held_document") in answer.not_sent
