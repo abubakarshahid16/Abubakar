@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from .nine_contract import Chapter, ChapterPart
@@ -49,8 +49,12 @@ class CutBook:
     max_chars: int
     _lines: tuple[str, ...] = field(repr=False, default=())
     _line_page: tuple[int, ...] = field(repr=False, default=())
-    _spans: Mapping[str, tuple[tuple[int, int, int], ...]] = field(repr=False, default_factory=dict)  # id -> ((line_from, line_to, tail_chars) per part)
-    covers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # chapter id -> the heading ids it holds (itself, and the small ones joined to it)
+    _spans: Mapping[str, tuple[tuple[int, int, int], ...]] = field(
+        repr=False, default_factory=dict
+    )  # id -> ((line_from, line_to, tail_chars) per part)
+    covers: Mapping[str, tuple[str, ...]] = field(
+        default_factory=dict
+    )  # chapter id -> the heading ids it holds (itself, and the small ones joined to it)
 
     def text(self, chapter_id: str, part_no: int = 1) -> str:
         """The text of one part: the repeated tail of the part before it (parts 2 and up), then the stored lines."""
@@ -72,7 +76,11 @@ class CutBook:
         want = re.sub(r"\s+", "", str(clause or "")).upper()
         if not want:
             return None
-        index = {h.upper().replace(" ", ""): cid for cid, hs in self.covers.items() for h in hs}
+        index = {
+            h.upper().replace(" ", ""): cid
+            for cid, hs in self.covers.items()
+            for h in hs
+        }
         while want:
             if want in index:
                 return index[want]
@@ -118,7 +126,9 @@ def _depth_of(kind: str, ident: str) -> int:
 
 
 def _label_of(kind: str, ident: str) -> str:
-    return {"appendix": f"Appendix {ident}", "article": f"Article {ident}"}.get(kind, ident)
+    return {"appendix": f"Appendix {ident}", "article": f"Article {ident}"}.get(
+        kind, ident
+    )
 
 
 def _tree(heads: list[tuple[str, str] | None], n_lines: int) -> list[_Node]:
@@ -136,7 +146,11 @@ def _tree(heads: list[tuple[str, str] | None], n_lines: int) -> list[_Node]:
             continue
         kind, ident = head
         if kind == "lettered":
-            family = re.match(r"[A-Z]+", ident).group(0) if re.match(r"[A-Z]+", ident) else ident
+            family = (
+                re.match(r"[A-Z]+", ident).group(0)
+                if re.match(r"[A-Z]+", ident)
+                else ident
+            )
             top = stack[0] if stack else None
             if not (top is not None and top.virtual and top.key == family):
                 close(1, at)
@@ -178,7 +192,14 @@ def _size(lines: tuple[str, ...], lo: int, hi: int) -> int:
     return sum(len(x) + 1 for x in lines[lo:hi])
 
 
-def _split(lines: tuple[str, ...], page_of: tuple[int, ...], lo: int, hi: int, max_chars: int, overlap: int) -> list[tuple[int, int, int]]:
+def _split(
+    lines: tuple[str, ...],
+    page_of: tuple[int, ...],
+    lo: int,
+    hi: int,
+    max_chars: int,
+    overlap: int,
+) -> list[tuple[int, int, int]]:
     """Cut lines[lo:hi] into parts of at most `max_chars` of their own text (the repeated tail is added to the part after the first and may
     take it a little over): at the last PAGE END inside the limit, else at a line start. Returns (line_from, line_to, tail_chars)."""
     out: list[tuple[int, int, int]] = []
@@ -197,25 +218,65 @@ def _split(lines: tuple[str, ...], page_of: tuple[int, ...], lo: int, hi: int, m
     return out
 
 
-def _chapter(book_id: str, cid: str, lines, page_of, lo: int, hi: int, depth: int, cut_by: str, max_chars: int, title_line: int):
+def _chapter(
+    book_id: str,
+    cid: str,
+    lines,
+    page_of,
+    lo: int,
+    hi: int,
+    depth: int,
+    cut_by: str,
+    max_chars: int,
+    title_line: int,
+    scanned: frozenset[int] = frozenset(),
+):
     chars = _size(lines, lo, hi)
-    spans = [(lo, hi, 0)] if chars <= max_chars else _split(lines, page_of, lo, hi, max_chars, OVERLAP_CHARS)
+    spans = (
+        [(lo, hi, 0)]
+        if chars <= max_chars
+        else _split(lines, page_of, lo, hi, max_chars, OVERLAP_CHARS)
+    )
     parts = []
     for k, (a, b, tail) in enumerate(spans, 1):
         body = "\n".join(lines[a:b])
         if k > 1 and tail:
             pa, pb, _ = spans[k - 2]
             body = "\n".join(lines[pa:pb])[-tail:] + "\n" + body
-        parts.append(ChapterPart(k, len(spans), page_of[a], page_of[b - 1], len(body), _sha(body)))
-    chapter = Chapter(book_id, cid, title_line, depth, page_of[lo], page_of[hi - 1], chars, tuple(parts), cut_by)  # type: ignore[arg-type]
+        parts.append(
+            ChapterPart(
+                k, len(spans), page_of[a], page_of[b - 1], len(body), _sha(body)
+            )
+        )
+    pages_in = {page_of[i] for i in range(lo, hi)}
+    chapter = Chapter(
+        book_id,
+        cid,
+        title_line,
+        depth,
+        page_of[lo],
+        page_of[hi - 1],
+        chars,
+        tuple(parts),
+        cut_by,
+        len(pages_in & scanned),
+    )  # type: ignore[arg-type]
     return chapter, tuple(spans)
 
 
 # ---------------------------------------------------------------- the cut
 
 
-def cut(book_id: str, pages: list[tuple[int, str]], *, max_tokens: int = CLAUDE_CALL_TOKENS) -> CutBook:
-    """The chapters of one book. `pages`: [(page number, stored text)] in page order, empty pages left out by the caller."""
+def cut(
+    book_id: str,
+    pages: list[tuple[int, str]],
+    *,
+    max_tokens: int = CLAUDE_CALL_TOKENS,
+    scanned: Iterable[int] = (),
+) -> CutBook:
+    """The chapters of one book. `pages`: [(page number, stored text)] in page order, empty pages left out by the caller. `scanned`: the
+    pages whose text is the recognised text of a scan (`agent_review_standards.read_book(...).ocr`); each chapter counts its own."""
+    scanned = frozenset(int(n) for n in scanned)
     from . import subject_scope
 
     pages = [(int(n), t or "") for n, t in pages if (t or "").strip()]
@@ -231,10 +292,10 @@ def cut(book_id: str, pages: list[tuple[int, str]], *, max_tokens: int = CLAUDE_
                 line_page.append(n)
     lines, page_of = tuple(raw), tuple(line_page)
     st = subject_scope.StandardText(pages)
-    heads = [h for h in st.heads]
+    heads = list(st.heads)
     first = next((i for i, h in enumerate(heads) if h is not None), None)
     if first is None:
-        return _windows(book_id, pages, lines, page_of, max_chars)
+        return _windows(book_id, pages, lines, page_of, max_chars, scanned)
     roots = _tree(heads, len(lines))
     ids: set[str] = set()
     chapters: list[Chapter] = []
@@ -244,7 +305,19 @@ def cut(book_id: str, pages: list[tuple[int, str]], *, max_tokens: int = CLAUDE_
         if hi <= lo:
             return
         cid = _unique(ids, node.key, page_of[lo])
-        chapter, sp = _chapter(book_id, cid, lines, page_of, lo, hi, node.depth, "heading", max_chars, node.line)
+        chapter, sp = _chapter(
+            book_id,
+            cid,
+            lines,
+            page_of,
+            lo,
+            hi,
+            node.depth,
+            "heading",
+            max_chars,
+            node.line,
+            scanned,
+        )
         chapters.append(chapter)
         spans[cid] = sp
 
@@ -254,7 +327,9 @@ def cut(book_id: str, pages: list[tuple[int, str]], *, max_tokens: int = CLAUDE_
             emit(node, lo, node.end)
             return
         kids = [c for c in node.children if c.line < node.end]
-        if kids[0].line > lo:  # the lead-in text before the first sub-heading belongs to the first sub-heading's chapter
+        if (
+            kids[0].line > lo
+        ):  # the lead-in text before the first sub-heading belongs to the first sub-heading's chapter
             walk(kids[0], lo)
         else:
             walk(kids[0], kids[0].line)
@@ -263,13 +338,29 @@ def cut(book_id: str, pages: list[tuple[int, str]], *, max_tokens: int = CLAUDE_
 
     for root in roots:
         walk(root, root.line)
-    chapters, spans, covers = _join_small(book_id, chapters, spans, lines, page_of, max_chars)
+    chapters, spans, covers = _join_small(
+        book_id, chapters, spans, lines, page_of, max_chars, scanned
+    )
     front = _size(lines, 0, first)
     front_pages = tuple(sorted({page_of[i] for i in range(first)}))
-    return CutBook(book_id, tuple(chapters), front, front_pages, "heading", None, max_chars, lines, page_of, spans, covers)
+    return CutBook(
+        book_id,
+        tuple(chapters),
+        front,
+        front_pages,
+        "heading",
+        None,
+        max_chars,
+        lines,
+        page_of,
+        spans,
+        covers,
+    )
 
 
-def _join_small(book_id, chapters, spans, lines, page_of, max_chars):
+def _join_small(
+    book_id, chapters, spans, lines, page_of, max_chars, scanned=frozenset()
+):
     """Join runs of consecutive chapters that are each under `MIN_CHAPTER_CHARS` into one unit while it stays under the call limit.
     The unit is named "<first id> to <last id>" and keeps every heading it holds in `covers`; its text is the lines of all of them."""
     out: list[Chapter] = []
@@ -289,14 +380,28 @@ def _join_small(book_id, chapters, spans, lines, page_of, max_chars):
             lo = spans[run[0].chapter_id][0][0]
             hi = spans[run[-1].chapter_id][-1][1]
             cid = f"{run[0].chapter_id} to {run[-1].chapter_id}"
-            c, sp = _chapter(book_id, cid, lines, page_of, lo, hi, min(r.depth for r in run), "heading", max_chars, run[0].title_line)
+            c, sp = _chapter(
+                book_id,
+                cid,
+                lines,
+                page_of,
+                lo,
+                hi,
+                min(r.depth for r in run),
+                "heading",
+                max_chars,
+                run[0].title_line,
+                scanned,
+            )
             out.append(c)
             out_spans[cid] = sp
             covers[cid] = tuple(r.chapter_id for r in run)
         run.clear()
 
     for c in chapters:
-        if c.chars >= MIN_CHAPTER_CHARS or len(c.parts) > 1:  # a chapter of its own size stands alone
+        if (
+            c.chars >= MIN_CHAPTER_CHARS or len(c.parts) > 1
+        ):  # a chapter of its own size stands alone
             flush()
             run.append(c)
             flush()
@@ -310,7 +415,14 @@ def _join_small(book_id, chapters, spans, lines, page_of, max_chars):
     return out, out_spans, covers
 
 
-def _windows(book_id: str, pages: list[tuple[int, str]], lines, page_of, max_chars: int) -> CutBook:
+def _windows(
+    book_id: str,
+    pages: list[tuple[int, str]],
+    lines,
+    page_of,
+    max_chars: int,
+    scanned=frozenset(),
+) -> CutBook:
     """No heading found: windows of `WINDOW_PAGES` pages with `WINDOW_REPEAT` page repeated; the id says the pages."""
     numbers = [n for n, _ in pages]
     chapters: list[Chapter] = []
@@ -322,11 +434,35 @@ def _windows(book_id: str, pages: list[tuple[int, str]], lines, page_of, max_cha
         lo = next(i for i, p in enumerate(page_of) if p == window[0])
         hi = max(i for i, p in enumerate(page_of) if p == window[-1]) + 1
         cid = f"pages {window[0]}-{window[-1]}"
-        chapter, sp = _chapter(book_id, cid, lines, page_of, lo, hi, 1, "page window", max_chars, lo)
+        chapter, sp = _chapter(
+            book_id,
+            cid,
+            lines,
+            page_of,
+            lo,
+            hi,
+            1,
+            "page window",
+            max_chars,
+            lo,
+            scanned,
+        )
         chapters.append(chapter)
         spans[cid] = sp
         if at + WINDOW_PAGES >= len(numbers):
             break
         at += step
     covers = {c.chapter_id: (c.chapter_id,) for c in chapters}
-    return CutBook(book_id, tuple(chapters), 0, (), "page window", "no headings found: read by page windows", max_chars, lines, page_of, spans, covers)
+    return CutBook(
+        book_id,
+        tuple(chapters),
+        0,
+        (),
+        "page window",
+        "no headings found: read by page windows",
+        max_chars,
+        lines,
+        page_of,
+        spans,
+        covers,
+    )
