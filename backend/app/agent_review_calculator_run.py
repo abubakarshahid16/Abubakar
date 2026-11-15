@@ -51,7 +51,9 @@ def runner_done(stored: dict) -> dict:
         for k, v in stored.items()
         if not v.get("error")
         and str(v.get("source") or "").strip().casefold() != calc.SOURCE
-        and not rule_choice.is_group_line(v)  # a rule choice's group line is not a plan item either
+        and not rule_choice.is_group_line(
+            v
+        )  # a rule choice's group line is not a plan item either
     }
 
 
