@@ -409,11 +409,10 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
-    "PRIORITY_RULE_AI",
-    "priority_ai",
     "NORMAL_STATUSES",
     "OTHER_SHEET",
     "PRIORITY_RULE",
+    "PRIORITY_RULE_AI",
     "PRIORITY_RULE_NORMAL",
     "STATUSES",
     "UNKNOWN_WHY",
@@ -424,5 +423,6 @@ __all__ = [
     "has_banned",
     "plain",
     "priority",
+    "priority_ai",
     "why_phrase",
 ]
