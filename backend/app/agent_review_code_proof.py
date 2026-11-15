@@ -22,6 +22,7 @@ import logging
 import re
 from collections.abc import Mapping
 
+from . import agent_review_absence as absence
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
 from . import comparison, hold_reason, numparse, table_cell
@@ -259,6 +260,7 @@ def _subject_be_sense(quote: str, number: str) -> str | None:
     return None
 
 
+SUBJECT_PHRASE_WHY = "the words between the comparator and 'shall be' are more than the field's name (another component, a scope, a second subject)"
 SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
 
 
@@ -305,34 +307,121 @@ def _sentence_before_figure(quote: object, numbers: list[str]) -> str | None:
     return None
 
 
-#: words in front of a field's name that qualify nothing ("the design pressure", "maximum design pressure"); any other word there says WHICH pressure it is
-_WEAK_QUALIFIERS = _BEFORE_HEAD | {
-    "maximum",
-    "minimum",
-    "max",
-    "min",
-    "allowable",
-    "permissible",
-    "normal",
-    "rated",
-    "stated",
-    "nominal",
-    "required",
-    "shall",
-    "be",
+#: the closed list of words a limit's sentence or a label may carry without saying anything about WHICH quantity it is: articles, the verbs and the comparator
+#: phrase of the limit itself. Every other word that is not the field's name, a figure or a unit is a QUALIFIER, and the qualifiers of the clause and of the label
+#: must be the same set: an unknown word on either side is a difference (a Query), never "no known conflict".
+_WEAK_WORDS = _BEFORE_HEAD | {
+    "shall", "must", "should", "will", "may", "be", "is", "are", "been", "not", "no", "exceed", "exceeds", "exceeding", "less", "more", "greater", "lower", "higher",
+    "than", "least", "most", "used", "use", "value", "values", "stated", "between", "and", "to",
+}  # fmt: skip
+#: the comparator-family words: they qualify a LABEL ("Minimum design pressure" is not the clause's "maximum design pressure") but are the clause's own limit word
+_COMPARATOR_WORDS = {
+    "maximum": "maximum",
+    "max": "maximum",
+    "minimum": "minimum",
+    "min": "minimum",
 }
+#: words that say which VALUE of a quantity a name means: inside a registered spelling too, they qualify (a clause's "maximum X" is not a label's "Normal X")
+_BOUND_FAMILY = frozenset(
+    {
+        "normal",
+        "rated",
+        "required",
+        "nominal",
+        "allowable",
+        "permissible",
+        "actual",
+        "design",
+    }
+    - {"design"}
+)
+_OR_COMPARATIVE = re.compile(
+    r"\bor\s+(?:more|less|higher|lower|greater|fewer|below|above|over|under)\b"
+)
 
 
-def _qualifiers(folded: str, phrase: str) -> set[str] | None:
-    """The qualifying words (up to two) directly before the field's name in the text; None when the text does not carry the name as a whole phrase."""
-    tokens, words = re.findall(r"[a-z0-9]+", folded), phrase.split()
-    for i in range(len(tokens) - len(words) + 1):
-        if tokens[i : i + len(words)] == words:
-            return {t for t in tokens[max(0, i - 2) : i] if t not in _WEAK_QUALIFIERS}
+def _is_unit_word(token: str) -> bool:
+    from . import claims
+
+    try:
+        return claims.normalise("1", token).normalized_unit is not None
+    except Exception:  # noqa: BLE001 - a token the unit reader cannot take is not a unit
+        return False
+
+
+def _name_span(
+    tokens: list[str], words: absence.FieldWords | None, field: str
+) -> tuple[int, int] | None:
+    """The token range of the field's name in the text (the longest of its registered spellings and role patterns), None when the text does not carry it whole."""
+    text = " ".join(tokens)
+    starts = [0]
+    for t in tokens[:-1]:
+        starts.append(starts[-1] + len(t) + 1)
+    found: list[tuple[int, int]] = []
+    names = (
+        list(words.spellings)
+        if words is not None
+        else [" ".join(re.findall(r"[a-z0-9]+", field.lower()))]
+    )  # a field the registry does not know: its own words
+    for sp in names:
+        for m in re.finditer(rf"(?<![a-z0-9]){re.escape(sp)}(?![a-z0-9])", text):
+            found.append((m.start(), m.end()))
+    if not found:  # a role pattern also absorbs prefixes ("internal", "max"): only when no registered spelling is there, so "internal" stays a qualifier
+        for pat in words.patterns if words is not None else ():
+            found.extend(
+                (m.start(), m.end()) for m in pat.finditer(text) if m.group(0).strip()
+            )
+    if not found:
+        return None
+    lo, hi = max(found, key=lambda r: r[1] - r[0])
+    covered = [i for i, st in enumerate(starts) if st < hi and st + len(tokens[i]) > lo]
+    return (covered[0], covered[-1] + 1) if covered else None
+
+
+def _qualifier_sets(
+    folded: str, words: absence.FieldWords | None, field: str
+) -> tuple[set[str], set[str]] | None:
+    """(qualifying words, comparator-family words) of a text around the field's name, anywhere in it; None when the text does not carry the name whole."""
+    from . import requirements_3b as r3b
+
+    folded = _OR_COMPARATIVE.sub(" ", numparse.fold(folded))
+    folded = re.sub(
+        r"[-+]?" + r3b._VALUE + r"\s*(?:" + r3b._UNIT + r")?(?![\w/])", " ", folded
+    )  # a figure and its unit say nothing about which quantity it is
+    tokens = re.findall(r"[a-z0-9]+", folded)
+    span = _name_span(tokens, words, field)
+    if span is None:
+        return None
+    rest = tokens[: span[0]] + tokens[span[1] :]
+    qual, comp = (
+        {t for t in tokens[span[0] : span[1]] if t in _BOUND_FAMILY},
+        set(),
+    )  # "normal operating pressure" is a registered spelling, but "normal" still says WHICH one
+    for t in rest:
+        if t in _COMPARATOR_WORDS:
+            comp.add(_COMPARATOR_WORDS[t])
+        elif t in _WEAK_WORDS or numparse.as_number(t) is not None or _is_unit_word(t):
+            continue
+        else:
+            qual.add(t)
+    return qual, comp
+
+
+QUALIFIER_WHY = "the clause and the paper's label qualify the field differently (a scope, a place, a kind, or a bound word on one side only)"
+
+
+def _limit_sentence(quote: object, numbers: list[str]) -> str | None:
+    """The whole sentence (or table line) of the quote that states the limit's figure: before the figure AND after it."""
+    wanted = [numparse.as_number(x) for x in numbers]
+    for piece in _SENTENCE_BREAK.split(str(quote or "")):
+        text = numparse.fold(piece)
+        if any(
+            n.value in wanted and not n.joined
+            for n in numparse.find_numbers(text)
+            if n.value is not None
+        ):
+            return text
     return None
-
-
-QUALIFIER_WHY = "the clause and the paper's label qualify the field differently (for example external and internal)"
 
 
 def qualifier_reason(
@@ -341,18 +430,81 @@ def qualifier_reason(
     clause_quote: object,
     paper_label: object,
 ) -> str | None:
-    """Why the clause is about ANOTHER KIND of the field than the paper's label names, in words; None when they agree or either does not carry the field's name
-    whole. "The maximum external design pressure shall not exceed 15 psi" is not about the paper's "Internal design pressure": the words that qualify the field's
-    name in front of it must be the same in the sentence that states the limit and in the label (a qualifier on one side only is a difference too)."""
-    field = str(rule_field or "").replace("_", " ").strip().lower()
-    sent = _sentence_before_figure(clause_quote, limit_numbers(requirement or {}))
+    """Why the clause may be about ANOTHER KIND of the field than the paper's label names, in words; None only when the two agree. The words that are neither the
+    field's name, a figure, a unit nor on the closed list of weak words (`_WEAK_WORDS`) are qualifiers, wherever they stand (before the name, after it, in brackets,
+    after a comma: "at the inlet", "for the shell", "(external)"), and the clause sentence's set must EQUAL the label's. A comparator-family word on the label
+    ("Minimum", "Normal", "Rated") must be the clause's own comparator word. An unknown word on either side, or a name one side does not carry whole, is a difference."""
+    from . import agent_review_absence
+
+    field = str(rule_field or "").replace("_", " ").strip()
+    sent = _limit_sentence(clause_quote, limit_numbers(requirement or {}))
+    words = agent_review_absence.field_words([(field, "rule label")]) if field else None
     if not field or not sent:
-        return None
-    wanted, label = (
-        _qualifiers(sent, field),
-        _qualifiers(numparse.fold(str(paper_label or "")), field),
+        return QUALIFIER_WHY
+    clause, label = (
+        _qualifier_sets(sent, words, field),
+        _qualifier_sets(numparse.fold(str(paper_label or "")), words, field),
     )
-    return None if wanted is None or label is None or wanted == label else QUALIFIER_WHY
+    if clause is None or label is None:
+        return QUALIFIER_WHY
+    if clause[0] != label[0] or not label[1] <= clause[1]:
+        return QUALIFIER_WHY
+    return None
+
+
+#: a clause that opens or ends with a condition holds the requirement to that condition, whatever the stored row says
+_CONDITION = re.compile(
+    r"^\W*(?:for|unless|where|if|when|except|provided|in\s+case|in\s+the\s+case)\b|\b(?:unless|except|provided\s+that|only\s+(?:if|when|where)|where|if|when)\b",
+    re.IGNORECASE,
+)
+CONDITION_WHY = "the clause states a condition (for example for a material, unless, where, if, when, except), so the limit is not proven against the paper without it"
+
+
+def condition_reason(requirement: Mapping | None, clause_quote: object) -> str | None:
+    """The condition READ FROM THE CLAUSE QUOTE itself: the stored row's `condition` column is not the only home of it (a row stored before the condition reader has
+    none). A limit sentence that opens with "For ..." / "Unless ..." / "Where ..." / "If ..." / "When ..." / "Except ..." or carries one of them is held."""
+    sent = _limit_sentence(clause_quote, limit_numbers(requirement or {}))
+    seg = next(
+        (
+            x
+            for x in _SENTENCE_BREAK.split(str(clause_quote or ""))
+            if sent and numparse.fold(x) == sent
+        ),
+        None,
+    )
+    return CONDITION_WHY if seg is not None and _CONDITION.search(seg) else None
+
+
+def _subject_phrase_reason(field: str, quote: object, numbers: list[str]) -> str | None:
+    """For the shape "The maximum <subject> shall be <value> <unit>": the subject must be the field's name (a registered spelling or role pattern, articles aside) and
+    nothing else: "of the support skirt", "for nozzles", "per side", a second noun are a limit on something else. The same `own_value_limit.subject_tokens` the parser
+    uses decides what a plain name is."""
+    from . import agent_review_absence, own_value_limit
+
+    wanted = [numparse.as_number(x) for x in numbers]
+    for piece in _SENTENCE_BREAK.split(str(quote or "")):
+        shape = own_value_limit.subject_ref(piece)
+        if shape is None or not any(
+            n.value in wanted and not n.joined
+            for n in numparse.find_numbers(numparse.fold(piece))
+            if n.value is not None
+        ):
+            continue
+        tokens = own_value_limit.subject_tokens(shape[1])
+        words = agent_review_absence.field_words([(field, "rule label")])
+        if tokens is None:
+            return SUBJECT_PHRASE_WHY
+        text = " ".join(tokens)
+        if words is None:  # a field the registry does not know: its own words
+            return (
+                None
+                if text == " ".join(re.findall(r"[a-z0-9]+", field.lower()))
+                else SUBJECT_PHRASE_WHY
+            )
+        if text in words.spellings or any(p.fullmatch(text) for p in words.patterns):
+            return None
+        return SUBJECT_PHRASE_WHY
+    return None
 
 
 def subject_reason(
@@ -369,6 +521,9 @@ def subject_reason(
     words = agent_bind.content_words(field)
     if not (field and words and sent):
         return SUBJECT_WHY
+    phrase = _subject_phrase_reason(field, quote, limit_numbers(requirement or {}))
+    if phrase is not None:
+        return phrase
     plain = guards._fold(
         sent
     )  # the guards' own folding (a dotted abbreviation "c.a." reads "c a", the way the field's spellings are written)
@@ -599,6 +754,7 @@ def numeric_proven(line: Mapping) -> bool:
             line.get("rule_field"), req, line.get("clause_quote"), line.get("field")
         )
         is None
+        and condition_reason(req, line.get("clause_quote")) is None
         and _verdict_matches(line, recompute(req, obs))
     )
 

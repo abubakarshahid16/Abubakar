@@ -2891,17 +2891,22 @@ def _geometry_agrees(raw_value: str, is_blank: bool, fact: dict) -> bool:
     return _fold(raw_value) == _fold(fact["field_value"]) or _wrapped_continuation(raw_value, fact["field_value"])
 
 
-#: words that change what a stated value MEANS when only one of two readings carries them: the readings then differ (a bound, an estimate)
-_QUALIFIER_WORDS = frozenset({"max", "min", "maximum", "minimum", "approx", "approximately", "about", "typ", "typical", "nominal", "avg", "average", "up", "to", "of", "not", "no", "per", "or", "and"})
+#: words that change what a stated value MEANS when only one of two readings carries them: a scope, a condition, a place, a finish, a bound, an alternative, a rating
+#: suffix. Their presence in the words ONE reading adds says the readings are not the same value: they stay a conflict (a question for the engineer).
+_MEANING_WORDS = frozenset(
+    "max min maximum minimum approx approximately about typ typical nominal avg average up to of not no per or and with without only except for at in on by from "
+    "inside outside internal external inlet outlet upstream downstream hot cold gross net gauge absolute clad cladding lined lining coated coating overlay overlaid "
+    "galvanised galvanized plated painted insulated jacketed shell tube side tubes rf ff rtj rj rtjf lb lbs class rating grade type".split()
+)
 
 
-def _wrapped_continuation(a: str | None, b: str | None) -> bool:
-    """One text value that wraps over two lines is read twice: the whole value, and one of its lines alone. The shorter reading is the SAME value when its words
-    (two at least, not all numbers) are the exact start or end of the longer one's words AND the words the longer one adds say nothing that changes the value:
-    no number (when the shorter reading holds one), no deferred-value marker ("By Contractor"), no bound or estimate word. A different value shares no such run ("No" and "Not required", "SS 316" and
-    "SS 316L" are different). Numbers never come here alone: they compare as numbers."""
-    left, right = _fold(a or "").split(), _fold(b or "").split()
-    short, long_ = sorted((left, right), key=len)
+def _wrapped_continuation(reading: str | None, stored: str | None) -> bool:
+    """One text value that wraps over two lines is read twice: the whole value, and one of its lines alone. The READING agrees with the STORED value when the
+    reading is the SHORTER and its words (two at least, not all numbers) are the exact start or end of the stored one's words AND the words the stored one adds say
+    nothing that changes the value: no figure, no word of `_MEANING_WORDS` (a scope, a condition, a finish, a bound, an alternative, a rating), no deferred-value
+    marker ("By Contractor"), no single letter. When the reading is the LONGER one nothing merges: a merge may never lose words, so the longer reading is a
+    conflict for the engineer, whichever reader wrote first. Numbers never come here alone: they compare as numbers."""
+    short, long_ = _fold(reading or "").split(), _fold(stored or "").split()
     if len(short) < 2 or len(short) >= len(long_) or all(numparse.as_number(w) is not None for w in short):
         return False
     if long_[: len(short)] == short:
@@ -2910,8 +2915,10 @@ def _wrapped_continuation(a: str | None, b: str | None) -> bool:
         extra = long_[: len(long_) - len(short)]
     else:
         return False
-    figures = any(ch.isdigit() for w in short for ch in w)  # a reading that holds a figure may not differ from the other by another figure
-    return not (blank_markers.classify(" ".join(extra))[0] or any(w in _QUALIFIER_WORDS or (figures and any(ch.isdigit() for ch in w)) for w in extra))
+    return not (
+        blank_markers.classify(" ".join(extra))[0]
+        or any(w in _MEANING_WORDS or len(w.strip("+-.,()")) <= 1 and w.strip("+-.,()") != "" or any(ch.isdigit() for ch in w) for w in extra)
+    )
 
 
 #: #175: the confidence written for a fact recovered only by the OCR (or

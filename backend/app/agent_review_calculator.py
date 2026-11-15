@@ -159,6 +159,8 @@ def _checks(
             base["rule_field"], base["proof_requirement"], base["clause_quote"], label
         )
         is None
+        and proof.condition_reason(base["proof_requirement"], base["clause_quote"])
+        is None
     )
     way = (
         proof.direction_reason(base["proof_requirement"], base["clause_quote"]) is None

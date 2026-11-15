@@ -149,6 +149,40 @@ def _alternative_agrees(tail: str, main) -> str | None:
     return tail[found.end() :]
 
 
+#: words that make a subject MORE than a field's name: a preposition (another component or scope follows), a conjunction (two subjects), a condition, a second comparator
+SUBJECT_STOP = frozenset(
+    "of for at per on in by to with without from under over during between within inside outside into through across as than after before while when where "
+    "if unless except and or nor not each every all any both either neither only other maximum minimum max min".split()
+)
+ARTICLES = frozenset({"the", "a", "an"})
+MAX_SUBJECT_WORDS = 4
+
+
+def subject_tokens(ref: str) -> list[str] | None:
+    """The words of the subject between the comparator word and "shall be", folded (a dotted abbreviation "C.A." is the words "c", "a"), articles dropped; None
+    when the subject is not a plain name: it holds a word of `SUBJECT_STOP` (another component or scope, two subjects, a condition, a second comparator word),
+    a figure, or more than four words. ONE function: the parser, the subject check and the exit all ask it, so the three cannot disagree."""
+    tokens = [
+        t
+        for w in str(ref or "").lower().split()
+        if w not in ARTICLES
+        for t in re.findall(r"[a-z0-9]+", w)
+    ]  # an article is a whole word ("c.a." keeps its "a")
+    if (
+        not tokens
+        or len(tokens) > MAX_SUBJECT_WORDS
+        or any(t in SUBJECT_STOP or t.isdigit() for t in tokens)
+    ):
+        return None
+    return tokens
+
+
+def subject_ref(sentence: str) -> tuple[str, str] | None:
+    """(comparator word, subject text) of the shape in the sentence, whether or not the subject is a plain name; None when the sentence is not of the shape."""
+    match = _subject_be_pattern().search(sentence or "")
+    return None if match is None else (match.group("cmp"), match.group("ref"))
+
+
 def subject_be(sentence: str) -> dict | None:
     """ "The maximum <subject> shall be <value> <unit>" is a limit of that value on the subject (`<=`; "minimum" gives `>=`), the comparator being the
     clause's own word in front of the subject and the value coming after "shall be".
@@ -163,6 +197,8 @@ def subject_be(sentence: str) -> dict | None:
     match = _subject_be_pattern().search(sentence or "")
     if match is None:
         return None
+    if subject_tokens(match.group("ref")) is None:
+        return None  # a limit on another component or scope ("of the skirt", "for nozzles", "per side"), two subjects, a condition: a statement for an engineer
     _, picks_one, number_before, moves_number = _patterns()
     before = re.sub(
         r"^\s*\d{1,3}(?:\.\d{1,3})+\.?\s+", "", sentence[: match.start("cmp")]
@@ -172,6 +208,12 @@ def subject_be(sentence: str) -> dict | None:
         before,
         re.IGNORECASE,
     )  # "(5 mm), or the minimum ... 0.154 in": two thresholds
+    if re.search(
+        r"\b(?:for|unless|where|if|when|except|provided|in\s+case)\b",
+        before,
+        re.IGNORECASE,
+    ):
+        return None  # a clause that opens with a condition ("For carbon steel, ...", "Where ...") holds its limit to that condition: a statement for an engineer
     if (
         picks_one.search(match.group("ref"))
         or number_before.search(before)

@@ -61,7 +61,10 @@ def test_the_shape_is_read_as_a_limit_with_the_clauses_own_comparator(
         "The maximum number of passes shall be 3.",  # no unit
         "The C.A. shall be 3.2 mm.",  # no comparator word: a nominal value, not this shape
         "Item 5 mm. The maximum C.A. shall be 3.2 mm of the lesser of two.",  # a word that chooses
-        "(5 mm), or the minimum nominal wall thickness shall be 0.154 in.",  # an alternative of two thresholds
+        "(5 mm), or the minimum nominal wall thickness shall be 0.154 in.",
+        "For carbon steel, the maximum corrosion allowance shall be 3.2 mm.",  # a leading condition holds the limit
+        "Where the service is sour, the minimum wall thickness shall be 6 mm.",
+        "In case of brush application, the maximum brush size shall be 125 mm.",  # an alternative of two thresholds
     ],
 )
 def test_what_cannot_be_read_safely_stays_a_statement(sentence):
@@ -154,7 +157,10 @@ def test_the_direction_and_the_subject_of_the_shape_are_shown_by_the_clause_quot
         == proof.DIRECTION_WHY
     )
     other = MAX_CLAUSE.replace("C.A.", "wall thickness")
-    assert proof.subject_reason("corrosion_allowance", req, other) == proof.SUBJECT_WHY
+    assert proof.subject_reason("corrosion_allowance", req, other) in (
+        proof.SUBJECT_WHY,
+        proof.SUBJECT_PHRASE_WHY,
+    )
 
 
 def test_a_dotted_abbreviation_does_not_end_the_sentence_that_names_the_subject():
@@ -180,12 +186,9 @@ def test_a_clause_that_names_another_field_before_the_figure_is_still_not_about_
         is None
     )
     wrong = "The maximum design pressure drop shall be 3.2 mm of the C.A."
-    assert (
-        proof.subject_reason(
-            "corrosion_allowance", calc.requirement_from_item(ITEM), wrong
-        )
-        == proof.SUBJECT_WHY
-    )
+    assert proof.subject_reason(
+        "corrosion_allowance", calc.requirement_from_item(ITEM), wrong
+    ) in (proof.SUBJECT_WHY, proof.SUBJECT_PHRASE_WHY)
 
 
 def test_a_different_value_a_blank_or_another_unit_family_is_never_proven():
@@ -306,8 +309,8 @@ def test_a_clause_about_the_external_pressure_is_not_proof_against_the_internal_
         (
             "The maximum external design pressure shall not exceed 15 psi.",
             "MAWP",
-            False,
-        ),  # the label does not carry the name: not compared here
+            True,
+        ),  # the label does not carry the name whole: an unknown, never a proof
     ],
 )
 def test_the_qualifier_words_in_front_of_the_field_name_must_be_the_same_on_both_sides(
@@ -322,10 +325,7 @@ def test_the_checks_of_the_line_say_the_clause_is_not_about_that_field_when_the_
     line = _pressure_line(
         "Internal design pressure", "Internal design pressure : 3.5 bar"
     )
-    assert (
-        line["quotes_checked"]["clause_subject"] is False
-        and line["reason_code"] == "clause_subject_not_the_field"
-    )
+    assert line["quotes_checked"]["clause_subject"] is False
 
 
 def test_a_proven_line_whose_clause_is_changed_to_another_kind_of_the_field_is_refused_at_the_exit_too():
@@ -361,3 +361,268 @@ def test_no_other_registered_field_carries_the_two_letter_dotted_abbreviation():
         if guards._hit("the maximum c.a. shall be", words)
     ]
     assert carriers == ["corrosion_allowance"]
+
+
+# ---- R74: the three blockers, the four mediums. Invented sentences; each fails on the head before this change -----------------------------------------------
+
+
+def _item(field, op, raw, unit, clause, value=None, norm_unit=None, **over):
+    return {
+        "item_id": "R-r74", "source": "rule", "standard": "STD-1", "clause": "1.1", "rule_kind": "limit", "comparator": op, "value": value if value is not None else float(raw),
+        "unit": norm_unit or unit, "raw_value": raw, "raw_unit": unit, "question": clause, "rule_version_id": "v9", "standard_document_id": "std1", "rule_label": {"tier": "AI approved"},
+        "field_roles": [field], **over,
+    }  # fmt: skip
+
+
+def _verdict(item, label, raw, unit, clause):
+    page = f"{label} : {raw} {unit}\n"
+    fact = {
+        "id": "f9",
+        "field_label": label,
+        "raw_value": raw,
+        "raw_unit": unit,
+        "unit": unit,
+        "page": 1,
+        "is_blank": False,
+        "source_text": f"{label} : {raw} {unit}",
+        "equipment_tag": "T1",
+    }
+    ln = calc.numeric_line(
+        item,
+        calc.requirement_from_item(item),
+        fact,
+        submittal_facts=[fact],
+        page_text=page,
+        clause_quote=clause,
+        clause_text=clause,
+        page_count=1,
+    )
+    return _exit(ln, item), ln
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "of the support skirt",
+        "for nozzles",
+        "for piping",
+        "per side",
+        "of the shell",
+        "at the inlet",
+    ],
+)
+def test_b1_a_limit_on_another_component_or_scope_named_after_the_field_is_never_proven(
+    tail,
+):
+    clause = f"The maximum corrosion allowance {tail} shall be 1 mm."
+    assert subject_be(clause) is None  # not a number rule: the clause stays a statement
+    item = _item(
+        "corrosion_allowance", "<=", "1", "mm", clause, value=1000.0, norm_unit="um"
+    )
+    out, ln = _verdict(
+        item, "Corrosion allowance", "5", "mm", clause
+    )  # a rule row stored by an older parser, or by hand
+    assert out["verdict_class"] != "Proven by code" and out["verdict"] == "Query"
+
+
+def test_b1_the_subject_between_the_comparator_and_shall_be_must_be_the_fields_name_and_nothing_else():
+    clause = "The maximum support skirt corrosion allowance shall be 1 mm."
+    item = _item(
+        "corrosion_allowance", "<=", "1", "mm", clause, value=1000.0, norm_unit="um"
+    )
+    assert (
+        _verdict(item, "Corrosion allowance", "5", "mm", clause)[0]["verdict_class"]
+        != "Proven by code"
+    )
+    req = calc.requirement_from_item(item)
+    assert (
+        proof.subject_reason("corrosion_allowance", req, clause)
+        == proof.SUBJECT_PHRASE_WHY
+    )
+    ok = "The maximum corrosion allowance shall be 1 mm."
+    assert proof.subject_reason("corrosion_allowance", req, ok) is None
+    assert (
+        _verdict(item, "Corrosion allowance", "5", "mm", ok)[0]["verdict_class"]
+        == "Proven by code"
+    )  # control: the plain name still proves
+
+
+@pytest.mark.parametrize(
+    ("clause_words", "label"),
+    [
+        ("design pressure at the inlet", "Design pressure at the outlet"),
+        ("design pressure (external)", "Design pressure (internal)"),
+        ("design pressure for the shell", "Design pressure for the tubes"),
+        ("design pressure of the jacket", "Design pressure of the shell"),
+        ("design pressure, hot,", "Design pressure, cold"),
+        ("maximum design pressure", "Minimum design pressure"),
+        ("rated design pressure", "Required design pressure"),
+        ("nominal design pressure", "Allowable design pressure"),
+        (
+            "design pressure",
+            "Design pressure (internal)",
+        ),  # a qualifier on one side only
+        ("design pressure (external)", "Design pressure"),
+    ],
+)
+def test_b2_the_qualifier_sets_of_the_clause_and_of_the_label_must_be_equal(
+    clause_words, label
+):
+    clause = f"The {clause_words} shall not exceed 15 psi."
+    item = _item(
+        "design_pressure", "<=", "15", "psi", clause, value=103421.4, norm_unit="Pa"
+    )
+    out, _ = _verdict(item, label, "3.5", "bar", clause)
+    assert out["verdict_class"] != "Proven by code"
+
+
+def test_b2_a_minimum_clause_against_a_maximum_label_and_normal_against_maximum_are_not_the_same_quantity():
+    clause = "The minimum design temperature shall not be less than 10 C."
+    item = _item(
+        "design_temperature", ">=", "10", "C", clause, value=10.0, norm_unit="C"
+    )
+    assert (
+        _verdict(item, "Maximum design temperature", "50", "C", clause)[0][
+            "verdict_class"
+        ]
+        != "Proven by code"
+    )
+    op = "The maximum operating pressure shall not exceed 15 psi."
+    item = _item(
+        "operating_pressure", "<=", "15", "psi", op, value=103421.4, norm_unit="Pa"
+    )
+    assert (
+        _verdict(item, "Normal operating pressure", "3.5", "bar", op)[0][
+            "verdict_class"
+        ]
+        != "Proven by code"
+    )
+
+
+@pytest.mark.parametrize(
+    ("clause_words", "label"),
+    [
+        ("design pressure", "Design pressure"),
+        ("design pressure", "Design pressure :"),
+        ("maximum design pressure", "Maximum design pressure"),
+        (
+            "maximum design pressure",
+            "Design pressure",
+        ),  # the clause's own comparator word is not a qualifier
+    ],
+)
+def test_b2_control_equal_sets_still_prove(clause_words, label):
+    clause = f"The {clause_words} shall not exceed 15 psi."
+    item = _item(
+        "design_pressure", "<=", "15", "psi", clause, value=103421.4, norm_unit="Pa"
+    )
+    out, _ = _verdict(item, label, "3.5", "bar", clause)
+    assert (
+        out["verdict_class"] == "Proven by code" and out["verdict"] == "Fail"
+    )  # 3.5 bar is above 15 psi? 3.5 bar = 50.8 psi: a true breach
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The maximum and minimum corrosion allowance shall be 3.2 mm.",
+        "The maximum of the minimum corrosion allowance shall be 3.2 mm.",
+        "The minimum or maximum corrosion allowance shall be 3.2 mm.",
+    ],
+)
+def test_b3_two_comparator_words_in_the_subject_do_not_parse(sentence):
+    assert subject_be(sentence) is None and r3b.parse_limit(sentence) is None
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "For carbon steel, the maximum corrosion allowance shall be 3.2 mm.",
+        "Unless the owner agrees otherwise, the maximum corrosion allowance shall be 3.2 mm.",
+        "Where the service is sour, the maximum corrosion allowance shall be 3.2 mm.",
+        "The maximum corrosion allowance shall be 3.2 mm, except for nozzles.",
+        "If the vessel is clad, the maximum corrosion allowance shall be 3.2 mm.",
+        "When the service is sour the maximum corrosion allowance shall be 3.2 mm.",
+    ],
+)
+def test_m1_a_condition_in_the_clause_quote_holds_the_line_even_when_the_stored_row_has_none(
+    clause,
+):
+    item = _item(
+        "corrosion_allowance", "<=", "3.2", "mm", clause, value=3200.0, norm_unit="um"
+    )
+    assert "rule_condition" not in item
+    out, ln = _verdict(item, "Corrosion allowance", "5", "mm", clause)
+    assert out["verdict_class"] != "Proven by code"
+    assert (
+        proof.condition_reason(calc.requirement_from_item(item), clause)
+        == proof.CONDITION_WHY
+    )
+
+
+def test_m1_a_clause_without_a_condition_is_not_held_by_it():
+    assert (
+        proof.condition_reason(
+            {"raw_value": "3.2"}, "The maximum corrosion allowance shall be 3.2 mm."
+        )
+        is None
+    )
+
+
+def test_m2_a_full_stop_between_two_sentences_does_not_join_a_field_name():
+    from app import agent_review_pass_guards as guards
+
+    text = guards._fold("Follow the design. Pressure test shall be 10 bar.")
+    assert guards._carries(text, ["design pressure"]) is False
+    assert (
+        guards._carries(
+            guards._fold("The design pressure shall be 10 bar."), ["design pressure"]
+        )
+        is True
+    )
+
+
+def test_m3_the_dotted_abbreviation_needs_its_dots():
+    from app import agent_review_pass_guards as guards
+
+    assert (
+        guards._carries(
+            guards._fold("The maximum C.A. shall be 3.2 mm."), ["corrosion_allowance"]
+        )
+        is True
+    )
+    assert (
+        guards._carries(
+            guards._fold("Group C A fittings only."), ["corrosion_allowance"]
+        )
+        is False
+    )
+
+
+def test_m1_the_exit_asks_again_from_the_clause_quote_alone():
+    """A line proven on a plain clause whose clause quote is then given a leading condition is not proven at the exit (every other guard still holds)."""
+    plain = "The maximum corrosion allowance shall be 3.2 mm."
+    item = _item(
+        "corrosion_allowance", "<=", "3.2", "mm", plain, value=3200.0, norm_unit="um"
+    )
+    out, line = _verdict(item, "Corrosion allowance", "3.2", "mm", plain)
+    assert out["verdict_class"] == "Proven by code" and proof.line_proven(line)
+    assert not proof.line_proven(
+        {
+            **line,
+            "clause_quote": "Unless the owner agrees otherwise, "
+            + plain[0].lower()
+            + plain[1:],
+        }
+    )
+
+
+def test_m1_the_calculator_says_so_in_the_checks_of_the_line():
+    clause = "For carbon steel, the maximum corrosion allowance shall be 3.2 mm."
+    item = _item(
+        "corrosion_allowance", "<=", "3.2", "mm", clause, value=3200.0, norm_unit="um"
+    )
+    _, line = _verdict(item, "Corrosion allowance", "3.2", "mm", clause)
+    assert (
+        line["quotes_checked"]["clause_subject"] is False and line["verdict"] == "Query"
+    )

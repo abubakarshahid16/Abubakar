@@ -106,7 +106,7 @@ def test_lead_model_unknown_can_never_pass():
 NUM_ANSWER = {
     "paper_page": 1,
     "paper_quote": "Coating thickness: 0.15 mm",
-    "clause_quote": "The coating thickness shall be at least 0.2 mm on every outside surface.",
+    "clause_quote": "The coating thickness shall be at least 0.2 mm.",
     "paper_figure": "Coating thickness: 0.15 mm",
     "clause_figure": "coating thickness shall be at least 0.2 mm",
 }
