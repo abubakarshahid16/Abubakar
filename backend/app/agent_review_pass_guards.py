@@ -107,11 +107,10 @@ def _hit(folded: str, words: absence.FieldWords) -> bool:
             return True
         # a dotted abbreviation is a spelling of single letters ("c a"): the text must WRITE it with its full stops ("C.A."), so "Group C A fittings" and the end of
         # one sentence followed by the start of the next ("... the design. Pressure test ...") never carry a field
-        if single:
-            if re.search(
-                r"(?<![a-z0-9])" + r"\.".join(letters) + r"\.?(?![a-z0-9])", folded
-            ):
-                return True
+        if single and re.search(
+            r"(?<![a-z0-9])" + r"\.".join(letters) + r"\.?(?![a-z0-9])", folded
+        ):
+            return True
     return False
 
 
