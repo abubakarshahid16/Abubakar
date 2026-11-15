@@ -192,3 +192,33 @@ def test_a_rule_check_point_of_the_real_shape_has_a_clean_name_and_its_tags():
     assert p["name"] == "Corrosion allowance"
     assert len(p["tags"]) == 4 and p["tags"][0].startswith("V-1 A/B")
     assert "(" not in p["name"] and "V-2" not in p["name"]
+
+
+# ------------------------------------------------------------------------------------------------ R60: a name word is never taken for a tag
+
+
+def test_name_words_in_brackets_stay_whole_without_known_tags():
+    for keep in ("Gas (H2 and CO2 content)", "Fasteners (M12 bolts, M16 nuts)", "Casing (M12, M16)", "Rating (P1 & P2)"):
+        assert review_points.split_tags(keep) == (keep, [])
+    # the real nested shape still splits (entries lead with a dash tag)
+    assert review_points.split_tags("Corrosion allowance (V-1 A/B (Inlet nozzle N1, 10 & 19) & V-2 A/B (Outlet N2))") == (
+        "Corrosion allowance",
+        ["V-1 A/B (Inlet nozzle N1, 10 & 19)", "V-2 A/B (Outlet N2)"],
+    )
+
+
+def test_with_the_papers_known_tags_only_those_entries_are_tags():
+    known = frozenset({"V-1", "V-2"})
+    assert review_points.split_tags("Corrosion allowance (V-1 A/B (note), V-2)", known) == ("Corrosion allowance", ["V-1 A/B (note)", "V-2"])
+    # an entry the review does not know as a tag keeps the whole bracket in the name, even with the dash shape
+    assert review_points.split_tags("Rating (V-1, X-9)", known) == ("Rating (V-1, X-9)", [])
+    assert review_points.split_tags("Gas (H2 and CO2 content)", known) == ("Gas (H2 and CO2 content)", [])
+
+
+def test_fields_that_differ_only_by_such_a_bracket_never_share_a_group():
+    a = review_points.split_tags("Fasteners (M12 bolts)")[0]
+    b = review_points.split_tags("Fasteners (M16 nuts)")[0]
+    assert a != b
+    ka = review_points.group_key("ai_review", 4, "d1", "4.1", "r", a.lower())
+    kb = review_points.group_key("ai_review", 4, "d1", "4.1", "r", b.lower())
+    assert ka != kb

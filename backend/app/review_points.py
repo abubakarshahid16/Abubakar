@@ -144,7 +144,7 @@ def group_key(
 # ------------------------------------------------------------------------------------------------ a name is the field, not its tags
 
 _OPEN, _CLOSE = "([{", ")]}"
-_TAG_LEAD = re.compile(r"^[A-Za-z]{1,6}[-/]?\d[\w\-./]*$")  # the first token of a tag entry: letters then digits ("V-100", "P1A")
+_TAG_LEAD = re.compile(r"^[A-Za-z]{1,6}[-/]\d[\w\-./]*$")  # the first token of a tag entry: letters, a dash or slash, digits ("V-100"); never letters+digits alone ("M12", "H2")
 _ONE_TAG = re.compile(r"^[A-Za-z]{1,6}-\d[\w\-./]*$")
 _MORE = re.compile(r"^(?:\.{2,}|\u2026|etc\.?|(?:and\s+)?\+?\d+\s+more)$", re.I)
 _SEPARATORS = ",;&+"
@@ -179,18 +179,29 @@ def _entries(inner: str) -> list[str]:
     return [x.strip() for x in parts if x.strip()]
 
 
-def _is_tag_list(inner: str) -> list[str] | None:
-    """The entries of a bracketed group when it is a list of equipment tags: every entry LEADS with a tag-shaped token (letters then
-    digits, with or without a note after it, even a nested bracket), and there are two or more of them, or one that carries a dash
-    ("V-100"). None for a unit or a note like "(barg)", "(2 mm)", "(API 610)", "(H2 content)". General: it looks at the shape of the
-    group, never at one paper's tag scheme."""
+def _fold_tag(text: str) -> str:
+    return "".join(str(text or "").upper().split())
+
+
+def _is_tag_list(inner: str, known: frozenset[str] = frozenset()) -> list[str] | None:
+    """The entries of a bracketed group when every entry IS a tag. PREFERRED: the review knows this paper's tags (`known`, folded):
+    each entry must be one of them, whole or as a part of one (a range or suffix: "V-1 A/B" for "V-1"; a tag value that lists several tags). FALLBACK, when the paper has no known tag:
+    each entry's lead token has the dash/slash tag shape ("V-100"; never letters and digits alone: "M12", "H2"). A unit, a standard's
+    number, a quantity or a note ("(barg)", "(API 610)", "(H2 and CO2 content)", "(M12 bolts, M16 nuts)") is NOT a tag list. When in doubt
+    the bracket STAYS in the name: a tag left in a name is ugly, a name word removed is wrong."""
     items = [x for x in _entries(inner) if not _MORE.match(x)]
-    if not items or not all(_TAG_LEAD.match(x.split()[0].rstrip(",;")) for x in items):
+    if not items:
         return None
-    return items if len(items) > 1 or _ONE_TAG.match(items[0].split()[0]) else None
+    if known:
+        lead = [_fold_tag(x.split("(")[0]) for x in items]
+        ok = all(len(t) >= 3 and any(t in k or k in t for k in known) for t in lead)  # a tag the review holds, whole or as part of one (a range, a suffix, a tag value that lists several)
+    else:
+        ok = all(_TAG_LEAD.match(x.split()[0].rstrip(",;")) for x in items)
+        ok = ok and (len(items) > 1 or bool(_ONE_TAG.match(items[0].split()[0])))
+    return items if ok else None
 
 
-def split_tags(name: str) -> tuple[str, list[str]]:
+def split_tags(name: str, known: frozenset[str] = frozenset()) -> tuple[str, list[str]]:
     """(the name with every bracketed list of equipment tags taken off, the tags in the order they stood). The tags belong in the
     opened point ("Applies to: N tags"), never in the collapsed row's name. Nested brackets ("V-1 A/B (inlet, 10 & 19) & V-2") and
     every separator the sheet uses are handled; a group that is not a tag list stays in the name."""
@@ -198,7 +209,7 @@ def split_tags(name: str) -> tuple[str, list[str]]:
     tags: list[str] = []
     keep, last = [], 0
     for start, end in _top_level_groups(text):
-        got = _is_tag_list(text[start + 1 : end - 1])
+        got = _is_tag_list(text[start + 1 : end - 1], known)
         if got is None:
             continue
         tags.extend(got)
@@ -263,7 +274,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
-    field, tags = split_tags(wb.field_name(line))
+    field, tags = split_tags(wb.field_name(line), ctx.get("known_tags") or frozenset())
     name = (
         _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
@@ -406,7 +417,9 @@ def rule_point(
         else ""
     )
     reason = (finding or {}).get("reason_code") or kind or ""
-    field, tags = split_tags(section.split(" - ", 1)[-1] if " - " in section else section)
+    field, tags = split_tags(
+        section.split(" - ", 1)[-1] if " - " in section else section, ctx.get("known_tags") or frozenset()
+    )
     name = (
         _plain(field)
         or _plain(" ".join(comment.split()[:7]))
