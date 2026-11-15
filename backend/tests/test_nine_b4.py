@@ -398,19 +398,11 @@ def test_a_carried_field_with_no_fact_is_a_required_item_and_a_query_line():
 
 
 def test_chapters_are_packed_in_order_under_the_token_limit():
-    big = "x" * 3000
-    chapters = [
-        rev.ChapterText(BOOK, str(i), 1, 1, (i,), big) for i in range(5)
-    ]  # 1,000 tokens each
+    chapters = [rev.ChapterText(BOOK, str(i), 1, 1, (i,), 3000) for i in range(5)]  # 1,000 tokens each
     groups = rev.group_chapters(chapters, limit=2500)
-    assert [[c.chapter_id for c in g] for g in groups] == [
-        ["0", "1"],
-        ["2", "3"],
-        ["4"],
-    ]
-    assert rev.group_chapters(
-        [rev.ChapterText(BOOK, "9", 1, 1, (1,), "y" * 9000)], limit=100
-    ) == [[rev.ChapterText(BOOK, "9", 1, 1, (1,), "y" * 9000)]]
+    assert [[c.chapter_id for c in g] for g in groups] == [["0", "1"], ["2", "3"], ["4"]]
+    alone = rev.ChapterText(BOOK, "9", 1, 1, (1,), 9000)
+    assert rev.group_chapters([alone], limit=100) == [[alone]]
 
 
 def test_the_answer_is_parsed_strictly_and_nothing_is_invented():

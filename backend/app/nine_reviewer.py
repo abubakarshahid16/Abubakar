@@ -19,10 +19,11 @@ finds nothing, `ReviewerRun.ok` is False and role 5 asks every item (today's rev
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,6 +64,9 @@ ANSWER_SHAPE = (
 PROMPT_VERSION = (
     "nine-reviewer-" + hashlib.sha256((SYSTEM + ANSWER_SHAPE).encode()).hexdigest()[:10]
 )
+#: the reviewer's words are REGISTERED templates (B1's seam sends no free text): no parameter, so no document word can enter them
+SYSTEM_ID = nine_call.template("nine_reviewer_system", SYSTEM.replace("{", "{{").replace("}", "}}"))
+QUESTION_ID = nine_call.template("nine_reviewer_question", ANSWER_SHAPE.replace("{", "{{").replace("}", "}}"))  # the seam renders with str.format: braces doubled
 
 
 # ---------------------------------------------------------------- the seam (B1) and the blocks
@@ -70,19 +74,35 @@ PROMPT_VERSION = (
 
 @dataclass(frozen=True)
 class ChapterText:
-    """One chapter (or one part of a long one) of a rule book, exactly as stored (nothing cleaned: a quote is checked against the same
-    text). `pages`: the pages of the book it covers. Built by the librarian (role 3); this module only packs them."""
+    """One chapter (or one part of a long one) of a rule book, NAMED not copied: the book, its pages, how many characters it holds and, for a
+    part of a long chapter, the character range into the joined text of those pages. The seam loads the stored text itself, so the words
+    that go out are the stored words and nothing cleaned. Built by the librarian (role 3); this module only packs them."""
 
     book_id: str
     chapter_id: str
     part_no: int
     part_of: int
     pages: tuple[int, ...]
-    text: str
+    chars: int
+    char_from: int | None = None
+    char_to: int | None = None
 
 
-def estimate_tokens(text: str) -> int:
-    return -(-len(text) // CHARS_PER_TOKEN)
+@dataclass(frozen=True)
+class ContextPart:
+    """One part of the project context, derived from named SOURCES (document ids) and carrying rows of short tokens only (B1's derived
+    block). Put only tokens that really come from `sources` into `items`: the checker verifies afterwards."""
+
+    name: str
+    sources: tuple[str, ...]
+    items: tuple[tuple[str, ...], ...]
+
+
+FACT_SHEET = "fact_sheet"
+
+
+def estimate_tokens(chars: int) -> int:
+    return -(-int(chars) // CHARS_PER_TOKEN)
 
 
 def group_chapters(
@@ -93,7 +113,7 @@ def group_chapters(
     groups: list[list[ChapterText]] = []
     size = 0
     for c in chapters:
-        need = estimate_tokens(c.text)
+        need = estimate_tokens(c.chars)
         if not groups or size + need > limit:
             groups.append([])
             size = 0
@@ -102,50 +122,51 @@ def group_chapters(
     return groups
 
 
+def token(text: object) -> str:
+    """One short one-line token for a derived row (the seam refuses anything longer or with a line break)."""
+    one = " ".join(str(text or "").split())
+    return one[: nine_call.MAX_TOKEN_CHARS] or "-"
+
+
+def _rows(items: Iterable[Iterable[object]]) -> tuple[tuple[str, ...], ...]:
+    return tuple(tuple(token(c) for c in row) for row in items if row)
+
+
 def prefix_blocks(
-    paper_id: str, paper_pages: Mapping[int, str], digest: str
+    paper_id: str,
+    paper_pages: Sequence[int],
+    digest_items: Iterable[Iterable[object]] = (),
+    context_parts: Sequence[ContextPart] = (),
 ) -> list[nine_call.Block]:
-    """The part every call shares (cached after the first): the paper page by page, then the fact-sheet DIGEST (derived from the paper alone, so
-    it carries the paper's id). The project-context note is NOT passed to the reviewer here: it is derived from other documents, and a block
-    that carries the paper's id would hide that origin from the one gate. Until the seam takes blocks with their `sources` (B1) and the
-    note comes in parts (B3), the run says "context not passed to the reviewer" (`ReviewerRun.notes`)."""
-    blocks = [
-        nine_call.Block(paper_id, "paper", (n,), t)
-        for n, t in sorted(paper_pages.items())
-        if str(t or "").strip()
-    ]
-    if str(digest or "").strip():
-        blocks.append(
-            nine_call.Block(
-                paper_id, "review_record", (), digest, chapter_id="fact sheet"
-            )
-        )
+    """The part every call shares (cached after the first): the paper's pages (NAMED; the seam loads their stored text), the fact-sheet digest
+    (a derived block whose only source is the paper) and each part of the project context as its OWN derived block with ITS sources, so the
+    one gate sees where every token came from: a part with a held source is dropped whole and named, the rest goes on."""
+    blocks = [nine_call.Block("paper", paper_id, (int(n),)) for n in sorted(paper_pages)]
+    rows = _rows(digest_items)
+    if rows:
+        blocks.append(nine_call.Block("review_record", name=FACT_SHEET, sources=(paper_id,), items=rows))
+    for part in context_parts:
+        if part.sources and part.items:
+            blocks.append(nine_call.Block("review_record", name=part.name, sources=tuple(part.sources), items=_rows(part.items)))
     if blocks:
         last = blocks[-1]
-        blocks[-1] = nine_call.Block(
-            last.document_id,
-            last.document_kind,
-            last.pages,
-            last.text,
-            chapter_id=last.chapter_id,
-            cache=True,
-        )  # the shared part ends here
+        blocks[-1] = dataclasses.replace(last, cache=True)  # the shared part ends here
     return blocks
+
+
+def context_names(prefix: Sequence[nine_call.Block]) -> tuple[str, ...]:
+    """The context parts a prefix OFFERS (derived blocks other than the fact sheet)."""
+    return tuple(b.name for b in prefix if b.document_kind == nine_call.DERIVED_KIND and b.name != FACT_SHEET)
 
 
 def chapter_blocks(group: Sequence[ChapterText]) -> list[nine_call.Block]:
     return [
         nine_call.Block(
-            c.book_id,
-            "rule_book",
-            tuple(c.pages),
-            c.text,
-            chapter_id=c.chapter_id,
-            part_no=c.part_no,
-            part_of=c.part_of,
+            "rule_book", c.book_id, tuple(c.pages), c.char_from, c.char_to,
+            chapter_id=c.chapter_id, part_no=c.part_no, part_of=c.part_of,
         )
         for c in group
-    ]
+    ]  # fmt: skip
 
 
 def sent_of(answer: nine_call.Answer) -> nine_findings.Sent:
@@ -155,33 +176,18 @@ def sent_of(answer: nine_call.Answer) -> nine_findings.Sent:
     books: dict[str, set[int]] = {}
     refs: list[tuple[str, str, int]] = []
     for r in answer.reads:
-        pages = {
-            int(p) for p in r.pages if isinstance(p, int) and not isinstance(p, bool)
-        }
+        pages = {int(p) for p in r.pages if isinstance(p, int) and not isinstance(p, bool)}
         if r.document_kind == "paper":
             paper |= pages
         elif r.document_kind == "rule_book":
             books.setdefault(str(r.document_id), set()).update(pages)
-            refs.append(
-                (str(r.document_id), str(r.chapter_id or ""), int(r.part_no or 1))
-            )
-    return nine_findings.Sent(
-        answer.call_id,
-        frozenset(paper),
-        {k: frozenset(v) for k, v in books.items()},
-        answer.model,
-        tuple(dict.fromkeys(refs)),
-    )
+            refs.append((str(r.document_id), str(r.chapter_id or ""), int(r.part_no or 1)))
+    return nine_findings.Sent(answer.call_id, frozenset(paper), {k: frozenset(v) for k, v in books.items()}, answer.model, tuple(dict.fromkeys(refs)))
 
 
-def question_of(group: Sequence[ChapterText]) -> str:
-    """The question of one call: which chapters it holds (ids only), then the answer shape."""
-    held = "; ".join(
-        f"book {c.book_id} chapter {c.chapter_id} (part {c.part_no} of {c.part_of}, pages {c.pages[0]}-{c.pages[-1]})"
-        for c in group
-        if c.pages
-    )
-    return f"Chapters given in this call: {held}.\n\n{ANSWER_SHAPE}"
+def context_sent(answer: nine_call.Answer) -> set[str]:
+    """The names of the context parts a call really sent (a derived block is read once per source: its name is the read's chapter id)."""
+    return {str(r.chapter_id) for r in answer.reads if r.document_kind == nine_call.DERIVED_KIND and r.chapter_id and r.chapter_id != FACT_SHEET}
 
 
 # ---------------------------------------------------------------- the answer
@@ -259,7 +265,13 @@ class ReviewerRun:
         default_factory=list
     )  # (document id, code) the gate held, over every call
     unread: list[list[ChapterText]] = field(default_factory=list)
-    context_passed: bool = False  # the project-context note went to the reviewer (not until B1's sources and B3's note parts exist)
+    context_offered: tuple[str, ...] = ()  # the context parts the prefix offered (derived blocks with their sources)
+    context_dropped: list[str] = field(default_factory=list)  # parts a call did NOT send (a source the gate held): named in the record
+
+    @property
+    def context_passed(self) -> bool:
+        """Context parts were offered and every one of them went (none held by the gate)."""
+        return bool(self.context_offered) and not self.context_dropped
 
     @property
     def ok(self) -> bool:
@@ -268,14 +280,12 @@ class ReviewerRun:
     @property
     def partly(self) -> bool:
         return bool(
-            self.failed or self.not_asked or self.budget_stopped or self.not_sent
+            self.failed or self.not_asked or self.budget_stopped or self.not_sent or self.context_dropped
         )
 
-    NO_CONTEXT = "project context not passed to the reviewer"
-
     def state(self) -> tuple[str, str | None]:
-        """(role state, why) for the record: "ran" when every group was read AND the context went with them; "ran_partly" with the reason when
-        some were not read or the project context was not passed; "not_run" when no call answered."""
+        """(role state, why) for the record: "ran" when every group was read and every offered context part went; "ran_partly" with the reason when
+        some were not read or a context part was held by the gate (named); "not_run" when no call answered."""
         if self.answered == 0:
             why = (
                 "role budget reached before any call"
@@ -287,8 +297,10 @@ class ReviewerRun:
                 )
             )
             return "not_run", why
-        if self.partly or not self.context_passed:
-            parts = [] if self.context_passed else [self.NO_CONTEXT]
+        if self.partly:
+            parts = []
+            if self.context_dropped:
+                parts.append("project context part(s) held by the gate: " + ", ".join(self.context_dropped))
             if self.budget_stopped:
                 parts.append("role budget reached")
             if self.failed:
@@ -314,6 +326,8 @@ class ReviewerRun:
             "failed": self.failed,
             "not_asked": self.not_asked,
             "unread_groups": len(self.unread),
+            "context_parts": len(self.context_offered),
+            "context_parts_held": len(self.context_dropped),
             "context_passed": int(self.context_passed),
         }
 
@@ -324,7 +338,7 @@ def review(
     groups: Sequence[Sequence[ChapterText]],
     *,
     ask: Callable[..., nine_call.Answer] = nine_call.ask,
-    engine: str = "claude",
+    engine: str | None = None,
     model: str | None = None,
     max_tokens: int = 8000,
     send: Callable | None = None,
@@ -334,13 +348,13 @@ def review(
     gate: nine_call.RoleGate | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     concurrency: int = CONCURRENCY,
-    context_passed: bool = False,
 ) -> ReviewerRun:
     """One call per chapter group through the seam, `concurrency` at a time, each with prefix + that group's blocks. A group is `not_asked`
     when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
     a failed or refused call is counted and its code kept (codes only). What each call SENT is read from its Answer. Results follow the
     group order, so the same inputs give the same findings."""
-    run = ReviewerRun(groups=len(groups), context_passed=context_passed)
+    offered = context_names(prefix)
+    run = ReviewerRun(groups=len(groups), context_offered=offered)
     gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
     stop = {"budget": False}
 
@@ -348,7 +362,7 @@ def review(
         if should_stop() or stop["budget"]:
             return None
         got = ask(
-            run_id, ROLE_NO, [*prefix, *chapter_blocks(group)], question_of(group), engine=engine, system=SYSTEM, model=model,
+            run_id, ROLE_NO, [*prefix, *chapter_blocks(group)], (QUESTION_ID, {}), engine=engine, system=(SYSTEM_ID, {}), model=model,
             max_tokens=max_tokens, send=send, local_send=local_send, env=env, meter=meter, gate=gate,
         )  # fmt: skip
         if got.error_code == "role_budget":
@@ -379,6 +393,7 @@ def review(
             run.unread.append(list(group))
             continue
         run.answered += 1
+        run.context_dropped.extend(n for n in offered if n not in context_sent(res) and n not in run.context_dropped)
         sent = sent_of(res)
         run.raw.extend((r, sent) for r in parsed)
     return run
