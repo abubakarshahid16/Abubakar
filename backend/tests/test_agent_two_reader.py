@@ -1112,11 +1112,13 @@ def test_the_class_lines_are_the_fifth_status_with_the_stated_order_priority_and
         "Pass",
     ]
     verdict_rows = [r for r in rows if r["Status"] == "AI verdict"]
+    # #1828 (U5, P6): the AI reviewer's own priority: High only when the rule is mandatory AND its clause is about safety, Medium when
+    # mandatory, otherwise Low; met: blank (the clauses of these lines are not about safety)
     assert [r["Priority"] for r in verdict_rows] == [
-        "High",
         "Medium",
+        "Low",
         None,
-    ]  # not met: High when mandatory else Medium; met: blank
+    ]
     assert (
         "\nNot met (AI, two readers agree, quotes verified): "
         in verdict_rows[0]["COMPANY Comments"]
