@@ -54,6 +54,20 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       {listing && (
         <>
           <CodeBox listing={listing} onRecorded={() => { void pts.reload(); onCodeRecorded(); }} />
+          {listing.completeness && !listing.completeness.ok && (
+            <div role="alert" data-testid="v2-incomplete" className="rounded-[var(--radius-md)] border border-danger-500 p-3 text-sm text-danger-500">
+              <p>
+                This review's file is not complete, so the CRS downloads and signing are refused: the page has {listing.completeness.page} points, the database
+                {" "}{listing.completeness.database} lines, the team file {listing.completeness.team_rows} rows.
+              </p>
+              {listing.completeness.missing.length > 0 && (
+                <ul className="mt-1 list-disc pl-5">
+                  {listing.completeness.missing.slice(0, 10).map((m) => <li key={m}>{m}</li>)}
+                  {listing.completeness.missing.length > 10 && <li>and {listing.completeness.missing.length - 10} more</li>}
+                </ul>
+              )}
+            </div>
+          )}
           {listing.comment_count != null && (
             <p data-testid="v2-comment-count" className="text-xs text-slateish-400">
               {listing.of} points reviewed, as {listing.comment_count} comments in the CRS file (one comment per field; every point stays on the sheet Evidence).

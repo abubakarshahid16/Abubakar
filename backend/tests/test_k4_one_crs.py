@@ -386,7 +386,7 @@ def _pt(
     }
 
 
-PLACEHOLDER = "AI suggestion awaiting an engineer's decision - its words are in AI Review Comments."
+from app.crs_export_quality import NOTE_PARKED as PLACEHOLDER  # noqa: E402
 
 
 def test_a_kept_rule_check_ai_opinion_is_withheld_and_counted_never_issued():
@@ -416,9 +416,34 @@ def test_status_is_fail_only_for_a_proven_failure_else_the_engineers_decision_wo
         ]  # the engineer's own words are issued whatever the AI rank
 
 
-def test_an_edit_that_carries_the_waiting_placeholder_is_withheld():
+def test_the_stored_placeholder_is_withheld_but_the_engineers_own_words_are_issued_whatever_words_they_use():
     kept, withheld = crs_one.contractor_points([_pt(3, state="edit", text=PLACEHOLDER)])
     assert kept == [] and withheld == 1
+    for words in (
+        "Contractor to confirm the set pressure of the relief valve.",
+        "Awaiting vendor data: contractor to supply the seat leakage class.",
+        "AI-generated drawings are not accepted; resubmit.",
+        "Reconfirm the nameplate material.",
+    ):
+        edited = _pt(3, state="edit", text=words)
+        assert crs_one.issuable_text(edited) == words
+        assert crs_one.contractor_points([edited])[0] == [edited]
+        added = _pt(4, source="added", action=words)
+        assert crs_one.issuable_text(added) == words
+    proven = _pt(1, state="keep", action="Contractor to confirm the rating.")
+    assert crs_one.issuable_text(proven) == "Contractor to confirm the rating."
+    assert crs_one.issuable_text(_pt(1, state="keep", action=PLACEHOLDER)) == ""
+
+
+def test_the_withheld_reason_on_the_first_sheet_is_true_for_engineer_text_with_those_words():
+    from app import crs_completeness as cc
+
+    rows = [
+        _pt(3, state="edit", text="Contractor to confirm the set pressure."),
+        _pt(3, state="edit", text=PLACEHOLDER),
+    ]
+    mine, reasons = cc.contractor_split(rows)
+    assert len(mine) == 1 and reasons == {cc.REASON_NO_WORDING: 1}
 
 
 def test_no_cell_of_the_contractor_file_holds_ai_awaiting_or_confirm_text_even_with_every_point_kept():
@@ -739,7 +764,131 @@ def test_a_comment_that_loses_a_point_from_its_count_is_refused(monkeypatch):
     import types
 
     # the builder's own grouping drifts (a point's count lost); the check reads the grouping function itself
-    monkeypatch.setattr(crs_one, "comments", types.SimpleNamespace(group=lossy, DISAGREE=crs_comments.DISAGREE))
+    monkeypatch.setattr(
+        crs_one,
+        "comments",
+        types.SimpleNamespace(group=lossy, DISAGREE=crs_comments.DISAGREE),
+    )
     with pytest.raises(cc.Incomplete) as e:
         cc.file_or_refuse(doc, scope_all(), "team")
     assert "do not add up" in str(e.value)
+
+
+# ------------------------------------------------------------------------------------------------ R61
+
+
+def test_a_name_that_is_not_a_field_never_makes_a_comment():
+    from app import crs_comments
+
+    assert not any(
+        crs_comments.is_field(n)
+        for n in (
+            "",
+            "  ",
+            "p.22",
+            "P. 8",
+            "page 3",
+            PLACEHOLDER,
+            "Section 4 Scope",
+            "3.2 Materials",
+        )
+    )
+    assert all(
+        crs_comments.is_field(n)
+        for n in ("Design pressure", "Gas (H2 and CO2 content)", "2 inch nozzle")
+    )
+    pts = [
+        _fp(i, 3, name=n, clause=f"{i}.1", rule_book=f"B{i}")
+        for i, n in enumerate(["p.22", "p.22", PLACEHOLDER, PLACEHOLDER, "", ""], 1)
+    ]
+    got = crs_comments.group(pts)
+    assert [c["n_points"] for c in got] == [
+        1
+    ] * 6  # different clauses of different books never merge on a non-field
+
+
+def test_no_comment_merges_points_of_different_clauses_unless_they_share_a_real_field():
+    from app import crs_comments
+
+    pts = [
+        _fp(1, 3, name="p.5", clause="1.1"),
+        _fp(2, 3, name="p.5", clause="2.2"),
+        _fp(3, 3, name="Real field", clause="1.1"),
+        _fp(4, 3, name="Real field", clause="2.2"),
+    ]
+    for c in crs_comments.group(pts):
+        members = [p for p in pts if p["id"] in c["member_ids"]]
+        if len({p["clause"] for p in members}) > 1:
+            assert (
+                crs_comments.is_field(members[0]["name"])
+                and len({p["name"] for p in members}) == 1
+            )
+    assert [c["n_points"] for c in crs_comments.group(pts)] == [1, 1, 2]
+    same_clause = crs_comments.group(
+        [_fp(1, 4, name="", clause="7.7"), _fp(2, 4, name="", clause="7.7")]
+    )
+    assert [c["n_points"] for c in same_clause] == [2]
+
+
+def test_the_field_is_what_review_points_split_tags_says(monkeypatch):
+    from app import crs_comments
+
+    seen = []
+
+    def stub(name):
+        seen.append(name)
+        return {
+            "Fluid (A (x, y) & B (z))": "Fluid",
+            "Gas (H2 and CO2 content)": "Gas (H2 and CO2 content)",
+        }.get(name, name), []
+
+    monkeypatch.setattr(review_points, "split_tags", stub)
+    pts = [
+        _fp(1, 3, name="Fluid (A (x, y) & B (z))"),
+        _fp(2, 3, name="Fluid"),
+        _fp(3, 3, name="Gas (H2 and CO2 content)"),
+        _fp(4, 3, name="Gas"),
+    ]
+    got = crs_comments.group(pts)
+    assert (
+        [c["n_points"] for c in got] == [2, 1, 1]
+    )  # the nested-tag name is the field "Fluid"; a bracket that is part of the name stays whole
+    assert "Fluid (A (x, y) & B (z))" in seen
+
+
+def test_the_page_says_when_the_three_counts_differ_and_names_the_missing_point(
+    monkeypatch,
+):
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    assert cc.record_after_run(ai)["team"]["ok"]
+    assert points_of(client, doc)["completeness"]["ok"] is True
+    real = review_points.build
+    monkeypatch.setattr(review_points, "build", lambda a, r, d: real(a, r, d)[:-1])
+    got = cc.record_after_run(ai)
+    assert not got["team"]["ok"]
+    page = points_of(client, doc)["completeness"]
+    assert page["ok"] is False and page["page"] == 3 and page["database"] == 4
+    assert page["missing"] and all(
+        "stored but not on the page" in m for m in page["missing"][:1]
+    )
+
+
+def test_a_point_on_the_page_that_is_not_in_the_database_is_named(monkeypatch):
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    real = cc.database_lines
+
+    def short(paper, scope, facts):
+        out = real(paper, scope, facts)
+        gone = next(i for i in out["ids"] if i.startswith("ai:"))
+        out["ids"].pop(gone)
+        out["total"] -= 1
+        return out
+
+    monkeypatch.setattr(cc, "database_lines", short)
+    with pytest.raises(cc.Incomplete) as e:
+        cc.file_or_refuse(doc, scope_all(), "team")
+    assert "is on the page but not in the database" in str(e.value)

@@ -102,6 +102,7 @@ class PointsListingOut(BaseModel):
     contractor_copy: dict[str, Any] = {}
     comments: list[dict[str, Any]] = []
     comment_count: int = 0
+    completeness: dict[str, Any] | None = None
 
 
 class PageV2Status(BaseModel):

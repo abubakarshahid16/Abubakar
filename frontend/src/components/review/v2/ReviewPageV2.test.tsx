@@ -444,6 +444,17 @@ describe("11 the bottom row", () => {
     mount(); await loaded();
     expect(screen.getByTestId("v2-comment-count")).toHaveTextContent("as 3 comments");
   });
+  it("shows a banner naming what is missing when the three counts differ, and nothing when they agree", async () => {
+    const bad = { ok: false, page: 3, database: 4, team_rows: 3, contractor_rows: 0, missing: ["an AI line (Design pressure, page 2) is stored but not on the page"], sentence: "x", checked_at: "t" };
+    api.list.mockResolvedValue(ok(listing({ completeness: bad })));
+    const first = mount(); await loaded();
+    expect(screen.getByTestId("v2-incomplete")).toHaveTextContent("Design pressure, page 2");
+    expect(screen.getByTestId("v2-incomplete")).toHaveTextContent("the page has 3 points, the database 4 lines");
+    first.unmount();
+    api.list.mockResolvedValue(ok(listing({ completeness: { ...bad, ok: true, missing: [] } })));
+    mount(); await loaded();
+    expect(screen.queryByTestId("v2-incomplete")).toBeNull();
+  });
   it("the contractor button says it is the working copy, and after signing still not the issued file", async () => {
     mount({ signed: true }); await loaded();
     expect(screen.getByRole("button", { name: "CRS for the contractor (working copy)" })).toBeInTheDocument();
