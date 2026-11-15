@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 PART_OUTSIDE = "outside_governed_part"
 BELOW_LIMIT = "below_review_limit"
@@ -279,8 +282,8 @@ def governing_book_ids(
                     (scope_run, *GOVERNING_METHODS),
                 )
             }
-        except sqlite3.Error:  # no table: nothing is marked by the selection
-            pass
+        except sqlite3.Error as exc:  # no table: nothing is marked by the selection
+            log.debug("rule choice: no selection table (%s)", type(exc).__name__)
     if standard_labels and equipment_names:
         from . import standard_ids
 
@@ -397,6 +400,7 @@ __all__: list[Any] = [
     "below_line_sentence",
     "budget_for",
     "enabled",
+    "equipment_governing_ids",
     "governing_book_ids",
     "group_line",
     "group_points",
@@ -404,8 +408,8 @@ __all__: list[Any] = [
     "partial_gate_rows",
     "plan_args",
     "plan_extra",
-    "store_group_lines",
     "rank_and_cut",
     "score",
+    "store_group_lines",
     "unapproved_sentence",
 ]

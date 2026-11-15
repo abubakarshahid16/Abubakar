@@ -174,6 +174,7 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_review_pages.py": "page lookup",
     "agent_review_request.py": "request and reason-code shapes",
     "agent_review_rule_rows.py": "reads rule rows from the database",
+    "agent_review_rule_choice.py": "rule choice v2: which rules are asked and the ranking (off by default); a line it adds can only be an opinion or a Query, which the exit cap enforces",
     "agent_review_rules.py": "rule selection by paper kind",
     "agent_review_schema.py": "database tables",
     "agent_review_standards.py": "standard text lookup",

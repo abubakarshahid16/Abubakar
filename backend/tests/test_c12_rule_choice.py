@@ -483,7 +483,7 @@ def test_an_approved_rule_is_never_cut_in_favour_of_a_rule_not_yet_approved():
     assert RC.score(opinion_high[0], why["op0"], gov, {"design_pressure"}) > RC.score(
         approved_low[0], why["ok0"], gov, set()
     )
-    top, cut, facts = RC.rank_and_cut(
+    top, _cut, facts = RC.rank_and_cut(
         approved_low + opinion_high, why, "id", 3, gov, {"design_pressure"}
     )
     assert {r["id"] for r in top} == {"ok0", "ok1", "ok2"} and facts[
