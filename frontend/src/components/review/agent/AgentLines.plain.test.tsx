@@ -12,7 +12,7 @@ import { hasBannedWord } from "./plainWords";
 
 const api = { summary: vi.fn(), lines: vi.fn() };
 vi.mock("../../../api/agentReview", () => ({
-  agentReview: { summary: (...a: unknown[]) => api.summary(...a), lines: (...a: unknown[]) => api.lines(...a) },
+  agentReview: { summary: (...a: unknown[]) => api.summary(...a), lines: (...a: unknown[]) => api.lines(...a), crsOlder: () => Promise.resolve({ ok: true, data: { run_id: "r1", ai_lines: 3, paper_points: null } }) },
   isFeatureOff: () => false,
 }));
 beforeEach(() => Object.values(api).forEach((f) => f.mockReset()));
