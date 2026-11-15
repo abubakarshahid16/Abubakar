@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from . import agent_review_wording as wording
 from . import crs_comments, crs_completeness
 from . import (
     evidence_boxes,
@@ -444,7 +445,9 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
         return None
     conn = connect()
     lines = [
-        {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        wording.read_time(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        )
         for r in conn.execute(
             "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
             (run_id,),

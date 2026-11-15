@@ -117,6 +117,21 @@ describe("AgentSummary: two readers agree", () => {
   });
 });
 
+describe("AgentSummary: the reader's own questions by group", () => {
+  it("counts the groups apart and says what Not reviewed is", () => {
+    render(<AgentSummary summary={summary({ query_groups: { contractor_silent: 7, engineer_drawing: 9, could_not_decide: 4 }, not_reviewed: 2 })} />);
+    const text = screen.getByTestId("agent-query-groups").textContent ?? "";
+    expect(text).toContain("for the contractor (the sheet does not state it) 7");
+    expect(text).toContain("for the engineer (needs a drawing or a calculation) 9");
+    expect(text).toContain("the AI could not decide 4");
+    expect(text).toContain("Not reviewed (the AI gave no answer): 2");
+  });
+  it("shows nothing for a run stored before it", () => {
+    render(<AgentSummary summary={summary()} />);
+    expect(screen.queryByTestId("agent-query-groups")).toBeNull();
+  });
+});
+
 describe("AgentSummary: decisions", () => {
   it("states the one count of decisions: code Pass/Fail plus two-reader verdicts", () => {
     render(<AgentSummary summary={summary({ decisions: { code: 2, two_reader: 5, not_stated: 2, total: 7 } })} />);

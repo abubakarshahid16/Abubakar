@@ -249,12 +249,9 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         and status == words.STATUS_AI_VERDICT
     ):
         return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
+    if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
+        return action  # a question for the engineer, never worded for the contractor
     what, ref = field_name(line) or "the item", against(line)
-    if (
-        line.get("verdict_label") == two.WORD_NOT_STATED
-        and status == words.STATUS_AI_VERDICT
-    ):
-        return f"Contractor to state {what}, or the page where it is shown."
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
@@ -557,6 +554,7 @@ def _notes_rows(
         )
     )
     rows += [(f"Count: {s}", count[s]) for s in words.STATUSES]
+    rows += wording.group_rows(ln for ln, _s, _o in items)
     dec = wording.decisions_of(
         (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
     )
@@ -735,6 +733,7 @@ def screen_text(line_json: str | None) -> str:
         line = json.loads(line_json or "")
     except ValueError:
         return ""
+    line = wording.read_time(line) if isinstance(line, dict) else line  # read time
     ruled = isinstance(line, dict) and line.get("source") in (
         "rule",
         "skill",
@@ -749,6 +748,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     no model, no run number."""
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
+    lines = [wording.read_time(ln) for ln in lines]  # read time
     items = ordered_item_lines(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)

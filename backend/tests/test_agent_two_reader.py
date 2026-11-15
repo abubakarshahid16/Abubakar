@@ -1084,7 +1084,13 @@ CRS_LINES = [
     _two("R-5", "Pass"),
     _two("R-6", "Fail"),
     _two("R-7", "Fail", rule_kind="advice"),
-    mk("R-8", "Query", None, why="the AI did not give pass or fail"),
+    mk(
+        "R-8",
+        "Query",
+        "Query",
+        why="the AI reviewer answered that it cannot decide this",
+        reason_code="sheet_silent",
+    ),
 ]
 
 
