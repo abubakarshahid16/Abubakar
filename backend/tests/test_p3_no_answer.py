@@ -228,13 +228,14 @@ def _asks_of(ollama, item_id):
     return n
 
 
-def test_the_local_reader_that_gives_no_verdict_is_asked_once_more_and_then_not_reviewed(local):
-    local["ollama"].first = Seq(local["ollama"].first, {"R-coat": 1})
+@pytest.mark.parametrize(("drop", "reviewed"), [(1, True), (2, True), (3, False), (9, False)])
+def test_the_local_reader_that_gives_no_verdict_is_asked_once_more_and_then_not_reviewed(local, drop, reviewed):
+    """The invented paper needs two windows for R-coat: the windows are asked, then ONE more ask on the last window (the local
+    budget rules: the same request, no loop). Three answers without a verdict leave the line "Not reviewed"."""
+    local["ollama"].first = Seq(s.ANSWERS, {"R-coat": drop})
     got = lines_of(run_review())
-    print("ASKS", _asks_of(local["ollama"], "R-coat"))
-    assert _asks_of(local["ollama"], "R-coat") == 2 and got["R-coat"]["verdict_class"] != "Not reviewed"
-    local["ollama"].bodies.clear()
-    local["ollama"].first = Seq(local["ollama"].first, {"R-mark": 9})
-    got = lines_of(run_review())
-    assert got["R-mark"]["verdict_class"] == "Not reviewed" and got["R-mark"]["reason"] == "the AI gave no answer"
-    assert _asks_of(local["ollama"], "R-mark") <= 2 * 2  # a window and one more ask on it; never a loop
+    assert _asks_of(local["ollama"], "R-coat") <= 3  # two windows and the one more ask, never a loop
+    if reviewed:
+        assert got["R-coat"]["verdict_class"] != "Not reviewed"
+    else:
+        assert got["R-coat"]["verdict_class"] == "Not reviewed" and got["R-coat"]["reason"] == "the AI gave no answer"
