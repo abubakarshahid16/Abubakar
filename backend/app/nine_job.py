@@ -399,6 +399,13 @@ def _fact_counts(ctx: RoleContext) -> dict:
     return {k: v for k, v in out.items() if v is not None}
 
 
+#: the reviewer's own counts that go into role 4's record (ids, codes and counts only)
+REVIEWER_RECORD_KEYS = (
+    "blocks_not_sent", "not_sent", "not_asked", "unread_groups", "retried_groups", "split_groups", "chapters_not_read",
+    "answers_cut_at_output_cap", "cut_findings_kept", "chapters_not_fully_read",
+)  # fmt: skip
+
+
 def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
@@ -474,7 +481,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
     produced |= {
         k: v
         for k, v in ran.produced().items()
-        if k in ("blocks_not_sent", "not_sent", "not_asked", "unread_groups")
+        if k in REVIEWER_RECORD_KEYS
     }
     return RoleResult(state, why, engine=engine, produced=produced)
 

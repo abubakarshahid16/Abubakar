@@ -25,9 +25,15 @@ def _fits(rule: object) -> bool:
     )
 
 
-def rescued(text: str) -> tuple[list[dict], bool]:
-    """(the rules readable in `text`, whether nothing was lost)."""
-    lists = list(_RULES.finditer(text))
+def rescued(text: str, key: str = "rules", fits=None) -> tuple[list[dict], bool]:
+    """(the items of the list named `key` that are readable in `text`, whether nothing was lost). The default is the standards compiler's rule list
+    and its schema; the reviewer's cut answers use `key="findings"` and their own `fits`. ONE reader of a broken list, for every caller."""
+    fits = fits or _fits
+    lists = list(
+        (
+            _RULES if key == "rules" else re.compile(rf'"{re.escape(key)}"\s*:\s*\[')
+        ).finditer(text)
+    )
     if not lists:
         return [], False
     rules: list[dict] = []
@@ -55,7 +61,7 @@ def rescued(text: str) -> tuple[list[dict], bool]:
             if at < 0:
                 return rules, False
             continue
-        if _fits(rule):
+        if fits(rule):
             rules.append(rule)
         else:
             whole = False

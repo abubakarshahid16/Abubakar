@@ -115,7 +115,85 @@ PARAM_NOT_APP_ID = "param_not_app_id"
 _VOCAB: dict[str, frozenset[str]] = {}
 _ID_SHAPES: dict[str, re.Pattern] = {}
 UNITS = frozenset(
-    ["bar", "barg", "bara", "psi", "psig", "psia", "kpa", "mpa", "pa", "mbar", "mm", "cm", "m", "km", "in", "ft", "yd", "c", "f", "k", "kg", "g", "mg", "lb", "t", "kw", "w", "mw", "hp", "rpm", "hz", "khz", "v", "kv", "a", "ma", "kva", "l", "ml", "m3", "m2", "mm2", "cm2", "s", "ms", "min", "h", "hr", "day", "nm", "kn", "n", "kgf", "lbf", "j", "kj", "mj", "ppm", "ppb", "db", "dba", "pct", "%", "deg", "degc", "degf", "bpm", "gpm", "lpm", "cfm", "scfm", "nm3", "mol", "kmol", "cst", "cp", "ohm"]
+    [
+        "bar",
+        "barg",
+        "bara",
+        "psi",
+        "psig",
+        "psia",
+        "kpa",
+        "mpa",
+        "pa",
+        "mbar",
+        "mm",
+        "cm",
+        "m",
+        "km",
+        "in",
+        "ft",
+        "yd",
+        "c",
+        "f",
+        "k",
+        "kg",
+        "g",
+        "mg",
+        "lb",
+        "t",
+        "kw",
+        "w",
+        "mw",
+        "hp",
+        "rpm",
+        "hz",
+        "khz",
+        "v",
+        "kv",
+        "a",
+        "ma",
+        "kva",
+        "l",
+        "ml",
+        "m3",
+        "m2",
+        "mm2",
+        "cm2",
+        "s",
+        "ms",
+        "min",
+        "h",
+        "hr",
+        "day",
+        "nm",
+        "kn",
+        "n",
+        "kgf",
+        "lbf",
+        "j",
+        "kj",
+        "mj",
+        "ppm",
+        "ppb",
+        "db",
+        "dba",
+        "pct",
+        "%",
+        "deg",
+        "degc",
+        "degf",
+        "bpm",
+        "gpm",
+        "lpm",
+        "cfm",
+        "scfm",
+        "nm3",
+        "mol",
+        "kmol",
+        "cst",
+        "cp",
+        "ohm",
+    ]
 )
 
 
@@ -1324,6 +1402,9 @@ def _ask_claude(
             reads,
             step,
             meta,
+            text=getattr(
+                exc, "text", None
+            ),  # an answer cut at the output cap: the words that came back, for a caller that can read part of them
         )
     except (agent_claude.AgentBudgetStop, agent_claude.AgentGateClosed) as exc:
         return _finish(
@@ -1509,7 +1590,9 @@ def _finish(
         role_no,
         state,
         code,
-        text if ok else None,
+        text
+        if (ok or code == "stop_max_tokens")
+        else None,  # a cut answer keeps its words (ok stays False): the caller may read part of it
         _json_of(text or "") if ok else None,
         usd,
         model,

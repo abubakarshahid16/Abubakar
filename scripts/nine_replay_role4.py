@@ -55,13 +55,33 @@ def _titles_stub(url, *, headers, body, timeout):  # noqa: ARG001
 
 
 class Stub:
-    """Role 4's transport: records the size of each request and answers an empty, valid list of findings."""
+    """Role 4's transport: records the size of each request and answers an empty, valid list of findings. With `cut_first` the FIRST request answers
+    as a call that hit the output cap: `kept` complete (synthetic) findings and one cut in the middle."""
 
-    def __init__(self) -> None:
+    def __init__(self, cut_first: int = 0) -> None:
         self.sizes: list[int] = []
+        self.cut_first = cut_first
 
     def __call__(self, url, *, headers, body, timeout):  # noqa: ARG002
         self.sizes.append(len(json.dumps(body)))
+        if self.cut_first and len(self.sizes) == 1:
+            fs = [
+                {
+                    "issue": f"synthetic {n}",
+                    "verdict": "cannot_tell",
+                    "paper_quote": "",
+                    "clause_quote": "",
+                }
+                for n in range(self.cut_first)
+            ]
+            text = (
+                '{"findings": ['
+                + ", ".join(json.dumps(f) for f in fs)
+                + ', {"issue": "cut'
+            )
+            out = _reply(body, text)
+            out["stop_reason"] = "max_tokens"
+            return out
         return _reply(body, '{"findings": []}')
 
 
@@ -87,6 +107,12 @@ def main(argv: list[str] | None = None) -> int:
         "--run",
         required=True,
         help="the stored nine-role run whose reading list is used",
+    )
+    ap.add_argument(
+        "--cut-first",
+        type=int,
+        default=0,
+        help="the first request answers as if cut at the output cap after this many complete findings",
     )
     args = ap.parse_args(argv)
     data = Path(args.copy).resolve()
@@ -182,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             if b.document_kind == "review_record"
         }
         print(f"request {i} fact blocks (rows, characters; limit {nine_call.MAX_DERIVED_CHARS}): {sizes}")  # fmt: skip
-    stub, log = Stub(), []
+    stub, log = Stub(args.cut_first), []
 
     def ask(*a, **kw):
         ans = nine_call.ask(*a, **kw)
@@ -208,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     est = (
         chars / 3 / 1e6 * 3.0 + 8000 * len(stub.sizes) / 1e6 * 15.0
     )  # ROUGH: input at chars/3 tokens x USD 3 per million, output at the 8000-token cap x USD 15 per million
-    print(f"requests {len(log)} (sent {len(stub.sizes)}); characters {chars}; cost ESTIMATE (upper, rough) usd {est:.2f}; reviewer state {ran.state()}; errors {sorted(set(ran.errors))}")  # fmt: skip
+    print(f"requests {len(log)} (sent {len(stub.sizes)}); characters {chars}; cost ESTIMATE (upper, rough) usd {est:.2f}; reviewer state {ran.state()}; errors {sorted(set(ran.errors))}; cut answers {ran.cut_answers}, findings kept from them {ran.cut_kept}, retried {ran.retried}, split {ran.split}, raw findings {len(ran.raw)}")  # fmt: skip
     reading = nine_librarian.plan_reading(NEW_RUN, inputs, rules=[nine_librarian.RuleRef(b, None, None, i) for i, b in enumerate(books, 1)], context=[], equipment_words=[], shown=scope, allowed=scope, engine="claude", wanted_not_listed=0)  # fmt: skip
     title_ask = nine_librarian.seam_ask(
         NEW_RUN, engine="claude", send=_titles_stub, env=ENV

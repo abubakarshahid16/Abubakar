@@ -491,3 +491,254 @@ def test_the_range_is_the_one_the_seam_reports_not_the_one_offered():
     assert rev.sent_of(old, []).book_blocks == {
         "long": (((3,), None, None),)
     }  # an answer with no ranges and no offer: whole pages, never a wider range
+
+
+# ---------------------------------------------------------------- a call that went and failed is asked once more (run 3 of the valve lost a whole group to the output cap)
+
+
+def _cut(model="claude-sonnet-5-5"):
+    """The reply of a call that hit the output cap: the model's words stop in the middle of the JSON."""
+    return {
+        "model": model,
+        "stop_reason": "max_tokens",
+        "content": [{"type": "text", "text": '{"findings": [{"issue": "x"'}],
+        "usage": dict(FakeTransport.USAGE),
+    }
+
+
+def _two_chapter_group():
+    return [
+        rev.ChapterText("book", "4", 1, 1, (4,), 100),
+        rev.ChapterText("book", "5", 1, 1, (5,), 100),
+    ]
+
+
+def test_a_group_that_hit_the_output_cap_is_split_in_two_halves_and_both_are_read():
+    t = FakeTransport([_cut(), reply(finding()), reply()])
+    got = rev.review(
+        "run1",
+        prefix(),
+        [_two_chapter_group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        no_context_available=True,
+    )
+    assert len(t.bodies) == 3 and (got.retried, got.split) == (1, 1)
+    assert (
+        got.failed == 0 and got.answered == 2 and got.unread == [] and len(got.raw) == 1
+    )
+    assert got.state()[0] == "ran"  # nothing is left unread
+    p = got.produced()
+    assert (
+        p["retried_groups"] == 1
+        and p["split_groups"] == 1
+        and "chapters_not_read" not in p
+    )
+
+
+def test_a_single_chapter_that_hit_the_cap_is_asked_again_with_twice_the_room_and_a_second_failure_is_named():
+    t = FakeTransport([_cut(), _cut()])
+    got = rev.review(
+        "run1",
+        prefix(),
+        [group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        max_tokens=1000,
+    )
+    assert [b["max_tokens"] for b in t.bodies] == [1000, 2000]
+    assert got.failed == 1 and got.answered == 0 and got.retried == 1
+    state, _why = got.state()
+    assert (
+        state == "not_run" and got.produced()["chapters_not_read"] == "book:4"
+    )  # named (ids only), so the checklist asks the items they hold
+
+
+def test_an_unreadable_reply_is_asked_once_more_and_a_call_the_seam_refused_is_not_repeated():
+    t = FakeTransport(["not a list of findings", reply(finding())])
+    got = rev.review(
+        "run1",
+        prefix(),
+        [group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        no_context_available=True,
+    )
+    assert (
+        len(t.bodies) == 2
+        and got.answered == 1
+        and got.retried == 1
+        and got.state()[0] == "ran"
+    )
+
+    class Never(nine_call.RoleGate):
+        def fits(self, run_id, worst_usd, conn=None):
+            return False
+
+    t2 = FakeTransport([reply()])
+    refused = rev.review(
+        "run1",
+        prefix(),
+        [group()],
+        send=t2,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        gate=Never(4, 0.0),
+    )
+    assert (
+        t2.bodies == [] and refused.retried == 0
+    )  # nothing was sent, so nothing is repeated
+
+
+def test_the_money_of_a_failed_first_attempt_is_counted():
+    t = FakeTransport([_cut(), reply(finding()), reply()])
+    got = rev.review(
+        "run1",
+        prefix(),
+        [_two_chapter_group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        no_context_available=True,
+    )
+    assert got.usd is not None and got.usd > 0
+    one = rev.review(
+        "run1",
+        prefix(),
+        [group()],
+        send=FakeTransport([reply()]),
+        env=FakeTransport.ENV,
+        concurrency=1,
+        no_context_available=True,
+    )
+    assert (
+        got.usd > one.usd * 2.5
+    )  # three calls were paid for (one failed, two halves), not two
+
+
+# ---------------------------------------------------------------- an answer cut at the output cap is never thrown away whole (run 3: USD 0.16 and the most productive group lost)
+
+
+def _cut_with(*complete):
+    """A reply that hit the output cap after `complete` findings and in the middle of the next one."""
+    body = (
+        '{"findings": ['
+        + ", ".join(json.dumps(f) for f in complete)
+        + ', {"issue": "cut here", "paper_quote": "Coati'
+    )
+    return {
+        "model": "claude-sonnet-5-5",
+        "stop_reason": "max_tokens",
+        "content": [{"type": "text", "text": body}],
+        "usage": dict(FakeTransport.USAGE),
+    }
+
+
+def test_the_seam_gives_back_the_words_of_an_answer_cut_at_the_cap_and_still_calls_it_failed():
+    t = FakeTransport([_cut_with(finding())])
+    ans = nine_call.ask(
+        "run1",
+        4,
+        [*prefix(), *rev.chapter_blocks(group())],
+        (rev.QUESTION_ID, {}),
+        system=(rev.SYSTEM_ID, {}),
+        send=t,
+        env=FakeTransport.ENV,
+    )
+    assert not ans.ok and ans.state == "failed" and ans.error_code == "stop_max_tokens"
+    assert (
+        ans.text and ans.text.startswith('{"findings"') and ans.usd
+    )  # the words that came back and what they cost
+
+
+def test_parse_cut_findings_keeps_the_complete_findings_and_drops_the_one_cut_in_the_middle():
+    text = _cut_with(finding(verdict="met"), finding(verdict="not_met"))["content"][0][
+        "text"
+    ]
+    kept = rev.parse_cut_findings(text)
+    assert [k["verdict"] for k in kept] == [
+        "met",
+        "not_met",
+    ]  # two whole findings; the third is cut and dropped
+    assert (
+        rev.parse_cut_findings(None) == []
+        and rev.parse_cut_findings("no list at all") == []
+    )
+    assert (
+        rev.parse_findings(text) is None
+    )  # the whole-answer parser still refuses a broken answer
+
+
+def test_a_cut_answer_keeps_its_findings_then_the_same_chapters_are_asked_again_in_halves():
+    t = FakeTransport(
+        [_cut_with(finding()), reply(finding(label="Housing colour")), reply()]
+    )
+    got = rev.review(
+        "run1",
+        prefix(),
+        [_two_chapter_group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        no_context_available=True,
+    )
+    assert len(t.bodies) == 3 and (
+        got.cut_answers,
+        got.cut_kept,
+        got.retried,
+        got.split,
+    ) == (1, 1, 1, 1)
+    assert (
+        len(got.raw) == 2
+    )  # one from the cut answer (kept), one from the first half; each still goes to check_raw
+    assert got.state() == ("ran", None) and got.answered == 2 and got.unread == []
+    p = got.produced()
+    assert p["answers_cut_at_output_cap"] == 1 and p["cut_findings_kept"] == 1
+    # the halves are the two chapters, one each, and carry only their own chapter blocks
+    assert (
+        t.bodies[1] != t.bodies[2]
+        and "chapter 4" in json.dumps(t.bodies[1])
+        and "chapter 5" not in json.dumps(t.bodies[1])
+    )
+
+
+def test_a_half_cut_again_keeps_its_findings_is_named_not_fully_read_and_is_never_split_a_second_time():
+    t = FakeTransport([_cut_with(finding()), _cut_with(finding()), reply()])
+    got = rev.review(
+        "run1",
+        prefix(),
+        [_two_chapter_group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        no_context_available=True,
+    )
+    assert len(t.bodies) == 3  # no third level: the cut half is not split again
+    assert got.not_fully_read and got.failed == 0 and len(got.raw) == 2
+    state, why = got.state()
+    assert state == "ran_partly" and "not fully read" in why and "book:4" in why
+    assert got.produced()["chapters_not_fully_read"] == "book:4"
+
+
+def test_a_single_part_of_several_pages_is_split_on_its_pages_and_a_single_page_gets_twice_the_room():
+    one = [rev.ChapterText("book", "4", 1, 1, (4, 5, 6, 7), 400, 0, 400)]
+    halves = rev.split_group(one)
+    assert [h[0].pages for h in halves] == [(4, 5), (6, 7)] and all(
+        h[0].char_from is None for h in halves
+    )  # whole pages
+    assert rev.split_group([rev.ChapterText("book", "4", 1, 1, (4,), 100)]) == []
+    t = FakeTransport([_cut_with(), reply(finding())])
+    got = rev.review(
+        "run1",
+        prefix(),
+        [group()],
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        max_tokens=1000,
+        no_context_available=True,
+    )
+    assert [b["max_tokens"] for b in t.bodies] == [1000, 2000] and got.answered == 1

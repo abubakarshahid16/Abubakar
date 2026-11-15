@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import nine_call, nine_facts, nine_findings
+from .compiled_rule_rescue import rescued
 from .nine_contract import RawFinding
 
 ROLE_NO = 4
@@ -301,8 +302,22 @@ def parse_findings(text: str | None) -> list[RawFinding] | None:
             data = None
     if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
         return None
+    return _coerce(data["findings"])
+
+
+def parse_cut_findings(text: str | None) -> list[RawFinding]:
+    """The findings that read WHOLE in an answer that stopped at the output cap (`compiled_rule_rescue.rescued`: the one reader of a broken list, not
+    a second parser): each finding that is a complete object is kept and goes on to `check_raw` like any other; a finding cut in the middle is dropped,
+    nothing is completed or repaired."""
+    if not text:
+        return []
+    items, _whole = rescued(text, key="findings", fits=lambda d: isinstance(d, dict))
+    return _coerce(items)
+
+
+def _coerce(items: list) -> list[RawFinding]:
     out: list[RawFinding] = []
-    for item in data["findings"][:MAX_FINDINGS_PER_CALL]:
+    for item in items[:MAX_FINDINGS_PER_CALL]:
         if not isinstance(item, dict):
             continue
         raw: dict[str, Any] = {k: str(item.get(k) or "").strip() for k in _STR_KEYS}
@@ -347,6 +362,13 @@ class ReviewerRun:
     context_dropped: list[str] = field(
         default_factory=list
     )  # parts a call did NOT send (a source the gate held): named in the record
+    cut_answers: int = 0  # answers that stopped at the output cap
+    cut_kept: int = 0  # the findings that were complete in those answers (kept)
+    not_fully_read: list[list[ChapterText]] = field(
+        default_factory=list
+    )  # halves cut AGAIN: some of their findings are lost
+    retried: int = 0  # groups asked a second time after a failed call
+    split: int = 0  # of those, groups split in halves because the first answer hit the output cap
     no_context_available: bool = False  # role 2 found NOTHING to pass (no project document held): zero parts offered is then not a gap
 
     NO_CONTEXT_NOT_OFFERED = "project context not passed (none offered)"
@@ -368,6 +390,7 @@ class ReviewerRun:
             or self.not_asked
             or self.budget_stopped
             or self.not_sent
+            or self.not_fully_read
             or self.context_dropped
         )
 
@@ -404,6 +427,10 @@ class ReviewerRun:
                 parts.append(f"{self.not_asked} chapter group(s) not asked")
             if self.not_sent:
                 parts.append("not sent, held by the gate: " + self.not_sent_words())
+            if self.not_fully_read:
+                parts.append(
+                    f"not fully read (answer cut at the output cap again): {self.names(self.not_fully_read)}"
+                )
             tail = (
                 f"; {len(self.unread)} of {self.groups} chapter group(s) not read"
                 if self.unread
@@ -411,6 +438,18 @@ class ReviewerRun:
             )
             return "ran_partly", "; ".join(parts) + tail
         return "ran", None
+
+    @staticmethod
+    def names(groups) -> str:
+        """The chapters of `groups` as `book:chapter` (ids the app issued), for the record and the sheet."""
+        names = dict.fromkeys(f"{c.book_id}:{c.chapter_id}" for g in groups for c in g)
+        return ", ".join(list(names)[:8]) + (
+            f" and {len(names) - 8} more" if len(names) > 8 else ""
+        )
+
+    def unread_names(self) -> str:
+        """The chapters no answer covered: the checklist asks the items they hold."""
+        return self.names(self.unread)
 
     def not_sent_words(self) -> str:
         """What the gate held back, as `name (code)`, each once: a document id or a derived block's name (`derived:<name>`) and the code that held
@@ -430,6 +469,25 @@ class ReviewerRun:
             "failed": self.failed,
             "not_asked": self.not_asked,
             "unread_groups": len(self.unread),
+            **(
+                {"retried_groups": self.retried, "split_groups": self.split}
+                if self.retried
+                else {}
+            ),
+            **({"chapters_not_read": self.unread_names()} if self.unread else {}),
+            **(
+                {
+                    "answers_cut_at_output_cap": self.cut_answers,
+                    "cut_findings_kept": self.cut_kept,
+                }
+                if self.cut_answers
+                else {}
+            ),
+            **(
+                {"chapters_not_fully_read": self.names(self.not_fully_read)}
+                if self.not_fully_read
+                else {}
+            ),
             "context_parts": len(self.context_offered),
             "context_parts_held": len(self.context_dropped),
             "context_passed": int(self.context_passed),
@@ -447,6 +505,89 @@ class ReviewerRun:
                 else {}
             ),
         }
+
+
+_Entry = tuple[Sequence[ChapterText], "nine_call.Answer | None", str]
+
+
+def split_group(group: Sequence[ChapterText]) -> list[list[ChapterText]]:
+    """The group in two halves on chapter boundaries; a group of ONE part is split on its pages (each half is whole pages, the part's character range is
+    dropped: whole pages are what the seam then sends); a single page cannot be split ([]: the caller asks again with more room)."""
+    if len(group) > 1:
+        half = (len(group) + 1) // 2
+        return [list(group[:half]), list(group[half:])]
+    only = group[0]
+    if len(only.pages) < 2:
+        return []
+    half = len(only.pages) // 2
+    return [
+        [
+            dataclasses.replace(
+                only,
+                pages=pg,
+                chars=only.chars * len(pg) // len(only.pages),
+                char_from=None,
+                char_to=None,
+            )
+        ]
+        for pg in (only.pages[:half], only.pages[half:])
+    ]
+
+
+def _take(run: ReviewerRun, group, res, kind: str, offered) -> None:
+    """Fold one answer into the run: its findings (with what THIS call really sent), its cost, and what was not read."""
+    if res is None:
+        run.not_asked += 1
+        run.unread.append(list(group))
+        return
+    run.not_sent.extend(res.not_sent)
+    if res.error_code == "role_budget":
+        run.budget_stopped = True
+        run.not_asked += 1
+        run.unread.append(list(group))
+        return
+    if res.usd is not None and run.usd is not None:
+        run.usd += res.usd
+    elif res.usd is None and res.ok:
+        run.usd = None  # an answered call whose cost is not known: the sum is not known (never shown as 0)
+    cut = res.error_code == "stop_max_tokens"
+    parsed = (
+        parse_findings(res.text)
+        if res.ok
+        else (parse_cut_findings(res.text) if cut else None)
+    )
+    if cut:
+        run.cut_answers += 1
+        run.cut_kept += len(parsed or [])
+    if kind == "cut":
+        if parsed:
+            run.raw.extend(
+                (r, sent_of(res, group)) for r in parsed
+            )  # the complete findings of the cut answer are kept; each still goes through check_raw
+        return  # the same chapters are asked again in halves: the cut answer itself is neither read nor unread
+    if parsed is None or (cut and not parsed):
+        run.failed += 1
+        run.errors.append(res.error_code or "unreadable_reply")
+        run.unread.append(list(group))
+        return
+    if cut:
+        run.not_fully_read.append(
+            list(group)
+        )  # a half cut AGAIN: its complete findings are kept, and it is named
+    run.answered += 1
+    run.context_dropped.extend(
+        n
+        for n in offered
+        if n not in context_sent(res) and n not in run.context_dropped
+    )
+    run.raw.extend((r, sent_of(res, group)) for r in parsed)
+
+
+def _went_and_failed(got: nine_call.Answer) -> bool:
+    """The call was sent and gave nothing usable: it failed (the output cap, a transport error) or answered with a reply that holds no findings list."""
+    if got.state == "failed":
+        return True
+    return bool(got.ok and parse_findings(got.text) is None)
 
 
 def review(
@@ -484,47 +625,52 @@ def review(
     gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
     stop = {"budget": False}
 
-    def one(numbered: tuple[int, Sequence[ChapterText]]) -> nine_call.Answer | None:
+    spent: list[
+        float
+    ] = []  # what a failed first attempt cost (it was sent and paid for): counted, never dropped
+    count = {"retried": 0, "split": 0}
+
+    def call(i: int, group: Sequence[ChapterText], tokens: int) -> nine_call.Answer:
+        return ask(
+            run_id, ROLE_NO, [*prefix_of(i, group), *chapter_blocks(group)], (QUESTION_ID, {}), engine=engine, system=(SYSTEM_ID, {}), model=model,
+            max_tokens=tokens, send=send, local_send=local_send, env=env, meter=meter, gate=gate,
+        )  # fmt: skip
+
+    def one(numbered: tuple[int, Sequence[ChapterText]]) -> list[_Entry]:
+        """The answers for one group (entries: (chapters, answer, kind)). A call that WENT and failed is asked once more. An answer that stopped at the
+        output cap is NEVER discarded whole: its complete findings are kept (kind "cut"), then the SAME chapters are asked again in two halves (one split
+        level; a single part of several pages is split on its pages, a single page gets twice the output room); a half that is cut again keeps its
+        findings and is named "not fully read". Any other failure is asked again as it was. A call the seam refused before sending is not repeated."""
         i, group = numbered
         if should_stop() or stop["budget"]:
-            return None
-        got = ask(
-            run_id, ROLE_NO, [*prefix_of(i, group), *chapter_blocks(group)], (QUESTION_ID, {}), engine=engine, system=(SYSTEM_ID, {}), model=model,
-            max_tokens=max_tokens, send=send, local_send=local_send, env=env, meter=meter, gate=gate,
-        )  # fmt: skip
+            return [(group, None, "whole")]
+        got = call(i, group, max_tokens)
         if got.error_code == "role_budget":
             stop["budget"] = True
-        return got
+            return [(group, got, "whole")]
+        if not _went_and_failed(got) or should_stop() or stop["budget"]:
+            return [(group, got, "whole")]
+        count["retried"] += 1
+        if got.error_code != "stop_max_tokens":
+            spent.append(got.usd or 0.0)
+            again = call(i, group, max_tokens)
+            stop["budget"] = stop["budget"] or again.error_code == "role_budget"
+            return [(group, again, "whole")]
+        out: list[_Entry] = [(group, got, "cut")]
+        halves = split_group(group)
+        if halves:
+            count["split"] += 1
+            out += [(part, call(i, part, max_tokens), "half") for part in halves]
+        else:
+            out.append((group, call(i, group, max_tokens * 2), "half"))
+        return out
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        results = list(pool.map(one, enumerate(groups)))
-    for group, res in zip(groups, results, strict=True):
-        if res is None:
-            run.not_asked += 1
-            run.unread.append(list(group))
-            continue
-        run.not_sent.extend(res.not_sent)
-        if res.error_code == "role_budget":
-            run.budget_stopped = True
-            run.not_asked += 1
-            run.unread.append(list(group))
-            continue
-        if res.usd is not None and run.usd is not None:
-            run.usd += res.usd
-        elif res.usd is None and res.ok:
-            run.usd = None  # an answered call whose cost is not known: the sum is not known (never shown as 0)
-        parsed = parse_findings(res.text) if res.ok else None
-        if parsed is None:
-            run.failed += 1
-            run.errors.append(res.error_code or "unreadable_reply")
-            run.unread.append(list(group))
-            continue
-        run.answered += 1
-        run.context_dropped.extend(
-            n
-            for n in offered
-            if n not in context_sent(res) and n not in run.context_dropped
-        )
-        sent = sent_of(res, group)
-        run.raw.extend((r, sent) for r in parsed)
+        answered = list(pool.map(one, enumerate(groups)))
+    run.retried, run.split = count["retried"], count["split"]
+    if run.usd is not None:
+        run.usd += sum(spent)
+    for entries in answered:
+        for group, res, kind in entries:
+            _take(run, group, res, kind, offered)
     return run

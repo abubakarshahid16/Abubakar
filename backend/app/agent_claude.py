@@ -391,10 +391,22 @@ def _send_once(
     return None, recorded_failure
 
 
-def _bad_reply(code: str, usd: float) -> AgentBadReply:
-    """A bad reply that carries what the call cost: the answer's own usage when it came back, else the worst case."""
+def _bad_reply(code: str, usd: float, answer: object = None) -> AgentBadReply:
+    """A bad reply that carries what the call cost: the answer's own usage when it came back, else the worst case. For a reply that stopped at the
+    output cap it also carries the words that did come back (`exc.text`), so a caller that can read part of a cut answer may; every other caller
+    ignores it."""
     exc = AgentBadReply(code)
     exc.usd = float(usd)
+    blocks = answer.get("content") if isinstance(answer, dict) else None
+    exc.text = (
+        "".join(
+            str(b.get("text") or "")
+            for b in blocks
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+        if code == "stop_max_tokens" and isinstance(blocks, list)
+        else None
+    )
     return exc
 
 
@@ -446,7 +458,7 @@ def _call(
     if not isinstance(answer, dict) or not isinstance(answer.get("content"), list):
         raise _bad_reply("bad_shape", usd)
     if answer.get("stop_reason") in ("refusal", "max_tokens"):
-        raise _bad_reply("stop_" + str(answer.get("stop_reason")), usd)
+        raise _bad_reply("stop_" + str(answer.get("stop_reason")), usd, answer)
     return answer, usd
 
 
