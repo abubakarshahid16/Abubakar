@@ -390,6 +390,8 @@ def checklist_proven(line: Mapping) -> bool:
     return bool(
         line.get("approved_checklist") is True
         and line.get("rule_id") in approved.approved_check_ids()
+        and line.get("rule_id")
+        not in approved.presence_only_ids()  # a check that only asks a field be stated compares no value
         and checked.get("paper") is True
         and checked.get("clause") is True
         and stored_text(line.get("clause_quote"))
