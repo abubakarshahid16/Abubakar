@@ -157,7 +157,8 @@ def subject_be(sentence: str) -> dict | None:
         return None
     _, picks_one, number_before, moves_number = _patterns()
     before = re.sub(r"^\s*\d{1,3}(?:\.\d{1,3})+\.?\s+", "", sentence[: match.start("cmp")])  # a clause number in front is not a figure
-    if picks_one.search(match.group("ref")) or number_before.search(before):
+    alternative = re.search(r"\d[\d./]*\s*[A-Za-z%\u00b0\"]{0,8}\s*\)?\s*,?\s*(?:or|and)\s+(?:the\s+)?$", before, re.IGNORECASE)  # "(5 mm), or the minimum ... 0.154 in": two thresholds
+    if picks_one.search(match.group("ref")) or number_before.search(before) or alternative:
         return None
     if datasheet_roles.roles_of(f"{match.group('cmp')} {match.group('ref')}", _role_rules()):
         return None  # "maximum allowable working pressure" is a field, not a limit on one

@@ -145,6 +145,10 @@ def _checks(
             base["rule_field"], base["proof_requirement"], base["clause_quote"]
         )
         is None
+        and proof.qualifier_reason(
+            base["rule_field"], base["proof_requirement"], base["clause_quote"], label
+        )
+        is None
     )
     way = (
         proof.direction_reason(base["proof_requirement"], base["clause_quote"]) is None
