@@ -22,11 +22,13 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from . import agent_review_verdict as verdict
 from . import context_budget
 from .agent_bind import content_words
 
 LINES_AROUND = 8  # lines above and below a label line, shrunk when the budget is short
-OVERLAP_LINES = 3  # lines a later window repeats from the one before, so a value on the edge is whole in one of them
+OVERLAP_LINES = 4  # lines a later window repeats from the one before: a table row of up to ROW_LINES_WHOLE lines is whole in one window
+ROW_LINES_WHOLE = OVERLAP_LINES + 1
 NOTE_LINES = (
     10  # lines of the page's notes block added when a label line points to a note
 )
@@ -41,6 +43,10 @@ class Window:
 
     pages: dict[int, str]
     label: bool
+
+    def is_full(self, full: Mapping[int, str]) -> bool:
+        """Does this window show every page of the paper, every line whole? Only then is a reading of it a reading of the paper."""
+        return not self.label and {n: t for n, t in full.items() if (t or "").strip()} == self.pages
 
 
 def field_words(item: Mapping) -> frozenset[str]:
@@ -167,26 +173,64 @@ def windows_for(item: Mapping, pages: Mapping[int, str], budget: int) -> list[Wi
     return ([found] if found else []) + _coverage_windows(pages, budget)
 
 
-def trim_clause(
-    text: str, requirement: str | None, limit: int = MAX_CLAUSE_CHARS
-) -> str:
-    """The clause around the requirement, not the section: when the text is longer than `limit`, the stretch of it around the requirement's
-    words (else its first `limit` characters), cut at line ends. The FULL clause text stays the one quotes are verified against."""
+@dataclass(frozen=True)
+class ClauseText:
+    """What goes to the model for one clause. `sent` is the text; `conditions` is what the CODE read in the WHOLE clause before any trimming
+    (every line with a condition or exception word, every NOTE block): the condition guards read it whatever was sent; `shortened` says
+    the text sent is less than the clause; `fits` is False when the minimum that may be sent (the requirement, every condition line, every
+    NOTE) is longer than `MAX_MINIMUM_CHARS`: the item is then not asked, never asked with the exception missing."""
+
+    sent: str
+    conditions: str
+    shortened: bool
+    fits: bool
+
+
+MAX_MINIMUM_CHARS = 6000
+_NOTE_LINE = re.compile(r"^\s*notes?\b", re.IGNORECASE)
+
+
+def trim_clause(text: str, requirement: str | None, limit: int = MAX_CLAUSE_CHARS) -> ClauseText:
+    """The clause for the model: the whole of it when it is at most `limit` characters; else the REQUIREMENT lines, EVERY line that carries a
+    condition or exception word (`agent_review_verdict.is_conditional`, the one vocabulary) and EVERY NOTE block of the clause, then the
+    nearest lines around the requirement up to `limit`. The code reads the conditions of the WHOLE clause first (`conditions`)."""
+    lines = text.splitlines()
+    notes: set[int] = set()
+    head = next((i for i, ln in enumerate(lines) if _NOTE_LINE.match(ln)), None)
+    if head is not None:
+        notes = set(range(head, len(lines)))  # a NOTE block runs to the end of the clause
+    cond = {i for i, ln in enumerate(lines) if verdict.is_conditional(ln)}
+    conditions = "\n".join(lines[i] for i in sorted(cond | notes))
     if len(text) <= limit:
-        return text
-    anchor = (
-        text.lower().find((requirement or "").strip().lower()[:60])
-        if requirement
-        else -1
-    )
-    start = max(0, anchor - limit // 3) if anchor >= 0 else 0
-    cut = text[start : start + limit]
-    first, last = cut.find("\n"), cut.rfind("\n")
-    if start > 0 and 0 <= first < last:
-        cut = cut[first + 1 :]
-    if start + limit < len(text) and last > 0:
-        cut = cut[: cut.rfind("\n")] if "\n" in cut else cut
-    return cut
+        return ClauseText(text, conditions, False, True)
+    anchor = (requirement or "").strip()[:60].lower()
+    req = {i for i, ln in enumerate(lines) if anchor and anchor in ln.lower()}
+    if not req and anchor:  # the requirement may wrap across lines: the line holding its first words
+        req = {next((i for i, ln in enumerate(lines) if anchor[:20] in ln.lower()), 0)}
+    keep = req | cond | notes
+    if sum(len(lines[i]) + 1 for i in keep) > MAX_MINIMUM_CHARS:
+        return ClauseText("", conditions, True, False)
+    centre = min(req) if req else 0
+    used = sum(len(lines[i]) + 1 for i in keep)
+    for d in range(1, len(lines)):
+        for i in (centre - d, centre + d):
+            if 0 <= i < len(lines) and i not in keep and used + len(lines[i]) + 1 <= limit:
+                keep.add(i)
+                used += len(lines[i]) + 1
+        if used >= limit:
+            break
+    spans = [(i, i + 1) for i in sorted(keep)]
+    return ClauseText(_render(lines, _merge(spans)), conditions, True, True)
+
+
+def _merge(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for lo, hi in spans:
+        if out and lo <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
 
 
 def fit_budget(

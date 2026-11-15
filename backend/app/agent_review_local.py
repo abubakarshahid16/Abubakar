@@ -88,7 +88,6 @@ SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (
 #: discarded for that alone. (3) A per-call nonce starts the system text so the engine's prompt cache can never make a full prompt look short.
 CUT_MARGIN = 64
 ESTIMATE_SLACK = 64  # tokens the chat template adds to what the estimate counts
-MIN_CHARS_PER_DIGIT_TOKEN, MIN_CHARS_PER_WORD_TOKEN = 3, 16
 WINDOW_MARGIN_TOKENS = 256
 TIMEOUT_S = 600.0
 #: Smaller than the Claude path (it measured 1,000 + 1,100 x items with the reader's own thinking): thinking is off here, and the window
@@ -111,6 +110,12 @@ class LocalStageRefused(LocalError):
 
 class LocalSecondUnavailable(LocalError):
     code = "second_reader_not_available"
+
+
+class LocalMemoryRefused(agent_claude.AgentGateClosed):
+    """The model and the smallest window do not fit the memory budget: the run stops before anything is loaded (its code is the sentence)."""
+
+    code = "this computer's memory budget is too small for the local model and its context; nothing was loaded"
 
 
 class LocalGateClosed(agent_claude.AgentGateClosed):
@@ -217,6 +222,50 @@ def review_running() -> bool:
     return bool(rec and rec.get("kind") == LOCK_KIND and not heavy_lock.is_stale(rec))
 
 
+MEMORY_MARGIN_MB = 8192  # kept free for the system, the chat and the other tools
+STEP_TOKENS = 1024
+CHAT_WAIT_S = 60.0
+
+
+def physical_memory_mb() -> int | None:
+    """This computer's physical memory in MB, from the standard library (None when the platform does not say)."""
+    import os
+
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e6)
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
+def memory_budget_mb(setting: int = 0, physical: int | None = None) -> int | None:
+    """The memory the model and its context may use: the setting (`agent_review_local_memory_budget_mb`), else the physical memory less
+    MEMORY_MARGIN_MB; None when neither is known (memory is then not checked, and the run says so)."""
+    if setting and setting > 0:
+        return int(setting)
+    phys = physical if physical is not None else physical_memory_mb()
+    return max(0, phys - MEMORY_MARGIN_MB) if phys else None
+
+
+def _model_size_mb(model: str) -> float | None:
+    """The size on disk of an installed model in MB from the engine's list (`/api/tags`, through `model_transport`); None when unknown."""
+    try:
+        got = model_transport.get_json("/api/tags", timeout=10.0, required=False)
+    except Exception as exc:  # noqa: BLE001 - a stopped engine is a state, not an error here
+        log.warning("local model sizes could not be read (%s)", type(exc).__name__)
+        return None
+    models = got.get("models") if isinstance(got, dict) else None
+    for m in models if isinstance(models, list) else []:
+        if isinstance(m, dict) and model in (m.get("name"), m.get("model")) and isinstance(m.get("size"), (int, float)):
+            return float(m["size"]) / 1e6
+    return None
+
+
+def _chat_active() -> bool:
+    from . import progress
+
+    return progress.active_count() > 0
+
+
 def _info(show: Any) -> dict:
     info = show.get("model_info") if isinstance(show, dict) else None
     return info if isinstance(info, dict) else {}
@@ -304,14 +353,16 @@ def _too_long() -> agent_claude.AgentBadReply:
     return exc
 
 
+#: The tight lower bound of the post-call net: no content measured in `context_budget.py` (prose at most 5.8 characters a token, numeric tables
+#: about 1, mixed 3.1) costs fewer tokens than characters / 6. A count below that is a cut (the documented overflow signature is a count far
+#: BELOW the prompt: 1,026 of a 3,645-token prompt, which is under characters / 6 of any prompt long enough to overflow a 16k window by a
+#: third; a cut that leaves the count above this bound is NOT detected here, which is why prevention by the estimate is the real guard).
+MIN_CHARS_PER_TOKEN = 6
+
+
 def lower_bound_tokens(text: str) -> int:
-    """The fewest tokens `text` can cost any tokenizer of the models in use: a digit at least a third of a token, any other character at
-    least a sixteenth. A reply that says the prompt was smaller than this was cut."""
-    digits = sum(ch.isdigit() for ch in text)
-    return (
-        digits // MIN_CHARS_PER_DIGIT_TOKEN
-        + (len(text) - digits) // MIN_CHARS_PER_WORD_TOKEN
-    )
+    """The fewest tokens `text` can cost, from the repo's own measurements (`MIN_CHARS_PER_TOKEN`). A count below it says the prompt was cut."""
+    return len(text) // MIN_CHARS_PER_TOKEN
 
 
 def _cut_prompt(
@@ -361,7 +412,15 @@ class LocalEngine:
         show: Callable[[str], dict | None] | None = None,
         window: int | None = None,
         output_cap: int | None = None,
+        size_mb: Callable[[str], float | None] | None = None,
+        memory_mb: Callable[[], int | None] | None = None,
+        chat_active: Callable[[], bool] | None = None,
+        chat_wait: float | None = None,
     ) -> None:
+        self._size_mb, self._memory_mb = size_mb or _model_size_mb, memory_mb
+        self._chat_active, self._chat_wait = chat_active or _chat_active, CHAT_WAIT_S if chat_wait is None else chat_wait
+        self._chosen: dict[str, tuple[int, str]] = {}
+        self.memory_refused: str | None = None
         self.output_cap = output_cap  # a ceiling on every request's output limit (the general review's windows fit under it)
         self.discarded: Counter = (
             Counter()
@@ -401,36 +460,70 @@ class LocalEngine:
         return self._shows[name]
 
     def window(self, role: str = FIRST) -> int:
-        """The context window asked of the model of this role: the model's own context length (from `/api/show`) or, when the engine does
-        not say, the shared local window; never above the setting's cap (`agent_review_local_num_ctx`, default 16,384; `_b` for the second
-        reader, 0 = the same). Asking more than the shared window reloads that model once; that is the price of a prompt that fits."""
+        """The context window asked of the model of this role, chosen ONCE (a different one would reload the model): the model's own context
+        length (from `/api/show`) or, when the engine does not say, the shared local window; never above the setting's cap
+        (`agent_review_local_num_ctx`, default 16,384; `_b` for the second reader, 0 = the same); then the LARGEST window that keeps the model
+        and its context inside the memory budget; and the shared window when a chat answer is in flight (a different window would reload
+        the model the chat is using). `window_why` says which."""
         if self._window:
             return int(self._window)
+        if role not in self._chosen:
+            self._chosen[role] = self._choose_window(role)
+        return self._chosen[role][0]
+
+    def window_why(self, role: str = FIRST) -> str:
+        self.window(role)
+        return self._chosen.get(role, (0, "a window set by the caller"))[1]
+
+    def _choose_window(self, role: str) -> tuple[int, str]:
         from .config import settings
 
-        cap = int(
-            getattr(
-                settings,
-                "agent_review_local_num_ctx_b"
-                if role == SECOND
-                else "agent_review_local_num_ctx",
-                0,
-            )
-            or 0
-        )
+        cap = int(getattr(settings, "agent_review_local_num_ctx_b" if role == SECOND else "agent_review_local_num_ctx", 0) or 0)
         if role == SECOND and not cap:
             cap = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
         shared = model_transport.shared_window()
-        length = context_length(self.show(role))
+        show = self.show(role)
+        length = context_length(show)
         if not length:
-            return shared  # the engine did not say how long the model's context is: only what is known to work
-        return min(length, cap) if cap else min(length, shared)
+            return shared, f"{shared} tokens: the engine does not give the model's context length, so the shared window"
+        want = min(length, cap) if cap else min(length, shared)
+        why = f"{want} tokens: the smaller of the model's own length ({length}) and the cap ({cap or 'none'})"
+        if want <= shared:
+            return want, why
+        kv = kv_mb_per_1k(show)
+        size = self._size_mb(self.model_b if role == SECOND else self.model_a)
+        budget = memory_budget_mb(int(getattr(settings, "agent_review_local_memory_budget_mb", 0) or 0), self._memory_mb() if self._memory_mb else None)
+        if kv is None or size is None or budget is None:
+            why += "; memory not checked (the model's cache size, its size or this computer's memory is not known)"
+        else:
+            w = want
+            while w > shared and size + kv * w / 1000 > budget:
+                w -= STEP_TOKENS
+            w = max(w, shared)
+            if size + kv * w / 1000 > budget:
+                self.memory_refused = f"model {size:.0f} MB + context {kv * w / 1000:.0f} MB over the memory budget {budget} MB"
+            if w < want:
+                why = f"{w} tokens: shrunk from {want} so the model ({size:.0f} MB) and its context ({kv * w / 1000:.0f} MB at about {kv} MB per 1,000 tokens) stay under the memory budget ({budget} MB)"
+            else:
+                why += f"; the model ({size:.0f} MB) and its context ({kv * w / 1000:.0f} MB) stay under the memory budget ({budget} MB)"
+            want = w
+        if want > shared and self._chat_active():
+            import time
+
+            deadline = time.time() + self._chat_wait
+            while self._chat_active() and time.time() < deadline:
+                time.sleep(min(2.0, max(0.0, deadline - time.time())))
+            if self._chat_active():
+                return shared, f"{shared} tokens: a chat answer is in flight, so the model is not reloaded with a different window"
+        return want, why
 
     def stats(self) -> dict:
         """Counts only (no text): requests by stage, requests not sent for length, answers discarded for a cut or unreported prompt."""
         return {
             "local_window_first": self.window(FIRST),
             "local_window_second": self.window(SECOND),
+            "local_window_why_first": self.window_why(FIRST),
+            "local_window_overlap_lines": 4,
             "local_kv_mb_per_1k_first": kv_mb_per_1k(self.show(FIRST)),
             "local_requests_first": self.calls[FIRST],
             "local_requests_second": self.calls[SECOND],
@@ -494,6 +587,9 @@ class LocalEngine:
         role = FIRST if model == self.model_a else SECOND
         if role != self.phase:
             raise LocalStageRefused
+        self.window(role)
+        if self.memory_refused:
+            raise LocalMemoryRefused
         if role == SECOND:
             ready, _why = self.second_ready()
             if not ready:

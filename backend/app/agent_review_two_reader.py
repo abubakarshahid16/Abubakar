@@ -115,8 +115,8 @@ def is_candidate(line: Mapping) -> bool:
     ai = line.get("ai_verdict")
     if ai not in (verdict.PASS, verdict.FAIL) or line.get("verdict") != verdict.QUERY:
         return False
-    if line.get("rule_kind") in verdict.NUMBER_KINDS:
-        return False
+    if line.get("rule_kind") in verdict.NUMBER_KINDS or line.get("decided_on") == "excerpt":
+        return False  # a number is compared by code; a reading of part of the paper is never half of a two-reader decision
     if _holds(line) or line.get("rule_tier") == verdict.RULE_NOT_APPROVED:
         return False
     if not (line.get("checklist") is True or line.get("tier") in verdict.USABLE_TIERS):

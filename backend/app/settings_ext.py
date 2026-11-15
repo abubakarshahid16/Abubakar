@@ -544,6 +544,10 @@ class SettingsExt(BaseModel):
     #: Env: AGENT_REVIEW_LOCAL_NUM_CTX, AGENT_REVIEW_LOCAL_NUM_CTX_B.
     agent_review_local_num_ctx: int = 16384
     agent_review_local_num_ctx_b: int = 0
+    #: The memory (MB) the local AI reviewer's model and its context window may use together. 0 = this computer's physical memory less 8 GB (read
+    #: through the standard library). The run uses the largest window up to the cap that keeps the model plus its context under it, and stops
+    #: before loading anything when even the shared window does not fit. Env: AGENT_REVIEW_LOCAL_MEMORY_BUDGET_MB.
+    agent_review_local_memory_budget_mb: int = 0
     #: Owner order 13 (lead, 12 Nov): the word "AI verdict: not stated" of the same class. Needs the switch above on too. A second model
     #: of another family reads EVERY page whole and, without seeing the first answer, finds no value; code's own absence search
     #: (`agent_review_absence.prove`) finds none either and every page is read. Never a Fail, never in the contractor copy. OFF: as the

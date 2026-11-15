@@ -434,12 +434,12 @@ def is_conditional(*texts: Any) -> bool:
 
 
 def hold_conditional_fail(
-    decision: Mapping, clause_quote: Any, requirement: Any
+    decision: Mapping, clause_quote: Any, requirement: Any, whole: Any = None
 ) -> dict:
-    """A Fail of a rule whose clause quote or stored rule words state a condition is held: the answer schema carries no paper
-    quote for the condition, so code cannot prove the condition holds on the paper. The line becomes a Query (the CRS shows it
-    as the AI's opinion). A Pass and every other decision come back unchanged; this only makes a verdict less confident."""
-    if decision.get("verdict") == FAIL and is_conditional(clause_quote, requirement):
+    """A Fail of a rule whose clause quote or stored rule words (or, on the local engine, the conditions of the WHOLE clause: `whole`)
+    state a condition is held: code cannot prove the condition holds on the paper. The line becomes a Query. A Pass and every other
+    decision come back unchanged; this only makes a verdict less confident."""
+    if decision.get("verdict") == FAIL and is_conditional(clause_quote, requirement, whole):
         return {
             **decision,
             "verdict": QUERY,
@@ -646,7 +646,8 @@ def apply_holds(
     """The holds of the decide path, in the experiment's order: F1 (conditional words), F3 (table row or note), THEN the cap
     of a rule not AI approved. (F4, the page-context check, follows in agent_review_context.) Each only makes the verdict
     less confident."""
-    out = hold_conditional_fail(decision, clause_quote, requirement)
+    whole = item.get("clause_condition_text")  # local engine: the conditions of the whole clause
+    out = hold_conditional_fail(decision, clause_quote, requirement, whole)
     out = hold_table_note_fail(out, item, requirement, clause_sources)
     return cap_unapproved(out, item)
 
@@ -663,7 +664,7 @@ def restore_holds(
     capped = cap_unapproved(out, item)
     if capped.get("unapproved_cap"):
         out.update({k: capped[k] for k in _DECISION_KEYS}, unapproved_cap=True)
-    held = hold_conditional_fail(out, out.get("clause_quote"), out.get("requirement"))
+    held = hold_conditional_fail(out, out.get("clause_quote"), out.get("requirement"), item.get("clause_condition_text"))
     if held.get("conditional"):
         out.update({k: held[k] for k in _DECISION_KEYS}, conditional_hold=True)
     held = hold_table_note_fail(out, item, out.get("requirement"), clause_sources)

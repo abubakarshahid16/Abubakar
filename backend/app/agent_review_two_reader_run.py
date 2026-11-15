@@ -255,7 +255,7 @@ class TwoReaderMixin:
         full_pages = pages
         # local: the same evidence the first reader decided on, one clause, one item
         if self.local is not None and len(batch) == 1:
-            clauses, held_of = self._local_clauses(batch[0])
+            clauses, held_of, _fits, _short = self._local_clauses(batch[0])
             pages = self.local_shown(batch[0]) or pages
         parts = build_parts(self.paper, pages, clauses, batch, held_of)
         pages = full_pages  # quotes are verified against the whole stored pages
