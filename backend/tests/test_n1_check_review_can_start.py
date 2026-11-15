@@ -142,3 +142,37 @@ def test_the_check_refuses_a_live_path_with_exit_2_and_touches_nothing(
         1,
         2,
     )  # never reads a file that does not exist as a copy
+
+
+def test_a_copy_with_an_active_review_of_the_paper_cannot_be_checked_exit_2_not_a_failure(
+    world, monkeypatch, capsys
+):
+    path = _copy_world(world, monkeypatch)
+    with db.connect() as c:
+        c.execute("DELETE FROM jobs")
+    _enqueue(world)  # a queued review of the paper on the copy
+    code = _script().main(["--db", str(path), "--paper", world["sub"]])
+    out = capsys.readouterr().out
+    assert (
+        code == 2
+        and "copy has an active review of this paper" in out
+        and "FAIL" not in out
+    )
+
+
+def test_a_paper_of_a_kind_the_ai_reviewer_is_not_enabled_for_cannot_be_checked_exit_2_not_a_false_no_item_failure(
+    world, monkeypatch, capsys
+):
+    path = _copy_world(world, monkeypatch)
+    drawing = agent_review_kind.PaperReading(
+        "drawing", True, "r", "t", False, None, None
+    )
+    monkeypatch.setattr(agent_review_kind, "decide", lambda *_a, **_k: drawing)
+    code = _script().main(["--db", str(path), "--paper", world["sub"]])
+    out = capsys.readouterr().out
+    assert (
+        code == 2
+        and "kind not enabled for the AI reviewer" in out
+        and "plan holds no item" not in out
+        and "FAIL" not in out
+    )

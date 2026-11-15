@@ -31,6 +31,15 @@ log = logging.getLogger(__name__)
 NOTHING_LEAVES_WORDS = "AI review not started: this review was started with nothing leaving this computer; start again and choose Claude to send it"
 
 
+def _why_local_off(ai: dict) -> str:
+    """The plain reason the local AI review did not start: the local reviewer switched off on this install, else the plan's own words."""
+    from . import agent_review_local
+
+    if not agent_review_local.switch_on():
+        return "the local AI reviewer is switched off on this install"
+    return str(ai.get("why") or "the plan did not allow it")
+
+
 class StartRefused(Exception):
     """The plan refused the start; `code` and the plain sentence."""
 
@@ -178,7 +187,11 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
         review_engine.ON_LOCAL,
     ):
         _note(
-            conn, run_id, f"not started: {ai['why']}" if sends else NOTHING_LEAVES_WORDS
+            conn,
+            run_id,
+            f"not started: {ai['why']}"
+            if sends
+            else f"{NOTHING_LEAVES_WORDS} ({_why_local_off(ai)})",
         )
         return None
     on_local = (
