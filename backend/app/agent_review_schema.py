@@ -338,7 +338,7 @@ def rejudge_plan(conn, line: dict, books: dict) -> dict | None:
     called verified and the rule book's own stored pages do not hold falls: its clause check becomes false (`clause_book` says why, the old
     check is kept as `clause_checked_before_c11`). Nothing else is derived: a line whose quote IS in the book, a line with no clause quote,
     a line judged already (it carries `clause_book`) and a line whose clause text was cut from the book by code come back None and are
-    never written."""
+    never written; a line in the book on ANOTHER page (or in a scan) comes back with only the located result added (`_page_only`)."""
     from . import agent_review_pass_guards as guards
     from . import agent_review_standards as stds
 
@@ -382,7 +382,20 @@ def rejudge_plan(conn, line: dict, books: dict) -> dict | None:
     }
     ok, got = guards.judge(book_of, item, line.get("clause_quote"), source, True)
     if ok:
-        return None  # in the book (or the book's own clause text): nothing to change, nothing written
+        if (
+            got.found
+            and got.page is not None
+            and (got.where == guards.WHERE_OTHER or got.scanned)
+        ):
+            # in the book, but on a page other than the one shown (or in a scan): ONLY the located result is recorded, so the page and
+            # the CRS say the true page. Class, word, verdict and decided_by are not touched.
+            return {
+                **line,
+                "clause_book": got.to_json(),
+                "clause_page_before_c11": line.get("clause_page"),
+                "_page_only": True,
+            }
+        return None  # in the book on the stated page (or the book's own clause text): nothing to change, nothing written
     return {
         **line,
         "clause_book": got.to_json(),
@@ -423,7 +436,7 @@ def _rejudge_old_clause_quotes(conn) -> int:
         f"SELECT run_id, item_id, verdict_class, word, line_json FROM {LINE_TABLE}"
     ).fetchall()
     books: dict = {}
-    fell = kept = 0
+    fell = kept = paged = 0
     changed: dict[str, int] = {}
     for run_id, item_id, cls, word, raw in rows:
         try:
@@ -432,6 +445,15 @@ def _rejudge_old_clause_quotes(conn) -> int:
             continue
         new = rejudge_plan(conn, line, books) if isinstance(line, dict) else None
         if new is None:
+            continue
+        if new.pop(
+            "_page_only", False
+        ):  # the true page only: the class columns and the verdict are not touched
+            conn.execute(
+                f"UPDATE {LINE_TABLE} SET line_json = ? WHERE run_id = ? AND item_id = ?",
+                (json.dumps(new, ensure_ascii=False, default=str), run_id, item_id),
+            )
+            paged += 1
             continue
         before = {
             "class_before_c11": cls,
@@ -463,7 +485,7 @@ def _rejudge_old_clause_quotes(conn) -> int:
         "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
         " VALUES (?, NULL, 'system', ?, 'agent_review_line', ?, 'ok', ?)",
         (job_queue.now_iso(), REJUDGE_ACTION, LINE_TABLE,
-         f"lines read: {len(rows)}; clause quote not in the rule book: {fell + kept}; lines changed: {fell}; left as stored (a class would rise): {kept}; class changes: "
+         f"lines read: {len(rows)}; clause quote not in the rule book: {fell + kept}; lines changed: {fell}; true page recorded: {paged}; left as stored (a class would rise): {kept}; class changes: "
          + ("; ".join(f"{k} x{v}" for k, v in sorted(changed.items())) or "none")),
     )  # fmt: skip
     return fell

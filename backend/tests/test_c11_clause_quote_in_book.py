@@ -19,6 +19,7 @@ from tests.test_agent_review_guards import run_review, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
 
 QUOTE = "The coating shall be applied in two layers of equal depth."
+PAGE5 = "A sentence that only the fifth page of the invented rule book holds, word for word."
 FILL = "Invented filler sentence about the nameplate and the painting of the casing."
 
 
@@ -317,7 +318,13 @@ def test_the_upgrade_writes_only_c11s_own_falls_never_lets_a_class_rise_and_coun
             "decided_by": "engineer",
             "compare": None,
         }  # stored lower than it would derive
-        stored = [(kept, "Proven by code", "Fail"), (gone, "Proven by code", "Fail"), (stale, "AI opinion, engineer to confirm", "AI thinks: met"),
+        paged = {
+            **base,
+            "item_id": "R-5",
+            "clause_page": 1,
+            "clause_quote": PAGE5,
+        }  # the quote is in the book, on page 5, not on the cited page 1
+        stored = [(paged, "Proven by code", "Fail"), (kept, "Proven by code", "Fail"), (gone, "Proven by code", "Fail"), (stale, "AI opinion, engineer to confirm", "AI thinks: met"),
                   (rise, "Not reviewed", "Not reviewed")]  # fmt: skip
         for ln, cls, word in stored:
             conn.execute(
@@ -327,6 +334,10 @@ def test_the_upgrade_writes_only_c11s_own_falls_never_lets_a_class_rise_and_coun
         conn.execute(
             "DELETE FROM audit_events WHERE action = ?", (schema.REJUDGE_ACTION,)
         )  # the empty table's own pass left a marker: this DB is an earlier one
+        conn.execute(
+            "INSERT INTO pages(document_id, page_no, text, char_count, batch_no) VALUES (?, 5, ?, 80, 0)",
+            (s.STD, FILL + "\n" + PAGE5),
+        )
         conn.commit()
         before = {
             r["item_id"]: tuple(r)
@@ -345,6 +356,24 @@ def test_the_upgrade_writes_only_c11s_own_falls_never_lets_a_class_rise_and_coun
             after["R-1"] == before["R-1"] and after["R-3"] == before["R-3"]
         )  # a verified clause quote: byte for byte
         assert after["R-4"] == before["R-4"]  # a class never rises
+        old, new = json.loads(before["R-5"][4]), json.loads(after["R-5"][4])
+        assert (
+            after["R-5"][:4] == before["R-5"][:4]
+        )  # class, word and reason: byte for byte
+        assert {k for k in set(old) | set(new) if old.get(k) != new.get(k)} == {
+            "clause_book",
+            "clause_page_before_c11",
+        }
+        assert (
+            new["verdict"] == old["verdict"]
+            and new["decided_by"] == old["decided_by"]
+            and new["clause_page"] == 1
+        )
+        assert (
+            new["clause_book"]
+            == {"found": True, "page": 5, "where": G.WHERE_OTHER, "why": None}
+            and new["clause_page_before_c11"] == 1
+        )
         fell = json.loads(after["R-2"][4])
         assert (
             after["R-2"][1] != "Proven by code"
@@ -369,7 +398,7 @@ def test_the_upgrade_writes_only_c11s_own_falls_never_lets_a_class_rise_and_coun
         ).fetchall()
         assert (
             len(audit) == 1
-            and "lines changed: 1" in audit[0][0]
+            and "lines changed: 1; true page recorded: 1" in audit[0][0]
             and "left as stored (a class would rise): 1" in audit[0][0]
         )
         assert (
