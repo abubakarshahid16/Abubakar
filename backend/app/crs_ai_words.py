@@ -396,7 +396,7 @@ PRIORITY_RULE_AI = (
     "Priority is set by one rule. Fail (proven by code) = High. For an AI opinion (not met), an AI verdict (not met) and a Query: "
     "High when the rule is mandatory ('shall') and its clause is about safety (the closed safety vocabulary); Medium when the rule is "
     "mandatory; otherwise Low. A point that has no clause has no priority. AI opinion (met), AI verdict (met) and Pass = blank. "
-    "Mandatory means a held rule that is not marked as a recommendation ('should'), or an item of the engineer's approved checklist."
+    "Mandatory means a held rule that is not marked as a recommendation ('should'), or an item of the engineer's approved checklist (an entry that states its own strength, 'should' or advice, is not mandatory)."
 )
 
 
@@ -413,9 +413,16 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
     if not (text or _clean(line.get("clause"))):
         return ""
     # mandatory: a held rule, or an item of the engineer's approved checklist ("skill"), that is not marked as advice (a "should")
-    mandatory = (
-        line.get("source") in ("rule", "skill") and line.get("rule_kind") != "advice"
+    # an entry that states its own strength is believed: a "should" / recommendation / advice is not mandatory
+    advice = (
+        line.get("rule_kind") == "advice"
+        or line.get("recommendation")
+        or (
+            str(line.get("strength") or "").lower()
+            in ("should", "recommendation", "advice")
+        )
     )
+    mandatory = line.get("source") in ("rule", "skill") and not advice
     if mandatory and is_safety(text):
         return HIGH
     return MEDIUM if mandatory else LOW

@@ -37,6 +37,7 @@ from . import crs_export_quality, crs_layout
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from .agent_run_crs import _cell
+from .crs_ai_actions import reason_for
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -115,8 +116,8 @@ def reason_of(point: dict) -> str:
             else ""
         )
         if why and why != words.UNKNOWN_WHY:
-            return _clean(why)
-        return _clean(code)
+            return _clean(reason_for(line, why))
+        return _clean(reason_for(line, code))
     code = finding.get("reason_code") or row.get("row_kind") or ""
     return _clean(words.code_phrase(code)) if code else ""
 
