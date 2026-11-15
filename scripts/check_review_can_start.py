@@ -32,6 +32,10 @@ class Refused(Exception):
     pass
 
 
+class CannotCheck(Refused):
+    """The copy cannot be checked as it stands (not a failure of the AI review): exit 2."""
+
+
 def _refuse_live(db_path: Path) -> None:
     from app import live_guard
 
@@ -89,6 +93,17 @@ def check(db_path: Path, paper: str) -> list[str]:
             "the copy holds no completed review of the paper (the plan reads its classic selection)"
         ]
     scope_run = done["id"]
+    from app import agent_review_gate
+
+    active = conn.execute(
+        f"SELECT 1 FROM review_runs WHERE submittal_document_id = ? AND status IN ({','.join('?' * len(jobs.ACTIVE_RUN))}) LIMIT 1",
+        (paper, *jobs.ACTIVE_RUN),
+    ).fetchone()
+    if active is not None:
+        raise CannotCheck("copy has an active review of this paper")
+    kind = agent_review_kind.decide(paper, scope)
+    if not (kind.known and agent_review_gate.rules_kind_enabled(kind.kind)):
+        raise CannotCheck("kind not enabled for the AI reviewer")
     who = conn.execute(
         "SELECT created_by FROM jobs WHERE document_id = ? AND created_by IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
         (paper,),
@@ -126,7 +141,6 @@ def check(db_path: Path, paper: str) -> list[str]:
     stored = review_engine.stored(conn, ai_run) or {}
     if not stored.get("bar_claude"):
         bad.append("the AI run is not barred from Claude")
-    kind = agent_review_kind.decide(paper, scope)
     jobs._scope_run_id = lambda *_a: scope_run
     claude_auto_approve.on_review_start = lambda *_a: None
     got = jobs._plan(conn, ai_run, paper, scope, kind, lambda: None)
@@ -161,6 +175,9 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     try:
         problems = check(Path(a.db), a.paper)
+    except CannotCheck as exc:
+        print(f"CANNOT CHECK: {exc}")
+        return 2
     except Refused as exc:
         print(f"REFUSED: {exc}")
         return 2

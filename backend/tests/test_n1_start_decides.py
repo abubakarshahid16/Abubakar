@@ -114,6 +114,7 @@ def test_with_the_local_reviewer_off_that_follow_up_does_not_start_and_says_why_
     assert (
         said
         == "AI review not started: this review was started with nothing leaving this computer; start again and choose Claude to send it"
+        " (the local AI reviewer is switched off on this install)"
     )
     assert claude_spend.entries() == []
 
@@ -191,3 +192,22 @@ def _started_claude_with_empty_list(world):
     with db.connect() as c:
         c.execute("UPDATE review_runs SET status = 'completed'")
     return _started(world, text_leaves=True, shown=[])
+
+
+def test_with_the_local_reviewer_on_the_sentence_carries_the_plans_own_reason(
+    world, monkeypatch
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "agent_review_local_engine_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    run_id, job_id = _started(world, text_leaves=False)
+    _wire(
+        monkeypatch, local_on=False
+    )  # the plan itself says the AI review does not run: "the local reviewer is off" is its words
+    assert review_engine_start.follow_up(job_id, "done") is None
+    said = review_engine.stored(db.connect(), run_id)["followed_by"]
+    assert (
+        said.endswith("(the local reviewer is off)")
+        and "switched off on this install" not in said
+    )
