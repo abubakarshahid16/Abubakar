@@ -210,39 +210,29 @@ def _numeric_base(
     }  # fmt: skip
 
 
-#: Words that say WHICH value of a quantity a column or a rule means. A rule that names one is compared only with a value whose label or column header names the same.
-CONDITION_WORDS = frozenset(
-    {
-        "design",
-        "operating",
-        "normal",
-        "maximum",
-        "minimum",
-        "test",
-        "rated",
-        "max",
-        "min",
-    }
-)
-
-
-def _condition_words(text: object) -> set[str]:
-    return {
-        w
-        for w in _fold(str(text or "").replace("_", " ")).split()
-        if w in CONDITION_WORDS
-    }
-
-
 def column_not_the_rules(base: Mapping, cell: table_cell.Cell | None) -> str | None:
-    """Plain words when the value sits in a column or under a label that does not carry the word the rule asks for (design, operating, normal ...); None when it does,
-    when the rule names none, or when the value has no cell."""
-    asked = _condition_words(base.get("rule_field"))
-    if not (asked and cell):
+    """Plain words when the value sits in a column that is not clearly the rule's, else None:
+    (1) the column header marks another state of the value (previous, old, superseded, a revision): "the value is under the column '<header>'";
+    (2) the rule names a condition (design, operating, normal ...) that neither the label nor the header carries: "the table column is <header>; the rule asks for <word>";
+    (3) the rule names none, and the header names one, in a table with more than one such column: "the table column is <header>; the rule does not say which".
+    None when the value has no cell, no header marks it, or the label carries the rule's word."""
+    if not cell:
         return None
-    if asked & (_condition_words(cell.header) | _condition_words(base.get("field"))):
-        return None
-    return f"the table column is {cell.header or 'not named'}; the rule asks for {' / '.join(sorted(asked))}"
+    if table_cell.stale_header(cell.header):
+        return f"the value is under the column '{cell.header}'"
+    asked = table_cell.condition_words(base.get("rule_field"))
+    named = table_cell.condition_words(cell.header)
+    if asked:
+        if asked & (named | table_cell.condition_words(base.get("field"))):
+            return None
+        return f"the table column is {cell.header or 'not named'}; the rule asks for {' / '.join(sorted(asked))}"
+    if (
+        named
+        and cell.conditions_in_header_row > 1
+        and not table_cell.condition_words(base.get("field"))
+    ):
+        return f"the table column is {cell.header}; the rule does not say which"
+    return None
 
 
 def numeric_line(

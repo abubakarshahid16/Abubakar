@@ -17,7 +17,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 
-from . import numparse, table_cell
+from . import comparison, hold_reason, numparse, table_cell
 
 HELD = "conflict"
 
@@ -62,7 +62,10 @@ def other_tags(a: Mapping, b: Mapping) -> bool:
     """The two facts stand under DIFFERENT tags, both known: each has a tag and the identifiers they name do not overlap. A fact with no tag, or a header that
     names a tag the other also names, is never "another tag": a reading conflict with it stays a conflict."""
     ta, tb = _tag_ids(a), _tag_ids(b)
-    return bool(ta and tb and not (ta & tb))
+    if not (ta and tb) or ta & tb:
+        return False
+    # "V1" and "V1A": one identifier is the start of the other
+    return not any(x.startswith(y) or y.startswith(x) for x in ta for y in tb)
 
 
 def settle(
@@ -185,3 +188,73 @@ def cells_of(
         if f.get("id")
         and (c := cell_of(f, tables, counts.get(f.get("page"), 1))) is not None
     }
+
+
+def untrusted_reason(fact: Mapping) -> str | None:
+    """Why this value may not rest a verdict, in words, or None: two readings it carries (`reading_conflict`), else the numeric path's own rule
+    (`comparison.low_trust_reason`: a state of conflict or needing an engineer, a model reading with no proved quote)."""
+    return fact.get("reading_conflict") or comparison.low_trust_reason(dict(fact))
+
+
+def hold_untrusted(
+    results: list[dict], facts: Sequence[Mapping], equipment_type: str | None
+) -> list[dict]:
+    """The checklist's results with every COMPLIANT or NON_COMPLIANT one that RESTS on an untrusted fact turned into a question (never a Pass or Fail): a result rests on
+    the fact it is about, on the fact of the role it is checked against, and, for a calculation, on the facts of its input roles. The same rule as the numeric path,
+    in this ONE place, whatever the kind of check (a presence check, a compared check, a consistency pair). The question names the field and the reason."""
+    from . import datasheet_checks, datasheet_roles, deferred_value
+
+    rules = datasheet_checks.load_rules()
+    wanted = datasheet_roles.wanted_roles(equipment_type, rules)
+    right_of = deferred_value._right_roles(rules)
+    bad: dict[tuple, tuple[str, str]] = {}
+    for f in facts:
+        why = untrusted_reason(f)
+        role = (
+            datasheet_checks.role_of(
+                str(f.get("field_name") or f.get("field_label") or ""), rules, wanted
+            )
+            if why
+            else None
+        )
+        if role:
+            bad[(f.get("equipment_tag"), role)] = (
+                str(f.get("field_label") or role),
+                why,
+            )
+    by_id = {f.get("id"): f for f in facts}
+    out = []
+    for r in results:
+        if r.get("status") not in ("COMPLIANT", "NON_COMPLIANT") or not (bad or by_id):
+            out.append(r)
+            continue
+        roles = {r.get("role"), right_of.get(r.get("rule_id"))} | (
+            set(deferred_value.CALC_INPUT_ROLES) if r.get("calc") else set()
+        )
+        own = by_id.get(r.get("fact_id"))
+        hit = (
+            own
+            and untrusted_reason(own)
+            and (str(own.get("field_label") or ""), untrusted_reason(own))
+        ) or next(
+            (
+                bad[(tag, role)]
+                for role in roles
+                if role
+                for tag in (r.get("equipment_tag"), None)
+                if (tag, role) in bad
+            ),
+            None,
+        )
+        if not hit:
+            out.append(r)
+            continue
+        out.append(
+            {
+                **r,
+                "status": "NEEDS_ENGINEER_REVIEW",
+                hold_reason.KEY: hold_reason.OTHER,
+                "detail": f"Could not be judged: {hit[0]}: {hit[1]}. The check read {r['status']}; engineer to confirm. {r.get('detail') or ''}".strip(),
+            }
+        )
+    return out

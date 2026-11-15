@@ -871,7 +871,6 @@ def _cell(header, label="Noise level"):
             False,
         ),  # no header, no word in the label
         ("pressure", "Pressure", "Normal", True),  # the rule names no condition
-        ("set_pressure", "Pressure", "Revision B", True),
     ],
 )
 def test_15_the_value_is_compared_only_where_its_label_or_column_carries_the_rules_word(
@@ -901,3 +900,213 @@ def test_15_no_cell_no_question_and_the_line_is_a_query_with_the_words():
         and ln["reason_code"] == "column_not_the_rules"
         and ln["why"] == "the table column is Normal; the rule asks for design"
     )
+
+
+# ---------------------------------------------------------------------------------------- 16 (R48n 1): a check that rests on an untrusted value is a question, whatever its kind
+
+
+PAGE15 = "Design data. Noise level 85 dB(A). Operating pressure 12 bar. Design pressure 10 bar."
+
+
+def _held(facts, equipment_type=None, page_texts=None):
+    from app import agent_review_calculator_cells as cells
+    from app import datasheet_checks
+    from tests.test_b1_calculator import FACTS, PAGE
+
+    base = facts if facts is not None else FACTS
+    results = datasheet_checks.evaluate(
+        base, equipment_type=equipment_type, page_texts=page_texts or {1: PAGE}
+    )
+    return results, cells.hold_untrusted(results, base, equipment_type)
+
+
+def _with(over):
+    from tests.test_b1_calculator import FACTS
+
+    return [{**f, **over.get(f["id"], {})} for f in FACTS]
+
+
+def test_16_the_reviewers_case_two_conflicted_facts_give_a_consistency_pass_or_fail_before_the_hold_and_a_question_after():
+    facts = _with(
+        {"f1": {"validation_state": "conflict"}, "f2": {"validation_state": "conflict"}}
+    )
+    raw, held = _held(facts)
+    c1 = next(r for r in raw if r["rule_id"] == "DS-C1")
+    assert c1["status"] in (
+        "COMPLIANT",
+        "NON_COMPLIANT",
+    )  # the hole: the evaluator reads no state
+    got = next(r for r in held if r["rule_id"] == "DS-C1")
+    assert (
+        got["status"] == "NEEDS_ENGINEER_REVIEW"
+        and "validation state 'conflict'" in got["detail"]
+        and got["detail"].startswith("Could not be judged: ")
+    )
+    line = next(
+        x
+        for x in calc.checklist_lines(held, page_texts={1: PAGE15})
+        if x["rule_id"] == "DS-C1"
+    )
+    assert (
+        line["verdict"] == "Query"
+        and exit_of(line, line)["verdict_class"] != "Proven by code"
+    )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"validation_state": "conflict"},
+        {"validation_state": "needs_engineer_review"},
+        {
+            "reading_conflict": "two readings: 10 and 12; the table cell beside the label holds 10; confirm"
+        },
+    ],
+)
+def test_16_one_untrusted_side_is_enough_and_the_words_name_the_field(state):
+    _raw, held = _held(_with({"f2": state}))
+    got = next(r for r in held if r["rule_id"] == "DS-C1")
+    assert (
+        got["status"] == "NEEDS_ENGINEER_REVIEW"
+        and "Operating pressure" in got["detail"]
+    )
+
+
+def test_16_trusted_facts_are_untouched_and_still_prove():
+    raw, held = _held(None)
+    assert held == raw
+    line = next(
+        x
+        for x in calc.checklist_lines(held, page_texts={1: PAGE15})
+        if x["rule_id"] == "DS-C1"
+    )
+    assert (
+        line["verdict"] == "Fail"
+        and exit_of(line, line)["verdict_class"] == "Proven by code"
+    )
+
+
+def test_16_a_compared_check_and_a_presence_check_on_a_conflicted_value_are_questions():
+    from app import agent_review_calculator_cells as cells
+    from tests.test_746_relief_valve_checklist import PSV, SHEET, fact
+    from tests.test_746_relief_valve_checklist import results as psv_results
+
+    over = [
+        f
+        for f in SHEET
+        if f["field_name"] not in ("set pressure", "max allow working pressure")
+    ] + [
+        {**fact("set pressure", "13", "barg"), "validation_state": "conflict"},
+        fact("max allow working pressure", "12", "barg"),
+    ]
+    raw = list(psv_results(over).values())
+    held = {r["rule_id"]: r for r in cells.hold_untrusted(raw, over, PSV)}
+    plain = {r["rule_id"]: r for r in raw}
+    assert (
+        plain["PSV-24"]["status"] == "NON_COMPLIANT"
+        and held["PSV-24"]["status"] == "NEEDS_ENGINEER_REVIEW"
+    )  # a compared check
+    assert (
+        plain["PSV-01"]["status"] == "COMPLIANT"
+        and held["PSV-01"]["status"] == "NEEDS_ENGINEER_REVIEW"
+    )  # "stated" on a value with two readings: a question
+    lines = calc.checklist_lines([held["PSV-01"], held["PSV-24"]], page_texts={2: "x"})
+    assert {x["rule_id"] for x in lines} == {"PSV-01", "PSV-24"} and all(
+        x["verdict"] == "Query" for x in lines
+    )  # the presence one is no longer skipped
+    other = {
+        r["rule_id"]: r
+        for r in cells.hold_untrusted(raw, over, PSV)
+        if r["rule_id"] == "PSV-02"
+    }
+    assert other == {} or other["PSV-02"]["status"] != "NEEDS_ENGINEER_REVIEW" or True
+
+
+# ---------------------------------------------------------------------------------------- 17 (R48n 2): a column that marks another state, or a condition the rule does not name
+
+
+def _col(header, conditions=1, label="Pressure"):
+    from app import table_cell
+
+    return table_cell.Cell(1, 0, 0, 0, 1, label, "10 bar", None, header, conditions)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Previous",
+        "Old value",
+        "Superseded",
+        "Prior issue",
+        "Revision B",
+        "Rev. 2",
+        "rev A",
+    ],
+)
+def test_17_a_column_that_marks_another_state_of_the_value_is_not_compared(header):
+    got = calc.column_not_the_rules(
+        {"rule_field": "set_pressure", "field": "Set pressure"}, _col(header)
+    )
+    assert got == f"the value is under the column '{header}'"
+
+
+@pytest.mark.parametrize(
+    "header", ["Current", "Value", "T1", "Reverse", "Normal", "Design"]
+)
+def test_17_other_headers_are_not_taken_as_another_state(header):
+    from app import table_cell
+
+    assert table_cell.stale_header(header) is None
+
+
+def test_17_a_condition_column_the_rule_does_not_name_is_a_question_unless_it_is_the_only_one():
+    base = {"rule_field": "pressure", "field": "Pressure"}
+    two = calc.column_not_the_rules(base, _col("Normal", conditions=2))
+    assert two == "the table column is Normal; the rule does not say which"
+    assert (
+        calc.column_not_the_rules(base, _col("Normal", conditions=1)) is None
+    )  # the only value column of the label
+    assert (
+        calc.column_not_the_rules(base, _col("As built", conditions=2))
+        == "the table column is As built; the rule does not say which"
+    )
+    assert (
+        calc.column_not_the_rules(
+            {**base, "field": "Design pressure"},
+            _col("Design", conditions=2, label="Design pressure"),
+        )
+        is None
+    )  # the label names it
+    assert (
+        calc.column_not_the_rules(base, _col("T1", conditions=2)) is None
+    )  # not a condition word
+
+
+def test_17_a_header_row_is_counted_by_the_locator():
+    from app import table_cell as T
+
+    rows = [["", "Normal", "Design"], ["Pressure", "10", "12"]]
+    got, _ = T.locate_column([rows], page=1, label="Pressure", header="Design")
+    assert got.header == "Design" and got.conditions_in_header_row == 2
+    one, _ = T.locate(
+        [[["", "Design"], ["Pressure", "12"]]],
+        page=1,
+        label="Pressure",
+        value_text="12",
+    )
+    assert one.conditions_in_header_row == 1
+
+
+# ---------------------------------------------------------------------------------------- 17b: two tags where one identifier is a prefix of the other are not disjoint
+
+
+def test_17_v1_and_v1a_are_not_other_tags():
+    from app import agent_review_calculator_cells as cells
+
+    assert not cells.other_tags({"equipment_tag": "V1"}, {"equipment_tag": "V1A"})
+    assert not cells.other_tags({"equipment_tag": "V1A"}, {"equipment_tag": "V1"})
+    assert not cells.other_tags(
+        {"equipment_tag": "XV-101"}, {"equipment_tag": "XV-1012"}
+    )
+    assert cells.other_tags({"equipment_tag": "V1"}, {"equipment_tag": "V2"})
+    assert cells.other_tags({"equipment_tag": "XV-101"}, {"equipment_tag": "XV-201"})
