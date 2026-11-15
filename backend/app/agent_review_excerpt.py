@@ -46,7 +46,10 @@ class Window:
 
     def is_full(self, full: Mapping[int, str]) -> bool:
         """Does this window show every page of the paper, every line whole? Only then is a reading of it a reading of the paper."""
-        return not self.label and {n: t for n, t in full.items() if (t or "").strip()} == self.pages
+        return (
+            not self.label
+            and {n: t for n, t in full.items() if (t or "").strip()} == self.pages
+        )
 
 
 def field_words(item: Mapping) -> frozenset[str]:
@@ -190,7 +193,9 @@ MAX_MINIMUM_CHARS = 6000
 _NOTE_LINE = re.compile(r"^\s*notes?\b", re.IGNORECASE)
 
 
-def trim_clause(text: str, requirement: str | None, limit: int = MAX_CLAUSE_CHARS) -> ClauseText:
+def trim_clause(
+    text: str, requirement: str | None, limit: int = MAX_CLAUSE_CHARS
+) -> ClauseText:
     """The clause for the model: the whole of it when it is at most `limit` characters; else the REQUIREMENT lines, EVERY line that carries a
     condition or exception word (`agent_review_verdict.is_conditional`, the one vocabulary) and EVERY NOTE block of the clause, then the
     nearest lines around the requirement up to `limit`. The code reads the conditions of the WHOLE clause first (`conditions`)."""
@@ -198,14 +203,18 @@ def trim_clause(text: str, requirement: str | None, limit: int = MAX_CLAUSE_CHAR
     notes: set[int] = set()
     head = next((i for i, ln in enumerate(lines) if _NOTE_LINE.match(ln)), None)
     if head is not None:
-        notes = set(range(head, len(lines)))  # a NOTE block runs to the end of the clause
+        notes = set(
+            range(head, len(lines))
+        )  # a NOTE block runs to the end of the clause
     cond = {i for i, ln in enumerate(lines) if verdict.is_conditional(ln)}
     conditions = "\n".join(lines[i] for i in sorted(cond | notes))
     if len(text) <= limit:
         return ClauseText(text, conditions, False, True)
     anchor = (requirement or "").strip()[:60].lower()
     req = {i for i, ln in enumerate(lines) if anchor and anchor in ln.lower()}
-    if not req and anchor:  # the requirement may wrap across lines: the line holding its first words
+    if (
+        not req and anchor
+    ):  # the requirement may wrap across lines: the line holding its first words
         req = {next((i for i, ln in enumerate(lines) if anchor[:20] in ln.lower()), 0)}
     keep = req | cond | notes
     if sum(len(lines[i]) + 1 for i in keep) > MAX_MINIMUM_CHARS:
@@ -214,7 +223,11 @@ def trim_clause(text: str, requirement: str | None, limit: int = MAX_CLAUSE_CHAR
     used = sum(len(lines[i]) + 1 for i in keep)
     for d in range(1, len(lines)):
         for i in (centre - d, centre + d):
-            if 0 <= i < len(lines) and i not in keep and used + len(lines[i]) + 1 <= limit:
+            if (
+                0 <= i < len(lines)
+                and i not in keep
+                and used + len(lines[i]) + 1 <= limit
+            ):
                 keep.add(i)
                 used += len(lines[i]) + 1
         if used >= limit:

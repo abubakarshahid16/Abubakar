@@ -255,9 +255,30 @@ def _model_size_mb(model: str) -> float | None:
         return None
     models = got.get("models") if isinstance(got, dict) else None
     for m in models if isinstance(models, list) else []:
-        if isinstance(m, dict) and model in (m.get("name"), m.get("model")) and isinstance(m.get("size"), (int, float)):
+        if (
+            isinstance(m, dict)
+            and model in (m.get("name"), m.get("model"))
+            and isinstance(m.get("size"), (int, float))
+        ):
             return float(m["size"]) / 1e6
     return None
+
+
+def window_plan_words() -> str:
+    """For the plan, before the start (no engine is asked): how the context window will be chosen, from the settings and this computer's memory."""
+    from .config import settings
+
+    cap = int(settings.agent_review_local_num_ctx or 0)
+    budget = memory_budget_mb(int(settings.agent_review_local_memory_budget_mb or 0))
+    return (
+        f"The local model's context window is its own length or the cap ({cap or 'the shared window'} tokens), whichever is smaller, "
+        + (
+            f"shrunk so the model and its context stay under the memory budget ({budget} MB); "
+            if budget
+            else "with this computer's memory not known; "
+        )
+        + "the run states the window it chose and why, and keeps the shared window while a chat answer is being written"
+    )
 
 
 def _chat_active() -> bool:
@@ -418,7 +439,10 @@ class LocalEngine:
         chat_wait: float | None = None,
     ) -> None:
         self._size_mb, self._memory_mb = size_mb or _model_size_mb, memory_mb
-        self._chat_active, self._chat_wait = chat_active or _chat_active, CHAT_WAIT_S if chat_wait is None else chat_wait
+        self._chat_active, self._chat_wait = (
+            chat_active or _chat_active,
+            CHAT_WAIT_S if chat_wait is None else chat_wait,
+        )
         self._chosen: dict[str, tuple[int, str]] = {}
         self.memory_refused: str | None = None
         self.output_cap = output_cap  # a ceiling on every request's output limit (the general review's windows fit under it)
@@ -478,21 +502,36 @@ class LocalEngine:
     def _choose_window(self, role: str) -> tuple[int, str]:
         from .config import settings
 
-        cap = int(getattr(settings, "agent_review_local_num_ctx_b" if role == SECOND else "agent_review_local_num_ctx", 0) or 0)
+        cap = int(
+            getattr(
+                settings,
+                "agent_review_local_num_ctx_b"
+                if role == SECOND
+                else "agent_review_local_num_ctx",
+                0,
+            )
+            or 0
+        )
         if role == SECOND and not cap:
             cap = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
         shared = model_transport.shared_window()
         show = self.show(role)
         length = context_length(show)
         if not length:
-            return shared, f"{shared} tokens: the engine does not give the model's context length, so the shared window"
+            return (
+                shared,
+                f"{shared} tokens: the engine does not give the model's context length, so the shared window",
+            )
         want = min(length, cap) if cap else min(length, shared)
         why = f"{want} tokens: the smaller of the model's own length ({length}) and the cap ({cap or 'none'})"
         if want <= shared:
             return want, why
         kv = kv_mb_per_1k(show)
         size = self._size_mb(self.model_b if role == SECOND else self.model_a)
-        budget = memory_budget_mb(int(getattr(settings, "agent_review_local_memory_budget_mb", 0) or 0), self._memory_mb() if self._memory_mb else None)
+        budget = memory_budget_mb(
+            int(getattr(settings, "agent_review_local_memory_budget_mb", 0) or 0),
+            self._memory_mb() if self._memory_mb else None,
+        )
         if kv is None or size is None or budget is None:
             why += "; memory not checked (the model's cache size, its size or this computer's memory is not known)"
         else:
@@ -514,7 +553,10 @@ class LocalEngine:
             while self._chat_active() and time.time() < deadline:
                 time.sleep(min(2.0, max(0.0, deadline - time.time())))
             if self._chat_active():
-                return shared, f"{shared} tokens: a chat answer is in flight, so the model is not reloaded with a different window"
+                return (
+                    shared,
+                    f"{shared} tokens: a chat answer is in flight, so the model is not reloaded with a different window",
+                )
         return want, why
 
     def stats(self) -> dict:

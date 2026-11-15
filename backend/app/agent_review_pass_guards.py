@@ -287,7 +287,9 @@ def verdict_of(
     )
     if not ok:
         return {"ok": False, "code": code, "why": why}
-    whole = item.get("clause_condition_text")  # local engine: the conditions of the WHOLE clause, read before it was trimmed
+    whole = item.get(
+        "clause_condition_text"
+    )  # local engine: the conditions of the WHOLE clause, read before it was trimmed
     if verdict.is_conditional(answer.get("clause_quote"), requirement, whole):
         terms = condition_terms(answer.get("clause_quote"), requirement, whole)
         if not (answer.get("condition_quote") and condition_ok(answer, pages, terms)):

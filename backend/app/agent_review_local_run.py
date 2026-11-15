@@ -76,21 +76,50 @@ class LocalRunMixin:
             text = h["text"]
             if h["kind"] == "clause":
                 got = excerpt.trim_clause(text, req)
-                text, fits, shortened = got.sent, fits and got.fits, shortened or got.shortened
+                text, fits, shortened = (
+                    got.sent,
+                    fits and got.fits,
+                    shortened or got.shortened,
+                )
                 cond.append(got.conditions)
-            out.setdefault(h["ref"], {**h, "text": text, "standard": item.get("standard"), "clause": item.get("clause")})
+            out.setdefault(
+                h["ref"],
+                {
+                    **h,
+                    "text": text,
+                    "standard": item.get("standard"),
+                    "clause": item.get("clause"),
+                },
+            )
         item["clause_condition_text"] = "\n".join(c for c in cond if c)
         return out, {str(item.get("item_id")): held}, fits, shortened
 
-    def _local_budget(self, item: dict, clauses: dict, held_of: dict, out_tokens: int) -> int:
+    def _local_budget(
+        self, item: dict, clauses: dict, held_of: dict, out_tokens: int
+    ) -> int:
         """Estimated tokens left for the page excerpt of this item's request (the window, less everything else in it)."""
         from . import context_budget as cb
 
-        fixed = cb.estimate_tokens(SYSTEM + ANSWER_SHAPE) + cb.estimate_tokens(json.dumps({"items": [_question(item, held_of.get(str(item["item_id"])))]}))
-        fixed += sum(cb.estimate_tokens(c["text"]) + PAGE_TAG_TOKENS for c in clauses.values()) + PAGE_TAG_TOKENS
-        return excerpt.fit_budget(self.local.window(local_mod.FIRST), out_tokens, local_mod.WINDOW_MARGIN_TOKENS, fixed)
+        fixed = cb.estimate_tokens(SYSTEM + ANSWER_SHAPE) + cb.estimate_tokens(
+            json.dumps({"items": [_question(item, held_of.get(str(item["item_id"])))]})
+        )
+        fixed += (
+            sum(
+                cb.estimate_tokens(c["text"]) + PAGE_TAG_TOKENS
+                for c in clauses.values()
+            )
+            + PAGE_TAG_TOKENS
+        )
+        return excerpt.fit_budget(
+            self.local.window(local_mod.FIRST),
+            out_tokens,
+            local_mod.WINDOW_MARGIN_TOKENS,
+            fixed,
+        )
 
-    def local_windows(self, item: dict, full: dict[int, str]) -> tuple[list, dict, dict, int, bool]:
+    def local_windows(
+        self, item: dict, full: dict[int, str]
+    ) -> tuple[list, dict, dict, int, bool]:
         clauses, held_of, fits, shortened = self._local_clauses(item)
         out = self.local.first_tokens(1)
         budget = self._local_budget(item, clauses, held_of, out)
@@ -105,23 +134,40 @@ class LocalRunMixin:
         for item in batch:
             self._run_item_local(item)
 
-    def _ask_window(self, item: dict, win: Any, clauses: dict, held_of: dict) -> tuple[dict | None, float, str | None, str | None]:
+    def _ask_window(
+        self, item: dict, win: Any, clauses: dict, held_of: dict
+    ) -> tuple[dict | None, float, str | None, str | None]:
         parts = build_parts(self.paper, win.pages, clauses, [item], held_of)
         answer, spent, err, mdl = self._ask_lead([item], parts, False)
         got = (answer or {}).get(str(item.get("item_id")))
-        return (got, spent, err or (None if answer is not None else "unparseable_reply"), mdl)
+        return (
+            got,
+            spent,
+            err or (None if answer is not None else "unparseable_reply"),
+            mdl,
+        )
 
     def _run_item_local(self, item: dict) -> None:
         iid = str(item.get("item_id"))
-        full = {n: t for n in range(1, self.total_pages + 1) if (t := self.pages.page(self.paper, n))}
+        full = {
+            n: t
+            for n in range(1, self.total_pages + 1)
+            if (t := self.pages.page(self.paper, n))
+        }
         box = self._box()
         if self._stop.is_set():
-            self.emit(self.decide(item, None, full, None, f"not run: {self.stopped}", box, 0.0))
+            self.emit(
+                self.decide(
+                    item, None, full, None, f"not run: {self.stopped}", box, 0.0
+                )
+            )
             return
         wins, clauses, held_of, budget, shortened = self.local_windows(item, full)
         total = len(wins)
         asked = failed = 0
-        best: dict | None = None  # the last answer that was not decisive (this window lacks it)
+        best: dict | None = (
+            None  # the last answer that was not decisive (this window lacks it)
+        )
         got, model, error, usd, decided_on = None, None, None, 0.0, None
         for win in wins[:MAX_WINDOWS]:
             a, spent, err, mdl = self._ask_window(item, win, clauses, held_of)
@@ -141,15 +187,28 @@ class LocalRunMixin:
         complete = failed == 0 and asked == total and total <= MAX_WINDOWS and total > 0
         if got is None:
             if best is not None and complete:
-                got, error = best, None  # every part of every page was asked: "not found" is a claim about the paper
+                got, error = (
+                    best,
+                    None,
+                )  # every part of every page was asked: "not found" is a claim about the paper
             elif best is not None:
-                got, error = None, local_mod.NOT_ALL_ASKED  # a part was not asked: never "not stated"
+                got, error = (
+                    None,
+                    local_mod.NOT_ALL_ASKED,
+                )  # a part was not asked: never "not stated"
             elif not wins:
-                error = local_mod.LOCAL_TOO_LONG  # nothing fits the window with this item's own text
+                error = (
+                    local_mod.LOCAL_TOO_LONG
+                )  # nothing fits the window with this item's own text
         line = self._decide_local(item, got, full, model, error, box, usd)
         whole = next((w for w in wins if w.is_full(full)), None)
         part = decided_on is not None and not decided_on.is_full(full)
-        if part and whole is not None and self.two_reader_on() and two.is_candidate(self.exit_line(line)):
+        if (
+            part
+            and whole is not None
+            and self.two_reader_on()
+            and two.is_candidate(self.exit_line(line))
+        ):
             # a line the second reader may confirm: the first reader reads the whole paper too, and that reading decides
             a, spent, err, mdl = self._ask_window(item, whole, clauses, held_of)
             usd += spent
@@ -167,7 +226,11 @@ class LocalRunMixin:
         if model and model != "unknown":
             self.lead_models.add(model)
         line["windows_asked"], line["windows_total"] = asked, total
-        notes = ([self.EXCERPT_WORDS if decided_on.label else self.PART_WORDS] if part else []) + ([self.SHORTENED_WORDS] if shortened else [])
+        notes = (
+            [self.EXCERPT_WORDS if decided_on.label else self.PART_WORDS]
+            if part
+            else []
+        ) + ([self.SHORTENED_WORDS] if shortened else [])
         if part:
             line["decided_on"] = "excerpt"
         elif decided_on is not None:
@@ -175,8 +238,19 @@ class LocalRunMixin:
         if shortened:
             line["clause_shortened"] = True
         if notes:
-            line["reasoning"] = " ".join([str(line.get("reasoning") or "").strip(), *(f"[{n}]" for n in notes)]).strip()
+            line["reasoning"] = " ".join(
+                [str(line.get("reasoning") or "").strip(), *(f"[{n}]" for n in notes)]
+            ).strip()
         self.emit(self.reread_silent_line(item, line, model, box))
 
-    def _decide_local(self, item: dict, got: dict | None, full: dict, model: str | None, error: str | None, box: Any, usd: float) -> dict:
+    def _decide_local(
+        self,
+        item: dict,
+        got: dict | None,
+        full: dict,
+        model: str | None,
+        error: str | None,
+        box: Any,
+        usd: float,
+    ) -> dict:
         return self.decide(item, got, full, model, error, box, usd)
