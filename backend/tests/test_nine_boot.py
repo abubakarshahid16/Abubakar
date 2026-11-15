@@ -46,6 +46,11 @@ with TestClient(m.app):
     seen["frozen_after_start"] = nine_call._FROZEN
     try:
         nine_call.vocabulary("late_vocab", ["words"])
+        seen["late_vocab"] = "accepted"
+    except nine_call.NineCallError:
+        seen["late_vocab"] = "refused"
+    try:
+        nine_call.template("late_template", "words")
         seen["late"] = "accepted"
     except nine_call.NineCallError:
         seen["late"] = "refused"
@@ -105,5 +110,47 @@ def test_with_the_switch_on_every_role_module_registered_before_the_lifespan_fro
         "app.nine_context",
         "app.nine_librarian",
     } <= set(got["modules_at_freeze"])
-    assert got["frozen_after_start"] is True and got["late"] == "refused"
+    assert (
+        got["frozen_after_start"] is True
+        and got["late_vocab"] == "refused"
+        and got["late"] == "refused"
+    )  # no template or vocabulary can register after the freeze
     assert got["role_paths"]  # the record route exists with the switch on
+
+
+READER = """
+import json, os
+from pathlib import Path
+import app.main as m
+from app.config import settings
+tmp = Path(os.environ["NINE_TMP"])
+settings.data_dir, settings.upload_dir, settings.db_path = tmp, tmp / "uploads", tmp / "boot.sqlite"
+settings.startup_warmup = False
+from app import db
+db.reset_connection()
+from fastapi.testclient import TestClient
+from app import datasheet_checks, nine_reader
+from app.form_reader_fields import batches, field_list_for
+out = {"error": None, "groups": 0}
+with TestClient(m.app):
+    groups = list(batches(field_list_for("relief valve", dict(datasheet_checks.load_rules()))))
+    out["groups"] = len(groups)
+    try:
+        for g in groups:
+            nine_reader.form_template(g)
+    except Exception as exc:
+        out["error"] = type(exc).__name__
+print(json.dumps(out))
+"""
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B2: nine_reader registers its form templates lazily, after the freeze (role 1 would fail in the real app); register them at import",
+)
+def test_the_readers_question_templates_can_be_used_after_the_freeze(tmp_path):
+    got = run(READER, "true", tmp_path)
+    assert got["groups"] > 0 and got["error"] is None
