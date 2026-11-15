@@ -36,9 +36,17 @@ def _script():
 
 def _copy_world(world, monkeypatch, *, items_ok=True):
     """A copy with a completed classic review of the paper; the item builder is replaced (it reads rule books the invented world lacks)."""
+    from app import scope_ledger
+
+    scope_ledger.ensure_schema()
     run_id, _j = _enqueue(world)
     with db.connect() as c:
         c.execute("UPDATE review_runs SET status = 'completed' WHERE id = ?", (run_id,))
+        c.execute(  # the rule check's stored scope: the plan reads it the way the real job does
+            "INSERT INTO review_scope_decisions(review_run_id, requirement_id, state, reason_code, reason, decided_by, created_at)"
+            " VALUES (?, 'r1', 'applies', 'x', 'x', 't', '2026-11-15')",
+            (run_id,),
+        )
         s.add_document(
             c, s.STD, "std.pdf", s.STD_PAGE
         )  # the rule book the items cite, with its pages
@@ -176,3 +184,31 @@ def test_a_paper_of_a_kind_the_ai_reviewer_is_not_enabled_for_cannot_be_checked_
         and "plan holds no item" not in out
         and "FAIL" not in out
     )
+
+
+def test_a_newer_ai_run_holding_no_scope_does_not_stand_in_for_the_rule_check_update_10_stop(
+    world, monkeypatch, capsys
+):
+    """15 Nov 2026: the paper's newest completed run was an AI run (no scope decisions); the check planned from it and failed 'no item'."""
+    path = _copy_world(world, monkeypatch)
+    with db.connect() as c:
+        rule_check = c.execute("SELECT id FROM review_runs").fetchone()["id"]
+        c.execute(
+            "INSERT INTO review_runs(id, submittal_document_id, status, started_at, created_at, updated_at)"
+            " SELECT 'ai_newer', submittal_document_id, 'completed', '2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z' FROM review_runs WHERE id = ?",
+            (rule_check,),
+        )
+    assert _script().main(["--db", str(path), "--paper", world["sub"]]) == 0
+    out = capsys.readouterr().out
+    assert f"rule-check run {rule_check}" in out and "ai_newer" not in out
+
+
+def test_a_copy_with_no_rule_check_holding_a_scope_cannot_be_checked_exit_2(
+    world, monkeypatch, capsys
+):
+    path = _copy_world(world, monkeypatch)
+    with db.connect() as c:
+        c.execute("DELETE FROM review_scope_decisions")
+    code = _script().main(["--db", str(path), "--paper", world["sub"]])
+    out = capsys.readouterr().out
+    assert code == 2 and "no finished rule check" in out and "FAIL" not in out
