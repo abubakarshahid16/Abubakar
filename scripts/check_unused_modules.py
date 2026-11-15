@@ -43,6 +43,7 @@ ENTRY_POINTS = (
     "agent_review_pages",
     # nine-role reviewer, being wired: the shared shapes its roles are built against (remove this entry when a role imports it)
     "nine_contract",
+    "nine_chapters",  # B3: the chapter cut, until the librarian imports it
 )
 
 

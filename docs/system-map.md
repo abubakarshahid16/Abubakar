@@ -81,6 +81,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_items` | The AI reviewer's item list (core): the right rules and approved checklist items for one paper, page hints, batches |
 | `agent_review_pages` | Page pictures for the AI reviewer (core): rendering and the image block; not wired into the first job (text pages only) |
 | `nine_contract` | The shared shapes of the nine-role review (fact sheet, context note, reading list, finding, challenge, role record): the base its roles are built against; not wired yet |
+| `nine_chapters` | The nine-role reviewer's real chapters: a rule book cut by its headings into chapters (shallowest heading that fits), parts with an overlap, page windows when no heading is found; pure, no model; not wired yet |
 | `agent_review_text` | What the library holds for a paper to read: no text / not indexed (the AI review stops before any rule is chosen or any call is made, with one plain sentence) or partly readable (reviewed, pages with no text listed) |
 | `agent_review_absence` | The AI reviewer's absence proof (core): an absence Fail only when code proves it; off by default in the job |
 | `agent_review_reread` | The AI reviewer's page re-read (core): which lines are silent, the pages a second model reads (at most 3), the quote check, the line decided again by the same gate; off by default |
