@@ -229,12 +229,16 @@ def test_an_unscored_related_paper_is_not_read_under_automatic_but_under_claude(
     assert nc.admit([p], engine="claude").readable == (p,)
 
 
-def _kept(name, quote, subject=None):
+def _kept(name, quote, subject=None, ref=None):
     pages = {1: quote}
     p = nc.ProjectPaper("d1", nc.KIND_SPEC, pages, True, True)
     raw = {"standards": [{"name": name, "page": 1, "quote": quote}]}
     if subject:
-        raw = {"overrides": [{"subject": subject, "page": 1, "quote": quote}]}
+        raw = {
+            "overrides": [
+                {"subject": subject, "page": 1, "quote": quote, "general_ref": ref}
+            ]
+        }
     standards, overrides, _t = nc.read_papers([p], lambda *a: raw, [], engine="claude")
     return standards or overrides
 
@@ -273,11 +277,67 @@ def test_an_override_needs_whole_words_and_an_anchor_that_common_words_cannot_gi
         "The design pressure shall be 12 bar at the inlet",
         subject="design pressure",
     )  # a field name of the app
-    assert _kept(
+    assert not _kept(
         "",
         "Clause 4.2.1 requires the outer parts to be painted",
         subject="painted parts",
-    )  # a clause number
-    assert _kept(
+    )  # a clause number alone
+    assert not _kept(
         "", "Per API 610 the outer parts shall be painted", subject="painted parts"
-    )  # a standard citation
+    )  # a citation that is not the one overridden
+    assert _kept(
+        "",
+        "Per API 610 the outer parts shall be painted",
+        subject="painted parts",
+        ref="API Std 610",
+    )  # the citation is the standard the override says it overrides
+
+
+def test_a_clause_number_alone_is_not_an_anchor_for_an_override():
+    quote = "The pump design is described in the data book, see 3.2 for loads"
+    assert not _kept("", quote, subject="pump design")
+    assert _kept(
+        "", "The design pressure shall be 12 bar, see 3.2", subject="design pressure"
+    )  # field name in both
+
+
+def test_a_standard_of_an_unknown_family_is_counted_apart_from_a_dropped_name():
+    quote = "Fabrication shall follow ZX-100 for all parts"
+    p = nc.ProjectPaper("d1", nc.KIND_SPEC, {1: quote}, True, True)
+    raw = {
+        "standards": [
+            {"name": "ZX-100", "page": 1, "quote": quote},
+            {"name": "QQ-9", "page": 1, "quote": quote},
+        ]
+    }
+    standards, _o, tally = nc.read_papers([p], lambda *a: raw, [], engine="claude")
+    assert (
+        standards == ()
+        and tally.standards_unrecognised == 1
+        and tally.standards_dropped == 1
+    )
+    lines = nc.count_lines(tally)
+    assert "1 named standards not recognised by the app's reader" in lines
+    assert (
+        nc.produced(
+            nc.build_note(
+                "r",
+                project=None,
+                admission=nc.admit([], engine="claude"),
+                standards=(),
+                overrides=(),
+                earlier=None,
+                earlier_held=False,
+            ),
+            tally,
+        )["standards_unrecognised"]
+        == 1
+    )
+
+
+def test_the_standard_is_named_by_the_citation_as_printed():
+    quote = "Pumps shall conform to API Std 610 in full"
+    p = nc.ProjectPaper("d1", nc.KIND_SPEC, {1: quote}, True, True)
+    raw = {"standards": [{"name": "API 610", "page": 1, "quote": quote}]}
+    standards, _o, _t = nc.read_papers([p], lambda *a: raw, [], engine="claude")
+    assert [s.name for s in standards] == ["API Std 610"]

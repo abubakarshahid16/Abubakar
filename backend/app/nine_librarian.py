@@ -404,35 +404,42 @@ BLOCK_NAME = "chapter_titles"
 TOKEN = nine_call.MAX_TOKEN_CHARS
 
 
-def titles_block(titles: Sequence[tuple[str, str, str]]) -> nine_call.Block | None:
-    """The titles as a derived block: rows (book, chapter, title), each a one-line token of 60 characters at most (a title is cut to
-    that; a row whose book or chapter id is longer is left out), at most the seam's digest size. None when no row remains."""
-    rows, used = [], 0
+def titles_block(
+    titles: Sequence[tuple[str, str, str]],
+) -> tuple[nine_call.Block | None, int]:
+    """(the titles as a derived block, rows left out). A title is the RAW prefix of its heading line as it stands in the stored text (60
+    characters at most, leading blanks off, nothing normalised), so it occurs verbatim in its source book. A row whose id is longer
+    than a token, whose title is empty or holds a control character, or that does not fit the seam's digest size, is left out and
+    counted (the caller says it). The book id and the chapter id are ids."""
+    rows, used, left = [], 0, 0
     for book, chapter, title in titles:
-        t = re.sub(r"\s+", " ", title).strip()[:TOKEN].strip()
+        t = title.lstrip()[:TOKEN]
         row = (book, chapter, t)
-        if not t or any(len(c) > TOKEN for c in row) or book != book.strip():
+        if not t or any(len(c) > TOKEN or any(ord(ch) < 32 for ch in c) for c in row):
+            left += 1
             continue
         cost = sum(len(c) + 3 for c in row)
         if used + cost > nine_call.MAX_DERIVED_CHARS:
-            break
+            left += 1
+            continue
         rows.append(row)
         used += cost
     if not rows:
-        return None
-    return nine_call.Block(
+        return None, left
+    block = nine_call.Block(
         nine_call.DERIVED_KIND,
         name=BLOCK_NAME,
         sources=tuple(sorted({r[0] for r in rows})),
         items=tuple(rows),
     )
+    return block, left
 
 
 def seam_ask(run_id: str, *, engine: str | None = None, **seam):
     """The adapter `extend_with_model` takes: ONE call of role 3 through `nine_call.ask`. A refused or failed call: None (the code list stands)."""
 
     def ask(titles: Sequence[tuple[str, str, str]]):
-        block = titles_block(titles)
+        block, _left = titles_block(titles)
         if block is None:
             return None
         got = nine_call.ask(
