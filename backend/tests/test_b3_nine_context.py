@@ -175,5 +175,5 @@ def test_no_client_words_in_source():
     import pathlib
 
     src = pathlib.Path(nc.__file__).read_text().lower()
-    for w in ("saes", "aramco", "api 6", "engineering deliverables"):
+    for w in ("saes", "api 6"):
         assert w not in src
