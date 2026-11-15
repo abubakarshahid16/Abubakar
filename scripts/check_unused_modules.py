@@ -43,6 +43,11 @@ ENTRY_POINTS = (
     "agent_review_pages",
     # nine-role reviewer, being wired: the shared shapes its roles are built against (remove this entry when a role imports it)
     "nine_contract",
+    # nine-role reviewer (builder B4), not wired until the job (B5) calls them: remove an entry when something imports the module
+    "nine_match",
+    "nine_findings",
+    "nine_reviewer",
+    "nine_checklist",
 )
 
 
