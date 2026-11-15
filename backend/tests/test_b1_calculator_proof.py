@@ -566,3 +566,50 @@ def test_10_the_exit_asks_again_a_line_whose_rule_field_is_not_in_the_clause_is_
     ln = _dir_line("Noise level shall not exceed 90 dB(A).")
     assert proven(ln) and ln["rule_field"] == "noise"
     assert exit_of({**ln, "rule_field": field})["verdict"] == "Query"
+
+
+# ---------------------------------------------------------------------------------------- 11 (planted trial): a check that only asks a field be STATED compares no value
+
+
+def _result(rule_id, status="COMPLIANT"):
+    return {
+        "rule_id": rule_id,
+        "status": status,
+        "fact_id": "f9",
+        "value": "21",
+        "page": 1,
+        "field": "Over pressure %",
+        "equipment_tag": "T1",
+        "text": "The allowable overpressure is stated.",
+        "detail": "stated",
+    }
+
+
+def test_11_a_presence_check_that_passes_makes_no_proven_line():
+    from app import agent_review_approved_code as ac
+
+    assert "PSV-06" in ac.presence_only_ids() and "PSV-16" not in ac.presence_only_ids()
+    lines = calc.checklist_lines(
+        [_result("PSV-06")], page_texts={1: "Over pressure % 21"}
+    )
+    assert lines == []  # stated is not compared: no Pass, and nothing to ask
+    kept = calc.checklist_lines(
+        [_result("PSV-06", "MISSING_INFORMATION")], page_texts={1: "x"}
+    )
+    assert (
+        len(kept) == 1 and kept[0]["verdict"] == "Query"
+    )  # a field that is NOT stated is still a question
+
+
+def test_11_a_compared_check_still_proves_and_the_exit_demotes_a_forged_presence_pass():
+    lines = calc.checklist_lines(
+        [_result("PSV-16")], page_texts={1: "Over pressure % 21", 2: "x"}
+    )
+    assert (
+        lines
+        and lines[0]["verdict"] == "Pass"
+        and exit_of(lines[0], lines[0])["verdict_class"] == "Proven by code"
+    )
+    forged = {**lines[0], "rule_id": "PSV-06"}
+    out = exit_of(forged, forged)
+    assert out["verdict"] == "Query" and out["verdict_class"] != "Proven by code"
