@@ -573,6 +573,11 @@ class SettingsExt(BaseModel):
     #: Needs the AI reviewer on. OFF (owner, 11 Nov 2026: procedure and contract rule lines were mostly wrong when the paper was
     #: silent; switch on only after a scored run): the general review runs alone, as before. Env: AGENT_REVIEW_GENERAL_RULES_ENABLED.
     agent_review_general_rules_enabled: bool = False
+    #: THE NINE-ROLE REVIEWER (owner order, 15 Nov 2026; `docs/nine-roles.md` is the design): the AI review runs nine roles (reader, project
+    #: context, librarian, reviewer, checklist, second reviewer, code, decision rule, writer) inside the SAME job, run and line table, with
+    #: one stored record per role. Needs the AI reviewer on. OFF: `agent_review_jobs._execute` runs exactly today's code (same requests,
+    #: same stored lines); no nine-role table is made. Env: AGENT_REVIEW_NINE_ROLES_ENABLED.
+    agent_review_nine_roles_enabled: bool = False
     #: The AI reviewer's OWN engine (owner, 12 Nov 2026: "ONLY the new AI reviewer uses Claude"), named like its siblings
     #: (`match_engine`, `crs_ai_wording_engine`, ...). "ollama" (default): the reviewer's Claude lane is closed. "claude":
     #: the lane opens for the AI reviewer (rule review and general review) under REASONING_PROVIDER=per_task or claude, with
