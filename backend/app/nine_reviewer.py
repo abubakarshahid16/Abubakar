@@ -45,7 +45,7 @@ SYSTEM = (
     "of these chapters, every requirement of these chapters the paper meets, and every requirement it does not state. "
     "Write ONE finding per issue (never two findings for one issue; never a finding about something the chapters do not say). "
     "For each finding copy, character for character: paper_quote (the paper words, with paper_page) and clause_quote (the chapter "
-    "words, with the clause number as the chapter prints it and book_id as the chapter block names it). The quotes must be from the "
+    "words, with clause_page (the page of the book the quote stands on), the clause number as the chapter prints it and book_id as the chapter block names it). The quotes must be from the "
     "pages and chapters you were given; code checks every quote against the stored text and a quote it cannot find makes the finding "
     "a question. verdict is one of: met, not_met, not_stated (the requirement asks the paper to state it and it does not), "
     "not_applicable, cannot_tell. When the requirement is a limit, give paper_figure and clause_figure: the exact words holding each "
@@ -56,7 +56,7 @@ SYSTEM = (
 )
 ANSWER_SHAPE = (
     'Reply with ONE JSON object and nothing else: {"findings": [{"issue": "...", "field_label": "the field name as printed on the '
-    'paper", "paper_page": 1, "paper_quote": "...", "book_id": "...", "clause": "4.1.2", "clause_quote": "...", "paper_figure": "...", '
+    'paper", "paper_page": 1, "paper_quote": "...", "book_id": "...", "clause": "4.1.2", "clause_page": 12, "clause_quote": "...", "paper_figure": "...", '
     '"clause_figure": "...", "condition_quote": "...", "condition_page": 1, "verdict": "met | not_met | not_stated | not_applicable | '
     'cannot_tell", "reasoning": "...", "comment": "...", "fact_ids": ["f:1:2"]}]}. Leave a key empty when you have nothing for it.'
 )
@@ -103,21 +103,23 @@ def group_chapters(
 
 
 def prefix_blocks(
-    paper_id: str, paper_pages: Mapping[int, str], digest: str, context: str
+    paper_id: str, paper_pages: Mapping[int, str], digest: str
 ) -> list[nine_call.Block]:
-    """The part every call shares (cached after the first): the paper page by page, then the fact-sheet digest and the context note.
-    The digest and the note are records DERIVED from the paper (`review_record` blocks carry the paper's id, so the one gate sees them as
-    what they are: text of the paper under review); they are not separate documents."""
+    """The part every call shares (cached after the first): the paper page by page, then the fact-sheet DIGEST (derived from the paper alone, so
+    it carries the paper's id). The project-context note is NOT passed to the reviewer here: it is derived from other documents, and a block
+    that carries the paper's id would hide that origin from the one gate. Until the seam takes blocks with their `sources` (B1) and the
+    note comes in parts (B3), the run says "context not passed to the reviewer" (`ReviewerRun.notes`)."""
     blocks = [
         nine_call.Block(paper_id, "paper", (n,), t)
         for n, t in sorted(paper_pages.items())
         if str(t or "").strip()
     ]
-    for label, text in (("fact sheet", digest), ("project context", context)):
-        if str(text or "").strip():
-            blocks.append(
-                nine_call.Block(paper_id, "review_record", (), text, chapter_id=label)
+    if str(digest or "").strip():
+        blocks.append(
+            nine_call.Block(
+                paper_id, "review_record", (), digest, chapter_id="fact sheet"
             )
+        )
     if blocks:
         last = blocks[-1]
         blocks[-1] = nine_call.Block(
@@ -225,6 +227,7 @@ def parse_findings(text: str | None) -> list[RawFinding] | None:
         raw["issue"] = " ".join(raw["issue"].split()[:MAX_ISSUE_WORDS])
         raw["paper_page"] = _int(item.get("paper_page"))
         raw["condition_page"] = _int(item.get("condition_page"))
+        raw["clause_page"] = _int(item.get("clause_page"))
         ids = item.get("fact_ids")
         raw["fact_ids"] = (
             [str(x) for x in ids if isinstance(x, str)] if isinstance(ids, list) else []
@@ -256,6 +259,7 @@ class ReviewerRun:
         default_factory=list
     )  # (document id, code) the gate held, over every call
     unread: list[list[ChapterText]] = field(default_factory=list)
+    context_passed: bool = False  # the project-context note went to the reviewer (not until B1's sources and B3's note parts exist)
 
     @property
     def ok(self) -> bool:
@@ -267,9 +271,11 @@ class ReviewerRun:
             self.failed or self.not_asked or self.budget_stopped or self.not_sent
         )
 
+    NO_CONTEXT = "project context not passed to the reviewer"
+
     def state(self) -> tuple[str, str | None]:
-        """(role state, why) for the record: "ran" when every group was read; "ran_partly" with the reason when some were not; "not_run"
-        when no call answered."""
+        """(role state, why) for the record: "ran" when every group was read AND the context went with them; "ran_partly" with the reason when
+        some were not read or the project context was not passed; "not_run" when no call answered."""
         if self.answered == 0:
             why = (
                 "role budget reached before any call"
@@ -281,8 +287,8 @@ class ReviewerRun:
                 )
             )
             return "not_run", why
-        if self.partly:
-            parts = []
+        if self.partly or not self.context_passed:
+            parts = [] if self.context_passed else [self.NO_CONTEXT]
             if self.budget_stopped:
                 parts.append("role budget reached")
             if self.failed:
@@ -291,9 +297,12 @@ class ReviewerRun:
                 parts.append(f"{self.not_asked} chapter group(s) not asked")
             if self.not_sent:
                 parts.append(f"{len(self.not_sent)} document(s) held by the gate")
-            return "ran_partly", "; ".join(
-                parts
-            ) + f"; {len(self.unread)} of {self.groups} chapter group(s) not read"
+            tail = (
+                f"; {len(self.unread)} of {self.groups} chapter group(s) not read"
+                if self.unread
+                else ""
+            )
+            return "ran_partly", "; ".join(parts) + tail
         return "ran", None
 
     def produced(self) -> dict[str, int]:
@@ -305,6 +314,7 @@ class ReviewerRun:
             "failed": self.failed,
             "not_asked": self.not_asked,
             "unread_groups": len(self.unread),
+            "context_passed": int(self.context_passed),
         }
 
 
@@ -324,12 +334,13 @@ def review(
     gate: nine_call.RoleGate | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     concurrency: int = CONCURRENCY,
+    context_passed: bool = False,
 ) -> ReviewerRun:
     """One call per chapter group through the seam, `concurrency` at a time, each with prefix + that group's blocks. A group is `not_asked`
     when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
     a failed or refused call is counted and its code kept (codes only). What each call SENT is read from its Answer. Results follow the
     group order, so the same inputs give the same findings."""
-    run = ReviewerRun(groups=len(groups))
+    run = ReviewerRun(groups=len(groups), context_passed=context_passed)
     gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
     stop = {"budget": False}
 

@@ -31,6 +31,7 @@ WHY_MATCHED = "matched one stored rule of this book"
 WHY_NONE = "no stored rule of this book holds this quote"
 WHY_MANY = "more than one stored rule of this book holds this quote"
 WHY_NO_QUOTE = "no verified clause quote to match on"
+WHY_FIELD = "the finding's field is not the field of the rule its quote matched"
 
 
 @dataclass(frozen=True)

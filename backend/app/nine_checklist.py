@@ -7,9 +7,9 @@ One list of REQUIRED items, three sources, all existing:
   * the fields a sheet of this kind must carry (`agent_review_absence.carried_roles`) against the fact sheet.
 
 COVERAGE (SPEC D). An item is "mentioned" and skipped ONLY when:
-  * it is a rule item (`R-<id>`) and a finding matched ITS OWN rule id (`nine_match`), the finding's clause quote was verified in the book,
-    and the finding is not a contradiction and not "cannot tell". (A finding that could not stand on its quotes, or that says nothing,
-    does not cover the item: the run is never weaker than today's.)
+  * it is a rule item (`R-<id>`) and a finding matched ITS OWN rule id (`nine_match`), BOTH quotes of the finding were verified by code, its
+    verdict is met or not met, and it is not a contradiction. (A finding that could not stand on its quotes, or that says "not applicable",
+    "not stated" or "cannot tell", does not cover the item: the run is never weaker than today's.)
   * An `S-` item is NEVER skipped in v1 (few items; the same field is not the same requirement).
   * When the reviewer returned nothing, or failed, or was stopped, EVERY item is asked: the run is exactly today's review.
 A carried field with no fact on the sheet becomes a Query "required item not stated: <field>; pages searched 1 to N" (a `Q-` item, made
@@ -28,6 +28,7 @@ from . import agent_review_verdict as verdict
 from .nine_contract import Finding, RequiredItem
 from .nine_findings import ANSWER_OF, Built
 
+COVERING_VERDICTS = ("met", "not_met")
 REQUIRED_NOT_STATED = "required item not stated"
 SRC_RULE = "rule chosen for this paper"
 SRC_CHECKLIST = "approved checklist"
@@ -52,15 +53,19 @@ def _rule_id(item: Mapping) -> str | None:
 
 
 def covers(finding: Finding, item: Mapping) -> bool:
-    """A finding covers a rule item only when it matched THAT rule, its clause quote was verified, and it is a plain statement."""
+    """A finding covers a rule item ONLY when it matched THAT rule AND both its quotes were verified by code (a clause page is set only for a
+    verified clause quote, a paper quote only when it was found on a sent paper page) AND its verdict is met or not met. "Not applicable",
+    "not stated" and "cannot tell" say nothing code can stand behind for that rule, a contradiction is a question, and a finding whose paper
+    quote is not on the paper is not a reading of it: the rule is asked (the run is never weaker than today's)."""
     rid = _rule_id(item)
     return (
         rid is not None
         and finding.matched_rule_id is not None
         and f"R-{finding.matched_rule_id}" == rid
         and finding.clause_page is not None
+        and bool(finding.paper_quote)
         and not finding.contradiction
-        and finding.ai_verdict != "cannot_tell"
+        and finding.ai_verdict in COVERING_VERDICTS
     )
 
 

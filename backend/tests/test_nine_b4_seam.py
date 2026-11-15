@@ -41,7 +41,7 @@ def reply(*findings):
 
 
 def prefix():
-    return rev.prefix_blocks("paper", PAPER, "digest of values", "no context")
+    return rev.prefix_blocks("paper", PAPER, "digest of values")
 
 
 def run_review(answers, groups, **kw):
@@ -64,7 +64,11 @@ def test_what_a_call_sent_is_read_from_the_answer_and_matches_the_body():
     assert (
         RULE in body and "digest of values" in body
     )  # the prefix and the chapter really went
-    assert got.ok and got.answered == 1 and got.state() == ("ran", None)
+    assert (
+        got.ok
+        and got.answered == 1
+        and got.state() == ("ran_partly", rev.ReviewerRun.NO_CONTEXT)
+    )
 
 
 def test_a_block_the_gate_held_is_not_sent_and_a_quote_from_its_pages_is_unverified():
@@ -203,6 +207,7 @@ def test_the_prefix_is_the_same_in_every_call_and_the_calls_are_in_the_record():
         "failed": 0,
         "not_asked": 0,
         "unread_groups": 0,
+        "context_passed": 0,
     }
 
 
@@ -237,3 +242,33 @@ def test_cost_unknown_is_never_zero_on_the_local_engine():
         concurrency=1,
     )
     assert got.answered == 1 and got.usd is None
+
+
+def test_the_project_context_is_not_passed_to_the_reviewer_and_the_run_says_so():
+    """R65 F2: a note derived from project documents must not travel under the paper's id; until the seam knows its sources, the reviewer
+    gets the fact-sheet digest only, and the record says "context not passed to the reviewer"."""
+    blocks = rev.prefix_blocks("paper", PAPER, "digest of values")
+    assert [(b.document_id, b.document_kind) for b in blocks] == [
+        ("paper", "paper"),
+        ("paper", "paper"),
+        ("paper", "review_record"),
+    ]
+    assert [b.chapter_id for b in blocks if b.document_kind == "review_record"] == [
+        "fact sheet"
+    ]
+    got, t = run_review([reply(finding())], [group()])
+    assert "no context" not in json.dumps(t.bodies[0]) and got.state() == (
+        "ran_partly",
+        "project context not passed to the reviewer",
+    )
+    assert got.produced()["context_passed"] == 0
+    passed = rev.review(
+        "run1",
+        prefix(),
+        [group()],
+        send=FakeTransport([reply(finding())]),
+        env=FakeTransport.ENV,
+        concurrency=1,
+        context_passed=True,
+    )
+    assert passed.state() == ("ran", None)
