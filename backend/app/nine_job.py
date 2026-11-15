@@ -25,20 +25,12 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import crs_completeness, nine_call, nine_checklist, nine_record
+from . import crs_completeness, nine_call, nine_checklist, nine_record, nine_writer
 from .db import connect
 
 log = logging.getLogger(__name__)
-WRITER_SYSTEM = nine_call.template(
-    "nine_writer_system",
-    "You write the comments of a review sheet for an engineer, in an engineer's plain voice. You use only the facts in the rows you are given.",
-)
-WRITER_QUESTION = nine_call.template(
-    "nine_writer_question",
-    "For each of the {count} rows write one short comment for the contractor from the row's own facts only: the field, its status, the pages and "
-    'the clauses. Add no number, unit, clause or standard that is not in the row and never change a status. Answer with JSON only: {{"c1": "comment", ...}}.',
-    count="int",
-)
+WRITER_QUESTION = nine_writer.WRITER_QUESTION
+WRITER_SYSTEM = nine_writer.WRITER_SYSTEM
 
 
 @dataclass
@@ -595,110 +587,13 @@ def code_role(ctx: RoleContext) -> RoleResult:
     )
 
 
-_STATUS_ENUM = {"not_met": "not met", "met": "met"}
-
-
-def _writer_items(
-    grouped: list[dict],
-) -> tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]:
-    """Rows for the writer's derived block, one per comment, with DECLARED cell kinds (id, source, enum, code): the comment number, its field
-    (a `source` cell: it must occur in the paper or a book the block names), its status as an enum word, its first page. And the documents
-    the rows came from: the books of the comments' clauses (the paper is added by the caller)."""
-    rows, books = [], []
-    for c in grouped:
-        page = f"p{c['pages'][0]}" if c["pages"] else "p0"
-        rows.append(
-            (
-                f"c{c['number']}",
-                (c["name"] or "").replace("\n", " ")[:60],
-                _STATUS_ENUM.get(c["tile"], "unknown"),
-                page,
-            )
-        )
-        books += [
-            str(b["id"])
-            for p in c["members_points"]
-            for b in p.get("books") or []
-            if b.get("id")
-        ]
-    return tuple(rows), tuple(dict.fromkeys(books))
-
-
 def writer_role(ctx: RoleContext) -> RoleResult:
-    """Role 9, the Writer: ONE sheet (`crs_one`), one comment per field (`crs_comments`), worst first, checked by `crs_completeness`.
-
-    On Claude an AI wording of each comment is asked through `nine_call.ask` (a fixed template and ONE derived block of short tokens whose
-    sources are the paper and the books of the clauses), and each wording is kept only when `crs_wording.lock` finds NO number, unit, clause,
-    page, standard or status changed (`nine_sheet.apply_wordings`); a refused one leaves the code's words and is counted. The kept wordings
-    are what the CRS comment shows (the code's words stay beside them). The contractor file is never reworded. On the local model the
-    comments are worded by code and the role says so."""
-    from . import access, crs_comments, nine_call, nine_sheet
-    from . import review_points_service as svc
-
-    conn = connect()
-    engine = nine_call.engine_of_run(ctx.run_id, conn)
-    produced: dict = {}
-    why = (
-        "comments worded by code: no AI wording on the local model"
-        if engine == "local"
-        else "comments worded by code: no engine decision is stored for this run"
+    """Role 9, the Writer: the ONE sheet (`crs_one`), one comment per field, worst first, checked by `crs_completeness`; on Claude the AI
+    wording of each comment, locked by code (`nine_writer`); otherwise the code's words, said so. The contractor file is never reworded."""
+    engine = nine_call.engine_of_run(ctx.run_id)
+    produced, why = nine_writer.write(
+        ctx.run_id, ctx.submittal, engine, **_seam_kwargs()
     )
-    if engine == "claude":
-        _listing, raw, _facts = svc.export_listing(
-            ctx.submittal, access.unrestricted_scope()
-        )
-        grouped = crs_comments.group(raw)
-        by_id = {p["id"]: p for p in raw}
-        for c in grouped:
-            c["members_points"] = [by_id[i] for i in c["member_ids"]]
-        items, books = _writer_items(grouped)
-        rows = [
-            {
-                "key": c["key"], "comment": crs_one_text(c), "standard_reference": "; ".join(f"{k['book'] or ''} cl. {k['clause']}" for k in c["clauses"] if k.get("clause")),
-                "page_section": ", ".join(str(x) for x in c["pages"]), "row_kind": "non_compliant" if c["tile"] == "not_met" else "other",
-            }
-            for c in grouped
-        ]  # fmt: skip
-        if items:
-            block = nine_call.Block(
-                "review_record",
-                name="comments",
-                sources=(ctx.submittal, *books),
-                kinds=("id", "source", "enum", "code"),
-                items=items,
-            )
-            got = nine_call.ask(
-                ctx.run_id,
-                9,
-                [block],
-                (WRITER_QUESTION, {"count": len(items)}),
-                system=(WRITER_SYSTEM, {}),
-                **_seam_kwargs(),
-            )
-            asked = {f"c{c['number']}": c["key"] for c in grouped}
-            said = (
-                {
-                    asked[k]: str(v)
-                    for k, v in (got.data or {}).items()
-                    if k in asked and isinstance(v, str)
-                }
-                if got.ok
-                else {}
-            )
-            kept, dropped = nine_sheet.apply_wordings(rows, said)
-            nine_sheet.store_wordings(conn, ctx.run_id, kept)
-            produced = {
-                "comments": len(grouped),
-                "ai_wordings_kept": len(kept),
-                "dropped": sum(dropped.values()),
-                **{f"dropped.{k}": n for k, n in dropped.items()},
-            }
-            if not got.ok:
-                why = f"the writer's call did not answer ({got.error_code}): comments worded by code"
-            elif dropped:
-                why = f"{sum(dropped.values())} comments kept in code words: the writer changed a fact"
-            elif kept:
-                why = None
     got = crs_completeness.record_after_run(ctx.run_id)
     if got is None:
         return RoleResult("not_run", "the sheet could not be checked", engine="code")
@@ -716,13 +611,6 @@ def writer_role(ctx: RoleContext) -> RoleResult:
             produced=produced,
         )
     return RoleResult("ran" if why is None else "ran_partly", why, engine="claude" if engine == "claude" else "code", produced=produced)  # fmt: skip
-
-
-def crs_one_text(c: dict) -> str:
-    """The code's own words of a comment: the strongest point's action line (what a wording must keep every fact of)."""
-    from . import crs_one
-
-    return crs_one.comment_full_texts({**c, "key": c["key"]})["action"]
 
 
 def default_roles() -> dict[int, Callable[[RoleContext], RoleResult]]:
