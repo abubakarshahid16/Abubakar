@@ -17,6 +17,7 @@ No model, no network, no write.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections import Counter
 
@@ -197,13 +198,39 @@ def apply_wordings(
 # ------------------------------------------------------------------------------------------------ reading the stored record
 
 
+#: The closed list of reasons a role that FAILED says on the sheet, by the error's type name (code names, never a document's words). The record
+#: stores "failed (<type>)"; an engineer reads a sentence. A type not listed gets the general sentence, with the type name as the only detail.
+FAILED_REASONS = {
+    "TemplateError": "could not build its request: a block of values did not fit the request's rules (a value of the wrong type or a block over the allowed size)",
+    "BudgetExceeded": "stopped by a spending cap",
+    "TimeoutError": "stopped: a call took too long",
+}
+_FAILED = re.compile(r"^failed \((\w+)\)$")
+
+
+def plain_why(role: RoleRecord) -> str | None:
+    """The reason as an engineer reads it. Only the record's own count of calls is used for "no call was made"."""
+    m = _FAILED.match(role.why or "")
+    if not m:
+        return role.why
+    sentence = FAILED_REASONS.get(m.group(1), f"stopped with an error inside the role ({m.group(1)})")
+    tail = "no call was made, nothing was sent" if not role.calls else f"{role.calls} call(s) were recorded before it stopped"
+    return f"the {role.role.lower()} {sentence}; {tail}"
+
+
 def load_record(conn: sqlite3.Connection, run_id: str | None) -> ReviewRecord | None:
-    """The run's record from B1's `nine_record` (read only); None when the run has no role rows (a review before the record)."""
+    """The run's record from B1's `nine_record` (read only); None when the run has no role rows (a review before the record).
+    A role's failure reason is put in plain words here (`plain_why`), so the first sheet, "What was not checked" and "How it was reviewed" agree."""
     if not run_id:
         return None
+    from dataclasses import replace
+
     from . import nine_record
 
-    return nine_record.load_record(run_id, conn)
+    got = nine_record.load_record(run_id, conn)
+    if got is None:
+        return None
+    return replace(got, roles=tuple(replace(r, why=plain_why(r)) for r in got.roles))
 
 
 def _has(conn, table: str) -> bool:

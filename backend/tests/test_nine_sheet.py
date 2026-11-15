@@ -267,3 +267,13 @@ def RoleRecordsWithZeroCalls(rec):
 
     roles = tuple(replace(r, calls=0) if r.role_no in (2, 3, 9) else r for r in rec.roles)
     return replace(rec, roles=roles)
+
+
+def test_a_failed_role_says_a_plain_sentence_from_a_closed_list_and_never_the_bare_error_class():
+    for name, expect in (("TemplateError", "could not build its request"), ("SomethingElse", "stopped with an error inside the role (SomethingElse)")):
+        r = RoleRecord(4, ROLE_NAMES[4], "not_run", f"failed ({name})", "code", (), 0, None)
+        said = nine_sheet.plain_why(r)
+        assert expect in said and "no call was made, nothing was sent" in said and "failed (" not in said
+    r = RoleRecord(4, ROLE_NAMES[4], "not_run", f"failed (TemplateError)", "claude", ("m",), 2, 0.1)
+    assert "2 call(s) were recorded" in nine_sheet.plain_why(r)  # never "no call was made" when the record holds calls
+    assert nine_sheet.plain_why(role(4, state="not_run", why="not reached")) == "not reached"  # other reasons stay as they are
