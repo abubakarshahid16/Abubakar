@@ -394,9 +394,9 @@ def produced(reading: ReadingList) -> dict:
 
 QUESTION_ID = nine_call.template(
     "nine_librarian_titles",
-    "The derived block lists chapter titles of rule books, one per row as book | chapter code | title. Name the chapters, from this list "
+    "The derived block lists chapter titles of rule books, one per row as book | row number | title. Name the chapters, from this list "
     "only, that apply to a datasheet review of the equipment the paper describes and are not covered by the chapters already chosen. "
-    'Answer with JSON only: {{"chapters": [["book", "chapter"], ...]}}. Use the book and chapter exactly as written.',
+    'Answer with JSON only: {{"chapters": [["book", 1], ...]}}. Use the book and the row number exactly as written.',
 )
 #: the titles go as ONE derived block of kind review_record (rows of short tokens), sources = the books the titles come from, so the
 #: seam gates every book; the heading pages are not sent as blocks (a title is a short token, a page is a chapter's words).
@@ -407,9 +407,9 @@ TOKEN = 60  # the raw heading prefix kept in a title cell
 def titles_block(
     titles: Sequence[tuple[str, str, str]],
 ) -> tuple[nine_call.Block | None, int, dict[tuple[str, str], str]]:
-    """(the titles as a derived block, rows left out, {(book, block-local chapter code): the real chapter id}). Columns: the book id
-    (`id`), a block-local chapter code c1, c2 ... (`code`: the real chapter id may hold spaces or brackets, so the model answers with the
-    code and code maps it back), the heading as a RAW prefix of its stored line (`source`: it occurs, folded, in the book's own text;
+    """(the titles as a derived block, rows left out, {(book, row number): the real chapter id}). Columns: the book id
+    (`id`), a block-local row number 1, 2 ... (`number`: the real chapter id may hold spaces or brackets, so the model answers with the
+    number and code maps it back), the heading as a RAW prefix of its stored line (`source`: it occurs, folded, in the book's own text;
     60 characters at most, leading blanks off). A row whose title is empty or holds a control character, or that does not fit the
     seam's digest size, is left out and counted (the caller says it)."""
     rows, back, used, left = [], {}, 0, 0
@@ -418,7 +418,7 @@ def titles_block(
         if not t or any(ord(ch) < 32 for ch in t) or len(book) > 64:
             left += 1
             continue
-        code = f"c{len(rows) + 1}"
+        code = str(len(rows) + 1)
         cost = len(book) + len(code) + len(t) + 9
         if used + cost > nine_call.MAX_DERIVED_CHARS:
             left += 1
@@ -432,7 +432,7 @@ def titles_block(
         nine_call.DERIVED_KIND,
         name=BLOCK_NAME,
         sources=tuple(sorted({r[0] for r in rows})),
-        kinds=("id", "id", "source"),
+        kinds=("id", "number", "source"),
         items=tuple(rows),
     )
     return block, left, back
