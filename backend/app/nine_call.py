@@ -821,10 +821,7 @@ def _source_pages(conn, doc: str, cache: dict) -> dict[int, str]:
     if doc not in cache:
         from . import agent_review_standards
 
-        try:
-            pages = dict(agent_review_standards.read_book(conn, doc).pages)
-        except Exception:  # noqa: BLE001 - a document the reader cannot open falls back to the stored page text alone
-            pages = {}
+        pages = dict(agent_review_standards.read_book(conn, doc).pages)
         if not any(str(t).strip() for t in pages.values()):
             pages = {
                 r["page_no"]: r["text"]

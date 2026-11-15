@@ -167,10 +167,18 @@ def main(argv: list[str] | None = None) -> int:
     ]
     groups = nine_reviewer.group_chapters(nine_support._chapter_texts(chosen, cuts))
     plan = {"items": [{"item_id": f"R-{n}", "standard_document_id": b, "field_roles": sorted(roles)} for n, (b, roles) in enumerate(_roles_of_stored_plan(conn, args.run).items(), 1)]}  # fmt: skip
-    ctx = nine_job.RoleContext(NEW_RUN, args.paper, None, plan, {}, lambda *a: None)
+    ctx = nine_job.RoleContext(NEW_RUN, args.paper, None, plan, {}, lambda *_a: None)
     ctx.store["fact_sheet"] = sheet
     prefix, groups, _no_context = nine_support._prefix(ctx, pages, groups)
     counts = ctx.store.get("digest_counts") or {}
+    for i, g in enumerate(groups, 1):
+        used = prefix(i - 1, g) if callable(prefix) else prefix
+        sizes = {
+            b.name: (len(b.items), sum(len(c) + 3 for r in b.items for c in r))
+            for b in used
+            if b.document_kind == "review_record"
+        }
+        print(f"request {i} fact blocks (rows, characters; limit {nine_call.MAX_DERIVED_CHARS}): {sizes}")  # fmt: skip
     stub, log = Stub(), []
 
     def ask(*a, **kw):
