@@ -12,7 +12,7 @@ IT DOES, on the clone only (it writes the rules file and the queue rows there):
   2. marks that rule check done, runs the follow-up (`review_engine_start.follow_up`) and asserts an AI run was queued, barred from Claude;
   3. runs the AI job's planning (`agent_review_jobs._plan`) for it and asserts the plan is NOT a refusal and holds items (> 0);
   4. plans the same run as a CLAUDE run holding an empty list and asserts it sends nothing (no item cites a rule book) and is not a refusal.
-The newest completed review of the paper in the copy is the classic selection the plan reads (no inline selection, so no model is asked).
+The scope is the one the real job reads (`agent_review_jobs.reusable_scope_run`: the newest finished rule check with stored scope decisions); with none the check says CANNOT CHECK (exit 2). It prints which paper, run and counts it used.
 Exit 0 when every check passed, 1 when any failed, 2 when it refused to run (a live-shaped path, a live checkout, a .env beside the code).
 Prints ids and counts only, never a document text.
 """
@@ -84,15 +84,6 @@ def check(db_path: Path, paper: str) -> list[str]:
     scope = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     if paper not in scope:
         return [f"paper {paper} is not in the copy"]
-    done = conn.execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND status = 'completed' ORDER BY started_at DESC LIMIT 1",
-        (paper,),
-    ).fetchone()
-    if done is None:
-        return [
-            "the copy holds no completed review of the paper (the plan reads its classic selection)"
-        ]
-    scope_run = done["id"]
     from app import agent_review_gate
 
     active = conn.execute(
@@ -104,6 +95,25 @@ def check(db_path: Path, paper: str) -> list[str]:
     kind = agent_review_kind.decide(paper, scope)
     if not (kind.known and agent_review_gate.rules_kind_enabled(kind.kind)):
         raise CannotCheck("kind not enabled for the AI reviewer")
+    # The scope the real job would read: the very function the job uses (a finished rule check of the paper, same code version,
+    # with stored scope decisions). An AI run holds none, so a newer AI run never stands in for the rule check (update 10, 15 Nov).
+    scope_run = jobs.reusable_scope_run(conn, paper)
+    if scope_run is None:
+        raise CannotCheck(
+            "the copy holds no finished rule check of this paper with stored scope decisions for this code version"
+            " (the real job would run the book selection with a model, which this check never does)"
+        )
+    decisions = conn.execute(
+        "SELECT COUNT(*) FROM review_scope_decisions WHERE review_run_id = ?",
+        (scope_run,),
+    ).fetchone()[0]
+    books = conn.execute(
+        "SELECT COUNT(*) FROM review_applicable_standards WHERE review_run_id = ? AND included = 1",
+        (scope_run,),
+    ).fetchone()[0]
+    print(
+        f"paper {paper}: the plan reads the scope of rule-check run {scope_run} ({decisions} scope decisions, {books} selected books)"
+    )
     who = conn.execute(
         "SELECT created_by FROM jobs WHERE document_id = ? AND created_by IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
         (paper,),
@@ -141,13 +151,18 @@ def check(db_path: Path, paper: str) -> list[str]:
     stored = review_engine.stored(conn, ai_run) or {}
     if not stored.get("bar_claude"):
         bad.append("the AI run is not barred from Claude")
-    jobs._scope_run_id = lambda *_a: scope_run
     claude_auto_approve.on_review_start = lambda *_a: None
     got = jobs._plan(conn, ai_run, paper, scope, kind, lambda: None)
     if str(got.get("stop") or "").startswith("refused"):
         bad.append(f"the AI review would be refused: {got['stop']}")
+    rules = sum(1 for i in got["items"] if i.get("standard_document_id"))
+    print(
+        f"the Local-only AI plan holds {len(got['items'])} items ({rules} cite a rule book, {len(got['items']) - rules} do not)"
+    )
     if not got["items"]:
-        bad.append("the AI review plan holds no item")
+        bad.append(
+            f"the AI review plan holds no item (scope read from run {scope_run}: {decisions} decisions, {books} selected books)"
+        )
     # the same run as a Claude run that holds an empty list: nothing is sent, and no false refusal
     with conn:
         review_shown.record_in(conn, ai_run, [], "rehearsal")
