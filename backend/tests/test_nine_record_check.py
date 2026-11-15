@@ -14,6 +14,8 @@ from app import claude_spend, db, nine_call, nine_record, review_shown, submitta
 from app.config import settings
 from app.nine_call import Block, FakeTransport
 
+Q = nine_call.template("chk_q", "Which clause of {book}?", book="id")
+
 SPEC = importlib.util.spec_from_file_location(
     "nine_record_check",
     Path(__file__).resolve().parents[2] / "scripts" / "nine_record_check.py",
@@ -47,6 +49,12 @@ def run(tmp_path, monkeypatch):
             (NOW, NOW),
         )
         review_shown.record_in(conn, "r", ["paper", "book"], NOW)
+        for doc, text in (("paper", "paper words"), ("book", "book words")):
+            for n in (1, 2, 4):
+                conn.execute(
+                    "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,?,?,?,0)",
+                    (doc, n, text, len(text)),
+                )
         conn.execute("CREATE TABLE agent_review_fact (run_id TEXT)")
         conn.execute("CREATE TABLE agent_review_line (run_id TEXT)")
         for _ in range(3):
@@ -55,10 +63,12 @@ def run(tmp_path, monkeypatch):
     nine_record.start_run("r")
     t = FakeTransport(['{"a": 1}'])
     blocks = [
-        Block("paper", "paper", (1, 2), "paper words"),
-        Block("book", "rule_book", (4,), "book words", chapter_id="4"),
+        Block("paper", "paper", (1, 2)),
+        Block("rule_book", "book", (4,), chapter_id="4"),
     ]
-    answer = nine_call.ask("r", 4, blocks, "q", send=t, env=FakeTransport.ENV)
+    answer = nine_call.ask(
+        "r", 4, blocks, (Q, {"book": "book"}), send=t, env=FakeTransport.ENV
+    )
     assert answer.ok
     nine_record.role_end("r", 4, "ran", produced={"findings": 1})
     nine_record.role_end(
@@ -153,3 +163,20 @@ def test_the_script_reads_a_copy_read_only_prints_the_rows_and_exits_by_the_resu
     )  # the ledger lost its line
     assert chk.main(["--copy", str(folder), "--run", "r"]) == 1
     assert "FAIL: call" in capsys.readouterr().out
+
+
+def test_a_read_row_of_a_call_that_was_not_sent_fails(run):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_role_call SET state = 'refused'"
+        )  # a refused call that kept its read rows
+    assert any("its call was not sent" in p for p in problems())
+    with db.connect() as conn:
+        conn.execute("DELETE FROM agent_review_role_call")
+    assert any("its call was not sent" in p for p in problems())
+
+
+def test_a_claude_call_without_a_question_template_fails(run):
+    with db.connect() as conn:
+        conn.execute("UPDATE agent_review_role_call SET question_id = NULL")
+    assert any("has no question template recorded" in p for p in problems())

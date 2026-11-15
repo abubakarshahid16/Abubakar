@@ -12,7 +12,9 @@ created. Prints the nine rows and, per role, what it read (ids, kinds, pages, si
   4. a Claude read names a document that is not on the run's stored list (`review_shown_lists`), when a list was stored;
   5. a Claude call that was answered has not exactly one ledger line with the same digest and step, or a ledger line of a nine-role step
      of this run has no call row with its digest (so each Claude call of the record matches one ledger line);
-  6. a produced count differs from the rows it counts: role 1 `facts` against `agent_review_fact`, role 8 `lines` against `agent_review_line`.
+  6. a produced count differs from the rows it counts: role 1 `facts` against `agent_review_fact`, role 8 `lines` against `agent_review_line`;
+  7. a read row belongs to a call that was not really sent (no call row, or a `refused` call);
+  8. a Claude call has no question template id recorded (its words did not come from a registered template).
 
 No model is called and no document text is read. Importable: `check(conn, run_id, ledger)` returns the list of problems.
 """
@@ -164,6 +166,23 @@ def check(
                 problems.append(
                     f"a ledger line of step {e.get('step')} has no call row with its digest"
                 )
+
+    sent = {c["call_id"]: c for c in calls}  # 7
+    for x in reads:
+        call = sent.get(x["call_id"])
+        if call is None or call["state"] == "refused":
+            problems.append(
+                f"role {x['role_no']} has a read row of document {x['document_id']} but its call was not sent"
+            )
+    for c in calls:  # 8
+        if (
+            c["engine"] == "claude"
+            and c["state"] not in ("refused", "reused")
+            and not c["question_id"]
+        ):
+            problems.append(
+                f"call {c['call_id']} (role {c['role_no']}) has no question template recorded"
+            )
 
     for role_no, key, table in (
         (1, "facts", "agent_review_fact"),

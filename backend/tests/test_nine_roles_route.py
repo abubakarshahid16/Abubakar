@@ -101,3 +101,22 @@ def test_a_run_the_caller_may_not_read_and_a_run_with_no_role_rows_are_404(world
         )
     r = client.get("/api/reviews/runs/old/roles", headers=world["admin"])
     assert r.status_code == 404 and "no role record" in json.dumps(r.json())
+
+
+def test_the_shown_list_count_counts_only_what_the_caller_may_read(world, on):
+    from app import review_shown
+
+    run_id = _record(world)
+    with db.connect() as conn, conn:
+        review_shown.record_in(
+            conn, run_id, [world["sub"], world["std"], "hidden"], "t"
+        )
+    body = (
+        TestClient(app)
+        .get(f"/api/reviews/runs/{run_id}/roles", headers=world["admin"])
+        .json()
+    )
+    assert (
+        body["documents_on_the_shown_list"] == 2
+        and body["boundary"] == "documents you may read"
+    )
