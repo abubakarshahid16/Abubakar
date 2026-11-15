@@ -251,15 +251,14 @@ export type NewReviewPhase =
   | { kind: "uploading"; percent: number }
   | { kind: "marking" }   // setting the role to contractor submittal
   | { kind: "waiting" }   // the document is still being read in
-  | { kind: "starting" }  // asking for the review
+  | { kind: "starting" }  // asking for the review (from the pre-start step)
+  | { kind: "ready" }     // read in: the engine choice and the list of what will leave come next (the one start)
   | { kind: "started"; runId: string }
   | { kind: "error"; message: string };
 
 export type NewReviewOutcome =
-  | { ok: true; documentId: string; runId: string }
+  | { ok: true; documentId: string; filename: string }
   | { ok: false; message: string };
-
-export type ReviewAgainOutcome = { ok: true; runId: string } | { ok: false; message: string };
 
 /** A watched review that finished while the reader was elsewhere. */
 export interface FinishedReview {
@@ -485,7 +484,7 @@ export { PlainTerm } from "./PlainTerm";
 export { WorkspaceSheet } from "./WorkspaceSheet";
 export { WorkspaceEvidence } from "./WorkspaceEvidence";
 // D
-export { startNewReview, markAsContractorSubmittal, reviewAgain } from "./newReview";
+export { startNewReview, markAsContractorSubmittal } from "./newReview";
 export { watchRun, useFinishedReviews } from "./reviewWatch";
 export { NewReviewDropZone } from "./NewReviewDropZone";
 export { ReviewAgainButton } from "./ReviewAgainButton";

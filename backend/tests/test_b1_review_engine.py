@@ -357,8 +357,11 @@ def no_local_engine(monkeypatch):
 
 
 def _run_started(world, choice):
+    shown = tuple(  # as the screen: the list read from the plan is sent with the start
+        d["id"] for d in E.plan_for(db.connect(), world["sub"], world["scope"], choice)["documents"]["leaving"]
+    )
     run_id, plan = review_engine_start.start(
-        world["sub"], world["scope"], "adm", choice
+        world["sub"], world["scope"], "adm", choice, shown_document_ids=shown
     )
     review_jobs.claim_next(W)
     job = (

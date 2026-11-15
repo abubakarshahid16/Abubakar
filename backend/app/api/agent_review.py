@@ -128,6 +128,11 @@ def start_agent_run(
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
+    from .. import review_engine_start
+
+    blocked = review_engine_start.legacy_start_blocked(connect(), document_id, scope.allowed_document_ids)
+    if blocked:  # no engine choice and no list: with the Claude lane open the review page's start step is the way
+        raise HTTPException(status_code=409, detail=errors.safe_error(errors.INVALID_PARAMETER, blocked))
     reading = agent_review_kind.decide(document_id, scope.allowed_document_ids)
     no_text = agent_review_text.read(connect(), document_id).state == "no text"
     # a paper with no stored text is queued whatever its kind: the run stops before any call and says why (never a 409 about kind)

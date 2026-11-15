@@ -5,7 +5,7 @@
  * answer ("switch off"), not an error, so no screen shows a red line for it.
  */
 import type {
-  AgentLineList, AgentRulesUsed, AgentRunSummary, AgentStatus, AgentTrace, ReviewRunSummary,
+  AgentLineList, AgentRulesUsed, AgentRunSummary, AgentStatus, AgentTrace,
 } from "../types/api";
 import { BASE, failureOf, humanMessage, markSession, request, type Result } from "./core";
 
@@ -48,12 +48,6 @@ const run = (runId: string) => `/reviews/runs/${encodeURIComponent(runId)}`;
 
 export const agentReview = {
   status: () => request<AgentStatus>("/reviews/agent-status"),
-  start: (submittalDocumentId: string) =>
-    request<ReviewRunSummary>("/reviews/agent-run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ submittal_document_id: submittalDocumentId }),
-    }),
   summary: (runId: string) => request<AgentRunSummary>(`${run(runId)}/agent/summary`, undefined, hasSummaryShape),
   lines: (runId: string, cursor?: string | null) =>
     request<AgentLineList>(

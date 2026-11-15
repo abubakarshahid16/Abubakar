@@ -13,6 +13,7 @@ import { PageImageViewer } from "../../PageImageViewer";
 import { AddPoint } from "./AddPoint";
 import { BottomRow } from "./BottomRow";
 import { CodeBox } from "./CodeBox";
+import { FoundDuringReview } from "../panels/FoundDuringReview";
 import { EngineBar } from "./EngineBar";
 import { KindLine } from "./KindLine";
 import { PointsList } from "./PointsList";
@@ -52,6 +53,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       {pts.listing.state === "error" && <p role="alert" className="text-danger-500">{pts.listing.message}</p>}
       {listing && (
         <>
+          <FoundDuringReview count={listing.found_during_review ?? 0} />
           <CodeBox listing={listing} onRecorded={() => { void pts.reload(); onCodeRecorded(); }} />
           <Tiles counts={listing.counts} selected={tile} onSelect={setTile} />
           <BookChips counts={listing.counts} selected={book} onSelect={setBook} />

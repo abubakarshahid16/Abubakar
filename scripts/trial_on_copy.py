@@ -93,7 +93,7 @@ class TrialConfig:
     #: point E: ask the AI reviewer for fresh first-reader answers (ignore and replace the stored ones)
     fresh: bool = False
     #: 12 Nov 2026 (owner, #1584): start from the ONE Review button's route with this engine choice: "automatic", "claude" or
-    #: "local". None (default) keeps the older start (`/api/reviews/agent-run`). "local" also checks that nothing was booked
+    #: "local". None (default) asks for Claude through the same start (the list read from the plan is sent with it). "local" also checks that nothing was booked
     #: to the Claude ledger and that no AI review ran.
     engine: str | None = None
 
@@ -1342,32 +1342,34 @@ def run_trial(
             )
         )
         conn.close()
-        if cfg.engine:
-            code, run = http.call(
-                "POST",
-                "/api/reviews/start",
-                {
-                    "submittal_document_id": cfg.document,
-                    "engine": cfg.engine,
-                    **({"fresh": True} if cfg.fresh else {}),
-                },
-            )
-        else:
-            code, run = http.call(
-                "POST",
-                "/api/reviews/agent-run",
-                {
-                    "submittal_document_id": cfg.document,
-                    **({"fresh": True} if cfg.fresh else {}),
-                },
-            )
+        # THE ONE START (owner, 12 Nov 2026, #1584): the list of documents that would leave is read from the plan and sent with the
+        # start, as the screen does. Without `--engine` the trial asks for Claude (the AI review that follows the rule check).
+        engine = cfg.engine or "claude"
+        _plan_code, plan_raw = http.call(
+            "GET", f"/api/reviews/plan?submittal_document_id={cfg.document}&engine={engine}"
+        )
+        try:
+            plan_doc = json.loads(plan_raw) if plan_raw else {}
+        except ValueError:
+            plan_doc = {}
+        shown = [d["id"] for d in (plan_doc.get("documents") or {}).get("leaving") or []]
+        code, run = http.call(
+            "POST",
+            "/api/reviews/start",
+            {
+                "submittal_document_id": cfg.document,
+                "engine": engine,
+                "shown_document_ids": shown,
+                **({"fresh": True} if cfg.fresh else {}),
+            },
+        )
         try:
             started = json.loads(run) if run else {}
         except ValueError:
             started = {}
         run_id = started.get("review_run_id")
         first_run = run_id
-        if cfg.engine and run_id:
+        if run_id:
             run_id, engine_checks = engine_follow(
                 http, cfg, run_id, db, data, ledger_before
             )

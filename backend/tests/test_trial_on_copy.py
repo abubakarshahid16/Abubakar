@@ -93,6 +93,14 @@ def world(tmp_path, monkeypatch):
         agent_review_jobs, "_scope_run_id", lambda _c, _s, run_id, *_a: run_id
     )
     monkeypatch.setattr(nothing_read, "read_phase", lambda *_a: None)
+    # the trial starts through the ONE start with the list the plan shows: the plan lists the rule book this world's items come from
+    from app import applicability
+
+    def selected(*_a, **_k):
+        row = {"standard_document_id": s.STD, "method": "referenced", "included": True}
+        return {"selected": [row], "missing_references": [], "governing_not_held": []}
+
+    monkeypatch.setattr(applicability, "select", selected)
     doc, cache = s.item_doc()
 
     def build(_conn, _paper, _kind, *, cache=None, **_kw):

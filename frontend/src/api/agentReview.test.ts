@@ -33,12 +33,6 @@ describe("agentSwitch", () => {
     expect(await agentSwitch()).toEqual({ state: "off" });
     expect(isFeatureOff(await agentReview.rulesUsed("r1"))).toBe(true);
   });
-  it("a 409 kind_not_enabled keeps its code and message for the screen", async () => {
-    stub(409, { detail: { code: "kind_not_enabled", message: "AI review is on for datasheets only" } });
-    const r = await agentReview.start("d");
-    expect(!r.ok && !r.disconnected && r.error.message).toBe("AI review is on for datasheets only");
-    expect(isFeatureOff(r)).toBe(false);
-  });
   it("a network failure or a wrong shape is off", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("down"))));
     expect(await agentSwitch()).toEqual({ state: "off" });
@@ -48,14 +42,6 @@ describe("agentSwitch", () => {
 });
 
 describe("calls", () => {
-  it("start posts the document id as JSON", async () => {
-    const spy = stub(200, { review_run_id: "r1" });
-    await agentReview.start("doc 1");
-    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/reviews/agent-run");
-    expect(init.method).toBe("POST");
-    expect(init.body).toBe(JSON.stringify({ submittal_document_id: "doc 1" }));
-  });
   it("lines pass the cursor, encoded; trace and rules-used use their routes", async () => {
     const spy = stub(200, { lines: [], next: null });
     await agentReview.lines("r/1", "a b");

@@ -237,18 +237,28 @@ def resolve_books(points: list[dict], readable: frozenset[str]) -> None:
         books = [
             {"id": d, "name": names[d]}
             for d in p.get("_book_docs") or []
-            if d in names  # `names` holds readable books only (the ONE guard: `ids` above)
+            if d
+            in names  # `names` holds readable books only (the ONE guard: `ids` above)
         ]
         p["books"] = books
         # a point that cites a book the caller may not read is counted apart for it, even when another of its books is readable
-        p["_other_books"] = any(d not in names or d not in readable for d in p.get("_book_docs") or [])
-        p["no_book"] = not (p.get("_book_docs") or p.get("_book_doc"))  # cites no rule book at all
+        p["_other_books"] = any(
+            d not in names or d not in readable for d in p.get("_book_docs") or []
+        )
+        p["no_book"] = not (
+            p.get("_book_docs") or p.get("_book_doc")
+        )  # cites no rule book at all
         if books:
             p["rule_book"] = books[0]["name"]
         elif p.get("_book_docs") or p.get("_book_doc"):
-            p["rule_book"], p["clause"] = None, None  # held but not readable (or not found): not named
+            p["rule_book"], p["clause"] = (
+                None,
+                None,
+            )  # held but not readable (or not found): not named
         else:
-            p["rule_book"] = None  # no identity, no chip: a display string is never parsed into a book
+            p["rule_book"] = (
+                None  # no identity, no chip: a display string is never parsed into a book
+            )
 
 
 def _names(ids) -> dict[str, str]:
@@ -331,7 +341,33 @@ def assemble(paper_id: str, scope) -> dict:
             if p["decision"]["state"] == decisions_mod.REMOVE
         ],
         "contractor_copy": _contractor_copy(conn, ai_run),
+        "found_during_review": _found_during_review(conn, rc_run, ai_run),
     }
+
+
+def _found_during_review(conn, *run_ids) -> int:
+    """How many rule books the paper's review found only while it ran and so did not send (they were not on the list shown before
+    the start): the UNION over the paper's runs (the rule check and the AI review), each book once. 0 when none: the screen then
+    says nothing."""
+    import sqlite3
+
+    from . import agent_review_rules, review_shown
+
+    books: set[str] = set()
+    for run_id in filter(None, run_ids):
+        try:
+            dropped = [
+                str(r[0])
+                for r in conn.execute(
+                    "SELECT DISTINCT standard_document_id FROM agent_review_rule WHERE run_id = ? AND asked = 0"
+                    " AND left_out_reason = ? AND standard_document_id IS NOT NULL",
+                    (run_id, agent_review_rules.REASON_WORDS[agent_review_rules.NOT_ON_LIST]),
+                )
+            ]
+        except sqlite3.OperationalError:
+            dropped = []
+        books |= set(review_shown.held_rule_books(conn, run_id, extra=dropped))
+    return len(books)
 
 
 def _unread_pages(run_id: str | None, scope) -> int | None:
