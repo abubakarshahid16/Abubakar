@@ -45,7 +45,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import equipment_title_block, numparse
+from . import clause_structure, equipment_title_block, numparse
 
 VOCABULARY_PATH = Path(__file__).parent / "reference" / "equipment_vocabulary.json"
 
@@ -801,6 +801,12 @@ class StandardText:
             for _, t in pages
         ]
         self.heads, self.bare = _headings(split)
+        # numbered clauses written like body text ("7.1.2.4 A corrosion allowance ..."): read by `clause_structure` from the book's own evidence; ONLY `spans` reads them
+        self.body = clause_structure.body_clauses(
+            [line for lines in split for line in lines], self.heads, self.bare, _running_lines(split),
+            clause_structure.contents_lines(split, _heading_shape, _CONTENTS_LEAST, _CONTENTS_SHARE),
+        )
+        self.body_heads = self.body.heads
         for (page, _text), lines in zip(pages, split, strict=True):
             start = at
             for line in lines:
@@ -823,10 +829,12 @@ class StandardText:
         opened: int | None = None
         soft: int | None = None
         for index, head in enumerate(self.heads):
+            head = head or self.body_heads.get(index)
             if head is None:
                 continue
-            if opened is not None and index not in self.bare and _ends(clause, head):
-                if not _ends_for_certain(clause, head):
+            if opened is not None and (index not in self.bare or index in self.body.sure) and _ends(clause, head):
+                # certain: another id of the same family (as before), or the IMMEDIATE successor whose start is as sure as a clause start (`clause_structure`)
+                if not (_ends_for_certain(clause, head) or (index in self.body.sure and clause_structure.is_next(head[1], clause[1]))):
                     soft = self.offsets[index] if soft is None else soft
                     continue
                 end = self.offsets[index]
@@ -838,6 +846,12 @@ class StandardText:
             end = self.offsets[-1]
             out.append((self.offsets[opened], end if soft is None else soft, end))
         return out
+
+    def span_certain(self, clause: tuple[str, str]) -> bool | None:
+        """Does the first span of `clause` END at a heading read for certain (True), or run on to the end of the standard because nothing closes it ("boundary not certain":
+        False)? None: the clause is not found. Consumers of a clause body that need its true end say "clause body not certain" for False and keep today's text."""
+        found = self.spans(clause)
+        return None if not found else found[0][2] != self.offsets[-1]
 
     def place(self, requirement: dict) -> int | None:
         """Where the requirement's sentence starts, or None when it cannot be
