@@ -260,9 +260,13 @@ class AgentQueryGroups(BaseModel):
     """The lines the READER called Query, by the reason it gave (P3, 15 Nov 2026), counted apart. A reader's own Query is a view, never
     "no answer". The group "does not apply" is the class "Not applicable"; "no answer" is the class "Not reviewed"."""
 
-    contractor_silent: Count = 0  # the sheet does not state it: a question for the contractor
+    contractor_silent: Count = (
+        0  # the sheet does not state it: a question for the contractor
+    )
     engineer_drawing: Count = 0  # needs a drawing or a calculation: a question for the engineer, internal copy
-    could_not_decide: Count = 0  # the AI could not decide (unclear clause or another reason)
+    could_not_decide: Count = (
+        0  # the AI could not decide (unclear clause or another reason)
+    )
 
 
 class AgentRunSummary(BaseModel):

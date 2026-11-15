@@ -249,17 +249,9 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         and status == words.STATUS_AI_VERDICT
     ):
         return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
-    group = wording.reader_query_group(line) if status == words.STATUS_QUERY else None
-    if group == wording.GROUP_DRAWING:  # a question for the engineer, never for the contractor
-        return "Engineer to judge this: it needs a drawing or a calculation."
-    if group == wording.GROUP_COULD_NOT:
-        return "Engineer to decide: the AI reviewer could not."
+    if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
+        return action  # a question for the engineer, never worded for the contractor
     what, ref = field_name(line) or "the item", against(line)
-    if (
-        line.get("verdict_label") == two.WORD_NOT_STATED
-        and status == words.STATUS_AI_VERDICT
-    ):
-        return f"Contractor to state {what}, or the page where it is shown."
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
@@ -560,8 +552,7 @@ def _notes_rows(
         )
     )
     rows += [(f"Count: {s}", count[s]) for s in words.STATUSES]
-    groups = wording.query_group_counts(ln for ln, _st, _o in items)
-    rows += [(f"Count: {label}", groups[g]) for g, label in wording.GROUP_LABELS.items()]  # the reader's own Query, by group
+    rows += wording.group_rows(ln for ln, _st, _o in items)  # the reader's own Query by group
     dec = wording.decisions_of(
         (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
     )

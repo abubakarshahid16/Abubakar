@@ -45,6 +45,11 @@ def _holds(decision: Mapping) -> dict:
 
 
 class DecideMixin:
+    @staticmethod
+    def unanswered(got: Mapping | None) -> bool:
+        """The reader left the item out, or gave it no verdict (not Pass, Fail or Query): it is asked once more (`run_batch_claude`)."""
+        return got is None or verdict.ai_verdict_word(got.get("verdict")) is None
+
     # ---- per item
     def _tiered(self, item: dict) -> dict:
         """The item marked not approved when the core's `item_tier` (the CURRENT label table, via `tier_lookup`) says so, so the
@@ -167,7 +172,11 @@ class DecideMixin:
         answer = answer or {}
         if answer == {} and not error:
             error = "no_answer_for_item"
-        elif answer and not error and verdict.ai_verdict_word(answer.get("verdict")) is None:
+        elif (
+            answer
+            and not error
+            and verdict.ai_verdict_word(answer.get("verdict")) is None
+        ):
             error = NO_VERDICT_CODE  # asked again once already (`run_batch_claude`, `_run_item_local`): still no verdict = "Not reviewed"
         ev = self._evidence(item, answer, pages, error)
         g = self._gate(item, answer, ev, lead_model, error, box)

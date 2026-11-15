@@ -695,8 +695,9 @@ class Runner(
         share, missing, checks = usd / max(1, len(batch)), [], []
         for it in batch:
             got = (answer or {}).get(str(it.get("item_id")))
-            if allow_split and answer is not None and (got is None or verdict.ai_verdict_word(got.get("verdict")) is None):
-                missing.append(it)  # an answer that left this item out, or gave it NO verdict: asked once more below (same caps)
+            # an answer that left this item out, or gave it NO verdict: asked once more below (same caps)
+            if allow_split and answer is not None and self.unanswered(got):
+                missing.append(it)
                 continue
             line = self.decide(
                 it, got, pages, model, error if answer is None else None, box, share

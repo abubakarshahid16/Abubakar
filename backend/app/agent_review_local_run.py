@@ -203,12 +203,21 @@ class LocalRunMixin:
                     local_mod.LOCAL_TOO_LONG
                 )  # nothing fits the window with this item's own text
         redo = decided_on or best_win
-        if got is not None and verdict.ai_verdict_word(got.get("verdict")) is None and redo is not None and not self._stop.is_set():
+        if (
+            got is not None
+            and verdict.ai_verdict_word(got.get("verdict")) is None
+            and redo is not None
+            and not self._stop.is_set()
+        ):
             # the reader gave NO verdict: asked ONCE more on the same window (same local budget rules); still none = "Not reviewed"
             a, spent, err, mdl = self._ask_window(item, redo, clauses, held_of)
             usd += spent
             asked += 1
-            if not err and isinstance(a, dict) and verdict.ai_verdict_word(a.get("verdict")) is not None:
+            if (
+                not err
+                and isinstance(a, dict)
+                and verdict.ai_verdict_word(a.get("verdict")) is not None
+            ):
                 got, model = a, mdl or model
         line = self._decide_local(item, got, full, model, error, box, usd)
         whole = next((w for w in wins if w.is_full(full)), None)

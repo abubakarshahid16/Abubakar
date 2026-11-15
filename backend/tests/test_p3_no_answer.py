@@ -55,20 +55,34 @@ def test_the_gate_says_the_reader_answered_query_or_gave_no_verdict():
 
 
 def _own(code, **kw):
-    return mk("R-8", "Query", "Query", why=local_mod.AI_QUERY_WHY, reason_code=code, **kw)
+    return mk(
+        "R-8", "Query", "Query", why=local_mod.AI_QUERY_WHY, reason_code=code, **kw
+    )
 
 
 def test_the_readers_own_query_is_routed_by_its_reason_code_in_plain_words():
     for code, group, words in (
         ("sheet_silent", W.GROUP_SILENT, "the sheet does not state this"),
-        ("needs_drawing_or_calc", W.GROUP_DRAWING, "needs a drawing or a calculation to judge"),
-        ("unclear_clause", W.GROUP_COULD_NOT, "the AI could not decide: the rule's clause is not clear enough to apply"),
+        (
+            "needs_drawing_or_calc",
+            W.GROUP_DRAWING,
+            "needs a drawing or a calculation to judge",
+        ),
+        (
+            "unclear_clause",
+            W.GROUP_COULD_NOT,
+            "the AI could not decide: the rule's clause is not clear enough to apply",
+        ),
         ("other", W.GROUP_COULD_NOT, "the AI could not decide: it gave another reason"),
         ("something_new", W.GROUP_COULD_NOT, "the AI could not decide"),
     ):
         got = W.apply(_own(code))
-        assert W.reader_query_group(got) == group and got["verdict_class"] == W.CLASS_QUERY, code
-        if group != W.GROUP_SILENT:  # a silent sheet keeps the silence hold's own reason ("the paper is silent on this")
+        assert (
+            W.reader_query_group(got) == group and got["verdict_class"] == W.CLASS_QUERY
+        ), code
+        if (
+            group != W.GROUP_SILENT
+        ):  # a silent sheet keeps the silence hold's own reason ("the paper is silent on this")
             assert got["not_proven_reason"].startswith(words), code
         assert "did not give pass or fail" not in got["not_proven_reason"]
 
@@ -81,17 +95,36 @@ def test_not_applicable_stays_the_class_does_not_apply_and_is_never_a_decision()
 
 def test_earlier_runs_stored_the_old_sentence_for_the_readers_own_query_and_read_the_same_way():
     line = mk("R-8", "Query", "Query", why=OLD, reason_code="needs_drawing_or_calc")
-    assert W.reader_query_group(line) == W.GROUP_DRAWING and W.apply(line)["verdict_class"] == W.CLASS_QUERY
+    assert (
+        W.reader_query_group(line) == W.GROUP_DRAWING
+        and W.apply(line)["verdict_class"] == W.CLASS_QUERY
+    )
 
 
-def test_the_groups_are_counted_apart_on_the_counts_and_the_first_sheets_notes(tmp_path):
-    lines = [_own("sheet_silent"), _own("needs_drawing_or_calc"), _own("needs_drawing_or_calc"), _own("unclear_clause")]
+def test_the_groups_are_counted_apart_on_the_counts_and_the_first_sheets_notes(
+    tmp_path,
+):
+    lines = [
+        _own("sheet_silent"),
+        _own("needs_drawing_or_calc"),
+        _own("needs_drawing_or_calc"),
+        _own("unclear_clause"),
+    ]
     for i, ln in enumerate(lines):
         ln["item_id"] = f"R-{i}"
     got = W.counts(lines)
-    assert (got["query_contractor_silent"], got["query_engineer_drawing"], got["query_ai_could_not_decide"]) == (1, 2, 1)
+    assert (
+        got["query_contractor_silent"],
+        got["query_engineer_drawing"],
+        got["query_ai_could_not_decide"],
+    ) == (1, 2, 1)
     path = WB.write(lines, tmp_path / "i.xlsx", META, "internal")
-    notes = {r[0]: r[1] for r in openpyxl.load_workbook(path)["Notes"].iter_rows(min_row=2, values_only=True)}
+    notes = {
+        r[0]: r[1]
+        for r in openpyxl.load_workbook(path)["Notes"].iter_rows(
+            min_row=2, values_only=True
+        )
+    }
     for g, n in ((W.GROUP_SILENT, 1), (W.GROUP_DRAWING, 2), (W.GROUP_COULD_NOT, 1)):
         assert notes[f"Count: {W.GROUP_LABELS[g]}"] == n
 
@@ -99,10 +132,16 @@ def test_the_groups_are_counted_apart_on_the_counts_and_the_first_sheets_notes(t
 def test_a_drawing_question_is_for_the_engineer_not_the_contractor(tmp_path):
     view = WB.layout_view([_own("needs_drawing_or_calc")], META, "internal")
     cell = view["rows"][0][3]
-    assert "Engineer to judge this: it needs a drawing or a calculation." in cell and "Contractor to state" not in cell
+    assert (
+        "Engineer to judge this: it needs a drawing or a calculation." in cell
+        and "Contractor to state" not in cell
+    )
     silent = WB.layout_view([_own("sheet_silent")], META, "internal")["rows"][0][3]
     assert "Contractor to" in silent
-    assert WB.layout_view([_own("needs_drawing_or_calc")], META, "contractor")["rows"] == []
+    assert (
+        WB.layout_view([_own("needs_drawing_or_calc")], META, "contractor")["rows"]
+        == []
+    )
 
 
 # ---------------------------------------------------------------- no verdict at all
@@ -113,23 +152,44 @@ def _no_verdict_line(**kw):
 
 
 def test_a_line_with_no_verdict_is_not_reviewed_and_never_a_question_met_or_not_met():
-    for ln in (_no_verdict_line(), mk("R-8", "Query", None, why=OLD)):  # a new line and one stored by an earlier run
+    for ln in (
+        _no_verdict_line(),
+        mk("R-8", "Query", None, why=OLD),
+    ):  # a new line and one stored by an earlier run
         got = W.apply(ln)
-        assert (got["verdict_class"], got["verdict_label"]) == (W.CLASS_NOT_REVIEWED, W.WORD_NOT_REVIEWED)
+        assert (got["verdict_class"], got["verdict_label"]) == (
+            W.CLASS_NOT_REVIEWED,
+            W.WORD_NOT_REVIEWED,
+        )
         assert got["not_proven_reason"] == W.NO_VERDICT_WORDS == "the AI gave no answer"
         assert W.no_verdict(ln) is True
-        assert W.decisions_of([(got["verdict_class"], got["verdict_label"])])["total"] == 0
+        assert (
+            W.decisions_of([(got["verdict_class"], got["verdict_label"])])["total"] == 0
+        )
     assert W.no_verdict(_own("other")) is False  # the reader's own Query is a view
 
 
-def test_a_not_reviewed_line_is_on_its_own_sheet_counted_apart_and_never_on_the_contractor_file(tmp_path):
+def test_a_not_reviewed_line_is_on_its_own_sheet_counted_apart_and_never_on_the_contractor_file(
+    tmp_path,
+):
     ln = _no_verdict_line()
     assert W.counts([ln])["not_reviewed"] == 1
-    internal = WB.write([ln, mk("R-9", "Fail", "Fail")], tmp_path / "i.xlsx", META, "internal")
+    internal = WB.write(
+        [ln, mk("R-9", "Fail", "Fail")], tmp_path / "i.xlsx", META, "internal"
+    )
     book = openpyxl.load_workbook(internal)
     assert any(sh for sh in book.sheetnames if "Not reviewed" in sh)
-    contractor = WB.write([ln, mk("R-9", "Fail", "Fail")], tmp_path / "c.xlsx", META, "contractor")
-    text = json.dumps([list(r) for sh in openpyxl.load_workbook(contractor) for r in sh.iter_rows(values_only=True)], default=str)
+    contractor = WB.write(
+        [ln, mk("R-9", "Fail", "Fail")], tmp_path / "c.xlsx", META, "contractor"
+    )
+    text = json.dumps(
+        [
+            list(r)
+            for sh in openpyxl.load_workbook(contractor)
+            for r in sh.iter_rows(values_only=True)
+        ],
+        default=str,
+    )
     assert "the AI gave no answer" not in text and "R-8" not in text
 
 
@@ -140,80 +200,135 @@ def _lead_calls(fake):
     return sum(1 for k in fake.kinds if k == "lead")
 
 
-def test_a_reader_that_gives_no_verdict_is_asked_once_more_and_the_second_answer_stands(w):
+def test_a_reader_that_gives_no_verdict_is_asked_once_more_and_the_second_answer_stands(
+    w,
+):
     fake = w["fake"]
     fake.answers = Seq(fake.answers, {"R-coat": 1})
     run_id = run_review()
-    assert sum("R-coat" in ids for ids in fake.lead_asked) == 2  # the same item, asked again once
+    assert (
+        sum("R-coat" in ids for ids in fake.lead_asked) == 2
+    )  # the same item, asked again once
     line = json.loads(lines_of(run_id)["R-coat"]["line_json"])
     assert line["ai_verdict"] == "Pass" and not line.get("error")
 
 
-def test_a_reader_that_still_gives_no_verdict_leaves_a_not_reviewed_line_kept_as_a_point(w):
+def test_a_reader_that_still_gives_no_verdict_leaves_a_not_reviewed_line_kept_as_a_point(
+    w,
+):
     fake = w["fake"]
     fake.answers = Seq(fake.answers, {"R-coat": 9})
     run_id = run_review()
-    assert sum("R-coat" in ids for ids in fake.lead_asked) == 2  # first ask and ONE more, never a third
+    assert (
+        sum("R-coat" in ids for ids in fake.lead_asked) == 2
+    )  # first ask and ONE more, never a third
     row = lines_of(run_id)["R-coat"]
     line = json.loads(row["line_json"])
     assert (row["verdict_class"], row["word"]) == ("Not reviewed", "Not reviewed")
-    assert line["error"] == local_mod.NO_VERDICT_CODE and line["item_id"] == "R-coat"  # the stored line stays: the point is counted
+    assert (
+        line["error"] == local_mod.NO_VERDICT_CODE and line["item_id"] == "R-coat"
+    )  # the stored line stays: the point is counted
     assert row["reason"] == "the AI gave no answer"
 
 
-
 @pytest.mark.parametrize(("drop", "calls"), [(0, 1), (1, 2)])
-def test_the_re_ask_is_one_more_lead_call_charged_to_the_run_like_any_call(w, drop, calls):
+def test_the_re_ask_is_one_more_lead_call_charged_to_the_run_like_any_call(
+    w, drop, calls
+):
     fake = w["fake"]
-    fake.answers["R-colour"] = {**s.ANSWERS["R-mark"]}  # every item answered: the only extra call is the re-ask
+    fake.answers["R-colour"] = {
+        **s.ANSWERS["R-mark"]
+    }  # every item answered: the only extra call is the re-ask
     fake.answers = Seq(fake.answers, {"R-coat": drop})
     run_id = run_review()
     assert len(fake.lead_asked) == calls
     assert _usd(run_id) > 0
-    assert len(_spend_entries()) == 2 * len(fake.kinds)  # EVERY call, the re-ask included, reserved and settled in the spend ledger (same caps)
+    assert (
+        len(_spend_entries()) == 2 * len(fake.kinds)
+    )  # EVERY call, the re-ask included, reserved and settled in the spend ledger (same caps)
 
 
 def _spend_entries():
     from app.config import settings
 
     path = settings.claude_spend_log
-    return [ln for ln in path.read_text().splitlines() if ln.strip()] if path.exists() else []
+    return (
+        [ln for ln in path.read_text().splitlines() if ln.strip()]
+        if path.exists()
+        else []
+    )
 
 
 def _usd(run_id):
     from app import db
 
-    return db.connect().execute("SELECT usd FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone()["usd"]
+    return (
+        db.connect()
+        .execute("SELECT usd FROM agent_review_run WHERE run_id = ?", (run_id,))
+        .fetchone()["usd"]
+    )
 
 
 # ---------------------------------------------------------------- the page: earlier runs read the same way, never rewritten
 
 
-def test_the_page_counts_the_groups_and_reads_an_earlier_no_verdict_line_as_not_reviewed(client):
+def test_the_page_counts_the_groups_and_reads_an_earlier_no_verdict_line_as_not_reviewed(
+    client,
+):
     from app import db
     from tests.test_agent_review_routes import finished_run
 
     run_id = finished_run(client)
     conn = db.connect()
-    rows = conn.execute("SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id", (run_id,)).fetchall()
+    rows = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+        (run_id,),
+    ).fetchall()
     old = json.loads(rows[0]["line_json"])
     old.update(ai_verdict=None, verdict="Query", why=OLD, error=None)
     other = json.loads(rows[1]["line_json"])
-    other.update(ai_verdict="Query", verdict="Query", why=OLD, reason_code="needs_drawing_or_calc", error=None)
-    for row, line in ((rows[0], old), (rows[1], other)):  # what an earlier run stored: class Query, the old sentence
+    other.update(
+        ai_verdict="Query",
+        verdict="Query",
+        why=OLD,
+        reason_code="needs_drawing_or_calc",
+        error=None,
+    )
+    for row, line in (
+        (rows[0], old),
+        (rows[1], other),
+    ):  # what an earlier run stored: class Query, the old sentence
         conn.execute(
             "UPDATE agent_review_line SET verdict_class = 'Query for the engineer', word = 'Query', line_json = ? WHERE run_id = ? AND item_id = ?",
             (json.dumps(line), run_id, row["item_id"]),
         )
     conn.commit()
-    before = conn.execute("SELECT line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id", (run_id,)).fetchall()
+    before = conn.execute(
+        "SELECT line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+        (run_id,),
+    ).fetchall()
     summary = client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()
-    assert summary["query_groups"]["engineer_drawing"] >= 1 and summary["not_reviewed"] >= 1
-    shown = {ln["item_id"]: ln for ln in client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()["lines"]}
-    assert (shown[rows[0]["item_id"]]["verdict_class"], shown[rows[0]["item_id"]]["word"]) == ("Not reviewed", "Not reviewed")
+    assert (
+        summary["query_groups"]["engineer_drawing"] >= 1
+        and summary["not_reviewed"] >= 1
+    )
+    shown = {
+        ln["item_id"]: ln
+        for ln in client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()["lines"]
+    }
+    assert (
+        shown[rows[0]["item_id"]]["verdict_class"],
+        shown[rows[0]["item_id"]]["word"],
+    ) == ("Not reviewed", "Not reviewed")
     assert shown[rows[0]["item_id"]]["reason"] == "the AI gave no answer"
     assert shown[rows[1]["item_id"]]["verdict_class"] == "Query for the engineer"
-    assert conn.execute("SELECT line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id", (run_id,)).fetchall() == before
+    assert (
+        conn.execute(
+            "SELECT line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+            (run_id,),
+        ).fetchall()
+        == before
+    )
 
 
 # ---------------------------------------------------------------- the local engine: the same rule, the local budget
@@ -223,19 +338,32 @@ def _asks_of(ollama, item_id):
     n = 0
     for body in ollama.bodies:
         user = body["messages"][-1]["content"]
-        raw = user[user.rfind('{"items":') :].split("\n\n")[0] if '{"items":' in user else ""
+        raw = (
+            user[user.rfind('{"items":') :].split("\n\n")[0]
+            if '{"items":' in user
+            else ""
+        )
         n += f'"item_id": "{item_id}"' in raw
     return n
 
 
-@pytest.mark.parametrize(("drop", "reviewed"), [(1, True), (2, True), (3, False), (9, False)])
-def test_the_local_reader_that_gives_no_verdict_is_asked_once_more_and_then_not_reviewed(local, drop, reviewed):
+@pytest.mark.parametrize(
+    ("drop", "reviewed"), [(1, True), (2, True), (3, False), (9, False)]
+)
+def test_the_local_reader_that_gives_no_verdict_is_asked_once_more_and_then_not_reviewed(
+    local, drop, reviewed
+):
     """The invented paper needs two windows for R-coat: the windows are asked, then ONE more ask on the last window (the local
     budget rules: the same request, no loop). Three answers without a verdict leave the line "Not reviewed"."""
     local["ollama"].first = Seq(s.ANSWERS, {"R-coat": drop})
     got = lines_of(run_review())
-    assert _asks_of(local["ollama"], "R-coat") <= 3  # two windows and the one more ask, never a loop
+    assert (
+        _asks_of(local["ollama"], "R-coat") <= 3
+    )  # two windows and the one more ask, never a loop
     if reviewed:
         assert got["R-coat"]["verdict_class"] != "Not reviewed"
     else:
-        assert got["R-coat"]["verdict_class"] == "Not reviewed" and got["R-coat"]["reason"] == "the AI gave no answer"
+        assert (
+            got["R-coat"]["verdict_class"] == "Not reviewed"
+            and got["R-coat"]["reason"] == "the AI gave no answer"
+        )
