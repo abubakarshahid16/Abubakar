@@ -20,7 +20,6 @@ word is written here. No model call is made here: every role that asks a model d
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -39,11 +38,22 @@ from . import (
     nine_record,
     nine_resume,
     nine_reviewer,
+    nine_support,
     nine_writer,
 )
 from .db import connect
 
 log = logging.getLogger(__name__)
+second_reviewer_role = nine_support.second_reviewer_role
+code_role = nine_support.code_role
+_lines_by_class = nine_support._lines_by_class
+_covering_only_when_tier_resolved = nine_support._covering_only_when_tier_resolved
+_decide = nine_support._decide
+_rule_rows = nine_support._rule_rows
+_chapter_texts = nine_support._chapter_texts
+_earlier_points = nine_support._earlier_points
+_book_inputs = nine_support._book_inputs
+_prefix = nine_support._prefix
 _guarded_ask = nine_resume.guarded_ask  # kept under its old names for the tests
 _handover_save = nine_resume.handover_save
 _handover_load = nine_resume.handover_load
@@ -190,32 +200,6 @@ def reader_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ role 2: the project context
 
 
-def _earlier_points(scope: frozenset[str]):
-    """The earlier revision's points as `nine_context.follow_up` reads them (point id, field, the stored word, the engineer's decision), taken from
-    that paper's own page list; none when the starter may not read it. The value is not kept on a point, so `still_open` stays "cannot tell"."""
-    from . import access
-    from . import review_points_service as svc
-
-    def points(document_id: str):
-        if document_id not in scope:
-            return ()
-        got = svc.assemble(
-            document_id, access.AccessScope(user_id=None, allowed_document_ids=scope)
-        )
-        return [
-            {
-                "point_id": p["id"],
-                "field": p.get("name"),
-                "value": None,
-                "status_word": p.get("pill"),
-                "engineer_decision": (p.get("decision") or {}).get("state"),
-            }
-            for p in got["points"]
-        ]
-
-    return points
-
-
 def _usable_documents(ctx: RoleContext, engine: str) -> frozenset[str]:
     """THE ONE answer to "which documents may this run use?", for roles 2 and 3 (B1's seam applies the same two rules to every block): the access
     of the user who started the review (rule 5), narrowed by the list shown before the start WHERE ONE WAS STORED. A start that sends nothing
@@ -295,29 +279,6 @@ def context_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ role 3: the Librarian
 
 
-def _book_inputs(
-    conn, book_ids: list[str], scope: frozenset[str], budget: int
-) -> tuple[list, dict]:
-    """The rule books inside the starter's access, each read once and cut into chapters (a book outside the access is counted by the
-    caller, never named)."""
-    from . import agent_review_standards, nine_chapters
-
-    inputs, cuts = [], {}
-    for b in book_ids:
-        if b not in scope:
-            continue
-        book = agent_review_standards.read_book(conn, b)
-        pages = sorted((n, t) for n, t in book.pages.items() if (t or "").strip())
-        cut = nine_chapters.cut(b, pages, max_tokens=budget, scanned=book.ocr)
-        cuts[b] = cut
-        inputs.append(
-            nine_librarian.BookInput(
-                b, cut, why=("holds a rule chosen for this paper",)
-            )
-        )
-    return inputs, cuts
-
-
 def librarian_role(ctx: RoleContext) -> RoleResult:
     """Role 3: the reading list by code (`nine_librarian.plan_reading`: books from the chosen rules, chapters cut by `nine_chapters`, a rank,
     a budget, "chosen, not read" with the reason); one optional model call sees only chapter TITLES and can only ADD chapters (through
@@ -379,81 +340,6 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ role 4: the Reviewer
 
 
-def _chapter_texts(chosen, cuts) -> list:
-    """The chosen chapters in reading order as NAMED parts (book, pages, character range into the joined stored text of those pages): the seam
-    loads the stored words itself. A part whose words cannot be located in the joined pages goes whole-pages (no range)."""
-    from . import agent_review_standards, nine_reviewer
-
-    conn = connect()
-    books: dict[str, dict[int, str]] = {}
-    out = []
-    for book, ch in chosen:
-        pages_of_book = books.setdefault(
-            book, dict(agent_review_standards.read_book(conn, book).pages)
-        )
-        for p in ch.parts:
-            pages = tuple(range(p.page_from, p.page_to + 1))
-            joined = "\n".join(pages_of_book[n] for n in pages if n in pages_of_book)
-            body = cuts[book].text(ch.chapter_id, p.part_no)
-            at = joined.find(body)
-            out.append(
-                nine_reviewer.ChapterText(
-                    book,
-                    ch.chapter_id,
-                    p.part_no,
-                    p.part_of,
-                    pages,
-                    len(body),
-                    at if at >= 0 else None,
-                    at + len(body) if at >= 0 else None,
-                )
-            )
-    return out
-
-
-def _rule_rows(plan: dict) -> list[dict]:
-    """The rule rows a finding is matched to ({id, standard_document_id, source_text}), from the plan's own items and clause cache: a rule the
-    review is asked to apply, with the clause words it was stored with. A rule not asked of this paper is not a candidate."""
-    cache = plan.get("cache") or {}
-    rows = []
-    for item in plan.get("items") or []:
-        iid = str(item.get("item_id") or "")
-        if not iid.startswith("R-"):
-            continue
-        ref = cache.get(str(item.get("clause_quote_ref") or f"Q-{iid}")) or {}
-        if ref.get("text") and ref.get("standard_document_id"):
-            rows.append(
-                {
-                    "id": iid.removeprefix("R-"),
-                    "standard_document_id": ref["standard_document_id"],
-                    "source_text": ref["text"],
-                    "rule_version_id": item.get(
-                        "rule_version_id"
-                    ),  # the rule's CURRENT tier is looked up by this
-                }
-            )
-    return rows
-
-
-def _prefix(ctx: RoleContext, pages: dict[int, str]) -> tuple[list, bool]:
-    """The part every reviewer call shares: the paper's pages (named), the fact-sheet digest (B2's derived block: the paper its only source) and
-    the project context as ONE derived block PER SOURCE document (B3's `context_blocks`), the last one marked for the prompt cache. Also whether
-    NO context could be passed (the reviewer's question says so)."""
-    import dataclasses
-
-    blocks = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
-    sheet = ctx.store.get("fact_sheet")
-    if sheet is not None:
-        blocks.extend(
-            nine_facts.digest_blocks(sheet, pages)[0]
-        )  # the fact sheet: tagged and untagged rows, the paper their only source
-    context = list(ctx.store.get("context_blocks") or ())
-    blocks.extend(context)
-    if blocks:
-        blocks[-1] = dataclasses.replace(blocks[-1], cache=True)
-    return blocks, not context
-
-
 def _chosen_chapters(ctx: RoleContext) -> tuple[list, dict]:
     """The chosen (book, chapter) pairs and the cut books: from the reading list in memory, or - after a restart that skipped role 3 - from what
     role 3 handed over (the chosen pairs; the books are cut again by code, no model)."""
@@ -483,49 +369,6 @@ def _chosen_chapters(ctx: RoleContext) -> tuple[list, dict]:
         for b, c in pairs
         if b in cuts and cuts[b].chapter(c) is not None
     ], cuts
-
-
-def _covering_only_when_tier_resolved(built: list) -> list:
-    """A finding that matched a rule covers it only when the match's tier RESOLVED to one a verdict may stand on. If the lookup failed the rule
-    would get only an opinion where today's own ask could have been stronger: the finding then does not cover it (its clause page is
-    withheld from the coverage decision, so `cover` emits it as an F- item and the rule goes to the batch path)."""
-    import dataclasses
-
-    from . import agent_review_verdict as verdict
-
-    out = []
-    for b in built:
-        f = b.finding
-        if f.matched_rule_id is not None and f.rule_tier not in verdict.USABLE_TIERS:
-            b = dataclasses.replace(b, finding=dataclasses.replace(f, clause_page=None))
-        out.append(b)
-    return out
-
-
-def _decide(ctx: RoleContext, runner, local, to_emit, pages) -> None:
-    """Emit the reviewer's findings through the runner EXACTLY as `Runner.run` would work: the runner restored from the lines already stored,
-    its step gate set, and on Claude inside `claude_approved.carrying(<the documents the run may declare>)` and `claude_spend.for_run(run)` (so a
-    second reader's request is declared and metered like any other); on Local inside the local session. Without this a second reader is refused
-    ("undeclared_documents") and no finding could reach the two-reader class."""
-    from . import agent_claude, claude_approved, claude_spend
-    from . import agent_review_run as run_mod
-
-    runner.restore()
-    if local is not None:
-        runner.gate = run_mod.AppStepGate(float("inf"), 0.0)
-        with local.session():
-            nine_findings.decide_all(runner, to_emit, pages, runner.model)
-        return
-    runner.gate = run_mod.AppStepGate(
-        run_mod.app_cap(), claude_spend.step_spent(agent_claude.STEP)
-    )
-    declared = {ctx.submittal} | {
-        str(i["standard_document_id"])
-        for i in ctx.plan.get("items") or []
-        if i.get("standard_document_id")
-    }
-    with claude_approved.carrying(sorted(declared)), claude_spend.for_run(ctx.run_id):
-        nine_findings.decide_all(runner, to_emit, pages, runner.model)
 
 
 def reviewer_role(ctx: RoleContext) -> RoleResult:
@@ -599,15 +442,6 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
 # ------------------------------------------------------------------------------------------------ the roles that are code or today's path
 
 
-def _lines_by_class(run_id: str) -> Counter:
-    got: Counter = Counter()
-    for r in connect().execute(
-        "SELECT verdict_class FROM agent_review_line WHERE run_id = ?", (run_id,)
-    ):
-        got[r["verdict_class"] or "none"] += 1
-    return got
-
-
 def checklist_role(ctx: RoleContext) -> RoleResult:
     """Role 5: today's batch path. Asked only for the required items the reviewer did not cover; when the reviewer failed, was stopped
     or found nothing, EVERY item is asked (never weaker than today's). The module `nine_checklist` (B4) names the items to skip."""
@@ -632,50 +466,6 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
             "mentioned": len(items) - len(asked),
             "asked": len(asked),
         },
-    )
-
-
-def second_reviewer_role(ctx: RoleContext) -> RoleResult:
-    """Role 6: today's two-reader step ran inside the asks (findings arrive as items, so they are candidates like any line). Its counts are
-    read from the stored lines: a line's `second_opinion` is the second reader's stored answer (a mapping with `agree`), None when none was
-    asked. Candidates are the lines `agent_review_two_reader.is_candidate` says could take a second reader."""
-    from . import agent_review_two_reader as two
-
-    candidates = asked = agreed = disagreed = 0
-    for r in connect().execute(
-        "SELECT line_json FROM agent_review_line WHERE run_id = ?", (ctx.run_id,)
-    ):
-        try:
-            line = json.loads(r["line_json"] or "{}")
-        except ValueError:
-            continue
-        second = line.get("second_opinion")
-        candidates += bool(two.is_candidate(line) or isinstance(second, dict))
-        if isinstance(second, dict) and second.get("agree") is not None:
-            asked += 1
-            agreed += bool(second["agree"])
-            disagreed += not second["agree"]
-    produced = {
-        "candidates": candidates,
-        "asked": asked,
-        "agreed": agreed,
-        "disagreed": disagreed,
-    }
-    if not asked:
-        why = (
-            "no line was a candidate for a second reader"
-            if not candidates
-            else "candidates existed but no second reader answered"
-        )
-        return RoleResult("not_run", why, engine=None, produced=produced)
-    return RoleResult("ran", engine=None, produced=produced)
-
-
-def code_role(ctx: RoleContext) -> RoleResult:
-    """Roles 7 and 8: code, at every stored line. Counts only."""
-    by = _lines_by_class(ctx.run_id)
-    return RoleResult(
-        "ran", engine="code", produced={"lines": sum(by.values()), "by_class": dict(by)}
     )
 
 
