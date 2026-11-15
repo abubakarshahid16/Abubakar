@@ -6,13 +6,17 @@ from __future__ import annotations
 import json
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import db, nine_record
 from app.api import nine_roles
-from app.main import app
 from app.nine_contract import ReadEntry
+
 from tests.test_p3_review_jobs import temp_storage, world  # noqa: F401 - fixtures
+
+app = FastAPI()  # the route alone: the real app registers it only with the switch on (see the subprocess tests below)
+app.include_router(nine_roles.router)
 
 SECRET_TITLE = "unreadable-secret-name.pdf"
 
@@ -119,4 +123,44 @@ def test_the_shown_list_count_counts_only_what_the_caller_may_read(world, on):
     assert (
         body["documents_on_the_shown_list"] == 2
         and body["boundary"] == "documents you may read"
+    )
+
+
+def _modules_after_import(switch_on: bool) -> dict:
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = (
+        "import json, sys\n"
+        "from app.config import settings\n"
+        f"object.__setattr__(settings, 'agent_review_nine_roles_enabled', {switch_on})\n"
+        "import app.main as m\n"
+        "names = sorted(n for n in sys.modules if n.startswith('app.') and n.split('.')[-1].startswith('nine_'))\n"
+        "paths = m.app.openapi()['paths']\n"
+        "print(json.dumps({'modules': names, 'route': any(p.endswith('/roles') and 'reviews/runs' in p for p in paths)}))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-W", "ignore", "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+    ).stdout
+    return json.loads(out.strip().splitlines()[-1])
+
+
+def test_with_the_switch_off_no_nine_module_is_imported_and_the_route_does_not_exist():
+    got = _modules_after_import(False)
+    assert got == {"modules": [], "route": False}
+
+
+def test_with_the_switch_on_the_route_is_registered_and_the_nine_modules_load():
+    got = _modules_after_import(True)
+    assert (
+        got["route"]
+        and "app.nine_record" in got["modules"]
+        and "app.api.nine_roles" in got["modules"]
     )
