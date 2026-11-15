@@ -401,7 +401,9 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
     if not (text or _clean(line.get("clause"))):
         return ""
     # mandatory: a held rule, or an item of the engineer's approved checklist ("skill"), that is not marked as advice (a "should")
-    mandatory = line.get("source") in ("rule", "skill") and line.get("rule_kind") != "advice"
+    mandatory = (
+        line.get("source") in ("rule", "skill") and line.get("rule_kind") != "advice"
+    )
     if mandatory and is_safety(text):
         return HIGH
     return MEDIUM if mandatory else LOW
