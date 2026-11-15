@@ -29,7 +29,7 @@ NOT_RECORDED_LINE = "Roles: not recorded (reviewed before the role record)"
 STATE_WORDS = {"ran": "ran", "ran_partly": "ran partly", "not_run": "not run"}
 ENGINE_WORDS = {"claude": "Claude", "local": "Local", "code": "code only"}
 UNKNOWN = "not known"
-_NOT_READ_KEYS = ("not_read", "not_sent", "not_available", "left_out")
+_NOT_READ_KEYS = ("not_read", "not_sent", "not_available", "left_out", "not_passed")
 
 
 # ------------------------------------------------------------------------------------------------ the first sheet
@@ -109,6 +109,17 @@ def not_checked_rows(record: ReviewRecord | None) -> list[list]:
             head, _dot, reason = key.partition(".")
             if not any(mark in head for mark in _NOT_READ_KEYS):
                 continue
+            if isinstance(
+                value, str
+            ):  # a reason word the role recorded ("context_not_passed_because": ...)
+                rows.append(
+                    [
+                        f"Role {r.role_no} {r.role}: {head.replace('_', ' ')}",
+                        None,
+                        value,
+                    ]
+                )
+                continue
             n = len(value) if isinstance(value, (list, tuple)) else value
             rows.append(
                 [
@@ -156,3 +167,55 @@ def load_record(conn: sqlite3.Connection, run_id: str | None) -> ReviewRecord | 
     from . import nine_record
 
     return nine_record.load_record(run_id, conn)
+
+
+def _has(conn, table: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+        is not None
+    )
+
+
+# ------------------------------------------------------------------------------------------------ the writer's locked wordings
+
+
+TABLE = "agent_review_comment_wording"
+
+
+def ensure_wording_table(conn) -> None:
+    conn.execute(
+        f"CREATE TABLE IF NOT EXISTS {TABLE} (run_id TEXT NOT NULL, comment_key TEXT NOT NULL, wording TEXT NOT NULL, PRIMARY KEY (run_id, comment_key))"
+    )
+
+
+def store_wordings(conn, run_id: str, wordings: dict[str, str]) -> None:
+    """The wordings `apply_wordings` kept (locked: no number, unit, clause, page, standard or status changed). A restart writes the same ones."""
+    ensure_wording_table(conn)
+    with conn:
+        conn.execute(f"DELETE FROM {TABLE} WHERE run_id = ?", (run_id,))
+        conn.executemany(
+            f"INSERT INTO {TABLE} (run_id, comment_key, wording) VALUES (?,?,?)",
+            [(run_id, k, v) for k, v in wordings.items()],
+        )
+
+
+def load_wordings(conn, run_id: str | None) -> dict[str, str]:
+    """{comment key: locked wording} of a run; {} for a run with none (code words stand). Read only: it never makes the table."""
+    if not run_id or not _has(conn, TABLE):
+        return {}
+    return {
+        r["comment_key"]: r["wording"]
+        for r in conn.execute(
+            f"SELECT comment_key, wording FROM {TABLE} WHERE run_id = ?", (run_id,)
+        )
+    }
+
+
+def writer_line(record: ReviewRecord | None) -> str | None:
+    """ "N comments kept in code words: the writer changed a fact" when the writer's wordings were refused by the lock; else None."""
+    if record is None:
+        return None
+    n = int(record.roles[8].produced.get("dropped") or 0)
+    return f"{n} comments kept in code words: the writer changed a fact" if n else None

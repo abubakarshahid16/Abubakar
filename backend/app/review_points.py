@@ -106,7 +106,10 @@ def _clause_note(line: dict) -> str:
     book = line.get("clause_book")
     if not isinstance(book, dict) or book.get("found") is not True:
         return CLAUSE_CHECK
-    if book.get("where") == "the clause text cut from the book" or book.get("page") is None:
+    if (
+        book.get("where") == "the clause text cut from the book"
+        or book.get("page") is None
+    ):
         return CLAUSE_CHECK_CUT
     stated = line.get("clause_page")
     scanned = CLAUSE_SCANNED if book.get("scanned") else ""
@@ -333,6 +336,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         else None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": not bool(line.get("recommendation")),
+        # a nine-role line can stand for several findings of the reviewer: how many (never the length of the member list), and which
+        "underlying": int(line.get("nine_underlying") or 0) or None,
+        "members": [str(m) for m in line.get("nine_members") or []],
+        "member_verdicts": [str(v) for v in line.get("nine_member_verdicts") or []],
         "group_key": group_key(
             SOURCE_AI_REVIEW,
             rank,

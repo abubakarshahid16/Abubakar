@@ -63,9 +63,31 @@ COMMENT_WIDTHS = (9, 26, 14, 30, 8, 14, 52, 48, 48, 48, 36, 22, 34, 60)
 TEAM_COLUMNS = (
     "No", "Comment", "Source", "Pill", "Class", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
     "What the paper shows", "What the rule requires", "Reason", "Decision", "Group", "First reader", "Second reader",
-    "Agreed", "Full text",
+    "Agreed", "Findings behind it", "Findings (call id, index, own verdict)", "Full text",
 )  # fmt: skip
-TEAM_WIDTHS = (6, 9, 16, 22, 14, 30, 7, 24, 12, 48, 48, 48, 36, 22, 18, 20, 20, 10, 60)
+TEAM_WIDTHS = (
+    6,
+    9,
+    16,
+    22,
+    14,
+    30,
+    7,
+    24,
+    12,
+    48,
+    48,
+    48,
+    36,
+    22,
+    18,
+    20,
+    20,
+    10,
+    30,
+    48,
+    60,
+)
 CONTRACTOR_COLUMNS = (
     "Item No",
     "Document Name",
@@ -195,6 +217,25 @@ def full_texts(point: dict) -> dict[str, str]:
     }
 
 
+def stands_for(point: dict) -> str | None:
+    """ "this line stands for N findings" when a nine-role line joined several findings of the reviewer (N from `nine_underlying`, never the
+    length of the member list); nothing for a line that stands for one."""
+    n = point.get("underlying") or 0
+    return f"this line stands for {n} findings" if n > 1 else None
+
+
+def members_text(point: dict) -> str | None:
+    """The findings behind a joined line, one per row: call id, index, and each one's own verdict words when the line kept them."""
+    if (point.get("underlying") or 0) <= 1:
+        return None
+    verdicts = point.get("member_verdicts") or []
+    rows = []
+    for i, call in enumerate(point.get("members") or [], 1):
+        own = verdicts[i - 1] if i - 1 < len(verdicts) else "verdict words not stored"
+        rows.append(f"{call}, finding {i}: {own}")
+    return "\n".join(rows) or None
+
+
 def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list, int]:
     """(the cells of one point, how many cells were shortened). The whole text of every shortened cell is in the last column."""
     first, second, agreed = readers_of(point)
@@ -212,7 +253,7 @@ def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list,
         n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""),
         point.get("name"), point.get("page"), books or None, point.get("clause"), shown["action"] or None,
         shown["paper_shows"], shown["requires"], shown["reason"] or None, decision_words(point), group_words(point) or None,
-        first, second, agreed, "\n".join(full) or None,
+        first, second, agreed, stands_for(point), members_text(point), "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(c) for c in cells], cut_any
 
@@ -558,9 +599,13 @@ def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     )
 
 
-def comment_full_texts(c: dict) -> dict[str, str]:
-    """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text."""
+def comment_full_texts(c: dict, wordings: dict | None = None) -> dict[str, str]:
+    """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text. When the
+    writer's LOCKED wording of this comment exists, it is what the cell shows (the code's words go to the column Full text)."""
     out = full_texts(c["strongest"])
+    if wordings and c["key"] in wordings:
+        out["code_words"] = out["action"]
+        out["action"] = wordings[c["key"]]
     out["clauses"] = "; ".join(
         " ".join(
             x
@@ -572,15 +617,21 @@ def comment_full_texts(c: dict) -> dict[str, str]:
     return out
 
 
-def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
+def comment_cells(
+    c: dict, by_id: dict, wordings: dict | None = None
+) -> tuple[list, int]:
     """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
     a shortened cell keeps its whole text in the column Full text."""
     ms = [by_id[i] for i in c["member_ids"]]
-    long_cells = comment_full_texts(c)
+    long_cells = comment_full_texts(c, wordings)
     shown, cut_n, full = {}, 0, []
     for key, text in long_cells.items():
         shown[key], cut = _cut(text)
-        if cut:
+        if (
+            key == "code_words"
+        ):  # the code's own words always stay beside a worded comment
+            full.append(f"code words: {text}")
+        elif cut:
             cut_n += 1
             full.append(f"{key.replace('_', ' ')}: {text}")
     decided = sum(1 for p in ms if (p.get("decision") or {}).get("state"))
@@ -590,6 +641,11 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
         else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
     )
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
+    note += (
+        " ; worded by the writer, checked by code: no fact changed"
+        if "code_words" in long_cells
+        else ""
+    )
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), c["name"], c["n_points"],
         ", ".join(str(x) for x in c["pages"]) or None, shown["clauses"] or None, shown["action"] or None,
@@ -618,6 +674,7 @@ def build_team(
     numbers = {p["id"]: n for n, p in enumerate(raw, start=1)}
     by_id = {p["id"]: p for p in raw}
     grouped = comments.group(raw)
+    wordings = nine_sheet.load_wordings(connect(), extra.get("ai_run"))
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
     evidence, cut = [], 0
     for p in raw:
@@ -626,15 +683,20 @@ def build_team(
         cut += cc
     comment_rows = []
     for c in grouped:
-        row, cc = comment_cells(c, by_id)
+        row, cc = comment_cells(c, by_id, wordings)
         comment_rows.append(row)
         cut += cc
     wb = Workbook()
     ws = wb.active
     ws.title = TEAM_SHEET
     lines = [
-        completeness.team_statement(listing["of"], len(grouped)),
+        completeness.team_statement(
+            listing["of"],
+            len(grouped),
+            completeness.findings_of(raw) if _record_of(extra) is not None else None,
+        ),
         nine_sheet.roles_line(_record_of(extra)),
+        *([w] if (w := nine_sheet.writer_line(_record_of(extra))) else []),
         count_line(listing, len(evidence), len(grouped)),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (

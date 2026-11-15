@@ -459,6 +459,17 @@ describe("11 the bottom row", () => {
     mount(); await loaded();
     expect(screen.queryByTestId("v2-incomplete")).toBeNull();
   });
+  it("says how many findings of the reviewer one nine-role line stands for, only when more than one", async () => {
+    const l = listing();
+    l.points[0] = point({ id: "ai:r:u3", name: "Joined field", underlying: 3, members: ["c1", "c2", "c3"] } as never);
+    l.points[1] = point({ id: "ai:r:u1", name: "Other field", underlying: 1, members: ["c4"] } as never);
+    api.list.mockResolvedValue(ok(l));
+    mount(); await loaded();
+    fireEvent.click(screen.getAllByRole("button", { name: /Joined field/ })[0]);
+    expect(screen.getByTestId("v2-underlying")).toHaveTextContent("stands for 3 findings of the reviewer");
+    fireEvent.click(screen.getAllByRole("button", { name: /Other field/ })[0]);
+    expect(screen.queryByTestId("v2-underlying")).toBeNull();
+  });
   it("the contractor button says it is the working copy, and after signing still not the issued file", async () => {
     mount({ signed: true }); await loaded();
     expect(screen.getByRole("button", { name: "CRS for the contractor (working copy)" })).toBeInTheDocument();

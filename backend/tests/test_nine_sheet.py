@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 from openpyxl import load_workbook
 
-from app import access, crs_completeness, crs_one, db, nine_sheet
+from app import access, crs_completeness, crs_one, db, nine_sheet, review_points_service
 from app.config import settings
 from app.nine_contract import ROLE_NAMES, ReviewRecord, RoleRecord
 from tests.test_b1_review_points import world_with_both
@@ -177,3 +178,69 @@ def test_the_first_sheet_and_how_it_was_reviewed_read_the_record_and_completenes
     assert (
         got["team"][1]["ok"] and got["contractor"][1]["ok"]
     )  # N points = N lines = N rows with a nine-role record present
+
+
+# ------------------------------------------------------------------------------------------------ findings behind a nine-role line
+
+
+def _stub_line(world_ai, item, underlying, members, verdicts=None):
+    """Give one stored AI line the keys B4's `decide_all` writes."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT line_json FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            (world_ai, item),
+        ).fetchone()
+        line = json.loads(row["line_json"])
+        line.update(
+            nine_underlying=underlying,
+            nine_members=members,
+            **({"nine_member_verdicts": verdicts} if verdicts else {}),
+        )
+        conn.execute(
+            "UPDATE agent_review_line SET line_json = ? WHERE run_id = ? AND item_id = ?",
+            (json.dumps(line), world_ai, item),
+        )
+
+
+def test_a_joined_line_says_how_many_findings_it_stands_for_and_lists_its_members():
+    doc, rc, ai, client = world_with_both()
+    _make_record(ai)
+    _stub_line(ai, "R-1", 3, ["c1", "c1", "c2"], ["not met", "not met", "met"])
+    data = crs_one.build_team(doc, scope_all())
+    text = text_of(data)
+    assert "this line stands for 3 findings" in text
+    assert "c1, finding 1: not met" in text and "c2, finding 3: met" in text
+    assert "from 3 findings of the reviewer" in text  # the first-sheet sentence
+    pts = review_points_service.assemble(doc, scope_all())["points"]
+    assert [p["underlying"] for p in pts if p.get("underlying")] == [3]
+
+
+def test_a_line_that_stands_for_one_finding_says_nothing_extra():
+    doc, rc, ai, client = world_with_both()
+    _make_record(ai)
+    _stub_line(ai, "R-1", 1, ["c1"])
+    text = text_of(crs_one.build_team(doc, scope_all()))
+    assert (
+        "this line stands for" not in text and "from 1 findings of the reviewer" in text
+    )
+
+
+def test_the_fourth_check_refuses_the_file_when_a_finding_is_missing_from_the_lines():
+    from app import nine_record
+
+    doc, rc, ai, client = world_with_both()
+    _make_record(ai)
+    _stub_line(ai, "R-1", 3, ["a", "b", "c"])
+    nine_record.role_end(ai, 4, "ran", produced={"findings_kept": 3}, engine="claude")
+    got = crs_completeness.checked_files(doc, scope_all())
+    assert got["team"][1]["ok"] and got["contractor"][1]["ok"]
+    nine_record.role_end(
+        ai, 4, "ran", produced={"findings_kept": 4}, engine="claude"
+    )  # the join kept one more than the lines hold
+    refused = crs_completeness.checked_files(doc, scope_all())["team"][1]
+    assert (
+        not refused["ok"]
+        and "a finding is missing from the lines" in refused["sentence"]
+    )
+    with pytest.raises(crs_completeness.Incomplete):
+        crs_completeness.file_or_refuse(doc, scope_all(), "team")

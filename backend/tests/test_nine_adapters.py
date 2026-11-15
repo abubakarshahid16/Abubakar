@@ -217,3 +217,187 @@ def test_the_dry_run_prints_sizes_and_usd_per_role_sends_nothing_and_applies_the
     assert (
         script.main(["--copy", str(tmp_path), "--paper", doc, "--run", ai]) == 1
     )  # over the line: the exit says STOP
+
+
+# ------------------------------------------------------------------------------------------------ role 9: the writer
+
+
+class _Said:
+    def __init__(self, data):
+        self.ok, self.data, self.error_code = True, data, None
+
+
+def _writer_world(monkeypatch, wording):
+    """An invented review whose first comment has a code text with a number; the writer's call is faked to answer `wording`."""
+    from app import nine_record
+
+    doc, rc, ai, client = world_with_both()
+    nine_record.start_run(ai)
+    seen = {}
+
+    def fake_ask(run_id, role_no, blocks, question, **kw):
+        seen["blocks"], seen["question"], seen["role"] = blocks, question, role_no
+        return _Said(wording({"c1": crs_one_text_of(doc, 1)}))
+
+    monkeypatch.setattr(nine_call, "ask", fake_ask)
+    return doc, ai, seen
+
+
+def crs_one_text_of(doc, number):
+    from app import access, crs_comments, crs_one
+    from app import review_points_service as svc
+
+    scope = access.AccessScope(
+        user_id=None,
+        allowed_document_ids=frozenset(
+            r[0] for r in db.connect().execute("SELECT id FROM documents")
+        ),
+    )
+    _l, raw, _f = svc.export_listing(doc, scope)
+    return crs_one.comment_full_texts(crs_comments.group(raw)[number - 1])["action"]
+
+
+def _scope(doc):
+    from app import access
+
+    return access.AccessScope(
+        user_id=None,
+        allowed_document_ids=frozenset(
+            r[0] for r in db.connect().execute("SELECT id FROM documents")
+        ),
+    )
+
+
+def test_the_writer_asks_through_the_seam_with_a_template_and_one_derived_block_whose_sources_are_documents(
+    monkeypatch,
+):
+    doc, ai, seen = _writer_world(monkeypatch, lambda code: {"c1": code["c1"]})
+    nine_job.writer_role(ctx_for(doc, ai))
+    block = seen["blocks"][0]
+    assert (
+        seen["role"] == 9
+        and seen["question"][0] == nine_job.WRITER_QUESTION
+        and len(seen["blocks"]) == 1
+    )
+    assert (
+        block.document_kind == "review_record" and doc in block.sources and block.items
+    )
+    assert all(len(t) <= 60 and "\n" not in t for row in block.items for t in row)
+
+
+def test_a_locked_wording_is_what_the_comment_shows_and_the_code_words_stay_beside_it(
+    monkeypatch,
+):
+    from app import crs_completeness, crs_one
+
+    doc, ai, seen = _writer_world(
+        monkeypatch, lambda code: {"c1": code["c1"].rstrip(".") + "."}
+    )
+    got = nine_job.writer_role(ctx_for(doc, ai))
+    assert got.produced["ai_wordings_kept"] == 1 and got.produced["dropped"] == 0
+    import io
+
+    from openpyxl import load_workbook
+
+    data = crs_one.build_team(doc, _scope(doc))
+    ws = load_workbook(io.BytesIO(data))["CRS"]
+    text = "\n".join(
+        str(c) for r in ws.iter_rows(values_only=True) for c in r if c is not None
+    )
+    assert (
+        "worded by the writer, checked by code: no fact changed" in text
+        and "code words: " in text
+    )
+    assert all(
+        r["ok"] for _d, r in crs_completeness.checked_files(doc, _scope(doc)).values()
+    )
+
+
+def test_a_wording_that_changes_a_number_is_refused_the_code_words_stay_and_the_first_sheet_counts_it(
+    monkeypatch,
+):
+    import io
+
+    from openpyxl import load_workbook
+
+    from app import crs_one, nine_record
+
+    doc, ai, seen = _writer_world(
+        monkeypatch,
+        lambda code: {"c1": code["c1"].replace("1", "7").replace("2", "8") + " 99 bar"},
+    )
+    got = nine_job.writer_role(ctx_for(doc, ai))
+    assert (
+        got.produced["ai_wordings_kept"] == 0
+        and got.produced["dropped"] == 1
+        and "kept in code words" in got.why
+    )
+    assert (
+        db.connect()
+        .execute("SELECT COUNT(*) FROM agent_review_comment_wording")
+        .fetchone()[0]
+        == 0
+    )
+    nine_record.role_end(
+        ai,
+        9,
+        "ran_partly",
+        why=got.why[:100],
+        produced={k: v for k, v in got.produced.items() if isinstance(v, int)},
+        engine="claude",
+    )
+    text = "\n".join(
+        str(c)
+        for ws in load_workbook(io.BytesIO(crs_one.build_team(doc, _scope(doc))))
+        for r in ws.iter_rows(values_only=True)
+        for c in r
+        if c is not None
+    )
+    assert (
+        "1 comments kept in code words: the writer changed a fact" in text
+        and "99 bar" not in text
+    )
+
+
+def test_the_contractor_file_is_never_reworded(monkeypatch):
+    from app import crs_one
+
+    doc, ai, seen = _writer_world(
+        monkeypatch, lambda code: {"c1": code["c1"].rstrip(".") + "."}
+    )
+    before = crs_one.build_contractor(doc, _scope(doc), exported="x")
+    nine_job.writer_role(ctx_for(doc, ai))
+    assert crs_one.build_contractor(doc, _scope(doc), exported="x") == before
+
+
+def test_on_the_local_model_the_writer_makes_no_call_and_says_the_comments_are_worded_by_code(
+    monkeypatch,
+):
+    doc, ai, seen = _writer_world(monkeypatch, lambda code: {"c1": "x"})
+    monkeypatch.setattr(nine_call, "engine_of_run", lambda run_id, conn=None: "local")
+    got = nine_job.writer_role(ctx_for(doc, ai))
+    assert (
+        "blocks" not in seen
+        and got.state == "ran_partly"
+        and "worded by code" in got.why
+        and got.engine == "code"
+    )
+
+
+def test_the_writers_templates_render_with_their_parameters():
+    q = nine_call.render((nine_job.WRITER_QUESTION, {"count": 3}))
+    assert "3 rows" in q[1] and '{"c1": "comment", ...}' in q[1]
+    assert nine_call.render((nine_job.WRITER_SYSTEM, {}))[1]
+
+
+def test_earlier_points_come_from_the_earlier_papers_own_list_and_only_when_the_starter_may_read_it():
+    doc, rc, ai, client = world_with_both()
+    ids = frozenset(r[0] for r in db.connect().execute("SELECT id FROM documents"))
+    got = nine_job._earlier_points(ids)(doc)
+    assert (
+        got
+        and {"point_id", "field", "value", "status_word", "engineer_decision"}
+        <= set(got[0])
+        and all(p["value"] is None for p in got)
+    )
+    assert nine_job._earlier_points(frozenset())(doc) == ()

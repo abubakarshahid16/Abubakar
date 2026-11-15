@@ -105,6 +105,9 @@ function Row({ p, open, onToggle, decide, busy, onViewPage }: {
               <p className="mt-1 break-words text-slateish-200">{(p.tags ?? []).join(", ")}</p>
             </details>
           )}
+          {(p.underlying ?? 0) > 1 && (
+            <p data-testid="v2-underlying" className="text-xs text-slateish-300">This line stands for {p.underlying} findings of the reviewer (the CRS file lists each one on the sheet Evidence).</p>
+          )}
           {p.route_note && <p className="text-xs text-slateish-300">{p.route_note}</p>}
           <Boxes p={p} onViewPage={onViewPage} />
           <p className="text-xs text-slateish-400">

@@ -81,6 +81,9 @@ export interface ReviewPoint {
   group_key: string | null;
   added_by: string | null;
   n_alike: number;
+  /** A nine-role line can stand for several findings of the reviewer: how many (null for any other line), and the call ids behind it. */
+  underlying?: number | null;
+  members?: string[];
   pill: string;
   decision: PointDecision;
 }

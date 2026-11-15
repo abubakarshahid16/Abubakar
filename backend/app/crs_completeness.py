@@ -25,6 +25,7 @@ from io import BytesIO
 
 from openpyxl import load_workbook
 
+from . import nine_sheet
 from . import review_point_decisions as decisions_mod
 from .db import connect
 
@@ -48,9 +49,40 @@ class Incomplete(Exception):
 # ------------------------------------------------------------------------------------------------ the one statement
 
 
-def team_statement(n: int, comments: int | None = None) -> str:
+def team_statement(
+    n: int, comments: int | None = None, findings: int | None = None
+) -> str:
     as_comments = f", as {comments} comments" if comments is not None else ""
-    return f"{n} points reviewed, {n} in this file{as_comments}"
+    from_findings = (
+        f", from {findings} findings of the reviewer" if findings is not None else ""
+    )
+    return f"{n} points reviewed, {n} in this file{as_comments}{from_findings}"
+
+
+def findings_of(raw: list[dict]) -> int:
+    """How many findings of the reviewer the lines stand for: the sum of `underlying` (a joined line counts every finding it joined)."""
+    return sum(int(p.get("underlying") or 0) for p in raw)
+
+
+def findings_check(raw: list[dict], ai_run: str | None) -> list[str]:
+    """The FOURTH check of a nine-role run: the findings the lines stand for equal the findings the reviewer's join kept (stored in the
+    role record by the job). A difference refuses the file like the other three. A run with no such record is not checked here."""
+    if not ai_run:
+        return []
+    from . import nine_record
+
+    record = nine_record.load_record(ai_run)
+    if record is None:
+        return []
+    kept = record.roles[3].produced.get("findings_kept")
+    if kept is None:
+        return []
+    got = findings_of(raw)
+    if int(kept) != got:
+        return [
+            f"the lines stand for {got} findings of the reviewer, the reviewer's join kept {kept}: a finding is missing from the lines"
+        ]
+    return []
 
 
 def contractor_statement(n: int, m: int, reasons: dict[str, int]) -> str:
@@ -192,7 +224,7 @@ def rows_in_file(data: bytes, copy: str) -> tuple[int, list[int]]:
 # ------------------------------------------------------------------------------------------------ no cut without a mark
 
 
-def cut_report(data: bytes, raw: list[dict]) -> dict:
+def cut_report(data: bytes, raw: list[dict], wordings: dict | None = None) -> dict:
     """Every long cell of the team file against the point's own full text: {"marked": shortened cells with the mark AND their full text
     beside them, "problems": cells that differ from the full text without the mark, or marked without the full text beside them}."""
     from . import crs_one
@@ -233,12 +265,14 @@ def cut_report(data: bytes, raw: list[dict]) -> dict:
                 )
             else:
                 marked += 1
-    marked, problems = _comment_cuts(wb[crs_one.TEAM_SHEET], raw, marked, problems)
+    marked, problems = _comment_cuts(
+        wb[crs_one.TEAM_SHEET], raw, marked, problems, wordings
+    )
     return {"marked": marked, "problems": problems}
 
 
 def _comment_cuts(
-    ws, raw: list[dict], marked: int, problems: list[str]
+    ws, raw: list[dict], marked: int, problems: list[str], wordings: dict | None = None
 ) -> tuple[int, list[str]]:
     """The same rule for the sheet CRS: each comment's long cells against the full text of its strongest point and its clauses."""
     from . import crs_comments, crs_one
@@ -258,7 +292,13 @@ def _comment_cuts(
     for r in values[start + 1 :]:
         if not isinstance(r[0], int) or r[0] not in by_no:
             continue
-        for key, full in crs_one.comment_full_texts(by_no[r[0]]).items():
+        for key, full in crs_one.comment_full_texts(by_no[r[0]], wordings).items():
+            if key == "code_words":
+                if f"code words: {full}" not in str(r[col["Full text"]] or ""):
+                    problems.append(
+                        f"comment {r[0]}: worded without the code's words beside it"
+                    )
+                continue
             shown = "" if r[spots[key]] is None else str(r[spots[key]])
             want = crs_one._cell(full) if full else ""
             if shown == (want or ""):
@@ -363,9 +403,14 @@ def verify(
         for pid, p in on_page.items()
         if pid not in db["ids"]
     ]
+    missing += findings_check(raw, facts.get("ai_run"))
     if copy == "team":
         missing += _comment_accounting(data, raw)
-    cuts = cut_report(data, raw) if copy == "team" else {"marked": 0, "problems": []}
+    cuts = (
+        cut_report(data, raw, nine_sheet.load_wordings(connect(), facts.get("ai_run")))
+        if copy == "team"
+        else {"marked": 0, "problems": []}
+    )
     missing += cuts["problems"]
     ok = page == db["total"] == accounted and not missing
     report = {

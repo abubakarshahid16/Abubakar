@@ -25,10 +25,20 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import crs_completeness, nine_checklist, nine_record
+from . import crs_completeness, nine_call, nine_checklist, nine_record
 from .db import connect
 
 log = logging.getLogger(__name__)
+WRITER_SYSTEM = nine_call.template(
+    "nine_writer_system",
+    "You write the comments of a review sheet for an engineer, in an engineer's plain voice. You use only the facts in the rows you are given.",
+)
+WRITER_QUESTION = nine_call.template(
+    "nine_writer_question",
+    "For each of the {count} rows write one short comment for the contractor from the row's own facts only: the field, its status, the pages and "
+    'the clauses. Add no number, unit, clause or standard that is not in the row and never change a status. Answer with JSON only: {{"c1": "comment", ...}}.',
+    count="int",
+)
 
 
 @dataclass
@@ -181,40 +191,30 @@ def _ask_context(ctx: RoleContext, engine: str):
     return ask
 
 
-def _project_papers(
-    submittal: str, rows: list[dict], scope: frozenset[str], shown
-) -> list:
-    """The project's other papers as candidates (ids and page text; the access and the shown list are facts of each, the admission is
-    `nine_context.admit`'s). Only a contract, a specification or a related datasheet is a candidate."""
-    from . import kind_words, nine_context
+def _earlier_points(scope: frozenset[str]):
+    """The earlier revision's points as `nine_context.follow_up` reads them (point id, field, the stored word, the engineer's decision), taken from
+    that paper's own page list; none when the starter may not read it. The value is not kept on a point, so `still_open` stays "cannot tell"."""
+    from . import access
+    from . import review_points_service as svc
 
-    conn = connect()
-    papers: list[nine_context.ProjectPaper] = []
-    for r in rows:
-        doc = r["document_id"]
-        if doc == submittal:
-            continue
-        decided = kind_words.decided_kind(doc)
-        kind = (
-            nine_context.KIND_CONTRACT if decided == "contract"
-            else nine_context.KIND_SPEC if str(r.get("document_role") or "").upper() == "SPECIFICATION"
-            else nine_context.KIND_RELATED if kind_words.is_datasheet_like(decided)
-            else None
-        )  # fmt: skip
-        if kind is None:
-            continue
-        text = {
-            int(p["page_no"]): p["text"] or ""
-            for p in conn.execute(
-                "SELECT page_no, text FROM pages WHERE document_id = ?", (doc,)
-            )
-        }
-        papers.append(
-            nine_context.ProjectPaper(
-                doc, kind, text, shown is not None and doc in shown, doc in scope
-            )
+    def points(document_id: str):
+        if document_id not in scope:
+            return ()
+        got = svc.assemble(
+            document_id, access.AccessScope(user_id=None, allowed_document_ids=scope)
         )
-    return papers
+        return [
+            {
+                "point_id": p["id"],
+                "field": p.get("name"),
+                "value": None,
+                "status_word": p.get("pill"),
+                "engineer_decision": (p.get("decision") or {}).get("state"),
+            }
+            for p in got["points"]
+        ]
+
+    return points
 
 
 def context_role(ctx: RoleContext) -> RoleResult:
@@ -247,14 +247,14 @@ def context_role(ctx: RoleContext) -> RoleResult:
         if project
         else []
     )
-    papers = _project_papers(ctx.submittal, rows, scope, shown)
+    papers = nine_context.find_papers(conn, ctx.submittal, scope, shown or ())
     new_values = {
         f.field_label: f.value
         for f in getattr(ctx.store.get("fact_sheet"), "facts", ())
     }
     library = applicability._library(frozenset(scope))
     note, tally = nine_context.run(
-        ctx.run_id, project=project, papers=papers, paper_row=dict(mine) if mine else {}, rows=rows, earlier_points=None,
+        ctx.run_id, project=project, papers=papers, paper_row=dict(mine) if mine else {}, rows=rows, earlier_points=_earlier_points(scope),
         new_values=new_values, library=library, engine=_choice(ctx), ask=_ask_context(ctx, engine),
     )  # fmt: skip
     ctx.store["context_note"] = note
@@ -346,7 +346,7 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     ]
     reading = nine_librarian.plan_reading(
         ctx.run_id, inputs, rules=refs, context=context, equipment_words=[str(getattr(ctx.kind, "equipment_type", "") or "")],
-        shown=shown, allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
+        shown=shown or (), allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
     )  # fmt: skip
 
     def ask(titles):
@@ -441,6 +441,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         "failed": ran.failed,
         "raw_findings": len(ran.raw),
         "findings": len(built),
+        "findings_kept": sum(b.underlying for b in built),
     }
     return RoleResult("ran_partly" if ran.partly else "ran", "some chapter groups were not read" if ran.partly else None, engine=engine, produced=produced)  # fmt: skip
 
@@ -509,15 +510,108 @@ def code_role(ctx: RoleContext) -> RoleResult:
     )
 
 
+def _writer_items(
+    grouped: list[dict],
+) -> tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]:
+    """Rows of SHORT tokens for the writer's derived block (number, field, status, pages, clause: each at most 60 characters, one line) and
+    the documents they came from (the paper's id is added by the caller; the books of the clauses are here)."""
+    rows, books = [], []
+    for c in grouped:
+        clause = "; ".join(f"{k['clause']}" for k in c["clauses"] if k.get("clause"))[
+            :60
+        ]
+        row = (
+            f"c{c['number']}",
+            (c["name"] or "")[:60],
+            c["pill"][:60],
+            ("p" + ",".join(str(x) for x in c["pages"]))[:60],
+            clause,
+        )
+        rows.append(tuple(t for t in row if t and "\n" not in t))
+        books += [
+            str(b["id"])
+            for p in c["members_points"]
+            for b in p.get("books") or []
+            if b.get("id")
+        ]
+    return tuple(rows), tuple(dict.fromkeys(books))
+
+
 def writer_role(ctx: RoleContext) -> RoleResult:
-    """Role 9: the ONE sheet, never a second one. `crs_completeness` checks that the points, the stored lines and the rows of both
-    files agree and stores the result with the run; the comments are `crs_comments`' (one per field). An AI wording of a comment goes
-    through `nine_sheet.apply_wordings` (the lock); this version words by code: it says "ran partly" and why."""
+    """Role 9, the Writer: ONE sheet (`crs_one`), one comment per field (`crs_comments`), worst first, checked by `crs_completeness`.
+
+    On Claude an AI wording of each comment is asked through `nine_call.ask` (a fixed template and ONE derived block of short tokens whose
+    sources are the paper and the books of the clauses), and each wording is kept only when `crs_wording.lock` finds NO number, unit, clause,
+    page, standard or status changed (`nine_sheet.apply_wordings`); a refused one leaves the code's words and is counted. The kept wordings
+    are what the CRS comment shows (the code's words stay beside them). The contractor file is never reworded. On the local model the
+    comments are worded by code and the role says so."""
+    from . import access, crs_comments, nine_call, nine_sheet
+    from . import review_points_service as svc
+
+    conn = connect()
+    engine = nine_call.engine_of_run(ctx.run_id, conn)
+    produced: dict = {}
+    why = "comments worded by code: no AI wording on the local model"
+    if engine == "claude":
+        _listing, raw, _facts = svc.export_listing(
+            ctx.submittal, access.unrestricted_scope()
+        )
+        grouped = crs_comments.group(raw)
+        by_id = {p["id"]: p for p in raw}
+        for c in grouped:
+            c["members_points"] = [by_id[i] for i in c["member_ids"]]
+        items, books = _writer_items(grouped)
+        rows = [
+            {
+                "key": c["key"], "comment": crs_one_text(c), "standard_reference": "; ".join(f"{k['book'] or ''} cl. {k['clause']}" for k in c["clauses"] if k.get("clause")),
+                "page_section": ", ".join(str(x) for x in c["pages"]), "row_kind": "non_compliant" if c["tile"] == "not_met" else "other",
+            }
+            for c in grouped
+        ]  # fmt: skip
+        if items:
+            block = nine_call.Block(
+                "review_record",
+                name="comments",
+                sources=(ctx.submittal, *books),
+                items=items,
+            )
+            got = nine_call.ask(
+                ctx.run_id,
+                9,
+                [block],
+                (WRITER_QUESTION, {"count": len(items)}),
+                system=(WRITER_SYSTEM, {}),
+                **_seam_kwargs(),
+            )
+            asked = {f"c{c['number']}": c["key"] for c in grouped}
+            said = (
+                {
+                    asked[k]: str(v)
+                    for k, v in (got.data or {}).items()
+                    if k in asked and isinstance(v, str)
+                }
+                if got.ok
+                else {}
+            )
+            kept, dropped = nine_sheet.apply_wordings(rows, said)
+            nine_sheet.store_wordings(conn, ctx.run_id, kept)
+            produced = {
+                "comments": len(grouped),
+                "ai_wordings_kept": len(kept),
+                "dropped": sum(dropped.values()),
+                **{f"dropped.{k}": n for k, n in dropped.items()},
+            }
+            if not got.ok:
+                why = f"the writer's call did not answer ({got.error_code}): comments worded by code"
+            elif dropped:
+                why = f"{sum(dropped.values())} comments kept in code words: the writer changed a fact"
+            elif kept:
+                why = None
     got = crs_completeness.record_after_run(ctx.run_id)
     if got is None:
         return RoleResult("not_run", "the sheet could not be checked", engine="code")
     team = got["team"]
-    produced = {
+    produced |= {
         "points": team["page"],
         "database_lines": team["database"]["total"],
         "comments_rows": team["rows_in_file"],
@@ -529,15 +623,14 @@ def writer_role(ctx: RoleContext) -> RoleResult:
             engine="code",
             produced=produced,
         )
-    return RoleResult(
-        "ran_partly",
-        "comments worded by code: no AI wording was asked",
-        engine="code",
-        produced=produced,
-    )
+    return RoleResult("ran" if why is None else "ran_partly", why, engine="claude" if engine == "claude" else "code", produced=produced)  # fmt: skip
 
 
-# ------------------------------------------------------------------------------------------------ the runner of one role
+def crs_one_text(c: dict) -> str:
+    """The code's own words of a comment: the strongest point's action line (what a wording must keep every fact of)."""
+    from . import crs_one
+
+    return crs_one.comment_full_texts({**c, "key": c["key"]})["action"]
 
 
 def default_roles() -> dict[int, Callable[[RoleContext], RoleResult]]:
