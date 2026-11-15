@@ -398,6 +398,9 @@ def ensure_schema() -> None:
             # #725 F3: the "not provided" phrase printed BESIDE a value
             # ("340 psig (By Contractor)"): the value is real, this is its note.
             ("value_note", "TEXT"),
+            # ONE REVIEWER (lead A): the checksum of the page text this fact was read from, so a fact is used only while its page still reads the same. NULL for
+            # a fact stored before this column existed (its quote is then asked of the page instead).
+            ("page_text_sha", "TEXT"),
             ("field_label", "TEXT"),
             ("bbox", "TEXT"),
             # A PAIRING AN ENGINEER HAS REJECTED. See

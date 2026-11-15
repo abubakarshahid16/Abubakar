@@ -81,6 +81,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_items` | The AI reviewer's item list (core): the right rules and approved checklist items for one paper, page hints, batches |
 | `agent_review_pages` | Page pictures for the AI reviewer (core): rendering and the image block; not wired into the first job (text pages only) |
 | `nine_contract` | The shared shapes of the nine-role review (fact sheet, context note, reading list, finding, challenge, role record): the base its roles are built against; not wired yet |
+| `nine_reader` | Role 1 of the nine-role review, the Reader: reads every page (Claude: text and picture through the one call seam; Local: text only), drops values whose quote is not on the page; not wired yet |
+| `nine_facts` | The Reader's fact sheet: merge of stored and read values (agreed / conflict / ai only / stored only / stale), per-run tables, the digest later roles read; not wired yet |
+| `agent_review_calculator_reader` | Which stored values belong to the paper's current text (`split_current`, `page_sha`; from #1824), used by the Reader; not wired into the calculator |
 | `nine_record` | The stored record of a nine-role review: nine role rows, one row per model call, one row per document block of each request (ids, kinds, pages, sizes, checksums only); written by code from the request blocks |
 | `nine_call` | The ONE call seam of the nine roles: builds a request from blocks that carry their origin, drops a held document's block before it is built, declares the same documents to the approval gate, writes the record, step name per role |
 | `agent_review_text` | What the library holds for a paper to read: no text / not indexed (the AI review stops before any rule is chosen or any call is made, with one plain sentence) or partly readable (reviewed, pages with no text listed) |
