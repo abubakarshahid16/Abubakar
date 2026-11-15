@@ -99,7 +99,8 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 60 on 15 Nov (#1814): the second exit of the datasheet evaluator, a value nobody can trust is not a verdict
     # raised to 63 on 15 Nov (nine roles, integration): the job that orders the roles and decides what the checklist asks, its one dispatch
     # branch, and #1824's current-value check that the Reader brings
-    assert len(vp.VERDICT_PATH) <= 63
+    # raised to 64 on 16 Nov (nine roles): the writer decides what a CRS comment says (the locked AI wording or the code's words)
+    assert len(vp.VERDICT_PATH) <= 64
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

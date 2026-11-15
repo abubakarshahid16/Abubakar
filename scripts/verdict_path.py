@@ -142,6 +142,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "the one branch between today's AI review and the nine-role review",
     ),
     (
+        APP + "nine_writer.py",
+        "decides what a CRS comment says: the locked AI wording or the code's words",
+    ),
+    (
         APP + "nine_job.py",
         "runs the nine roles in order and decides which required items the checklist asks",
     ),
