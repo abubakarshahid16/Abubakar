@@ -175,6 +175,9 @@ class _Page:
     asked: int = 0
     answered: int = 0
     unread: list[str] = field(default_factory=list)  # the field keys no answer covered
+    answered_keys: list[str] = field(
+        default_factory=list
+    )  # the field keys the model was ASKED and answered (an answer of "not on the page" included)
 
 
 def _read_page(
@@ -225,6 +228,7 @@ def _read_page(
         out.facts.extend(_verified(parsed, group, text, page, rules, dropped))
         out.answered += 1
         out.unread = [k for k in out.unread if k not in {f.key for f in group}]
+        out.answered_keys.extend(f.key for f in group)
         out.picture = (
             out.picture or sum(r.pictures for r in answer.reads) > 0
         )  # the picture counts only when the seam really sent it
@@ -279,6 +283,7 @@ def _read_pages(
     deadline: float | None,
     local: bool,
     unread: dict[int, list[str]],
+    asked: dict[int, list[str]],
 ) -> tuple[list[dict], list[PageRead], str | None]:
     facts: list[dict] = []
     reads: list[PageRead] = []
@@ -335,6 +340,8 @@ def _read_pages(
             facts.extend(r.facts)
             if r.unread and r.answered:
                 unread[page] = r.unread
+            if r.answered_keys:
+                asked[page] = r.answered_keys
             reads.append(_page_read(page, r))
     return facts, reads, stopped
 
@@ -375,6 +382,7 @@ def read_paper(
         )
 
     unread: dict[int, list[str]] = {}
+    asked: dict[int, list[str]] = {}
     try:
         read, reads, stopped = _read_pages(
             ask,
@@ -388,6 +396,7 @@ def read_paper(
             deadline,
             engine == "local",
             unread,
+            asked,
         )
     except Exception as exc:  # noqa: BLE001 - a failing reader never fails the review; the role says it did not run and why
         log.warning("nine reader: did not run (%s)", type(exc).__name__)
@@ -425,6 +434,9 @@ def read_paper(
         "pages_with_picture": len(picture_pages),
         "conflicts": sheet.conflicts,
         "fields_not_read": {str(p): u for p, u in unread.items()},
+        # the fields the model was asked about and answered, per page: a field is "not stated" only when it is here for a page that was read in full;
+        # a field of a group nobody asked (the page prints none of its labels) is in neither list
+        "fields_asked": {str(p): k for p, k in asked.items()},
         "pages_not_read": {str(p): w for p, w in not_read.items()},
         "dropped_by_reason": dict(sorted(dropped.items())),
         "dropped": sum(dropped.values()),
