@@ -15,40 +15,33 @@ PUBLIC API OF THE AGENT REVIEW CORE (one docstring index for all core modules; m
                          rules_used, missing_rule_books, filter_skill_items (F2), skill_fits, paper_equipment_types, tier_lookup (the
                          CURRENT tier from the label table, for final_cap)
   agent_review_items     build_items (agent_review_standards: its clause reader), batch_by_page, validate, applicable_rules, rule_item, skill_item
-  agent_review_pages     page_image, image_source, image_tokens, ImageToolBox, to_api_messages, PageImageUnavailable
-  agent_review_absence   prove, comment, ABSENCE_WHY, Proof (an absence Fail proven by code)
+  agent_review_pages, agent_review_absence (prove, comment, Proof: an absence Fail proven by code)
   agent_review_wording   classify, apply, final_cap / final_cap_all (ONE cap at the exit), writer_refusal, counts, is_opinion,
                          is_unapproved, CLASS_*
   agent_review_crs       write_internal, write_contractor, write_comment_only, run_counts (refuse unproven Pass/Fail)
 
 THE RUNNER MUST (guards that live only in the experiment's Runner; HB2's runner re-creates each one, each with a test; R10)
   1. reason_of / TIGHTENING: a reason code "absent", "absent_pages_not_named" or "verdict_and_reason_differ" forces the AI verdict
-     to Query; a line with reason "absent" becomes Query ("not shown on the sheet; code cannot prove an absence") BEFORE the
-     absence proof runs; the absence proof only for an AI Fail and only if calls_allowed(item).
-  2. The second opinion: asked only when needs_second_opinion AND calls_allowed AND the stop flag is clear, by a model of a
-     DIFFERENT family than the lead; the lead's model name comes from the API response (unnamed = never a Pass); a stored
-     second opinion is reused, never asked again; widening a short clause quote drops the stored second opinion.
+     to Query; "absent" becomes Query BEFORE the absence proof runs; the proof only for an AI Fail and only if calls_allowed(item).
+  2. The second opinion: asked only when needs_second_opinion AND calls_allowed AND the stop flag is clear, by a model of a DIFFERENT
+     family; the lead's model name comes from the API response (unnamed = never a Pass); a stored one is reused, never asked again.
   3. final check / tiebreak: only when the second disagreed (agree False), the models differ, the AI said Fail (a Pass only
      with its own switch) and the item is not unapproved.
-  4. widen: only a verified but weak clause quote, AI Fail (a Pass only with its switch), never an annex rule, re-verified
-     strong; figures_by_code only when both quotes are verified, the AI said Pass or Fail, and the figures are not already inside.
+  4. widen: only a verified but weak clause quote, AI Fail, never an annex rule, re-verified strong; figures_by_code only when both
+     quotes are verified, the AI said Pass or Fail, and the figures are not already inside.
   5. held_texts: the clause quote is checked against the held text it stands in, the requirement first; whole_requirement is
      passed only when that text is the requirement block.
   6. THE ORDER of the decide path: gate -> absence -> F1 -> F3 -> cap (apply_holds, with a tier-derived item: use item_tier) ->
      F4 (a Fail only, never for an unapproved item, in_scope False in a free redecide) -> deferral guard on a Pass (pass_guard) ->
      silence (hold_silence, inside final_cap(..., paper_kind=)) -> final_cap_all at the exit WITH tier_lookup -> writers.
-  7. The deferral guard is given ALL pages of the paper (1..total from the database), not only the pages sent to the model.
-  8. Cap stops: the ledger reserves before and settles after EVERY call (lead, second, absence second, final check, context);
-     a fatal exception (budget stop) halts the run: pass `fatal` to check_fail and halt on `result.fatal`; only the app's
-     claude_spend / reader_transport lane.
-  9. Refusals before any call: a tiered item list without the order-12 switches; a runner paper kind that differs from the
-     filter's kind; the context check on without rule-book pages in the database; the lead and the second or context model of
-     the same family.
- 10. Redecide / resume: every line restored from a stored run goes through restore_holds and final_cap_all; a stored context
-     fingerprint carries over only through check_fail's `stored`.
- 11. Items: run agent_review_items.validate() on every item list; a checklist item is one ONLY by is_checklist_item (source
-     "skill" and an id in the checklist data and no rule reference); anything else is a rule and needs a tier. Also pass the
-     paper's equipment type to decide_rule / tier_lookup (a person's approval for ANY type counts when none is given).
+  7. The deferral guard is given ALL pages of the paper, not only the pages sent to the model.
+  8. Cap stops: the ledger reserves before and settles after EVERY call; a fatal exception (budget stop) halts the run (`fatal`).
+  9. Refusals before any call: a tiered item list without the order-12 switches; a paper kind that differs from the filter's; the
+     context check without rule-book pages; a lead and a second or context model of the same family.
+ 10. Redecide / resume: restored lines go through restore_holds and final_cap_all; a stored context fingerprint carries over only
+     through check_fail's `stored`.
+ 11. Items: run agent_review_items.validate() on every item list; a checklist item is one ONLY by is_checklist_item; anything else
+     is a rule and needs a tier. Pass the paper's equipment type to decide_rule / tier_lookup.
 
 THE RULE. A line is Pass or Fail ONLY when:
   textual line: the paper quote AND the clause quote are both verified by code, the AI's own verdict is Pass or Fail,
@@ -434,12 +427,12 @@ def is_conditional(*texts: Any) -> bool:
 
 
 def hold_conditional_fail(
-    decision: Mapping, clause_quote: Any, requirement: Any
+    decision: Mapping, clause_quote: Any, requirement: Any, w: Any = None
 ) -> dict:
-    """A Fail of a rule whose clause quote or stored rule words state a condition is held: the answer schema carries no paper
-    quote for the condition, so code cannot prove the condition holds on the paper. The line becomes a Query (the CRS shows it
-    as the AI's opinion). A Pass and every other decision come back unchanged; this only makes a verdict less confident."""
-    if decision.get("verdict") == FAIL and is_conditional(clause_quote, requirement):
+    """A Fail of a rule whose clause quote or stored rule words (or, on the local engine, the conditions of the WHOLE clause: `w`)
+    state a condition is held: code cannot prove the condition holds on the paper. The line becomes a Query. A Pass and every other
+    decision come back unchanged; this only makes a verdict less confident."""
+    if decision.get("verdict") == FAIL and is_conditional(clause_quote, requirement, w):
         return {
             **decision,
             "verdict": QUERY,
@@ -646,7 +639,10 @@ def apply_holds(
     """The holds of the decide path, in the experiment's order: F1 (conditional words), F3 (table row or note), THEN the cap
     of a rule not AI approved. (F4, the page-context check, follows in agent_review_context.) Each only makes the verdict
     less confident."""
-    out = hold_conditional_fail(decision, clause_quote, requirement)
+    w = item.get(
+        "clause_condition_text"
+    )  # local engine: the conditions of the whole clause
+    out = hold_conditional_fail(decision, clause_quote, requirement, w)
     out = hold_table_note_fail(out, item, requirement, clause_sources)
     return cap_unapproved(out, item)
 
@@ -663,7 +659,10 @@ def restore_holds(
     capped = cap_unapproved(out, item)
     if capped.get("unapproved_cap"):
         out.update({k: capped[k] for k in _DECISION_KEYS}, unapproved_cap=True)
-    held = hold_conditional_fail(out, out.get("clause_quote"), out.get("requirement"))
+    w = item.get("clause_condition_text")
+    held = hold_conditional_fail(
+        out, out.get("clause_quote"), out.get("requirement"), w
+    )
     if held.get("conditional"):
         out.update({k: held[k] for k in _DECISION_KEYS}, conditional_hold=True)
     held = hold_table_note_fail(out, item, out.get("requirement"), clause_sources)
