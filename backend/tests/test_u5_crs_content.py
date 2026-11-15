@@ -377,3 +377,11 @@ def test_r3b_a_hidden_point_never_takes_its_name_from_the_rows_section_tail():
 
 def test_the_fixed_sentence_is_true_for_a_book_you_may_not_read_and_for_a_point_with_no_held_book():
     assert "not one you may read" in c.HIDDEN_ACTION and "not linked to a held rule book" in c.HIDDEN_ACTION
+
+
+def test_the_hidden_cell_sentences_are_true_for_both_causes_and_never_cut():
+    for text in (c.UNREADABLE_BOOK, c.HIDDEN_FIELD, review_points.NO_BOOK_ACCESS, c.HIDDEN_ACTION):
+        low = text.lower()
+        assert "not one you may read" in low or "not a rule book you may read" in low  # the book is not the viewer's to read
+        assert "not linked to a held" in low  # or the point is not linked to a held rule book
+        assert len(text) < crs_one.CELL_LIMIT  # a cell of the sheet is cut only past this limit: these are never cut
