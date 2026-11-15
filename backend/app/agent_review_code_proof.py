@@ -302,7 +302,7 @@ def subject_reason(
         return SUBJECT_WHY
     if not guards._carries(sent, [field]) or guards._other_field_words(sent, [field]):
         return SUBJECT_WHY
-    if len(words) == 1:
+    if len(words) == 1 and len(field.split()) == 1:  # one word as written
         tokens = re.findall(r"[a-z0-9]+", sent)
         lone = [i for i, t in enumerate(tokens) if agent_bind.content_words(t) == words]
         if not any(i == 0 or tokens[i - 1] in _BEFORE_HEAD for i in lone):
