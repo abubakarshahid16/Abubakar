@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import sqlite3
+from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
 
 from . import (
@@ -357,12 +359,22 @@ UNTAGGED_KINDS = (
 )
 
 
+def _whole(cand: str, text: str) -> bool:
+    """`cand` stands in `text` as a whole token or number: "5" is not found inside "150" or "1.5"."""
+    pat = (
+        r"(?<![0-9a-z])(?<![0-9][.,])"
+        + re.escape(fold_text(cand))
+        + r"(?![0-9a-z])(?![.,][0-9])"
+    )
+    return re.search(pat, text) is not None
+
+
 def _printed(f: Fact, pages: Mapping[int, str]) -> str | None:
-    """The value as the page prints it (value and unit when they stand together), or None when the page does not hold it: a cell of kind `source`
-    must be found in the paper's stored text, so a value that is not is left out of the block, and counted."""
+    """The value as the page prints it (value and unit when they stand together), or None when the page does not hold it as a whole token: a cell of kind
+    `source` must be found in the paper's stored text, so a value that is not is left out of the block, and counted."""
     text = fold_text(pages.get(f.page, ""))
     for cand in (f"{f.value} {f.unit}".strip() if f.unit else "", str(f.value or "")):
-        if cand and fold_text(cand) in text:
+        if cand and _whole(cand, text):
             return cand if len(cand) <= 60 and "\n" not in cand else None
     return None
 
@@ -379,13 +391,18 @@ def digest_blocks(
     rows per block and the facts left out because the page does not print the value)."""
     tagged: list[tuple[str, ...]] = []
     untagged: list[tuple[str, ...]] = []
-    left_out = 0
+    left_out: Counter = Counter()
     for f in sorted(sheet.facts, key=lambda f: (f.page, f.fact_id)):
         if f.state == "stale" or f.value is None:
             continue
+        if (
+            not f.quote_verified
+        ):  # a value whose own quote is not on its page is never read as a fact
+            left_out["quote not verified"] += 1
+            continue
         shown = _printed(f, pages)
         if shown is None:
-            left_out += 1
+            left_out["value not printed on the page"] += 1
             continue
         key = f.field_role if f.field_role in _ROLE_WORDS else "unknown"
         head = (f.fact_id, key, shown, str(f.page))
@@ -416,7 +433,8 @@ def digest_blocks(
     return blocks, {
         "rows_tagged": len(tagged),
         "rows_untagged": len(untagged),
-        "left_out": left_out,
+        "left_out": sum(left_out.values()),
+        "left_out_reasons": dict(left_out),
     }
 
 

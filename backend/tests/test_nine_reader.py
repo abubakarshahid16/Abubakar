@@ -727,7 +727,12 @@ def test_the_digest_is_derived_blocks_the_seam_accepts_cell_by_cell():
     res = read({1: PAGE1})
     _stored(res)
     blocks, counts = nine_facts.digest_blocks(res.sheet, {1: PAGE1})
-    assert counts == {"rows_tagged": 0, "rows_untagged": 2, "left_out": 0}
+    assert counts == {
+        "rows_tagged": 0,
+        "rows_untagged": 2,
+        "left_out": 0,
+        "left_out_reasons": {},
+    }
     assert [b.name for b in blocks] == ["fact_sheet_untagged"] and blocks[
         0
     ].sources == ("paper",)
@@ -803,7 +808,7 @@ def test_no_row_gives_no_block():
     sheet = nine_facts.sheet_of("run1", "paper", 1, [], [], "claude", [])
     assert nine_facts.digest_blocks(sheet, {1: PAGE1}) == (
         [],
-        {"rows_tagged": 0, "rows_untagged": 0, "left_out": 0},
+        {"rows_tagged": 0, "rows_untagged": 0, "left_out": 0, "left_out_reasons": {}},
     )
 
 
@@ -873,3 +878,77 @@ def test_with_the_registry_frozen_a_group_that_was_not_registered_at_import_is_n
     assert (
         tx.bodies == [] and "question_not_registered" in res.sheet.pages[0].not_read_why
     )
+
+
+def test_a_value_whose_quote_lacks_the_fields_own_label_is_dropped_as_label_not_in_quote():
+    """The model answers "design pressure" with the line of ANOTHER field: the quote is on the page and holds the value, but not this field's label."""
+    page = "Operating pressure: 5 barg\nDesign temperature: 150 C\n"
+    wrong = ("design_pressure", "5", "barg", "Operating pressure: 5 barg", "found")
+    res = read(
+        {1: page},
+        Tx(lambda p: answer(wrong, TEMP)),
+        equipment_type="Pressure Safety Valve",
+    )
+    assert [
+        f.field_label for f in res.sheet.facts if f.field_role == "design_pressure"
+    ] == []
+    assert res.produced["dropped_by_reason"].get("label_not_in_quote") == 1
+
+
+def test_a_stored_value_whose_own_quote_is_not_on_the_page_is_left_out_of_the_digest_and_counted():
+    text = "Design pressure: 12 barg\n"
+    s = stored(
+        "Design pressure",
+        "99",
+        "barg",
+        quote="a quote that left the page",
+        sha=reader_mod.page_sha(text),
+    )
+    sheet = nine_facts.sheet_of(
+        "run1", "paper", 1, [], nine_facts.merge([s], [], {1: text})[0], "claude", []
+    )
+    blocks, counts = nine_facts.digest_blocks(sheet, {1: "Design pressure: 99 barg\n"})
+    assert (
+        blocks == []
+        and counts["left_out"] == 1
+        and counts["left_out_reasons"] == {"quote not verified": 1}
+    )
+
+
+def test_a_short_value_is_found_on_the_page_as_a_whole_number_not_inside_another_number():
+    f = nine_facts.Fact(
+        "f:1:1",
+        1,
+        "Design pressure",
+        "design_pressure",
+        "5",
+        "barg",
+        "q",
+        True,
+        None,
+        None,
+        "stored",
+        "stored_only",
+        None,
+        None,
+    )
+    assert (
+        nine_facts._printed(f, {1: "Design pressure: 150 barg; ratio 1.5 barg\n"})
+        is None
+    )
+    assert nine_facts._printed(f, {1: "Design pressure: 5 barg\n"}) == "5 barg"
+    assert nine_facts._printed(f, {1: "max 5\n"}) == "5"
+
+
+def test_the_record_says_which_fields_were_asked_so_not_stated_is_said_only_for_an_asked_field(
+    monkeypatch,
+):
+    res = read({1: PAGE1, 2: "Cover sheet. Revision history."})
+    assert res.produced["fields_asked"] == {
+        "1": ["design_pressure", "design_temperature"]
+    }  # page 2 was never asked: read by code
+    assert (
+        "2" not in res.produced["fields_asked"]
+        and "2" not in res.produced["fields_not_read"]
+    )
+    assert res.sheet.pages[1].not_read_why == nine_reader.CODE_ONLY
