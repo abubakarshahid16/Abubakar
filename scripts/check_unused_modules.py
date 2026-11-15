@@ -52,6 +52,11 @@ ENTRY_POINTS = (
     "nine_call",
     "nine_chapters",  # B3: the chapter cut, until the librarian imports it
     "nine_librarian",  # B3: the reading list, until the job calls it
+    # nine-role reviewer (builder B4), not wired until the job (B5) calls them: remove an entry when something imports the module
+    "nine_match",
+    "nine_findings",
+    "nine_reviewer",
+    "nine_checklist",
 )
 
 
