@@ -710,48 +710,82 @@ def _send_block(block, tx=None):
     return ans, tx
 
 
-def test_the_digest_is_a_derived_block_the_seam_accepts_cell_by_cell():
+def test_the_digest_is_derived_blocks_the_seam_accepts_cell_by_cell():
     res = read({1: PAGE1})
-    block, counts = nine_facts.digest_block(res.sheet, {1: PAGE1})
-    assert counts == {"rows": 2, "left_out": 0}
-    assert block.kinds == nine_facts.DIGEST_KINDS and block.sources == ("paper",)
-    ans, tx = _send_block(block)
+    blocks, counts = nine_facts.digest_blocks(res.sheet, {1: PAGE1})
+    assert counts == {"rows_tagged": 0, "rows_untagged": 2, "left_out": 0}
+    assert [b.name for b in blocks] == ["fact_sheet_untagged"] and blocks[
+        0
+    ].sources == ("paper",)
+    assert blocks[0].kinds == nine_facts.UNTAGGED_KINDS
+    ans, tx = _send_block(blocks[0])
     assert ans.ok and ans.not_sent == ()
-    assert "f:1:1 | design_pressure | 12 barg | 1 | - | ai_only" in json.dumps(
+    assert "f:1:1 | design_pressure | 12 barg | 1 | none | ai_only" in json.dumps(
         tx.bodies[0]
     )
 
 
-def test_the_digest_block_carries_conflicts_as_conflict_and_leaves_out_what_the_page_does_not_print():
+def test_the_digest_carries_conflicts_as_conflict_and_leaves_out_what_the_page_does_not_print():
     res = read(
         {1: PAGE1},
         stored=[
             stored("Design pressure", "10", "barg", quote="Design pressure: 12 barg")
         ],
     )
-    block, counts = nine_facts.digest_block(res.sheet, {1: PAGE1})
-    states = {row[5] for row in block.items}
+    blocks, counts = nine_facts.digest_blocks(res.sheet, {1: PAGE1})
+    rows = [r for b in blocks for r in b.items]
     assert (
-        "conflict" in states and counts["left_out"] == 1
+        "conflict" in {r[5] for r in rows} and counts["left_out"] == 1
     )  # the stored 10 barg is not printed on the page
-    assert all("10" != row[2].split()[0] for row in block.items)
-    ans, _ = _send_block(block)
-    assert ans.ok
+    assert all(r[2].split()[0] != "10" for r in rows)
+    assert all(_send_block(b)[0].ok for b in blocks)
 
 
-def test_a_tag_that_is_a_list_becomes_multi_and_no_tag_becomes_a_dash():
+def test_a_tag_is_document_text_a_printed_tag_is_a_source_cell_an_unprinted_one_is_a_word():
+    page = "Tag T1, T2\nDesign pressure: 12 barg\nDesign temperature: 150 C\n"
     res = read(
-        {1: PAGE1},
-        stored=[stored("Design pressure", "12", "barg", equipment_tag="T1, T2")],
+        {1: page},
+        stored=[
+            stored(
+                "Design pressure",
+                "12",
+                "barg",
+                equipment_tag="T1, T2",
+                quote="Design pressure: 12 barg",
+            ),
+            stored(
+                "Design temperature",
+                "150",
+                "C",
+                equipment_tag="X9",
+                quote="Design temperature: 150 C",
+            ),
+        ],
     )
-    block, _ = nine_facts.digest_block(res.sheet, {1: PAGE1})
-    assert {row[4] for row in block.items} == {"multi", "-"}
-    assert _send_block(block)[0].ok
+    blocks, _ = nine_facts.digest_blocks(res.sheet, {1: page})
+    by = {b.name: b for b in blocks}
+    assert [r[4] for r in by["fact_sheet"].items] == ["T1, T2"] and by[
+        "fact_sheet"
+    ].kinds[4] == "source"
+    assert all(_send_block(b)[0].ok for b in blocks)
+
+
+def test_a_tag_that_is_not_on_the_paper_cannot_be_a_source_cell_the_seam_drops_the_block():
+    bad = nine_facts.nine_call.Block(
+        "review_record",
+        name="fact_sheet",
+        sources=("paper",),
+        kinds=nine_facts.TAGGED_KINDS,
+        items=(("f:1:1", "design_pressure", "12 barg", "1", "ZZ-999", "agreed"),),
+    )
+    read({1: PAGE1})
+    ans, _ = _send_block(bad)
+    assert (not ans.ok and ans.error_code == "refused") or ans.state == "refused"
 
 
 def test_no_row_gives_no_block():
     sheet = nine_facts.sheet_of("run1", "paper", 1, [], [], "claude", [])
-    assert nine_facts.digest_block(sheet, {1: PAGE1}) == (
-        None,
-        {"rows": 0, "left_out": 0},
+    assert nine_facts.digest_blocks(sheet, {1: PAGE1}) == (
+        [],
+        {"rows_tagged": 0, "rows_untagged": 0, "left_out": 0},
     )
