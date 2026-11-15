@@ -16,9 +16,12 @@ A point an engineer removed is not part of a comment (it stays on Evidence and i
 
 from __future__ import annotations
 
+import logging
+
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 
+log = logging.getLogger(__name__)
 DISAGREE = "the readers disagree on this field"
 DISAGREE_RANK = 4  # a Query: the point's own question rank
 _NOT_MET, _MET = ("not_met",), ("met",)
@@ -28,12 +31,25 @@ def _norm(text) -> str:
     return " ".join(str(text or "").split()).lower()
 
 
+def _field_of(point: dict) -> str:
+    """The point's field: its name, with a tag list taken off by `review_points.split_tags` when that function is present (U2's #1823
+    owns the tag scanner: it is called, never copied)."""
+    name = point.get("name")
+    split = getattr(rp, "split_tags", None)
+    if split and name:
+        try:
+            name = split(name)[0]
+        except Exception:  # noqa: BLE001 - an unexpected shape: the plain name is the field
+            log.debug("crs_comments: split_tags gave no field")
+    return _norm(name)
+
+
 def key_of(point: dict) -> str:
-    """The comment a point belongs to: its field and tag set; else its rule book and clause; else the point itself."""
-    field = _norm(point.get("name"))
+    """The comment a point belongs to: its FIELD (the tags and pages it applies to are listed on the comment, they do not split it);
+    a point with no field, by its rule book and clause; else the point itself."""
+    field = _field_of(point)
     if field:
-        tags = ",".join(sorted(_norm(t) for t in point.get("tags") or []))
-        return f"field|{field}|{tags}"
+        return f"field|{field}"
     book, clause = _norm(point.get("rule_book")), _norm(point.get("clause"))
     if book and clause:
         return f"clause|{book}|{clause}"
