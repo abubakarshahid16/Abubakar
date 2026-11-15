@@ -43,6 +43,10 @@ ENTRY_POINTS = (
     "agent_review_pages",
     # nine-role reviewer, being wired: the shared shapes its roles are built against (remove this entry when a role imports it)
     "nine_contract",
+    # nine-role Reader (role 1) and its fact sheet; agent_review_calculator_reader is #1824's, brought for it (remove when nine_job imports them)
+    "nine_reader",
+    "nine_facts",
+    "agent_review_calculator_reader",
 )
 
 
