@@ -111,7 +111,7 @@ def test_titles_are_the_raw_heading_prefix_and_rows_left_out_are_counted():
         first == raw.lstrip()[:60] and first in raw
     )  # as it stands in the stored text, not normalised
     assert block.kinds == ("id", "number", "source") and block.items[0][1] == "1"
-    assert (back[("book", "1")] == "1" and ("book", "c3") not in back) or True
+    assert back[("book", "1")] == "1" and ("book", "3") not in back
     assert nine_call.render((L.QUESTION_ID, {}))[0] == L.QUESTION_ID
 
 
