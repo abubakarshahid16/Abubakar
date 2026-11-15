@@ -27,6 +27,7 @@ from app import (
     nine_facts,
     nine_reader,
     nine_record,
+    review_engine,
     review_shown,
     submittal_review,
 )
@@ -64,6 +65,15 @@ def world(tmp_path, monkeypatch):
             (NOW, NOW),
         )
         review_shown.record_in(conn, "run1", ["paper"], NOW)
+        review_engine.record_in(
+            conn,
+            "run1",
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=False,
+            now=NOW,
+        )  # default deny: only a stored decision opens the Claude lane (engine="local" needs none)
     nine_record.start_run("run1")
     yield
     db.reset_connection()
@@ -687,3 +697,61 @@ def test_a_page_whose_sent_text_is_not_the_text_the_quotes_would_be_checked_agai
         == f"{nine_reader.NOT_SENT} (stored_text_differs)"
     )
     assert res.sheet.facts == ()
+
+
+def _send_block(block, tx=None):
+    tx = tx or FakeTransport(["{}"])
+    template = nine_call.template(
+        "nine_reader_test_q", "Which fields are in the fact sheet?"
+    )
+    ans = nine_call.ask(
+        "run1", 4, [block], (template, {}), send=tx, env=FakeTransport.ENV
+    )
+    return ans, tx
+
+
+def test_the_digest_is_a_derived_block_the_seam_accepts_cell_by_cell():
+    res = read({1: PAGE1})
+    block, counts = nine_facts.digest_block(res.sheet, {1: PAGE1})
+    assert counts == {"rows": 2, "left_out": 0}
+    assert block.kinds == nine_facts.DIGEST_KINDS and block.sources == ("paper",)
+    ans, tx = _send_block(block)
+    assert ans.ok and ans.not_sent == ()
+    assert "f:1:1 | design_pressure | 12 barg | 1 | - | ai_only" in json.dumps(
+        tx.bodies[0]
+    )
+
+
+def test_the_digest_block_carries_conflicts_as_conflict_and_leaves_out_what_the_page_does_not_print():
+    res = read(
+        {1: PAGE1},
+        stored=[
+            stored("Design pressure", "10", "barg", quote="Design pressure: 12 barg")
+        ],
+    )
+    block, counts = nine_facts.digest_block(res.sheet, {1: PAGE1})
+    states = {row[5] for row in block.items}
+    assert (
+        "conflict" in states and counts["left_out"] == 1
+    )  # the stored 10 barg is not printed on the page
+    assert all("10" != row[2].split()[0] for row in block.items)
+    ans, _ = _send_block(block)
+    assert ans.ok
+
+
+def test_a_tag_that_is_a_list_becomes_multi_and_no_tag_becomes_a_dash():
+    res = read(
+        {1: PAGE1},
+        stored=[stored("Design pressure", "12", "barg", equipment_tag="T1, T2")],
+    )
+    block, _ = nine_facts.digest_block(res.sheet, {1: PAGE1})
+    assert {row[4] for row in block.items} == {"multi", "-"}
+    assert _send_block(block)[0].ok
+
+
+def test_no_row_gives_no_block():
+    sheet = nine_facts.sheet_of("run1", "paper", 1, [], [], "claude", [])
+    assert nine_facts.digest_block(sheet, {1: PAGE1}) == (
+        None,
+        {"rows": 0, "left_out": 0},
+    )
