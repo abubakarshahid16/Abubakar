@@ -29,11 +29,8 @@ import logging
 import uuid
 from pathlib import Path
 
-from . import (
-    agent_general_job as general_job,
-)
+from . import agent_general_job as general_job
 from . import agent_review_crs as crs_lines
-from . import crs_completeness
 from . import (
     agent_review_gate,
     agent_review_kind,
@@ -42,6 +39,7 @@ from . import (
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
+    crs_completeness,
     job_queue,
     nothing_read,
     review_engine,
@@ -704,7 +702,7 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
             (len(STEPS), _now(), job_id),
         )
         job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
-    crs_completeness.record_after_run(run_id)  # the three counts, stored with the run (never fails it)
+    crs_completeness.record_after_run(run_id)
     return "done"
 
 
