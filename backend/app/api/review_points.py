@@ -1,6 +1,7 @@
 """The redesigned review page's routes: ONE list of points per paper, a decision on each, and the engineer's own added points (owner,
 12 Nov 2026; SPEC.md).
 
+    GET  /api/reviews/papers/{document_id}/crs?copy=team|contractor   ONE workbook from that list (K4: nothing left out)
     GET  /api/reviews/papers/{document_id}/points            the merged list worst first, the tile counts, the proposed review code
     POST /api/reviews/papers/{document_id}/points/decision   Keep, Edit or Remove one point (Edit needs text, Remove a one-line reason)
     POST /api/reviews/papers/{document_id}/points/decisions  Keep several points at once ("Keep all" of a group)
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import (
@@ -99,10 +100,34 @@ class PointsListingOut(BaseModel):
     of: int
     removed: list[PointOut]
     contractor_copy: dict[str, Any] = {}
+    comments: list[dict[str, Any]] = []
+    comment_count: int = 0
+    completeness: dict[str, Any] | None = None
 
 
 class PageV2Status(BaseModel):
     enabled: bool
+
+
+class CrsFileCheckOut(BaseModel):
+    """The completeness check of ONE file (`crs_completeness.verify`): the three counts, what is missing, one plain sentence."""
+
+    ok: bool
+    copy: str
+    page: int
+    database: dict[str, Any]
+    rows_in_file: int
+    accounted: int
+    missing: list[str]
+    cut_cells_marked: int
+    cut_problems: int
+    checked_at: str
+    sentence: str | None = None
+
+
+class CrsCheckOut(BaseModel):
+    team: CrsFileCheckOut
+    contractor: CrsFileCheckOut
 
 
 class DecisionRequest(BaseModel):
@@ -218,6 +243,53 @@ def points(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     return svc.assemble(document_id, scope)
+
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get(
+    "/api/reviews/papers/{document_id}/crs",
+    dependencies=ON,
+    response_class=Response,
+    responses={200: {"content": {_XLSX: {}}, "description": "ONE workbook from the page's points"}, **schemas.ERRORS_404},
+)
+def one_crs(
+    document_id: str,
+    request: Request,
+    copy: Literal["team", "contractor"] = "team",
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """K4: the ONE team file or the ONE contractor file of a paper, drawn from the same list the page counts. After signing, the
+    contractor file is the issued one, byte for byte."""
+    reject_unknown_params(request, {"copy"})
+    require_document(document_id, scope)
+    from .. import crs_completeness, crs_one
+
+    if copy == "contractor" and (issued := crs_one.issued_file(document_id)):
+        data, name = issued[1], issued[0]["filename"]
+    else:
+        try:  # THE HARD RULE: page, database and file agree, or the file is refused with the sentence (never a short file)
+            data = crs_completeness.file_or_refuse(document_id, scope, copy)
+        except crs_completeness.Incomplete as exc:
+            raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
+        name = crs_one.FILE_CONTRACTOR if copy == "contractor" else crs_one.FILE_TEAM
+    return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/api/reviews/papers/{document_id}/crs/check", dependencies=ON, response_model=CrsCheckOut, responses={**schemas.ERRORS_404})
+def one_crs_check(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The completeness check of both files: page points, database lines, rows per file, what is missing. Reads only."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    from .. import crs_completeness
+
+    got = crs_completeness.checked_files(document_id, scope)
+    return {copy: report for copy, (_data, report) in got.items()}
 
 
 @router.post(

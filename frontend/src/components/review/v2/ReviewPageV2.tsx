@@ -12,7 +12,9 @@ import type { DocumentRecord } from "../../../types/api";
 import { PageImageViewer } from "../../PageImageViewer";
 import { AddPoint } from "./AddPoint";
 import { BottomRow } from "./BottomRow";
+import { OlderFiles } from "./OlderFiles";
 import { CodeBox } from "./CodeBox";
+import { FoundDuringReview } from "../panels/FoundDuringReview";
 import { EngineBar } from "./EngineBar";
 import { KindLine } from "./KindLine";
 import { PointsList } from "./PointsList";
@@ -42,7 +44,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1 space-y-1">
           <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
-          <h1 id="v2-title" className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
+          <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
           <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} />
         </div>
         <div className="min-w-[18rem]"><EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} /></div>
@@ -52,7 +54,27 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       {pts.listing.state === "error" && <p role="alert" className="text-danger-500">{pts.listing.message}</p>}
       {listing && (
         <>
+          <FoundDuringReview count={listing.found_during_review ?? 0} />
           <CodeBox listing={listing} onRecorded={() => { void pts.reload(); onCodeRecorded(); }} />
+          {listing.completeness && !listing.completeness.ok && (
+            <div role="alert" data-testid="v2-incomplete" className="rounded-[var(--radius-md)] border border-danger-500 p-3 text-sm text-danger-500">
+              <p>
+                This review's file is not complete, so the CRS downloads and signing are refused: the page has {listing.completeness.page} points, the database
+                {" "}{listing.completeness.database} lines, the team file {listing.completeness.team_rows} rows.
+              </p>
+              {listing.completeness.missing.length > 0 && (
+                <ul className="mt-1 list-disc pl-5">
+                  {listing.completeness.missing.slice(0, 10).map((m) => <li key={m}>{m}</li>)}
+                  {listing.completeness.missing.length > 10 && <li>and {listing.completeness.missing.length - 10} more</li>}
+                </ul>
+              )}
+            </div>
+          )}
+          {listing.comment_count != null && (
+            <p data-testid="v2-comment-count" className="text-xs text-slateish-400">
+              {listing.of} points reviewed, as {listing.comment_count} comments in the CRS file (one comment per field; every point stays on the sheet Evidence).
+            </p>
+          )}
           <Tiles counts={listing.counts} selected={tile} onSelect={setTile} />
           <BookChips counts={listing.counts} selected={book} onSelect={setBook} />
           <NotHeldLine counts={listing.counts} onSeeAll={() => setTab("how")} />
@@ -77,12 +99,16 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         </div>
       )}
       {tab === "sheet" && <div data-testid="v2-sheet-tab">{sheetTab}</div>}
-      {tab === "how" && <div data-testid="v2-how-tab">{howTab}</div>}
+      {tab === "how" && (
+        <div data-testid="v2-how-tab">
+          {howTab}
+          {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} />}
+        </div>
+      )}
 
       {listing && (
-        <BottomRow ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} undecided={undecided}
-          codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign}
-          contractorWords={listing.contractor_copy?.words ?? null} />
+        <BottomRow documentId={documentId} undecided={undecided}
+          codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign} />
       )}
       {viewing && submittal && <PageImageViewer doc={submittal} initialPage={viewing.page} onClose={() => setViewing(null)} />}
     </section>

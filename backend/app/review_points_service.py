@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from . import agent_review_wording as wording
+from . import crs_comments, crs_completeness
 from . import (
     evidence_boxes,
     review_code_proposal,
@@ -18,6 +19,10 @@ from . import (
 from . import (
     review_points as rp,
 )
+from . import (
+    review_points_notes as notes_mod,
+)
+from .config import settings
 from .db import connect
 
 DONE = ("complete", "completed")
@@ -276,7 +281,8 @@ def _names(ids) -> dict[str, str]:
     }
 
 
-def assemble(paper_id: str, scope) -> dict:
+def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
+    """(the listing, the RAW points with their private keys, the facts the one-CRS export needs). `assemble` is the listing alone."""
     conn = connect()
     rc_run, ai_run = runs_of_paper(conn, paper_id)
     readable = frozenset(scope.allowed_document_ids)
@@ -284,6 +290,9 @@ def assemble(paper_id: str, scope) -> dict:
         rp.ai_points_of_run(conn, ai_run, paper_id, readable) if ai_run else ([], [])
     )
     rc_pts = _rule_points(rc_run, paper_id, scope) if rc_run else []
+    # the AI review is the only reviewer: its notes are points of the one list (a rule check lists its own); the notes are the calculator's: behind its setting
+    if ai_run and not rc_run and settings.ai_review_calculator_enabled:
+        ai_pts += notes_mod.notes_of_run(ai_run, paper_id, scope, not_held)
     names = _names(decisions_mod.people(paper_id))
     add_pts = [
         decisions_mod.added_point(r, names.get(r["added_by"]) or r["added_by"])
@@ -310,8 +319,6 @@ def assemble(paper_id: str, scope) -> dict:
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
-    from .config import settings
-
     proposal = review_code_proposal.propose(
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),
@@ -326,7 +333,7 @@ def assemble(paper_id: str, scope) -> dict:
         if (rc_run or ai_run)
         else None
     )
-    return {
+    listing = {
         "paper_document_id": paper_id,
         "runs": {"rule_check": rc_run, "ai_review": ai_run},
         "points": [rp.public(p) for p in points],
@@ -342,7 +349,47 @@ def assemble(paper_id: str, scope) -> dict:
             if p["decision"]["state"] == decisions_mod.REMOVE
         ],
         "contractor_copy": _contractor_copy(conn, ai_run),
+        "found_during_review": _found_during_review(conn, rc_run, ai_run),
     }
+    grouped = crs_comments.group(points)  # P2: the SAME function the CRS file uses, so the page and the file show the same comments
+    listing["comments"] = [crs_comments.public(c) for c in grouped]
+    listing["comment_count"] = len(grouped)
+    listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
+    return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
+
+
+def assemble(paper_id: str, scope) -> dict:
+    return _assemble(paper_id, scope)[0]
+
+
+def export_listing(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
+    """The listing, the raw points (private keys kept) and the facts for the ONE CRS file (`crs_one`): the same list the page reads."""
+    return _assemble(paper_id, scope)
+
+
+def _found_during_review(conn, *run_ids) -> int:
+    """How many rule books the paper's review found only while it ran and so did not send (they were not on the list shown before
+    the start): the UNION over the paper's runs (the rule check and the AI review), each book once. 0 when none: the screen then
+    says nothing."""
+    import sqlite3
+
+    from . import agent_review_rules, review_shown
+
+    books: set[str] = set()
+    for run_id in filter(None, run_ids):
+        try:
+            dropped = [
+                str(r[0])
+                for r in conn.execute(
+                    "SELECT DISTINCT standard_document_id FROM agent_review_rule WHERE run_id = ? AND asked = 0"
+                    " AND left_out_reason = ? AND standard_document_id IS NOT NULL",
+                    (run_id, agent_review_rules.REASON_WORDS[agent_review_rules.NOT_ON_LIST]),
+                )
+            ]
+        except sqlite3.OperationalError:
+            dropped = []
+        books |= set(review_shown.held_rule_books(conn, run_id, extra=dropped))
+    return len(books)
 
 
 def _unread_pages(run_id: str | None, scope) -> int | None:
@@ -415,34 +462,6 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     )
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
-
-
-def archive_ai_contractor_copy(rule_check_run_id: str, *, actor: str) -> dict | None:
-    """At signing: keep the exact bytes of the AI review's contractor copy (with the engineer's decisions and added points in it), like
-    the rule check's own copy (`crs_issue.archive`: a file of its own and a record with its checksum, never rewritten). None when the
-    paper has no finished AI review. After this, no later decision changes it: `decided_ai_sheet` writes a separate working file."""
-    from . import agent_review_jobs, crs_issue
-    from .db import connect as _connect
-
-    conn = _connect()
-    row = conn.execute(
-        "SELECT submittal_document_id FROM review_runs WHERE id = ?",
-        (rule_check_run_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    _rc, ai = runs_of_paper(conn, row["submittal_document_id"])
-    if not ai:
-        return None
-    folder = agent_review_jobs.run_dir(ai)
-    path = decided_ai_sheet(ai, row["submittal_document_id"], "contractor", folder) or (
-        folder / "crs-contractor.xlsx"
-    )
-    if not path.is_file():
-        return None
-    return crs_issue.archive(
-        ai, path.read_bytes(), "ai-review-contractor.xlsx", actor=actor
-    )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

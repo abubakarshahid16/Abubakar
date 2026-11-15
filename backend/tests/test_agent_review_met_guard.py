@@ -250,7 +250,10 @@ def test_a_proven_fail_with_ai_met_is_never_touched(quote, checks):
             second_opinion={"agree": False},
         )
     )
-    assert (out["verdict_label"], out["verdict_class"]) == ("Fail", W.CLASS_PROVEN)
+    if checks and checks.get("clause") is False:  # c11: a proven Fail stands on a clause quote verified in the rule book
+        assert out["verdict_class"] != W.CLASS_PROVEN and out["verdict_label"] != "Fail"
+    else:
+        assert (out["verdict_label"], out["verdict_class"]) == ("Fail", W.CLASS_PROVEN)
 
 
 def test_the_only_change_the_guard_can_make_is_met_to_query():

@@ -108,3 +108,23 @@ def test_unknown_or_bad_parameters_are_refused_and_nothing_is_written(world, tmp
     assert _get("no-such-finding", world["admin"], side="standard").status_code == 404
     after = dict(connect().execute("SELECT * FROM review_findings WHERE id = ?", (finding["id"],)).fetchone())
     assert after == before
+
+
+def test_a_relative_stored_path_is_opened_from_the_data_folder_not_the_process_folder(world, tmp_path, monkeypatch):
+    """V2 (audit): a stored path like "uploads/<id>.pdf" is relative to the data folder. It used to be opened against the
+    process folder and both evidence routes answered 500 (FileNotFoundError)."""
+    finding = _reviewed(world, tmp_path)
+    (tmp_path / "uploads").mkdir()
+    with connect() as conn:
+        for doc_id, text in ((world["std"], STD_TEXT), (world["sub"], SUB_TEXT)):
+            _pdf(tmp_path / "uploads" / f"{doc_id}.pdf", text)
+            conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?", (f"uploads/{doc_id}.pdf", doc_id))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)  # the process folder holds no "uploads"
+    for side in ("standard", "submittal"):
+        r = _get(finding["id"], world["admin"], side=side)
+        assert r.status_code == 200, r.text
+        assert r.content[:4] == b"\x89PNG"
+    j = TestClient(app).get(f"/api/reviews/findings/{finding['id']}/evidence", headers=world["admin"])
+    assert j.status_code == 200, j.text

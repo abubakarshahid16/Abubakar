@@ -20,7 +20,15 @@ export interface ReviewPlan {
   unscored_note?: string;
   wont_run: { part: string; why: string }[];
   kind: string | null;
-  documents: { paper: boolean; rule_books: string[]; rule_books_note: string | null };
+  documents: {
+    paper: boolean; rule_books: string[]; rule_books_note: string | null;
+    /** Every document a Claude review of this paper may send, before the start (absent: the list is not known). */
+    leaving?: { id: string; title: string; kind: string; why: string; contract?: boolean }[];
+    not_sent?: { id?: string; title?: string; name?: string; kind: string; why: string; reason: string }[];
+    not_readable?: number;
+    /** True when the list could not be worked out: no Claude start is offered. */
+    unreadable?: boolean;
+  };
   cost: {
     at_most_usd: number | null;
     by_part_at_most_usd: { rule_check: number | null; ai_review: number | null };
@@ -121,6 +129,13 @@ export interface PointsListing {
   removed: ReviewPoint[];
   /** What the AI review's contractor copy holds for this paper's kind, in the backend's own words. */
   contractor_copy?: { kind: string | null; words: string };
+  /** Rule books the review found only while it ran and did not send (not on the list shown before the start). */
+  found_during_review?: number;
+  /** P2: the comments (one per field) the CRS file shows, from the same grouping function; every point is in exactly one comment or removed. */
+  comments?: { number: number; name: string | null; n_points: number; pill: string; pages: number[]; member_ids: string[]; disagree: boolean }[];
+  comment_count?: number;
+  /** The three counts of the last review (page, database, file rows). null when none is stored; ok false means the page must say what is missing. */
+  completeness?: { ok: boolean; page: number; database: number; team_rows: number; contractor_rows: number; missing: string[]; sentence: string | null; checked_at: string } | null;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -153,12 +168,13 @@ export const reviewPoints = {
     }),
   add: (documentId: string, body: { text: string; page?: number; rule_book?: string; clause?: string }) =>
     request<PointsListing>(`${paper(documentId)}/add`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }),
-  start: (documentId: string, engine: EngineChoice) =>
+  /** The ONE start. `shown` = the ids of the documents the screen listed as leaving this computer; the server stores that list and the run
+   *  sends only those. Omitted: no list was shown (the older behaviour). */
+  start: (documentId: string, engine: EngineChoice, shown?: string[]) =>
     request<{ review_run_id: string }>("/reviews/start", {
-      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ submittal_document_id: documentId, engine }),
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ submittal_document_id: documentId, engine, ...(shown ? { shown_document_ids: shown } : {}) }),
     }),
-  recordYes: (documentId: string) =>
-    request<unknown>("/reviews/contract-yes", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ document_id: documentId }) }),
 };
 
 export type { Result };

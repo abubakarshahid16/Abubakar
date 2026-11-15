@@ -874,6 +874,9 @@ export interface ReviewDashboard {
   reviews_running: number;
   reviews_awaiting_decision: number;
   reviews_total: number;
+  /** Papers that have a review: the denominator of the review cards (latest review of each paper). */
+  papers_with_a_review?: number;
+  earlier_runs_not_counted?: number;
   needs_attention: number;
   needs_attention_reasons: Record<string, number>;
   recent: ReviewRunSummary[];
@@ -1016,6 +1019,8 @@ export interface ManagementSummary {
   deliverables_total: number;
   deliverables_by_status: Record<string, number>;
   review_findings_total: number;
+  /** Whose findings the figures count, in words. */
+  findings_boundary?: string;
   findings_by_severity: Record<string, number>;
   findings_by_status: Record<string, number>;
   escalated_findings: number;
@@ -1033,7 +1038,7 @@ export interface EscalationRule {
 export type ComparisonType = "baseline_vs_submittal" | "requirements_vs_submittal" | "revision_delta" | "discipline_coordination";
 export interface ReviewBaselineRule { id: string; submittal_doc_type: string | null; submittal_discipline: string | null; baseline_doc_type: string; baseline_discipline: string | null; priority: number; active: boolean; created_at: string; }
 export interface BaselineSelection { document_id: string; rule_id: string | null; automatic: boolean; }
-export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; origin: "manual" | "inferred"; }
+export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; origin: "manual" | "inferred"; source_document_id?: string | null; source_name?: string | null; source_page?: number | null; }
 export type RiskType = "schedule" | "review" | "dependency" | "compliance";
 export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; finding_count?: number; }
 // One page of the register and the total it is a page of (order 88a).
@@ -1906,6 +1911,8 @@ export interface ReportRecord {
   documents: ReportDocumentRow[];
   /** Named on page 1 of the PDF as not included. */
   not_implemented_sections: string[];
+  /** false when the PDF is not on this machine: listed, but it cannot be downloaded. Absent = available. */
+  file_available?: boolean;
 }
 
 export interface ReportList {

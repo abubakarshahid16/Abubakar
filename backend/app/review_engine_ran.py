@@ -106,6 +106,12 @@ def _notes(plan, settings) -> list[str]:
             if kept
             else "This install turns on the public web check of standards the library lacks; it can send those standard names out."
         )
+    if getattr(settings, "agent_review_rule_choice_v2_enabled", False):
+        notes.append(
+            f"The AI review asks at most {settings.agent_review_budget_claude} rules in one review on Claude and "
+            f"{settings.agent_review_budget_local} on the local model. Rules that apply beyond that are listed under Rules used "
+            "with their reason, never dropped silently."
+        )
     return notes
 
 

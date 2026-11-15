@@ -12,6 +12,7 @@ Raise the bar after an improvement with:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -145,6 +146,12 @@ def test_a_multi_document_label_that_is_not_in_the_corpus_is_caught():
     assert harness.check_labels([_MULTI]) == []
 
 
+@pytest.mark.skipif(
+    os.environ.get("RUN_P1_SCORE") != "1" and not os.environ.get("CI"),
+    reason="this test asks the real chat 67 questions and 8 of them reach the LOCAL MODEL (chat.ask -> general -> "
+           "model_transport), which loads a large Ollama model on a developer machine and can leave it loaded. It runs "
+           "when RUN_P1_SCORE=1 is set, and in CI (no Ollama there); eval/p1/run_p1.py runs the same score directly.",
+)
 def test_the_score_has_not_dropped_on_the_invented_corpus(temp_storage):
     harness.ingest_corpus(temp_storage / "corpus")
     rows = harness.run_questions(harness.load_questions())

@@ -29,9 +29,8 @@ import logging
 import uuid
 from pathlib import Path
 
-from . import (
-    agent_general_job as general_job,
-)
+from . import agent_general_job as general_job
+from . import agent_review_calculator_run as calculator_run
 from . import agent_review_crs as crs_lines
 from . import (
     agent_review_gate,
@@ -41,6 +40,7 @@ from . import (
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
+    crs_completeness,
     job_queue,
     nothing_read,
     review_engine,
@@ -53,6 +53,7 @@ from . import agent_review_pair as pair_mod
 from . import agent_review_request as request_mod
 from . import agent_review_reread as reread_mod
 from . import agent_review_reuse as reuse_mod
+from . import agent_review_rule_choice as rule_choice
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
@@ -95,8 +96,8 @@ STEPS = (
     "writing the CRS and the record",
 )
 ACTIVE_RUN = review_jobs.ACTIVE_RUN
-#: Rules that are not AI approved are NOT asked in the app (lead decision, 11 Nov 2026 night): "measured 11 Nov: no key row
-#: gained, more wrong opinions". The cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
+#: Rules not AI approved are NOT asked (lead, 11 Nov 2026: no key row gained, more wrong opinions) unless rule choice v2 is on;
+#: the cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
 ASK_UNAPPROVED = "off"
 
 
@@ -410,17 +411,13 @@ def _plan(
     scope_run = _scope_run_id(conn, submittal, run_id, scope, heartbeat)
     local = local_mod.local_run(run_id)
     if not local:  # a local run approves nothing for Claude
-        claude_auto_approve.on_review_start(
-            scope_run
-        )  # a cited standard joins the list too (when auto-approve is on)
+        claude_auto_approve.on_review_start(scope_run)  # a cited standard joins the list too (when auto-approve is on)  # fmt: skip
     cache: dict = {}
-    # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
-    # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
+    # Inline selection stores BOOKS only: the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED,
-                                        shown=review_shown.shown_ids(conn, run_id))  # fmt: skip
-    # A rule book the list shown before the start does not name is dropped HERE, before any request is built: its rules are not
-    # asked, none of its text is sent, the run goes on with the listed books, and the result counts what was left out.
+                                        equipment_type=kind.equipment_type, shown=review_shown.shown_ids(conn, run_id),
+                                        **rule_choice.plan_args(bool(local), ASK_UNAPPROVED))  # fmt: skip
+    # A book the list shown before the start does not name is dropped HERE, before any request: none of its text is sent.
     left_out = review_shown.drop_unlisted(conn, run_id, doc)
     claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
     _write_rules(run_id, doc, cache, kind.kind)
@@ -442,6 +439,7 @@ def _plan(
         "items": list(doc.get("items") or []),
         "cache": cache,
         "stop": None,
+        **rule_choice.plan_extra(doc),
     }
 
 
@@ -469,7 +467,7 @@ def _make_runner(
     send, env = lane()
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
-    done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error")}
+    done = calculator_run.runner_done(stored_lines(run_id))
     answers = None
     if (
         local is None and reuse_mod.enabled()
@@ -553,8 +551,7 @@ def _finish(
 ) -> dict:
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
-    lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
-    counts = runner_mod.counts_of(lines, runner)
+    lines, counts = calculator_run.finish(plan, runner)
     n_cut = reread_mod.cut_off_count(lines)
     if (
         runner is not None and runner.answers is not None
@@ -630,9 +627,11 @@ def _execute(
     _write_missing(run_id, plan["block"].get("missing_rule_books") or [])
     holder: dict = {}
     try:
+        calculator_run.step_job(run_id, submittal, kind, plan, _tier_lookup(kind))
         if plan["items"]:
             _ask(run_id, submittal, kind, plan, holder)
     finally:  # the CRS and the run row are written for a partial run too
+        plan["extra_lines"] = rule_choice.store_group_lines(run_id, plan, store_line)  # fmt: skip
         result = _finish(run_id, submittal, kind, plan, holder.get("runner"), started)
     return result
 
@@ -703,6 +702,7 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
             (len(STEPS), _now(), job_id),
         )
         job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
+    crs_completeness.record_after_run(run_id)
     return "done"
 
 

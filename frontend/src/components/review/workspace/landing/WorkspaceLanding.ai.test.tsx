@@ -9,8 +9,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 
 const summary = vi.fn();
+const which = vi.fn();
 vi.mock("../../../../api/agentReview", () => ({
-  agentReview: { summary: (...a: unknown[]) => summary(...a) },
+  agentReview: { summary: (...a: unknown[]) => summary(...a), which: (...a: unknown[]) => which(...a) },
   agentSwitch: async () => ({ state: "on", status: { enabled: true, claude_lane_open: true } }),
 }));
 vi.mock("../../../../api/client", () => ({
@@ -32,6 +33,8 @@ beforeEach(() => {
   summary.mockReset().mockImplementation(async (id: string) => (id === "run-new-a"
     ? { ok: true, data: { counts_by_class: { "Query for the engineer": 13, "AI opinion, engineer to confirm": 7, "Not applicable": 4 } } }
     : { ok: false, disconnected: false, error: { code: "not_found", message: "x" } }));
+  // V2: the list asks ONCE which runs have an AI review, so a run with none is never asked for a summary (a 404 each)
+  which.mockReset().mockImplementation(async (ids: string[]) => ({ ok: true, data: { run_ids: ids.filter((i) => i === "run-new-a") } }));
 });
 
 describe("WorkspaceLanding: AI mark and first line", () => {
@@ -44,15 +47,15 @@ describe("WorkspaceLanding: AI mark and first line", () => {
     // 13 + 7 lines; the 4 that do not apply are not counted
     expect(screen.getByTestId("ai-mark")).toHaveTextContent("AI review: 20 lines");
     expect(summary).not.toHaveBeenCalledWith("run-old-a");
+    expect(summary.mock.calls.every(([id]) => id === "run-new-a")).toBe(true); // no summary request that could 404
   });
   it("hints when the newest review has none but an older one has", async () => {
-    summary.mockImplementation(async (id: string) => (id === "run-old-c"
-      ? { ok: true, data: { counts_by_class: { "Query for the engineer": 1 } } }
-      : { ok: false, disconnected: false, error: { code: "not_found", message: "x" } }));
+    which.mockImplementation(async (ids: string[]) => ({ ok: true, data: { run_ids: ids.filter((i) => i === "run-old-c") } }));
     render(<WorkspaceLanding documents={[doc("c")]} onOpenRun={vi.fn()} onReload={vi.fn()} submittalsTotal={1}
       loadReadyCounts={async () => ({})} isAdmin
       runs={[run("run-old-c", "c", "2026-10-01T08:00:00Z"), run("run-new-c", "c", "2026-10-05T08:00:00Z")]} />);
     await waitFor(() => expect(screen.getByTestId("ai-earlier-hint")).toHaveTextContent("An earlier review of this file has an AI review"));
     expect(screen.queryByTestId("ai-mark")).toBeNull();
+    expect(summary).not.toHaveBeenCalled();
   });
 });

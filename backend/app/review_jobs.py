@@ -28,6 +28,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import crs_completeness
 from . import (
     access,
     ai_call_ledger,
@@ -572,6 +573,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         review_trace.store(run_id, requester, timings)
         review_trace.emit(run_id, requester)
         review_audit.write(run_id, requester, timings)  # #1525
+        crs_completeness.record_after_run(run_id)  # owner 15 Nov: the three counts, stored with the run
     except nothing_read.StoredFileAbsent as exc:  # #1495
         return nothing_read.fail_run(job_id, run_id, exc)
     except _Cancelled:

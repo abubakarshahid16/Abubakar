@@ -19,7 +19,7 @@
  *      (`continueNewReview`), Cancel starts nothing.
  *   3. waiting   - `api.document(id)` until the document is read in, with a
  *      time cap so the screen never waits forever.
- *   4. starting  - `reviewsApi.startReviewRun(documentId)`.
+ *   4. choosing  - the pre-start step (`StartReviewStep`): engine, the list of what will leave, then `POST /api/reviews/start`.
  *   then `watchRun(runId, filename)` so the finished notice can say so.
  *
  * Any step that fails stops there with plain words and NO review is started.
@@ -33,9 +33,9 @@ import { uploadOne } from "../../Uploader";
 import { ROLE_OPTIONS } from "../../classification/MetadataEditor";
 import type { ApiError, ReviewRunSummary } from "../../../types/api";
 import { groupRunsByDocument } from "../reviewFormat";
-import type { NewReviewOutcome, NewReviewPhase, ReviewAgainOutcome } from "./contract";
+import type { NewReviewOutcome, NewReviewPhase } from "./contract";
 import { priorDecisionWords } from "./priorDecisionWords";
-import { watchGeneration, watchRun } from "./reviewWatch";
+import { watchGeneration } from "./reviewWatch";
 
 /** How often the document is re-read while it is being read in. */
 export const READ_IN_POLL_MS = 3_000;
@@ -94,7 +94,7 @@ export const MARK_UNREADABLE_MESSAGE =
 export const UPLOADED_UNREADABLE_MESSAGE =
   "The uploaded document could not be found or you may not read it, so no review was started.";
 
-/* Refusals of `startReviewRun`, in plain words. */
+/* Refusals of a review start, in plain words. */
 export const REVIEW_ADMIN_ONLY_MESSAGE = "Only an administrator can start a review.";
 export const REVIEW_DOCUMENT_UNREADABLE_MESSAGE =
   "This document could not be found or you may not read it, so no review was started.";
@@ -298,7 +298,7 @@ export async function startNewReview(
     if (changed()) return fail(SIGNED_OUT_MESSAGE);
   }
 
-  return readInAndStart(documentId, file.name, onPhase, options, changed);
+  return readInThenChoose(documentId, file.name, onPhase, options, changed);
 }
 
 /** The reader said yes to the ask-first question for a dropped file already
@@ -308,12 +308,12 @@ export async function continueNewReview(
   onPhase: (phase: NewReviewPhase) => void,
   options: NewReviewOptions = {},
 ): Promise<NewReviewOutcome> {
-  return readInAndStart(ask.documentId, ask.filename, onPhase, options, changedSince());
+  return readInThenChoose(ask.documentId, ask.filename, onPhase, options, changedSince());
 }
 
 /** Steps 3 and 4: wait until read in, start, watch. Shared by a new upload
  *  and by the confirmed re-mark of a duplicate (`markAndReview`). */
-async function readInAndStart(
+async function readInThenChoose(
   documentId: string,
   filename: string,
   onPhase: (phase: NewReviewPhase) => void,
@@ -329,15 +329,10 @@ async function readInAndStart(
   if (!readIn.ok) return fail(readIn.message);
   if (changed()) return fail(SIGNED_OUT_MESSAGE);
 
-  onPhase({ kind: "starting" });
-  const started = await reviewsApi.startReviewRun(documentId);
-  // The server may already hold the review: then it runs on, unwatched here.
-  if (changed()) return fail(started.ok ? SIGNED_OUT_AFTER_START_MESSAGE : SIGNED_OUT_MESSAGE);
-  if (!started.ok) return fail((await startRefusal(started)).message);
-  const runId = started.data.review_run_id;
-  watchRun(runId, started.data.submittal_filename ?? filename);
-  onPhase({ kind: "started", runId });
-  return { ok: true, documentId, runId };
+  // THE ONE START: the paper is read in; the engine choice and the list of what will leave this Mac come NEXT, on the pre-start step
+  // (`StartReviewStep`), not here. Nothing is started by an upload.
+  onPhase({ kind: "ready" });
+  return { ok: true, documentId, filename };
 }
 
 /**
@@ -369,7 +364,7 @@ export async function markAndReview(
     onPhase({ kind: "error", message: marked.message });
     return { ok: false, message: marked.message };
   }
-  return readInAndStart(offer.documentId, filename, onPhase, options, changed);
+  return readInThenChoose(offer.documentId, filename, onPhase, options, changed);
 }
 
 /**
@@ -399,7 +394,7 @@ export async function markAsContractorSubmittal(documentId: string): Promise<{ o
   return { ok: true };
 }
 
-/** A refused `startReviewRun`, in plain words.
+/** A refused review start, in plain words.
  *
  * - Already running (409, "... already queued or running (<run id>)"): said
  *   plainly, with the running review's id when the API named it, so the
@@ -428,23 +423,6 @@ export async function startRefusal(
     };
   }
   return { message: words, runningRunId: null };
-}
-
-/** "Review again"'s answer: as the contract's, plus, when a review of this
- *  document is already running, that run's id (when the API named it). */
-export type ReviewAgainResult = ReviewAgainOutcome | { ok: false; message: string; runningRunId: string | null };
-
-/** "Review again": `reviewsApi.startReviewRun(documentId)` then `watchRun`.
- *  A refusal comes back in plain words (`startRefusal`). */
-export async function reviewAgain(documentId: string, filename?: string | null): Promise<ReviewAgainResult> {
-  const r = await reviewsApi.startReviewRun(documentId);
-  if (!r.ok) {
-    const refusal = await startRefusal(r);
-    return { ok: false, message: refusal.message, runningRunId: refusal.runningRunId };
-  }
-  const runId = r.data.review_run_id;
-  watchRun(runId, filename ?? r.data.submittal_filename ?? null);
-  return { ok: true, runId };
 }
 
 /** What a new review would be started on top of: the document's newest

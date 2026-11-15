@@ -205,13 +205,19 @@ function ReportRow({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => onDownload(report.id)}
-            className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] motion-safe:transition-colors hover:bg-signal-500/20"
-          >
-            Download
-          </button>
+          {report.file_available === false ? (
+            <span className="rounded-[var(--radius-sm)] border border-warn-500/40 px-2.5 py-1 text-xs text-warn-500">
+              File missing: this report&apos;s PDF is not on this machine
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onDownload(report.id)}
+              className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] motion-safe:transition-colors hover:bg-signal-500/20"
+            >
+              Download
+            </button>
+          )}
           <button
             type="button"
             onClick={runVerify}

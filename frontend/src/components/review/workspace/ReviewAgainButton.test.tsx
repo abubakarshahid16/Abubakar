@@ -10,15 +10,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewAgainButton } from "./ReviewAgainButton";
 
-const reviewAgain = vi.fn();
 const loadPriorDecision = vi.fn();
 vi.mock("./newReview", () => ({
-  reviewAgain: (...a: unknown[]) => reviewAgain(...a),
   loadPriorDecision: (...a: unknown[]) => loadPriorDecision(...a),
+}));
+/** THE ONE START: a fresh review opens the pre-start step (engine, what will leave this Mac, the list); nothing starts before its Start. */
+const stepOpened = vi.fn();
+vi.mock("../panels/StartReviewStep", () => ({
+  StartReviewStep: ({ documentId, filename, onStarted, onCancel }: { documentId: string; filename?: string | null; onStarted: (id: string) => void; onCancel: () => void }) => {
+    stepOpened(documentId, filename ?? null);
+    return (
+      <div data-testid="start-review-step">
+        <button type="button" onClick={() => onStarted("run-2")}>Start review</button>
+        <button type="button" onClick={onCancel}>Cancel step</button>
+      </div>
+    );
+  },
 }));
 
 beforeEach(() => {
-  reviewAgain.mockReset().mockResolvedValue({ ok: true, runId: "run-2" });
+  stepOpened.mockReset();
   loadPriorDecision.mockReset().mockResolvedValue({ kind: "none" });
 });
 
@@ -27,7 +38,7 @@ describe("ReviewAgainButton", () => {
     const onStarted = vi.fn();
     render(<ReviewAgainButton documentId="doc-1" onStarted={onStarted} mayStart={() => false} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
-    expect(reviewAgain).not.toHaveBeenCalled();
+    expect(stepOpened).not.toHaveBeenCalled();
     expect(onStarted).not.toHaveBeenCalled();
   });
 
@@ -35,7 +46,11 @@ describe("ReviewAgainButton", () => {
     const onStarted = vi.fn();
     render(<ReviewAgainButton documentId="doc-1" filename="Pump datasheet rev B.pdf" onStarted={onStarted} mayStart={() => true} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
-    expect(reviewAgain).toHaveBeenCalledWith("doc-1", "Pump datasheet rev B.pdf");
+    // the step opens FIRST; nothing has started until its Start
+    expect(await screen.findByTestId("start-review-step")).toBeInTheDocument();
+    expect(stepOpened).toHaveBeenCalledWith("doc-1", "Pump datasheet rev B.pdf");
+    expect(onStarted).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Start review" }));
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-2"));
   });
 
@@ -46,7 +61,7 @@ describe("ReviewAgainButton", () => {
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
     expect(await screen.findByText(/already signed/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(reviewAgain).not.toHaveBeenCalled();
+    expect(stepOpened).not.toHaveBeenCalled();
     expect(onStarted).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Review again" })).toBeInTheDocument();
   });
@@ -57,10 +72,11 @@ describe("ReviewAgainButton", () => {
     render(<ReviewAgainButton documentId="doc-1" filename="Pump datasheet rev B.pdf" onStarted={onStarted} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
     expect(await screen.findByText(/final code "Approved with Comments"/)).toBeInTheDocument();
-    expect(reviewAgain).not.toHaveBeenCalled();
+    expect(stepOpened).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Yes, start a new review" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Start review" }));
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-2"));
-    expect(reviewAgain).toHaveBeenCalledWith("doc-1", "Pump datasheet rev B.pdf");
+    expect(stepOpened).toHaveBeenCalledWith("doc-1", "Pump datasheet rev B.pdf");
   });
 
   it("when the latest review cannot be checked, it asks rather than assuming", async () => {
@@ -68,23 +84,15 @@ describe("ReviewAgainButton", () => {
     render(<ReviewAgainButton documentId="doc-1" onStarted={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
     expect(await screen.findByText(/Could not check/)).toBeInTheDocument();
-    expect(reviewAgain).not.toHaveBeenCalled();
+    expect(stepOpened).not.toHaveBeenCalled();
   });
 
-  it("without onOpenRun, the running review opens through onStarted", async () => {
-    reviewAgain.mockResolvedValue({ ok: false, message: "A review of this document is already running.", runningRunId: "run-7" });
+  it("Cancel on the step starts nothing and brings the button back", async () => {
     const onStarted = vi.fn();
     render(<ReviewAgainButton documentId="doc-1" onStarted={onStarted} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Open the review that is running" }));
-    expect(onStarted).toHaveBeenCalledWith("run-7");
-  });
-
-  it("no button to open a running review when the API did not name one", async () => {
-    reviewAgain.mockResolvedValue({ ok: false, message: "A review of this document is already running.", runningRunId: null });
-    render(<ReviewAgainButton documentId="doc-1" onStarted={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "Review again" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("A review of this document is already running.");
-    expect(screen.queryByRole("button", { name: "Open the review that is running" })).toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel step" }));
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Review again" })).toBeInTheDocument();
   });
 });

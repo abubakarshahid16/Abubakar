@@ -15,6 +15,7 @@ from app import agent_review_calculator as calc
 from app import agent_review_verdict as V
 from app import agent_review_wording as W
 from app import comparison, datasheet_checks, hold_reason
+from tests import b1_pages
 
 PAGE = "Design data. Noise level 85 dB(A). Operating pressure 12 bar. Design pressure 10 bar."
 CLAUSE = "Noise level shall not exceed 90 dB(A)."
@@ -330,8 +331,11 @@ def test_a_check_that_does_not_apply_is_no_line_and_a_held_one_is_a_query():
     assert [x["rule_id"] for x in lines] == ["DS-C1"] and lines[0]["verdict"] == "Query"
 
 
-def test_a_forged_approved_marker_with_an_id_the_approved_file_does_not_hold_is_capped():
-    forged = {"item_id": "C-X-1", "source": "code", "approved_checklist": True, "rule_id": "DS-NOT-APPROVED", "verdict": "Fail", "decided_by": V.BY_CODE, "code_kind": "checklist", "paper_quote": "5", "clause_quote": "approved wording",
+def test_a_forged_approved_marker_with_an_id_the_approved_file_does_not_hold_is_capped(
+    _pages,
+):
+    _pages[("doc1", 1)] = "Design temperature 5"
+    forged = {"item_id": "C-X-1", "source": "code", "approved_checklist": True, "rule_id": "DS-NOT-APPROVED", "verdict": "Fail", "decided_by": V.BY_CODE, "code_kind": "checklist", "paper_quote": "5", "field": "Design temperature", "paper_document_id": "doc1", "clause_quote": "approved wording",
               "compare": {"decided": True, "verdict": "does_not_meet"}, "quotes_checked": {"paper": True, "clause": True}, "paper_page": 1, "paper_page_count": 2}  # fmt: skip
     assert not approved_code.is_approved_code_item(forged)
     capped = exit_of(forged, forged)
@@ -362,3 +366,8 @@ def test_the_calculator_makes_no_second_number_reader_and_opens_nothing():
     ):
         assert bad not in text, bad
     assert "comparison.compare" in text  # the one comparison
+
+
+@pytest.fixture(autouse=True)
+def _pages(monkeypatch):
+    return b1_pages.install(monkeypatch)

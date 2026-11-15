@@ -54,6 +54,9 @@ def start(
     )
     if plan["refused"]:
         raise StartRefused(plan["refused_code"] or "REFUSED", plan["refused"])
+    if shown_document_ids is None and plan["text_leaves"]:
+        # The list of the documents that would leave must have been SHOWN: a start that sends text without it is refused.
+        raise StartRefused("LIST_NOT_SHOWN", LIST_NOT_SHOWN_WORDS)
     parts = {p["name"]: p for p in plan["parts"]}
     plan["project_document_ids"] = list(project_document_ids)
     plan["fresh"] = bool(fresh)
@@ -102,6 +105,22 @@ def start(
         in_transaction=choice_with_the_job,
     )
     return run_id, plan
+
+
+LIST_NOT_SHOWN_WORDS = "the list of documents was not shown: start from the review page, which shows what will be sent"
+LEGACY_START_WORDS = "start from the review page: it shows what will be sent"
+
+
+def legacy_start_blocked(conn, document_id: str, allowed: frozenset[str]) -> str | None:
+    """The older one-click start (`POST /api/reviews/run`) shows no list and has no engine choice. On an install whose Claude lane is
+    open and set to Claude it is refused, in one plain sentence (the screen's start step shows what will be sent); on any other
+    install it keeps working, because nothing can leave: a local-only or closed-lane start (scripts and tests keep that path)."""
+    facts, _reading = review_engine.read_facts(conn, document_id, allowed)
+    claude_set = facts.provider == "claude" or (
+        facts.provider == "per_task"
+        and (facts.agent_engine_claude or facts.step_engine_claude)
+    )
+    return LEGACY_START_WORDS if facts.lane_open and claude_set else None
 
 
 def follow_up(job_id: str, state: str) -> str | None:

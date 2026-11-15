@@ -93,7 +93,8 @@ export const LEFT_OUT_REASONS: readonly AgentLeftOutReason[] = [
   "needs another paper", "needs a human", "quote not found", "not labelled yet", "another equipment type",
   "rule book not held", "the paper names no equipment", "the paper names equipment the equipment list does not know",
   "the paper's equipment could not be read", "a part excluded by a value the paper states",
-  "both labelling readers named other equipment",
+  "both labelling readers named other equipment", "this part of the book does not govern this equipment",
+  "below the limit for one review", "an approved rule whose equipment label is not agreed",
 ];
 export const TIERS: readonly AgentRuleTier[] = ["AI approved", "Engineer", "Owner", "Not AI approved"];
 

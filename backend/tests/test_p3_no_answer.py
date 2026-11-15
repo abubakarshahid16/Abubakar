@@ -19,6 +19,7 @@ from tests.test_agent_review_crs import META, mk
 from tests.test_agent_review_guards import run_review, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
 from tests.test_agent_review_routes import client  # noqa: F401
+from tests.test_crs_endpoint import temp_db  # noqa: F401
 from tests.test_n1_local_ai_reviewer import local  # noqa: F401
 
 OLD = "the AI did not give pass or fail"
@@ -463,7 +464,21 @@ def test_an_old_stored_reader_query_is_worded_truly_in_the_listing_the_points_an
     points, _held = review_points.ai_points_of_run(
         conn, run_id, "doc_paper", frozenset()
     )
-    assert not any(f in json.dumps(points, default=str) for f in false_words)
+    shown_points = json.dumps(
+        [review_points.public(p) for p in points], default=str
+    )  # what the page's route returns
+    assert not any(f in shown_points for f in false_words)
+    private = json.dumps(
+        [p.get("_line") for p in points], default=str
+    )  # the private copy the one CRS reads
+    assert not any(
+        f
+        in json.dumps(
+            [p["_line"].get("not_proven_reason") for p in points if p.get("_line")]
+        )
+        for f in false_words
+    )
+    assert private
     # nothing was rewritten
     assert (
         conn.execute(
@@ -517,7 +532,7 @@ def test_the_points_of_an_old_run_carry_the_true_reason_in_their_group_key(
     monkeypatch.setattr(
         review_points,
         "_book_of",
-        lambda _c, _r: {i: ("doc_std", "INV-STD") for i in ids},
+        lambda _c, _r: dict.fromkeys(ids, ("doc_std", "INV-STD")),
     )
     points, _held = review_points.ai_points_of_run(
         conn, run_id, "doc_paper", frozenset({"doc_std"})
@@ -535,3 +550,58 @@ def test_the_evidence_trace_of_an_old_line_says_the_true_reason(client):
     decision = [g for g in body["gate"] if g["step"] == "decision"][0]
     assert "needs a drawing or a calculation to judge" in decision["reason"]
     assert "did not give pass or fail" not in json.dumps(body)
+
+
+def test_the_complete_crs_of_the_page_built_from_an_old_run_carries_the_true_reason(
+    temp_db, monkeypatch
+):
+    """#1819's ONE CRS (`crs_one.build_team`, drawn from the page's own points): an old run's reader Query is worded truly in the file."""
+    import io
+
+    from app import access, crs_one, db
+    from app.config import settings
+    from tests.test_b1_review_points import world_with_both
+    from tests.test_crs_endpoint import temp_db as _temp  # noqa: F401
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    doc, _rc, ai, _client = world_with_both()
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT line_json FROM agent_review_line WHERE run_id = ? AND item_id = 'R-8'",
+        (ai,),
+    ).fetchone()
+    line = json.loads(row["line_json"])
+    line.update(
+        ai_verdict="Query",
+        verdict="Query",
+        decided_by="engineer",
+        why=OLD,
+        not_proven_reason=OLD,
+        reason_code="needs_drawing_or_calc",
+        error=None,
+    )
+    conn.execute(
+        "UPDATE agent_review_line SET verdict_class = 'Query for the engineer', word = 'Query', reason = ?, line_json = ? WHERE run_id = ? AND item_id = 'R-8'",
+        (OLD, json.dumps(line), ai),
+    )
+    conn.commit()
+    scope = access.AccessScope(
+        user_id=None,
+        allowed_document_ids=frozenset(
+            r[0] for r in conn.execute("SELECT id FROM documents")
+        ),
+    )
+    data = crs_one.build_team(doc, scope)
+    cells = json.dumps(
+        [
+            list(r)
+            for sh in openpyxl.load_workbook(io.BytesIO(data))
+            for r in sh.iter_rows(values_only=True)
+        ],
+        default=str,
+    )
+    assert (
+        "did not reach a view" not in cells and "did not give pass or fail" not in cells
+    )
+    assert "needs a drawing or a calculation to judge" in cells

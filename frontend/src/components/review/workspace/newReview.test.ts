@@ -5,7 +5,7 @@
  *
  * MUTATION PROOF (checked by hand once): drop the `failed` check in
  * markAsContractorSubmittal and "a partial bulk write" fails; move
- * `startReviewRun` above the wait and the order test fails; send a
+ * the start above the wait and the order test fails; send a
  * duplicate through `markAsContractorSubmittal` and "a duplicate that is a
  * standard" fails; move the admin check below `uploadOne` and "a non-admin
  * is stopped before anything is uploaded" fails.
@@ -19,7 +19,6 @@ const me = vi.fn();
 const uploadDisciplines = vi.fn();
 const document = vi.fn();
 const setRoleBulk = vi.fn();
-const startReviewRun = vi.fn();
 const reviewRuns = vi.fn();
 const uploadOne = vi.fn();
 const watchRun = vi.fn();
@@ -37,7 +36,6 @@ vi.mock("../../../api/client", () => ({
     setRoleBulk: (...a: unknown[]) => { calls.push("mark"); return setRoleBulk(...a); },
   },
   reviews: {
-    startReviewRun: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
     reviewRuns: (...a: unknown[]) => { calls.push("runs"); return reviewRuns(...a); },
     readiness: (...a: unknown[]) => { calls.push("readiness"); return readiness(...a); },
   },
@@ -55,7 +53,7 @@ vi.mock("./reviewWatch", () => ({
 import {
   ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
   REVIEW_ADMIN_ONLY_MESSAGE, REVIEW_DOCUMENT_UNREADABLE_MESSAGE, REVIEW_REFUSED_UNKNOWN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
-  SIGNED_OUT_AFTER_START_MESSAGE, SIGNED_OUT_MESSAGE, UPLOADED_UNREADABLE_MESSAGE, type AskFirst, continueNewReview, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
+  SIGNED_OUT_MESSAGE, UPLOADED_UNREADABLE_MESSAGE, type AskFirst, continueNewReview, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, startNewReview, startRefusal,
 } from "./newReview";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
@@ -64,7 +62,7 @@ const noWait = { sleep: async () => {}, pollMs: 1, capMs: 60_000 };
 beforeEach(() => {
   calls.length = 0;
   generation = 0;
-  for (const m of [me, uploadDisciplines, document, setRoleBulk, startReviewRun, reviewRuns, uploadOne, watchRun]) m.mockReset();
+  for (const m of [me, uploadDisciplines, document, setRoleBulk, reviewRuns, uploadOne, watchRun]) m.mockReset();
   me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-1", email: "sample.admin@example.test", roles: ["admin"] } } });
   uploadDisciplines.mockResolvedValue({ ok: true, data: { required: true, choices: ["Mechanical", "Piping"], default: ["Mechanical"] } });
   uploadOne.mockImplementation(async (_f: File, _d: string[], onProgress: (p: number) => void) => {
@@ -76,27 +74,26 @@ beforeEach(() => {
   document
     .mockResolvedValueOnce({ ok: true, data: { id: "doc-1", status: "extracting" } })
     .mockResolvedValue({ ok: true, data: { id: "doc-1", status: "ready" } });
-  startReviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-1", submittal_filename: "Pump datasheet rev B.pdf" } });
 });
 
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("startNewReview", () => {
-  it("uploads, marks, waits until read in, starts, then watches - in that order", async () => {
+  it("uploads, marks, waits until read in, then stops at the engine choice: an upload starts NOTHING by itself", async () => {
     const phases: NewReviewPhase[] = [];
     const outcome = await startNewReview(file, (p) => phases.push(p), noWait);
 
-    expect(outcome).toEqual({ ok: true, documentId: "doc-1", runId: "run-1" });
-    expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document", "document", "start", "watch"]);
+    expect(outcome).toEqual({ ok: true, documentId: "doc-1", filename: "Pump datasheet rev B.pdf" });
+    expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document", "document"]);
     expect(phases.map((p) => p.kind)).toEqual([
-      "uploading", "uploading", "uploading", "marking", "waiting", "starting", "started",
+      "uploading", "uploading", "uploading", "marking", "waiting", "ready",
     ]);
     expect(phases[2]).toEqual({ kind: "uploading", percent: 100 });
     expect(uploadOne.mock.calls[0][0]).toBe(file);
     expect(uploadOne.mock.calls[0][1]).toEqual(["Mechanical"]);
     expect(setRoleBulk).toHaveBeenCalledWith({ document_ids: ["doc-1"], document_role: "CONTRACTOR_SUBMITTAL" });
-    expect(startReviewRun).toHaveBeenCalledWith("doc-1");
-    expect(watchRun).toHaveBeenCalledWith("run-1", "Pump datasheet rev B.pdf");
+    expect(calls).not.toContain("start"); // the engine choice and the list of what will leave come next, on the pre-start step
+    expect(watchRun).not.toHaveBeenCalled();
   });
 
   it("asks for no discipline when sign-in is off", async () => {
@@ -113,7 +110,7 @@ describe("startNewReview", () => {
     expect(outcome).toEqual({ ok: false, message: NOT_ADMIN_MESSAGE });
     expect(NOT_ADMIN_MESSAGE).toMatch(/Ask an administrator/);
     expect(phases.at(-1)).toEqual({ kind: "error", message: NOT_ADMIN_MESSAGE });
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
     expect(document).not.toHaveBeenCalled();
     expect(watchRun).not.toHaveBeenCalled();
   });
@@ -164,10 +161,10 @@ describe("startNewReview", () => {
     const phases: NewReviewPhase[] = [];
     const outcome = await startNewReview(file, (p) => phases.push(p), noWait);
 
-    expect(outcome).toEqual({ ok: true, documentId: "doc-7", runId: "run-1" });
+    expect(outcome).toEqual({ ok: true, documentId: "doc-7", filename: "Pump datasheet rev B.pdf" });
     expect(setRoleBulk).not.toHaveBeenCalled();
     expect(document).toHaveBeenCalledWith("doc-7");
-    expect(startReviewRun).toHaveBeenCalledWith("doc-7");
+    expect(calls).not.toContain("start");
     expect(phases.some((p) => p.kind === "marking")).toBe(false);
   });
 
@@ -186,13 +183,13 @@ describe("startNewReview", () => {
     });
     expect(!outcome.ok && outcome.message).toMatch(/already signed/);
     expect(reviewRuns).toHaveBeenCalledWith("doc-7");
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
     expect(setRoleBulk).not.toHaveBeenCalled();
 
     calls.length = 0;
     const went = await continueNewReview((outcome as { askFirst: AskFirst }).askFirst, () => {}, noWait);
-    expect(went).toEqual({ ok: true, documentId: "doc-7", runId: "run-1" });
-    expect(calls).toEqual(["document", "start", "watch"]);
+    expect(went).toEqual({ ok: true, documentId: "doc-7", filename: "Pump datasheet rev B.pdf" });
+    expect(calls).toEqual(["document"]); // read in, then the engine choice: nothing starts
   });
 
   it("v2.1: a duplicate submittal with a final code, or nothing changed since, asks first too", async () => {
@@ -208,7 +205,7 @@ describe("startNewReview", () => {
     readiness.mockResolvedValue({ ok: true, data: { nothing_changed: true } });
     const same = await startNewReview(file, () => {}, noWait);
     expect("askFirst" in same && same.askFirst.prior).toEqual({ kind: "nothing_changed" });
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
     readiness.mockReset();
   });
 
@@ -226,7 +223,7 @@ describe("startNewReview", () => {
     expect(outcome).toEqual({ ok: false, message: words, offerMark: { documentId: "doc-8", role: "COMPANY_STANDARD" } });
     expect(phases.at(-1)).toEqual({ kind: "error", message: words });
     expect(setRoleBulk).not.toHaveBeenCalled();
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
     expect(watchRun).not.toHaveBeenCalled();
   });
 
@@ -238,7 +235,7 @@ describe("startNewReview", () => {
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.message).toMatch(/already in the library as a document with no role set/);
     expect(setRoleBulk).not.toHaveBeenCalled();
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("a duplicate whose role cannot be read is refused", async () => {
@@ -248,7 +245,7 @@ describe("startNewReview", () => {
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome).toEqual({ ok: false, message: ROLE_UNREADABLE_MESSAGE });
     expect(setRoleBulk).not.toHaveBeenCalled();
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("a partial bulk write (the document named in failed) starts no review", async () => {
@@ -258,7 +255,7 @@ describe("startNewReview", () => {
     expect(outcome).toEqual({ ok: false, message: MARK_UNREADABLE_MESSAGE });
     expect(MARK_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
     expect(MARK_UNREADABLE_MESSAGE).not.toMatch(/administrator/);
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("stops at the time cap while the document is still being read in", async () => {
@@ -271,7 +268,7 @@ describe("startNewReview", () => {
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.message).toMatch(/taking longer than usual/);
     expect(document.mock.calls.length).toBe(6);
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("a document that cannot be read starts no review", async () => {
@@ -279,7 +276,7 @@ describe("startNewReview", () => {
     document.mockResolvedValue({ ok: true, data: { id: "doc-1", status: "no_searchable_content" } });
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome.ok).toBe(false);
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("an upload error stops before marking", async () => {
@@ -302,22 +299,7 @@ describe("startNewReview", () => {
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome).toEqual({ ok: false, message: UPLOADED_UNREADABLE_MESSAGE });
     expect(UPLOADED_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
-    expect(startReviewRun).not.toHaveBeenCalled();
-  });
-
-  it("an already-running refusal is said plainly, without the raw run id", async () => {
-    const words = "a review of this submittal is already queued or running (run-0)";
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
-    const outcome = await startNewReview(file, () => {}, noWait);
-    expect(outcome).toEqual({ ok: false, message: ALREADY_RUNNING_MESSAGE });
-    expect(watchRun).not.toHaveBeenCalled();
-  });
-
-  it("any other refusal to start is shown exactly as the API worded it", async () => {
-    const words = "The standards for this document are still being read.";
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
-    const outcome = await startNewReview(file, () => {}, noWait);
-    expect(outcome).toEqual({ ok: false, message: words });
+    expect(calls).not.toContain("start");
   });
 });
 
@@ -328,39 +310,33 @@ describe("markAsContractorSubmittal", () => {
   });
 });
 
-describe("reviewAgain", () => {
-  it("starts a review of the same document and watches it", async () => {
-    startReviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-2", submittal_filename: "Pump datasheet rev B.pdf" } });
-    expect(await reviewAgain("doc-1", "Pump datasheet rev B.pdf")).toEqual({ ok: true, runId: "run-2" });
-    expect(calls).toEqual(["start", "watch"]);
-    expect(watchRun).toHaveBeenCalledWith("run-2", "Pump datasheet rev B.pdf");
-  });
+describe("startRefusal (the words of a refused start, shown on the pre-start step and by Review all)", () => {
+  const refused = (code: string, message: string) => ({ disconnected: false as const, error: { code, message } as never });
 
   it("already running: plain words and the running review's id, never the raw API text", async () => {
     const words = "a review of this submittal is already queued or running (run-1)";
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
-    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: ALREADY_RUNNING_MESSAGE, runningRunId: "run-1" });
-    expect(watchRun).not.toHaveBeenCalled();
+    expect(await startRefusal(refused("invalid_parameter", words))).toEqual({ message: ALREADY_RUNNING_MESSAGE, runningRunId: "run-1" });
   });
 
   it("a non-administrator's 404 says only an administrator can start a review", async () => {
     me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-2", email: "sample.engineer@example.test", roles: ["engineer"] } } });
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "not found" } });
-    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: REVIEW_ADMIN_ONLY_MESSAGE, runningRunId: null });
+    expect(await startRefusal(refused("not_found", "not found"))).toEqual({ message: REVIEW_ADMIN_ONLY_MESSAGE, runningRunId: null });
     expect(REVIEW_ADMIN_ONLY_MESSAGE).toBe("Only an administrator can start a review.");
   });
 
   it("an administrator's 404 means the document could not be found or may not be read", async () => {
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "not found" } });
-    const outcome = await reviewAgain("doc-1");
-    expect(outcome).toEqual({ ok: false, message: REVIEW_DOCUMENT_UNREADABLE_MESSAGE, runningRunId: null });
+    expect(await startRefusal(refused("not_found", "not found"))).toEqual({ message: REVIEW_DOCUMENT_UNREADABLE_MESSAGE, runningRunId: null });
     expect(REVIEW_DOCUMENT_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
   });
 
   it("a 404 when who the reader is cannot be checked names both reasons", async () => {
     me.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "not found" } });
-    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: REVIEW_REFUSED_UNKNOWN_MESSAGE, runningRunId: null });
+    expect(await startRefusal(refused("not_found", "not found"))).toEqual({ message: REVIEW_REFUSED_UNKNOWN_MESSAGE, runningRunId: null });
+  });
+
+  it("any other refusal is shown exactly as the API worded it", async () => {
+    const words = "The standards for this document are still being read.";
+    expect(await startRefusal(refused("invalid_parameter", words))).toEqual({ message: words, runningRunId: null });
   });
 });
 
@@ -423,19 +399,19 @@ describe("v2.1 L2: nothing changed since the last review asks first", () => {
 });
 
 describe("v2.1 L10: markAndReview (only after the administrator confirmed)", () => {
-  it("re-marks through the existing role write, waits, starts and watches, in that order", async () => {
+  it("re-marks through the existing role write, waits, then stops at the engine choice, in that order", async () => {
     document.mockReset().mockResolvedValue({ ok: true, data: { id: "doc-8", status: "ready" } });
     const outcome = await markAndReview({ documentId: "doc-8", role: "COMPANY_STANDARD" }, "Pump datasheet rev B.pdf", () => {}, { ...noWait, isAdmin: true });
-    expect(outcome.ok).toBe(true);
+    expect(outcome).toEqual({ ok: true, documentId: "doc-8", filename: "Pump datasheet rev B.pdf" });
     expect(setRoleBulk).toHaveBeenCalledWith({ document_ids: ["doc-8"], document_role: "CONTRACTOR_SUBMITTAL" });
-    expect(calls).toEqual(["mark", "document", "start", "watch"]);
+    expect(calls).toEqual(["mark", "document"]); // read in, then the engine choice: nothing starts
   });
 
   it("a non-administrator is refused before any role write", async () => {
     const outcome = await markAndReview({ documentId: "doc-8", role: null }, "x.pdf", () => {}, { ...noWait, isAdmin: false });
     expect(outcome).toEqual({ ok: false, message: NOT_ADMIN_BEFORE_UPLOAD_MESSAGE });
     expect(setRoleBulk).not.toHaveBeenCalled();
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 });
 
@@ -457,7 +433,7 @@ describe("S1: a new review stops when the signed-in person changes", () => {
 
     expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
     expect(setRoleBulk).not.toHaveBeenCalled();
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("a sign-out once the document is read in stops before the review is started", async () => {
@@ -466,15 +442,7 @@ describe("S1: a new review stops when the signed-in person changes", () => {
     const outcome = await startNewReview(file, () => {}, noWait);
 
     expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
-    expect(startReviewRun).not.toHaveBeenCalled();
-  });
-
-  it("a sign-out just after the server took the review says it runs on, never 'stopped', and does not watch it", async () => {
-    startReviewRun.mockImplementation(async () => { generation += 1; return { ok: true, data: { review_run_id: "run-2", submittal_filename: "x.pdf" } }; });
-    const outcome = await startNewReview(file, () => {}, noWait);
-
-    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_AFTER_START_MESSAGE });
-    expect(watchRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("the confirmed re-mark stops too: no role write after a sign-out", async () => {
@@ -492,6 +460,6 @@ describe("S1: a new review stops when the signed-in person changes", () => {
     const outcome = await continueNewReview(ask, () => {}, { ...noWait, sleep: async () => { generation += 1; } });
 
     expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
-    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 });
