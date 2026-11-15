@@ -30,6 +30,7 @@ import re
 from collections import Counter, defaultdict
 
 from . import agent_review_wording as wording
+from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 
 #: rank -> (what it is, how firm). The pill is "what · how firm".
@@ -377,6 +378,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         else None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": not bool(line.get("recommendation")),
+        # P6: the priority comes from the finding (`crs_ai_words.priority_ai`); P5: the AI's own reasoning, labelled, never for a proven line
+        "priority": words.priority_ai(status, line, order) if status else "",
+        "ai_reasoning": actions.reasoning_part(line, status or "", "").strip(),
         "group_key": group_key(
             SOURCE_AI_REVIEW,
             rank,
@@ -503,6 +507,8 @@ def rule_point(
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": strength != "should",
         "strength_unknown": strength == "unknown",
+        "priority": words.priority(status, {}, words.ORDER_AI_NOT_MET),  # the rule check's own vocabulary (`crs_normal.decorate`)
+        "ai_reasoning": "",
         "group_key": group_key(
             SOURCE_RULE_CHECK,
             rank,
@@ -525,13 +531,23 @@ def rule_point(
     }
 
 
+#: Priority words, worst first (a point with none sorts after the ones that have one).
+PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+
+
 def order_points(points: list[dict]) -> list[dict]:
-    """Worst first: by rank, then a 'shall' rule before a 'should' rule, then the order they came in (stable)."""
+    """Worst first: by rank (proven Fail, two-reader not met, AI not met, question, met), then by priority (High first), then a 'shall' rule
+    before a 'should' rule, then the order they came in (stable)."""
     return [
         p
         for _i, p in sorted(
             enumerate(points),
-            key=lambda ip: (ip[1]["rank"], 0 if ip[1].get("shall", True) else 1, ip[0]),
+            key=lambda ip: (
+                ip[1]["rank"],
+                PRIORITY_ORDER.get(ip[1].get("priority") or "", 3),
+                0 if ip[1].get("shall", True) else 1,
+                ip[0],
+            ),
         )
     ]
 

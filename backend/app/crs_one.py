@@ -55,17 +55,19 @@ FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
 ISSUED_NAME = "crs-contractor-one.xlsx"
+#: The AI reviewer's own reasoning, labelled as its view (never a code-proven line's). The WHOLE reasoning: it is never cut, so no mark and no Full text entry are needed.
+REASONING_COLUMN = "The AI reviewer's reasoning"
 COMMENT_COLUMNS = (
-    "Comment", "Pill", "Class", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
-    "What the paper shows", "What the rule requires", "Reason", "Decisions", "Note", "Full text",
+    "Comment", "Pill", "Class", "Priority", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
+    "What the paper shows", REASONING_COLUMN, "What the rule requires", "Reason", "Decisions", "Note", "Full text",
 )  # fmt: skip
-COMMENT_WIDTHS = (9, 26, 14, 30, 8, 14, 52, 48, 48, 48, 36, 22, 34, 60)
+COMMENT_WIDTHS = (9, 26, 14, 10, 30, 8, 14, 52, 48, 48, 48, 48, 36, 22, 34, 60)
 TEAM_COLUMNS = (
-    "No", "Comment", "Source", "Pill", "Class", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
-    "What the paper shows", "What the rule requires", "Reason", "Decision", "Group", "First reader", "Second reader",
+    "No", "Comment", "Source", "Pill", "Class", "Priority", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
+    "What the paper shows", REASONING_COLUMN, "What the rule requires", "Reason", "Decision", "Group", "First reader", "Second reader",
     "Agreed", "Full text",
 )  # fmt: skip
-TEAM_WIDTHS = (6, 9, 16, 22, 14, 30, 7, 24, 12, 48, 48, 48, 36, 22, 18, 20, 20, 10, 60)
+TEAM_WIDTHS = (6, 9, 16, 22, 14, 10, 30, 7, 24, 12, 48, 48, 48, 48, 36, 22, 18, 20, 20, 10, 60)
 CONTRACTOR_COLUMNS = (
     "Item No",
     "Document Name",
@@ -209,9 +211,9 @@ def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list,
         point.get("rule_book") or ""
     )
     cells = [
-        n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""),
+        n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""), point.get("priority") or None,
         point.get("name"), point.get("page"), books or None, point.get("clause"), shown["action"] or None,
-        shown["paper_shows"], shown["requires"], shown["reason"] or None, decision_words(point), group_words(point) or None,
+        shown["paper_shows"], point.get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, decision_words(point), group_words(point) or None,
         first, second, agreed, "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(c) for c in cells], cut_any
@@ -564,6 +566,12 @@ def comment_full_texts(c: dict) -> dict[str, str]:
     return out
 
 
+def highest_priority(points: list[dict]) -> str:
+    """The highest Priority word of a comment's points (High, then Medium, then Low); "" when none of them has one."""
+    words_ = [p.get("priority") for p in points if p.get("priority")]
+    return min(words_, key=lambda w: rp.PRIORITY_ORDER.get(w, 3)) if words_ else ""
+
+
 def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
     a shortened cell keeps its whole text in the column Full text."""
@@ -583,9 +591,9 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     )
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
     cells = [
-        c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), c["name"], c["n_points"],
+        c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
         ", ".join(str(x) for x in c["pages"]) or None, shown["clauses"] or None, shown["action"] or None,
-        shown["paper_shows"], shown["requires"], shown["reason"] or None, f"{decided} of {len(ms)} decided",
+        shown["paper_shows"], c["strongest"].get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, f"{decided} of {len(ms)} decided",
         note.strip(" ;") or None, "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(x) for x in cells], cut_n

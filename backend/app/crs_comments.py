@@ -145,6 +145,16 @@ def group(points: list[dict]) -> list[dict]:
                 "disagree": disagree,
             }
         )
+    # WORST FIRST (U5): by the comment's own rank (its strongest point: proven Fail, two-reader not met, AI not met, question, met), then
+    # by its highest priority, then the order its first point came in; numbers follow the final order.
+    def worst(i_c: tuple[int, dict]) -> tuple[int, int, int]:
+        ms = members[i_c[1]["key"]]
+        top = min((rp.PRIORITY_ORDER.get(p.get("priority") or "", 3) for p in ms), default=3)
+        return (i_c[1]["rank"], top, i_c[0])
+
+    out = [c for _i, c in sorted(enumerate(out), key=worst)]
+    for number, c in enumerate(out, start=1):
+        c["number"] = number
     return out
 
 
