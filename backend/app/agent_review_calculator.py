@@ -210,6 +210,41 @@ def _numeric_base(
     }  # fmt: skip
 
 
+#: Words that say WHICH value of a quantity a column or a rule means. A rule that names one is compared only with a value whose label or column header names the same.
+CONDITION_WORDS = frozenset(
+    {
+        "design",
+        "operating",
+        "normal",
+        "maximum",
+        "minimum",
+        "test",
+        "rated",
+        "max",
+        "min",
+    }
+)
+
+
+def _condition_words(text: object) -> set[str]:
+    return {
+        w
+        for w in _fold(str(text or "").replace("_", " ")).split()
+        if w in CONDITION_WORDS
+    }
+
+
+def column_not_the_rules(base: Mapping, cell: table_cell.Cell | None) -> str | None:
+    """Plain words when the value sits in a column or under a label that does not carry the word the rule asks for (design, operating, normal ...); None when it does,
+    when the rule names none, or when the value has no cell."""
+    asked = _condition_words(base.get("rule_field"))
+    if not (asked and cell):
+        return None
+    if asked & (_condition_words(cell.header) | _condition_words(base.get("field"))):
+        return None
+    return f"the table column is {cell.header or 'not named'}; the rule asks for {' / '.join(sorted(asked))}"
+
+
 def numeric_line(
     item: Mapping,
     requirement: Mapping,
@@ -238,6 +273,11 @@ def numeric_line(
         )
     if fact.get("is_blank"):
         return _undecided(base, "the value on the paper is blank", "blank_value")
+    # two readings in one tag, named with the table cell beside the label: a question, never a value
+    if fact.get("reading_conflict"):
+        return _undecided(base, str(fact["reading_conflict"]), "reading_conflict")
+    if (why := column_not_the_rules(base, cell)) is not None:
+        return _undecided(base, why, "column_not_the_rules")
     base["limit"], base["observed"] = got.get("limit"), got.get("observed")
     reason = str(got.get("rationale") or "")[:200]
     status = got.get("status")

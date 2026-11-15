@@ -3,10 +3,10 @@
   * `group_key` / `groups`: a sheet of several items (one tag per page, or two tags on one page) is checked PER TAG: facts are grouped by their tag, and where no
     tag can be told by the page, one group is one page. A check and a numeric pair run inside one group, so "two different values of the same field" can
     only be raised inside one group, and the line names its tag and page.
-  * `settle`: a value held as "conflict" (`validation_state`) is looked at again by code. (1) The conflicting readings all stand in OTHER groups (the same field on
-    another tag's page): inside its own group there is no conflict, so the hold is lifted and the line says why. (2) Two readings disagree INSIDE one group: the
-    stored table is asked (`table_cell`): exactly one reading is a cell of the label's row, and its number is the cell's: that reading is kept with the cell as its
-    quote and the other is recorded as discarded; anything else leaves the hold. Never chosen by a model's confidence. Only the step's copy of the fact changes.
+  * `settle`: a value held as "conflict" (`validation_state`) is looked at again by code. (1) Every other reading of the field stands under ANOTHER KNOWN tag (both tagged,
+    the identifiers they name do not overlap): inside its own tag there is no conflict, so the hold is lifted and the line says why. A fact with no tag, or under a
+    header that overlaps, never lifts a hold. (2) Two readings disagree inside one tag: they are NEVER settled into a value (the first value cell after a label reads no
+    column header); at most the fact carries `reading_conflict`, the words naming both readings and the table cell beside the label, and the line is a question.
   * `cells_of`: the one cell of each fact's value on its page's stored tables, or the part of a compound row, with the plain words of the split.
 Pure but for the facts and stored table rows it is given: no database, no model, no network. No document text is logged.
 """
@@ -14,6 +14,7 @@ Pure but for the facts and stored table rows it is given: no database, no model,
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 
 from . import numparse, table_cell
@@ -45,28 +46,52 @@ def _same_text(a: object, b: object) -> bool:
     return str(a or "").strip() == str(b or "").strip()
 
 
+_TAG_ID = re.compile(r"[A-Za-z0-9]*\d[A-Za-z0-9\-/]*")
+
+
+def _tag_ids(fact: Mapping) -> frozenset[str]:
+    """The identifiers a tag names (tokens with a digit: "PSV-4301"), else the folded tag itself; empty when the fact has no tag."""
+    tag = str(fact.get("equipment_tag") or "").strip()
+    if not tag:
+        return frozenset()
+    ids = {t.lower() for t in _TAG_ID.findall(tag)}
+    return frozenset(ids or {numparse.fold(tag)})
+
+
+def other_tags(a: Mapping, b: Mapping) -> bool:
+    """The two facts stand under DIFFERENT tags, both known: each has a tag and the identifiers they name do not overlap. A fact with no tag, or a header that
+    names a tag the other also names, is never "another tag": a reading conflict with it stays a conflict."""
+    ta, tb = _tag_ids(a), _tag_ids(b)
+    return bool(ta and tb and not (ta & tb))
+
+
 def settle(
     fact: Mapping, facts: Sequence[Mapping], tables: Mapping[int, list]
 ) -> tuple[dict, str | None]:
-    """(the fact the step uses, the plain words of what was done or None). A fact not held, or confirmed by an engineer, is returned as it is."""
+    """(the fact the step uses, the plain words of a LIFT or None). A fact not held, or confirmed by an engineer, is returned as it is.
+    A hold is LIFTED only when every other reading of the field stands under another KNOWN tag (`other_tags`: both tagged, different identifiers), and there is at
+    least one; a tag-less fact, or one under a header that overlaps, never lifts it. Two readings inside one group are never settled into a value: at most the
+    fact carries `reading_conflict`, the words naming both readings and the table cell beside the label (`_by_cell`), and the hold stays."""
     if str(fact.get("validation_state") or "").lower() != HELD or fact.get(
         "confirmed_by"
     ):
         return dict(fact), None
-    mine, box = group_key(fact), _box(fact)
+    box = _box(fact)
     by_id = {f.get("id"): f for f in facts}
+    label = numparse.fold(str(fact.get("field_label") or ""))
     rivals = [by_id[i] for i in box.get("conflicts_with") or [] if i in by_id]
-    tags_of_page: dict[object, set[str]] = {}
-    for f in facts:
-        tags_of_page.setdefault(f.get("page"), set()).add(group_key(f))
-    other_pages = [p for p in box.get("conflict_pages") or [] if p != fact.get("page")]
-    in_group = [r for r in rivals if group_key(r) == mine] + [
-        p for p in other_pages if mine in tags_of_page.get(p, set())
+    other_pages = {p for p in box.get("conflict_pages") or [] if p != fact.get("page")}
+    rivals += [
+        f
+        for f in facts
+        if f.get("page") in other_pages
+        and numparse.fold(str(f.get("field_label") or "")) == label
+        and f.get("id") not in {r.get("id") for r in rivals}
     ]
-    if not in_group and (rivals or other_pages):
+    if rivals and all(other_tags(fact, r) for r in rivals):
         words = "the other readings of this field stand under other tags, so it is not a conflict within this tag"
         return {**fact, "validation_state": None, "settled_note": words}, words
-    return _by_cell(fact, [r for r in rivals if group_key(r) == mine], tables)
+    return _by_cell(fact, [r for r in rivals if not other_tags(fact, r)], tables), None
 
 
 def _figure_in(cell: table_cell.Cell, raw: object) -> bool:
@@ -80,10 +105,9 @@ def _figure_in(cell: table_cell.Cell, raw: object) -> bool:
     return want is not None and nums == [want]
 
 
-def _by_cell(
-    fact: Mapping, rivals: list[Mapping], tables: Mapping[int, list]
-) -> tuple[dict, str | None]:
-    """Two readings in one group: keep the one whose text is a cell of the label's row, when exactly one is and its number is the cell's."""
+def _by_cell(fact: Mapping, rivals: list[Mapping], tables: Mapping[int, list]) -> dict:
+    """Two readings of one value: the fact WITH, when exactly one reading is a cell of the label's row, the words naming both readings and that cell. The hold
+    stays: the cell is the first value cell after the label, with no column header read, so it settles nothing by itself (no Pass and no Fail from it)."""
     readings = [fact, *rivals]
     located = []
     for r in readings:
@@ -96,11 +120,11 @@ def _by_cell(
         if cell is not None and _figure_in(cell, r.get("raw_value")):
             located.append(r)
     if len(located) != 1 or not rivals:
-        return dict(fact), None
+        return dict(fact)
     kept = located[0]
-    dropped = [str(r.get("raw_value")) for r in readings if r is not kept]
-    words = f"two readings disagreed; the table row holds {kept.get('raw_value')}, so that reading was kept and {', '.join(dropped)} was discarded"
-    return {**kept, "validation_state": None, "settled_note": words}, words
+    others = " and ".join(str(r.get("raw_value")) for r in readings if r is not kept)
+    words = f"two readings: {kept.get('raw_value')} and {others}; the table cell beside the label holds {kept.get('raw_value')}; confirm"
+    return {**fact, "reading_conflict": words}
 
 
 def cell_of(

@@ -242,40 +242,81 @@ def test_a_hold_that_is_only_other_tags_values_is_lifted_and_says_why():
     )
 
 
+def test_the_lift_needs_every_rival_under_another_KNOWN_tag():
+    mine = held(1, "Rate", "5", "T1", conflict_pages=[1, 2])
+    for rivals, why in (
+        ([f(2, "Rate", "6")], "a tag-less continuation page"),
+        ([f(2, "Rate", "6", "T1")], "the same tag"),
+        ([f(2, "Rate", "6", "T1 and T2")], "a header that names the same tag"),
+        (
+            [f(2, "Rate", "6", "T2"), f(3, "Rate", "7")],
+            "one rival under another tag and one tag-less",
+        ),
+        ([], "no rival to compare with"),
+    ):
+        mine = held(1, "Rate", "5", "T1", conflict_pages=[1, 2, 3])
+        got, words = cells.settle(mine, [mine, *rivals], {})
+        assert got["validation_state"] == "conflict" and words is None, why
+    untagged = held(1, "Rate", "5", None, conflict_pages=[1, 2])
+    other = f(2, "Rate", "6", "T2")
+    assert (
+        cells.settle(untagged, [untagged, other], {})[0]["validation_state"]
+        == "conflict"
+    )  # my own fact has no tag
+    two = held(1, "Rate", "5", "T1", conflict_pages=[1, 2])
+    assert (
+        cells.settle(two, [two, f(2, "Rate", "6", "T2 and T3")], {})[0][
+            "validation_state"
+        ]
+        is None
+    )  # another tag's own header naming two tags is still another tag
+
+
+def test_two_tags_of_one_header_overlap_but_two_headers_without_a_shared_identifier_do_not():
+    a = {"equipment_tag": "PSV-4301 A/B & PSV-3301 A/B"}
+    assert not cells.other_tags(a, {"equipment_tag": "PSV-3301 A/B"})
+    assert cells.other_tags(a, {"equipment_tag": "PSV-4303 A/B & PSV-3303 A/B"})
+    assert not cells.other_tags(a, {"equipment_tag": None}) and not cells.other_tags(
+        {}, a
+    )
+
+
 def test_a_hold_with_a_rival_in_its_own_group_is_not_lifted_without_a_cell():
     a = held(1, "Rate", "5", "T1", conflicts_with=["rival"])
     rival = {**f(1, "Rate", "6", "T1"), "id": "rival", "extraction_method": "model"}
     got, words = cells.settle(a, [a, rival], {})
-    assert got["validation_state"] == "conflict" and words is None
+    assert (
+        got["validation_state"] == "conflict"
+        and words is None
+        and "reading_conflict" not in got
+    )
 
 
-def test_two_readings_in_one_group_are_settled_by_the_cell_that_holds_exactly_one_of_them():
+def test_two_readings_in_one_tag_are_never_settled_into_a_value_at_most_a_question_names_both():
     a = held(1, "Rate", "5", "T1", conflicts_with=["rival"])
     rival = {**f(1, "Rate", "6", "T1"), "id": "rival", "extraction_method": "model"}
-    tables = {1: [tbl(["Rate", "", "5 bar"])]}
-    got, words = cells.settle(a, [a, rival], tables)
+    got, words = cells.settle(a, [a, rival], {1: [tbl(["Rate", "", "5 bar"])]})
     assert (
-        got["raw_value"] == "5"
-        and got["validation_state"] is None
-        and "kept" in words
-        and "6 was discarded" in words
+        words is None
+        and got["validation_state"] == "conflict"
+        and got["raw_value"] == "5"
+    )  # the hold stays, the value is not chosen
+    assert (
+        got["reading_conflict"]
+        == "two readings: 5 and 6; the table cell beside the label holds 5; confirm"
     )
-    other = {1: [tbl(["Rate", "", "6 bar"])]}
-    kept, _ = cells.settle(a, [a, rival], other)
-    assert kept["raw_value"] == "6" and kept["id"] == "rival"
-    neither = {1: [tbl(["Rate", "", "9 bar"])]}
-    assert cells.settle(a, [a, rival], neither)[0]["validation_state"] == "conflict"
-    both = {1: [tbl(["Rate", "", "5 bar"], ["Rate", "", "6 bar"])]}
+    other, _ = cells.settle(a, [a, rival], {1: [tbl(["Rate", "", "6 bar"])]})
     assert (
-        cells.settle(a, [a, rival], both)[0]["validation_state"] == "conflict"
-    )  # two cells: ambiguous, the hold stays
-
-
-def test_a_compound_or_ambiguous_cell_never_settles_a_hold():
-    a = held(1, "Rate", "5", "T1", conflicts_with=["rival"])
-    rival = {**f(1, "Rate", "6", "T1"), "id": "rival"}
-    compound = {1: [tbl(["Rate", "", "5 / 6 bar"])]}
-    assert cells.settle(a, [a, rival], compound)[0]["validation_state"] == "conflict"
+        other["reading_conflict"]
+        == "two readings: 6 and 5; the table cell beside the label holds 6; confirm"
+        and other["raw_value"] == "5"
+    )
+    for rows in (
+        [tbl(["Rate", "", "9 bar"])],
+        [tbl(["Rate", "", "5 bar"], ["Rate", "", "6 bar"])],
+        [tbl(["Rate", "", "5 / 6 bar"])],
+    ):
+        assert "reading_conflict" not in cells.settle(a, [a, rival], {1: rows})[0]
 
 
 def test_an_engineer_confirmed_fact_and_other_states_are_left_alone():
@@ -320,3 +361,25 @@ def test_a_blank_fact_or_a_page_with_no_table_has_no_cell():
         is None
     )
     assert cells.cell_of(f(1, "Rate", "5", "T1"), {}) is None
+
+
+# ---------------------------------------------------------------------------------------- the column header of a value cell (R48m 5)
+
+
+def test_the_header_over_a_value_cell_is_the_nearest_text_above_in_its_own_column():
+    rows = tbl(["", "Normal", "Design"], ["Pressure", "10", "12"])
+    assert T.header_of(rows, 1, 2) == "Design" and T.header_of(rows, 1, 1) == "Normal"
+    assert T.header_of(tbl(["Pressure", "10"]), 0, 1) is None  # nothing above
+    assert (
+        T.header_of(tbl(["", "12"], ["Pressure", "10"]), 1, 1) is None
+    )  # only a number above: not a header
+
+
+def test_the_cell_carries_its_header_in_its_reference():
+    rows = tbl(["", "Normal", "Design"], ["Pressure", "", "12"])
+    got, _ = T.locate([rows], page=1, label="Pressure", value_text="12")
+    assert got.header == "Design" and got.ref()["header"] == "Design"
+    crossed, _ = T.locate_column(
+        [tbl(["", "T1", "T2"], ["Rate", "5", "6"])], page=1, label="Rate", header="T2"
+    )
+    assert crossed.header == "T2"

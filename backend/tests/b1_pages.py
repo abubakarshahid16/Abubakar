@@ -16,6 +16,10 @@ def install(monkeypatch) -> dict:
     monkeypatch.setattr(
         proof, "PAGE_SOURCE", [lambda doc, page: pages.get((doc, page))]
     )
+    # a test gives a page its stored table rows under ("tables", doc, page)
+    monkeypatch.setattr(
+        proof, "TABLE_SOURCE", [lambda doc, page: pages.get(("tables", doc, page), [])]
+    )
     real_numeric, real_checklist = calc.numeric_line, calc.checklist_lines
 
     def numeric_line(item, requirement, fact, *, page_text=None, document_id=DOC, **kw):

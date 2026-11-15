@@ -144,7 +144,9 @@ def code_question_key(line: dict) -> str | None:
     ):
         if part:
             why = why.replace(part, " ")
-    why = re.sub(r"[0-9]+(?:\s*[-,]\s*[0-9]+)*", " ", why)
+    why = re.sub(
+        r"\bpages?\s+[0-9]+(?:\s*[-,]\s*[0-9]+)*|\bp\.\s*[0-9]+", " ", why
+    )  # only the page references go: the numbers that make two questions different stay
     return " ".join(why.split()) or None
 
 

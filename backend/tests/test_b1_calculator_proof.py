@@ -779,3 +779,125 @@ def test_11_the_presence_counts_say_how_many_were_stated_and_how_many_are_missin
         "presence_stated": 0,
         "presence_missing": 0,
     }
+
+
+# ---------------------------------------------------------------------------------------- 14 (R48m 4): the exit's cell test is ONE stored row
+
+
+def _cell_line(_pages, rows):
+    from app import table_cell
+
+    cell = table_cell.Cell(1, 0, 0, 0, 1, "Over pressure %", "21")
+    _pages[("doc1", 1)] = "Over pressure %\n21\nOther\n22"
+    _pages[("tables", "doc1", 1)] = rows
+    got = calc.checklist_lines(
+        [_result("PSV-16")], page_texts={1: "Over pressure %\n21"}, cells={"f9": cell}
+    )
+    _pages[("doc1", 1)] = (
+        "Over pressure %\n21\nOther\n22"  # the checklist builder registered its own page text
+    )
+    return got[0]
+
+
+def test_14_a_cell_line_is_proven_when_its_label_and_value_stand_in_the_one_stored_row(
+    _pages,
+):
+    ln = _cell_line(_pages, [[["Over pressure %", "21"]]])
+    assert ln["verdict"] == "Pass" and ln["cell_ref"] == {
+        "page": 1,
+        "table": 0,
+        "row": 0,
+        "label_col": 0,
+        "value_col": 1,
+        "header": None,
+    }
+    assert exit_of(ln, ln)["verdict_class"] == "Proven by code"
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            [["Over pressure %", "x"], ["y", "21"]]
+        ],  # the label and the value on different rows
+        [[["Over pressure %"], ["21"]]],  # the row has no value cell
+        [[["21", "Over pressure %"]]],  # the value before the label
+        [[["Other", "22"]]],  # the named row holds other cells
+        [],  # no table at all
+    ],
+)
+def test_14_a_cell_line_whose_row_is_not_on_the_stored_tables_is_not_proven(
+    _pages, rows
+):
+    ln = _cell_line(_pages, [[["Over pressure %", "21"]]])
+    assert exit_of(ln, ln)["verdict_class"] == "Proven by code"
+    _pages[("tables", "doc1", 1)] = rows  # what the store really holds
+    assert (
+        ln["quotes_checked"]["paper"] is True
+        and exit_of(ln, ln)["verdict_class"] != "Proven by code"
+    )
+
+
+# ---------------------------------------------------------------------------------------- 15 (R48m 5): a rule that asks for the design / operating / normal value meets that column
+
+
+def _cell(header, label="Noise level"):
+    from app import table_cell
+
+    return table_cell.Cell(1, 0, 0, 0, 1, label, "85 dB(A)", None, header)
+
+
+@pytest.mark.parametrize(
+    "rule_field, label, header, ok",
+    [
+        (
+            "design_pressure",
+            "Pressure",
+            "Normal",
+            False,
+        ),  # the rule asks for design, the column is Normal
+        ("design_pressure", "Pressure", "Design", True),
+        ("design_pressure", "Design pressure", None, True),  # the label carries it
+        (
+            "design_pressure",
+            "Design pressure",
+            "Normal",
+            True,
+        ),  # the label carries it: the label wins
+        (
+            "operating_pressure",
+            "Pressure",
+            None,
+            False,
+        ),  # no header, no word in the label
+        ("pressure", "Pressure", "Normal", True),  # the rule names no condition
+        ("set_pressure", "Pressure", "Revision B", True),
+    ],
+)
+def test_15_the_value_is_compared_only_where_its_label_or_column_carries_the_rules_word(
+    rule_field, label, header, ok
+):
+    got = calc.column_not_the_rules(
+        {"rule_field": rule_field, "field": label}, _cell(header, label)
+    )
+    assert (got is None) is ok
+    if not ok:
+        assert got.startswith("the table column is ") and "the rule asks for" in got
+
+
+def test_15_no_cell_no_question_and_the_line_is_a_query_with_the_words():
+    assert (
+        calc.column_not_the_rules(
+            {"rule_field": "design_pressure", "field": "Pressure"}, None
+        )
+        is None
+    )
+    item = {"field_roles": ["design_noise"], "rule_label": {"tier": "AI approved"}}
+    it = {**ITEM, **item, "question": "The design noise shall not exceed 90 dB(A)."}
+    f = fact("85")
+    ln = calc.numeric_line(it, calc.requirement_from_item(it), f, submittal_facts=[f], page_text="Noise level 85 dB(A)", clause_quote=it["question"], clause_text=it["question"], page_count=3, cell=_cell("Normal"))  # fmt: skip
+    assert (
+        ln["verdict"] == "Query"
+        and ln["reason_code"] == "column_not_the_rules"
+        and ln["why"] == "the table column is Normal; the rule asks for design"
+    )

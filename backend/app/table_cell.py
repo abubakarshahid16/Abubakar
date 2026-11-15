@@ -32,6 +32,8 @@ class Cell:
     value_text: str
     #: set for a compound row: which part of the label and the figure this value is, in plain words
     split: str | None = None
+    #: the text of the column header over the value cell (the nearest text cell above it in its column), when there is one
+    header: str | None = None
 
     @property
     def quote(self) -> str:
@@ -45,7 +47,24 @@ class Cell:
             "row": self.row,
             "label_col": self.label_col,
             "value_col": self.value_col,
+            "header": self.header,
         }
+
+
+_FIGURE = re.compile(
+    r"[\d\s.,+\-/%()]+"
+)  # a cell that is only a figure is not a header
+
+
+def header_of(table: Sequence[Sequence[str]], row: int, col: int) -> str | None:
+    """The column header over a value cell: the nearest cell ABOVE it, in its own column, that holds words (a figure alone is no header; "Normal", "Design", "Revision B"). None when
+    there is none (a sheet whose columns carry no header)."""
+    for r in range(row - 1, -1, -1):
+        cells = table[r]
+        text = str(cells[col]).strip() if col < len(cells) else ""
+        if text and not _FIGURE.fullmatch(text):
+            return text
+    return None
 
 
 def tables_of(tables_json: str | None) -> list[list[list[str]]]:
@@ -89,7 +108,17 @@ def locate(
                     continue
                 label_seen = True
                 found += [
-                    Cell(page, ti, ri, i, j, str(c).strip(), str(row[j]).strip())
+                    Cell(
+                        page,
+                        ti,
+                        ri,
+                        i,
+                        j,
+                        str(c).strip(),
+                        str(row[j]).strip(),
+                        None,
+                        header_of(table, ri, j),
+                    )
                     for j in range(i + 1, len(row))
                     if _fold(row[j]) == want_value and _gap_empty(row, i, j)
                 ]
@@ -154,6 +183,8 @@ def locate_column(
                         j,
                         str(table[ri][i]).strip(),
                         str(table[ri][j]).strip(),
+                        None,
+                        header_of(table, ri, j),
                     )
                 )
     if len(found) == 1:
@@ -273,6 +304,7 @@ def locate_compound(
                                             str(c).strip(),
                                             str(row[j]).strip(),
                                             got[3],
+                                            header_of(table, ri, j),
                                         ),
                                         got[1],
                                         got[2],
