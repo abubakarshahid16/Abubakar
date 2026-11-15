@@ -1,5 +1,5 @@
-"""Small pure helpers of the AI reviewer job (moved unchanged out of `agent_review_jobs`, file size): the run's stop sentence and
-the equipment facts of the rule block. No I/O."""
+"""Small helpers of the AI reviewer job (moved out of `agent_review_jobs`, file size): the run's stop sentence, the equipment facts
+of the rule block, and `reusable_scope_run` (one read-only database query)."""
 
 from __future__ import annotations
 

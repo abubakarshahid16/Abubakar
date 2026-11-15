@@ -212,3 +212,41 @@ def test_a_copy_with_no_rule_check_holding_a_scope_cannot_be_checked_exit_2(
     code = _script().main(["--db", str(path), "--paper", world["sub"]])
     out = capsys.readouterr().out
     assert code == 2 and "no finished rule check" in out and "FAIL" not in out
+
+
+def test_several_finished_rule_checks_with_scope_decisions_the_newest_wins(
+    world, monkeypatch
+):
+    from app import scope_ledger
+
+    _copy_world(
+        world, monkeypatch
+    )  # one finished rule check with a scope decision already
+    scope_ledger.ensure_schema()
+    ids = []
+    for _ in range(2):
+        with db.connect() as c:
+            c.execute("UPDATE jobs SET state = 'done'")
+            c.execute("UPDATE review_runs SET status = 'completed'")
+        run_id, _j = _enqueue(world)
+        ids.append(run_id)
+    with db.connect() as c:
+        c.execute("UPDATE review_runs SET status = 'completed'")
+        allr = [r["id"] for r in c.execute("SELECT id FROM review_runs")]
+        for n, rid in enumerate(
+            allr
+        ):  # created_at rises with n; every run holds a scope decision
+            c.execute(
+                "UPDATE review_runs SET created_at = ? WHERE id = ?",
+                (f"2026-11-1{n}T00:00:00Z", rid),
+            )
+            c.execute(
+                "INSERT OR IGNORE INTO review_scope_decisions(review_run_id, requirement_id, state, reason_code, reason, decided_by, created_at)"
+                " VALUES (?, 'r1', 'applies', 'x', 'x', 't', '2026-11-15')",
+                (rid,),
+            )
+        c.execute("UPDATE jobs SET state = 'done'")
+        assert len(allr) >= 3
+        c.commit()
+        got = agent_review_jobs.reusable_scope_run(c, world["sub"])
+    assert got == allr[-1]
