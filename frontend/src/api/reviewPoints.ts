@@ -131,6 +131,11 @@ export interface PointsListing {
   contractor_copy?: { kind: string | null; words: string };
   /** Rule books the review found only while it ran and did not send (not on the list shown before the start). */
   found_during_review?: number;
+  /** P2: the comments (one per field) the CRS file shows, from the same grouping function; every point is in exactly one comment or removed. */
+  comments?: { number: number; name: string | null; n_points: number; pill: string; pages: number[]; member_ids: string[]; disagree: boolean }[];
+  comment_count?: number;
+  /** The three counts of the last review (page, database, file rows). null when none is stored; ok false means the page must say what is missing. */
+  completeness?: { ok: boolean; page: number; database: number; team_rows: number; contractor_rows: number; missing: string[]; sentence: string | null; checked_at: string } | null;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };

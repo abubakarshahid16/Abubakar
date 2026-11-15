@@ -27,6 +27,16 @@ rules (4 and 5); never reading or printing the key (2); the client's register st
 before a live change. This section does not change the privacy and safety rules 1 to 5 or #806 (rule 1 says what may leave the
 machine): those keep their own approval line above; the owner changes them himself, on #1584.
 
+## Completeness is a hard rule (owner, 15 Nov 2026)
+
+"Completeness is now a hard rule, like "0 wrong".
+1. After every review, code compares three counts: points on the page, lines in the database, rows in each CRS file. If they differ, the download is refused and the page says what is missing.
+2. Every CRS file states on its first sheet: "N points reviewed, N in this file".
+3. No text is ever cut without a visible mark and the full text beside it.
+4. After every live update you download the CRS for the valve and the pump and count the rows yourself, before you say "live"."
+
+How it is built: `backend/app/crs_completeness.py` is the one home of the comparison (it runs after every review ends, the result is stored with the run, and it runs again at every download: a difference answers 409 with a plain sentence naming the missing points). The contractor file holds fewer rows by design, so it states "N points reviewed, M in this file, K not issued: <reasons with counts>" and code checks M + K = N. `scripts/crs_count_check.py <run>` prints the counts and exits 1 on any difference.
+
 ## One reviewer only (owner, 12 Nov 2026)
 
 1. The AI reviewer is the reviewer, on Claude or on the local model. Same design, same steps, same sheet. Only the engine changes.

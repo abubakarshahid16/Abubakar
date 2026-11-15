@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from . import crs_comments, crs_completeness
 from . import (
     evidence_boxes,
     review_code_proposal,
@@ -279,7 +280,8 @@ def _names(ids) -> dict[str, str]:
     }
 
 
-def assemble(paper_id: str, scope) -> dict:
+def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
+    """(the listing, the RAW points with their private keys, the facts the one-CRS export needs). `assemble` is the listing alone."""
     conn = connect()
     rc_run, ai_run = runs_of_paper(conn, paper_id)
     readable = frozenset(scope.allowed_document_ids)
@@ -330,7 +332,7 @@ def assemble(paper_id: str, scope) -> dict:
         if (rc_run or ai_run)
         else None
     )
-    return {
+    listing = {
         "paper_document_id": paper_id,
         "runs": {"rule_check": rc_run, "ai_review": ai_run},
         "points": [rp.public(p) for p in points],
@@ -348,6 +350,20 @@ def assemble(paper_id: str, scope) -> dict:
         "contractor_copy": _contractor_copy(conn, ai_run),
         "found_during_review": _found_during_review(conn, rc_run, ai_run),
     }
+    grouped = crs_comments.group(points)  # P2: the SAME function the CRS file uses, so the page and the file show the same comments
+    listing["comments"] = [crs_comments.public(c) for c in grouped]
+    listing["comment_count"] = len(grouped)
+    listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
+    return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
+
+
+def assemble(paper_id: str, scope) -> dict:
+    return _assemble(paper_id, scope)[0]
+
+
+def export_listing(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
+    """The listing, the raw points (private keys kept) and the facts for the ONE CRS file (`crs_one`): the same list the page reads."""
+    return _assemble(paper_id, scope)
 
 
 def _found_during_review(conn, *run_ids) -> int:
@@ -443,34 +459,6 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     )
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
-
-
-def archive_ai_contractor_copy(rule_check_run_id: str, *, actor: str) -> dict | None:
-    """At signing: keep the exact bytes of the AI review's contractor copy (with the engineer's decisions and added points in it), like
-    the rule check's own copy (`crs_issue.archive`: a file of its own and a record with its checksum, never rewritten). None when the
-    paper has no finished AI review. After this, no later decision changes it: `decided_ai_sheet` writes a separate working file."""
-    from . import agent_review_jobs, crs_issue
-    from .db import connect as _connect
-
-    conn = _connect()
-    row = conn.execute(
-        "SELECT submittal_document_id FROM review_runs WHERE id = ?",
-        (rule_check_run_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    _rc, ai = runs_of_paper(conn, row["submittal_document_id"])
-    if not ai:
-        return None
-    folder = agent_review_jobs.run_dir(ai)
-    path = decided_ai_sheet(ai, row["submittal_document_id"], "contractor", folder) or (
-        folder / "crs-contractor.xlsx"
-    )
-    if not path.is_file():
-        return None
-    return crs_issue.archive(
-        ai, path.read_bytes(), "ai-review-contractor.xlsx", actor=actor
-    )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:
