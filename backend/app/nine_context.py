@@ -5,8 +5,10 @@ register, a contract). A model reads each allowed paper in windows and may only 
 quote. Code finds the quote on that page of that paper; a name or override whose quote is not found is dropped and counted.
 The note always says what was not available, filled by code, never by the model.
 
-No model is called here: `ask` is an adapter supplied by the job over B1's seam (`nine_call`). A failed call leaves what code
-found. Pure: no database, no network, no document names in this file.
+No model is called directly: `seam_ask` builds the one adapter over B1's seam (`nine_call.ask`): a project paper goes as a stored-text
+Block (kind, document id, pages, NO text; the seam loads and gates it per document) and the question is a registered template. The
+note's parts go on as per-source derived blocks of short tokens (`context_blocks`), never a sentence of a document. A failed call
+leaves what code found. No database, no network, no document names in this file.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-from . import agent_general_review, applicability
+from . import agent_general_review, applicability, nine_call
 from .nine_contract import (
     ContextNote,
     EarlierComment,
@@ -76,6 +78,9 @@ class ProjectPaper:
     accessible: bool
     register: bool = False
     scored: bool = True  # the paper's kind is scored against an answer key (`kind_review_table.scored`)
+    earlier: bool = (
+        False  # the revision this paper replaced (its block kind is earlier_revision)
+    )
 
 
 @dataclass(frozen=True)
@@ -201,9 +206,33 @@ def windows(pages: Mapping[int, str], *, engine: str) -> list[list[int]]:
     return agent_general_review.window_pages(pages, limit)
 
 
-Ask = Callable[[str, Sequence[tuple[int, str]]], Mapping | None]
-"""`ask(document_id, [(page, text), ...]) -> {"standards": [{name, page, quote}], "overrides": [{subject, general_ref, page,
-quote, precedence}]}` or None. Supplied by the job over `nine_call`; the model sees one window of one allowed paper."""
+Ask = Callable[["ProjectPaper", Sequence[int]], Mapping | None]
+"""`ask(paper, pages) -> {"standards": [{name, page, quote}], "overrides": [{subject, general_ref, page, quote, precedence}]}` or
+None. The adapter sends NO text: only (kind, document id, pages) as a Block; `seam_ask` is the one adapter."""
+
+QUESTION_ID = nine_call.template(
+    "nine_context_read",
+    "Read the project document in the block. Name the standards it says apply to the equipment under review, and any project rule "
+    "that replaces or tightens a general one, with the order of precedence when it states one. Answer with JSON only: "
+    '{{"standards": [{{"name": "", "page": 0, "quote": ""}}], "overrides": [{{"subject": "", "general_ref": "", "page": 0, '
+    '"quote": "", "precedence": ""}}]}}. A quote is copied exactly from that page; page is the page number shown for it. '
+    "Name nothing the document does not say.",
+)
+
+
+def seam_ask(run_id: str, *, engine: str | None = None, **seam) -> Ask:
+    """The adapter the job gives `read_papers`: ONE call of role 2 through `nine_call.ask`, the paper as a block by reference.
+    `seam` passes `send`, `env`, `gate`, `conn` ... to the seam (tests give a FakeTransport). A refused or failed call: None."""
+
+    def ask(paper: ProjectPaper, pages: Sequence[int]) -> Mapping | None:
+        kind = "earlier_revision" if paper.earlier else "project_document"
+        block = nine_call.Block(kind, paper.document_id, tuple(pages))
+        got = nine_call.ask(
+            run_id, 2, [block], (QUESTION_ID, {}), engine=engine, **seam
+        )
+        return got.data if got.ok else None
+
+    return ask
 
 
 @dataclass
@@ -234,9 +263,8 @@ def read_papers(
         tally.read.append(p.document_id)
         for win in windows(p.pages, engine=engine):
             tally.windows += 1
-            chunk = [(n, p.pages[n]) for n in win]
             try:
-                got = ask(p.document_id, chunk)
+                got = ask(p, win)
             except Exception as exc:  # noqa: BLE001 - a failed window leaves what code found
                 log.warning("project context window failed: %s", type(exc).__name__)
                 got = None
@@ -267,21 +295,41 @@ def _quote(raw: Mapping, p: ProjectPaper) -> SourceQuote | None:
     )
 
 
-def _key(text: object) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(text or "").casefold())
-
-
 def _name_in_quote(name: str, quote: str) -> bool:
-    """The standard's name, spelling and spacing aside, stands IN the quote: a true sentence that does not name it proves nothing."""
-    k = _key(name)
-    return len(k) >= 3 and k in _key(quote)
+    """The quote itself CITES the standard: the app's own identifier reader (`standard_ids.cited_standards`, whole tokens of the raw
+    quote, in order) finds a citation that is `same_standard` as the name. A bare letter group or number inside another word
+    ("API" in "rapid", "610" in "1610") is not a citation."""
+    from . import standard_ids
+
+    return any(
+        standard_ids.same_standard(name, c) for c in standard_ids.cited_standards(quote)
+    )
+
+
+_CLAUSE_NUMBER = re.compile(r"(?<![0-9A-Za-z.])\d+(?:\.\d+)+(?![0-9A-Za-z])")
 
 
 def _subject_in_quote(subject: str, quote: str) -> bool:
-    """Every word of the subject (3 letters or more) occurs in the quote."""
+    """Every word of the subject (3 letters or more) is a WHOLE word of the quote, and the override has an anchor the common words
+    cannot give: a field name from the app's field list (`rule_labels.field_list`) that is in both the subject and the quote, or a
+    standard citation or a clause number in the quote."""
+    from . import rule_labels, standard_ids
+
     words = [w for w in re.findall(r"[a-z0-9]+", subject.casefold()) if len(w) >= 3]
-    have = set(re.findall(r"[a-z0-9]+", quote.casefold()))
-    return bool(words) and all(w in have for w in words)
+    q_words = re.findall(r"[a-z0-9]+", quote.casefold())
+    if not words or not all(w in set(q_words) for w in words):
+        return False
+    if standard_ids.cited_standards(quote) or _CLAUSE_NUMBER.search(quote):
+        return True
+    s_words, q_text = (
+        " " + " ".join(re.findall(r"[a-z0-9]+", subject.casefold())) + " ",
+        " " + " ".join(q_words) + " ",
+    )
+    for role in rule_labels.field_list():
+        phrase = " " + role.replace("_", " ") + " "
+        if phrase in s_words and phrase in q_text:
+            return True
+    return False
 
 
 def _keep_standard(raw, p, library, out, tally) -> None:
@@ -492,6 +540,71 @@ def find_papers(
                 r["id"] in allowed_set,
                 register,
                 paper_scored(conn, r["id"]) if ok and kind == KIND_RELATED else True,
+                earlier,
             )
         )
     return out
+
+
+# ---------------------------------------------------------------- the note's parts, per source, as derived blocks (short tokens only)
+
+
+def _tok(value: object) -> str | None:
+    """One short one-line token, or None (the seam takes 60 characters; a longer value is left out, never cut into a new word)."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text if text and len(text) <= nine_call.MAX_TOKEN_CHARS else None
+
+
+def _row(*cells: object) -> tuple[str, ...] | None:
+    out = [_tok(c) for c in cells]
+    return None if out[0] is None or any(c is None for c in out) else tuple(out)  # type: ignore[arg-type]
+
+
+def context_blocks(note: ContextNote) -> list[nine_call.Block]:
+    """One derived block (kind review_record) per part and per source document: standards named (name, held book id or "not held", page),
+    overrides (subject, the general reference, precedence, page: never the quote), related papers (document id), the earlier-revision
+    follow-up (field, stored word, decision, still open). `sources` is the document each part came from, so the seam gates each one."""
+    by_doc: dict[tuple[str, str], list] = {}
+
+    def add(part: str, doc: str, row) -> None:
+        if row is not None:
+            by_doc.setdefault((part, doc), []).append(row)
+
+    for s in note.standards:
+        add(
+            "ctx_standards",
+            s.source.document_id,
+            _row(s.name, s.book_id or "not held", f"p{s.source.page}"),
+        )
+    for o in note.overrides:
+        add(
+            "ctx_overrides",
+            o.project_rule.document_id,
+            _row(
+                o.subject,
+                o.general_ref or "-",
+                o.order_of_precedence or "-",
+                f"p{o.project_rule.page}",
+            ),
+        )
+    for d in note.related_papers:
+        add("ctx_related", d, _row(d, "related"))
+    if note.earlier is not None:
+        for c in note.earlier.comments:
+            state = {True: "still open", False: "changed", None: "cannot tell"}[
+                c.still_open
+            ]
+            add(
+                "ctx_earlier",
+                note.earlier.document_id,
+                _row(
+                    c.field or "-",
+                    c.status_word or "-",
+                    c.engineer_decision or "-",
+                    state,
+                ),
+            )
+    return [
+        nine_call.Block("review_record", name=part, sources=(doc,), items=tuple(rows))
+        for (part, doc), rows in sorted(by_doc.items())
+    ]

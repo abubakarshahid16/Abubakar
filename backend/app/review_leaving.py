@@ -333,10 +333,12 @@ def _fill(
             )
             put(row, kind, WHY_CHOSEN)
     if nine_context.nine_on():
-        _project_context_rows(conn, document_id, put, allowed, explicit, out)
+        _project_context_rows(conn, document_id, put, allowed, explicit, out, seen)
 
 
-def _project_context_rows(conn, document_id: str, put, allowed, explicit, out) -> None:
+def _project_context_rows(
+    conn, document_id: str, put, allowed, explicit, out, seen
+) -> None:
     """The nine-role project context (role 2): the other papers of the paper's own project and its earlier revision, each with
     its kind and why. The client's register is never listed; a rule book is not a project paper. Rule 5 and the gate are
     applied by `put` (outside the starter's access: counted; held by the send gate: `not_sent`)."""
@@ -363,9 +365,21 @@ def _project_context_rows(conn, document_id: str, put, allowed, explicit, out) -
                 put(row, CONTRACT, WHY_PROJECT_CONTRACT)
             elif r["role"] == claude_approved.SPECIFICATION_ROLE:
                 put(row, SPECIFICATION, WHY_PROJECT_SPEC)
-            elif not explicit and r["id"] in allowed and not nine_context.paper_scored(conn, r["id"]):
+            elif (
+                not explicit
+                and r["id"] in allowed
+                and r["id"] not in seen
+                and not nine_context.paper_scored(conn, r["id"])
+            ):
+                seen.add(r["id"])
                 out["not_sent"].append(
-                    {"id": r["id"], "title": _title(row), "kind": PROJECT_PAPER, "why": WHY_RELATED, "reason": nine_context.WHY_UNSCORED}
+                    {
+                        "id": r["id"],
+                        "title": _title(row),
+                        "kind": PROJECT_PAPER,
+                        "why": WHY_RELATED,
+                        "reason": nine_context.WHY_UNSCORED,
+                    }
                 )
             else:
                 put(row, PROJECT_PAPER, WHY_RELATED)

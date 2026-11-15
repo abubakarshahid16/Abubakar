@@ -1,0 +1,121 @@
+"""B3 through B1's seam, with FakeTransport: the project paper goes as a block by reference (no text from the caller), the chapter titles
+as one derived block, the note's parts as per-source derived blocks. Invented documents; no network."""
+
+from __future__ import annotations
+
+import json
+
+from app import nine_call
+from app import nine_chapters as NC
+from app import nine_context as nc
+from app import nine_librarian as L
+from app.nine_call import FakeTransport
+from tests.test_b3_nine_chapters import _numbered
+from tests.test_nine_call_record import (  # noqa: F401 - the autouse world
+    PAGES,
+    body_texts,
+    world,
+)
+
+QUOTE = PAGES["book"][4]
+CITING = "The pump shall follow API 610 for its design"
+
+
+def _paper(doc="book", **kw):
+    return nc.ProjectPaper(
+        doc, kw.pop("kind", nc.KIND_SPEC), {4: CITING}, True, True, **kw
+    )
+
+
+def _read(paper, answer):
+    t = FakeTransport([json.dumps(answer)])
+    ask = nc.seam_ask("run1", send=t, env=FakeTransport.ENV)
+    got = nc.read_papers([paper], ask, [], engine="claude")
+    return got, t
+
+
+def test_the_project_paper_is_sent_as_a_block_by_reference_and_the_names_are_checked():
+    answer = {"standards": [{"name": "API 610", "page": 4, "quote": CITING}]}
+    (standards, _o, tally), t = _read(_paper(), answer)
+    assert [s.name for s in standards] == ["API 610"] and tally.failed_windows == 0
+    texts = " ".join(body_texts(t.bodies[0]))
+    assert QUOTE in texts  # the seam loaded the stored page
+    assert "project document" in texts  # the block's own metadata label
+    from app import nine_record
+
+    reads = nine_record.load_record("run1").roles[1].reads
+    assert [(r.document_id, r.document_kind) for r in reads] == [
+        ("book", "project_document")
+    ]
+
+
+def test_an_earlier_revision_goes_as_its_own_block_kind():
+    (_s, _o, _t), t = _read(_paper(earlier=True), {"standards": []})
+    assert "earlier revision" in " ".join(body_texts(t.bodies[0]))
+
+
+def test_a_paper_not_on_the_shown_list_is_not_sent_and_the_window_counts_as_failed():
+    held = nc.ProjectPaper("held", nc.KIND_SPEC, {1: "x"}, True, True)
+    (standards, _o, tally), t = _read(
+        held, {"standards": [{"name": "A-1", "page": 1, "quote": "x x x"}]}
+    )
+    assert standards == () and tally.failed_windows == 1 and t.bodies == []
+
+
+def _books():
+    return [L.BookInput("book", NC.cut("book", _numbered(), max_tokens=1_500))]
+
+
+def test_the_chapter_titles_go_as_one_derived_block_sourced_to_the_books_and_gated():
+    books = _books()
+    rl = L.plan_reading("run1", books, shown={"book"}, allowed={"book"})
+    titles = L.titles_for_model(rl, books)
+    assert titles
+    t = FakeTransport([json.dumps({"chapters": [[titles[0][0], titles[0][1]]]})])
+    got = L.extend_with_model(
+        rl, books, L.seam_ask("run1", send=t, env=FakeTransport.ENV)
+    )
+    assert got is not rl and len(t.bodies) == 1
+    assert "chapter_titles" in " ".join(body_texts(t.bodies[0]))
+    # a book not on the shown list: the whole block is dropped, no call leaves, the code list stands
+    t2 = FakeTransport(["{}"])
+    unshown = L.BookInput("held", NC.cut("held", _numbered(), max_tokens=1_500))
+    rl2 = L.plan_reading("run1", [unshown], shown={"held"}, allowed={"held"})
+    assert (
+        L.extend_with_model(
+            rl2, [unshown], L.seam_ask("run1", send=t2, env=FakeTransport.ENV)
+        )
+        is rl2
+    )
+    assert t2.bodies == []
+
+
+def test_titles_are_short_tokens_and_the_question_takes_no_parameter_from_a_document():
+    long = "x" * 200
+    block = L.titles_block(
+        [("book", "1", long), ("book", "2", "   "), ("book", "3", "Scope\nand more")]
+    )
+    assert all(len(c) <= 60 and "\n" not in c for row in block.items for c in row)
+    assert len(block.items) == 2 and block.sources == ("book",)
+    assert nine_call.render((L.QUESTION_ID, {}))[0] == L.QUESTION_ID
+
+
+def test_the_note_goes_on_as_per_source_derived_blocks_of_tokens_and_never_a_quote():
+    src = nc.SourceQuote("book", 4, QUOTE, True)
+    note = nc.build_note(
+        "run1",
+        project="P",
+        admission=nc.Admission((_paper(kind=nc.KIND_RELATED),), (), {}),
+        standards=(nc.StandardNamed("API 610", None, False, src),),
+        overrides=(nc.Override("set pressure", None, src, "project first"),),
+        earlier=None,
+        earlier_held=False,
+    )
+    blocks = nc.context_blocks(note)
+    assert {(b.name, b.sources) for b in blocks} == {
+        ("ctx_standards", ("book",)),
+        ("ctx_overrides", ("book",)),
+        ("ctx_related", ("book",)),
+    }
+    flat = " ".join(c for b in blocks for row in b.items for c in row)
+    assert QUOTE not in flat and "not held" in flat and "p4" in flat
