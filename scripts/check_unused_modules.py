@@ -44,6 +44,7 @@ ENTRY_POINTS = (
     # nine-role reviewer, being wired: the shared shapes its roles are built against (remove this entry when a role imports it)
     "nine_contract",
     "nine_chapters",  # B3: the chapter cut, until the librarian imports it
+    "nine_context",  # B3: the project context (role 2), until the job calls it
     "nine_librarian",  # B3: the reading list, until the job calls it
 )
 
