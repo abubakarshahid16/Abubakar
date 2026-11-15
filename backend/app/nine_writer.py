@@ -36,7 +36,10 @@ WRITER_QUESTION_STATEMENTS = nine_call.template(
     count="int",
 )
 #: wording (`kind_review_table.wording`) -> (system, question): a closed set
-TEMPLATES_OF = {"fields": (WRITER_SYSTEM, WRITER_QUESTION), "statements": (WRITER_SYSTEM_STATEMENTS, WRITER_QUESTION_STATEMENTS)}
+TEMPLATES_OF = {
+    "fields": (WRITER_SYSTEM, WRITER_QUESTION),
+    "statements": (WRITER_SYSTEM_STATEMENTS, WRITER_QUESTION_STATEMENTS),
+}
 _STATUS_ENUM = {"not_met": "not_met", "met": "met"}
 STATUS_VOCAB = nine_call.vocabulary("nine_writer_status", ("met", "not_met", "unknown"))
 CODE_WORDS_LOCAL = "comments worded by code: no AI wording on the local model"
@@ -103,7 +106,13 @@ def comments_of(submittal: str) -> list[dict]:
 
 
 def ask_wordings(
-    run_id: str, submittal: str, grouped: list[dict], *, ask=nine_call.ask, wording: str = "fields", **seam
+    run_id: str,
+    submittal: str,
+    grouped: list[dict],
+    *,
+    ask=nine_call.ask,
+    wording: str = "fields",
+    **seam,
 ) -> tuple[dict, dict, str | None]:
     """(kept wordings by comment key, refused counts by reason, the error code when the call did not answer). ONE call; nothing is stored."""
     items, books = items_of(grouped)
@@ -146,7 +155,13 @@ def enabled() -> bool:
 
 
 def write(
-    run_id: str, submittal: str, engine: str, *, ask=nine_call.ask, wording: str = "fields", **seam
+    run_id: str,
+    submittal: str,
+    engine: str,
+    *,
+    ask=nine_call.ask,
+    wording: str = "fields",
+    **seam,
 ) -> tuple[dict, str | None]:
     """The writer's part of role 9: (counts for the record, why it only ran partly or None). The code's words are ALWAYS the comment. With the
     writer setting OFF (the default) no call is made and the record says the sheet was written by code. With it ON on Claude, ONE call is asked
@@ -159,7 +174,9 @@ def write(
             "sheet_by": "code"
         }, CODE_WORDS_LOCAL if engine == "local" else CODE_WORDS_NO_DECISION
     grouped = comments_of(submittal)
-    kept, dropped, error = ask_wordings(run_id, submittal, grouped, ask=ask, wording=wording, **seam)
+    kept, dropped, error = ask_wordings(
+        run_id, submittal, grouped, ask=ask, wording=wording, **seam
+    )
     nine_sheet.store_wordings(connect(), run_id, kept)
     produced = {
         "comments": len(grouped), "suggestions_shown": len(kept), "suggestions_refused": sum(dropped.values()),

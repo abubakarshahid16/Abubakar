@@ -338,7 +338,9 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
         shown=shown, allowed=scope, engine=engine, wanted_not_listed=len([b for b in book_ids if b not in scope]),
     )  # fmt: skip
 
-    title_ask = nine_librarian.seam_ask(ctx.run_id, wording=_wording(ctx), **_seam_kwargs(ctx))
+    title_ask = nine_librarian.seam_ask(
+        ctx.run_id, wording=_wording(ctx), **_seam_kwargs(ctx)
+    )
     reading = nine_librarian.extend_with_model(
         reading, inputs, title_ask, engine=engine
     )
@@ -523,7 +525,10 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
         "mentioned": len(items) - len(asked),
         "asked": len(asked),
     }
-    if not any(i.get("source") == "skill" for i in items) and _wording(ctx) == "statements":
+    if (
+        not any(i.get("source") == "skill" for i in items)
+        and _wording(ctx) == "statements"
+    ):
         # a kind with no field list and no checklist item in the plan (it has no approved checklist, or the route leaves it to the general review):
         # said on the sheet, never silent. A datasheet's record is unchanged.
         return RoleResult("ran_partly", NO_CHECKLIST, engine=None, produced=produced)
