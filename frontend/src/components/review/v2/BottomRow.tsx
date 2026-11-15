@@ -32,7 +32,7 @@ export function BottomRow({ documentId, undecided, codeRecorded, blockers, signe
         </button>
       </div>
       <p className="text-xs text-slateish-400" data-testid="v2-contractor-line">
-        The contractor file holds the failures code proved that you kept, the rule check's Not met points that you kept, and your own words. It is a working copy until you sign and issue.
+        The contractor file holds the failures code proved that you kept, and the points whose words are yours (edited or written by you). A kept point with no words of yours is not issued. It is a working copy until you sign and issue.
       </p>
       {waits && !signed && <p role="status" data-testid="v2-sign-waits" className="text-xs text-slateish-300">{waits}</p>}
       {problem && <p role="alert" className="text-xs text-danger-500">{problem}</p>}

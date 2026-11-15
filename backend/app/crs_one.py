@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from datetime import UTC, datetime
 from io import BytesIO
@@ -31,6 +32,7 @@ from io import BytesIO
 from openpyxl import Workbook
 
 from . import crs_ai_words as words
+from . import crs_completeness as completeness
 from . import crs_export_quality, crs_layout
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
@@ -40,7 +42,7 @@ from .db import connect
 log = logging.getLogger(__name__)
 NOT_RECORDED = "not recorded"
 NOT_DECIDED = "not decided yet"
-CUT_MARK = "…"
+CUT_MARK = completeness.CUT_MARK
 CELL_LIMIT = 500
 TEAM_SHEET, CONTRACTOR_SHEET = "CRS", "CRS"
 REMOVED_SHEET = "Removed (record)"
@@ -171,21 +173,26 @@ def group_words(point: dict) -> str:
     return f"{n} alike" if n > 1 else ""
 
 
-def row_of(n: int, point: dict) -> tuple[list, int]:
-    """(the cells of one point, how many cells were shortened). The whole text of every shortened cell is in the last column."""
+def full_texts(point: dict) -> dict[str, str]:
+    """The whole text of each long cell of a point: the ONE source of what a shortened cell must keep in the column Full text."""
     d = point.get("decision") or {}
     action = _clean(
         d.get("text")
         if d.get("state") == decisions_mod.EDIT and d.get("text")
         else point.get("action")
     )
-    first, second, agreed = readers_of(point)
-    long_cells = {
+    return {
         "action": action,
         "paper_shows": paper_shows(point),
         "requires": rule_requires(point),
         "reason": reason_of(point),
     }
+
+
+def row_of(n: int, point: dict) -> tuple[list, int]:
+    """(the cells of one point, how many cells were shortened). The whole text of every shortened cell is in the last column."""
+    first, second, agreed = readers_of(point)
+    long_cells = full_texts(point)
     shown, cut_any, full = {}, 0, []
     for key in _LONG:
         shown[key], cut = _cut(long_cells[key])
@@ -216,7 +223,7 @@ def _run_facts(extra: dict) -> list[dict]:
         r = conn.execute("SELECT * FROM review_runs WHERE id = ?", (rc,)).fetchone()
         model = (r["model_name"] if r else None) or ""
         out.append({
-            "what": "Rule check", "run": rc, "engine": "Local" if not model.startswith("claude") else "Claude",
+            "what": "Rule check", "run": rc, "engine": NOT_RECORDED if not model else ("Claude" if model.startswith("claude") else "Local"),
             "models": [model] if model else [], "date": (r["completed_at"] or r["started_at"]) if r else None, "kind": None,
             "equipment": None, "usd": None,
         })  # fmt: skip
@@ -535,12 +542,17 @@ def count_line(listing: dict, rows_crs: int, rows_removed: int) -> str:
 
 
 def build_team(
-    paper_id: str, scope, *, exported: str | None = None, signed: bool = False
+    paper_id: str,
+    scope,
+    *,
+    exported: str | None = None,
+    signed: bool = False,
+    listing_raw=None,
 ) -> bytes:
     """The ONE team workbook of a paper (see the module words)."""
     from . import review_points_service as svc
 
-    listing, raw, extra = svc.export_listing(paper_id, scope)
+    listing, raw, extra = listing_raw or svc.export_listing(paper_id, scope)
     exported = exported or datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     kept = [
         p for p in raw if (p.get("decision") or {}).get("state") != decisions_mod.REMOVE
@@ -558,6 +570,7 @@ def build_team(
     ws = wb.active
     ws.title = TEAM_SHEET
     lines = [
+        completeness.team_statement(listing["of"]),
         count_line(listing, len(cells), len(removed)),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (
@@ -612,61 +625,95 @@ def build_team(
 # ------------------------------------------------------------------------------------------------ the contractor file
 
 
-def contractor_points(raw: list[dict]) -> list[dict]:
-    """The points that may go to a contractor by today's rule: proven by code to be Not met AND kept by the engineer, and the
-    engineer's own words (an edited point, an added point), and a Not met point of the RULE CHECK that the engineer kept (the rule
-    check's own issue copy already carries those; dropping one would make this file less complete than the file it replaces).
-    Nothing else: no AI-review wording the engineer did not make theirs, no undecided point, no removed point."""
-    out = []
+_PLACEHOLDER = re.compile(r"\bAI\b|awaiting|confirm", re.IGNORECASE)
+
+
+def issuable_text(p: dict) -> str:
+    """The words a contractor may be given for one point, or "": the engineer's own text (an edit, an added point), else, for a point
+    PROVEN by code to be Not met, the code's own action line. Never an AI wording and never a waiting placeholder."""
+    d = p.get("decision") or {}
+    if p.get("source") == rp.SOURCE_ADDED or d.get("state") == decisions_mod.EDIT:
+        text = _clean(
+            d.get("text")
+            if d.get("state") == decisions_mod.EDIT and d.get("text")
+            else p.get("action")
+        )
+    elif p.get("rank") == 1 and d.get("state") == decisions_mod.KEEP:
+        text = _clean(p.get("action"))
+    else:
+        return ""
+    return "" if _PLACEHOLDER.search(text) else text
+
+
+def contractor_points(raw: list[dict]) -> tuple[list[dict], int]:
+    """(the points that go to a contractor, how many kept points were withheld). By the owner's rule a contractor file holds ONLY
+    (a) a failure proven by code that the engineer kept, and (b) a point whose comment is the engineer's own words (edited or
+    written by him). Each needs issuable text. A kept point with none is withheld and counted, exactly as the old issue copy
+    withheld a row with no words; an AI opinion kept with one click is never issued."""
+    out, withheld = [], 0
     for p in raw:
         d = p.get("decision") or {}
         state = d.get("state")
         if state == decisions_mod.REMOVE:
             continue
-        mine = p.get("source") == rp.SOURCE_ADDED or state == decisions_mod.EDIT
-        kept = state == decisions_mod.KEEP
-        proven_and_kept = p.get("rank") == 1 and kept
-        rule_check_kept = (
-            p.get("source") == rp.SOURCE_RULE_CHECK
-            and p.get("rank") in (1, 2, 3)
-            and kept
+        wanted = (
+            p.get("source") == rp.SOURCE_ADDED
+            or state == decisions_mod.EDIT
+            or (p.get("rank") == 1 and state == decisions_mod.KEEP)
         )
-        if mine or proven_and_kept or rule_check_kept:
+        if not wanted:
+            withheld += state == decisions_mod.KEEP
+            continue
+        if issuable_text(p):
             out.append(p)
-    return out
+        else:
+            withheld += 1
+    return out, withheld
 
 
-def why_none(raw: list[dict]) -> str:
+def status_of(p: dict) -> str:
+    """ "Fail" only for a failure proven by code; otherwise the engineer's own decision word, or empty. Never from an AI rank."""
+    if p.get("rank") == 1:
+        return "Fail"
+    if p.get("source") == rp.SOURCE_ADDED:
+        return "Added"
+    return {decisions_mod.EDIT: "Edited", decisions_mod.KEEP: "Kept"}.get(
+        (p.get("decision") or {}).get("state"), ""
+    )
+
+
+def why_none(raw: list[dict], withheld: int = 0) -> str:
     """The sentence a contractor file with no row says in the file itself, with the counts."""
     open_n = sum(
         1 for p in raw if (p.get("decision") or {}).get("state") != decisions_mod.REMOVE
     )
     undecided = sum(1 for p in raw if not (p.get("decision") or {}).get("state"))
     return (
-        "This copy holds only failures proven by code and kept by the engineer, Not met points of the rule check that the engineer kept, "
-        "and the engineer's own words. This review has none: "
+        "This copy holds only failures proven by code that the engineer kept, and the engineer's own words. This review has none: "
+        f"{withheld} kept point(s) not issued for lack of engineer wording; "
         f"{open_n} points are open on the internal copy ({undecided} not decided yet; {len(raw)} points in all)."
     )
 
 
 def build_contractor(
-    paper_id: str, scope, *, exported: str | None = None, signed: bool = False
+    paper_id: str,
+    scope,
+    *,
+    exported: str | None = None,
+    signed: bool = False,
+    listing_raw=None,
 ) -> bytes:
     """The ONE contractor workbook (see the module words). Never a bare header row."""
     from . import review_points_service as svc
 
-    listing, raw, extra = svc.export_listing(paper_id, scope)
+    listing, raw, extra = listing_raw or svc.export_listing(paper_id, scope)
     exported = exported or datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    mine = contractor_points(raw)
+    mine, reasons = completeness.contractor_split(raw)
+    withheld = reasons.get(completeness.REASON_NO_WORDING, 0)
     paper = (_paper_facts(paper_id, _run_facts(extra)))["name"]
     cells = []
     for n, p in enumerate(mine, start=1):
-        d = p.get("decision") or {}
-        text = _clean(
-            d.get("text")
-            if d.get("state") == decisions_mod.EDIT and d.get("text")
-            else p.get("action")
-        )
+        text = issuable_text(p)
         parts = [text]
         if p.get("paper_quote"):
             parts.append(f'The paper shows: "{p["paper_quote"]}"')
@@ -675,11 +722,7 @@ def build_contractor(
         ref = ", ".join(b["name"] for b in p.get("books") or []) + (
             f" {p['clause']}" if p.get("clause") else ""
         )
-        status = (
-            "Fail"
-            if p.get("rank") == 1
-            else ("Not met" if p.get("rank") in (2, 3) else "")
-        )
+        status = status_of(p)
         cells.append(
             [
                 _cell(c)
@@ -706,12 +749,13 @@ def build_contractor(
     ]
     lines = [
         f"{len(mine)} row(s) in this copy; {listing['of']} points in the review; {listing['decided']} of {listing['of']} decided",
+        completeness.contractor_statement(listing["of"], len(mine), reasons),
         "This copy is a working copy, not issued: it becomes the contractor's copy when the engineer signs."
         if not signed
         else "Issued to the contractor.",
     ]
     if not mine:
-        lines.insert(0, why_none(raw))
+        lines.insert(0, why_none(raw, withheld))
     header_row = _put_block(ws, pairs, lines)
     _table(ws, header_row, CONTRACTOR_COLUMNS, cells, CONTRACTOR_WIDTHS)
     buf = BytesIO()
@@ -722,9 +766,14 @@ def build_contractor(
 # ------------------------------------------------------------------------------------------------ signing: the same builder, kept
 
 
-def archive_issued(rule_check_run_id: str, scope, *, actor: str) -> dict | None:
-    """At signing: the ONE contractor file, built by `build_contractor` with the status "Issued", kept through the app's one issuing path
-    (`crs_issue.archive`). None when the run has no paper. The issued bytes are never rebuilt: `issued_file` serves them."""
+def issue(
+    rule_check_run_id: str, scope, *, actor: str, **record_facts
+) -> tuple[bytes, str, dict]:
+    """At signing: the ONE contractor file, built by `build_contractor` with the status "Issued", checked for completeness, and kept
+    through the app's one issuing path (`crs_issue.archive`). The bytes are built and checked before anything is written, so a failure
+    (or an incomplete file: `completeness.Incomplete`) leaves nothing half issued; the archive writes its record and its file as one
+    step and removes the record if the file cannot be written. Returns (bytes, file name, record). The issued bytes are never
+    rebuilt: `issued_file` serves them."""
     from . import crs_issue
 
     row = (
@@ -736,9 +785,14 @@ def archive_issued(rule_check_run_id: str, scope, *, actor: str) -> dict | None:
         .fetchone()
     )
     if row is None:
-        return None
-    data = build_contractor(row["submittal_document_id"], scope, signed=True)
-    return crs_issue.archive(rule_check_run_id, data, ISSUED_NAME, actor=actor)
+        raise crs_issue.IssueError("no review run with that id")
+    data = completeness.file_or_refuse(
+        row["submittal_document_id"], scope, "contractor", signed=True
+    )
+    record = crs_issue.archive(
+        rule_check_run_id, data, ISSUED_NAME, actor=actor, **record_facts
+    )
+    return data, ISSUED_NAME, record
 
 
 def issued_file(paper_id: str) -> tuple[dict, bytes] | None:

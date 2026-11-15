@@ -240,15 +240,32 @@ def one_crs(
     contractor file is the issued one, byte for byte."""
     reject_unknown_params(request, {"copy"})
     require_document(document_id, scope)
-    from .. import crs_one
+    from .. import crs_completeness, crs_one
 
     if copy == "contractor" and (issued := crs_one.issued_file(document_id)):
         data, name = issued[1], issued[0]["filename"]
-    elif copy == "contractor":
-        data, name = crs_one.build_contractor(document_id, scope), crs_one.FILE_CONTRACTOR
     else:
-        data, name = crs_one.build_team(document_id, scope), crs_one.FILE_TEAM
+        try:  # THE HARD RULE: page, database and file agree, or the file is refused with the sentence (never a short file)
+            data = crs_completeness.file_or_refuse(document_id, scope, copy)
+        except crs_completeness.Incomplete as exc:
+            raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
+        name = crs_one.FILE_CONTRACTOR if copy == "contractor" else crs_one.FILE_TEAM
     return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/api/reviews/papers/{document_id}/crs/check", dependencies=ON, responses={**schemas.ERRORS_404})
+def one_crs_check(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The completeness check of both files: page points, database lines, rows per file, what is missing. Reads only."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    from .. import crs_completeness
+
+    got = crs_completeness.checked_files(document_id, scope)
+    return {copy: report for copy, (_data, report) in got.items()}
 
 
 @router.post(

@@ -3447,18 +3447,24 @@ def issue_review_crs(
         if open_count:
             raise HTTPException(status_code=409, detail=errors.safe_error(
                 errors.CRS_NOT_FINISHED, agent_open_points_mod.refusal(open_count)))
-    workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
-    record = crs_issue_mod.archive(review_run_id, workbook, filename,
-                                   actor=scope.user_id or "unrestricted",
-                                   ai_open_points=open_count,
-                                   ai_review_acknowledged=None if open_count is None else ai_review_read)
-    if settings.review_page_v2_enabled:  # the AI review's contractor copy is signed with it, and frozen the same way
-        from . import review_points_service
+    ack = None if open_count is None else ai_review_read
+    if settings.review_page_v2_enabled:
+        # K4: ONE contractor file per signing. It is built first (a failure leaves nothing issued), then kept once through the
+        # one issuing path; the reply, the page's contractor button and the archive are the same bytes.
+        from . import crs_completeness as completeness_mod
+        from . import crs_one
 
-        review_points_service.archive_ai_contractor_copy(review_run_id, actor=scope.user_id or "unrestricted")
-        from . import crs_one  # K4: the ONE contractor file, built by the same builder as the working copy, kept the same way
-
-        crs_one.archive_issued(review_run_id, scope, actor=scope.user_id or "unrestricted")
+        try:
+            workbook, filename, record = crs_one.issue(
+                review_run_id, scope, actor=scope.user_id or "unrestricted", ai_open_points=open_count, ai_review_acknowledged=ack)
+        except (crs_issue_mod.IssueError, completeness_mod.Incomplete) as exc:
+            raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
+    else:
+        workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
+        record = crs_issue_mod.archive(review_run_id, workbook, filename,
+                                       actor=scope.user_id or "unrestricted",
+                                       ai_open_points=open_count,
+                                       ai_review_acknowledged=ack)
     return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
                                                "X-Issued-Sha256": record["sha256"]})
 

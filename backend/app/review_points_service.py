@@ -415,34 +415,6 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
 
 
-def archive_ai_contractor_copy(rule_check_run_id: str, *, actor: str) -> dict | None:
-    """At signing: keep the exact bytes of the AI review's contractor copy (with the engineer's decisions and added points in it), like
-    the rule check's own copy (`crs_issue.archive`: a file of its own and a record with its checksum, never rewritten). None when the
-    paper has no finished AI review. After this, no later decision changes it: `decided_ai_sheet` writes a separate working file."""
-    from . import agent_review_jobs, crs_issue
-    from .db import connect as _connect
-
-    conn = _connect()
-    row = conn.execute(
-        "SELECT submittal_document_id FROM review_runs WHERE id = ?",
-        (rule_check_run_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    _rc, ai = runs_of_paper(conn, row["submittal_document_id"])
-    if not ai:
-        return None
-    folder = agent_review_jobs.run_dir(ai)
-    path = decided_ai_sheet(ai, row["submittal_document_id"], "contractor", folder) or (
-        folder / "crs-contractor.xlsx"
-    )
-    if not path.is_file():
-        return None
-    return crs_issue.archive(
-        ai, path.read_bytes(), "ai-review-contractor.xlsx", actor=actor
-    )
-
-
 def _contractor_copy(conn, ai_run: str | None) -> dict:
     """{kind, words}: what the AI review's contractor copy holds for this paper's kind (the kind of its AI run)."""
     kind = None

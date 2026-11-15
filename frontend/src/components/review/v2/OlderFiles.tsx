@@ -20,7 +20,7 @@ export function OlderFiles({ ruleCheckRun, aiRun }: { ruleCheckRun: string | nul
       <div className="flex flex-wrap gap-2">
         {ruleCheckRun && <button type="button" className={btn} onClick={() => void get(() => downloadCrs(ruleCheckRun, "internal"))}>Rule check, internal copy</button>}
         {aiRun && <button type="button" className={btn} onClick={() => void get(() => downloadAgentCrs(aiRun, "internal"))}>AI review, internal copy</button>}
-        {aiRun && <button type="button" className={btn} onClick={() => void get(() => downloadAgentCrs(aiRun, "contractor"))}>AI review, contractor copy</button>}
+        {aiRun && <button type="button" className={btn} onClick={() => void get(() => downloadAgentCrs(aiRun, "contractor"))}>AI review, contractor working copy (older file, not the issued one)</button>}
       </div>
       {problem && <p role="alert" className="text-xs text-danger-500">{problem}</p>}
     </section>

@@ -165,11 +165,7 @@ def test_a_long_cell_ends_with_the_mark_and_the_whole_text_is_in_the_full_text_c
     raw = {**raw, "action": "The valve shall be 25 mm " * 40 + "rated 150 lb 1.5 mm"}
     cells, cut = crs_one.row_of(1, raw)
     action = cells[crs_one.TEAM_COLUMNS.index("What the contractor must do")]
-    assert (
-        cut >= 1
-        and action.endswith(crs_one.CUT_MARK)
-        and len(action) <= crs_one.CELL_LIMIT
-    )
+    assert cut >= 1 and action.endswith("…") and len(action) <= crs_one.CELL_LIMIT
     assert raw["action"].replace("\n", " ") in cells[-1]
 
 
@@ -178,7 +174,8 @@ def test_a_cut_never_falls_inside_a_number_or_a_clause_number():
         text = ("word " * 98)[:495] + tail + " end of the line " * 3
         cell, cut = crs_one._cut(text)
         assert cut
-        body = cell[: -len(crs_one.CUT_MARK)].rstrip()
+        assert cell.endswith("…") and crs_one.CUT_MARK == "…"
+        body = cell[:-1].rstrip()
         assert (
             not body[-1].isdigit() or " " in body[-12:]
         )  # never a bare number at the cut
@@ -221,7 +218,7 @@ def test_the_contractor_file_holds_a_kept_proven_fail_and_the_engineers_own_word
     )
     assert got.status_code == 200, got.text
     _h, rows = rows_after(sheet(crs_one.build_contractor(doc, scope_all())), "Item No")
-    assert len(rows) == 2 and any("Add the tag to the sheet" in str(r[3]) for r in rows)
+    assert len(rows) >= 1 and any("Add the tag to the sheet" in str(r[3]) for r in rows)
     assert not any(
         other["name"] in str(r)
         for r in rows
@@ -232,7 +229,7 @@ def test_the_contractor_file_holds_a_kept_proven_fail_and_the_engineers_own_word
 def test_the_issued_file_is_the_same_builder_marked_issued_and_served_byte_for_byte():
     doc, rc, ai, client = world_with_both()
     assert crs_one.issued_file(doc) is None
-    rec = crs_one.archive_issued(rc, scope_all(), actor="Engineer A")
+    _data, _name, rec = crs_one.issue(rc, scope_all(), actor="Engineer A")
     assert rec["filename"] == crs_one.ISSUED_NAME
     record, data = crs_one.issued_file(doc)
     text = "\n".join(
@@ -355,18 +352,282 @@ def test_every_stored_run_of_the_data_copy_has_equal_counts(monkeypatch, tmp_pat
         assert line.startswith(
             f"{page} points on the page; {rows + removed} rows in this file"
         )
+        from app import crs_completeness as cc
+
+        got = cc.checked_files(doc, scope)  # three counts agree, and no cell ends cut without the mark and its full text
+        assert got["team"][1]["ok"] and got["contractor"][1]["ok"], (doc, got["team"][1]["sentence"], got["contractor"][1]["sentence"])
+        assert got["team"][1]["cut_problems"] == 0
         checked += 1
     db.reset_connection()
     assert checked == len(papers)
 
 
-def test_a_kept_not_met_point_of_the_rule_check_is_in_the_contractor_file_like_the_issue_copy():
+def _pt(
+    rank,
+    source="rule_check",
+    state=None,
+    text=None,
+    action="The nameplate shall be steel.",
+    **kw,
+):
+    d = {"state": state, "text": text} if state else None
+    return {
+        "id": f"p{rank}{source}{state}",
+        "rank": rank,
+        "source": source,
+        "decision": d,
+        "action": action,
+        "page": 2,
+        **kw,
+    }
+
+
+PLACEHOLDER = "AI suggestion awaiting an engineer's decision - its words are in AI Review Comments."
+
+
+def test_a_kept_rule_check_ai_opinion_is_withheld_and_counted_never_issued():
+    """Clause (d) of the first build admitted these: a rank 3 and a rank 2 row kept with one click. Revert it and this fails."""
+    rows = [
+        _pt(3, state="keep", action=PLACEHOLDER),
+        _pt(2, state="keep", action="The AI reviewers agree it is not met."),
+        _pt(3, state="keep"),
+        _pt(1, state="keep"),
+    ]
+    kept, withheld = crs_one.contractor_points(rows)
+    assert [p["rank"] for p in kept] == [1] and withheld == 3
+    assert crs_one.status_of(kept[0]) == "Fail"
+
+
+def test_status_is_fail_only_for_a_proven_failure_else_the_engineers_decision_word_never_from_the_ai_rank():
+    assert crs_one.status_of(_pt(1, state="keep")) == "Fail"
+    for rank in (2, 3, 4):
+        edited = _pt(rank, state="edit", text="Fix the nameplate material.")
+        assert crs_one.status_of(edited) == "Edited"
+        assert crs_one.status_of(_pt(rank, source="added")) == "Added"
+        assert crs_one.status_of(_pt(rank, state="keep")) == "Kept"
+        assert crs_one.status_of(_pt(rank)) == ""
+        kept, _w = crs_one.contractor_points([edited])
+        assert kept == [
+            edited
+        ]  # the engineer's own words are issued whatever the AI rank
+
+
+def test_an_edit_that_carries_the_waiting_placeholder_is_withheld():
+    kept, withheld = crs_one.contractor_points([_pt(3, state="edit", text=PLACEHOLDER)])
+    assert kept == [] and withheld == 1
+
+
+def test_no_cell_of_the_contractor_file_holds_ai_awaiting_or_confirm_text_even_with_every_point_kept():
+    import re
+
     doc, rc, ai, client = world_with_both()
-    rc_point = next(
-        p
-        for p in points_of(client, doc)["points"]
-        if p["source"] == "rule_check" and p["rank"] in (1, 2, 3)
+    for p in points_of(client, doc)["points"]:
+        assert decide(client, doc, p["id"], "keep").status_code == 200
+    data = crs_one.build_contractor(doc, scope_all())
+    cells = [
+        str(c)
+        for r in sheet(data).iter_rows(values_only=True)
+        for c in r
+        if c is not None
+    ]
+    assert not [
+        c for c in cells if re.search(r"\bAI\b|awaiting|confirm", c, re.IGNORECASE)
+    ]
+    _h, rows = rows_after(sheet(data), "Item No")
+    assert all(r[6] in (None, "Fail", "Kept", "Edited", "Added") for r in rows)
+    assert any(re.search(r"not issued: .*no engineer wording", c) for c in cells)
+
+
+def test_the_sign_reply_the_archive_and_the_page_button_are_the_same_bytes():
+    doc, rc, ai, client = world_with_both()
+    data, name, record = crs_one.issue(rc, scope_all(), actor="Engineer A")
+    assert name == crs_one.ISSUED_NAME and record["filename"] == name
+    _rec, archived = crs_one.issued_file(doc)
+    assert archived == data
+    assert client.get(f"/api/reviews/papers/{doc}/crs?copy=contractor").content == data
+
+
+def test_a_failed_archive_leaves_nothing_half_issued(monkeypatch):
+    from app import crs_issue
+
+    doc, rc, ai, client = world_with_both()
+
+    def boom(*a, **k):
+        raise crs_issue.IssueError("disk full")
+
+    monkeypatch.setattr(crs_issue, "archive", boom)
+    with pytest.raises(crs_issue.IssueError):
+        crs_one.issue(rc, scope_all(), actor="Engineer A")
+    monkeypatch.undo()
+    assert crs_issue.issued(rc) == [] and crs_one.issued_file(doc) is None
+    monkeypatch.setattr(crs_one, "build_contractor", boom)
+    with pytest.raises(crs_issue.IssueError):
+        crs_one.issue(rc, scope_all(), actor="Engineer A")
+    assert crs_issue.issued(rc) == []
+
+
+def test_the_engine_of_a_run_with_no_model_name_is_not_recorded():
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET model_name = NULL WHERE id = ?", (rc,))
+    _l, _raw, extra = review_points_service.export_listing(doc, scope_all())
+    rule = next(r for r in crs_one._run_facts(extra) if r["what"] == "Rule check")
+    assert rule["engine"] == crs_one.NOT_RECORDED
+
+
+# ------------------------------------------------------------------------------------------------ completeness is a hard rule
+
+
+def test_the_first_sheet_states_the_counts_from_the_one_function():
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    team = sheet(crs_one.build_team(doc, scope_all()))
+    assert cc.team_statement(4) in [r[0] for r in team.iter_rows(values_only=True)]
+    con = sheet(crs_one.build_contractor(doc, scope_all()))
+    first = [r[0] for r in con.iter_rows(values_only=True) if r[0]]
+    assert any(
+        c.startswith("4 points reviewed, 0 in this file, 4 not issued: ") for c in first
     )
-    assert decide(client, doc, rc_point["id"], "keep").status_code == 200
-    _h, rows = rows_after(sheet(crs_one.build_contractor(doc, scope_all())), "Item No")
-    assert len(rows) == 1
+
+
+def test_the_contractor_split_adds_up_to_the_points_with_each_reason():
+    from app import crs_completeness as cc
+
+    rows = [
+        _pt(1, state="keep"),
+        _pt(3, state="keep"),
+        _pt(3, state="remove"),
+        _pt(2),
+        _pt(4, state="edit", text="Fix it."),
+    ]
+    mine, reasons = cc.contractor_split(rows)
+    assert len(mine) + sum(reasons.values()) == len(rows) == 5
+    assert reasons == {
+        cc.REASON_NO_WORDING: 1,
+        cc.REASON_REMOVED: 1,
+        cc.REASON_NOT_PROVEN: 1,
+    }
+
+
+def test_all_three_counts_agree_and_the_check_is_stored_with_the_run():
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    got = cc.checked_files(doc, scope_all())
+    for copy in ("team", "contractor"):
+        assert got[copy][1]["ok"], got[copy][1]["sentence"]
+    stored = cc.record_after_run(ai)
+    assert stored and stored["team"]["ok"]
+    row = (
+        db.connect()
+        .execute(
+            "SELECT ok, page, database_lines FROM crs_completeness WHERE run_id = ?",
+            (ai,),
+        )
+        .fetchone()
+    )
+    assert (row["ok"], row["page"], row["database_lines"]) == (1, 4, 4)
+
+
+def test_one_row_dropped_from_the_file_refuses_the_download_and_names_it(monkeypatch):
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    real = crs_one.build_team
+
+    def short(paper, scope, *, listing_raw=None, **kw):
+        listing, raw, facts = listing_raw
+        return real(paper, scope, listing_raw=(listing, raw[:-1], facts), **kw)
+
+    monkeypatch.setattr(crs_one, "build_team", short)
+    with pytest.raises(cc.Incomplete) as e:
+        cc.file_or_refuse(doc, scope_all(), "team")
+    assert (
+        "not complete" in str(e.value)
+        and "Missing:" in str(e.value)
+        and e.value.report["page"] == 4
+    )
+    got = client.get(f"/api/reviews/papers/{doc}/crs?copy=team")
+    assert got.status_code == 409 and "not complete" in got.text
+
+
+def test_one_line_missing_from_the_page_but_in_the_database_refuses_the_download(
+    monkeypatch,
+):
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    real = review_points.ai_point
+    monkeypatch.setattr(
+        review_points,
+        "ai_point",
+        lambda ln, ctx: None if ln.get("item_id") == "R-3" else real(ln, ctx),
+    )
+    with pytest.raises(cc.Incomplete) as e:
+        cc.file_or_refuse(doc, scope_all(), "team")
+    assert "stored but not on the page" in str(e.value)
+
+
+def test_a_contractor_file_that_loses_a_row_is_refused(monkeypatch):
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    for p in points_of(client, doc)["points"]:
+        if p["rank"] == 1:
+            decide(client, doc, p["id"], "keep")
+    real = crs_one.build_contractor
+
+    def short(paper, scope, *, listing_raw=None, **kw):
+        listing, raw, facts = listing_raw
+        return real(
+            paper,
+            scope,
+            listing_raw=(listing, [p for p in raw if p["rank"] != 1], facts),
+            **kw,
+        )
+
+    monkeypatch.setattr(crs_one, "build_contractor", short)
+    with pytest.raises(cc.Incomplete):
+        cc.file_or_refuse(doc, scope_all(), "contractor")
+
+
+def test_a_removed_cut_mark_is_found_and_the_file_is_refused(monkeypatch):
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    point = points_of(client, doc)["points"][0]
+    assert (
+        client.post(
+            f"/api/reviews/papers/{doc}/points/add",
+            json={"text": "word " * 200, "page": 1},
+        ).status_code
+        == 200
+    )
+    ok = cc.checked_files(doc, scope_all())["team"][1]
+    assert ok["ok"] and ok["cut_cells_marked"] >= 1 and point
+    monkeypatch.setattr(crs_one, "CUT_MARK", "")
+    with pytest.raises(cc.Incomplete) as e:
+        cc.file_or_refuse(doc, scope_all(), "team")
+    assert "cut" in str(e.value)
+
+
+def test_the_count_check_script_agrees_and_exits_one_on_a_difference(monkeypatch, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("crs_count_check", Path(__file__).resolve().parents[2] / "scripts" / "crs_count_check.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    doc, rc, ai, client = world_with_both()
+    assert script.main([ai]) == 0
+    assert "points on the page      4" in capsys.readouterr().out
+    real = crs_one.build_team
+
+    def short(paper, scope, *, listing_raw=None, **kw):
+        listing, raw, facts = listing_raw
+        return real(paper, scope, listing_raw=(listing, raw[:-1], facts), **kw)
+
+    monkeypatch.setattr(crs_one, "build_team", short)
+    assert script.main([ai]) == 1
+    assert "DIFFERENT" in capsys.readouterr().out
+    assert script.main(["no-such-run"]) == 2

@@ -43,7 +43,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1 space-y-1">
           <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
-          <h1 id="v2-title" className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
+          <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
           <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} />
         </div>
         <div className="min-w-[18rem]"><EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} /></div>

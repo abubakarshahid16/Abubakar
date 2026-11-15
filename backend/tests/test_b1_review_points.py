@@ -755,16 +755,12 @@ def test_the_signed_copy_is_frozen_byte_for_byte_whatever_happens_after():
     issued = _issue(client, run)
     assert issued.status_code == 200, issued.text
     every = client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"]
-    # K4: the ONE contractor file is archived with it (the same builder), next to the rule check's own copy
-    assert [c["filename"] for c in every].count("crs-contractor-one.xlsx") == 1
-    copies = [c for c in every if c["filename"] != "crs-contractor-one.xlsx"]
+    # K4: ONE contractor file per signing: the reply, the archive and the page's button are the same bytes; no second copy is issued
+    assert [c["filename"] for c in every] == ["crs-contractor-one.xlsx"]
+    copies = every
     sha, copy_id = copies[0]["sha256"], copies[0]["id"]
     assert hashlib.sha256(issued.content).hexdigest() == sha
-    ai_copies = client.get(f"/api/reviews/runs/{ai}/crs/issued").json()["copies"]
-    assert len(ai_copies) == 1  # the AI review's contractor copy was signed with it
-    ai_bytes = client.get(
-        f"/api/reviews/runs/{ai}/crs/issued/{ai_copies[0]['id']}"
-    ).content
+    assert client.get(f"/api/reviews/runs/{ai}/crs/issued").json()["copies"] == []
     # AFTER SIGNING: a new decision, an edit, a removal, an added point, a re-download, even a new review
     pts = points_of(client, doc)["points"]
     decide(client, doc, pts[0]["id"], "edit", text="Changed after signing.")
@@ -787,10 +783,6 @@ def test_the_signed_copy_is_frozen_byte_for_byte_whatever_happens_after():
     assert hashlib.sha256(again.content).hexdigest() == sha
     stored = crs_issue.issued_bytes(run, copy_id)
     assert stored[0]["sha256"] == sha and stored[1] == issued.content
-    assert (
-        client.get(f"/api/reviews/runs/{ai}/crs/issued/{ai_copies[0]['id']}").content
-        == ai_bytes
-    )
     assert (
         client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"] == every
     )  # the record is unchanged too
@@ -1253,10 +1245,9 @@ def test_the_signed_ai_copy_holds_every_decision_made_before_signing():
         if not p["decision"]["state"]:
             decide(client, doc, p["id"], "keep")
     assert _issue(client, run).status_code == 200
-    copies = client.get(f"/api/reviews/runs/{ai}/crs/issued").json()["copies"]
-    text = sheet_text(
-        client.get(f"/api/reviews/runs/{ai}/crs/issued/{copies[0]['id']}").content
-    )
+    from app import crs_one
+
+    text = sheet_text(crs_one.issued_file(doc)[1])  # K4: the ONE contractor file is the signed copy
     assert "Edited words before signing." in text and "Added before signing." in text
     assert "Field R4" not in text  # the removed proven Fail is not on the signed copy
     stored = sheet_text(

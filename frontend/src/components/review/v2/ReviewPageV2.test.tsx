@@ -429,14 +429,14 @@ describe("11 the bottom row", () => {
     expect(api.downloadPaperCrs).toHaveBeenCalledTimes(2);
     expect(api.downloadCrs).not.toHaveBeenCalled();
     expect(api.downloadAgentCrs).not.toHaveBeenCalled();
-    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("the failures code proved that you kept, the rule check's Not met points that you kept, and your own words");
+    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("the failures code proved that you kept, and the points whose words are yours");
   });
   it("keeps the older per-run files under How it was reviewed", async () => {
     mount(); await loaded();
     fireEvent.click(screen.getByRole("tab", { name: "How it was reviewed" }));
     fireEvent.click(screen.getByRole("button", { name: "Rule check, internal copy" }));
     await waitFor(() => expect(api.downloadCrs).toHaveBeenCalledWith("rc1", "internal"));
-    fireEvent.click(screen.getByRole("button", { name: "AI review, contractor copy" }));
+    fireEvent.click(screen.getByRole("button", { name: /AI review, contractor working copy/ }));
     await waitFor(() => expect(api.downloadAgentCrs).toHaveBeenCalledWith("ai1", "contractor"));
   });
   it("the contractor button says it is the working copy, and after signing still not the issued file", async () => {
