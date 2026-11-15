@@ -33,7 +33,7 @@ from openpyxl import Workbook
 from . import crs_ai_words as words
 from . import crs_comments as comments
 from . import crs_completeness as completeness
-from . import crs_export_quality, crs_layout, nine_sheet
+from . import crs_export_quality, crs_layout
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from .agent_run_crs import _cell
@@ -59,6 +59,13 @@ COMMENT_COLUMNS = (
     "Comment", "Pill", "Class", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
     "What the paper shows", "What the rule requires", "Reason", "Decisions", "Note", "Full text",
 )  # fmt: skip
+
+
+def _ns():
+    """The nine-role sheet module, imported only when it is used (with the switch off no nine module is imported at all)."""
+    from . import nine_sheet
+
+    return nine_sheet
 
 
 def nine_on() -> bool:
@@ -453,7 +460,7 @@ def _outcome(run_id: str, scope) -> dict:
 
 def _record_of(extra: dict):
     """The nine-role record of the AI run behind the list, or None (a review from before the record): read only."""
-    return nine_sheet.load_record(connect(), extra.get("ai_run")) if nine_on() else None
+    return _ns().load_record(connect(), extra.get("ai_run")) if nine_on() else None
 
 
 def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
@@ -541,7 +548,8 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
             rows.append(
                 ["Rules not asked of this paper", n, _clean(str(why).replace("_", " "))]
             )
-    rows += nine_sheet.not_checked_rows(_record_of(extra))  # [] with the switch off
+    if nine_on():
+        rows += _ns().not_checked_rows(_record_of(extra))
     if not rows:
         rows.append(
             [
@@ -614,8 +622,8 @@ def _how_rows(extra: dict, scope) -> list[list]:
             ]
         )
     if nine_on():
-        rows.append(["Roles", nine_sheet.roles_line(_record_of(extra))])
-    rows += nine_sheet.how_rows(_record_of(extra))
+        rows.append(["Roles", _ns().roles_line(_record_of(extra))])
+        rows += _ns().how_rows(_record_of(extra))
     rows.append(
         [
             "Older files of each run (history)",
@@ -710,9 +718,7 @@ def build_team(
     numbers = {p["id"]: n for n, p in enumerate(raw, start=1)}
     by_id = {p["id"]: p for p in raw}
     grouped = comments.group(raw)
-    wordings = (
-        nine_sheet.load_wordings(connect(), extra.get("ai_run")) if nine_on() else {}
-    )
+    wordings = _ns().load_wordings(connect(), extra.get("ai_run")) if nine_on() else {}
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
     evidence, cut = [], 0
     for p in raw:
@@ -733,8 +739,8 @@ def build_team(
             len(grouped),
             completeness.findings_of(raw) if _record_of(extra) is not None else None,
         ),
-        *([nine_sheet.roles_line(_record_of(extra))] if nine_on() else []),
-        *([w] if (w := nine_sheet.writer_line(_record_of(extra))) else []),
+        *([_ns().roles_line(_record_of(extra))] if nine_on() else []),
+        *([w] if (nine_on() and (w := _ns().writer_line(_record_of(extra)))) else []),
         count_line(listing, len(evidence), len(grouped)),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (

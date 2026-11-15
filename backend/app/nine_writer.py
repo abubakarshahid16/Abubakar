@@ -25,8 +25,8 @@ WRITER_QUESTION = nine_call.template(
     'the clauses. Add no number, unit, clause or standard that is not in the row and never change a status. Answer with JSON only: {{"1": "comment", ...}}.',
     count="int",
 )
-_STATUS_ENUM = {"not_met": "not met", "met": "met"}
-STATUS_VOCAB = nine_call.vocabulary("nine_writer_status", ("met", "not met", "unknown"))
+_STATUS_ENUM = {"not_met": "not_met", "met": "met"}
+STATUS_VOCAB = nine_call.vocabulary("nine_writer_status", ("met", "not_met", "unknown"))
 CODE_WORDS_LOCAL = "comments worded by code: no AI wording on the local model"
 CODE_WORDS_NO_DECISION = (
     "comments worded by code: no engine decision is stored for this run"

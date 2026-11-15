@@ -134,11 +134,17 @@ def _paper_pages(ctx: RoleContext) -> dict[int, str]:
     return ctx.store["pages"]
 
 
-def _seam_kwargs() -> dict:
+def _seam_kwargs(ctx: RoleContext | None = None) -> dict:
+    """The lane (`send`, `env`) and, with a context, the job's cancel check: the seam stops a call BEFORE its reservation and its send when the
+    job was cancelled (the role then sees a refused call and the loop raises the cancellation before the next role)."""
     send, env = (
         _jobs().lane()
     )  # (None, None) in the app: the real lane through `agent_claude`; tests put a fake model here
-    return {"send": send, "env": env}
+    return {
+        "send": send,
+        "env": env,
+        **({"should_stop": ctx.should_stop} if ctx is not None else {}),
+    }
 
 
 def _usd_of(role_no: int, run_id: str) -> float | None:
@@ -167,7 +173,7 @@ def reader_role(ctx: RoleContext) -> RoleResult:
     got = nine_reader.read_paper(
         run_id=ctx.run_id, paper_id=ctx.submittal, pages=pages, stored_facts=stored, engine=engine,
         equipment_type=getattr(ctx.kind, "equipment_type", None), pages_total=max([*pages, 0]), pictures=engine == "claude",
-        conn=conn, **_seam_kwargs(),
+        conn=conn, **_seam_kwargs(ctx),
     )  # fmt: skip
     nine_facts.store(conn, got.sheet, got.produced)
     ctx.store["fact_sheet"] = got.sheet
@@ -248,7 +254,7 @@ def context_role(ctx: RoleContext) -> RoleResult:
     library = applicability._library(frozenset(scope))
     note, tally = nine_context.run(
         ctx.run_id, project=project, papers=papers, paper_row=dict(mine) if mine else {}, rows=rows, earlier_points=_earlier_points(scope),
-        new_values=new_values, library=library, engine=_choice(ctx), ask=nine_context.seam_ask(ctx.run_id, **_seam_kwargs()),
+        new_values=new_values, library=library, engine=_choice(ctx), ask=nine_context.seam_ask(ctx.run_id, **_seam_kwargs(ctx)),
     )  # fmt: skip
     ctx.store["context_note"] = note
     produced = nine_context.produced(note, tally)
@@ -347,7 +353,7 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     reading = nine_librarian.extend_with_model(
         reading,
         inputs,
-        nine_librarian.seam_ask(ctx.run_id, **_seam_kwargs()),
+        nine_librarian.seam_ask(ctx.run_id, **_seam_kwargs(ctx)),
         engine=engine,
     )
     ctx.store["reading"], ctx.store["cuts"] = reading, cuts
@@ -612,7 +618,7 @@ def writer_role(ctx: RoleContext) -> RoleResult:
         ctx.submittal,
         engine,
         ask=nine_resume.guarded_ask(ctx),
-        **_seam_kwargs(),
+        **_seam_kwargs(ctx),
     )
     got = crs_completeness.record_after_run(ctx.run_id)
     if got is None:

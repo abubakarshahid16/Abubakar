@@ -25,7 +25,6 @@ from io import BytesIO
 
 from openpyxl import load_workbook
 
-from . import nine_sheet
 from . import review_point_decisions as decisions_mod
 from .db import connect
 
@@ -49,6 +48,17 @@ class Incomplete(Exception):
 # ------------------------------------------------------------------------------------------------ the one statement
 
 
+def _wordings(ai_run) -> dict:
+    """The writer's locked wordings of a run; none with the nine-role switch off (the nine-role sheet module is then never imported)."""
+    from . import crs_one
+
+    if not crs_one.nine_on():
+        return {}
+    from . import nine_sheet
+
+    return nine_sheet.load_wordings(connect(), ai_run)
+
+
 def team_statement(
     n: int, comments: int | None = None, findings: int | None = None
 ) -> str:
@@ -67,8 +77,10 @@ def findings_of(raw: list[dict]) -> int:
 def findings_check(raw: list[dict], ai_run: str | None) -> list[str]:
     """The FOURTH check of a nine-role run: the findings the lines stand for equal the findings the reviewer's join kept (stored in the
     role record by the job). A difference refuses the file like the other three. A run with no such record is not checked here."""
-    if not ai_run:
-        return []
+    from . import crs_one
+
+    if not ai_run or not crs_one.nine_on():
+        return []  # the nine-role record is read only with the switch on (then no nine module is imported either)
     from . import nine_record
 
     record = nine_record.load_record(ai_run)
@@ -407,7 +419,7 @@ def verify(
     if copy == "team":
         missing += _comment_accounting(data, raw)
     cuts = (
-        cut_report(data, raw, nine_sheet.load_wordings(connect(), facts.get("ai_run")))
+        cut_report(data, raw, _wordings(facts.get("ai_run")))
         if copy == "team"
         else {"marked": 0, "problems": []}
     )
