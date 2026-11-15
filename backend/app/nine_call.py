@@ -90,7 +90,7 @@ CELL_WRONG_KIND = "cell_wrong_kind"
 #: the words a derived cell may be without being found in a source (a fixed set, not prose)
 DERIVED_ENUM = frozenset(
     {
-        "met", "not met", "not_met", "pass", "fail", "partly", "partly met", "unknown", "yes", "no", "true", "false",
+        "met", "not_met", "pass", "fail", "partly", "partly_met", "unknown", "yes", "no", "true", "false",
         "paper", "rule_book", "project_document", "earlier_revision", "claude", "local", "code", "high", "medium", "low",
         "shall", "should", "may", "must", "held", "not_held", "related",
     }
@@ -118,7 +118,10 @@ UNITS = frozenset(
 
 _FROZEN = False
 MAX_VOCAB_WORDS = 300
-MAX_VOCAB_WORD_CHARS = 24
+MAX_VOCAB_WORD_CHARS = 32
+_VOCAB_WORD = re.compile(
+    r"^[a-z0-9_]+$"
+)  # an app key shape: 32 characters of it cannot carry a sentence
 MAX_SHAPE_CHARS = 64
 _ID_SOURCES: dict[str, tuple[re.Pattern, str | None, bool]] = {}
 
@@ -144,17 +147,19 @@ def _closed() -> None:
 
 def vocabulary(name: str, words) -> str:
     """Register an APP-OWNED vocabulary (called by app code at import, before `freeze`): the words a `vocab:<name>` column or parameter
-    may hold: at most 300 words of at most 24 characters. Folded by `nine_record.fold`. The same name with other words is refused."""
+    may hold: at most 300 words of at most 32 characters, each an app key of [a-z0-9_]. Folded by `nine_record.fold`. The same name with other words is refused."""
     _closed()
     folded = frozenset(nine_record.fold(w) for w in words)
     if (
         not _ID.match(name)
         or not folded
         or len(folded) > MAX_VOCAB_WORDS
-        or any(not w or len(w) > MAX_VOCAB_WORD_CHARS for w in folded)
+        or any(
+            len(w) > MAX_VOCAB_WORD_CHARS or not _VOCAB_WORD.match(w) for w in folded
+        )
     ):
         raise NineCallError(
-            "a vocabulary has a name and up to 300 short words (24 characters at most)"
+            "a vocabulary has a name and up to 300 app keys of [a-z0-9_] (32 characters at most)"
         )
     if _VOCAB.get(name, folded) != folded:
         raise NineCallError(f"vocabulary {name!r} already holds other words")

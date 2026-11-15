@@ -35,7 +35,7 @@ nine_call.id_source(
     "SELECT 1 FROM t_facts WHERE run_id = ? AND fid = ?",
 )
 VOCAB = nine_call.vocabulary(
-    "test_kinds", ["datasheet", "procedure", "design_press", "k1", "-"]
+    "test_kinds", ["datasheet", "procedure", "design_press", "k1"]
 )
 Q = nine_call.template(
     "test_q", "Which clause of {book} on page {page}?", book="id", page="int"
@@ -771,7 +771,7 @@ def test_declared_cell_kinds_accept_typed_values_and_a_verbatim_source_and_refus
         kinds=("vocab:test_kinds", "source", "unit", "id", "number"),
         items=(
             ("design_press", "12 bar", "bar", "f:1:1", "1"),
-            ("-", "alpha", "bar", "paper", "2"),
+            ("k1", "alpha", "bar", "paper", "2"),
         ),
     )
     answer, _t = ask(blocks_=[ok])
@@ -913,7 +913,18 @@ def test_registrations_are_refused_once_the_registries_are_frozen_and_are_capped
     with pytest.raises(nine_call.NineCallError):
         nine_call.vocabulary("t_cap_many", [f"w{i}" for i in range(301)])
     with pytest.raises(nine_call.NineCallError):
-        nine_call.vocabulary("t_cap_long", ["x" * 25])
+        nine_call.vocabulary("t_cap_long", ["x" * 33])
+    for bad in (
+        "two words",
+        "held-text",
+        "Not.A.Key",
+        "a:b",
+    ):  # a word is an app key shape: it cannot carry a sentence
+        with pytest.raises(nine_call.NineCallError):
+            nine_call.vocabulary("t_cap_shape", [bad])
+    key = "superimposed_back_pressure"  # a real field key of 26 characters
+    nine_call.vocabulary("t_cap_key", [key])
+    assert nine_call._in_vocabulary("vocab:t_cap_key", key)
     nine_call.freeze()
     try:
         for late in (
