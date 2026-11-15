@@ -107,6 +107,8 @@ def hostile_machine(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text("".join(f"{k}={v}\n" for k, v in FILE_HALF.items()), encoding="utf-8")
     monkeypatch.setitem(Settings.model_config, "env_file", env_file)
+    # the session exports OLLAMA_URL (closed port) for child processes (V3); the hostile machine has its own
+    monkeypatch.delenv("OLLAMA_URL", raising=False)
     for k, v in ENV_HALF.items():
         monkeypatch.setenv(k, v)
     hostile = Settings()
@@ -193,12 +195,16 @@ def test_the_live_session_is_isolated():
     """What every other test in this run is sitting on."""
     assert env_isolation.unsafe_fields(settings) == []
     assert Settings.model_config["env_file"] is None
+    # the one variable the session sets ON PURPOSE (V3): the closed model port, inherited by child processes
     leaked = [k for k in os.environ
-              if k.lower() in Settings.model_fields
+              if not (k == "OLLAMA_URL" and os.environ[k] == env_isolation.DEAD_MODEL_URL)
+              and (k.lower() in Settings.model_fields
               or k in env_isolation.DIRECT_ENV_NAMES
               or k.startswith(env_isolation.DIRECT_ENV_PREFIXES)
-              or k.upper() in env_isolation.PROXY_ENV_NAMES]
+              or k.upper() in env_isolation.PROXY_ENV_NAMES)]
     assert leaked == []
+    if not env_isolation.real_model_allowed():
+        assert os.environ.get("OLLAMA_URL") == env_isolation.DEAD_MODEL_URL
     live = env_isolation.LIVE_DATA_DIR.resolve()
     for name in env_isolation.WRITE_PATHS:
         p = Path(getattr(settings, name)).resolve()
