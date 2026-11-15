@@ -255,6 +255,19 @@ def _no_test_reaches_past_loopback():
 
 
 @pytest.fixture(autouse=True)
+def _every_test_has_its_own_spend_ledger_and_cache(tmp_path, monkeypatch):
+    """A fresh Claude spend ledger and response cache for EVERY test (V3, review R72).
+
+    The session fixture points `claude_spend_log` at ONE file per worker, so a row one test appended was read by a later
+    test on the same worker (`claude_spend.entries() == []` failed in some full runs, depending on which tests shared a
+    worker). A test that sets its own path still wins: its own monkeypatch runs after this one.
+    """
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "claude_spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "claude_cache")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_test_reaches_the_real_local_model(monkeypatch):
     """No test may talk to a REAL Ollama on this machine (V2, 15 Nov).
 
