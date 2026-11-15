@@ -1036,3 +1036,26 @@ def test_the_held_index_is_built_once_per_run_and_rebuilt_when_the_stored_pages_
         )
     ask(blocks_=[block, Block("paper", "paper", (1,))])
     assert len(built) == 2
+
+
+def test_a_cancel_stops_the_call_before_the_reservation_and_the_send():
+    answer, t = ask(should_stop=lambda: True)
+    assert (
+        answer.state == "refused" and answer.error_code == "cancelled" and not answer.ok
+    )
+    assert t.bodies == [] and ledger() == []
+    assert nine_record.load_record("run1").roles[3].reads == ()
+    call = nine_record.load_record("run1").calls[0]
+    assert call.state == "refused" and call.error_code == "cancelled"
+    local = nine_call.ask(
+        "run1",
+        4,
+        blocks(),
+        (Q, {"book": "book", "page": 4}),
+        engine="local",
+        local_send=lambda parts: pytest.fail("a cancelled local call must not run"),
+        should_stop=lambda: True,
+    )
+    assert local.error_code == "cancelled"
+    answer, t = ask(should_stop=lambda: False)
+    assert answer.ok and len(t.bodies) == 1

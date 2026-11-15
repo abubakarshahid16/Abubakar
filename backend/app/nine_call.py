@@ -945,9 +945,11 @@ def ask(
     meter: agent_claude.SpendMeter | None = None,
     gate: RoleGate | None = None,
     call_id: str | None = None,
+    should_stop: Callable[[], bool] | None = None,
     conn=None,
 ) -> Answer:
-    """Make ONE model call of a nine-role request and record it. `engine` is DERIVED from the run; a caller may ask for "local" but never
+    """Make ONE model call of a nine-role request and record it. `should_stop` (a cancel check) is asked right before the reservation or the
+    send: when it returns true nothing is sent and the answer is `refused` / `cancelled` (no body, no ledger line, no read rows). `engine` is DERIVED from the run; a caller may ask for "local" but never
     for Claude over a Local run. Never raises for a refusal or a failed call: the answer says which (`state`, `error_code`) and what was
     left out (`not_sent`); a wrong use (including a text that is not from a template or a block) raises `NineCallError`."""
     conn = conn or connect()
@@ -1064,6 +1066,10 @@ def ask(
         params_sha256=params_sha,
         ranges=tuple(_ranges(loaded)),
     )
+    if should_stop is not None and should_stop():
+        return refused(
+            "cancelled", kept_ids, dropped
+        )  # a cancel stops the call before the reservation and the send
     if wanted == "claude":
         meta["cells"] = tuple(cells)
         return _ask_claude(
