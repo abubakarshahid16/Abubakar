@@ -76,6 +76,7 @@ def finished_run(client) -> str:
 
 ROUTES = [
     ("get", "/api/reviews/agent-status"),
+    ("get", "/api/reviews/agent-runs?ids=r1"),
     ("post", "/api/reviews/agent-run"),
     ("get", "/api/reviews/runs/r1/agent/summary"),
     ("get", "/api/reviews/runs/r1/agent/lines"),
@@ -193,6 +194,16 @@ def test_status_says_enabled_and_whether_the_lane_is_open(client, monkeypatch):
         "enabled": True,
         "claude_lane_open": False,
     }
+
+
+def test_which_runs_have_an_ai_review_is_one_question_without_a_404_per_run(client):
+    """V2: the list page asked every run for its AI summary and got a 404 for each run that has none (15 failed requests
+    on one page). `agent-runs?ids=` answers for all of them at once; unknown and unreadable ids are simply left out."""
+    run_id = finished_run(client)
+    got = client.get(f"/api/reviews/agent-runs?ids={run_id},not-a-run,{run_id}").json()
+    assert got == {"run_ids": [run_id]}
+    assert client.get("/api/reviews/agent-runs?ids=nothing-here").json() == {"run_ids": []}
+    assert client.get("/api/reviews/agent-runs").status_code == 422
 
 
 def test_summary_lines_trace_crs_and_rules_used_after_a_review(client):

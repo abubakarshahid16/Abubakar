@@ -53,3 +53,31 @@ def test_the_route_answers_the_same_numbers():
     assert out["review_findings_total"] == old["total"] == 1
     assert out["findings_by_severity"] == old["by_severity"] == {"major": 1}
     assert out["escalated_findings"] == 1
+
+
+def test_V2_findings_of_old_runs_of_a_paper_are_not_counted_and_the_boundary_is_said():
+    """V2 (audit): 87 runs over 5 papers counted 186,778 findings. Only the latest run of each paper counts, plus findings
+    that belong to no run (added by hand)."""
+    import uuid  # noqa: F401
+
+    from tests.test_crs_endpoint import _run
+
+    doc, other = _submittal("doc_x"), _submittal("doc_y", "y.pdf")
+    old, new, other_run = _run(doc), _run(doc), _run(other)
+    with db.connect() as conn:  # make "old" older than "new"
+        conn.execute("UPDATE review_runs SET created_at = '2026-01-01T00:00:00Z' WHERE id = ?", (old,))
+        conn.execute("UPDATE review_runs SET created_at = '2026-02-01T00:00:00Z' WHERE id = ?", (new,))
+        conn.execute("UPDATE review_runs SET created_at = '2026-03-01T00:00:00Z' WHERE id = ?", (other_run,))
+    for run_id, n in ((old, 5), (new, 2), (other_run, 1)):
+        for _ in range(n):
+            f = review.create({"document_id": doc if run_id != other_run else other, "category": "requirement_deviation",
+                               "severity": "major", "requirement": "r", "finding": "f", "required_action": "a",
+                               "compliance_status": "NON_COMPLIANT"}, created_by=None)
+            with db.connect() as conn:
+                conn.execute("UPDATE review_findings SET review_run_id = ? WHERE id = ?", (run_id, f["id"]))
+    by_hand = review.create({"document_id": doc, "category": "requirement_deviation", "severity": "minor",
+                             "requirement": "r", "finding": "f", "required_action": "a"}, created_by=None)
+    assert by_hand["id"] and uuid
+    out = deliverables_api.management_summary(scope=SimpleNamespace(allowed_document_ids=None))
+    assert out["review_findings_total"] == 2 + 1 + 1  # newest run of doc, the one run of other, the hand-made one
+    assert "2 papers" in out["findings_boundary"] and "earlier runs are not counted" in out["findings_boundary"]

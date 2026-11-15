@@ -88,6 +88,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_open_points` | How many lines of a run's AI review are open (not Pass, not "Not applicable"); the sign route refuses while any are open unless the engineer said they were read; none when the run has no AI review |
 | `agent_review_crs` | The AI reviewer's CRS writers (core): internal and contractor xlsx in the app's one CRS layout (order 13: `sheet_of` still decides where a line goes); refuse an unproven Pass or Fail; contractor copy holds the proven Fail only |
 | `crs_ai_workbook` | Order 13: what the cells of the AI reviewer's CRS say - item rows with Status, the sheet of lines that are not item rows, Evidence, Notes; three-part comments built from the stored line, no new AI call |
+| `crs_copy_words` | V2: the copy words of every CRS route in one place (internal or company; contractor or issue); spelling only, no cell changes |
 | `crs_ai_words` | Order 13: the fixed sentences and the ONE table of plain phrases of the AI reviewer's CRS, the banned code words, the Status words and the stated Priority rule |
 | `crs_ai_header` | Order 13: the CRS header block's facts (project, document number, title, revision, date, discipline) read from `document_classification`; blank when not held |
 | `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |

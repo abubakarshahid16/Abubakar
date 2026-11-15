@@ -22,6 +22,13 @@ import {
   truncationNote,
 } from "./reviewFormat";
 
+/** The population of the review cards: the latest review of each paper (earlier runs of a paper are not counted). */
+function boundary(data: ReviewDashboard): string {
+  if (typeof data.papers_with_a_review !== "number") return "";
+  const n = data.papers_with_a_review;
+  return ` · of ${n.toLocaleString()} paper${n === 1 ? "" : "s"}, latest review each`;
+}
+
 export interface ReviewDashboardPanelProps {
   /** Take the reader to the review page, at this run if one is given. */
   onOpenReview: (runId?: string) => void;
@@ -165,16 +172,16 @@ export function ReviewDashboardPanel(
         <Card
           label="Reviews in progress"
           value={data.reviews_running + data.reviews_awaiting_decision}
-          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's code`}
+          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's code${boundary(data)}`}
         />
         <Card
           label="Needs attention"
           value={data.needs_attention}
           tone={data.needs_attention ? "warn" : undefined}
           detail={
-            Object.entries(data.needs_attention_reasons)
+            (Object.entries(data.needs_attention_reasons)
               .map(([reason, count]) => `${count} ${reason}`)
-              .join(" · ") || "nothing"
+              .join(" · ") || "nothing") + boundary(data)
           }
         />
       </div>

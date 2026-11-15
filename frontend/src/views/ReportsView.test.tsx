@@ -166,3 +166,16 @@ describe("V1: one date format and a plain word for a document with no passage", 
     expect(screen.getByText(/· 2 passages/)).toBeInTheDocument();
   });
 });
+
+
+describe("V2: a report whose file is missing", () => {
+  it("says File missing and offers no Download; one with its file keeps Download", () => {
+    renderView([makeReport({ file_available: false })]);
+    expect(screen.getByText(/File missing/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
+  });
+  it("keeps Download when the file is there or the server did not say", () => {
+    renderView([makeReport({ file_available: true }), makeReport({ id: "rep_02" })]);
+    expect(screen.getAllByRole("button", { name: "Download" })).toHaveLength(2);
+  });
+});

@@ -366,6 +366,10 @@ def side(current: dict, side: str, scope: access.AccessScope) -> dict:
         return {"document": None, "page": None, "rects": [], "box": None,
                 "reason": f"this finding cites no {side} page"}
     doc = dict(require_document(document_id, scope))
+    # The stored path is relative to the data folder ("uploads/<sha>.pdf"): make it this machine's path ONCE, for every
+    # reader below (box, text layer, scan) and for the caller that renders the page (V2: it was opened against the
+    # process folder and answered 500).
+    doc["stored_path"] = stored_paths.local(doc.get("stored_path"))
     if doc.get("pagination") == "flow":
         return {
             "document": None,

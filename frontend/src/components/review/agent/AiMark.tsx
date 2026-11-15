@@ -23,6 +23,16 @@ export function AiMark({ runId, earlierRunIds = [] }: { runId: string; earlierRu
     setMark(null);
     void (async () => {
       try {
+        // One question for this run and its few next-newest ones: a run with no AI review is not asked for a summary
+        // (that was a 404 in the console for every such run on the list).
+        const earlierIds = earlierKey ? earlierKey.split("|") : [];
+        const which = await agentReview.which([runId, ...earlierIds]);
+        if (!live || !which.ok) return;
+        const have = new Set(which.data.run_ids);
+        if (!have.has(runId)) {
+          if (earlierIds.some((id) => have.has(id))) setMark({ kind: "earlier" });
+          return;
+        }
         const own = await agentReview.summary(runId);
         if (!live) return;
         if (own.ok) {
@@ -31,11 +41,6 @@ export function AiMark({ runId, earlierRunIds = [] }: { runId: string; earlierRu
             .reduce((sum, [, n]) => sum + n, 0);
           setMark({ kind: "lines", lines: total });
           return;
-        }
-        for (const id of earlierKey ? earlierKey.split("|") : []) {
-          const older = await agentReview.summary(id);
-          if (!live) return;
-          if (older.ok) { setMark({ kind: "earlier" }); return; }
         }
       } catch { /* nothing is drawn */ }
     })();

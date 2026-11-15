@@ -15,4 +15,8 @@ def test_requirement_passage_infers_expected_deliverable_and_is_idempotent(tmp_p
     assert first and first[0]["inferred"] == 1
     assert len(deliverables.expected_missing()) == 1
     assert second
+    row = deliverables.expected_missing()[0]
+    # V2: the row is named by where it came from (file and page), not only "Inferred ... requirement"
+    assert row["source_name"] == "requirements.pdf" and row["source_page"] == 1
+    assert row["source_document_id"] == "req"
     db.reset_connection()
