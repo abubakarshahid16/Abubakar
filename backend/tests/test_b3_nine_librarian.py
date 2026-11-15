@@ -22,13 +22,21 @@ def _items(rl, book):
     return next(b for b in rl.books if b.book_id == book).items
 
 
+def _plan(run_id, books, **kw):
+    """plan_reading with every book on the shown list and inside the access, unless the test says otherwise (the default is deny)."""
+    ids = {b.book_id for b in books}
+    kw.setdefault("shown", ids)
+    kw.setdefault("allowed", ids)
+    return L.plan_reading(run_id, books, **kw)
+
+
 def test_a_chapter_holding_a_chosen_rule_is_found_by_its_clause_or_by_its_page_and_ranked_first():
     books = _books()
     rules = [
         L.RuleRef("b1", "2.2", 2, 1),
         L.RuleRef("b1", "9.9", 3, 2),
     ]  # clause 9.9 is unknown: the page finds its chapter
-    rl = L.plan_reading("r1", books, rules=rules, engine="claude")
+    rl = _plan("r1", books, rules=rules, engine="claude")
     it = _items(rl, "b1")
     ids = [i.chapter.chapter_id for i in it]
     assert "2.2" in ids and all(i.chosen for i in it)
@@ -46,7 +54,7 @@ def test_a_chapter_holding_a_chosen_rule_is_found_by_its_clause_or_by_its_page_a
 
 def test_why_each_chapter_is_chosen_cited_context_and_title_and_rule_chapters_rank_before_the_others():
     books = _books()
-    rl = L.plan_reading(
+    rl = _plan(
         "r1", books, rules=[L.RuleRef("b1", "2.1", 2, 1)], cited=[L.ClauseRef("b1", "3.1")], context=[L.ClauseRef("b2", "4")],
         equipment_words=["testing"],
     )  # fmt: skip
@@ -77,8 +85,14 @@ def test_a_book_not_on_the_shown_list_is_never_chosen_and_a_book_outside_the_acc
     assert [b.book_id for b in rl2.books] == [
         "b1"
     ] and rl2.books_wanted_not_listed == 1  # counted, never named
-    rl3 = L.plan_reading("r1", books, rules=rules, shown=None, allowed=None)
-    assert all(b.on_shown_list for b in rl3.books)  # no list stored: today's behaviour
+    rl3 = L.plan_reading(
+        "r1", books, rules=rules
+    )  # no shown list, no access: reads nothing
+    assert rl3.books == () and rl3.books_wanted_not_listed == len(books)
+    rl4 = L.plan_reading(
+        "r1", books, rules=rules, allowed={"b1", "b2"}
+    )  # access but no shown list
+    assert not any(i.chosen for b in rl4.books for i in b.items)
 
 
 def test_the_budget_ends_every_candidate_as_chosen_or_not_read_with_a_reason_never_silently(
@@ -89,10 +103,10 @@ def test_the_budget_ends_every_candidate_as_chosen_or_not_read_with_a_reason_nev
         L.RuleRef("b1", c, p, n)
         for n, (c, p) in enumerate([("2.1", 2), ("2.2", 2), ("1", 2), ("3", 3)], 1)
     ]
-    big = L.plan_reading("r1", books, rules=rules, engine="claude")
+    big = _plan("r1", books, rules=rules, engine="claude")
     assert all(i.chosen for b in big.books for i in b.items) and big.tokens_planned > 0
     monkeypatch.setattr(L, "CLAUDE_REVIEW_TOKENS", 1_500)
-    small = L.plan_reading("r1", books, rules=rules, engine="claude")
+    small = _plan("r1", books, rules=rules, engine="claude")
     cut = [i for b in small.books for i in b.items if not i.chosen]
     assert cut and {i.not_read_why for i in cut} == {"over the reading budget"}
     assert small.tokens_planned <= small.tokens_limit == 1_500
@@ -103,7 +117,7 @@ def test_the_budget_ends_every_candidate_as_chosen_or_not_read_with_a_reason_nev
 
 def test_on_the_local_engine_a_chapter_over_the_review_budget_is_too_long_and_the_budget_is_smaller():
     books = [L.BookInput("b1", NC.cut("b1", _numbered(), max_tokens=5_000), why=())]
-    rl = L.plan_reading("r1", books, rules=[L.RuleRef("b1", "2", 2, 1)], engine="local")
+    rl = _plan("r1", books, rules=[L.RuleRef("b1", "2", 2, 1)], engine="local")
     assert rl.tokens_limit == NC.LOCAL_REVIEW_TOKENS < NC.CLAUDE_REVIEW_TOKENS
 
 
@@ -121,9 +135,9 @@ def test_a_partial_book_is_read_only_where_a_rule_or_a_title_names_its_governed_
         "p1",
         cut,
         why=("governs the equipment type",),
-        partial_words=frozenset({"relief device"}),
+        label="ASME BPVC Section VIII Division 1",
     )
-    rl = L.plan_reading("r1", [book])
+    rl = _plan("r1", [book], equipment={"relief valve"})
     assert [i.chapter.chapter_id for i in _items(rl, "p1")] == [
         "2"
     ] and L.WHY_TITLE in _items(rl, "p1")[0].why  # plural matched, others not read
@@ -131,7 +145,7 @@ def test_a_partial_book_is_read_only_where_a_rule_or_a_title_names_its_governed_
 
 def test_the_model_can_add_a_chapter_it_was_shown_never_remove_one_and_an_id_code_did_not_supply_is_ignored():
     books = _books()
-    rl = L.plan_reading("r1", books, rules=[L.RuleRef("b1", "2.1", 2, 1)])
+    rl = _plan("r1", books, rules=[L.RuleRef("b1", "2.1", 2, 1)])
     titles = L.titles_for_model(rl, books)
     assert titles and all(len(t) == 3 for t in titles)
     have = {(b.book_id, i.chapter.chapter_id) for b in rl.books for i in b.items}
@@ -163,7 +177,7 @@ def test_the_model_can_add_a_chapter_it_was_shown_never_remove_one_and_an_id_cod
 
 def test_a_failed_model_call_leaves_the_code_only_list_and_no_call_without_titles():
     books = _books()
-    rl = L.plan_reading("r1", books, rules=[L.RuleRef("b1", "2.1", 2, 1)])
+    rl = _plan("r1", books, rules=[L.RuleRef("b1", "2.1", 2, 1)])
 
     def boom(_titles):
         raise RuntimeError("down")
@@ -188,13 +202,13 @@ def test_a_failed_model_call_leaves_the_code_only_list_and_no_call_without_title
 
 def test_the_reading_never_offers_a_book_not_on_the_shown_list_to_the_model():
     books = _books()
-    rl = L.plan_reading("r1", books, shown={"b1"})
+    rl = _plan("r1", books, shown={"b1"})
     assert {b for b, _c, _t in L.titles_for_model(rl, books)} == {"b1"}
 
 
 def test_the_role_record_counts_are_ids_and_numbers_only():
     books = _books()
-    rl = L.plan_reading(
+    rl = _plan(
         "r1", books, rules=[L.RuleRef("b1", "2.1", 2, 1)], shown={"b1"}, allowed={"b1"}
     )
     got = L.produced(rl)

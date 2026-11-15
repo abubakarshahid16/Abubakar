@@ -177,3 +177,53 @@ def test_no_client_words_in_source():
     src = pathlib.Path(nc.__file__).read_text().lower()
     for w in ("saes", "api 6"):
         assert w not in src
+
+
+def test_a_name_not_in_its_quote_and_a_subject_not_in_its_quote_are_dropped():
+    def ask(doc, chunk):
+        return {
+            "standards": [
+                # the reviewer's probe: a name the paper never mentions, with an unrelated TRUE sentence from the page
+                {
+                    "name": "WX-777",
+                    "page": 1,
+                    "quote": "Welding shall follow standard ZX-100 for all pressure parts.",
+                },
+            ],
+            "overrides": [
+                {
+                    "subject": "paint colour",
+                    "page": 2,
+                    "quote": "corrosion allowance of three millimetres",
+                },
+            ],
+        }
+
+    note, tally = go([paper("d1", nc.KIND_SPEC)], ask)
+    assert note.standards == () and note.overrides == ()
+    assert tally.standards_dropped == 1 and tally.overrides_dropped == 1
+
+
+def test_the_register_is_found_by_checksum_and_an_unreadable_block_list_blocks(
+    monkeypatch,
+):
+    from app import claude_approved
+
+    monkeypatch.setattr(claude_approved, "blocked_by_name", lambda n: False)
+    monkeypatch.setattr(
+        claude_approved, "blocked_hashes", lambda: frozenset({"ab" * 32})
+    )
+    assert nc.is_register("Renamed copy.pdf", "AB" * 32)
+    assert not nc.is_register("Renamed copy.pdf", "cd" * 32)
+
+    def boom():
+        raise claude_approved.BlockListUnreadable("x")
+
+    monkeypatch.setattr(claude_approved, "blocked_hashes", boom)
+    assert nc.is_register("Any.pdf", "cd" * 32)
+
+
+def test_an_unscored_related_paper_is_not_read_under_automatic_but_under_claude():
+    p = nc.ProjectPaper("r1", nc.KIND_RELATED, {1: STD}, True, True, False, False)
+    assert nc.admit([p], engine="automatic").readable == ()
+    assert nc.admit([p], engine="claude").readable == (p,)
