@@ -29,6 +29,11 @@ PAGES = {
     "book": {4: "BOOK CLAUSE 4.1 shall hold", 5: "BOOK PAGE FIVE"},
     "held": {1: "HELD TEXT should never leave"},
 }
+nine_call.id_source(
+    "t_fact",
+    r"f:\d{1,9}(:\d{1,9}){0,3}",
+    "SELECT 1 FROM t_facts WHERE run_id = ? AND fid = ?",
+)
 VOCAB = nine_call.vocabulary(
     "test_kinds", ["datasheet", "procedure", "design_press", "k1", "-"]
 )
@@ -81,7 +86,11 @@ def world(tmp_path, monkeypatch):
             bar_claude=False,
             now=NOW,
         )  # the run's stored decision says Claude: default deny means only this opens the lane
+        conn.execute("CREATE TABLE t_facts (run_id TEXT, fid TEXT)")
+        conn.execute("INSERT INTO t_facts VALUES ('run1', 'f:1:1')")
     nine_record.start_run("run1")
+    nine_record.reset_held_cache()
+    nine_call._thaw_for_tests()
     yield
     db.reset_connection()
 
@@ -894,3 +903,136 @@ def test_a_row_of_short_cells_is_checked_as_one_joined_text():
     )
     answer, _t = ask(blocks_=[block, Block("paper", "paper", (1,))])
     assert ("derived:short", "text_from_held_document") in answer.not_sent
+
+
+# ------------------------------------------------------------------------------------------------ R63d guards: frozen, looked up
+
+
+def test_registrations_are_refused_once_the_registries_are_frozen_and_are_capped():
+    nine_call.vocabulary("t_cap_ok", [f"w{i}" for i in range(300)])
+    with pytest.raises(nine_call.NineCallError):
+        nine_call.vocabulary("t_cap_many", [f"w{i}" for i in range(301)])
+    with pytest.raises(nine_call.NineCallError):
+        nine_call.vocabulary("t_cap_long", ["x" * 25])
+    nine_call.freeze()
+    try:
+        for late in (
+            lambda: nine_call.vocabulary(
+                "t_late", ["held", "text", "should", "never", "leave"]
+            ),
+            lambda: nine_call.id_source(
+                "t_late",
+                r"z\d{3}",
+                "SELECT 1 FROM documents WHERE id = ?",
+                per_run=False,
+            ),
+        ):
+            with pytest.raises(nine_call.NineCallError):
+                late()
+        # a cell of a vocabulary that could not be registered at run time is refused, however it is interleaved with numbers
+        block = Block(
+            "review_record",
+            name="late",
+            sources=("paper",),
+            kinds=("number", "vocab:test_kinds"),
+            items=tuple(("1", w) for w in ("held", "text", "should", "never", "leave")),
+        )
+        answer, _t = ask(blocks_=[block, Block("paper", "paper", (1,))])
+        assert ("derived:late", "cell_not_in_vocabulary") in answer.not_sent
+    finally:
+        nine_call._thaw_for_tests()
+
+
+def test_wide_id_shapes_are_refused_at_registration_and_a_shape_alone_admits_nothing():
+    sql = "SELECT 1 FROM documents WHERE id = ?"
+    for bad in (
+        r".{1,8}",
+        r"[^x]{1,8}",
+        r"\w{1,8}",
+        r"[a-z]+",
+        r"a*",
+        r"[a-z]{1,100}",
+        r"\S{1,4}",
+    ):
+        with pytest.raises(nine_call.NineCallError):
+            nine_call.id_source("t_wide", bad, sql, per_run=False)
+    with pytest.raises(nine_call.NineCallError):
+        nine_call.id_shape("t_shape_only", r"z\d{3}")
+    for kind_cell in (
+        "68656c6c6f20776f726c6420746869732069732074657874",
+        "a" * 16,
+        "deadbeef" * 8,
+    ):
+        block = Block(
+            "review_record",
+            name="ids",
+            sources=("paper",),
+            kinds=("id",),
+            items=((kind_cell,),),
+        )
+        answer, _t = ask(blocks_=[block, Block("paper", "paper", (1,))])
+        assert (
+            "derived:ids",
+            "cell_wrong_kind",
+        ) in answer.not_sent  # it fits a shape; nothing issued it
+    first, _t = ask()
+    ok = Block(
+        "review_record",
+        name="ids",
+        sources=("paper",),
+        kinds=("id", "id", "id"),
+        items=((first.call_id, "paper", "c12"),),
+    )
+    answer, _t = ask(blocks_=[ok, Block("rule_book", "book", (4,), chapter_id="c12")])
+    assert (
+        answer.ok
+        and [c.kind for c in nine_record.cells_of("run1", answer.call_id)] == ["id"] * 3
+    )
+    other = Block(
+        "review_record",
+        name="ids",
+        sources=("paper",),
+        kinds=("id",),
+        items=(("c13",),),
+    )
+    answer, _t = ask(
+        blocks_=[other, Block("rule_book", "book", (4,), chapter_id="c12")]
+    )
+    assert (
+        "derived:ids",
+        "cell_wrong_kind",
+    ) in answer.not_sent  # a chapter code must be one of this call's own
+
+
+def test_the_app_start_freezes_the_registries():
+    import inspect
+
+    from app import main
+
+    assert "nine_call.freeze()" in inspect.getsource(main.lifespan)
+
+
+def test_the_held_index_is_built_once_per_run_and_rebuilt_when_the_stored_pages_change(
+    monkeypatch,
+):
+    built: list = []
+    real = nine_record._HeldIndex
+    monkeypatch.setattr(
+        nine_record, "_HeldIndex", lambda texts: built.append(1) or real(texts)
+    )
+    block = Block(
+        "review_record",
+        name="n",
+        sources=("paper",),
+        kinds=("number",),
+        items=tuple((str(100000000000 + i),) for i in range(40)),
+    )
+    for _ in range(3):
+        ask(blocks_=[block, Block("paper", "paper", (1,))])
+    assert len(built) == 1
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('held', 9, 'new held words', 14, 0)"
+        )
+    ask(blocks_=[block, Block("paper", "paper", (1,))])
+    assert len(built) == 2
