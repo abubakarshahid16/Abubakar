@@ -45,7 +45,7 @@ NINE_STEPS = (
 CODE_ROLES = (7, 8)
 
 
-TYPED_KINDS = ("number", "clause", "standard", "enum", "code", "id", "unit")
+TYPED_KINDS = ("number", "clause", "standard", "enum", "vocab", "id", "unit")
 MAX_TYPED_CELL = 64
 
 
