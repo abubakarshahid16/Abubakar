@@ -13,6 +13,7 @@ import { PageImageViewer } from "../../PageImageViewer";
 import { AddPoint } from "./AddPoint";
 import { BottomRow } from "./BottomRow";
 import { OlderFiles } from "./OlderFiles";
+import { RolesPanel } from "./RolesPanel";
 import { CodeBox } from "./CodeBox";
 import { FoundDuringReview } from "../panels/FoundDuringReview";
 import { EngineBar } from "./EngineBar";
@@ -102,6 +103,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       {tab === "how" && (
         <div data-testid="v2-how-tab">
           {howTab}
+          {listing && <RolesPanel runId={listing.runs.ai_review} />}
           {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} />}
         </div>
       )}

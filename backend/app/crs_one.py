@@ -33,7 +33,7 @@ from openpyxl import Workbook
 from . import crs_ai_words as words
 from . import crs_comments as comments
 from . import crs_completeness as completeness
-from . import crs_export_quality, crs_layout
+from . import crs_export_quality, crs_layout, nine_sheet
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from .agent_run_crs import _cell
@@ -375,6 +375,11 @@ def _outcome(run_id: str, scope) -> dict:
         return {}
 
 
+def _record_of(extra: dict):
+    """The nine-role record of the AI run behind the list, or None (a review from before the record): read only."""
+    return nine_sheet.load_record(connect(), extra.get("ai_run"))
+
+
 def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
     """What the review did NOT check, in counts and plain words: from the stored runs only."""
     from . import local_engine_bar, page_ledger
@@ -460,6 +465,7 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
             rows.append(
                 ["Rules not asked of this paper", n, _clean(str(why).replace("_", " "))]
             )
+    rows += nine_sheet.not_checked_rows(_record_of(extra))
     if not rows:
         rows.append(
             [
@@ -531,6 +537,8 @@ def _how_rows(extra: dict, scope) -> list[list]:
                 "the rule check is code; the AI review has a first reader and, where the line says so, a second reader (columns First reader, Second reader, Agreed)",
             ]
         )
+    rows.append(["Roles", nine_sheet.roles_line(_record_of(extra))])
+    rows += nine_sheet.how_rows(_record_of(extra))
     rows.append(
         [
             "Older files of each run (history)",
@@ -626,6 +634,7 @@ def build_team(
     ws.title = TEAM_SHEET
     lines = [
         completeness.team_statement(listing["of"], len(grouped)),
+        nine_sheet.roles_line(_record_of(extra)),
         count_line(listing, len(evidence), len(grouped)),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (

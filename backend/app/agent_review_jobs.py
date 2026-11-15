@@ -40,6 +40,7 @@ from . import (
     agent_review_verdict,
     claude_approved,
     claude_auto_approve,
+    agent_review_dispatch as dispatch,
     crs_completeness,
     job_queue,
     nothing_read,
@@ -628,8 +629,7 @@ def _execute(
     holder: dict = {}
     try:
         calculator_run.step_job(run_id, submittal, kind, plan, _tier_lookup(kind))
-        if plan["items"]:
-            _ask(run_id, submittal, kind, plan, holder)
+        dispatch.run(run_id, submittal, kind, plan, holder, _ask, reraise=(_Cancelled,))
     finally:  # the CRS and the run row are written for a partial run too
         plan["extra_lines"] = rule_choice.store_group_lines(run_id, plan, store_line)  # fmt: skip
         result = _finish(run_id, submittal, kind, plan, holder.get("runner"), started)
