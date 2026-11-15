@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -35,6 +36,8 @@ from . import agent_claude, claude_approved, claude_spend, nine_record
 from .claude_image_tokens import json_counts
 from .db import connect
 from .nine_contract import ROLE_NAMES, STEP_OF_ROLE, ReadEntry
+
+log = logging.getLogger(__name__)
 
 #: design budgets per role (SPEC F.2): not a cap, under the USD 5 step cap; the run cap is the backstop
 ROLE_BUDGET_USD: dict[int, float] = {
@@ -521,6 +524,7 @@ def _ask_local(
     try:
         got = sender({"model": model, "max_tokens": int(max_tokens), **parts})
     except Exception as exc:  # noqa: BLE001 - a code only: the text of an error may carry document words
+        log.warning("nine local call failed (%s)", type(exc).__name__)
         return _end(
             run_id,
             role_no,

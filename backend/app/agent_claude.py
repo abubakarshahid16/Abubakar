@@ -234,7 +234,9 @@ def request_digest(body: dict) -> str:
     import hashlib
 
     return hashlib.sha256(
-        json.dumps(body, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+        json.dumps(body, sort_keys=True, ensure_ascii=False, default=str).encode(
+            "utf-8"
+        )
     ).hexdigest()
 
 
