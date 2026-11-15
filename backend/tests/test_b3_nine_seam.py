@@ -194,31 +194,11 @@ def test_the_declared_kinds_of_the_context_blocks_pass_the_seams_cell_check_and_
     assert any(code == "cell_not_from_sources" for _doc, code in bad.not_sent)
 
 
-def test_a_field_name_longer_than_the_vocabulary_cap_is_counted_not_cut():
+def test_every_field_list_name_is_in_the_registered_vocabulary():
     from app import rule_labels
 
-    long = next(
-        (
-            r
-            for r in rule_labels.field_list()
-            if len(r) > nine_call.MAX_VOCAB_WORD_CHARS
-        ),
-        None,
+    folded = nine_call._VOCAB[nc.FIELDS_VOCAB]
+    assert len(folded) == len(rule_labels.field_list())
+    assert all(
+        nine_call.nine_record.fold(r) in folded for r in rule_labels.field_list()
     )
-    assert (
-        long is not None and nc._field_key(long) is None
-    )  # left out of ctx_fields, never truncated
-    assert nc._field_key("design_pressure") == "design_pressure"
-    src = nc.SourceQuote("book", 4, "the " + long.replace("_", " ") + " rule", True)
-    note = nc.build_note(
-        "run1",
-        project=None,
-        admission=nc.admit([], engine="claude"),
-        standards=(),
-        overrides=(nc.Override(long.replace("_", " "), None, src, None),),
-        earlier=None,
-        earlier_held=False,
-    )
-    tally = nc.Tally()
-    parts = nc.context_blocks(note, tally)
-    assert parts.blocks == () and parts.not_passed == 1 and tally.parts_not_passed == 1

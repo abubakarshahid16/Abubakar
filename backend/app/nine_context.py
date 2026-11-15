@@ -203,12 +203,9 @@ Ask = Callable[["ProjectPaper", Sequence[int]], Mapping | None]
 None. The adapter sends NO text: only (kind, document id, pages) as a Block; `seam_ask` is the one adapter."""
 
 #: the app-owned vocabularies of the derived blocks of this role (registered once, at import)
-#: the field-list names the seam can hold (at most `MAX_VOCAB_WORD_CHARS` characters each: a longer name is NOT cut, it is left out and a row
-#: naming it is counted as "not passed to the reviewer")
 FIELDS_VOCAB = nine_call.vocabulary(
-    "ctx_fields",
-    [r for r in rule_labels.field_list() if len(r) <= nine_call.MAX_VOCAB_WORD_CHARS],
-)
+    "ctx_fields", rule_labels.field_list()
+)  # all of them: each is an app key
 CODES_VOCAB = nine_call.vocabulary(
     "ctx_codes",
     (
@@ -622,16 +619,6 @@ class Parts:
     not_passed: int  # rows left out because code cannot prove every cell: counted, said in the note and the record
 
 
-def _field_key(role: str | None) -> str | None:
-    """The role as a cell of `ctx_fields`, or None (a role name longer than the seam's vocabulary word cap is not in it, so a row naming it
-    is counted as not passed, never cut)."""
-    return (
-        role
-        if role and nine_call.nine_record.fold(role) in nine_call._VOCAB[FIELDS_VOCAB]
-        else None
-    )
-
-
 def _cell_ok(value: object) -> str | None:
     text = str(value or "")
     return (
@@ -686,7 +673,6 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
     for o in note.overrides:
         q = o.project_rule.quote
         field = _field_anchor(o.subject, q)
-        field = _field_key(field) if field else None
         anchor = field or _standard_anchor(o.general_ref, q)
         clause = next(
             (c for c in _CLAUSE_NUMBER.findall(o.general_ref or "") if c in q), None
@@ -710,7 +696,7 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
                 "ctx_earlier",
                 note.earlier.document_id,
                 (
-                    _field_key(key) if key in fields else None,
+                    key if key in fields else None,
                     enum(c.status_word),
                     c.engineer_decision if c.engineer_decision in decisions else "none",
                     {True: "still_open", False: "changed", None: "cannot_tell"}[
