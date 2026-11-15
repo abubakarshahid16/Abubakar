@@ -1,4 +1,4 @@
-"""Labels two readers differ on only in a word code can reconcile (app/rule_label_reconcile.py, scripts/reconcile_rule_labels.py).
+"""Labels two readers differ on only in a word code can reconcile (scripts/reconcile_rule_labels.py).
 In-memory databases: the label tables from their own schema, a lab table with the readers' answers; no model, no request."""
 
 from __future__ import annotations
@@ -6,13 +6,21 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
 
 from app import rule_label_convert as conv
-from app import rule_label_reconcile as R
 from app import rule_label_schema, rule_labels
+
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "reconcile_rule_labels.py"
+_spec = importlib.util.spec_from_file_location("reconcile_rule_labels", SCRIPT)
+R = importlib.util.module_from_spec(_spec)
+sys.modules["reconcile_rule_labels"] = (
+    R  # a dataclass in the script needs its module registered
+)
+_spec.loader.exec_module(R)
 
 QUOTE = "The pressure vessel shall be supported on a skirt."
 LAB_COLS = (
@@ -283,13 +291,8 @@ def test_the_reconciled_label_is_ai_approved_for_the_reviewer():
 def test_the_script_refuses_a_live_shaped_path_without_live_and_a_run_without_a_lab(
     tmp_path, capsys
 ):
-    spec = importlib.util.spec_from_file_location(
-        "reconcile_script",
-        Path(__file__).resolve().parents[2] / "scripts" / "reconcile_rule_labels.py",
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
     live = tmp_path / "backend" / "data" / "rag_intelligence.sqlite"
+    mod = R
     assert mod.main(["--db", str(live), "--lab", str(tmp_path / "lab.sqlite")]) == 2
     assert "REFUSED" in capsys.readouterr().out
     assert mod.main(["--db", str(tmp_path / "copy.sqlite")]) == 2
