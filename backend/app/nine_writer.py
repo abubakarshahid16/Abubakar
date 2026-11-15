@@ -26,6 +26,10 @@ WRITER_QUESTION = nine_call.template(
     count="int",
 )
 _STATUS_ENUM = {"not_met": "not met", "met": "met"}
+STATUS_VOCAB = nine_call.vocabulary("nine_writer_status", ("met", "not met", "unknown"))
+PAGE_SHAPE = nine_call.id_shape(
+    "nine_writer_page", r"p\d{1,4}"
+)  # the app's own page reference ("p3"), a typed cell, not a sentence
 CODE_WORDS_LOCAL = "comments worded by code: no AI wording on the local model"
 CODE_WORDS_NO_DECISION = (
     "comments worded by code: no engine decision is stored for this run"
@@ -100,7 +104,7 @@ def ask_wordings(
         "review_record",
         name="comments",
         sources=(submittal, *books),
-        kinds=("id", "source", "enum", "code"),
+        kinds=("id", "source", f"vocab:{STATUS_VOCAB}", "id"),
         items=items,
     )
     got = nine_call.ask(

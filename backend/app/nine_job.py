@@ -399,9 +399,10 @@ def _prefix(ctx: RoleContext, pages: dict[int, str]) -> tuple[list, bool]:
 
     blocks = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
     sheet = ctx.store.get("fact_sheet")
-    digest = nine_facts.digest_block(sheet, pages)[0] if sheet is not None else None
-    if digest is not None:
-        blocks.append(digest)
+    if sheet is not None:
+        blocks.extend(
+            nine_facts.digest_blocks(sheet, pages)[0]
+        )  # the fact sheet: tagged and untagged rows, the paper their only source
     context = list(ctx.store.get("context_blocks") or ())
     blocks.extend(context)
     if blocks:
