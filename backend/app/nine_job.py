@@ -602,8 +602,9 @@ def writer_role(ctx: RoleContext) -> RoleResult:
     """Role 9, the Writer: the ONE sheet (`crs_one`), one comment per field, worst first, checked by `crs_completeness`; on Claude the AI
     wording of each comment, locked by code (`nine_writer`); otherwise the code's words, said so. The contractor file is never reworded."""
     engine = nine_call.engine_of_run(ctx.run_id)
+    ctx.check_stop()
     produced, why = nine_writer.write(
-        ctx.run_id, ctx.submittal, engine, **_seam_kwargs()
+        ctx.run_id, ctx.submittal, engine, ask=_guarded_ask(ctx), **_seam_kwargs()
     )
     got = crs_completeness.record_after_run(ctx.run_id)
     if got is None:

@@ -75,7 +75,7 @@ def lock_rows(grouped: list[dict]) -> list[dict]:
         {
             "key": c["key"], "comment": code_words(c),
             "standard_reference": "; ".join(f"{k['book'] or ''} cl. {k['clause']}" for k in c["clauses"] if k.get("clause")),
-            "page_section": ", ".join(str(x) for x in c["pages"]), "row_kind": "non_compliant" if c["tile"] == "not_met" else "other",
+            "page_section": ", ".join(str(x) for x in c["pages"]), "must_have": [c["name"] or "", *c["tags"]], "row_kind": "non_compliant" if c["tile"] == "not_met" else "other",
         }
         for c in grouped
     ]  # fmt: skip
@@ -94,7 +94,7 @@ def comments_of(submittal: str) -> list[dict]:
 
 
 def ask_wordings(
-    run_id: str, submittal: str, grouped: list[dict], **seam
+    run_id: str, submittal: str, grouped: list[dict], *, ask=nine_call.ask, **seam
 ) -> tuple[dict, dict, str | None]:
     """(kept wordings by comment key, refused counts by reason, the error code when the call did not answer). ONE call; nothing is stored."""
     items, books = items_of(grouped)
@@ -107,7 +107,7 @@ def ask_wordings(
         kinds=("id", "source", f"vocab:{STATUS_VOCAB}", "id"),
         items=items,
     )
-    got = nine_call.ask(
+    got = ask(
         run_id,
         9,
         [block],

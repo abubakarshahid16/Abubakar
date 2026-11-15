@@ -20,6 +20,7 @@ from __future__ import annotations
 import sqlite3
 from collections import Counter
 
+from . import nine_meaning
 from .nine_contract import (
     ReviewRecord,
     RoleRecord,
@@ -149,7 +150,9 @@ def apply_wordings(
         if row is None:
             dropped["no such comment"] += 1
             continue
-        why = crs_wording.lock(text, row)
+        why = crs_wording.lock(text, row) or nine_meaning.refusal(
+            str(row.get("comment") or ""), text, row.get("must_have") or ()
+        )
         if why is None:
             kept[str(key)] = text.strip()
         else:
