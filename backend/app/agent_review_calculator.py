@@ -312,7 +312,7 @@ def checklist_lines(
         if status == COMPLIANT and r.get("rule_id") in presence_only:
             continue  # "stated" compares no value: not a proven Pass, and nothing to ask the engineer
         fact_id = r.get("fact_id")
-        value, page = r.get("value"), r.get("page")
+        value = r.get("value")
         cell = (
             (cells or {}).get(str(fact_id)) if fact_id else None
         )  # its quote: the row's two cells
