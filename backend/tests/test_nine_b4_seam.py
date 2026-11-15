@@ -96,11 +96,12 @@ def reply(*findings):
     return json.dumps({"findings": list(findings)})
 
 
-DIGEST = [("f:1:1", "Coating thickness", "0.35 mm", "p1")]
+DIGEST = [("Coating thickness", "0.35 mm")]
+DIGEST_KINDS = ("source", "source")  # both cells are found in the paper itself
 
 
 def prefix(parts=()):
-    return rev.prefix_blocks("paper", [1, 2], DIGEST, parts)
+    return rev.prefix_blocks("paper", [1, 2], DIGEST, parts, DIGEST_KINDS)
 
 
 def run_review(answers, groups, pre=None, **kw):
@@ -199,7 +200,7 @@ def test_a_context_part_with_a_held_source_is_dropped_and_named_the_others_go_on
         "override_list",
         ("paper",),
         (("coating", "Coating thickness: 0.35 mm"),),
-        ("key", "source"),
+        ("source", "source"),
     )
     held = rev.ContextPart(
         "project_spec", ("held",), (("rule", "token of the held doc"),)
@@ -228,7 +229,7 @@ def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is
         "override_list",
         ("paper",),
         (("coating", "Coating thickness: 0.35 mm"),),
-        ("key", "source"),
+        ("source", "source"),
     )
     got, _t = run_review([reply(finding())], [group()], pre=prefix([ok]))
     assert (
@@ -259,7 +260,10 @@ def test_no_context_available_is_ran_not_partly_and_is_said_in_words():
 
 def test_available_flag_does_not_hide_a_held_part():
     ok = rev.ContextPart(
-        "override_list", ("held",), (("coating", "four rivets"),), ("key", "source")
+        "override_list",
+        ("held",),
+        (("four rivets", "four rivets"),),
+        ("source", "source"),
     )
     got, _t = run_review(
         [reply(finding())], [group()], pre=prefix([ok]), no_context_available=True
@@ -471,7 +475,7 @@ def test_the_range_is_the_one_the_seam_reports_not_the_one_offered():
     _long_world()
     part = rev.ChapterText("long", "4", 1, 2, (3,), 10, 0, 10)
     answer = nine_call.ask(
-        "run1", 4, [*rev.prefix_blocks("paper", [1], DIGEST), *rev.chapter_blocks([part])], (rev.QUESTION_ID, {}), system=(rev.SYSTEM_ID, {}),
+        "run1", 4, [*rev.prefix_blocks("paper", [1], DIGEST, (), DIGEST_KINDS), *rev.chapter_blocks([part])], (rev.QUESTION_ID, {}), system=(rev.SYSTEM_ID, {}),
         send=FakeTransport([reply()]), env=FakeTransport.ENV,
     )  # fmt: skip
     assert rev.sent_of(answer, [part]).book_blocks == {
