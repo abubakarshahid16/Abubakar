@@ -326,8 +326,10 @@ class ReviewerRun:
     context_dropped: list[str] = field(
         default_factory=list
     )  # parts a call did NOT send (a source the gate held): named in the record
+    no_context_available: bool = False  # role 2 found NOTHING to pass (no project document held): zero parts offered is then not a gap
 
-    NO_CONTEXT_OFFERED = "no project context offered"
+    NO_CONTEXT_NOT_OFFERED = "project context not passed (none offered)"
+    NO_CONTEXT_AVAILABLE = "no project context was available"  # role 2 found nothing to pass: that fact is role 2's own row, not a gap here
 
     @property
     def context_passed(self) -> bool:
@@ -362,14 +364,16 @@ class ReviewerRun:
                 )
             )
             return "not_run", why
-        if self.partly or not self.context_offered:
+        not_offered = not self.context_offered and not self.no_context_available
+        if self.partly or not_offered:
             parts = []
-            if not self.context_offered:
-                parts.append(self.NO_CONTEXT_OFFERED)
+            if not_offered:
+                parts.append(self.NO_CONTEXT_NOT_OFFERED)
             if self.context_dropped:
                 parts.append(
-                    "project context part(s) held by the gate: "
+                    f"project context not passed ({len(self.context_dropped)} part(s) held: "
                     + ", ".join(self.context_dropped)
+                    + ")"
                 )
             if self.budget_stopped:
                 parts.append("role budget reached")
@@ -387,7 +391,7 @@ class ReviewerRun:
             return "ran_partly", "; ".join(parts) + tail
         return "ran", None
 
-    def produced(self) -> dict[str, int]:
+    def produced(self) -> dict[str, int | str]:
         """Counts only, for `produced_json` of the record."""
         return {
             "raw_findings": len(self.raw),
@@ -399,6 +403,7 @@ class ReviewerRun:
             "context_parts": len(self.context_offered),
             "context_parts_held": len(self.context_dropped),
             "context_passed": int(self.context_passed),
+            **({"context": self.NO_CONTEXT_AVAILABLE} if self.no_context_available and not self.context_offered else {}),
         }
 
 
@@ -418,13 +423,14 @@ def review(
     gate: nine_call.RoleGate | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     concurrency: int = CONCURRENCY,
+    no_context_available: bool = False,
 ) -> ReviewerRun:
     """One call per chapter group through the seam, `concurrency` at a time, each with prefix + that group's blocks. A group is `not_asked`
     when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
     a failed or refused call is counted and its code kept (codes only). What each call SENT is read from its Answer. Results follow the
     group order, so the same inputs give the same findings."""
     offered = context_names(prefix)
-    run = ReviewerRun(groups=len(groups), context_offered=offered)
+    run = ReviewerRun(groups=len(groups), context_offered=offered, no_context_available=no_context_available)
     gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
     stop = {"budget": False}
 
