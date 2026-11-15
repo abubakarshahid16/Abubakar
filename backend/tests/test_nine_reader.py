@@ -1071,8 +1071,8 @@ def test_a_malformed_reply_is_asked_a_second_time_and_a_good_second_answer_reads
     )  # the second reply was usable
     assert res.produced["malformed_retried"] == 1
     assert (
-        "not json" in res.produced["malformed_reply_shapes"]
-        and "starts letter" in res.produced["malformed_reply_shapes"]
+        "unreadable" in res.produced["malformed_reply_shapes"]
+        and "starts" not in res.produced["malformed_reply_shapes"]
     )
     assert "Here are" not in json.dumps(res.produced)  # the shape, never the words
 
@@ -1085,7 +1085,7 @@ def test_a_page_whose_reply_is_malformed_twice_is_named_with_both_shapes_and_not
     )
     shapes = res.produced["malformed_reply_shapes"]
     assert (
-        shapes.count("dict; starts brace") == 2
+        shapes.count("dict; chars") == 2
         and "keys results" in shapes
         and res.produced["malformed_retried"] == 1
     )
@@ -1096,9 +1096,11 @@ def test_reply_shape_keeps_no_content():
         '```json\n{"fields": "x", "secret words": 1, "ok_key": 2}\n```'
     )
     assert (
-        s.startswith("dict; starts fence")
-        and "keys fields,ok_key" in s
-        and "secret" not in s
-        and "x" not in s.split("keys")[0].replace("chars", "")
+        s.startswith("dict; chars") and "keys fields,ok_key" in s and "secret" not in s
     )
-    assert nine_reader.reply_shape("[1,2]").startswith("list; starts bracket")
+    assert nine_reader.reply_shape("[1,2]").startswith("list; chars")
+    words = "The paper says design pressure is 12 barg"
+    assert nine_reader.reply_shape(words).startswith("unreadable; chars")
+    assert "paper" not in nine_reader.reply_shape(
+        words
+    )  # no prefix of a reply is ever kept

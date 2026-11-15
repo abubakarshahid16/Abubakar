@@ -187,25 +187,18 @@ class _Page:
 
 
 def reply_shape(text: object) -> str:
-    """The SHAPE of a reply the parser rejected, for the record: how long it is, how it starts (a class of character, never a character of content), the
-    type of its first level and the key names there (only names of letters and underscores, at most six, each cut at 24 characters). No value, no
-    sentence: what the model wrote is not kept."""
+    """The SHAPE of a reply the parser rejected, for the record: its length, the type of its first level and the key names there (only names of
+    letters and underscores, at most six, each cut at 24 characters). NO prefix of the reply is kept: the first characters of a reply can be words of the
+    paper, and no document word may reach the record or a log line. A reply that is not JSON at all is named `unreadable` (and its reason code logged)."""
     raw = str(text or "")
-    first = raw.lstrip()[:1]
-    start = (
-        "brace"
-        if first == "{"
-        else "bracket"
-        if first == "["
-        else "fence"
-        if first == "`"
-        else "letter"
-        if first.isalpha()
-        else "other"
-    )
-    kind, keys = "not json", ""
+    kind, keys = "unreadable", ""
     try:
         body = json.loads(form_reader.unfenced_whole(raw))
+    except (ValueError, TypeError) as exc:
+        log.info(
+            "nine reader: a malformed reply is not JSON (%s)", type(exc).__name__
+        )  # the type name only, never a word of the reply
+    else:
         kind = type(body).__name__
         if isinstance(body, dict):
             keys = ",".join(
@@ -213,9 +206,7 @@ def reply_shape(text: object) -> str:
                 for k in body
                 if isinstance(k, str) and re.fullmatch(r"[A-Za-z_]+", k)
             )[:60]
-    except (ValueError, TypeError):
-        pass
-    return f"{kind}; starts {start}; chars {len(raw)}; keys {keys or '-'}"
+    return f"{kind}; chars {len(raw)}; keys {keys or '-'}"
 
 
 def _read_page(
