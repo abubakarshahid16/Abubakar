@@ -25,6 +25,8 @@ from collections.abc import Mapping
 from . import agent_review_approved_code as approved
 from . import agent_review_pass_guards as guards
 from . import comparison, hold_reason, numparse, table_cell
+from .agent_review_proof_words import MORE_WHY, more_than_the_limit
+from .agent_review_proof_words import qualifier_sets as _qualifier_sets
 from .reader_api import _fold
 
 BY_CODE = (
@@ -238,13 +240,33 @@ def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
     if got is None:
         after = text[spot.end :]
         got = next((sense for rx, sense in _AFTER_DIRECTION if rx.match(after)), None)
+    if (
+        got is None
+    ):  # "The maximum <subject> shall be <value> <unit>": the clause's own comparator word stands in front of the subject
+        got = _subject_be_sense(str(quote or ""), numbers[0])
     return None if want is not None and got == want else DIRECTION_WHY
 
 
+def _subject_be_sense(quote: str, number: str) -> str | None:
+    """The direction of "<maximum|minimum> <subject> shall be <number> <unit>" when that is the shape the quote states for THIS number (the parser's own
+    reading, `own_value_limit.subject_be`, so the extractor and the proof cannot disagree about what the shape means)."""
+    from . import own_value_limit
+
+    for seg in [quote]:
+        found = own_value_limit.subject_be(seg)
+        if found is not None and numparse.as_number(
+            found["raw_value"]
+        ) == numparse.as_number(number):
+            return _SENSE.get(str(found["operator"]))
+    return None
+
+
+SUBJECT_PHRASE_WHY = "the words between the comparator and 'shall be' are more than the field's name (another component, a scope, a second subject)"
 SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
 
 
-_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])\s+|\n+")
+#: a full stop after a dotted abbreviation of two letters ("C.A.", "O.D.") does not end the sentence
+_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])(?<!\b[A-Za-z]\.[A-Za-z]\.)\s+|\n+")
 #: what may stand directly before a lone field word that is the subject itself ("the pressure", "of pressure"); any other word there is a qualifier that makes it
 #: another field ("test pressure", "relief valve pressure")
 _BEFORE_HEAD = frozenset(
@@ -286,6 +308,135 @@ def _sentence_before_figure(quote: object, numbers: list[str]) -> str | None:
     return None
 
 
+QUALIFIER_WHY = "the clause and the paper's label qualify the field differently (a scope, a place, a kind, or a bound word on one side only)"
+
+
+def _limit_sentence(quote: object, numbers: list[str]) -> str | None:
+    """The whole sentence (or table line) of the quote that states the limit's figure: before the figure AND after it."""
+    wanted = [numparse.as_number(x) for x in numbers]
+    for piece in _SENTENCE_BREAK.split(str(quote or "")):
+        text = numparse.fold(piece)
+        if any(
+            n.value in wanted and not n.joined
+            for n in numparse.find_numbers(text)
+            if n.value is not None
+        ):
+            return text
+    return None
+
+
+def qualifier_reason(
+    rule_field: object,
+    requirement: Mapping | None,
+    clause_quote: object,
+    paper_label: object,
+) -> str | None:
+    """Why the clause may be about ANOTHER KIND of the field than the paper's label names, in words; None only when the two agree. The words that are neither the
+    field's name, a figure, a unit nor on the closed list of weak words (`_WEAK_WORDS`) are qualifiers, wherever they stand (before the name, after it, in brackets,
+    after a comma: "at the inlet", "for the shell", "(external)"), and the clause sentence's set must EQUAL the label's. A comparator-family word on the label
+    ("Minimum", "Normal", "Rated") must be the clause's own comparator word. An unknown word on either side, or a name one side does not carry whole, is a difference."""
+    from . import agent_review_absence
+
+    field = str(rule_field or "").replace("_", " ").strip()
+    sent = _limit_sentence(clause_quote, limit_numbers(requirement or {}))
+    words = agent_review_absence.field_words([(field, "rule label")]) if field else None
+    if not field or not sent:
+        return QUALIFIER_WHY
+    clause, label = (
+        _qualifier_sets(sent, words, field),
+        _qualifier_sets(numparse.fold(str(paper_label or "")), words, field),
+    )
+    if clause is None or label is None:
+        return QUALIFIER_WHY
+    if clause[0] != label[0] or not label[1] <= clause[1]:
+        return QUALIFIER_WHY
+    return None
+
+
+#: a clause that opens or ends with a condition holds the requirement to that condition, whatever the stored row says
+_CONDITION = re.compile(
+    r"^\W*(?:for|unless|where|if|when|except|provided|in\s+case|in\s+the\s+case)\b|\b(?:unless|except|provided\s+that|only\s+(?:if|when|where)|where|if|when)\b",
+    re.IGNORECASE,
+)
+CONDITION_WHY = "the clause states a condition (for example for a material, unless, where, if, when, except), so the limit is not proven against the paper without it"
+
+
+def single_limit_reason(
+    requirement: Mapping | None,
+    clause_quote: object,
+    clause_text: object = None,
+) -> str | None:
+    """Why the clause says MORE than the limit, in words; None when the quote (and the stored clause text around it, when the line carries it) is the limit sentence
+    and nothing else that matters. Every OTHER sentence must be free of a figure with a unit, a condition, an exception, an override ("Where the service is sour, 6 mm
+    applies", "This does not apply to nozzles", "The owner may agree a higher value", "See note 3"), a scope word: a proof rests on the whole clause, not on one sentence
+    of it."""
+    wanted = [numparse.as_number(x) for x in limit_numbers(requirement or {})]
+    for source in (clause_quote, clause_text):
+        pieces = _SENTENCE_BREAK.split(str(source or ""))
+        at = next(
+            (
+                i
+                for i, piece in enumerate(pieces)
+                if any(
+                    n.value in wanted and not n.joined
+                    for n in numparse.find_numbers(numparse.fold(piece))
+                    if n.value is not None
+                )
+            ),
+            None,
+        )
+        if more_than_the_limit(pieces, at):
+            return MORE_WHY
+    return None
+
+
+def condition_reason(requirement: Mapping | None, clause_quote: object) -> str | None:
+    """The condition READ FROM THE CLAUSE QUOTE itself: the stored row's `condition` column is not the only home of it (a row stored before the condition reader has
+    none). A limit sentence that opens with "For ..." / "Unless ..." / "Where ..." / "If ..." / "When ..." / "Except ..." or carries one of them is held."""
+    sent = _limit_sentence(clause_quote, limit_numbers(requirement or {}))
+    seg = next(
+        (
+            x
+            for x in _SENTENCE_BREAK.split(str(clause_quote or ""))
+            if sent and numparse.fold(x) == sent
+        ),
+        None,
+    )
+    return CONDITION_WHY if seg is not None and _CONDITION.search(seg) else None
+
+
+def _subject_phrase_reason(field: str, quote: object, numbers: list[str]) -> str | None:
+    """For the shape "The maximum <subject> shall be <value> <unit>": the subject must be the field's name (a registered spelling or role pattern, articles aside) and
+    nothing else: "of the support skirt", "for nozzles", "per side", a second noun are a limit on something else. The same `own_value_limit.subject_tokens` the parser
+    uses decides what a plain name is."""
+    from . import agent_review_absence, own_value_limit
+
+    wanted = [numparse.as_number(x) for x in numbers]
+    for piece in _SENTENCE_BREAK.split(str(quote or "")):
+        shape = own_value_limit.subject_ref(piece)
+        if shape is None or not any(
+            n.value in wanted and not n.joined
+            for n in numparse.find_numbers(numparse.fold(piece))
+            if n.value is not None
+        ):
+            continue
+        tokens = own_value_limit.subject_tokens(shape[1])
+        words = agent_review_absence.field_words([(field, "rule label")])
+        if tokens is None:
+            return SUBJECT_PHRASE_WHY
+        text = " ".join(tokens)
+        if words is None:  # a field the registry does not know: its own words
+            return (
+                None
+                if text == " ".join(re.findall(r"[a-z0-9]+", field.lower()))
+                else SUBJECT_PHRASE_WHY
+            )
+        if text in words.spellings or any(p.fullmatch(text) for p in words.patterns):
+            return None
+        return SUBJECT_PHRASE_WHY
+    return None
+
+
 def subject_reason(
     rule_field: object, requirement: Mapping | None, quote: object
 ) -> str | None:
@@ -300,7 +451,13 @@ def subject_reason(
     words = agent_bind.content_words(field)
     if not (field and words and sent):
         return SUBJECT_WHY
-    if not guards._carries(sent, [field]) or guards._other_field_words(sent, [field]):
+    phrase = _subject_phrase_reason(field, quote, limit_numbers(requirement or {}))
+    if phrase is not None:
+        return phrase
+    plain = guards._fold(
+        sent
+    )  # the guards' own folding (a dotted abbreviation "c.a." reads "c a", the way the field's spellings are written)
+    if not guards._carries(plain, [field]) or guards._other_field_words(plain, [field]):
         return SUBJECT_WHY
     if len(words) == 1 and len(field.split()) == 1:  # one word as written
         tokens = re.findall(r"[a-z0-9]+", sent)
@@ -522,6 +679,13 @@ def numeric_proven(line: Mapping) -> bool:
         and clause_reason(req, line.get("clause_quote")) is None
         and direction_reason(req, line.get("clause_quote")) is None
         and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
+        is None
+        and qualifier_reason(
+            line.get("rule_field"), req, line.get("clause_quote"), line.get("field")
+        )
+        is None
+        and condition_reason(req, line.get("clause_quote")) is None
+        and single_limit_reason(req, line.get("clause_quote"), line.get("clause_text"))
         is None
         and _verdict_matches(line, recompute(req, obs))
     )

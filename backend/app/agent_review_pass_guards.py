@@ -97,7 +97,19 @@ def _hit(folded: str, words: absence.FieldWords) -> bool:
         generic_alone = (
             len(sp.split()) == 1 and sp in GENERIC and not _is_the_label(folded, sp)
         )
-        if re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded) and not generic_alone:
+        letters = sp.split()
+        single = len(letters) >= 2 and all(len(t) == 1 for t in letters)
+        if (
+            not single
+            and re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded)
+            and not generic_alone
+        ):
+            return True
+        # a dotted abbreviation is a spelling of single letters ("c a"): the text must WRITE it with its full stops ("C.A."), so "Group C A fittings" and the end of
+        # one sentence followed by the start of the next ("... the design. Pressure test ...") never carry a field
+        if single and re.search(
+            r"(?<![a-z0-9])" + r"\.".join(letters) + r"\.?(?![a-z0-9])", folded
+        ):
             return True
     return False
 

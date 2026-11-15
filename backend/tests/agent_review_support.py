@@ -16,7 +16,7 @@ from app.config import settings
 PAPER, STD = "doc_paper", "doc_std"
 PAPER_PAGE = "DATA SHEET\nCoating thickness: 0.35 mm\nMarking blue\nCoating layers two\nSerial invented"
 STD_PAGE = (
-    "4.1 Frame\nThe coating thickness shall be at least 0.2 mm on every outside surface.\n"
+    "4.1 Frame\nThe coating thickness shall be at least 0.2 mm.\n"
     "4.3 Marking\nThe marking shall be in red for every unit.\n"
     "4.4 Coating\nThe coating shall be applied in two layers of equal depth.\n"
     "4.5 Colour\nThe housing shall be painted in a single colour."
@@ -41,7 +41,7 @@ RULES = {
         None,
     ),
     "R-frame": (
-        "The coating thickness shall be at least 0.2 mm on every outside surface.",
+        "The coating thickness shall be at least 0.2 mm.",
         "4.1",
         "limit",
         ">=",

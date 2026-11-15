@@ -12,7 +12,7 @@
     "design temperature": ["design temperature", "design temp"],
     "operating pressure": ["operating pressure", "operating press", "normal operating pressure"],
     "operating temperature": ["operating temperature", "operating temp", "normal operating temperature"],
-    "corrosion allowance": ["corrosion allowance", "corr allowance", "corrosion allow"],
+    "corrosion allowance": ["corrosion allowance", "corr allowance", "corrosion allow", "c.a."],
     "flange rating": ["flange rating", "flange class", "flange pressure rating", "pressure rating", "nozzle rating", "nozzle class", "nozzle flange rating"],
     "radiography": ["radiographic examination", "radiographic testing", "radiographic inspection", "extent of radiography", "radiography extent", "radiography"],
     "mechanical seal": ["mechanical seals", "mechanical seal", "seal type", "shaft seal", "shaft seal type", "shaft seals"],

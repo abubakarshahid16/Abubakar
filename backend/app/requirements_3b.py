@@ -1105,7 +1105,7 @@ def parse_limit(sentence: str) -> dict | None:
         return None  # never the general limit past an unreadable one (#1619)
     match = _LIMIT.search(sentence)
     if not match:
-        return own_value_limit.parse(sentence) or own_value_limit.trailing(sentence)
+        return own_value_limit.parse(sentence) or own_value_limit.subject_be(sentence) or own_value_limit.trailing(sentence)
     phrase = _canonical_comparator(match.group("cmp"))
     operator = _OPERATOR.get(phrase)
     if operator is None:

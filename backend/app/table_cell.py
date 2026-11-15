@@ -71,6 +71,10 @@ CONDITION_WORDS = frozenset(
         "max",
         "min",
         "built",
+        "internal",
+        "external",
+        "inlet",
+        "outlet",
     }
 )
 _STALE = re.compile(

@@ -15,6 +15,15 @@ from tests import b1_pages
 from tests.test_b1_calculator import ITEM, exit_of, fact, line
 
 
+@pytest.fixture(autouse=True)
+def _the_guards_of_1814_alone(monkeypatch):
+    """This file tests the guards of #1814 (subject, direction, quotes, field) ALONE. The guards added by #1834 (the qualifier sets, the plain-name subject, the condition and
+    the single-limit reads) refuse many of these lines first and would hide the old guards from their mutation entries; their own tests are in test_ca_subject_limit.py."""
+    for name in ("qualifier_reason", "condition_reason", "single_limit_reason"):
+        monkeypatch.setattr(proof, name, lambda *a, **k: None)
+    monkeypatch.setattr(proof, "_subject_phrase_reason", lambda *a, **k: None)
+
+
 def proven(ln) -> bool:
     return exit_of(ln)["verdict_class"] == "Proven by code"
 

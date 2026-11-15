@@ -95,6 +95,211 @@ def parse(sentence: str) -> dict | None:
 
 
 @cache
+def _subject_be_pattern() -> re.Pattern:
+    from . import requirements_3b as r3b
+
+    return re.compile(
+        r"(?<![A-Za-z])(?P<cmp>maximum|minimum|max|min)\s+(?P<ref>[A-Za-z][A-Za-z0-9 .\-/]{1,60}?)"
+        r"\s+(?:shall|must|should|will|is|are)\s+be\s+(?P<value>[-+]?"
+        + r3b._VALUE
+        + r")\s*(?P<unit>"
+        + r3b._UNIT
+        + r")"
+        r"(?![\w/])(?!\s*(?:or|and|to)\s+\d)",
+        re.IGNORECASE,
+    )
+
+
+@cache
+def _role_rules() -> dict:
+    from . import datasheet_checks
+
+    return datasheet_checks.load_rules()
+
+
+_ALT_UNITS = re.compile(
+    r"\s*\(\s*(?P<value>[\d][\d/. ]*)\s*(?P<unit>[A-Za-z\"\u201d\u2033']{1,6})\s*\)"
+)
+
+
+def _alternative_agrees(tail: str, main) -> str | None:
+    """The text after a stated value when it only repeats the value in another unit ("(1/8 in)") and the repeat converts to the same figure, the tail
+    with it removed; the tail unchanged when there is none; None when a bracket states something else."""
+    from . import requirements_3b as r3b
+
+    found = _ALT_UNITS.match(tail)
+    if found is None:
+        return tail if not re.match(r"\s*\(", tail) else None
+    unit = found.group("unit").replace("\u201d", '"').replace("\u2033", '"')
+    unit = {'"': "in", "'": "ft"}.get(unit, unit)
+    value = found.group("value").strip()
+    if "/" in value:
+        try:
+            num, den = value.split("/")
+            value = str(float(num) / float(den))
+        except (ValueError, ZeroDivisionError):
+            return None
+    other = r3b.measure(value, r3b.unit_token(unit))
+    if other.normalized_value is None or other.normalized_unit != main.normalized_unit:
+        return None
+    if abs(other.normalized_value - main.normalized_value) > 0.02 * abs(
+        main.normalized_value
+    ):
+        return None  # 1/16 in is 1.59 mm: a repeat of 1.6 mm (rounded), a different figure is not
+    return tail[found.end() :]
+
+
+#: words that make a subject MORE than a field's name: a preposition (another component or scope follows), a conjunction (two subjects), a condition, a second comparator
+SUBJECT_STOP = frozenset(
+    [
+        "of",
+        "for",
+        "at",
+        "per",
+        "on",
+        "in",
+        "by",
+        "to",
+        "with",
+        "without",
+        "from",
+        "under",
+        "over",
+        "during",
+        "between",
+        "within",
+        "inside",
+        "outside",
+        "into",
+        "through",
+        "across",
+        "as",
+        "than",
+        "after",
+        "before",
+        "while",
+        "when",
+        "where",
+        "if",
+        "unless",
+        "except",
+        "and",
+        "or",
+        "nor",
+        "not",
+        "each",
+        "every",
+        "all",
+        "any",
+        "both",
+        "either",
+        "neither",
+        "only",
+        "other",
+        "maximum",
+        "minimum",
+        "max",
+        "min",
+    ]
+)
+ARTICLES = frozenset({"the", "a", "an"})
+MAX_SUBJECT_WORDS = 4
+
+
+def subject_tokens(ref: str) -> list[str] | None:
+    """The words of the subject between the comparator word and "shall be", folded (a dotted abbreviation "C.A." is the words "c", "a"), articles dropped; None
+    when the subject is not a plain name: it holds a word of `SUBJECT_STOP` (another component or scope, two subjects, a condition, a second comparator word),
+    a figure, or more than four words. ONE function: the parser, the subject check and the exit all ask it, so the three cannot disagree."""
+    tokens = [
+        t
+        for w in str(ref or "").lower().split()
+        if w not in ARTICLES
+        for t in re.findall(r"[a-z0-9]+", w)
+    ]  # an article is a whole word ("c.a." keeps its "a")
+    if (
+        not tokens
+        or len(tokens) > MAX_SUBJECT_WORDS
+        or any(t in SUBJECT_STOP or t.isdigit() for t in tokens)
+    ):
+        return None
+    return tokens
+
+
+def subject_ref(sentence: str) -> tuple[str, str] | None:
+    """(comparator word, subject text) of the shape in the sentence, whether or not the subject is a plain name; None when the sentence is not of the shape."""
+    match = _subject_be_pattern().search(sentence or "")
+    return None if match is None else (match.group("cmp"), match.group("ref"))
+
+
+def subject_be(sentence: str) -> dict | None:
+    """ "The maximum <subject> shall be <value> <unit>" is a limit of that value on the subject (`<=`; "minimum" gives `>=`), the comparator being the
+    clause's own word in front of the subject and the value coming after "shall be".
+
+    Left alone (the clause stays a statement for an engineer): "maximum <subject>" that is itself the name of a registered field ("the maximum allowable
+    working pressure shall be 12 barg" states that field's value, it does not limit anything); "shall not be"; a choice of values ("3 mm or 5 mm"); a
+    number before the comparator; a bracket that is not the same figure in another unit; a phrase that moves, scales or chooses the number; a unit the
+    system cannot convert."""
+    from . import datasheet_roles
+    from . import requirements_3b as r3b
+
+    match = _subject_be_pattern().search(sentence or "")
+    if match is None:
+        return None
+    if subject_tokens(match.group("ref")) is None:
+        return None  # a limit on another component or scope ("of the skirt", "for nozzles", "per side"), two subjects, a condition: a statement for an engineer
+    _, picks_one, number_before, moves_number = _patterns()
+    before = re.sub(
+        r"^\s*\d{1,3}(?:\.\d{1,3})+\.?\s+", "", sentence[: match.start("cmp")]
+    )  # a clause number in front is not a figure
+    alternative = re.search(
+        r"\d[\d./]*\s*[A-Za-z%\u00b0\"]{0,8}\s*\)?\s*,?\s*(?:or|and)\s+(?:the\s+)?$",
+        before,
+        re.IGNORECASE,
+    )  # "(5 mm), or the minimum ... 0.154 in": two thresholds
+    if re.search(
+        r"\b(?:for|unless|where|if|when|except|provided|in\s+case)\b",
+        before,
+        re.IGNORECASE,
+    ):
+        return None  # a clause that opens with a condition ("For carbon steel, ...", "Where ...") holds its limit to that condition: a statement for an engineer
+    if (
+        picks_one.search(match.group("ref"))
+        or number_before.search(before)
+        or alternative
+    ):
+        return None
+    if datasheet_roles.roles_of(
+        f"{match.group('cmp')} {match.group('ref')}", _role_rules()
+    ):
+        return (
+            None  # "maximum allowable working pressure" is a field, not a limit on one
+        )
+    operator = r3b._OPERATOR.get(r3b._canonical_comparator(match.group("cmp")))
+    raw_unit = r3b.unit_token(match.group("unit"))
+    measurement = (
+        r3b.measure(match.group("value"), raw_unit) if operator and raw_unit else None
+    )
+    if measurement is None or measurement.normalized_unit is None:
+        return None
+    tail = _alternative_agrees(sentence[match.end() :], measurement)
+    if tail is None:
+        return None
+    clause = re.match(r"\s*,([^.;]*)", tail)
+    if not (
+        re.match(r"\s*(?:[.;]|$)", tail)
+        or (clause is not None and not moves_number.search(clause.group(1)))
+    ):
+        return None
+    return {
+        "operator": operator,
+        "raw_value": match.group("value"),
+        "raw_unit": raw_unit,
+        "value": measurement.normalized_value,
+        "unit": measurement.normalized_unit,
+    }
+
+
+@cache
 def _trailing_pattern() -> re.Pattern:
     from . import requirements_3b as r3b
 

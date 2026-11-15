@@ -86,8 +86,19 @@ def requirement_from_item(item: Mapping) -> dict:
     return {
         "requirement_type": item.get("requirement_type") or "numeric_limit",
         "operator": item.get("comparator"),
-        "raw_value": proof.stored_text(value) or None,
-        "raw_unit": item.get("unit") or "",
+        # the limit as the clause PRINTS it when the rule row kept it (1.6 mm), else the stored figure and unit as before
+        "raw_value": proof.stored_text(
+            item.get("raw_value")
+            if item.get("raw_value") not in (None, "") and item.get("raw_unit")
+            else value
+        )
+        or None,
+        "raw_unit": (
+            item.get("raw_unit")
+            if item.get("raw_value") not in (None, "") and item.get("raw_unit")
+            else item.get("unit")
+        )
+        or "",
         "value_low": item.get("value_low"),
         "value_high": item.get("value_high"),
         "standard_document_id": item.get("standard_document_id"),
@@ -144,13 +155,26 @@ def _checks(
             base["rule_field"], base["proof_requirement"], base["clause_quote"]
         )
         is None
+        and proof.qualifier_reason(
+            base["rule_field"], base["proof_requirement"], base["clause_quote"], label
+        )
+        is None
+    )
+    # a condition in the limit's own sentence, or another sentence of the clause (the quote and the stored clause text) that carries a figure, a condition, an
+    # exception or an override: the field IS the subject, the clause says MORE than the limit (its own reason below)
+    single = (
+        proof.condition_reason(base["proof_requirement"], base["clause_quote"]) is None
+        and proof.single_limit_reason(
+            base["proof_requirement"], base["clause_quote"], clause_text
+        )
+        is None
     )
     way = (
         proof.direction_reason(base["proof_requirement"], base["clause_quote"]) is None
     )
     return {
         "paper": found and value and field,
-        "clause": c_found and limit and way and subject,
+        "clause": c_found and limit and way and subject and single,
         "paper_found": found,
         "paper_value": value,
         "field": field,
@@ -158,6 +182,7 @@ def _checks(
         "clause_limit": limit,
         "clause_direction": way,
         "clause_subject": subject,
+        "clause_single": single,
     }
 
 
@@ -170,6 +195,7 @@ _QUOTE_FAILS = (
     ("clause_limit", "clause_limit_not_in_quote", "the quote from the clause does not state the limit that was compared, with its unit"),
     ("clause_direction", "clause_direction_not_shown", "the clause's wording does not show the direction of the limit"),
     ("clause_subject", "clause_subject_not_the_field", "the clause's wording does not make the field the subject of the limit"),
+    ("clause_single", "clause_says_more_than_the_limit", "the clause says more than the limit: engineer to read the whole clause"),
 )  # fmt: skip
 
 
@@ -254,6 +280,9 @@ def numeric_line(
     base = _numeric_base(
         item, requirement, fact, clause_quote, page_count, cell, document_id
     )
+    base["clause_text"] = str(clause_text or "")[
+        :8000
+    ]  # the clause around the quote: the exit asks again whether it says more than the limit
     got = comparison.compare(
         dict(requirement), dict(fact) if fact else None, submittal_facts=submittal_facts
     )
