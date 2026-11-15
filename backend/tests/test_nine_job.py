@@ -258,3 +258,120 @@ def test_execute_with_the_switch_off_calls_the_old_ask_with_the_same_arguments(
         .execute("SELECT name FROM sqlite_master WHERE name LIKE 'agent_review_role%'")
         .fetchall()
     )
+
+
+# ------------------------------------------------------------------------------------------------ R69: failure, cancellation, resume
+
+
+def test_the_checklist_restores_the_whole_plan_even_when_the_batch_path_raises():
+    items = [{"item_id": "R-1"}, {"item_id": "R-2"}]
+    plan = {"items": list(items)}
+
+    def boom(*a):
+        raise RuntimeError("transient")
+
+    ctx = nine_job.RoleContext("run1", "doc1", object(), plan, {}, boom)
+    with pytest.raises(RuntimeError):
+        nine_job.checklist_role(ctx)
+    assert plan["items"] == items  # `_finish` and the CRS read the whole list
+
+
+def test_an_error_in_todays_path_roles_is_raised_as_today_and_only_the_new_roles_are_recorded_failed():
+    for n in (5, 6, 7, 8):
+        rec = FakeRecord()
+        args, _ = ctx_args()
+
+        def boom(ctx):
+            raise TimeoutError("transient")
+
+        with pytest.raises(TimeoutError):
+            nine_job.run_roles(
+                *args, record=rec, roles=fakes([], {n: boom}), should_stop=lambda: False
+            )
+        assert (
+            rec.rows.get(("run1", n), {}).get("state") != "ran"
+        )  # not recorded as finished: the retry runs it again
+    for n in (1, 2, 3, 4, 9):
+        rec = FakeRecord()
+        args, _ = ctx_args()
+
+        def boom(ctx):
+            raise TimeoutError("transient")
+
+        nine_job.run_roles(
+            *args, record=rec, roles=fakes([], {n: boom}), should_stop=lambda: False
+        )
+        assert rec.rows[("run1", n)]["why"] == "failed (TimeoutError)"
+
+
+def test_a_cancellation_stops_the_job_before_the_next_role_and_before_a_paid_call():
+    class Stop(Exception):
+        pass
+
+    calls, flag = [], {"stop": False}
+
+    def role_two(ctx):
+        calls.append(2)
+        flag["stop"] = True  # the engineer cancels while role 2 runs
+        return nine_job.RoleResult("ran", engine="code")
+
+    def make(n):
+        return lambda ctx: calls.append(n) or nine_job.RoleResult("ran", engine="code")
+
+    roles = {n: make(n) for n in range(1, 10)} | {2: role_two}
+    args, _ = ctx_args()
+    with pytest.raises(Stop):
+        nine_job.run_roles(
+            *args,
+            record=FakeRecord(),
+            roles=roles,
+            reraise=(Stop,),
+            should_stop=lambda: flag["stop"],
+        )
+    assert calls == [1, 2]  # role 3 was never started
+    ctx = nine_job.RoleContext(
+        "r",
+        "d",
+        None,
+        {},
+        {},
+        lambda *a: None,
+        should_stop=lambda: True,
+        cancel_exc=Stop,
+    )
+    with pytest.raises(Stop):
+        nine_job._guarded_ask(ctx)(
+            "r", 4, [], ("t", {})
+        )  # no paid call is made after a cancel
+
+
+def test_a_restart_that_skips_a_role_that_ran_hands_over_what_it_made(monkeypatch):
+    """Role 3 ran and handed over its chosen chapters; after a crash between roles 3 and 4 the restart skips role 3 and role 4 still gets them."""
+    from tests.test_b1_review_points import world_with_both
+
+    doc, rc, ai, client = world_with_both()
+    ctx = nine_job.RoleContext(ai, doc, None, {}, {}, lambda *a: None)
+    nine_job._handover_save(ai, "chosen", [["doc_book", "5.1"]])
+    nine_job._handover_save(
+        ai,
+        "context_blocks",
+        [
+            {
+                "name": "ctx_a",
+                "sources": [doc],
+                "kinds": None,
+                "items": [["standard", "x"]],
+            }
+        ],
+    )
+    rec = FakeRecord()
+    rec.rows[(ai, 2)] = {"state": "ran", "done": True}
+    rec.rows[(ai, 3)] = {"state": "ran", "done": True}
+    nine_job._execute_role(2, ctx, lambda c: 1 / 0, rec, ())
+    nine_job._execute_role(
+        3, ctx, lambda c: 1 / 0, rec, ()
+    )  # skipped: the role function is never called
+    assert (
+        ctx.store["chosen"] == [("doc_book", "5.1")]
+        and ctx.store["context_blocks"][0].name == "ctx_a"
+    )

@@ -234,7 +234,7 @@ def cut_report(data: bytes, raw: list[dict], wordings: dict | None = None) -> di
     values = [list(r) for r in ws.iter_rows(values_only=True)]
     start = next(i for i, r in enumerate(values) if r and r[0] == "No")
     head = values[start]
-    col = {name: head.index(name) for name in crs_one.TEAM_COLUMNS}
+    col = {name: head.index(name) for name in crs_one.team_columns()}
     long_col = {
         "action": col["What the contractor must do"],
         "paper_shows": col["What the paper shows"],

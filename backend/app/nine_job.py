@@ -20,12 +20,20 @@ word is written here. No model call is made here: every role that asks a model d
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import crs_completeness, nine_call, nine_checklist, nine_record, nine_writer
+from . import (
+    crs_completeness,
+    nine_call,
+    nine_chapters,
+    nine_checklist,
+    nine_record,
+    nine_writer,
+)
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -58,6 +66,16 @@ class RoleContext:
         default_factory=dict
     )  # what one role hands the next (fact sheet, note, reading list, findings): in memory
     flags: dict = field(default_factory=dict)  # e.g. reviewer_failed
+    should_stop: Callable[[], bool] = lambda: (
+        False
+    )  # the job's cancellation, asked before every paid call and between roles
+    cancel_exc: type[BaseException] = (
+        RuntimeError  # what stops the job (the caller's own cancellation exception)
+    )
+
+    def check_stop(self) -> None:
+        if self.should_stop():
+            raise self.cancel_exc()
 
 
 # ------------------------------------------------------------------------------------------------ what the adapters read
@@ -410,20 +428,44 @@ def _prefix(ctx: RoleContext, pages: dict[int, str]) -> tuple[list, bool]:
     return blocks, not context
 
 
+def _chosen_chapters(ctx: RoleContext) -> tuple[list, dict]:
+    """The chosen (book, chapter) pairs and the cut books: from the reading list in memory, or - after a restart that skipped role 3 - from what
+    role 3 handed over (the chosen pairs; the books are cut again by code, no model)."""
+    reading, cuts = ctx.store.get("reading"), ctx.store.get("cuts") or {}
+    if reading is not None:
+        return [
+            (b.book_id, i.chapter)
+            for b in reading.books
+            if b.on_shown_list
+            for i in b.items
+            if i.chosen
+        ], cuts
+    pairs = ctx.store.get("chosen")
+    if not pairs:
+        return [], cuts
+    scope, engine = _scope(ctx), _engine(ctx)
+    budget = (
+        nine_chapters.LOCAL_CALL_TOKENS
+        if engine == "local"
+        else nine_chapters.CLAUDE_CALL_TOKENS
+    )
+    _inputs, cuts = _book_inputs(
+        connect(), list(dict.fromkeys(b for b, _c in pairs)), scope, budget
+    )
+    return [
+        (b, cuts[b].chapter(c))
+        for b, c in pairs
+        if b in cuts and cuts[b].chapter(c) is not None
+    ], cuts
+
+
 def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
     No reading list, nothing chosen, a failed or empty reviewer: the role says so and role 5 asks EVERY item (never weaker than today's)."""
     from . import agent_review_standards, nine_findings, nine_reviewer
 
-    reading, cuts = ctx.store.get("reading"), ctx.store.get("cuts") or {}
-    chosen = [
-        (b.book_id, i.chapter)
-        for b in getattr(reading, "books", ())
-        if b.on_shown_list
-        for i in b.items
-        if i.chosen
-    ]
+    chosen, cuts = _chosen_chapters(ctx)
     if not chosen:
         ctx.flags["reviewer_failed"] = True
         return RoleResult(
@@ -443,8 +485,11 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
         groups,
         engine=engine,
         no_context_available=no_context,
+        ask=_guarded_ask(ctx),
+        should_stop=ctx.should_stop,
         **_seam_kwargs(),
     )
+    ctx.check_stop()  # a cancel during the reviewer's calls ends the job here, never reads as "no finding"
     if not ran.ok:
         ctx.flags["reviewer_failed"] = True
         return RoleResult("not_run", "the reviewer gave no usable finding (" + (", ".join(sorted(set(ran.errors))) or "nothing found") + ")", engine=engine, produced={"groups": ran.groups, "failed": ran.failed})  # fmt: skip
@@ -509,9 +554,11 @@ def checklist_role(ctx: RoleContext) -> RoleResult:
     )
     asked = coverage.to_ask
     ctx.plan["items"] = asked
-    if asked:
-        ctx.ask(ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, ctx.holder)
-    ctx.plan["items"] = items
+    try:
+        if asked:
+            ctx.ask(ctx.run_id, ctx.submittal, ctx.kind, ctx.plan, ctx.holder)
+    finally:  # the plan keeps its whole item list whatever happens: `_finish` and the CRS read it
+        ctx.plan["items"] = items
     return RoleResult(
         "ran",
         engine=None,
@@ -640,6 +687,10 @@ def _record():
     return RealRecord()
 
 
+#: the roles that are today's own path (checklist, second reader, code, decision rule): an error in them is today's error
+TODAYS_PATH = (5, 6, 7, 8)
+
+
 def flat(produced: dict) -> dict:
     """The record keeps counts, ids and short codes only (`nine_record._counts_only`): a dict becomes one count per sub-key
     ("chapters_not_read.over the reading budget": 3), a dict of reasons becomes a count per reason, a long text is dropped."""
@@ -663,19 +714,110 @@ def flat(produced: dict) -> dict:
     return out
 
 
+def _job_cancelled(run_id: str) -> bool:
+    row = (
+        connect()
+        .execute(
+            "SELECT cancel_requested FROM jobs WHERE review_run_id = ? ORDER BY rowid DESC LIMIT 1",
+            (run_id,),
+        )
+        .fetchone()
+    )
+    return bool(row and row["cancel_requested"])
+
+
+def _guarded_ask(ctx: RoleContext):
+    """`nine_call.ask` that honours the job's cancellation BEFORE every call (a paid call is never started after a cancel)."""
+
+    def ask(*args, **kwargs):
+        ctx.check_stop()
+        return nine_call.ask(*args, **kwargs)
+
+    return ask
+
+
+HANDOVER = "agent_review_role_handover"
+
+
+def _handover_save(run_id: str, key: str, value) -> None:
+    conn = connect()
+    with conn:
+        conn.execute(
+            f"CREATE TABLE IF NOT EXISTS {HANDOVER} (run_id TEXT NOT NULL, key TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (run_id, key))"
+        )
+        conn.execute(
+            f"INSERT OR REPLACE INTO {HANDOVER} (run_id, key, payload) VALUES (?,?,?)",
+            (run_id, key, json.dumps(value)),
+        )
+
+
+def _handover_load(run_id: str, key: str):
+    conn = connect()
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (HANDOVER,)
+    ).fetchone():
+        return None
+    row = conn.execute(
+        f"SELECT payload FROM {HANDOVER} WHERE run_id = ? AND key = ?", (run_id, key)
+    ).fetchone()
+    return json.loads(row["payload"]) if row else None
+
+
+def _hand_over(ctx: RoleContext, n: int) -> None:
+    """After a role: keep what the next role needs, so a restart that skips this role (it "ran") still hands it over. Ids and structure only: the
+    fact sheet is already stored by `nine_facts`; the context blocks are rows of typed tokens; the reading list is the chosen (book, chapter) pairs."""
+    if n == 2 and ctx.store.get("context_blocks") is not None:
+        _handover_save(ctx.run_id, "context_blocks", [
+            {"name": b.name, "sources": list(b.sources), "kinds": list(b.kinds or ()) or None, "items": [list(r) for r in b.items]}
+            for b in ctx.store["context_blocks"]
+        ])  # fmt: skip
+    if n == 3 and ctx.store.get("reading") is not None:
+        _handover_save(
+            ctx.run_id,
+            "chosen",
+            [
+                [b.book_id, i.chapter.chapter_id]
+                for b in ctx.store["reading"].books
+                if b.on_shown_list
+                for i in b.items
+                if i.chosen
+            ],
+        )
+
+
+def _reload(ctx: RoleContext, n: int) -> None:
+    """A role that ran is skipped on a restart: reload what it handed over."""
+    from . import nine_facts
+
+    if n == 1:
+        ctx.store["fact_sheet"] = nine_facts.load(connect(), ctx.run_id)
+    elif n == 2 and (rows := _handover_load(ctx.run_id, "context_blocks")) is not None:
+        ctx.store["context_blocks"] = tuple(
+            nine_call.Block("review_record", name=r["name"], sources=tuple(r["sources"]), kinds=tuple(r["kinds"]) if r["kinds"] else None, items=tuple(tuple(x) for x in r["items"]))
+            for r in rows
+        )  # fmt: skip
+    elif n == 3 and (chosen := _handover_load(ctx.run_id, "chosen")) is not None:
+        ctx.store["chosen"] = [tuple(x) for x in chosen]
+
+
 def _execute_role(
     n: int, ctx: RoleContext, fn, record, reraise: tuple[type[BaseException], ...]
 ) -> None:
     if (
         record.role_state(ctx.run_id, n) == "ran"
-    ):  # RESUME: a role that ran is not run again, so nothing is paid twice
+    ):  # RESUME: a role that ran is not run again, so nothing is paid twice; what it handed over is reloaded
+        _reload(ctx, n)
         return
     record.role_started(ctx.run_id, n)
     try:
         result = fn(ctx)
     except reraise:
         raise
-    except Exception as exc:  # noqa: BLE001 - recorded by type (never text), the run goes on by the table of A.3
+    except Exception as exc:
+        if (
+            n in TODAYS_PATH
+        ):  # today's batch path and its code roles behave EXACTLY as today (retry, poison): never swallowed here
+            raise
         log.warning("nine roles: role %s failed (%s)", n, type(exc).__name__)
         result = RoleResult("not_run", f"failed ({type(exc).__name__})")
         if n == 4:
@@ -687,6 +829,7 @@ def _execute_role(
     record.role_finished(
         ctx.run_id, n, state=result.state, why=result.why, engine=result.engine, models=list(result.models), produced=flat(result.produced),
     )  # fmt: skip
+    _hand_over(ctx, n)
 
 
 def run_roles(
@@ -700,14 +843,25 @@ def run_roles(
     record=None,
     roles: dict | None = None,
     reraise: tuple[type[BaseException], ...] = (),
+    should_stop=None,
 ) -> RoleContext:
     """Run the nine roles in order (see the module words). `ask` is today's `agent_review_jobs._ask`; `reraise` are the exceptions that
     must stop the job (the caller passes its cancellation); a BaseException that is not an Exception always propagates."""
     record = record or _record()
     record.ensure_schema()
     record.begin_run(run_id)
-    ctx = RoleContext(run_id, submittal, kind, plan, holder, ask)
+    ctx = RoleContext(
+        run_id,
+        submittal,
+        kind,
+        plan,
+        holder,
+        ask,
+        should_stop=should_stop or (lambda: _job_cancelled(run_id)),
+        cancel_exc=reraise[0] if reraise else RuntimeError,
+    )
     table = {**default_roles(), **(roles or {})}
     for n in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+        ctx.check_stop()  # a cancellation is honoured before every role, and before every paid call inside roles 4 and 9
         _execute_role(n, ctx, table[n], record, reraise)
     return ctx

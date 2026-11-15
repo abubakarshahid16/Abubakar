@@ -59,6 +59,15 @@ COMMENT_COLUMNS = (
     "Comment", "Pill", "Class", "Field or item", "Points", "Pages", "Rule books and clauses", "What the contractor must do",
     "What the paper shows", "What the rule requires", "Reason", "Decisions", "Note", "Full text",
 )  # fmt: skip
+
+
+def nine_on() -> bool:
+    """The nine-role switch. OFF: the team file is cell for cell the file without any nine-role column or line."""
+    from .config import settings
+
+    return bool(getattr(settings, "agent_review_nine_roles_enabled", False))
+
+
 COMMENT_WIDTHS = (9, 26, 14, 30, 8, 14, 52, 48, 48, 48, 36, 22, 34, 60)
 TEAM_COLUMNS = (
     "No", "Comment", "Source", "Pill", "Class", "Field or item", "Page", "Rule book", "Clause", "What the contractor must do",
@@ -88,6 +97,30 @@ TEAM_WIDTHS = (
     48,
     60,
 )
+NINE_COLUMNS = ("Findings behind it", "Findings (call id, index, own verdict)")
+
+
+def team_columns(on: bool | None = None) -> tuple[str, ...]:
+    """The columns of the sheet Evidence: with the nine-role switch OFF, without the two nine-role columns."""
+    on = nine_on() if on is None else on
+    return (
+        TEAM_COLUMNS if on else tuple(c for c in TEAM_COLUMNS if c not in NINE_COLUMNS)
+    )
+
+
+def team_widths(on: bool | None = None) -> tuple[int, ...]:
+    on = nine_on() if on is None else on
+    return (
+        TEAM_WIDTHS
+        if on
+        else tuple(
+            w
+            for w, c in zip(TEAM_WIDTHS, TEAM_COLUMNS, strict=True)
+            if c not in NINE_COLUMNS
+        )
+    )
+
+
 CONTRACTOR_COLUMNS = (
     "Item No",
     "Document Name",
@@ -255,6 +288,8 @@ def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list,
         shown["paper_shows"], shown["requires"], shown["reason"] or None, decision_words(point), group_words(point) or None,
         first, second, agreed, stands_for(point), members_text(point), "\n".join(full) or None,
     ]  # fmt: skip
+    if not nine_on():  # OFF: no nine-role column
+        del cells[-3:-1]
     return [_cell(c) for c in cells], cut_any
 
 
@@ -418,7 +453,7 @@ def _outcome(run_id: str, scope) -> dict:
 
 def _record_of(extra: dict):
     """The nine-role record of the AI run behind the list, or None (a review from before the record): read only."""
-    return nine_sheet.load_record(connect(), extra.get("ai_run"))
+    return nine_sheet.load_record(connect(), extra.get("ai_run")) if nine_on() else None
 
 
 def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
@@ -506,7 +541,7 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
             rows.append(
                 ["Rules not asked of this paper", n, _clean(str(why).replace("_", " "))]
             )
-    rows += nine_sheet.not_checked_rows(_record_of(extra))
+    rows += nine_sheet.not_checked_rows(_record_of(extra))  # [] with the switch off
     if not rows:
         rows.append(
             [
@@ -578,7 +613,8 @@ def _how_rows(extra: dict, scope) -> list[list]:
                 "the rule check is code; the AI review has a first reader and, where the line says so, a second reader (columns First reader, Second reader, Agreed)",
             ]
         )
-    rows.append(["Roles", nine_sheet.roles_line(_record_of(extra))])
+    if nine_on():
+        rows.append(["Roles", nine_sheet.roles_line(_record_of(extra))])
     rows += nine_sheet.how_rows(_record_of(extra))
     rows.append(
         [
@@ -674,7 +710,9 @@ def build_team(
     numbers = {p["id"]: n for n, p in enumerate(raw, start=1)}
     by_id = {p["id"]: p for p in raw}
     grouped = comments.group(raw)
-    wordings = nine_sheet.load_wordings(connect(), extra.get("ai_run"))
+    wordings = (
+        nine_sheet.load_wordings(connect(), extra.get("ai_run")) if nine_on() else {}
+    )
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
     evidence, cut = [], 0
     for p in raw:
@@ -695,7 +733,7 @@ def build_team(
             len(grouped),
             completeness.findings_of(raw) if _record_of(extra) is not None else None,
         ),
-        nine_sheet.roles_line(_record_of(extra)),
+        *([nine_sheet.roles_line(_record_of(extra))] if nine_on() else []),
         *([w] if (w := nine_sheet.writer_line(_record_of(extra))) else []),
         count_line(listing, len(evidence), len(grouped)),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
@@ -714,7 +752,7 @@ def build_team(
     _table(ws, header_row, COMMENT_COLUMNS, comment_rows, COMMENT_WIDTHS)
     ws.freeze_panes = ws.cell(header_row + 1, 2)
     _sheet_table(
-        wb, EVIDENCE_SHEET, TEAM_COLUMNS, evidence, TEAM_WIDTHS,
+        wb, EVIDENCE_SHEET, team_columns(), evidence, team_widths(),
         note="Every point the page counts, one row each, linked to its comment by the column Comment (removed points are in no comment).",
     )  # fmt: skip
     _sheet_table(

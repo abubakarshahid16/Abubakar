@@ -16,6 +16,7 @@ from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
 def on(monkeypatch):
     monkeypatch.setattr(settings, "agent_review_enabled", True)
     monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", True)
 
 
 def store_claude(run_id, docs, bar=False):

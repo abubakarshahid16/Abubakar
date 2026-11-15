@@ -129,13 +129,15 @@ def ask_wordings(
     return kept, dropped, (None if got.ok else got.error_code)
 
 
-def write(run_id: str, submittal: str, engine: str, **seam) -> tuple[dict, str | None]:
+def write(
+    run_id: str, submittal: str, engine: str, *, ask=nine_call.ask, **seam
+) -> tuple[dict, str | None]:
     """The writer's part of role 9: (counts for the record, why it only ran partly or None). Claude asks and locks and stores; anything else
     leaves the code's words."""
     if engine != "claude":
         return {}, CODE_WORDS_LOCAL if engine == "local" else CODE_WORDS_NO_DECISION
     grouped = comments_of(submittal)
-    kept, dropped, error = ask_wordings(run_id, submittal, grouped, **seam)
+    kept, dropped, error = ask_wordings(run_id, submittal, grouped, ask=ask, **seam)
     nine_sheet.store_wordings(connect(), run_id, kept)
     produced = {
         "comments": len(grouped), "ai_wordings_kept": len(kept), "dropped": sum(dropped.values()),
