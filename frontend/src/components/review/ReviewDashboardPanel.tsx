@@ -17,10 +17,20 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
+import { StartReviewStep } from "./panels/StartReviewStep";
 import {
   LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
   truncationNote,
 } from "./reviewFormat";
+
+/** The population of the review cards: the latest review of each paper (earlier runs of a paper are not counted). */
+function boundary(data: ReviewDashboard): string {
+  if (typeof data.papers_with_a_review !== "number") return "";
+  const n = data.papers_with_a_review;
+  const earlier = data.earlier_runs_not_counted ?? 0;
+  return ` · of ${n.toLocaleString()} paper${n === 1 ? "" : "s"}, latest review each`
+    + (earlier > 0 ? ` · ${earlier.toLocaleString()} earlier review${earlier === 1 ? "" : "s"} not counted` : "");
+}
 
 export interface ReviewDashboardPanelProps {
   /** Take the reader to the review page, at this run if one is given. */
@@ -57,6 +67,7 @@ export function ReviewDashboardPanel(
   const [picking, setPicking] = useState(false);
   const [target, setTarget] = useState("");
   const [launch, setLaunch] = useState<Launch>({ kind: "idle" });
+  const [stepFor, setStepFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await reviewsApi.dashboard();
@@ -88,20 +99,11 @@ export function ReviewDashboardPanel(
     });
   }, []);
 
-  async function run() {
+  /** THE ONE START: the button opens the pre-start step (engine, what will leave this Mac, the list, the cost); its Start begins. */
+  function run() {
     if (!target) return;
-    setLaunch({ kind: "running" });
-    const result = await reviewsApi.startReviewRun(target);
-    if (!result.ok) {
-      setLaunch({ kind: "error", message: result.error.message });
-      return;
-    }
     setLaunch({ kind: "idle" });
-    setPicking(false);
-    // STRAIGHT TO THE FINDINGS. The reader pressed a button that says it
-    // runs a review; landing them back on a dashboard would make them go
-    // looking for the thing they just asked for.
-    onOpenReview(result.data.review_run_id);
+    setStepFor(target);
   }
 
   // Still loading: nothing yet, as before. Failed: the block stays, says
@@ -165,16 +167,16 @@ export function ReviewDashboardPanel(
         <Card
           label="Reviews in progress"
           value={data.reviews_running + data.reviews_awaiting_decision}
-          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's code`}
+          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's code${boundary(data)}`}
         />
         <Card
           label="Needs attention"
           value={data.needs_attention}
           tone={data.needs_attention ? "warn" : undefined}
           detail={
-            Object.entries(data.needs_attention_reasons)
+            (Object.entries(data.needs_attention_reasons)
               .map(([reason, count]) => `${count} ${reason}`)
-              .join(" · ") || "nothing"
+              .join(" · ") || "nothing") + boundary(data)
           }
         />
       </div>
@@ -227,13 +229,24 @@ export function ReviewDashboardPanel(
                 ))}
               </select>
               <button
-                type="button" onClick={() => void run()}
-                disabled={!target || launch.kind === "running"}
+                type="button" onClick={run}
+                disabled={!target || launch.kind === "running" || stepFor !== null}
                 className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
               >
                 {launch.kind === "running" ? "Running…" : "Run AI review"}
               </button>
             </div>
+            {stepFor && (
+              <div className="mt-2">
+                <StartReviewStep
+                  documentId={stepFor}
+                  filename={(submittals ?? []).find((d) => d.id === stepFor)?.filename ?? null}
+                  onCancel={() => setStepFor(null)}
+                  // STRAIGHT TO THE FINDINGS: landing the reader back on a dashboard would make them look for what they asked for.
+                  onStarted={(runId) => { setStepFor(null); setPicking(false); onOpenReview(runId); }}
+                />
+              </div>
+            )}
             {launch.kind === "running" && (
               <p aria-live="polite" className="mt-2 text-xs text-slateish-300">
                 Selecting applicable standards and comparing requirements.

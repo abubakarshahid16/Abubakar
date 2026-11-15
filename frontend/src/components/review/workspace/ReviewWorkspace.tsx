@@ -592,8 +592,8 @@ export function ReviewWorkspace({
         )}
         {run.submittal_document_id && isAdmin !== false && agent && (
           <span className="inline-flex flex-col items-start gap-1" data-testid="ws-ai-review-start">
-            <AgentStartButton status={agent} documentId={run.submittal_document_id}
-              onStarted={(started) => openRun(started.review_run_id)} />
+            <AgentStartButton status={agent} documentId={run.submittal_document_id} filename={run.submittal_filename}
+              onStarted={(runId) => openRun(runId)} />
             <span className="text-xs text-slateish-400">{aiReviewName(agent.claude_lane_open)}</span>
           </span>
         )}

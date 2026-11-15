@@ -116,6 +116,8 @@ def test_4_a_conditional_rule_is_held_before_the_context_check_is_ever_bought(
     monkeypatch.setitem(s.RULES, "R-mark", (quote, "4.3", None, None, None, None))
     w["fake"].answers["R-mark"] = {**s.ANSWERS["R-mark"], "clause_quote": quote}
     w["doc"], w["cache"] = s.item_doc()
+    with db.connect() as conn:  # the rule book's own page holds the sentence (a clause quote is verified in the book, c11)
+        conn.execute("UPDATE pages SET text = text || ? WHERE document_id = ? AND page_no = 1", ("\n" + quote, s.STD))
     run_id = run_review()
     line = json.loads(lines_of(run_id)["R-mark"]["line_json"])
     assert line["verdict"] != "Fail" and line["conditional_hold"] is True

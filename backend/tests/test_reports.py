@@ -556,6 +556,21 @@ def test_the_download_name_is_the_report_id_and_the_response_is_private():
     assert r.headers["cache-control"] == "private, no-store"
 
 
+def test_a_report_whose_file_is_gone_says_so_in_the_list_and_in_a_plain_404_sentence():
+    """V2 (audit): 4 of 4 readable reports in the live copy listed a Download that answered 404 "no report with that id"."""
+    ingest()
+    rec = reports.generate(answered_message()["id"], access.unrestricted_scope())
+    client = TestClient(app)
+    assert client.get("/api/reports").json()["reports"][0]["file_available"] is True
+    row = db.connect().execute("SELECT stored_path FROM reports").fetchone()
+    reports.Path(stored_paths_local(row["stored_path"])).unlink()
+    listed = client.get("/api/reports").json()["reports"][0]
+    assert listed["id"] == rec["id"] and listed["file_available"] is False
+    r = client.get(f"/api/reports/{rec['id']}/download")
+    assert r.status_code == 404
+    assert "not on this machine" in r.text and "no report with that id" not in r.text
+
+
 # ------------------------------------------------------------------- access
 
 
@@ -897,3 +912,9 @@ def test_a_quoted_answer_with_no_recorded_source_is_not_called_verbatim():
 ])
 def test_extract_label_follows_the_provenance_of_the_cited_passages(passages, expected):
     assert expected in reports._extract_label({"passages": passages})
+
+
+def stored_paths_local(value):
+    from app import stored_paths
+
+    return stored_paths.local(value)

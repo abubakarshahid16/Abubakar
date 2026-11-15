@@ -11,6 +11,7 @@ import pytest
 from app import agent_review_calculator as calc
 from app import agent_review_code_proof as proof
 from app import agent_review_verdict as V
+from tests import b1_pages
 from tests.test_b1_calculator import ITEM, exit_of, fact, line
 
 
@@ -448,7 +449,7 @@ def test_7_the_exit_asks_again_a_flipped_comparator_on_a_stored_line_is_demoted(
 
 def test_8_a_quote_of_another_field_with_the_flag_true_is_demoted_at_the_exit():
     good = line("85")
-    assert proven(good) and "noise level" in good["paper_context"]
+    assert proven(good)
     forged = {
         **good,
         "paper_quote": "Operating pressure 85 dB(A)",
@@ -461,12 +462,52 @@ def test_8_a_quote_of_another_field_with_the_flag_true_is_demoted_at_the_exit():
     )
 
 
+def test_8_the_page_is_read_again_so_a_forged_flag_quote_and_context_together_prove_nothing(
+    _pages,
+):
+    good = line("85")
+    assert proven(good)
+    _pages[("doc1", 1)] = (
+        "Noise level 70 dB(A)\nOperating pressure 85 dB(A)\n"  # what the store really holds
+    )
+    other = {
+        **good,
+        "paper_quote": "Operating pressure 85 dB(A)",
+        "paper_context": "Noise level 85 dB(A)",
+    }  # a real line of the page, another field
+    assert (
+        other["quotes_checked"]["paper"] is True
+        and exit_of(other)["verdict_class"] != "Proven by code"
+    )
+    off_page = {
+        **good,
+        "paper_quote": "Noise level 85 dB(A)",
+        "paper_context": "Noise level 85 dB(A)",
+    }  # a quote the page does not hold
+    assert exit_of(off_page)["verdict_class"] != "Proven by code"
+
+
 @pytest.mark.parametrize(
-    "context", [None, "", 5, ["Noise level"], "Design pressure 85 dB(A)"]
+    "change",
+    [
+        {"paper_document_id": None},
+        {"paper_document_id": ""},
+        {"paper_document_id": "other"},
+        {"paper_page": 2},
+        {"paper_page": True},
+        {"paper_page": None},
+    ],
 )
-def test_8_without_the_fields_own_lines_nothing_is_proven(context):
-    forged = {**line("85"), "paper_context": context}
-    assert exit_of(forged)["verdict_class"] != "Proven by code"
+def test_8_a_line_that_names_no_readable_page_is_not_proven(change):
+    assert exit_of({**line("85"), **change})["verdict_class"] != "Proven by code"
+
+
+def test_8_a_page_that_cannot_be_read_again_proves_nothing(monkeypatch):
+    def boom(doc, page):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(proof, "PAGE_SOURCE", [boom])
+    assert exit_of(line("85"))["verdict_class"] != "Proven by code"
 
 
 def test_8_the_label_line_directly_above_still_proves_through_the_stored_lines():
@@ -475,7 +516,7 @@ def test_8_the_label_line_directly_above_still_proves_through_the_stored_lines()
         page_text="Noise level\n85 dB(A)\nOperating pressure 12 bar",
         source_text="85 dB(A)",
     )
-    assert proven(ok) and ok["paper_context"].splitlines()[0].startswith("noise level")
+    assert proven(ok)
 
 
 # ---------------------------------------------------------------------------------------- 9 (R48f low): tokens, on both sides, and the basis of a unit
@@ -613,3 +654,339 @@ def test_11_a_compared_check_still_proves_and_the_exit_demotes_a_forged_presence
     forged = {**lines[0], "rule_id": "PSV-06"}
     out = exit_of(forged, forged)
     assert out["verdict"] == "Query" and out["verdict_class"] != "Proven by code"
+
+
+@pytest.fixture(autouse=True)
+def _pages(monkeypatch):
+    return b1_pages.install(monkeypatch)
+
+
+def test_8_a_checklist_line_is_asked_again_from_the_page_too(_pages):
+    lines = calc.checklist_lines(
+        [_result("PSV-16")], page_texts={1: "Over pressure % 21", 2: "x"}
+    )
+    assert (
+        lines[0]["verdict"] == "Pass"
+        and exit_of(lines[0], lines[0])["verdict_class"] == "Proven by code"
+    )
+    _pages[("doc1", 1)] = (
+        "Something else 21"  # the stored page does not hold the value next to its label
+    )
+    assert lines[0]["quotes_checked"]["paper"] is True
+    assert exit_of(lines[0], lines[0])["verdict_class"] != "Proven by code"
+
+
+# ---------------------------------------------------------------------------------------- 12 (R48i 2): the field is the subject of the SAME sentence, as a whole phrase
+
+
+def _subject_line(clause, field):
+    return _dir_line(
+        clause, item={"field_roles": [field], "rule_label": {"tier": "AI approved"}}
+    )
+
+
+def test_12_the_field_in_another_sentence_is_not_the_subject_of_the_limit():
+    clause = "Noise level is reported separately. Valve body shall not exceed 90 dB(A)."
+    ln = _subject_line(clause, "noise")
+    assert query(ln, "clause_subject_not_the_field")
+    assert proven(
+        _subject_line(
+            "Valve body is reported separately. Noise level shall not exceed 90 dB(A).",
+            "noise",
+        )
+    )
+
+
+def test_12_a_table_line_is_its_own_sentence():
+    assert query(
+        _subject_line("Noise level\nValve body maximum 90 dB(A)", "noise"),
+        "clause_subject_not_the_field",
+    )
+    assert proven(_subject_line("Valve body\nNoise level maximum 90 dB(A)", "noise"))
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "The test pressure shall not exceed 90 dB(A).",
+        "The relief valve pressure shall not exceed 90 dB(A).",
+        "Design pressure shall not exceed 90 dB(A).",
+    ],
+)
+def test_12_a_lone_common_word_does_not_accept_a_longer_name_that_ends_in_it(clause):
+    assert query(_subject_line(clause, "pressure"), "clause_subject_not_the_field")
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "The pressure shall not exceed 90 dB(A).",
+        "Pressure shall not exceed 90 dB(A).",
+        "Pressure: maximum 90 dB(A).",
+    ],
+)
+def test_12_the_lone_word_as_the_subject_itself_proves(clause):
+    assert proven(_subject_line(clause, "pressure"))
+
+
+def test_12_a_more_specific_field_of_the_approved_list_in_the_sentence_is_a_query():
+    assert proven(
+        _subject_line("The set pressure shall not exceed 90 dB(A).", "set_pressure")
+    )
+    assert query(
+        _subject_line("The design pressure shall not exceed 90 dB(A).", "set_pressure"),
+        "clause_subject_not_the_field",
+    )
+    assert query(
+        _subject_line(
+            "The set pressure and the design pressure shall not exceed 90 dB(A).",
+            "set_pressure",
+        ),
+        "clause_subject_not_the_field",
+    )
+
+
+def test_12_a_field_that_stands_only_after_the_figure_is_not_the_subject():
+    assert query(
+        _subject_line(
+            "Valves shall not exceed 90 dB(A) with the design pressure.",
+            "design_pressure",
+        ),
+        "clause_subject_not_the_field",
+    )
+    assert proven(
+        _subject_line(
+            "The design pressure shall not exceed 90 dB(A).", "design_pressure"
+        )
+    )
+
+
+def test_11_the_presence_counts_say_how_many_were_stated_and_how_many_are_missing():
+    results = [
+        _result("PSV-06"),
+        _result("PSV-06"),
+        _result("PSV-06", "MISSING_INFORMATION"),
+        _result("PSV-06", "NOT_APPLICABLE"),
+        _result("PSV-16"),
+    ]  # PSV-16 is a compared check
+    assert calc.presence_counts(results) == {
+        "presence_checked": 3,
+        "presence_stated": 2,
+        "presence_missing": 1,
+    }
+    assert calc.presence_counts([]) == {
+        "presence_checked": 0,
+        "presence_stated": 0,
+        "presence_missing": 0,
+    }
+
+
+# ---------------------------------------------------------------------------------------- 14 (R48m 4): the exit's cell test is ONE stored row
+
+
+def _cell_line(_pages, rows):
+    from app import table_cell
+
+    cell = table_cell.Cell(1, 0, 0, 0, 1, "Over pressure %", "21")
+    _pages[("doc1", 1)] = "Over pressure %\n21\nOther\n22"
+    _pages[("tables", "doc1", 1)] = rows
+    got = calc.checklist_lines(
+        [_result("PSV-16")], page_texts={1: "Over pressure %\n21"}, cells={"f9": cell}
+    )
+    _pages[("doc1", 1)] = (
+        "Over pressure %\n21\nOther\n22"  # the checklist builder registered its own page text
+    )
+    return got[0]
+
+
+def test_14_a_cell_line_is_proven_when_its_label_and_value_stand_in_the_one_stored_row(
+    _pages,
+):
+    ln = _cell_line(_pages, [[["Over pressure %", "21"]]])
+    assert ln["verdict"] == "Pass" and ln["cell_ref"] == {
+        "page": 1,
+        "table": 0,
+        "row": 0,
+        "label_col": 0,
+        "value_col": 1,
+        "header": None,
+    }
+    assert exit_of(ln, ln)["verdict_class"] == "Proven by code"
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            [["Over pressure %", "x"], ["y", "21"]]
+        ],  # the label and the value on different rows
+        [[["Over pressure %"], ["21"]]],  # the row has no value cell
+        [[["21", "Over pressure %"]]],  # the value before the label
+        [[["Other", "22"]]],  # the named row holds other cells
+        [],  # no table at all
+    ],
+)
+def test_14_a_cell_line_whose_row_is_not_on_the_stored_tables_is_not_proven(
+    _pages, rows
+):
+    ln = _cell_line(_pages, [[["Over pressure %", "21"]]])
+    assert exit_of(ln, ln)["verdict_class"] == "Proven by code"
+    _pages[("tables", "doc1", 1)] = rows  # what the store really holds
+    assert (
+        ln["quotes_checked"]["paper"] is True
+        and exit_of(ln, ln)["verdict_class"] != "Proven by code"
+    )
+
+
+# ---------------------------------------------------------------------------------------- 15 (R48m 5): a rule that asks for the design / operating / normal value meets that column
+
+
+def _cell(header, label="Noise level"):
+    from app import table_cell
+
+    return table_cell.Cell(1, 0, 0, 0, 1, label, "85 dB(A)", None, header)
+
+
+@pytest.mark.parametrize(
+    "rule_field, label, header, ok",
+    [
+        (
+            "design_pressure",
+            "Pressure",
+            "Normal",
+            False,
+        ),  # the rule asks for design, the column is Normal
+        ("design_pressure", "Pressure", "Design", True),
+        ("design_pressure", "Design pressure", None, True),  # the label carries it
+        (
+            "design_pressure",
+            "Design pressure",
+            "Normal",
+            True,
+        ),  # the label carries it: the label wins
+        (
+            "operating_pressure",
+            "Pressure",
+            None,
+            False,
+        ),  # no header, no word in the label
+        ("pressure", "Pressure", "Normal", True),  # the rule names no condition
+    ],
+)
+def test_15_the_value_is_compared_only_where_its_label_or_column_carries_the_rules_word(
+    rule_field, label, header, ok
+):
+    got = calc.column_not_the_rules(
+        {"rule_field": rule_field, "field": label}, _cell(header, label)
+    )
+    assert (got is None) is ok
+    if not ok:
+        assert got.startswith("the table column is ") and "the rule asks for" in got
+
+
+def test_15_no_cell_no_question_and_the_line_is_a_query_with_the_words():
+    assert (
+        calc.column_not_the_rules(
+            {"rule_field": "design_pressure", "field": "Pressure"}, None
+        )
+        is None
+    )
+    item = {"field_roles": ["design_noise"], "rule_label": {"tier": "AI approved"}}
+    it = {**ITEM, **item, "question": "The design noise shall not exceed 90 dB(A)."}
+    f = fact("85")
+    ln = calc.numeric_line(it, calc.requirement_from_item(it), f, submittal_facts=[f], page_text="Noise level 85 dB(A)", clause_quote=it["question"], clause_text=it["question"], page_count=3, cell=_cell("Normal"))  # fmt: skip
+    assert (
+        ln["verdict"] == "Query"
+        and ln["reason_code"] == "column_not_the_rules"
+        and ln["why"] == "the table column is Normal; the rule asks for design"
+    )
+
+
+# ---------------------------------------------------------------------------------------- 17 (R48n 2): a column that marks another state, or a condition the rule does not name
+
+
+def _col(header, conditions=1, label="Pressure"):
+    from app import table_cell
+
+    return table_cell.Cell(1, 0, 0, 0, 1, label, "10 bar", None, header, conditions)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Previous",
+        "Old value",
+        "Superseded",
+        "Prior issue",
+        "Revision B",
+        "Rev. 2",
+        "rev A",
+    ],
+)
+def test_17_a_column_that_marks_another_state_of_the_value_is_not_compared(header):
+    got = calc.column_not_the_rules(
+        {"rule_field": "set_pressure", "field": "Set pressure"}, _col(header)
+    )
+    assert got == f"the value is under the column '{header}'"
+
+
+@pytest.mark.parametrize(
+    "header", ["Current", "Value", "T1", "Reverse", "Normal", "Design"]
+)
+def test_17_other_headers_are_not_taken_as_another_state(header):
+    from app import table_cell
+
+    assert table_cell.stale_header(header) is None
+
+
+def test_17_a_condition_column_the_rule_does_not_name_is_a_question_unless_it_is_the_only_one():
+    base = {"rule_field": "pressure", "field": "Pressure"}
+    two = calc.column_not_the_rules(base, _col("Normal", conditions=2))
+    assert two == "the table column is Normal; the rule does not say which"
+    assert (
+        calc.column_not_the_rules(base, _col("Normal", conditions=1)) is None
+    )  # the only value column of the label
+    assert (
+        calc.column_not_the_rules(base, _col("As built", conditions=2))
+        == "the table column is As built; the rule does not say which"
+    )
+    assert (
+        calc.column_not_the_rules(
+            {**base, "field": "Design pressure"},
+            _col("Design", conditions=2, label="Design pressure"),
+        )
+        is None
+    )  # the label names it
+    assert (
+        calc.column_not_the_rules(base, _col("T1", conditions=2)) is None
+    )  # not a condition word
+
+
+def test_17_a_header_row_is_counted_by_the_locator():
+    from app import table_cell as T
+
+    rows = [["", "Normal", "Design"], ["Pressure", "10", "12"]]
+    got, _ = T.locate_column([rows], page=1, label="Pressure", header="Design")
+    assert got.header == "Design" and got.conditions_in_header_row == 2
+    one, _ = T.locate(
+        [[["", "Design"], ["Pressure", "12"]]],
+        page=1,
+        label="Pressure",
+        value_text="12",
+    )
+    assert one.conditions_in_header_row == 1
+
+
+# ---------------------------------------------------------------------------------------- 17b: two tags where one identifier is a prefix of the other are not disjoint
+
+
+def test_17_v1_and_v1a_are_not_other_tags():
+    from app import agent_review_calculator_cells as cells
+
+    assert not cells.other_tags({"equipment_tag": "V1"}, {"equipment_tag": "V1A"})
+    assert not cells.other_tags({"equipment_tag": "V1A"}, {"equipment_tag": "V1"})
+    assert not cells.other_tags(
+        {"equipment_tag": "XV-101"}, {"equipment_tag": "XV-1012"}
+    )
+    assert cells.other_tags({"equipment_tag": "V1"}, {"equipment_tag": "V2"})
+    assert cells.other_tags({"equipment_tag": "XV-101"}, {"equipment_tag": "XV-201"})

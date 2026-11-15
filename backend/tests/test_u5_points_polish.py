@@ -222,3 +222,14 @@ def test_fields_that_differ_only_by_such_a_bracket_never_share_a_group():
     ka = review_points.group_key("ai_review", 4, "d1", "4.1", "r", a.lower())
     kb = review_points.group_key("ai_review", 4, "d1", "4.1", "r", b.lower())
     assert ka != kb
+
+
+def test_a_known_tag_is_matched_as_a_tag_never_as_a_word_that_contains_one():
+    known = frozenset({"M12", "V-1"})
+    # "M12 bolts" merely CONTAINS the known tag M12: it is a name word, so the bracket stays
+    assert review_points.split_tags("Fasteners (M12 bolts)", known) == ("Fasteners (M12 bolts)", [])
+    assert review_points.split_tags("Fasteners (M12 bolts, M12 nuts)", known) == ("Fasteners (M12 bolts, M12 nuts)", [])
+    # the tag itself, its range form and a bracketed note are tags
+    assert review_points.split_tags("Rating (M12, V-1 A/B (inlet))", known) == ("Rating", ["M12", "V-1 A/B (inlet)"])
+    # a known tag value that lists several tags contains each of them
+    assert review_points.split_tags("Rating (V-2, V-3)", frozenset({"V-2A/B&V-3A/B"})) == ("Rating", ["V-2", "V-3"])

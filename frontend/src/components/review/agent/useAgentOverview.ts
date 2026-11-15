@@ -29,6 +29,9 @@ export function useAgentOverview(runId: string, enabled: boolean): AgentOverview
     let live = true;
     setView({ state: "loading" });
     void (async () => {
+      const which = await agentReview.which([runId]);
+      if (!live) return;
+      if (which.ok && !which.data.run_ids.includes(runId)) { setView({ state: "none" }); return; }
       const summary = await agentReview.summary(runId);
       if (!live) return;
       if (!summary.ok) {

@@ -5,7 +5,7 @@
 import type { EngineChoice, PointsListing, ReviewPlan, ReviewPoint } from "../../../api/reviewPoints";
 
 export const ENGINE_LABELS: Record<EngineChoice, string> = { automatic: "Automatic", claude: "Claude", local: "Local only" };
-export const NEEDS_YES = "needs the owner's yes for this upload";
+export const NEEDS_YES = "is a contract: Automatic keeps it on this computer, so choose Claude to send it to Claude";
 
 export const TILE_ORDER = ["not_met", "questions", "met", "does_not_apply"] as const;
 export const TILE_LABELS: Record<(typeof TILE_ORDER)[number], string> = {

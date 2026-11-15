@@ -93,6 +93,7 @@ ROUTES = (
     "/api/admin/db/tables",
     "/api/admin/db/tables/users",
     "/api/admin/db/tables/users/rows",
+    "/api/admin/audit-log",
 )
 
 
@@ -240,3 +241,26 @@ def test_unmasked_columns_in_the_same_row_are_untouched(monkeypatch):
     row = body["rows"][0]
     assert row[body["columns"].index("email")] == "boss@e.test"
     assert row[body["columns"].index("display_name")] == "Boss"
+
+
+# ============================================================ the audit log (V2)
+
+def test_the_audit_log_is_read_newest_first_in_pages_with_a_total(monkeypatch):
+    from app import admin as admin_mod
+
+    _user("boss", is_admin=True)
+    for i in range(7):
+        admin_mod._audit(f"act.{i % 2}", {"id": "boss", "email": "boss@e.test"}, "document", f"doc_{i}")
+    client = _client(monkeypatch)
+    h = _headers(client, "boss")
+    page = client.get("/api/admin/audit-log?limit=3", headers=h).json()
+    assert page["total"] >= 7 and len(page["events"]) == 3 and page["limit"] == 3
+    ids = [e["id"] for e in page["events"]]
+    assert ids == sorted(ids, reverse=True)
+    nxt = client.get("/api/admin/audit-log?limit=3&offset=3", headers=h).json()
+    assert not {e["id"] for e in nxt["events"]} & set(ids)
+    only = client.get("/api/admin/audit-log?action=act.1", headers=h).json()
+    assert only["events"] and all(e["action"] == "act.1" for e in only["events"])
+    assert only["total"] == len(only["events"])
+    assert set(page["events"][0]) >= {"id", "at", "actor_username", "action", "resource_type", "resource_id", "outcome", "detail"}
+    assert client.get("/api/admin/audit-log?limit=100000", headers=h).status_code == 422
