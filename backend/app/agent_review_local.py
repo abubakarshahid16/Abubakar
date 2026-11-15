@@ -59,26 +59,35 @@ LOCAL_TOO_LONG = "not asked: too long for the local model"
 #: What a reader of the sheet sees for such a line: nothing was called, so it is never "AI call failed".
 NOT_ASKED_WORDS = "Not asked: too long for the local model. Not reviewed"
 NOT_ASKED_CODE = "not_asked_too_long"
+#: An item whose answer was "not found here" but whose paper was not asked in full (a window too long, an answer discarded, the limit of
+#: windows): never "not stated". Same shape as `LOCAL_TOO_LONG`: Not reviewed, with these words.
+NOT_ALL_ASKED = "not all of the paper could be asked"
+NOT_ALL_ASKED_WORDS = "Not all of the paper could be asked; it was not found in the part that was. Not reviewed"
 
 
 def failed_words(error: object) -> str:
     """Why a line has no answer. A request the local engine could not take was never called: it says so, never "AI call failed"."""
+    if error == NOT_ALL_ASKED:
+        return NOT_ALL_ASKED_WORDS
     return NOT_ASKED_WORDS if error == LOCAL_TOO_LONG else f"AI call failed: {error}"
 
 
 #: The one code of the second-reader step when it was switched off because model B could not be a second reader.
 OFF_SECOND_UNAVAILABLE = "second_reader_not_available_on_this_computer"
 SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (no second local model of another family): lines stay 'AI thinks'"
-#: TRUNCATION GUARD, three nets. (1) The SEND decision uses the repo's own fail-safe estimate (`context_budget.estimate_tokens`: a digit
-#: costs a token each, letters 3.5 to a token; it may over-estimate and must never under-estimate) for the whole prompt plus the output
-#: limit plus a margin; a request over the window is not sent. (2) After every call the engine's own `prompt_eval_count` is read from the
-#: JSON `model_transport` returns. `context_budget` measured that on an overflow the engine reports a count BELOW the window (1,026 of
-#: 1,536, 33% under), so a count at the window is not the test: an answer is thrown away when the count is missing, when it is at or over
-#: CUT_FRACTION of the window (a prompt admitted by (1) is at most about 0.7 of its estimate for prose; one that reads that full of the
-#: window is treated as cut, the safe side), or when it is below the lower bound of what the prompt must cost (a digit is at least a
-#: third of a token, other text at least a sixteenth of a token a character). (3) A per-call nonce starts the system text so the engine's
-#: prompt cache can never make a full prompt look short.
-CUT_FRACTION = 0.6
+#: TRUNCATION GUARD. WHAT AN OVERFLOW RETURNS (docs/benchmarks.md "The overflow", `context_budget.py`, measured 2026-09-05 with the deployed
+#: engine): the engine cuts a prompt that is longer than `num_ctx` WITHOUT saying so and reports a `prompt_eval_count` BELOW the window
+#: (1,026 at num_ctx 1,536: two thirds of it), which looks like an ordinary small prompt. A cut therefore cannot be told from the count
+#: alone; it must be prevented before the call. So: (1) the SEND decision uses the repo's own fail-safe estimate
+#: (`context_budget.estimate_tokens`: a digit costs a token each, letters 3.5 to a token; it may over-estimate, it must never
+#: under-estimate) for the whole prompt plus the output limit plus a margin: a prompt that passes it cannot be cut. (2) The count the engine
+#: reports (`prompt_eval_count`, in the JSON `model_transport` returns) is then a net, and an answer is thrown away when it is missing,
+#: when it reaches the room the prompt may use (the window less the output limit, less CUT_MARGIN: the engine used everything), when it is
+#: below the lower bound of what the prompt must cost (a digit at least a third of a token, other text at least a sixteenth), or when it is
+#: above the estimate (the estimate under-counted, so (1) cannot be trusted for this request). A prompt that used more than half the window is NOT
+#: discarded for that alone. (3) A per-call nonce starts the system text so the engine's prompt cache can never make a full prompt look short.
+CUT_MARGIN = 64
+ESTIMATE_SLACK = 64  # tokens the chat template adds to what the estimate counts
 #: The general review on the local engine: windows of pages, checklist batches and project-paper groups that fit the window under the
 #: engine's output ceiling (units: `agent_general_review.tokens_of`, characters / 4). A paper longer than one window is read in windows;
 #: the sheet says which pages were and were not read.
@@ -86,14 +95,13 @@ GENERAL_WINDOW_TOKENS = 2600
 GENERAL_P2_BATCH = 3
 GENERAL_GROUP_TOKENS = 1200
 GENERAL_OUTPUT_CAP = 1400
-MIN_CHARS_PER_DIGIT_TOKEN, MIN_CHARS_PER_WORD_TOKEN = 3, 16
 WINDOW_MARGIN_TOKENS = 256
 TIMEOUT_S = 600.0
 #: Smaller than the Claude path (it measured 1,000 + 1,100 x items with the reader's own thinking): thinking is off here, and the window
 #: is 8k. A reply cut off at its limit is split and retried by the runner exactly as on the Claude path.
-FIRST_BATCH_MAX = 3
+FIRST_BATCH_MAX = 1  # one item a request: the part of the paper it needs (`agent_review_excerpt`) is all a 16k window holds
 FIRST_TOKENS_BASE, FIRST_TOKENS_PER_ITEM, FIRST_TOKENS_CAP = 300, 380, 2400
-SECOND_BATCH_MAX = 3
+SECOND_BATCH_MAX = 1
 SECOND_TOKENS_BASE, SECOND_TOKENS_PER_ITEM, SECOND_TOKENS_CAP = 300, 330, 2000
 
 
@@ -109,6 +117,12 @@ class LocalStageRefused(LocalError):
 
 class LocalSecondUnavailable(LocalError):
     code = "second_reader_not_available"
+
+
+class LocalMemoryRefused(agent_claude.AgentGateClosed):
+    """The model and the smallest window do not fit the memory budget: the run stops before anything is loaded (its code is the sentence)."""
+
+    code = "this computer's memory budget is too small for the local model and its context; nothing was loaded"
 
 
 class LocalGateClosed(agent_claude.AgentGateClosed):
@@ -220,6 +234,123 @@ def review_running() -> bool:
     return bool(rec and rec.get("kind") == LOCK_KIND and not heavy_lock.is_stale(rec))
 
 
+MEMORY_MARGIN_MB = 8192  # kept free for the system, the chat and the other tools
+STEP_TOKENS = 1024
+CHAT_WAIT_S = 60.0
+
+
+def physical_memory_mb() -> int | None:
+    """This computer's physical memory in MB, from the standard library (None when the platform does not say)."""
+    import os
+
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e6)
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
+def memory_budget_mb(setting: int = 0, physical: int | None = None) -> int | None:
+    """The memory the model and its context may use: the setting (`agent_review_local_memory_budget_mb`), else the physical memory less
+    MEMORY_MARGIN_MB; None when neither is known (memory is then not checked, and the run says so)."""
+    if setting and setting > 0:
+        return int(setting)
+    phys = physical if physical is not None else physical_memory_mb()
+    return max(0, phys - MEMORY_MARGIN_MB) if phys else None
+
+
+def _model_size_mb(model: str) -> float | None:
+    """The size on disk of an installed model in MB from the engine's list (`/api/tags`, through `model_transport`); None when unknown."""
+    try:
+        got = model_transport.get_json("/api/tags", timeout=10.0, required=False)
+    except Exception as exc:  # noqa: BLE001 - a stopped engine is a state, not an error here
+        log.warning("local model sizes could not be read (%s)", type(exc).__name__)
+        return None
+    models = got.get("models") if isinstance(got, dict) else None
+    for m in models if isinstance(models, list) else []:
+        if (
+            isinstance(m, dict)
+            and model in (m.get("name"), m.get("model"))
+            and isinstance(m.get("size"), (int, float))
+        ):
+            return float(m["size"]) / 1e6
+    return None
+
+
+def window_plan_words() -> str:
+    """For the plan, before the start (no engine is asked): how the context window will be chosen, from the settings and this computer's memory."""
+    from .config import settings
+
+    cap = int(settings.agent_review_local_num_ctx or 0)
+    budget = memory_budget_mb(int(settings.agent_review_local_memory_budget_mb or 0))
+    return (
+        f"The local model's context window is its own length or the cap ({cap or 'the shared window'} tokens), whichever is smaller, "
+        + (
+            f"shrunk so the model and its context stay under the memory budget ({budget} MB); "
+            if budget
+            else "with this computer's memory not known; "
+        )
+        + "the run states the window it chose and why, and keeps the shared window while a chat answer is being written"
+    )
+
+
+def _chat_active() -> bool:
+    from . import progress
+
+    return progress.active_count() > 0
+
+
+def _info(show: Any) -> dict:
+    info = show.get("model_info") if isinstance(show, dict) else None
+    return info if isinstance(info, dict) else {}
+
+
+def _num(info: dict, arch: str, key: str) -> float | None:
+    got = info.get(f"{arch}.{key}")
+    if isinstance(
+        got, list
+    ):  # a per-layer list (hybrid models): the largest, the safe side
+        got = max(
+            (x for x in got if isinstance(x, (int, float)) and not isinstance(x, bool)),
+            default=None,
+        )
+    return (
+        float(got)
+        if isinstance(got, (int, float)) and not isinstance(got, bool) and got > 0
+        else None
+    )
+
+
+def context_length(show: Any) -> int | None:
+    """The model's own context length in tokens from the engine's data (`<architecture>.context_length`), or None when it is not given."""
+    info = _info(show)
+    arch = str(info.get("general.architecture") or "")
+    got = _num(info, arch, "context_length")
+    return int(got) if got else None
+
+
+def kv_mb_per_1k(show: Any) -> float | None:
+    """An upper estimate of the memory the context costs per 1,000 tokens, in MB, from the model's own data: layers x kv heads x (key length +
+    value length) x 2 bytes (f16 cache). None when the data does not give it. A hybrid model keeps a cache in only some layers: this over-counts."""
+    info = _info(show)
+    arch = str(info.get("general.architecture") or "")
+    layers, heads = (
+        _num(info, arch, "block_count"),
+        _num(info, arch, "attention.head_count_kv")
+        or _num(info, arch, "attention.head_count"),
+    )
+    width, n_heads = (
+        _num(info, arch, "embedding_length"),
+        _num(info, arch, "attention.head_count"),
+    )
+    key = _num(info, arch, "attention.key_length") or (
+        width / n_heads if width and n_heads else None
+    )
+    value = _num(info, arch, "attention.value_length") or key
+    if not (layers and heads and key and value):
+        return None
+    return round(layers * heads * (key + value) * 2 * 1000 / 1e6, 1)
+
+
 def second_ready_for(
     a: str, b: str, show_a: Any = None, show_b: Any = None
 ) -> tuple[bool, str]:
@@ -255,24 +386,30 @@ def _too_long() -> agent_claude.AgentBadReply:
     return exc
 
 
+#: The tight lower bound of the post-call net: no content measured in `context_budget.py` (prose at most 5.8 characters a token, numeric tables
+#: about 1, mixed 3.1) costs fewer tokens than characters / 6. A count below that is a cut (the documented overflow signature is a count far
+#: BELOW the prompt: 1,026 of a 3,645-token prompt, which is under characters / 6 of any prompt long enough to overflow a 16k window by a
+#: third; a cut that leaves the count above this bound is NOT detected here, which is why prevention by the estimate is the real guard).
+MIN_CHARS_PER_TOKEN = 6
+
+
 def lower_bound_tokens(text: str) -> int:
-    """The fewest tokens `text` can cost any tokenizer of the models in use: a digit at least a third of a token, any other character at
-    least a sixteenth. A reply that says the prompt was smaller than this was cut."""
-    digits = sum(ch.isdigit() for ch in text)
-    return (
-        digits // MIN_CHARS_PER_DIGIT_TOKEN
-        + (len(text) - digits) // MIN_CHARS_PER_WORD_TOKEN
-    )
+    """The fewest tokens `text` can cost, from the repo's own measurements (`MIN_CHARS_PER_TOKEN`). A count below it says the prompt was cut."""
+    return len(text) // MIN_CHARS_PER_TOKEN
 
 
-def _cut_prompt(reported: Any, window: int, text: str) -> str | None:
+def _cut_prompt(
+    reported: Any, window: int, text: str, num_predict: int, estimate: int
+) -> str | None:
     """Why the prompt the engine reports cannot be trusted to be the whole request, or None when it can. Code only."""
     if isinstance(reported, bool) or not isinstance(reported, int) or reported <= 0:
         return "prompt size not reported"
-    if reported >= int(window * CUT_FRACTION):
-        return "prompt at or near the window"
+    if reported >= window - int(num_predict) - CUT_MARGIN:
+        return "prompt reached the room the window leaves it"
     if reported < lower_bound_tokens(text):
         return "prompt shorter than the request needs"
+    if reported > estimate + ESTIMATE_SLACK:
+        return "prompt longer than the estimate said"
     return None
 
 
@@ -308,7 +445,18 @@ class LocalEngine:
         show: Callable[[str], dict | None] | None = None,
         window: int | None = None,
         output_cap: int | None = None,
+        size_mb: Callable[[str], float | None] | None = None,
+        memory_mb: Callable[[], int | None] | None = None,
+        chat_active: Callable[[], bool] | None = None,
+        chat_wait: float | None = None,
     ) -> None:
+        self._size_mb, self._memory_mb = size_mb or _model_size_mb, memory_mb
+        self._chat_active, self._chat_wait = (
+            chat_active or _chat_active,
+            CHAT_WAIT_S if chat_wait is None else chat_wait,
+        )
+        self._chosen: dict[str, tuple[int, str]] = {}
+        self.memory_refused: str | None = None
         self.output_cap = output_cap  # a ceiling on every request's output limit (the general review's windows fit under it)
         self.discarded: Counter = (
             Counter()
@@ -325,6 +473,7 @@ class LocalEngine:
         self.unloads: list[str] = []
         self._ready: tuple[bool, str] | None = None
         self._show_of = show or _show
+        self._shows: dict[str, dict | None] = {}
         self.used: set[str] = (
             set()
         )  # the models THIS run loaded (only these are ever unloaded)
@@ -333,20 +482,39 @@ class LocalEngine:
     # ---- readiness of the second reader
     def second_ready(self) -> tuple[bool, str]:
         if self._ready is None:
-            sa = self._show_of(self.model_a) if self.model_b else None
-            sb = self._show_of(self.model_b) if self.model_b else None
+            sa = self.show(FIRST) if self.model_b else None
+            sb = self.show(SECOND) if self.model_b else None
             self._ready = second_ready_for(self.model_a, self.model_b, sa, sb)
         return self._ready
 
     # ---- budget
+    def show(self, role: str = FIRST) -> dict | None:
+        """The local engine's own data for the model of this role (`/api/show`), read once."""
+        name = self.model_b if role == SECOND else self.model_a
+        if name not in self._shows:
+            self._shows[name] = self._show_of(name) if name else None
+        return self._shows[name]
+
     def window(self, role: str = FIRST) -> int:
-        """The context window asked of the model of this role: the setting (0 = the shared local window), never below the shared window
-        (the transport raises a smaller one to it)."""
+        """The context window asked of the model of this role, chosen ONCE (a different one would reload the model): the model's own context
+        length (from `/api/show`) or, when the engine does not say, the shared local window; never above the setting's cap
+        (`agent_review_local_num_ctx`, default 16,384; `_b` for the second reader, 0 = the same); then the LARGEST window that keeps the model
+        and its context inside the memory budget; and the shared window when a chat answer is in flight (a different window would reload
+        the model the chat is using). `window_why` says which."""
         if self._window:
             return int(self._window)
+        if role not in self._chosen:
+            self._chosen[role] = self._choose_window(role)
+        return self._chosen[role][0]
+
+    def window_why(self, role: str = FIRST) -> str:
+        self.window(role)
+        return self._chosen.get(role, (0, "a window set by the caller"))[1]
+
+    def _choose_window(self, role: str) -> tuple[int, str]:
         from .config import settings
 
-        asked = int(
+        cap = int(
             getattr(
                 settings,
                 "agent_review_local_num_ctx_b"
@@ -356,13 +524,64 @@ class LocalEngine:
             )
             or 0
         )
-        if role == SECOND and not asked:
-            asked = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
-        return max(asked, model_transport.shared_window())
+        if role == SECOND and not cap:
+            cap = int(getattr(settings, "agent_review_local_num_ctx", 0) or 0)
+        shared = model_transport.shared_window()
+        show = self.show(role)
+        length = context_length(show)
+        if not length:
+            return (
+                shared,
+                f"{shared} tokens: the engine does not give the model's context length, so the shared window",
+            )
+        want = min(length, cap) if cap else min(length, shared)
+        why = f"{want} tokens: the smaller of the model's own length ({length}) and the cap ({cap or 'none'})"
+        if want <= shared:
+            return want, why
+        kv = kv_mb_per_1k(show)
+        size = self._size_mb(self.model_b if role == SECOND else self.model_a)
+        budget = memory_budget_mb(
+            int(getattr(settings, "agent_review_local_memory_budget_mb", 0) or 0),
+            self._memory_mb() if self._memory_mb else None,
+        )
+        if kv is None or size is None or budget is None:
+            why += "; memory not checked (the model's cache size, its size or this computer's memory is not known)"
+        else:
+            w = want
+            while w > shared and size + kv * w / 1000 > budget:
+                w -= STEP_TOKENS
+            w = max(w, shared)
+            if size + kv * w / 1000 > budget:
+                self.memory_refused = (
+                    f"the engine reports a context memory cost this computer cannot hold: {kv} MB per 1,000 tokens "
+                    f"(model {size:.0f} MB, memory budget {budget} MB); nothing was loaded"
+                )
+            if w < want:
+                why = f"{w} tokens: shrunk from {want} so the model ({size:.0f} MB) and its context ({kv * w / 1000:.0f} MB at about {kv} MB per 1,000 tokens) stay under the memory budget ({budget} MB)"
+            else:
+                why += f"; the model ({size:.0f} MB) and its context ({kv * w / 1000:.0f} MB) stay under the memory budget ({budget} MB)"
+            want = w
+        if want > shared and self._chat_active():
+            import time
+
+            deadline = time.time() + self._chat_wait
+            while self._chat_active() and time.time() < deadline:
+                time.sleep(min(2.0, max(0.0, deadline - time.time())))
+            if self._chat_active():
+                return (
+                    shared,
+                    f"{shared} tokens: a chat answer is in flight, so the model is not reloaded with a different window",
+                )
+        return want, why
 
     def stats(self) -> dict:
         """Counts only (no text): requests by stage, requests not sent for length, answers discarded for a cut or unreported prompt."""
         return {
+            "local_window_first": self.window(FIRST),
+            "local_window_second": self.window(SECOND),
+            "local_window_why_first": self.window_why(FIRST),
+            "local_window_overlap_lines": 4,
+            "local_kv_mb_per_1k_first": kv_mb_per_1k(self.show(FIRST)),
             "local_requests_first": self.calls[FIRST],
             "local_requests_second": self.calls[SECOND],
             "local_not_asked_too_long": self.not_asked,
@@ -425,6 +644,9 @@ class LocalEngine:
         role = FIRST if model == self.model_a else SECOND
         if role != self.phase:
             raise LocalStageRefused
+        self.window(role)
+        if self.memory_refused:
+            raise LocalMemoryRefused(self.memory_refused)
         if role == SECOND:
             ready, _why = self.second_ready()
             if not ready:
@@ -475,7 +697,13 @@ class LocalEngine:
             exc.usd = 0.0
             raise exc
         reported = answer.get("prompt_eval_count")
-        why = _cut_prompt(reported, window, whole)
+        why = _cut_prompt(
+            reported,
+            window,
+            whole,
+            int(max_tokens),
+            sum(context_budget.estimate_tokens(m["content"]) for m in messages),
+        )
         if why:  # the engine may have cut the prompt: nothing it said is used (never a met / not met from a part of the paper)
             with self._lock:
                 self.discarded[why] += 1
