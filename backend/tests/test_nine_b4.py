@@ -279,7 +279,7 @@ def test_a_finding_with_no_matching_rule_is_an_F_item_with_no_tier_and_says_why(
 
 def test_a_finding_matched_to_a_plan_rule_keeps_that_items_comparator_and_takes_its_tier():
     plan = {"R-1": {"item_id": "R-1", "source": "rule", "rule_version_id": "1", "comparator": ">=", "value": 0.2, "unit": "mm", "field_roles": ["coating_thickness"],
-                    "rule_quote_ref": "Q-1", "clause_quote_ref": "C-1", "clause": "4.1", "standard": "STD"}}  # fmt: skip
+                    "rule_quote_ref": "Q-1", "clause_quote_ref": "C-1", "clause": "4.1", "clause_page": 1, "standard": "STD"}}  # fmt: skip
     b = _built(plan=plan)
     assert (
         b.item["item_id"] == "R-1"
@@ -683,6 +683,7 @@ def _two_on_one_rule(
     plan = {
         "R-1": {
             "item_id": "R-1",
+            "clause_page": 1,
             "source": "rule",
             "rule_version_id": "1",
             "field_roles": ["coating_thickness"],
@@ -866,6 +867,7 @@ def test_a_design_pressure_finding_does_not_ride_a_coating_thickness_rule():
     plan = {
         "R-1": {
             "item_id": "R-1",
+            "clause_page": 1,
             "source": "rule",
             "rule_version_id": "1",
             "field_roles": ["coating_thickness"],
@@ -1043,7 +1045,7 @@ def test_a_finding_on_any_field_cannot_ride_a_rule_that_names_no_field_to_a_deci
     assert lines[0]["verdict_class"] != "Proven by code"
     plain = nf.build(
         nf.join([nf.check_raw(raw(field_label=""), sent(**{BOOK: {1}}), PAPER, books_of(**{BOOK: {1: RULE_A}}))])[0], rules=RULES,
-        plan_items={"R-1": {"item_id": "R-1", "source": "rule", "rule_version_id": "1"}}, tier_lookup=lookup_ai, book_text=lambda *_a: RULE_A,
+        plan_items={"R-1": {"item_id": "R-1", "source": "rule", "rule_version_id": "1", "clause_page": 1}}, tier_lookup=lookup_ai, book_text=lambda *_a: RULE_A,
     )  # fmt: skip
     assert plain.item["item_id"].startswith(
         "F-"
@@ -1077,6 +1079,7 @@ def test_the_rules_field_is_read_from_its_label_as_well_as_its_roles():
     plan = {
         "R-1": {
             "item_id": "R-1",
+            "clause_page": 1,
             "source": "rule",
             "rule_version_id": "1",
             "field_roles": [],
@@ -1161,3 +1164,52 @@ def test_the_line_stores_what_each_underlying_finding_said(world):
     assert [w["member"] for w in words] == line["nine_members"] and len(words) == 2
     assert sorted(w["verdict"] for w in words) == ["met", "not_met"]
     assert all(w["field_key"] for w in words)
+
+
+SAME = "The coating thickness shall be at least 0.2 mm on every outside surface."
+
+
+def _two_clauses(finding_clause, finding_page, rule_page, with_headings=True):
+    """The R65d probe: one sentence stands under clause 4.1 (page 1) and under clause 5.2 (page 2); the rule row is 4.1 on page 1."""
+    pages = {1: f"4.1 Coating\n{SAME}\n", 2: f"5.2 Finish\n{SAME}\n"}
+    if not with_headings:
+        pages = {1: SAME, 2: SAME}
+    books = books_of(**{BOOK: pages})
+    c = nf.check_raw(
+        raw(clause=finding_clause, clause_quote=SAME, clause_page=finding_page, verdict="met"),
+        sent(**{BOOK: {1, 2}}), PAPER, books,
+    )  # fmt: skip
+    plan = {"R-1": {"item_id": "R-1", "source": "rule", "rule_version_id": "1", "clause": "4.1", "clause_page": rule_page,
+                    "comparator": ">=", "value": 0.2, "unit": "mm", "field_roles": ["coating_thickness"], "standard": "STD"}}  # fmt: skip
+    rows = [{"id": "1", "standard_document_id": BOOK, "source_text": SAME}]
+    return nf.build(
+        nf.join([c])[0],
+        rules=rows,
+        plan_items=plan,
+        tier_lookup=lookup_ai,
+        book_text=lambda b, p: books.book(b).pages.get(p, ""),
+    )
+
+
+def test_the_same_sentence_under_another_clause_on_another_page_is_not_matched_and_keeps_its_own_place():
+    b = _two_clauses("5.2", 2, 1)
+    assert b.item["item_id"].startswith("F-") and b.finding.matched_rule_id is None
+    assert (b.item["clause"], b.item["clause_page"]) == (
+        "5.2",
+        2,
+    )  # the pair code found together, never "4.1 on page 2"
+
+
+def test_the_same_sentence_matches_when_the_clause_number_or_the_rule_page_agrees():
+    assert _two_clauses("4.1", 1, 1).item["item_id"] == "R-1"  # same clause and page
+    assert (
+        _two_clauses("5.2", 2, 2).item["item_id"] == "R-1"
+    )  # the rule row stands on the page the quote was verified on
+    assert (
+        _two_clauses("4.1", 1, None).item["item_id"] == "R-1"
+    )  # the number agrees and the headings confirm it
+    assert (
+        _two_clauses("4.1", 1, None, with_headings=False)
+        .item["item_id"]
+        .startswith("F-")
+    )  # no headings: the number is unchecked, no page match

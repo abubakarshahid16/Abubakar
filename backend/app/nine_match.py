@@ -31,6 +31,7 @@ WHY_MATCHED = "matched one stored rule of this book"
 WHY_NONE = "no stored rule of this book holds this quote"
 WHY_MANY = "more than one stored rule of this book holds this quote"
 WHY_NO_QUOTE = "no verified clause quote to match on"
+WHY_PLACE = "the rule is of another clause and stands on another page than the finding's verified quote"
 WHY_FIELD = "the finding's field is not the field of the rule its quote matched"
 
 
