@@ -1,6 +1,6 @@
 """The clause structure of the standards (`clause_structure`, read by `StandardText.spans`; owner, 16 Nov 2026): numbered clauses written like body text are found from the book's
 own evidence; nothing that only LOOKS like a clause number cuts a clause. Each entry deletes one control; `tests/test_clause_structure.py` must notice.
-Ids M1840-01 onwards (CLAUDE.md rule 12); the PR number is provisional until the PR is opened."""
+Ids M1838-01 onwards (CLAUDE.md rule 12); the PR number is provisional until the PR is opened."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ def _m(
     n: int, description: str, path, anchor: str, replacement: str, keyword: str
 ) -> Mutation:
     return Mutation(
-        id=f"M1840-{n:02d}",
-        phase=1840,
+        id=f"M1838-{n:02d}",
+        phase=1838,
         description=description,
         path=path,
         anchor=anchor,
