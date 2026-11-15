@@ -232,12 +232,12 @@ def test_a_verified_derived_block_passes_and_each_planted_cell_fault_fails(run):
         conn.execute(
             "UPDATE pages SET text = 'paper words' WHERE document_id = 'paper'"
         )
-        conn.execute("UPDATE agent_review_role_cell SET chars = 70 WHERE kind = 'code'")
+        conn.execute("UPDATE agent_review_role_cell SET chars = 70 WHERE kind = 'id'")
     assert any(
-        "typed code cell of 70" in p for p in problems()
+        "typed id cell of 70" in p for p in problems()
     )  # (b) a typed cell that is prose-sized
     with db.connect() as conn:
-        conn.execute("UPDATE agent_review_role_cell SET chars = 5 WHERE kind = 'code'")
+        conn.execute("UPDATE agent_review_role_cell SET chars = 5 WHERE kind = 'id'")
         conn.execute("DELETE FROM agent_review_role_cell WHERE call_id = ?", (call_id,))
     assert any(
         "no cell rows" in p for p in problems()

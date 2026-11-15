@@ -7,20 +7,28 @@ Every model call of roles 1 to 6 and 9 is made by `ask(...)` and by nothing else
   Anything else is Local, and a caller who asks for Claude is refused (`run_is_local`, or `no_engine_decision` when nothing is stored).
 * THE STARTER'S ACCESS applies to every block on every engine (`outside_access`; rule 5: intersection); the shown list and the approval
   gate (`claude_approved.refusal`) apply on top for Claude.
-* QUESTION AND SYSTEM WORDS ARE TEMPLATES (`template(id, text, **kinds)`), parameters only of the typed kinds `id`, `int`, `role`, `code`
-  (a number, a page, a clause, an enum word, a standard id, a short code), `clause`, `standard`, `number`: never free text. A parameter
-  of 12 or more characters that occurs in the stored text of a document the gate refuses in this run is refused
-  (`text_from_held_document`). The template id and a digest of the parameters are written in the call's record row.
+* QUESTION AND SYSTEM WORDS ARE TEMPLATES (`template(id, text, **kinds)`), parameters only of the typed kinds `int`, `number`, `clause`,
+  `standard`, `unit` (a unit of the fixed list), `role` (a role name), `id` (an id the app issues: `id_shape`, a document or run id) and
+  `vocab:<name>` (a word of an app-owned vocabulary registered with `vocabulary`): never free text. A parameter of 12 or more
+  characters (folded by `nine_record.hfold`: hyphens, underscores, colons, full stops and white space are all one space) that occurs in
+  the stored text of a document the gate refuses in this run is refused (`text_from_held_document`). The template id and a digest of
+  the parameters are written in the call's record row.
 * TEXT BLOCKS ARE LOADED BY THE SEAM: `(document_id, pages[, char_from, char_to])` -> the stored page text; a picture block -> the page
   rendered by the seam. A caller cannot put other words under a document's id.
 * A DERIVED BLOCK (`review_record`: the fact-sheet digest, the context note, earlier findings) names its `sources` and carries `items`, rows
-  of short cells. At send time, for Claude, EVERY CELL is checked: (a) it is a typed token (number, page, clause, standard id read by
-  `standard_ids`, an enum word from `DERIVED_ENUM`, a short code of 11 characters or fewer, an id of 12 to 40 characters), or (b) it
-  occurs (case and whitespace folded) in the stored text of one of the block's OWN sources: then the source, the page and the span
-  are written in `agent_review_role_cell`, and `scripts/nine_record_check.py` re-reads that span and compares its checksum. A cell of 12
-  or more characters that occurs in the stored text of a document the gate refuses in this run is refused whatever the sources say
-  (`text_from_held_document`). Every source must pass the gate or the whole block is dropped. What stays a builder obligation: that
-  the cells of kinds (a) really describe those sources (a typed token carries at most 40 characters and is never prose).
+  of cells, with the kind of each column declared (`kinds`: `id`, `number`, `clause`, `standard`, `enum`, `unit`, `source`,
+  `vocab:<name>`). At send time, for Claude, EVERY CELL is checked: (a) it is a typed value: a number, a clause number, a standard id read
+  by `standard_ids`, a unit of the fixed list, an id the app issues, a word of `DERIVED_ENUM` or of the app-owned vocabulary the column
+  names (a plain dictionary word is not a code: a free token is refused `cell_not_in_vocabulary`), or (b) a `source` cell: it occurs (case
+  and white space folded) in the stored text of one of the block's OWN declared sources; the source, the page and the span are written in
+  `agent_review_role_cell`, and `scripts/nine_record_check.py` re-reads that span and compares its checksum. THE HELD-TEXT RULE comes
+  first and applies to every cell, to each ROW's joined text and to every window of three consecutive cells (across rows too), all of 12 or
+  more characters once folded by `hfold`: any of them found in the stored text of a document the gate refuses in this run drops the block
+  (`text_from_held_document`) whatever the sources say. Every source must pass the gate or the whole block is dropped.
+
+AFTER THIS CHANGE THE ONLY DOCUMENT-DERIVED TEXT THAT CAN REACH A BODY OUTSIDE A GATED DOCUMENT BLOCK IS (i) a `source` cell found in one of
+the block's own declared, gated sources, and (ii) typed values (numbers, units, clause numbers, standard ids, app-issued ids, words of
+app-owned vocabularies). That residue is accepted.
 
 The SAME block list is (a) the request, (b) the declaration to the approval gate (`claude_approved.carrying`), and (c) the role record
 (`nine_record`: one read row per block, one per source of a derived block, one cell row per cell). The `sent` row is written by a
@@ -88,29 +96,82 @@ DERIVED_ENUM = frozenset(
 )  # fmt: skip
 
 _ID = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
-_ROLE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
-_CODE = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9_.:\-]{0,10}$"
-)  # a short code: 11 characters or fewer
-_LONG_ID = re.compile(
-    r"^(?=.*\d)[A-Za-z0-9][A-Za-z0-9_.:\-]{11,39}$"
-)  # an id of 12 to 40 characters carries a digit
 _NUMBER = re.compile(r"^[+-]?\d{1,12}([.,]\d{1,9})?%?$")
 _CLAUSE = re.compile(r"^\d{1,3}(\.\d{1,3}){1,5}[a-z]?$")
-_UNIT = re.compile(r"^[A-Za-z%/\u00b0\u00b5\u00b2\u00b3.\-]{1,12}$")
 _LINE = re.compile(r"^[^\s\x00-\x1f][^\x00-\x1f]{0,%d}$" % (MAX_CELL_CHARS - 1))
-DECLARED_KINDS = (
-    "id",
-    "code",
-    "key",
-    "number",
-    "clause",
-    "standard",
-    "enum",
-    "unit",
-    "source",
+DECLARED_KINDS = ("id", "number", "clause", "standard", "enum", "unit", "source")
+PARAM_KINDS = ("id", "int", "role", "clause", "number", "unit", "standard")
+CELL_NOT_IN_VOCAB = "cell_not_in_vocabulary"
+PARAM_NOT_APP_ID = "param_not_app_id"
+
+# ---------------------------------------------------------------------------------------- app-owned vocabularies and id shapes
+
+_VOCAB: dict[str, frozenset[str]] = {}
+_ID_SHAPES: dict[str, re.Pattern] = {}
+UNITS = frozenset(
+    "bar barg bara psi psig psia kpa mpa pa mbar mm cm m km in ft yd c f k kg g mg lb t kw w mw hp rpm hz khz v kv a ma kva l ml m3 "
+    "m2 mm2 cm2 s ms min h hr day nm kn n kgf lbf j kj mj ppm ppb db dba pct % deg degc degf bpm gpm lpm cfm scfm nm3 mol kmol "
+    "cst cp ohm".split()
 )
-PARAM_KINDS = ("id", "int", "role", "code", "clause", "number", "unit", "standard")
+
+
+def vocabulary(name: str, words) -> str:
+    """Register an APP-OWNED vocabulary (called by app code at import): the words a `vocab:<name>` column or parameter may hold. Folded
+    by `nine_record.fold`. The same name with other words is refused. Returns the name."""
+    folded = frozenset(nine_record.fold(w) for w in words)
+    if not _ID.match(name) or not folded or any(not w or len(w) > 40 for w in folded):
+        raise NineCallError("a vocabulary has a name and short words")
+    if _VOCAB.get(name, folded) != folded:
+        raise NineCallError(f"vocabulary {name!r} already holds other words")
+    _VOCAB[name] = folded
+    return name
+
+
+def id_shape(name: str, pattern: str) -> str:
+    """Register a shape of ids the APP issues (fact ids, chapter codes, rule ids): a pattern that matches the whole id."""
+    compiled = re.compile(pattern)
+    if _ID_SHAPES.get(name, compiled).pattern != pattern:
+        raise NineCallError(f"id shape {name!r} already holds another pattern")
+    _ID_SHAPES[name] = compiled
+    return name
+
+
+vocabulary("derived_enum", DERIVED_ENUM)
+for _name, _pattern in (
+    ("chapter", r"c\d{1,4}"),
+    ("fact", r"f:\d{1,9}(:\d{1,9}){0,3}"),
+    ("hex", r"(?=[0-9a-f]*\d)[0-9a-f]{8,64}"),
+    ("issued", r"(run|job|call|doc|rule|fact|ch)[_:\-][0-9a-f]{4,32}"),
+):
+    id_shape(_name, _pattern)
+
+
+def _is_unit(text: str) -> bool:
+    t = text.strip().lower()
+    parts = [p for p in re.split(r"[/\u00b7*^ ]+", t) if p]
+    return (
+        bool(parts)
+        and len(t) <= 16
+        and all(
+            re.sub(r"[\d\u00b2\u00b3\-]+$", "", p) in UNITS or p in UNITS for p in parts
+        )
+    )
+
+
+def _in_vocabulary(kind: str, text: str) -> bool:
+    name = kind.split(":", 1)[1] if kind.startswith("vocab:") else ""
+    return nine_record.fold(text) in _VOCAB.get(name, frozenset())
+
+
+def _app_id(conn, text: str) -> bool:
+    """An id the app issues: a registered shape, or a document id or run id that exists."""
+    text = text.strip()
+    if any(p.fullmatch(text) for p in _ID_SHAPES.values()):
+        return True
+    return any(
+        conn.execute(f"SELECT 1 FROM {t} WHERE id = ?", (text,)).fetchone() is not None
+        for t in ("documents", "review_runs")
+    )
 
 
 class NineCallError(ValueError):
@@ -139,10 +200,14 @@ def template(template_id: str, text: str, **params: str) -> str:
             "a template has an id of letters and digits and words under 20,000 characters"
         )
     names = set(_PLACEHOLDER.findall(text))
-    if names != set(params) or any(k not in PARAM_KINDS for k in params.values()):
+    if names != set(params) or any(
+        k not in PARAM_KINDS and not (k.startswith("vocab:") and k[6:] in _VOCAB)
+        for k in params.values()
+    ):
         raise NineCallError(
             "a template names exactly its parameters, each of a typed kind: "
             + ", ".join(PARAM_KINDS)
+            + ", vocab:<registered vocabulary>"
         )
     try:  # a trial render with dummy values of the declared kinds: a stray brace, `{0}` or `{x.attr}` fails here, at import
         text.format(**{k: ("1" if v == "int" else "x") for k, v in params.items()})
@@ -181,20 +246,20 @@ def _check_param(kind: str, value) -> str:
     text = value if isinstance(value, str) else ""
     ok = (
         (kind == "id" and _ID.match(text))
-        or (kind == "role" and _ROLE.match(text))
-        or (kind == "code" and _CODE.match(text))
+        or (kind == "role" and text in ROLE_NAMES.values())
         or (kind == "clause" and _CLAUSE.match(text))
         or (kind == "number" and _NUMBER.match(text))
-        or (kind == "unit" and _UNIT.match(text))
+        or (kind == "unit" and _is_unit(text))
         or (kind == "standard" and text and _is_standard(text))
+        or (kind.startswith("vocab:") and _in_vocabulary(kind, text))
     )
     if not ok:
         raise TemplateError(f"a {kind} parameter is not from the app's own words")
     return text
 
 
-def render_full(use: tuple[str, dict]) -> tuple[str, str, str, list[str]]:
-    """(id, the words, the digest of id + parameters, the parameter values as strings) of one template use. Raises `TemplateError` for
+def render_full(use: tuple[str, dict]) -> tuple[str, str, str, list[str], list[str]]:
+    """(id, the words, the digest of id + parameters, the parameter values as strings, the ids among them) of one template use. Raises `TemplateError` for
     any value that is not of its kind."""
     template_id, params = use
     if template_id not in _TEMPLATES:
@@ -206,7 +271,8 @@ def render_full(use: tuple[str, dict]) -> tuple[str, str, str, list[str]]:
     digest = hashlib.sha256(
         json.dumps([template_id, values], sort_keys=True).encode("utf-8")
     ).hexdigest()
-    return template_id, text.format(**values), digest, list(values.values())
+    ids = [values[k] for k in kinds if kinds[k] == "id"]
+    return template_id, text.format(**values), digest, list(values.values()), ids
 
 
 def render(use: tuple[str, dict]) -> tuple[str, str, str]:
@@ -269,12 +335,17 @@ class Block:
                 ):
                     raise TemplateError("a derived row holds short one-line cells")
             if self.kinds and (
-                any(k not in DECLARED_KINDS for k in self.kinds)
+                any(
+                    k not in DECLARED_KINDS
+                    and not (k.startswith("vocab:") and k[6:] in _VOCAB)
+                    for k in self.kinds
+                )
                 or any(len(row) != len(self.kinds) for row in self.items)
             ):
                 raise NineCallError(
                     "declared cell kinds are of "
                     + ", ".join(DECLARED_KINDS)
+                    + ", vocab:<registered vocabulary>"
                     + " and every row has one cell per kind"
                 )
             if sum(len(c) + 3 for row in self.items for c in row) > MAX_DERIVED_CHARS:
@@ -473,34 +544,28 @@ def _load(
 # ---------------------------------------------------------------------------------------------------- derived cells
 
 
-_DECLARED_RE = {
-    "id": _ID,
-    "code": re.compile(r"^[A-Za-z0-9\-][A-Za-z0-9_.:\-]{0,39}$"),
-    "key": re.compile(r"^[A-Za-z0-9\-][A-Za-z0-9_.:\-]{0,39}$"),
-    "number": _NUMBER,
-    "clause": _CLAUSE,
-    "unit": _UNIT,
-}
-
-
-def _declared_ok(kind: str, cell: str) -> str | None:
+def _declared_ok(conn, kind: str, cell: str) -> str | None:
     """The recorded kind when `cell` is a value of its DECLARED kind, else None. `source` is checked elsewhere (it must occur in a source)."""
     text = cell.strip()
-    if kind in _DECLARED_RE:
-        return (
-            ("code" if kind == "key" else kind)
-            if _DECLARED_RE[kind].match(text)
-            else None
-        )
+    if kind == "id":
+        return "id" if _ID.match(text) and _app_id(conn, text) else None
+    if kind == "number":
+        return "number" if _NUMBER.match(text) else None
+    if kind == "clause":
+        return "clause" if _CLAUSE.match(text) else None
+    if kind == "unit":
+        return "unit" if _is_unit(text) else None
     if kind == "enum":
         return "enum" if fold(text) in DERIVED_ENUM else None
     if kind == "standard":
         return "standard" if _is_standard(text) else None
+    if kind.startswith("vocab:"):
+        return "vocab" if _in_vocabulary(kind, text) else None
     return None
 
 
-def _typed_kind(cell: str) -> str | None:
-    """The kind of a cell that is a typed token (never prose), or None."""
+def _typed_kind(conn, cell: str) -> str | None:
+    """The kind of an UNDECLARED cell that is a typed value (never prose), or None. A plain word is not a code."""
     text = cell.strip()
     if _NUMBER.match(text):
         return "number"
@@ -510,9 +575,9 @@ def _typed_kind(cell: str) -> str | None:
         return "enum"
     if _is_standard(text):
         return "standard"
-    if _CODE.match(text):
-        return "code"
-    if _LONG_ID.match(text):
+    if _is_unit(text):
+        return "unit"
+    if _ID.match(text) and _app_id(conn, text):
         return "id"
     return None
 
@@ -542,17 +607,13 @@ def _verify_derived(
     2. else the cell is a typed token (`_typed_kind`);
     3. else it must occur in the stored text of one of the block's OWN sources: the first source and page that hold it are recorded;
     4. else `cell_not_from_sources`."""
-    held = nine_record.held_text_hits(
-        conn,
-        run_id,
-        {
-            c
-            for row in b.items
-            for c in row
-            if len(fold(c)) >= nine_record.HELD_MIN_CHARS
-        },
-    )
-    if held:
+    flat = [c for row in b.items for c in row]
+    probes = set(
+        flat
+    )  # every cell, every row joined, every window of three consecutive cells (across rows)
+    probes |= {" ".join(row) for row in b.items}
+    probes |= {" ".join(flat[i : i + 3]) for i in range(max(0, len(flat) - 2))}
+    if nine_record.held_text_hits(conn, run_id, probes):
         return (), HELD_TEXT
     cache: dict = {}
     out: list[nine_record.CellEntry] = []
@@ -563,18 +624,22 @@ def _verify_derived(
             declared = b.kinds[c] if b.kinds else None
             if declared is None or declared == "source":
                 kind = (
-                    _typed_kind(cell)
+                    _typed_kind(conn, cell)
                     if declared is None and len(cell) <= nine_record.MAX_TYPED_CELL
                     else None
                 )
             else:  # declared typed: it must be a value of that kind, or the block is dropped (never read as prose)
                 kind = (
-                    _declared_ok(declared, cell)
+                    _declared_ok(conn, declared, cell)
                     if len(cell) <= nine_record.MAX_TYPED_CELL
                     else None
                 )
                 if kind is None:
-                    return (), CELL_WRONG_KIND
+                    return (), (
+                        CELL_NOT_IN_VOCAB
+                        if declared.startswith("vocab:")
+                        else CELL_WRONG_KIND
+                    )
             if kind is not None:
                 out.append(nine_record.CellEntry(b.name, r, c, kind, len(cell), sha))
                 continue
@@ -587,8 +652,14 @@ def _verify_derived(
                         break
                 if found:
                     break
-            if found is None:
-                return (), CELL_NOT_FROM_SOURCES
+            if (
+                found is None
+            ):  # one plain token is a word that is not a code; a longer cell is text that is not in a source
+                return (), (
+                    CELL_NOT_IN_VOCAB
+                    if len(probe.split()) == 1
+                    else CELL_NOT_FROM_SOURCES
+                )
             out.append(
                 nine_record.CellEntry(
                     b.name,
@@ -736,9 +807,9 @@ def ask(
         raise NineCallError(f"role {role_no} is code: it makes no model call")
     if not blocks:
         raise NineCallError("a request holds at least one block")
-    question_id, question_text, q_digest, q_values = render_full(question)
-    system_id, system_text, s_digest, s_values = (
-        render_full(system) if system else (None, None, "", [])
+    question_id, question_text, q_digest, q_values, q_ids = render_full(question)
+    system_id, system_text, s_digest, s_values, s_ids = (
+        render_full(system) if system else (None, None, "", [], [])
     )
     params_sha = _sha(q_digest + s_digest)
     nine_record.ensure_schema(conn)
@@ -793,6 +864,10 @@ def ask(
         return refused(
             HELD_TEXT
         )  # a parameter holds words of a document the gate refuses
+    if any(not _app_id(conn, i) for i in [*q_ids, *s_ids]):
+        return refused(
+            PARAM_NOT_APP_ID
+        )  # an id parameter is an id the app issues, never a word
 
     not_sent: dict[str, str] = _dropped(run_id, blocks, conn, starter, wanted)
     gated = [b for b in blocks if not any(i in not_sent for i in b.gate_ids())]
