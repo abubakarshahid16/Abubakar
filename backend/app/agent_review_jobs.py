@@ -63,6 +63,7 @@ from .agent_review_job_facts import (  # noqa: F401
     _equipment_facts,
     _header_facts,
     _stop_text,
+    reusable_scope_run,
 )
 from .agent_review_page_record import (  # noqa: F401 - moved unchanged, re-exported
     _requeue_switched_off,
@@ -306,15 +307,9 @@ def _scope_run_id(
     ).fetchone()
     if own:
         return run_id
-    reuse = conn.execute(
-        "SELECT r.id FROM review_runs r JOIN jobs j ON j.review_run_id = r.id"
-        " WHERE r.submittal_document_id = ? AND r.status = 'completed' AND j.stage = ? AND j.code_version = ?"
-        " AND EXISTS (SELECT 1 FROM review_scope_decisions s WHERE s.review_run_id = r.id)"
-        " ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
-        (submittal, review_jobs.STAGE, review_jobs.review_code_version()),
-    ).fetchone()
+    reuse = reusable_scope_run(conn, submittal)
     if reuse:
-        return reuse["id"]
+        return reuse
     submittal_fill.for_review(submittal)
     applicability.select(
         submittal,
