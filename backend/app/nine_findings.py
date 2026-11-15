@@ -100,6 +100,9 @@ class Checked:
     notes: tuple[
         str, ...
     ] = ()  # what code could not check, in words ("clause number not checked")
+    index: int = (
+        0  # the position of this raw finding among the raw findings of its call
+    )
 
 
 # ---------------------------------------------------------------- 1. verify
@@ -389,10 +392,10 @@ def fields_agree(
 ) -> bool:
     """Is the finding about the same FIELD as the stored rule it matched on text? The rule's field (the plan item's `field_roles`, the rule row's
     field) is compared with the finding's: registry roles when both resolve, else the content words of the two names. A rule that names no
-    field has nothing to contradict. A finding about "design pressure" must not ride a rule about coating thickness to a decision."""
+    field is matched only by a finding that names none (code cannot show a named field is about the value the rule compares). A finding about "design pressure" must not ride a rule about coating thickness to a decision."""
     fields = [str(f).strip() for f in (rule_fields or []) if str(f or "").strip()]
-    if not fields:
-        return True
+    if not fields:  # the rule names no field: a finding that names one cannot be shown to be about THIS rule's value
+        return not (roles or str(label or "").strip())
     rules = rules or absence.registry()
     known: set[str] = set()
     for f in fields:
@@ -433,6 +436,7 @@ class Built:
         str, ...
     ] = ()  # what code could not check ("clause number not checked"); put on the stored line
     underlying: int = 1  # how many joined raw findings this one finding stands for (every one stays countable)
+    issue: str = ""  # the model's one-line issue (kept for the F- item a non-covering finding becomes)
 
 
 def build(
@@ -467,9 +471,10 @@ def build(
             j.book_id, str(raw.get("clause_quote")), rules, tier_lookup
         )
     base = plan_items.get(matched.item_id or "") if matched.matched else None
-    if base is not None and not fields_agree(
-        j.field_label, j.field_roles, base.get("field_roles")
-    ):
+    if (
+        base is not None
+        and not fields_agree(j.field_label, j.field_roles, guards.field_names(base))
+    ):  # the rule's own field names: the label's field, then the item's roles (`pass_guards.field_names`)
         base, matched = (
             None,
             nine_match.Match(None, None, None, nine_match.WHY_FIELD, 1),
@@ -515,10 +520,18 @@ def build(
         field_label=j.field_label, field_roles=tuple(j.field_roles), tag=j.tag, paper_page=raw.get("paper_page") if isinstance(raw.get("paper_page"), int) else None,
         paper_quote=(str(raw.get("paper_quote") or "") or None) if lead.paper_ok else None, clause_quote=str(raw.get("clause_quote") or "") or None,
         ai_verdict=j.ai_verdict, matched_rule_id=matched.rule_id if base is not None else None, rule_tier=tier,
-        members=tuple(m.call.call_id for m in j.members), contradiction=j.contradiction,
+        members=tuple(f"{m.call.call_id}#{m.index}" for m in j.members), contradiction=j.contradiction,
         read_refs=tuple(dict.fromkeys(r for m in j.members for r in m.call.read_refs)),
     )  # fmt: skip
-    return Built(finding, item, answer, cache, lead.notes, len(j.members))
+    return Built(
+        finding,
+        item,
+        answer,
+        cache,
+        lead.notes,
+        len(j.members),
+        str(raw.get("issue") or "")[:400],
+    )
 
 
 # ---------------------------------------------------------------- one line per item: join AFTER the match
@@ -571,6 +584,25 @@ def merge_same_item(built: Iterable[Built]) -> list[Built]:
     return list(out.values())
 
 
+def as_unmatched(b: Built) -> Built:
+    """The same finding as an `F-` item: for a finding that matched a rule it does NOT cover (an unverified paper quote, a contradiction, a verdict
+    that is not met or not met). It keeps its quotes and its clause entry and names NO tier, so it is a line of its own (an opinion at most)
+    and the rule stays free for today's batch path: a finding never writes the line of a rule it does not stand for."""
+    f = b.finding
+    item = {
+        "item_id": f.finding_id, "source": "rule", "rule_version_id": None, "standard": b.item.get("standard"), "standard_document_id": f.book_id,
+        "clause": f.clause, "clause_page": f.clause_page, "rule_kind": None, "rule_row_found": False, "field_roles": list(f.field_roles),
+        "question": b.issue, "page_hint": [p for p in (f.paper_page,) if isinstance(p, int)], "page_hint_source": "nine reviewer",
+        "clause_quote_ref": b.item.get("clause_quote_ref"), "rule_quote_ref": None, "rule_tier": verdict.RULE_NOT_APPROVED,
+        "rule_unapproved_why": NO_RULE_WHY,
+    }  # fmt: skip
+    answer = {**b.answer, "item_id": f.finding_id}
+    finding = dataclasses.replace(
+        f, item_id=f.finding_id, matched_rule_id=None, rule_tier=None
+    )
+    return dataclasses.replace(b, finding=finding, item=item, answer=answer)
+
+
 # ---------------------------------------------------------------- the exit: today's runner
 
 
@@ -605,9 +637,9 @@ def decide_all(
             "two findings share one item id: join them first (`merge_same_item`)"
         )
     done = runner.__dict__.setdefault("_nine_emitted", set())
-    if done & set(ids):
+    if (done | set(runner.lines)) & set(ids):
         raise ItemCollision(
-            "a finding of an earlier step already has a line for this item id"
+            "a line already exists for this item id (whoever wrote it): a finding never replaces a line"
         )
     lines: list[dict] = []
     box = runner._box()
@@ -651,7 +683,14 @@ def process(
 ) -> list[Built]:
     """Verify, join, match and build, in that order: raw findings with the call each came from -> the items and answers `decide_all` takes."""
     rules = list(rules)
-    checked = [check_raw(raw, sent, paper_pages, books) for raw, sent in raws]
+    seen: dict[str, int] = {}
+    checked = []
+    for raw, sent in raws:
+        n = seen.get(sent.call_id, 0)
+        seen[sent.call_id] = n + 1
+        checked.append(
+            dataclasses.replace(check_raw(raw, sent, paper_pages, books), index=n)
+        )
     joined = join(
         checked, fact_tags=fact_tags, rules=registry, prefer_roles=prefer_roles
     )

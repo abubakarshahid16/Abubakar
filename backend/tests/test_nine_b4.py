@@ -398,9 +398,8 @@ def test_a_carried_field_with_no_fact_is_a_required_item_and_a_query_line():
 
 
 def test_chapters_are_packed_in_order_under_the_token_limit():
-    big = "x" * 3000
     chapters = [
-        rev.ChapterText(BOOK, str(i), 1, 1, (i,), big) for i in range(5)
+        rev.ChapterText(BOOK, str(i), 1, 1, (i,), 3000) for i in range(5)
     ]  # 1,000 tokens each
     groups = rev.group_chapters(chapters, limit=2500)
     assert [[c.chapter_id for c in g] for g in groups] == [
@@ -408,9 +407,8 @@ def test_chapters_are_packed_in_order_under_the_token_limit():
         ["2", "3"],
         ["4"],
     ]
-    assert rev.group_chapters(
-        [rev.ChapterText(BOOK, "9", 1, 1, (1,), "y" * 9000)], limit=100
-    ) == [[rev.ChapterText(BOOK, "9", 1, 1, (1,), "y" * 9000)]]
+    alone = rev.ChapterText(BOOK, "9", 1, 1, (1,), 9000)
+    assert rev.group_chapters([alone], limit=100) == [[alone]]
 
 
 def test_the_answer_is_parsed_strictly_and_nothing_is_invented():
@@ -678,7 +676,7 @@ def test_no_nine_module_of_this_part_names_a_class_or_a_word_or_sets_a_decision(
 
 
 def _two_on_one_rule(
-    v1="met", v2="not_met", l1="Coating thickness", l2="Total film build"
+    v1="met", v2="not_met", l1="Coating thickness", l2="Thickness of coating"
 ):
     books = books_of(**{BOOK: {1: RULE_A}})
     call = sent(**{BOOK: {1}})
@@ -687,6 +685,7 @@ def _two_on_one_rule(
             "item_id": "R-1",
             "source": "rule",
             "rule_version_id": "1",
+            "field_roles": ["coating_thickness"],
             "comparator": ">=",
             "value": 0.2,
             "unit": "mm",
@@ -709,7 +708,7 @@ def test_two_findings_matched_to_one_rule_with_different_verdicts_are_ONE_query_
         and b.finding.contradiction is True
         and b.finding.ai_verdict == "cannot_tell"
     )
-    assert b.finding.members == ("c1", "c2") and b.underlying == 2
+    assert b.finding.members == ("c1#0", "c2#0") and b.underlying == 2
     assert b.answer["verdict"] == "Query" and b.answer["reasoning"] == nf.DISAGREE
 
 
@@ -720,7 +719,7 @@ def test_two_findings_matched_to_one_rule_with_one_verdict_are_one_finding_with_
         and built[0].finding.ai_verdict == "not_met"
         and built[0].finding.contradiction is False
     )
-    assert built[0].finding.members == ("c1", "c2") and built[0].underlying == 2
+    assert built[0].finding.members == ("c1#0", "c2#0") and built[0].underlying == 2
 
 
 def test_a_collision_at_the_exit_raises_never_overwrites(world):
@@ -742,7 +741,7 @@ def test_the_stored_line_says_how_many_findings_it_stands_for(world):
     line = nf.decide_all(runner, built, {1: s.PAPER_PAGE}, "fake-lead-model-1")[0]
     assert (
         line["nine_underlying"] == 2
-        and line["nine_members"] == ["c1", "c2"]
+        and line["nine_members"] == ["c1#0", "c2#0"]
         and isinstance(line["nine_notes"], list)
     )
 
@@ -885,7 +884,7 @@ def test_a_design_pressure_finding_does_not_ride_a_coating_thickness_rule():
     assert right.item["item_id"] == "R-1" and right.finding.matched_rule_id == "1"
 
 
-def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_field_contradicts_nothing():
+def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_field_is_matched_only_by_a_finding_with_none():
     assert (
         nf.fields_agree("Design pressure", ("design_pressure",), ["design_pressure"])
         is True
@@ -899,8 +898,10 @@ def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_
     )  # words, no registry role
     assert nf.fields_agree("Zzq coating", (), ["other thing"]) is False
     assert (
-        nf.fields_agree("Anything", (), []) is True
-        and nf.fields_agree("Anything", (), None) is True
+        nf.fields_agree("Anything", (), []) is False
+        and nf.fields_agree("Anything", (), None)
+        is False  # R65b N2: a rule with no field is not matched by a finding that names one
+        and nf.fields_agree("", (), []) is True
     )
 
 
@@ -909,4 +910,181 @@ def test_a_wrong_field_finding_through_the_runner_is_never_proven_by_code(world)
     assert (
         lines[0]["item_id"].startswith("F-")
         and lines[0]["verdict_class"] != "Proven by code"
+    )
+
+
+# ---------------------------------------------------------------- R65b N1: a finding never takes the line of a rule it does not cover
+
+
+def _frame_findings(
+    world,
+    *,
+    paper_quote="Coating thickness: 0.35 mm",
+    verdicts=("met",),
+    field_roles=("coating_thickness",),
+):
+    runner, plan = _runner(world)
+    plan["R-frame"]["field_roles"] = list(field_roles)
+    if not field_roles:
+        plan["R-frame"][
+            "rule_label"
+        ] = {}  # the rule names no field at all (not in its roles, not in its label)
+    call = nf.Sent("c1", frozenset({1}), {s.STD: frozenset({1})}, "m1", ())
+    rows = [
+        {
+            "id": "frame",
+            "standard_document_id": s.STD,
+            "source_text": s.RULES["R-frame"][0],
+        }
+    ]
+    figs = {
+        "paper_figure": "Coating thickness: 0.35 mm",
+        "clause_figure": "coating thickness shall be at least 0.2 mm",
+    }
+    raws = [
+        (
+            raw(
+                clause_quote=s.RULES["R-frame"][0],
+                paper_quote=paper_quote,
+                verdict=v,
+                field_label="Coating thickness",
+                **figs,
+            ),
+            call,
+        )
+        for v in verdicts
+    ]
+    built = nf.process(
+        raws,
+        paper_pages={1: s.PAPER_PAGE},
+        books=standards.BookPages(),
+        rules=rows,
+        plan_items=plan,
+        tier_lookup=lambda _i: V.AI_TIER,
+    )
+    return runner, plan, built
+
+
+def _todo(runner):
+    return [i["item_id"] for i in runner.todo()]
+
+
+@pytest.mark.parametrize(
+    ("paper_quote", "verdicts"),
+    [
+        ("Coating thickness: 0.99 mm", ("met",)),
+        ("Coating thickness: 0.35 mm", ("met", "not_met")),
+    ],
+)
+def test_a_finding_that_does_not_cover_its_rule_leaves_the_rule_to_be_asked_and_keeps_its_own_line(
+    world, paper_quote, verdicts
+):
+    runner, plan, built = _frame_findings(
+        world, paper_quote=paper_quote, verdicts=verdicts
+    )
+    assert (
+        built[0].item["item_id"] == "R-frame"
+    )  # matched on text and field, but not covering
+    emit, cov = checklist.cover(list(plan.values()), built)
+    assert (
+        "R-frame" in [i["item_id"] for i in cov.to_ask]
+        and emit[0].item["item_id"].startswith("F-")
+        and emit[0].finding.matched_rule_id is None
+    )
+    lines = nf.decide_all(runner, emit, {1: s.PAPER_PAGE}, "fake-lead-model-1")
+    assert (
+        lines[0]["item_id"].startswith("F-")
+        and lines[0]["verdict_class"] != "Proven by code"
+    )
+    assert "R-frame" in _todo(
+        runner
+    )  # the runner still asks the rule: the finding did not take its id
+
+
+def test_a_covering_finding_is_emitted_as_the_rules_line_and_the_rule_is_not_asked_again(
+    world,
+):
+    runner, plan, built = _frame_findings(world)
+    emit, cov = checklist.cover(list(plan.values()), built)
+    assert emit[0].item["item_id"] == "R-frame" and "R-frame" not in [
+        i["item_id"] for i in cov.to_ask
+    ]
+    nf.decide_all(runner, emit, {1: s.PAPER_PAGE}, "fake-lead-model-1")
+    assert "R-frame" not in _todo(runner)
+
+
+def test_a_finding_never_replaces_a_line_that_already_exists_whoever_wrote_it(world):
+    runner, _plan, built = _frame_findings(world)
+    runner.lines["R-frame"] = {
+        "item_id": "R-frame",
+        "verdict_class": "Not reviewed",
+        "error": "x",
+    }  # today's batch path wrote it first
+    with pytest.raises(nf.ItemCollision):
+        nf.decide_all(runner, built, {1: s.PAPER_PAGE}, "fake-lead-model-1")
+    assert runner.lines["R-frame"]["verdict_class"] == "Not reviewed"
+
+
+# ---------------------------------------------------------------- R65b N2: a rule with no field is not matched by a finding that names one
+
+
+def test_a_finding_on_any_field_cannot_ride_a_rule_that_names_no_field_to_a_decision(
+    world,
+):
+    runner, _plan, built = _frame_findings(
+        world, field_roles=()
+    )  # the plan item names no field
+    assert (
+        built[0].item["item_id"].startswith("F-")
+        and built[0].finding.matched_rule_id is None
+    )
+    lines = nf.decide_all(runner, built, {1: s.PAPER_PAGE}, "fake-lead-model-1")
+    assert lines[0]["verdict_class"] != "Proven by code"
+    plain = nf.build(
+        nf.join([nf.check_raw(raw(field_label=""), sent(**{BOOK: {1}}), PAPER, books_of(**{BOOK: {1: RULE_A}}))])[0], rules=RULES,
+        plan_items={"R-1": {"item_id": "R-1", "source": "rule", "rule_version_id": "1"}}, tier_lookup=lookup_ai, book_text=lambda *_a: RULE_A,
+    )  # fmt: skip
+    assert (
+        plain.item["item_id"] == "R-1"
+    )  # no field on either side: nothing to contradict
+
+
+# ---------------------------------------------------------------- R65b N3: one member per underlying finding
+
+
+def test_two_findings_of_one_call_are_two_members():
+    books = books_of(**{BOOK: {1: RULE_A}})
+    call = sent("c1", **{BOOK: {1}})
+    built = nf.process(
+        [(raw(), call), (raw(), call)],
+        paper_pages=PAPER,
+        books=books,
+        rules=RULES,
+        plan_items={},
+        tier_lookup=lookup_ai,
+    )
+    assert (
+        len(built) == 1
+        and built[0].underlying == 2
+        and built[0].finding.members == ("c1#0", "c1#1")
+    )
+
+
+def test_the_rules_field_is_read_from_its_label_as_well_as_its_roles():
+    """The rule's field lives in the label table (`rule_label.field`) for most plan items, their field_roles being empty: the same helper the
+    pass guards use (`field_names`) gives both."""
+    plan = {
+        "R-1": {
+            "item_id": "R-1",
+            "source": "rule",
+            "rule_version_id": "1",
+            "field_roles": [],
+            "rule_label": {"field": "Coating thickness"},
+        }
+    }
+    assert _built(plan=plan, field_label="Coating thickness").item["item_id"] == "R-1"
+    assert (
+        _built(plan=plan, field_label="Design pressure")
+        .item["item_id"]
+        .startswith("F-")
     )

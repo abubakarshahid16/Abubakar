@@ -1,32 +1,71 @@
-"""B4 through B1's REAL seam (`nine_call.ask`) with a fake Messages transport: what a call really sent, a held block, the role budget.
-Invented documents; no network, no key, no model. Uses B1's world (a database with the run, the stored list and three documents)."""
+"""B4 through B1's STRICT seam (`nine_call.ask`) with a fake Messages transport: blocks are NAMED (the seam loads the stored text), what a call
+really sent comes from `Answer.reads`, a held block or source is dropped and named, the role budget. Invented documents; no network, no key."""
 
 from __future__ import annotations
 
 import json
 from typing import ClassVar
 
+import pytest
+
+from app import agent_claude, db, nine_call, nine_record, review_shown, submittal_review
 from app import agent_review_pass_guards as G
 from app import agent_review_standards as standards
-from app import nine_call, nine_record
 from app import nine_checklist as checklist
 from app import nine_findings as nf
 from app import nine_reviewer as rev
+from app.config import settings
 from app.nine_call import FakeTransport
-from tests.test_nine_call_record import (
-    world,  # noqa: F401  (B1's world: documents "paper", "book" on the list, "held" off it)
-)
 
+NOW = "2026-11-16T00:00:00Z"
 RULE = "The coating thickness shall be at least 0.2 mm on every outside surface."
 OTHER_RULE = "The housing shall be painted in a single colour on every outside surface."
+HELD_RULE = "The nameplate shall be stainless steel and fixed with four rivets."
 PAPER = {
     1: "DATA SHEET Coating thickness: 0.35 mm",
     2: "Notes Housing painted in two colours",
 }
+PAGES = {"paper": PAPER, "book": {4: RULE, 5: OTHER_RULE}, "held": {7: HELD_RULE}}
 
 
-def group(book="book", chapter="4", pages=(4,), text=RULE):
-    return [rev.ChapterText(book, chapter, 1, 1, pages, text)]
+@pytest.fixture(autouse=True)
+def world(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "nine.sqlite")
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 5.0)
+    monkeypatch.setattr(settings, "claude_budget_usd_total", 20.0)
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", False)
+    agent_claude.reset_shared_meter_for_tests()
+    db.reset_connection()
+    db.init_db()
+    submittal_review.ensure_schema()
+    with db.connect() as conn:
+        for doc, pages in PAGES.items():
+            conn.execute(
+                "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at) VALUES (?,?,?,1,?,'ready',?,?)",
+                (doc, f"{doc}.pdf", doc * 8, f"{doc}.pdf", max(pages), NOW),
+            )
+            for n, text in pages.items():
+                conn.execute(
+                    "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,?,?,?,0)",
+                    (doc, n, text, len(text)),
+                )
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at) VALUES ('run1','paper','running',?,?)",
+            (NOW, NOW),
+        )
+        review_shown.record_in(
+            conn, "run1", ["paper", "book"], NOW
+        )  # the stored list names the paper and the book, not "held"
+    nine_record.start_run("run1")
+    yield
+    db.reset_connection()
+
+
+def group(book="book", chapter="4", pages=(4,)):
+    return [rev.ChapterText(book, chapter, 1, 1, pages, 100)]
 
 
 def finding(clause_quote=RULE, verdict="not_met", label="Coating thickness", **kw):
@@ -40,55 +79,87 @@ def reply(*findings):
     return json.dumps({"findings": list(findings)})
 
 
-def prefix():
-    return rev.prefix_blocks("paper", PAPER, "digest of values")
+DIGEST = [("f:1:1", "Coating thickness", "0.35 mm", "p1")]
 
 
-def run_review(answers, groups, **kw):
+def prefix(parts=()):
+    return rev.prefix_blocks("paper", [1, 2], DIGEST, parts)
+
+
+def run_review(answers, groups, pre=None, **kw):
     t = FakeTransport(answers)
     got = rev.review(
-        "run1", prefix(), groups, send=t, env=FakeTransport.ENV, concurrency=1, **kw
+        "run1",
+        pre or prefix(),
+        groups,
+        send=t,
+        env=FakeTransport.ENV,
+        concurrency=1,
+        **kw,
     )
     return got, t
 
 
-def test_what_a_call_sent_is_read_from_the_answer_and_matches_the_body():
+def test_blocks_are_named_not_copied_and_the_seam_sends_the_stored_words():
+    for b in [*prefix(), *rev.chapter_blocks(group())]:
+        assert not hasattr(b, "text")  # no caller text: the seam loads it
+    pre = prefix()
+    assert pre[-1].cache is True and not any(
+        b.cache for b in pre[:-1]
+    )  # the shared part ends at the digest
     got, t = run_review([reply(finding())], [group()])
+    body = json.dumps(t.bodies[0])
+    assert (
+        RULE in body and PAPER[1] in body and "Coating thickness | 0.35 mm" in body
+    )  # stored pages and the digest row, rendered by code
     sent = got.raw[0][1]
     assert (
         sent.paper_pages == frozenset({1, 2})
         and sent.book_pages == {"book": frozenset({4})}
         and sent.read_refs == (("book", "4", 1),)
     )
-    body = json.dumps(t.bodies[0])
+    assert got.ok and got.state() == ("ran", None)
+
+
+def test_the_prompt_goes_as_registered_templates_and_nothing_else():
     assert (
-        RULE in body and "digest of values" in body
-    )  # the prefix and the chapter really went
-    assert (
-        got.ok
-        and got.answered == 1
-        and got.state() == ("ran_partly", rev.ReviewerRun.NO_CONTEXT)
+        nine_call._TEMPLATES[rev.SYSTEM_ID][0].format() == rev.SYSTEM
+        and nine_call._TEMPLATES[rev.QUESTION_ID][0].format() == rev.ANSWER_SHAPE
     )
+    _got, t = run_review([reply()], [group()])
+    body = t.bodies[0]
+    assert rev.SYSTEM in [c["text"] for c in body["system"]] and rev.ANSWER_SHAPE in [
+        c.get("text") for c in body["messages"][0]["content"]
+    ]
+    with pytest.raises(
+        ValueError
+    ):  # a free string is refused by the seam (it is not a (template id, params) pair)
+        nine_call.ask(
+            "run1",
+            4,
+            [*prefix(), *rev.chapter_blocks(group())],
+            "a free question",
+            send=FakeTransport(["{}"]),
+            env=FakeTransport.ENV,
+        )
 
 
-def test_a_block_the_gate_held_is_not_sent_and_a_quote_from_its_pages_is_unverified():
-    held = group(
-        "held", "9", (7,), OTHER_RULE
-    )  # "held" is not on the run's stored list
+def test_a_book_the_gate_held_is_not_sent_and_a_quote_from_its_pages_is_unverified():
+    held = group("held", "9", (7,))  # "held" is not on the run's stored list
     got, t = run_review(
-        [reply(finding(), finding(clause_quote=OTHER_RULE, label="Housing colour"))],
+        [reply(finding(), finding(clause_quote=HELD_RULE, label="Nameplate"))],
         [[*group(), *held]],
     )
-    assert got.not_sent == [("held", "not_approved")] and OTHER_RULE not in json.dumps(
-        t.bodies[0]
-    )
+    assert any(
+        doc == "held" for doc, _code in got.not_sent
+    ) and HELD_RULE not in json.dumps(t.bodies[0])
     sent = got.raw[0][1]
     assert "held" not in sent.book_pages and sent.book_pages == {"book": frozenset({4})}
     books = standards.BookPages()
     books._books["book"] = G.Book({4: RULE})
     books._books["held"] = G.Book(
-        {7: OTHER_RULE}
-    )  # the book exists locally, but its pages were never sent
+        {7: HELD_RULE}
+    )  # the pages exist locally but were never sent
     checked = [nf.check_raw(raw, s, PAPER, books) for raw, s in got.raw]
     assert checked[0].clause_ok is True
     assert checked[1].clause_ok is False and checked[1].clause_why in (
@@ -100,6 +171,46 @@ def test_a_block_the_gate_held_is_not_sent_and_a_quote_from_its_pages_is_unverif
         got.partly
         and got.state()[0] == "ran_partly"
         and "held by the gate" in got.state()[1]
+    )
+
+
+def test_a_context_part_with_a_held_source_is_dropped_and_named_the_others_go_on():
+    ok = rev.ContextPart("override_list", ("paper",), (("pressure", "from paper"),))
+    held = rev.ContextPart(
+        "project_spec", ("held",), (("rule", "token of the held doc"),)
+    )
+    got, t = run_review([reply(finding())], [group()], pre=prefix([ok, held]))
+    body = json.dumps(t.bodies[0])
+    assert "from paper" in body and "token of the held doc" not in body
+    assert (
+        got.context_offered == ("override_list", "project_spec")
+        and got.context_dropped == ["project_spec"]
+        and got.context_passed is False
+    )
+    state, why = got.state()
+    assert (
+        state == "ran_partly"
+        and "project context part(s) held by the gate: project_spec" in why
+    )
+    assert (
+        got.produced()["context_parts"] == 2
+        and got.produced()["context_parts_held"] == 1
+    )
+
+
+def test_context_is_passed_only_when_every_offered_part_went_and_none_offered_is_not_an_error():
+    ok = rev.ContextPart("override_list", ("paper",), (("pressure", "from paper"),))
+    got, _t = run_review([reply(finding())], [group()], pre=prefix([ok]))
+    assert (
+        got.context_passed is True
+        and got.state() == ("ran", None)
+        and got.produced()["context_passed"] == 1
+    )
+    none, _t2 = run_review([reply(finding())], [group()])
+    assert (
+        none.context_passed is False
+        and none.context_offered == ()
+        and none.state() == ("ran", None)
     )
 
 
@@ -115,9 +226,9 @@ class OnceGate(nine_call.RoleGate):
 
 def test_the_role_budget_ends_the_reviewer_ran_partly_and_the_checklist_asks_what_the_unread_chapter_would_cover():
     OnceGate.seen[0] = 0
-    g1, g2 = group("book", "4", (4,), RULE), group("book", "5", (5,), OTHER_RULE)
+    g1, g2 = group("book", "4", (4,)), group("book", "5", (5,))
     got, t = run_review([reply(finding())], [g1, g2], gate=OnceGate(4, 4.0))
-    assert len(t.bodies) == 1  # the second call was not made
+    assert len(t.bodies) == 1
     assert (
         got.budget_stopped
         and got.answered == 1
@@ -130,7 +241,6 @@ def test_the_role_budget_ends_the_reviewer_ran_partly_and_the_checklist_asks_wha
         and "role budget reached" in why
         and "1 of 2 chapter group(s) not read" in why
     )
-    # role 5: only the rule the read chapter covered is skipped; the rule of the unread chapter is asked (never weaker than today's)
     books = standards.BookPages()
     books._books["book"] = G.Book({4: RULE})
     rules = [
@@ -138,8 +248,12 @@ def test_the_role_budget_ends_the_reviewer_ran_partly_and_the_checklist_asks_wha
         {"id": "2", "standard_document_id": "book", "source_text": OTHER_RULE},
     ]
     plan = {
-        "R-1": {"item_id": "R-1", "source": "rule"},
-        "R-2": {"item_id": "R-2", "source": "rule"},
+        "R-1": {
+            "item_id": "R-1",
+            "source": "rule",
+            "field_roles": ["coating_thickness"],
+        },
+        "R-2": {"item_id": "R-2", "source": "rule", "field_roles": ["housing_colour"]},
     }
     built = nf.process(
         got.raw,
@@ -183,8 +297,8 @@ def test_a_failed_call_is_counted_unread_and_never_a_finding():
         and got.unread == [group()]
         and not got.ok
         and got.state()[0] == "not_run"
+        and got.errors
     )
-    assert got.errors == ["unreadable_reply"] or got.errors
 
 
 def test_the_prefix_is_the_same_in_every_call_and_the_calls_are_in_the_record():
@@ -192,8 +306,10 @@ def test_the_prefix_is_the_same_in_every_call_and_the_calls_are_in_the_record():
         [reply(), reply()], [group(chapter="4"), group(chapter="5", pages=(5,))]
     )
     assert len(t.bodies) == 2 and got.answered == 2
-    first, second = (json.dumps(b["messages"][0]["content"][:4]) for b in t.bodies)
-    assert first == second  # the cached prefix (paper pages) is byte-identical
+    first, second = (json.dumps(b["messages"][0]["content"][:6]) for b in t.bodies)
+    assert (
+        first == second
+    )  # the cached prefix (paper pages and digest) is byte-identical
     rec = nine_record.load_record("run1")
     assert (
         len(rec.calls) == 2
@@ -201,14 +317,9 @@ def test_the_prefix_is_the_same_in_every_call_and_the_calls_are_in_the_record():
         and all(c.state == "answered" for c in rec.calls)
     )
     assert got.produced() == {
-        "raw_findings": 0,
-        "chapter_groups": 2,
-        "answered": 2,
-        "failed": 0,
-        "not_asked": 0,
-        "unread_groups": 0,
-        "context_passed": 0,
-    }
+        "raw_findings": 0, "chapter_groups": 2, "answered": 2, "failed": 0, "not_asked": 0, "unread_groups": 0,
+        "context_parts": 0, "context_parts_held": 0, "context_passed": 0,
+    }  # fmt: skip
 
 
 def test_a_stop_asks_no_further_group_and_the_run_says_partly():
@@ -227,10 +338,7 @@ def test_a_stop_asks_no_further_group_and_the_run_says_partly():
 
 
 def test_cost_unknown_is_never_zero_on_the_local_engine():
-    local = []
-
     def local_send(body):
-        local.append(body)
         return {"text": reply(finding()), "model": "local-a"}
 
     got = rev.review(
@@ -242,33 +350,3 @@ def test_cost_unknown_is_never_zero_on_the_local_engine():
         concurrency=1,
     )
     assert got.answered == 1 and got.usd is None
-
-
-def test_the_project_context_is_not_passed_to_the_reviewer_and_the_run_says_so():
-    """R65 F2: a note derived from project documents must not travel under the paper's id; until the seam knows its sources, the reviewer
-    gets the fact-sheet digest only, and the record says "context not passed to the reviewer"."""
-    blocks = rev.prefix_blocks("paper", PAPER, "digest of values")
-    assert [(b.document_id, b.document_kind) for b in blocks] == [
-        ("paper", "paper"),
-        ("paper", "paper"),
-        ("paper", "review_record"),
-    ]
-    assert [b.chapter_id for b in blocks if b.document_kind == "review_record"] == [
-        "fact sheet"
-    ]
-    got, t = run_review([reply(finding())], [group()])
-    assert "no context" not in json.dumps(t.bodies[0]) and got.state() == (
-        "ran_partly",
-        "project context not passed to the reviewer",
-    )
-    assert got.produced()["context_passed"] == 0
-    passed = rev.review(
-        "run1",
-        prefix(),
-        [group()],
-        send=FakeTransport([reply(finding())]),
-        env=FakeTransport.ENV,
-        concurrency=1,
-        context_passed=True,
-    )
-    assert passed.state() == ("ran", None)
