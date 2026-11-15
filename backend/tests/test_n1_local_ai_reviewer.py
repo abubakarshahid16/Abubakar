@@ -1892,7 +1892,7 @@ def test_on_a_local_run_the_class_needs_the_whole_paper_for_both_readers_and_no_
 
     base = {"item_id": "R-1", "ai_verdict": "Pass", "verdict": "Query", "reason_code": "met", "tier": "AI approved",
             "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "paper_quote": "Coating layers two", "paper_page": 1,
-            "clause_quote": "x" * 50}  # fmt: skip
+            "clause_quote": "x" * 50, "pass_guard": {"ok": True}}  # fmt: skip
     claude = T.is_candidate(
         base
     )  # a Claude-path line has no engine marker and is judged as before
