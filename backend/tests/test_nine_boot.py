@@ -144,13 +144,6 @@ print(json.dumps(out))
 """
 
 
-import pytest  # noqa: E402
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2: nine_reader registers its form templates lazily, after the freeze (role 1 would fail in the real app); register them at import",
-)
 def test_the_readers_question_templates_can_be_used_after_the_freeze(tmp_path):
     got = run(READER, "true", tmp_path)
     assert got["groups"] > 0 and got["error"] is None
