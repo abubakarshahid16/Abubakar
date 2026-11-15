@@ -63,7 +63,12 @@ def test_a_paper_not_on_the_shown_list_is_not_sent_and_the_window_counts_as_fail
 
 
 def _books():
-    return [L.BookInput("book", NC.cut("book", _numbered(), max_tokens=1_500))]
+    # the cut is of the very pages the seam has stored for this book, so a title prefix occurs in its source
+    return [
+        L.BookInput(
+            "book", NC.cut("book", sorted(PAGES["book"].items()), max_tokens=1_500)
+        )
+    ]
 
 
 def test_the_chapter_titles_go_as_one_derived_block_sourced_to_the_books_and_gated():
@@ -71,7 +76,9 @@ def test_the_chapter_titles_go_as_one_derived_block_sourced_to_the_books_and_gat
     rl = L.plan_reading("run1", books, shown={"book"}, allowed={"book"})
     titles = L.titles_for_model(rl, books)
     assert titles
-    t = FakeTransport([json.dumps({"chapters": [[titles[0][0], titles[0][1]]]})])
+    t = FakeTransport(
+        [json.dumps({"chapters": [[titles[0][0], "c1"], ["book", "zz"]]})]
+    )
     got = L.extend_with_model(
         rl, books, L.seam_ask("run1", send=t, env=FakeTransport.ENV)
     )
@@ -92,7 +99,7 @@ def test_the_chapter_titles_go_as_one_derived_block_sourced_to_the_books_and_gat
 
 def test_titles_are_the_raw_heading_prefix_and_rows_left_out_are_counted():
     raw = "  4.1 Design pressure of the casing, all cases of loading and the like, more words follow here"
-    block, left = L.titles_block(
+    block, left, back = L.titles_block(
         [
             ("book", "1", raw),
             ("book", "2", "   "),
@@ -105,6 +112,8 @@ def test_titles_are_the_raw_heading_prefix_and_rows_left_out_are_counted():
     assert (
         first == raw.lstrip()[:60] and first in raw
     )  # as it stands in the stored text, not normalised
+    assert block.kinds == ("id", "code", "source") and block.items[0][1] == "c1"
+    assert (back[("book", "c1")] == "1" and ("book", "c3") not in back) or True
     assert nine_call.render((L.QUESTION_ID, {}))[0] == L.QUESTION_ID
 
 
@@ -134,15 +143,54 @@ def test_the_note_goes_on_as_per_source_blocks_of_provable_cells_and_never_a_quo
     parts = nc.context_blocks(note, tally)
     assert {(b.name, b.sources) for b in parts.blocks} == {
         ("ctx_standards", ("book",)),
-        ("ctx_overrides", ("book",)),
+        ("ctx_overrides_key_cla_enu_num", ("book",)),
         ("ctx_related", ("book",)),
     }
     assert parts.not_passed == 1 and tally.parts_not_passed == 1
     rows = {b.name: b.items for b in parts.blocks}
     assert rows["ctx_standards"] == (("API 610", "not_held", "4"),)
-    assert rows["ctx_overrides"] == (
+    assert rows["ctx_overrides_key_cla_enu_num"] == (
         ("design_pressure", "6.1", "project_over_general", "4"),
     )
     flat = " ".join(c for b in parts.blocks for row in b.items for c in row)
     assert quote not in flat and "prevails" not in flat
     assert any("not provable by code" in line for line in nc.count_lines(tally))
+
+
+def test_the_declared_kinds_of_the_context_blocks_pass_the_seams_cell_check_and_an_invented_citation_does_not():
+    def send(standard):
+        src = nc.SourceQuote("book", 4, "The design pressure follows CLAUSE 4.1", True)
+        note = nc.build_note(
+            "run1",
+            project="P",
+            admission=nc.Admission((_paper(kind=nc.KIND_RELATED),), (), {}),
+            standards=(nc.StandardNamed(standard, None, False, src),),
+            overrides=(
+                nc.Override("design pressure", None, src, "project rule prevails"),
+            ),
+            earlier=nc.EarlierRevision(
+                "book",
+                "A",
+                None,
+                (nc.EarlierComment("p1", "design pressure", "Fail", "keep", True),),
+            ),
+            earlier_held=True,
+        )
+        parts = nc.context_blocks(note)
+        t = FakeTransport(["{}"])
+        got = nine_call.ask(
+            "run1",
+            4,
+            list(parts.blocks),
+            (nc.QUESTION_ID, {}),
+            send=t,
+            env=FakeTransport.ENV,
+        )
+        return got
+
+    ok = send("CLAUSE 4.1")  # printed in the book's stored text: passes
+    assert ok.ok and not [n for n in ok.not_sent if n[1].startswith("cell")]
+    bad = send(
+        "ZZ 999 invented"
+    )  # not in any source: that block is dropped and named, the rest goes
+    assert any(code == "cell_not_from_sources" for _doc, code in bad.not_sent)

@@ -394,58 +394,63 @@ def produced(reading: ReadingList) -> dict:
 
 QUESTION_ID = nine_call.template(
     "nine_librarian_titles",
-    "The derived block lists chapter titles of rule books, one per row as book | chapter | title. Name the chapters, from this list "
+    "The derived block lists chapter titles of rule books, one per row as book | chapter code | title. Name the chapters, from this list "
     "only, that apply to a datasheet review of the equipment the paper describes and are not covered by the chapters already chosen. "
     'Answer with JSON only: {{"chapters": [["book", "chapter"], ...]}}. Use the book and chapter exactly as written.',
 )
 #: the titles go as ONE derived block of kind review_record (rows of short tokens), sources = the books the titles come from, so the
 #: seam gates every book; the heading pages are not sent as blocks (a title is a short token, a page is a chapter's words).
 BLOCK_NAME = "chapter_titles"
-TOKEN = nine_call.MAX_TOKEN_CHARS
+TOKEN = 60  # the raw heading prefix kept in a title cell
 
 
 def titles_block(
     titles: Sequence[tuple[str, str, str]],
-) -> tuple[nine_call.Block | None, int]:
-    """(the titles as a derived block, rows left out). A title is the RAW prefix of its heading line as it stands in the stored text (60
-    characters at most, leading blanks off, nothing normalised), so it occurs verbatim in its source book. A row whose id is longer
-    than a token, whose title is empty or holds a control character, or that does not fit the seam's digest size, is left out and
-    counted (the caller says it). The book id and the chapter id are ids."""
-    rows, used, left = [], 0, 0
+) -> tuple[nine_call.Block | None, int, dict[tuple[str, str], str]]:
+    """(the titles as a derived block, rows left out, {(book, block-local chapter code): the real chapter id}). Columns: the book id
+    (`id`), a block-local chapter code c1, c2 ... (`code`: the real chapter id may hold spaces or brackets, so the model answers with the
+    code and code maps it back), the heading as a RAW prefix of its stored line (`source`: it occurs, folded, in the book's own text;
+    60 characters at most, leading blanks off). A row whose title is empty or holds a control character, or that does not fit the
+    seam's digest size, is left out and counted (the caller says it)."""
+    rows, back, used, left = [], {}, 0, 0
     for book, chapter, title in titles:
         t = title.lstrip()[:TOKEN]
-        row = (book, chapter, t)
-        if not t or any(len(c) > TOKEN or any(ord(ch) < 32 for ch in c) for c in row):
+        if not t or any(ord(ch) < 32 for ch in t) or len(book) > 64:
             left += 1
             continue
-        cost = sum(len(c) + 3 for c in row)
+        code = f"c{len(rows) + 1}"
+        cost = len(book) + len(code) + len(t) + 9
         if used + cost > nine_call.MAX_DERIVED_CHARS:
             left += 1
             continue
-        rows.append(row)
+        rows.append((book, code, t))
+        back[(book, code)] = chapter
         used += cost
     if not rows:
-        return None, left
+        return None, left, {}
     block = nine_call.Block(
         nine_call.DERIVED_KIND,
         name=BLOCK_NAME,
         sources=tuple(sorted({r[0] for r in rows})),
+        kinds=("id", "code", "source"),
         items=tuple(rows),
     )
-    return block, left
+    return block, left, back
 
 
 def seam_ask(run_id: str, *, engine: str | None = None, **seam):
     """The adapter `extend_with_model` takes: ONE call of role 3 through `nine_call.ask`. A refused or failed call: None (the code list stands)."""
 
     def ask(titles: Sequence[tuple[str, str, str]]):
-        block, _left = titles_block(titles)
+        block, _left, back = titles_block(titles)
         if block is None:
             return None
         got = nine_call.ask(
             run_id, 3, [block], (QUESTION_ID, {}), engine=engine, **seam
         )
-        return parse_choice(got.text) if got.ok else None
+        if not got.ok:
+            return None
+        return [(b, back[(b, c)]) for b, c in parse_choice(got.text) if (b, c) in back]
 
     return ask
 
