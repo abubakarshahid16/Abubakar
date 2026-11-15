@@ -171,8 +171,10 @@ function AnswerCardBody({
           Claude could not answer
         </p>
         <p className="mt-1 text-sm text-slateish-300">
-          {asSentence(view.reason ?? "The Claude call failed")} The quoted
-          answer above is unaffected — only the explanation needs the model.
+          {asSentence(view.reason ?? "The Claude call failed")}{" "}
+          {sourcesOf(view).length > 0
+            ? "The quoted answer above is unaffected — only the explanation needs the model."
+            : "No answer was written for this question."}{" "}
           Try again, or switch Model to Local.
         </p>
       </div>
@@ -191,8 +193,10 @@ function AnswerCardBody({
           The local answer model is not running
         </p>
         <p className="mt-1 text-sm text-slateish-300">
-          {asSentence(view.reason ?? "Ollama could not be reached")} The quoted
-          answer above is unaffected — only the explanation needs the model.
+          {asSentence(view.reason ?? "Ollama could not be reached")}{" "}
+          {sourcesOf(view).length > 0
+            ? "The quoted answer above is unaffected — only the explanation needs the model."
+            : "No answer was written for this question."}
         </p>
         <pre className="mt-2 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-xs text-slateish-300">
 ollama serve
