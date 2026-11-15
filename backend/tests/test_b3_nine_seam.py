@@ -112,7 +112,7 @@ def test_titles_are_the_raw_heading_prefix_and_rows_left_out_are_counted():
     assert (
         first == raw.lstrip()[:60] and first in raw
     )  # as it stands in the stored text, not normalised
-    assert block.kinds == ("id", "code", "source") and block.items[0][1] == "c1"
+    assert block.kinds == ("id", "id", "source") and block.items[0][1] == "c1"
     assert (back[("book", "c1")] == "1" and ("book", "c3") not in back) or True
     assert nine_call.render((L.QUESTION_ID, {}))[0] == L.QUESTION_ID
 
@@ -143,13 +143,13 @@ def test_the_note_goes_on_as_per_source_blocks_of_provable_cells_and_never_a_quo
     parts = nc.context_blocks(note, tally)
     assert {(b.name, b.sources) for b in parts.blocks} == {
         ("ctx_standards", ("book",)),
-        ("ctx_overrides_key_cla_enu_num", ("book",)),
+        ("ctx_overrides_voc_cla_voc_num", ("book",)),
         ("ctx_related", ("book",)),
     }
     assert parts.not_passed == 1 and tally.parts_not_passed == 1
     rows = {b.name: b.items for b in parts.blocks}
     assert rows["ctx_standards"] == (("API 610", "not_held", "4"),)
-    assert rows["ctx_overrides_key_cla_enu_num"] == (
+    assert rows["ctx_overrides_voc_cla_voc_num"] == (
         ("design_pressure", "6.1", "project_over_general", "4"),
     )
     flat = " ".join(c for b in parts.blocks for row in b.items for c in row)

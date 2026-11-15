@@ -18,7 +18,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-from . import agent_general_review, applicability, nine_call
+from . import agent_general_review, applicability, nine_call, rule_labels
 from .nine_contract import (
     ContextNote,
     EarlierComment,
@@ -209,6 +209,17 @@ def windows(pages: Mapping[int, str], *, engine: str) -> list[list[int]]:
 Ask = Callable[["ProjectPaper", Sequence[int]], Mapping | None]
 """`ask(paper, pages) -> {"standards": [{name, page, quote}], "overrides": [{subject, general_ref, page, quote, precedence}]}` or
 None. The adapter sends NO text: only (kind, document id, pages) as a Block; `seam_ask` is the one adapter."""
+
+#: the app-owned vocabularies of the derived blocks of this role (registered once, at import)
+FIELDS_VOCAB = nine_call.vocabulary("ctx_fields", rule_labels.field_list())
+CODES_VOCAB = nine_call.vocabulary(
+    "ctx_codes",
+    (
+        "held", "not_held", "related", "project_over_general", "not_stated", "still_open", "changed", "cannot_tell",
+        "none", "keep", "edit", "remove", "pass", "fail", "met", "not_met", "partly", "unknown", "query",
+    ),
+)  # fmt: skip
+KEY_KIND, CODE_KIND = f"vocab:{FIELDS_VOCAB}", f"vocab:{CODES_VOCAB}"
 
 QUESTION_ID = nine_call.template(
     "nine_context_read",
@@ -635,8 +646,6 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
     related papers (document id `id`, `enum`); the earlier-revision follow-up (field-list key, the stored word, decision and still-open
     codes: `key`, `enum`, `enum`, `enum`). Never a model paraphrase or a sentence of the paper. `sources` is the document each part
     came from (the seam gates each)."""
-    from . import rule_labels
-
     by_doc: dict[tuple[str, str, tuple[str, ...]], list] = {}
     left = 0
 
@@ -649,7 +658,12 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
 
     def enum(word: object) -> str | None:
         text = _cell_ok(word)
-        return text if text and nine_call.fold(text) in nine_call.DERIVED_ENUM else None
+        return (
+            text
+            if text
+            and nine_call.nine_record.fold(text) in nine_call._VOCAB[CODES_VOCAB]
+            else None
+        )
 
     for s in note.standards:
         add(
@@ -660,7 +674,7 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
                 "held" if s.held else "not_held",
                 str(int(s.source.page)),
             ),
-            ("source", "enum", "number"),
+            ("source", CODE_KIND, "number"),
         )
     for o in note.overrides:
         q = o.project_rule.quote
@@ -672,13 +686,13 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
         cells = [_cell_ok(anchor)] + ([clause] if clause else [])
         cells += [precedence_code(o.order_of_precedence), str(int(o.project_rule.page))]
         kinds = (
-            ("key" if field else "source",)
+            (KEY_KIND if field else "source",)
             + (("clause",) if clause else ())
-            + ("enum", "number")
+            + (CODE_KIND, "number")
         )
         add("ctx_overrides", o.project_rule.document_id, cells, kinds)
     for d in note.related_papers:
-        add("ctx_related", d, (_cell_ok(d), "related"), ("id", "enum"))
+        add("ctx_related", d, (_cell_ok(d), "related"), ("id", CODE_KIND))
     if note.earlier is not None:
         fields = set(rule_labels.field_list())
         decisions = {"keep", "edit", "remove"}
@@ -695,7 +709,7 @@ def context_blocks(note: ContextNote, tally: Tally | None = None) -> Parts:
                         c.still_open
                     ],
                 ),
-                ("key", "enum", "enum", "enum"),
+                (KEY_KIND, CODE_KIND, CODE_KIND, CODE_KIND),
             )
     if tally is not None:
         tally.parts_not_passed += left

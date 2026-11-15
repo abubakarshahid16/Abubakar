@@ -92,7 +92,6 @@ DERIVED_ENUM = frozenset(
         "met", "not met", "not_met", "pass", "fail", "partly", "partly met", "unknown", "yes", "no", "true", "false",
         "paper", "rule_book", "project_document", "earlier_revision", "claude", "local", "code", "high", "medium", "low",
         "shall", "should", "may", "must", "held", "not_held", "related",
-        "project_over_general", "not_stated", "still_open", "changed", "cannot_tell", "none", "keep", "edit", "remove",  # B3: the project context codes
     }
 )  # fmt: skip
 
