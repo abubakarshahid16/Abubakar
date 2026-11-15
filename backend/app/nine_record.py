@@ -20,6 +20,7 @@ This module opens no socket, calls no model and reads no document text.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -47,6 +48,8 @@ MAX_TYPED_CELL = 64
 HELD_MIN_CHARS = (
     12  # a string this long that occurs in a refused document's stored text is refused
 )
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -520,8 +523,8 @@ def _run_facts(conn, run_id: str):
             "SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)
         ).fetchone()
         paper = (row["submittal_document_id"] if row else "") or ""
-    except sqlite3.Error:
-        pass
+    except sqlite3.Error as exc:
+        log.warning("nine run facts: a read failed (%s); the safe default stands", type(exc).__name__)  # nothing read: the safe defaults below stand
     choice = "automatic"
     try:
         row = conn.execute(
@@ -529,16 +532,16 @@ def _run_facts(conn, run_id: str):
         ).fetchone()
         if row and row["choice"] in ("automatic", "claude", "local"):
             choice = row["choice"]
-    except sqlite3.Error:
-        pass
+    except sqlite3.Error as exc:
+        log.warning("nine run facts: a read failed (%s); the safe default stands", type(exc).__name__)  # nothing read: the safe defaults below stand
     shown = None
     try:
         from . import review_shown
 
         got = review_shown.shown_ids(conn, run_id)
         shown = None if got is None else tuple(sorted(got))
-    except sqlite3.Error:
-        pass
+    except sqlite3.Error as exc:
+        log.warning("nine run facts: a read failed (%s); the safe default stands", type(exc).__name__)  # nothing read: the safe defaults below stand
     return paper, choice, shown
 
 

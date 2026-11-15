@@ -338,7 +338,7 @@ TAG_FORMS = nine_call.vocabulary("nine_tag_forms", ["none", "not_printed"])
 #: digest blocks). Registered at import; `nine_call.freeze()` closes the registries at app start, so this module must be imported by then.
 FACT_ID = nine_call.id_source(
     "nine_fact_sheet",
-    r"f:\d{1,9}(:\d{1,9}){0,3}",
+    r"f:[0-9]{1,9}(:[0-9]{1,9}){0,3}",
     "SELECT 1 FROM agent_review_fact WHERE run_id = ? AND fact_id = ?",
 )
 TAGGED_KINDS = (
@@ -486,7 +486,11 @@ _SCHEMA = (
 )
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
+def ensure_schema(conn: sqlite3.Connection | None = None) -> None:
+    if conn is None:
+        from .db import connect
+
+        conn = connect()
     for sql in _SCHEMA:
         conn.execute(sql)
 
