@@ -126,4 +126,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    before = text[: min(n.start for n in spots)]\n",
              replacement="    before = text\n",
              target=_TP, keyword="test_10", tags=_TAGS),
+    Mutation(id="M1804-20", phase=1804,
+             description="a presence check (a field only has to be stated) that passes becomes a proven Pass line (planted trial: a proven Pass on a planted wrong value)",
+             path=_K, anchor='        if status == COMPLIANT and r.get("rule_id") in presence_only:\n', replacement="        if False:\n",
+             target=_TP, keyword="test_11", tags=_TAGS),
+    Mutation(id="M1804-21", phase=1804,
+             description="the exit accepts a checklist Pass of a presence check as proven",
+             path=APP / "agent_review_code_proof.py", anchor="        not in approved.presence_only_ids()", replacement="        not in frozenset()",
+             target=_TP, keyword="test_11", tags=_TAGS),
 )
