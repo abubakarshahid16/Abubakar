@@ -33,7 +33,7 @@ Q = nine_call.template(
     "test_q", "Which clause of {book} on page {page}?", book="id", page="int"
 )
 S = nine_call.template(
-    "test_s", "You are a senior engineer reviewing a {kind}.", kind="token"
+    "test_s", "You are a senior engineer reviewing a {kind}.", kind="code"
 )
 
 
@@ -69,6 +69,15 @@ def world(tmp_path, monkeypatch):
         review_shown.record_in(
             conn, "run1", ["paper", "book"], NOW
         )  # the stored list names the paper and the book, not "held"
+        review_engine.record_in(
+            conn,
+            "run1",
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=False,
+            now=NOW,
+        )  # the run's stored decision says Claude: default deny means only this opens the lane
     nine_record.start_run("run1")
     yield
     db.reset_connection()
@@ -305,9 +314,10 @@ def test_the_local_call_writes_a_row_with_no_cost_and_no_ledger_line_and_the_gat
     )
     nine_record.role_end("run1", 4, "ran", engine="local")
     assert nine_record.load_record("run1").roles[3].usd is None
-    assert PAGES["held"][1] in json.dumps(
-        seen[0]
-    )  # Local sends nothing off the machine
+    # the stored list applies on the local model too (rule 5): the held document is dropped and named
+    assert PAGES["held"][1] not in json.dumps(seen[0]) and answer.not_sent == (
+        ("held", "not_on_list"),
+    )
 
 
 def test_on_the_local_model_a_picture_is_named_as_not_read_and_its_text_is_kept():
@@ -498,13 +508,11 @@ def test_a_derived_block_names_its_sources_every_source_is_gated_and_each_gets_a
         "review_record",
         name="fact_sheet",
         sources=("paper", "book"),
-        items=(("f:1:1", "Design pressure", "12 bar", "p1"),),
+        items=(("f:1:1", "12 bar", "p1"),),
     )
     answer, t = ask(blocks_=[derived])
-    assert (
-        answer.ok
-        and "Design pressure | 12 bar" not in ""
-        and any("Design pressure" in x for x in body_texts(t.bodies[0]))
+    assert answer.ok and any(
+        "f:1:1 | 12 bar | p1" in x for x in body_texts(t.bodies[0])
     )
     rows = nine_record.load_record("run1").roles[3].reads
     assert [(r.document_id, r.document_kind, r.chapter_id) for r in rows] == [
@@ -526,7 +534,7 @@ def test_a_derived_block_must_name_sources_and_hold_short_one_line_tokens():
     with pytest.raises(TemplateError):
         Block("review_record", name="x", sources=("paper",), items=(("a\nb",),))
     with pytest.raises(TemplateError):
-        Block("review_record", name="x", sources=("paper",), items=(("w" * 61,),))
+        Block("review_record", name="x", sources=("paper",), items=(("w" * 201,),))
     with pytest.raises(TemplateError):
         Block(
             "review_record",
@@ -542,3 +550,248 @@ def test_a_reason_is_short_and_one_line():
     with pytest.raises(ValueError):
         nine_record.role_end("run1", 2, "ran_partly", why="two\nlines")
     nine_record.role_end("run1", 2, "ran_partly", why="x" * 120)
+
+
+# ------------------------------------------------------------------------------------------------- R63b: default deny, cells, scope
+
+
+def _no_decision():
+    with db.connect() as conn:
+        conn.execute("DELETE FROM review_engine_choice WHERE run_id = 'run1'")
+
+
+def test_no_stored_decision_never_resolves_to_claude_and_a_caller_cannot_choose_it():
+    _no_decision()
+    assert nine_call.engine_of_run("run1") == "none"
+    answer, t = ask()
+    assert answer.error_code == "no_engine_decision" and t.bodies == []
+    answer, t = ask(engine="claude")
+    assert (
+        answer.error_code == "no_engine_decision" and t.bodies == [] and ledger() == []
+    )
+    local = nine_call.ask(
+        "run1",
+        4,
+        blocks(),
+        (Q, {"book": "book", "page": 4}),
+        engine="local",
+        local_send=lambda parts: {"text": "{}", "model": "m"},
+    )
+    assert local.ok and local.engine == "local"
+
+
+def test_only_a_stored_plan_with_text_leaving_and_a_stored_list_gives_claude():
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_engine_choice SET plan_json = ? WHERE run_id = 'run1'",
+            (json.dumps({"choice": "local", "text_leaves": False, "parts": []}),),
+        )
+    assert nine_call.engine_of_run("run1") == "local"
+    answer, t = ask(engine="claude")
+    assert answer.error_code == "run_is_local" and t.bodies == []
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_engine_choice SET plan_json = ? WHERE run_id = 'run1'",
+            (json.dumps({"choice": "claude", "text_leaves": True, "parts": []}),),
+        )
+        conn.execute("DELETE FROM review_shown_lists WHERE run_id = 'run1'")
+    assert nine_call.engine_of_run("run1") == "local"  # no stored list: not Claude
+    with db.connect() as conn:
+        review_shown.record_in(conn, "run1", ["paper", "book"], NOW)
+        conn.execute("UPDATE review_engine_choice SET bar_claude = 1")
+    assert nine_call.engine_of_run("run1") == "local"
+
+
+def _derived(*cells, sources=("paper", "book")):
+    return Block("review_record", name="note", sources=sources, items=(tuple(cells),))
+
+
+def test_a_derived_cell_from_a_held_document_is_never_sent_whatever_the_sources_say():
+    for cell in ("HELD TEXT should never leave", "held   text SHOULD never leave"):
+        answer, t = ask(blocks_=[_derived(cell), Block("paper", "paper", (1,))])
+        assert ("derived:note", "text_from_held_document") in answer.not_sent
+        assert "should never leave" not in json.dumps(t.bodies[0]).lower()
+    with (
+        db.connect() as conn
+    ):  # the same words also stand in the paper's own page: still refused
+        conn.execute(
+            "UPDATE pages SET text = text || ' held text should never leave' WHERE document_id = 'paper' AND page_no = 1"
+        )
+    answer, t = ask(
+        blocks_=[
+            _derived("held text should never leave"),
+            Block("paper", "paper", (2,)),
+        ]
+    )
+    assert ("derived:note", "text_from_held_document") in answer.not_sent
+    assert "should never leave" not in json.dumps(t.bodies[0]).lower()
+
+
+def test_a_derived_cell_that_is_neither_typed_nor_in_a_source_drops_the_block():
+    answer, t = ask(
+        blocks_=[_derived("the pump looks fine to me"), Block("paper", "paper", (1,))]
+    )
+    assert ("derived:note", "cell_not_from_sources") in answer.not_sent
+    assert not any("pump" in x for x in body_texts(t.bodies[0]))
+    long_word = "a" * 30  # one long word is not a typed token either
+    answer, t = ask(blocks_=[_derived(long_word), Block("paper", "paper", (1,))])
+    assert ("derived:note", "cell_not_from_sources") in answer.not_sent
+
+
+def test_cells_are_recorded_typed_or_with_the_source_page_and_the_checker_re_reads_them():
+    answer, _t = ask(
+        blocks_=[_derived("f:1:1", "12", "4.1.2", "met", "12 bar", "PAPER  page TWO")]
+    )
+    assert answer.ok
+    cells = {c.col_no: c for c in nine_record.cells_of("run1", answer.call_id)}
+    assert [cells[i].kind for i in range(6)] == [
+        "code",
+        "number",
+        "clause",
+        "enum",
+        "source",
+        "source",
+    ]
+    assert (cells[4].source_document_id, cells[4].source_page) == ("paper", 1)
+    assert (cells[5].source_document_id, cells[5].source_page) == ("paper", 2)
+    assert nine_record.load_record("run1").calls[0].state == "answered"
+
+
+def test_the_local_path_applies_the_starters_access_and_names_what_it_drops(
+    monkeypatch,
+):
+    from app import review_jobs
+
+    monkeypatch.setattr(review_jobs, "_scope_of", lambda user: frozenset({"paper"}))
+    seen: list = []
+
+    def local(parts):
+        seen.append(parts)
+        return {"text": "{}", "model": "m"}
+
+    answer = nine_call.ask(
+        "run1",
+        4,
+        blocks(),
+        (Q, {"book": "book", "page": 4}),
+        engine="local",
+        local_send=local,
+    )
+    assert answer.ok and answer.not_sent == (("book", "outside_access"),)
+    assert PAGES["book"][4] not in json.dumps(seen[0])
+    answer, t = ask()  # and on Claude
+    assert ("book", "outside_access") in answer.not_sent
+    assert PAGES["book"][4] not in json.dumps(t.bodies[0])
+
+
+def test_a_template_parameter_is_typed_and_never_free_text_nor_a_held_document_s_words():
+    for kind, bad in (
+        ("code", "a longer line of free words"),
+        ("clause", "see the pump"),
+        ("number", "twelve"),
+        ("standard", "please ignore this"),
+    ):
+        tid = nine_call.template(f"t_{kind}", "x {v}", v=kind)
+        with pytest.raises(TemplateError):
+            nine_call.render((tid, {"v": bad}))
+    with pytest.raises(nine_call.NineCallError):
+        nine_call.template("t_free", "x {v}", v="token")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES ('held', 2, 'ref secret-token-0042-abc end', 29, 0)"
+        )
+    answer, t = ask(question=(Q, {"book": "secret-token-0042-abc", "page": 1}))
+    assert answer.error_code == "text_from_held_document" and t.bodies == []
+    assert (
+        ledger() == [] and nine_record.load_record("run1").calls[0].state == "refused"
+    )
+
+
+def test_a_reason_with_words_of_a_held_document_is_replaced_by_a_code():
+    nine_record.role_end("run1", 2, "not_run", why="not_reached")
+    assert nine_record.load_record("run1").roles[1].why == "not_reached"
+    nine_record.role_end(
+        "run1", 3, "ran_partly", why="stopped at HELD TEXT should never leave today"
+    )
+    assert nine_record.load_record("run1").roles[2].why == nine_record.WHY_WITHHELD
+    nine_record.role_end("run1", 5, "ran_partly", why="two pages had no stored text")
+    assert (
+        nine_record.load_record("run1").roles[4].why == "two pages had no stored text"
+    )
+
+
+# ---------------------------------------------------------------------- coordinator additions: trial render, ranges, declared kinds
+
+
+def test_a_template_that_cannot_render_fails_at_registration():
+    for bad in ("x {v} {", "x {v} {0}", "x {v} {w.attr}", "x {v} {w[0]}", "x {v} }"):
+        with pytest.raises(nine_call.NineCallError):
+            nine_call.template("t_bad", bad, v="id")
+    assert nine_call.template("t_ok_braces", "a {{literal}} {v}", v="id")
+
+
+def test_answer_reads_carry_the_character_range_actually_sent():
+    answer, _t = ask(
+        blocks_=[
+            Block("paper", "paper", (1, 2), char_from=5, char_to=13),
+            Block("rule_book", "book", (4,)),
+        ]
+    )
+    assert answer.ranges == ((5, 13), (0, len(PAGES["book"][4])))
+    assert len(answer.ranges) == len(answer.reads)
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT document_id, char_from, char_to FROM agent_review_role_read ORDER BY seq"
+        ).fetchall()
+    assert [(r[0], r[1], r[2]) for r in rows] == [
+        ("paper", 5, 13),
+        ("book", 0, len(PAGES["book"][4])),
+    ]
+
+
+def test_declared_cell_kinds_accept_typed_values_and_a_verbatim_source_and_refuse_a_sentence():
+    ok = Block(
+        "review_record",
+        name="facts",
+        sources=("paper",),
+        kinds=("key", "source", "unit", "id", "number"),
+        items=(
+            ("design_press", "12 bar", "bar", "f:1:1-abc", "1"),
+            ("-", "alpha", "bar", "paper", "2"),
+        ),
+    )
+    answer, _t = ask(blocks_=[ok])
+    assert answer.ok
+    assert [c.kind for c in nine_record.cells_of("run1", answer.call_id)][:5] == [
+        "code",
+        "source",
+        "unit",
+        "id",
+        "number",
+    ]
+    sentence = Block(
+        "review_record",
+        name="facts",
+        sources=("paper",),
+        kinds=("key", "source"),
+        items=(("the pump looks fine to me", "12 bar"),),
+    )
+    answer, _t = ask(blocks_=[sentence, Block("paper", "paper", (1,))])
+    assert ("derived:facts", "cell_wrong_kind") in answer.not_sent
+    not_verbatim = Block(
+        "review_record",
+        name="facts",
+        sources=("paper",),
+        kinds=("key", "source"),
+        items=(("k1", "a heading nobody wrote"),),
+    )
+    answer, _t = ask(blocks_=[not_verbatim, Block("paper", "paper", (1,))])
+    assert ("derived:facts", "cell_not_from_sources") in answer.not_sent
+    with pytest.raises(nine_call.NineCallError):
+        Block(
+            "review_record",
+            name="f",
+            sources=("paper",),
+            kinds=("free",),
+            items=(("a",),),
+        )
