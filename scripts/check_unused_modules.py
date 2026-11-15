@@ -50,6 +50,7 @@ ENTRY_POINTS = (
     # nine-role reviewer, B1: the one call seam, being wired (remove when a role imports it)
     "nine_call",
     "nine_chapters",  # B3: the chapter cut, until the librarian imports it
+    "nine_context",  # B3: the project context (role 2), until the job calls it
     "nine_librarian",  # B3: the reading list, until the job calls it
     # nine-role reviewer (builder B4), not wired until the job (B5) calls them: remove an entry when something imports the module
     "nine_match",

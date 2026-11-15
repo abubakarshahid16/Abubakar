@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from . import claude_approved
+from . import claude_approved, nine_context
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +41,11 @@ NOT_APPROVED_BOOK = "not approved for Claude; the owner approves it"
 NOT_APPROVED_SPEC = "a specification that is not on the owner's approved list"
 NOT_READABLE = "documents you may not read"
 LOCAL_WORDS = "Nothing leaves this Mac"
+CHAPTER_WORDS = "whole chapters of a listed rule book may be sent, at most about 360,000 characters per book and 600,000 per review"
+WHY_PROJECT_CONTRACT = "the project's contract: names which standards apply"
+WHY_PROJECT_SPEC = "a project specification: which project rule overrides a general one"
+WHY_RELATED = "a related paper of the same project"
+WHY_EARLIER = "the earlier revision of this paper"
 #: Why a standard the review's own selection applies is on the list, by the method that chose it.
 METHOD_WORDS = {
     "referenced": "cited by the paper",
@@ -201,6 +206,8 @@ def leaving_for(
         if out["leaving"]
         else LOCAL_WORDS
     )
+    if out["leaving"] and nine_context.nine_on():
+        out["summary"] += "; " + CHAPTER_WORDS
     return _finish(out)
 
 
@@ -325,6 +332,39 @@ def _fill(
                 else PROJECT_PAPER
             )
             put(row, kind, WHY_CHOSEN)
+    if nine_context.nine_on():
+        _project_context_rows(conn, document_id, put)
+
+
+def _project_context_rows(conn, document_id: str, put) -> None:
+    """The nine-role project context (role 2): the other papers of the paper's own project and its earlier revision, each with
+    its kind and why. The client's register is never listed; a rule book is not a project paper. Rule 5 and the gate are
+    applied by `put` (outside the starter's access: counted; held by the send gate: `not_sent`)."""
+    mine = conn.execute(
+        "SELECT project FROM document_classification WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    project = (mine["project"] if mine else None) or None
+    rows = conn.execute(
+        "SELECT d.id AS id, d.filename AS filename, d.sha256 AS sha256, c.document_role AS role, c.project AS project,"
+        " c.superseded_by AS superseded_by FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
+        " WHERE d.id != ? AND d.id NOT IN (SELECT DISTINCT standard_document_id FROM standard_requirements)"
+        " ORDER BY d.id",
+        (document_id,),
+    ).fetchall()
+    for r in rows:
+        if claude_approved.blocked_by_name(r["filename"]):
+            continue
+        row = dict(r)
+        if r["superseded_by"] == document_id:
+            put(row, PROJECT_PAPER, WHY_EARLIER)
+        elif project and r["project"] == project:
+            if r["role"] == "CONTRACT_DOCUMENT":
+                put(row, CONTRACT, WHY_PROJECT_CONTRACT)
+            elif r["role"] == claude_approved.SPECIFICATION_ROLE:
+                put(row, SPECIFICATION, WHY_PROJECT_SPEC)
+            else:
+                put(row, PROJECT_PAPER, WHY_RELATED)
 
 
 def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
