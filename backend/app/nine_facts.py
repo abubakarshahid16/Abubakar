@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import sqlite3
 from collections.abc import Collection, Mapping, Sequence
 
@@ -29,6 +30,7 @@ from . import (
     datasheet_ai,
     datasheet_checks,
     form_reader,
+    nine_record,
     numparse,
     untrusted_value,
 )
@@ -312,6 +314,77 @@ def digest(sheet: FactSheet, max_chars: int = 8000) -> str:
         out.append("PAGES NOT READ:")
         out.extend(notread[:40])
     return "\n".join(out)
+
+
+# ------------------------------------------------------------------ the digest as a DERIVED block for the seam
+
+#: the state words as short CODES (11 characters or fewer: the seam's `code` kind), so no word needs adding to the seam's enum
+STATE_CODE = {
+    "agreed": "agreed",
+    "conflict": "conflict",
+    "ai_only": "ai_only",
+    "stored_only": "stored_only",
+    "needs_engineer": "needs_eng",
+    "stale": "stale",
+}
+#: the columns, each with its declared kind (`nine_call.Block.kinds`): fact id, the registry's field key, the value as printed (found on its page),
+#: the page, the tag (a code, "-" when none, "multi" when the tag is spelled as a list or with spaces), and the state code
+DIGEST_KINDS = ("id", "key", "source", "number", "key", "code")
+_CODE = re.compile(r"^[A-Za-z0-9\-][A-Za-z0-9_.:\-]{0,39}$")
+
+
+def _printed(f: Fact, pages: Mapping[int, str]) -> str | None:
+    """The value as the page prints it (value and unit when they stand together), or None when the page does not hold it: a cell of kind `source`
+    must be found in the paper's stored text, so a value that is not is left out of the block, and counted."""
+    text = fold_text(pages.get(f.page, ""))
+    for cand in (f"{f.value} {f.unit}".strip() if f.unit else "", str(f.value or "")):
+        if cand and fold_text(cand) in text:
+            return cand if len(cand) <= 60 and "\n" not in cand else None
+    return None
+
+
+def fold_text(text: object) -> str:
+    return nine_record.fold(str(text or ""))
+
+
+def digest_block(
+    sheet: FactSheet, pages: Mapping[int, str]
+) -> tuple[object | None, dict[str, int]]:
+    """The fact sheet for the later roles as ONE derived block of the seam (`review_record`, name "fact_sheet", the paper its only source): a row per fact
+    that is not stale and has a value the page holds. Conflicts stay in, with the state "conflict", so no later role takes them for a value. Returns
+    (the block or None when there is no row, counts: rows and facts left out because the page does not print the value)."""
+    rows: list[tuple[str, ...]] = []
+    left_out = 0
+    for f in sorted(sheet.facts, key=lambda f: (f.page, f.fact_id)):
+        if f.state == "stale" or f.value is None:
+            continue
+        shown = _printed(f, pages)
+        if shown is None:
+            left_out += 1
+            continue
+        tag = f.tag or "-"
+        tag = tag if _CODE.match(tag) else "multi"
+        rows.append(
+            (
+                f.fact_id,
+                f.field_role if f.field_role and _CODE.match(f.field_role) else "-",
+                shown,
+                str(f.page),
+                tag,
+                STATE_CODE[f.state],
+            )
+        )
+    if not rows:
+        return None, {"rows": 0, "left_out": left_out}
+    from .nine_call import Block
+
+    return Block(
+        "review_record",
+        name="fact_sheet",
+        sources=(sheet.paper_id,),
+        kinds=DIGEST_KINDS,
+        items=tuple(rows),
+    ), {"rows": len(rows), "left_out": left_out}
 
 
 # ------------------------------------------------------------------ the store (per run; never `submittal_facts`)
