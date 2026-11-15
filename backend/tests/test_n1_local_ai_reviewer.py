@@ -35,16 +35,33 @@ A_NAME = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
 B_NAME = "glm-4.7-flash"
 #: what the local engine's own /api/show says about each invented model (family words as it reports them)
 SHOWS = {
-    A_NAME: {"details": {"family": "qwen35moe", "families": ["qwen35moe"]}},
-    B_NAME: {"details": {"family": "glm4moe", "families": ["glm4moe"]}},
+    A_NAME: {
+        "details": {"family": "qwen35moe", "families": ["qwen35moe"]},
+        "model_info": {
+            "general.architecture": "qwen35moe",
+            "qwen35moe.context_length": 262144,
+            "qwen35moe.block_count": 40,
+            "qwen35moe.attention.head_count": 16,
+            "qwen35moe.attention.head_count_kv": 2,
+            "qwen35moe.attention.key_length": 256,
+            "qwen35moe.attention.value_length": 256,
+        },
+    },
+    B_NAME: {
+        "details": {"family": "glm4moe", "families": ["glm4moe"]},
+        "model_info": {
+            "general.architecture": "glm4moe",
+            "glm4moe.context_length": 131072,
+        },
+    },
     "qwen3:8b": {"details": {"family": "qwen3", "families": ["qwen3"]}},
     "gpt-oss:20b": {"details": {"family": "gptoss", "families": ["gptoss"]}},
 }
 
 
 def _tokens(body) -> int:
-    """What a real engine reports: the tokens of the prompt it read (about 3 characters a token)."""
-    return sum(len(m["content"]) for m in body["messages"]) // 3 + 1
+    """What a real engine reports: the tokens of the prompt it read (about 4 characters a token, below the repo's fail-safe estimate)."""
+    return sum(len(m["content"]) for m in body["messages"]) // 4 + 1
 
 
 class FakeOllama:
@@ -69,7 +86,6 @@ class FakeOllama:
         self.bodies = []
 
     report = None  # "short" | "window" | "missing" | "tiny": what the engine says about the prompt it read
-    bodies: list = []
 
     def __call__(self, path, body, *, timeout):
         self.bodies.append(body)
@@ -136,6 +152,13 @@ def _claude_must_not_be_touched(url, *, headers, body, timeout):
     raise AssertionError("a local run reached the Claude lane")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_engine(monkeypatch):
+    """No test asks a real engine for a model's size, or reads the chat's state."""
+    monkeypatch.setattr(local_mod, "_model_size_mb", lambda _m: None)
+    monkeypatch.setattr(local_mod, "_chat_active", lambda: False)
+
+
 @pytest.fixture
 def local(w, monkeypatch):
     """The world of the AI reviewer's job tests, run on the local engine."""
@@ -151,6 +174,10 @@ def local(w, monkeypatch):
     monkeypatch.setattr(model_transport, "post_json_retrying", ollama)
     monkeypatch.setattr(model_memory, "unload", lambda m: unloads.append(m) or True)
     monkeypatch.setattr(local_mod, "_show", lambda m: SHOWS.get(m))
+    monkeypatch.setattr(
+        local_mod, "_model_size_mb", lambda _m: None
+    )  # no real engine is asked for a size
+    monkeypatch.setattr(local_mod, "_chat_active", lambda: False)
 
     def boom(*_a, **_k):
         raise AssertionError("a local run asked for the Claude transport")
@@ -490,9 +517,7 @@ def test_a_number_line_is_still_decided_by_code_not_by_the_local_model(local):
 
 
 def test_a_request_that_does_not_fit_is_not_sent_and_says_so(local, monkeypatch):
-    monkeypatch.setattr(
-        model_transport, "shared_window", lambda: 900
-    )  # nothing can fit
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 900)  # nothing can fit
     run_id = run_review()
     assert local["ollama"].log == []  # nothing was sent, nothing was cut
     for ln in lines_of(run_id).values():
@@ -778,24 +803,72 @@ def test_the_context_size_is_asked_explicitly_on_every_call_and_comes_from_the_s
     assert by_model[A_NAME] == {12288} and by_model[B_NAME] == {16384}
 
 
-def test_the_default_context_size_is_the_shared_window(local):
+def test_the_default_window_is_the_models_own_length_capped_at_16384(local):
     run_review()
-    assert {b["options"]["num_ctx"] for b in local["ollama"].bodies} == {
-        model_transport.shared_window()
+    assert {b["options"]["num_ctx"] for b in local["ollama"].bodies} == {16384}
+
+
+def test_the_window_is_the_smaller_of_the_models_length_and_the_cap_and_the_shared_window_when_the_engine_does_not_say(
+    monkeypatch,
+):
+    short = {
+        "details": {"family": "x"},
+        "model_info": {"general.architecture": "x", "x.context_length": 4096},
     }
-
-
-def test_a_reply_that_reports_the_whole_prompt_is_used():
-    text = "word " * 600  # about 3,000 characters
-    assert local_mod._cut_prompt(900, 8192, text) is None
-    assert local_mod._cut_prompt(None, 8192, text) == "prompt size not reported"
+    unknown = {"details": {"family": "y"}}
+    shows = {"short": short, "unknown": unknown, A_NAME: SHOWS[A_NAME]}
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 16384)
+    for name, expect in (
+        ("short", 4096),
+        ("unknown", model_transport.shared_window()),
+        (A_NAME, 16384),
+    ):
+        eng = local_mod.LocalEngine(name, B_NAME, show=shows.get)
+        assert eng.window() == expect
+    monkeypatch.setattr(
+        settings, "agent_review_local_num_ctx", 0
+    )  # no cap set: never above the shared window
     assert (
-        local_mod._cut_prompt(5000, 8192, text) == "prompt at or near the window"
-    )  # the engine reports BELOW the window when it cuts
-    assert (
-        local_mod._cut_prompt(10, 8192, text) == "prompt shorter than the request needs"
+        local_mod.LocalEngine(A_NAME, B_NAME, show=shows.get).window()
+        == model_transport.shared_window()
     )
-    assert local_mod._cut_prompt(True, 8192, text) == "prompt size not reported"
+
+
+def test_the_memory_cost_of_the_context_is_computed_from_the_models_own_data():
+    assert local_mod.context_length(SHOWS[A_NAME]) == 262144
+    assert (
+        local_mod.kv_mb_per_1k(SHOWS[A_NAME]) == 81.9
+    )  # 40 layers x 2 kv heads x (256 + 256) x 2 bytes x 1000 tokens
+    assert (
+        local_mod.kv_mb_per_1k(SHOWS[B_NAME]) is None
+        and local_mod.context_length({"details": {}}) is None
+    )
+    eng = local_mod.LocalEngine(A_NAME, B_NAME, show=SHOWS.get)
+    assert (
+        eng.stats()["local_kv_mb_per_1k_first"] == 81.9
+        and eng.stats()["local_window_first"] == 16384
+    )
+
+
+def test_an_answer_is_discarded_only_when_the_count_shows_a_cut():
+    text = (
+        "word " * 600
+    )  # about 3,000 characters; the fail-safe estimate says about 900 tokens
+    cut = local_mod._cut_prompt
+    assert cut(900, 8192, text, 700, 900) is None
+    assert (
+        cut(5000, 8192, text, 700, 5000) is None
+    )  # more than half the window is NOT a cut: the estimate admitted it and the count agrees
+    assert cut(None, 8192, text, 700, 900) == "prompt size not reported"
+    assert cut(True, 8192, text, 700, 900) == "prompt size not reported"
+    assert (
+        cut(7500, 8192, text, 700, 7500)
+        == "prompt reached the room the window leaves it"
+    )  # 8192 - 700 - 64 = 7428
+    assert cut(10, 8192, text, 700, 900) == "prompt shorter than the request needs"
+    assert (
+        cut(1500, 8192, text, 700, 900) == "prompt longer than the estimate said"
+    )  # the estimate under-counted: it cannot be trusted
 
 
 # ---------------------------------------------------------------- R51 F1/F2: the estimate decides what is sent, the engine's count is the second net
@@ -830,6 +903,7 @@ def test_a_numeric_page_the_old_three_characters_a_token_rule_would_send_is_not_
         B_NAME,
         post=lambda *a, **k: sent.append(1) or {},
         show=lambda m: SHOWS.get(m),
+        window=8192,  # the window of the first real run (before the window followed the model's own length)
     )
     with pytest.raises(agent_claude.AgentBadReply) as caught:
         eng.call(A_NAME, numeric_parts(), 1000)
@@ -951,7 +1025,7 @@ def test_a_not_asked_line_reads_on_the_built_sheets_as_not_asked_never_as_a_fail
     local, monkeypatch
 ):
     monkeypatch.setattr(
-        model_transport, "shared_window", lambda: 900
+        settings, "agent_review_local_num_ctx", 900
     )  # nothing fits: every item is "not asked"
     run_id = run_review()
     folder = agent_review_jobs.run_dir(run_id)
@@ -1149,3 +1223,709 @@ def test_every_request_starts_with_its_own_nonce_so_the_engines_prompt_cache_can
         r"\[request [0-9a-f]{8}\]\nYou review\.", second
     )
     assert first != second  # the same request twice never shares a prefix
+
+
+# ---------------------------------------------------------------- fit the question to the window (the part of the paper the item needs)
+
+from app import agent_review_excerpt as ex  # noqa: E402
+
+
+def _page(label_at=None, n=60, label="Coating layers two", note=False):
+    lines = [
+        f"filler line {i:02d} with some ordinary words about nothing" for i in range(n)
+    ]
+    if label_at is not None:
+        lines[label_at] = label + (" (1)" if note else "")
+    if note:
+        lines[n - 8] = "NOTES"
+        lines[n - 7] = "(1) the note text that goes with the coating layers"
+    return "\n".join(lines)
+
+
+def test_the_label_excerpt_is_the_label_line_and_the_lines_around_it_not_the_page():
+    text = _page(label_at=30)
+    want = ex.field_words({"rule_label": {"field": "coating_layers"}})
+    assert want == {"coating", "layer"}
+    got = ex._label_window({1: text}, want, budget=10_000)
+    assert got and got.label and "Coating layers two" in got.pages[1]
+    shown = got.pages[1].splitlines()
+    assert (
+        "filler line 22 with some ordinary words about nothing" in shown
+        and "filler line 38 with some ordinary words about nothing" in shown
+    )  # 8 lines each side
+    assert (
+        "filler line 05 with some ordinary words about nothing" not in shown
+        and shown[0] == "..."
+        and shown[-1] == "..."
+    )  # gaps are marked
+    assert len(got.pages[1]) < len(text) / 2
+
+
+def test_the_label_excerpt_shrinks_to_the_budget_and_gives_up_when_it_cannot_fit():
+    text = _page(label_at=30)
+    want = ex.field_words({"field_roles": ["coating_layers"]})
+    big = ex._label_window({1: text}, want, 10_000)
+    small = ex._label_window({1: text}, want, ex._tokens(big.pages[1]) - 1)
+    assert (
+        small
+        and len(small.pages[1]) < len(big.pages[1])
+        and "Coating layers two" in small.pages[1]
+    )
+    assert ex._label_window({1: text}, want, 3) is None
+
+
+def test_a_label_that_points_to_a_note_brings_the_pages_notes_block():
+    text = _page(label_at=10, note=True)
+    got = ex._label_window(
+        {1: text}, ex.field_words({"field_roles": ["coating_layers"]}), 10_000
+    )
+    assert (
+        "NOTES" in got.pages[1]
+        and "(1) the note text that goes with the coating layers" in got.pages[1]
+    )
+    plain = ex._label_window(
+        {1: _page(label_at=10)},
+        ex.field_words({"field_roles": ["coating_layers"]}),
+        10_000,
+    )
+    assert "NOTES" not in plain.pages[1]
+
+
+def test_no_label_found_means_coverage_windows_that_between_them_hold_every_line_of_every_page():
+    pages = {1: _page(n=50), 2: _page(n=50)}
+    wins = ex.windows_for(
+        {"field_roles": ["no_such_field_anywhere"]}, pages, budget=300
+    )
+    assert wins and not any(w.label for w in wins)
+    assert len(wins) > 2
+    for n, text in pages.items():
+        seen = {ln for w in wins if n in w.pages for ln in w.pages[n].splitlines()}
+        assert set(text.splitlines()) <= seen  # nothing is left out
+    assert all(ex._tokens(t) <= 300 + 40 for w in wins for t in w.pages.values())
+
+
+REQ = "The coating shall be applied in two layers of equal depth."
+NOTE_EXCEPTION = (
+    "NOTE 2: this requirement does not apply except where the service is sour."
+)
+
+
+def _long_clause(note=True, fill=60):
+    lines = [
+        f"4.{i} Unrelated clause text number {i} about something else entirely."
+        for i in range(fill)
+    ]
+    lines.append(REQ)
+    lines += [
+        f"5.{i} More unrelated text {i} that is not about the coating."
+        for i in range(fill)
+    ]
+    if note:
+        lines += ["NOTE 1: dimensions are in millimetres.", NOTE_EXCEPTION]
+    return "\n".join(lines)
+
+
+def test_the_clause_for_the_model_keeps_the_requirement_every_condition_line_and_every_note():
+    text = _long_clause()
+    assert len(text) > 4000
+    got = ex.trim_clause(text, REQ)
+    assert got.shortened and got.fits and len(got.sent) < len(text) / 2
+    assert (
+        REQ in got.sent
+        and NOTE_EXCEPTION in got.sent
+        and "NOTE 1: dimensions" in got.sent
+    )  # the exception is never cut
+    assert (
+        "except where the service is sour" in got.conditions
+    )  # the code read it in the WHOLE clause
+    far = ex.trim_clause(
+        _long_clause(fill=80).replace(REQ, "Something else.\n" + REQ), REQ
+    )
+    assert NOTE_EXCEPTION in far.sent
+
+
+def test_the_reviewers_2395_character_clause_loses_no_exception():
+    head = "4.2 Coating. " + "General text about the coating. " * 20
+    body = REQ + " " + "Further requirements that are unconditional. " * 33
+    text = "\n".join(
+        [head, body, "NOTE: the above does not apply except where the service is sour."]
+    )
+    text = text.replace("4.2 Coating. ", "4.2 Coating. " + "x" * (2395 - len(text)), 1)
+    assert len(text) == 2395
+    got = ex.trim_clause(text, REQ)
+    assert (
+        got.shortened
+        and "except where the service is sour" in got.sent
+        and "except where the service is sour" in got.conditions
+    )
+
+
+def test_a_clause_whose_minimum_does_not_fit_is_not_asked_never_asked_with_the_exception_missing():
+    text = "\n".join(
+        [REQ]
+        + [
+            f"This line applies only if the case number {i} is met and the service is clean for {'x' * 40}."
+            for i in range(200)
+        ]
+    )
+    got = ex.trim_clause(text, REQ)
+    assert got.fits is False and got.sent == ""
+
+
+def test_a_short_clause_is_sent_whole_and_not_marked_shortened():
+    got = ex.trim_clause("short clause. Unless it is cold.", "short clause")
+    assert (
+        got.sent == "short clause. Unless it is cold."
+        and not got.shortened
+        and "Unless it is cold" in got.conditions
+    )
+
+
+def test_a_conditional_note_beyond_the_cut_keeps_the_conditional_handling_in_a_local_run(
+    local, monkeypatch
+):
+    _one_item(monkeypatch, local)
+    local["cache"]["C-R-coat"]["text"] = _long_clause()
+    local["cache"]["Q-R-coat"]["text"] = REQ
+    monkeypatch.setattr(
+        s, "RULES", {**s.RULES, "R-coat": (REQ, *s.RULES["R-coat"][1:])}
+    )
+    fake = WindowFake()
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    got = lines_of(run_review())["R-coat"]
+    line = json.loads(got["line_json"])
+    assert NOTE_EXCEPTION in fake.shown[0]  # the model saw the exception
+    assert (
+        line["clause_shortened"] is True
+        and "[clause shortened for the local model]" in line["reasoning"]
+    )
+    assert (
+        line["reason_code"] == "pass_condition_not_quoted"
+        and line["verdict"] == "Query"
+    )  # the condition was not quoted: the Pass is held
+
+
+class WindowFake(FakeOllama):
+    """Answers decisively only for a request whose shown text holds `hit`; otherwise says the part given lacks it. Records what it was shown."""
+
+    def __init__(self, hit=None, cut_at=None, **kw):
+        super().__init__(**kw)
+        self.hit, self.cut_at, self.shown = hit, cut_at, []
+
+    def _answer(self, path, body):
+        user = body["messages"][-1]["content"]
+        got = super()._answer(path, body)
+        self.shown.append(user)
+        ids = [
+            q["item_id"]
+            for q in json.loads(user[user.rfind('{"items":') :].split("\n\n")[0])[
+                "items"
+            ]
+        ]
+        if self.cut_at is not None and len(self.shown) == self.cut_at:
+            got["prompt_eval_count"] = (
+                9_999_999  # an answer the engine cut: discarded by the count
+            )
+        if self.hit is not None and self.hit not in user:
+            lack = {
+                "paper_page": 1,
+                "paper_quote": "",
+                "clause_quote": "",
+                "reasoning": "not in this part",
+                "verdict": "Query",
+                "reason_code": "sheet_silent",
+            }
+            got["message"]["content"] = json.dumps(
+                {"answers": [{"item_id": i, **lack} for i in ids]}
+            )
+        return got
+
+
+def _long_paper(label_at=30, n=200):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE document_id = ?",
+            (_page(label_at=label_at, n=n), s.PAPER),
+        )
+
+
+def _one_item(monkeypatch, local, item="R-coat"):
+    """Only one item is asked: the others are removed from the world's item list."""
+    local["doc"], local["cache"] = s.item_doc(ids=(item,))
+
+
+def test_one_item_a_request_the_label_excerpt_only_and_the_quote_is_verified_against_the_whole_page(
+    local, monkeypatch
+):
+    _long_paper()
+    _one_item(monkeypatch, local)
+    monkeypatch.setattr(
+        settings, "agent_review_local_num_ctx", 4000
+    )  # a window a whole page would not fit
+    fake = WindowFake()
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    got = lines_of(run_review())["R-coat"]
+    assert (
+        len(fake.shown) == 1
+        and "Coating layers two" in fake.shown[0]
+        and "filler line 190" not in fake.shown[0]
+    )
+    line = json.loads(got["line_json"])
+    assert (
+        line["windows_asked"] == 1 and got["word"] == "AI thinks: met"
+    )  # decided from the excerpt; its quote is on the stored page
+
+
+def test_a_label_that_is_not_found_asks_every_window_and_not_stated_needs_all_of_them(
+    local, monkeypatch
+):
+    _long_paper(label_at=None)
+    _one_item(monkeypatch, local)
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 4000)
+    fake = WindowFake(hit="THE-VALUE-IS-NOWHERE")
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    got = lines_of(run_review())["R-coat"]
+    line = json.loads(got["line_json"])
+    assert (
+        line["windows_asked"] == line["windows_total"] > 1
+        and len(fake.shown) == line["windows_total"]
+    )
+    page = _page(label_at=None, n=200).splitlines()
+    for ln in page:  # between them the requests held every line of the page
+        assert any(ln in shown for shown in fake.shown), ln
+    assert got["word"] in ("Query for the engineer", "AI thinks: not met") or got[
+        "verdict_class"
+    ] in ("Query for the engineer", "AI opinion, engineer to confirm")
+    assert (
+        "Not all of the paper" not in got["reason"]
+        and got["verdict_class"] != "Not reviewed"
+    )  # all asked: a claim about the paper is allowed
+
+
+def test_a_window_that_could_not_be_asked_makes_it_not_all_of_the_paper_never_not_stated(
+    local, monkeypatch
+):
+    _long_paper(label_at=None)
+    _one_item(monkeypatch, local)
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 4000)
+    fake = WindowFake(
+        hit="THE-VALUE-IS-NOWHERE", cut_at=2
+    )  # the second window's answer is cut by the engine and discarded
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    run_id = run_review()
+    got = lines_of(run_id)["R-coat"]
+    line = json.loads(got["line_json"])
+    assert (
+        line["windows_asked"] == line["windows_total"]
+        and got["verdict_class"] == "Not reviewed"
+    )
+    assert (
+        "Not all of the paper could be asked" in got["reason"]
+        and line["reason_code"] == "not_asked_too_long"
+    )
+    assert (
+        got["word"] not in ("AI thinks: not met", "AI verdict: not stated")
+        and run_row(run_id)["counts_json"]
+    )
+
+
+def test_the_search_stops_at_the_first_window_that_holds_an_answer(local, monkeypatch):
+    _long_paper(label_at=None, n=200)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = text || char(10) || 'Coating layers two' WHERE document_id = ?",
+            (s.PAPER,),
+        )  # the value is on the LAST line
+    _one_item(monkeypatch, local)
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 4000)
+    fake = WindowFake(hit="Coating layers two")
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    got = lines_of(run_review())["R-coat"]
+    line = json.loads(got["line_json"])
+    assert (
+        got["word"] == "AI thinks: met"
+        and line["windows_asked"] < line["windows_total"]
+    )  # it did not go on once it had the answer
+
+
+def test_an_answer_to_a_prompt_that_used_most_of_the_window_is_kept_when_the_count_agrees():
+    from app import context_budget
+
+    text = (
+        "word " * 4400
+    )  # about 22,000 characters: the estimate says about 5,300 tokens, 68% of the window, with room for the answer
+    parts = numeric_parts(text)
+    need = context_budget.estimate_tokens(text) + 3
+    assert 0.6 * 8192 < need < 8192 - 700 - 256
+
+    def answer(path, body, *, timeout):
+        return {
+            "model": A_NAME,
+            "message": {"content": '{"answers": []}'},
+            "done_reason": "stop",
+            "prompt_eval_count": int(need * 0.8),
+        }
+
+    eng = local_mod.LocalEngine(
+        A_NAME, B_NAME, post=answer, show=SHOWS.get, window=8192
+    )
+    got, usd = eng.call(A_NAME, parts, 700)
+    assert (
+        got["content"][0]["text"] == '{"answers": []}'
+        and usd == 0.0
+        and eng.stats()["local_answers_discarded"] == 0
+    )
+
+
+def test_the_runs_counts_say_asked_n_of_m(local):
+    run_id = run_review()
+    counts = json.loads(run_row(run_id)["counts_json"])
+    assert (
+        counts["local_items_total"] == 4 and counts["local_items_asked"] == 3
+    )  # the invented model leaves one item out of its answer: not asked
+
+
+def test_the_runs_counts_say_asked_n_of_m_when_some_could_not_be_asked(
+    local, monkeypatch
+):
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 900)
+    counts = json.loads(run_row(run_review())["counts_json"])
+    assert counts["local_items_total"] == 4 and counts["local_items_asked"] == 0
+
+
+def test_a_paper_that_fits_the_budget_is_one_coverage_window_and_a_longer_one_is_packed_by_pages():
+    pages = {1: _page(n=20), 2: _page(n=20), 3: _page(n=20)}
+    one = ex.windows_for({"field_roles": ["nothing_here"]}, pages, budget=5000)
+    assert len(one) == 1 and set(one[0].pages) == {1, 2, 3}
+    two = ex.windows_for(
+        {"field_roles": ["nothing_here"]}, pages, budget=ex._tokens(pages[1]) * 2 + 5
+    )
+    assert [sorted(w.pages) for w in two] == [[1, 2], [3]]
+
+
+# ---------------------------------------------------------------- R51d F2: a decision must not rest on a part of the paper
+
+
+def _two_pages(note_on_page_two=True):
+    page1 = _page(label_at=30, n=60)
+    page2 = "\n".join(
+        [f"second page filler {i:02d} about the nothing at all" for i in range(60)]
+        + (
+            ["NOTE-SUPERSEDED: the figure on page one is superseded"]
+            if note_on_page_two
+            else []
+        )
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE document_id = ?", (page1, s.PAPER)
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id, page_no, text, char_count, batch_no) VALUES (?,2,?,?,0)",
+            (s.PAPER, page2, len(page2)),
+        )
+
+
+class NoteAwareFake(WindowFake):
+    """Decisive 'met' on any request that shows the label; but a request that shows the superseding note answers 'not decisive' (the paper contradicts)."""
+
+    def _answer(self, path, body):
+        got = super()._answer(path, body)
+        user = body["messages"][-1]["content"]
+        if "NOTE-SUPERSEDED" in user and body["model"] == self.a:
+            ids = [
+                q["item_id"]
+                for q in json.loads(user[user.rfind('{"items":') :].split("\n\n")[0])[
+                    "items"
+                ]
+            ]
+            lack = {
+                "paper_page": 2,
+                "paper_quote": "",
+                "clause_quote": "",
+                "reasoning": "a note says it is superseded",
+                "verdict": "Query",
+                "reason_code": "unclear_clause",
+            }
+            got["message"]["content"] = json.dumps(
+                {"answers": [{"item_id": i, **lack} for i in ids]}
+            )
+        return got
+
+
+def test_a_line_decided_on_an_excerpt_says_so_and_is_never_half_of_a_two_reader_decision_when_the_paper_does_not_fit_one_window(
+    local, two_on, monkeypatch
+):
+    _two_pages()
+    _one_item(monkeypatch, local)
+    monkeypatch.setattr(
+        settings, "agent_review_local_num_ctx", 3200
+    )  # no single window holds both pages
+    fake = NoteAwareFake()
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    run_id = run_review()
+    got = lines_of(run_id)["R-coat"]
+    line = json.loads(got["line_json"])
+    assert (
+        line["decided_on"] == "excerpt"
+        and "decided on the part of the paper shown (label lines)" in line["reasoning"]
+    )
+    assert (
+        got["verdict_class"] != CLASS and B_NAME not in fake.log
+    )  # the second reader was never asked: no decision on a part of the paper
+    assert step_of(run_id)["candidates"] == 0
+
+
+def test_when_the_paper_fits_one_window_the_first_reader_reads_all_of_it_before_a_two_reader_decision_and_the_note_stops_it(
+    local, two_on, monkeypatch
+):
+    _two_pages()
+    _one_item(monkeypatch, local)
+    fake = NoteAwareFake()
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    run_id = run_review()
+    got = lines_of(run_id)["R-coat"]
+    assert any(
+        "NOTE-SUPERSEDED" in shown for shown in fake.shown
+    )  # the whole-paper window was asked, with the note two pages later
+    assert (
+        got["verdict_class"] != CLASS
+    )  # the note contradicted the excerpt reading: never a two-reader decision from the excerpt alone
+
+
+def test_the_whole_paper_reading_gives_the_class_when_both_readers_read_all_of_it(
+    local, two_on, monkeypatch
+):
+    _two_pages(note_on_page_two=False)
+    _one_item(monkeypatch, local)
+    fake = WindowFake()
+    monkeypatch.setattr(model_transport, "post_json_retrying", fake)
+    run_id = run_review()
+    got = lines_of(run_id)["R-coat"]
+    line = json.loads(got["line_json"])
+    assert line["decided_on"] == "full" and got["verdict_class"] == CLASS
+    both = [
+        shown
+        for shown in fake.shown
+        if "second page filler 00" in shown and "Coating layers two" in shown
+    ]
+    assert (
+        len(both) >= 2
+    )  # reader A on the whole paper, and reader B on the same whole paper
+
+
+# ---------------------------------------------------------------- R51d F3: the post-call net, tight
+
+
+def test_the_post_call_net_has_a_tight_lower_bound_from_the_repos_own_measurements():
+    text = (
+        "word " * 600
+    )  # 3,000 characters: at least 500 tokens by the bound (characters / 6)
+    assert (
+        local_mod.MIN_CHARS_PER_TOKEN == 6 and local_mod.lower_bound_tokens(text) == 500
+    )
+    cut = local_mod._cut_prompt
+    assert (
+        cut(499, 8192, text, 700, 5000) == "prompt shorter than the request needs"
+    )  # the old, looser bound (about 190) let this through
+    assert cut(520, 8192, text, 700, 5000) is None
+    # a documented overflow: a long prompt whose reported count is far below what its text must cost
+    long_text = "5.0000 " * 6000
+    assert (
+        cut(1026, 16384, long_text, 700, 20000)
+        == "prompt shorter than the request needs"
+    )
+
+
+# ---------------------------------------------------------------- R51d F4: the memory budget
+
+
+def _engine(**kw):
+    kw.setdefault("show", SHOWS.get)
+    return local_mod.LocalEngine(A_NAME, B_NAME, post=lambda *a, **k: {}, **kw)
+
+
+def test_the_default_memory_budget_is_the_physical_memory_less_eight_gb_and_a_setting_wins():
+    assert local_mod.memory_budget_mb(0, 36_000) == 36_000 - 8192
+    assert local_mod.memory_budget_mb(20_000, 36_000) == 20_000
+    assert (
+        local_mod.memory_budget_mb(0, None) is None
+        or local_mod.memory_budget_mb(0, None) > 0
+    )  # read from the standard library when not given
+    assert isinstance(local_mod.physical_memory_mb(), int)
+
+
+def test_the_window_is_the_largest_one_up_to_the_cap_that_keeps_the_model_and_its_context_under_the_budget(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "agent_review_local_num_ctx", 16384)
+    monkeypatch.setattr(settings, "agent_review_local_memory_budget_mb", 22_000)
+    eng = _engine(
+        size_mb=lambda m: 21_000.0
+    )  # 81.9 MB per 1,000 tokens: 1,000 MB of room is 12,210 tokens
+    assert (
+        eng.window() == 11264
+        and "shrunk from 16384" in eng.window_why()
+        and "memory budget (22000 MB)" in eng.window_why()
+    )
+    monkeypatch.setattr(settings, "agent_review_local_memory_budget_mb", 30_000)
+    roomy = _engine(size_mb=lambda m: 21_000.0)
+    assert (
+        roomy.window() == 16384 and "stay under the memory budget" in roomy.window_why()
+    )
+
+
+def test_a_model_that_with_the_smallest_window_does_not_fit_the_budget_is_refused_before_anything_is_loaded(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        settings, "agent_review_local_memory_budget_mb", 21_500
+    )  # 21,000 + 8,192 tokens of context (671 MB) is over
+    sent = []
+    eng = local_mod.LocalEngine(
+        A_NAME,
+        B_NAME,
+        post=lambda *a, **k: sent.append(1) or {},
+        show=SHOWS.get,
+        size_mb=lambda m: 21_000.0,
+    )
+    with pytest.raises(local_mod.LocalMemoryRefused):
+        eng.call(A_NAME, numeric_parts("small"), 100)
+    assert sent == []
+
+
+def test_memory_that_cannot_be_checked_is_said_not_assumed(monkeypatch):
+    eng = _engine(size_mb=lambda m: None)
+    assert eng.window() == 16384 and "memory not checked" in eng.window_why()
+
+
+def test_a_chat_answer_in_flight_keeps_the_shared_window_so_the_chat_model_is_not_reloaded(
+    monkeypatch,
+):
+    eng = _engine(size_mb=lambda m: None, chat_active=lambda: True, chat_wait=0.0)
+    assert (
+        eng.window() == model_transport.shared_window()
+        and "chat answer is in flight" in eng.window_why()
+    )
+    quiet = _engine(size_mb=lambda m: None, chat_active=lambda: False, chat_wait=0.0)
+    assert quiet.window() == 16384
+
+
+def test_the_runs_counts_say_the_window_chosen_and_why(local):
+    counts = json.loads(run_row(run_review())["counts_json"])
+    assert (
+        counts["local_window_first"] == 16384
+        and "model's own length" in counts["local_window_why_first"]
+    )
+
+
+# ---------------------------------------------------------------- R51d F7: a table row is never split across a window cut
+
+
+def test_a_table_row_of_up_to_five_lines_is_whole_in_some_window_wherever_the_cut_falls():
+    assert ex.OVERLAP_LINES == 4 and ex.ROW_LINES_WHOLE == 5
+    lines = [f"row-{i:03d}" for i in range(120)]
+    pages = {1: "\n".join(lines)}
+    wins = ex._coverage_windows(pages, budget=ex._tokens("\n".join(lines[:30])))
+    assert len(wins) > 3
+    shown = [w.pages[1].splitlines() for w in wins]
+    for start in range(0, 120 - ex.ROW_LINES_WHOLE + 1):
+        row = lines[start : start + ex.ROW_LINES_WHOLE]
+        assert any(all(r in w for r in row) for w in shown), (
+            start,
+            row,
+        )  # the row is whole in one window
+
+
+def test_the_plan_says_how_the_window_is_chosen_before_the_start(w, monkeypatch):
+    from app import review_engine as RE
+
+    monkeypatch.setattr(settings, "agent_review_local_engine_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_local_memory_budget_mb", 24_000)
+    plan = RE.plan_for(db.connect(), s.PAPER, frozenset({s.PAPER}), "local")
+    assert (
+        plan["parts"][1]["engine"] == "local" or plan["parts"][1]["engine"] == "not_run"
+    )
+    if plan["parts"][1]["engine"] == "local":
+        words = " ".join(plan["notes"])
+        assert (
+            "memory budget (24000 MB)" in words
+            and "states the window it chose and why" in words
+        )
+    assert "memory budget (24000 MB)" in local_mod.window_plan_words()
+
+
+# ---------------------------------------------------------------- R51f N1, N2, N5
+
+
+def test_a_fail_is_held_when_the_condition_sits_only_in_the_cut_off_part_of_the_clause():
+    from app import agent_review_verdict as V
+
+    fail = {"verdict": V.FAIL, "decided_by": V.BY_AI, "why": None}
+    unconditional = "The coating shall be applied in two layers of equal depth."
+    whole = "NOTE 2: this requirement does not apply except where the service is sour."
+    assert (
+        V.hold_conditional_fail(fail, unconditional, unconditional)["verdict"] == V.FAIL
+    )  # the model's quote and the rule say nothing conditional
+    held = V.hold_conditional_fail(fail, unconditional, unconditional, whole)
+    assert held["verdict"] == V.QUERY and held["conditional"] is True
+    item = {"item_id": "R-x", "clause_condition_text": whole}
+    assert (
+        V.apply_holds(
+            fail, item, clause_quote=unconditional, requirement=unconditional
+        )["verdict"]
+        == V.QUERY
+    )  # the path the runner uses
+    assert (
+        V.apply_holds(
+            fail,
+            {"item_id": "R-x"},
+            clause_quote=unconditional,
+            requirement=unconditional,
+        )["verdict"]
+        == V.FAIL
+    )  # a Claude-path item is unchanged
+    restored = V.restore_holds(
+        {
+            **fail,
+            "verdict": V.FAIL,
+            "clause_quote": unconditional,
+            "requirement": unconditional,
+        },
+        item,
+    )
+    assert restored["verdict"] == V.QUERY and restored.get("conditional_hold") is True
+
+
+def test_on_a_local_run_the_class_needs_the_whole_paper_for_both_readers_and_no_marker_is_not_full():
+    from app import agent_review_two_reader as T
+
+    base = {"item_id": "R-1", "ai_verdict": "Pass", "verdict": "Query", "reason_code": "met", "tier": "AI approved",
+            "quotes_checked": {"paper": True, "clause": True, "clause_strong": True}, "paper_quote": "Coating layers two", "paper_page": 1,
+            "clause_quote": "x" * 50, "pass_guard": {"ok": True}}  # fmt: skip
+    claude = T.is_candidate(
+        base
+    )  # a Claude-path line has no engine marker and is judged as before
+    assert T.is_candidate({**base, "engine": "local", "decided_on": "full"}) is claude
+    assert T.is_candidate({**base, "engine": "local", "decided_on": "excerpt"}) is False
+    assert (
+        T.is_candidate({**base, "engine": "local"}) is False
+    )  # no `decided_on` on a local run: not a candidate
+    assert T.is_candidate({**base, "engine": "local", "decided_on": None}) is False
+
+
+def test_an_implausible_cache_cost_is_named_plainly_in_the_refusal(monkeypatch):
+    monkeypatch.setattr(settings, "agent_review_local_memory_budget_mb", 21_500)
+    eng = local_mod.LocalEngine(
+        A_NAME,
+        B_NAME,
+        post=lambda *a, **k: {},
+        show=SHOWS.get,
+        size_mb=lambda m: 21_000.0,
+    )
+    with pytest.raises(local_mod.LocalMemoryRefused) as caught:
+        eng.call(A_NAME, numeric_parts("small"), 100)
+    assert (
+        "the engine reports a context memory cost this computer cannot hold: 81.9 MB per 1,000 tokens"
+        in caught.value.code
+    )
