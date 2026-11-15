@@ -67,6 +67,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "decides which stored values are current (compared) and reads a page with none before the calculator runs",
     ),
     (
+        APP + "untrusted_value.py",
+        "holds a datasheet check that rests on a value in conflict or needing an engineer: never a Pass or Fail",
+    ),
+    (
         APP + "table_cell.py",
         "locates the one cell of a value on the stored table rows: the cell is the proof of a proven Pass or Fail",
     ),

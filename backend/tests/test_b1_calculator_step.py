@@ -532,3 +532,27 @@ def test_two_readings_in_one_tag_give_a_question_naming_both_never_a_pass_or_fai
         in named[0]["why"]
     )
     assert outcome(run_id)["calculator"]["holds_lifted"] == 0
+
+
+def test_a_consistency_check_on_values_in_conflict_is_a_question_in_the_job(world, on):
+    frame_item()
+    a = fact(label="Design pressure", raw="10", unit="bar")
+    b = fact(label="Operating pressure", raw="12", unit="bar")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE submittal_facts SET validation_state = 'conflict' WHERE id IN (?, ?)",
+            (a["id"], b["id"]),
+        )
+    run_id, job_id = start()
+    run_job(job_id)
+    rows = [
+        json.loads(v["line_json"])
+        for k, v in code_lines(run_id).items()
+        if k.startswith("C-DS-C1")
+    ]
+    assert rows and all(
+        x["verdict"] == "Query"
+        and x["why"].startswith("Could not be judged: ")
+        and "validation state 'conflict'" in x["why"]
+        for x in rows
+    )

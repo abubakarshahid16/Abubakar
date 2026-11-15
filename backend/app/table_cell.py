@@ -34,6 +34,8 @@ class Cell:
     split: str | None = None
     #: the text of the column header over the value cell (the nearest text cell above it in its column), when there is one
     header: str | None = None
+    #: how many cells of the header's row name a condition (normal, design, operating ...): 1 means this is the table's only value column
+    conditions_in_header_row: int = 0
 
     @property
     def quote(self) -> str:
@@ -54,6 +56,55 @@ class Cell:
 _FIGURE = re.compile(
     r"[\d\s.,+\-/%()]+"
 )  # a cell that is only a figure is not a header
+
+
+#: Words that say WHICH value of a quantity a column or a rule means.
+CONDITION_WORDS = frozenset(
+    {
+        "design",
+        "operating",
+        "normal",
+        "maximum",
+        "minimum",
+        "test",
+        "rated",
+        "max",
+        "min",
+        "built",
+    }
+)
+_STALE = re.compile(
+    r"\b(?:previous|prev|prior|old|superseded|obsolete|earlier)\b|\brev(?:ision)?\b\.?\s*[a-z0-9]{1,3}\b",
+    re.IGNORECASE,
+)
+
+
+def condition_words(text: object) -> set[str]:
+    return {
+        w
+        for w in _fold(str(text or "").replace("_", " ").replace("-", " ")).split()
+        if w in CONDITION_WORDS
+    }
+
+
+def stale_header(header: object) -> str | None:
+    """The word that marks a column as another state of the value (previous, old, superseded, a revision), else None."""
+    m = _STALE.search(str(header or ""))
+    return m.group(0) if m else None
+
+
+def header_row_of(table: Sequence[Sequence[str]], row: int, col: int) -> int | None:
+    """The row of the column header over a value cell (see `header_of`), else None."""
+    for r in range(row - 1, -1, -1):
+        cells = table[r]
+        text = str(cells[col]).strip() if col < len(cells) else ""
+        if text and not _FIGURE.fullmatch(text):
+            return r
+    return None
+
+
+def conditions_in_row(table: Sequence[Sequence[str]], row: int | None) -> int:
+    return 0 if row is None else sum(1 for c in table[row] if condition_words(c))
 
 
 def header_of(table: Sequence[Sequence[str]], row: int, col: int) -> str | None:
@@ -118,6 +169,7 @@ def locate(
                         str(row[j]).strip(),
                         None,
                         header_of(table, ri, j),
+                        conditions_in_row(table, header_row_of(table, ri, j)),
                     )
                     for j in range(i + 1, len(row))
                     if _fold(row[j]) == want_value and _gap_empty(row, i, j)
@@ -185,6 +237,7 @@ def locate_column(
                         str(table[ri][j]).strip(),
                         None,
                         header_of(table, ri, j),
+                        conditions_in_row(table, header_row_of(table, ri, j)),
                     )
                 )
     if len(found) == 1:
@@ -305,6 +358,9 @@ def locate_compound(
                                             str(row[j]).strip(),
                                             got[3],
                                             header_of(table, ri, j),
+                                            conditions_in_row(
+                                                table, header_row_of(table, ri, j)
+                                            ),
                                         ),
                                         got[1],
                                         got[2],

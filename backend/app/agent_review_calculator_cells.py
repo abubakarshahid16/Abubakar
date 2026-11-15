@@ -62,7 +62,10 @@ def other_tags(a: Mapping, b: Mapping) -> bool:
     """The two facts stand under DIFFERENT tags, both known: each has a tag and the identifiers they name do not overlap. A fact with no tag, or a header that
     names a tag the other also names, is never "another tag": a reading conflict with it stays a conflict."""
     ta, tb = _tag_ids(a), _tag_ids(b)
-    return bool(ta and tb and not (ta & tb))
+    if not (ta and tb) or ta & tb:
+        return False
+    # "V1" and "V1A": one identifier is the start of the other
+    return not any(x.startswith(y) or y.startswith(x) for x in ta for y in tb)
 
 
 def settle(
