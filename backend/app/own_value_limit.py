@@ -95,6 +95,87 @@ def parse(sentence: str) -> dict | None:
 
 
 @cache
+def _subject_be_pattern() -> re.Pattern:
+    from . import requirements_3b as r3b
+
+    return re.compile(
+        r"(?<![A-Za-z])(?P<cmp>maximum|minimum|max|min)\s+(?P<ref>[A-Za-z][A-Za-z0-9 .\-/]{1,60}?)"
+        r"\s+(?:shall|must|should|will|is|are)\s+be\s+(?P<value>[-+]?" + r3b._VALUE + r")\s*(?P<unit>" + r3b._UNIT + r")"
+        r"(?![\w/])(?!\s*(?:or|and|to)\s+\d)",
+        re.IGNORECASE,
+    )
+
+
+@cache
+def _role_rules() -> dict:
+    from . import datasheet_checks
+
+    return datasheet_checks.load_rules()
+
+
+_ALT_UNITS = re.compile(r"\s*\(\s*(?P<value>[\d][\d/. ]*)\s*(?P<unit>[A-Za-z\"\u201d\u2033']{1,6})\s*\)")
+
+
+def _alternative_agrees(tail: str, main) -> str | None:
+    """The text after a stated value when it only repeats the value in another unit ("(1/8 in)") and the repeat converts to the same figure, the tail
+    with it removed; the tail unchanged when there is none; None when a bracket states something else."""
+    from . import requirements_3b as r3b
+
+    found = _ALT_UNITS.match(tail)
+    if found is None:
+        return tail if not re.match(r"\s*\(", tail) else None
+    unit = found.group("unit").replace("\u201d", '"').replace("\u2033", '"')
+    unit = {'"': "in", "'": "ft"}.get(unit, unit)
+    value = found.group("value").strip()
+    if "/" in value:
+        try:
+            num, den = value.split("/")
+            value = str(float(num) / float(den))
+        except (ValueError, ZeroDivisionError):
+            return None
+    other = r3b.measure(value, r3b.unit_token(unit))
+    if other.normalized_value is None or other.normalized_unit != main.normalized_unit:
+        return None
+    if abs(other.normalized_value - main.normalized_value) > 0.02 * abs(main.normalized_value):
+        return None  # 1/16 in is 1.59 mm: a repeat of 1.6 mm (rounded), a different figure is not
+    return tail[found.end() :]
+
+
+def subject_be(sentence: str) -> dict | None:
+    """"The maximum <subject> shall be <value> <unit>" is a limit of that value on the subject (`<=`; "minimum" gives `>=`), the comparator being the
+    clause's own word in front of the subject and the value coming after "shall be".
+
+    Left alone (the clause stays a statement for an engineer): "maximum <subject>" that is itself the name of a registered field ("the maximum allowable
+    working pressure shall be 12 barg" states that field's value, it does not limit anything); "shall not be"; a choice of values ("3 mm or 5 mm"); a
+    number before the comparator; a bracket that is not the same figure in another unit; a phrase that moves, scales or chooses the number; a unit the
+    system cannot convert."""
+    from . import datasheet_roles
+    from . import requirements_3b as r3b
+
+    match = _subject_be_pattern().search(sentence or "")
+    if match is None:
+        return None
+    _, picks_one, number_before, moves_number = _patterns()
+    before = re.sub(r"^\s*\d{1,3}(?:\.\d{1,3})+\.?\s+", "", sentence[: match.start("cmp")])  # a clause number in front is not a figure
+    if picks_one.search(match.group("ref")) or number_before.search(before):
+        return None
+    if datasheet_roles.roles_of(f"{match.group('cmp')} {match.group('ref')}", _role_rules()):
+        return None  # "maximum allowable working pressure" is a field, not a limit on one
+    operator = r3b._OPERATOR.get(r3b._canonical_comparator(match.group("cmp")))
+    raw_unit = r3b.unit_token(match.group("unit"))
+    measurement = r3b.measure(match.group("value"), raw_unit) if operator and raw_unit else None
+    if measurement is None or measurement.normalized_unit is None:
+        return None
+    tail = _alternative_agrees(sentence[match.end() :], measurement)
+    if tail is None:
+        return None
+    clause = re.match(r"\s*,([^.;]*)", tail)
+    if not (re.match(r"\s*(?:[.;]|$)", tail) or (clause is not None and not moves_number.search(clause.group(1)))):
+        return None
+    return {"operator": operator, "raw_value": match.group("value"), "raw_unit": raw_unit, "value": measurement.normalized_value, "unit": measurement.normalized_unit}
+
+
+@cache
 def _trailing_pattern() -> re.Pattern:
     from . import requirements_3b as r3b
 

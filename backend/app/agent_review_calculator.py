@@ -86,8 +86,9 @@ def requirement_from_item(item: Mapping) -> dict:
     return {
         "requirement_type": item.get("requirement_type") or "numeric_limit",
         "operator": item.get("comparator"),
-        "raw_value": proof.stored_text(value) or None,
-        "raw_unit": item.get("unit") or "",
+        # the limit as the clause PRINTS it when the rule row kept it (1.6 mm), else the stored figure and unit as before
+        "raw_value": proof.stored_text(item.get("raw_value") if item.get("raw_value") not in (None, "") and item.get("raw_unit") else value) or None,
+        "raw_unit": (item.get("raw_unit") if item.get("raw_value") not in (None, "") and item.get("raw_unit") else item.get("unit")) or "",
         "value_low": item.get("value_low"),
         "value_high": item.get("value_high"),
         "standard_document_id": item.get("standard_document_id"),

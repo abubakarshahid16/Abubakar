@@ -93,11 +93,15 @@ def _hit(folded: str, words: absence.FieldWords) -> bool:
                 and not _is_the_label(folded, text)
             ):
                 return True
+    undotted = " ".join(folded.replace(".", " ").split())  # the spellings are written without full stops ("c a" for "C.A.", "max allowable ..." for "max. allowable ...")
     for sp in words.spellings:
         generic_alone = (
             len(sp.split()) == 1 and sp in GENERIC and not _is_the_label(folded, sp)
         )
-        if re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded) and not generic_alone:
+        if (
+            re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", folded)
+            or re.search(rf"(?<!\w){re.escape(sp)}(?!\w)", undotted)
+        ) and not generic_alone:
             return True
     return False
 

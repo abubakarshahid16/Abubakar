@@ -408,6 +408,8 @@ def rule_item(
         "table_row": r.get("table_row"),
         "comparator": r.get("operator"),
         "value": r.get("value"),
+        "raw_value": r.get("raw_value"),  # the limit as the clause prints it (1.6): the code proof asks the clause quote for THIS, not the normalised figure
+        "raw_unit": r.get("raw_unit"),
         "value_low": r.get("value_low"),
         "value_high": r.get("value_high"),
         "unit": r.get("unit"),

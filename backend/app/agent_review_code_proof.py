@@ -238,13 +238,28 @@ def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
     if got is None:
         after = text[spot.end :]
         got = next((sense for rx, sense in _AFTER_DIRECTION if rx.match(after)), None)
+    if got is None:  # "The maximum <subject> shall be <value> <unit>": the clause's own comparator word stands in front of the subject
+        got = _subject_be_sense(str(quote or ""), numbers[0])
     return None if want is not None and got == want else DIRECTION_WHY
+
+
+def _subject_be_sense(quote: str, number: str) -> str | None:
+    """The direction of "<maximum|minimum> <subject> shall be <number> <unit>" when that is the shape the quote states for THIS number (the parser's own
+    reading, `own_value_limit.subject_be`, so the extractor and the proof cannot disagree about what the shape means)."""
+    from . import own_value_limit
+
+    for seg in [quote]:
+        found = own_value_limit.subject_be(seg)
+        if found is not None and numparse.as_number(found["raw_value"]) == numparse.as_number(number):
+            return _SENSE.get(str(found["operator"]))
+    return None
 
 
 SUBJECT_WHY = "the clause's wording does not make the field the subject of the limit"
 
 
-_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])\s+|\n+")
+#: a full stop after a dotted abbreviation of two letters ("C.A.", "O.D.") does not end the sentence
+_SENTENCE_BREAK = re.compile(r"(?<=[.;!?])(?<!\b[A-Za-z]\.[A-Za-z]\.)\s+|\n+")
 #: what may stand directly before a lone field word that is the subject itself ("the pressure", "of pressure"); any other word there is a qualifier that makes it
 #: another field ("test pressure", "relief valve pressure")
 _BEFORE_HEAD = frozenset(
@@ -300,7 +315,8 @@ def subject_reason(
     words = agent_bind.content_words(field)
     if not (field and words and sent):
         return SUBJECT_WHY
-    if not guards._carries(sent, [field]) or guards._other_field_words(sent, [field]):
+    plain = guards._fold(sent)  # the guards' own folding (a dotted abbreviation "c.a." reads "c a", the way the field's spellings are written)
+    if not guards._carries(plain, [field]) or guards._other_field_words(plain, [field]):
         return SUBJECT_WHY
     if len(words) == 1 and len(field.split()) == 1:  # one word as written
         tokens = re.findall(r"[a-z0-9]+", sent)
