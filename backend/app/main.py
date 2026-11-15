@@ -282,6 +282,7 @@ from .api import document_classification as api_document_classification  # noqa:
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
 from .api import review_points as api_review_points  # noqa: E402
+from . import nine_boot  # noqa: E402,F401 - registers the nine-role templates and vocabularies when the switch is on, before they freeze
 from . import nine_call  # noqa: E402
 from .api import nine_roles as api_nine_roles  # noqa: E402
 from .api import review_start as api_review_start  # noqa: E402

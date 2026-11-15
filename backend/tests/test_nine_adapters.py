@@ -260,7 +260,7 @@ def _writer_world(monkeypatch, wording):
 
     def fake_ask(run_id, role_no, blocks, question, **kw):
         seen["blocks"], seen["question"], seen["role"] = blocks, question, role_no
-        return _Said(wording({"c1": crs_one_text_of(doc, 1)}))
+        return _Said(wording({"1": crs_one_text_of(doc, 1)}))
 
     monkeypatch.setattr(nine_call, "ask", fake_ask)
     return doc, ai, seen
@@ -294,7 +294,7 @@ def _scope(doc):
 def test_the_writer_asks_through_the_seam_with_a_template_and_one_derived_block_whose_sources_are_documents(
     monkeypatch,
 ):
-    doc, ai, seen = _writer_world(monkeypatch, lambda code: {"c1": code["c1"]})
+    doc, ai, seen = _writer_world(monkeypatch, lambda code: {"1": code["1"]})
     nine_job.writer_role(ctx_for(doc, ai))
     block = seen["blocks"][0]
     assert (
@@ -314,7 +314,7 @@ def test_a_locked_wording_is_what_the_comment_shows_and_the_code_words_stay_besi
     from app import crs_completeness, crs_one
 
     doc, ai, seen = _writer_world(
-        monkeypatch, lambda code: {"c1": code["c1"].rstrip(".") + "."}
+        monkeypatch, lambda code: {"1": code["1"].rstrip(".") + "."}
     )
     got = nine_job.writer_role(ctx_for(doc, ai))
     assert got.produced["ai_wordings_kept"] == 1 and got.produced["dropped"] == 0
@@ -347,7 +347,7 @@ def test_a_wording_that_changes_a_number_is_refused_the_code_words_stay_and_the_
 
     doc, ai, seen = _writer_world(
         monkeypatch,
-        lambda code: {"c1": code["c1"].replace("1", "7").replace("2", "8") + " 99 bar"},
+        lambda code: {"1": code["1"].replace("1", "7").replace("2", "8") + " 99 bar"},
     )
     got = nine_job.writer_role(ctx_for(doc, ai))
     assert (
@@ -386,7 +386,7 @@ def test_the_contractor_file_is_never_reworded(monkeypatch):
     from app import crs_one
 
     doc, ai, seen = _writer_world(
-        monkeypatch, lambda code: {"c1": code["c1"].rstrip(".") + "."}
+        monkeypatch, lambda code: {"1": code["1"].rstrip(".") + "."}
     )
     before = crs_one.build_contractor(doc, _scope(doc), exported="x")
     nine_job.writer_role(ctx_for(doc, ai))
@@ -396,7 +396,7 @@ def test_the_contractor_file_is_never_reworded(monkeypatch):
 def test_on_the_local_model_the_writer_makes_no_call_and_says_the_comments_are_worded_by_code(
     monkeypatch,
 ):
-    doc, ai, seen = _writer_world(monkeypatch, lambda code: {"c1": "x"})
+    doc, ai, seen = _writer_world(monkeypatch, lambda code: {"1": "x"})
     monkeypatch.setattr(nine_call, "engine_of_run", lambda run_id, conn=None: "local")
     got = nine_job.writer_role(ctx_for(doc, ai))
     assert (
@@ -409,7 +409,7 @@ def test_on_the_local_model_the_writer_makes_no_call_and_says_the_comments_are_w
 
 def test_the_writers_templates_render_with_their_parameters():
     q = nine_call.render((nine_job.WRITER_QUESTION, {"count": 3}))
-    assert "3 rows" in q[1] and '{"c1": "comment", ...}' in q[1]
+    assert "3 rows" in q[1] and '{"1": "comment", ...}' in q[1]
     assert nine_call.render((nine_job.WRITER_SYSTEM, {}))[1]
 
 

@@ -22,14 +22,11 @@ WRITER_SYSTEM = nine_call.template(
 WRITER_QUESTION = nine_call.template(
     "nine_writer_question",
     "For each of the {count} rows write one short comment for the contractor from the row's own facts only: the field, its status, the pages and "
-    'the clauses. Add no number, unit, clause or standard that is not in the row and never change a status. Answer with JSON only: {{"c1": "comment", ...}}.',
+    'the clauses. Add no number, unit, clause or standard that is not in the row and never change a status. Answer with JSON only: {{"1": "comment", ...}}.',
     count="int",
 )
 _STATUS_ENUM = {"not_met": "not met", "met": "met"}
 STATUS_VOCAB = nine_call.vocabulary("nine_writer_status", ("met", "not met", "unknown"))
-PAGE_SHAPE = nine_call.id_shape(
-    "nine_writer_page", r"p\d{1,4}"
-)  # the app's own page reference ("p3"), a typed cell, not a sentence
 CODE_WORDS_LOCAL = "comments worded by code: no AI wording on the local model"
 CODE_WORDS_NO_DECISION = (
     "comments worded by code: no engine decision is stored for this run"
@@ -51,10 +48,10 @@ def items_of(
     came from (the paper is added by the caller)."""
     rows, books = [], []
     for c in grouped:
-        page = f"p{c['pages'][0]}" if c["pages"] else "p0"
+        page = str(c["pages"][0]) if c["pages"] else "0"
         rows.append(
             (
-                f"c{c['number']}",
+                str(c["number"]),
                 (c["name"] or "").replace("\n", " ")[:60],
                 _STATUS_ENUM.get(c["tile"], "unknown"),
                 page,
@@ -104,7 +101,7 @@ def ask_wordings(
         "review_record",
         name="comments",
         sources=(submittal, *books),
-        kinds=("id", "source", f"vocab:{STATUS_VOCAB}", "id"),
+        kinds=("number", "source", f"vocab:{STATUS_VOCAB}", "number"),
         items=items,
     )
     got = ask(
@@ -115,7 +112,7 @@ def ask_wordings(
         system=(WRITER_SYSTEM, {}),
         **seam,
     )
-    asked = {f"c{c['number']}": c["key"] for c in grouped}
+    asked = {str(c["number"]): c["key"] for c in grouped}
     said = (
         {
             asked[k]: str(v)

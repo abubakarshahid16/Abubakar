@@ -30,8 +30,14 @@ from . import (
     nine_call,
     nine_chapters,
     nine_checklist,
+    nine_context,
+    nine_facts,
+    nine_findings,
+    nine_librarian,
+    nine_reader,
     nine_record,
     nine_resume,
+    nine_reviewer,
     nine_writer,
 )
 from .db import connect
@@ -145,7 +151,6 @@ def _usd_of(role_no: int, run_id: str) -> float | None:
 def reader_role(ctx: RoleContext) -> RoleResult:
     """Role 1: every page into the fact sheet through `nine_reader.read_paper` (every model call goes through `nine_call.ask`, role 1).
     Pictures only on Claude. The sheet is stored per run (`nine_facts.store`); nothing is written to `submittal_facts`."""
-    from . import nine_facts, nine_reader
 
     conn = connect()
     engine = _engine(ctx)
@@ -213,7 +218,6 @@ def context_role(ctx: RoleContext) -> RoleResult:
     paper's id; it goes to the reviewer as one derived block PER SOURCE document (tokens only), and role 4 records how many."""
     from . import (
         applicability,
-        nine_context,
         review_shown,
     )
 
@@ -276,7 +280,7 @@ def _book_inputs(
 ) -> tuple[list, dict]:
     """The rule books inside the starter's access, each read once and cut into chapters (a book outside the access is counted by the
     caller, never named)."""
-    from . import agent_review_standards, nine_chapters, nine_librarian
+    from . import agent_review_standards, nine_chapters
 
     inputs, cuts = [], {}
     for b in book_ids:
@@ -300,7 +304,6 @@ def librarian_role(ctx: RoleContext) -> RoleResult:
     `nine_call.ask`, role 3). A book outside the starter's access is counted, never named."""
     from . import (
         nine_chapters,
-        nine_librarian,
         review_shown,
     )
 
@@ -416,8 +419,6 @@ def _prefix(ctx: RoleContext, pages: dict[int, str]) -> tuple[list, bool]:
     NO context could be passed (the reviewer's question says so)."""
     import dataclasses
 
-    from . import nine_facts
-
     blocks = [nine_call.Block("paper", ctx.submittal, (int(n),)) for n in sorted(pages)]
     sheet = ctx.store.get("fact_sheet")
     if sheet is not None:
@@ -466,7 +467,7 @@ def reviewer_role(ctx: RoleContext) -> RoleResult:
     """Role 4: the chosen chapters against the paper (`nine_reviewer.review`, every call through `nine_call.ask`), then the findings join
     (`nine_findings.process`) and go through TODAY'S runner (`decide_all`: `Runner.decide`, the two-reader step, `final_cap`): the one exit.
     No reading list, nothing chosen, a failed or empty reviewer: the role says so and role 5 asks EVERY item (never weaker than today's)."""
-    from . import agent_review_standards, nine_findings, nine_reviewer
+    from . import agent_review_standards
 
     chosen, cuts = _chosen_chapters(ctx)
     if not chosen:

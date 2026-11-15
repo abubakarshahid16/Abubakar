@@ -146,6 +146,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "decides what a CRS comment says: the locked AI wording or the code's words",
     ),
     (
+        APP + "nine_meaning.py",
+        "decides whether the Writer's wording of a CRS comment kept every fact of the code's words",
+    ),
+    (
         APP + "nine_job.py",
         "runs the nine roles in order and decides which required items the checklist asks",
     ),
