@@ -309,9 +309,14 @@ def report(conn: sqlite3.Connection, run_id: str) -> str:
             if _has(conn, "agent_review_role_read")
             else []
         )
+        engine = (
+            f"code (no model call was made; stored as {r['engine']})"
+            if r["engine"] == "claude" and not r["calls"]
+            else r["engine"]
+        )
         usd = "not known" if r["usd"] is None else f"{r['usd']:.4f}"
         out.append(
-            f"  {r['role_no']} {r['role']}: {r['state']}{'' if r['state'] == 'ran' else ' (' + str(r['why']) + ')'}; engine {r['engine']}; calls {r['calls']}; USD {usd}; reads {len(reads)}"
+            f"  {r['role_no']} {r['role']}: {r['state']}{'' if r['state'] == 'ran' else ' (' + str(r['why']) + ')'}; engine {engine}; calls {r['calls']}; USD {usd}; reads {len(reads)}"
         )
         for x in reads:
             pages = json.loads(x["pages_json"] or "[]")
