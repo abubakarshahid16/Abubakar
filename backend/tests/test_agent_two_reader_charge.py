@@ -142,6 +142,10 @@ def test_absence_step_a_failed_batch_of_one_charges_the_line(
         absence_setup(w)
 
     monkeypatch.setattr(settings, "agent_review_two_reader_verdict_enabled", True)
+    plan = run_mod.plan_pages  # the switch also sends a short paper whole to every item: plan it so in the run without the step too
+    monkeypatch.setattr(
+        run_mod, "plan_pages", lambda *a, **k: plan(*a, **{**k, "whole_short": True})
+    )
     _check(
         w, monkeypatch, "agent_review_two_reader_absence_enabled", build, kind,
         lambda body: ab.ABSENCE_SYSTEM in json.dumps(body["system"]).replace("\\n", "\n")

@@ -199,7 +199,7 @@ def test_a_value_the_second_reader_finds_and_code_verifies_is_a_disagreement_wit
     run_id = run_review()
     row = lines_of(run_id)["R-coat"]
     assert (row["verdict_class"], row["word"]) == ("Query for the engineer", "Query")
-    assert row["reason"] == "two AI readers disagree on this line"
+    assert row["reason"] == "the readers disagree: one found a value on page 2"
     assert absence_step(run_id)["disagreed"] == 1
     ev = rows_of(agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx", "Evidence")
     mine = [r for r in ev if r["Independent reader: verdict"] == "found a value"]
@@ -397,7 +397,7 @@ def _line(**over):
             "verdict": "not stated", "model": "second-m", "paper_quote": None, "paper_page": None,
             "clause_quote": "Nameplates shall be steel and fixed",
             "quotes_checked": {"paper": False, "clause": True, "clause_strong": True, "both": False},
-            "code_search": {"proven": True, "pages_checked": 3}, "pages_total": 3, "first_pages": [1, 2, 3], "second_pages": [1, 2, 3],
+            "code_search": {"proven": True, "pages_checked": 3}, "code_check": "searched", "pages_total": 3, "first_pages": [1, 2, 3], "second_pages": [1, 2, 3],
         },
     }  # fmt: skip
     base.update(over)
@@ -415,7 +415,22 @@ def test_a_not_stated_line_in_the_crs_has_the_status_priority_and_only_establish
     assert (
         row[9] == "AI verdict" and row[8] == "High"
     )  # Priority as for "not met", mandatory
-    assert two.ABSENCE_WHY in row[3] and "Contractor to state Design pressure" in row[3]
+    assert (
+        row[3].count(
+            "Not stated (AI, two readers agree): two AI readers each read every page of the paper and found no Design pressure."
+        )
+        == 1
+    )
+    assert 'The rule requires: "Nameplates shall be steel and fixed".' in row[3]
+    assert (
+        "Code check: the code searched for this field and found no value on any page. Engineer to confirm."
+        in row[3]
+    )
+    assert "Not met (AI" not in row[3]
+    assert (
+        "quotes verified" not in row[3]
+        and "Contractor to state Design pressure" in row[3]
+    )
     assert (
         not words.has_banned(row[3])
         and "the paper does not state" not in row[3].lower()
@@ -442,66 +457,64 @@ def test_the_absence_word_is_in_the_one_table_and_never_a_pass_or_fail():
 
 
 def _oracle(
-    cand_ok,
     rec_verdict,
     clause_ok,
     strong,
+    check,
     proven,
     pages_ok,
     differ,
-    source_ok,
     hold,
     reason_ok,
     tier_ok,
-    first_all=True,
-    second_all=True,
+    first_all,
+    second_all,
+    small,
 ):
+    # only the code's own search gives the decision: a new record "searched" (at most 8 pages) or a legacy record with a proven search
+    check_ok = (
+        check in ("searched", None) and proven and pages_ok and (small or check is None)
+    )
     return (
-        cand_ok and rec_verdict == "not stated" and clause_ok and strong and proven and pages_ok and differ
-        and source_ok and not hold and reason_ok and tier_ok and first_all and second_all
+        rec_verdict == "not stated" and clause_ok and strong and check_ok and differ and not hold and reason_ok and tier_ok
+        and first_all and second_all
     )  # fmt: skip
 
 
 def test_the_absence_word_is_reachable_only_by_the_rule_brute_force():
     flags = [False, True]
     reached = 0
-    for (
-        rec_verdict,
-        clause_ok,
-        strong,
-        proven,
-        pages_ok,
-        differ,
-        source_ok,
-        hold,
-        reason_ok,
-        tier_ok,
-        first_all,
-        second_all,
-    ) in itertools.product(
-        ["not stated", "found a value", "cannot tell"],
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-        flags,
-    ):
+    for combo in itertools.product(
+        ["not stated", "found a value", "cannot tell"], flags, flags, ["searched", "could_not", None], flags, flags, flags,
+        flags, flags, flags, flags, flags, flags,
+    ):  # fmt: skip
+        (
+            rec_verdict,
+            clause_ok,
+            strong,
+            check,
+            proven,
+            pages_ok,
+            differ,
+            hold,
+            reason_ok,
+            tier_ok,
+            first_all,
+            second_all,
+            small,
+        ) = combo
+        total = 3 if small else 9
+        every = list(range(1, total + 1))
         ln = _line(
-            source="rule" if source_ok else "skill",
             reason_code="absent" if reason_ok else "met",
             conditional_hold=hold,
             two_reader_absence={
                 "verdict": rec_verdict, "model": "second-m" if differ else "lead-m-20260101",
                 "clause_quote": "x", "paper_quote": "Some value 10", "paper_page": 1,
                 "quotes_checked": {"paper": True, "clause": clause_ok, "clause_strong": strong},
-                "code_search": {"proven": proven, "pages_checked": 3 if pages_ok else 2}, "pages_total": 3,
-                "first_pages": [1, 2, 3] if first_all else [1, 2], "second_pages": [1, 2, 3] if second_all else [1, 2],
+                "code_search": {"proven": proven, "pages_checked": total if pages_ok else total - 1}, "code_check": check,
+                "pages_total": total,
+                "first_pages": every if first_all else every[:-1], "second_pages": every if second_all else every[:-1],
             },
         )  # fmt: skip
         if not tier_ok:
@@ -515,36 +528,12 @@ def test_the_absence_word_is_reachable_only_by_the_rule_brute_force():
                 skill_ids=SK,
                 paper_kind="datasheet",
             )
-        got = W.apply(ln)
-        want = _oracle(
-            True,
-            rec_verdict,
-            clause_ok,
-            strong,
-            proven,
-            pages_ok,
-            differ,
-            source_ok,
-            hold,
-            reason_ok,
-            tier_ok,
-            first_all,
-            second_all,
-        )
-        assert (got["verdict_label"] == NOT_STATED) is want, (
-            rec_verdict,
-            clause_ok,
-            strong,
-            proven,
-            pages_ok,
-            differ,
-            source_ok,
-            hold,
-            reason_ok,
-            tier_ok,
-        )
+        want = _oracle(*combo)
+        assert (W.apply(ln)["verdict_label"] == NOT_STATED) is want, combo
         reached += want
-    assert reached == 1  # exactly one corner of the table reaches the word
+    assert (
+        reached == 3
+    )  # the code searched and found nothing (1), or the code could not search and said so (2: pages_checked is moot then)
 
 
 def test_the_class_is_not_awarded_when_the_first_reader_was_not_given_every_page(
@@ -577,18 +566,42 @@ def test_the_class_is_not_awarded_when_the_first_reader_was_not_given_every_page
 
 
 def test_each_read_every_page_is_said_only_when_the_stored_page_lists_prove_it():
-    assert "every page" in two.ABSENCE_WHY
+    more = list(
+        range(1, 10)
+    )  # nine pages, both readers given all of them: over the limit of a paper that goes whole
     for short in (
         {"first_pages": [1, 2]},
         {"second_pages": [1, 2]},
         {"first_pages": []},
         {"pages_total": 4},
+        {
+            "pages_total": 9,
+            "first_pages": more,
+            "second_pages": more,
+            "code_search": {"proven": True, "pages_checked": 9},
+        },
+        {
+            "code_check": "could_not",
+            "code_search": {"proven": False, "pages_checked": 0},
+        },  # the code could not search: never the word
+        {"code_check": "could_not"},
+        {"code_check": "bogus"},
     ):
         rec = {**_line()["two_reader_absence"], **short}
         ln = _line(two_reader_absence=rec)
-        assert ln["verdict_label"] != NOT_STATED and two.ABSENCE_WHY not in str(
-            ln.get("not_proven_reason")
-        )
+        assert ln["verdict_label"] != NOT_STATED and ln["verdict_class"] != CLASS
+
+
+def test_a_record_stored_before_code_check_existed_keeps_what_it_earned_and_is_not_relabelled():
+    rec = {k: v for k, v in _line()["two_reader_absence"].items() if k != "code_check"}
+    ln = _line(two_reader_absence=rec)
+    assert (ln["verdict_class"], ln["verdict_label"]) == (
+        CLASS,
+        NOT_STATED,
+    )  # a pure function of the stored line: the same on a re-read, switch on or off
+    assert W.apply(ln)["verdict_label"] == NOT_STATED
+    unproven = {**rec, "code_search": {"proven": False, "pages_checked": 3}}
+    assert _line(two_reader_absence=unproven)["verdict_label"] != NOT_STATED
 
 
 def test_the_record_keeps_the_line_before_the_step(w, both):

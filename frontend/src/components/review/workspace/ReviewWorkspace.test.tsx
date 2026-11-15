@@ -174,6 +174,22 @@ vi.mock("../panels/BehindTheScenes", () => ({
   ),
 }));
 
+/** 12 Nov 2026: the redesigned page, behind its switch. The switch is a stand-in; the page itself is a stub that shows what the
+ *  workspace hands it, so this checks the wiring only (the page's own test checks what it draws). */
+let v2Now = false;
+vi.mock("../v2/usePoints", async (orig) => ({ ...(await orig<typeof import("../v2/usePoints")>()), usePageV2Switch: () => v2Now }));
+vi.mock("../v2/ReviewPageV2", () => ({
+  ReviewPageV2: ({ run, sheetTab, howTab, onSign, signBlockers, signed }: {
+    run: { review_run_id: string }; sheetTab: React.ReactNode; howTab: React.ReactNode; onSign: () => void; signBlockers: string[]; signed: boolean;
+  }) => (
+    <div data-testid="v2-stub" data-run={run.review_run_id} data-signed={String(signed)} data-blockers={signBlockers.join("|")}>
+      <div data-testid="v2-stub-sheet">{sheetTab}</div>
+      <div data-testid="v2-stub-how">{howTab}</div>
+      <button type="button" onClick={onSign}>stub sign</button>
+    </div>
+  ),
+}));
+
 function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
   return {
     review_run_id: "run-1", submittal_document_id: "doc-sub", submittal_filename: "Pump datasheet rev B.pdf",
@@ -220,6 +236,7 @@ beforeEach(() => {
   window.localStorage.clear();
   data.mockReturnValue(ready());
   numbersNow = NUMBERS;
+  v2Now = false;
   realHeaderButton = false;
   agentStatus = null;
   overviewNow = { state: "off" };
@@ -1043,4 +1060,34 @@ describe("ReviewWorkspace: unknown AI review holds Sign, the flag follows the ti
     expect(screen.getByText("AI review (costs money)")).toBeInTheDocument();
   });
 });
+});
+
+describe("the redesigned page switch (12 Nov 2026)", () => {
+  it("off: the old page is drawn, exactly as before", () => {
+    v2Now = false;
+    render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("v2-stub")).toBeNull();
+    expect(screen.getByRole("region", { name: "What you need to do" })).toBeInTheDocument();
+  });
+
+  it("on: the redesigned page is drawn with today's sheet and CRS preview under one tab and the details under the other", async () => {
+    v2Now = true;
+    render(<Harness initial={{}} />);
+    const page = screen.getByTestId("v2-stub");
+    expect(page).toHaveAttribute("data-run", "run-1");
+    expect(screen.queryByRole("region", { name: "What you need to do" })).toBeNull();
+    expect(within(screen.getByTestId("v2-stub-sheet")).getByTestId("ws-sheet")).toBeInTheDocument();
+    expect(within(screen.getByTestId("v2-stub-sheet")).getByText("crs page for run-1")).toBeInTheDocument();
+    expect(within(screen.getByTestId("v2-stub-how")).getByText("how page for run-1")).toBeInTheDocument();
+  });
+
+  it("on: Sign runs the one sign flow (the checks, then the confirm step)", async () => {
+    v2Now = true;
+    const user = userEvent.setup();
+    rawSign.mockReset();
+    render(<Harness initial={{}} />);
+    await user.click(screen.getByRole("button", { name: "stub sign" }));
+    expect(rawSign).toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: "Preview and confirm" })).toBeInTheDocument();
+  });
 });

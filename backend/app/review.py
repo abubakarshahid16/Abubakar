@@ -690,43 +690,53 @@ def history(finding_id: str) -> list[dict]:
     return out
 
 
-def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) -> dict | None:
-    ensure_schema()
-    allowed = {"owner_user_id", "due_date", "status", "approval_status",
-               "escalation_level", "required_action", "severity", "response_text",
-               # Owner order section 3: Edit. The engineer's wording of the
-               # comment; the machine's text stays as it was.
-               "engineer_comment",
-               "disposition", "approved_by", "approved_at",
-               # NOT REACHABLE FROM A REQUEST BODY. `ReviewFindingUpdate` has
-               # no `confirmed_by` field, so the only thing that can put one
-               # here is the route, which sets it to the authenticated caller.
-               "confirmed_by", "confirmed_at"}
+_UPDATABLE = {"owner_user_id", "due_date", "status", "approval_status",
+              "escalation_level", "required_action", "severity", "response_text",
+              # Owner order section 3: Edit. The engineer's wording of the
+              # comment; the machine's text stays as it was.
+              "engineer_comment",
+              "disposition", "approved_by", "approved_at",
+              # NOT REACHABLE FROM A REQUEST BODY. `ReviewFindingUpdate` has
+              # no `confirmed_by` field, so the only thing that can put one
+              # here is the route, which sets it to the authenticated caller.
+              "confirmed_by", "confirmed_at"}
+
+
+def update_in(conn, finding_id: str, changes: dict, *, actor_user_id: str | None = None) -> bool:
+    """Write the changes of `update` on `conn` WITHOUT committing (the caller holds the transaction: `review_point_sync` writes a
+    finding and the decision records together). False when there is no such finding. Makes no table: the caller did."""
     current = get(finding_id)
     if current is None:
-        return None
+        return False
     changed = {key: value for key, value in changes.items()
-               if key in allowed and value is not None
+               if key in _UPDATABLE and value is not None
                and value != current.get(key)}
     if not changed:
-        return current
-    sets: list[str] = []
-    args: list[object] = []
-    for key, value in changed.items():
-        sets.append(f"{key} = ?")
-        args.append(value)
+        return True
+    sets = [f"{key} = ?" for key in changed]
+    args = list(changed.values())
     now = _now()
     sets.append("updated_at = ?")
     args.extend([now, finding_id])
+    if conn.execute(f"UPDATE review_findings SET {', '.join(sets)} WHERE id = ?", args).rowcount == 0:
+        return False
+    # An edited comment keeps its earlier wording in the audit trail:
+    # the event says what the engineer changed FROM, not only to.
+    detail = ({**changed, "engineer_comment_before": current.get("engineer_comment")}
+              if "engineer_comment" in changed else changed)
+    _event(conn, finding_id, "updated", detail, actor_user_id, now)
+    return True
+
+
+def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) -> dict | None:
+    ensure_schema()
+    current = get(finding_id)
+    if current is None:
+        return None
     conn = connect()
     with conn:
-        if conn.execute(f"UPDATE review_findings SET {', '.join(sets)} WHERE id = ?", args).rowcount == 0:
+        if not update_in(conn, finding_id, changes, actor_user_id=actor_user_id):
             return None
-        # An edited comment keeps its earlier wording in the audit trail:
-        # the event says what the engineer changed FROM, not only to.
-        detail = ({**changed, "engineer_comment_before": current.get("engineer_comment")}
-                  if "engineer_comment" in changed else changed)
-        _event(conn, finding_id, "updated", detail, actor_user_id, now)
     return get(finding_id)
 
 

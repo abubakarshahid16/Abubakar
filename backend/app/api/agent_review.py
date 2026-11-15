@@ -523,6 +523,12 @@ def agent_crs(
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="the CRS is not written yet")
+    from .. import review_points_service  # 12 Nov: the sheet holds the engineer's decisions and added points
+
+    decided = review_points_service.decided_ai_sheet(
+        review_run_id, _run_or_404(review_run_id, scope)["submittal_document_id"], copy, path.parent
+    )
+    path = decided or path
     return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")
 
 

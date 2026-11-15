@@ -21,9 +21,27 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from . import cover_page, errors, intake, page_not_read, unsupported_script
+from . import (
+    cover_page,
+    errors,
+    intake,
+    page_not_read,
+    unsupported_script,
+)
 from .config import settings
 from .db import connect
+from .page_reading import (  # noqa: F401 - moved unchanged, re-exported
+    LITTLE_TEXT,
+    NOT_RUN_WORDS,
+    READING_COMPLETE,
+    READING_INCOMPLETE,
+    reading_gaps,
+    run_reader,
+    run_unread_pages,
+    run_unread_reasons,
+    skipped_line,
+    skipped_pages,
+)
 
 SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL"
 
@@ -420,70 +438,6 @@ def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
 #
 # Pure: it reads the reader's own stored summary, never a database.
 
-READING_COMPLETE = "complete"
-READING_INCOMPLETE = "incomplete"
-
-
-def reading_gaps(reader: dict | None, pages: dict) -> dict:
-    """What the AI reader did not read, and the run's reading status.
-
-    `reader` is `datasheets.latest_reader_summary`; `pages` is `coverage()`.
-    Returns the keys to merge into the run's stored page coverage:
-      pages_ai_not_read    pages the configured AI reader did not read
-      ai_not_read_reasons  {page: why}, in words
-      reading              {"status", "pages_total", "incomplete_pages", "reasons"}
-    With NO reader recorded (it was off, or the sheet was read before
-    summaries were kept) nothing is claimed about the AI: the status is only
-    about the pages the code readers did not read."""
-    total = pages.get("pages_total")
-    unread = [int(p) for p in pages.get("pages_not_read_into_fields") or []]
-    ai_missing: dict[int, str] = {}
-    if reader and total:
-        engine = reader.get("engine") or "AI"
-        reasons: dict[int, str] = {}
-        for page in reader.get("timed_out") or []:
-            reasons[int(page)] = f"the {engine} reader timed out on this page"
-        code_only = reader.get("code_only")
-        if isinstance(code_only, dict):
-            for page, why in code_only.items():
-                reasons.setdefault(int(page), f"the {engine} reader did not read this page ({why})")
-        for page in reader.get("cut_off") or []:
-            reasons.setdefault(int(page), f"the {engine} reader was cut off before this page")
-        # order 139: a page the AI read only in part is not a clean page.
-        for page, why in (reader.get("partly_read") or {}).items():
-            reasons.setdefault(
-                int(page), f"the {engine} reader read this page in part ({why})"
-            )
-        if reader.get("unavailable"):
-            for page in range(1, int(total) + 1):
-                reasons.setdefault(page, f"the {engine} reader was unavailable ({reader['unavailable']})")
-        if reader.get("stopped"):
-            read = int(reader.get("pages_read") or 0)
-            if read < int(total):
-                for page in range(1, int(total) + 1):
-                    reasons.setdefault(page, f"the {engine} reader was stopped ({reader['stopped']})")
-        ai_missing = {p: why for p, why in sorted(reasons.items()) if 1 <= p <= int(total)}
-    # #918: a page a CODE reader failed on, or something the office reader left
-    # out, makes the reading incomplete whatever the AI did.
-    failed: dict[int, str] = {}
-    for page, readers in ((reader or {}).get("page_failures") or {}).items():
-        failed[int(page)] = "a reader failed on this page (" + ", ".join(sorted(readers)) + ")"
-    notes = list((reader or {}).get("reading_notes") or [])
-    incomplete = sorted(set(unread) | set(ai_missing) | set(failed))
-    return {
-        "pages_ai_not_read": sorted(ai_missing),
-        "ai_not_read_reasons": {str(p): why for p, why in ai_missing.items()},
-        "reading": {
-            "status": READING_INCOMPLETE if incomplete or notes or not total else READING_COMPLETE,
-            "pages_total": total,
-            "incomplete_pages": incomplete,
-            "reasons": ({"no page of this submittal is accounted for": True} if not total else {}),
-            # only when there is something: the shape without it is unchanged
-            **({"failed_pages": {str(p): why for p, why in sorted(failed.items())}} if failed else {}),
-            **({"notes": notes} if notes else {}),
-        },
-    }
-
 
 # ------------------------------------------- order 127: one unread-pages count
 #
@@ -499,7 +453,7 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
 # Pure: it reads the record it is given, never a database.
 
 
-def every_page_read(pages: dict, where: str, total: int) -> str:
+def _pages_line(pages: dict, where: str, total: int) -> str:
     """What `comparison.qualify_by_pages` says when no page is unread: fields
     were read from `where` of `total`, and (order 165) any page both readers
     read and found no field on is named as that, never counted as a page
@@ -512,66 +466,11 @@ def every_page_read(pages: dict, where: str, total: int) -> str:
             "read, no checklist field found")
 
 
-def run_reader(outcome: dict | None) -> dict | None:
-    """The AI reader's record a run stored (`requirement_split.reader`), or
-    None when the run stored none."""
-    split = (outcome or {}).get("requirement_split")
-    reader = split.get("reader") if isinstance(split, dict) else None
-    return reader if isinstance(reader, dict) else None
-
-
-def run_unread_pages(
-    page_coverage: dict | None, reader: dict | None = None
-) -> list[int]:
-    """Order 127: THE run's unread pages, one definition for the issue gate, the
-    run summary and the runs list. Union of `pages_not_read_into_fields`,
-    `pages_ai_not_read` and (runs stored before PF3 kept `pages_ai_not_read`)
-    the AI reader's own `timed_out` pages. Only those legacy time-out pages are
-    limited to 1..pages_total: `pages_total` counts ledger rows, not the highest
-    page number, and the gate must never drop a page it asked for before.
-    Sorted, no duplicates. Pure: reads nothing."""
-    cov = page_coverage if isinstance(page_coverage, dict) else {}
-    # #1473: a run stored with the page-read switch on names the pages no
-    # reading came back for (`pages_not_read`); older runs, the fields rule.
-    unread = cov.get("pages_not_read", cov.get("pages_not_read_into_fields"))
-    pages = {int(p) for p in unread or []}
-    pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
-    if isinstance(reader, dict):
-        timed_out = {int(p) for p in reader.get("timed_out") or []}
-        total = cov.get("pages_total")
-        if total is not None:
-            timed_out = {p for p in timed_out if 1 <= p <= int(total)}
-        pages |= timed_out
-    return sorted(pages)
-
-
-def run_unread_reasons(
-    page_coverage: dict | None, reader: dict | None = None
-) -> dict[str, str]:
-    """Why each of those pages was not read, keyed by the page as a string:
-    `not_read_reasons` wins over `ai_not_read_reasons` (the gate's order since
-    PF5), and a legacy time-out page with neither gets "the AI reader timed out
-    on this page". A page with no recorded reason is absent."""
-    cov = page_coverage if isinstance(page_coverage, dict) else {}
-    recorded = {
-        **{str(k): v for k, v in (cov.get("ai_not_read_reasons") or {}).items()},
-        **{str(k): v for k, v in page_not_read.stored_reasons(cov).items()},
-        # #1473: the plain-words reason, stored when the page-read switch was on.
-        **{str(k): v for k, v in (cov.get("pages_not_read_why") or {}).items()},
-    }
-    timed_out = (
-        {int(p) for p in reader.get("timed_out") or []}
-        if isinstance(reader, dict)
-        else set()
-    )
-    reasons: dict[str, str] = {}
-    for page in run_unread_pages(cov, reader):
-        why = recorded.get(str(page))
-        if not why and page in timed_out:
-            why = "the AI reader timed out on this page"
-        if why:
-            reasons[str(page)] = why
-    return reasons
+def every_page_read(pages: dict, where: str, total: int) -> str:
+    """`_pages_line`, and (K3) once, in plain words, how many pages the AI page reader did not run on and why."""
+    said = _pages_line(pages, where, total)
+    line = pages.get("ai_skipped_line")
+    return f"{said}. {line}" if line else said
 
 
 def run_unread_pages_shown(
@@ -613,6 +512,18 @@ def _pages_dropped_with_content(document_id: str) -> set[int]:
     ):
         out.update(range(e["page_start"], (e["page_end"] or e["page_start"]) + 1))
     return out
+
+
+def _thin_part(ledger: list) -> dict:
+    """`pages_thin`: the pages whose text layer is under the app's own minimum for a usable one (`OCR_MIN_USABLE_CHARS`, the
+    measure `ocr.route_decision` uses). Only when there are some: the shape without it is unchanged."""
+    floor = settings.ocr_min_usable_chars
+    thin = [
+        r["page_no"]
+        for r in ledger
+        if r["native_status"] == "text" and (r["native_chars"] or 0) < floor
+    ]
+    return {"pages_thin": thin} if thin else {}
 
 
 def coverage(document_id: str) -> dict:
@@ -683,6 +594,7 @@ def coverage(document_id: str) -> dict:
         "pages_read_no_field": no_field,
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
+        **_thin_part(ledger),
     }
 
 

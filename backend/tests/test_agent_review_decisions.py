@@ -109,7 +109,8 @@ def test_a_decision_is_code_pass_fail_or_a_two_reader_met_or_not_met_nothing_els
     cls, word
 ):
     want = cls == W.CLASS_PROVEN or (
-        cls == CLASS and word in ("AI verdict: met", "AI verdict: not met")
+        cls == CLASS
+        and word in ("AI verdict: met", "AI verdict: not met", "AI verdict: not stated")
     )
     assert (W.decisions_of([(cls, word)])["total"] == 1) is want
 
@@ -123,7 +124,12 @@ def test_decisions_split_into_code_and_two_reader():
         (CLASS, "AI verdict: not stated"),
         (W.CLASS_OPINION, "AI thinks: met"),
     ]
-    assert W.decisions_of(pairs) == {"code": 2, "two_reader": 2, "total": 4}
+    assert W.decisions_of(pairs) == {
+        "code": 2,
+        "two_reader": 3,
+        "not_stated": 1,
+        "total": 5,
+    }
 
 
 def test_counts_carry_the_decisions_the_notes_say_them_and_the_summary_route_returns_them(
@@ -172,7 +178,8 @@ def test_the_contractor_flag_is_false_for_every_paper_kind_and_names_every_kind(
     assert set(rule_labels.PAPER_KINDS) <= set(table)
     assert all(row["contractor_copy_ai_verdict"] is False for row in table.values())
     assert not any(
-        kind_review_table.contractor_copy_ai_verdict(k) for k in (*table, "no-such-kind", None)
+        kind_review_table.contractor_copy_ai_verdict(k)
+        for k in (*table, "no-such-kind", None)
     )
 
 
@@ -227,7 +234,9 @@ def test_no_ai_verdict_reaches_the_contractor_copy_while_the_flag_is_false(tmp_p
 @pytest.fixture
 def flagged(monkeypatch):
     monkeypatch.setattr(
-        kind_review_table, "contractor_copy_ai_verdict", lambda kind: kind == "datasheet"
+        kind_review_table,
+        "contractor_copy_ai_verdict",
+        lambda kind: kind == "datasheet",
     )
 
 

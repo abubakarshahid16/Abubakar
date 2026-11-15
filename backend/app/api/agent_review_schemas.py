@@ -247,10 +247,12 @@ class AgentPageRereadStop(BaseModel):
 
 class AgentDecisions(BaseModel):
     """Decisions of one run (owner, 12 Nov 2026): lines the code proved (class "Proven by code") plus two-reader verdicts (class "AI verdict,
-    two readers agree" with the word met or not met). "AI thinks", "not stated" and Queries are not decisions."""
+    two readers agree" with the word met, not met or not stated). "AI thinks" and Queries are not decisions. `not_stated`: how many of the
+    two-reader figure are "not stated on the paper" (two readers each read every page and found no value)."""
 
     code: Count = 0
     two_reader: Count = 0
+    not_stated: Count = 0
     total: Count = 0
 
 

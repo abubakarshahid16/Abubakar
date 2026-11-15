@@ -45,6 +45,7 @@ from . import (
     nothing_read,
     review_engine,
     review_jobs,
+    review_shown,
 )
 from . import agent_review_items as items_mod
 from . import agent_review_local as local_mod
@@ -383,12 +384,8 @@ def preflight(
             "SELECT 1 FROM pages WHERE document_id = ? LIMIT 1", (d,)
         ).fetchone():
             return "a rule book of the item list has no stored pages (the context check needs them)"
-    if (
-        not local
-        and not agent_run_second.models_differ(
-            [agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL
-        )
-    ):  # a local run checks its two models at the engine (`LocalEngine.second_ready`): the second reader is never asked if they match
+    # a local run checks its two models at the engine (`LocalEngine.second_ready`): the second reader is never asked if they match
+    if not local and not agent_run_second.models_differ([agent_claude.LEAD_MODEL], agent_claude.SECOND_MODEL):  # fmt: skip
         return "the lead and the second model are of the same family"
     return None
 
@@ -420,7 +417,12 @@ def _plan(
     # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
     # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED)  # fmt: skip
+                                        equipment_type=kind.equipment_type, ask_unapproved=ASK_UNAPPROVED,
+                                        shown=review_shown.shown_ids(conn, run_id))  # fmt: skip
+    # A rule book the list shown before the start does not name is dropped HERE, before any request is built: its rules are not
+    # asked, none of its text is sent, the run goes on with the listed books, and the result counts what was left out.
+    left_out = review_shown.drop_unlisted(conn, run_id, doc)
+    claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache, local)
     if refused:
@@ -725,7 +727,7 @@ def _rules_then_general(
     ):  # only a stop AFTER spending (a cap) skips the general parts
         general = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id) / "general",
                                   name=_document_name(submittal), lane=lane, heartbeat=heartbeat,
-                                  combined=True, refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
+                                  combined=True, local=local_mod.engine_for(run_id, True))  # fmt: skip
         result = general_job.merge_results(result, general)
     else:
         general_job.note_skipped(run_id, result["stop_reason"])
@@ -773,7 +775,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
                                      name=_document_name(submittal), lane=lane,
                                      heartbeat=heartbeat,
-                                     refuse=local_mod.GENERAL_REFUSED if local_mod.local_run(run_id) else None)  # fmt: skip
+                                     local=local_mod.engine_for(run_id, True))  # fmt: skip
             agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
             return _done(conn, job_id, run_id, result)

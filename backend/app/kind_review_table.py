@@ -191,3 +191,20 @@ def windows(pages: dict[int, str], kind: str | None) -> list[list[int]]:
     if limit <= 0:
         return []
     return core.window_pages(pages, limit, overlap)
+
+
+CONTRACTOR_COPY_PLAIN = "The contractor file holds only what code proved, or your own words. It never carries an AI wording."
+CONTRACTOR_COPY_WITH_VERDICTS = (
+    'The contractor file holds what code proved, your own words, and the AI\'s "not met" verdicts that two readers agreed on and code '
+    "checked, which this kind of paper allows."
+)
+
+
+def contractor_copy_words(kind: str | None) -> str:
+    """What the AI review's contractor copy holds for this kind, in plain words, from `contractor_copy_ai_verdict` (the review page says
+    this; it never claims a fixed thing)."""
+    return (
+        CONTRACTOR_COPY_WITH_VERDICTS
+        if contractor_copy_ai_verdict(kind)
+        else CONTRACTOR_COPY_PLAIN
+    )

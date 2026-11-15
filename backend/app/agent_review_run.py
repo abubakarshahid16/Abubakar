@@ -146,7 +146,10 @@ class Runner(
         self.total_pages = pages.count(paper)
         # the CURRENT tier of a rule item, from the label table
         self.tier_lookup = tier_lookup
-        self.items = plan_pages(items, pages, paper, clauses)
+        self._two_reader, self._two_reader_absence = two_reader, two_reader_absence
+        self.items = plan_pages(
+            items, pages, paper, clauses, whole_short=self.absence_on()
+        )
         self.items_by_id = {str(i.get("item_id")): i for i in self.items}
         self.stopped = self.stop_text = ""
         self.gate: AppStepGate | None = None
@@ -176,9 +179,7 @@ class Runner(
         self._reuse_note: dict[tuple, dict] = {}
         self.counts: dict[str, int] = {}
         # the optional second-reader step (owner order 13): None = read the switch when the run starts
-        self._two_reader = two_reader
         self.two_reader_state = two_reader_mod.stats_template()
-        self._two_reader_absence = two_reader_absence
         self._two_reader_other = two_reader_other
         self.two_reader_other_state = two_reader_mod.stats_template()
         self.two_reader_absence_state = two_reader_mod.stats_template()
@@ -404,6 +405,9 @@ class Runner(
 
     def local_label(self) -> str:
         """What the screen says while a local request is made: "question k of n, reader 1 of 2" (counts only)."""
+        if not self.items:  # the general review asks no items: requests are counted, not "questions of n"
+            n = sum(self.local.calls.values()) + 1
+            return f"asking the local AI reviewer: request {n}, reader {1 if self.local.phase == local_mod.FIRST else 2} of 2"
         if self.local.phase == local_mod.FIRST:
             return f"asking the local AI reviewer: question {min(len(self.lines) + 1, len(self.items))} of {len(self.items)}, reader 1 of 2"
         st = self.two_reader_state

@@ -379,7 +379,8 @@ def open_items(
 MIN_REASON_LENGTH = 10
 
 
-def _record(
+def record_row(
+    conn,
     review_run_id: str,
     kind: str,
     subject: str,
@@ -389,6 +390,8 @@ def _record(
     reason_code: str | None = None,
     click_id: str | None = None,
 ) -> dict:
+    """Validate and INSERT one decision on `conn`, WITHOUT committing and without making the table (the caller did, before it opened
+    its transaction): so a decision can be written in the SAME transaction as another record (`review_point_sync`)."""
     reason = " ".join((reason or "").split())
     if reason_code is not None:
         # Order 95 piece 6a (a): a listed reason IS the engineer's reason;
@@ -401,7 +404,6 @@ def _record(
         )
     if not actor:
         raise IssueError("a decision must name the engineer who made it")
-    ensure_schema()
     row = {
         "id": uuid.uuid4().hex,
         "review_run_id": review_run_id,
@@ -414,15 +416,29 @@ def _record(
         "reason_code": reason_code,
         "click_id": click_id,
     }
+    conn.execute(
+        "INSERT INTO crs_issue_decisions (id, review_run_id, kind, subject, decision,"
+        " reason, decided_by, decided_at, reason_code, click_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        tuple(row.values()),
+    )
+    return row
+
+
+def _record(
+    review_run_id: str,
+    kind: str,
+    subject: str,
+    decision: str,
+    reason: str,
+    actor: str,
+    reason_code: str | None = None,
+    click_id: str | None = None,
+) -> dict:
+    ensure_schema()
     conn = connect()
     with conn:
-        conn.execute(
-            "INSERT INTO crs_issue_decisions (id, review_run_id, kind, subject, decision,"
-            " reason, decided_by, decided_at, reason_code, click_id)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            tuple(row.values()),
-        )
-    return row
+        return record_row(conn, review_run_id, kind, subject, decision, reason, actor, reason_code, click_id)
 
 
 def decide_page(

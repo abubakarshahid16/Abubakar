@@ -43,6 +43,7 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
       {summary.decisions && (
         <p data-testid="agent-decisions" className="text-sm text-slateish-100">
           Decisions: {summary.decisions.total} = code Pass/Fail {summary.decisions.code} + two-reader verdicts {summary.decisions.two_reader}
+          {summary.decisions.not_stated > 0 && `; of which: not stated on the paper ${summary.decisions.not_stated}`}
         </p>
       )}
       {summary.two_reader_step && (

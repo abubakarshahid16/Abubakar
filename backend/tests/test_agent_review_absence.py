@@ -75,10 +75,23 @@ def test_proven_when_every_step_holds():
     assert p.proven and p.role == ROLE and p.pages_checked == 3 and p.code is None
 
 
-def test_field_on_a_page_is_a_query():
+def test_a_label_with_an_empty_cell_is_nothing_found_and_the_page_is_named():
     pages = {**PAGES, 2: PAGES[2] + "\nDESIGN PRESS. (barg)  ____"}
     p = prove(pages=pages)
-    assert not p.proven and p.code == "absence_field_words_on_page" and p.page == 2
+    assert p.proven and p.to_json()["empty_label_pages"] == [2]
+
+
+def test_a_label_with_a_value_a_digit_or_a_following_value_line_is_a_query():
+    for tail in (
+        "\nDESIGN PRESS. (barg)  ____\nPTV-33 invented value line",  # the next line is not another field label: not shown empty
+        "\nDESIGN PRESS. (barg)  12.5",  # a digit
+        "\nDESIGN PRESS. (barg)  by vendor",  # a deferral word, never "empty"
+    ):
+        p = prove(pages={**PAGES, 2: PAGES[2] + tail})
+        assert not p.proven and p.code in (
+            "absence_field_words_on_page",
+            "absence_value_deferred",
+        ), tail
 
 
 def test_one_shared_field_word_on_a_page_is_a_query():

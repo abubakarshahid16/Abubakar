@@ -25,9 +25,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="no_new_silent_handler", tags=_TAG),
     Mutation(id="M1015-03", phase=1015, description="a reader error body that is not JSON leaves no trace (_send)",
              path=APP / "reader_transport.py",
-             anchor='\n            except ValueError as exc:  # #655: the status alone is reported\n'
-                    '                log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)\n',
-             replacement='\n            except ValueError:\n                pass\n',
+             anchor='\n    except (ValueError, TypeError) as exc:  # #655: the status alone is reported\n'
+                    '        log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)\n',
+             replacement='\n    except (ValueError, TypeError):\n        pass\n',
              target=_T, keyword="not_json or no_new_silent_handler", tags=_TAG),
     Mutation(id="M1015-04", phase=1015, description="a reader error body that is not JSON leaves no trace (batch _gated)",
              path=APP / "reader_transport.py",

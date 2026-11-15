@@ -119,8 +119,12 @@ describe("AgentSummary: two readers agree", () => {
 
 describe("AgentSummary: decisions", () => {
   it("states the one count of decisions: code Pass/Fail plus two-reader verdicts", () => {
-    render(<AgentSummary summary={summary({ decisions: { code: 2, two_reader: 5, total: 7 } })} />);
-    expect(screen.getByTestId("agent-decisions")).toHaveTextContent("Decisions: 7 = code Pass/Fail 2 + two-reader verdicts 5");
+    render(<AgentSummary summary={summary({ decisions: { code: 2, two_reader: 5, not_stated: 2, total: 7 } })} />);
+    expect(screen.getByTestId("agent-decisions")).toHaveTextContent("Decisions: 7 = code Pass/Fail 2 + two-reader verdicts 5; of which: not stated on the paper 2");
+  });
+  it("prints no 'of which' when no line is not stated", () => {
+    render(<AgentSummary summary={summary({ decisions: { code: 2, two_reader: 5, not_stated: 0, total: 7 } })} />);
+    expect(screen.getByTestId("agent-decisions")).not.toHaveTextContent("of which");
   });
   it("shows nothing for a run stored before it", () => {
     render(<AgentSummary summary={summary()} />);

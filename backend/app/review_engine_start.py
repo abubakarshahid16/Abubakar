@@ -21,6 +21,7 @@ from . import (
     job_queue,
     review_engine,
     review_jobs,
+    review_shown,
 )
 from .db import connect
 
@@ -43,11 +44,14 @@ def start(
     *,
     fresh: bool = False,
     project_document_ids: tuple[str, ...] = (),
+    shown_document_ids: tuple[str, ...] | None = None,
 ) -> tuple[str, dict]:
     """Queue the review the plan allows. Returns (run id of the first part, plan). Raises `StartRefused` (nothing queued) and
     `review_jobs.ReviewAlreadyActive`."""
     conn = connect()
-    plan = review_engine.plan_for(conn, document_id, allowed, choice)
+    plan = review_engine.plan_for(
+        conn, document_id, allowed, choice, project_ids=project_document_ids
+    )
     if plan["refused"]:
         raise StartRefused(plan["refused_code"] or "REFUSED", plan["refused"])
     parts = {p["name"]: p for p in plan["parts"]}
@@ -58,18 +62,38 @@ def start(
         review_engine.ON_LOCAL,
     )
     bar = parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
+    # The cap: only what the screen showed AND what is still allowed now. None = no list was shown (the older behaviour).
+    shown = (
+        None
+        if shown_document_ids is None
+        else review_shown.cap(plan, shown_document_ids)
+    )
+    stored_plan = review_shown.without_titles(plan)
+    # THE EXPLICIT CHOICE OF CLAUDE IS THE CONSENT (owner, 12 Nov 2026, #1584): the start records who, when, the run, the engine
+    # and each listed document's kind, role and file hash (ids only, no title, no text). Automatic and Local only record none.
+    consent = (
+        review_shown.consent_documents(conn, plan, shown)
+        if shown is not None and plan["choice"] == review_engine.CLAUDE
+        else None
+    )
 
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
         # In the SAME transaction as the job: a worker that claims the job finds its choice (and so its bar) already there.
         review_engine.record_in(
             txn_conn,
             new_run_id,
-            plan,
+            stored_plan,
             requested_by,
             then_ai=then_ai,
             bar_claude=bar,
             now=job_queue.now_iso(),
         )
+        if shown is not None:
+            review_shown.record_in(txn_conn, new_run_id, shown, job_queue.now_iso())
+        if consent is not None:
+            review_shown.record_consent_in(
+                txn_conn, new_run_id, requested_by, consent, job_queue.now_iso()
+            )
 
     run_id, _job = review_jobs.enqueue(
         document_id,
@@ -133,11 +157,28 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
     general = agent_review_gate.general_kind_enabled(again.get("kind"))
     projects = tuple(plan.get("project_document_ids") or ()) if general else None
 
+    shown = review_shown.shown_ids(
+        conn, run_id
+    )  # the AI run sends what the same screen showed, no more
+    consent = review_shown.consent_of(conn, run_id)
+
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
+        if shown is not None:
+            review_shown.record_in(txn_conn, new_run_id, shown, job_queue.now_iso())
+        if (
+            consent is not None
+        ):  # the AI run that follows is the same start: the same consent, under the same user
+            review_shown.record_consent_in(
+                txn_conn,
+                new_run_id,
+                job["created_by"],
+                list(consent["documents"].values()),
+                job_queue.now_iso(),
+            )
         review_engine.record_in(
             txn_conn,
             new_run_id,
-            again,
+            review_shown.without_titles(again),
             job["created_by"],
             then_ai=False,
             bar_claude=on_local,

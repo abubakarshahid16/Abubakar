@@ -354,7 +354,10 @@ def _restore_closed(row, provider, written, missing, reasons) -> None:
     asks = _loads(row, "asks")
     requirements = _requirements({c: asks[c] for c in missing})
     pages = clause_review.page_texts(row["document_id"])
-    with claude_approved.carrying(_loads(row, "documents")):
+    with (
+        claude_approved.carrying(_loads(row, "documents")),
+        claude_approved.reviewing(row["review_run_id"]),
+    ):
         open_lane = provider or rp.claude_for_task(_engine(), step=STEP)
         reader = rp.ClaudeProvider(row["model"], step=STEP) if open_lane else None
         for custom_id in missing:
@@ -694,12 +697,17 @@ def _tick(review_run_id: str, provider, now) -> dict | None:
     return status
 
 
-def _why_not_claude(documents) -> str:
+def _why_not_claude(documents, review_run_id: str | None = None) -> str:
     code = rp.claude_unavailable_for_task(_engine())[0]
     if code is None:
-        with claude_approved.carrying(documents):
+        with claude_approved.carrying(documents), claude_approved.reviewing(review_run_id):
             refused = claude_approved.refusal()
-        code = refused[0] if refused else "not available"
+            held = claude_approved.unshown_specifications(documents) if refused else frozenset()
+        code = (
+            "a specification this review cites was not on the list shown before the start"
+            if held
+            else (refused[0] if refused else "not available")
+        )
     return f"Claude was asked for and not used ({code})"
 
 
@@ -720,10 +728,10 @@ def for_review(
         return True, None
     wanted = clause_review.requirements_for(review_run_id, scope)
     documents = sorted({submittal, *(r["standard_document_id"] for r in wanted)})
-    with claude_approved.carrying(documents):
+    with claude_approved.carrying(documents), claude_approved.reviewing(review_run_id):
         provider = provider or rp.claude_for_task(_engine(), step=STEP)
     if provider is None:
-        return False, _why_not_claude(documents)
+        return False, _why_not_claude(documents, review_run_id)
     conn = connect()
     ensure_schema(conn)
     asks = {_custom_id(r["id"]): r["id"] for r in wanted}
