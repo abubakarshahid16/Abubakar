@@ -238,7 +238,9 @@ def direction_reason(requirement: Mapping | None, quote: object) -> str | None:
     if got is None:
         after = text[spot.end :]
         got = next((sense for rx, sense in _AFTER_DIRECTION if rx.match(after)), None)
-    if got is None:  # "The maximum <subject> shall be <value> <unit>": the clause's own comparator word stands in front of the subject
+    if (
+        got is None
+    ):  # "The maximum <subject> shall be <value> <unit>": the clause's own comparator word stands in front of the subject
         got = _subject_be_sense(str(quote or ""), numbers[0])
     return None if want is not None and got == want else DIRECTION_WHY
 
@@ -250,7 +252,9 @@ def _subject_be_sense(quote: str, number: str) -> str | None:
 
     for seg in [quote]:
         found = own_value_limit.subject_be(seg)
-        if found is not None and numparse.as_number(found["raw_value"]) == numparse.as_number(number):
+        if found is not None and numparse.as_number(
+            found["raw_value"]
+        ) == numparse.as_number(number):
             return _SENSE.get(str(found["operator"]))
     return None
 
@@ -302,7 +306,21 @@ def _sentence_before_figure(quote: object, numbers: list[str]) -> str | None:
 
 
 #: words in front of a field's name that qualify nothing ("the design pressure", "maximum design pressure"); any other word there says WHICH pressure it is
-_WEAK_QUALIFIERS = _BEFORE_HEAD | {"maximum", "minimum", "max", "min", "allowable", "permissible", "normal", "rated", "stated", "nominal", "required", "shall", "be"}
+_WEAK_QUALIFIERS = _BEFORE_HEAD | {
+    "maximum",
+    "minimum",
+    "max",
+    "min",
+    "allowable",
+    "permissible",
+    "normal",
+    "rated",
+    "stated",
+    "nominal",
+    "required",
+    "shall",
+    "be",
+}
 
 
 def _qualifiers(folded: str, phrase: str) -> set[str] | None:
@@ -317,7 +335,12 @@ def _qualifiers(folded: str, phrase: str) -> set[str] | None:
 QUALIFIER_WHY = "the clause and the paper's label qualify the field differently (for example external and internal)"
 
 
-def qualifier_reason(rule_field: object, requirement: Mapping | None, clause_quote: object, paper_label: object) -> str | None:
+def qualifier_reason(
+    rule_field: object,
+    requirement: Mapping | None,
+    clause_quote: object,
+    paper_label: object,
+) -> str | None:
     """Why the clause is about ANOTHER KIND of the field than the paper's label names, in words; None when they agree or either does not carry the field's name
     whole. "The maximum external design pressure shall not exceed 15 psi" is not about the paper's "Internal design pressure": the words that qualify the field's
     name in front of it must be the same in the sentence that states the limit and in the label (a qualifier on one side only is a difference too)."""
@@ -325,7 +348,10 @@ def qualifier_reason(rule_field: object, requirement: Mapping | None, clause_quo
     sent = _sentence_before_figure(clause_quote, limit_numbers(requirement or {}))
     if not field or not sent:
         return None
-    wanted, label = _qualifiers(sent, field), _qualifiers(numparse.fold(str(paper_label or "")), field)
+    wanted, label = (
+        _qualifiers(sent, field),
+        _qualifiers(numparse.fold(str(paper_label or "")), field),
+    )
     return None if wanted is None or label is None or wanted == label else QUALIFIER_WHY
 
 
@@ -343,7 +369,9 @@ def subject_reason(
     words = agent_bind.content_words(field)
     if not (field and words and sent):
         return SUBJECT_WHY
-    plain = guards._fold(sent)  # the guards' own folding (a dotted abbreviation "c.a." reads "c a", the way the field's spellings are written)
+    plain = guards._fold(
+        sent
+    )  # the guards' own folding (a dotted abbreviation "c.a." reads "c a", the way the field's spellings are written)
     if not guards._carries(plain, [field]) or guards._other_field_words(plain, [field]):
         return SUBJECT_WHY
     if len(words) == 1 and len(field.split()) == 1:  # one word as written
@@ -567,7 +595,9 @@ def numeric_proven(line: Mapping) -> bool:
         and direction_reason(req, line.get("clause_quote")) is None
         and subject_reason(line.get("rule_field"), req, line.get("clause_quote"))
         is None
-        and qualifier_reason(line.get("rule_field"), req, line.get("clause_quote"), line.get("field"))
+        and qualifier_reason(
+            line.get("rule_field"), req, line.get("clause_quote"), line.get("field")
+        )
         is None
         and _verdict_matches(line, recompute(req, obs))
     )

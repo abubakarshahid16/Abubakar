@@ -27,8 +27,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
     ap.add_argument("--json")
-    ap.add_argument("--without-shape", action="store_true", help="read the sentences WITHOUT the new shape (the baseline of what the old parser read)")
-    ap.add_argument("--ids", help="write the ids of the rows that gain a limit, one per line")
+    ap.add_argument(
+        "--without-shape",
+        action="store_true",
+        help="read the sentences WITHOUT the new shape (the baseline of what the old parser read)",
+    )
+    ap.add_argument(
+        "--ids", help="write the ids of the rows that gain a limit, one per line"
+    )
     args = ap.parse_args()
     from app import live_guard, own_value_limit, requirements_3b as r3b
 
@@ -38,7 +44,9 @@ def main() -> int:
     if live_guard.is_live_shaped(Path(args.db)):
         print("refused: a live-shaped path; make a copy first")
         return 2
-    conn = sqlite3.connect(f"file:{Path(args.db).resolve()}?mode=ro&immutable=1", uri=True)
+    conn = sqlite3.connect(
+        f"file:{Path(args.db).resolve()}?mode=ro&immutable=1", uri=True
+    )
     gained: collections.Counter = collections.Counter()
     changed, total, numeric = [], 0, 0
     gained_ids: list[str] = []
@@ -50,19 +58,38 @@ def main() -> int:
             continue
         lim = r3b.parse_limit(text)
         if rtype == "statement":
-            if lim is not None and lim.get("operator") and lim.get("value") is not None and lim.get("unit"):
+            if (
+                lim is not None
+                and lim.get("operator")
+                and lim.get("value") is not None
+                and lim.get("unit")
+            ):
                 gained[doc] += 1
                 gained_ids.append(rid)
         else:
             numeric += 1
-            if lim is None or (lim.get("operator"), lim.get("value"), lim.get("unit")) != (op, val, unit):
-                changed.append(rid)  # also rows the stored reading came from a table or another reader: reported, not judged here
-    out = {"rows": total, "numeric_rows_checked": numeric, "statement_rows_that_gain_a_limit": sum(gained.values()), "books_with_gains": len(gained),
-           "per_book": dict(gained.most_common()), "numeric_rows_read_differently_by_the_sentence_parser": len(changed)}
+            if lim is None or (
+                lim.get("operator"),
+                lim.get("value"),
+                lim.get("unit"),
+            ) != (op, val, unit):
+                changed.append(
+                    rid
+                )  # also rows the stored reading came from a table or another reader: reported, not judged here
+    out = {
+        "rows": total,
+        "numeric_rows_checked": numeric,
+        "statement_rows_that_gain_a_limit": sum(gained.values()),
+        "books_with_gains": len(gained),
+        "per_book": dict(gained.most_common()),
+        "numeric_rows_read_differently_by_the_sentence_parser": len(changed),
+    }
     print(json.dumps({k: v for k, v in out.items() if k != "per_book"}, indent=1))
     print("per book (document id: rows gained):", dict(list(gained.most_common(15))))
     if args.json:
-        Path(args.json).write_text(json.dumps({**out, "changed_ids": changed}, indent=1))
+        Path(args.json).write_text(
+            json.dumps({**out, "changed_ids": changed}, indent=1)
+        )
     if args.ids:
         Path(args.ids).write_text("\n".join(gained_ids) + "\n")
     return 0

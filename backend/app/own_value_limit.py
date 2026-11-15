@@ -100,7 +100,11 @@ def _subject_be_pattern() -> re.Pattern:
 
     return re.compile(
         r"(?<![A-Za-z])(?P<cmp>maximum|minimum|max|min)\s+(?P<ref>[A-Za-z][A-Za-z0-9 .\-/]{1,60}?)"
-        r"\s+(?:shall|must|should|will|is|are)\s+be\s+(?P<value>[-+]?" + r3b._VALUE + r")\s*(?P<unit>" + r3b._UNIT + r")"
+        r"\s+(?:shall|must|should|will|is|are)\s+be\s+(?P<value>[-+]?"
+        + r3b._VALUE
+        + r")\s*(?P<unit>"
+        + r3b._UNIT
+        + r")"
         r"(?![\w/])(?!\s*(?:or|and|to)\s+\d)",
         re.IGNORECASE,
     )
@@ -113,7 +117,9 @@ def _role_rules() -> dict:
     return datasheet_checks.load_rules()
 
 
-_ALT_UNITS = re.compile(r"\s*\(\s*(?P<value>[\d][\d/. ]*)\s*(?P<unit>[A-Za-z\"\u201d\u2033']{1,6})\s*\)")
+_ALT_UNITS = re.compile(
+    r"\s*\(\s*(?P<value>[\d][\d/. ]*)\s*(?P<unit>[A-Za-z\"\u201d\u2033']{1,6})\s*\)"
+)
 
 
 def _alternative_agrees(tail: str, main) -> str | None:
@@ -136,13 +142,15 @@ def _alternative_agrees(tail: str, main) -> str | None:
     other = r3b.measure(value, r3b.unit_token(unit))
     if other.normalized_value is None or other.normalized_unit != main.normalized_unit:
         return None
-    if abs(other.normalized_value - main.normalized_value) > 0.02 * abs(main.normalized_value):
+    if abs(other.normalized_value - main.normalized_value) > 0.02 * abs(
+        main.normalized_value
+    ):
         return None  # 1/16 in is 1.59 mm: a repeat of 1.6 mm (rounded), a different figure is not
     return tail[found.end() :]
 
 
 def subject_be(sentence: str) -> dict | None:
-    """"The maximum <subject> shall be <value> <unit>" is a limit of that value on the subject (`<=`; "minimum" gives `>=`), the comparator being the
+    """ "The maximum <subject> shall be <value> <unit>" is a limit of that value on the subject (`<=`; "minimum" gives `>=`), the comparator being the
     clause's own word in front of the subject and the value coming after "shall be".
 
     Left alone (the clause stays a statement for an engineer): "maximum <subject>" that is itself the name of a registered field ("the maximum allowable
@@ -156,24 +164,49 @@ def subject_be(sentence: str) -> dict | None:
     if match is None:
         return None
     _, picks_one, number_before, moves_number = _patterns()
-    before = re.sub(r"^\s*\d{1,3}(?:\.\d{1,3})+\.?\s+", "", sentence[: match.start("cmp")])  # a clause number in front is not a figure
-    alternative = re.search(r"\d[\d./]*\s*[A-Za-z%\u00b0\"]{0,8}\s*\)?\s*,?\s*(?:or|and)\s+(?:the\s+)?$", before, re.IGNORECASE)  # "(5 mm), or the minimum ... 0.154 in": two thresholds
-    if picks_one.search(match.group("ref")) or number_before.search(before) or alternative:
+    before = re.sub(
+        r"^\s*\d{1,3}(?:\.\d{1,3})+\.?\s+", "", sentence[: match.start("cmp")]
+    )  # a clause number in front is not a figure
+    alternative = re.search(
+        r"\d[\d./]*\s*[A-Za-z%\u00b0\"]{0,8}\s*\)?\s*,?\s*(?:or|and)\s+(?:the\s+)?$",
+        before,
+        re.IGNORECASE,
+    )  # "(5 mm), or the minimum ... 0.154 in": two thresholds
+    if (
+        picks_one.search(match.group("ref"))
+        or number_before.search(before)
+        or alternative
+    ):
         return None
-    if datasheet_roles.roles_of(f"{match.group('cmp')} {match.group('ref')}", _role_rules()):
-        return None  # "maximum allowable working pressure" is a field, not a limit on one
+    if datasheet_roles.roles_of(
+        f"{match.group('cmp')} {match.group('ref')}", _role_rules()
+    ):
+        return (
+            None  # "maximum allowable working pressure" is a field, not a limit on one
+        )
     operator = r3b._OPERATOR.get(r3b._canonical_comparator(match.group("cmp")))
     raw_unit = r3b.unit_token(match.group("unit"))
-    measurement = r3b.measure(match.group("value"), raw_unit) if operator and raw_unit else None
+    measurement = (
+        r3b.measure(match.group("value"), raw_unit) if operator and raw_unit else None
+    )
     if measurement is None or measurement.normalized_unit is None:
         return None
     tail = _alternative_agrees(sentence[match.end() :], measurement)
     if tail is None:
         return None
     clause = re.match(r"\s*,([^.;]*)", tail)
-    if not (re.match(r"\s*(?:[.;]|$)", tail) or (clause is not None and not moves_number.search(clause.group(1)))):
+    if not (
+        re.match(r"\s*(?:[.;]|$)", tail)
+        or (clause is not None and not moves_number.search(clause.group(1)))
+    ):
         return None
-    return {"operator": operator, "raw_value": match.group("value"), "raw_unit": raw_unit, "value": measurement.normalized_value, "unit": measurement.normalized_unit}
+    return {
+        "operator": operator,
+        "raw_value": match.group("value"),
+        "raw_unit": raw_unit,
+        "value": measurement.normalized_value,
+        "unit": measurement.normalized_unit,
+    }
 
 
 @cache
