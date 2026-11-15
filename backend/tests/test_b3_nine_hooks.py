@@ -44,7 +44,7 @@ def _ids(plan):
 
 
 def test_off_lists_no_project_context(lib, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(nine_context, "nine_on", lambda: False)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: False)
     rel, old, _reg = _setup(lib)
     plan = _plan(lib, engine="claude")
     assert rel not in _ids(plan) and old not in _ids(plan)
@@ -60,7 +60,7 @@ def test_on_lists_project_context_with_kind_and_why(lib, monkeypatch):  # noqa: 
         "blocked_by_name",
         lambda n: "blocked register" in (n or "") or real(n),
     )
-    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: True)
     rel, old, reg = _setup(lib)
     plan = _plan(lib, engine="claude")
     rows = _ids(plan)
@@ -82,7 +82,7 @@ def test_datasheet_project_papers_need_the_switch(monkeypatch):
     from app.api import agent_review_schemas as c
 
     body = c.AgentRunRequest(submittal_document_id="d", project_document_ids=["x"])
-    monkeypatch.setattr(nine_context, "nine_on", lambda: False)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: False)
     try:
         ar._checked_project_papers(body, "d", None, False)
         raise AssertionError(
@@ -93,7 +93,7 @@ def test_datasheet_project_papers_need_the_switch(monkeypatch):
 
 
 def test_the_register_held_only_by_checksum_is_never_listed(lib, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: True)
     _rel, _old, reg = _setup(lib)
     sha = "83" * 32
     from app import claude_approved
@@ -104,7 +104,7 @@ def test_the_register_held_only_by_checksum_is_never_listed(lib, monkeypatch):  
 
 
 def test_an_unscored_related_paper_is_not_leaving_under_automatic(lib, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: True)
     monkeypatch.setattr(nine_context, "paper_scored", lambda conn, d: False)
     rel, _old, _reg = _setup(lib)
     from tests.test_b1_review_engine import open_facts
@@ -134,7 +134,7 @@ def test_a_datasheets_project_papers_are_checked_the_same_way_with_the_switch_on
     from app.api import agent_review as ar
     from app.api import agent_review_schemas as c
 
-    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: True)
     seen = {}
 
     def fake(conn, paper, ids, allowed):
@@ -164,7 +164,7 @@ def test_a_related_paper_already_listed_by_the_paper_is_not_listed_twice(
     lib,  # noqa: F811
     monkeypatch,
 ):
-    monkeypatch.setattr(nine_context, "nine_on", lambda: True)
+    monkeypatch.setattr(review_leaving, "nine_switch_on", lambda: True)
     monkeypatch.setattr(nine_context, "paper_scored", lambda conn, d: False)
     rel = _doc("cit_1", "85" * 32, None, filename="SAES-D-002 invented layout.pdf")
     with db.connect() as conn:
@@ -194,3 +194,22 @@ def test_a_related_paper_already_listed_by_the_paper_is_not_listed_twice(
     )
     ids = [r["id"] for r in out["leaving"] + out["not_sent"] if r.get("id")]
     assert ids.count(rel) == 1
+
+
+def test_with_the_switch_off_the_two_hooks_import_no_nine_module():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import app.review_leaving, app.api.agent_review; "
+        "bad = sorted(m for m in sys.modules if m.split('.')[-1].startswith('nine_')); "
+        "print('LOADED', bad); sys.exit(1 if bad else 0)"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]),
+    )
+    assert done.returncode == 0, done.stdout[-400:] + done.stderr[-400:]

@@ -39,8 +39,8 @@ from .. import (
     crs_copy_words,
     agent_review_wording,
     errors,
-    nine_context,
     review_jobs,
+    review_leaving,
     schemas,
     submittal_review,
 )
@@ -185,7 +185,7 @@ def start_agent_run(
             document_id,
             allowed_document_ids=scope.allowed_document_ids,
             requested_by=scope.user_id,
-            project_document_ids=project if general or nine_context.nine_on() else None,
+            project_document_ids=project if general or review_leaving.nine_switch_on() else None,
             fresh=body.fresh,
         )
     except review_jobs.ReviewAlreadyActive as exc:
@@ -214,7 +214,7 @@ def _checked_project_papers(
     unreadable is a 404 like every other document; a rule book, the paper itself or a document with no text is a 422."""
     if not body.project_document_ids:
         return ()
-    if not general and not nine_context.nine_on():
+    if not general and not review_leaving.nine_switch_on():
         raise HTTPException(
             status_code=422,
             detail=errors.safe_error(

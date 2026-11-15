@@ -32,14 +32,6 @@ from .nine_contract import (
 log = logging.getLogger(__name__)
 
 
-def nine_on() -> bool:
-    """`AGENT_REVIEW_NINE_ROLES_ENABLED` (off = today's requests and bytes). Read here once for the two B3 hooks; the flag itself
-    is declared with the job (B5)."""
-    from .config import settings
-
-    return bool(getattr(settings, "agent_review_nine_roles_enabled", False))
-
-
 # The five things a note says about, in this order.
 WHATS = (
     "contract",
