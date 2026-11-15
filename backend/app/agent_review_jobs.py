@@ -370,7 +370,7 @@ def preflight(
         return "the paper has no stored page text"
     problems = items_mod.validate(doc, cache)
     if problems:
-        return f"the item list failed its checks ({len(problems)} problem(s))"
+        return f"the item list failed its checks: {problems[0]} ({len(problems)} problem(s))"
     if rules.norm_kind(block.get("paper_kind")) != rules.norm_kind(kind.kind):
         return "the paper kind of the run differs from the kind the rule filter used"
     docs = sorted(
@@ -415,11 +415,13 @@ def _plan(
     cache: dict = {}
     # Inline selection stores BOOKS only: the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type, shown=review_shown.shown_ids(conn, run_id),
+                                        equipment_type=kind.equipment_type, shown=None if local else review_shown.shown_ids(conn, run_id),
                                         **rule_choice.plan_args(bool(local), ASK_UNAPPROVED))  # fmt: skip
     # A book the list shown before the start does not name is dropped HERE, before any request: none of its text is sent.
-    left_out = review_shown.drop_unlisted(conn, run_id, doc)
-    claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
+    # the list restricts what is SENT to Claude: a local run sends nothing, so it keeps every held book of the paper
+    left_out = [] if local else review_shown.drop_unlisted(conn, run_id, doc)
+    if not local:
+        claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
     _write_rules(run_id, doc, cache, kind.kind)
     refused = preflight(conn, submittal, kind, doc, cache, local)
     if refused:

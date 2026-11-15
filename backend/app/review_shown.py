@@ -122,6 +122,14 @@ def drop_unlisted(conn, run_id: str, doc: dict) -> list[str]:
         doc["items"] = [
             i for i in items if str(i.get("standard_document_id") or "") not in dropped
         ]
+        counts = {
+            "skill": 0,
+            "rule": 0,
+        }  # the item file's own counts stay equal to its items
+        for i in doc["items"]:
+            if i.get("source") in counts:
+                counts[i["source"]] += 1
+        doc["counts"] = counts
     # the rules `build_items_for_run` already left out of the plan (reason NOT_ON_LIST) belong to books dropped the same way
     left = (doc.get("rule_labels") or {}).get("left_out") or []
     dropped |= {
@@ -192,7 +200,9 @@ def cited_unshown(conn, run_id: str, applied_run: str | None = None, extra=()) -
     return len(held_applied(conn, run_id, applied_run, extra))
 
 
-def held_rule_books(conn, run_id: str, applied_run: str | None = None, extra=()) -> list[str]:
+def held_rule_books(
+    conn, run_id: str, applied_run: str | None = None, extra=()
+) -> list[str]:
     """Of the documents held for this run (`held_applied`), the rule books (not specifications): the books the review found only
     while it ran, which were not on the list shown before the start and so were not sent."""
     held = held_applied(conn, run_id, applied_run, extra)
@@ -209,7 +219,9 @@ def held_rule_books(conn, run_id: str, applied_run: str | None = None, extra=())
     return [d for d in held if d not in specs]
 
 
-def found_during_review(conn, run_id: str, applied_run: str | None = None, extra=()) -> int:
+def found_during_review(
+    conn, run_id: str, applied_run: str | None = None, extra=()
+) -> int:
     """How many rule books this run found only while it ran and did not send: the screen's "N more rule books apply to this paper"."""
     return len(held_rule_books(conn, run_id, applied_run, extra))
 

@@ -66,9 +66,11 @@ def start(
     )
     bar = parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
     # The cap: only what the screen showed AND what is still allowed now. None = no list was shown (the older behaviour).
+    # A run that sends nothing (Local only, or Automatic that fell back to the local model) stores NO list: the list only restricts
+    # what is SENT, and an empty one would read as "no book may be used" (live, 15 Nov 2026: the AI review was refused at the start).
     shown = (
         None
-        if shown_document_ids is None
+        if shown_document_ids is None or not plan["text_leaves"]
         else review_shown.cap(plan, shown_document_ids)
     )
     stored_plan = review_shown.without_titles(plan)
