@@ -2,7 +2,9 @@
 writes ONE finding per issue (nine-role reviewer, builder B4).
 
 The model call leaves ONLY through the one call seam of the nine-role review (`nine_call.ask`, builder B1): this module builds the BLOCK
-list (the same list is the request, the document declaration and the role record) and reads the answer. It opens no socket, names no
+list (the same list is the request, the document declaration and the role record) and reads the answer. What a call SENT is read from
+`Answer.reads` (the blocks the gate kept), never from the blocks offered: a block the gate held is in `Answer.not_sent` and a quote
+from a page that was not sent is unverified. It opens no socket, names no
 model, sends nothing by itself. What it sends is decided before: only chapters of the books on the run's stored list (the reading list,
 role 3), the paper, the digest of the fact sheet and the context note.
 
@@ -23,9 +25,9 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
-from . import nine_findings
+from . import nine_call, nine_findings
 from .nine_contract import RawFinding
 
 ROLE_NO = 4
@@ -67,32 +69,6 @@ PROMPT_VERSION = (
 
 
 @dataclass(frozen=True)
-class SeamResult:
-    """What the call seam hands back: the model's text (None when the call did not answer), the error code, the model that answered,
-    the id of the call in the record, and what the call cost (None = not known)."""
-
-    text: str | None
-    error: str | None = None
-    model: str | None = None
-    call_id: str = ""
-    usd: float | None = None
-
-
-class Seam(Protocol):
-    """`nine_call.ask` as this module uses it: the role number, the block list, the question; the system text and the output limit."""
-
-    def __call__(
-        self,
-        role: int,
-        blocks: list[dict],
-        question: str,
-        *,
-        system: str,
-        max_tokens: int,
-    ) -> SeamResult: ...
-
-
-@dataclass(frozen=True)
 class ChapterText:
     """One chapter (or one part of a long one) of a rule book, exactly as stored (nothing cleaned: a quote is checked against the same
     text). `pages`: the pages of the book it covers. Built by the librarian (role 3); this module only packs them."""
@@ -127,84 +103,71 @@ def group_chapters(
 
 
 def prefix_blocks(
-    paper_id: str,
-    paper_pages: Mapping[int, str],
-    digest: str,
-    context: str,
-    run_id: str,
-) -> list[dict]:
+    paper_id: str, paper_pages: Mapping[int, str], digest: str, context: str
+) -> list[nine_call.Block]:
     """The part every call shares (cached after the first): the paper page by page, then the fact-sheet digest and the context note.
-    The digest and the note are the run's own records (`review_record`), not a document."""
+    The digest and the note are records DERIVED from the paper (`review_record` blocks carry the paper's id, so the one gate sees them as
+    what they are: text of the paper under review); they are not separate documents."""
     blocks = [
-        {
-            "document_id": paper_id,
-            "document_kind": "paper",
-            "pages": [n],
-            "chapter_id": None,
-            "part": None,
-            "part_of": None,
-            "text": t,
-        }
+        nine_call.Block(paper_id, "paper", (n,), t)
         for n, t in sorted(paper_pages.items())
         if str(t or "").strip()
     ]
     for label, text in (("fact sheet", digest), ("project context", context)):
         if str(text or "").strip():
             blocks.append(
-                {
-                    "document_id": run_id,
-                    "document_kind": "review_record",
-                    "pages": [],
-                    "chapter_id": label,
-                    "part": None,
-                    "part_of": None,
-                    "text": text,
-                }
+                nine_call.Block(paper_id, "review_record", (), text, chapter_id=label)
             )
     if blocks:
-        blocks[-1] = {**blocks[-1], "cache": True}  # the shared part ends here
+        last = blocks[-1]
+        blocks[-1] = nine_call.Block(
+            last.document_id,
+            last.document_kind,
+            last.pages,
+            last.text,
+            chapter_id=last.chapter_id,
+            cache=True,
+        )  # the shared part ends here
     return blocks
 
 
-def chapter_blocks(group: Sequence[ChapterText]) -> list[dict]:
+def chapter_blocks(group: Sequence[ChapterText]) -> list[nine_call.Block]:
     return [
-        {
-            "document_id": c.book_id, "document_kind": "rule_book", "pages": list(c.pages), "chapter_id": c.chapter_id,
-            "part": c.part_no, "part_of": c.part_of, "text": c.text,
-        }
+        nine_call.Block(
+            c.book_id,
+            "rule_book",
+            tuple(c.pages),
+            c.text,
+            chapter_id=c.chapter_id,
+            part_no=c.part_no,
+            part_of=c.part_of,
+        )
         for c in group
-    ]  # fmt: skip
+    ]
 
 
-def sent_of(
-    call_id: str, blocks: Sequence[Mapping], model: str | None = None
-) -> nine_findings.Sent:
-    """What a call sent, DERIVED from the block list the request was built from (never from the model's answer)."""
+def sent_of(answer: nine_call.Answer) -> nine_findings.Sent:
+    """What a call really sent, read from the ANSWER (`Answer.reads`: one entry per block the gate kept), never from the blocks that were
+    offered. A document the gate held is not in it, so a quote from its pages is unverified."""
     paper: set[int] = set()
     books: dict[str, set[int]] = {}
     refs: list[tuple[str, str, int]] = []
-    for b in blocks:
+    for r in answer.reads:
         pages = {
-            int(p)
-            for p in b.get("pages") or []
-            if isinstance(p, int) and not isinstance(p, bool)
+            int(p) for p in r.pages if isinstance(p, int) and not isinstance(p, bool)
         }
-        if b.get("document_kind") == "paper":
+        if r.document_kind == "paper":
             paper |= pages
-        elif b.get("document_kind") == "rule_book":
-            books.setdefault(str(b.get("document_id")), set()).update(pages)
+        elif r.document_kind == "rule_book":
+            books.setdefault(str(r.document_id), set()).update(pages)
             refs.append(
-                (
-                    str(b.get("document_id")),
-                    str(b.get("chapter_id") or ""),
-                    int(b.get("part") or 1),
-                )
+                (str(r.document_id), str(r.chapter_id or ""), int(r.part_no or 1))
             )
     return nine_findings.Sent(
-        call_id,
+        answer.call_id,
         frozenset(paper),
         {k: frozenset(v) for k, v in books.items()},
-        model,
+        answer.model,
         tuple(dict.fromkeys(refs)),
     )
 
@@ -277,8 +240,9 @@ def parse_findings(text: str | None) -> list[RawFinding] | None:
 
 @dataclass
 class ReviewerRun:
-    """What role 4 returned: every raw finding with what ITS call sent, and the counts for the record. `ok` False (every call failed, or
-    nothing was asked, or no finding came back) means role 5 asks every item."""
+    """What role 4 returned: every raw finding with what ITS call really sent, and the counts for the record. `ok` False (every call failed,
+    nothing was asked, or no finding came back) means role 5 asks every item. Groups not read (failed, not asked, held by the role budget)
+    are listed in `unread`: no finding covers their rules, so role 5 asks those items (the run is never weaker than today's)."""
 
     raw: list[tuple[RawFinding, nine_findings.Sent]] = field(default_factory=list)
     groups: int = 0
@@ -287,6 +251,11 @@ class ReviewerRun:
     not_asked: int = 0
     usd: float | None = 0.0
     errors: list[str] = field(default_factory=list)
+    budget_stopped: bool = False
+    not_sent: list[tuple[str, str]] = field(
+        default_factory=list
+    )  # (document id, code) the gate held, over every call
+    unread: list[list[ChapterText]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -294,47 +263,111 @@ class ReviewerRun:
 
     @property
     def partly(self) -> bool:
-        return bool(self.failed or self.not_asked)
+        return bool(
+            self.failed or self.not_asked or self.budget_stopped or self.not_sent
+        )
+
+    def state(self) -> tuple[str, str | None]:
+        """(role state, why) for the record: "ran" when every group was read; "ran_partly" with the reason when some were not; "not_run"
+        when no call answered."""
+        if self.answered == 0:
+            why = (
+                "role budget reached before any call"
+                if self.budget_stopped
+                else (
+                    "no call answered: " + ", ".join(sorted(set(self.errors)))
+                    if self.errors
+                    else "nothing was asked"
+                )
+            )
+            return "not_run", why
+        if self.partly:
+            parts = []
+            if self.budget_stopped:
+                parts.append("role budget reached")
+            if self.failed:
+                parts.append(f"{self.failed} call(s) failed")
+            if self.not_asked:
+                parts.append(f"{self.not_asked} chapter group(s) not asked")
+            if self.not_sent:
+                parts.append(f"{len(self.not_sent)} document(s) held by the gate")
+            return "ran_partly", "; ".join(
+                parts
+            ) + f"; {len(self.unread)} of {self.groups} chapter group(s) not read"
+        return "ran", None
+
+    def produced(self) -> dict[str, int]:
+        """Counts only, for `produced_json` of the record."""
+        return {
+            "raw_findings": len(self.raw),
+            "chapter_groups": self.groups,
+            "answered": self.answered,
+            "failed": self.failed,
+            "not_asked": self.not_asked,
+            "unread_groups": len(self.unread),
+        }
 
 
 def review(
-    seam: Seam,
-    prefix: Sequence[dict],
+    run_id: str,
+    prefix: Sequence[nine_call.Block],
     groups: Sequence[Sequence[ChapterText]],
     *,
+    ask: Callable[..., nine_call.Answer] = nine_call.ask,
+    engine: str = "claude",
+    model: str | None = None,
     max_tokens: int = 8000,
+    send: Callable | None = None,
+    local_send: Callable[[dict], dict] | None = None,
+    env: dict | None = None,
+    meter: Any = None,
+    gate: nine_call.RoleGate | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     concurrency: int = CONCURRENCY,
 ) -> ReviewerRun:
-    """One call per chapter group, `concurrency` at a time, each through the seam with prefix + that group's blocks. A group not asked
-    because `should_stop()` says so (a cap, a stop) is counted `not_asked`; a failed call is counted and its error code kept (codes only).
-    The result order follows the groups, so the same inputs give the same findings."""
+    """One call per chapter group through the seam, `concurrency` at a time, each with prefix + that group's blocks. A group is `not_asked`
+    when `should_stop()` says so or the role budget was already reached (`Answer.error_code == "role_budget"`: the role ends ran_partly);
+    a failed or refused call is counted and its code kept (codes only). What each call SENT is read from its Answer. Results follow the
+    group order, so the same inputs give the same findings."""
     run = ReviewerRun(groups=len(groups))
+    gate = gate or nine_call.RoleGate.for_role(ROLE_NO)
+    stop = {"budget": False}
 
-    def one(group: Sequence[ChapterText]) -> tuple[SeamResult | None, list[dict]]:
-        if should_stop():
-            return None, []
-        blocks = [*prefix, *chapter_blocks(group)]
-        return seam(
-            ROLE_NO, blocks, question_of(group), system=SYSTEM, max_tokens=max_tokens
-        ), blocks
+    def one(group: Sequence[ChapterText]) -> nine_call.Answer | None:
+        if should_stop() or stop["budget"]:
+            return None
+        got = ask(
+            run_id, ROLE_NO, [*prefix, *chapter_blocks(group)], question_of(group), engine=engine, system=SYSTEM, model=model,
+            max_tokens=max_tokens, send=send, local_send=local_send, env=env, meter=meter, gate=gate,
+        )  # fmt: skip
+        if got.error_code == "role_budget":
+            stop["budget"] = True
+        return got
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         results = list(pool.map(one, groups))
-    for res, blocks in results:
+    for group, res in zip(groups, results, strict=True):
         if res is None:
             run.not_asked += 1
+            run.unread.append(list(group))
+            continue
+        run.not_sent.extend(res.not_sent)
+        if res.error_code == "role_budget":
+            run.budget_stopped = True
+            run.not_asked += 1
+            run.unread.append(list(group))
             continue
         if res.usd is not None and run.usd is not None:
             run.usd += res.usd
-        elif res.usd is None:
-            run.usd = None  # one call's cost is not known: the sum is not known (never shown as 0)
-        parsed = parse_findings(res.text) if res.error is None else None
+        elif res.usd is None and res.ok:
+            run.usd = None  # an answered call whose cost is not known: the sum is not known (never shown as 0)
+        parsed = parse_findings(res.text) if res.ok else None
         if parsed is None:
             run.failed += 1
-            run.errors.append(res.error or "unreadable_reply")
+            run.errors.append(res.error_code or "unreadable_reply")
+            run.unread.append(list(group))
             continue
         run.answered += 1
-        sent = sent_of(res.call_id, blocks, res.model)
+        sent = sent_of(res)
         run.raw.extend((r, sent) for r in parsed)
     return run

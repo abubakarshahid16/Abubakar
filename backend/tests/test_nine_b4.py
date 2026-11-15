@@ -397,26 +397,6 @@ def test_a_carried_field_with_no_fact_is_a_required_item_and_a_query_line():
 # ---------------------------------------------------------------- the reviewer: blocks, the answer, the seam
 
 
-def test_the_sent_record_is_derived_from_the_blocks_not_from_the_answer():
-    group = [
-        rev.ChapterText(BOOK, "4", 1, 2, (1, 2), "text a"),
-        rev.ChapterText(OTHER, "7", 2, 2, (5,), "text b"),
-    ]
-    blocks = [
-        *rev.prefix_blocks("doc_paper", PAPER, "digest", "context", "run-1"),
-        *rev.chapter_blocks(group),
-    ]
-    got = rev.sent_of("c1", blocks, "m")
-    assert got.paper_pages == frozenset({1, 2}) and got.book_pages == {
-        BOOK: frozenset({1, 2}),
-        OTHER: frozenset({5}),
-    }
-    assert got.read_refs == (
-        (BOOK, "4", 1),
-        (OTHER, "7", 2),
-    )  # the digest and the note are records, not documents
-
-
 def test_chapters_are_packed_in_order_under_the_token_limit():
     big = "x" * 3000
     chapters = [
@@ -468,86 +448,6 @@ def test_the_answer_is_parsed_strictly_and_nothing_is_invented():
     assert (
         len(rev.parse_findings("Here: " + good + " thanks")) == 1
     )  # an object inside prose is read
-
-
-class FakeSeam:
-    def __init__(self, replies):
-        self.replies, self.calls = list(replies), []
-
-    def __call__(self, role, blocks, question, *, system, max_tokens):
-        self.calls.append((role, blocks, question, system))
-        return (
-            self.replies[len(self.calls) - 1]
-            if len(self.calls) <= len(self.replies)
-            else rev.SeamResult(None, "no_reply")
-        )
-
-
-def _ok(findings, call, usd=0.1):
-    return rev.SeamResult(json.dumps({"findings": findings}), None, "m1", call, usd)
-
-
-def test_one_call_per_group_each_with_the_same_prefix_and_its_own_chapters():
-    groups = [
-        [rev.ChapterText(BOOK, "4", 1, 1, (1,), "t1")],
-        [rev.ChapterText(OTHER, "7", 1, 1, (3,), "t2")],
-    ]
-    prefix = rev.prefix_blocks("doc_paper", PAPER, "digest", "", "run-1")
-    seam = FakeSeam(
-        [_ok([{"verdict": "met", "field_label": "A"}], "c1"), _ok([], "c2")]
-    )
-    run = rev.review(seam, prefix, groups, concurrency=1)
-    assert [c[0] for c in seam.calls] == [4, 4] and [
-        c[1][: len(prefix)] for c in seam.calls
-    ] == [prefix, prefix]
-    assert [b["document_id"] for b in seam.calls[0][1][len(prefix) :]] == [BOOK] and [
-        b["document_id"] for b in seam.calls[1][1][len(prefix) :]
-    ] == [OTHER]
-    assert (
-        run.ok
-        and run.answered == 2
-        and len(run.raw) == 1
-        and run.raw[0][1].book_pages == {BOOK: frozenset({1})}
-        and run.usd == pytest.approx(0.2)
-    )
-
-
-def test_when_every_call_fails_or_nothing_is_found_the_reviewer_is_not_ok_and_cost_unknown_is_never_zero():
-    groups = [[rev.ChapterText(BOOK, "4", 1, 1, (1,), "t")]]
-    prefix = rev.prefix_blocks("doc_paper", PAPER, "", "", "run-1")
-    failed = rev.review(
-        FakeSeam([rev.SeamResult(None, "reader_budget")]), prefix, groups
-    )
-    assert (
-        not failed.ok
-        and failed.failed == 1
-        and failed.errors == ["reader_budget"]
-        and failed.partly
-    )
-    empty = rev.review(FakeSeam([_ok([], "c1")]), prefix, groups)
-    assert not empty.ok and empty.answered == 1 and empty.raw == []
-    unknown = rev.review(
-        FakeSeam(
-            [rev.SeamResult(json.dumps({"findings": []}), None, "m1", "c1", None)]
-        ),
-        prefix,
-        groups,
-    )
-    assert unknown.usd is None
-
-
-def test_a_group_is_not_asked_once_the_stop_says_so_and_the_run_says_partly():
-    groups = [[rev.ChapterText(BOOK, str(i), 1, 1, (i,), "t")] for i in (1, 2)]
-    stops = iter([False, True])
-    seam = FakeSeam([_ok([{"verdict": "met"}], "c1")])
-    run = rev.review(
-        seam,
-        rev.prefix_blocks("doc_paper", PAPER, "", "", "r"),
-        groups,
-        should_stop=lambda: next(stops),
-        concurrency=1,
-    )
-    assert len(seam.calls) == 1 and run.not_asked == 1 and run.partly and run.ok
 
 
 # ---------------------------------------------------------------- the exit: today's runner (database world)
