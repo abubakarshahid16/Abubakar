@@ -343,6 +343,7 @@ def run(
     lane: Callable[[], tuple],
     heartbeat: Callable[[], None] | None = None,
     combined: bool = False,
+    refuse: str | None = None,
 ) -> dict:
     """The whole general review of one paper. Returns what the job's `_done` needs (counts, stop reason, USD, partial)."""
     conn = connect()
@@ -357,7 +358,9 @@ def run(
     accepted, problems = core.check_project_papers(
         conn, submittal, requested_papers(conn, run_id), scope
     )
-    refused = preflight(decision, problems, agent_review_schema.shape_problem(conn))
+    refused = refuse or preflight(
+        decision, problems, agent_review_schema.shape_problem(conn)
+    )  # `refuse`: the local engine does not run this review yet (said, nothing asked)
     if refused:
         return _finish(
             conn,

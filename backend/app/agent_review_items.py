@@ -618,6 +618,7 @@ def build_items_for_run(
     cache: dict,
     equipment_type,
     ask_unapproved,
+    shown=None,
 ) -> dict:
     """`build_items` for the AI reviewer's job. The candidates are ALWAYS the rules of the books the selection included, the
     path a fresh run takes; stored per-rule scope decisions (a finished classic review of the paper, reused by the job) ADD
@@ -629,8 +630,15 @@ def build_items_for_run(
         rows = merged_candidates(
             book_rows, decision_rows(conn, scope_run, kind.get("kind"), allowed)
         )
+    unlisted: list[dict] = []
+    if (
+        shown is not None
+    ):  # a run started with a list asks only the rules of the books the list names
+        unlisted = [r for r in rows if r["standard_document_id"] not in shown]
+        rows = [r for r in rows if r["standard_document_id"] in shown]
     doc = build_items(conn, document_id, kind, run_id=scope_run, cache=cache, equipment_type=equipment_type,
-                      equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows)  # fmt: skip
+                      equipment_filter="type", ask_unapproved=ask_unapproved, requirement_rows=rows,
+                      unlisted_rows=unlisted)  # fmt: skip
     block = doc.setdefault("rule_labels", {})
     other = books_not_selected(conn, scope_run, doc.get("paper_kind"), allowed)
     books = agent_review_text.books_included(conn, scope_run, allowed)
@@ -671,6 +679,7 @@ def build_items(
     equipment_type: str | None = None,
     ask_unapproved: str = "off",
     equipment_filter: str = "off",
+    unlisted_rows: list[dict] | None = None,
 ) -> dict:
     """The item list for one paper, from the database (read only; `conn` is the caller's connection).
 
@@ -692,6 +701,10 @@ def build_items(
     eq_ctx = rules_mod.load_equipment(conn, document_id, equipment_filter)
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]
+    unlisted = [
+        {**r, "standard": names.get(r["standard_document_id"])}
+        for r in unlisted_rows or []
+    ]
     reqs, lab_left, why_kept = rules_mod.filter_rows(
         conn,
         reqs,
@@ -701,6 +714,12 @@ def build_items(
         ask_unapproved=ask_unapproved,
         equipment=eq_ctx,
     )
+    # The rules of a rule book the list shown before the start does not name are LEFT OUT, one reason each, and not counted as stored
+    # rules of this review.
+    lab_left += [
+        rules_mod.left_out_record(r, {"reason": rules_mod.NOT_ON_LIST}, "id")
+        for r in unlisted
+    ]
     block = rules_mod.label_block(
         rules_mod.count_left_out(lab_left),
         lab_left,
