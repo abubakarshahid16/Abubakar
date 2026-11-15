@@ -12,6 +12,7 @@ import type { DocumentRecord } from "../../../types/api";
 import { PageImageViewer } from "../../PageImageViewer";
 import { AddPoint } from "./AddPoint";
 import { BottomRow } from "./BottomRow";
+import { OlderFiles } from "./OlderFiles";
 import { CodeBox } from "./CodeBox";
 import { EngineBar } from "./EngineBar";
 import { KindLine } from "./KindLine";
@@ -77,12 +78,16 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         </div>
       )}
       {tab === "sheet" && <div data-testid="v2-sheet-tab">{sheetTab}</div>}
-      {tab === "how" && <div data-testid="v2-how-tab">{howTab}</div>}
+      {tab === "how" && (
+        <div data-testid="v2-how-tab">
+          {howTab}
+          {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} />}
+        </div>
+      )}
 
       {listing && (
-        <BottomRow ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} undecided={undecided}
-          codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign}
-          contractorWords={listing.contractor_copy?.words ?? null} />
+        <BottomRow documentId={documentId} undecided={undecided}
+          codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign} />
       )}
       {viewing && submittal && <PageImageViewer doc={submittal} initialPage={viewing.page} onClose={() => setViewing(null)} />}
     </section>

@@ -65,6 +65,9 @@ export const agentReview = {
   /** The AI reviewer's CRS file (its own route, not the old export); the filename is the server's. */
   crsFile: (runId: string, copy: "internal" | "contractor") =>
     fetchBlob(`${run(runId)}/agent/crs?copy=${copy}`, `CRS_${runId}_${copy}.xlsx`),
+  /** K4: the ONE file of a paper, drawn from the page's own points (every point the page counts); the filename is the server's. */
+  paperCrsFile: (documentId: string, copy: "team" | "contractor") =>
+    fetchBlob(`/reviews/papers/${encodeURIComponent(documentId)}/crs?copy=${copy}`, `CRS_${copy}.xlsx`),
 };
 
 /** Authenticated GET of a file: the session header, never a token in the URL. */

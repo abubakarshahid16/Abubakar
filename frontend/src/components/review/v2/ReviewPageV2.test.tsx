@@ -12,7 +12,7 @@ import { costWords, engineWords, signWaits, tileLine, wontRunWords } from "./wor
 
 const api = {
   list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(), recordYes: vi.fn(),
-  ofDocument: vi.fn(), kinds: vi.fn(), confirmKind: vi.fn(), decideCode: vi.fn(), downloadCrs: vi.fn(), downloadAgentCrs: vi.fn(),
+  ofDocument: vi.fn(), kinds: vi.fn(), confirmKind: vi.fn(), decideCode: vi.fn(), downloadCrs: vi.fn(), downloadAgentCrs: vi.fn(), downloadPaperCrs: vi.fn(),
 };
 vi.mock("../../../api/reviewPoints", async (orig) => ({
   ...(await orig<typeof import("../../../api/reviewPoints")>()),
@@ -30,7 +30,9 @@ vi.mock("../../../api/documents", () => ({
 }));
 vi.mock("../../../api/client", () => ({ reviews: { decideCode: (...a: unknown[]) => api.decideCode(...a) } }));
 vi.mock("../downloadCrs", () => ({ downloadCrs: (...a: unknown[]) => api.downloadCrs(...a) }));
-vi.mock("../agent/downloadAgentCrs", () => ({ downloadAgentCrs: (...a: unknown[]) => api.downloadAgentCrs(...a) }));
+vi.mock("../agent/downloadAgentCrs", () => ({
+  downloadAgentCrs: (...a: unknown[]) => api.downloadAgentCrs(...a), downloadPaperCrs: (...a: unknown[]) => api.downloadPaperCrs(...a),
+}));
 vi.mock("../../PageImageViewer", () => ({
   PageImageViewer: ({ initialPage }: { initialPage?: number }) => <div data-testid="viewer">viewer at page {initialPage}</div>,
 }));
@@ -113,6 +115,7 @@ beforeEach(() => {
   api.kinds.mockResolvedValue(ok({ kinds: [{ id: "datasheet", label: "Datasheet" }] }));
   api.downloadCrs.mockResolvedValue(null);
   api.downloadAgentCrs.mockResolvedValue(null);
+  api.downloadPaperCrs.mockResolvedValue(null);
 });
 
 const loaded = async () => { await screen.findByTestId("v2-points"); };
@@ -417,36 +420,34 @@ describe("11 the bottom row", () => {
     expect(signWaits({ undecided: 0, codeRecorded: true, blockers: ["2 pages are not read"] })).toBe("Sign and issue waits: 2 pages are not read.");
     expect(signWaits({ undecided: 0, codeRecorded: true })).toBeNull();
   });
-  it("downloads the two copies of both reviewers and says what the contractor file holds", async () => {
+  it("each button downloads ONE file of the paper, and says what the contractor file holds", async () => {
     mount(); await loaded();
     fireEvent.click(screen.getByRole("button", { name: "CRS for your team" }));
-    await waitFor(() => expect(api.downloadCrs).toHaveBeenCalledWith("rc1", "internal"));
-    expect(api.downloadAgentCrs).toHaveBeenCalledWith("ai1", "internal");
+    await waitFor(() => expect(api.downloadPaperCrs).toHaveBeenCalledWith("doc1", "team"));
     fireEvent.click(screen.getByRole("button", { name: "CRS for the contractor (working copy, not issued)" }));
-    await waitFor(() => expect(api.downloadAgentCrs).toHaveBeenCalledWith("ai1", "contractor"));
-    expect(api.downloadCrs).not.toHaveBeenCalledWith("rc1", "issue"); // the one issuing path signs; nothing else asks for it
-    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("never carries an AI wording");
+    await waitFor(() => expect(api.downloadPaperCrs).toHaveBeenCalledWith("doc1", "contractor"));
+    expect(api.downloadPaperCrs).toHaveBeenCalledTimes(2);
+    expect(api.downloadCrs).not.toHaveBeenCalled();
+    expect(api.downloadAgentCrs).not.toHaveBeenCalled();
+    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("the failures code proved that you kept, the rule check's Not met points that you kept, and your own words");
   });
-  it("says what the contractor file holds from the backend's own answer, in both states, never a fixed claim", async () => {
-    const words = "The contractor file holds what code proved, your own words, and the AI's not-met verdicts that two readers agreed on, which this kind of paper allows.";
-    api.list.mockResolvedValue(ok(listing({ contractor_copy: { kind: "datasheet", words } })));
-    const first = mount(); await loaded();
-    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent(words);
-    expect(screen.getByTestId("v2-contractor-line")).not.toHaveTextContent("never carries an AI wording");
-    first.unmount();
-    api.list.mockResolvedValue(ok(listing()));
+  it("keeps the older per-run files under How it was reviewed", async () => {
     mount(); await loaded();
-    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("never carries an AI wording");
+    fireEvent.click(screen.getByRole("tab", { name: "How it was reviewed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rule check, internal copy" }));
+    await waitFor(() => expect(api.downloadCrs).toHaveBeenCalledWith("rc1", "internal"));
+    fireEvent.click(screen.getByRole("button", { name: "AI review, contractor copy" }));
+    await waitFor(() => expect(api.downloadAgentCrs).toHaveBeenCalledWith("ai1", "contractor"));
   });
   it("the contractor button says it is the working copy, and after signing still not the issued file", async () => {
     mount({ signed: true }); await loaded();
     expect(screen.getByRole("button", { name: "CRS for the contractor (working copy)" })).toBeInTheDocument();
   });
-  it("without an AI review the contractor button waits for signing and says so", async () => {
+  it("without an AI review the contractor button still gives the working copy and says so", async () => {
     api.list.mockResolvedValue(ok(listing({ runs: { rule_check: "rc1", ai_review: null } })));
     mount(); await loaded();
-    expect(screen.getByRole("button", { name: "CRS for the contractor (working copy, not issued)" })).toBeDisabled();
-    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("made when you sign and issue");
+    expect(screen.getByRole("button", { name: "CRS for the contractor (working copy, not issued)" })).toBeEnabled();
+    expect(screen.getByTestId("v2-contractor-line")).toHaveTextContent("working copy until you sign and issue");
   });
 });
 

@@ -265,7 +265,8 @@ def _names(ids) -> dict[str, str]:
     }
 
 
-def assemble(paper_id: str, scope) -> dict:
+def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
+    """(the listing, the RAW points with their private keys, the facts the one-CRS export needs). `assemble` is the listing alone."""
     conn = connect()
     rc_run, ai_run = runs_of_paper(conn, paper_id)
     readable = frozenset(scope.allowed_document_ids)
@@ -315,7 +316,7 @@ def assemble(paper_id: str, scope) -> dict:
         if (rc_run or ai_run)
         else None
     )
-    return {
+    listing = {
         "paper_document_id": paper_id,
         "runs": {"rule_check": rc_run, "ai_review": ai_run},
         "points": [rp.public(p) for p in points],
@@ -332,6 +333,16 @@ def assemble(paper_id: str, scope) -> dict:
         ],
         "contractor_copy": _contractor_copy(conn, ai_run),
     }
+    return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
+
+
+def assemble(paper_id: str, scope) -> dict:
+    return _assemble(paper_id, scope)[0]
+
+
+def export_listing(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
+    """The listing, the raw points (private keys kept) and the facts for the ONE CRS file (`crs_one`): the same list the page reads."""
+    return _assemble(paper_id, scope)
 
 
 def _unread_pages(run_id: str | None, scope) -> int | None:

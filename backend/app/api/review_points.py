@@ -1,6 +1,7 @@
 """The redesigned review page's routes: ONE list of points per paper, a decision on each, and the engineer's own added points (owner,
 12 Nov 2026; SPEC.md).
 
+    GET  /api/reviews/papers/{document_id}/crs?copy=team|contractor   ONE workbook from that list (K4: nothing left out)
     GET  /api/reviews/papers/{document_id}/points            the merged list worst first, the tile counts, the proposed review code
     POST /api/reviews/papers/{document_id}/points/decision   Keep, Edit or Remove one point (Edit needs text, Remove a one-line reason)
     POST /api/reviews/papers/{document_id}/points/decisions  Keep several points at once ("Keep all" of a group)
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import (
@@ -218,6 +219,36 @@ def points(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     return svc.assemble(document_id, scope)
+
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get(
+    "/api/reviews/papers/{document_id}/crs",
+    dependencies=ON,
+    response_class=Response,
+    responses={200: {"content": {_XLSX: {}}, "description": "ONE workbook from the page's points"}, **schemas.ERRORS_404},
+)
+def one_crs(
+    document_id: str,
+    request: Request,
+    copy: Literal["team", "contractor"] = "team",
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """K4: the ONE team file or the ONE contractor file of a paper, drawn from the same list the page counts. After signing, the
+    contractor file is the issued one, byte for byte."""
+    reject_unknown_params(request, {"copy"})
+    require_document(document_id, scope)
+    from .. import crs_one
+
+    if copy == "contractor" and (issued := crs_one.issued_file(document_id)):
+        data, name = issued[1], issued[0]["filename"]
+    elif copy == "contractor":
+        data, name = crs_one.build_contractor(document_id, scope), crs_one.FILE_CONTRACTOR
+    else:
+        data, name = crs_one.build_team(document_id, scope), crs_one.FILE_TEAM
+    return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.post(

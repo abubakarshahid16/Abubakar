@@ -3456,6 +3456,9 @@ def issue_review_crs(
         from . import review_points_service
 
         review_points_service.archive_ai_contractor_copy(review_run_id, actor=scope.user_id or "unrestricted")
+        from . import crs_one  # K4: the ONE contractor file, built by the same builder as the working copy, kept the same way
+
+        crs_one.archive_issued(review_run_id, scope, actor=scope.user_id or "unrestricted")
     return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
                                                "X-Issued-Sha256": record["sha256"]})
 

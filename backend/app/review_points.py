@@ -302,6 +302,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "added_by": None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
     }
 
 
@@ -426,6 +427,8 @@ def rule_point(
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_row_key": key,
+        "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
+        "_finding": finding,
     }
 
 
@@ -542,15 +545,34 @@ def _book_of(conn, run_id: str) -> dict[str, tuple[str | None, str | None]]:
     }
 
 
+def stored_class_wins(line: dict, row) -> dict:
+    """The class and the word the run STORED for a line (`agent_review_line.verdict_class` and `word`, written through the one exit
+    that refuses an unproven Pass) are the line's class. The line's own json keeps the label it had BEFORE that exit: a Pass the
+    exit would not stand behind is stored as "AI thinks: met", and the json still says "Proven by code" / "Pass". Read from the json
+    alone, such a line was a Question on the page and a Pass on the older sheet (K4: 4 lines of the valve review). Here the stored
+    class decides, so the page, the points list and the one CRS file all say what the run stored."""
+    from . import agent_review_wording as wording
+
+    out = dict(line)
+    cls, word = row["verdict_class"], row["word"]
+    if cls:
+        out["verdict_class"] = cls
+        if cls in (wording.CLASS_OPINION, wording.CLASS_UNAPPROVED) and word:
+            out["verdict_label"] = word
+    return out
+
+
 def ai_points_of_run(
     conn, run_id: str, paper_document_id: str, readable: frozenset[str]
 ) -> tuple[list[dict], list[str]]:
     """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
     read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
     lines = [
-        {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
+        stored_class_wins(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
+        )
         for r in conn.execute(
-            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
+            "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
             (run_id,),
         )
     ]

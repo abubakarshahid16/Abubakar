@@ -754,7 +754,10 @@ def test_the_signed_copy_is_frozen_byte_for_byte_whatever_happens_after():
         )
     issued = _issue(client, run)
     assert issued.status_code == 200, issued.text
-    copies = client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"]
+    every = client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"]
+    # K4: the ONE contractor file is archived with it (the same builder), next to the rule check's own copy
+    assert [c["filename"] for c in every].count("crs-contractor-one.xlsx") == 1
+    copies = [c for c in every if c["filename"] != "crs-contractor-one.xlsx"]
     sha, copy_id = copies[0]["sha256"], copies[0]["id"]
     assert hashlib.sha256(issued.content).hexdigest() == sha
     ai_copies = client.get(f"/api/reviews/runs/{ai}/crs/issued").json()["copies"]
@@ -789,8 +792,14 @@ def test_the_signed_copy_is_frozen_byte_for_byte_whatever_happens_after():
         == ai_bytes
     )
     assert (
-        client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"] == copies
+        client.get(f"/api/reviews/runs/{run}/crs/issued").json()["copies"] == every
     )  # the record is unchanged too
+    one = [c for c in every if c["filename"] == "crs-contractor-one.xlsx"][0]
+    assert client.get(f"/api/reviews/runs/{run}/crs/issued/{one['id']}").content[:2] == b"PK"
+    assert (
+        client.get(f"/api/reviews/papers/{doc}/crs?copy=contractor").content
+        == crs_issue.issued_bytes(run, one["id"])[1]
+    )  # K4: after signing the page's contractor button serves the issued bytes, whatever was decided since
 
 
 # ------------------------------------------------------------------------------------------ the two decision records
