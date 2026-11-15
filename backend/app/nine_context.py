@@ -211,7 +211,7 @@ Ask = Callable[["ProjectPaper", Sequence[int]], Mapping | None]
 None. The adapter sends NO text: only (kind, document id, pages) as a Block; `seam_ask` is the one adapter."""
 
 #: the app-owned vocabularies of the derived blocks of this role (registered once, at import)
-FIELDS_VOCAB = nine_call.vocabulary("ctx_fields", rule_labels.field_list())
+FIELDS_VOCAB = nine_call.vocabulary("ctx_fields", [w for w in rule_labels.field_list() if len(w) <= 24][:300])  # WIP BACKUP ONLY: B3 owns the real fix
 CODES_VOCAB = nine_call.vocabulary(
     "ctx_codes",
     (
