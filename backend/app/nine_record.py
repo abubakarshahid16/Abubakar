@@ -1,12 +1,14 @@
 """The stored record of a nine-role review (owner order, 15 Nov 2026, STATE section 60; SPEC section B): what each role READ and PRODUCED.
 
-Three tables, owned by this module (its own `ensure_schema`; `agent_review_schema.py` is not touched):
+Four tables, owned by this module (its own `ensure_schema`; `agent_review_schema.py` is not touched):
 
     agent_review_role        one row per run and role (nine, written at the run's start, all "not run: not reached"); each role
                              updates its own row at its start and its end
     agent_review_role_call   one row per model call of a nine-role request: step, engine, model, the request's digest, the state,
                              the error code and the cost (NULL = not known, never 0)
     agent_review_role_read   one row per document block of that request: document id and kind, pages, chapter, part, size, checksum
+    agent_review_role_cell   one row per cell of a derived block sent to Claude: its kind (a typed token, or "source": which document and
+                             page it was found on, and where) and its checksum, so the checker can re-read the span (no cell text)
 
 IDS, NUMBERS, CODES AND CHECKSUMS ONLY. Never a title, a file name or any text of a document, and no model output: the rows are
 written by CODE from the block list a request was built from (`nine_call.ask`), so the record cannot say something else than what
@@ -18,7 +20,9 @@ This module opens no socket, calls no model and reads no document text.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from .db import connect
@@ -30,11 +34,46 @@ from .nine_contract import (
     RoleRecord,
 )
 
-ROLES_TABLE, CALLS_TABLE, READS_TABLE = (
+ROLES_TABLE, CALLS_TABLE, READS_TABLE, CELLS_TABLE = (
     "agent_review_role",
     "agent_review_role_call",
     "agent_review_role_read",
+    "agent_review_role_cell",
 )
+#: the kinds of a derived cell: a typed token, or text found in one of the block's own sources
+CELL_KINDS = ("number", "clause", "standard", "enum", "code", "id", "unit", "source")
+#: a typed cell is at most this long (a source cell may be longer: it is checked against the stored text instead)
+MAX_TYPED_CELL = 64
+HELD_MIN_CHARS = (
+    12  # a string this long that occurs in a refused document's stored text is refused
+)
+
+
+@dataclass(frozen=True)
+class CellEntry:
+    """One cell of a derived block, as the seam classified it. No cell text: a checksum of the folded cell and, for a source cell, where
+    it was found (`fold` of the page text, character offset and length)."""
+
+    block_name: str
+    row_no: int
+    col_no: int
+    kind: str
+    chars: int
+    cell_sha256: str
+    source_document_id: str | None = None
+    source_page: int | None = None
+    span_start: int | None = None
+    span_len: int | None = None
+
+
+_WS = re.compile(r"\s+")
+
+
+def fold(text: str) -> str:
+    """The one way text is compared by the seam and the checker: lower case, runs of white space as one space, trimmed."""
+    return _WS.sub(" ", str(text)).strip().lower()
+
+
 NOT_REACHED = "not reached"
 CALL_STATES = ("sent", "answered", "failed", "refused", "reused")
 ROLE_STATES = ("ran", "ran_partly", "not_run")
@@ -103,7 +142,29 @@ def ensure_schema(conn=None) -> None:
             chars         INTEGER NOT NULL DEFAULT 0,
             text_sha256   TEXT NOT NULL,
             pictures      INTEGER NOT NULL DEFAULT 0,
+            char_from     INTEGER,
+            char_to       INTEGER,
             PRIMARY KEY (run_id, call_id, seq)
+        )"""
+    )
+    conn.execute(
+        f"""CREATE TABLE IF NOT EXISTS {CELLS_TABLE} (
+            run_id             TEXT NOT NULL,
+            role_no            INTEGER NOT NULL CHECK (role_no BETWEEN 1 AND 9),
+            call_id            TEXT NOT NULL,
+            block_name         TEXT NOT NULL,
+            row_no             INTEGER NOT NULL,
+            col_no             INTEGER NOT NULL,
+            kind               TEXT NOT NULL CHECK (kind IN ('number','clause','standard','enum','code','id','unit','source')),
+            chars              INTEGER NOT NULL,
+            cell_sha256        TEXT NOT NULL,
+            source_document_id TEXT,
+            source_page        INTEGER,
+            span_start         INTEGER,
+            span_len           INTEGER,
+            PRIMARY KEY (run_id, call_id, block_name, row_no, col_no),
+            CHECK (kind <> 'source' OR (source_document_id IS NOT NULL AND source_page IS NOT NULL
+                                        AND span_start IS NOT NULL AND span_len IS NOT NULL))
         )"""
     )
 
@@ -153,7 +214,7 @@ def role_end(
     ensure_schema(conn)
     _check_role(role_no)
     _check(state, ROLE_STATES, "state")
-    why = _short_why(why)
+    why = _short_why(why, conn, run_id)
     if state != "ran" and not why:
         raise ValueError(f"role {role_no} did not run in full and gives no reason")
     if engine is not None:
@@ -235,9 +296,11 @@ def call_sent(
     question_id: str | None = None,
     system_id: str | None = None,
     params_sha256: str | None = None,
+    cells: list[CellEntry] | tuple[CellEntry, ...] = (),
+    ranges: list | tuple = (),
     conn=None,
 ) -> None:
-    """The `sent` row and one read row per document block of the request, in ONE transaction. Written when the body is about to be
+    """The `sent` row, one read row per document block of the request and one cell row per cell of a derived block, in ONE transaction. Written when the body is about to be
     handed to the transport, AFTER the spend reservation succeeded: a call refused at the reservation never has these rows."""
     conn = conn or connect()
     ensure_schema(conn)
@@ -265,10 +328,31 @@ def call_sent(
                 now(),
             ),
         )
+        for c in cells:
+            _check(c.kind, CELL_KINDS, "cell kind")
+            conn.execute(
+                f"INSERT INTO {CELLS_TABLE} (run_id, role_no, call_id, block_name, row_no, col_no, kind, chars, cell_sha256,"
+                " source_document_id, source_page, span_start, span_len) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    role_no,
+                    call_id,
+                    c.block_name,
+                    c.row_no,
+                    c.col_no,
+                    c.kind,
+                    c.chars,
+                    c.cell_sha256,
+                    c.source_document_id,
+                    c.source_page,
+                    c.span_start,
+                    c.span_len,
+                ),
+            )
         for seq, r in enumerate(reads):
             conn.execute(
                 f"INSERT INTO {READS_TABLE} (run_id, role_no, call_id, seq, document_id, document_kind, pages_json, chapter_id,"
-                " part_no, part_of, chars, text_sha256, pictures) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " part_no, part_of, chars, text_sha256, pictures, char_from, char_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run_id,
                     role_no,
@@ -283,6 +367,8 @@ def call_sent(
                     r.chars,
                     r.text_sha256,
                     r.pictures,
+                    (ranges[seq] or (None, None))[0] if seq < len(ranges) else None,
+                    (ranges[seq] or (None, None))[1] if seq < len(ranges) else None,
                 ),
             )
 
@@ -481,10 +567,79 @@ def _check(value, allowed, what: str) -> None:
 MAX_WHY = 120  # a reason is a code or one short plain sentence: never document text
 
 
-def _short_why(why: str | None) -> str | None:
+def cells_of(run_id: str, call_id: str, conn=None) -> list[CellEntry]:
+    """The cell rows written for one call, in order."""
+    conn = conn or connect()
+    ensure_schema(conn)
+    return [
+        CellEntry(
+            r["block_name"],
+            r["row_no"],
+            r["col_no"],
+            r["kind"],
+            r["chars"],
+            r["cell_sha256"],
+            r["source_document_id"],
+            r["source_page"],
+            r["span_start"],
+            r["span_len"],
+        )
+        for r in conn.execute(
+            f"SELECT * FROM {CELLS_TABLE} WHERE run_id = ? AND call_id = ? ORDER BY block_name, row_no, col_no",
+            (run_id, call_id),
+        )
+    ]
+
+
+WHY_WITHHELD = "why_withheld_held_text"
+_WHY_CODE = re.compile(r"^[a-z][a-z0-9_]{1,60}$")
+
+
+def refused_documents(run_id: str, ids) -> dict[str, str]:
+    """{document id: code} for each of `ids` the one approval gate refuses for a Claude call of this run."""
+    from . import claude_approved
+
+    out: dict[str, str] = {}
+    for doc in dict.fromkeys(ids):
+        with claude_approved.carrying([doc]), claude_approved.reviewing(run_id):
+            found = claude_approved.refusal()
+        if found is not None:
+            out[doc] = found[0]
+    return out
+
+
+def held_text_hits(
+    conn, run_id: str, values, *, min_chars: int = HELD_MIN_CHARS
+) -> set[str]:
+    """The values of `values` (strings of `min_chars` or more) that occur in the stored text of a document the gate refuses for this
+    run, case and white space folded. The other half of the typed-or-sourced rule: whatever a source or a type admits, words of a
+    held document never go. One query per value over the stored pages."""
+    hits: set[str] = set()
+    for value in values:
+        probe = fold(value)
+        if len(probe) < min_chars:
+            continue
+        rows = conn.execute(
+            "SELECT DISTINCT document_id FROM pages WHERE instr(lower(replace(replace(replace(text, char(10), ' '), char(13), ' '),"
+            " char(9), ' ')), ?) > 0 OR instr(text, ?) > 0",
+            (probe, str(value)),
+        ).fetchall()
+        if rows and refused_documents(run_id, [r["document_id"] for r in rows]):
+            hits.add(value)
+    return hits
+
+
+def _short_why(why: str | None, conn=None, run_id: str | None = None) -> str | None:
+    """A reason is a code (`not_reached`) or one short plain sentence. A sentence is checked against the stored text of every refused
+    document: three words (12 characters or more) of it in a held document's pages replace the whole reason by a code."""
     text = str(why or "").strip()
     if len(text) > MAX_WHY or "\n" in text or "\r" in text:
         raise ValueError(f"a reason is at most {MAX_WHY} characters on one line")
+    if text and conn is not None and run_id and not _WHY_CODE.match(text):
+        words = text.split()
+        windows = {" ".join(words[i : i + 3]) for i in range(max(1, len(words) - 2))}
+        if held_text_hits(conn, run_id, windows):
+            return WHY_WITHHELD
     return text or None
 
 

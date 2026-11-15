@@ -16,13 +16,19 @@ created. Prints the nine rows and, per role, what it read (ids, kinds, pages, si
   7. a read row belongs to a call that was not really sent (no call row, or a `refused` call);
   8. a Claude call has no question template id recorded (its words did not come from a registered template).
 
-No model is called and no document text is read. Importable: `check(conn, run_id, ledger)` returns the list of problems.
+  9. a derived block sent to Claude (a read row of kind `review_record`) has no cell rows, a cell row is of an unknown kind, a typed cell
+     is longer than 64 characters, or a source cell does not re-verify: its document is not one of the block's read rows, or the stored
+     page text, folded, does not hold the cell's recorded span with the recorded checksum.
+
+No model is called and no document text is printed (the stored pages are read only to re-verify a span). Importable: `check(conn, run_id, ledger)` returns the list of problems.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -37,6 +43,84 @@ NINE_STEPS = (
     "nine_writer",
 )
 CODE_ROLES = (7, 8)
+
+
+TYPED_KINDS = ("number", "clause", "standard", "enum", "code", "id", "unit")
+MAX_TYPED_CELL = 64
+
+
+def fold(text: str) -> str:
+    """The same folding as `nine_record.fold` (this tool imports nothing from the app): lower case, white space runs as one space."""
+    return re.sub(r"\s+", " ", str(text)).strip().lower()
+
+
+def _cell_problems(conn, run_id: str, reads, calls) -> list[str]:
+    if not _has(conn, "agent_review_role_cell"):
+        cells: list = []
+    else:
+        cells = conn.execute(
+            "SELECT * FROM agent_review_role_cell WHERE run_id = ?", (run_id,)
+        ).fetchall()
+    claude = {
+        c["call_id"]
+        for c in calls
+        if c["engine"] == "claude" and c["state"] != "refused"
+    }
+    out: list[str] = []
+    names = {
+        (x["call_id"], x["chapter_id"])
+        for x in reads
+        if x["document_kind"] == "review_record" and x["call_id"] in claude
+    }
+    have = {(c["call_id"], c["block_name"]) for c in cells}
+    for call_id, name in sorted(names - have):
+        out.append(
+            f"call {call_id}: derived block {name} was sent to Claude with no cell rows"
+        )
+    pages: dict = {}
+    for c in cells:
+        where = f"call {c['call_id']} block {c['block_name']} cell {c['row_no']}:{c['col_no']}"
+        if c["kind"] in TYPED_KINDS:
+            if c["chars"] > MAX_TYPED_CELL:
+                out.append(
+                    f"{where}: a typed {c['kind']} cell of {c['chars']} characters"
+                )
+            continue
+        if c["kind"] != "source":
+            out.append(f"{where}: unknown cell kind {c['kind']}")
+            continue
+        doc, page = c["source_document_id"], c["source_page"]
+        if (c["call_id"], doc) not in {
+            (x["call_id"], x["document_id"])
+            for x in reads
+            if x["chapter_id"] == c["block_name"]
+        }:
+            out.append(f"{where}: its source is not one of the block's read rows")
+            continue
+        if (doc, page) not in pages:
+            row = (
+                conn.execute(
+                    "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+                    (doc, page),
+                ).fetchone()
+                if _has(conn, "pages")
+                else None
+            )
+            pages[(doc, page)] = None if row is None else fold(row["text"])
+        text = pages[(doc, page)]
+        span = (
+            None
+            if text is None
+            else text[c["span_start"] : c["span_start"] + c["span_len"]]
+        )
+        if (
+            span is None
+            or hashlib.sha256(span.encode("utf-8")).hexdigest() != c["cell_sha256"]
+        ):
+            out.append(
+                f"{where}: the stored page does not hold the cell at the recorded place"
+            )
+    return out
 
 
 def connect_read_only(db_path: Path) -> sqlite3.Connection:
@@ -183,6 +267,8 @@ def check(
             problems.append(
                 f"call {c['call_id']} (role {c['role_no']}) has no question template recorded"
             )
+
+    problems += _cell_problems(conn, run_id, reads, calls)  # 9
 
     for role_no, key, table in (
         (1, "facts", "agent_review_fact"),

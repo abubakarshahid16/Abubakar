@@ -10,7 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from app import claude_spend, db, nine_call, nine_record, review_shown, submittal_review
+from app import (
+    claude_spend,
+    db,
+    nine_call,
+    nine_record,
+    review_engine,
+    review_shown,
+    submittal_review,
+)
 from app.config import settings
 from app.nine_call import Block, FakeTransport
 
@@ -49,6 +57,15 @@ def run(tmp_path, monkeypatch):
             (NOW, NOW),
         )
         review_shown.record_in(conn, "r", ["paper", "book"], NOW)
+        review_engine.record_in(
+            conn,
+            "r",
+            {"choice": "claude", "text_leaves": True, "parts": []},
+            "starter1",
+            then_ai=False,
+            bar_claude=False,
+            now=NOW,
+        )
         for doc, text in (("paper", "paper words"), ("book", "book words")):
             for n in (1, 2, 4):
                 conn.execute(
@@ -180,3 +197,48 @@ def test_a_claude_call_without_a_question_template_fails(run):
     with db.connect() as conn:
         conn.execute("UPDATE agent_review_role_call SET question_id = NULL")
     assert any("has no question template recorded" in p for p in problems())
+
+
+def _derived_call(run):
+    block = Block(
+        "review_record",
+        name="notes",
+        sources=("paper",),
+        items=(("f:1:1", "paper words"),),
+    )
+    answer = nine_call.ask(
+        run,
+        4,
+        [block],
+        (Q, {"book": "book"}),
+        send=FakeTransport(["{}"]),
+        env=FakeTransport.ENV,
+    )
+    assert answer.ok
+    return answer.call_id
+
+
+def test_a_verified_derived_block_passes_and_each_planted_cell_fault_fails(run):
+    call_id = _derived_call(run)
+    assert problems() == []
+    with (
+        db.connect() as conn
+    ):  # (a) the recorded span no longer matches the stored page
+        conn.execute(
+            "UPDATE pages SET text = 'other text here' WHERE document_id = 'paper'"
+        )
+    assert any("does not hold the cell" in p for p in problems())
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = 'paper words' WHERE document_id = 'paper'"
+        )
+        conn.execute("UPDATE agent_review_role_cell SET chars = 70 WHERE kind = 'code'")
+    assert any(
+        "typed code cell of 70" in p for p in problems()
+    )  # (b) a typed cell that is prose-sized
+    with db.connect() as conn:
+        conn.execute("UPDATE agent_review_role_cell SET chars = 5 WHERE kind = 'code'")
+        conn.execute("DELETE FROM agent_review_role_cell WHERE call_id = ?", (call_id,))
+    assert any(
+        "no cell rows" in p for p in problems()
+    )  # (c) a derived block sent with no cells
