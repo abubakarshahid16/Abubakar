@@ -474,6 +474,7 @@ def _finding_through(
     world,
     verdict,
     *,
+    label="Coating thickness",
     clause=None,
     paper_quote="Coating thickness: 0.35 mm",
     figs=True,
@@ -481,6 +482,9 @@ def _finding_through(
     clause_pages=(1,),
 ):
     runner, plan = _runner(world, tier)
+    plan["R-frame"]["field_roles"] = [
+        "coating_thickness"
+    ]  # the rule's field (the plan item carries it)
     quote = clause or s.RULES["R-frame"][0]
     books = standards.BookPages()
     call = nf.Sent("c1", frozenset({1}), {s.STD: frozenset(clause_pages)}, "m1", ())
@@ -501,7 +505,7 @@ def _finding_through(
     ]
     pages = {1: s.PAPER_PAGE}
     built = nf.process(
-        [(raw(clause_quote=quote, paper_quote=paper_quote, verdict=verdict, field_label="Design pressure", **extra), call)],
+        [(raw(clause_quote=quote, paper_quote=paper_quote, verdict=verdict, field_label=label, **extra), call)],
         paper_pages=pages, books=books, rules=rows, plan_items=plan, tier_lookup=lambda _i: tier,
     )  # fmt: skip
     lines = nf.decide_all(runner, built, pages, "fake-lead-model-1")
@@ -518,7 +522,7 @@ def test_a_number_rule_finding_is_decided_by_code_through_the_runners_own_exit(w
         and line["compare"]["decided"] is True
     )
     assert (
-        line["field_roles"] == ["design_pressure"]
+        line["field_roles"] == ["coating_thickness"]
         and line["paper_page"] == 1
         and line["item_id"] == "R-frame"
     )
@@ -668,3 +672,241 @@ def test_no_nine_module_of_this_part_names_a_class_or_a_word_or_sets_a_decision(
             r"\[\s*[\"'](verdict_class|word|decided_by|verdict_label)[\"']\s*\]\s*=|[\"'](verdict_class|verdict_label|decided_by)[\"']\s*:",
             text,
         ), name
+
+
+# ---------------------------------------------------------------- R65 F1: findings matched to ONE rule are ONE line, never overwritten
+
+
+def _two_on_one_rule(
+    v1="met", v2="not_met", l1="Coating thickness", l2="Total film build"
+):
+    books = books_of(**{BOOK: {1: RULE_A}})
+    call = sent(**{BOOK: {1}})
+    plan = {
+        "R-1": {
+            "item_id": "R-1",
+            "source": "rule",
+            "rule_version_id": "1",
+            "comparator": ">=",
+            "value": 0.2,
+            "unit": "mm",
+        }
+    }
+    return nf.process(
+        [(raw(verdict=v1, field_label=l1), sent("c1", **{BOOK: {1}})), (raw(verdict=v2, field_label=l2), sent("c2", **{BOOK: {1}}))],
+        paper_pages=PAPER, books=books, rules=RULES, plan_items=plan, tier_lookup=lookup_ai,
+    ), call  # fmt: skip
+
+
+def test_two_findings_matched_to_one_rule_with_different_verdicts_are_ONE_query_and_both_stay_countable():
+    built, _call = _two_on_one_rule()
+    assert (
+        len(built) == 1
+    )  # one item id = one stored line: the "not met" cannot vanish behind the "met"
+    b = built[0]
+    assert (
+        b.item["item_id"] == "R-1"
+        and b.finding.contradiction is True
+        and b.finding.ai_verdict == "cannot_tell"
+    )
+    assert b.finding.members == ("c1", "c2") and b.underlying == 2
+    assert b.answer["verdict"] == "Query" and b.answer["reasoning"] == nf.DISAGREE
+
+
+def test_two_findings_matched_to_one_rule_with_one_verdict_are_one_finding_with_both_members():
+    built, _call = _two_on_one_rule("not_met", "not_met")
+    assert (
+        len(built) == 1
+        and built[0].finding.ai_verdict == "not_met"
+        and built[0].finding.contradiction is False
+    )
+    assert built[0].finding.members == ("c1", "c2") and built[0].underlying == 2
+
+
+def test_a_collision_at_the_exit_raises_never_overwrites(world):
+    runner, _plan = _runner(world)
+    built, _c = _two_on_one_rule()
+    twice = [built[0], built[0]]
+    with pytest.raises(nf.ItemCollision):
+        nf.decide_all(runner, twice, {1: s.PAPER_PAGE}, "fake-lead-model-1")
+    nf.decide_all(runner, built[:1], {1: s.PAPER_PAGE}, "fake-lead-model-1")
+    with pytest.raises(
+        nf.ItemCollision
+    ):  # a second step cannot overwrite the line this step wrote
+        nf.decide_all(runner, built[:1], {1: s.PAPER_PAGE}, "fake-lead-model-1")
+
+
+def test_the_stored_line_says_how_many_findings_it_stands_for(world):
+    runner, _plan = _runner(world)
+    built, _c = _two_on_one_rule()
+    line = nf.decide_all(runner, built, {1: s.PAPER_PAGE}, "fake-lead-model-1")[0]
+    assert (
+        line["nine_underlying"] == 2
+        and line["nine_members"] == ["c1", "c2"]
+        and isinstance(line["nine_notes"], list)
+    )
+
+
+# ---------------------------------------------------------------- R65 F3: what covers a rule
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"ai_verdict": "not_applicable"},
+        {"ai_verdict": "not_stated"},
+        {"ai_verdict": "cannot_tell"},
+        {"paper_quote": None},
+        {"clause_page": None},
+        {"contradiction": True},
+    ],
+)
+def test_only_a_met_or_not_met_with_both_quotes_verified_covers_its_rule(change):
+    import dataclasses
+
+    f = dataclasses.replace(_finding(), **change)
+    assert ids(checklist.plan(ITEMS, [f]).to_ask) == ["R-1", "R-2", "S-3"], change
+    for ok in ("met", "not_met"):
+        assert ids(
+            checklist.plan(
+                ITEMS, [dataclasses.replace(_finding(), ai_verdict=ok)]
+            ).to_ask
+        ) == ["R-2", "S-3"]
+
+
+def test_the_paper_quote_of_a_finding_is_recorded_only_when_code_found_it():
+    books = books_of(**{BOOK: {1: RULE_A}})
+    bad = nf.check_raw(
+        raw(paper_quote="Coating thickness: 0.99 mm"), sent(**{BOOK: {1}}), PAPER, books
+    )
+    good = nf.check_raw(raw(), sent(**{BOOK: {1}}), PAPER, books)
+    for c, want in ((bad, None), (good, "Coating thickness: 0.35 mm")):
+        b = nf.build(
+            nf.join([c])[0],
+            rules=RULES,
+            plan_items={},
+            tier_lookup=lookup_ai,
+            book_text=lambda *_a: RULE_A,
+        )
+        assert b.finding.paper_quote == want
+
+
+# ---------------------------------------------------------------- R65 F4: short quotes and the clause number
+
+
+SHORT = "shall be 4 mm"  # 13 characters
+BOOK_HEADS = {
+    1: "4.1 Frame\nThe plate shall be 4 mm thick.\nOther text of this clause.",
+    2: "4.2 Marking\nThe mark shall be red and fixed to the plate.",
+}
+
+
+def test_a_short_clause_quote_counts_only_on_the_page_the_finding_claims():
+    books = books_of(**{BOOK: BOOK_HEADS})
+    both = frozenset({1, 2})
+    assert (
+        nf.verify_sent(BOOK, SHORT, [1, 2], both, books, None).why
+        == nf.SHORT_NEEDS_PAGE
+    )  # no page claimed
+    assert (
+        nf.verify_sent(BOOK, SHORT, [1, 2], both, books, 2).found is False
+    )  # claimed page 2 does not hold it
+    got = nf.verify_sent(BOOK, SHORT, [1, 2], both, books, 1)
+    assert got.found and got.page == 1
+    assert (
+        nf.verify_sent(BOOK, SHORT, [1], frozenset({1}), books, 2).why
+        == nf.SHORT_NEEDS_PAGE
+    )  # the claimed page was not sent
+
+
+def test_a_short_quote_that_also_stands_on_another_sent_page_is_not_matched_there():
+    books = books_of(**{BOOK: {1: FILL, 2: "A line: shall be 4 mm elsewhere."}})
+    assert (
+        nf.verify_sent(BOOK, SHORT, [1, 2], frozenset({1, 2}), books, 1).found is False
+    )
+
+
+def test_the_clause_number_is_checked_against_where_the_quote_stands_when_the_headings_allow():
+    book = G.Book(BOOK_HEADS)
+    assert nf.clause_number_status(book, "4.1", 1) == "ok"
+    assert nf.clause_number_status(book, "4.2", 1) == "mismatch"  # 4.2 starts on page 2
+    assert nf.clause_number_status(book, "9.9", 1) == "not checked"  # no heading 9.9
+    assert nf.clause_number_status(book, None, 1) == "not checked"
+
+
+def test_a_wrong_clause_number_makes_the_clause_quote_unverified_and_a_missing_heading_is_said():
+    books = books_of(**{BOOK: BOOK_HEADS})
+    call = sent(**{BOOK: {1, 2}})
+    wrong = nf.check_raw(
+        raw(clause="4.2", clause_quote="The plate shall be 4 mm thick.", clause_page=1),
+        call,
+        PAPER,
+        books,
+    )
+    assert wrong.clause_ok is False and wrong.clause_why == nf.CLAUSE_NUMBER_MISMATCH
+    right = nf.check_raw(
+        raw(clause="4.1", clause_quote="The plate shall be 4 mm thick.", clause_page=1),
+        call,
+        PAPER,
+        books,
+    )
+    assert right.clause_ok and right.notes == ()
+    unknown = nf.check_raw(
+        raw(clause="9.9", clause_quote="The plate shall be 4 mm thick.", clause_page=1),
+        call,
+        PAPER,
+        books,
+    )
+    assert unknown.clause_ok and unknown.notes == (nf.CLAUSE_NUMBER_NOT_CHECKED,)
+
+
+# ---------------------------------------------------------------- R65 F5: the finding's field must be the matched rule's field
+
+
+def test_a_design_pressure_finding_does_not_ride_a_coating_thickness_rule():
+    plan = {
+        "R-1": {
+            "item_id": "R-1",
+            "source": "rule",
+            "rule_version_id": "1",
+            "field_roles": ["coating_thickness"],
+            "comparator": ">=",
+            "value": 0.2,
+            "unit": "mm",
+        }
+    }
+    wrong = _built(plan=plan, field_label="Design pressure")
+    assert (
+        wrong.item["item_id"].startswith("F-")
+        and wrong.finding.matched_rule_id is None
+        and wrong.item["rule_tier"] == V.RULE_NOT_APPROVED
+    )
+    right = _built(plan=plan, field_label="Coating thickness")
+    assert right.item["item_id"] == "R-1" and right.finding.matched_rule_id == "1"
+
+
+def test_the_field_comparison_uses_registry_roles_then_words_and_a_rule_with_no_field_contradicts_nothing():
+    assert (
+        nf.fields_agree("Design pressure", ("design_pressure",), ["design_pressure"])
+        is True
+    )
+    assert (
+        nf.fields_agree("Design pressure", ("design_pressure",), ["design_temperature"])
+        is False
+    )
+    assert (
+        nf.fields_agree("Zzq coating", (), ["zzq_coating"]) is True
+    )  # words, no registry role
+    assert nf.fields_agree("Zzq coating", (), ["other thing"]) is False
+    assert (
+        nf.fields_agree("Anything", (), []) is True
+        and nf.fields_agree("Anything", (), None) is True
+    )
+
+
+def test_a_wrong_field_finding_through_the_runner_is_never_proven_by_code(world):
+    _b, lines, _r = _finding_through(world, "met", label="Design pressure")
+    assert (
+        lines[0]["item_id"].startswith("F-")
+        and lines[0]["verdict_class"] != "Proven by code"
+    )

@@ -24,16 +24,17 @@ calls the runner. No model, no network, no document text written to a log.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import agent_bind, datasheet_roles, nine_match
 from . import agent_review_absence as absence
 from . import agent_review_pass_guards as guards
 from . import agent_review_standards as standards
 from . import agent_review_verdict as verdict
-from . import datasheet_roles, nine_match
 from .crs_comments import DISAGREE
 from .nine_contract import AiVerdict, Finding, FindingOrigin, RawFinding
 from .reader_api import _fold
@@ -47,6 +48,11 @@ CLAUSE_NOT_SENT = (
 CLAUSE_NOT_FOUND = "the clause quote is not in the rule book's stored pages"
 CLAUSE_AMBIGUOUS = "the clause quote is in more than one of the books sent in that call"
 NO_BOOK = "the call sent no rule book page to find the clause quote in"
+SHORT_NEEDS_PAGE = "a short clause quote must stand on the page the finding names"
+CLAUSE_NUMBER_MISMATCH = (
+    "the clause number the finding names does not run over the page the quote stands on"
+)
+CLAUSE_NUMBER_NOT_CHECKED = "clause number not checked"
 MAX_CLAUSE_ENTRY_CHARS = 8000
 
 #: the answer shape of today's first reader, per reviewer verdict: (verdict word of the ANSWER, reason code)
@@ -91,6 +97,9 @@ class Checked:
     clause_why: str | None
     clause_where: str | None = None
     clause_scanned: bool = False
+    notes: tuple[
+        str, ...
+    ] = ()  # what code could not check, in words ("clause number not checked")
 
 
 # ---------------------------------------------------------------- 1. verify
@@ -108,16 +117,36 @@ def verdict_of(raw: Mapping) -> AiVerdict | None:
     return word if word in ANSWER_OF else None  # type: ignore[return-value]
 
 
+def _short(quote: Any) -> bool:
+    return len(" ".join(str(quote or "").split())) < guards.OFF_PAGE_MIN
+
+
 def verify_sent(
     book_id: str,
     quote: Any,
     hint: Any,
     sent_pages: frozenset[int],
     books: standards.BookPages,
+    claimed_page: int | None = None,
 ) -> guards.Located:
     """The clause quote found by `agent_review_standards.verify` (a wrapper of the one check, `pass_guards.locate`) AND standing on a page that
     was sent: a found `Located` (true page, where, scanned) or a not-found one whose `why` says which. When the first place it was found is a
-    page that was not sent, it is searched again among the sent pages only: the same text can stand on both."""
+    page that was not sent, it is searched again among the sent pages only: the same text can stand on both. A SHORT quote (under
+    `guards.OFF_PAGE_MIN` characters) matches by chance, so it counts only on the one page the finding claims, which must have been sent."""
+    if _short(quote):
+        if claimed_page is None or claimed_page not in sent_pages:
+            return guards.Located(False, why=SHORT_NEEDS_PAGE)
+        got = standards.verify(book_id, quote, [claimed_page], books)
+        return (
+            got
+            if got.found and got.page == claimed_page
+            else guards.Located(False, why=got.why or SHORT_NEEDS_PAGE)
+        )
+    hint = (
+        [claimed_page, *sorted(sent_pages)]
+        if claimed_page in sent_pages
+        else (hint if hint is not None else sorted(sent_pages))
+    )
     got = standards.verify(book_id, quote, hint, books)
     if not got.found:
         return got
@@ -138,6 +167,27 @@ def verify_sent(
         ],
     )
     return again if again.found else guards.Located(False, why=CLAUSE_NOT_SENT)
+
+
+def clause_number_status(book: guards.Book, clause: str | None, page: int) -> str:
+    """Whether the clause number the finding names runs over the page the quote was found on, WHERE THE BOOK'S HEADINGS ALLOW: "ok", "mismatch"
+    (the heading reader knows the clause and it does not run over that page) or "not checked" (no clause number given, or no heading of it
+    found). Approximate by design: the clause's span is compared with the page's span, not with the line."""
+    from . import subject_scope
+
+    keys = standards._clause_keys(str(clause or ""))
+    if not keys or page not in book.pages:
+        return "not checked"
+    text = subject_scope.StandardText(sorted(book.pages.items()))
+    bounds = text.page_bounds.get(page)
+    spans = [sp for key in keys for sp in text.spans(key)]
+    if not spans or bounds is None:
+        return "not checked"
+    return (
+        "ok"
+        if any(start < bounds[1] and end > bounds[0] for start, _soft, end in spans)
+        else "mismatch"
+    )
 
 
 def check_raw(
@@ -170,6 +220,12 @@ def check_raw(
         return Checked(raw, call, None, paper_ok, paper_why, False, None, NO_BOOK)
     hits: list[tuple[str, guards.Located]] = []
     last_why: str | None = None
+    claimed = (
+        raw.get("clause_page")
+        if isinstance(raw.get("clause_page"), int)
+        and not isinstance(raw.get("clause_page"), bool)
+        else None
+    )
     for book_id in wanted:
         got = verify_sent(
             book_id,
@@ -177,6 +233,7 @@ def check_raw(
             sorted(call.book_pages[book_id]),
             call.book_pages[book_id],
             books,
+            claimed,
         )
         if got.found and got.page is not None:
             hits.append((book_id, got))
@@ -184,6 +241,19 @@ def check_raw(
             last_why = got.why
     if len(hits) == 1:
         book_id, got = hits[0]
+        status = clause_number_status(books.book(book_id), raw.get("clause"), got.page)
+        if status == "mismatch":
+            return Checked(
+                raw,
+                call,
+                book_id,
+                paper_ok,
+                paper_why,
+                False,
+                None,
+                CLAUSE_NUMBER_MISMATCH,
+            )
+        notes = (CLAUSE_NUMBER_NOT_CHECKED,) if status == "not checked" else ()
         return Checked(
             raw,
             call,
@@ -195,6 +265,7 @@ def check_raw(
             None,
             got.where,
             got.scanned,
+            notes,
         )
     if len(hits) > 1:
         return Checked(
@@ -310,6 +381,35 @@ def join(
 # ---------------------------------------------------------------- 2 and 4. match, item, answer
 
 
+def fields_agree(
+    label: str | None,
+    roles: Sequence[str],
+    rule_fields: Sequence[Any] | None,
+    rules: Mapping | None = None,
+) -> bool:
+    """Is the finding about the same FIELD as the stored rule it matched on text? The rule's field (the plan item's `field_roles`, the rule row's
+    field) is compared with the finding's: registry roles when both resolve, else the content words of the two names. A rule that names no
+    field has nothing to contradict. A finding about "design pressure" must not ride a rule about coating thickness to a decision."""
+    fields = [str(f).strip() for f in (rule_fields or []) if str(f or "").strip()]
+    if not fields:
+        return True
+    rules = rules or absence.registry()
+    known: set[str] = set()
+    for f in fields:
+        known.update(
+            datasheet_roles.roles_of(f, rules)
+            or datasheet_roles.roles_of(f.replace("_", " "), rules)
+        )
+        if f in rules["roles"]:
+            known.add(f)
+    if roles and known:
+        return bool(set(roles) & known)
+    return bool(
+        agent_bind.content_words(str(label or ""))
+        & agent_bind.content_words(" ".join(fields).replace("_", " "))
+    )
+
+
 def clause_sentence(quote: str, page_text: str) -> str:
     """The text the item holds as the requirement: the ONE whole sentence of the book's page that holds the verified quote when there is
     exactly one (`verdict.widen_to_sentence`), else the quote itself. Always contains the quote."""
@@ -329,6 +429,10 @@ class Built:
     item: dict
     answer: dict
     cache: dict[str, dict]
+    notes: tuple[
+        str, ...
+    ] = ()  # what code could not check ("clause number not checked"); put on the stored line
+    underlying: int = 1  # how many joined raw findings this one finding stands for (every one stays countable)
 
 
 def build(
@@ -363,6 +467,13 @@ def build(
             j.book_id, str(raw.get("clause_quote")), rules, tier_lookup
         )
     base = plan_items.get(matched.item_id or "") if matched.matched else None
+    if base is not None and not fields_agree(
+        j.field_label, j.field_roles, base.get("field_roles")
+    ):
+        base, matched = (
+            None,
+            nine_match.Match(None, None, None, nine_match.WHY_FIELD, 1),
+        )  # a different field: no match, an F- item
     if base is not None:
         item = {
             **base,
@@ -402,12 +513,62 @@ def build(
     finding = Finding(
         finding_id=fid, item_id=item_id, origin=origin, book_id=j.book_id, clause=j.clause, clause_page=lead.clause_page, clause_where=lead.clause_where, clause_scanned=lead.clause_scanned,
         field_label=j.field_label, field_roles=tuple(j.field_roles), tag=j.tag, paper_page=raw.get("paper_page") if isinstance(raw.get("paper_page"), int) else None,
-        paper_quote=str(raw.get("paper_quote") or "") or None, clause_quote=str(raw.get("clause_quote") or "") or None,
+        paper_quote=(str(raw.get("paper_quote") or "") or None) if lead.paper_ok else None, clause_quote=str(raw.get("clause_quote") or "") or None,
         ai_verdict=j.ai_verdict, matched_rule_id=matched.rule_id if base is not None else None, rule_tier=tier,
         members=tuple(m.call.call_id for m in j.members), contradiction=j.contradiction,
         read_refs=tuple(dict.fromkeys(r for m in j.members for r in m.call.read_refs)),
     )  # fmt: skip
-    return Built(finding, item, answer, cache)
+    return Built(finding, item, answer, cache, lead.notes, len(j.members))
+
+
+# ---------------------------------------------------------------- one line per item: join AFTER the match
+
+
+def _strength(b: Built) -> tuple[int, int]:
+    """Which of two findings of one item leads: a verified clause, then a verified paper quote."""
+    return (int(b.finding.clause_page is not None), int(bool(b.finding.paper_quote)))
+
+
+def _merge_two(a: Built, b: Built) -> Built:
+    """Two findings matched to the SAME rule are one item and so ONE line: same verdict = one finding (the stronger leads); different
+    verdicts = ONE Query "the readers disagree", never a winner. Members and counts are summed: every underlying finding stays countable."""
+    lead, other = (a, b) if _strength(a) >= _strength(b) else (b, a)
+    members = tuple(dict.fromkeys([*a.finding.members, *b.finding.members]))
+    disagree = (
+        a.finding.contradiction
+        or b.finding.contradiction
+        or a.finding.ai_verdict != b.finding.ai_verdict
+    )
+    finding = dataclasses.replace(
+        lead.finding,
+        members=members,
+        contradiction=disagree,
+        ai_verdict="cannot_tell" if disagree else lead.finding.ai_verdict,
+    )
+    answer = dict(lead.answer)
+    if disagree:
+        answer.update(
+            verdict="Query", reason_code="other", reasoning=DISAGREE, comment=DISAGREE
+        )
+        answer.pop("pages_searched", None)
+    return Built(
+        finding,
+        lead.item,
+        answer,
+        {**other.cache, **lead.cache},
+        tuple(dict.fromkeys([*a.notes, *b.notes])),
+        a.underlying + b.underlying,
+    )
+
+
+def merge_same_item(built: Iterable[Built]) -> list[Built]:
+    """The joined findings keyed by ITEM id after the match: the runner stores one line per item id, so findings that matched one rule are
+    merged here (never overwritten). The order of first appearance is kept."""
+    out: dict[str, Built] = {}
+    for b in built:
+        iid = str(b.item["item_id"])
+        out[iid] = _merge_two(out[iid], b) if iid in out else b
+    return list(out.values())
 
 
 # ---------------------------------------------------------------- the exit: today's runner
@@ -421,6 +582,11 @@ def register(runner: Any, built: Built) -> None:
     )  # the run's ClauseCache: the verified sentence is the book's own text
 
 
+class ItemCollision(ValueError):
+    """Two findings of one run would be stored as ONE line (the same item id): never overwritten, never silent (the completeness count
+    is page = database = file). `merge_same_item` joins them first; reaching here is a programming error."""
+
+
 def decide_all(
     runner: Any,
     built: Iterable[Built],
@@ -429,14 +595,34 @@ def decide_all(
     usd_share: float = 0.0,
 ) -> list[dict]:
     """Every finding through the runner's own path: `decide` (gate, holds, context check), the silent-line step, then `emit` (the one
-    exit, `final_cap`). Returns the stored lines. This module never sets a class, a word or a decision."""
+    exit, `final_cap`). Returns the stored lines. The line also carries `nine_members` (the call ids of every raw finding it stands for),
+    `nine_underlying` (how many) and `nine_notes` (what code could not check). A second finding for an item id that already has a line of
+    this step RAISES `ItemCollision`. This module never sets a class, a word or a decision."""
+    built = list(built)
+    ids = [str(b.item["item_id"]) for b in built]
+    if len(ids) != len(set(ids)):
+        raise ItemCollision(
+            "two findings share one item id: join them first (`merge_same_item`)"
+        )
+    done = runner.__dict__.setdefault("_nine_emitted", set())
+    if done & set(ids):
+        raise ItemCollision(
+            "a finding of an earlier step already has a line for this item id"
+        )
     lines: list[dict] = []
     box = runner._box()
     for b in built:
         register(runner, b)
         line = runner.decide(b.item, b.answer, paper_pages, model, None, box, usd_share)
         line = runner.reread_silent_line(b.item, line, model, box)
+        line = {
+            **line,
+            "nine_members": list(b.finding.members),
+            "nine_underlying": b.underlying,
+            "nine_notes": list(b.notes),
+        }
         runner.emit(line)
+        done.add(str(b.item["item_id"]))
         lines.append(runner.lines[str(b.item["item_id"])])
     return lines
 
@@ -473,7 +659,7 @@ def process(
     def text_of(book_id: str, page: int) -> str:
         return books.book(book_id).pages.get(page, "")
 
-    return [
+    return merge_same_item(
         build(
             j,
             rules=rules,
@@ -483,4 +669,4 @@ def process(
             book_label=book_label,
         )
         for j in joined
-    ]
+    )
