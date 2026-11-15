@@ -47,7 +47,7 @@ function ReadsLine({ reads }: { reads: RoleRead[] }) {
   return (
     <p className="text-xs text-slateish-400" data-testid="role-reads">
       Read {reads.length} block(s)
-      {shown.length > 0 && <>: {shown.map((r, i) => `${r.name ?? r.document_kind} (${r.document_kind.replace(/_/g, " ")}, pages ${r.pages.join(", ")})`).join("; ")}</>}
+      {shown.length > 0 && <>: {shown.map((r) => `${r.name ?? r.document_kind} (${r.document_kind.replace(/_/g, " ")}, pages ${r.pages.join(", ")})`).join("; ")}</>}
       {hidden > 0 && <>{shown.length > 0 ? "; " : ": "}{hidden} document(s) you may not read</>}
     </p>
   );
