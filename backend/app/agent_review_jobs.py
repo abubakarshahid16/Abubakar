@@ -57,7 +57,6 @@ from . import agent_review_rule_choice as rule_choice
 from . import agent_review_rules as rules
 from . import agent_review_run as runner_mod
 from . import agent_review_steady as steady_mod
-from . import agent_review_wording as wording
 from . import crs_ai_header as crs_header
 from .agent_review_job_facts import (  # noqa: F401
     EQUIPMENT_LINES,
@@ -97,8 +96,8 @@ STEPS = (
     "writing the CRS and the record",
 )
 ACTIVE_RUN = review_jobs.ACTIVE_RUN
-#: Rules that are not AI approved are NOT asked in the app (lead decision, 11 Nov 2026 night): "measured 11 Nov: no key row
-#: gained, more wrong opinions". The cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
+#: Rules not AI approved are NOT asked (lead, 11 Nov 2026: no key row gained, more wrong opinions) unless rule choice v2 is on;
+#: the cap and the class "AI opinion, rule not yet approved" stay in the code and tests.
 ASK_UNAPPROVED = "off"
 
 
@@ -416,18 +415,11 @@ def _plan(
             scope_run
         )  # a cited standard joins the list too (when auto-approve is on)
     cache: dict = {}
-    # The classic selection run inline stores which BOOKS apply, never per-rule scope decisions (only a full classic review
-    # writes those). With none stored, the candidates are the rules of the selected books; the label filter narrows them (#1749).
-    v2 = (
-        rule_choice.enabled()
-    )  # rule choice v2 (off: every argument below is what it always was)
+    # Inline selection stores BOOKS only: the candidates are the rules of the selected books; the label filter narrows them (#1749).
     doc = items_mod.build_items_for_run(conn, submittal, kind.as_dict(), scope_run, scope, cache=cache,
-                                        equipment_type=kind.equipment_type,
-                                        ask_unapproved="agreed_field" if v2 else ASK_UNAPPROVED,
-                                        shown=review_shown.shown_ids(conn, run_id),
-                                        rule_budget=rule_choice.budget_for(bool(local)) if v2 else None)  # fmt: skip
-    # A rule book the list shown before the start does not name is dropped HERE, before any request is built: its rules are not
-    # asked, none of its text is sent, the run goes on with the listed books, and the result counts what was left out.
+                                        equipment_type=kind.equipment_type, shown=review_shown.shown_ids(conn, run_id),
+                                        **rule_choice.plan_args(bool(local), ASK_UNAPPROVED))  # fmt: skip
+    # A book the list shown before the start does not name is dropped HERE, before any request: none of its text is sent.
     left_out = review_shown.drop_unlisted(conn, run_id, doc)
     claude_auto_approve.note_unshown_for(run_id, scope_run, left_out)
     _write_rules(run_id, doc, cache, kind.kind)
@@ -449,7 +441,7 @@ def _plan(
         "items": list(doc.get("items") or []),
         "cache": cache,
         "stop": None,
-        **({"group_points": doc["group_points"]} if "group_points" in doc else {}),
+        **rule_choice.plan_extra(doc),
     }
 
 
@@ -477,11 +469,7 @@ def _make_runner(
     send, env = lane()
     folder = run_dir(run_id)
     folder.mkdir(parents=True, exist_ok=True)
-    done = {
-        k: v
-        for k, v in stored_lines(run_id).items()
-        if not v.get("error") and v.get("source") != "group"
-    }
+    done = {k: v for k, v in stored_lines(run_id).items() if not v.get("error") and not rule_choice.is_group_line(v)}  # fmt: skip
     answers = None
     if (
         local is None and reuse_mod.enabled()
@@ -562,12 +550,10 @@ def _finish(
     plan: dict,
     runner,
     started: str,
-    extra: list[dict] | None = None,
 ) -> dict:
     """The run row and the CRS copies. Called also for a partial run (a cap, a refusal)."""
     items = plan["items"]
-    lines = [runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []  # fmt: skip
-    lines += extra or []
+    lines = ([runner.lines[k] for i in items if (k := str(i["item_id"])) in runner.lines] if runner else []) + plan.get("extra_lines", [])  # fmt: skip
     counts = runner_mod.counts_of(lines, runner)
     n_cut = reread_mod.cut_off_count(lines)
     if (
@@ -634,17 +620,6 @@ def _write_run_start(
         )
 
 
-def _group_lines(run_id: str, plan: dict) -> list[dict]:
-    """Rule choice v2, point 4: one Query line per rule book for the "needs a human" rules that were not asked. No model call,
-    internal copy only (the contractor copy holds a proven Fail only). Stored here; none when the switch is off."""
-    out = []
-    for point in plan.get("group_points") or []:
-        line = wording.apply(rule_choice.group_line(point))
-        store_line(run_id, line, None)
-        out.append(line)
-    return out
-
-
 def _execute(
     run_id: str,
     submittal: str,
@@ -658,10 +633,8 @@ def _execute(
         if plan["items"]:
             _ask(run_id, submittal, kind, plan, holder)
     finally:  # the CRS and the run row are written for a partial run too
-        result = _finish(
-            run_id, submittal, kind, plan, holder.get("runner"), started,
-            extra=_group_lines(run_id, plan),
-        )  # fmt: skip
+        plan["extra_lines"] = rule_choice.store_group_lines(run_id, plan, store_line)  # fmt: skip
+        result = _finish(run_id, submittal, kind, plan, holder.get("runner"), started)
     return result
 
 

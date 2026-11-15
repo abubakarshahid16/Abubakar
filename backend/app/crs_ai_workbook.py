@@ -264,9 +264,8 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
 
 def layout_comment(line: Mapping, status: str, order: int) -> str:
     """The COMPANY Comments cell: three short parts, one per line: what the rule requires, what the paper shows, what the
-    contractor must do. Built from the stored line only; no new AI call; no code word (`words.has_banned`).
-    A grouped point of rule choice v2 (rules of one book not matched to a field of the paper) is one sentence for the engineer."""
-    if line.get("source") == "group" and line.get("why"):
+    contractor must do. Built from the stored line only; no new AI call; no code word (`words.has_banned`)."""
+    if line.get("source") == "group" and line.get("why"):  # rule choice v2: one sentence for the engineer
         return str(line["why"])
     return "\n".join(
         (

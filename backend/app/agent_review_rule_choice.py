@@ -343,6 +343,30 @@ def is_group_line(line: Mapping) -> bool:
     return line.get("source") == "group"
 
 
+def plan_args(local: bool, default_ask: str) -> dict:
+    """The two arguments of `build_items_for_run` that rule choice v2 sets (off: the default ask mode and no budget)."""
+    if not enabled():
+        return {"ask_unapproved": default_ask}
+    return {"ask_unapproved": "agreed_field", "rule_budget": budget_for(local)}
+
+
+def plan_extra(doc: Mapping) -> dict:
+    """The group points of the plan, only when v2 made them (off: nothing is added to the plan)."""
+    return {"group_points": doc["group_points"]} if "group_points" in doc else {}
+
+
+def store_group_lines(run_id: str, plan: Mapping, store_line) -> list[dict]:
+    """Store and return one Query line per grouped point (no model call; internal copy only). [] when there is none."""
+    from . import agent_review_wording as wording
+
+    out = []
+    for point in plan.get("group_points") or []:
+        line = wording.apply(group_line(point))
+        store_line(run_id, line, None)
+        out.append(line)
+    return out
+
+
 __all__: list[Any] = [
     "BELOW_LIMIT",
     "PART_OUTSIDE",
@@ -356,6 +380,9 @@ __all__: list[Any] = [
     "group_points",
     "is_group_line",
     "partial_gate_rows",
+    "plan_args",
+    "plan_extra",
+    "store_group_lines",
     "rank_and_cut",
     "score",
     "unapproved_sentence",
