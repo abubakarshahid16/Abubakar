@@ -328,12 +328,6 @@
         "^(estimated )?inlet (piping |pipe |line )?(press(ure|\\.)? )?(drop|loss) \\(?(%|psi|kpa|bar)\\)?$"
       ]
     },
-    "datasheet_form": {
-      "kind": "text",
-      "names": [
-        "^(iss |data ?sheet |specification sheet )?form( no\\.?| number)?$"
-      ]
-    },
     "valve_type": {
       "kind": "text",
       "names": [
@@ -1870,7 +1864,6 @@
             "page": 22
           },
           "ai_draft": true,
-          "kit": "order14-valve-draft",
           "needs": "an engineer to confirm the AI-draft limit",
           "rule": {
             "kind": "percent_of",
@@ -1891,7 +1884,6 @@
             "page": 7
           },
           "ai_draft": true,
-          "kit": "order14-valve-draft",
           "needs": "an engineer to confirm the AI-draft limit",
           "condition": {
             "role": "valve_type",
@@ -1908,75 +1900,6 @@
             "stated_as_percent": true
           },
           "severity": "major"
-        },
-        {
-          "id": "PSV-A03",
-          "text": "The effective orifice area is at least the API STD 526 D orifice, 0.110 in2 (steel flanged ASME code stamped valves; exception: high set pressure, typically above 6.89 MPa). AI draft, engineer to confirm.",
-          "source": {
-            "standard": "SAES-J-600",
-            "clause": "4.1.1.4",
-            "page": 5
-          },
-          "ai_draft": true,
-          "kit": "order14-valve-draft",
-          "needs": "an engineer to confirm the AI-draft limit",
-          "rule": {
-            "kind": "constant",
-            "field": "orifice_area",
-            "op": ">=",
-            "value": 0.11,
-            "unit": "in2"
-          },
-          "severity": "minor"
-        },
-        {
-          "id": "PSV-A04",
-          "text": "The effective orifice area is at most the API STD 526 T orifice, 26.00 in2 (steel flanged ASME code stamped valves; exception: high capacity valves that carry the ASME code stamp). AI draft, engineer to confirm.",
-          "source": {
-            "standard": "SAES-J-600",
-            "clause": "4.1.1.4",
-            "page": 5
-          },
-          "ai_draft": true,
-          "kit": "order14-valve-draft",
-          "needs": "an engineer to confirm the AI-draft limit",
-          "rule": {
-            "kind": "constant",
-            "field": "orifice_area",
-            "op": "<=",
-            "value": 26.0,
-            "unit": "in2"
-          },
-          "severity": "minor"
-        },
-        {
-          "id": "PSV-A05",
-          "text": "A conventional or bellows valve is specified on form SA-8020-611 (pilot-operated: SA-8020-612; rupture disk and buckling pin: SA-8020-614; low pressure and vacuum: SA-8020-613). AI draft, engineer to confirm.",
-          "source": {
-            "standard": "SAES-J-600",
-            "clause": "4.1.4.1",
-            "page": 6
-          },
-          "ai_draft": true,
-          "kit": "order14-valve-draft",
-          "needs": "an engineer to confirm the AI-draft limit",
-          "condition": {
-            "role": "valve_type",
-            "any": [
-              "conventional",
-              "bellows",
-              "balanced"
-            ]
-          },
-          "rule": {
-            "kind": "allowed",
-            "field": "datasheet_form",
-            "values": [
-              "8020-611",
-              "8020 611"
-            ]
-          },
-          "severity": "minor"
         }
       ]
     },

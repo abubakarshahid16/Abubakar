@@ -251,7 +251,7 @@ def test_no_registry_field_accepts_another_fields_own_line_except_the_registrys_
             0
         ]:
             accepted.append((rule, other))
-    assert len(roles) * (len(roles) - 1) == 5402
+    assert len(roles) * (len(roles) - 1) == 5550  # 75 roles (order 14 lane A added inlet_pressure_drop)
     # the two left are one quantity under two names in the registry's own synonym table (rated capacity = rated flow)
     assert sorted(accepted) == [
         ("rated_capacity", "rated_flow"),

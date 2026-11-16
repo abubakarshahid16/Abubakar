@@ -398,8 +398,10 @@ def checklist_lines(
     presence_only = approved_code.presence_only_ids()
     drafts = ai_draft_ids()
     for r in results:
-        if r.get("rule_id") in drafts and r.get("status") != comparison.NOT_APPLICABLE:
-            out.append(_ai_draft_line(r, page_texts, cells, document_id))
+        if r.get("rule_id") in drafts:
+            # an AI-draft limit the value meets is not a proven Pass and asks nothing: no line (like a presence check that is stated)
+            if (r.get("rule_said") or r.get("status")) not in (comparison.NOT_APPLICABLE, COMPLIANT):
+                out.append(_ai_draft_line(r, page_texts, cells, document_id))
             continue
         status = r.get("status")
         if status == comparison.NOT_APPLICABLE:

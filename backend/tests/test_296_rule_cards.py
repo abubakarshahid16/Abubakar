@@ -195,14 +195,14 @@ def _items(equipment_type: str = TYPE) -> dict:
 
 def test_every_relief_valve_card_is_tested_except_the_two_that_need_a_standard_we_do_not_hold():
     """Order 301.1: 47 cards, 45 tested; PSV-05 and PSV-25 stay draft and say what they wait for. `--check` passes
-    because both drafts are declared; an unexplained draft still fails it (next test). Order 14 lane A: five AI-draft
-    cards (PSV-A01 to PSV-A05) wait for an engineer to confirm their limits, declared the same way."""
+    because both drafts are declared; an unexplained draft still fails it (next test). Order 14 lane A: two AI-draft
+    cards (PSV-A01, PSV-A02) wait for an engineer to confirm their limits, declared the same way."""
     report = rule_cards.report()
-    assert report[TYPE]["cards"] == 52
-    assert report[TYPE]["tested"] == 45 and report[TYPE]["draft"] == 7
+    assert report[TYPE]["cards"] == 49
+    assert report[TYPE]["tested"] == 45 and report[TYPE]["draft"] == 4
     assert report[TYPE]["draft_because"] == {
         "needs a standard we do not hold": 2,
-        "needs an engineer to confirm the AI-draft limit": 5,
+        "needs an engineer to confirm the AI-draft limit": 2,
     }
     assert [k for k, v in report.items() if k != TYPE and v["draft"]] == []
     drafts = {
@@ -210,7 +210,7 @@ def test_every_relief_valve_card_is_tested_except_the_two_that_need_a_standard_w
         for i in RULES["checklists"][TYPE]["items"]
         if rule_cards.run_card(i, TYPE, RULES)["status"] == "draft"
     }
-    assert drafts == {"PSV-05", "PSV-25", "PSV-A01", "PSV-A02", "PSV-A03", "PSV-A04", "PSV-A05"}
+    assert drafts == {"PSV-05", "PSV-25", "PSV-A01", "PSV-A02"}
     assert rule_cards.main(["--check"]) == 0
 
 
