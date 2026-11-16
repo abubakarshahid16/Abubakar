@@ -111,6 +111,30 @@ class AgentBadReply(AgentClaudeError):
 
 class AgentTransportError(AgentClaudeError):
     code = "transport_error"
+    billed: bool = True  # False: refused before any work (a 4xx), so nothing was billed and a retry gets the same refusal
+
+    def charge(self, worst: float) -> float:
+        """What the failed call counts: its worst case when it may have been billed, 0 for a refusal (and no retry)."""
+        return float(worst) if self.billed else 0.0
+
+
+#: Order 14, 16 Nov 2026: refusals that say the ACCOUNT cannot answer stop the whole run at once, with that reason. Matched on
+#: OUR fixed sentences (`reader_transport._SAFE`), never on the API's free text. Before, every next request was refused too,
+#: each was charged at its worst case, and the run ended "stopped by the cap" with the true cause hidden.
+ACCOUNT_STOPS = (
+    ("The Claude account has no credit", "account_no_credit"),
+    ("The Claude account's usage limit is reached", "account_usage_limit"),
+)
+
+
+def account_stop(exc: BaseException) -> str | None:
+    """The stop code when `exc` is a 4xx refusal that says the account itself cannot answer, else None."""
+    import httpx
+
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    said = str(exc)
+    return next((code for words_, code in ACCOUNT_STOPS if words_ in said), None)
 
 
 # ------------------------------------------------------------------ request
@@ -369,10 +393,15 @@ def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | N
         )
         recorded_failure = ("stop", str(code), False)
     except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
+        stop = account_stop(exc)
         recorded_failure = (
-            "transport",
-            "transport_" + type(exc).__name__,
-            not reader_transport.unbilled(exc),
+            ("stop", stop, False)
+            if stop
+            else (
+                "transport",
+                "transport_" + type(exc).__name__,
+                not reader_transport.unbilled(exc),
+            )
         )
     return None, recorded_failure
 
@@ -423,7 +452,9 @@ def _call(
             meter.add(worst)  # may have been billed: charged at the worst case
         if kind == "stop":
             raise AgentBudgetStop(code)
-        raise AgentTransportError(code)
+        err = AgentTransportError(code)
+        err.billed = bool(billed)
+        raise err
     usd = _usd(model, answer, body) if isinstance(answer, dict) else worst
     if meter is not None:
         meter.add(usd)  # a paid bad reply still counts toward the cap

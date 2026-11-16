@@ -358,12 +358,12 @@ class Runner(
             except agent_claude.AgentBudgetStop:
                 self._release(app, 0.0)  # refused before sending: nothing billed
                 raise
-            except agent_claude.AgentTransportError:
+            except agent_claude.AgentTransportError as exc:
                 self._release(
-                    app, app
-                )  # may have been billed: charged at the worst case (the safe side)
-                self._add_usd(app)
-                if attempt < MAX_RETRIES and not once:
+                    app, exc.charge(app)
+                )  # may have been billed: the worst case (the safe side); a 4xx refusal: 0
+                self._add_usd(exc.charge(app))
+                if attempt < MAX_RETRIES and not once and exc.billed:
                     self.calls["retries"] += 1
                     time.sleep(self.retry_base * (2**attempt))
                     continue
