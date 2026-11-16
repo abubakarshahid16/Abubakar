@@ -992,7 +992,7 @@ def test_a_met_the_pass_guard_objected_to_is_never_nothing_to_change_and_its_obj
         "Query",
         ai="Pass",
         field="Seal",
-        reason_code="pass_field_unknown",
+        reason_code="pass_field_not_quoted",  # order 14 (G6): a field-unknown "met" is now a question
         why="no second opinion",
     )
     assert WB.status_of(held) == (
@@ -1004,7 +1004,7 @@ def test_a_met_the_pass_guard_objected_to_is_never_nothing_to_change_and_its_obj
     row = view["other"]["rows"][0]
     assert (
         row[4] == words.KIND_MET_NOT_CONFIRMED
-        and "the rule's field is not known" in row[5]
+        and words.code_phrase("pass_field_not_quoted") in row[5]
     )
     query = mk("S-1", "Query", ai="Pass", item={"source": "skill", "item_id": "S-1"}, field="Body", reason_code="pass_field_not_quoted",
                quotes_checked={"paper": True, "clause": False})  # fmt: skip

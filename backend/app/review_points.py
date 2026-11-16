@@ -575,12 +575,12 @@ def rule_point(
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
             action, action_source = f"{BOOK_MISSING}: {missing}. The rule cannot be checked until the book is held; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
-    elif rank == 3 and not (ref["clause"] and clause_q):
-        # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): an AI "not met" of the rule check that names no
-        # clause, or whose rule-book quote code did not find in the stored book, is a question for the engineer, never a verdict.
+    elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
+        # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
+        # finding names no clause is a question for the engineer, never a verdict (decided on the stored finding: the same for every viewer).
         # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
         # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
-        rank, unproven_ai = 4, kind in _AI_WRITTEN_RULE_KINDS
+        rank, unproven_ai = 4, True
     point = {
         "id": f"rc:{key}",
         "source": SOURCE_RULE_CHECK,

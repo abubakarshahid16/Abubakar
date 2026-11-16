@@ -166,8 +166,8 @@ def test_a_rule_whose_field_is_not_known_is_never_proven_or_ai_verdict_met(w):
             it["rule_label"] = {**it["rule_label"], "field": None}
     setup(w)
     run_id = run_review()
-    assert (
-        cls(run_id) == THINKS_MET
+    assert (  # order 14 (G6): a "met" whose field code does not know is a question in every run, never an AI verdict
+        cls(run_id) == ("Query for the engineer", "Query")
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_FIELD_UNKNOWN
     )
 

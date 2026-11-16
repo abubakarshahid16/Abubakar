@@ -291,10 +291,11 @@ def test_the_only_change_the_guard_can_make_is_met_to_query():
                         }
                         got, ref = W.classify(line), W.classify(base)
                         if got["verdict_label"] != ref["verdict_label"]:
-                            assert (ref["verdict_label"], got["verdict_label"]) in (
-                                (W.THINKS_MET, W.WORD_QUERY),
-                                # order 14 (G6): a disagreed AI "not met" is a question too; only "AI thinks" ever moves, only to Query
-                                (W.THINKS_NOT_MET, W.WORD_QUERY),
+                            moved = (ref["verdict_label"], got["verdict_label"])
+                            assert moved == (W.THINKS_MET, W.WORD_QUERY) or (
+                                # order 14 (G6): a "not met" moves only when the second reader DISAGREED
+                                moved == (W.THINKS_NOT_MET, W.WORD_QUERY)
+                                and second == {"agree": False}
                             ), (verdict, ai, quote, checks, second)
 
 

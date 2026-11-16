@@ -714,9 +714,9 @@ NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )
 DISAGREE_WHY = "two AI readers disagree on this line"
-#: Order 14, 16 Nov 2026 (G6): a "met" code could not match to the rule's field is a question in every run (the second reader's yes or no used to decide).
-FIELD_UNKNOWN_MET_WHY = "code could not match the quoted line to the rule's field, so this AI 'met' is not confirmed"
+#: Order 14, 16 Nov 2026 (G6): an AI "met" whose field code does not know is a question in every run; the second reader's yes or no used to decide.
 FIELD_UNKNOWN_CODES = ("pass_field_unknown", "field_unknown_cannot_check_deferral")
+FIELD_UNKNOWN_MET_WHY = "code could not match the quoted line to the rule's field, so this AI 'met' is not confirmed"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase

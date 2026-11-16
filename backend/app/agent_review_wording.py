@@ -37,6 +37,7 @@ from .agent_review_verdict import (
     DEFERRED_WHY,
     DISAGREE_WHY,
     FAIL,
+    FIELD_UNKNOWN_MET_WHY,
     NOT_A_RULE,
     OWNER_TIER,
     PASS,
@@ -266,9 +267,10 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": SILENCE_WHY + also,
         }
-    if unsafe := met_unsafe_why(
-        line
-    ):  # 2b. N9: the guard's reason leads; one reader's view follows, marked
+    if (
+        (unsafe := met_unsafe_why(line))
+        and not (unsafe == FIELD_UNKNOWN_MET_WHY and two_reader.second_cut_off(line))
+    ):  # 2b. N9: the guard's reason leads; one reader's view follows, marked (a cut-off second answer keeps its own words, 2c)
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
