@@ -559,6 +559,11 @@ def rule_point(
         page = content.paper_value(finding)[1]
     value, value_page = content.paper_value(finding)
     # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
+    if finding and finding.get("requirement_id"):  # lane C's re-read: never the old clause of a superseded requirement
+        shown = dict(finding)
+        reread_clauses([shown], ctx.setdefault("_reread", {}))
+        if shown.get("clause_reread"):
+            finding = {**finding, "standard_clause": shown.get("paragraph_id") or ""}
     action, action_source = content.action_of(row, finding, _plain, own_only=hidden, comment_only=app_text_only)
     ref = content.rule_ref(row, finding)
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
@@ -629,6 +634,61 @@ def rule_point(
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=f"{BOOK_MISSING}: {missing}",
                      clause_quote_note=NO_CLAUSE_QUOTE)  # fmt: skip
     return point
+
+
+REREAD = "clause re-read"
+
+
+def _successor_clauses(conn, book: str, cache: dict) -> tuple[dict, dict]:
+    """A book's CURRENT rules by text, as lane C's label carry links them: {(requirement text, source text): {clause}} and the same with
+    the rule's own heading line (its chunk's section) put in front. Read once per book (`cache`)."""
+    if book not in cache:
+        same: dict = {}
+        headed: dict = {}
+        for r in conn.execute(
+            "SELECT r.clause, r.requirement_text, r.source_text, c.section FROM standard_requirements r"
+            " LEFT JOIN chunks c ON c.id = r.chunk_id WHERE r.standard_document_id = ? AND r.superseded_at IS NULL",
+            (book,),
+        ):
+            if not _clean(r["clause"]):
+                continue
+            req, src, sec = _clean(r["requirement_text"]), _clean(r["source_text"]), _clean(r["section"])
+            same.setdefault((req, src), set()).add(_clean(r["clause"]))
+            if sec:
+                headed.setdefault((_clean(f"{sec} {req}"), _clean(f"{sec} {src}")), set()).add(_clean(r["clause"]))
+        cache[book] = (same, headed)
+    return cache[book]
+
+
+def reread_clauses(findings: list[dict], cache: dict | None = None) -> None:
+    """Order 14 lane B (lane C's re-read of a book): a finding whose requirement was SUPERSEDED never shows its old clause, which may be a
+    false label ("2.5", "7.16"). Its reference shows the successor's clause, the current rule of the same book with identical text (or
+    identical once its heading line is put back: lane C's carry), as "<clause> (clause re-read)"; with no single successor, no clause.
+    In place, display only (`clause_identified` False, `paragraph_id`): the finding's own `standard_clause`, which decisions are keyed
+    by, is untouched. Reads only."""
+    from .db import connect
+
+    ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
+    if not ids:
+        return
+    conn, cache, old = connect(), cache if cache is not None else {}, {}
+    for start in range(0, len(ids), 500):
+        part = ids[start : start + 500]
+        for r in conn.execute(
+            f"SELECT id, standard_document_id, requirement_text, source_text FROM standard_requirements"
+            f" WHERE superseded_at IS NOT NULL AND id IN ({','.join('?' for _ in part)})",
+            part,
+        ):
+            old[r["id"]] = r
+    for f in findings:
+        r = old.get(f.get("requirement_id"))
+        if r is None:
+            continue
+        same, headed = _successor_clauses(conn, r["standard_document_id"], cache)
+        key = (_clean(r["requirement_text"]), _clean(r["source_text"]))
+        clauses = same.get(key) or headed.get(key) or set()
+        f["clause_identified"], f["clause_reread"] = False, True
+        f["paragraph_id"] = f"{next(iter(clauses))} ({REREAD})" if len(clauses) == 1 else None
 
 
 BOOK_MISSING = "Book missing"

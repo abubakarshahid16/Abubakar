@@ -585,3 +585,100 @@ def test_the_ai_draft_words_appear_once_and_the_detail_comes_from_compare_reason
         mk("C-2", "Query", reason_code="not_decided", **line), "Query", 3
     )
     assert cell.count(words.AI_DRAFT) == 1
+
+
+def _reread_db(monkeypatch):
+    import sqlite3
+
+    from app import db
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        "CREATE TABLE standard_requirements (id TEXT, standard_document_id TEXT, clause TEXT, requirement_text TEXT, source_text TEXT,"
+        " superseded_at TEXT, chunk_id TEXT); CREATE TABLE chunks (id TEXT, section TEXT);"
+    )
+    rows = [
+        (
+            "old1",
+            "bk",
+            "2.5",
+            "Nozzles shall be X.",
+            "Nozzles shall be X.",
+            "t",
+            None,
+        ),  # false label, superseded
+        (
+            "new1",
+            "bk",
+            "UG-17",
+            "Nozzles shall be X.",
+            "Nozzles shall be X.",
+            None,
+            None,
+        ),  # its successor: identical text
+        (
+            "old2",
+            "bk",
+            "7.16",
+            "UG-49 BOLTS Bolts shall be Y.",
+            "UG-49 BOLTS Bolts shall be Y.",
+            "t",
+            None,
+        ),  # read the heading as text
+        (
+            "new2",
+            "bk",
+            "UG-49",
+            "Bolts shall be Y.",
+            "Bolts shall be Y.",
+            None,
+            "c2",
+        ),  # successor once its heading is put back
+        ("old3", "bk", "2.5", "Lost text.", "Lost text.", "t", None),  # no successor
+        (
+            "cur",
+            "bk",
+            "UG-20",
+            "Current text.",
+            "Current text.",
+            None,
+            None,
+        ),  # not superseded: untouched
+    ]
+    conn.executemany("INSERT INTO standard_requirements VALUES (?,?,?,?,?,?,?)", rows)
+    conn.execute("INSERT INTO chunks VALUES ('c2', 'UG-49 BOLTS')")
+    monkeypatch.setattr(db, "connect", lambda: conn)
+    return conn
+
+
+def test_a_superseded_requirement_shows_its_successors_clause_never_the_old_false_one(
+    monkeypatch,
+):
+    from app import paragraph_ids
+    from app import review_points as rp
+
+    _reread_db(monkeypatch)
+    fs = [
+        {"requirement_id": i, "standard_clause": c}
+        for i, c in (
+            ("old1", "2.5"),
+            ("old2", "7.16"),
+            ("old3", "2.5"),
+            ("cur", "UG-20"),
+        )
+    ]
+    rp.reread_clauses(fs)
+    cited = [paragraph_ids.cited(f) for f in fs]
+    assert cited == [
+        " cl. UG-17 (clause re-read)",
+        " cl. UG-49 (clause re-read)",
+        "",
+        " cl. UG-20",
+    ]
+    assert [f["standard_clause"] for f in fs] == [
+        "2.5",
+        "7.16",
+        "2.5",
+        "UG-20",
+    ]  # the stored clause (decision keys) is untouched
