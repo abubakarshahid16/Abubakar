@@ -273,6 +273,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_coverage` | The reader-coverage line of a datasheet review: checklist fields read, and on the sheet but not read |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_sum` | Order 14 lane A: the checklist rule kind sum_percent_of (two datasheet fields added and compared with a percent of a third, e.g. SAES-J-600 5.1.1 back pressures vs 10% of set); a missing or marked part stops the check, never 0; pure |
+| `question_card` | Order 14 lane D (#1849 review): a checklist card whose limit no engineer confirmed (`limit_draft`) decides nothing on any switch (held, no kept Pass, never a draft pass); a condition value that rules nothing out (a placeholder, a `may_be_any` word) is asked, never "does not apply"; pure |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |

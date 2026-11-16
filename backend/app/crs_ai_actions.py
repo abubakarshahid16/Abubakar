@@ -127,7 +127,16 @@ def found_quote_kind(quote: str, labels) -> str:
     return LOOKED if whole_label(quote, labels) else CONTRADICTS
 
 
-def silent_row_words(field: str, quote: str, labels=(), where: str = "") -> SilentRow:
+#: FTU-1: the reason of a two-reader "not stated" whose found quote is the field's own label alone: the verdict stands, said as it is
+AGREED_NOT_STATED_REASON = (
+    "two AI readers each read every page and found no value, and the code searched the pages and found none; "
+    "the words quoted are the field's own label, not a value"
+)
+
+
+def silent_row_words(
+    field: str, quote: str, labels=(), where: str = "", agreed: bool = False
+) -> SilentRow:
     """FTU-1: THE ONE decision of a silent row (its own record says the paper gives no value) that carries a quote code found on the
     page: the kind (`found_quote_kind`) and every wording cell with it, so the cells of one row can never disagree. Read by the AI
     review's lines (`silent_row`: the points, both sheets, the reason) and the rule check's points (`review_points.rule_point`)."""
@@ -135,7 +144,7 @@ def silent_row_words(field: str, quote: str, labels=(), where: str = "") -> Sile
     if found_quote_kind(quote, [field, *labels]) == LOOKED:
         return SilentRow(
             LOOKED,
-            NOT_STATED_REASON,
+            AGREED_NOT_STATED_REASON if agreed else NOT_STATED_REASON,
             f"Contractor to state {what}, or the page where it is shown.",
             f'Not evidence of a value: the reader says the paper does not state it, and looked here: "{quote}"{where} '
             "(found on the page by code).",
@@ -153,18 +162,40 @@ def silent_row_words(field: str, quote: str, labels=(), where: str = "") -> Sile
 
 def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | None:
     """`silent_row_words` of an AI line whose own record says the paper does not state the value (`says_silent`) and whose quote code
-    found on the page does not defer the value (a deferral is read as one); None for any other line."""
+    found on the page does not defer the value (a deferral is read as one); None for any other line, and None for a line code
+    proved (a Pass or Fail decided by code: its proof words are its own, `absence_proof`, and the reader's quote is not its evidence).
+    A two-reader "not stated" (`agent_review_two_reader.absence_agrees`) keeps its verdict only on a label-alone quote, said so."""
     from .agent_review_crs import field_words
 
     quote = verified_quote(line)
-    if not quote or not says_silent(line) or quote_defers(quote):
+    if not quote or not says_silent(line) or quote_defers(quote) or proven(line):
         return None
     labels = (
         line.get("field_label_ai"),
         line.get("field"),
         *(line.get("field_roles") or []),
     )
-    return silent_row_words(what or field_words(line), quote, labels, where)
+    agreed = two.absence_agrees(line)
+    return silent_row_words(what or field_words(line), quote, labels, where, agreed)
+
+
+def proven(line: Mapping) -> bool:
+    """A Pass or Fail decided by code (the stored verdict; `agent_review_wording.classify` step 4 calls it proven)."""
+    return line.get("verdict") in ("Pass", "Fail")
+
+
+def absence_proof(line: Mapping) -> str:
+    """FTU-1: the reason of a Fail code proved by its own search of every page (decided by absence); "" for any other line."""
+    from .agent_review_crs import field_words
+    from .agent_review_verdict import BY_ABSENCE, FAIL
+
+    if line.get("verdict") != FAIL or line.get("decided_by") != BY_ABSENCE:
+        return ""
+    pages = ", ".join(str(p) for p in line.get("pages_searched") or [])
+    return (
+        f"code searched every page for {field_words(line) or 'the value asked for'} and found no value"
+        + (f" (pages searched: {pages})" if pages else "")
+    )
 
 
 def silent_quote(line: Mapping) -> str:
@@ -214,6 +245,8 @@ def reason_for(line: Mapping, why: str) -> str:
     """The reason shown with a line, made to agree with the line's OWN reason code (FTU-1): a line that says the paper does not state the
     value says so when code can show its found quote is no value (`LOOKED`); when the quote may state it, neutral words (`CONTRADICTS`);
     otherwise the stored reason in plain words."""
+    if proof := absence_proof(line):  # FTU-1: a code-proved absence says its proof
+        return proof
     row = silent_row(line)
     return row.reason if row else why
 

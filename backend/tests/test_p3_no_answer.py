@@ -137,8 +137,12 @@ def test_a_drawing_question_is_for_the_engineer_not_the_contractor(tmp_path):
         "Engineer to judge this: it needs a drawing or a calculation." in cell
         and "Contractor to state" not in cell
     )
-    silent = WB.layout_view([_own("sheet_silent")], META, "internal")["rows"][0][3]
+    # a silent line with no quote found on the page: the contractor states it (FTU-1: a found quote that may state it is the engineer's)
+    quiet = _own("sheet_silent", quotes_checked={"paper": False, "clause": True})
+    silent = WB.layout_view([quiet], META, "internal")["rows"][0][3]
     assert "Contractor to" in silent
+    found = WB.layout_view([_own("sheet_silent")], META, "internal")["rows"][0][3]
+    assert "Engineer to check" in found and "Contractor to state" not in found
     assert (
         WB.layout_view([_own("needs_drawing_or_calc")], META, "contractor")["rows"]
         == []

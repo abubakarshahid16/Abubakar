@@ -679,6 +679,17 @@ def class_of(line: Mapping, reason: str) -> dict | None:
             "not_proven_reason": _with_route(reason, ROUTE_INDEPENDENTLY),
         }
     if absence_agrees(line):
+        from . import agent_review_wording as wording
+        from .crs_ai_actions import CONTRADICTS, silent_row
+
+        # FTU-1: a verified quote that may state the value: a question, never "not stated"
+        row = silent_row(line)
+        if row and row.kind == CONTRADICTS:
+            return {
+                "verdict_label": wording.WORD_QUERY,
+                "verdict_class": wording.CLASS_QUERY,
+                "not_proven_reason": row.reason,
+            }
         return {
             "verdict_label": WORD_NOT_STATED,
             "verdict_class": CLASS_TWO_READERS,

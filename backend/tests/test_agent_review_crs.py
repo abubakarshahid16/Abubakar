@@ -324,6 +324,8 @@ def test_a_query_is_worded_as_a_crs_comment_that_starts_contractor_to_confirm():
         "Query",
         why="the AI reviewer answered that it cannot decide this",
         reason_code="sheet_silent",
+        # FTU-1: a found quote makes it a silent row, worded by its one decision
+        quotes_checked={"paper": False, "clause": True},
     )
     assert WB.status_of(line) == ("Query", words.ORDER_QUERY)
     assert WB.layout_comment(line, *WB.status_of(line)).startswith(
@@ -813,7 +815,8 @@ def test_a_silent_line_with_a_verified_quote_never_says_the_paper_states_it():
     )
     got = _line2(line)
     assert 'The paper states "Nameplate: steel"' not in got
-    assert "did not find" in got  # the AI's own reading, said as its own
+    # the AI's own reading, said as its own
+    assert "the reader says the paper does not state it" in got.lower()
     # more than the field's label: it may state the value, so neutral words, never "not evidence"
     assert '"Nameplate: steel", page 2 (found on the page by code), which may state it' in got
     assert actions.CONTRADICT_REASON in got and "not evidence" not in got
