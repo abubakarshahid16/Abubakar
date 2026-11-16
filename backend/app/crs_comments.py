@@ -125,6 +125,14 @@ def key_of(point: dict) -> str:
 #: The guard reasons of an AI "met" that code could not CONFIRM but that say nothing is open or missing: the quote was not found, the
 #: readers disagree. Such a line is ticked by the engineer, not a comment. A "met" held because the value is open (deferred), not stated
 #: or only a label stays a comment: a missing statement is never shown as nothing to change (CLAUDE.md rule 4).
+def guard_objected(point: dict) -> bool:
+    """The pass guard objected to this AI "met" (`crs_ai_words.GUARD_OBJECTIONS`): never ticked, never "nothing to change" (R94)."""
+    return bool(words.guard_words(_line_of(point)))
+
+
+guard_words = words.guard_words
+
+
 def tick_only(point: dict) -> bool:
     """An AI line its reader judged met (its reason "met" or "pass_...") whose PAPER quote code verified, held back only because its
     CLAUSE quote was not verified: the engineer ticks it; it is not a comment. Never ticked (each checked on its own, whatever reason
@@ -134,7 +142,7 @@ def tick_only(point: dict) -> bool:
 
     line = _line_of(point)
     reason = str(line.get("reason_code") or "").strip().lower()
-    if not (reason == "met" or reason.startswith("pass")):
+    if reason != "met":  # a "pass_..." reason is the pass guard's objection: a second doubt, never ticked (R94)
         return False
     second = line.get("second_opinion")
     if line.get("not_mentioned_hold") or v.quote_is_label_only(line) or v.quote_defers(line.get("paper_quote")):
@@ -142,6 +150,25 @@ def tick_only(point: dict) -> bool:
     if isinstance(second, dict) and second.get("agree") is False:
         return False
     return v.met_unsafe_why(line) == v.UNVERIFIED_CLAUSE_WHY
+
+
+def _rule_keys(p: dict) -> set[tuple]:
+    """Which rule a point answers: its AI item, and its rule book and clause."""
+    out = set()
+    if item := _line_of(p).get("item_id"):
+        out.add(("item", str(item)))
+    book = p.get("rule_book") or (p.get("rule_ref") or {}).get("name")
+    if _norm(book) and _norm(p.get("clause")):
+        out.add(("rule", _book_key(book), _clause_key(p.get("clause"))))
+    return out
+
+
+def _disagree(ms: list[dict]) -> bool:
+    """R94: the readers disagree only when a met point and a not-met point answer the SAME rule (one item, or one book and clause).
+    A met on one rule and a not-met on another rule of the same field is no disagreement: the comment keeps its strongest status."""
+    met = [_rule_keys(p) for p in ms if p.get("tile") in _MET]
+    not_met = [_rule_keys(p) for p in ms if p.get("tile") in _NOT_MET]
+    return any(a & b for a in met for b in not_met)
 
 
 def not_a_comment(comment: dict) -> str | None:
@@ -155,7 +182,8 @@ def not_a_comment(comment: dict) -> str | None:
         return None
     ms = comment.get("_members") or [s]
     if comment["tile"] == "met":
-        return words.KIND_NOTHING_TO_CHANGE
+        # R94: an AI "met" the pass guard objected to is never "nothing to change": the engineer ticks it, the objection said
+        return words.KIND_MET_NOT_CONFIRMED if any(guard_objected(p) for p in ms) else words.KIND_NOTHING_TO_CHANGE
     if all(p.get("tile") in ("met", "does_not_apply") or tick_only(p) for p in ms) and any(tick_only(p) for p in ms):
         return words.KIND_MET_NOT_CONFIRMED
     if comment["tile"] == "does_not_apply":
@@ -262,7 +290,10 @@ def _near_same_roots(order: list[str], members: dict[str, list[dict]]) -> dict[s
     parent = {}
     for k, w in wds.items():
         longer = [k2 for k2, w2 in wds.items() if k2 != k and len(w2) > len(w) and near_same(w, w2)]
-        if len(w) == 1 or len(longer) > 1:  # a one-word name, or two candidates: only one that shares a paper line or book and clause
+        # a one-word name, a name only HALF of the longer one ("rated head" / "max head @ rated impeller"), or two candidates: only one
+        # that shares a paper line or a book and clause with it
+        longer = [k2 for k2 in longer if (len(w) > 1 and 2 * len(w) > len(wds[k2]) and len(longer) == 1) or _evidence(members[k]) & _evidence(members[k2])]
+        if len(longer) > 1:
             longer = [k2 for k2 in longer if _evidence(members[k]) & _evidence(members[k2])]
         if len(longer) == 1:
             parent[k] = longer[0]
@@ -306,8 +337,7 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
         strongest = min(
             ms, key=lambda p: (p["rank"], tick_only(p))
         )  # rank 1 is the worst: the strongest status; a met code could not confirm never leads a field that has a real question
-        tiles = {p.get("tile") for p in ms}
-        disagree = bool(tiles & set(_NOT_MET)) and bool(tiles & set(_MET))
+        disagree = _disagree(ms)
         lead = (
             min(
                 (p for p in ms if p.get("tile") == "questions"),

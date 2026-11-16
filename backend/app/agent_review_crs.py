@@ -754,7 +754,7 @@ def _other_reason(line: Mapping, kind: str) -> str:
                 words.STATUS_AI: "Met in the AI reviewer's view, not proven by code; engineer to confirm"}.get(got[0] if got else "", "Met")  # fmt: skip
         return f"{said}. No comment: nothing to change."
     if kind == words.KIND_MET_NOT_CONFIRMED:
-        why = words.why_phrase(met_unsafe_why(line))
+        why = words.guard_words(line) or words.why_phrase(met_unsafe_why(line))
         return (
             "The AI reader judged it met; code could not confirm it"
             + (f" ({why})" if why and why != words.UNKNOWN_WHY else "")

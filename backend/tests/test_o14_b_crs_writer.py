@@ -221,7 +221,7 @@ def test_the_page_grouping_sets_aside_fields_with_no_finding_and_keeps_a_disagre
     pts = [
         pt("1", "Body", 5, "met"), pt("2", "Body", 7, "met"),
         pt("3", "Location", 8, "does_not_apply", other_kind=words.KIND_UNAPPROVED),
-        pt("4", "Set pressure", 3, "not_met"), pt("5", "Set pressure", 5, "met"),
+        pt("4", "Set pressure", 3, "not_met", rule_book="STD-1", clause="8"), pt("5", "Set pressure", 5, "met", rule_book="STD-1", clause="8"),
         pt("6", "Fluid", 4, "questions"),
     ]  # fmt: skip
     got = crs_comments.group(pts)
@@ -766,23 +766,18 @@ def test_a_cut_off_second_reader_is_said_as_such_never_as_unconfirmed():
     )  # lane D's constant, once merged, is the same text
 
 
-def test_a_comment_is_named_by_the_items_own_field_not_the_label_the_ai_quoted(
+def test_a_comment_is_named_by_the_papers_verified_field_else_the_items_own_field(
     monkeypatch,
 ):
-    run1 = mk(
-        "R-1",
-        field="Max. inlet pr. at design temp",
-        rule_label={"tier": "AI approved", "field": "set_pressure"},
+    """R94 (lead's decision): one comment per PAPER field. The label code verified on the page names the comment; the rule's field
+    role or the checklist topic only when the paper's label is not verified; the AI's own label last."""
+    role = {"tier": "AI approved", "field": "set_pressure"}
+    on_paper = mk("R-1", field="Max. inlet pr. at design temp", rule_label=role)
+    no_paper = mk(
+        "R-2", field=None, field_label_ai="Required relieving capacity", rule_label=role
     )
-    run2 = mk(
-        "R-1",
-        field="Required relieving capacity",
-        rule_label={"tier": "AI approved", "field": "set_pressure"},
-    )
-    assert WB.field_name(run1) == WB.field_name(run2) == "Set pressure"
-    assert (
-        WB._page_text(run1) == "p.2 - Max. inlet pr. at design temp"
-    )  # the paper's own label stays beside the page
+    assert WB.field_name(on_paper) == "Max. inlet pr. at design temp"
+    assert WB.field_name(no_paper) == "Set pressure"
     monkeypatch.setattr(
         WB,
         "_skill_item",
@@ -791,11 +786,13 @@ def test_a_comment_is_named_by_the_items_own_field_not_the_label_the_ai_quoted(
     skill = mk(
         "S-1",
         item={"source": "skill", "item_id": "S-1"},
-        field="Required relieving capacity",
+        field=None,
+        field_label_ai="Required relieving capacity",
     )
     assert WB.field_name(skill) == "PSV inlet line pressure drop"
-    plain = mk("R-2", field="Fluid")  # no field role: the paper's label, as before
-    assert WB.field_name(plain) == "Fluid"
+    assert (
+        WB.field_name(mk("R-3", field=None, field_label_ai="Fluid")) == "Fluid"
+    )  # nothing else: the AI's label
 
 
 def test_two_proven_fails_on_one_field_keep_their_own_requirement_and_action_everywhere():
@@ -929,3 +926,149 @@ def test_an_older_run_file_with_a_comment_row_dropped_is_refused(monkeypatch):
     assert not crs_completeness.older_report(
         "run", "internal", crs_layout.build_layout_crs(view)
     )["ok"]
+
+
+def test_a_met_on_one_rule_and_a_not_met_on_another_is_no_disagreement():
+    """R94 (Body material: SAES-J-600 9.7.5 not met, 6.1.1 met): different rules on one field keep the strongest status; only two
+    answers to the SAME rule are "the readers disagree"."""
+
+    def pt(i, rank, tile, clause):
+        return {
+            "id": i,
+            "name": "Body material",
+            "rank": rank,
+            "tile": tile,
+            "rule_book": "SAES-J-600",
+            "clause": clause,
+        }
+
+    got = crs_comments.group(
+        [pt("1", 3, "not_met", "9.7.5"), pt("2", 6, "met", "6.1.1")]
+    )[0]
+    assert not got["disagree"] and got["rank"] == 3 and "disagree" not in got["pill"]
+    same = crs_comments.group(
+        [pt("1", 3, "not_met", "6.1.1"), pt("2", 6, "met", "6.1.1")]
+    )[0]
+    assert same["disagree"] and same["rank"] == 4
+
+
+def test_a_met_the_pass_guard_objected_to_is_never_nothing_to_change_and_its_objection_is_said():
+    """R94: an AI "met" the pass guard objected to is never "Checked, nothing to change": the engineer ticks it and the objection is
+    said; a question whose reason is such an objection is never ticked, it stays a comment."""
+    held = mk(
+        "R-9",
+        "Query",
+        ai="Pass",
+        field="Seal",
+        reason_code="pass_field_unknown",
+        why="no second opinion",
+    )
+    assert WB.status_of(held) == (
+        words.STATUS_AI,
+        words.ORDER_AI_MET,
+    )  # an AI opinion "met"
+    view = _view([held])
+    assert view["rows"] == []
+    row = view["other"]["rows"][0]
+    assert (
+        row[4] == words.KIND_MET_NOT_CONFIRMED
+        and "the rule's field is not known" in row[5]
+    )
+    query = mk("S-1", "Query", ai="Pass", item={"source": "skill", "item_id": "S-1"}, field="Body", reason_code="pass_field_not_quoted",
+               quotes_checked={"paper": True, "clause": False})  # fmt: skip
+    assert not crs_comments.tick_only({"_line": query})
+    assert (
+        words.guard_words(query)
+        == "the field's words are not on the quoted line or the line above it"
+    )
+
+
+def test_a_label_only_met_with_an_unverified_clause_stays_a_comment():
+    """R94 H7: the guard names the clause doubt before the label-only one, so the label-only check is needed on its own."""
+    line = mk("R-1", "Query", ai="Pass", reason_code="met", field="Body material", paper_quote="Body material",
+              quotes_checked={"paper": True, "clause": False})  # fmt: skip
+    assert not crs_comments.tick_only({"_line": line})
+
+
+def test_a_rule_check_point_with_our_checklist_text_carries_check_text_not_rule_text():
+    """R94 H11b: the USE of is_check_text in rule_point."""
+    from app import review_points as rp
+
+    row = {"row_kind": "clause_review", "finding_id": "f1", "page_section": "p.2 - Back pressure", "comment": "Engineer to check.",
+           "standard_reference": "BOOK-1"}  # fmt: skip
+    finding = {
+        "standard_document_id": "d1",
+        "origin": "datasheet_check",
+        "requirement_source_text": "Datasheet check PSV-07: Back pressure stated.",
+    }
+    p = rp.rule_point(
+        row,
+        {"run_id": "r", "paper_document_id": "p", "readable": frozenset({"p", "d1"})},
+        finding,
+        {},
+        proof=(True, True),
+    )
+    assert (
+        p["rule_text"] is None
+        and p["check_text"] == "Datasheet check PSV-07: Back pressure stated."
+    )
+
+
+def test_the_page_comment_lists_each_other_point_with_its_class_and_action():
+    """R94 H16: the page CRS Note column lists every other point of a comment."""
+    a = {
+        "id": "a",
+        "name": "Set pressure",
+        "rank": 3,
+        "tile": "not_met",
+        "pill": "Not met · one reader",
+        "rule_book": "STD-1",
+        "clause": "8",
+        "action": "Contractor to correct the set pressure.",
+        "decision": {},
+        "tags": [],
+        "page": 1,
+    }
+    b = {
+        **a,
+        "id": "b",
+        "rank": 4,
+        "tile": "questions",
+        "pill": "Question",
+        "clause": "9",
+        "action": "Contractor to confirm the margin.",
+    }
+    c = crs_comments.group([a, b])[0]
+    cells, _cut = crs_one.comment_cells(c, {"a": a, "b": b})
+    note = cells[crs_one.COMMENT_COLUMNS.index("Note")]
+    assert (
+        "Also: Question, Set pressure (STD-1 9): Contractor to confirm the margin."
+        in note
+    )
+
+
+def test_an_older_run_file_missing_a_whole_sheet_is_refused(monkeypatch):
+    """R94: the Evidence layout always has the sheets CRS and Not a comment; a file without one is refused, never skipped."""
+    import sqlite3
+
+    from app import db
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+    )
+    lines = [mk("R-1", field="A"), mk("R-2", field="B")]
+    conn.executemany(
+        "INSERT INTO agent_review_line VALUES ('run', ?, ?)",
+        [(ln["item_id"], json.dumps(ln)) for ln in lines],
+    )
+    monkeypatch.setattr(crs_completeness, "connect", lambda: conn)
+    monkeypatch.setattr(db, "connect", lambda: conn)
+    wb = openpyxl.load_workbook(
+        io.BytesIO(crs_layout.build_layout_crs(WB.layout_view(lines, META, "internal")))
+    )
+    del wb[words.NOT_A_COMMENT_SHEET]
+    buf = io.BytesIO()
+    wb.save(buf)
+    assert not crs_completeness.older_report("run", "internal", buf.getvalue())["ok"]

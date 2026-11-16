@@ -106,11 +106,12 @@ def item_field(line: Mapping) -> str:
 
 
 def field_name(line: Mapping) -> str:
-    """The field in words a reader knows: the item's own field (`item_field`, not the label the AI happened to quote, which varies
-    between runs), else the label printed on the paper, else the item's field roles; never an item id."""
+    """The field in words a reader knows (R94, one comment per PAPER field): the label code verified on the paper's page, else the item's
+    own field (`item_field`: the rule's field role, the checklist topic), else the AI's label, else the item's field roles."""
+    # R94: the PAPER's field (the label code verified on the page) first: one comment per paper field
     label = (
-        item_field(line)
-        or _clean(line.get("field"))
+        _clean(line.get("field"))
+        or item_field(line)
         or _clean(line.get("field_label_ai"))
     )
     if label:
@@ -316,6 +317,9 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     if status == words.STATUS_PASS:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
+        # R94: the pass guard objected: the engineer checks, never "no action"
+        if objection := crs_comments.guard_words(line):
+            return f"Engineer to check the AI reviewer's view: {objection}."
         return "No action unless the engineer disagrees with the AI reviewer's view."
     if status == words.STATUS_AI_VERDICT and order == words.ORDER_AI_VERDICT_MET:
         return "No action unless the engineer disagrees with the AI reviewer's verdict."

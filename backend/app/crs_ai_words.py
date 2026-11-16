@@ -261,6 +261,7 @@ CODE_PHRASES = {
     "pass_field_not_quoted": "the field's words are not on the quoted line or the line above it",
     "pass_field_unknown": "the rule's field is not known",
     "pass_condition_not_quoted": "the condition the rule applies under is not quoted",
+    "field_unknown_cannot_check_deferral": "the field is not known, so whether its value is left open could not be checked",
     "ai_call_failed": "the AI reviewer gave no answer",
     "not_asked_too_long": "not asked: too long for the local model",
     "not_applicable": "does not apply",
@@ -441,6 +442,21 @@ def edition_words(result: Mapping | None) -> str:
     return out
 
 
+#: The pass guard's objections to an AI "met" (`agent_review_pass_guards.CODES`, and the decide step's own): a second doubt (R94).
+GUARD_OBJECTIONS = (
+    "pass_field_unknown",
+    "pass_field_not_quoted",
+    "pass_condition_not_quoted",
+    "field_unknown_cannot_check_deferral",
+)
+
+
+def guard_words(line: Mapping) -> str:
+    """The pass guard's objection to an AI "met", in plain words; '' when it made none."""
+    reason = _clean(line.get("reason_code")).lower()
+    return code_phrase(reason) if reason in GUARD_OBJECTIONS else ""
+
+
 def drop_noise(text: object) -> str:
     """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
     a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
@@ -516,6 +532,7 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 __all__ = [
     "BANNED",
     "EDITION_WORDS",
+    "GUARD_OBJECTIONS",
     "KIND_COVERAGE",
     "KIND_IN_COMMENT",
     "KIND_MET_NOT_CONFIRMED",
@@ -537,6 +554,7 @@ __all__ = [
     "drop_noise",
     "edition_words",
     "generated_by",
+    "guard_words",
     "has_banned",
     "plain",
     "priority",

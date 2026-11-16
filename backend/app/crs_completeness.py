@@ -504,7 +504,9 @@ def older_report(run_id: str, copy: str, data: bytes) -> dict:
     general = conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone()
     if copy != "contractor" and not general:  # R91: the sheet CRS and the sheet of the other lines hold every line too (the AI run file)
         listed = _older_listed(wb)
-        if listed is not None and listed != ai_lines:
+        if listed is None:  # R94: the Evidence layout always has both sheets; one missing is not complete
+            missing.append("the sheet CRS or the sheet of the other lines is missing")
+        elif listed != ai_lines:
             missing.append(f"the sheets CRS and Not a comment hold {listed} row(s) for the {ai_lines} line(s) of the run")
     ok = len(rows) == expected and not missing
     sentence = "Complete: the older file holds every line of its run."
