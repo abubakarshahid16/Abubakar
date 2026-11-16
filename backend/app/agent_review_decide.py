@@ -17,6 +17,7 @@ from . import agent_review_context as ctxc
 from . import agent_review_crs as crs_lines
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_standards as standards_mod
+from . import agent_review_two_reader as two_reader
 from . import agent_review_verdict as verdict
 from .agent_review_local import NO_VERDICT_CODE
 from .agent_review_request import (
@@ -25,6 +26,7 @@ from .agent_review_request import (
     FATAL,
     FINAL_MAX_TOKENS,
     FINAL_MODEL,
+    SECOND_MAX_TOKENS,
     TIGHTENING,
     _hints,
     _text_of,
@@ -34,6 +36,9 @@ from .agent_review_request import (
 )
 from .agent_trace import words
 from .reader_api import _fold
+
+#: Order 14: the token limit of the ONE retry of a second opinion whose reply was cut off (twice the normal limit).
+SECOND_RETRY_MAX_TOKENS = 2 * SECOND_MAX_TOKENS
 
 
 def _holds(decision: Mapping) -> dict:
@@ -172,6 +177,13 @@ class DecideMixin:
             ):
                 try:
                     out["second"] = self.second_opinion(iid, ai, answer)
+                    if two_reader.cut_off_reply(out["second"]):
+                        # order 14 (the lead's decision): a reply cut off by its token limit is asked ONCE more, with twice the
+                        # limit for this call only; cut again, it stays cut and counts as a disagreement (`second_cut_off`)
+                        again = self.second_opinion(
+                            iid, ai, answer, limit=SECOND_RETRY_MAX_TOKENS
+                        )
+                        out["second"] = {**again, "retried": True}
                 except FATAL as exc:
                     self._halt(exc)
             out["decision"] = verdict.textual_verdict(

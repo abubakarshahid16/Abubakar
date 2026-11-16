@@ -8,7 +8,7 @@ import json
 
 import tests.agent_review_support as s
 from app import agent_review_jobs
-from app.agent_review_run import SECOND_RETRY_MAX_TOKENS
+from app.agent_review_decide import SECOND_RETRY_MAX_TOKENS
 from app.agent_review_request import SECOND_MAX_TOKENS
 from tests.test_agent_review_job import (  # noqa: F401 - fixture
     lines_of,

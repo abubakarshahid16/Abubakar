@@ -90,8 +90,6 @@ from .agent_review_two_reader_other import OtherPaperMixin
 from .agent_review_two_reader_run import TwoReaderMixin
 
 log = logging.getLogger(__name__)
-#: Order 14: the token limit of the ONE retry of a second opinion whose reply was cut off (twice the normal limit).
-SECOND_RETRY_MAX_TOKENS = 2 * SECOND_MAX_TOKENS
 
 
 class Runner(
@@ -451,7 +449,9 @@ class Runner(
             self.gate.release(app, usd)
 
     # ---- the second opinion (agent_run_second.ask_second_opinion through the same lane and the step gate)
-    def second_opinion(self, item_id: str, ai_verdict: str, answer: Mapping) -> dict:
+    def second_opinion(
+        self, item_id: str, ai_verdict: str, answer: Mapping, limit=SECOND_MAX_TOKENS
+    ) -> dict:
         if (
             self.local is not None
         ):  # never Claude here; the local second reader is the staged step after the first (run_two_readers)
@@ -467,34 +467,18 @@ class Runner(
             "doc_quote": answer.get("paper_quote"),
             "clause_quote": answer.get("clause_quote"),
         }
-        runner = self
-        kept: dict = {}
+        runner, kept = self, {}
+        more = {} if limit == SECOND_MAX_TOKENS else {"max_tokens": limit}
 
         class _Opinion:
             def second_opinion(self, f, evidence):
-                reply = self._ask(f, evidence, SECOND_MAX_TOKENS)
-                if two_reader_mod.cut_off_reply(reply):
-                    # order 14 (the lead's decision): a reply cut off by its token limit is asked ONCE more with twice the
-                    # limit, for this call only; cut again, it stays cut and counts as a disagreement (two_reader.second_cut_off)
-                    runner.calls["second"] += 1
-                    kept["retried"] = True
-                    reply = self._ask(f, evidence, SECOND_RETRY_MAX_TOKENS)
-                return reply
-
-            def _ask(self, f, evidence, max_tokens: int):
                 prompt_chars = len(json.dumps(evidence, ensure_ascii=False)) + 1200
                 worst = claude_spend.worst_case_usd(
-                    agent_claude.SECOND_MODEL, prompt_chars, max_tokens
+                    agent_claude.SECOND_MODEL, prompt_chars, limit
                 )
                 runner._admit(worst)
                 try:
-                    reply = (
-                        runner.opinion.second_opinion(f, evidence)
-                        if max_tokens == SECOND_MAX_TOKENS
-                        else runner.opinion.second_opinion(
-                            f, evidence, max_tokens=max_tokens
-                        )
-                    )
+                    reply = runner.opinion.second_opinion(f, evidence, **more)
                 except Exception:
                     runner._release(worst, worst)
                     runner._add_usd(worst)
