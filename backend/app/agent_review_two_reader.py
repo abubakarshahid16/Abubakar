@@ -388,17 +388,21 @@ def agrees(line: Mapping) -> bool:
 CUT_OFF_REASONS = frozenset({"stop_max_tokens"})
 
 
+def cut_off_reply(reply: Any) -> bool:
+    """A second-opinion REPLY (`agent_claude._second_opinion`) cut off by its token limit: no agree, reason "stop_max_tokens"."""
+    return (
+        isinstance(reply, Mapping)
+        and reply.get("agree") is None
+        and str(reply.get("reason") or "").strip() in CUT_OFF_REASONS
+    )
+
+
 def second_cut_off(line: Mapping) -> bool:
     """The line's own second opinion was asked and its answer was cut off by its token limit (no agree, reason
     "stop_max_tokens"). Order 14 (the lead's decision, 16 Nov 2026): such a line counts as a DISAGREEMENT, a Query, never
     "AI thinks: met": run to run, the same line was a Query when the second reader answered and an AI opinion when it was cut
     off. A second opinion that was not asked or failed for another reason is untouched."""
-    second = line.get("second_opinion")
-    return (
-        isinstance(second, Mapping)
-        and second.get("agree") is None
-        and str(second.get("reason") or "").strip() in CUT_OFF_REASONS
-    )
+    return cut_off_reply(line.get("second_opinion"))
 
 
 def disagrees(line: Mapping) -> bool:

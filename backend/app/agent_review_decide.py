@@ -365,9 +365,9 @@ class DecideMixin:
             if second is None
             else {
                 k: second.get(k)
-                for k in ("agree", "model", "reason")
-                if k != "reason" or second.get("reason")
-            },
+                for k in ("agree", "model", "reason", "retried")
+                if k not in ("reason", "retried") or second.get(k)
+            },  # "retried": a reply cut off by its token limit was asked once more (order 14)
             "ai_verdict": verdict.ai_verdict_word(answer.get("verdict")),
             "reason_code": reason_code,
             "reason_code_ai": str(answer.get("reason_code") or "") or None,
