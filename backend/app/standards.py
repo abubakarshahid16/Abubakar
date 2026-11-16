@@ -869,6 +869,80 @@ def _supersede(document_id: str, ids: list[str], run_id: str, *, action: str) ->
     return marked
 
 
+def _carry_text(text: str | None) -> str:
+    return " ".join(str(text or "").split())
+
+
+def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dict:
+    """Order 14 lane C: a rule this re-extraction (`run_id`) superseded keeps its AI LABELS on its successor, the CURRENT
+    rule of the same book whose requirement text and source text are IDENTICAL (whitespace aside). The label rows
+    (`rule_label`, `rule_equipment_label`) are copied verbatim under the successor's id: same models, prompt, hashes and
+    quote page, so every guard (`rule_labels.approval_guard`) judges them as before; the insert is logged by the tables'
+    own event triggers and once in the audit. Only when BOTH sides are unique for that text (one superseded labelled row,
+    one current row); a successor that already has a label keeps its own. A PERSON's approval or refusal
+    (`rulebook_approval`, keyed by the rule-book version) is NEVER carried: those that would have carried are only
+    counted, for the owner. No model; no network."""
+    out = {"carried": 0, "carried_equipment": 0, "ambiguous": 0, "no_successor": 0,
+           "successor_labelled": 0, "person_decisions_not_carried": 0}
+    held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "rule_label" not in held:
+        return out
+    rows = conn.execute(
+        "SELECT id, requirement_text, source_text, superseded_by_run FROM standard_requirements"
+        " WHERE standard_document_id = ? AND (superseded_at IS NULL OR superseded_by_run = ?)",
+        (document_id, run_id)).fetchall()
+    current: dict[tuple, list[str]] = {}
+    gone: dict[tuple, list[str]] = {}
+    for rid, req, src, by in rows:
+        key = (_carry_text(req), _carry_text(src))
+        (gone if by == run_id else current).setdefault(key, []).append(rid)
+    labelled = {r[0] for r in conn.execute(
+        "SELECT rule_ref FROM rule_label WHERE source = 'requirement'")}
+    has_equipment = "rule_equipment_label" in held
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_label)")]
+    eq_cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")] if has_equipment else []
+    with conn:
+        for key, old_ids in gone.items():
+            old = [i for i in old_ids if i in labelled]
+            if not old:
+                continue
+            new = current.get(key) or []
+            if not new:
+                out["no_successor"] += len(old)
+                continue
+            if len(old) != 1 or len(new) != 1:
+                out["ambiguous"] += len(old)
+                continue
+            src_id, dst_id = old[0], new[0]
+            if dst_id in labelled:
+                out["successor_labelled"] += 1
+                continue
+            version = conn.execute(
+                "SELECT rule_version_id FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
+                (src_id,)).fetchone()[0]
+            if version and "rulebook_approval" in held:
+                out["person_decisions_not_carried"] += conn.execute(
+                    "SELECT COUNT(*) FROM rulebook_approval WHERE rule_version_id = ?", (version,)).fetchone()[0]
+            keep = [c for c in cols if c not in ("rule_ref", "rule_version_id")]
+            conn.execute(
+                f"INSERT INTO rule_label (rule_ref, rule_version_id, {', '.join(keep)})"
+                f" SELECT ?, NULL, {', '.join(keep)} FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
+                (dst_id, src_id))
+            out["carried"] += 1
+            if has_equipment and conn.execute(
+                "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (src_id,)
+            ).fetchone() and not conn.execute(
+                "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (dst_id,)
+            ).fetchone():
+                keep_eq = [c for c in eq_cols if c != "rule_ref"]
+                conn.execute(
+                    f"INSERT INTO rule_equipment_label (rule_ref, {', '.join(keep_eq)})"
+                    f" SELECT ?, {', '.join(keep_eq)} FROM rule_equipment_label"
+                    " WHERE source = 'requirement' AND rule_ref = ?", (dst_id, src_id))
+                out["carried_equipment"] += 1
+    return out
+
+
 def extract_requirements(
     document_id: str, *, allowed_document_ids: frozenset[str],
     actor: dict | None = None, replace: bool = True,
@@ -1100,6 +1174,10 @@ def extract_requirements(
     superseded = _supersede(
         document_id, [i for i in reproducible.values() if i not in kept],
         run_id, action="re_extraction")
+    carried = carry_labels(connect(), document_id, run_id) if superseded else None
+    if carried and carried["carried"]:
+        _audit("standard.rule_labels_carried", actor, document_id,
+               detail=f"run={run_id} " + " ".join(f"{k}={v}" for k, v in carried.items()))
     fields_changed: dict[str, int] = {}
     for names in reread.values():
         for name in names:
@@ -1128,6 +1206,8 @@ def extract_requirements(
         "readings_changed": len(reread),
         "reading_fields_changed": fields_changed,
         "superseded": superseded,
+        # order 14 lane C: AI labels carried from superseded rules to their identical successors (None: nothing superseded)
+        "labels_carried": carried,
         "document_id": document_id,
         "chunks_read": len(chunks),
         "requirements": written,
