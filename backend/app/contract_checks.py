@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -858,3 +859,181 @@ def run_all(
         + check_attachments(pages, package, complete)
         + check_guarantees(pages)
     )
+
+
+# ------------------------------------------------------------------------------------------------ guards on AI comments
+#
+# Code checks what an AI comment states against the paper, where the paper lets code read it. A comment that a check
+# contradicts never stands as firm: it becomes "engineer to check" with the reason. Order 14 lane E, after the paid run
+# of 16 Nov (a ranking misread from a precedence list; a term called absent that the paper refers to a held clause).
+
+_PRECEDENCE = re.compile(r"\bprecedence\b", re.I)
+_LIST_NUMBER = re.compile(r"^\s*(?P<n>\d{1,2})\.(?!\d)\s*(?P<rest>.*)$")
+LIST_LOOKAHEAD = 8  # lines after the word "precedence" in which the list must start
+
+
+def precedence_list(pages: Pages) -> list[tuple[int, Key, int]]:
+    """The paper's order of precedence as (rank, part, page): the numbered list (1., 2., ...) that starts within
+    LIST_LOOKAHEAD lines after a line with the word "precedence". An item's part is the first label in its text; an item
+    with no label is skipped (its rank is kept). The list ends where the numbering stops counting up by one."""
+    lines = lines_of(pages)
+    for i, (_page, line) in enumerate(lines):
+        if not _PRECEDENCE.search(line):
+            continue
+        start = next(
+            (
+                j
+                for j in range(i + 1, min(len(lines), i + 1 + LIST_LOOKAHEAD))
+                if (m := _LIST_NUMBER.match(lines[j][1])) and m.group("n") == "1"
+            ),
+            None,
+        )
+        if start is None:
+            continue
+        items: list[tuple[int, int, str]] = []  # (rank, page, text)
+        for page, ln in lines[start:]:
+            m = _LIST_NUMBER.match(ln)
+            if m and int(m.group("n")) == len(items) + 1:
+                items.append((len(items) + 1, page, m.group("rest")))
+            elif m or _CLAUSE_NUMBER.match(ln):
+                break  # the numbering stopped counting up, or a numbered clause begins
+            elif items:
+                rank, p, text = items[-1]
+                items[-1] = (rank, p, f"{text} {ln}")
+        out = []
+        for rank, page, text in items:
+            found = labels(text)
+            if found:
+                out.append((rank, (found[0][0], found[0][1]), page))
+        if len(out) >= 2:
+            return out
+    return []
+
+
+_COMPARE = re.compile(
+    r"\b(?P<low>below|beneath|under|lower than|after|subordinate to)\b"
+    r"|\b(?P<high>above|ahead of|higher than|before|prevails? over|takes? precedence over)\b",
+    re.I,
+)
+_BARE = re.compile(
+    r"(?:\bof|\bthe)\s+(?P<label>[A-Z])\b"
+)  # "the ranking of P": a bare label after 'of' / 'the'
+_AT_RANK = re.compile(r"\bat\s+(?P<rank>\d{1,2})\b")
+NEAR = 60  # characters around the comparison word in which its two parts are read
+
+
+def _mentions(text: str, word: str) -> list[tuple[int, int, Key]]:
+    """(start, end, part) of every part the comment names: 'Schedule B', and a bare 'J' after 'of' / 'the' (as the list's
+    own word)."""
+    out = [
+        (m.start(), m.end(), (m.group("word").lower(), m.group("label")))
+        for m in _LABEL.finditer(text)
+    ]
+    out += [
+        (m.start("label"), m.end("label"), (word, m.group("label")))
+        for m in _BARE.finditer(text)
+    ]
+    return sorted(out)
+
+
+def guard_ranking(comment: str, ranks: list[tuple[int, Key, int]]) -> str | None:
+    """The reason a comment's stated ranking contradicts the paper's precedence list, or None. Read: 'X below/after Y',
+    'X above/before Y', 'X at N'. Only parts that are on the list count; nothing else is guessed."""
+    if not ranks:
+        return None
+    rank_of = {k: (r, p) for r, k, p in ranks}
+    word = Counter(k[0] for _r, k, _p in ranks).most_common(1)[0][0]
+    named = [m for m in _mentions(comment, word) if m[2] in rank_of]
+    for _start, end, key in named:
+        at = _AT_RANK.match(comment, end) or _AT_RANK.match(comment, end + 1)
+        if at and int(at.group("rank")) != rank_of[key][0]:
+            r, p = rank_of[key]
+            return f"the list on page {p} ranks {_name((key, None))} at {r}, not {at.group('rank')}"
+    for m in _COMPARE.finditer(comment):
+        left = [x for x in named if x[1] <= m.start() and m.start() - x[1] <= NEAR]
+        right = [x for x in named if x[0] >= m.end() and x[0] - m.end() <= NEAR]
+        if not left or not right or left[-1][2] == right[0][2]:
+            continue
+        a, b = left[-1][2], right[0][2]
+        ra, rb = rank_of[a][0], rank_of[b][0]
+        says_a_lower = m.group("low") is not None
+        if says_a_lower != (ra > rb):
+            hi, lo = (a, b) if ra < rb else (b, a)
+            return f"the list on page {rank_of[a][1]} ranks {_name((hi, None))} above {_name((lo, None))}"
+    return None
+
+
+_ABSENT = re.compile(
+    r"(?P<term>[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,4})\s+(?:has no|have no|has not|does not (?:state|say|give)|states no|"
+    r"gives no|lacks|is not defined|are not defined)\b"
+)
+_REFER = re.compile(
+    r"(?:Sub-)?(?:Article|Clause|Section)\s+(?P<clause>\d+(?:\.\d+)+)\s+of\s+(?:this\s+)?(?P<word>"
+    + "|".join(LABEL_WORDS)
+    + r")\s*[\"'\u201c\u201d\u2018\u2019]?\s*(?P<label>[IVXL]{1,6}|[A-Z]|\d{1,3})(?![A-Za-z0-9])",
+    re.I,
+)
+_ARTICLES = {"the", "a", "an", "this", "that", "its"}
+REFER_NEAR = (
+    200  # characters around a mention of the term in which the paper's referral is read
+)
+
+
+def _clause_held(clause: str, doc_pages: Pages) -> int | None:
+    """The page on which a held document starts the clause (a line beginning with its number), or None."""
+    rx = re.compile(r"^\s*" + re.escape(clause) + r"(?![\d.]\d)\b")
+    return next((p for p, ln in lines_of(doc_pages) if rx.match(ln)), None)
+
+
+def guard_referred(comment: str, pages: Pages, package: dict[str, Pages]) -> str | None:
+    """The reason a comment that calls a term absent is not firm: the paper refers that term to a clause of another part,
+    and a held document of the package is that part and holds the clause. None otherwise."""
+    for m in _ABSENT.finditer(comment):
+        words = m.group("term").split()
+        while words and words[0].lower() in _ARTICLES:
+            words = words[1:]
+        term = " ".join(words)
+        if len(term) < 4:
+            continue
+        for page, text in pages:
+            flat = " ".join(
+                text.split()
+            )  # a referral may wrap over lines ("... Sub-Article" / "9.7 of SCHEDULE D")
+            spots = [x.start() for x in re.finditer(re.escape(term), flat, re.I)]
+            for at_term in spots:
+                window = flat[
+                    max(0, at_term - REFER_NEAR) : at_term + len(term) + REFER_NEAR
+                ]
+                for ref in _REFER.finditer(window):
+                    part = (ref.group("word").lower(), ref.group("label"))
+                    for doc, doc_pages in package.items():
+                        if part in [k for k, _p in package_part(doc_pages)]:
+                            at = _clause_held(ref.group("clause"), doc_pages)
+                            if at:
+                                return (
+                                    f"the paper (page {page}) refers {term} to {ref.group('clause')} of "
+                                    f"{_name((part, None))}, which is held ({doc}, page {at})"
+                                )
+    return None
+
+
+def guard_comment(
+    comment: str, pages: Pages, package: dict[str, Pages] | None = None
+) -> dict | None:
+    """What code says of one AI comment on this paper: None (nothing to check), or {"outcome": ENGINEER, "rule", "reason"}:
+    the comment never stands as firm."""
+    why = guard_ranking(comment, precedence_list(pages))
+    if why:
+        return {
+            "outcome": ENGINEER,
+            "rule": "precedence list",
+            "reason": f"engineer to check: {why}",
+        }
+    why = guard_referred(comment, pages, package or {})
+    if why:
+        return {
+            "outcome": ENGINEER,
+            "rule": "referred clause",
+            "reason": f"engineer to check: {why}",
+        }
+    return None

@@ -597,3 +597,138 @@ def test_a_schedule_that_names_itself_is_present_as_this_paper():
     ]
     r = _one(cc.check_attachments(schedule_k), "CT-02", "Schedule K")
     assert r.outcome == cc.CONSISTENT and r.value == "present (this paper)"
+
+
+# ------------------------------------------------------------------------------------------------ guards on AI comments
+
+from app import contract_checks as core  # noqa: E402
+
+AGREEMENT = [
+    (1, "FORM OF AGREEMENT\n1.4 In case of conflict the following order of precedence shall govern:\n1.\nThis Form of Agreement\n"
+        '2.\nSchedule "L" and its Attachments\n3.\nSchedule "P" (drawings)'),
+    (2, "Header of the contract\nPage 2\n4.\nSchedule \"T\" and its Attachments\n5.\nSchedule \"K\"\n1.5 Notices are given in"
+        " writing to the addresses below.\n8.3 Retention Bond\nThe Contractor shall furnish a bank guarantee as set"
+        ' forth in Sub-Article\n9.7 of SCHEDULE "D" ("Retention Bond") in an amount stated there.'),
+]  # fmt: skip
+SCHEDULE_A = {
+    "doc_a": [
+        (1, 'SCHEDULE "D"\nGeneral terms'),
+        (2, "9.7 Retention Bond\nThe bond is valid until completion."),
+    ]
+}
+
+
+def test_the_precedence_list_is_read_in_order_across_pages_and_ends_at_a_numbered_clause():
+    ranks = [
+        (r, core._name((k, None)), p) for r, k, p in core.precedence_list(AGREEMENT)
+    ]
+    assert ranks == [
+        (2, "Schedule L", 1),
+        (3, "Schedule P", 1),
+        (4, "Schedule T", 2),
+        (5, "Schedule K", 2),
+    ]
+
+
+def test_a_ranking_the_list_contradicts_goes_to_the_engineer_and_a_right_one_stands():
+    ranks = core.precedence_list(AGREEMENT)
+    wrong = core.guard_ranking(
+        "This conflicts with the ranking of P at 3, below Schedule T.", ranks
+    )
+    assert wrong == "the list on page 1 ranks Schedule P above Schedule T"
+    assert (
+        core.guard_ranking("Schedule T ranks below Schedule P, as it should.", ranks)
+        is None
+    )
+    assert "ranks Schedule P at 3, not 7" in core.guard_ranking(
+        "It puts the ranking of P at 7 in the list.", ranks
+    )
+    assert (
+        core.guard_ranking(
+            "The retention stays below the cap after the first invoice.", ranks
+        )
+        is None
+    )
+
+
+def test_a_term_called_absent_that_the_paper_refers_to_a_held_clause_goes_to_the_engineer():
+    comment = "The Retention Bond has no stated validity or release trigger."
+    why = core.guard_referred(comment, AGREEMENT, SCHEDULE_A)
+    assert (
+        why
+        == "the paper (page 2) refers Retention Bond to 9.7 of Schedule D, which is held (doc_a, page 2)"
+    )
+    assert (
+        core.guard_referred(comment, AGREEMENT, {"doc_a": SCHEDULE_A["doc_a"][:1]})
+        is None
+    )  # clause not held
+    assert (
+        core.guard_referred(comment, AGREEMENT, {}) is None
+    )  # the referred part not held
+    assert (
+        core.guard_referred("The Warranty has no start date.", AGREEMENT, SCHEDULE_A)
+        is None
+    )  # not referred
+
+
+def test_a_guarded_comment_never_stands_as_firm():
+    g = core.guard_comment(
+        "This conflicts with the ranking of P at 3, below Schedule T.",
+        AGREEMENT,
+        SCHEDULE_A,
+    )
+    assert (
+        g["outcome"] == cc.ENGINEER
+        and g["rule"] == "precedence list"
+        and g["reason"].startswith("engineer to check")
+    )
+    assert (
+        core.guard_comment("The insurance amount is left blank.", AGREEMENT, SCHEDULE_A)
+        is None
+    )
+
+
+def test_the_command_guards_a_stored_runs_lines_read_only_and_prints_no_comment_text(
+    tmp_path, capsys
+):
+    db = tmp_path / "copy.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT)")
+    conn.execute(
+        "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, verdict_class TEXT, line_json TEXT)"
+    )
+    conn.executemany("INSERT INTO pages VALUES ('doc_x', ?, ?)", AGREEMENT)
+    conn.executemany("INSERT INTO pages VALUES ('doc_a', ?, ?)", SCHEDULE_A["doc_a"])
+    lines = [("G-1", "This conflicts with the ranking of P at 3, below Schedule T."),
+             ("G-2", "The insurance amount is left blank in the special clause.")]  # fmt: skip
+    conn.executemany(
+        "INSERT INTO agent_review_line VALUES ('r', ?, 'AI note, no rule book', ?)",
+        [(i, json.dumps({"text": t})) for i, t in lines],
+    )
+    conn.commit()
+    conn.close()
+    before = db.stat().st_mtime_ns
+    assert (
+        cc.main(
+            [
+                "--db",
+                str(db),
+                "--document",
+                "doc_x",
+                "--package",
+                "doc_a",
+                "--guard-run",
+                "r",
+            ]
+        )
+        == 0
+    )
+    printed = capsys.readouterr().out
+    assert (
+        "G-1 [AI note, no rule book] -> precedence list: engineer to check" in printed
+    )
+    assert (
+        "G-2 [AI note, no rule book] -> untouched" in printed
+        and "insurance amount" not in printed
+    )
+    assert db.stat().st_mtime_ns == before

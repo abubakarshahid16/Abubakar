@@ -55,9 +55,20 @@ __all__ = [
 ]  # fmt: skip
 
 
+def _read_only(db: str) -> sqlite3.Connection:
+    """The database opened read only; a copy whose journal files cannot be opened read only (no writer) is opened immutable."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+        return conn
+    except sqlite3.OperationalError:
+        conn.close()
+        return sqlite3.connect(f"file:{db}?mode=ro&immutable=1", uri=True)
+
+
 def load_pages(db: str, document_id: str) -> Pages:
     """The stored page texts of one document, read only."""
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = _read_only(db)
     try:
         rows = conn.execute(
             "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
@@ -194,6 +205,29 @@ def against_stored(
 # ------------------------------------------------------------------------------------------------ command
 
 
+def guarded_lines(
+    db: str, run_id: str, pages: Pages, package: dict[str, Pages]
+) -> list[dict]:
+    """Each stored AI line of the run with what the guards say of its comment (`guard_comment`): ids and code words only,
+    never the comment's text."""
+    from app.contract_checks import guard_comment
+
+    conn = _read_only(db)
+    try:
+        rows = conn.execute(
+            "SELECT item_id, verdict_class, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+            (run_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for item, cls, raw in rows:
+        text = (json.loads(raw or "{}").get("text") or "").strip()
+        g = guard_comment(text, pages, package) if text else None
+        out.append({"item_id": item, "class": cls, "guard": g})
+    return out
+
+
 def report(
     db: str,
     document: str,
@@ -202,6 +236,7 @@ def report(
     run_id: str | None = None,
     mapping: dict | None = None,
     complete: bool = False,
+    guard_run: str | None = None,
 ) -> dict:
     pages = load_pages(db, document)
     package = {d: load_pages(db, d) for d in package_ids}
@@ -223,6 +258,8 @@ def report(
         "results": [r.to_json(show_text) for r in results],
         "gates": judge_rows(results),
     }
+    if guard_run:
+        out["guarded_lines"] = guarded_lines(db, guard_run, pages, package)
     if run_id:
         out["stored_lines"] = against_stored(
             results, stored_lines(db, run_id), mapping or {}
@@ -247,11 +284,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="the paper and the package are the WHOLE contract (only then is a missing part a finding)",
     )
+    ap.add_argument(
+        "--guard-run",
+        help="a stored AI run on this paper: what the guards on AI comments say of each of its lines",
+    )
     a = ap.parse_args(argv)
     mapping = (
         json.loads(Path(a.mapping).read_text(encoding="utf-8")) if a.mapping else {}
     )
-    rep = report(a.db, a.document, a.package, a.show_text, a.lines, mapping, a.complete)
+    rep = report(
+        a.db,
+        a.document,
+        a.package,
+        a.show_text,
+        a.lines,
+        mapping,
+        a.complete,
+        a.guard_run,
+    )
     if a.json:
         Path(a.json).write_text(json.dumps(rep, indent=1), encoding="utf-8")
     for k, v in rep["counts"].items():
@@ -263,6 +313,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     for g, res in rep["gates"].items():
         print(f"{g} {res['status']}: {res['note']}; failed {res['failed']}")
+    for ln in rep.get("guarded_lines", []):
+        g = ln["guard"]
+        print(
+            f"{ln['item_id']} [{ln['class']}] -> "
+            + (f"{g['rule']}: {g['reason']}" if g else "untouched")
+        )
     for ln in rep.get("stored_lines", []):
         print(f"{ln['item_id']} p{ln['page']} {ln['part']} -> {ln['ct']}: {ln['code']}")
     return 0
