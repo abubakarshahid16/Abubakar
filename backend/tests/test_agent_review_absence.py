@@ -330,3 +330,34 @@ def test_the_request_modules_deferred_mark_is_the_same_rule():
 
     assert R.deferred_mark("casing material", Pages(), "p", 3) == 2
     assert R.deferred_mark("bearing type", Pages(), "p", 3) is None
+
+
+ABBREVIATED = {1: "DATA SHEET\nCsg matl\nBy Contractor\nRated flow\n120 m3/h"}
+
+
+def test_the_label_as_printed_is_tried_when_the_role_words_tie_nothing():
+    item = {"field_roles": ["casing_material"]}
+    assert A.pass_guard(item, "", ABBREVIATED) is None  # the role words are not on the sheet
+    got = A.pass_guard(item, "Csg matl", ABBREVIATED)
+    assert got is not None and got[1] == "value_deferred" and got[2] == 1
+    assert got[0]["verdict"] == "Query"
+    assert A.pass_guard(item, "Rated flow", ABBREVIATED) is None  # that label's value is a figure
+    assert A.pass_guard(item, "Csg matl", {1: "Csg matl 5\nBy Contractor"}) is None  # figure on the label line
+    assert A.pass_guard(item, "Csg matl", {1: "Csg matl\nSteel"}) is None  # no mark
+
+
+def test_the_review_runners_guard_also_tries_the_printed_label():
+    from app.agent_review_decide import DecideMixin
+
+    class Run(DecideMixin):
+        paper, total_pages = "p", 1
+
+        class pages:  # noqa: N801
+            @staticmethod
+            def page(paper, n):
+                return ABBREVIATED[1]
+
+    item = {"field_roles": ["casing_material"]}
+    assert Run().pass_guard(item, "") is None
+    got = Run().pass_guard(item, "Csg matl")
+    assert got is not None and got[1] == "value_deferred" and got[0]["verdict"] == "Query"

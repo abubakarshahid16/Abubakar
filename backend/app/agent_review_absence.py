@@ -611,6 +611,8 @@ def pass_guard(
             None,
         )
     page = deferred_mark(field_text, texts)
+    if page is None and label:  # the role words tied nothing: the label as the paper prints it (the binder's reading)
+        page = deferred_mark(label, texts)
     if page is None:
         return None
     return (
