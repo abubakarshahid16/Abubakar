@@ -14,6 +14,7 @@
 import { useState } from "react";
 
 import type { DocumentClassification, DocumentKindOption } from "../types/api";
+import { DocumentRoleChip } from "./DocumentRoleChip";
 
 export function DocumentKindChip({
   classification,
@@ -101,6 +102,8 @@ export function DocumentKindChip({
           ))}
         </select>
       )}
+      {/* Order 14 lane E: the suggested role (nothing when its switch is off or the document has a role). */}
+      <DocumentRoleChip classification={classification} isAdmin={isAdmin} />
     </>
   );
 }

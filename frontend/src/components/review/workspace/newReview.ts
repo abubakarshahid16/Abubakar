@@ -30,6 +30,7 @@
 import { api, auth, classification, reviews as reviewsApi } from "../../../api/client";
 import { hasAdminCapability } from "../../Shell";
 import { uploadOne } from "../../Uploader";
+import { type RoleSuggestion, roleSuggestionOf, roleSuggestionSwitch, suggestionWords } from "../../../api/roleSuggestion";
 import { ROLE_OPTIONS } from "../../classification/MetadataEditor";
 import type { ApiError, ReviewRunSummary } from "../../../types/api";
 import { groupRunsByDocument } from "../reviewFormat";
@@ -183,6 +184,8 @@ async function checkDuplicateRole(
 export interface OfferMark {
   documentId: string;
   role: string | null;
+  /** Order 14 lane E (switch on): the suggested role of a new upload, shown before anything is marked. */
+  suggestion?: RoleSuggestion;
 }
 
 /** v2.1: a dropped file that is already in the library as a contractor
@@ -206,6 +209,10 @@ export type StartNewReviewResult =
 
 /** The confirm question for the re-mark offer, in plain words. */
 export function markOfferWords(offer: OfferMark): string {
+  if (offer.suggestion) {
+    return `${suggestionWords(offer.suggestion)} Confirm: mark it as a document from a contractor and start the review? `
+      + "Or change its role on the Documents page.";
+  }
   return `This file is ${roleInPlainWords(offer.role)} in the library. Mark it as a document from a contractor and start the review? `
     + "It will then be treated as a contractor submittal everywhere, not as what it is marked as now.";
 }
@@ -263,7 +270,11 @@ export async function startNewReview(
   const who = await uploadDisciplines();
   if (!who.ok) return fail(who.message);
   if (changed()) return fail(SIGNED_OUT_MESSAGE);
-  const uploaded = await uploadOne(file, who.disciplines, (percent) => onPhase({ kind: "uploading", percent }));
+  const suggesting = (await roleSuggestionSwitch()).enabled;
+  const progress = (percent: number) => onPhase({ kind: "uploading", percent });
+  const uploaded = suggesting
+    ? await uploadOne(file, who.disciplines, progress, "review")
+    : await uploadOne(file, who.disciplines, progress);
   if (uploaded.phase === "error") return fail(uploaded.message);
   if (uploaded.phase !== "done") return fail("The upload did not finish.");
   if (uploaded.awaitingGrant) {
@@ -291,6 +302,18 @@ export async function startNewReview(
       const message = priorDecisionWords(prior);
       return { ok: false, message, askFirst: { documentId, filename: file.name, prior } };
     }
+  } else if (suggesting) {
+    // Order 14 lane E: the role is SUGGESTED, never set silently. Once the file is read in, its suggestion is shown and
+    // the administrator confirms it (the existing "mark and review" step) or changes it on the Documents page.
+    const read = await waitUntilReadIn(documentId, options, changed);
+    if (!read.ok) return fail(read.message);
+    const cls = await classification.ofDocument(documentId);
+    if (changed()) return fail(SIGNED_OUT_MESSAGE);
+    const suggestion = cls.ok ? roleSuggestionOf(cls.data.document_kind_evidence) : null;
+    const offer: OfferMark = { documentId, role: null, suggestion: suggestion ?? { role: null, basis: "none" } };
+    const message = markOfferWords(offer);
+    onPhase({ kind: "error", message });
+    return { ok: false, message, offerMark: offer };
   } else {
     onPhase({ kind: "marking" });
     const marked = await markAsContractorSubmittal(documentId);
