@@ -182,3 +182,87 @@ def resolve_edition(conn, candidates, standard: str, edition: str) -> str | None
     """The confirmed document id, else None (see `edition_evidence`)."""
     found = edition_evidence(conn, candidates, standard, edition)
     return found["doc"] if found["status"] == "confirmed" else None
+
+
+# ---------------------------------------------------------------------------------------------------- the issue date a book prints
+
+#: The date formats a standard prints its issue date in ("23 May 2019", "May 23, 2019", "2020-11", "May 2019", "2019").
+_DATE_FORMATS = (
+    ("%d %B %Y", "%Y-%m-%d"), ("%d %b %Y", "%Y-%m-%d"), ("%B %d, %Y", "%Y-%m-%d"), ("%B %d %Y", "%Y-%m-%d"),
+    ("%b %d, %Y", "%Y-%m-%d"), ("%Y-%m-%d", "%Y-%m-%d"), ("%B %Y", "%Y-%m"), ("%b %Y", "%Y-%m"), ("%Y-%m", "%Y-%m"),
+    ("%Y", "%Y"),
+)  # fmt: skip
+_ISSUE_LABEL = re.compile(
+    r"^\s*(?:issue\s*date|date\s*of\s*issue|issued(?:\s+on)?)\s*[:\-\u2013\u2014]?\s*(?P<value>.+?)\s*$",
+    re.I,
+)
+
+
+def as_iso_date(text: str) -> str | None:
+    """'23 May 2019' -> '2019-05-23', 'May 2019' -> '2019-05', '2019' -> '2019'; None when it is not one date."""
+    from datetime import datetime
+
+    value = " ".join(str(text or "").split()).rstrip(_END_PUNCT)
+    for given, iso in _DATE_FORMATS:
+        try:
+            return datetime.strptime(value, given).strftime(iso)
+        except ValueError:
+            continue
+    return None
+
+
+def issue_date(conn, document_id: str) -> dict:
+    """The issue date a held standard PRINTS, with its evidence: a labelled line on pages 1..EDITION_PAGES ("Issue Date:
+    23 May 2019", verbatim, at most QUOTE_CHARS, checked on the page), else the edition year in its file name
+    (`crs_reference.edition_of`). Two different printed dates, or none: {"date": None}, never a guess.
+    {"date", "page", "quote", "source"}; `conn` rows are read by name."""
+    from . import crs_reference
+
+    found: dict[str, tuple[int, str]] = {}
+    for page in conn.execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ? AND page_no <= ? ORDER BY page_no",
+        (document_id, EDITION_PAGES),
+    ).fetchall():
+        text = page["text"] or ""
+        for line in text.splitlines():
+            label = _ISSUE_LABEL.match(line)
+            date = as_iso_date(label.group("value")) if label else None
+            quote = line.strip()
+            if date and len(quote) <= QUOTE_CHARS and quote in text:
+                found.setdefault(date, (page["page_no"], quote))
+    if len(found) == 1:
+        ((date, (page, quote)),) = found.items()
+        return {
+            "date": date,
+            "page": page,
+            "quote": quote,
+            "source": "printed issue date",
+        }
+    if len(found) > 1:
+        return {
+            "date": None,
+            "page": None,
+            "quote": None,
+            "source": "two different printed issue dates",
+        }
+    row = conn.execute(
+        "SELECT filename FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    year = crs_reference.edition_of(
+        re.sub(
+            r"\.(pdf|docx?)$", "", (row["filename"] if row else "") or "", flags=re.I
+        )
+    )
+    if year:
+        return {
+            "date": year,
+            "page": None,
+            "quote": None,
+            "source": "edition year in the file name",
+        }
+    return {
+        "date": None,
+        "page": None,
+        "quote": None,
+        "source": "no issue date printed",
+    }

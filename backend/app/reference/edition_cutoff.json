@@ -1,5 +1,5 @@
 {
-  "_note": "TEMPLATE. Placeholders only: the real contract names, dates and families live in a local file outside git (set EDITION_CUTOFF_FILE). Each entry picks the edition of a standard that a contract names. rule 'in_effect_on': the latest edition issued on or before 'date'. rule 'latest_at_award': the latest edition issued on or before the award 'date'. 'always_latest_families': these standard families always use their newest edition, whatever the date. 'feed_conflict': 'strictest' means that when the FEED names a different edition, both are checked and the stricter requirement wins.",
+  "_note": "The contracts' cutoff rules, as DATA. Each entry picks the edition of a standard that a contract names. rule 'in_effect_on': the latest edition issued on or before 'date'. rule 'latest_at_award': the latest edition issued on or before the award 'date'. 'date' is one day (YYYY-MM-DD) or, when the contract names only a month, that month (YYYY-MM): an edition issued inside the month, or dated too coarsely to tell, goes to the engineer. 'always_latest_families': these standard families always use their newest edition, whatever the date. 'feed_conflict': 'strictest' means that when the FEED names a different edition, both are checked and the stricter requirement wins. 'source': where the rule is written, by clause and page; no contract text. TEMPLATE: the two entries are placeholders for tests. A real contract's cutoff is values read from the client's contract, so it lives in a local file outside git (EDITION_CUTOFF_FILE), never here (CLAUDE.md rule 1).",
   "contracts": {
     "example-contract-a": {
       "rule": "in_effect_on",
@@ -11,7 +11,9 @@
       "rule": "latest_at_award",
       "date": "2000-09-15",
       "feed_conflict": "none",
-      "always_latest_families": ["EXAMPLE-FAMILY-B"]
+      "always_latest_families": [
+        "EXAMPLE-FAMILY-B"
+      ]
     }
   }
 }
