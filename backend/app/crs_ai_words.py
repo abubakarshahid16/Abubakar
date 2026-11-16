@@ -73,7 +73,7 @@ NOT_A_COMMENT_SHEET = "Not a comment"  # the AI run file's sheet of every line t
 KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two readers or one reader): the engineer ticks it, no comment
 KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
-KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # quote not found or readers disagree; nothing open or missing
+KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
 NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
 #: Words that say there is nothing to do ("no correction needed", "found none", "could not be read" and their plain variants). A model's
 #: own sentence is shown without them (`drop_noise`); our own fixed words never use them.

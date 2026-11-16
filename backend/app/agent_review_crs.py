@@ -619,7 +619,8 @@ def _check_word(ok: bool) -> str:
 def _second_reader(line: Mapping) -> str:
     second = line.get("second_opinion")
     if isinstance(second, Mapping):
-        return "asked: agreed" if second.get("agree") else "asked: disagreed"
+        cut = str(line.get("not_proven_reason") or "").startswith(words.CUT_OFF_WHY)  # R98: a cut answer never "disagreed"
+        return "asked: agreed" if second.get("agree") else "asked: answer cut off" if cut else "asked: disagreed"
     return "not asked"
 
 
@@ -726,8 +727,7 @@ _STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
 
 
 def _deferred_mark(line: Mapping) -> str | None:
-    """None when the line's value is not left open on the sheet; else how the sheet marks it, from the quote code verified: " (marked *
-    on page N)" for a lone star, else the quoted words (order 14 lane D: a senior engineer says the vendor is to fill it)."""
+    """None when the value is not left open on the sheet; else how the sheet marks it (verified quote): " (marked * on page N)", or its words."""
     from .agent_review_verdict import DEFERRED_WHY
 
     deferred = line.get("reason_code") == "value_deferred" or str(

@@ -1134,3 +1134,23 @@ def test_the_words_name_the_paper_field_when_the_item_names_none_but_never_the_a
         "R-2", field=None, field_label_ai="Gasket", rule_label={"tier": "AI approved"}
     )
     assert WB.field_words(unverified) == ""
+
+
+def test_a_cut_off_second_reader_never_reads_the_readers_disagree():
+    """R98 (rule 8, every home): a line whose reason is the cut-off second reader says so in its action, its reason and its Evidence
+    row, never "the readers disagree" / "disagreed"."""
+    from app import agent_review_crs as C
+    from app import crs_ai_actions as actions
+
+    line = mk("R-1", "Query", ai="Pass", field="Seal plan", not_proven_reason=words.CUT_OFF_WHY, second_opinion={"agree": None},
+              reason_code="met")  # fmt: skip
+    line = {**line, "not_proven_reason": words.CUT_OFF_WHY}
+    assert actions.action_case(line) == "cut_off"
+    said = actions.query_action(line, "Seal plan", "STD-1 clause 4.1")
+    assert (
+        said
+        == "Engineer to check Seal plan: the second AI reader's answer was cut off, so the two readers did not agree."
+    )
+    assert "disagree" not in said
+    assert words.why_phrase(line["not_proven_reason"]) == words.CUT_OFF_WHY
+    assert C._second_reader(line) == "asked: answer cut off"

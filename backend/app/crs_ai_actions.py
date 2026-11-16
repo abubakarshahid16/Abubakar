@@ -20,6 +20,8 @@ REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
 def action_case(line: Mapping) -> str:
     """The case: "stated" (a paper quote code verified), "deferred" (the stored reason says so, or the verified quote defers the value), "blank"
     (the paper is silent on the field) or "unknown"."""
+    if str(line.get("not_proven_reason") or "").startswith(words.CUT_OFF_WHY):
+        return "cut_off"  # R98: the second reader's answer was cut off: it never said the opposite, so never "the readers disagree"
     if two.disagrees(line) or two.absence_disagrees(line):
         return "disagree"  # the two readers reached opposite verdicts: code's own flag
     checked = (line.get("quotes_checked") or {}).get("paper")
@@ -56,6 +58,8 @@ def query_action(line: Mapping, what: str, ref: str) -> str:
         return f"Contractor to provide {what}; it is deferred on the sheet."
     if case == "disagree":
         return f"Engineer to check {what}: the readers disagree."
+    if case == "cut_off":
+        return f"Engineer to check {what}: the second AI reader's answer was cut off, so the two readers did not agree."
     if case == "unknown":
         return f"Engineer to check {what}."
     return f"Contractor to state {what}, or the page where it is shown."
