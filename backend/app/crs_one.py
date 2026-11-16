@@ -53,6 +53,12 @@ DNA_SHEET = "Does not apply"
 HELD_SHEET = "Rule books not held"
 NOT_CHECKED_SHEET = "What was not checked"
 HOW_SHEET = "How it was reviewed"
+#: Order 14 lane B: the fields that carry no finding (met, does not apply, a coverage line), listed apart and counted, never dropped
+NOT_A_COMMENT_SHEET = "Not a comment"
+#: Order 14 lane E's contract checks (CT-01..), an AI-draft checklist: internal only, never on the contractor file
+CONTRACT_SHEET = "Contract checks"
+CONTRACT_CLASS = "AI draft rule, internal only"
+CONTRACT_SHOWN = ("inconsistent", "engineer to check")
 FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
@@ -109,6 +115,8 @@ def reason_of(point: dict) -> str:
     )
     if point.get("source") == rp.SOURCE_ADDED:
         return "Added by an engineer."
+    if line and (draft := words.ai_draft_words(line)):  # lane A: a check against an AI-draft limit: said first, in code's own words
+        return _clean(draft)
     if line:
         why = words.why_phrase(line.get("not_proven_reason") or line.get("why") or "")
         code = (
@@ -142,6 +150,8 @@ def rule_requires(point: dict) -> str:
         return content.UNREADABLE_BOOK
     if point.get("rule_text"):
         return f'"{point["rule_text"]}" (as stored; {content.NOT_VERIFIED})'
+    if point.get("check_text"):  # order 14 lane B: our checklist's words, said to be ours
+        return f'Our checklist asks (our words, not the book\'s): "{point["check_text"]}"'
     return content.NOTHING
 
 
@@ -332,17 +342,18 @@ def _header_pairs(
     ]
 
 
-def _books_line(points: list[dict]) -> str:
+def _books_line(points: list[dict], editions: dict | None = None) -> str:
+    """Each cited book with its count of points; with `editions` (lane G: book name -> `standard_editions.against_cutoff` result) also
+    what the contract's edition cutoff says of the held edition."""
     c: Counter = Counter()
     for p in points:
         for b in p.get("books") or []:
             c[b["name"]] += 1
-    return (
-        "; ".join(
-            f"{n} ({k})" for n, k in sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))
-        )
-        or "none"
-    )
+
+    def one(n: str, k: int) -> str:
+        return f"{n} ({k}; {words.edition_words(editions.get(n))})" if editions is not None else f"{n} ({k})"
+
+    return "; ".join(one(n, k) for n, k in sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))) or "none"
 
 
 def _put_block(ws, pairs: list[tuple[str, str]], lines: list[str]) -> int:
@@ -585,6 +596,18 @@ def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     )
 
 
+def aside_line(aside: list[tuple[dict, str]]) -> str:
+    """ONE sentence counting the points that are not comments, by what they are (order 14 lane B)."""
+    by: Counter = Counter()
+    for c, kind in aside:
+        by[kind] += c["n_points"]
+    n = sum(by.values())
+    if not n:
+        return "Not a comment: none (every point that is not removed is in a comment)."
+    each = "; ".join(f"{kind}: {k}" for kind, k in sorted(by.items(), key=lambda kv: (kv[0] != words.KIND_NOTHING_TO_CHANGE, kv[0])))
+    return f"Not a comment: {n} points are not comments ({each}); listed on the sheet {NOT_A_COMMENT_SHEET} with each point's class."
+
+
 def no_rule_words(points: list[dict]) -> str:
     """What the rule-books cell says when no book is named: a rule book the reader may not read is counted and not named; otherwise the
     comment rests on NO rule book and says so (a field check never looks like a rule-backed comment)."""
@@ -612,6 +635,14 @@ def highest_priority(points: list[dict]) -> str:
     return min(words_, key=lambda w: rp.PRIORITY_ORDER.get(w, 3)) if words_ else ""
 
 
+def member_words(p: dict) -> str:
+    """One other point of a comment (R91): its class, field, rule book and clause, and what it asks, so no finding is folded away."""
+    where = " ".join(x for x in (p.get("rule_book") or "", p.get("clause") or "") if x)
+    action = _clean(p.get("action"))
+    return f"Also: {p.get('pill') or rp.RANKS.get(p.get('rank'), ('point',))[0]}, {p.get('name')}" + (f" ({where})" if where else "") + (
+        f": {action}" if action else "")  # fmt: skip
+
+
 def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
     a shortened cell keeps its whole text in the column Full text."""
@@ -630,6 +661,7 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
         else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
     )
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
+    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])  # R91: each other point, its class and ask
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
         ", ".join(str(x) for x in c["pages"]) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
@@ -639,6 +671,21 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     return [_cell(x) for x in cells], cut_n
 
 
+def contract_rows(results) -> tuple[list[list], int]:
+    """(the rows of the sheet Contract checks, how many results were consistent). One row per result whose outcome is "inconsistent" or
+    "engineer to check" (lane E's `Result`: ct, topic, outcome, value, message, quotes of page, text, verified); a consistent result is
+    counted, not listed. A quote is shown only when code verified it on its page."""
+    rows, consistent = [], 0
+    for r in results or []:
+        outcome = _clean(getattr(r, "outcome", "")).lower()
+        if outcome not in CONTRACT_SHOWN:
+            consistent += outcome == "consistent"
+            continue
+        quotes = "; ".join(f'"{_clean(q.text)}" (page {q.page})' for q in getattr(r, "quotes", []) or [] if getattr(q, "verified", False))
+        rows.append([_cell(c) for c in (len(rows) + 1, r.ct, r.topic, outcome, r.value, r.message, quotes or content.NOTHING, CONTRACT_CLASS)])
+    return rows, consistent
+
+
 def build_team(
     paper_id: str,
     scope,
@@ -646,6 +693,8 @@ def build_team(
     exported: str | None = None,
     signed: bool = False,
     listing_raw=None,
+    contract_results=None,
+    editions: dict | None = None,
 ) -> bytes:
     """The ONE team workbook of a paper (see the module words): sheet CRS = one comment per field, sheet Evidence = every point."""
     from . import review_points_service as svc
@@ -659,6 +708,8 @@ def build_team(
     by_id = {p["id"]: p for p in raw}
     grouped = comments.group(raw)
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
+    aside = comments.set_aside(raw)  # order 14 lane B: no finding, so not a comment; named on Evidence, counted, listed on its sheet
+    comment_of.update({i: kind for c, kind in aside for i in c["member_ids"]})
     evidence, cut = [], 0
     for p in raw:
         row, cc = row_of(numbers[p["id"]], p, comment_of.get(p["id"], "removed"))
@@ -675,13 +726,15 @@ def build_team(
     lines = [
         completeness.team_statement(listing["of"], len(grouped)),
         count_line(listing, len(evidence), len(grouped)),
+        aside_line(aside),
+        *([f"Coverage note: {note}"] if (note := comments.coverage_note(raw)) else []),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (
             f"; {cut} cell(s) shortened with {CUT_MARK} (the whole text is in the column Full text)"
             if cut
             else "; no cell shortened"
         ),
-        "Rule books used (points): " + _books_line(raw),
+        "Rule books used (points): " + _books_line(raw, editions),
     ]
     header_row = _put_block(
         ws,
@@ -699,6 +752,20 @@ def build_team(
         [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("page"), (p["decision"].get("by") or NOT_RECORDED), p["decision"].get("at") or NOT_RECORDED, p["decision"].get("reason") or NOT_RECORDED)] for p in removed],
         (6, 40, 8, 22, 22, 60), note="Points an engineer removed. They stay in the record and are counted in the line above the sheet CRS.",
     )  # fmt: skip
+    _sheet_table(
+        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point"),
+        [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), ", ".join(str(g) for g in x["pages"]) or None,
+                             comment_full_texts(x)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]))] for x, kind in aside],
+        (40, 28, 8, 20, 12, 60, 50),
+        note=f"{aside_line(aside)} Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
+    )  # fmt: skip
+    if contract_results is not None:  # order 14 lane E: the contract checks, an AI-draft checklist (internal only; not points of the page)
+        c_rows, consistent = contract_rows(contract_results)
+        _sheet_table(
+            wb, CONTRACT_SHEET, ("No", "Check", "Topic", "Outcome", "Value", "What to do", "Quote (verified by code)", "Class"), c_rows,
+            (6, 10, 30, 18, 30, 60, 60, 26),
+            note=f"{len(c_rows)} contract check result(s) to look at; {consistent} consistent (not listed). {CONTRACT_CLASS}: never on the contractor file.",
+        )  # fmt: skip
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(
         wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page"),

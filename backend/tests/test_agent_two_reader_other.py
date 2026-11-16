@@ -81,7 +81,7 @@ def test_both_readers_need_a_drawing_and_both_clause_quotes_verified_gives_the_n
     ] == two.OTHER_WHY
     assert row["word"] not in ("Pass", "Fail", "Query", "Not applicable")
     path = agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx"
-    parked = rows_of(path, "Not reviewed or not applicable")
+    parked = rows_of(path, "Not a comment")
     mine = [r for r in parked if r["What it is"] == CLASS]
     assert len(mine) == 1 and mine[0]["Reason"] == two.OTHER_WHY + "."
     assert all(

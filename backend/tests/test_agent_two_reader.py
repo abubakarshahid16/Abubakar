@@ -1101,33 +1101,20 @@ def test_the_class_lines_are_the_fifth_status_with_the_stated_order_priority_and
     path = WB.write(CRS_LINES, tmp_path / "i.xlsx", META, "internal")
     rows = rows_of(path)
     order = [(r["Status"], r["Priority"]) for r in rows]
-    assert [r["Status"] for r in rows] == [
-        "Fail",
-        "AI verdict",
-        "AI verdict",
-        "AI opinion",
-        "Query",
-        "AI verdict",
-        "AI opinion",
-        "Pass",
-    ]
+    # order 14 lane B: the met lines (AI verdict met, AI opinion met, Pass) carry no finding: not comments, on the sheet "Not a comment"
+    assert [r["Status"] for r in rows] == ["Fail", "AI verdict", "AI verdict", "AI opinion", "Query"]
     verdict_rows = [r for r in rows if r["Status"] == "AI verdict"]
     # #1828 (U5, P6): the AI reviewer's own priority: High only when the rule is mandatory AND its clause is about safety, Medium when
-    # mandatory, otherwise Low; met: blank (the clauses of these lines are not about safety)
-    assert [r["Priority"] for r in verdict_rows] == [
-        "Medium",
-        "Low",
-        None,
-    ]
+    # mandatory, otherwise Low (the clauses of these lines are not about safety)
+    assert [r["Priority"] for r in verdict_rows] == ["Medium", "Low"]
     assert (
         "\nNot met (AI, two readers agree, quotes verified): "
         in verdict_rows[0]["COMPANY Comments"]
         and "engineer to confirm" in verdict_rows[0]["COMPANY Comments"]
     )
-    assert (
-        "Met (AI, two readers agree, quotes verified)"
-        in verdict_rows[2]["COMPANY Comments"]
-    )
+    met = [r for r in rows_of(path, "Not a comment") if r["Status"] == "AI verdict"]
+    assert [r["What it is"] for r in met] == ["Checked, nothing to change"]
+    assert met[0]["Reason"].startswith("Met, two AI readers agree; engineer to confirm")
     assert order[1][0] == "AI verdict" and all(
         r["Status"] != "Pass" for r in verdict_rows
     )
@@ -1150,8 +1137,8 @@ def test_the_fifth_status_has_its_own_colour_and_is_counted_on_notes(tmp_path):
         )
     }
     assert (
-        notes["Count: AI verdict"] == 3
-        and notes["Count: Pass"] == 1
+        notes["Count: AI verdict"] == 2  # order 14 lane B: the met one is not a comment row
+        and notes["Count: Pass"] == 0
         and notes["Count: Fail"] == 1
     )
 

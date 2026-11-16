@@ -201,6 +201,32 @@ def _item_lines(final: list[Mapping]) -> list[tuple[Mapping, str, int]]:
     return [(ln, st, order) for order, _p, ln, st in keyed]
 
 
+def _grouped(
+    items: list[tuple[Mapping, str, int]],
+) -> tuple[list[tuple[Mapping, str, int]], list[tuple[Mapping, str]]]:
+    """Order 14 lane B: ONE comment per topic, with the grouping of every CRS file (`crs_comments.group`): (the comment rows, led by the
+    strongest line; every other line of a topic as "Part of comment n"). Nothing is dropped: the others are on their own sheet."""
+    from . import crs_comments
+    from . import review_points as rp
+
+    points = []
+    for pos, (ln, st, o) in enumerate(items):
+        rank = 3 if st == words.STATUS_AI else 4
+        points.append({"id": pos, "name": _c(ln.get("topic")), "rule_book": _c(ln.get("other_document")) or None, "clause": None,
+                       "rank": rank, "tile": rp.TILE_OF_RANK[rank], "priority": words.priority(st, ln, o), "tags": []})  # fmt: skip
+    rows, merged = [], []
+    for c in crs_comments.group(
+        points, findings_only=False, near=False
+    ):  # R91: exact topics only, never near-same
+        rows.append(items[c["strongest"]["id"]])
+        merged += [
+            (items[i][0], words.KIND_IN_COMMENT.format(n=len(rows)))
+            for i in c["member_ids"]
+            if i != c["strongest"]["id"]
+        ]
+    return rows, merged
+
+
 def _row(n: int, ln: Mapping, paper: str, status: str, order: int, by: str) -> list:
     return [
         n,
@@ -334,14 +360,14 @@ def layout_view(
         or kind_review_table.discipline(meta.get("kind"))
     )
     contractor = copy == "contractor"
-    items = [] if contractor else _item_lines(final)
+    items, merged = ([], []) if contractor else _grouped(_item_lines(final))
     view = _head_view(items, meta, copy, discipline)
     if contractor:
         view["columns"] = list(crs_layout.LAYOUT_COLUMNS[:9])
         view["rows"] = [r[:9] for r in view["rows"]]
         view["plain"] = True
         return view
-    others = [
+    others = merged + [
         (ln, OTHER_KIND[ln["verdict_class"]])
         for ln in final
         if ln["verdict_class"] in OTHER_KIND

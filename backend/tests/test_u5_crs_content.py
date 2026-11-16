@@ -3,6 +3,9 @@ Invented findings only; nothing here depends on a stored paper."""
 
 from __future__ import annotations
 
+import pytest
+
+
 from app import crs_one, review_points
 from app import review_points_content as c
 from tests.test_b1_review_points import world_with_both
@@ -11,6 +14,15 @@ from tests.test_k4_one_crs import on, rows_after, scope_all, sheet  # noqa: F401
 
 CTX = {"run_id": "r", "paper_document_id": "doc1", "readable": frozenset({"doc1"})}
 PLACEHOLDER = "AI suggestion awaiting an engineer's decision - its words are in AI Review Comments. Not issued to the contractor until an engineer confirms it."
+
+
+@pytest.fixture(autouse=True)
+def _books_held(monkeypatch):
+    """These tests are about U5 content rules; their invented books are not in the test library. Order 14 lane B made a rule whose book
+    is not held a "book missing" question (test_o14_b_crs_writer covers that); here every cited book counts as held."""
+    from app import review_points
+
+    monkeypatch.setattr(review_points, "book_missing", lambda *_a, **_k: "")
 
 
 def row(kind="clause_review", **kw) -> dict:

@@ -179,7 +179,8 @@ def test_a_not_reviewed_line_is_on_its_own_sheet_counted_apart_and_never_on_the_
         [ln, mk("R-9", "Fail", "Fail")], tmp_path / "i.xlsx", META, "internal"
     )
     book = openpyxl.load_workbook(internal)
-    assert any(sh for sh in book.sheetnames if "Not reviewed" in sh)
+    other = [r for r in book["Not a comment"].iter_rows(values_only=True) if r and r[4] == "Not reviewed"]
+    assert len(other) == 1  # order 14 lane B: the sheet of lines that are not comments; this one says "Not reviewed"
     contractor = WB.write(
         [ln, mk("R-9", "Fail", "Fail")], tmp_path / "c.xlsx", META, "contractor"
     )
