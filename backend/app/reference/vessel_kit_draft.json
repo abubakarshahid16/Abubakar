@@ -318,18 +318,23 @@
       "id": "VSLD-05",
       "draft": true,
       "severity": "critical",
-      "text": "The design pressure is at least 1.05 times the maximum operating pressure. Not checked: the larger factor of 1.1 (or the fixed offset) that the clause gives for a maximum operating pressure up to 6,900 kPa; the stored table text is garbled, so only the lowest factor in it is used. The check reads whichever operating pressure the sheet states, which may be the normal and not the maximum one.",
+      "text": "AI draft, engineer to confirm. QUESTION ONLY, never decided: state the design pressure and the maximum operating pressure (MOP). The clause's rule is a table with two bands: for a MOP up to 6,900 kPa (1,000 psi) the design pressure is the greater of 1.1 x MOP and MOP + 15 psi; for a MOP of 6,900 kPa (1,000 psi) and above it is the greater of 1.05 x MOP and MOP + 100 psi. The stored table text is garbled, so the engineer confirms both minimum margins. Code does not compute it.",
       "source": {
         "standard": "SAES-D-001",
         "clause": "6.2.3",
         "page": 14
       },
       "rule": {
-        "kind": "percent_of",
+        "kind": "required",
         "field": "design_pressure",
-        "op": ">=",
-        "right": "operating_pressure",
-        "percent": 105
+        "right": "operating_pressure"
+      },
+      "limit_draft": {
+        "status": "AI draft, engineer to confirm",
+        "mop_up_to_6900_kPa": "greater of 1.1 x MOP and MOP + 15 psi",
+        "mop_6900_kPa_and_above": "greater of 1.05 x MOP and MOP + 100 psi",
+        "note": "stored table text garbled: the engineer confirms the two minimum margins (15 psi, 100 psi)",
+        "verified_against": "SAES-D-001 6.2.3, stored page 14"
       },
       "tests": [
         {
@@ -352,33 +357,12 @@
           "name": "breaks",
           "facts": [
             [
-              "design pressure",
-              "10.4",
-              "barg"
-            ],
-            [
               "maximum operating pressure",
               "10",
               "barg"
             ]
           ],
-          "expect": "NON_COMPLIANT"
-        },
-        {
-          "name": "at the limit",
-          "facts": [
-            [
-              "design pressure",
-              "10.5",
-              "barg"
-            ],
-            [
-              "maximum operating pressure",
-              "10",
-              "barg"
-            ]
-          ],
-          "expect": "COMPLIANT"
+          "expect": "MISSING_INFORMATION"
         },
         {
           "name": "unclear",
@@ -395,38 +379,6 @@
             ]
           ],
           "expect": "MISSING_INFORMATION"
-        },
-        {
-          "name": "a different unit above the limit",
-          "facts": [
-            [
-              "design pressure",
-              "1.2",
-              "MPa"
-            ],
-            [
-              "maximum operating pressure",
-              "1100",
-              "kPa"
-            ]
-          ],
-          "expect": "COMPLIANT"
-        },
-        {
-          "name": "a different unit below the limit",
-          "facts": [
-            [
-              "design pressure",
-              "1.15",
-              "MPa"
-            ],
-            [
-              "maximum operating pressure",
-              "1100",
-              "kPa"
-            ]
-          ],
-          "expect": "NON_COMPLIANT"
         }
       ]
     },

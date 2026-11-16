@@ -161,14 +161,15 @@ def test_each_held_card_passes_its_cases_through_the_real_code(card_id):
 
 
 def test_the_three_limit_cards_have_an_at_the_limit_case_and_the_unit_ones_a_unit_case():
-    for card_id in ("EXHD-09", "EXHD-10", "EXHD-11"):
+    for card_id in ("EXHD-09", "EXHD-11"):
         names = {t["name"] for t in _by_id()[card_id]["tests"]}
         assert "at the limit" in names
-    names = {t["name"] for t in _by_id()["EXHD-10"]["tests"]}
-    assert {
-        "a different unit above the limit",
-        "a different unit below the limit",
-    } <= names
+    # owner, 16 Nov 2026: the design pressure margin is a QUESTION until the engineer confirms the limit
+    assert _by_id()["EXHD-10"]["rule"] == {
+        "kind": "required",
+        "field": "design_pressure",
+        "right": "operating_pressure",
+    }
     assert "printed in Fahrenheit" in {t["name"] for t in _by_id()["EXHD-11"]["tests"]}
 
 
@@ -216,32 +217,6 @@ def _sheet(**changes):
 
 #: (what is planted, sheet, card that must not read COMPLIANT, statuses it may read)
 PLANTED = [
-    (
-        "design pressure only 4% over the operating pressure",
-        _sheet(design_pressure=("10.4", "barg")),
-        "EXHD-10",
-        {"NON_COMPLIANT"},
-    ),
-    (
-        "design pressure equal to the operating pressure",
-        _sheet(design_pressure=("10", "barg")),
-        "EXHD-10",
-        {"NON_COMPLIANT"},
-    ),
-    (
-        "design pressure below the operating pressure",
-        _sheet(design_pressure=("9", "barg")),
-        "EXHD-10",
-        {"NON_COMPLIANT"},
-    ),
-    (
-        "design pressure just under the limit, in MPa against kPa",
-        _sheet(
-            design_pressure=("1.15", "MPa"), maximum_operating_pressure=("1100", "kPa")
-        ),
-        "EXHD-10",
-        {"NON_COMPLIANT"},
-    ),
     (
         "design temperature 20 C over the operating temperature",
         _sheet(design_temperature=("170", "C")),
@@ -369,12 +344,6 @@ PLANTED = [
         {"MISSING_INFORMATION", "NEEDS_ENGINEER_REVIEW"},
     ),
     (
-        "operating pressure missing, margin rule",
-        _sheet(maximum_operating_pressure=None),
-        "EXHD-10",
-        {"MISSING_INFORMATION", "NEEDS_ENGINEER_REVIEW"},
-    ),
-    (
         "operating temperature missing, margin rule",
         _sheet(operating_temperature=None),
         "EXHD-11",
@@ -402,19 +371,6 @@ PLANTED = [
 
 #: Traps: inside the limit or exactly at it, each must read COMPLIANT.
 TRAPS = [
-    (
-        "design pressure exactly 5% over",
-        _sheet(design_pressure=("10.5", "barg")),
-        "EXHD-10",
-    ),
-    ("design pressure far above", _sheet(design_pressure=("20", "barg")), "EXHD-10"),
-    (
-        "design pressure above the limit, in MPa against kPa",
-        _sheet(
-            design_pressure=("1.2", "MPa"), maximum_operating_pressure=("1100", "kPa")
-        ),
-        "EXHD-10",
-    ),
     (
         "design temperature exactly 28 C over",
         _sheet(design_temperature=("178", "C")),
@@ -458,7 +414,9 @@ def test_the_planted_totals_every_defect_caught_zero_false_passes():
         caught += got in allowed
         false_passes += got == "COMPLIANT"
     assert (caught, false_passes) == (len(PLANTED), 0)
-    assert len(PLANTED) >= 30
+    assert (
+        len(PLANTED) >= 25
+    )  # 30 before 16 Nov: the margin card's limit cases left with its numeric rule
 
 
 def test_two_different_design_pressures_are_an_engineers_question_never_a_pass():
@@ -567,8 +525,12 @@ def test_switch_on_low_margins_and_a_low_joint_efficiency_fail_on_a_whole_sheet(
             joint_efficiency=("0.7", None),
         )
     )
-    for rule_id in ("EXHD-09", "EXHD-10", "EXHD-11"):
+    for rule_id in ("EXHD-09", "EXHD-11"):
         assert out[rule_id]["rule_said"] == "NON_COMPLIANT", rule_id
+    assert (
+        out["EXHD-10"]["rule_said"] == "COMPLIANT"
+    )  # asked, never compared (owner, 16 Nov)
+    for rule_id in ("EXHD-09", "EXHD-10", "EXHD-11"):
         assert out[rule_id]["draft"] is True
         assert out[rule_id]["standard"] == "SAES-E-004"
     assert out["EXHD-10"]["clause"] == "7.2.3"
@@ -612,7 +574,8 @@ def test_a_kit_result_is_always_held_whatever_rule_auto_use_and_tested_cards_say
             joint_efficiency=("0.7", None),
         )
     )
-    for rule_id in ("EXHD-09", "EXHD-10", "EXHD-11"):
+    assert rule_trust.label_check(out["EXHD-10"])["status"] == "NEEDS_ENGINEER_REVIEW"
+    for rule_id in ("EXHD-09", "EXHD-11"):
         row = rule_trust.label_check(out[rule_id])
         assert row["status"] == "NEEDS_ENGINEER_REVIEW", rule_id
         assert row["rule_said"] == "NON_COMPLIANT"
@@ -674,11 +637,25 @@ def test_the_margin_text_states_the_factor_in_full_and_what_is_not_checked():
         r["rule_id"]: r
         for r in dc.evaluate(facts, equipment_type=HEX, page_texts=PAGES, rules=one)
     }
-    assert "105% of" in res["EXHD-10"]["detail"]
+    assert "105% of" not in res["EXHD-10"]["detail"]  # asked, never compared
     assert "28 C" in res["EXHD-11"]["detail"]
     text = _by_id()["EXHD-10"]["text"]
-    assert "1.05 times" in text and "1.1" in text and "6,900 kPa" in text
-    assert "normal and not the maximum" in text
+    assert text.startswith("AI draft, engineer to confirm") and "QUESTION ONLY" in text
+    assert "1.1 x MOP" in text and "1.05 x MOP" in text and "6,900 kPa" in text
+    assert "MOP + 15 psi" in text and "MOP + 100 psi" in text
+    draft = _by_id()["EXHD-10"]["limit_draft"]
+    assert draft["status"] == "AI draft, engineer to confirm"
+    assert draft["mop_up_to_6900_kPa"] == "greater of 1.1 x MOP and MOP + 15 psi"
+    assert draft["mop_6900_kPa_and_above"] == "greater of 1.05 x MOP and MOP + 100 psi"
+    assert "page 17" in draft["verified_against"]
+    for design in (
+        "10.4",
+        "10",
+        "9",
+        "20",
+    ):  # below 1.1 x MOP, equal, below MOP, far above: none is compared
+        got = _kit_status(_by_id()["EXHD-10"], _sheet(design_pressure=(design, "barg")))
+        assert got == "COMPLIANT", design
     assert (
         "28 C" in _by_id()["EXHD-11"]["text"]
         and "Fahrenheit" in _by_id()["EXHD-11"]["text"]
