@@ -170,6 +170,10 @@ def fatal_problem(exc: BaseException) -> str:
         return "gate closed"
     if code == "test_cap":
         return "budget stop: run cap reached: owner decides whether to raise it"
+    if code == "account_no_credit":
+        return "the Claude account has no credit: the owner tops it up in the Anthropic console"
+    if code == "account_usage_limit":
+        return "the Claude account's usage limit is reached: access returns on the date the API gave"
     return "budget stop: step cap reached: owner decides whether to raise it"
 
 
