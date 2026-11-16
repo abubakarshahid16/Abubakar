@@ -49,13 +49,49 @@ def kind_of(document_id: str | None) -> str | None:
 
 
 def role_of(labels: list[str], data: dict) -> str | None:
-    """The role of the standard these names point at, or None: unmapped."""
+    """The role of the standard these names point at, or None: unmapped. A standard the table names keeps its role; one it
+    does not name but that GOVERNS an equipment type (reference/governing_standards.json: an equipment type's books, its
+    books in part, the materials books) takes `governing_books_role` when the table sets it (order 14 lane C: a procedure
+    whose equipment type was misread is not given that equipment's design books)."""
     for identifier, role in (data.get("standards") or {}).items():
         if any(
             label and standard_ids.same_standard(identifier, label) for label in labels
         ):
             return role
+    fallback = data.get("governing_books_role")
+    if fallback and any(
+        label and standard_ids.same_standard(book, label)
+        for book in _governing_books()
+        for label in labels
+    ):
+        return fallback
     return None
+
+
+_GOVERNING_CACHE: dict[tuple, list[str]] = {}
+
+
+def _governing_books() -> list[str]:
+    """Every book reference/governing_standards.json names for an equipment type (whole, in part, materials). Read once per
+    version of the file (a rule decision asks it once per rule)."""
+    from . import applicability
+
+    path = applicability.GOVERNING_PATH
+    key = (str(path), path.stat().st_mtime_ns)
+    if key not in _GOVERNING_CACHE:
+        _GOVERNING_CACHE.clear()
+        _GOVERNING_CACHE[key] = _read_governing_books(
+            applicability.governing_table(path)
+        )
+    return _GOVERNING_CACHE[key]
+
+
+def _read_governing_books(gov: dict) -> list[str]:
+    books = [b for ids in gov["equipment_types"].values() for b in ids]
+    books += [
+        e["standard"] for entries in gov["partial_standards"].values() for e in entries
+    ]
+    return sorted(set(books + list(gov["materials_standards"])))
 
 
 def _labels(entry: dict | None, row: dict) -> list[str]:
@@ -117,6 +153,79 @@ def apply(
         "identifiers": sorted({i for v in left.values() for i in v}),
         "note": note or None,
         "needed": needed,
+    }
+
+
+def _book_labels(conn, standard_document_id: str) -> list[str]:
+    """The names a held book is known by (its document number, the number its file name carries, its file name), or []
+    when the database has no such book. Read only."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'documents'"
+    ).fetchone():
+        return []
+    row = conn.execute(
+        "SELECT d.filename, c.document_number FROM documents d"
+        " LEFT JOIN document_classification c ON c.document_id = d.id WHERE d.id = ?",
+        (standard_document_id,),
+    ).fetchone()
+    if row is None:
+        return []
+    from . import applicability
+
+    filename = str(row[0] or "")
+    names = [
+        row[1],
+        applicability.library_identifier(filename),
+        filename.rsplit(".", 1)[0],
+    ]
+    return [n for n in names if n]
+
+
+def _rule_book(conn, requirement_id: str) -> str | None:
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'standard_requirements'"
+    ).fetchone():
+        return None
+    row = conn.execute(
+        "SELECT standard_document_id FROM standard_requirements WHERE id = ?",
+        (str(requirement_id),),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def rule_book_left_out(
+    conn, requirement_id: str, paper_kind: str | None, data: dict | None = None
+) -> dict | None:
+    """Order 14 lane C, the RULE-level door: a rule whose book has a role that does not apply to the paper's kind
+    (`kinds_apply`) is not asked of that paper, however the rule itself was labelled and however its book reached the
+    candidates (named by the paper, kept by a stored classic run's per-rule decisions). Returns {"role", "kind", "book",
+    "needs_kind"}
+    when the rule is left out, else None. Off, an unmapped book, a kind with no entry or a rule with no stored book: None
+    (a kind only narrows, rule 5). Read only."""
+    if not enabled() or not paper_kind:
+        return None
+    data = data or table()
+    allowed_roles = (data.get("kinds_apply") or {}).get(str(paper_kind))
+    if allowed_roles is None:
+        return None
+    book = _rule_book(conn, requirement_id)
+    if not book:
+        return None
+    labels = _book_labels(conn, book)
+    role = role_of(labels, data)
+    if role is None or role in allowed_roles:
+        return None
+    every = set(data.get("roles") or ())
+    kinds = [  # the kinds this role governs; a kind that takes every role (contract, specification) is not named
+        k
+        for k, roles in (data.get("kinds_apply") or {}).items()
+        if role in roles and set(roles) != every
+    ]
+    return {
+        "role": role,
+        "kind": str(paper_kind),
+        "book": labels[0] if labels else book,
+        "needs_kind": " or ".join(kinds) or role,
     }
 
 

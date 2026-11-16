@@ -23,7 +23,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from . import agent_review_rule_choice as rule_choice
-from . import rule_equipment, rule_labels
+from . import kind_standards, rule_equipment, rule_labels
 from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment filter lives in its own module
     ANOTHER_EQUIPMENT,
     EQUIPMENT_MODES,
@@ -231,6 +231,23 @@ def decide_rule(
         equipment_type=equipment_type,
         ask_unapproved=ask_unapproved,
     )
+    if (
+        out["ask"]
+        and (
+            book := kind_standards.rule_book_left_out(
+                conn, requirement_id, norm_kind(paper_kind)
+            )
+        )
+    ):  # order 14 lane C: a rule of a book that does not govern this kind of paper is never asked, whatever its label;
+        # it needs another paper: the kinds the book's role governs (an equipment design rule needs a datasheet or drawing)
+        out.update(
+            ask=False,
+            reason=ANOTHER_PAPER,
+            needs_kind=book["needs_kind"],
+            tier=None,
+            book_role=book["role"],
+        )
+        return out
     if equipment is None or not out["ask"]:
         return out
     label = rule_equipment.label_for(conn, "requirement", str(requirement_id)) or {}
@@ -299,6 +316,7 @@ def left_out_record(row: Mapping, why: Mapping, key: str) -> dict:
         "needs_paper_kind": why.get("needs_kind"),
         "label_state": why.get("state"),
         "part_note": why.get("part_note"),
+        **({"book_role": why["book_role"]} if why.get("book_role") else {}),
     }
 
 
