@@ -205,6 +205,7 @@ def test_only_the_cleaned_public_name_leaves_never_the_paper_or_its_words():
         ("API 610; see page 3", None),
         ("SAES-L-108", None),
         (chr(0x391) + "PI 521", None),  # a Greek capital alpha that looks like an A
+        ("ISO " + chr(0xFF19) + "001", None),  # a full-width digit nine
         ("API", None),
         ("ISO " + "1" * 70, None),
         ("", None),

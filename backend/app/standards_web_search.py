@@ -141,10 +141,11 @@ def enabled() -> bool:
 def clean_name(raw) -> str | None:
     """The public name of a standard as code rebuilds it, or None when it is not one (nothing is sent for it).
 
-    Punctuation becomes a space; a letter outside plain ASCII is refused (never guessed); the first word must be a publisher family,
-    and every other word a family, a fixed qualifier, a roman numeral, one letter or a short word with a digit. So no sentence of a paper can ride
-    along: "API 610 as per the datasheet" is refused, "NACE MR0175/ISO 15156-3" leaves as "NACE MR0175 ISO 15156-3"."""
-    text = unicodedata.normalize("NFKC", str(raw or ""))
+    No fold: punctuation becomes a space, any dash a hyphen; a letter or digit outside plain ASCII (a look-alike, a full-width
+    form) is refused, never guessed. The first word must be a publisher family, and every other word a family, a fixed
+    qualifier, a roman numeral, one letter or a short word with a digit. So no sentence of a paper can ride along:
+    "API 610 as per the datasheet" is refused, "NACE MR0175/ISO 15156-3" leaves as "NACE MR0175 ISO 15156-3"."""
+    text = str(raw or "")
     out = []
     for ch in text:
         if ch.isascii() and (ch.isalnum() or ch in ".-"):
