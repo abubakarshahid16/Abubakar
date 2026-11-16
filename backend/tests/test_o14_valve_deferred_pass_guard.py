@@ -49,3 +49,11 @@ def test_nothing_else_is_touched():
     assert fix(by="AI verdict") is None  # a two-reader decision
     assert fix(ai="Fail") is None  # an AI not-met opinion stays as it is
     assert fix(code="not_applicable") is None
+
+
+def test_a_star_to_fill_in_the_lines_own_quote_defers_the_value_too():
+    # lane D's "*" vendor-to-fill mark (blank_markers.defers_value): a value asked of the vendor, not a met value
+    got = fix("Rated flow * m3/h")
+    assert got is not None and got[1] == "value_deferred"
+    assert fix("Rated flow * m3/h", ai="Query") is not None  # a Query the AI left, too
+    assert fix("Note 3 *") is None  # a footnote star is not a deferral

@@ -279,13 +279,13 @@ class DecideMixin:
         self, answer: Mapping, ev: Mapping, decision: Mapping, error: str | None
     ) -> tuple[dict, str, int] | None:
         """(decision, "value_deferred", page) when the line's OWN paper quote is verified by code (it stands in the page) and
-        itself carries a deferral mark (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...). Nothing else: no other
+        itself carries a deferral mark (`blank_markers.defers_value`: "By Contractor", "TBA", a lone "*" to fill). Nothing else: no other
         line of the page, no field words. It only lowers confidence: EVERY Pass (a gate Pass, a two-reader Pass and a
         code-compared Pass alike) becomes a Query; a Query decided by the engineer that the AI left, or that a guard made of
         the AI's Pass ("met" on a value the sheet marks not final; order 14 lane A), takes the reason value_deferred; any
         other Query (a code or two-reader decision), an AI not-met opinion, a not-applicable line and a line with an error
         are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
-        from .blank_markers import names_a_marker
+        from .blank_markers import defers_value
 
         page = verdict._page_no(answer.get("paper_page"))
         quote = str(answer.get("paper_quote") or "")
@@ -294,7 +294,7 @@ class DecideMixin:
             error
             or page is None
             or not ev["checks"].paper
-            or not names_a_marker(quote)
+            or not defers_value(quote)
             or ev["reason_code"] == "not_applicable"
         ):
             return None
