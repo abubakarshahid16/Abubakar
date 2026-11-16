@@ -88,10 +88,22 @@
       "never_negative": true,
       "kind": "number",
       "names": [
-        "^(rated|pump) speed$"
+        "^(rated|pump) (speed|rpm)$",
+        "^rpm$",
+        "^speed \\(?rpm\\)?$"
       ],
       "printed_as": [
         "rated speed"
+      ]
+    },
+    "driver_speed": {
+      "never_negative": true,
+      "kind": "number",
+      "names": [
+        "^(nominal|rated load|full load|motor|driver|synchronous) (speed|rpm)$"
+      ],
+      "printed_as": [
+        "driver speed"
       ]
     },
     "absorbed_power": {
@@ -100,20 +112,33 @@
       "names": [
         "^(absorbed|brake|shaft) (pump )?power( at rated (point|flow))?$",
         "^power absorbed$",
-        "^bhp$"
+        "^bhp$",
+        "^pump power( at rated (point|flow))?$"
       ],
       "printed_as": [
-        "absorbed power"
+        "absorbed power",
+        "rated power"
       ]
     },
     "driver_rating": {
       "never_negative": true,
       "kind": "number",
       "names": [
-        "^(driver|motor) (rating|power|rated power|output)$"
+        "^(driver|motor) (rating|power|rated power|output)$",
+        "^nameplate (power|rating)$"
       ],
       "printed_as": [
         "driver rating"
+      ]
+    },
+    "hydraulic_power": {
+      "never_negative": true,
+      "kind": "number",
+      "names": [
+        "^(hydraulic|water|liquid) power$"
+      ],
+      "printed_as": [
+        "hydraulic power"
       ]
     },
     "casing_material": {
@@ -1877,7 +1902,7 @@
         },
         {
           "id": "PSV-A02",
-          "text": "A conventional valve only when the maximum variable superimposed back pressure plus the built-up back pressure is below 10% of the set pressure (5.1.1) AND no fouling or corrosive service is expected (5.1.2). Code compares the superimposed part here and the built-up part in PSV-29; the engineer adds the two and confirms 5.1.2. AI draft, engineer to confirm.",
+          "text": "A conventional valve only when the maximum variable superimposed back pressure plus the built-up back pressure is below 10% of the set pressure (5.1.1) AND no fouling or corrosive service is expected (5.1.2). Code adds the two and compares the sum; the engineer confirms 5.1.2. AI draft, engineer to confirm.",
           "source": {
             "standard": "SAES-J-600",
             "clause": "5.1.1",
@@ -1892,12 +1917,12 @@
             ]
           },
           "rule": {
-            "kind": "percent_of",
-            "left": "superimposed_back_pressure",
+            "kind": "sum_percent_of",
+            "field": "superimposed_back_pressure",
+            "plus": "built_up_back_pressure",
             "op": "<",
             "percent": 10,
-            "right": "set_pressure",
-            "stated_as_percent": true
+            "right": "set_pressure"
           },
           "severity": "major"
         }
@@ -1911,7 +1936,7 @@
       },
       "clauses_verified": false,
       "governs": false,
-      "note": "DRAFT, needs the client engineer's approval. The fields an API 610 centrifugal pump datasheet carries, each written in our own words; every item asks only that the field is STATED. The clause numbers are NOT yet verified: the source clause names the datasheet annex and says the number is to be checked against the held copy (an engineer fills it through the local overlay, see scripts/pump_checklist_clauses.py). This checklist does NOT replace the standard's library requirements (governs: false): API 610 stays checked clause by clause beside it. \"Stated\" means a label of the field was found with a value, not that the value is the right kind: a bare \"Casing\", \"Impeller\", \"Shaft\", \"Bearing\" or \"Speed\" row (usually a type, not a material or the rated figure) and \"Rated power\" (often the driver's) are deliberately NOT read as these fields. Nothing here is binding until a client discipline engineer signs it off.",
+      "note": "DRAFT, needs the client engineer's approval. The fields an API 610 centrifugal pump datasheet carries, each written in our own words; every item asks only that the field is STATED. The clause numbers are NOT yet verified: the source clause names the datasheet annex and says the number is to be checked against the held copy (an engineer fills it through the local overlay, see scripts/pump_checklist_clauses.py). This checklist does NOT replace the standard's library requirements (governs: false): API 610 stays checked clause by clause beside it. \"Stated\" means a label of the field was found with a value, not that the value is the right kind: a bare \"Casing\", \"Impeller\", \"Shaft\", \"Bearing\" or \"Speed\" row (usually a type, not a material or the rated figure) and \"Rated power\" (often the driver's) are deliberately NOT read as these fields (\"Rated power\" is a printed spelling of absorbed power, so the absorbed power item says the wording is on the sheet and asks the engineer; the driver's rating is read only from driver, motor or nameplate labels). A driver's own speed (nominal, rated load, full load) and the hydraulic power are their own fields, never the pump's rated speed or absorbed power. Nothing here is binding until a client discipline engineer signs it off.",
       "items": [
         {
           "id": "PMP-01",

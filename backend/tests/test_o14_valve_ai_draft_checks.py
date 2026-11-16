@@ -42,12 +42,14 @@ def test_code_compares_each_limit():
     conventional = fact("valve type", "Conventional")
     over = {
         "PSV-A01": [fact("inlet pressure drop", "4", "psi")],                         # 4 psi > 3% of 100 psig
-        "PSV-A02": [conventional, fact("superimposed back pressure", "15", "psig")],  # 15% >= 10%
+        "PSV-A02": [conventional, fact("superimposed back pressure", "5", "psig"),
+                    fact("built-up back pressure", "7", "psig")],                    # 5 + 7 = 12% >= 10%
     }
     for rule_id, extra in over.items():
         r = results([SET, *extra])[rule_id]
         assert r["status"] == "NON_COMPLIANT" and r["draft"] is True, rule_id
-    ok = results([SET, conventional, fact("inlet pressure drop", "2", "%"), fact("superimposed back pressure", "5", "psig")])
+    ok = results([SET, conventional, fact("inlet pressure drop", "2", "%"), fact("superimposed back pressure", "3", "psig"),
+                  fact("built-up back pressure", "4", "psig")])
     assert ok["PSV-A01"]["status"] == ok["PSV-A02"]["status"] == "COMPLIANT"
     assert results([SET])["PSV-A01"]["status"] == "MISSING_INFORMATION"  # 9.7.2: the drop is stated on the sheet
 
@@ -76,3 +78,21 @@ def test_the_calculator_never_turns_an_ai_draft_result_into_a_pass_or_fail():
         # the entry's own words are never shown as the book's quote
         assert line["clause_quote"] == "" and line["check_words"] == "an entry" and line["quotes_checked"]["clause"] is False
     assert calc.checklist_lines([_decided("PSV-A02", "NOT_APPLICABLE")], page_texts=pages) == []
+
+
+def _sum(*parts):
+    return results([SET, fact("valve type", "Conventional"), *parts])["PSV-A02"]
+
+
+def test_5_1_1_compares_the_sum_of_the_two_back_pressures_never_one_part():
+    sup, bu = "superimposed back pressure", "built-up back pressure"
+    # each part alone is below 10%, the sum is not: the check must fail on the sum
+    r = _sum(fact(sup, "6", "psig"), fact(bu, "6", "psig"))
+    assert r["status"] == "NON_COMPLIANT" and "12.0%" in r["detail"]
+    assert _sum(fact(sup, "5", "psig"), fact(bu, "5", "psig"))["status"] == "NON_COMPLIANT"   # 10% is not below 10%
+    assert _sum(fact(sup, "3", "psig"), fact(bu, "4", "%"))["status"] == "COMPLIANT"           # a part stated as a percent
+    # a part not given, marked by the contractor, or on no gauge basis: never a Pass, never taken as 0
+    assert _sum(fact(sup, "3", "psig"))["status"] == "NEEDS_ENGINEER_REVIEW"
+    marked = {**fact(bu, "By Contractor"), "raw_value": None, "is_blank": 1, "blank_marker": "By Contractor"}
+    assert _sum(fact(sup, "3", "psig"), marked)["status"] == "MISSING_INFORMATION"
+    assert _sum(fact(sup, "3", "psi"), fact(bu, "4", "psig"))["status"] == "NEEDS_ENGINEER_REVIEW"
