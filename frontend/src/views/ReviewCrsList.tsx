@@ -10,12 +10,19 @@ import { formatWhen } from "../format/when";
 import { useState } from "react";
 
 import { reviews as reviewsApi } from "../api/client";
+import { oldCrsDownloadOffered } from "../api/reviewPoints";
 import type { ReviewRunSummary } from "../types/api";
 
 /** Runs fetched per page (#1131). */
 export const RUNS_PAGE = 50;
 
+/** Owner order, 16 Nov 2026: what this list says while the older per-review files (no count line) are switched off. */
+export const RUN_CRS_OFF_LINE =
+  "Each paper's CRS is one file on its review page (\"CRS for your team\"): it states how many points it holds. The older file of each review is switched off.";
+
 export function ReviewCrsList() {
+  // Owner order, 16 Nov 2026: asked when the list is asked for (no request on a visit), like the list itself.
+  const [off, setOff] = useState(false);
   const [runs, setRuns] = useState<ReviewRunSummary[] | null>(null);
   // The server's count of every run the caller may read: the list says how
   // many it shows of how many, never a page passed off as the whole.
@@ -29,6 +36,10 @@ export function ReviewCrsList() {
   // Loaded when asked for, not on every visit to the page: most visits are
   // for an answer report, and a list nobody opened is a request nobody made.
   async function show() {
+    if (!(await oldCrsDownloadOffered())) {
+      setOff(true);
+      return;
+    }
     setOpen(true);
     const res = await reviewsApi.reviewRunsPage(0, RUNS_PAGE);
     if (res.ok) {
@@ -79,7 +90,8 @@ export function ReviewCrsList() {
   return (
     <section aria-label="Review CRSs" className="space-y-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       <h2 className="text-sm font-semibold text-slateish-100">Comment Resolution Sheets (review runs)</h2>
-      {!open && (
+      {off && <p data-testid="crs-runs-off" className="text-sm text-slateish-400">{RUN_CRS_OFF_LINE}</p>}
+      {!off && !open && (
         <button type="button" onClick={() => void show()}
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-200">
           Show the review runs' CRSs

@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SignOff, UseSignOffArgs } from "./contract";
+import { oldCrsDownloadOffered } from "../../../api/reviewPoints";
+import { downloadPaperCrs } from "../agent/downloadAgentCrs";
 import { downloadCrs } from "../downloadCrs";
 import {
   ISSUED_MESSAGE, issueContractorCopy, issueWaitsFor, type IssueChecks, type IssueOutcome,
@@ -44,6 +46,9 @@ export interface WorkspaceSignOff extends SignOff {
 export const NO_SIGN_OFF_MESSAGE =
   "This review's sign-off is not open any more, so nothing was issued. Open the review again and press Sign and export.";
 
+/** The working copy's line when it is the paper's one CRS (the older per-review file switched off). */
+export const WORKING_COPY_ONE_CRS_MESSAGE = "Working copy downloaded: the CRS for your team, with every point of this paper. It is not signed.";
+
 /** The live issuer of each review whose sign-off is on screen. */
 const issuers = new Map<string, () => Promise<IssueOutcome>>();
 
@@ -56,7 +61,7 @@ export async function issueConfirmed(runId: string): Promise<IssueOutcome> {
   return issue();
 }
 
-export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy, aiReviewRead }: UseSignOffArgs): WorkspaceSignOff {
+export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy, aiReviewRead, documentId }: UseSignOffArgs): WorkspaceSignOff {
   const [status, setStatus] = useState<Status>({ busy: false, message: null, error: null });
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -125,10 +130,13 @@ export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCop
     // screen go there first, or nothing is downloaded and the reason shows.
     const waits = beforeCopy ? await beforeCopy() : null;
     if (waits) { setStatus({ busy: false, message: null, error: waits }); return; }
-    const problem = await downloadCrs(runId, "internal");
+    // Owner order, 16 Nov 2026: the older per-review file does not state its counts. Switched off, the working copy is the
+    // paper's one CRS, team copy (it states "N points reviewed, N in this file"). Signing is not touched: it issues through POST.
+    const oneCrs = documentId && !(await oldCrsDownloadOffered()) ? documentId : null;
+    const problem = oneCrs ? await downloadPaperCrs(oneCrs, "team") : await downloadCrs(runId, "internal");
     if (problem) { setStatus({ busy: false, message: null, error: problem }); return; }
-    setStatus({ busy: false, error: null, message: "Working copy downloaded. It is not signed." });
-  }, [runId, beforeCopy]);
+    setStatus({ busy: false, error: null, message: oneCrs ? WORKING_COPY_ONE_CRS_MESSAGE : "Working copy downloaded. It is not signed." });
+  }, [runId, beforeCopy, documentId]);
 
   return { ...status, save, sign, workingCopy, confirmOpen, closeConfirm };
 }

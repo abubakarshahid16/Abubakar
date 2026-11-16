@@ -107,6 +107,8 @@ class PointsListingOut(BaseModel):
 
 class PageV2Status(BaseModel):
     enabled: bool
+    #: Whether the older per-review CRS files (no count line) are offered: the page hides their buttons when false (16 Nov 2026).
+    old_crs_download: bool = True
 
 
 class CrsFileCheckOut(BaseModel):
@@ -224,9 +226,12 @@ def _decide(
 def page_v2_status(
     request: Request, _scope: access.AccessScope = Depends(access.current_scope)
 ):
-    """{enabled}: whether the redesigned review page is switched on. An answer, never an error, either way."""
+    """{enabled, old_crs_download}: whether the redesigned review page is switched on, and whether the older per-review CRS files
+    are offered (`crs_copy_words.old_file_offered`, the same answer the two older routes act on). An answer, never an error."""
     reject_unknown_params(request, set())
-    return {"enabled": bool(settings.review_page_v2_enabled)}
+    from .. import crs_copy_words
+
+    return {"enabled": bool(settings.review_page_v2_enabled), "old_crs_download": crs_copy_words.old_file_offered()}
 
 
 @router.get(
