@@ -295,11 +295,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     ):
         out += f" Not confirmed: {why}."
     if guard:  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion (lane B: never "no correction needed")
-        view = words.plain(
-            " ".join(str(line.get("comment") or line.get("reasoning") or "").split())[
-                :400
-            ]
-        )
+        view = words.plain(wording.one_reader_view(line))
         out += f" {wording.ONE_READER}the requirement is met." + (
             f" {view}" if view else ""
         )

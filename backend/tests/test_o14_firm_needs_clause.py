@@ -170,3 +170,61 @@ def test_a_guarded_met_the_second_reader_disagreed_with_keeps_the_disagreement_a
     assert crs_comments.guarded_question_words(
         _ai("Pass", reason_code="pass_field_unknown", second_opinion=None)
     )
+
+
+# --- round 3 (R3-1851): one home per rule; a cut always carries its mark; each fix reached through its call site
+
+
+def test_the_one_reader_view_is_cut_with_the_visible_mark():
+    short = W.one_reader_view({"comment": "fine"})
+    long = W.one_reader_view({"comment": "x " * 500})
+    assert short == "fine" and long.endswith("…") and len(long) <= 401
+
+
+def test_second_said_no_is_one_rule():
+    from app import agent_run_second as second
+
+    assert second.disagreed({"agree": False}) is True
+    for other in (
+        {"agree": True},
+        {"agree": None, "reason": "stop_max_tokens"},
+        None,
+        "no",
+    ):
+        assert second.disagreed(other) is False
+
+
+def test_a_cut_off_guarded_met_keeps_its_own_action_not_the_guard_words():
+    from app import crs_comments
+
+    cut = _ai(
+        "Pass",
+        reason_code="pass_field_unknown",
+        second_opinion={"agree": None, "reason": "stop_max_tokens"},
+    )
+    assert crs_comments.guarded_question_words(cut) == ""
+
+
+def test_the_workbook_action_of_a_disagreed_guarded_met_is_not_the_guard_words():
+    from app import crs_ai_workbook as WB
+
+    line = {
+        **_ai(
+            "Pass", reason_code="pass_field_unknown", second_opinion={"agree": False}
+        ),
+        "field": "Seal",
+    }
+    line.update(W.final_cap(line, ITEM, None, {"S-1"}, "datasheet"))
+    st, order = WB.status_of(line)
+    assert "Engineer to check the AI reviewer's view:" not in WB.layout_comment(
+        line, st, order
+    )
+
+
+def test_a_deferring_quote_wins_over_the_generic_disagreement():
+    line = _ai("Fail", reason_code="absent", second_opinion={"agree": False}, paper_quote="Set pressure: TBA",
+               paper_page=1, quotes_checked={"paper": True, "clause": True, "both": True})  # fmt: skip
+    out = W.final_cap(line, ITEM, None, {"S-1"}, "datasheet")
+    assert out["verdict_label"] == W.WORD_QUERY and out["not_proven_reason"].startswith(
+        V.DEFERRED_WHY
+    )

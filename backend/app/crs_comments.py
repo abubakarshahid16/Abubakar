@@ -200,10 +200,15 @@ guard_words = words.guard_words
 
 def guarded_question_words(line: dict) -> str:
     """Order 14 (G6): the guard's objection for an AI "met" that is now a question, when the engineer's action should say it; ''
-    when the second reader disagreed (that line's action says the readers disagree, as before) or the line is no AI "met"."""
+    when the second reader said no or its answer was cut off (that line keeps its own action) or the line is no AI "met"."""
+    from . import agent_review_two_reader as two_reader
+    from . import agent_run_second
+
     second = line.get("second_opinion")
-    disagreed = isinstance(second, dict) and second.get("agree") is False
-    return "" if line.get("ai_verdict") != "Pass" or disagreed else words.guard_words(line)
+    no = agent_run_second.disagreed(second) or two_reader.second_cut_off(line)
+    if line.get("ai_verdict") != "Pass" or no:
+        return ""
+    return words.guard_words(line)
 
 
 def tick_only(point: dict) -> bool:

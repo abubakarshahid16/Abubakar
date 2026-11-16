@@ -787,7 +787,7 @@ def met_unsafe_why(line: Mapping) -> str | None:
     # {"agree": False} = DISAGREED; {"agree": None} = asked but no usable answer (failed / not run). Only an explicit
     # False moves the line; "not asked" and "failed" are neither agreement nor disagreement.
     second = line.get("second_opinion")
-    if isinstance(second, Mapping) and second.get("agree") is False:
+    if agent_run_second.disagreed(second):
         return DISAGREE_WHY
     if line.get("reason_code") in GUARD_CODES:
         return GUARD_MET_WHY
