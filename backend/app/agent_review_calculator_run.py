@@ -225,7 +225,6 @@ def _checklist_lines(
 ) -> list[dict]:
     """The approved checklist, PER TAG GROUP; a group-level result (no fact) is named by its group."""
     from . import checklist_scope, degraded_read
-
     from .agent_review_checklist_books import ChecklistBooks
     from .db import connect
 

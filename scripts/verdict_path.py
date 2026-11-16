@@ -79,14 +79,6 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "makes a proven Pass or Fail of the one reviewer from a compared value",
     ),
     (
-        APP + "agent_review_checklist_books.py",
-        "order 14 lane A: the quote and the book a calculator checklist line shows; a book not held is never decided",
-    ),
-    (
-        APP + "datasheet_sum.py",
-        "order 14 lane A: the checklist rule kind sum_percent_of: decides a checklist verdict from two values",
-    ),
-    (
         APP + "agent_review_code_proof.py",
         "the proof behind a proven Pass or Fail: recomputed from the line's own texts and values",
     ),
@@ -186,6 +178,7 @@ OFF_ON_PURPOSE: dict[str, str] = {
     "agent_review_excerpt.py": "pure line and window selection for the local engine; every quote is still verified against the whole page by the gate",
     "agent_review_local_run.py": "the local first-reader loop over windows; the verdict is decided by the same decide() (a FULL review still applies: rule 14b)",
     "agent_review_job_facts.py": "pure helpers moved out of the job file (stop sentence, equipment facts); decides nothing",
+    "agent_review_checklist_books.py": "order 14 lane A: looks up a held clause text found in its book, or that a book is not held; the decision (a book not held is never a Pass or Fail) is made in agent_review_calculator, which is listed",
     "agent_review_local.py": "the local transport seam of the AI reviewer; every verdict rule it feeds is the Claude path's own (a FULL review still applies: rule 14b)",
     "agent_general_prompts.py": "prompt text only; no logic",
     "agent_review_book_table.py": "reads which rule books were candidates, for display; decides nothing",
