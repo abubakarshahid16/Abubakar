@@ -336,6 +336,7 @@ def test_a_failed_connection_carries_no_request_and_no_key(raises, sent, monkeyp
         (b"x" * (groq_transport.MAX_RESPONSE_BYTES + 1), "application/json"),
         (b"<html>hello</html>", "text/html"),
         (b"[1, 2]", "application/json"),
+        (b'{"choices": []}', "text/html"),  # JSON words, another content type
     ],
 )
 def test_a_big_or_non_json_answer_is_refused_and_may_be_billed(raw, ctype, monkeypatch):
