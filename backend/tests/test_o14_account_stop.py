@@ -103,7 +103,7 @@ def test_an_unbilled_refusal_costs_nothing_and_is_not_retried(monkeypatch, bille
     def refuse(*_a, **_k):
         tried.append(1)
         err = ac.AgentTransportError("transport_HTTPStatusError")
-        err.billed = billed
+        err.billed = err.retry = billed  # a plain 4xx refusal: unbilled AND not retried
         raise err
 
     monkeypatch.setattr(ac, "_call", refuse)
@@ -114,3 +114,82 @@ def test_an_unbilled_refusal_costs_nothing_and_is_not_retried(monkeypatch, bille
         assert len(tried) == arr.MAX_RETRIES + 1 and r.run_usd > 0
     else:
         assert len(tried) == 1 and r.run_usd == 0.0 and r.calls["retries"] == 0
+
+
+# --- review R-1852 (fresh full review): rate limits and lost connections are still retried; one charge rule in every home
+
+
+@pytest.mark.parametrize(
+    ("exc", "billed", "retry"),
+    [
+        (_refused("bad", 400), False, False),
+        (_refused("slow down", 429), False, True),
+        (_refused("timeout", 408), False, True),
+        (httpx.ConnectError("no route"), False, True),
+        (_refused("down", 503), True, True),
+    ],
+)
+def test_which_failures_are_billed_and_which_are_retried(exc, billed, retry):
+    with pytest.raises(ac.AgentTransportError) as e:
+        ac._call(ac.LEAD_MODEL, {"messages": MSGS}, 100, Sender([], raises=exc), ENV)
+    assert (e.value.billed, e.value.retry) == (billed, retry)
+    assert (
+        e.value.usd > 0
+    ) is billed  # what it counts travels with it (the second opinion reports it)
+
+
+def test_a_rate_limited_call_is_retried_and_costs_nothing(monkeypatch):
+    tried = []
+
+    def limited(*_a, **_k):
+        tried.append(1)
+        err = ac.AgentTransportError("transport_HTTPStatusError")
+        err.billed, err.retry = False, True
+        raise err
+
+    monkeypatch.setattr(ac, "_call", limited)
+    r = _bare_runner()
+    with pytest.raises(ac.AgentTransportError):
+        r._metered_call(ac.LEAD_MODEL, {"messages": MSGS}, 100)
+    assert len(tried) == arr.MAX_RETRIES + 1 and r.run_usd == 0.0
+
+
+def test_the_step_gate_settles_a_refusal_at_zero(monkeypatch):
+    def refuse(*_a, **_k):
+        err = ac.AgentTransportError("transport_HTTPStatusError")
+        err.billed = err.retry = False
+        raise err
+
+    monkeypatch.setattr(ac, "_call", refuse)
+    r = _bare_runner()
+    r.gate = req.AppStepGate(10.0)
+    with pytest.raises(ac.AgentTransportError):
+        r._metered_call(ac.LEAD_MODEL, {"messages": MSGS}, 100)
+    assert r.gate.settled == 0.0 and r.gate.inflight == 0.0
+
+
+def test_a_5xx_carrying_the_sentence_is_not_an_account_stop():
+    assert ac.account_stop(_refused("The Claude account has no credit", 503)) is None
+
+
+def test_charge_of_is_the_one_rule():
+    refused = ac.AgentTransportError("x")
+    refused.billed = False
+    assert ac.charge_of(refused, 1.5) == 0.0
+    assert (
+        ac.charge_of(ac.AgentTransportError("y"), 1.5) == 1.5
+    )  # billed by default: the safe side
+    assert ac.charge_of(ac.AgentBadReply("z"), 1.5) == 1.5
+
+
+def test_the_reread_and_the_script_say_the_account_not_a_cap():
+    from app import agent_review_reread as rr
+    from app import agent_run_second as second
+
+    stop = ac.AgentBudgetStop("account_no_credit")
+    assert rr.stop_word(stop) == "the Claude account has no credit"
+    assert second.fatal_problem(stop).startswith("the Claude account has no credit")
+    assert (
+        rr.stop_word(ac.AgentBudgetStop("budget_stop"))
+        == "a spending cap refused a call"
+    )

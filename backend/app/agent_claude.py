@@ -111,11 +111,21 @@ class AgentBadReply(AgentClaudeError):
 
 class AgentTransportError(AgentClaudeError):
     code = "transport_error"
-    billed: bool = True  # False: refused before any work (a 4xx), so nothing was billed and a retry gets the same refusal
+    billed: bool = True  # False: refused before any work (a 4xx, no connection), so nothing was billed
+    retry: bool = True  # False: a 4xx refusal other than 408/409/429, which a retry only meets again
 
     def charge(self, worst: float) -> float:
-        """What the failed call counts: its worst case when it may have been billed, 0 for a refusal (and no retry)."""
+        """What the failed call counts: its worst case when it may have been billed, 0 when it was refused unbilled."""
         return float(worst) if self.billed else 0.0
+
+
+def charge_of(exc: BaseException, worst: float) -> float:
+    """THE charge of a failed call, for every home that charges one (rule 8): a transport error by its `charge`, else the worst."""
+    return exc.charge(worst) if isinstance(exc, AgentTransportError) else float(worst)
+
+
+#: 4xx statuses a retry may get past (timeout, conflict, rate limit); every other 4xx is refused again.
+RETRY_4XX = (408, 409, 429)
 
 
 #: Order 14, 16 Nov 2026: refusals that say the ACCOUNT cannot answer stop the whole run at once, with that reason. Matched on
@@ -131,7 +141,9 @@ def account_stop(exc: BaseException) -> str | None:
     """The stop code when `exc` is a 4xx refusal that says the account itself cannot answer, else None."""
     import httpx
 
-    if not isinstance(exc, httpx.HTTPStatusError):
+    if not isinstance(exc, httpx.HTTPStatusError) or not (
+        400 <= exc.response.status_code < 500
+    ):
         return None
     said = str(exc)
     return next((code for words_, code in ACCOUNT_STOPS if words_ in said), None)
@@ -376,7 +388,9 @@ def _answered_model(answer: Any) -> str:
 
 
 def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | None]:
-    """One metered send. (answer, None) or (None, (kind, code, billed)); the original error is not carried out."""
+    """One metered send. (answer, None) or (None, (kind, code, billed, retry)); the original error is not carried out."""
+    import httpx
+
     from app import reader_transport
 
     recorded_failure: tuple | None = None
@@ -391,16 +405,20 @@ def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | N
         code = getattr(exc, "code", None) or getattr(
             type(exc), "count_key", "budget_stop"
         )
-        recorded_failure = ("stop", str(code), False)
+        recorded_failure = ("stop", str(code), False, False)
     except Exception as exc:  # noqa: BLE001 - type only; the text may carry a host or a status
         stop = account_stop(exc)
+        status = (
+            exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else 0
+        )
         recorded_failure = (
-            ("stop", stop, False)
+            ("stop", stop, False, False)
             if stop
             else (
                 "transport",
                 "transport_" + type(exc).__name__,
                 not reader_transport.unbilled(exc),
+                not (400 <= status < 500 and status not in RETRY_4XX),
             )
         )
     return None, recorded_failure
@@ -447,13 +465,16 @@ def _call(
     # the headers (the key) leave this frame before any error is raised from it
     del request
     if failure is not None:
-        kind, code, billed = failure
+        kind, code, billed, retry = failure
         if meter is not None and billed:
             meter.add(worst)  # may have been billed: charged at the worst case
         if kind == "stop":
             raise AgentBudgetStop(code)
         err = AgentTransportError(code)
-        err.billed = bool(billed)
+        err.billed, err.retry = bool(billed), bool(retry)
+        err.usd = err.charge(
+            worst
+        )  # what it counts (the second opinion reports it; it was 0 before)
         raise err
     usd = _usd(model, answer, body) if isinstance(answer, dict) else worst
     if meter is not None:
