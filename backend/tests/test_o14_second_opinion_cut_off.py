@@ -20,14 +20,21 @@ def line(second):
     }  # fmt: skip
 
 
-def test_a_cut_off_second_opinion_is_a_disagreement_and_a_query():
+def test_a_cut_off_second_opinion_is_a_disagreement_and_a_query(monkeypatch):
     assert two_reader.second_cut_off(line(CUT)) and two_reader.disagrees(line(CUT))
     got = wording.classify(line(CUT))
     assert (
         got["verdict_class"] == wording.CLASS_QUERY
         and got["verdict_label"] == wording.WORD_QUERY
     )
-    assert not two_reader.is_candidate(line(CUT))  # never half of "two readers agree"
+    # never half of "two readers agree": a line that IS a candidate without the cut (reason "met") is not one with it
+    monkeypatch.setattr(
+        two_reader, "_pass_guard_ok", lambda _line: True
+    )  # the field guard is not what this test is about
+    met = {**line(None), "reason_code": "met"}
+    assert two_reader.is_candidate(met) and not two_reader.is_candidate(
+        {**met, "second_opinion": CUT}
+    )
 
 
 def test_a_disagreement_and_the_cut_off_answer_now_give_the_same_class():

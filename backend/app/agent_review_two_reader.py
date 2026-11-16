@@ -401,8 +401,16 @@ def second_cut_off(line: Mapping) -> bool:
     """The line's own second opinion was asked and its answer was cut off by its token limit (no agree, reason
     "stop_max_tokens"). Order 14 (the lead's decision, 16 Nov 2026): such a line counts as a DISAGREEMENT, a Query, never
     "AI thinks: met": run to run, the same line was a Query when the second reader answered and an AI opinion when it was cut
-    off. A second opinion that was not asked or failed for another reason is untouched."""
-    return cut_off_reply(line.get("second_opinion"))
+    off. Retried (`retried`), it counts as a disagreement unless the retry gave a real true/false answer. A second opinion
+    that was not asked, or failed for another reason without a cut, is untouched."""
+    second = line.get("second_opinion")
+    if (
+        isinstance(second, Mapping)
+        and second.get("retried")
+        and not isinstance(second.get("agree"), bool)
+    ):  # the first reply was cut and its one retry gave no true/false answer (cut again, no JSON, an error, a refusal)
+        return True
+    return cut_off_reply(second)
 
 
 def disagrees(line: Mapping) -> bool:
