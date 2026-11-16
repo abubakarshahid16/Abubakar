@@ -447,11 +447,9 @@ def _grouped(items: list) -> tuple[list, dict[int, str]]:
 def contractor_rows(
     lines: Iterable[Mapping], kind: str | None = None
 ) -> list[tuple[Mapping, str, int]]:
-    """The contractor copy's rows: the lines it may issue (`_contractor_items`, chosen line by line, so a proven Fail is never hidden
-    behind a field's other lines), then ONE row per field or topic among them."""
-    return _grouped(
-        _contractor_items(item_lines([wording.read_time(ln) for ln in lines]), kind)
-    )[0]
+    """The contractor copy's rows: the lines it may issue (`_contractor_items`, chosen line by line), ONE ROW EACH (R91): every
+    proven Fail keeps its own requirement and action, never folded into another Fail's row; an older stored copy still counts."""
+    return _contractor_items(item_lines([wording.read_time(ln) for ln in lines]), kind)
 
 
 def ordered_item_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str, int]]:
@@ -723,12 +721,9 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)
     if contractor:
-        items = [
-            ({**ln, "_comment": {**ln["_comment"], "contractor": True}}, st, o)
-            for ln, st, o in _grouped(
-                _contractor_items(item_lines(lines), meta.get("paper_kind"))
-            )[0]
-        ]
+        items = _contractor_items(
+            item_lines(lines), meta.get("paper_kind")
+        )  # R91: one row per proven Fail
         books, label = _books_used(ln for ln, _s, _o in items), BOOKS_SHOWN
     else:  # the books of the lines the AI reviewer answered (a not-reviewed line used no book)
         books = _books_used(ln for ln in lines if not wording.is_not_reviewed(ln))

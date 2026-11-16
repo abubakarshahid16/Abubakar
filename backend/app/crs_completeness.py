@@ -469,6 +469,19 @@ def _older_expected(conn, run_id: str, copy: str) -> int:
     return len(crs_ai_workbook.contractor_rows(lines, kind["paper_kind"] if kind else None))
 
 
+def _older_listed(wb) -> int | None:
+    """The rows of an older run file's sheet CRS plus its sheet of the other lines (today's "Not a comment", before order 14 "Not
+    reviewed or not applicable"), without the rows of rule books not held (they are not lines); None when the file has neither."""
+    from . import crs_ai_words as words
+
+    other = next((n for n in (words.NOT_A_COMMENT_SHEET, words.OTHER_SHEET) if n in wb.sheetnames), None)
+    if "CRS" not in wb.sheetnames or other is None:
+        return None
+    crs = _table_rows(wb["CRS"], "Item No")
+    rest = [r for r in _table_rows(wb[other], "Item No") if len(r) < 5 or r[4] != words.KIND_NOT_HELD]
+    return len(crs) + len(rest)
+
+
 def older_report(run_id: str, copy: str, data: bytes) -> dict:
     """The check of ONE stored file of an AI run (`copy`: internal | contractor): the rows read back from the workbook as stored against the
     AI lines of THAT run in the database. The stored file holds the AI review's lines only, by design; it is not the paper's CRS."""
@@ -488,8 +501,11 @@ def older_report(run_id: str, copy: str, data: bytes) -> dict:
     expected = _older_expected(conn, run_id, copy)
     ai_lines = conn.execute("SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", (run_id,)).fetchone()[0]
     missing = [] if copy == "contractor" else [f"item {n}" for n in sorted(set(range(1, expected + 1)) - found)]
-    if copy != "contractor" and expected != ai_lines:  # order 14 lane B: the Evidence sheet holds EVERY line of the run, comment or not
-        missing.append(f"{ai_lines - expected} line(s) of the run in no row")
+    general = conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone()
+    if copy != "contractor" and not general:  # R91: the sheet CRS and the sheet of the other lines hold every line too (the AI run file)
+        listed = _older_listed(wb)
+        if listed is not None and listed != ai_lines:
+            missing.append(f"the sheets CRS and Not a comment hold {listed} row(s) for the {ai_lines} line(s) of the run")
     ok = len(rows) == expected and not missing
     sentence = "Complete: the older file holds every line of its run."
     if not ok:

@@ -215,7 +215,9 @@ def _grouped(
         points.append({"id": pos, "name": _c(ln.get("topic")), "rule_book": _c(ln.get("other_document")) or None, "clause": None,
                        "rank": rank, "tile": rp.TILE_OF_RANK[rank], "priority": words.priority(st, ln, o), "tags": []})  # fmt: skip
     rows, merged = [], []
-    for c in crs_comments.group(points, findings_only=False):
+    for c in crs_comments.group(
+        points, findings_only=False, near=False
+    ):  # R91: exact topics only, never near-same
         rows.append(items[c["strongest"]["id"]])
         merged += [
             (items[i][0], words.KIND_IN_COMMENT.format(n=len(rows)))

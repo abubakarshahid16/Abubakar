@@ -125,22 +125,23 @@ def key_of(point: dict) -> str:
 #: The guard reasons of an AI "met" that code could not CONFIRM but that say nothing is open or missing: the quote was not found, the
 #: readers disagree. Such a line is ticked by the engineer, not a comment. A "met" held because the value is open (deferred), not stated
 #: or only a label stays a comment: a missing statement is never shown as nothing to change (CLAUDE.md rule 4).
-def _tick_whys() -> frozenset[str]:
-    from . import agent_review_verdict as v
-
-    return frozenset({v.UNVERIFIED_PAPER_WHY, v.UNVERIFIED_CLAUSE_WHY, v.DISAGREE_WHY})
-
-
 def tick_only(point: dict) -> bool:
-    """An AI line its reader judged met (its reason "met" or "pass_...") that code could not confirm, for a reason that leaves nothing
-    open or missing (`_tick_whys`): the engineer ticks it; it is not a comment."""
-    from .agent_review_verdict import met_unsafe_why
+    """An AI line its reader judged met (its reason "met" or "pass_...") whose PAPER quote code verified, held back only because its
+    CLAUSE quote was not verified: the engineer ticks it; it is not a comment. Never ticked (each checked on its own, whatever reason
+    the guard gave first): a paper quote not verified, the readers disagreeing, words saying the value is not stated, a quote of the
+    field's label only, a value left open (R91: these are real questions)."""
+    from . import agent_review_verdict as v
 
     line = _line_of(point)
     reason = str(line.get("reason_code") or "").strip().lower()
     if not (reason == "met" or reason.startswith("pass")):
         return False
-    return (met_unsafe_why(line) or "") in _tick_whys()
+    second = line.get("second_opinion")
+    if line.get("not_mentioned_hold") or v.quote_is_label_only(line) or v.quote_defers(line.get("paper_quote")):
+        return False
+    if isinstance(second, dict) and second.get("agree") is False:
+        return False
+    return v.met_unsafe_why(line) == v.UNVERIFIED_CLAUSE_WHY
 
 
 def not_a_comment(comment: dict) -> str | None:
@@ -155,7 +156,7 @@ def not_a_comment(comment: dict) -> str | None:
     ms = comment.get("_members") or [s]
     if comment["tile"] == "met":
         return words.KIND_NOTHING_TO_CHANGE
-    if all(p.get("tile") == "met" or tick_only(p) for p in ms):
+    if all(p.get("tile") in ("met", "does_not_apply") or tick_only(p) for p in ms) and any(tick_only(p) for p in ms):
         return words.KIND_MET_NOT_CONFIRMED
     if comment["tile"] == "does_not_apply":
         return s.get("other_kind") or words.KIND_NOT_APPLICABLE
@@ -181,11 +182,11 @@ def _clauses(members: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
-def group(points: list[dict], findings_only: bool = True) -> list[dict]:
+def group(points: list[dict], findings_only: bool = True, near: bool = True) -> list[dict]:
     """The comments of a list of points (raw or public), worst first. Removed points are left out, and so (`findings_only`) is every
     field that carries no finding (`not_a_comment`; `set_aside` lists them). Each comment: number, key, name, member_ids, n_points,
     rank, tile, pill, firm, strongest (the point whose words lead), pages, tags, clauses, disagree."""
-    every = _group_all(points)
+    every = _group_all(points, near)
     if not findings_only:
         return every
     out = [c for c in every if not_a_comment(c) is None]
@@ -258,15 +259,19 @@ def _near_same_roots(order: list[str], members: dict[str, list[dict]]) -> dict[s
     """Each field key -> the field key it joins: a shorter field joins the ONE longer field it is near-same to (two or more candidates:
     it stays alone, never guessed); followed to the end, so every field lands on one comment."""
     wds = {k: field_words(_field_of(members[k][0])) for k in order if k.startswith("field|")}
-    parent, many = {}, {}
+    parent = {}
     for k, w in wds.items():
         longer = [k2 for k2, w2 in wds.items() if k2 != k and len(w2) > len(w) and near_same(w, w2)]
-        if len(longer) > 1:  # two candidates: only the one that shares a paper line or a book and clause with it
-            longer = [k2 for k2 in longer if _evidence(members[k]) & _evidence(members[k2])] or longer
+        if len(w) == 1 or len(longer) > 1:  # a one-word name, or two candidates: only one that shares a paper line or book and clause
+            longer = [k2 for k2 in longer if _evidence(members[k]) & _evidence(members[k2])]
         if len(longer) == 1:
             parent[k] = longer[0]
-        elif longer:
-            many[k] = longer
+    # R91: a longer name that two DIFFERENT fields are near-same to is the paper's combined label ("design/operating pressure",
+    # "back press. constant/variable"): two values, so nothing joins it
+    hits: dict[str, int] = {}
+    for target in parent.values():
+        hits[target] = hits.get(target, 0) + 1
+    parent = {k: t for k, t in parent.items() if hits[t] == 1}
 
     def root_of(k: str) -> str:
         r, seen = k, set()
@@ -275,13 +280,10 @@ def _near_same_roots(order: list[str], members: dict[str, list[dict]]) -> dict[s
             r = parent[r]
         return r
 
-    for k, longer in many.items():  # several candidates that are already one comment: it joins that comment
-        if len({root_of(k2) for k2 in longer}) == 1:
-            parent[k] = longer[0]
     return {k: root_of(k) for k in order}
 
 
-def _group_all(points: list[dict]) -> list[dict]:
+def _group_all(points: list[dict], near: bool = True) -> list[dict]:
     """Every grouped field (comments and the fields that carry no finding), numbered in order. Near-same fields are one comment."""
     order: list[str] = []
     members: dict[str, list[dict]] = {}
@@ -293,7 +295,7 @@ def _group_all(points: list[dict]) -> list[dict]:
             order.append(k)
             members[k] = []
         members[k].append(p)
-    root = _near_same_roots(order, members)
+    root = _near_same_roots(order, members) if near else {k: k for k in order}
     for k in order:
         if root[k] != k:
             members[root[k]].extend(members.pop(k))
@@ -397,21 +399,36 @@ def group_lines(items: list) -> tuple[list, dict[int, str]]:
     return rows, kind_of
 
 
+def _status_words(line: dict) -> str:
+    """A line's own status in plain words (R91: a merged line says its status, never only "also checked")."""
+    from . import crs_ai_workbook as wb
+
+    got = wb.status_of(line)
+    if got is None:
+        return "not a comment"
+    st, order = got
+    met = order in (words.ORDER_PASS, words.ORDER_AI_MET, words.ORDER_AI_VERDICT_MET)
+    return {
+        words.STATUS_FAIL: "not met (proven by code)",
+        words.STATUS_PASS: "met (proven by code)",
+        words.STATUS_AI_VERDICT: f"{'met' if met else 'not met'} (two AI readers agree, engineer to confirm)",
+        words.STATUS_AI: f"{'met' if met else 'not met'} in the AI reviewer's view, not proven by code",
+    }.get(st, "a question for the engineer")
+
+
 def also_words(line: dict) -> list[str]:
-    """The comment's other lines (order 14 lane B), one part: their rule book, clause and page, and whether the readers disagree."""
+    """The comment's OTHER lines (order 14 lane B; R91): each with its own status, rule book, clause, page and what it asks, one part
+    per line, so a second finding on the field is never folded away; and whether the lines disagree."""
+    from . import crs_ai_workbook as wb
     from .agent_review_crs import against, line_page
 
     c = line.get("_comment") or {}
-    if c.get("contractor"):
-        c = {"others": c.get("others")}  # the contractor copy carries no AI word
-    refs = list(dict.fromkeys(
-        against(m) + (f" (page {pg})" if (pg := line_page(m)) else "") for m in c.get("others") or [] if against(m)
-    ))  # fmt: skip
     out = []
     if c.get("disagree"):
-        out.append(
-            f"Note: the lines on this field disagree (met and not met, {len(c['others']) + 1} lines); the engineer decides."
-        )
-    if refs:
-        out.append(f"Also checked on this field: {'; '.join(refs)}.")
+        out.append(f"Note: the lines on this field disagree (met and not met, {len(c['others']) + 1} lines); the engineer decides.")
+    for m in c.get("others") or []:
+        got = wb.status_of(m)
+        ask = wb._contractor_to(m, *got) if got else ""
+        where = (against(m) or "the rule") + (f" (page {pg})" if (pg := line_page(m)) else "")
+        out.append(f"Also on this field, {_status_words(m)} under {where}" + (f": {ask}" if ask else "."))
     return out

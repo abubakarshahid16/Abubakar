@@ -605,7 +605,7 @@ def aside_line(aside: list[tuple[dict, str]]) -> str:
     if not n:
         return "Not a comment: none (every point that is not removed is in a comment)."
     each = "; ".join(f"{kind}: {k}" for kind, k in sorted(by.items(), key=lambda kv: (kv[0] != words.KIND_NOTHING_TO_CHANGE, kv[0])))
-    return f"Not a comment: {n} points carry no finding ({each}); listed on the sheet {NOT_A_COMMENT_SHEET}."
+    return f"Not a comment: {n} points are not comments ({each}); listed on the sheet {NOT_A_COMMENT_SHEET} with each point's class."
 
 
 def no_rule_words(points: list[dict]) -> str:
@@ -635,6 +635,14 @@ def highest_priority(points: list[dict]) -> str:
     return min(words_, key=lambda w: rp.PRIORITY_ORDER.get(w, 3)) if words_ else ""
 
 
+def member_words(p: dict) -> str:
+    """One other point of a comment (R91): its class, field, rule book and clause, and what it asks, so no finding is folded away."""
+    where = " ".join(x for x in (p.get("rule_book") or "", p.get("clause") or "") if x)
+    action = _clean(p.get("action"))
+    return f"Also: {p.get('pill') or rp.RANKS.get(p.get('rank'), ('point',))[0]}, {p.get('name')}" + (f" ({where})" if where else "") + (
+        f": {action}" if action else "")  # fmt: skip
+
+
 def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
     a shortened cell keeps its whole text in the column Full text."""
@@ -653,6 +661,7 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
         else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
     )
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
+    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])  # R91: each other point, its class and ask
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
         ", ".join(str(x) for x in c["pages"]) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
@@ -744,10 +753,10 @@ def build_team(
         (6, 40, 8, 22, 22, 60), note="Points an engineer removed. They stay in the record and are counted in the line above the sheet CRS.",
     )  # fmt: skip
     _sheet_table(
-        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses"),
+        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point"),
         [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), ", ".join(str(g) for g in x["pages"]) or None,
-                             comment_full_texts(x)["clauses"])] for x, kind in aside],
-        (40, 28, 8, 20, 12, 60),
+                             comment_full_texts(x)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]))] for x, kind in aside],
+        (40, 28, 8, 20, 12, 60, 50),
         note=f"{aside_line(aside)} Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
     )  # fmt: skip
     if contract_results is not None:  # order 14 lane E: the contract checks, an AI-draft checklist (internal only; not points of the page)

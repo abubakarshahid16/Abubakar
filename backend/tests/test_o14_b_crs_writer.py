@@ -5,6 +5,7 @@ Invented data only; no model, no network."""
 from __future__ import annotations
 
 import io
+import json
 
 import openpyxl
 
@@ -114,30 +115,39 @@ def test_the_readers_view_never_prints_no_correction_needed():
     assert "the requirement is met. Confirm the mark at vendor stage." in cell
 
 
-def test_a_met_code_could_not_confirm_is_ticked_not_commented_but_an_open_value_stays():
-    unverified = mk(
-        "R-1",
-        "Query",
-        ai="Pass",
-        quotes_checked={"paper": False, "clause": True},
-        reason_code="met",
-        field="Body",
+def test_only_a_met_with_a_verified_paper_quote_is_ticked_and_every_real_question_stays_a_comment():
+    """R91: the tick list takes a "met" whose paper quote code verified and whose only doubt is the clause quote. A paper quote not
+    verified, readers who disagree, words saying the value is not stated, a value left open: all stay comments."""
+
+    def met(i, field, **kw):
+        return mk(i, "Query", ai="Pass", reason_code="met", field=field, **kw)
+
+    tick = met("R-1", "Body", quotes_checked={"paper": True, "clause": False})
+    unverified = met("R-2", "Seal", quotes_checked={"paper": False, "clause": True})
+    disagree = met(
+        "R-3",
+        "Fluid",
+        quotes_checked={"paper": True, "clause": False},
+        second_opinion={"agree": False},
     )
-    open_value = mk(
-        "R-2",
-        "Query",
-        ai="Pass",
-        paper_quote="Set pressure TBA",
-        reason_code="pass_field_unknown",
-        field="Set pressure",
+    not_stated = met(
+        "R-4",
+        "Gasket",
+        quotes_checked={"paper": True, "clause": False},
+        not_mentioned_hold=True,
     )
-    view = _view([unverified, open_value])
-    assert [r[2] for r in view["rows"]] == ["p.2 - Set pressure"]
+    open_value = met("R-5", "Set pressure", paper_quote="Set pressure TBA")
+    view = _view([tick, unverified, disagree, not_stated, open_value])
+    assert sorted(r[2].split(" - ")[1] for r in view["rows"]) == [
+        "Fluid",
+        "Gasket",
+        "Seal",
+        "Set pressure",
+    ]
     other = {r[0]: r for r in view["other"]["rows"]}
-    assert (
-        other[2][4] == words.KIND_MET_NOT_CONFIRMED
-        and "The engineer ticks it." in other[2][5]
-    )
+    assert [r[4] for r in other.values()] == [
+        words.KIND_MET_NOT_CONFIRMED
+    ] and "The engineer ticks it." in list(other.values())[0][5]
 
 
 def test_drop_noise_keeps_the_rest_and_leaves_other_text_alone():
@@ -168,7 +178,11 @@ def test_the_run_file_holds_one_comment_per_field_and_lists_the_others():
     assert len(view["rows"]) == 2
     first = view["rows"][0][3]
     assert (
-        "Also checked on this field: STD-2 clause 8 (page 2); STD-1 clause 9 (page 2)."
+        "Also on this field, a question for the engineer under STD-2 clause 8 (page 2): Contractor to confirm"
+        in first
+    )
+    assert (
+        "Also on this field, a question for the engineer under STD-1 clause 9 (page 2):"
         in first
     )
     kinds = [r[4] for r in view["other"]["rows"]]
@@ -317,13 +331,27 @@ def test_a_proven_fail_reaches_the_contractor_copy_even_when_its_field_disagrees
 
 
 def test_near_same_fields_are_one_comment_but_a_short_word_and_two_candidates_never_merge():
-    def pt(i, field):
-        return {"id": i, "name": field, "rank": 4, "tile": "questions"}
+    def pt(i, field, clause=None):
+        return {
+            "id": i,
+            "name": field,
+            "rank": 4,
+            "tile": "questions",
+            "rule_book": "STD-1" if clause else None,
+            "clause": clause,
+        }
 
-    got = crs_comments.group([pt("1", "Compressibility"), pt("2", "Compressibility factor"), pt("3", "Required capacity"),
+    got = crs_comments.group([pt("1", "Compressibility", "5.6"), pt("2", "Compressibility factor", "5.6"), pt("3", "Required capacity"),
                               pt("4", "Required relieving capacity"), pt("5", "Gas"), pt("6", "Gas (H2 and CO2 content)"),
                               pt("7", "Inlet size"), pt("8", "Outlet size")])  # fmt: skip
-    assert sorted(c["n_points"] for c in got) == [1, 1, 1, 1, 2, 2]
+    assert sorted(c["n_points"] for c in got) == [
+        1,
+        1,
+        1,
+        1,
+        2,
+        2,
+    ]  # a one-word name joins only on a shared book and clause
     two = crs_comments.group(
         [
             pt("1", "Design pressure"),
@@ -564,13 +592,41 @@ def test_each_cited_book_says_what_the_edition_cutoff_says_of_it():
     assert crs_one._books_line(pts) == "STD-1 (2); STD-2 (1)"
 
 
-def test_a_name_whose_candidates_are_already_one_comment_joins_it():
-    def pt(i, field):
-        return {"id": i, "name": field, "rank": 4, "tile": "questions"}
+def test_the_wrong_merges_r91_found_stay_apart():
+    """R91 (pump C22, valve C36, valve C15): different things that only look alike are never one comment."""
 
-    got = crs_comments.group([pt("1", "Back press. Variable"), pt("2", "Back press. Constant/Variable"),
-                              pt("3", "Valve type / Back press. Constant/Variable")])  # fmt: skip
-    assert [c["n_points"] for c in got] == [3]
+    def pt(i, field, clause=None):
+        return {
+            "id": i,
+            "name": field,
+            "rank": 4,
+            "tile": "questions",
+            "rule_book": "STD-1" if clause else None,
+            "clause": clause,
+        }
+
+    impeller = crs_comments.group(
+        [pt("1", "Impeller", "4.13.4"), pt("2", "Impeller material")]
+    )
+    assert [c["n_points"] for c in impeller] == [
+        1,
+        1,
+    ]  # a one-word name with no shared evidence
+    pressures = crs_comments.group(
+        [
+            pt("1", "Design pressure"),
+            pt("2", "Operating pressure"),
+            pt("3", "Design/Operating pressure"),
+        ]
+    )
+    assert [c["n_points"] for c in pressures] == [
+        1,
+        1,
+        1,
+    ]  # the paper's combined label of two values joins nothing
+    back = crs_comments.group([pt("1", "Back press. Constant"), pt("2", "Back press. Variable"),
+                               pt("3", "Valve type / Back press. Constant/Variable")])  # fmt: skip
+    assert [c["n_points"] for c in back] == [1, 1, 1]
 
 
 def test_the_ai_draft_words_appear_once_and_the_detail_comes_from_compare_reason():
@@ -740,3 +796,136 @@ def test_a_comment_is_named_by_the_items_own_field_not_the_label_the_ai_quoted(
     assert WB.field_name(skill) == "PSV inlet line pressure drop"
     plain = mk("R-2", field="Fluid")  # no field role: the paper's label, as before
     assert WB.field_name(plain) == "Fluid"
+
+
+def test_two_proven_fails_on_one_field_keep_their_own_requirement_and_action_everywhere():
+    """R91: a second proven Fail on a field is never folded away: the contractor copy has one row per proven Fail, each with its own
+    requirement and action; the internal comment says the other Fail's status and ask."""
+    a = mk(
+        "R-1",
+        "Fail",
+        "Fail",
+        field="Nozzle rating",
+        clause="4.1",
+        reason_code=None,
+        compare={"decided": True, "verdict": "does_not_meet"},
+    )
+    b = mk("R-2", "Fail", "Fail", field="Nozzle rating", clause="9.9", standard="STD-2", clause_quote="Ratings shall be class 300",
+           reason_code=None, compare={"decided": True, "verdict": "does_not_meet"})  # fmt: skip
+    contractor = WB.layout_view([a, b], META, "contractor")
+    assert len(contractor["rows"]) == 2 and len(WB.contractor_rows([a, b])) == 2
+    cells = " ".join(r[3] for r in contractor["rows"])
+    assert (
+        "STD-2 clause 9.9 requires" in cells
+        and "Contractor to revise Nozzle rating to meet STD-2 clause 9.9" in cells
+    )
+    internal = _view([a, b])["rows"][0][3]
+    assert (
+        "Also on this field, not met (proven by code) under STD-2 clause 9.9 (page 2): Contractor to revise Nozzle rating"
+        in internal
+    )
+
+
+def test_the_general_review_joins_exact_topics_only(tmp_path):
+    from app import agent_general_crs
+    from app import agent_general_review as core
+
+    def query(i, topic):
+        return core.finalize_line({"part": 2, "verdict_class": core.CLASS_QUERY, "subkind": core.SUB_CHECKLIST, "line_id": f"q{i}",
+                                   "document": "p.pdf", "topic": topic, "text": f"checklist: {topic}: not found in the paper"})  # fmt: skip
+
+    agent_general_crs.write_all(
+        [query(1, "Liquidated damages"), query(2, "Liquidated damages cap")],
+        tmp_path,
+        {"paper": "p.pdf", "run_id": "r", "date": "d"},
+        [],
+        {},
+    )
+    rows = [
+        [c.value for c in r]
+        for r in openpyxl.load_workbook(tmp_path / "crs-internal.xlsx")[
+            "CRS"
+        ].iter_rows()
+    ]
+    head = next(i for i, r in enumerate(rows) if r[0] == "Item No")
+    assert (
+        len([r for r in rows[head + 1 :] if r[0] is not None]) == 2
+    )  # "X" and "X cap" are two findings
+
+
+def test_our_checklist_wording_is_never_the_rules_text_on_the_page():
+    from app import review_points as rp
+
+    assert rp.is_check_text({"origin": "datasheet_check"})
+    assert rp.is_check_text(
+        {
+            "requirement_source_text": "Datasheet check PSV-07: The back pressure is stated."
+        }
+    )
+    assert not rp.is_check_text(
+        {"requirement_source_text": "The back pressure shall be stated on the sheet."}
+    )
+    said = crs_one.rule_requires(
+        {"check_text": "Datasheet check PSV-07: The back pressure is stated."}
+    )
+    assert (
+        said
+        == 'Our checklist asks (our words, not the book\'s): "Datasheet check PSV-07: The back pressure is stated."'
+    )
+
+
+def test_an_older_run_file_missing_a_line_is_refused(monkeypatch):
+    """The older stored file of a run is refused when its Evidence sheet holds fewer rows than the run has lines (`older_report`)."""
+    import sqlite3
+
+    from app import db
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+    )
+    lines = [mk("R-1", field="A"), mk("R-2", field="B")]
+    conn.executemany(
+        "INSERT INTO agent_review_line VALUES ('run', ?, ?)",
+        [(ln["item_id"], json.dumps(ln)) for ln in lines],
+    )
+    monkeypatch.setattr(crs_completeness, "connect", lambda: conn)
+    monkeypatch.setattr(db, "connect", lambda: conn)
+    data = crs_layout.build_layout_crs(WB.layout_view(lines, META, "internal"))
+    assert crs_completeness.older_report("run", "internal", data)["ok"]
+    conn.execute(
+        "INSERT INTO agent_review_line VALUES ('run', 'R-3', ?)",
+        (json.dumps(mk("R-3", field="C")),),
+    )
+    got = crs_completeness.older_report("run", "internal", data)
+    assert not got["ok"] and got["expected"] == 3
+
+
+def test_an_older_run_file_with_a_comment_row_dropped_is_refused(monkeypatch):
+    """R91 section 1: the older run file's sheets CRS and Not a comment must hold every line too, not only its Evidence sheet."""
+    import sqlite3
+
+    from app import db
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+    )
+    lines = [mk("R-1", field="A"), mk("R-2", field="B")]
+    conn.executemany(
+        "INSERT INTO agent_review_line VALUES ('run', ?, ?)",
+        [(ln["item_id"], json.dumps(ln)) for ln in lines],
+    )
+    monkeypatch.setattr(crs_completeness, "connect", lambda: conn)
+    monkeypatch.setattr(db, "connect", lambda: conn)
+    view = WB.layout_view(lines, META, "internal")
+    assert crs_completeness.older_report(
+        "run", "internal", crs_layout.build_layout_crs(view)
+    )["ok"]
+    view["rows"] = view["rows"][:1]
+    view["statuses"] = view["statuses"][:1]
+    assert not crs_completeness.older_report(
+        "run", "internal", crs_layout.build_layout_crs(view)
+    )["ok"]
