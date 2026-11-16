@@ -53,6 +53,12 @@ from .agent_review_verdict import (
     quote_defers,
 )
 
+#: The reason of a line whose second AI reader's answer was cut off by its token limit (`two_reader.second_cut_off`): the two
+#: readers did not agree, but the second one never said the opposite, so the words must not say they disagree (order 14).
+CUT_OFF_WHY = (
+    "the second AI reader's answer was cut off, so the two readers did not agree"
+)
+
 CLASS_PROVEN = "Proven by code"
 CLASS_OPINION = "AI opinion, engineer to confirm"
 CLASS_QUERY = "Query for the engineer"
@@ -278,13 +284,15 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": two_reader.absence_disagree_why(line),
         }
-    if two_reader.disagrees(line) or two_reader.other_disagrees(
-        line
-    ):  # 2c. the independent second reader reached the opposite verdict: a Query
+    if (
+        two_reader.disagrees(line) or two_reader.other_disagrees(line)
+    ):  # 2c. the independent second reader reached the opposite verdict, or its answer was cut off: a Query
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
-            "not_proven_reason": DISAGREE_WHY,
+            "not_proven_reason": CUT_OFF_WHY
+            if two_reader.second_cut_off(line)
+            else DISAGREE_WHY,
         }
     return None
 
