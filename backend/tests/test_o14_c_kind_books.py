@@ -212,3 +212,18 @@ def test_the_shipped_tables_give_the_relief_valve_books_the_equipment_design_rol
     data = kind_standards.table()
     for name in ("SAES-J-600", "API 520 Part I", "ASME BPVC Section VIII Division 1"):
         assert kind_standards.role_of([name], data) == "equipment design", name
+
+
+def test_asme_viii_governs_a_pump_only_in_its_casing_weld_radiography_clauses():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(kind_standards.__file__).resolve().parents[2] / "scripts"))
+    import crs_gates
+
+    path = Path(kind_standards.__file__).parent / "reference" / "kind_books.json"
+    books = crs_gates.mapping_from_file(path, "datasheet", "pump")
+    asme = "ASME-Sec-VIII-Div1-2023"
+    assert books.judge(asme, "UW-51")[0] == "pass" and books.judge(asme, "UW-52(b)")[0] == "pass"
+    for wrong in ("UG-118", "19-3", "7.16"):
+        assert books.judge(asme, wrong)[0] == "fail", wrong
