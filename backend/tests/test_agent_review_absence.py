@@ -355,3 +355,15 @@ def test_the_correction_never_touches_other_kinds_of_line_and_never_makes_one_mo
         assert _fix(q, dec=dec) is None
     for args in ({}, {"verdict_word": "Pass", "dec": "Pass", "by": "AI verdict"}):
         assert _fix(q, **args)[0]["verdict"] == "Query"  # never a Pass, Fail or not met
+
+
+def test_a_code_compared_pass_and_a_two_reader_pass_are_lowered_too():
+    for by in ("decided by code", "AI verdict"):
+        got = _fix(
+            "Set pressure 12 bar By Contractor", verdict_word="Pass", dec="Pass", by=by
+        )
+        assert (
+            got is not None
+            and got[0]["verdict"] == "Query"
+            and got[1] == "value_deferred"
+        )

@@ -280,8 +280,9 @@ class DecideMixin:
     ) -> tuple[dict, str, int] | None:
         """(decision, "value_deferred", page) when the line's OWN paper quote is verified by code (it stands in the page) and
         itself carries a deferral mark (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...). Nothing else: no other
-        line of the page, no field words. It only lowers confidence: a Pass becomes a Query; a Query the AI left (decided by
-        the engineer) takes the reason value_deferred; an AI not-met opinion, a two-reader decision, a not-applicable line
+        line of the page, no field words. It only lowers confidence: EVERY Pass (a gate Pass, a two-reader Pass and a
+        code-compared Pass alike) becomes a Query; a Query the AI left (decided by the engineer) takes the reason
+        value_deferred; any other Query (a code or two-reader decision), an AI not-met opinion, a not-applicable line
         and a line with an error are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
         from .blank_markers import names_a_marker
 
