@@ -245,12 +245,18 @@ BINDING, LATER, EARLIER, CANNOT_TELL, NOT_KNOWN = (
 )
 
 
-def against_cutoff(held: dict | None, policy: dict, family: str, register=()) -> dict:
+def against_cutoff(
+    held: dict | None,
+    policy: dict,
+    family: str,
+    register=(),
+    register_complete: bool = False,
+) -> dict:
     """What the cutoff says of the edition the library HOLDS. `held` = {"edition", "date"} as the book prints it (the
     date as YYYY, YYYY-MM or YYYY-MM-DD; None when not printed); `register` = other editions on file with their dates.
     The edition in force on the cutoff date binds; a later one is for information only; an unknown date is "edition
-    not known", never a guess. With the held edition the only one on file before the cutoff, it binds UNLESS a later
-    edition was issued before the cutoff and is not on file: said in `caveat`. Pure."""
+    not known", never a guess. A held edition that binds carries the `caveat` "unless a later edition was issued before the
+    cutoff and is not on file" unless the caller knows the register is complete (`register_complete`). Pure."""
     span = date_span((held or {}).get("date"))
     edition = str((held or {}).get("edition") or (held or {}).get("date") or "").strip()
     out = {
@@ -286,7 +292,8 @@ def against_cutoff(held: dict | None, policy: dict, family: str, register=()) ->
         on_file.append({"edition": edition, "date": held["date"]})
     got = pick(on_file, policy, family)
     if got.status != PICKED:
-        return {**out, "status": NOT_KNOWN, "reason": got.reason}
+        # the held book's date IS known; the register's editions do not decide which binds: "cannot tell", never "not known"
+        return {**out, "status": CANNOT_TELL, "reason": got.reason}
     if got.editions[0] != edition:
         return {
             **out,
@@ -296,11 +303,37 @@ def against_cutoff(held: dict | None, policy: dict, family: str, register=()) ->
         }
     caveat = (
         ""
-        if register
-        else "binds unless a later edition was issued before the cutoff: none is on file"
+        if register_complete
+        else "binds unless a later edition was issued before the cutoff and is not on file"
     )
     return {**out, "status": BINDING, "binding": edition, "caveat": caveat,
             "reason": f"issued {held['date']}, before the cutoff {policy['date']}"}  # fmt: skip
+
+
+def book_verdict(
+    conn, held_document_id: str, book: str, contract: str = "project-contract"
+) -> dict | None:
+    """THE ONE ENTRY for a screen or a CRS (lane B): what the contract's cutoff says of one cited, held book, or None. None
+    while STANDARD_EDITIONS_ENABLED is off, while no cutoff file names the contract (the real cutoff lives in a local file,
+    EDITION_CUTOFF_FILE), or when that file cannot be read: then a CRS stays byte-same. Reads only."""
+    if not settings.standard_editions_enabled:
+        return None
+    try:
+        policy = load_policies().get(contract)
+    except (OSError, ValueError):
+        return None
+    if policy is None:
+        return None
+    from .agent_edition import issue_date
+
+    printed = issue_date(conn, held_document_id)
+    judged = against_cutoff(
+        {"edition": printed["date"], "date": printed["date"]},
+        policy,
+        book,
+        register=editions_of(conn, book),
+    )
+    return {**judged, "printed": printed}
 
 
 # ---------------------------------------------------------------------------------------------------- the register
