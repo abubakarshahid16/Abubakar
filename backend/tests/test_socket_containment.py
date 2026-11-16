@@ -372,6 +372,13 @@ SOCKET_ALLOWLIST = {
     # document text, a filename or a page reference - pinned by
     # tests/test_196_notification_bodies.py.
     "notifications.py",
+    # The second AI (Groq, owner decision 17 Nov 2026, #1584). Sends the two
+    # code-verified quotes of ONE reviewer line and the colour to
+    # api.groq.com, nothing else. Off unless `groq_crosscheck_enabled` AND a
+    # key; host and path fixed; every carried document on BOTH approved lists
+    # (`groq_approved`), never a contract or a blocked file. Pinned below
+    # (`test_the_groq_transport_*`) and in tests/test_groq_crosscheck.py.
+    "groq_transport.py",
 }
 
 #: Modules that may NAME the model URL setting. Exactly one, so a new call
@@ -583,3 +590,35 @@ def test_only_the_notifications_module_imports_smtplib():
         f"smtplib is imported by {importers}. Mail goes out through "
         f"notifications.send_email only: one module, off by default, audited."
     )
+
+
+def test_the_groq_transport_cannot_reach_the_corpus():
+    """The second AI's lane holds the same split: the runner reads the line and hands over its two quotes; this module
+    can send them and cannot fetch any text of its own."""
+    forbidden = {"db", "search", "fts_index", "chunker", "passages", "claims",
+                 "analysis", "answer", "synthesis", "reports", "standards"}
+    leaked = forbidden & _imports(APP / "groq_transport.py")
+    assert not leaked, f"groq_transport.py imports {sorted(leaked)}, which can reach the corpus"
+
+
+@pytest.mark.parametrize("why", ["default", "switch_off", "no_key", "host"])
+def test_the_groq_transport_is_off_by_default_and_refuses_before_a_client(
+        why, monkeypatch, no_socket):
+    """OFF BY DEFAULT, and each gate refuses on its own before any client exists (`no_socket` makes construction fail)."""
+    from app import groq_approved, groq_transport
+
+    assert Settings.model_fields["groq_crosscheck_enabled"].default is False
+    assert Settings.model_fields["groq_api_key"].default == ""
+    monkeypatch.setattr(groq_approved, "refusal", lambda ids: None)  # the document gate is not the one under test
+    url = groq_transport.URL
+    if why != "default":
+        monkeypatch.setattr(settings, "groq_crosscheck_enabled", why != "switch_off")
+        monkeypatch.setattr(settings, "groq_api_key", "" if why == "no_key" else "fake-key-for-tests")
+    if why == "host":
+        url = "https://api.groq.com.collector.example.net/openai/v1/chat/completions"
+    expected = {"default": "switch_off", "switch_off": "switch_off", "no_key": "no_key", "host": "host_refused"}[why]
+    assert groq_transport.available() is (why == "host")
+    with pytest.raises(groq_transport.GroqRefused, match=expected) as caught:
+        groq_transport.send({"model": "m", "messages": [{"role": "user", "content": "q"}]},
+                            document_ids=["doc_a"], url=url)
+    assert caught.value.sent is False and groq_transport.unbilled(caught.value)

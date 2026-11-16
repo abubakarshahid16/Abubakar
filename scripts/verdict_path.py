@@ -55,6 +55,17 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "reader_transport.py", "rule 6: opens a socket (Claude API)"),
     (APP + "notifications.py", "rule 6: opens a socket (mail)"),
     (APP + "claude_spend.py", "rule 6: the budget caps"),
+    (APP + "groq_transport.py", "rule 6: opens a socket (Groq, the second AI)"),
+    (APP + "groq_spend.py", "the second AI's budget caps"),
+    (APP + "groq_approved.py", "decides which documents' quotes leave for Groq"),
+    (
+        APP + "agent_review_crosscheck.py",
+        "a second AI's disagreement makes a line a Query",
+    ),
+    (
+        APP + "agent_review_crosscheck_run.py",
+        "picks the lines whose two quotes leave for Groq",
+    ),
     # --- added: decides or words a verdict, or what leaves the machine ---
     (APP + "agent_review_verdict.py", "the gate: when a line may be Pass or Fail"),
     (APP + "agent_review_decide.py", "the holds and the one exit that finishes a line"),

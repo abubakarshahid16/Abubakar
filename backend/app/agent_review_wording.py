@@ -17,6 +17,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 
 from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as code_proof
+from . import agent_review_crosscheck as crosscheck
 from . import agent_review_two_reader as two_reader
 from .agent_review_local import (
     AI_QUERY_WHY,
@@ -305,6 +306,13 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             if two_reader.second_cut_off(line)
             else DISAGREE_WHY,
         }
+    if crosscheck.disagrees(line):  # 2e. the second AI (Groq) disagrees: a Query
+        also_why = f"; {why}" if unapproved else ""
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": crosscheck.DISAGREE_WHY + also_why,
+        }
     return None
 
 
@@ -408,6 +416,9 @@ def apply(line: Mapping) -> dict:
     if words and out["verdict_class"] in (CLASS_QUERY, CLASS_OPINION, CLASS_UNAPPROVED):
         base = str(out.get("not_proven_reason") or "").rstrip(" .;")
         out["not_proven_reason"] = f"{base}; {words}" if base else words
+    if note := crosscheck.said(line):  # the second AI on, this line not asked: said
+        base = str(out.get("not_proven_reason") or "").rstrip(" .;")
+        out["not_proven_reason"] = f"{base}; {note}" if base else note
     return out
 
 
