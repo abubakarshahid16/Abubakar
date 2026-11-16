@@ -590,6 +590,16 @@ def stop_reason(exc: BaseException, step_worst: float | None = None) -> tuple[st
     )
     if isinstance(exc, StepCapStop):
         return code, exc.reason
+    if code == "account_no_credit":
+        return (
+            code,
+            "the Claude account has no credit: the owner tops it up in the Anthropic console; nothing more was sent",
+        )
+    if code == "account_usage_limit":
+        return (
+            code,
+            "the Claude account's usage limit is reached: nothing more was sent until access returns",
+        )
     if code in APPROVAL_CODES:
         return (
             code,
