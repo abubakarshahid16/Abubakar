@@ -79,6 +79,14 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "makes a proven Pass or Fail of the one reviewer from a compared value",
     ),
     (
+        APP + "agent_review_checklist_books.py",
+        "order 14 lane A: the quote and the book a calculator checklist line shows; a book not held is never decided",
+    ),
+    (
+        APP + "datasheet_sum.py",
+        "order 14 lane A: the checklist rule kind sum_percent_of: decides a checklist verdict from two values",
+    ),
+    (
         APP + "agent_review_code_proof.py",
         "the proof behind a proven Pass or Fail: recomputed from the line's own texts and values",
     ),

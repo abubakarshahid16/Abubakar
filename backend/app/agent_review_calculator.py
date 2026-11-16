@@ -479,7 +479,7 @@ def with_book(line: Mapping, books) -> dict:
             why = f"the book {got['missing']} is not held, so its rule is not shown or decided"
             out = _undecided(out, why, "not_decided", reason)
         return out
-    out.update(clause_quote=got.get("quote") or "", clause_page=got.get("page"), clause_document_id=got.get("book_id"),
+    out.update(clause_quote=got.get("quote") or "", clause_page=got.get("page"), standard_document_id=got.get("book_id"),
                quotes_checked={**checks, "clause": bool(got.get("quote"))})  # fmt: skip
     return out
 
