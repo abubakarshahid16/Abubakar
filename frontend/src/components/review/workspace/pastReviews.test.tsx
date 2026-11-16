@@ -100,6 +100,12 @@ describe("pastReviewsOf", () => {
     expect(byId["run-2"].result).not.toBe("failed");
   });
 
+  it("order 14: a run whose code would approve shows the server's note, never the code", () => {
+    const note = "No review code proposed: see the review page.";
+    const [row] = pastReviewsOf("doc-1", [run({ review_run_id: "run-9", status: "completed", recommended_code: null, recommended_code_note: note })]);
+    expect(row.result).toBe(note);
+  });
+
   it("marks signed from crs_issued_at and leaves the comment count unknown", () => {
     const byId = Object.fromEntries(pastReviewsOf("doc-1", RUNS).map((r) => [r.runId, r]));
     expect(byId["run-3"].signed).toBe(true);

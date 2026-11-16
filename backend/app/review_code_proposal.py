@@ -14,15 +14,43 @@ WHILE ANY POINT IS STILL TO DECIDE no code that lets the paper proceed (Approved
 decide may hold a failure, so such a code would be a guess shown as a decision (honesty rule 4; order 14, first-time-user test 15: the
 pump's team file proposed "Approved with Comments" with 35 of 37 points still to decide). The line then reads "No review code proposed
 yet: N of M points still to decide" (`still_to_decide_sentence`, N and M the same count the sheet states: "x of M decided"). Only
-Rejected / Revise and Resubmit may stand while points are open ("So far: <code>, N of M points still to decide"): a kept proven failure
-stays a failure whatever the open points hold. When every point is decided the rule above applies unchanged. "Manual Review Required"
-is for ONE reason only: pages of the paper were not read, and it says so. Every home (the page's code box, the team file's sheet 1)
-takes the code and the line from `propose`; the contractor file states only the recorded code.
+Rejected / Revise and Resubmit may stand while points are open ("So far: <code>, N of M points still to decide"), by either of its two
+branches above: a kept point proven by code not to meet a "shall" rule, or (only with the setting above 0) at least N kept AI "not met"
+points; open points cannot undo either. When every point is decided the rule above applies unchanged. "Manual Review Required" is for
+ONE reason only: pages of the paper were not read, and it says so.
+
+THE HOMES. The paper's page (`GET /api/reviews/papers/{id}/points` `proposed_code`, the code box) and the team file's sheet 1 print
+`propose`'s line. The paths that see ONE RUN, not the paper's list (the older rule check's run summary `GET /api/reviews/runs...`, its
+CRS file and its preview), cannot read the list, so they never show an approving code: `run_level` gives "No review code proposed: see
+the review page." in its place (a Rejected or Manual Review Required of that run stays: it lets nothing proceed). The contractor file
+states only the recorded code.
+
+THE RECORDED CODE (`POST /api/reviews/runs/{id}/code`). The engineer may record any code (he signs), but an approving code while points
+are still to decide needs a typed reason (`open_code_refusal`, the route answers 422), and the files say so: the team file "<code>
+(recorded with N of M points still to decide: <reason>)", the contractor file "<code> (recorded by the engineer)" (`recorded_words`).
 """
 
 from __future__ import annotations
 
 from . import comparison
+from .db import connect
+
+#: The roles of the codes that let the paper proceed (`comparison.CODE_ROLES`).
+APPROVING_ROLES = frozenset({"approved", "approved_with_comments"})
+
+#: What a path that sees one run, not the paper's list, shows in place of an approving code.
+RUN_LEVEL_NOTE = "No review code proposed: see the review page."
+
+
+def approving(code: str | None) -> bool:
+    """Does `code` (a configured label or a default one) let the paper proceed?"""
+    return comparison.code_role(code) in APPROVING_ROLES
+
+
+def run_level(code: str | None) -> tuple[str | None, str | None]:
+    """(the code a one-run path may show, the note in its place): an approving code is never shown there (see the module words)."""
+    return (None, RUN_LEVEL_NOTE) if approving(code) else (code, None)
+
 
 RULE_WORDS = (
     "Rule: a kept point proven by code not to meet a 'shall' rule gives Rejected / Revise and Resubmit; any other kept comment gives "
@@ -166,3 +194,85 @@ def _out(
         "rule": RULE_WORDS,
         "proposed_by": "the system; the engineer decides",
     }
+
+
+# ------------------------------------------------------------------------------------------ the recorded code
+
+
+def _ensure(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS review_code_open_points (
+            review_run_id TEXT PRIMARY KEY,
+            undecided INTEGER NOT NULL,
+            of_points INTEGER NOT NULL,
+            recorded_at TEXT NOT NULL)"""
+    )
+
+
+def open_code_refusal(
+    code: str, reason: str | None, undecided: int, of: int
+) -> str | None:
+    """The plain sentence refusing an approving code recorded while points are still to decide without a typed reason, or None."""
+    if undecided and approving(code) and not (reason or "").strip():
+        return (
+            f"{code} lets the paper proceed while {undecided} of {_plural(of, 'point', 'points')} are still to decide: "
+            "type the reason it may proceed now, or decide the points first."
+        )
+    return None
+
+
+def remember_open(review_run_id: str, code: str, undecided: int, of: int) -> None:
+    """Keep how many points were still to decide when an approving code was recorded (nothing kept otherwise)."""
+    from datetime import UTC, datetime
+
+    conn = connect()
+    with conn:
+        _ensure(conn)
+        conn.execute(
+            "DELETE FROM review_code_open_points WHERE review_run_id = ?",
+            (review_run_id,),
+        )
+        if undecided and approving(code):
+            conn.execute(
+                "INSERT INTO review_code_open_points (review_run_id, undecided, of_points, recorded_at) VALUES (?,?,?,?)",
+                (
+                    review_run_id,
+                    undecided,
+                    of,
+                    datetime.now(UTC).isoformat(timespec="seconds"),
+                ),
+            )
+
+
+def _open_at_record(conn, review_run_id: str) -> tuple[int, int] | None:
+    _ensure(conn)
+    row = conn.execute(
+        "SELECT undecided, of_points FROM review_code_open_points WHERE review_run_id = ?",
+        (review_run_id,),
+    ).fetchone()
+    return (int(row[0]), int(row[1])) if row else None
+
+
+def recorded_words(
+    conn,
+    review_run_id: str | None,
+    code: str | None,
+    reason: str | None,
+    *,
+    undecided: int,
+    of: int,
+) -> dict[str, str | None]:
+    """{"team", "contractor"}: the recorded code as each file (and the page) prints it, None when no code is recorded. An approving
+    code recorded with points still to decide says so on the team file, with the engineer's reason; a code recorded before that count
+    was kept, with points open now, says how many are open now."""
+    if not code:
+        return {"team": None, "contractor": None}
+    team = code
+    if approving(code):
+        at = _open_at_record(conn, review_run_id) if review_run_id else None
+        why = f": {reason.strip()}" if (reason or "").strip() else ""
+        if at:
+            team = f"{code} (recorded with {at[0]} of {_plural(at[1], 'point', 'points')} still to decide{why})"
+        elif undecided:
+            team = f"{code} ({undecided} of {_plural(of, 'point', 'points')} still to decide{why})"
+    return {"team": team, "contractor": f"{code} (recorded by the engineer)"}

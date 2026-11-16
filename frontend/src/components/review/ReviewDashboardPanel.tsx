@@ -319,7 +319,8 @@ export function ReviewDashboardPanel(
                       ) : null}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
-                      {run.recommended_code}
+                      {/* order 14: one run never shows an approving code; the server's note stands in its place */}
+                      {run.recommended_code ?? run.recommended_code_note}
                       {/* BOTH CODES, NEVER ONE. An engineer's decision does
                           not delete what the machine recommended. */}
                       {run.engineer_final_code && (

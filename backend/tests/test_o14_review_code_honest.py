@@ -175,12 +175,12 @@ def test_r4_books_not_held_is_the_run_record_and_every_row_marked_book_missing_e
         {"_book_missing": "BOOK-90"},
         {},
     ]
-    assert review_points.books_not_held(["BOOK-12"], rows) == [
+    assert review_points.books_not_held(["BOOK-12"], rows, []) == [
         "BOOK-12",
         "BOOK-77",
         "BOOK-90",
     ]
-    assert review_points.books_not_held([], [{}, {"_book_missing": ""}]) == []
+    assert review_points.books_not_held([], [{}, {"_book_missing": ""}], []) == []
 
 
 def test_r4_the_sheet_rule_books_not_held_counts_a_rule_check_row_whose_book_is_missing():
@@ -210,3 +210,150 @@ def test_r4_the_sheet_rule_books_not_held_counts_a_rule_check_row_whose_book_is_
         str(c) for r in held.iter_rows(values_only=True) for c in r if c is not None
     )
     assert "1 rule book(s) not held" in text and "BOOK-77" in text
+
+
+# ------------------------------------------------------------------------------------------ review item 1: the recorded code
+
+
+def _record(client, run_id, code, reason=None):
+    from app import db
+
+    with db.connect() as conn:  # the engineer who records (decided_by names a user)
+        conn.execute(
+            "INSERT OR IGNORE INTO users (id,email,display_name,password_hash,is_active,created_at)"
+            " VALUES ('eng','eng@e.test','Eng','x',1,'2026-11-17T00:00:00Z')"
+        )
+    body = {"code": code, **({"override_reason": reason} if reason is not None else {})}
+    return client.post(f"/api/reviews/runs/{run_id}/code", json=body)
+
+
+def test_an_approving_code_with_points_still_to_decide_is_refused_without_a_reason_and_said_on_both_files():
+    doc, _rc, _ai, client = world_with_both()
+    listing = points_of(client, doc)
+    left, of = listing["of"] - listing["decided"], listing["of"]
+    assert left > 0
+    refused = _record(
+        client, listing["code_run_id"], comparison.CODE_APPROVED_WITH_COMMENTS
+    )
+    assert refused.status_code == 422
+    assert f"while {left} of {of} points are still to decide" in refused.text
+    assert (
+        _cells(crs_one.build_team(doc, scope_all()))["Recorded review code:"]
+        == "not recorded"
+    )  # nothing was recorded
+    ok = _record(
+        client,
+        listing["code_run_id"],
+        comparison.CODE_APPROVED_WITH_COMMENTS,
+        "invented reason",
+    )
+    assert ok.status_code == 200, ok.text
+    team = _cells(crs_one.build_team(doc, scope_all()))["Recorded review code:"]
+    assert team == (
+        f"{comparison.CODE_APPROVED_WITH_COMMENTS} (recorded with {left} of {of} points still to decide: invented reason)"
+    )
+    contractor = _cells(crs_one.build_contractor(doc, scope_all()))[
+        "Recorded review code:"
+    ]
+    assert (
+        contractor
+        == f"{comparison.CODE_APPROVED_WITH_COMMENTS} (recorded by the engineer)"
+    )
+    assert (
+        points_of(client, doc)["final_code_words"]["team"] == team
+    )  # the page says the same
+
+
+def test_a_code_recorded_with_every_point_decided_needs_no_reason_and_prints_plain():
+    doc, _rc, _ai, client = world_with_both()
+    for p in points_of(client, doc)["points"]:
+        assert (
+            decide(
+                client,
+                doc,
+                p["id"],
+                "remove" if p["rank"] == 1 else "keep",
+                reason="invented reason",
+            ).status_code
+            == 200
+        )
+    listing = points_of(client, doc)
+    assert (
+        _record(
+            client, listing["code_run_id"], comparison.CODE_APPROVED_WITH_COMMENTS
+        ).status_code
+        == 200
+    )
+    assert (
+        _cells(crs_one.build_team(doc, scope_all()))["Recorded review code:"]
+        == comparison.CODE_APPROVED_WITH_COMMENTS
+    )
+
+
+def test_the_refusal_is_for_approving_codes_only():
+    assert (
+        review_code_proposal.open_code_refusal(comparison.CODE_REJECTED, None, 3, 4)
+        is None
+    )
+    assert review_code_proposal.open_code_refusal(comparison.CODE_APPROVED, "  ", 3, 4)
+    assert (
+        review_code_proposal.open_code_refusal(comparison.CODE_APPROVED, "why", 3, 4)
+        is None
+    )
+    assert (
+        review_code_proposal.open_code_refusal(comparison.CODE_APPROVED, None, 0, 4)
+        is None
+    )
+
+
+# ------------------------------------------------------------------------------------------ review item 3: one-run paths
+
+
+def test_a_one_run_path_never_shows_an_approving_code():
+    doc = _submittal()
+    approving_run = _run(doc, recommended=comparison.CODE_APPROVED_WITH_COMMENTS)
+    client = _client(doc)
+    got = client.get(f"/api/reviews/runs/{approving_run}")
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["recommended_code"] is None
+    assert (
+        body["recommended_code_note"]
+        == review_code_proposal.RUN_LEVEL_NOTE
+        == "No review code proposed: see the review page."
+    )
+    listed = client.get("/api/reviews/runs").json()["runs"]
+    assert all(r["recommended_code"] not in APPROVING for r in listed)
+    preview = client.get(f"/api/reviews/runs/{approving_run}/crs/preview")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["recommended_code"] == review_code_proposal.RUN_LEVEL_NOTE
+    rejected_run = _run(
+        _submittal("doc_other", "other.pdf"), recommended=comparison.CODE_REJECTED
+    )
+    stays = _client("doc_other").get(f"/api/reviews/runs/{rejected_run}").json()
+    assert (
+        stays["recommended_code"] == comparison.CODE_REJECTED
+        and stays["recommended_code_note"] is None
+    )
+
+
+# ------------------------------------------------------------------------------------------ review items 2 and 4: books not held
+
+
+def test_the_same_book_written_two_ways_is_one_book_not_held():
+    rows = [{"_book_missing": "API RP 520 Pt-1"}, {"_book_missing": "API 520 Part I"}, {"_book_missing": "ZZ-STD 12 (2019)"},
+            {"_book_missing": "ZZ-STD 12"}]  # fmt: skip
+    assert review_points.books_not_held([], rows, []) == [
+        "API RP 520 Pt-1",
+        "ZZ-STD 12 (2019)",
+    ]
+    assert review_points.books_not_held(
+        ["API 65"], [{"_book_missing": "API 650"}], []
+    ) == ["API 65", "API 650"]
+
+
+def test_a_book_the_run_did_not_hold_but_the_library_holds_today_leaves_the_list():
+    library = [{"document_number": "ZZ-STD 12", "filename": "ZZ-STD 12.pdf"}]
+    assert review_points.books_not_held(["ZZ-STD 12", "QQ-STD 7"], [], library) == [
+        "QQ-STD 7"
+    ]

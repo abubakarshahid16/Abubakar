@@ -238,6 +238,36 @@ describe("3 the review code box", () => {
   });
 });
 
+describe("3b the recorded code while points are open (order 14)", () => {
+  it("preselects nothing, and an approving code with points still to decide asks why before it is sent", async () => {
+    api.decideCode.mockResolvedValue(ok({}));
+    mount(); await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Record the code" }));
+    expect((screen.getByLabelText("Final code") as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
+    expect(await screen.findByText("Choose a code first.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Final code"), { target: { value: "Approved" } });
+    expect(screen.getByLabelText("Why it may proceed with points still to decide")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
+    expect(await screen.findByText("A reason is needed: 7 of 9 points are still to decide.")).toBeInTheDocument();
+    expect(api.decideCode).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Why it may proceed with points still to decide"), { target: { value: "invented reason" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
+    await waitFor(() => expect(api.decideCode).toHaveBeenCalledWith("rc1", "Approved", "invented reason"));
+  });
+  it("a code that lets nothing proceed needs no reason while points are open", async () => {
+    mount(); await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Record the code" }));
+    fireEvent.change(screen.getByLabelText("Final code"), { target: { value: "Rejected / Revise and Resubmit" } });
+    expect(screen.queryByLabelText("Why it may proceed with points still to decide")).toBeNull();
+  });
+  it("the recorded code is printed as the server words it", async () => {
+    api.list.mockResolvedValue(ok(listing({ final_code: "Approved", final_code_words: { team: "Approved (recorded with 7 of 9 points still to decide: invented reason)", contractor: "Approved (recorded by the engineer)" } })));
+    mount(); await loaded();
+    expect(screen.getByText(/Recorded final code: Approved \(recorded with 7 of 9 points still to decide: invented reason\)/)).toBeInTheDocument();
+  });
+});
+
 describe("4 the four tiles", () => {
   it("each is a big number with one small line; a count the review cannot have is not shown", async () => {
     mount(); await loaded();

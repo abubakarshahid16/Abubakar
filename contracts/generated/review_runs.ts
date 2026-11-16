@@ -77,6 +77,8 @@ export interface ReviewRunSummary {
   findings_total: number;
   by_status: StatusCounts;
   recommended_code?: string | null;
+  /** Order 14: one run cannot read the paper's list, so an approving code is not shown in `recommended_code`; this sentence ("No review code proposed: see the review page.") stands in its place. Null otherwise. */
+  recommended_code_note?: string | null;
   /** The recommendation's own words. Never re-worded by a screen. */
   recommended_reason?: string | null;
   /** 2g: the technical sentence behind `recommended_reason` (the nominal field estimate, identifiers), shown under "Details". Null when none. */

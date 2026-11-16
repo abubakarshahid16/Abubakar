@@ -17,7 +17,7 @@ export function ResultSection({ run }: { run: ReviewRunSummary }) {
   return (
     <HowSection meta={RESULT_META}>
       <FactList label="Result">
-        <Fact label="Recommended code" fact={{ value: run.recommended_code ?? null, source: "recommended_code" }} testId="result-code" />
+        <Fact label="Recommended code" fact={{ value: run.recommended_code ?? run.recommended_code_note ?? null, source: "recommended_code" }} testId="result-code" />
         <Fact label="Recommended reason" fact={{ value: run.recommended_reason ?? null, source: "recommended_reason" }} testId="result-reason" />
         <Fact label="Recommended details" fact={{ value: run.recommended_details ?? null, source: "recommended_details" }} testId="result-details" />
         <Fact label="Engineer's final code" testId="result-final"

@@ -79,7 +79,7 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
             Recommended by the system
           </p>
           <p className="mt-1 font-semibold text-slateish-100">
-            {run.recommended_code ?? "—"}
+            {run.recommended_code ?? run.recommended_code_note ?? "—"}
           </p>
           {/* 2g: the reason in plain words; the engine's own sentence - the
               nominal estimate, identifiers - kept verbatim under Details,

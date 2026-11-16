@@ -24,6 +24,7 @@ import { loadReadyCounts } from "./landing/readyCounts";
 function resultWords(run: ReviewRunSummary): string {
   if (run.engineer_final_code) return run.engineer_final_code;
   if (run.recommended_code) return `Suggested: ${run.recommended_code}`;
+  if (run.recommended_code_note) return run.recommended_code_note; // order 14: no approving code from one run
   // v2.1 L9: a failed review says why, in the words the run stored.
   if (run.status === "failed" && run.failure_reason) return `${runStatusLabel(run.status)}: ${run.failure_reason}`;
   return runStatusLabel(run.status);

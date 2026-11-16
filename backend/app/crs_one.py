@@ -343,7 +343,7 @@ def _header_pairs(
         ("Decided by:", _people(paper_id, extra.get("names") or {})),
         # the proposal's own line (`review_code_proposal`, the one home): no approving code while a point is still to decide
         ("Proposed review code:", code.get("line") or NOT_RECORDED),
-        ("Recorded review code:", listing.get("final_code") or NOT_RECORDED),
+        ("Recorded review code:", (listing.get("final_code_words") or {}).get("team") or NOT_RECORDED),
         ("Status of this file:", "Issued" if signed else "Working copy, not issued"),
     ]
 
@@ -958,7 +958,7 @@ def build_contractor(
         ("Paper:", paper),
         ("Status of this file:", "Issued" if signed else "Working copy, not issued"),
         ("Exported on:", exported),
-        ("Recorded review code:", listing.get("final_code") or NOT_RECORDED),
+        ("Recorded review code:", (listing.get("final_code_words") or {}).get("contractor") or NOT_RECORDED),
     ]
     lines = [
         f"{len(mine)} row(s) in this copy; {listing['of']} points in the review; {listing['decided']} of {listing['of']} decided",

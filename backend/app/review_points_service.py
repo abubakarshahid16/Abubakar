@@ -373,6 +373,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ai_pts, not_held = (
         rp.ai_points_of_run(conn, ai_run, paper_id, readable) if ai_run else ([], [])
     )
+    library = rp.library_of(conn)
+    not_held = rp.books_not_held(not_held, [], library)  # the run's record, re-tested against today's library
     rc_pts = _rule_points(rc_run, paper_id, scope) if rc_run else []
     # the AI review is the only reviewer: its notes are points of the one list (a rule check lists its own); the notes are the calculator's: behind its setting
     if ai_run and not rc_run and settings.ai_review_calculator_enabled:
@@ -400,7 +402,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d["by"] = names.get(d["by"]) or d["by"]
         p["decision"] = d
     decided = sum(1 for p in points if p["decision"]["state"])
-    not_held = rp.books_not_held(not_held, points)  # the run's record and every row's "Book missing": one list for page and sheet
+    not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
@@ -414,7 +416,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     )
     final = (
         conn.execute(
-            "SELECT engineer_final_code FROM review_runs WHERE id = ?",
+            "SELECT engineer_final_code, override_reason FROM review_runs WHERE id = ?",
             (rc_run or ai_run,),
         ).fetchone()
         if (rc_run or ai_run)
@@ -427,6 +429,15 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
         "counts": counts,
         "proposed_code": proposal,
         "final_code": (final["engineer_final_code"] if final else None) or None,
+        # the recorded code as the page and each file print it (an approving code recorded with points open says so)
+        "final_code_words": review_code_proposal.recorded_words(
+            conn,
+            rc_run or ai_run,
+            (final["engineer_final_code"] if final else None) or None,
+            final["override_reason"] if final else None,
+            undecided=len(points) - decided,
+            of=len(points),
+        ),
         "code_run_id": rc_run or ai_run,
         "decided": decided,
         "of": len(points),
