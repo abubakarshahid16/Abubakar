@@ -170,3 +170,12 @@ def test_5_1_1_compares_the_sum_of_the_two_back_pressures_never_one_part():
         _sum(fact(sup, "3", "psi"), fact(bu, "4", "psig"))["status"]
         == "NEEDS_ENGINEER_REVIEW"
     )
+
+
+def test_the_inlet_drop_field_does_not_duplicate_the_converters_form_v2_box():
+    """The full suite (lead, 16 Nov): a 'percent' role named like form v2's converter-only box 'inlet pressure loss' made the form
+    raise 'already a box of the form'. The role's kind is 'number', so the box stays the form's one unit-checked inlet loss."""
+    from app import rule_roles
+
+    names, _roles, _families = rule_roles.form(PSV)
+    assert names.count("inlet pressure loss") == 1
