@@ -586,3 +586,14 @@ def test_in_a_schedule_an_attachment_with_no_named_parent_is_never_another_sched
     assert (
         sib.value == "present (held document doc_w1)"
     )  # a sibling under the paper's own schedule
+
+
+def test_a_schedule_that_names_itself_is_present_as_this_paper():
+    schedule_k = [
+        (
+            1,
+            'SCHEDULE "K"\nGeneral terms\n1.1 This Schedule K and its attachments govern the work.',
+        )
+    ]
+    r = _one(cc.check_attachments(schedule_k), "CT-02", "Schedule K")
+    assert r.outcome == cc.CONSISTENT and r.value == "present (this paper)"

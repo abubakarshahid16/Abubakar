@@ -501,6 +501,10 @@ def _present_for(
     found = [(p, where) for (k, p), where in present.items() if k == key]
     if parent is not None:
         return next((w for p, w in found if p is None or p == parent), None)
+    if DEPTH[key[0]] == 0:
+        return (
+            found[0][1] if found else None
+        )  # a schedule has no higher part: held anywhere, it is held
     if own is not None:
         family = {x for x in (own[0], own[1]) if x is not None}
         return next((w for p, w in found if p in family), None)
