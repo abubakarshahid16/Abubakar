@@ -540,12 +540,20 @@ def test_a_url_off_the_publishers_sites_is_dropped(url, kept):
 def test_nothing_found_is_said_only_for_a_readable_answer_that_says_so():
     _doc, _rc, ai, _client = world_with_both()
     missing(ai, "API 521")
-    sws.search_run(
-        ai, send=Sender({"title": None, "year": "soon", "url": None}), env=ENV
-    )
+    sws.search_run(ai, send=Sender({"title": None, "year": None, "url": None}), env=ENV)
     row = rows(ai)["API 521"]
     assert row["outcome"] == sws.NOTHING and row["year"] is None
     assert sws.words(row) == "searched online, nothing found on the publisher's site"
+    # review R2-1856: a value that was reported but dropped (a year "soon") is never "nothing found"
+    assert (
+        sws.read_answer(
+            {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": '{"year": "soon"}'}],
+            }
+        )[1]
+        is False
+    )
 
 
 @pytest.mark.parametrize(
@@ -689,3 +697,56 @@ def test_the_send_path_is_agent_claudes_own_under_its_own_step(monkeypatch):
     missing(ai, "API 521")
     sws.search_run(ai, send=Sender(), env=ENV)
     assert seen == [sws.STEP]
+
+
+# --- review R2-1856 (invented values only)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["API 610 P101A", "ASME B16.5 V2301", "API 610 E 101", "API 610 123456 0012 07"],
+)
+def test_a_short_tag_or_number_after_a_designation_is_refused(raw):
+    assert sws.clean_name(raw) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "API RP 520 Part I",
+        "ASME VIII Div 1",
+        "ISO 15156-3 2020",
+        "API 610 11th Edition",
+        "ASTM A105",
+    ],
+)
+def test_real_designation_shapes_still_pass(raw):
+    assert sws.clean_name(raw)
+
+
+def test_a_reply_with_only_dropped_fields_is_incomplete_never_nothing_found():
+    answer = {
+        "stop_reason": "end_turn",
+        "content": [
+            {
+                "type": "text",
+                "text": '{"year": "2019", "url": "https://example.invalid/x"}',
+            }
+        ],
+    }
+    _fields, readable = sws.read_answer(answer)
+    assert readable is False
+
+
+def test_the_search_books_its_spend_to_the_run_by_itself(monkeypatch):
+    from app import claude_spend
+
+    seen = []
+    monkeypatch.setattr(sws, "enabled", lambda: True)
+    monkeypatch.setattr(
+        sws,
+        "_search_run",
+        lambda run_id, **kw: seen.append(claude_spend.current_run()) or {"ran": True},
+    )
+    sws.search_run("run-invented-1")
+    assert seen == ["run-invented-1"]

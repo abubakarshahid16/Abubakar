@@ -167,6 +167,36 @@ def _word(token: str) -> str | None:
     return upper if _DESIGNATION.fullmatch(upper) else None
 
 
+_YEAR_OR_ORDINAL = re.compile(r"(?:19|20)[0-9]{2}|[0-9]{1,2}(?:ST|ND|RD|TH)")
+
+
+def _designations_in_place(words: list[str]) -> bool:
+    """Review R2-1856 (a short tag or number riding after a designation): after each family word, only its FIRST designation may
+    have any designation shape; a later one must be a year or an ordinal, or follow a part / section / kind word. A lone letter
+    (not a roman numeral) must follow such a word too. So "API 610 P101A", "ASME B16.5 V2301", "API 610 E 101" are refused,
+    "API RP 520 Part I", "ASME VIII Div 1", "ISO 15156-3 2020", "API 610 11th Edition" pass."""
+    seen, prev = False, ""
+    for w in words:
+        if w in FAMILIES:
+            seen, prev = False, w
+            continue
+        letter = len(w) == 1 and w.isalpha() and not _ROMAN.fullmatch(w)
+        designation = (
+            bool(_DESIGNATION.fullmatch(w))
+            and w not in QUALIFIERS
+            and w not in EDITION_WORDS
+        )
+        after_qualifier = prev in QUALIFIERS
+        if letter and not after_qualifier:
+            return False
+        if designation:
+            if seen and not (after_qualifier or _YEAR_OR_ORDINAL.fullmatch(w)):
+                return False
+            seen = True
+        prev = w
+    return True
+
+
 def clean_name(raw) -> str | None:
     """The public name of a standard as code rebuilds it, or None when it is not one (nothing is sent for it).
 
@@ -192,7 +222,7 @@ def clean_name(raw) -> str | None:
     if not tokens or len(tokens) > 8 or tokens[0].upper() not in FAMILIES:
         return None
     words = [_word(t) for t in tokens]
-    if any(w is None for w in words):
+    if any(w is None for w in words) or not _designations_in_place(words):
         return None
     name = " ".join(w for w in words if w)
     if len(name) > NAME_LIMIT or not any(c.isdigit() for c in name):
@@ -347,6 +377,13 @@ def read_answer(answer: dict) -> tuple[dict, bool]:
         "publisher": _short(got.get("publisher"), 100),
         "url": publisher_url(got.get("url")),
     }
+    reported = any(got.get(k) not in (None, "", [], {}) for k in FIELDS)
+    if (
+        readable
+        and reported
+        and not any(fields[k] for k in ("title", "latest_edition", "year", "url"))
+    ):
+        readable = False  # review R2-1856: something was reported but nothing usable was kept: never "nothing found"
     return fields, bool(readable)
 
 
@@ -566,9 +603,15 @@ class _Budget:
 def search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
     """Search every rule book the run listed as not held. Switch off: does nothing at all (no table, no request).
 
-    Counts only in the result and the log, never a name or an answer."""
+    Counts only in the result and the log, never a name or an answer. Its spend is always booked to the run (review R2-1856: the
+    run cap and the run's spend record hold even when it is called outside the job wrapper)."""
     if not enabled() or not run_id:
         return {"ran": False}
+    with claude_spend.for_run(run_id):
+        return _search_run(run_id, send=send, env=env, conn=conn)
+
+
+def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
     from . import claude_approved
 
     conn = conn or connect()
