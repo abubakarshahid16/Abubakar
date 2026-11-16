@@ -343,6 +343,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         agent_review_kind,
         agent_review_local,
         claude_approved,
+        claude_auto_approve,
         claude_spend,
         contract_yes,
         local_engine_bar,
@@ -367,7 +368,12 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         )
     except claude_approved.BlockListUnreadable:
         blocked = True  # fail closed
-    is_contract = kind == "contract" or role == "CONTRACT_DOCUMENT"
+    # A kind stored for the paper in any state (suggested or confirmed) that says contract counts too (R99, rule 1): only narrows.
+    is_contract = (
+        kind == "contract"
+        or role == "CONTRACT_DOCUMENT"
+        or claude_auto_approve.stored_kind_is_contract(conn, document_id)
+    )
     yes = is_contract and contract_yes.has_yes(document_id)
     approved = _paper_approved(sha, role, is_contract, yes, claude_approved, settings)
     lane_open = reasoning_provider.claude_lane_open()

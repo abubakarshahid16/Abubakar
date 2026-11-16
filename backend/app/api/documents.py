@@ -98,7 +98,6 @@ async def upload_document(
             status_code=400,
             content={"code": e.code, "message": e.message, "detail": e.detail},
         )
-    document_kind_mod.after_upload(row["id"], uploaded_from, duplicate_of is not None)  # order 14 lane E, switch inside
     if duplicate_of is None and admin_role is not None and scope.user_id is not None:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
         access.grant_uploaded_document_to_disciplines(
@@ -106,6 +105,9 @@ async def upload_document(
     elif duplicate_of is not None and not scope.may_read(duplicate_of):
         return {"document": None, "job_id": "", "duplicate_of": None,
                 "awaiting_grant": True}
+    # Order 14 lane E (switch inside): only for a new upload or a duplicate this caller may read (R99, rule 5): a caller who
+    # cannot read the held document writes no kind row, no role suggestion and no upload context onto it.
+    document_kind_mod.after_upload(row["id"], uploaded_from, duplicate_of is not None)
     # A new upload is readable by its uploader at once: an engineer may only
     # choose their own disciplines, and an administrator holds every document.
     return {
