@@ -198,7 +198,8 @@ carries the client's name; only the owner can rename it.
 
 ## Mistakes not to repeat
 
-One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat". Read it before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
+One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat", and (from 17 Nov 2026)
+in `REVIEW.md`, section "Rules learned": every repeated mistake gets one line there. Read both before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
 
 ## Who does what
 
