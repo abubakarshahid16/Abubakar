@@ -714,9 +714,7 @@ NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )
 DISAGREE_WHY = "two AI readers disagree on this line"
-#: Order 14, 16 Nov 2026 night (steadiness, gate G6): an AI "met" whose quoted line code could not match to the rule's field. The
-#: second reader's yes or no decided before whether it reached the sheet, so the same item was a question in one run and off the
-#: sheet in the next. Code cannot confirm it either way: it is a question for the engineer in every run.
+#: Order 14, 16 Nov 2026 (G6): a "met" code could not match to the rule's field is a question in every run (the second reader's yes or no used to decide).
 FIELD_UNKNOWN_MET_WHY = "code could not match the quoted line to the rule's field, so this AI 'met' is not confirmed"
 FIELD_UNKNOWN_CODES = ("pass_field_unknown", "field_unknown_cannot_check_deferral")
 _GENERIC_BY = re.compile(
@@ -765,11 +763,7 @@ def quote_is_label_only(line: Mapping) -> bool:
 
 
 def met_unsafe_why(line: Mapping) -> str | None:
-    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None. (a) the paper quote
-    it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (a line with no record of
-    the check counts as not verified; a "met" with NO clause quote recorded, for example a checklist item whose clause was
-    not quoted, is therefore a Query BY DESIGN: the gate already refuses a Pass without a verified clause quote). Acts ONLY
-    on a line whose verdict is Query (the lines shown as "AI thinks: met"); a proven Fail or Pass passes through. Never touches a proven Pass or any other AI word: it only makes a line less confident."""
+    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None: (a) the paper quote it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (no record of the check counts as not verified; a "met" with NO clause quote recorded is a Query BY DESIGN: the gate refuses a Pass without a verified clause quote); then not stated, label only, a second reader's disagreement, and a field code could not match (order 14). Acts ONLY on a line whose verdict is Query (the lines shown as "AI thinks: met"); a proven Fail or Pass passes through. Never touches a proven Pass or any other AI word: it only makes a line less confident."""
     if (
         line.get("ai_verdict") != PASS or line.get("verdict") != QUERY
     ):  # a proven Pass or Fail is never touched
