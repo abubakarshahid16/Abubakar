@@ -38,4 +38,63 @@ def test_a_clause_review_not_met_without_a_found_quote_is_a_question_but_keeps_i
     row = {**ROW, "row_kind": "clause_review"}
     unverified = {"submittal": {"verified": True}, "standard": {"verified": False}}
     p = rp.rule_point(row, CTX, _finding("5.3.4"), unverified, proof=(True, True))
-    assert p["rank"] == 4 and p["rule_text"] == "The limit shall be 10 %."  # the library's stored text, shown labelled, not hidden
+    assert (
+        p["rank"] == 4 and p["rule_text"] == "The limit shall be 10 %."
+    )  # the library's stored text, shown labelled, not hidden
+
+
+# --- steadiness (gate G6), order 14, 16 Nov 2026 night: the second reader's coin-flip no longer decides whether a line is a comment
+
+
+def _ai(verdict: str, **kw) -> dict:
+    base = {"item_id": "S-1", "verdict": "Query", "decided_by": "engineer", "ai_verdict": verdict, "why": "x",
+            "paper_quote": "Body material: carbon steel", "quotes_checked": {"paper": True, "clause": True, "both": True}}  # fmt: skip
+    return {**base, **kw}
+
+
+def test_an_ai_met_whose_field_code_could_not_match_is_a_question_even_when_the_second_reader_agrees():
+    from app import agent_review_verdict as V
+    from app import agent_review_wording as W
+
+    for code in V.FIELD_UNKNOWN_CODES:
+        line = _ai("Pass", reason_code=code, second_opinion={"agree": True})
+        assert V.met_unsafe_why(line) == V.FIELD_UNKNOWN_MET_WHY
+        out = W.final_cap(
+            line,
+            {"item_id": "S-1", "source": "skill", "rule_version_id": None},
+            None,
+            {"S-1"},
+            "datasheet",
+        )
+        assert out["verdict_label"] == W.WORD_QUERY
+    assert (
+        V.met_unsafe_why(_ai("Pass", reason_code=None, second_opinion={"agree": True}))
+        is None
+    )  # a matched field: unchanged
+
+
+def test_an_ai_not_met_the_second_reader_disagreed_with_is_a_question():
+    from app import agent_review_verdict as V
+    from app import agent_review_wording as W
+
+    item = {"item_id": "S-1", "source": "skill", "rule_version_id": None}
+    out = W.final_cap(
+        _ai("Fail", reason_code="not_met", second_opinion={"agree": False}),
+        item,
+        None,
+        {"S-1"},
+        "datasheet",
+    )
+    assert out["verdict_label"] == W.WORD_QUERY and out["not_proven_reason"].startswith(
+        V.DISAGREE_WHY
+    )
+    kept = W.final_cap(
+        _ai("Fail", reason_code="not_met", second_opinion={"agree": True}),
+        item,
+        None,
+        {"S-1"},
+        "datasheet",
+    )
+    assert (
+        kept["verdict_label"] != W.WORD_QUERY
+    )  # the second reader agreed: the AI's "not met" stands as before

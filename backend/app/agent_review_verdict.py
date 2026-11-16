@@ -714,6 +714,11 @@ NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )
 DISAGREE_WHY = "two AI readers disagree on this line"
+#: Order 14, 16 Nov 2026 night (steadiness, gate G6): an AI "met" whose quoted line code could not match to the rule's field. The
+#: second reader's yes or no decided before whether it reached the sheet, so the same item was a question in one run and off the
+#: sheet in the next. Code cannot confirm it either way: it is a question for the engineer in every run.
+FIELD_UNKNOWN_MET_WHY = "code could not match the quoted line to the rule's field, so this AI 'met' is not confirmed"
+FIELD_UNKNOWN_CODES = ("pass_field_unknown", "field_unknown_cannot_check_deferral")
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase
@@ -790,6 +795,8 @@ def met_unsafe_why(line: Mapping) -> str | None:
     second = line.get("second_opinion")
     if isinstance(second, Mapping) and second.get("agree") is False:
         return DISAGREE_WHY
+    if line.get("reason_code") in FIELD_UNKNOWN_CODES:
+        return FIELD_UNKNOWN_MET_WHY
     return None
 
 

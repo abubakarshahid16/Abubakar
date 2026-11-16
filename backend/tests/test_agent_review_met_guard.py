@@ -199,9 +199,11 @@ def test_a_disagreeing_second_opinion_does_not_move_a_proven_pass_or_not_met():
         )["verdict_label"]
         == "Pass"
     )
+    # order 14, 16 Nov 2026 night (steadiness, G6): an AI "not met" the second reader DISAGREED with is now a question, as a "met"
+    # is (test_o14_firm_needs_clause); a PROVEN verdict above is still never moved
     assert (
         exit_of(met(ai_verdict="Fail", second_opinion=d))["verdict_label"]
-        == W.THINKS_NOT_MET
+        == W.WORD_QUERY
     )
 
 
@@ -289,9 +291,10 @@ def test_the_only_change_the_guard_can_make_is_met_to_query():
                         }
                         got, ref = W.classify(line), W.classify(base)
                         if got["verdict_label"] != ref["verdict_label"]:
-                            assert (ref["verdict_label"], got["verdict_label"]) == (
-                                W.THINKS_MET,
-                                W.WORD_QUERY,
+                            assert (ref["verdict_label"], got["verdict_label"]) in (
+                                (W.THINKS_MET, W.WORD_QUERY),
+                                # order 14 (G6): a disagreed AI "not met" is a question too; only "AI thinks" ever moves, only to Query
+                                (W.THINKS_NOT_MET, W.WORD_QUERY),
                             ), (verdict, ai, quote, checks, second)
 
 

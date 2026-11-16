@@ -276,6 +276,17 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             + (f"; {why}" if unapproved else ""),
         }
     if (
+        line.get("ai_verdict") == FAIL
+        and line.get("verdict") == QUERY
+        and isinstance(line.get("second_opinion"), Mapping)
+        and line["second_opinion"].get("agree") is False
+    ):  # 2b0. order 14, 16 Nov night: the second reader DISAGREED with a "not met": two readers disagree, a question (as for a "met")
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": DISAGREE_WHY + (f"; {why}" if unapproved else ""),
+        }
+    if (
         deferred := not_met_deferred_why(line)
     ):  # 2b'. a "not met" on silence whose own verified quote defers the value (order 14 lane D)
         return {

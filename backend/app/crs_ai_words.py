@@ -21,6 +21,7 @@ from .agent_review_verdict import (
     CONDITIONAL_WHY,
     DEFERRED_WHY,
     DISAGREE_WHY,
+    FIELD_UNKNOWN_MET_WHY,
     NO_VALUE_WHY,
     NOT_STATED_WHY,
     SILENCE_WHY,
@@ -219,6 +220,7 @@ WHY_PHRASES: dict[str, str] = {
     NOT_STATED_WHY: "the AI reviewer's own words say the paper leaves this out",
     NO_VALUE_WHY: "only the field name was quoted, with nothing after it",
     DISAGREE_WHY: "the two AI readers disagreed",
+    FIELD_UNKNOWN_MET_WHY: "code could not match the quoted line to the rule's field",
     # lane D's CUT_OFF_WHY (agent_review_wording, on o14/D-pump): the second reader was cut off, it never said the opposite
     CUT_OFF_WHY: "the second AI reader's answer was cut off, so the two readers did not agree",
     **{absence.ABSENCE_WHY[k]: v for k, v in ABSENCE_PLAIN.items() if k in absence.ABSENCE_WHY},
