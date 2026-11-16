@@ -43,6 +43,9 @@ function Boxes({ p, onViewPage }: { p: ReviewPoint; onViewPage: (documentId: str
         {!p.clause_quote && p.rule_text && (
           <p className="mt-1 text-xs text-slateish-300" data-testid="v2-clause-stored">As stored (not verified by code): &ldquo;{p.rule_text}&rdquo;</p>
         )}
+        {!p.clause_quote && !p.rule_text && p.check_text && (
+          <p className="mt-1 text-xs text-slateish-300" data-testid="v2-check-text">Our checklist asks (our words): &ldquo;{p.check_text}&rdquo;</p>
+        )}
       </div>
     </div>
   );

@@ -571,3 +571,17 @@ def test_a_name_whose_candidates_are_already_one_comment_joins_it():
     got = crs_comments.group([pt("1", "Back press. Variable"), pt("2", "Back press. Constant/Variable"),
                               pt("3", "Valve type / Back press. Constant/Variable")])  # fmt: skip
     assert [c["n_points"] for c in got] == [3]
+
+
+def test_the_ai_draft_words_appear_once_and_the_detail_comes_from_compare_reason():
+    line = {"ai_draft": True, "why": "AI draft, engineer to confirm: Inlet drop was not read as a value",
+            "compare": {"code_said": "MISSING_INFORMATION", "reason": "Inlet drop was not read as a value"}}  # fmt: skip
+    got = words.ai_draft_words(line)
+    assert (
+        got == "AI draft, engineer to confirm: Inlet drop was not read as a value."
+        and got.count(words.AI_DRAFT) == 1
+    )
+    cell = WB.layout_comment(
+        mk("C-2", "Query", reason_code="not_decided", **line), "Query", 3
+    )
+    assert cell.count(words.AI_DRAFT) == 1

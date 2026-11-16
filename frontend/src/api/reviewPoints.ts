@@ -71,6 +71,8 @@ export interface ReviewPoint {
   /** What the stored finding holds (U5d): shown as stored, never as verified. */
   paper_value?: string | null;
   rule_text?: string | null;
+  /** Our own checklist's wording (order 14 lane B): shown as ours, never as the rule book's words. */
+  check_text?: string | null;
   reason_words?: string | null;
   checked_by?: string | null;
   action_source?: string | null;

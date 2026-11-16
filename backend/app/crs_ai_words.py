@@ -394,8 +394,13 @@ def ai_draft_words(line: Mapping) -> str:
     check's own detail is said. '' for any other line."""
     if line.get("ai_draft") is not True:
         return ""
-    why = _clean(line.get("why"))
-    detail = (why[len(AI_DRAFT) :] if why.startswith(AI_DRAFT) else why).strip(" :.")
+    why = _clean(
+        line.get("why")
+    )  # lane A: the bare detail is compare.reason; "why" already begins with AI_DRAFT
+    detail = _clean((line.get("compare") or {}).get("reason")) or (
+        why[len(AI_DRAFT) :] if why.startswith(AI_DRAFT) else why
+    )
+    detail = detail.strip(" :.")
     said = str((line.get("compare") or {}).get("code_said") or "").upper()
     if said in _COMPARED:
         return (
