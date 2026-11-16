@@ -143,6 +143,8 @@ def is_candidate(line: Mapping) -> bool:
     second = line.get("second_opinion")
     if isinstance(second, Mapping) and second.get("agree") is False:
         return False
+    if second_cut_off(line):  # counts as a disagreement (`disagrees`)
+        return False
     if verdict.met_unsafe_why(line) is not None:
         return False
     if verdict.quote_defers(line.get("paper_quote")) or verdict.says_absent(line):
@@ -382,13 +384,33 @@ def agrees(line: Mapping) -> bool:
     return _guards_ok(line, second, ai)
 
 
+#: The reason a second opinion records when its answer was CUT OFF by its token limit (`agent_claude`: the error code).
+CUT_OFF_REASONS = frozenset({"stop_max_tokens"})
+
+
+def second_cut_off(line: Mapping) -> bool:
+    """The line's own second opinion was asked and its answer was cut off by its token limit (no agree, reason
+    "stop_max_tokens"). Order 14 (the lead's decision, 16 Nov 2026): such a line counts as a DISAGREEMENT, a Query, never
+    "AI thinks: met": run to run, the same line was a Query when the second reader answered and an AI opinion when it was cut
+    off. A second opinion that was not asked or failed for another reason is untouched."""
+    second = line.get("second_opinion")
+    return (
+        isinstance(second, Mapping)
+        and second.get("agree") is None
+        and str(second.get("reason") or "").strip() in CUT_OFF_REASONS
+    )
+
+
 def disagrees(line: Mapping) -> bool:
-    """The second reader reached the OPPOSITE verdict (met against not met) on a line the first reader could not get proven."""
-    second = stored(line)
-    if second is None:
-        return False
+    """The second reader reached the OPPOSITE verdict (met against not met) on a line the first reader could not get proven,
+    or the line's second opinion was cut off by its token limit (`second_cut_off`)."""
     ai = line.get("ai_verdict")
     if ai not in (verdict.PASS, verdict.FAIL) or line.get("verdict") != verdict.QUERY:
+        return False
+    if second_cut_off(line):
+        return True
+    second = stored(line)
+    if second is None:
         return False
     other = V_NOT_MET if ai == verdict.PASS else V_MET
     return second.get("verdict") == other
