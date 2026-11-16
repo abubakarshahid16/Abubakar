@@ -849,3 +849,88 @@ def test_a_name_on_no_list_writes_a_not_sent_row_and_sends_nothing():
     send = Sender()
     sws.search_run(ai, send=send, env=ENV)
     assert send.bodies == [] and rows(ai)["API 99999"]["why"] == sws.NOT_PUBLIC
+
+
+# ------------------------------------------------------------------------------------------------ the one cache door (CI, #1856)
+
+
+@pytest.fixture
+def cache_on(monkeypatch, tmp_path):
+    """The answer cache on, in a folder inside the data folder (the fixture above keeps it off: outside the data folder)."""
+    monkeypatch.setattr(
+        settings, "claude_cache_dir", settings.data_dir / f"ws1856-{tmp_path.name}"
+    )
+    monkeypatch.setattr(settings, "ai_answer_reuse_enabled", True)
+
+
+def _search_again(ai: str, send: Sender) -> dict:
+    """The same run's books asked again (its rows dropped), so the second request is byte for byte the first."""
+    with db.connect() as conn:
+        conn.execute("DELETE FROM standards_web_search")
+    return sws.search_run(ai, send=send, env=ENV)
+
+
+def test_a_second_identical_search_opens_no_socket_and_costs_nothing(cache_on):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "ISO 9003")
+    first = Sender()
+    paid = sws.search_run(ai, send=first, env=ENV)
+    assert len(first.bodies) == 1 and paid["usd"] > 0
+    spent, reserved = claude_spend.spent(sws.STEP), len(open_reservations())
+    again = Sender(raises=AssertionError("a socket was opened"))
+    got = _search_again(ai, again)
+    assert again.bodies == [], "the stored answer was bought again"
+    assert got == {"ran": True, "asked": 0, "usd": 0.0}
+    row = rows(ai)["ISO 9003"]
+    assert (
+        row["outcome"] == sws.FOUND
+        and row["usd"] == 0
+        and row["why"] == sws.STORED_WORDS
+    )
+    assert row["title"] == FOUND["title"] and row["searched_name"] == "ISO 9003"
+    assert sws.words(row).endswith(sws.STORED_WORDS)
+    assert (
+        len(list(settings.claude_cache_dir.rglob("*.json"))) == 1
+    )  # the readable answer, kept once
+    assert (
+        claude_spend.spent(sws.STEP) == spent and len(open_reservations()) == reserved
+    )
+    assert [
+        e
+        for e in claude_spend.entries()
+        if e.get("cached") and e.get("step") == sws.STEP
+    ]
+
+
+@pytest.mark.parametrize(
+    "unreadable",
+    [
+        {"reply": "It is a standard about valves."},  # prose, not the asked object
+        {"stop": "max_tokens"},  # cut at the output limit
+        {
+            "content": [
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": "s1",
+                    "content": {"type": "error"},
+                },
+                {"type": "text", "text": json.dumps(FOUND)},
+            ]
+        },  # a search came back as an error
+    ],
+)
+def test_an_unreadable_answer_is_never_kept(cache_on, unreadable):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "ISO 9004")
+    sws.search_run(ai, send=Sender(**unreadable), env=ENV)
+    assert rows(ai)["ISO 9004"]["outcome"] == sws.INCOMPLETE
+    assert not list(settings.claude_cache_dir.rglob("*.json")), (
+        "an unreadable answer was kept"
+    )
+    again = Sender()
+    _search_again(ai, again)
+    assert len(again.bodies) == 1, "an unreadable answer was served from the store"
+    assert (
+        rows(ai)["ISO 9004"]["outcome"] == sws.FOUND
+        and rows(ai)["ISO 9004"]["why"] is None
+    )

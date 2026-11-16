@@ -25,7 +25,8 @@ The pre-start plan says it (`plan_note`, in `GET /api/reviews/plan` under `docum
 
 THE LANE. The existing Claude lane only: `agent_claude._request` (the provider switch, both egress flags, https, the allowed host, the
 key) and `agent_claude._send_once` (`claude_spend.metered`: reserve, send through `reader_transport`, settle). No new company, no new
-key, no new socket module.
+key, no new socket module. The one cache door (`claude_spend.answer_on_file`) is asked first: a readable answer stored for the same
+request is used at USD 0 with nothing sent, and only a readable answer is kept (`claude_spend.keep_answer`).
 
 MONEY. One request per missing book, at most `MAX_PER_RUN` a run, at most `settings.standards_web_search_usd_per_run` a run and at
 most `TIME_LIMIT_SECONDS` of wall time a run. The web search tool has its own price per search, and its results come back as input
@@ -137,6 +138,9 @@ NOT_SENT_WORDS = (
     "this review sent nothing to Claude, so no name taken from the paper is sent either"
 )
 UNREADABLE_WORDS = "the answer could not be read"
+#: Names the reading of the answer, so a change to it misses the answers stored before (`claude_spend.answer_on_file`).
+ANSWER_VERSION = "standards-web-search-answer-1"
+STORED_WORDS = "from the stored answer of an earlier search: nothing sent, USD 0"
 PLAN_WORDS = (
     "After the AI review, the public names of rule books this paper cites that the library does not hold may be sent to "
     "Claude's web search (the name only, never document text; at most {n} names and USD {usd:.2f}). What it finds is shown as "
@@ -428,13 +432,9 @@ def read_answer(answer: dict) -> tuple[dict, bool]:
         for b in blocks
     )
     text = "".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+    ended = answer.get("stop_reason") in ("end_turn", "stop_sequence")
+    readable = ended and not search_error and _asked_keys(text)
     got = agent_claude.parse_json_object(text)
-    readable = (
-        answer.get("stop_reason") in ("end_turn", "stop_sequence")
-        and not search_error
-        and isinstance(got, dict)
-        and any(k in got for k in FIELDS)
-    )
     got = got if isinstance(got, dict) else {}
     fields = {
         "title": _short(got.get("title"), 200),
@@ -443,23 +443,29 @@ def read_answer(answer: dict) -> tuple[dict, bool]:
         "publisher": _short(got.get("publisher"), 100),
         "url": publisher_url(got.get("url")),
     }
-    usable = [
-        k for k in FIELDS if k != "publisher"
-    ]  # R2-1856: reported, nothing kept: not "nothing found"
-    reported = any(got.get(k) not in (None, "", [], {}) for k in usable)
     # review R2-1856: something was reported but nothing usable was kept: never "nothing found"
+    usable = [k for k in FIELDS if k != "publisher"]
+    reported = any(got.get(k) not in (None, "", [], {}) for k in usable)
     readable = readable and (any(fields[k] for k in usable) or not reported)
     return fields, bool(readable)
+
+
+def _asked_keys(text: str) -> bool:
+    """The reply's text is one JSON object with the asked keys (also the cache's check of a stored answer's text)."""
+    got = agent_claude.parse_json_object(text)
+    return isinstance(got, dict) and any(k in got for k in FIELDS)
+
+
+def _row(fields: dict, usd: float, why: str | None = None) -> dict:
+    found = any(fields[k] for k in ("title", "latest_edition", "year", "url"))
+    return {"outcome": FOUND if found else NOTHING, "why": why, "usd": usd, **fields}
 
 
 def searches_made(answer: dict) -> int:
     """How many searches the answer says were made: the usage count, or the search blocks when that is larger."""
     usage = answer.get("usage") if isinstance(answer.get("usage"), dict) else {}
-    stated = (
-        (usage.get("server_tool_use") or {})
-        if isinstance(usage.get("server_tool_use"), dict)
-        else {}
-    )
+    stated = usage.get("server_tool_use")
+    stated = stated if isinstance(stated, dict) else {}
     try:
         counted = max(0, int(stated.get("web_search_requests") or 0))
     except (TypeError, ValueError):
@@ -502,10 +508,14 @@ def search_one(
     body = dict(request["body"])
     body.update(parts)
     body["model"], body["max_tokens"] = MODEL, _out_cap()
-    digest = hashlib.sha256(
-        json.dumps(body, sort_keys=True).encode("utf-8")
-    ).hexdigest()
-    try:
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+    try:  # the cache door first (its approved-list gate is the reservation's own): a stored readable answer costs 0, no socket
+        stored, key = claude_spend.answer_on_file(
+            STEP, body, version=ANSWER_VERSION, valid=_asked_keys, prompt_sha256=digest
+        )
+        fields, readable = read_answer(stored or {})
+        if readable:
+            return _row(fields, 0.0, STORED_WORDS)
         held = claude_spend.reserve(
             STEP, extra_worst_usd(parts), model=MODEL, prompt_sha256=digest
         )
@@ -515,9 +525,7 @@ def search_one(
     closed = False
     try:
         answer, failure = agent_claude._send_once(raw, request, body, step=STEP)
-        request = (
-            None  # the headers (the key) leave this frame before anything else happens
-        )
+        request = None  # the headers (the key) leave this frame first
         if failure is not None:
             kind, code, billed = _failure(failure)
             if billed:
@@ -536,15 +544,10 @@ def search_one(
         closed = True
         usd = round(agent_claude._usd(MODEL, answer, body) + fee, 6)
         fields, readable = read_answer(answer)
-        if not readable:
+        if not readable:  # never kept: a failed, refused or unreadable answer is asked again next time
             return {"outcome": INCOMPLETE, "why": UNREADABLE_WORDS, "usd": usd}
-        found = any(fields[k] for k in ("title", "latest_edition", "year", "url"))
-        return {
-            "outcome": FOUND if found else NOTHING,
-            "why": None,
-            "usd": usd,
-            **fields,
-        }
+        claude_spend.keep_answer(key, STEP, answer, cost_usd=usd, valid=_asked_keys)
+        return _row(fields, usd)
     finally:
         request = None
         if not closed:  # any other path after the reservation: charged at its worst case, never left open
@@ -575,12 +578,8 @@ _STATEMENTS = (
 
 
 def _has_table(conn) -> bool:
-    return (
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (TABLE,)
-        ).fetchone()
-        is not None
-    )
+    sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+    return conn.execute(sql, (TABLE,)).fetchone() is not None
 
 
 def _missing(conn, run_id: str) -> list[str]:
@@ -704,9 +703,8 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
             searched = known_public_name(name)
             parts = body_parts(searched) if searched else None
             why = NOT_PUBLIC if parts is None else (stop or budget.refuses(parts))
-            if (
-                why is None and searched in sent_names
-            ):  # review R4-1856: one search per name sent, never paid twice
+            # review R4-1856: one search per name sent, never paid twice
+            if why is None and searched in sent_names:
                 why = SEARCHED_ONCE
             if why is not None:
                 row = {"outcome": NOT_SEARCHED, "why": why}
@@ -715,7 +713,7 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
                     row = search_one(
                         searched, send=send, env=env, timeout=budget.timeout()
                     )
-                    budget.asked += 1
+                    budget.asked += row.get("why") != STORED_WORDS  # stored: not sent
                     budget.spent += float(row.get("usd") or 0.0)
                 except _Stop as exc:
                     stop = exc.why
@@ -752,12 +750,13 @@ def words(row: dict | None) -> str:
     """The one plain sentence for one book, on the page and in the CRS file's column."""
     if not row:
         return "not searched yet"
+    stored = f"; {STORED_WORDS}" if row.get("why") == STORED_WORDS else ""
     if row["outcome"] == FOUND:
         bits = [row.get("title"), row.get("latest_edition"), f"({row['year']})" if row.get("year") else None, row.get("publisher"),
                 row.get("url")]  # fmt: skip
-        return "; ".join(b for b in bits if b) + f" ({NOT_VERIFIED})"
+        return "; ".join(b for b in bits if b) + f" ({NOT_VERIFIED})" + stored
     if row["outcome"] == NOTHING:
-        return "searched online, nothing found on the publisher's site"
+        return "searched online, nothing found on the publisher's site" + stored
     return f"{row['outcome']}: {row.get('why') or 'no reason recorded'}"
 
 
