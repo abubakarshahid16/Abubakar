@@ -8,7 +8,7 @@ fails closed: GREEN and RED become YELLOW.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from . import agent_trace, heavy_lock
@@ -151,6 +151,12 @@ class LocalOpinion:
                 return
 
 
+def disagreed(second: object) -> bool:
+    """THE test of "the second reader said no" (an explicit agree False), for every home that asks it (rule 8): the met guard,
+    the not-met step of the wording and the engineer's action words. "Not asked", "failed" and "cut off" are not a no."""
+    return isinstance(second, Mapping) and second.get("agree") is False
+
+
 def fatal_problem(exc: BaseException) -> str:
     """The PROBLEM words of a fatal stop: from its code only, never a message."""
     if isinstance(exc, heavy_lock.HeavyJobBusy):
@@ -164,6 +170,10 @@ def fatal_problem(exc: BaseException) -> str:
         return "gate closed"
     if code == "test_cap":
         return "budget stop: run cap reached: owner decides whether to raise it"
+    if code == "account_no_credit":
+        return "the Claude account has no credit: the owner tops it up in the Anthropic console"
+    if code == "account_usage_limit":
+        return "the Claude account's usage limit is reached: access returns on the date the API gave"
     return "budget stop: step cap reached: owner decides whether to raise it"
 
 

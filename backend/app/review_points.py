@@ -568,12 +568,19 @@ def rule_point(
     ref = content.rule_ref(row, finding)
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
     missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
+    unproven_ai = False
     if missing:  # order 14 lane B (lane D, G7): a rule whose book is not held is a question, never a verdict; none of its words shown
         rank, other_kind = 4, None
         rule_words = ref["clause"] or content.rule_text(finding)
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
             action, action_source = f"{BOOK_MISSING}: {missing}. The rule cannot be checked until the book is held; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
+    elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
+        # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
+        # finding names no clause is a question for the engineer, never a verdict (decided on the stored finding: the same for every viewer).
+        # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
+        # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
+        rank, unproven_ai = 4, True
     point = {
         "id": f"rc:{key}",
         "source": SOURCE_RULE_CHECK,
@@ -633,8 +640,14 @@ def rule_point(
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=f"{BOOK_MISSING}: {missing}",
                      clause_quote_note=NO_CLAUSE_QUOTE)  # fmt: skip
+    if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)
+        point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE)
     return point
 
+
+#: The rule-check kinds whose stored "requirement" is the AI check's own wording, not text the library read from the book (a clause
+#: review's stored requirement IS the book's text: it stays, labelled "not verified by code").
+_AI_WRITTEN_RULE_KINDS = frozenset({"ai_engineering_check", "web_standard_check"})
 
 REREAD = "clause re-read"
 

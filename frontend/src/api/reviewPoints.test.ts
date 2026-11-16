@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const request = vi.fn();
 vi.mock("./core", () => ({ request: (...a: unknown[]) => request(...a) }));
 
-import { pageV2Switch, reviewPoints } from "./reviewPoints";
+import { oldCrsDownloadOffered, pageV2Switch, reviewPoints } from "./reviewPoints";
 
 beforeEach(() => request.mockReset());
 
@@ -19,6 +19,17 @@ describe("the redesigned page's calls", () => {
     expect(await pageV2Switch()).toBe(false);
     request.mockImplementationOnce(() => { throw new Error("network"); });
     expect(await pageV2Switch()).toBe(false);
+  });
+  it("the older per-review CRS files are not offered only when the server says so (16 Nov 2026)", async () => {
+    request.mockResolvedValue({ ok: true, data: { enabled: true, old_crs_download: false } });
+    expect(await oldCrsDownloadOffered()).toBe(false);
+    expect(request.mock.calls.at(-1)?.[0]).toBe("/reviews/page-v2");
+    request.mockResolvedValue({ ok: true, data: { enabled: true, old_crs_download: true } });
+    expect(await oldCrsDownloadOffered()).toBe(true);
+    request.mockResolvedValue({ ok: true, data: { enabled: false } });
+    expect(await oldCrsDownloadOffered()).toBe(true);
+    request.mockImplementationOnce(() => { throw new Error("network"); });
+    expect(await oldCrsDownloadOffered()).toBe(true);
   });
   it("the plan and the writes go to the right routes with the right bodies", async () => {
     request.mockResolvedValue({ ok: true, data: {} });

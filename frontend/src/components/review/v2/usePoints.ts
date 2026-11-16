@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type EngineChoice, type PointsListing, type ReviewPlan, pageV2Switch, reviewPoints } from "../../../api/reviewPoints";
+import { type EngineChoice, type PointsListing, type ReviewPlan, oldCrsDownloadOffered, pageV2Switch, reviewPoints } from "../../../api/reviewPoints";
 
 /** The redesigned page's switch, read once. False while unknown: the old page stays. */
 export function usePageV2Switch(): boolean {
@@ -8,6 +8,18 @@ export function usePageV2Switch(): boolean {
   useEffect(() => {
     let live = true;
     void pageV2Switch().then((v) => { if (live) setOn(v); });
+    return () => { live = false; };
+  }, []);
+  return on;
+}
+
+/** Owner order, 16 Nov 2026: whether the older per-review CRS files (no count line) are offered, read once. True until the server
+ *  says otherwise, as before; the server is the gate. */
+export function useOldCrsDownload(): boolean {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    let live = true;
+    void oldCrsDownloadOffered().then((v) => { if (live) setOn(v); });
     return () => { live = false; };
   }, []);
   return on;

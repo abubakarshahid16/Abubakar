@@ -4,10 +4,13 @@ import { useState } from "react";
 import { downloadAgentCrs } from "../agent/downloadAgentCrs";
 import { OlderFileLine } from "../agent/OlderFileLine";
 import { downloadCrs } from "../downloadCrs";
+import { useOldCrsDownload } from "./usePoints";
 
 export function OlderFiles({ ruleCheckRun, aiRun }: { ruleCheckRun: string | null; aiRun: string | null }) {
   const [problem, setProblem] = useState<string | null>(null);
-  if (!ruleCheckRun && !aiRun) return null;
+  // Owner order, 16 Nov 2026: these files do not state their counts; switched off, only the paper's one CRS is offered.
+  const offered = useOldCrsDownload();
+  if (!offered || (!ruleCheckRun && !aiRun)) return null;
   const btn = "rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-xs text-slateish-100 hover:bg-ink-700";
   async function get(run: () => Promise<string | null>) {
     setProblem(null);

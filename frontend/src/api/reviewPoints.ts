@@ -160,6 +160,18 @@ export async function pageV2Switch(): Promise<boolean> {
   }
 }
 
+/** Owner order, 16 Nov 2026: whether the older per-review CRS files (they do not state "N points reviewed, N in this file") are
+ *  offered. False only when the server says so; anything unreadable keeps them, as before (the server refuses them with a sentence
+ *  when they are off, so a button shown by mistake gives no file). */
+export async function oldCrsDownloadOffered(): Promise<boolean> {
+  try {
+    const r = await request<{ enabled: boolean; old_crs_download?: boolean }>("/reviews/page-v2", undefined, (b) => isObject(b) && typeof b.enabled === "boolean");
+    return !(r.ok && r.data.old_crs_download === false);
+  } catch {
+    return true;
+  }
+}
+
 export const reviewPoints = {
   plan: (documentId: string, engine: EngineChoice) =>
     request<ReviewPlan>(

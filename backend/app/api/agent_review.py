@@ -612,6 +612,7 @@ def agent_crs(
 ):
     reject_unknown_params(request, {"copy"})
     copy = crs_copy_words.agent_copy(copy)  # V2: one set of copy words on every CRS route
+    crs_copy_words.refuse_old_file_when_off()  # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered
     _run_or_404(review_run_id, scope)
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():

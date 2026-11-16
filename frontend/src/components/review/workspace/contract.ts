@@ -408,6 +408,9 @@ export interface UseSignOffArgs {
   beforeCopy?: () => Promise<string | null>;
   /** U2: read when the copy is issued: true only after the engineer ticked "I have read the AI review's points". It becomes the request's `ai_review_read` flag. */
   aiReviewRead?: () => boolean;
+  /** Owner order, 16 Nov 2026: the paper under review. While the older per-review file is switched off, the working copy is this
+   *  paper's one CRS (team copy), which states its counts. */
+  documentId?: string | null;
 }
 
 export interface WorkspaceSheetProps {

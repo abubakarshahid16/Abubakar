@@ -17,6 +17,7 @@ import { ReviewPipeline } from "../../../views/ReviewPipeline";
 import { AiNumbersPanel } from "../AiNumbersPanel";
 import { CrsPreviewSheet } from "../CrsPreviewSheet";
 import { downloadCrs } from "../downloadCrs";
+import { useOldCrsDownload } from "../v2/usePoints";
 import { FindingDetail } from "../FindingDetail";
 import { FindingsTable } from "../FindingsTable";
 import { ReviewStepsPanel } from "../ReviewStepsPanel";
@@ -214,6 +215,10 @@ function NumbersPage({ run, findings }: BehindTheScenesProps) {
  *  first; when it cannot, the sheet says so above itself and the copy is
  *  not downloaded (plain words instead), never a copy that silently leaves
  *  the engineer's Keep / Edit / Remove out. */
+/** Where the CRS file is when the older per-review file is switched off (owner order, 16 Nov 2026). */
+export const OLD_CRS_FILE_OFF_LINE =
+  "The CRS file is the one file of this paper: \"CRS for your team\" at the bottom of the review page. It states how many points it holds.";
+
 export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
   runId: string; inWorkspace?: boolean; beforeCopy?: () => Promise<string | null>;
 }) {
@@ -228,6 +233,8 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
   const [savingFirst, setSavingFirst] = useState(false);
   const beforeCopyRef = useRef(beforeCopy);
   useEffect(() => { beforeCopyRef.current = beforeCopy; }, [beforeCopy]);
+  // Owner order, 16 Nov 2026: this per-review file does not state its counts; switched off, it is not offered here.
+  const oldFileOffered = useOldCrsDownload();
 
   // Inside the workspace the tab itself is the request to see the sheet.
   useEffect(() => {
@@ -302,10 +309,14 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
       <div className="flex flex-wrap items-center gap-3">
         {/* READ ACCESS SUFFICES and the server says so: exporting writes
             nothing, decides nothing and records no judgement. */}
-        <button type="button" onClick={() => void exportCrs()} disabled={exporting}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
-          {exporting ? (savingFirst ? "Saving your decisions first…" : "Preparing…") : "Export CRS - internal review copy"}
-        </button>
+        {oldFileOffered ? (
+          <button type="button" onClick={() => void exportCrs()} disabled={exporting}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
+            {exporting ? (savingFirst ? "Saving your decisions first…" : "Preparing…") : "Export CRS - internal review copy"}
+          </button>
+        ) : (
+          <span data-testid="crs-old-file-off" className="text-sm text-slateish-400">{OLD_CRS_FILE_OFF_LINE}</span>
+        )}
         {/* Order 121: the contractor's copy is signed on the comment sheet
             ("Before you sign"), never here; this page only links there.
             Inside the workspace, signing is its own Sign and export. */}

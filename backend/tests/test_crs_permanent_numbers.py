@@ -154,12 +154,12 @@ def test_numbers_are_sequential_idempotent_and_never_reused():
 
 
 def test_a_revision_with_the_same_submittal_number_continues_one_sequence():
-    first = crs_numbers.scope_for("KJO-SUB-0042", "doc_rev0")
-    second = crs_numbers.scope_for(" kjo-sub-0042 ", "doc_rev1")
+    first = crs_numbers.scope_for("ZQK-SUB-0042", "doc_rev0")
+    second = crs_numbers.scope_for(" zqk-sub-0042 ", "doc_rev1")
     assert first == second
     crs_numbers.assign(*first, ["a"], document_id="doc_rev0", review_run_id="r")
     got = crs_numbers.assign(*second, ["b"], document_id="doc_rev1", review_run_id="r")
-    assert got["b"]["ref"] == "CRS-KJO-SUB-0042-002"
+    assert got["b"]["ref"] == "CRS-ZQK-SUB-0042-002"
 
 
 def test_a_submittal_with_no_number_is_sequenced_by_its_document_not_a_guess():
@@ -374,17 +374,17 @@ def test_comments_are_numbered_by_the_document_number_never_the_transmittal(worl
     printed on the datasheet does not. Numbering by the transmittal would
     start a new sequence on every resubmittal and break carry-forward."""
     sub, run, scope = world
-    _classify(sub, document_number="KJO-DS-0007", transmittal_number="T-0001")
+    _classify(sub, document_number="ZQK-DS-0007", transmittal_number="T-0001")
     _confirm(run, scope, monkeypatch)
-    assert _ref(run).startswith("CRS-KJO-DS-0007-")
+    assert _ref(run).startswith("CRS-ZQK-DS-0007-")
 
 
 def test_editing_the_document_number_later_never_renumbers_an_issued_comment(world, monkeypatch):
     sub, run, scope = world
-    _classify(sub, document_number="KJO-DS-0007")
+    _classify(sub, document_number="ZQK-DS-0007")
     _confirm(run, scope, monkeypatch)
     ref = _ref(run)
-    _classify(sub, document_number="KJO-DS-9999")   # corrected after issue
+    _classify(sub, document_number="ZQK-DS-9999")   # corrected after issue
     assert _ref(run) == ref, "the comment keeps the number the contractor was given"
     response = TestClient(app).post(f"/api/reviews/runs/{run}/crs/comments/{ref}/status",
                                     json={"status": "Closed"})

@@ -48,6 +48,8 @@ from tests.test_crs_endpoint import (  # noqa: F401 - fixture
 def on(monkeypatch):
     monkeypatch.setattr(settings, "agent_review_enabled", True)
     monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    # these tests read what the older per-review files hold, so those files are switched on (16 Nov 2026: off by default)
+    monkeypatch.setattr(settings, "old_crs_download_enabled", True)
     monkeypatch.setattr(settings, "review_code_resubmit_at_kept_mandatory_not_met", 0)
 
 

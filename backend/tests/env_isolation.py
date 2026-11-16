@@ -198,6 +198,7 @@ EGRESS_SAFE: dict[str, object] = {
     "agent_review_local_engine_enabled": False,  # 12 Nov: the AI reviewer on the local model, off
     "review_unscored_kinds_for_claude_enabled": False,  # 12 Nov: a kind not scored against a key is not offered for Claude
     "review_page_v2_enabled": False,  # 12 Nov: the redesigned review page, off
+    "old_crs_download_enabled": False,  # 16 Nov: the older per-review CRS files (no count line), off
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off

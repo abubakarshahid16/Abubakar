@@ -14,6 +14,13 @@
 > 100 on its key). Everything else is an AI opinion or a question for the engineer. 0 wrong decisions. The engineer signs. Switching
 > any AI step off by default, or replacing an AI step with a rules-only path, needs the owner's written approval on #692 and #1584.
 
+## Session start (owner, 17 Nov 2026)
+
+At every session start and after every compact, first read STANDING-ORDER.md, HANDOFF.md, REVIEW.md and the top of
+LIVE.md, then continue. They live in `~/project/mirror/proof/order14/` on the owner's Mac (outside the repo); REVIEW.md is also
+at the repo root. HANDOFF.md is updated after every finished job. Local hooks (`.claude/settings.local.json`, not committed) load
+the four files at session start and after a compact, and refresh HANDOFF.md's automatic snapshot before a compact.
+
 ## The goal decides (owner, 12 Nov 2026, standing)
 
 The goal: review like a senior engineer or better, any document, best CRS. If a written rule, an old design line or an old part of the
@@ -198,7 +205,8 @@ carries the client's name; only the owner can rename it.
 
 ## Mistakes not to repeat
 
-One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat". Read it before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
+One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat", and (from 17 Nov 2026)
+in `REVIEW.md`, section "Rules learned": every repeated mistake gets one line there. Read both before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
 
 ## Who does what
 

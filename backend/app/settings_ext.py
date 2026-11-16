@@ -596,6 +596,13 @@ class SettingsExt(BaseModel):
     #: that waits for every point). OFF (default): the old page stays; the sign route (`/crs/issue`) asks nothing new. ON: it also
     #: refuses while any point is undecided. The lead switches it on live, tests it, and shows the owner. Env: REVIEW_PAGE_V2_ENABLED.
     review_page_v2_enabled: bool = False
+    #: Owner order, 16 Nov 2026: "Old CRS download without the count line ... hide it behind a switch (off) so only the new one-CRS
+    #: file is offered. Do not delete code." The older per-review files (`GET /api/reviews/runs/{id}/crs` and the AI review's stored
+    #: `GET /api/reviews/runs/{id}/agent/crs`) do not state "N points reviewed, N in this file" (completeness rule 2). OFF (default):
+    #: while the redesigned page is on, those two routes refuse with a plain sentence and the page does not offer them; the one CRS
+    #: of the paper is the file. ON: served and offered byte-for-byte as before. While the redesigned page is off there is no one-CRS
+    #: file, so the older files stay offered whatever this says (`crs_copy_words.old_file_offered`). Env: OLD_CRS_DOWNLOAD_ENABLED.
+    old_crs_download_enabled: bool = False
     #: Owner, 12 Nov 2026 (ONE REVIEWER, STATE section 37): the AI review job runs the old rule check's code comparisons as a calculator step before
     #: its first reader call (`agent_review_calculator_run`): a stored datasheet fact against a numeric rule, and the approved checklist, as lines
     #: "Proven by code" only with a compared value and both quotes found by code. Needs the AI reviewer on; off (default): the job is byte-for-byte

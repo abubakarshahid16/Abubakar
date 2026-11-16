@@ -223,7 +223,9 @@ def test_a_pass_or_fail_needs_the_second_model_to_agree(world, monkeypatch):
         lines["R-coat"]["word"] == "Query"
         and lines["R-coat"]["verdict_class"] == "Query for the engineer"
     )
-    assert lines["R-mark"]["word"] == "AI thinks: not met"
+    assert (
+        lines["R-mark"]["word"] == "Query"
+    )  # order 14 (G6): a "not met" the second model disagreed on is a Query too
     assert (
         lines["R-frame"]["word"] == "Pass"
     )  # a number line is decided by code, not by the second opinion
