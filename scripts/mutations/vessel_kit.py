@@ -89,10 +89,14 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1506-08",
         phase=1506,
-        description="the design pressure margin factor of the vessel card is lowered from 1.05 to 1.00",
+        description="the vessel design pressure card compares 1.05 x operating pressure again instead of only asking",
         path=DATA,
-        anchor='"percent": 105',
-        replacement='"percent": 100',
+        # re-anchored in PR 1849: the old comparison back also drops the card's question-only mark (`limit_draft`)
+        anchor='"kind": "required",\n        "field": "design_pressure",\n        "right": "operating_pressure"\n      },\n      "limit_draft"',
+        replacement=(
+            '"kind": "percent_of",\n        "field": "design_pressure",\n        "op": ">=",\n'
+            '        "right": "operating_pressure",\n        "percent": 105\n      },\n      "old_limit_draft"'
+        ),
         target=TARGET,
         keyword="planted or limit or each_held",
         tags=("honesty", "critical"),

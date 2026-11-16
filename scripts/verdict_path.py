@@ -83,6 +83,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "order 14 lane A: the checklist rule kind sum_percent_of decides a checklist verdict from two values",
     ),
     (
+        APP + "question_card.py",
+        "order 14 lane D: a card whose limit no engineer confirmed decides nothing; a condition value that rules nothing out is asked",
+    ),
+    (
         APP + "agent_review_code_proof.py",
         "the proof behind a proven Pass or Fail: recomputed from the line's own texts and values",
     ),

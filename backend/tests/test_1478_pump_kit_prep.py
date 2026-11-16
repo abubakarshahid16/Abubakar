@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import card_trust, pump_kit, rule_cards
+from app import card_trust, pump_kit, question_card, rule_cards
 from app import datasheet_checks as dc
 from app.config import settings
 
@@ -165,6 +165,7 @@ BASE = [
     ("seal type", "single mechanical seal", None),
     ("seal flush plan", "Plan 11", None),
     ("hydrotest pressure", "4500", "kPa"),
+    ("fluid", "fire water", None),
 ]
 
 
@@ -205,16 +206,16 @@ PLANTED = [
         {"NON_COMPLIANT"},
     ),
     (
-        "hydrotest below the floor",
-        _sheet(hydrotest_pressure=("1500", "kPa")),
+        "firewater pump, hydrotest a placeholder",
+        _sheet(hydrotest_pressure=("*", None)),
         "PMPD-08",
-        {"NON_COMPLIANT"},
+        {"MISSING_INFORMATION"},
     ),
     (
-        "hydrotest one unit under the floor",
-        _sheet(hydrotest_pressure=("1723", "kPa")),
+        "hydrotest pump fluid not stated",
+        [r for r in _sheet() if r[0] != "fluid"],
         "PMPD-08",
-        {"NON_COMPLIANT"},
+        {"NEEDS_ENGINEER_REVIEW"},
     ),
     ("rated flow missing", _sheet(rated_flow=None), "PMPD-01", {"MISSING_INFORMATION"}),
     ("NPSHA missing", _sheet(npsh_available=None), "PMPD-02", {"MISSING_INFORMATION"}),
@@ -262,16 +263,6 @@ PLANTED = [
 TRAPS = [
     ("NPSHA exactly 1 m above", _sheet(npsh_available=("5", "m")), "PMPD-04"),
     ("NPSHA far above", _sheet(npsh_available=("20", "m")), "PMPD-04"),
-    (
-        "hydrotest exactly at the floor",
-        _sheet(hydrotest_pressure=("1724", "kPa")),
-        "PMPD-08",
-    ),
-    (
-        "hydrotest in bar above the floor",
-        _sheet(hydrotest_pressure=("30", "bar")),
-        "PMPD-08",
-    ),
     ("clean sheet, rated flow", _sheet(), "PMPD-01"),
 ]
 
@@ -303,7 +294,13 @@ def test_the_clean_sheet_raises_no_fail_on_any_held_card():
     for card in pump_kit.cards():
         if card.get("needs"):
             continue
-        assert _kit_status(card, BASE) == "COMPLIANT", card["id"]
+        # a QUESTION ONLY card (its limit an AI draft) asks on a clean sheet too: never a pass (order 14 lane D)
+        want = (
+            "NEEDS_ENGINEER_REVIEW"
+            if question_card.question_only(card)
+            else "COMPLIANT"
+        )
+        assert _kit_status(card, BASE) == want, card["id"]
 
 
 # ------------------------------------------------- the switch and the live path
@@ -355,14 +352,16 @@ def test_switch_on_a_low_npsh_margin_and_a_low_test_pressure_fail_on_a_whole_she
 ):
     out = _live(_sheet(npsh_available=("4.5", "m"), hydrotest_pressure=("1500", "kPa")))
     assert out["PMPD-04"]["rule_said"] == "NON_COMPLIANT"
-    assert out["PMPD-08"]["rule_said"] == "NON_COMPLIANT"
+    # owner, 16 Nov: the hydrotest card only ASKS (a stated value), it never compares a limit: no kept Pass
+    assert "rule_said" not in out["PMPD-08"]
+    assert out["PMPD-08"]["status"] == "NEEDS_ENGINEER_REVIEW"
     assert (
         out["PMPD-04"]["draft"] is True and out["PMPD-04"]["standard"] == "SAES-G-005"
     )
     assert out["PMPD-04"]["clause"] == "4.3.2"
     clean = _live(BASE)
     assert clean["PMPD-04"]["rule_said"] == "COMPLIANT"
-    assert clean["PMPD-08"]["rule_said"] == "COMPLIANT"
+    assert "rule_said" not in clean["PMPD-08"]
 
 
 def test_a_kit_card_never_decides_even_with_tested_cards_deciding(kit_on, monkeypatch):
@@ -390,7 +389,8 @@ def test_a_kit_result_is_always_held_whatever_rule_auto_use_says(
 
     monkeypatch.setattr(settings, "rule_auto_use_enabled", auto_use)
     out = _live(_sheet(npsh_available=("4.5", "m"), hydrotest_pressure=("1723", "kPa")))
-    for rule_id in ("PMPD-04", "PMPD-08"):
+    assert rule_trust.label_check(out["PMPD-08"])["status"] == "NEEDS_ENGINEER_REVIEW"
+    for rule_id in ("PMPD-04",):
         row = rule_trust.label_check(out[rule_id])
         assert row["status"] == "NEEDS_ENGINEER_REVIEW", rule_id
         assert row["rule_said"] == "NON_COMPLIANT"
@@ -399,11 +399,12 @@ def test_a_kit_result_is_always_held_whatever_rule_auto_use_says(
             "not at least" in row["detail"] or "not at least" in out[rule_id]["detail"]
         )
     clean = _live(BASE)
-    for rule_id in ("PMPD-04", "PMPD-08"):
-        row = rule_trust.label_check(clean[rule_id])
-        assert (
-            row["status"] == "NEEDS_ENGINEER_REVIEW" and row["rule_said"] == "COMPLIANT"
-        )
+    row = rule_trust.label_check(clean["PMPD-04"])
+    assert row["status"] == "NEEDS_ENGINEER_REVIEW" and row["rule_said"] == "COMPLIANT"
+    row = rule_trust.label_check(
+        clean["PMPD-08"]
+    )  # QUESTION ONLY: held, and no Pass kept to leave the CRS
+    assert row["status"] == "NEEDS_ENGINEER_REVIEW" and not row.get("rule_said")
 
 
 def test_a_signed_off_pump_checklist_cannot_confirm_a_kit_card(kit_on, monkeypatch):
@@ -448,7 +449,8 @@ def test_the_npsh_text_states_the_margin_and_the_cards_state_what_they_do_not_ch
     assert "plus the greater of 0% or 1 m" in res["PMPD-04"]["detail"]
     assert "not at least" in res["PMPD-04"]["detail"]
     assert "firewater" in _by_id()["PMPD-04"]["text"]
-    assert "1.5 times shutoff" in _by_id()["PMPD-08"]["text"]
+    assert "1.5 times the sum" in _by_id()["PMPD-08"]["text"]
+    assert "FIREWATER pumps only" in _by_id()["PMPD-08"]["text"]
 
 
 def test_a_relief_valve_margin_text_also_states_its_margin():
@@ -480,11 +482,82 @@ def test_a_percent_rule_text_is_unchanged():
     assert "10% of" in res["PSV-29"]["detail"]
 
 
-def test_the_standards_own_unit_for_the_test_pressure_is_not_a_fail():
-    for value, unit, ok in (
-        ("250", "psi", True),
-        ("1724", "kPa", True),
-        ("1723", "kPa", False),
+def test_the_hydrotest_card_asks_and_never_compares_whatever_the_value():
+    """Owner, 16 Nov 2026: SAES-G-005 6.7.4 (firewater pumps only) needs 1.5 x (shutoff head + maximum suction head); 250
+    psig is only its floor. The card asks for the value and never compares it, so no value reads as a fail or a pass of
+    the limit until the engineer confirms it."""
+    for value, unit in (
+        ("250", "psi"),
+        ("1724", "kPa"),
+        ("1723", "kPa"),
+        ("100", "kPa"),
     ):
         got = _kit_status(_by_id()["PMPD-08"], _sheet(hydrotest_pressure=(value, unit)))
-        assert got == ("COMPLIANT" if ok else "NON_COMPLIANT"), (value, unit)
+        assert got == "NEEDS_ENGINEER_REVIEW", (
+            value,
+            unit,
+        )  # asked: never a Pass of a limit no engineer confirmed
+
+
+def test_the_hydrotest_card_does_not_apply_to_a_pump_that_is_not_a_firewater_pump():
+    sheet = [r for r in _sheet(hydrotest_pressure=("1500", "kPa")) if r[0] != "fluid"]
+    assert (
+        _kit_status(_by_id()["PMPD-08"], [*sheet, ("fluid", "crude oil", None)])
+        == "NOT_APPLICABLE"
+    )
+
+
+def test_the_hydrotest_card_carries_the_books_rule_as_an_ai_draft():
+    card = _by_id()["PMPD-08"]
+    assert card["rule"] == {"kind": "required", "field": "test_pressure"}
+    assert card["condition"] == {
+        "role": "fluid",
+        "any": ["fire"],
+        "may_be_any": ["water"],
+    }
+    assert card["text"].startswith("AI draft, engineer to confirm")
+    draft = card["limit_draft"]
+    assert draft["status"] == "AI draft, engineer to confirm"
+    assert draft["applies_to"] == "firewater pumps only"
+    assert (
+        "1.5 x (shutoff head + maximum allowable suction head)"
+        == draft["test_pressure_at_least"]
+    )
+    assert draft["floor"].startswith("1724 kPa")
+
+
+# ------------------------------------------- review of #1849: a fluid that rules nothing out never says "does not apply"
+
+
+@pytest.mark.parametrize("fluid", ["*", "TBA", "-", "HOLD"])
+def test_a_placeholder_fluid_is_a_question_never_does_not_apply(fluid):
+    """A placeholder (the one home: `blank_markers`) states no fluid, so whether the firewater clause applies is asked."""
+    sheet = [r for r in _sheet(hydrotest_pressure=("100", "kPa")) if r[0] != "fluid"]
+    assert (
+        _kit_status(_by_id()["PMPD-08"], [*sheet, ("fluid", fluid, None)])
+        == "NEEDS_ENGINEER_REVIEW"
+    )
+
+
+@pytest.mark.parametrize("fluid", ["water", "sea water", "Fresh Water"])
+def test_a_stated_water_is_not_a_stated_service_so_the_question_stays(fluid):
+    """A stated liquid is not a stated service: "water" may still be firewater. Only a fluid that rules it out may say
+    "does not apply" (crude oil, below)."""
+    sheet = [r for r in _sheet(hydrotest_pressure=("100", "kPa")) if r[0] != "fluid"]
+    assert (
+        _kit_status(_by_id()["PMPD-08"], [*sheet, ("fluid", fluid, None)])
+        == "NEEDS_ENGINEER_REVIEW"
+    )
+    assert (
+        _kit_status(_by_id()["PMPD-08"], [*sheet, ("fluid", "crude oil", None)])
+        == "NOT_APPLICABLE"
+    )
+
+
+def test_the_hydrotest_card_quotes_its_stored_page_words_only():
+    draft = _by_id()["PMPD-08"]["limit_draft"]
+    assert len(draft["quotes"]) == 3 and all(len(q) >= 8 for q in draft["quotes"])
+    assert (
+        "page 29" in draft["quotes_verified_against"]
+        and "verified_against" not in draft
+    )

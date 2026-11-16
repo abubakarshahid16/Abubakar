@@ -24,6 +24,7 @@ from app import (
     degraded_read,
     hold_reason,
     kit_core,
+    presence_check,
     review,
     rule_trust,
     submittal_review,
@@ -783,3 +784,184 @@ def test_a_value_impossible_under_either_reading_keeps_the_row(
     sheet.facts = []
     monkeypatch.setattr(crs_routing, "_own_fact", lambda i: _fact("thing", "-3", 9))
     assert not crs_routing.draft_pass_may_leave(draft_pass(fact_id="f9"))
+
+
+# ------------------------------------------------------------ order 14 lane D: a QUESTION ONLY card is never a draft pass
+
+
+def _sheet_facts(rows):
+    return [
+        {
+            **_fact(name, f"{value} {unit}".strip() if unit else value, i),
+            "raw_value": value,
+            "raw_unit": unit,
+        }
+        for i, (name, value, unit) in enumerate(rows, start=1)
+    ]
+
+
+def _listed_clauses(monkeypatch, equipment_type, rows, combo):
+    """The whole path with the switches of `combo` on: the live checklist (kit on), the trust label, the store, then
+    the internal list the CRS leaves its rows to. The clauses listed there, and the stored findings by rule id."""
+    auto_use, routing, compliance, presence = combo
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", auto_use)
+    monkeypatch.setattr(settings, "presence_not_pass_enabled", presence)
+    monkeypatch.setattr(settings, "tested_cards_decide_enabled", True)
+    monkeypatch.setattr(settings, "owner_approved_rules_decide_enabled", True)
+    for kit in ("pump", "vessel", "exchanger"):
+        monkeypatch.setattr(settings, f"{kit}_kit_draft_enabled", True)
+    switch(monkeypatch, routing=routing, compliance=compliance)
+    # the list of compared items is cached by file stamp, not by kit switch: read it afresh for this sheet
+    presence_check._compared.cache_clear()
+    results = dc.evaluate(
+        _sheet_facts(rows), equipment_type=equipment_type, page_texts={2: "x"}
+    )
+    stored = _store(results, label=rule_trust.label_check)
+    listed = {line[3].split()[-1] for line in cl.for_run(RUN) if line[4] == cl.STATUS}
+    presence_check._compared.cache_clear()
+    return listed, stored
+
+
+COMBOS = [
+    (a, r, c, p)
+    for a in (False, True)
+    for r in (False, True)
+    for c in (False, True)
+    for p in (False, True)
+    if r or c
+]
+
+
+@pytest.mark.parametrize("combo", COMBOS, ids=[str(c) for c in COMBOS])
+def test_a_question_only_vessel_card_is_never_a_draft_pass_on_any_switch(
+    monkeypatch, sheet, combo
+):
+    """Review of #1849: design pressure 9 barg with a MOP of 10 barg left the CRS as "No issue found (draft rule)". A card
+    whose limit no engineer confirmed (`limit_draft`) asks and stays a CRS question; the joint efficiency card beside it
+    (a draft comparison) still moves, so the list is really made here."""
+    rows = [
+        ("design pressure", "9", "barg"),
+        ("maximum operating pressure", "10", "barg"),
+        ("joint efficiency", "1.0", None),
+    ]
+    sheet.pages[(DOC, 2)] = (
+        "Design pressure 9 barg\nMaximum operating pressure 10 barg\nJoint efficiency 1.0"
+    )
+    listed, stored = _listed_clauses(monkeypatch, "Pressure Vessel", rows, combo)
+    asked = stored["VSLD-05"]
+    assert (
+        asked["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+        and asked["rule_said"] is None
+    )
+    assert asked[hold_reason.COLUMN] == hold_reason.LIMIT_NOT_CONFIRMED
+    assert (
+        "6.2.3" not in listed
+        and not cl.is_listed(asked)
+        and crs_routing.rule(asked) is None
+    )
+
+
+@pytest.mark.parametrize("combo", COMBOS, ids=[str(c) for c in COMBOS])
+def test_a_question_only_firewater_card_is_never_a_draft_pass_on_any_switch(
+    monkeypatch, sheet, combo
+):
+    rows = [("fluid", "fire water", None), ("hydrotest pressure", "100", "kPa")]
+    sheet.pages[(DOC, 2)] = "Fluid fire water\nHydrotest pressure 100 kPa"
+    listed, stored = _listed_clauses(monkeypatch, "Centrifugal Pump", rows, combo)
+    asked = stored["PMPD-08"]
+    assert (
+        asked["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+        and asked["rule_said"] is None
+    )
+    assert asked[hold_reason.COLUMN] == hold_reason.LIMIT_NOT_CONFIRMED
+    assert (
+        "6.7.4" not in listed
+        and not cl.is_listed(asked)
+        and crs_routing.rule(asked) is None
+    )
+
+
+def test_the_same_sheet_lists_a_plain_kit_pass_so_the_harness_can_see_one(
+    monkeypatch, sheet
+):
+    """Not vacuous: on the vessel sheet above, the plain kit card (joint efficiency, a draft comparison) IS listed."""
+    rows = [
+        ("design pressure", "9", "barg"),
+        ("maximum operating pressure", "10", "barg"),
+        ("joint efficiency", "1.0", None),
+    ]
+    sheet.pages[(DOC, 2)] = (
+        "Design pressure 9 barg\nMaximum operating pressure 10 barg\nJoint efficiency 1.0"
+    )
+    listed, stored = _listed_clauses(
+        monkeypatch, "Pressure Vessel", rows, (True, True, True, True)
+    )
+    assert stored["VSLD-04"]["rule_said"] == "COMPLIANT"
+    assert stored["VSLD-04"]["standard_clause"].split()[-1] in listed
+
+
+def test_a_marked_or_open_condition_value_never_says_does_not_apply():
+    """Any checklist item: a placeholder condition value ("TBA") is held as a deferred value, a value naming one of the
+    condition's `may_be_any` words is held for the engineer; only a value ruling the condition out says "does not apply"."""
+
+    def status(value, condition=COND, **extra):
+        item = {**_item("T-9", condition), **extra}
+        got = _eval(item, {"test_condition": [_fact("test condition", value, 7)]})
+        return got["status"], got.get(hold_reason.KEY)
+
+    assert status("TBA") == ("NEEDS_ENGINEER_REVIEW", hold_reason.DEFERRED_MARKER)
+    assert status("HOLD") == ("NEEDS_ENGINEER_REVIEW", hold_reason.DEFERRED_MARKER)
+    assert status("no") == ("NOT_APPLICABLE", None)
+    assert (
+        status("yes, TBA")[0] != "NOT_APPLICABLE"
+    )  # it names the condition's word: it applies
+    open_cond = {**COND, "may_be_any": ["maybe"]}
+    assert status("maybe so", open_cond) == ("NEEDS_ENGINEER_REVIEW", hold_reason.OTHER)
+    assert status("no", open_cond) == ("NOT_APPLICABLE", None)
+    # held for every item, also one evaluated when its condition is unknown: a placeholder decides nothing
+    assert status("TBA", when_unknown="evaluate") == (
+        "NEEDS_ENGINEER_REVIEW",
+        hold_reason.DEFERRED_MARKER,
+    )
+
+
+def test_a_question_only_card_of_any_rule_kind_keeps_its_numbers_never_its_verdict():
+    """A card marked question only is held whatever its rule kind (here a comparison that would say Fail)."""
+    card = {
+        "id": "Q-1",
+        "text": "Invented margin card",
+        "source": {"standard": "STD-1", "clause": "4.2"},
+        "rule": {
+            "kind": "percent_of",
+            "field": "design_pressure",
+            "op": ">=",
+            "right": "operating_pressure",
+            "percent": 105,
+        },
+    }
+    facts = [
+        {**_fact("design pressure", "9 barg", 1), "raw_value": "9", "raw_unit": "barg"},
+        {
+            **_fact("operating pressure", "10 barg", 2),
+            "raw_value": "10",
+            "raw_unit": "barg",
+        },
+    ]
+
+    def run(item):
+        rules = {
+            **dc.load_rules(),
+            "checklists": {
+                "Pressure Vessel": {"items": [item], "sign_off": {"status": "draft"}}
+            },
+        }
+        got = dc.evaluate(
+            facts, equipment_type="Pressure Vessel", page_texts={2: "x"}, rules=rules
+        )
+        return next(r for r in got if r["rule_id"] == "Q-1")
+
+    assert run(card)["status"] == "NON_COMPLIANT"  # the plain card decides
+    asked = run({**card, "limit_draft": {"status": "AI draft, engineer to confirm"}})
+    assert asked["status"] == "NEEDS_ENGINEER_REVIEW" and "rule_said" not in asked
+    assert asked[hold_reason.KEY] == hold_reason.LIMIT_NOT_CONFIRMED
+    assert asked["detail"].startswith("Not decided") and "105% of" in asked["detail"]
