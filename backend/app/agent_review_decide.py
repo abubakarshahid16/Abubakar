@@ -568,7 +568,7 @@ class DecideMixin:
                 None,
             )
         page = deferred_mark(field, self.pages, self.paper, self.total_pages)
-        if page is None and label:  # the role words tied nothing: the label as the paper prints it
+        if page is None and label:  # role words tied nothing: try the printed label
             page = deferred_mark(label, self.pages, self.paper, self.total_pages)
         if page is None:
             return None
