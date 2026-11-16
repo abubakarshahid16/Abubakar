@@ -233,10 +233,10 @@ def test_only_the_cleaned_public_name_leaves_never_the_paper_or_its_words():
         ("API 610; see page 3", None),
         ("SAES-L-108", None),
         # tags and document numbers (review R-1853, finding 7)
-        ("API 610 EF1975-DAS-I-06", None),
-        ("ASTM KJO1975", None),
-        ("IEC TK1001", None),
-        ("AWS EF1975.06", None),
+        ("API 610 ZQ4821-ABC-I-07", None),
+        ("ASTM QXV4821", None),
+        ("IEC ZQ4821", None),
+        ("AWS ZQ4821.07", None),
         (chr(0x391) + "PI 521", None),  # a Greek capital alpha that looks like an A
         ("ISO " + chr(0xFF19) + "001", None),  # a full-width digit nine
         ("API", None),
@@ -265,10 +265,15 @@ def test_a_run_that_sent_nothing_to_claude_sends_no_name():
 def test_a_blocked_paper_sends_no_name_even_after_its_review_sent_it():
     _doc, _rc, ai, _client = world_with_both()
     missing(ai, "API 521")
-    with db.connect() as conn:  # the register's name: blocked on every route, built in
+    with (
+        db.connect() as conn
+    ):  # a file the owner marked in the block file (invented name)
         conn.execute(
-            "UPDATE documents SET filename = 'Engineering Deliverables.pdf' WHERE id = 'doc_sub'"
+            "UPDATE documents SET filename = 'pumpsheet.pdf' WHERE id = 'doc_sub'"
         )
+    claude_approved.block_file_path().write_text(
+        json.dumps({"blocked_names": ["pumpsheet.pdf"]}), encoding="utf-8"
+    )
     send = Sender()
     sws.search_run(ai, send=send, env=ENV)
     assert send.bodies == []

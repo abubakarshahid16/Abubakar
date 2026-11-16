@@ -1,6 +1,6 @@
 """ONLINE SEARCH FOR RULE BOOKS WE DO NOT HOLD (owner decision, 17 Nov 2026, #1584 comment 6927034366, pending his confirmation
-there: "Approved to use ... online search for standards we do not have. Both are switched off now, and no KJO document goes outside
-without approval.").
+there: online search approved for standards we do not hold, switched off for now, and no client document goes outside without
+approval).
 
 WHAT IT DOES. After an AI review ends, for each rule book the review listed as not held (`agent_review_missing_book`), it asks Claude,
 with Anthropic's server-side web search tool, for the PUBLIC catalogue entry of that standard: its full title, its latest edition and
@@ -97,7 +97,7 @@ EDITION_WORDS = frozenset({"EDITION", "ED"})
 DESIGNATION_PREFIXES = ("MR", "TM", "SP", "RP", "TR", "TS")
 #: The shapes of a designation: numbers with dots and dashes (610, 15156-3, 1.1, 16.5, 520-I, 9001-2015); one letter and numbers
 #: (B31.3, A105, B16.5-2017); an allowed two-letter prefix and numbers (MR0175); an ordinal (7th). A token with three or more
-#: letters mixed with digits (a tag, a document number: EF1975-DAS-I-06, KJO1975, TK1001, EF1975.06) matches none.
+#: letters mixed with digits (a tag, a document number: ZQ4821-ABC-I-07, QXV4821, ZQ4821.07) matches none.
 _NUMBERS = r"[0-9]{1,6}(?:\.[0-9]{1,3}){0,3}(?:-(?:[0-9]{1,4}|[IVX]{1,4}))?[A-Z]?"
 _DESIGNATION = re.compile(
     rf"(?:{_NUMBERS}|[A-Z]{_NUMBERS}|(?:{'|'.join(DESIGNATION_PREFIXES)})[0-9]{{2,6}}(?:-[0-9]{{1,4}})?|[0-9]{{1,2}}(?:ST|ND|RD|TH))"
@@ -173,7 +173,7 @@ def clean_name(raw) -> str | None:
     No fold: punctuation becomes a space, any dash a hyphen; a letter or digit outside plain ASCII (a look-alike, a full-width
     form) is refused, never guessed. The first word must be a publisher family; every other word a family, a part, section or
     kind word, an edition word, a roman numeral, one letter or a designation (`_DESIGNATION`). So no sentence, tag or document
-    number of a paper can ride along: "API 610 as per the datasheet" and "API 610 EF1975-DAS-I-06" are refused,
+    number of a paper can ride along: "API 610 as per the datasheet" and "API 610 ZQ4821-ABC-I-07" are refused,
     "NACE MR0175/ISO 15156-3" leaves as "NACE MR0175 ISO 15156-3"."""
     out = []
     for ch in str(raw or ""):
