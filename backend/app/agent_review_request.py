@@ -502,7 +502,7 @@ def reason_of(
 
 def deferred_mark(field: str, pages: Any, paper: str, total: int) -> int | None:
     """The first page where ONE line carries all the field's content words AND a deferral mark from the existing vocabulary
-    (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...), else None. A figure followed by a deferral mark is not a
+    (`blank_markers.defers_value`: "By Contractor", "TBA", a "*" vendor-to-fill mark, ...), else None. A figure followed by a deferral mark is not a
     confirmed value. General: words, no layout."""
     from . import blank_markers
     from .agent_bind import content_words
@@ -512,7 +512,7 @@ def deferred_mark(field: str, pages: Any, paper: str, total: int) -> int | None:
         return None
     for n in range(1, total + 1):
         for raw in (pages.page(paper, n) or "").splitlines():
-            if blank_markers.names_a_marker(raw) and want <= content_words(raw):
+            if blank_markers.defers_value(raw) and want <= content_words(raw):
                 return n
     return None
 

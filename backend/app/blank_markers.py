@@ -160,27 +160,35 @@ def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
 
 # ---------------------------------------------------------------- order 14 lane D: "*" where a value is expected
 
-#: A star that FILLS a value's place: inside or next to a drawn blank ("___*___", "*_____", "_____*"), or a lone star
-#: followed by a unit ("FLUSH * m3/h", "* kW"). A lone star at the END of a line is a footnote ("A216 WCB *" marks a stated
-#: value), and a star glued to a word or a figure ("TYPE*", "24.8*", "2*4") is no blank either.
+#: A star that FILLS a value's place: a drawn blank with a star in it or at its end ("___*___", "*_____", "_____*") that touches
+#: no letter or figure (so not a part number such as "ABC_*_DEF", "AB__*__CD" or "SK_*"); a lone star followed by a unit that ends the
+#: cell, that is the end of the line or a column gap of two spaces or more ("FLUSH * m3/h", "* kW   EFFICIENCY"); or a cell
+#: that is only a star. A unit followed by running words ("marked * in this sheet") is a sentence, and a lone star at the END
+#: of a line is a footnote ("A216 WCB *"). One-letter units and units that are also words (a, c, f, k, n, s, v, w, h, in,
+#: min) are left out of the lone form: after a star they are more often a word or a grade letter than a unit.
 _UNIT = (
-    r"\(?(?:m3/h|m3/hr|m³/h|l/s|l/min|gpm|kg/h|t/h|m|mm|cm|ft|in|kw|w|hp|bar|barg|bara|mbar|psi|psig|psia|pa|kpa|mpa"
-    r"|°c|°f|deg\s?c|deg\s?f|c|f|k|%|rpm|r/min|dba|db\(a\)|db|kg|kg/m3|cp|cst|mm2/s|hz|v|kv|a|s|min|h|nm|n)\)?"
+    r"\(?(?:m3/h|m3/hr|m³/h|l/s|l/min|gpm|kg/h|t/h|m|mm|cm|ft|kw|hp|bar|barg|bara|mbar|psi|psig|psia|pa|kpa|mpa"
+    r"|°c|°f|deg\s?c|deg\s?f|%|rpm|r/min|dba|db\(a\)|db|kg|kg/m3|cp|cst|mm2/s|hz|kv|nm)\)?"
 )
 _FILL_STAR = re.compile(
-    r"(?:_+\*+_*|_*\*+_+|(?:^|(?<=\s))\*+(?=\s+"
-    + _UNIT
-    + r"(?:[\s,;]|$))|^\s*\*+\s*$)",
-    re.IGNORECASE,
+    r"(?:(?<![A-Za-z0-9_])(?:_{2,}\*+_*|_*\*+_{2,}|_\*+_)(?![A-Za-z0-9_])"
+    r"|(?:^|(?<=\s))\*+(?=[ ]+" + _UNIT + r"(?:[ ]{2,}|[ ]*$))"
+    r"|^[ ]*\*+[ ]*$)",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 #: A line that OPENS with a star and then words is a legend or a footnote ("* vendor to advise / complete",
-#: "*see note 3"): the star points at other cells, it does not stand in one.
+#: "*see note 3", "* values marked ___*___ are by the vendor"): the star points at other cells, it does not stand in one.
 _NOTE_STAR = re.compile(r"^\s*\(?\*+\)?\s*[A-Za-z]")
 
-#: A star that leads into a pointer ("* see note 3", "* note 2", "* ref. 4"): a note mark, not a blank.
+#: A cell that is only a star and a unit ("* kW", "* (%)"): a value to fill, not a legend.
+_UNIT_CELL = re.compile(r"^\s*\*+\s+" + _UNIT + r"\s*$", re.IGNORECASE)
+
+#: A star that leads into a pointer ("* see note 3", "___* note 2", "* ref. 4"), or that a sentence names as a mark ("fields
+#: marked * ...", "denoted *", "shown with *"): a note mark, not a blank.
 _STAR_POINTER = re.compile(
-    r"\*+\s*(?:see|note|notes|ref|remark|remarks)\b", re.IGNORECASE
+    r"\*+\s*(?:see|note|notes|ref|remark|remarks)\b|\b(?:marked|denoted|indicated|shown|with)\s*\(?\*",
+    re.IGNORECASE,
 )
 
 #: A clause number in brackets inside a label ("ALLOWED RANGE (9.4.2)"): it points at a book, it is no value.
@@ -189,18 +197,21 @@ _BRACKETED_CLAUSE = re.compile(r"\(\s*\d+(?:\.\d+){2,}\s*\)")
 
 def star_fills_value(text: str | None) -> bool:
     """True when `text` (one printed line or one quoted cell) carries the enquiry sheet's "* = vendor to fill" mark where a
-    value is expected: a star in or beside a drawn blank, a lone star before a unit, or a cell that is only a star, AND no
-    figure stands on the line (a figure the line states wins: "RATED FLOW 24.8 m3/h *" states its flow, the star is that
-    value's footnote). Never a note mark: a line that opens with a star and words (a legend), a star before "see / note /
-    ref", a lone star at the end of a line (a footnote on what stands before it), a star glued to a word or a figure. A
-    clause number in brackets ("(6.1.11)") and a pointer number ("note 3", "Class 300") are no figure. General: marks,
-    units and figures only, no field name, no layout."""
-    line = " ".join((text or "").split())
+    value is expected (`_FILL_STAR`: a star in a drawn blank, a lone star before a unit that ends the cell, or a cell that
+    is only a star) AND no figure stands on the line (a figure the line states wins: "RATED FLOW 24.8 m3/h *" states its
+    flow, the star is that value's footnote). Never a note mark: a line that opens with a star and words (a legend), a star
+    before "see / note / ref" or named by "marked / denoted / with", a lone star at the end of a line, a star glued to a
+    word or a figure, an underscore part number. A clause number in brackets ("(6.1.11)") and a pointer number ("note 3",
+    "Class 300") are no figure. Column gaps are read as printed (tabs as spaces). General: marks, units and figures only,
+    no field name, no layout."""
+    raw = (text or "").replace("\t", "    ")
+    line = " ".join(raw.split())
     if not line or "*" not in line:
         return False
-    if _NOTE_STAR.match(line) or _STAR_POINTER.search(line):
+    legend = _NOTE_STAR.match(line) and not _UNIT_CELL.match(line)
+    if legend or _STAR_POINTER.search(line):
         return False
-    if not _FILL_STAR.search(line):
+    if not any(_FILL_STAR.search(part) for part in raw.splitlines()):
         return False
     return not _has_standalone_figure(_BRACKETED_CLAUSE.sub(" ", line))
 

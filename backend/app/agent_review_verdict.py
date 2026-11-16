@@ -728,7 +728,7 @@ def quote_defers(quote: Any) -> bool:
     text, not a value, and is not a deferral; so a bare "by others" is not caught (the list has no such phrase and none is
     added). ONE word list: `blank_markers` (rule 8); this adds no words of its own."""
     text = str(quote or "")
-    if blank_markers.names_a_marker(text):
+    if blank_markers.defers_value(text):
         return True
     return any(
         blank_markers.is_marker(cell)
