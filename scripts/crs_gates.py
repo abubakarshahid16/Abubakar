@@ -70,7 +70,8 @@ THE GATES, EXACTLY.
      such a book that gives a verdict (met, not met, does not apply) or shows a clause or a rule text of it; and a missing book of the
      run that the file's OWN book-missing listing does not name (the page's sheet "Rule books not held"; the run file's "not held" rows
      and its Notes line); a name elsewhere, such as inside a question, is not a listing. A question with no clause and no rule text
-     passes (it asks, it does not guess).
+     passes (it asks, it does not guess). The run file shows a line whose book is on the run's missing list with its book "not held"
+     and no clause (`crs_ai_words.mark_not_held`); the gate reads that line as the file shows it.
 """
 
 from __future__ import annotations
@@ -95,9 +96,8 @@ FILE_PAGE, FILE_RUN = "page", "run"
 REPLAY_AT_LEAST = 90
 FIRM_RANKS = frozenset({1, 2, 3, 6, 7})
 MAPPING_FORMAT = "crs-gates-kind-books/1"
-from app.crs_ai_words import (
-    NOTHING_TO_DO_PATTERNS,  # noqa: E402  the app's one home of the "nothing to do" words (G3 = what the CRS drops)
-)
+# the app's one home of the "nothing to do" words: G3 fails exactly what the CRS drops
+from app.crs_ai_words import NOTHING_TO_DO_PATTERNS  # noqa: E402
 
 NOISE_PATTERNS = (  # (the words the owner named, the pattern of them and their plain variants), matched on folded text
     *NOTHING_TO_DO_PATTERNS,
@@ -893,11 +893,17 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
     line's own item wording first); every line's Evidence row shows its clause quote."""
     from app import crs_ai_workbook, crs_comments
     from app import review_points as rp
-    from app.crs_ai_words import KIND_NOT_HELD
+    from app.crs_ai_words import KIND_NOT_HELD, NOT_HELD_KEY
 
     rank = rp.rank_of_ai_line(ln)[0]
     name = rp.split_tags(crs_ai_workbook.field_name(ln))[0]
-    book, clause = str(ln.get("standard") or ""), str(ln.get("clause") or "")
+    gone = bool(
+        ln.get(NOT_HELD_KEY)
+    )  # the file shows its book "not held", no clause and no clause words (`mark_not_held`)
+    book, clause = (
+        str(ln.get("standard") or ""),
+        "" if gone else str(ln.get("clause") or ""),
+    )
     asked = crs_ai_workbook._item_ask(ln) if cells else ""
     doc, page = ln.get("standard_document_id"), ln.get("clause_page")
     return Row(
@@ -905,9 +911,9 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
         paper_value=ln.get("paper_quote"), value_verified=bool((ln.get("quotes_checked") or {}).get("paper")),
         absence_proven=absence_proven(ln),
         book=book, clause=clause, clauses=((book, clause),) if clause else (),
-        quotes=tuple(q for q in (asked, ln.get("clause_quote")) if q), quote_docs=(doc,) if doc else (),
+        quotes=tuple(q for q in (asked, None if gone else ln.get("clause_quote")) if q), quote_docs=(doc,) if doc else (),
         quote_page=page if isinstance(page, int) and not isinstance(page, bool) else None,
-        names=(book,) if book.strip() else (), shows_rule_words=bool(clause or ln.get("clause_quote") or asked),
+        names=(book,) if book.strip() else (), shows_rule_words=bool(clause or (ln.get("clause_quote") and not gone) or asked),
         is_missing_listing=rank == 0 or ln.get("verdict_class") == KIND_NOT_HELD,
         reason=str(ln.get("reason_code") or ""), paper_figure=str(ln.get("paper_figure") or ""), rules=(str(ln.get("item_id") or ""),),
         paper_lines=(str(ln["paper_quote"]),) if ln.get("paper_quote") else (), open_question=_open_question(ln),
@@ -936,13 +942,15 @@ def run_file(run_id: str, paper_id: str) -> dict:
 
     from app import crs_ai_workbook, crs_layout
     from app.agent_review_jobs import run_dir
+    from app.crs_ai_words import mark_not_held
     from app.crs_completeness import _table_rows
     from app.db import connect
     from app.review_points_service import run_meta
 
-    lines = run_lines(connect(), run_id)
-    # the app's one reading of the run's meta: the books not held come from the database
+    # the app's one reading of the run's meta: the books not held come from the database; the lines as the builder marks them
     meta = run_meta(connect(), run_id, paper_id, run_dir(run_id))
+    missing = (meta.get("rule_labels") or {}).get("missing_rule_books") or []
+    lines = mark_not_held(run_lines(connect(), run_id), missing)
     wb = load_workbook(
         BytesIO(
             crs_layout.build_layout_crs(

@@ -725,7 +725,10 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     no model, no run number."""
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
-    lines = [wording.read_time(ln) for ln in lines]  # read time
+    missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
+    lines = words.mark_not_held(
+        [wording.read_time(ln) for ln in lines], missing
+    )  # read time
     items, others = _split(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)
@@ -764,7 +767,6 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         view["rows"] = [r[:9] for r in view["rows"]]
         view["plain"] = True
         return view
-    missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
     view["other"] = _other_sheet(others, missing, paper, len(items) + 1)
     from .agent_review_crs import evidence_sheet
 

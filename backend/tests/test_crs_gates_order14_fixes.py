@@ -77,6 +77,13 @@ def test_an_older_runs_stored_opinion_is_read_as_todays_query_and_never_raised()
         verdict_label="Fail",
     )
     assert w.read_time(proven)["verdict_class"] == w.CLASS_PROVEN
+    # an AI "met" is never narrowed at read time: as a Query it would become a new comment row of an older run's CRS
+    met = _absent_line(ai_verdict="Pass", reason_code="pass_field_unknown", verdict_label=w.THINKS_MET,
+                       why="code could not confirm this AI 'met'")  # fmt: skip
+    assert (
+        w.classify(met)["verdict_class"] == w.CLASS_QUERY
+        and w.read_time(met)["verdict_class"] == w.CLASS_OPINION
+    )
 
 
 def test_g5_no_longer_fails_the_rows_once_they_are_questions():
@@ -234,3 +241,43 @@ def test_a_run_file_drawn_without_its_kept_meta_still_lists_every_book_not_held(
         "paper": "doc_paper",
         "run_id": "run-2",
     }
+
+
+def test_a_line_whose_book_the_run_does_not_hold_shows_the_book_as_not_held_and_no_clause():
+    from app.agent_review_crs import against
+
+    missing = [{"rule_book": "STD-Q-9", "why": "not in the library"}]
+    lines = [
+        {
+            "source": "skill",
+            "standard": "STD Q-9",
+            "clause": "6.5",
+            "clause_quote": "Loads shall be stated.",
+        },
+        {
+            "source": "code",
+            "standard": "STD-Q-9",
+            "clause": "2.1",
+            "standard_document_id": "doc_q",
+        },  # links a held document
+        {"source": "rule", "standard": "STD-A-100", "clause": "4.1"},
+    ]
+    marked = words.mark_not_held(lines, missing)
+    assert [bool(ln.get(words.NOT_HELD_KEY)) for ln in marked] == [True, False, False]
+    assert (
+        against(marked[0]) == "STD Q-9 (rule book not held)"
+        and against(marked[2]) == "STD-A-100 clause 4.1"
+    )
+    assert words.mark_not_held(marked, missing) == marked  # idempotent
+    row = g._line_row("R1", marked[0], cells=("STD Q-9 (rule book not held)",))
+    assert (row.clause, row.shows_rule_words, row.quotes) == ("", False, ())
+    assert (
+        g.g7_missing([row], ["STD-Q-9"], [], ["STD-Q-9 (not in the library)"]).failed
+        == []
+    )
+    old = g._line_row(
+        "R1", lines[0], cells=("STD Q-9 clause 6.5",)
+    )  # the line as the file showed it before
+    assert g.g7_missing([old], ["STD-Q-9"], [], ["STD-Q-9"]).failed == [
+        ("R1", "rule words shown for a book not held")
+    ]

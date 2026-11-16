@@ -433,8 +433,9 @@ def silence_unproven(line: Mapping) -> bool:
     return not two_reader.absence_agrees(line)
 
 
-#: The stored classes `read_time` may narrow to a Query when today's rule (`classify`) says Query: an AI opinion only, never a
-#: proven line, a two-reader verdict or any class that is already less confident.
+#: The stored classes `read_time` may narrow to a Query when today's rule (`classify`) says Query: an AI opinion "not met" only,
+#: never a proven line, a two-reader verdict, a class already less confident, or an AI "met" (made a Query it would become a NEW
+#: comment row: narrowing never adds a comment to an older run's CRS).
 _NARROWED_AT_READ = (CLASS_OPINION, CLASS_UNAPPROVED)
 
 
@@ -443,12 +444,15 @@ def read_time(line: Mapping) -> dict:
     new line (`classify`), so an earlier run's stored reason (the gate's old sentence for a reader's own Query) is worded truly on the page,
     in the points and in a CRS built from it. Only the reason is taken: the stored class and every other key stay as they are (the
     defences that read the stored class keep working); never rewritten in the table. ONE exception, narrowing only (order 14, G5): a
-    stored AI opinion (`_NARROWED_AT_READ`) that today's rule makes a Query is read as that Query (its label, class and reason), so an
+    stored AI opinion "not met" (`_NARROWED_AT_READ`) that today's rule makes a Query is read as that Query (its label, class and reason), so an
     older run's CRS never shows a firm "not met" today's rule would not give. Any other line is returned as it is."""
     if line.get("source") not in ("rule", "skill"):
         return dict(line)
     got = classify(line)
-    narrowed = line.get("verdict_class") in _NARROWED_AT_READ
+    narrowed = (
+        line.get("verdict_class") in _NARROWED_AT_READ
+        and line.get("ai_verdict") == FAIL
+    )
     if got["verdict_class"] == CLASS_QUERY and narrowed:
         return {**line, **got}  # order 14 (G5): read as today's Query (narrowing only)
     return {**line, "not_proven_reason": got["not_proven_reason"]}

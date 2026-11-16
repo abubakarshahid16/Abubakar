@@ -124,6 +124,8 @@ def line_page(line: Mapping) -> int | None:
 
 def against(line: Mapping) -> str:
     std, clause = _clean(line.get("standard")), _clean(line.get("clause"))
+    if line.get(words.NOT_HELD_KEY):  # order 14 G7: no clause of a book not held
+        return f"{std} ({words.BOOK_NOT_HELD})" if std else ""
     return " ".join(x for x in (std, f"clause {clause}" if clause else "") if x)
 
 
@@ -687,7 +689,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         _clean(line.get("comment")) or None,
         _clean(line.get("paper_quote")) or None,
         line.get("paper_page"),
-        _clean(line.get("clause_quote")) or None,
+        words.shown_clause_quote(line),
         ref or None,
         _check_word(bool(q.get("paper"))),
         _check_word(bool(q.get("clause"))),

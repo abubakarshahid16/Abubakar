@@ -462,6 +462,41 @@ def guard_words(line: Mapping) -> str:
     return code_phrase(reason) if reason in GUARD_OBJECTIONS else ""
 
 
+#: The key `mark_not_held` sets on a line whose rule book the run does not hold, and the words its reference shows instead of a clause.
+NOT_HELD_KEY, BOOK_NOT_HELD = "book_not_held", "rule book not held"
+
+
+def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
+    """The lines with `NOT_HELD_KEY` set on each line (a rule, a checklist item or a calculator line) that names a rule book on the
+    run's own book-missing list (`missing`: `review_points_service.run_meta`, the one reading) and links no held document for it.
+    Such a line is shown with its book and "rule book not held", never with a clause or clause words of it (order 14, G7: a rule
+    whose book we do not hold is listed as book missing, never guessed). Read time, pure; idempotent."""
+    from .standard_ids import same_standard
+
+    names = [
+        str(b.get("rule_book") or "")
+        for b in missing
+        if isinstance(b, Mapping) and b.get("rule_book")
+    ]
+    out = []
+    for ln in lines:
+        std = str(ln.get("standard") or "").strip()
+        gone = (
+            bool(std)
+            and not ln.get("standard_document_id")
+            and any(same_standard(std, n) for n in names)
+        )
+        out.append({**ln, NOT_HELD_KEY: True} if gone else dict(ln))
+    return out
+
+
+def shown_clause_quote(line: Mapping) -> str | None:
+    """The clause quote a line's Evidence row shows: none for a line whose book is not held (`mark_not_held`), else its own."""
+    if line.get(NOT_HELD_KEY):
+        return None
+    return " ".join(str(line.get("clause_quote") or "").split()) or None
+
+
 def drop_noise(text: object) -> str:
     """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
     a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
@@ -536,6 +571,7 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
+    "BOOK_NOT_HELD",
     "EDITION_WORDS",
     "GUARD_OBJECTIONS",
     "KIND_COVERAGE",
@@ -547,6 +583,7 @@ __all__ = [
     "NOTHING_TO_DO_PATTERNS",
     "NOT_A_COMMENT_KINDS",
     "NOT_A_COMMENT_SHEET",
+    "NOT_HELD_KEY",
     "OTHER_SHEET",
     "PRIORITY_RULE",
     "PRIORITY_RULE_AI",
@@ -562,8 +599,10 @@ __all__ = [
     "generated_by",
     "guard_words",
     "has_banned",
+    "mark_not_held",
     "plain",
     "priority",
     "priority_ai",
+    "shown_clause_quote",
     "why_phrase",
 ]
