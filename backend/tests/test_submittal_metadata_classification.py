@@ -68,7 +68,7 @@ Installation of New Units at AREA-01, AREA-02
 RECYCLE WATER PUMPS DATA SHEET
 Item No.: 01-G-101 A/B, 02-G-101 A/B &
 03-G-201 A/B
-Doc. No.: ABC-DAS-M-01
+Doc. No.: ABC-QRS-M-01
 This sheet is subject to final engineering checks.
 Amended and Issued with
 Supplement Letter No. 8
@@ -81,7 +81,7 @@ Date
 PUMP_P2 = """SOME OPERATOR COMPANY
 CENTRIFUGAL PUMP DATA SHEET
 RECYCLE WATER PUMPS
-DATA SHEET NO.: ABC-DAS-M-01
+DATA SHEET NO.: ABC-QRS-M-01
 PROJECT NO.: RFP - 1234567
 Sheet 2 of 7
 Rev. No.: 4
@@ -102,7 +102,7 @@ PSV_P1 = """Page 1 of 5
 SOME OPERATOR COMPANY
 DATA SHEET FOR
 PRESSURE SAFETY VALVES (PSV)
-DOCUMENT NO. ABC-DAS-I-02
+DOCUMENT NO. ABC-QRS-I-02
 PROJECT NO. AB/1234
 Sheet 1 of 6
 Rev. 1
@@ -119,7 +119,7 @@ Mfr. drawing no.
 PSV_P2 = """SOME OPERATOR COMPANY
 DATA SHEET FOR
 PRESSURE SAFETY VALVES (PSV)
-DOCUMENT NO. ABC-DAS-I-02
+DOCUMENT NO. ABC-QRS-I-02
 PROJECT NO. AB/1234
 Sheet 2 of 6
 Rev. 1
@@ -187,9 +187,9 @@ def _suggest(*texts: str):
 def test_the_pump_title_block_yields_each_labelled_field_with_its_page():
     found = _suggest(PUMP_P1, PUMP_P2).found
 
-    assert found["document_number"].value == "ABC-DAS-M-01"
+    assert found["document_number"].value == "ABC-QRS-M-01"
     assert found["document_number"].page == 1
-    assert found["document_number"].quote == "Doc. No.: ABC-DAS-M-01"
+    assert found["document_number"].quote == "Doc. No.: ABC-QRS-M-01"
 
     # Page 1 carries only the revision TABLE; the labelled value is page 2's.
     assert found["revision"].value == "4"
@@ -218,7 +218,7 @@ def test_the_pump_title_block_yields_each_labelled_field_with_its_page():
 def test_the_psv_title_block_yields_tags_without_the_parenthetical_remarks():
     found = _suggest(PSV_P1, PSV_P2).found
 
-    assert found["document_number"].value == "ABC-DAS-I-02"
+    assert found["document_number"].value == "ABC-QRS-I-02"
     assert found["revision"].value == "1"
     assert found["project"].value == "AB/1234"
     # Union across pages, in reading order. "AREA-9" lives only inside a
@@ -297,7 +297,7 @@ def test_disagreeing_revisions_are_a_conflict_not_a_pick():
 
 
 def test_disagreeing_document_numbers_are_a_conflict_not_a_pick():
-    result = _suggest("Doc. No.: ABC-DAS-M-01\n", "Doc. No.: ABC-DAS-M-02\n")
+    result = _suggest("Doc. No.: ABC-QRS-M-01\n", "Doc. No.: ABC-QRS-M-02\n")
     assert "document_number" not in result.found
     assert "document_number" in result.conflicts
 

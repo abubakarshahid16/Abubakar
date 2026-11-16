@@ -1,4 +1,4 @@
-# Cold evaluation: client PSV datasheet (DS-0000-DAS-I-01), 2026-09-19
+# Cold evaluation: client PSV datasheet (DS-0000-QRS-I-01), 2026-09-19
 
 Measurement only. No code was changed, no fixture written, no defect repaired.
 Working tree was clean at `3b8d95d` before and after.
@@ -31,7 +31,7 @@ scan (it requires size and mtime unchanged across two passes).
 | | |
 |---|---|
 | id | `doc_d30f4c63d481` |
-| filename | DS-0000-DAS-I-01.pdf |
+| filename | DS-0000-QRS-I-01.pdf |
 | role | CONTRACTOR_SUBMITTAL, from the `submittals/` folder |
 | status | ready |
 | pages | 5 |
@@ -258,7 +258,7 @@ it at 2 of 8.
 
 | | before the fix | after |
 |---|---|---|
-| PSV facts (DS-0000-DAS-I-01) | 0 | **35** |
+| PSV facts (DS-0000-QRS-I-01) | 0 | **35** |
 | PSV pages unparsed | 5 of 5 | **1 of 5** (page 5 is the notes page) |
 | PSV blank-marked facts | 0 | **25 of 35**, all surviving |
 | drum facts | 48 | **48**, unchanged, junk row dead |
