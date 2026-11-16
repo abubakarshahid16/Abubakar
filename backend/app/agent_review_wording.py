@@ -216,20 +216,31 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     return f"{out} {ONE_READER}{view[:400]}" if view else out
 
 
+def _verified_quote_defers(rec: object) -> bool:
+    """A reader's record whose paper quote code verified on its page defers the value (`quote_defers`)."""
+    checks = rec.get("quotes_checked") if isinstance(rec, Mapping) else None
+    return (
+        isinstance(checks, Mapping)
+        and bool(checks.get("paper"))
+        and quote_defers(rec.get("paper_quote"))
+    )
+
+
 def not_met_deferred_why(line: Mapping) -> str | None:
-    """Why an AI opinion "not met" that rests on silence (reason absent, absent_pages_not_named or sheet_silent; the gate's
-    verdict Query) must be a Query, else None: the paper quote code verified on the page itself defers the value ("By
-    Contractor", "TBA", a "*" vendor-to-fill mark: `quote_defers`), so the sheet does not leave it out, it asks the vendor
-    for it. Acts only on such a line; a proven Fail, any other reason and an unverified quote pass through. It only makes
-    a line less confident."""
+    """Why an AI opinion "not met" (the gate's verdict Query) must be a Query, else None, when a paper quote code verified on
+    its page defers the value ("By Contractor", "TBA", a "*" vendor-to-fill mark: `quote_defers`): (a) the line's OWN quote,
+    when its "not met" rests on silence (reason absent, absent_pages_not_named or sheet_silent); (b) the quote of the
+    second reader asked whether the paper states the item (`two_reader.stored_absence`), whatever the first reader quoted:
+    it found the field marked for the vendor, so the readers do not agree that it is missing (R98: without (b) such a line
+    fell through to "AI thinks: not met"). The sheet does not leave the value out, it asks the vendor for it. A proven Fail,
+    another reason and an unverified quote pass through. It only makes a line less confident."""
     if line.get("ai_verdict") != FAIL or line.get("verdict") != QUERY:
         return None
+    if _verified_quote_defers(two_reader.stored_absence(line)):
+        return DEFERRED_WHY
     if str(line.get("reason_code") or "") not in SILENCE_CODES:
         return None
-    checks = line.get("quotes_checked")
-    if not (isinstance(checks, Mapping) and checks.get("paper")):
-        return None
-    return DEFERRED_WHY if quote_defers(line.get("paper_quote")) else None
+    return DEFERRED_WHY if _verified_quote_defers(line) else None
 
 
 def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
