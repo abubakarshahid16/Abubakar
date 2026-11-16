@@ -249,6 +249,12 @@ class DecideMixin:
             guard = self.pass_guard(item, label if label_ok else "")
             if guard is not None:
                 decision, reason_code, deferred_page = guard
+        if (
+            deferred_page is None
+        ):  # the line's OWN verified quote carries a deferral mark
+            fixed = self.deferred_quote(answer, ev, decision, error)
+            if fixed is not None:
+                decision, reason_code, deferred_page = fixed
         pg = self._pass_guards(item, answer, pages, ev)
         if pg is not None and not pg["ok"] and reason_code == ev["reason_code"]:
             reason_code = str(
@@ -268,6 +274,46 @@ class DecideMixin:
             (label if label_ok else None, label, reason_code, deferred_page),
         )  # fmt: skip
         return {**line, "pass_guard": pg} if pg is not None else line
+
+    def deferred_quote(
+        self, answer: Mapping, ev: Mapping, decision: Mapping, error: str | None
+    ) -> tuple[dict, str, int] | None:
+        """(decision, "value_deferred", page) when the line's OWN paper quote is verified by code (it stands in the page) and
+        itself carries a deferral mark (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...). Nothing else: no other
+        line of the page, no field words. It only lowers confidence: EVERY Pass (a gate Pass, a two-reader Pass and a
+        code-compared Pass alike) becomes a Query; a Query the AI left (decided by the engineer) takes the reason
+        value_deferred; any other Query (a code or two-reader decision), an AI not-met opinion, a not-applicable line
+        and a line with an error are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
+        from .blank_markers import names_a_marker
+
+        page = verdict._page_no(answer.get("paper_page"))
+        quote = str(answer.get("paper_quote") or "")
+        ai = verdict.ai_verdict_word(answer.get("verdict"))
+        if (
+            error
+            or page is None
+            or not ev["checks"].paper
+            or not names_a_marker(quote)
+            or ev["reason_code"] == "not_applicable"
+        ):
+            return None
+        pass_to_query = decision["verdict"] == verdict.PASS
+        query_left = (
+            decision["verdict"] == verdict.QUERY
+            and decision["decided_by"] == verdict.BY_ENGINEER
+            and ai == verdict.QUERY
+        )
+        if not (pass_to_query or query_left):
+            return None
+        return (
+            {
+                "verdict": verdict.QUERY,
+                "decided_by": verdict.BY_ENGINEER,
+                "why": f"the sheet marks this value as not final on page {page}",
+            },
+            "value_deferred",
+            page,
+        )
 
     def _pass_guards(
         self, item: Mapping, answer: Mapping, pages: Mapping[int, str], ev: Mapping

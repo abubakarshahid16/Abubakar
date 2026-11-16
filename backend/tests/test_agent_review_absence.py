@@ -285,3 +285,85 @@ def test_deferred_mark_needs_all_the_field_words_and_a_mark_on_one_line():
     )
     assert A.deferred_mark("", DEFERRED_PAGES) is None
     assert A.deferred_mark("design pressure", {}) is None
+
+
+# ---------------------------------------------------------------- the line's OWN quote carries the deferral mark (PR #1839)
+
+
+def _runner():
+    from app.agent_review_decide import DecideMixin
+
+    return DecideMixin()
+
+
+def _fix(
+    quote,
+    *,
+    verdict_word="Query",
+    by="engineer",
+    dec="Query",
+    paper_page=2,
+    error=None,
+    code="needs_drawing_or_calc",
+    checked=True,
+):
+    from app import agent_review_verdict as V
+
+    decision = {"verdict": dec, "decided_by": by, "why": "x"}
+    ev = {"checks": V.QuoteCheck(checked, True), "reason_code": code}
+    answer = {"paper_page": paper_page, "verdict": verdict_word, "paper_quote": quote}
+    return _runner().deferred_quote(answer, ev, decision, error)
+
+
+def test_a_query_whose_own_verified_quote_carries_the_mark_takes_value_deferred():
+    got = _fix("Casing material 12 mm By Contractor")
+    assert got is not None and got[1] == "value_deferred" and got[2] == 2
+    assert got[0]["verdict"] == "Query" and "page 2" in got[0]["why"]
+    got = _fix("Casing material TBA", verdict_word="Pass", dec="Pass", by="AI verdict")
+    assert (
+        got is not None and got[0]["verdict"] == "Query" and got[1] == "value_deferred"
+    )  # a Pass is lowered
+
+
+def test_no_correction_unless_the_lines_own_quote_carries_the_mark():
+    # the page layouts that fooled the label-line version: the quote of the line is a GIVEN value, the mark belongs to
+    # another tag (rows, cells in sequence), another field (next field), a header, or a label line with its own value
+    for quote in (
+        "Set pressure 12 bar",  # two tags in rows: this tag's value is given
+        "12 bar",  # two tags as cells in sequence
+        "Casing material carbon steel",  # a label line with its own word value
+        "DESIGN DATA",  # a header line
+        "Bearing type",  # the mark on the next line belongs to the next field
+        "",
+    ):
+        assert _fix(quote) is None, quote
+        assert _fix(quote, verdict_word="Pass", dec="Pass", by="AI verdict") is None, (
+            quote
+        )
+
+
+def test_the_correction_never_touches_other_kinds_of_line_and_never_makes_one_more_decided():
+    q = "Casing material By Contractor"
+    assert _fix(q, checked=False) is None  # quote not verified by code
+    assert _fix(q, paper_page=None) is None  # no paper page
+    assert _fix(q, verdict_word="Fail") is None  # an AI not-met opinion
+    assert _fix(q, by="AI verdict") is None  # a two-reader / AI decision
+    assert _fix(q, by="decided by code") is None
+    assert _fix(q, code="not_applicable") is None
+    assert _fix(q, error="ai_call_failed") is None
+    for dec in ("Fail", "Not met"):
+        assert _fix(q, dec=dec) is None
+    for args in ({}, {"verdict_word": "Pass", "dec": "Pass", "by": "AI verdict"}):
+        assert _fix(q, **args)[0]["verdict"] == "Query"  # never a Pass, Fail or not met
+
+
+def test_a_code_compared_pass_and_a_two_reader_pass_are_lowered_too():
+    for by in ("decided by code", "AI verdict"):
+        got = _fix(
+            "Set pressure 12 bar By Contractor", verdict_word="Pass", dec="Pass", by=by
+        )
+        assert (
+            got is not None
+            and got[0]["verdict"] == "Query"
+            and got[1] == "value_deferred"
+        )
