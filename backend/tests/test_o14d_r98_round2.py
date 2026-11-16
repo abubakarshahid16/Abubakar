@@ -63,6 +63,9 @@ def test_an_unverified_absence_quote_is_not_read_as_a_deferral():
         "ABC_*_DEF",
         "SK_*",
         "PART NO. XY_*_12",
+        "ABC__*__DEF",
+        "P/N AB__*__CD",
+        "Load * kW is shared",
         "CASING SPLIT * s",
         "TEMPERATURE CLASS * C",
         "Material grade * K",
@@ -121,3 +124,16 @@ def _candidate(second):
 def test_a_cut_off_second_opinion_stops_a_line_that_is_otherwise_a_candidate():
     assert two_reader.is_candidate(_candidate(None)) is True
     assert two_reader.is_candidate(_candidate(CUT)) is False
+
+
+def test_the_unit_must_end_the_cell():
+    """R102: a lone star before a unit that running words follow is a sentence, not a blank."""
+    assert blank_markers.star_fills_value("Load * kW is shared") is False
+    assert blank_markers.star_fills_value("Load * kW") is True
+
+
+def test_a_double_underscore_part_number_is_no_deferral():
+    """R102: the drawn blank may not touch an underscore that belongs to a part number either."""
+    assert blank_markers.star_fills_value("ABC__*__DEF") is False
+    assert blank_markers.star_fills_value("P/N AB__*__CD") is False
+    assert blank_markers.star_fills_value("FRAME  __*__") is True

@@ -161,7 +161,7 @@ def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
 # ---------------------------------------------------------------- order 14 lane D: "*" where a value is expected
 
 #: A star that FILLS a value's place: a drawn blank with a star in it or at its end ("___*___", "*_____", "_____*") that touches
-#: no letter or figure (so not a part number such as "ABC_*_DEF" or "SK_*"); a lone star followed by a unit that ends the
+#: no letter or figure (so not a part number such as "ABC_*_DEF", "AB__*__CD" or "SK_*"); a lone star followed by a unit that ends the
 #: cell, that is the end of the line or a column gap of two spaces or more ("FLUSH * m3/h", "* kW   EFFICIENCY"); or a cell
 #: that is only a star. A unit followed by running words ("marked * in this sheet") is a sentence, and a lone star at the END
 #: of a line is a footnote ("A216 WCB *"). One-letter units and units that are also words (a, c, f, k, n, s, v, w, h, in,
@@ -171,7 +171,7 @@ _UNIT = (
     r"|°c|°f|deg\s?c|deg\s?f|%|rpm|r/min|dba|db\(a\)|db|kg|kg/m3|cp|cst|mm2/s|hz|kv|nm)\)?"
 )
 _FILL_STAR = re.compile(
-    r"(?:(?<![A-Za-z0-9])(?:_{2,}\*+_*|_*\*+_{2,}|_\*+_)(?![A-Za-z0-9])"
+    r"(?:(?<![A-Za-z0-9_])(?:_{2,}\*+_*|_*\*+_{2,}|_\*+_)(?![A-Za-z0-9_])"
     r"|(?:^|(?<=\s))\*+(?=[ ]+" + _UNIT + r"(?:[ ]{2,}|[ ]*$))"
     r"|^[ ]*\*+[ ]*$)",
     re.IGNORECASE | re.MULTILINE,
