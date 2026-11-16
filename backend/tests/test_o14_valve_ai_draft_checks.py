@@ -71,6 +71,9 @@ def test_the_calculator_never_turns_an_ai_draft_result_into_a_pass_or_fail():
     line = calc.checklist_lines([_decided("PSV-A03")], page_texts=pages)[0]
     assert line["verdict"] == calc.QUERY and line["ai_draft"] is True
     assert line["why"].startswith(calc.AI_DRAFT_WORDS) and line["compare"]["code_said"] == "COMPLIANT"
+    # the entry's own words are never shown as the book's quote
+    assert line["clause_quote"] == "" and line["check_words"] == "an entry" and line["quotes_checked"]["clause"] is False
+    assert control["clause_quote"] == "an entry"
     for status in ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION"):
         held = calc.checklist_lines([{**_decided("PSV-A03"), "status": status}], page_texts=pages)[0]
         assert held["verdict"] == calc.QUERY and held["why"].startswith(calc.AI_DRAFT_WORDS)

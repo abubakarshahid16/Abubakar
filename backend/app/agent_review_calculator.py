@@ -449,6 +449,9 @@ def _ai_draft_line(r: Mapping, page_texts, cells, document_id) -> dict:
     detail = str(r.get("detail") or "")[:200]
     said = r.get("rule_said") or r.get("status")
     out = _undecided(line, f"{AI_DRAFT_WORDS}: {detail or 'the check could not decide'}", "not_decided", detail)
+    # the entry is written in our own words, not the book's: never shown as the standard's quote (gate G1), kept under its own key
+    out["check_words"], out["clause_quote"] = out.get("clause_quote") or "", ""
+    out["quotes_checked"] = {**out["quotes_checked"], "clause": False}
     out["ai_draft"] = True
     out["compare"] = {**out["compare"], "code_said": said}
     return out

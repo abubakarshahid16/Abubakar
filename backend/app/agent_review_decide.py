@@ -281,9 +281,10 @@ class DecideMixin:
         """(decision, "value_deferred", page) when the line's OWN paper quote is verified by code (it stands in the page) and
         itself carries a deferral mark (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...). Nothing else: no other
         line of the page, no field words. It only lowers confidence: EVERY Pass (a gate Pass, a two-reader Pass and a
-        code-compared Pass alike) becomes a Query; a Query the AI left (decided by the engineer) takes the reason
-        value_deferred; any other Query (a code or two-reader decision), an AI not-met opinion, a not-applicable line
-        and a line with an error are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
+        code-compared Pass alike) becomes a Query; a Query decided by the engineer that the AI left, or that a guard made of
+        the AI's Pass ("met" on a value the sheet marks not final; order 14 lane A), takes the reason value_deferred; any
+        other Query (a code or two-reader decision), an AI not-met opinion, a not-applicable line and a line with an error
+        are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
         from .blank_markers import names_a_marker
 
         page = verdict._page_no(answer.get("paper_page"))
@@ -301,7 +302,7 @@ class DecideMixin:
         query_left = (
             decision["verdict"] == verdict.QUERY
             and decision["decided_by"] == verdict.BY_ENGINEER
-            and ai == verdict.QUERY
+            and ai in (verdict.QUERY, verdict.PASS)
         )
         if not (pass_to_query or query_left):
             return None
