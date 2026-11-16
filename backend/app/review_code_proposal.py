@@ -10,9 +10,14 @@ THE RULE, read from the points the engineer has decided SO FAR (a removed point 
                                    until a company engineer states the practice, those points propose at most Approved with Comments.
   Approved with Comments           anything else kept as a comment: a not-met point, a question, a point the engineer added.
   Approved                         nothing kept as a comment.
-WHILE POINTS ARE UNDECIDED the line reads "So far: <code>, N points still to decide" (the code the rule gives from what is decided so
-far); with nothing decided yet it says so instead of proposing a code. "Manual Review Required" is for ONE reason only: pages of the
-paper were not read, and it says so.
+WHILE ANY POINT IS STILL TO DECIDE no code that lets the paper proceed (Approved, Approved with Comments) is proposed: a point still to
+decide may hold a failure, so such a code would be a guess shown as a decision (honesty rule 4; order 14, first-time-user test 15: the
+pump's team file proposed "Approved with Comments" with 35 of 37 points still to decide). The line then reads "No review code proposed
+yet: N of M points still to decide" (`still_to_decide_sentence`, N and M the same count the sheet states: "x of M decided"). Only
+Rejected / Revise and Resubmit may stand while points are open ("So far: <code>, N of M points still to decide"): a kept proven failure
+stays a failure whatever the open points hold. When every point is decided the rule above applies unchanged. "Manual Review Required"
+is for ONE reason only: pages of the paper were not read, and it says so. Every home (the page's code box, the team file's sheet 1)
+takes the code and the line from `propose`; the contractor file states only the recorded code.
 """
 
 from __future__ import annotations
@@ -29,13 +34,18 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
-def nothing_decided_sentence(undecided: int, proven_fails: int) -> str:
-    """THE one sentence for a review with nothing decided yet (the owner may change its words: it changes here only). It names any
-    code-proven Fail on a mandatory rule that exists, so a proven failure is never hidden behind a count."""
-    base = f"Nothing is decided yet: {_plural(undecided, 'point', 'points')} still to decide"
+def still_to_decide_sentence(undecided: int, of: int, proven_fails: int) -> str:
+    """THE one sentence while any point is still to decide and no code may be proposed (the owner may change its words: it changes here
+    only). `undecided` of `of`: the same count the sheet states. It names any code-proven Fail on a mandatory rule among the open points,
+    so a proven failure is never hidden behind a count."""
+    base = f"No review code proposed yet: {undecided} of {_plural(of, 'point', 'points')} still to decide"
     if proven_fails:
         base += f"; {_plural(proven_fails, 'is a code-proven Fail', 'are code-proven Fails')} on {'a mandatory rule' if proven_fails == 1 else 'mandatory rules'}"
     return base + "."
+
+
+#: Why no code is proposed while points are open (the reason line under the sentence).
+WAIT_REASON = "A code that lets the paper proceed is proposed only when every point is decided: a point still to decide may hold a failure."
 
 
 def removed_fail_sentence(points: list[dict]) -> str:
@@ -85,21 +95,18 @@ def propose(
             "No review has run on this paper, so there are no points to decide.",
             0,
         )
-    undecided = sum(
-        1
+    still_open = [
+        p
         for p in points
         if not (p.get("decision") or {}).get("state") and p.get("source") != "added"
-    )
+    ]
+    undecided = len(still_open)
     kept = [
         p
         for p in points
         if (p.get("decision") or {}).get("state") in ("keep", "edit")
         or p.get("source") == "added"
     ]
-    decided = len(points) - undecided
-    if undecided and not decided:
-        proven = sum(1 for p in points if p["rank"] == 1 and p.get("shall", True))
-        return _out(None, nothing_decided_sentence(undecided, proven), undecided)
     proven = [p for p in kept if p["rank"] == 1 and p.get("shall", True)]
     ai_not_met = [p for p in kept if p["rank"] in (2, 3) and p.get("shall", True)]
     comments = [p for p in kept if p["rank"] <= 4 or p.get("source") == "added"]
@@ -121,20 +128,35 @@ def propose(
     else:
         code, why = comparison.CODE_APPROVED, "No comment is kept."
     gone = removed_fail_sentence(points)
-    return _out(code, f"{why} {gone}".strip(), undecided)
-
-
-def _out(code: str | None, reason: str, undecided: int) -> dict:
-    if code is None:
-        line = reason
-    elif undecided:
-        line = (
-            f"So far: {code}, {_plural(undecided, 'point', 'points')} still to decide"
+    if undecided and code != comparison.CODE_REJECTED:
+        open_fails = sum(
+            1 for p in still_open if p["rank"] == 1 and p.get("shall", True)
         )
-    elif code == comparison.CODE_MANUAL:
-        line = f"{code}: {reason}"
-    else:
-        line = code
+        line = still_to_decide_sentence(undecided, len(points), open_fails)
+        return _out(None, f"{WAIT_REASON} {gone}".strip(), undecided, line=line)
+    return _out(code, f"{why} {gone}".strip(), undecided, of=len(points))
+
+
+def _line(code: str | None, reason: str, undecided: int, of: int) -> str:
+    if code is None:
+        return reason
+    if undecided:  # only a Rejected code reaches here with points open (`propose`)
+        return f"So far: {code}, {undecided} of {_plural(of, 'point', 'points')} still to decide"
+    if code == comparison.CODE_MANUAL:
+        return f"{code}: {reason}"
+    return code
+
+
+def _out(
+    code: str | None,
+    reason: str,
+    undecided: int,
+    *,
+    of: int = 0,
+    line: str | None = None,
+) -> dict:
+    if line is None:
+        line = _line(code, reason, undecided, of)
     return {
         "code": code,
         "reason": reason,

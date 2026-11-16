@@ -341,10 +341,8 @@ def _header_pairs(
         ("Review date:", dates),
         ("Exported on:", exported),
         ("Decided by:", _people(paper_id, extra.get("names") or {})),
-        (
-            "Proposed review code:",
-            f"{code.get('code') or NOT_RECORDED} ({code.get('line') or 'no line'})",
-        ),
+        # the proposal's own line (`review_code_proposal`, the one home): no approving code while a point is still to decide
+        ("Proposed review code:", code.get("line") or NOT_RECORDED),
         ("Recorded review code:", listing.get("final_code") or NOT_RECORDED),
         ("Status of this file:", "Issued" if signed else "Working copy, not issued"),
     ]

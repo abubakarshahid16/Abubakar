@@ -400,6 +400,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d["by"] = names.get(d["by"]) or d["by"]
         p["decision"] = d
     decided = sum(1 for p in points if p["decision"]["state"])
+    not_held = rp.books_not_held(not_held, points)  # the run's record and every row's "Book missing": one list for page and sheet
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )

@@ -787,6 +787,21 @@ def with_groups(points: list[dict]) -> list[dict]:
     return points
 
 
+def books_not_held(run_books: list[str], points: list[dict]) -> list[str]:
+    """THE rule books not held of a paper's list, each once: the AI run's own record first, then every book a point marks "Book missing"
+    (`_book_missing`, the name its row prints), in list order. The page's "not held" count and the CRS sheet "Rule books not held" both
+    read it, so the sheet never says 0 while rows say "Book missing" (order 14, first-time-user test 15). Same book: same letters and
+    digits, any case or spacing."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in [*(run_books or []), *(p.get("_book_missing") for p in points)]:
+        key = re.sub(r"[^0-9a-z]", "", str(name or "").casefold())
+        if key and key not in seen:
+            seen.add(key)
+            out.append(str(name))
+    return out
+
+
 def counts(
     points: list[dict],
     *,

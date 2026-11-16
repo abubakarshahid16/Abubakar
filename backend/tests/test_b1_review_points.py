@@ -637,18 +637,19 @@ def test_a_kept_met_point_is_not_a_comment_and_nothing_kept_is_approved():
 def test_while_points_are_undecided_the_line_says_so_far_and_names_what_is_left():
     none = review_code_proposal.propose([pt(1, None), pt(4, None)])
     assert none["code"] is None and none["line"].startswith(
-        "Nothing is decided yet: 2 points still to decide"
+        "No review code proposed yet: 2 of 2 points still to decide"
     )
     some = review_code_proposal.propose([pt(1, "keep"), pt(4, None), pt(4, None)])
-    assert (
-        some["line"] == f"So far: {comparison.CODE_REJECTED}, 2 points still to decide"
+    assert (  # a kept proven failure stays a failure: Rejected may stand "so far" (order 14: now "N of M", the sheet's count)
+        some["line"]
+        == f"So far: {comparison.CODE_REJECTED}, 2 of 3 points still to decide"
         and some["so_far"]
         and some["undecided"] == 2
     )
     one = review_code_proposal.propose([pt(4, "keep"), pt(4, None)])
-    assert (
-        one["line"]
-        == f"So far: {comparison.CODE_APPROVED_WITH_COMMENTS}, 1 point still to decide"
+    assert (  # order 14: an approving code is never proposed while a point is open (it was "So far: Approved with Comments")
+        one["code"] is None
+        and one["line"] == "No review code proposed yet: 1 of 2 points still to decide."
     )
     done = review_code_proposal.propose([pt(4, "keep"), pt(7, "keep")])
     assert done["line"] == comparison.CODE_APPROVED_WITH_COMMENTS and not done["so_far"]
@@ -671,7 +672,7 @@ def test_the_page_carries_the_proposal_and_the_final_code():
     doc, rc, ai, client = world_with_both()
     got = points_of(client, doc)
     assert (
-        got["proposed_code"]["line"].startswith("Nothing is decided yet")
+        got["proposed_code"]["line"].startswith("No review code proposed yet")
         and got["final_code"] is None
     )
     assert got["code_run_id"] == rc
@@ -1494,19 +1495,19 @@ def test_a_removed_point_shows_no_rule_book_text_to_someone_who_may_not_read_the
 
 
 def test_the_nothing_decided_sentence_is_one_function_and_names_a_proven_fail():
-    """R48 finding 12."""
+    """R48 finding 12 (order 14: the one sentence is now `still_to_decide_sentence`, "N of M", for every open list)."""
     assert (
-        review_code_proposal.nothing_decided_sentence(37, 0)
-        == "Nothing is decided yet: 37 points still to decide."
+        review_code_proposal.still_to_decide_sentence(37, 37, 0)
+        == "No review code proposed yet: 37 of 37 points still to decide."
     )
-    one = review_code_proposal.nothing_decided_sentence(37, 1)
+    one = review_code_proposal.still_to_decide_sentence(37, 37, 1)
     assert (
         one
-        == "Nothing is decided yet: 37 points still to decide; 1 is a code-proven Fail on a mandatory rule."
+        == "No review code proposed yet: 37 of 37 points still to decide; 1 is a code-proven Fail on a mandatory rule."
     )
     assert (
         "2 are code-proven Fails on mandatory rules"
-        in review_code_proposal.nothing_decided_sentence(5, 2)
+        in review_code_proposal.still_to_decide_sentence(5, 5, 2)
     )
     pts = [
         {"rank": 1, "shall": True, "source": "ai_review", "decision": {"state": None}},
@@ -1514,7 +1515,7 @@ def test_the_nothing_decided_sentence_is_one_function_and_names_a_proven_fail():
     ]
     assert (
         review_code_proposal.propose(pts)["line"]
-        == "Nothing is decided yet: 2 points still to decide; 1 is a code-proven Fail on a mandatory rule."
+        == "No review code proposed yet: 2 of 2 points still to decide; 1 is a code-proven Fail on a mandatory rule."
     )
 
 

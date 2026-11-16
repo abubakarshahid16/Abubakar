@@ -81,7 +81,7 @@ function listing(over: Partial<PointsListing> = {}): PointsListing {
       not_held: { names: ["Book A", "Book B", "Book C"], more: 2, total: 5, note: "Not checked, rule book not held" },
       decided: 2, decided_of: 9,
     },
-    proposed_code: { code: "Approved with Comments", reason: "2 kept comments; none is proven by code to fail a 'shall' rule.", line: "So far: Approved with Comments, 7 points still to decide", so_far: true, undecided: 7, rule: "r", proposed_by: "the system; the engineer decides" },
+    proposed_code: { code: null, reason: "A code that lets the paper proceed is proposed only when every point is decided: a point still to decide may hold a failure.", line: "No review code proposed yet: 7 of 9 points still to decide.", so_far: true, undecided: 7, rule: "r", proposed_by: "the system; the engineer decides" },
     final_code: null, code_run_id: "rc1", decided: 2, of: 9, removed: [],
     contractor_copy: { kind: "datasheet", words: "The contractor file holds only what code proved, or your own words. It never carries an AI wording." }, ...over,
   };
@@ -213,12 +213,18 @@ describe("2 the engine line", () => {
 describe("3 the review code box", () => {
   it("shows the proposed code, ONE line of reason and x of N decided", async () => {
     mount(); await loaded();
-    expect(screen.getByTestId("v2-code-line")).toHaveTextContent("So far: Approved with Comments, 7 points still to decide");
-    expect(screen.getByTestId("v2-code-reason")).toHaveTextContent("2 kept comments");
+    // order 14: the server's shape while points are open (no approving code is proposed; `review_code_proposal`)
+    expect(screen.getByTestId("v2-code-line")).toHaveTextContent("No review code proposed yet: 7 of 9 points still to decide.");
+    expect(screen.getByTestId("v2-code-reason")).toHaveTextContent("proposed only when every point is decided");
     expect(screen.getByText("proposed by the system; you decide")).toBeInTheDocument();
     expect(screen.getByTestId("v2-decided")).toHaveTextContent("2 of 9 decided");
   });
   it("records the final code, asking why when it is not the proposed one", async () => {
+    // a code is proposed only once every point is decided (order 14): the listing of a fully decided review
+    api.list.mockResolvedValue(ok(listing({
+      proposed_code: { code: "Approved with Comments", reason: "2 kept comments; none is proven by code to fail a 'shall' rule.", line: "Approved with Comments", so_far: false, undecided: 0, rule: "r", proposed_by: "the system; the engineer decides" },
+      decided: 9, of: 9,
+    })));
     api.decideCode.mockResolvedValue(ok({}));
     const { props } = mount(); await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Record the code" }));
