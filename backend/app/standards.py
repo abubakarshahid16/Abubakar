@@ -886,17 +886,17 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
     start of its sentence. Exact string matches only; nothing fuzzy. When several superseded rules lead to one successor,
     their labels must agree (state, paper kind, field, reading), else nothing is carried ("conflicting"). A successor that
     already has a label keeps its own. The label rows (`rule_label`, `rule_equipment_label`) are copied verbatim under the
-    successor's id (same models, prompt, hashes, quote page). The rule-book version link goes with it only when ONE old
-    rule has the text, on the successor's own page, and the version quotes that page (R93); then a person's LATER
-    decision on that version reaches the successor too (R92). Otherwise the label goes without a link: a person
-    decides the successor afresh. Logged by the tables' own event triggers and once in the
+    successor's id (same models, prompt, hashes, quote page), with the successor's OWN rule-book version link: the version
+    whose quote is the successor's own text on its own page (`rule_labels.bridge_map`, as the labeller links), never the
+    old rule's (R93, R95); so a person's LATER decision on the successor's own version reaches it (R92). No such version:
+    no link, and a person decides it afresh. Logged by the tables' own event triggers and once in the
     audit. A PERSON's approval or refusal (the rule book's approvals, keyed by its version) is NEVER carried, and an
     old rule a person decided (approved OR refused) carries NOTHING, not even its AI label, so a refusal is never
     bypassed: the successor waits for a person; both are counted for the owner. No model; no network."""
     out = {"carried": 0, "carried_identical": 0, "carried_heading_restored": 0, "carried_equipment": 0,
            "old_rules_carried": 0, "old_rules_not_carried": 0, "conflicting": 0, "successor_labelled": 0,
            "person_decided_not_carried": 0, "person_decisions_not_carried": 0,
-           "version_link_kept": 0, "version_link_dropped": 0}
+           "version_link_own": 0, "version_link_none": 0}
     held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "rule_label" not in held:
         return out
@@ -921,14 +921,12 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
         "SELECT superseded_by_run FROM standard_requirements WHERE standard_document_id = ? AND superseded_by_run LIKE ?"
         " ORDER BY superseded_at DESC LIMIT 1", (document_id, RECHUNK_RUN_PREFIX + "%")).fetchone()
     gone: dict[tuple, list[str]] = {}
-    page_of: dict[str, int | None] = {}
-    for rid, req, src, page in conn.execute(
-            "SELECT id, requirement_text, source_text, page FROM standard_requirements"
+    for rid, req, src in conn.execute(
+            "SELECT id, requirement_text, source_text FROM standard_requirements"
             " WHERE standard_document_id = ? AND superseded_by_run IN (?, ?)",
             (document_id, run_id, latest_rechunk[0] if latest_rechunk else run_id)):
         if rid in labelled:
             gone.setdefault((_carry_text(req), _carry_text(src)), []).append(rid)
-            page_of[rid] = page
     if not gone:
         return out
     has_section = "chunks" in held
@@ -956,30 +954,32 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
         if len({labelled[o][:4] for o in old}) != 1:
             out["conflicting"] += 1
             continue
-        targets.append((rid, sorted(old), how, page))
+        targets.append((rid, sorted(old), how, page, src))
     cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_label)")]
     keep = [c for c in cols if c not in ("rule_ref", "rule_version_id")]
 
-    def link_for(old: list[str], dst_page) -> str | None:
-        """The rule-book version link the successor may keep (R93): only when ONE old rule has this text, it stands on
-        the successor's page, and the version's own quote is on that page (read through the rule book's module). Any
-        other case: no link, so no person's decision on another version can ever read as one on this rule."""
-        version = labelled[old[0]][4]
-        if not version or len(old) != 1 or page_of.get(old[0]) != dst_page or dst_page is None:
+    from . import rule_labels
+
+    bridge = rule_labels.bridge_map(conn)
+
+    def link_for(dst_page, dst_src) -> str | None:
+        """The successor's OWN rule-book version (R95): the version whose quote is the successor's own text on its own
+        page of this book, found as the labeller finds it (`rule_labels.bridge_map`), never the old rule's link. None
+        when there is no such version or the successor has no page: then a person decides it afresh."""
+        if dst_page is None:
             return None
-        pages = {row[1] for row in compiled_rule_report.book_provenance_of(conn, version)}
-        return version if dst_page in pages else None
+        return bridge.get((document_id, dst_page, " ".join(str(dst_src or "").split())))
+
     has_equipment = "rule_equipment_label" in held
     eq_cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")] if has_equipment else []
     with conn:
-        for dst_id, old, how, dst_page in targets:
+        for dst_id, old, how, dst_page, dst_src in targets:
             src_id = old[0]  # they agree; the first by id is copied
             conn.execute(
                 f"INSERT INTO rule_label (rule_ref, rule_version_id, {', '.join(keep)})"
                 f" SELECT ?, ?, {', '.join(keep)} FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
-                (dst_id, link := link_for(old, dst_page), src_id))
-            if labelled[src_id][4]:
-                out["version_link_kept" if link else "version_link_dropped"] += 1
+                (dst_id, link := link_for(dst_page, dst_src), src_id))
+            out["version_link_own" if link else "version_link_none"] += 1
             out["carried"] += 1
             out[f"carried_{how}"] += 1
             sources_used.update(old)
