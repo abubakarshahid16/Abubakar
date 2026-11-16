@@ -405,3 +405,19 @@ def test_the_command_reads_read_only_and_prints_no_paper_text(tmp_path, capsys):
         json.loads(out.read_text())["checklist"]["status"]
         == "AI draft, engineer to confirm"
     )
+
+
+def test_the_checks_live_in_the_app_and_run_all_is_lane_bs_entry():
+    from app import contract_checks as core
+
+    assert (
+        cc.run_all is core.run_all and cc.Result is core.Result
+    )  # the command re-uses the app's checks, not a copy
+    results = core.run_all(CONTRACT, {"doc_b": [(1, "Schedule B\nPrice")]})
+    shown = [r.to_json() for r in results]
+    assert {r["ct"] for r in shown} <= set(core.CODES)
+    assert all(r["internal_only"] and r["rule"] == core.RULE_STATE for r in shown)
+    source = Path(core.__file__).read_text(encoding="utf-8")
+    assert (
+        "sqlite3" not in source and "connect(" not in source
+    )  # pure: pages in, results out
