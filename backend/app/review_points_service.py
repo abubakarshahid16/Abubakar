@@ -403,7 +403,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
-    online = standards_web_search.into(counts, conn, ai_run, not_held)  # off: {} and nothing added; never a point
+    # the online search for books not held: off, {} and nothing added; never a point
+    online = standards_web_search.into(counts, conn, ai_run, not_held)
     proposal = review_code_proposal.propose(
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),
@@ -440,7 +441,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
     listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
-    return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run, **online}
+    facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
+    return listing, points, {**facts, **online}
 
 
 def assemble(paper_id: str, scope) -> dict:
