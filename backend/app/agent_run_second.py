@@ -8,7 +8,7 @@ fails closed: GREEN and RED become YELLOW.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from . import agent_trace, heavy_lock
@@ -149,6 +149,12 @@ class LocalOpinion:
             if callable(fn):
                 fn()
                 return
+
+
+def disagreed(second: object) -> bool:
+    """THE test of "the second reader said no" (an explicit agree False), for every home that asks it (rule 8): the met guard,
+    the not-met step of the wording and the engineer's action words. "Not asked", "failed" and "cut off" are not a no."""
+    return isinstance(second, Mapping) and second.get("agree") is False
 
 
 def fatal_problem(exc: BaseException) -> str:
