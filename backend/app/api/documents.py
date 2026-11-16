@@ -31,6 +31,7 @@ from .. import (
 from .. import admin as admin_mod
 from .. import chunker as chunk_mod
 from .. import classification as classification_mod
+from .. import document_kind as document_kind_mod
 from .. import extract as extract_mod
 from .. import fts_index as keyword_mod
 from .. import ingest as ingest_mod
@@ -68,6 +69,7 @@ def upload_disciplines(scope: access.AccessScope = Depends(access.current_scope)
 async def upload_document(
     file: UploadFile = File(...),
     disciplines: list[str] | None = Form(None),
+    uploaded_from: str | None = Form(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Accept an identified upload, visible to the disciplines it names (#609).
@@ -96,6 +98,7 @@ async def upload_document(
             status_code=400,
             content={"code": e.code, "message": e.message, "detail": e.detail},
         )
+    document_kind_mod.after_upload(row["id"], uploaded_from, duplicate_of is not None)  # order 14 lane E, switch inside
     if duplicate_of is None and admin_role is not None and scope.user_id is not None:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
         access.grant_uploaded_document_to_disciplines(

@@ -570,3 +570,180 @@ def rate_lines(counts: dict) -> list[str]:
 
 def document_kind_counts(document_ids: Iterable[str] | None = None) -> dict:
     return counts_from(connect(), document_ids)
+
+
+# ------------------------------------------------------- one upload: a suggested kind AND role (order 14 lane E)
+#
+# Owner, 16 Nov 2026: a file uploaded on ANY page gets the same treatment: the app suggests its kind and its role, shows
+# "suggested, confirm or change", and once a person confirms the role the file is in the right list. The ROLE SUGGESTION lives
+# in the kind row's evidence (`role_suggestion`), NEVER in `document_role`: the Claude approved list reads `document_role` only,
+# so a suggestion never counts there; only a confirmed role (the existing `classification.set_role`) does, and a contract never
+# joins it. Behind `upload_role_suggestion_enabled`, off by default: off, nothing here reads or writes anything.
+
+SUBMITTAL, STANDARD, CONTRACT_DOC, SPEC_ROLE = (
+    "CONTRACTOR_SUBMITTAL",
+    "COMPANY_STANDARD",
+    "CONTRACT_DOCUMENT",
+    "SPECIFICATION",
+)
+#: The role a decided kind points to; a kind not listed points to none (the person chooses).
+ROLE_FOR_KIND = {
+    "contract": CONTRACT_DOC,
+    "standard": STANDARD,
+    "datasheet": SUBMITTAL,
+    "procedure": SUBMITTAL,
+    "drawing": SUBMITTAL,
+    "transmittal": SUBMITTAL,
+    "specification": SPEC_ROLE,
+}
+#: The page a file was uploaded on, and the role that page is for (none: the Documents page is for any role).
+PAGE_ROLE = {"review": SUBMITTAL, "standards": STANDARD, "documents": None}
+CONTEXT_FILE = "upload_context.jsonl"
+
+
+def suggest_role(kind: str | None, page: str | None) -> dict | None:
+    """The suggested role from the two signals, or None when neither names one. Pure. The page is what the person meant by
+    uploading there; the kind is what the paper says it is. When both name a role and they differ, the page's role is
+    suggested and the disagreement is named (`kind_says`), so the person sees it before confirming."""
+    by_kind = ROLE_FOR_KIND.get(kind or "")
+    by_page = PAGE_ROLE.get(page or "")
+    if by_page:
+        out = {"role": by_page, "basis": "page", "page": page, "kind": kind}
+        if by_kind and by_kind != by_page:
+            out["kind_says"] = by_kind
+        return out
+    if by_kind:
+        return {"role": by_kind, "basis": "kind", "page": page, "kind": kind}
+    return None
+
+
+def _context_path():
+    from .config import settings
+
+    return settings.data_dir / CONTEXT_FILE
+
+
+def record_upload_context(document_id: str, page: str | None) -> bool:
+    """Keep the page a file was uploaded on until the file is read in (the kind row does not exist yet at upload). Switch on and a
+    known page only; one appended line, ids and the page name only. Returns whether it was kept."""
+    from .config import settings
+
+    if not settings.upload_role_suggestion_enabled or page not in PAGE_ROLE:
+        return False
+    path = _context_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps({"document_id": document_id, "uploaded_from": page, "at": _now()})
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+    return True
+
+
+def upload_context(document_id: str) -> str | None:
+    """The page the file was last uploaded on, or None."""
+    path = _context_path()
+    if not path.exists():
+        return None
+    found = None
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if row.get("document_id") == document_id:
+            found = row.get("uploaded_from")
+    return found
+
+
+def suggest_kind_and_role(document_id: str) -> dict | None:
+    """After a file is read in (switch on): its kind as `decide_document_kind` reads it whatever its role (stored as a SUGGESTION
+    unless a person confirmed a kind; an unknown decision keeps what the router stored), and a ROLE SUGGESTION in the same row's
+    evidence. A file that already has a role gets no suggestion (a person or a page already decided). Returns the role
+    suggestion written ({"role": None} when there is none), or None when nothing was written."""
+    from . import doc_router
+    from .config import settings
+
+    if not settings.upload_role_suggestion_enabled:
+        return None
+    conn = connect()
+    role = conn.execute(
+        "SELECT document_role FROM document_classification WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    if role is not None and role["document_role"]:
+        return None
+    pages = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    ]
+    row = conn.execute(
+        "SELECT kind, state, evidence FROM document_kinds WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    try:
+        held = json.loads(row["evidence"] or "{}") if row else {}
+    except ValueError:
+        held = {}
+    held = held if isinstance(held, dict) else {}
+    decided = decide_document_kind(pages)
+    if row is not None and row["state"] == doc_router.STATE_CONFIRMED:
+        kind, state, evidence = row["kind"], row["state"], held
+    elif decided.kind != "unknown":
+        kind, state = decided.kind, doc_router.STATE_SUGGESTED
+        evidence = {"decider": "document_kind.upload", **decided.as_dict()}
+    else:
+        kind = row["kind"] if row else None
+        state = row["state"] if row else doc_router.STATE_NEEDS_ENGINEER
+        evidence = held
+    suggestion = suggest_role(kind, upload_context(document_id)) or {
+        "role": None,
+        "basis": "none",
+        "kind": kind,
+    }
+    evidence = {**evidence, "role_suggestion": suggestion}
+    if row is not None and row["state"] == doc_router.STATE_CONFIRMED:
+        with conn:
+            conn.execute(
+                "UPDATE document_kinds SET evidence = ? WHERE document_id = ?",
+                (json.dumps(evidence), document_id),
+            )
+    else:
+        _write(document_id, kind, state, evidence)
+    return suggestion
+
+
+def after_upload(document_id: str, page: str | None, duplicate: bool) -> None:
+    """The upload route's one call (switch on): keep the page the file came in on, and for a file already read in (a duplicate)
+    suggest its kind and role now. Off: nothing. Never fails an upload."""
+    from .config import settings
+
+    if not settings.upload_role_suggestion_enabled:
+        return
+    try:
+        record_upload_context(document_id, page)
+        if duplicate:
+            suggest_kind_and_role(document_id)
+    except Exception as exc:  # noqa: BLE001 - a suggestion must never fail an upload
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "upload role suggestion skipped for %s: %s", document_id, type(exc).__name__
+        )
+
+
+def after_read_in(document_id: str) -> None:
+    """The ingest worker's one call, right after the router (switch on): the suggested kind and role. Never fails an ingest."""
+    from .config import settings
+
+    if not settings.upload_role_suggestion_enabled:
+        return
+    try:
+        suggest_kind_and_role(document_id)
+    except Exception as exc:  # noqa: BLE001 - a suggestion must never fail an ingest
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "kind and role suggestion skipped for %s: %s", document_id, type(exc).__name__
+        )
