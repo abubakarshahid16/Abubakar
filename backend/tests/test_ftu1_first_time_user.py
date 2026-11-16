@@ -713,3 +713,26 @@ def test_every_part_of_the_older_sheet_cell_of_a_silent_row_comes_from_the_one_f
     assert "Contractor" not in part1
     assert part2.startswith(want.note) and "did not find" not in part2
     assert part3 == crs_ai_actions.silent_row(line).action
+
+
+def test_a_code_proved_absence_with_no_readers_quote_shows_its_proof_in_the_team_file():
+    from app import agent_review_verdict as v
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    line = mk(
+        "R-5", "Fail", "Fail", paper_kind="datasheet", reason_code="absent", paper_quote=None, field="Body material",
+        field_roles=["body_material"], pages_searched=[1, 2], decided_by=v.BY_ABSENCE, compare=None, why="the paper is silent",
+        quotes_checked={"paper": False, "clause": True},
+    )  # fmt: skip
+    ai_run(doc, [line])
+    client = _client(doc, "doc_std")
+    point = next(x for x in points_of(client, doc)["points"] if x["rank"] == 1)
+    proof = "Code searched every page for Body material and found no value (pages searched: 1, 2)."
+    assert point["paper_quote_note"] == proof  # the page
+    team = crs_completeness.file_or_refuse(doc, scope_all(), "team")
+    head, rows = rows_after(sheet(team, crs_one.EVIDENCE_SHEET), "No")
+    row = next(r for r in rows if r[head.index("Pill")] == point["pill"])
+    assert (
+        row[head.index("What the paper shows")] == proof
+    )  # the team file, the same words

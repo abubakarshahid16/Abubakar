@@ -444,6 +444,8 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
         "paper_looked": looked,
+        # the paper side is code's own proof (its note), with or without a reader's quote
+        "paper_proof": bool(proof),
         "clause_quote": clause_q,
         "paper_quote_note": PAPER_CHECK
         if paper_q
