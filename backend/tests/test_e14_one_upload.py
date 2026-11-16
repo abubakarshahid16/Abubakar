@@ -181,3 +181,22 @@ def test_switch_on_the_upload_keeps_the_page(on):
     )
     assert r.status_code == 200
     assert document_kind.upload_context(r.json()["document"]["id"]) == "standards"
+
+
+def test_a_reading_never_replaces_a_stored_contract_kind(on):
+    """Review R104 (rule 1): a no-role paper with a stored "contract" kind whose text now reads as a datasheet (an OCR re-route
+    changed it) keeps "contract"; an ordinary stored guess is still replaced (the control)."""
+    _doc("c_ocr", DATASHEET_COVER, kind="contract", state=doc_router.STATE_SUGGESTED)
+    _doc("p_ocr", DATASHEET_COVER, kind="procedure", state=doc_router.STATE_SUGGESTED)
+    assert (
+        document_kind.decide_document_kind(
+            [{"page_no": 1, "text": DATASHEET_COVER}]
+        ).kind
+        == "datasheet"
+    )
+    document_kind.after_read_in("c_ocr")
+    document_kind.after_read_in("p_ocr")
+    kind, state, evidence = _evidence("c_ocr")
+    assert (kind, state) == ("contract", doc_router.STATE_SUGGESTED)
+    assert evidence["role_suggestion"]["kind"] == "contract"
+    assert _evidence("p_ocr")[0] == "datasheet"

@@ -690,7 +690,11 @@ def suggest_kind_and_role(document_id: str) -> dict | None:
     decided = decide_document_kind(pages)
     if row is not None and row["state"] == doc_router.STATE_CONFIRMED:
         kind, state, evidence = row["kind"], row["state"], held
-    elif decided.kind != "unknown":
+    elif decided.kind != "unknown" and not (
+        # Rule 1 (review R104): a stored "contract" kind is never replaced by a reading (an OCR re-route can change the
+        # text); only a person's confirm changes it. The router's one rule, `doc_router._keeps_contract`.
+        row is not None and doc_router._keeps_contract(row["kind"], None)
+    ):
         kind, state = decided.kind, doc_router.STATE_SUGGESTED
         evidence = {"decider": "document_kind.upload", **decided.as_dict()}
     else:
