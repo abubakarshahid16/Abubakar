@@ -23,13 +23,16 @@ the page; every R line of the run file).
 
 THE GATES, EXACTLY.
   A book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1"), is read as that book and
-  that clause (`split_fused`) in every gate; a book a row names but did not link is found in the library by `applicability.find_standard`.
+  that clause (`split_fused`; an edition year such as "API 526 2009" is never a clause) in every gate; a book a row names but did not
+  link is found in the library by `applicability.find_standard`.
   G1 Every quote shown as a standard's words is found word for word in the stored pages of the cited book
      (`agent_review_standards.verify`: the review's own matcher, the book's stored pages, never the checklist or the stored
      requirement row). Shown as a standard's words: on the page a point's clause quote or its rule text "as stored"; in the run file
      a line's clause quote and the words its comment quotes after "requires:" (`crs_ai_workbook._item_ask`, a checklist line's own
-     item wording first). A quote cut with a visible mark ("..." or "…") is checked piece by piece, every piece found. A shown quote
-     with no held book to search fails ("no held book to search"); one the book does not hold fails ("quote not in the stored book").
+     item wording first). A quote cut with a visible mark ("..." or "…") is checked piece by piece: every piece found, IN ORDER (each
+     later on the same page, or on the next page: "pieces not in the book's order"); a piece shorter than the matcher's minimum fails
+     ("piece too short to check"), never dropped. A shown quote with no held book to search fails ("no held book to search"); one
+     the book does not hold fails ("quote not in the stored book").
   G2 Every cited clause (a row naming a book AND a clause) is in a book that governs the paper's kind. The mapping is a JSON file
      (`--mapping`, format MAPPING_FORMAT; lane C owns its contents; a book may be limited to clause prefixes) and, without it, the app's
      own tables: `reference/standard_roles.json` (kind -> roles, standard -> role; `kind_standards`) and
@@ -39,18 +42,21 @@ THE GATES, EXACTLY.
   G3 No comment row has nothing to correct. It fails by CLASS: Met (ranks 5-7), Does not apply (8), or a pass reason stored on its line
      ("met", "pass_..."); and by WORDS, in any cell: NOISE_PATTERNS ("found none", "no correction needed", "could not be read", "not
      readable", "no action required", "no change needed", "need not state it", "... stated ..., which meets the" and close variants).
-     The sheet Evidence is not judged: the completeness rule keeps every point there.
+     A row whose paper value is a deferral (`agent_review_verdict.quote_defers`: "By Contractor", "TBA") asks the contractor for the
+     value: a real comment, never failed here. The sheet Evidence is not judged: the completeness rule keeps every point there.
   G4 One comment per field or topic. FIELD = the row's field name (the point's name with its tags taken off, `review_points.split_tags`;
-     `crs_comments.is_field` says it is a field) folded by `field_key`: lower case, text in brackets dropped, every character that is not a
-     letter or digit dropped ("Over pressure %" = "Overpressure"). TOPIC, for a row with no field = the book's key and the clause. A row
-     with neither is its own key. Two comment rows with one key fail. NEAR-SAME fields fail too, judged in pairs (never chained): the
-     words of the shorter name are all in the longer, make at least half of it, and are not one short word (`near_same`):
-     "compressibility" / "compressibility factor", "required capacity" / "required relieving capacity", the back-pressure comments;
-     never "inlet size" / "outlet size", "type" / "seal type", "fluid" / "mole. wt. of relieved fluid".
+     `crs_comments.is_field` says it is a field) folded by `field_key`: lower case, every character that is not a letter or digit dropped
+     ("Over pressure %" = "Overpressure"). A field that is a rule book's name (`is_book_name`: a family `standard_ids` finds in running
+     text) is a TOPIC. TOPIC, for a row with no field = the book's key and the clause. A row with neither is its own key. Two comment
+     rows with one key FAIL. NEAR-SAME fields (`near_same`, judged in pairs, never chained): equal words once a reference bracket is
+     dropped (a bracket holding a digit, a dot, "note" or "m7"; a bracket of words such as "(shell side)" stays), or the words of the
+     shorter all in the longer, at least half of it, and not one short word. A near-same pair FAILS only when the two rows share the
+     paper line they show (one holds the other) or a (book, clause); otherwise it is UNDECIDED, counted and listed apart.
   G5 A firm finding names the value on the paper and the clause. FIRM = the row's class is a decision or a not-met, on the app's own rank
      scale (`review_points.RANKS`): 1 Not met proven by code, 2 Not met two readers agree, 3 Not met one reader, 6 Met two readers
      agree, 7 Met proven by code (not 4 Question, 5 Met one reader, 8 Does not apply). The value: a code-proven absence (the line's
-     `absence_check` "proven") names "not on the paper"; a finding whose reason is "absent" needs that proof, or the value it read
+     `absence_check` "proven", or the app's two-reader absence decision `agent_review_two_reader.absence_agrees`) names "not on the
+     paper"; a finding whose reason is "absent" needs that proof, or the value it read
      (`paper_figure`) inside its verified quote: a verified quote of an empty field's label alone fails; any other firm row needs a paper
      quote code verified on the page. Then a book ("no book") and a clause ("no clause").
   G6 Same input twice gives at least REPLAY_AT_LEAST % the same comments: M same of the LARGER run's comment count, printed "M of N
@@ -141,6 +147,9 @@ class Row:
     rules: tuple[
         str, ...
     ] = ()  # the rule keys (item ids) behind the row: G6 never takes two different rules for one comment
+    paper_lines: tuple[
+        str, ...
+    ] = ()  # the paper line the row shows (G4: do two near-same comments rest on one line)
 
 
 @dataclass
@@ -184,21 +193,42 @@ def _finish(
 
 
 def quote_pieces(quote: str) -> list[str]:
-    """A quote cut with a visible mark ("..." or "…") as its pieces, each checked by itself; a piece shorter than the matcher's own
-    minimum (`agent_review_pass_guards.MIN_QUOTE_CHARS`) proves nothing and is left out. An uncut quote is one piece."""
-    from app.agent_review_pass_guards import MIN_QUOTE_CHARS
+    """A quote cut with a visible mark ("..." or "…") as its pieces, in order; an empty piece (a mark at either end) is no piece. An
+    uncut quote is one piece. A piece shorter than the matcher's minimum is KEPT: `g1_quotes` fails it, never drops it."""
+    return [p.strip() for p in re.split(CUT_MARKS, quote) if p.strip()]
 
-    return [
-        p.strip()
-        for p in re.split(CUT_MARKS, quote)
-        if len(p.strip()) >= MIN_QUOTE_CHARS
-    ]
+
+def _in_order(doc, pieces: list[str], page, books) -> str | None:
+    """None when every piece stands in the book, each after the one before it (later on the same page, or on the next page); else why."""
+    from app import agent_review_pass_guards as guards
+    from app import agent_review_standards as standards
+
+    book = books.book(doc)
+    prev_page, prev_end = None, 0
+    for k, piece in enumerate(pieces):
+        got = standards.verify(
+            doc, piece, page if k == 0 else [prev_page, prev_page + 1], books
+        )
+        if not got.found:
+            return "quote not in the stored book"
+        if k and got.page not in (prev_page, prev_page + 1):
+            return "pieces not in the book's order"
+        text, folded = book.plain(got.page), guards._fold(piece)
+        start = prev_end if k and got.page == prev_page else 0
+        at = text.find(folded, start)
+        if k and got.page == prev_page and at < 0 and folded in text:
+            return "pieces not in the book's order"
+        prev_page, prev_end = (
+            got.page,
+            (at + len(folded)) if at >= 0 else len(text),
+        )  # over a page break: the page's end
+    return None
 
 
 def g1_quotes(rows: list[Row], books) -> Result:
     """`books`: an object with `.book(document id) -> pass_guards.Book` (default `agent_review_standards.BookPages()`, each book read
     once); every shown quote goes through `agent_review_standards.verify`, the review's one in-book check."""
-    from app import agent_review_standards as standards
+    from app.agent_review_pass_guards import MIN_QUOTE_CHARS
 
     failed, checked = [], 0
     for r in rows:
@@ -215,17 +245,12 @@ def g1_quotes(rows: list[Row], books) -> Result:
             continue
         for q in shown:
             pieces = quote_pieces(q)
-            if not pieces:
-                failed.append((r.id, "quote too short to check"))
+            if any(len(p) < MIN_QUOTE_CHARS for p in pieces):
+                failed.append((r.id, "piece too short to check"))
                 break
-            if not all(
-                any(
-                    standards.verify(d, p, r.quote_page, books).found
-                    for d in r.quote_docs
-                )
-                for p in pieces
-            ):
-                failed.append((r.id, "quote not in the stored book"))
+            whys = [_in_order(d, pieces, r.quote_page, books) for d in r.quote_docs]
+            if all(whys):
+                failed.append((r.id, whys[0]))
                 break
     return _finish(
         "G1", checked, failed, f"{checked} rows show a quote from a standard"
@@ -391,22 +416,48 @@ def no_comment_class(r: Row) -> str | None:
 
 
 def g3_noise(rows: list[Row]) -> Result:
-    failed = []
+    """A row whose paper value is a deferral ("By Contractor", "TBA": `agent_review_verdict.quote_defers`, the app's one test) asks the
+    contractor for the value: a real comment, never failed here whatever its class or reason."""
+    from app.agent_review_verdict import quote_defers
+
+    failed, deferred = [], 0
     for r in rows:
+        if r.paper_value and quote_defers(r.paper_value):
+            deferred += 1
+            continue
         why = no_comment_class(r)
         hit = next((h for h in (noise_in(c) for c in r.cells) if h), None)
         if why or hit:
             failed.append((r.id, why or f'says "{hit}"'))
-    return _finish("G3", len(rows), failed, f"{len(rows)} comment rows")
+    return _finish(
+        "G3",
+        len(rows),
+        failed,
+        f"{len(rows)} comment rows; {deferred} ask for a deferred value (real comments)",
+    )
 
 
 # ------------------------------------------------------------------------------------------------ G4 one comment per field or topic
 
 
+_REF_BRACKET = re.compile(r"\(([^)]*)\)|\[([^\]]*)\]")
+
+
+def _drop_refs(folded: str) -> str:
+    """Bracketed text dropped ONLY when it holds a clause or note reference (a digit, a dot, "note", "m7"); a bracket of words such as
+    "(shell side)" or "(inlet)" keeps its words."""
+
+    def one(m: re.Match) -> str:
+        inner = m.group(1) if m.group(1) is not None else m.group(2)
+        return " " if re.search(r"[\d.]|\bnotes?\b", inner) else f" {inner} "
+
+    return _REF_BRACKET.sub(one, folded)
+
+
 def field_key(name) -> str:
-    """The field folded for comparison (see G4): lower case, bracketed text dropped, only letters and digits kept."""
-    t = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", _fold(name))
-    return re.sub(r"[^0-9a-z]+", "", t)
+    """The field folded for comparison (see G4): lower case, only letters and digits kept; no bracket is dropped here (a name that
+    differs only by a reference bracket is NEAR-SAME, judged on its evidence)."""
+    return re.sub(r"[^0-9a-z]+", "", _fold(name))
 
 
 def _book_key(book) -> str:
@@ -415,7 +466,19 @@ def _book_key(book) -> str:
     return key(str(book or "")) or _fold(book)
 
 
+def is_book_name(name) -> bool:
+    """The "field" is a rule book's name (a family `standard_ids` finds anywhere in running text: API, ASME, ISO, NACE, SAES, SAMSS):
+    the row is about that book, a TOPIC, never a field ("saes-j-600 clause 5.7"; never "note 4", which the generic reader also parses)."""
+    from app import standard_ids
+
+    got = standard_ids.parse(str(name or ""))
+    return got is not None and got.family in standard_ids.SPECIFIC_FAMILIES
+
+
 def key_of(r: Row) -> str:
+    if is_book_name(r.field):
+        book, clause = split_fused(r.field, r.clause)
+        return f"topic|{_book_key(book)}|{_clause_key(clause)}"
     f = field_key(r.field)
     if f:
         return f"field|{f}"
@@ -425,22 +488,46 @@ def key_of(r: Row) -> str:
 
 
 def field_words(name) -> frozenset[str]:
-    """The words of a field name (see G4): folded, bracketed text dropped, split on every character that is not a letter or digit."""
-    t = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", _fold(name))
-    return frozenset(w for w in re.split(r"[^0-9a-z]+", t) if w)
+    """The words of a field name (see G4): folded, reference brackets dropped (`_drop_refs`), split on every non letter or digit."""
+    return frozenset(w for w in re.split(r"[^0-9a-z]+", _drop_refs(_fold(name))) if w)
 
 
 NEAR_SAME_ONE_WORD = 8  # a one-word name is near-same to a longer one only when that word is this long: "compressibility", never "type"
 
 
 def near_same(a: frozenset[str], b: frozenset[str]) -> bool:
-    """Two field names are near-same when the words of the shorter are all in the longer, make at least half of it, and the shorter is
-    not one short generic word ("compressibility" / "compressibility factor", "required capacity" / "required relieving capacity";
-    never "inlet size" / "outlet size", "fluid" / "mole. wt. of relieved fluid", "type" / "seal type")."""
+    """Two field names are near-same when their words are equal once reference brackets are dropped ("nozzle notes" / "nozzle notes
+    (m7)"), or the words of the shorter are all in the longer, make at least half of it, and the shorter is not one short word
+    ("compressibility" / "compressibility factor", "set pressure" / "cold differential set pressure"; never "inlet size" / "outlet
+    size", "fluid" / "mole. wt. of relieved fluid", "type" / "seal type", "design pressure (shell side)" / "(tube side)")."""
     short, long_ = sorted((a, b), key=len)
-    if not short or short == long_ or not short <= long_ or 2 * len(short) < len(long_):
+    if not short:
+        return False
+    if short == long_:
+        return True
+    if not short <= long_ or 2 * len(short) < len(long_):
         return False
     return len(short) > 1 or len(next(iter(short))) >= NEAR_SAME_ONE_WORD
+
+
+MIN_SHARED_LINE = (
+    8  # a shared paper line shorter than this proves nothing (the matcher's own floor)
+)
+
+
+def share_evidence(a: Row, b: Row) -> bool:
+    """Two near-same comments rest on the same thing: the paper line each SHOWS (one holds the other, folded) or a (book, clause)."""
+    la = [_fold(x) for x in a.paper_lines if len(_fold(x)) >= MIN_SHARED_LINE]
+    lb = [_fold(x) for x in b.paper_lines if len(_fold(x)) >= MIN_SHARED_LINE]
+    if any(x in y or y in x for x in la for y in lb):
+        return True
+    ca = {
+        (_book_key(bk), _clause_key(c)) for bk, c in a.clauses if str(c or "").strip()
+    }
+    cb = {
+        (_book_key(bk), _clause_key(c)) for bk, c in b.clauses if str(c or "").strip()
+    }
+    return bool(ca & cb)
 
 
 def g4_one_per_field(rows: list[Row]) -> Result:
@@ -458,22 +545,37 @@ def g4_one_per_field(rows: list[Row]) -> Result:
             why.update(
                 {i: f"{len(ms)} comments on one {k.split('|', 1)[0]}" for i in ms}
             )
+    open_pairs: list[str] = []
     for i in range(
         len(rows)
-    ):  # near-same fields, judged in PAIRS (never chained: "design pressure" and "operating pressure" stay apart)
+    ):  # near-same fields, judged in PAIRS (never chained), and FAIL only on shared evidence
         for j in range(i + 1, len(rows)):
-            if keys[i] != keys[j] and near_same(words[i], words[j]):
+            if keys[i] == keys[j] or not near_same(words[i], words[j]):
+                continue
+            if share_evidence(rows[i], rows[j]):
                 why.setdefault(i, f"near-same field as {rows[j].id}")
                 why.setdefault(j, f"near-same field as {rows[i].id}")
+            else:
+                open_pairs.append(f"{rows[i].id}/{rows[j].id}")
     failed = [(rows[i].id, why[i]) for i in sorted(why)]
-    res = _finish(
-        "G4", len(rows), failed, f"{len(rows)} comment rows, {len(by)} fields or topics"
-    )
+    note = f"{len(rows)} comment rows, {len(by)} fields or topics"
+    if open_pairs:
+        shown = ", ".join(open_pairs[:LIST_AT_MOST]) + (
+            f" and {len(open_pairs) - LIST_AT_MOST} more"
+            if len(open_pairs) > LIST_AT_MOST
+            else ""
+        )
+        note += f"; undecided: {len(open_pairs)} near-same pairs share no paper line and no clause ({shown})"
+    res = _finish("G4", len(rows), failed, note, undecided=len(open_pairs))
     res.counts = dict(
         Counter(
             "near-same field" if w.startswith("near-same") else w for _i, w in failed
         )
     )
+    if open_pairs:
+        res.counts["not judged: near-same pair, no shared paper line or clause"] = len(
+            open_pairs
+        )
     return res
 
 
@@ -636,16 +738,20 @@ _FUSED = re.compile(
 )
 
 
+EDITION_YEAR = re.compile(r"(?:19|20)\d\d")
+
+
 def split_fused(name, clause="") -> tuple[str, str]:
     """(book, clause) of a book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1").
-    Split only when the row has no clause of its own and the name without its tail is still the SAME standard (`standard_ids.key`):
-    "API 521" and "API RP 520 Pt-2" stay whole."""
+    Split only when the row has no clause of its own, the tail is not an edition year ("API 526 2009"), and the name without its tail
+    is still the SAME standard (`standard_ids.key`): "API 521" and "API RP 520 Pt-2" stay whole."""
     from app import standard_ids
 
     name, clause = str(name or "").strip(), str(clause or "").strip()
     m = None if clause else _FUSED.match(name)
     if (
         m
+        and not EDITION_YEAR.fullmatch(m["clause"])
         and standard_ids.parse(m["book"]) is not None
         and standard_ids.key(m["book"]) == standard_ids.key(name)
     ):
@@ -700,9 +806,15 @@ def _point_row(rid: str, p: dict, library: list[dict]) -> Row:
 
 
 def absence_proven(line: dict) -> bool:
-    """The stored line carries a code proof that the paper does not state the value (`agent_review_absence`, `proven`)."""
+    """The stored line carries a code proof that the paper does not state the value: the single-reader proof (`absence_check`
+    "proven", `agent_review_absence`) or the app's two-reader absence decision (`agent_review_two_reader.absence_agrees`: both readers
+    say not stated AND the code search is proven on every page)."""
+    from app.agent_review_two_reader import absence_agrees
+
     proof = line.get("absence_check")
-    return isinstance(proof, dict) and proof.get("proven") is True
+    return (isinstance(proof, dict) and proof.get("proven") is True) or bool(
+        line and absence_agrees(line)
+    )
 
 
 def _comment_row(c: dict, cells) -> Row:
@@ -721,6 +833,7 @@ def _comment_row(c: dict, cells) -> Row:
         clauses=tuple(split_fused(k.get("book"), k.get("clause")) for k in c["clauses"]),
         reason=_reason_of(s), paper_figure=str((s.get("_line") or {}).get("paper_figure") or ""),
         rules=tuple(_rule_key(i) for i in c["member_ids"]),
+        paper_lines=tuple(v for v in (s.get("paper_quote") or s.get("paper_value"),) if v),  # the line the comment SHOWS
     )  # fmt: skip
 
 
@@ -784,6 +897,7 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
         names=(book,) if book.strip() else (), shows_rule_words=bool(clause or ln.get("clause_quote") or asked),
         is_missing_listing=rank == 0 or ln.get("verdict_class") == KIND_NOT_HELD,
         reason=str(ln.get("reason_code") or ""), paper_figure=str(ln.get("paper_figure") or ""), rules=(str(ln.get("item_id") or ""),),
+        paper_lines=(str(ln["paper_quote"]),) if ln.get("paper_quote") else (),
     )  # fmt: skip
 
 
