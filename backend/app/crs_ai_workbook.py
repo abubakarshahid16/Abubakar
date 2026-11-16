@@ -212,7 +212,7 @@ def _requires(line: Mapping, status: str) -> str:
         )
         head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
         return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
-    if status == words.STATUS_QUERY:
+    if status == words.STATUS_QUERY and not actions.silent_row(line):
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
         return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
     if ask:
@@ -260,11 +260,9 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
             f" (pages searched: {searched})." if searched else "."
         )
     elif silent and not has:
-        searched = _searched(line)
-        out = f"The AI reviewer did not find {field} in the paper" + (
-            f" (pages searched: {searched})." if searched else "."
-        )
-        out += actions.quote_words(line, where)
+        searched = f" (pages searched: {_searched(line)})." if _searched(line) else "."
+        found = actions.quote_words(line, where).strip()
+        out = found or f"The AI reviewer did not find {field} in the paper{searched}"
     elif guard == NO_VALUE_WHY:
         out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
@@ -334,6 +332,8 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         status == words.STATUS_QUERY and guard
     ):  # order 14 (G6): a guarded AI "met" is a question in every run; R94's words stay
         return f"Engineer to check the AI reviewer's view: {guard}."
+    if status == words.STATUS_QUERY and (row := actions.silent_row(line)):
+        return row.action  # FTU-1: decided with the row's other cells
     if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
         return action  # a question for the engineer, never worded for the contractor
     what, ref = field_words(line) or "the item", against(line)

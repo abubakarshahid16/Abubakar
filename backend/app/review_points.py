@@ -375,7 +375,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     # FTU-1: a line whose own reason says the paper does not state the value: its found quote is never shown as evidence; it is
     # where it looked, or (when it may state the value) the engineer's to check
     silent = actions.silent_row(line) if paper_q else None
-    looked, paper_q = (paper_q, None) if silent else (None, paper_q)
+    # a code-proved absence: its proof, never the reader's quote, is the paper side
+    proof = actions.absence_proof(line)
+    shown_as = (paper_q, None) if paper_q and (silent or proof) else (None, paper_q)
+    looked, paper_q = shown_as
+    proved = f"{proof[:1].upper()}{proof[1:]}." if proof else NO_PAPER_QUOTE
     book_readable = bool(book_name)
     # The rule book's own words are the book's: a caller who may not read the book gets neither its name nor its text (rule 5).
     clause_q = (
@@ -443,7 +447,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "clause_quote": clause_q,
         "paper_quote_note": PAPER_CHECK
         if paper_q
-        else (silent.note if silent else NO_PAPER_QUOTE),
+        else (silent.note if silent else proved),
         "clause_quote_note": _clause_note(line)
         if clause_q
         else (NO_CLAUSE_QUOTE if book_readable else NO_BOOK_ACCESS),

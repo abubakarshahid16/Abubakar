@@ -310,8 +310,10 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
             else f"{where}: does not meet {rule}"
         )
         return f"{head}. {req}." + (f" {said}" if said else "")
-    # FTU-1: the reader says "not stated" but quoted words that may state it
+    # FTU-1: the reader says "not stated" but quoted words that may state it: internal words inside, a plain ask on a contractor copy
     if quote_said := _quote_said(line):
+        if contractor:
+            return f"{where}: confirm compliance with {rule}. {req}."
         return f"{where}: {quote_said} {req}. Engineer to check."
     if code in ("absent", "absent_pages_not_named") or (verdict == FAIL and not has):
         pages = f" (pages searched: {searched})" if searched else ""

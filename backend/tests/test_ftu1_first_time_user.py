@@ -32,7 +32,7 @@ from app import (
 from app import crs_ai_workbook as wb
 from app.config import settings
 from tests.test_agent_review_crs import mk
-from tests.test_b1_review_points import ai_run, world_with_both
+from tests.test_b1_review_points import ai_run, decide, points_of, world_with_both
 from tests.test_crs_endpoint import (  # noqa: F401 - fixture
     _client,
     _finding,
@@ -226,7 +226,7 @@ def test_the_older_ai_sheet_says_the_same_for_a_not_met_on_silence():
         f'The paper states "{OTHER_LABEL}"' not in cell
         and "a value is stated" not in cell
     )
-    assert "did not find" in cell and "looked" in cell
+    assert "looked here" in cell and "did not find" not in cell
     assert (
         crs_ai_actions.action_case(silent_line("sheet_silent", opinion=False))
         == "blank"
@@ -238,7 +238,7 @@ def test_the_older_ai_sheet_says_the_same_for_a_not_met_on_silence():
     shows = cell.split("\n")[
         1
     ]  # the "what the paper shows" part says the silence and where it looked
-    assert "did not find Set pressure" in shows and "where it looked" in shows
+    assert "looked here" in shows and "where it looked" in shows
 
 
 def test_the_ai_reviews_own_sheet_and_evidence_cell_never_say_a_looked_quote_is_stated():
@@ -581,3 +581,135 @@ def test_with_the_older_file_on_a_missing_or_wrong_copy_word_lists_the_words_the
             ).content
         )
     )
+
+
+# ------------------------------------------------------------------------------------------------ review R5: two readers, code proof
+
+
+def two_reader_line(field: str, quote: str, **kw) -> dict:
+    """An invented two-reader "not stated" line (both readers, the code's own search of every page) whose first reader also quoted
+    words that code found on the page."""
+    from app import agent_review_two_reader as two
+    from app import agent_review_verdict as v
+
+    base = {
+        "reason_code": "absent", "paper_quote": quote, "field": field, "field_roles": [field.lower().replace(" ", "_")],
+        "pages_searched": [1, 2], "tier": sorted(v.USABLE_TIERS)[0], "why": "the paper is silent",
+        "quotes_checked": {"paper": True, "clause": True, "clause_strong": True},
+    }  # fmt: skip
+    rec = {
+        "verdict": two.A_NOT_STATED, "quotes_checked": {"clause": True, "clause_strong": True},
+        "code_search": {"proven": True, "pages_checked": 2}, "pages_total": 2, "first_pages": [1, 2], "second_pages": [1, 2],
+        "model": "zeta-other", "code_check": two.CHECK_SEARCHED,
+    }  # fmt: skip
+    return mk(
+        "R-5",
+        "Query",
+        "Fail",
+        paper_kind="datasheet",
+        **{**base, two.ABSENCE_FIELD: rec, **kw},
+    )
+
+
+def test_two_readers_not_stated_against_a_quote_that_may_state_it_is_a_question_in_every_cell():
+    line = two_reader_line("Body material", "Carbon steel")
+    point = review_points.ai_point(line, CTX)
+    want = crs_ai_actions.silent_row_words("Body material", "Carbon steel")
+    assert point["rank"] == 4 and wb.status_of(line)[0] == crs_ai_words.STATUS_QUERY
+    assert point["action"] == want.action and crs_one.reason_of(point) == want.reason
+    assert crs_one.paper_shows(point) == want.note
+    cell = wb.layout_comment(line, *wb.status_of(line))
+    for gone in (
+        "found no value",
+        "Contractor to state",
+        "Contractor to confirm",
+        "did not find",
+    ):
+        assert gone not in cell, gone
+    assert cell.split("\n")[2] == want.action
+
+
+def test_two_readers_not_stated_on_the_fields_own_label_keeps_the_verdict_and_says_so_in_every_cell():
+    line = two_reader_line("Body material", "Body material")
+    point = review_points.ai_point(line, CTX)
+    assert point["rank"] == 2
+    assert crs_one.reason_of(point) == crs_ai_actions.AGREED_NOT_STATED_REASON
+    assert (
+        point["action"]
+        == "Contractor to state Body material, or the page where it is shown."
+    )
+    assert "not evidence of a value" in crs_one.paper_shows(point).lower()
+    cell = wb.layout_comment(line, *wb.status_of(line))
+    assert "two AI readers" in cell and cell.split("\n")[2] == point["action"]
+
+
+def test_a_code_proved_absence_says_its_proof_and_never_uses_the_readers_quote_in_both_files():
+    from app import agent_review_crs as arc
+    from app import agent_review_verdict as v
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    line = mk(
+        "R-5", "Fail", "Fail", paper_kind="datasheet", reason_code="absent", paper_quote="Carbon steel", field="Body material",
+        field_roles=["body_material"], pages_searched=[1, 2], decided_by=v.BY_ABSENCE, compare=None, why="the paper is silent",
+    )  # fmt: skip
+    assert crs_ai_actions.silent_row(line) is None
+    assert "Engineer to check" not in arc.company_comment(line)
+    ai_run(doc, [line])
+    client = _client(doc, "doc_std")
+    point = next(x for x in points_of(client, doc)["points"] if x["rank"] == 1)
+    assert decide(client, doc, point["id"], "keep").status_code == 200
+    team = crs_completeness.file_or_refuse(doc, scope_all(), "team")
+    head, rows = rows_after(sheet(team, crs_one.EVIDENCE_SHEET), "No")
+    row = next(r for r in rows if r[head.index("Pill")] == point["pill"])
+    proof = "code searched every page for Body material and found no value (pages searched: 1, 2)"
+    assert row[head.index("Reason")] == proof
+    assert row[head.index("What the paper shows")] == f"C{proof[1:]}."
+    assert row[head.index("What the contractor must do")].startswith(
+        "Contractor to revise Body material"
+    )
+    assert "Carbon steel" not in " ".join(
+        str(c) for c in row if c
+    ) and "Engineer to check" not in str(row)
+    contractor = crs_completeness.file_or_refuse(doc, scope_all(), "contractor")
+    _h, crows = rows_after(sheet(contractor), "Item No")
+    text = " ".join(str(c) for r in crows for c in r if c)
+    assert len(crows) == 1 and "Contractor to revise Body material" in text
+    assert (
+        "Carbon steel" not in text
+        and "Engineer to check" not in text
+        and "reader" not in text
+    )
+
+
+def test_a_contractor_copy_never_carries_the_engineers_words_on_a_quote_that_may_state_it():
+    from app import agent_review_crs as arc
+
+    line = silent_line(
+        "absent",
+        opinion=False,
+        paper_quote="Carbon steel",
+        field="Body material",
+        field_roles=["body_material"],
+    )
+    assert crs_ai_actions.silent_quote(line) == crs_ai_actions.CONTRADICTS
+    said = arc.company_comment(line, contractor=True)
+    assert (
+        "Engineer" not in said and "reader" not in said and "Carbon steel" not in said
+    )
+    assert "Engineer to check" in arc.company_comment(line)
+
+
+def test_every_part_of_the_older_sheet_cell_of_a_silent_row_comes_from_the_one_function():
+    line = silent_line(
+        "absent",
+        opinion=False,
+        paper_quote="Carbon steel",
+        field="Body material",
+        field_roles=["body_material"],
+    )
+    part1, part2, part3 = wb.layout_comment(line, *wb.status_of(line)).split("\n")[:3]
+    want = crs_ai_actions.silent_row(line, where=", page 2")
+    assert "Contractor" not in part1
+    assert part2.startswith(want.note) and "did not find" not in part2
+    assert part3 == crs_ai_actions.silent_row(line).action
