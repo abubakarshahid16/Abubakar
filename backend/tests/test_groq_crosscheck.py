@@ -333,7 +333,10 @@ def test_a_failed_connection_carries_no_request_and_no_key(raises, sent, monkeyp
 @pytest.mark.parametrize(
     "raw,ctype",
     [
-        (b"x" * (groq_transport.MAX_RESPONSE_BYTES + 1), "application/json"),
+        (  # valid JSON, only too big: refused by the size cap alone
+            b'{"pad": "' + b"x" * groq_transport.MAX_RESPONSE_BYTES + b'"}',
+            "application/json",
+        ),
         (b"<html>hello</html>", "text/html"),
         (b"[1, 2]", "application/json"),
         (b'{"choices": []}', "text/html"),  # JSON words, another content type
