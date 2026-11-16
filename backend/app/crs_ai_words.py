@@ -204,6 +204,11 @@ ABSENCE_PLAIN: dict[str, str] = {
     "absence_second_disagreed": "the second AI reader did not agree with the first reader",
     "absence_second_same_model": "no independent second AI reader confirmed the absence",
 }
+#: Lane D's reason text for a second reader cut off by its token limit, keyed by its exact words (the constant lives in
+#: `agent_review_wording.CUT_OFF_WHY` once lane D is merged; a test keeps the two equal).
+CUT_OFF_WHY = (
+    "the second AI reader's answer was cut off, so the two readers did not agree"
+)
 WHY_PHRASES: dict[str, str] = {
     SILENCE_WHY: "the AI reviewer found the paper silent on this, which could not be confirmed",
     CONDITIONAL_WHY: "the rule holds only under a condition, which the AI reviewer could not settle from the paper",
@@ -214,6 +219,8 @@ WHY_PHRASES: dict[str, str] = {
     NOT_STATED_WHY: "the AI reviewer's own words say the paper leaves this out",
     NO_VALUE_WHY: "only the field name was quoted, with nothing after it",
     DISAGREE_WHY: "the two AI readers disagreed",
+    # lane D's CUT_OFF_WHY (agent_review_wording, on o14/D-pump): the second reader was cut off, it never said the opposite
+    CUT_OFF_WHY: "the second AI reader's answer was cut off, so the two readers did not agree",
     **{absence.ABSENCE_WHY[k]: v for k, v in ABSENCE_PLAIN.items() if k in absence.ABSENCE_WHY},
 }  # fmt: skip
 #: A reason with a part that changes (a verdict colour, a page number, an error text): matched by its start or its words.

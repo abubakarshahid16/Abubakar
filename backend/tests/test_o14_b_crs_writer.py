@@ -695,3 +695,48 @@ def test_the_rule_checks_crs_rows_pass_through_the_re_read(monkeypatch):
     )
     crs_mapping.build_crs_rows([], [], "paper.pdf")
     assert seen == [[]]
+
+
+def test_a_cut_off_second_reader_is_said_as_such_never_as_unconfirmed():
+    from app import agent_review_wording as wording
+
+    assert (
+        words.why_phrase(words.CUT_OFF_WHY)
+        == "the second AI reader's answer was cut off, so the two readers did not agree"
+    )
+    assert words.why_phrase(words.CUT_OFF_WHY) != words.UNKNOWN_WHY
+    assert (
+        getattr(wording, "CUT_OFF_WHY", words.CUT_OFF_WHY) == words.CUT_OFF_WHY
+    )  # lane D's constant, once merged, is the same text
+
+
+def test_a_comment_is_named_by_the_items_own_field_not_the_label_the_ai_quoted(
+    monkeypatch,
+):
+    run1 = mk(
+        "R-1",
+        field="Max. inlet pr. at design temp",
+        rule_label={"tier": "AI approved", "field": "set_pressure"},
+    )
+    run2 = mk(
+        "R-1",
+        field="Required relieving capacity",
+        rule_label={"tier": "AI approved", "field": "set_pressure"},
+    )
+    assert WB.field_name(run1) == WB.field_name(run2) == "Set pressure"
+    assert (
+        WB._page_text(run1) == "p.2 - Max. inlet pr. at design temp"
+    )  # the paper's own label stays beside the page
+    monkeypatch.setattr(
+        WB,
+        "_skill_item",
+        lambda _i: {"topic": "PSV inlet line pressure drop", "expected": "x"},
+    )
+    skill = mk(
+        "S-1",
+        item={"source": "skill", "item_id": "S-1"},
+        field="Required relieving capacity",
+    )
+    assert WB.field_name(skill) == "PSV inlet line pressure drop"
+    plain = mk("R-2", field="Fluid")  # no field role: the paper's label, as before
+    assert WB.field_name(plain) == "Fluid"

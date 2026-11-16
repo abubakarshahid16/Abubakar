@@ -91,9 +91,28 @@ OTHER_KIND_OF_SHEET = {
 }
 
 
+def item_field(line: Mapping) -> str:
+    """The ITEM's own field, the same in every run (order 14, lane A's G6 analysis): a rule's field role from its label ("set_pressure"
+    -> "Set pressure"), a checklist item's topic; '' when the item names none."""
+    if line.get("source") == "skill":
+        return _skill_item(line.get("item_id")).get("topic", "")
+    label = line.get("rule_label")
+    role = (
+        _clean(label.get("field")).replace("_", " ")
+        if isinstance(label, Mapping)
+        else ""
+    )
+    return role[:1].upper() + role[1:]
+
+
 def field_name(line: Mapping) -> str:
-    """The field in words a reader knows: the label printed on the paper, else the item's field words; never an item id."""
-    label = _clean(line.get("field")) or _clean(line.get("field_label_ai"))
+    """The field in words a reader knows: the item's own field (`item_field`, not the label the AI happened to quote, which varies
+    between runs), else the label printed on the paper, else the item's field roles; never an item id."""
+    label = (
+        item_field(line)
+        or _clean(line.get("field"))
+        or _clean(line.get("field_label_ai"))
+    )
     if label:
         return label
     roles = [
@@ -106,7 +125,9 @@ def field_name(line: Mapping) -> str:
 
 def _page_text(line: Mapping) -> str:
     page = line_page(line)
-    label = _clean(line.get("field")) or _clean(line.get("field_label_ai"))
+    label = _clean(line.get("field")) or _clean(
+        line.get("field_label_ai")
+    )  # the paper's own label, as the AI quoted it
     base = _page_cell(page) or ""
     return f"{base} - {label}" if base and label else base or label
 
@@ -116,13 +137,13 @@ _WORDING: list[
 ] = []  # filled only by a COMPLETE load, like `agent_review_verdict.checklist_ids`
 
 
-def checklist_wording(item_id: object) -> str:
-    """The checklist item's own requirement wording ("Expected") by item id, through the app's one loader (`agent_skills`).
-    '' when the item or the data is not found on this machine (the caller then falls back to the line's own text)."""
+def _skill_item(item_id: object) -> dict:
+    """A checklist item's "expected" wording and "topic" by item id, through the app's one loader (`agent_skills`), plain words; {}
+    when the item or the data is not found on this machine. Kept only after a COMPLETE load."""
     if not _WORDING:
         from . import agent_skills
 
-        found: dict[str, str] = {}
+        found: dict[str, dict] = {}
         complete = True
         for kind in agent_skills.KINDS:
             try:
@@ -131,12 +152,22 @@ def checklist_wording(item_id: object) -> str:
                 complete = False
                 continue
             found.update(
-                {f"S-{it['id']}": _clean(it.get("expected")) for it in skill["items"]}
+                {
+                    f"S-{it['id']}": {
+                        k: words.plain(it.get(k)) for k in ("expected", "topic")
+                    }
+                    for it in skill["items"]
+                }
             )
         if not (complete and found):
-            return words.plain(found.get(str(item_id)))
+            return found.get(str(item_id)) or {}
         _WORDING.append(found)
-    return words.plain(_WORDING[0].get(str(item_id)))
+    return _WORDING[0].get(str(item_id)) or {}
+
+
+def checklist_wording(item_id: object) -> str:
+    """The checklist item's own requirement wording ("Expected") by item id; '' when not found on this machine."""
+    return _skill_item(item_id).get("expected", "")
 
 
 def _item_ask(line: Mapping) -> str:
