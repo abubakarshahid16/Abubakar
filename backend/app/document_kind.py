@@ -392,6 +392,48 @@ def classify_document_kind(document_id: str) -> DocumentKindEvidence | None:
     return evidence
 
 
+def classify_contract(document_id: str) -> DocumentKindEvidence | None:
+    """The CONTRACT kind for a document of ANY role (order 14 lane E, owner 16 Nov 2026): the parts of a contract carry no
+    CONTRACTOR_SUBMITTAL role, so `classify_document_kind` never runs on them and the other suggester (`doc_router`) has no
+    contract cues. Here the same general decision (`decide_document_kind`: a contract heading on the cover such as a
+    quoted schedule label, "agreement", "general conditions", or "this contract" opening the paper) is stored ONLY when it
+    says contract, as a SUGGESTION (rule 4: a guess until a person confirms it). Any other decision writes nothing: the
+    document keeps what it has. A confirmed kind is never touched; the switch off writes nothing. Returns the evidence
+    stored, else None."""
+    from . import doc_router
+    from .config import settings
+
+    if not settings.document_kind_enabled:
+        return None
+    existing = stored_kind(document_id)
+    if existing is not None and existing[1] == doc_router.STATE_CONFIRMED:
+        return None
+    conn = connect()
+    pages = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (document_id,),
+        )
+    ]
+    role = conn.execute(
+        "SELECT document_role FROM document_classification WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
+    evidence = decide_document_kind(
+        pages, document_role=role["document_role"] if role else None
+    )
+    if evidence.kind != "contract":
+        return None
+    _write(
+        document_id,
+        "contract",
+        doc_router.STATE_SUGGESTED,
+        {"decider": "document_kind.contract", **evidence.as_dict()},
+    )
+    return evidence
+
+
 def _write(document_id: str, kind, state: str, evidence: dict) -> None:
     from . import doc_router
 
