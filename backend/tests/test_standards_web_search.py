@@ -107,6 +107,15 @@ def answered(run_id: str, finish: str = "end_turn") -> None:
                             prompt_sha256="x", wall_time_s=0.0, finish_reason=finish)  # fmt: skip
 
 
+@pytest.fixture(autouse=True)
+def _invented_names_on_the_list(monkeypatch):
+    """The tests name invented books (ISO 90xx); the app's own list (review R3-1856) gets them for the tests only."""
+    real = sws.known_names()
+    monkeypatch.setattr(
+        sws, "known_names", lambda: real + tuple(f"ISO {9000 + i}" for i in range(14))
+    )
+
+
 def missing(run_id: str, *names: str, sent: bool = True) -> None:
     with db.connect() as conn:
         conn.executemany(
@@ -750,3 +759,52 @@ def test_the_search_books_its_spend_to_the_run_by_itself(monkeypatch):
     )
     sws.search_run("run-invented-1")
     assert seen == ["run-invented-1"]
+
+
+# --- review R3-1856, the rethink: what leaves is always a name from the app's own tables
+
+
+def test_the_app_list_comes_from_its_own_tables():
+    names = (
+        sws.known_names.__wrapped__()
+        if hasattr(sws.known_names, "__wrapped__")
+        else sws.known_names()
+    )
+    assert "API 521" in names and all(
+        n.split()[0].upper() in sws.FAMILIES for n in names
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "API 610 PART 2301A",
+        "API 610 SPEC 4821-07",
+        "API 610 DIV 77 SEC 4821",
+        "API 610 2019 2020 1999",
+    ],
+)
+def test_only_the_tables_own_name_leaves_never_the_papers_extra_words(raw):
+    assert sws.known_public_name(raw) == "API 610"
+
+
+@pytest.mark.parametrize("raw", ["API P101A", "ASME V2301", "API 4821-07", "ISO 99999"])
+def test_a_name_on_no_table_is_never_sent(raw):
+    assert sws.known_public_name(raw) is None
+
+
+def test_the_run_sends_the_tables_name_not_the_papers_words():
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 610 PART 2301A")
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    text = send.bodies[0]["messages"][0]["content"][0]["text"]
+    assert text == "Standard: API 610" and "2301A" not in str(send.bodies[0])
+
+
+def test_a_publisher_alone_is_nothing_found_not_incomplete():
+    answer = {
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": '{"publisher": "API", "title": null}'}],
+    }
+    assert sws.read_answer(answer)[1] is True

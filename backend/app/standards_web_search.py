@@ -49,6 +49,8 @@ import sqlite3
 import time
 import unicodedata
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import agent_claude, claude_spend
@@ -124,7 +126,7 @@ FOUND, NOTHING, INCOMPLETE, NOT_SEARCHED, FAILED = (
     "not searched",
     "search failed",
 )
-NOT_PUBLIC = "not a public standard name, so it was not sent"
+NOT_PUBLIC = "not on the app's own list of public standards, so it was not sent"
 CAP_WORDS = "the USD limit for online search in this review was reached"
 COUNT_WORDS = f"at most {MAX_PER_RUN} rule books are searched in one review"
 TIME_WORDS = (
@@ -228,6 +230,60 @@ def clean_name(raw) -> str | None:
     if len(name) > NAME_LIMIT or not any(c.isdigit() for c in name):
         return None
     return name
+
+
+#: The app's own tables of public standards by name (review R3-1856, the rethink after three rounds of shape rules: what leaves is
+#: ALWAYS a name from these tables, never text taken from a paper; a cited book that matches no entry is not searched).
+KNOWN_NAME_TABLES = ("governing_standards.json", "kind_books.json")
+
+
+@lru_cache(maxsize=1)
+def known_names() -> tuple[str, ...]:
+    """The public standard names the app's own reference tables hold (first word a publisher family), as written there."""
+    from . import standard_ids
+
+    out: set[str] = set()
+
+    def walk(x) -> None:
+        if isinstance(x, str):
+            words = x.split()
+            if (
+                words
+                and words[0].upper() in FAMILIES
+                and len(x) <= NAME_LIMIT
+                and standard_ids.parse(x)
+            ):
+                out.add(x.strip())
+        elif isinstance(x, list):
+            for item in x:
+                walk(item)
+        elif isinstance(x, dict):
+            for k, v in x.items():
+                walk(k)
+                walk(v)
+
+    for table in KNOWN_NAME_TABLES:
+        walk(
+            json.loads(
+                (Path(__file__).parent / "reference" / table).read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
+    return tuple(sorted(out))
+
+
+def known_public_name(raw) -> str | None:
+    """The name that may leave for a cited book: the matching entry of the app's own tables (`known_names`), or None. The paper's
+    own text never leaves: `clean_name` must accept it AND it must be the same standard as a table entry; the entry is sent."""
+    from . import standard_ids
+
+    cleaned = clean_name(raw)
+    if not cleaned:
+        return None
+    return next(
+        (k for k in known_names() if standard_ids.same_standard(cleaned, k)), None
+    )
 
 
 def tool() -> dict:
@@ -377,7 +433,10 @@ def read_answer(answer: dict) -> tuple[dict, bool]:
         "publisher": _short(got.get("publisher"), 100),
         "url": publisher_url(got.get("url")),
     }
-    reported = any(got.get(k) not in (None, "", [], {}) for k in FIELDS)
+    reported = any(
+        got.get(k) not in (None, "", [], {})
+        for k in ("title", "latest_edition", "year", "url")
+    )  # a publisher alone is a "nothing"
     if (
         readable
         and reported
@@ -635,7 +694,7 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
         for name in names:
             if name in done:
                 continue
-            searched = clean_name(name)
+            searched = known_public_name(name)
             parts = body_parts(searched) if searched else None
             why = NOT_PUBLIC if parts is None else (stop or budget.refuses(parts))
             if why is not None:
