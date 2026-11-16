@@ -215,13 +215,16 @@ def test_the_grouped_point_is_a_query_on_the_internal_copy_only(tmp_path):
     assert not rows_of(
         C.write_contractor([line], tmp_path / "c.xlsx", META)
     )  # a contractor copy never holds it
-    internal = rows_of(C.write_internal([line], tmp_path / "i.xlsx", META))
-    cell = next(
-        str(r["COMPANY Comments"])
-        for r in internal
-        if "could not be matched" in str(r["COMPANY Comments"])
-    )
-    assert cell.startswith(line["why"]) and "Contractor to" not in cell
+    path = C.write_internal([line], tmp_path / "i.xlsx", META)
+    # order 14 lane B: not a comment row; ONE coverage note on the first sheet, and the line on the sheet "Not a comment"
+    assert not rows_of(path)
+    other = rows_of(path, "Not a comment")
+    assert [r["What it is"] for r in other] == ["Coverage note"]
+    assert str(other[0]["Reason"]).startswith(line["why"]) and "Contractor to" not in str(other[0]["Reason"])
+    import openpyxl
+
+    top = [r for r in openpyxl.load_workbook(path)["CRS"].iter_rows(values_only=True) if r and r[0] == "Coverage note:"]
+    assert top and str(next(c for c in top[0][1:] if c)).startswith("7 rules of the rule books this review selected could not be matched")
 
 
 # ---------------------------------------------------------------- 3. rank and budget

@@ -67,6 +67,21 @@ OTHER_KINDS = (
     KIND_NOT_CHECKED_HERE,
     KIND_NOT_HELD,
 )
+#: Order 14 lane B (owner, 16 Nov 2026: "drop noise rows, merge repeats, move 'N rules not matched' to a coverage note"). A line or point
+#: that carries no finding is NOT a comment: it is listed apart, counted and named, never dropped (the completeness rule still holds).
+NOT_A_COMMENT_SHEET = "Not a comment"  # the AI run file's sheet of every line that is not a comment row (Excel: 31 characters at most)
+KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two readers or one reader): the engineer ticks it, no comment
+KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
+KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
+NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_COVERAGE)
+#: Words that say there is nothing to do ("no correction needed", "found none", "could not be read" and their plain variants). A model's
+#: own sentence is shown without them (`drop_noise`); our own fixed words never use them.
+NOISE = re.compile(
+    r"\b(?:no corrections? (?:is |are |was |were )?(?:needed|required)"
+    r"|found none|none (?:was |were )?found"
+    r"|(?:could|can) ?not be read|couldn'?t be read|can'?t be read)\b[^.;!?]*[.;!?]?",
+    re.IGNORECASE,
+)
 
 
 def priority_rule(statuses) -> str:
@@ -364,7 +379,18 @@ def plain(text: object) -> str:
     raw = _ID_RE.sub("", raw)
     raw = _SNAKE.sub(lambda m: code_phrase(m.group(0)), raw)
     keep = [s for s in _SENTENCES.split(raw) if s.strip() and not has_banned(s)]
-    return " ".join(" ".join(keep).split())
+    return drop_noise(" ".join(" ".join(keep).split()))
+
+
+def drop_noise(text: object) -> str:
+    """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
+    a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
+    only that is not a comment (`crs_comments.not_a_comment`)."""
+    raw = _clean(text)
+    if not NOISE.search(raw):
+        return raw
+    out = " ".join(NOISE.sub(" ", raw).split()).strip(" ;,")
+    return out[:1].upper() + out[1:] if out else ""
 
 
 def comment_by(discipline: object) -> str:
@@ -430,7 +456,13 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
+    "KIND_COVERAGE",
+    "KIND_IN_COMMENT",
+    "KIND_NOTHING_TO_CHANGE",
+    "NOISE",
     "NORMAL_STATUSES",
+    "NOT_A_COMMENT_KINDS",
+    "NOT_A_COMMENT_SHEET",
     "OTHER_SHEET",
     "PRIORITY_RULE",
     "PRIORITY_RULE_AI",
@@ -440,6 +472,7 @@ __all__ = [
     "WHY_PHRASES",
     "code_phrase",
     "comment_by",
+    "drop_noise",
     "generated_by",
     "has_banned",
     "plain",

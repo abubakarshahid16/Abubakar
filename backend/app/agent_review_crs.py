@@ -26,7 +26,9 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
+from . import crs_ai_words as words
 from .agent_review_local import LOCAL_TOO_LONG, NOT_ASKED_WORDS
 from . import numparse
 from .agent_review_verdict import (
@@ -565,4 +567,153 @@ def run_counts(lines: list[Mapping]) -> dict:
             if groups
             else {}
         ),
+    }
+
+
+# ------------------------------------------------------------------------------------------------ the sheet Evidence of the AI run's file
+# (moved here from `crs_ai_workbook`, order 14 lane B, when that module grew past the verdict path's 800 lines; unchanged except that a
+# line which is not a comment keeps its own Status). Every line of the run has its row, comment or not (`crs_completeness.older_report`).
+
+
+def _status_of(line: Mapping):
+    from .crs_ai_workbook import status_of
+
+    return status_of(line)
+
+
+EVIDENCE_COLUMNS = (
+    "Item No", "Status", "AI reasoning", "AI reader's suggested action", "Paper quote", "Paper page", "Clause quote", "Rule book and clause",
+    "Paper quote check", "Clause quote check", "Second reader", "AI calls (models)", "Reason code", "Item id (internal)",
+    "Rule id (internal)", "Independent reader: verdict", "Independent reader: paper quote", "Independent reader: paper page",
+    "Independent reader: clause quote", "Independent reader: paper quote check", "Independent reader: clause quote check",
+)  # fmt: skip
+EVIDENCE_WIDTHS = (
+    9.0,
+    13.0,
+    60.0,
+    45.0,
+    45.0,
+    9.0,
+    45.0,
+    26.0,
+    16.0,
+    16.0,
+    18.0,
+    30.0,
+    22.0,
+    24.0,
+    30.0,
+    16.0,
+    45.0,
+    9.0,
+    45.0,
+    16.0,
+    16.0,
+)
+
+
+def _check_word(ok: bool) -> str:
+    return "verified" if ok else "not verified"
+
+
+def _second_reader(line: Mapping) -> str:
+    second = line.get("second_opinion")
+    if isinstance(second, Mapping):
+        return "asked: agreed" if second.get("agree") else "asked: disagreed"
+    return "not asked"
+
+
+def _calls(line: Mapping) -> str:
+    second = line.get("second_opinion")
+    parts = []
+    if _clean(line.get("model")):
+        reused = line.get(
+            "reused_answer"
+        )  # point E: internal copy only (the contractor copy has no Evidence sheet)
+        mark = (
+            f" ({reused['text']})"
+            if isinstance(reused, Mapping) and reused.get("text")
+            else ""
+        )
+        parts.append(f"first reader {_clean(line['model'])}{mark}")
+    if isinstance(second, Mapping) and _clean(second.get("model")):
+        parts.append(f"second reader {_clean(second['model'])}")
+    indep = two.stored(line)
+    if indep is not None and _clean(indep.get("model")):
+        parts.append(f"independent reader {_clean(indep['model'])}")
+    return "; ".join(parts) or "none"
+
+
+def _independent_cells(line: Mapping) -> list:
+    """The independent second reader's verdict, its two quotes and both quote checks (blank when it was not asked)."""
+    indep = two.independent(line)
+    if indep is None:
+        return [None] * 6
+    if (
+        indep.get("verdict") == two.A_NOT_STATED
+    ):  # it found nothing: there is no paper quote to check
+        q = indep.get("quotes_checked") or {}
+        return [
+            "not stated", None, None, _clean(indep.get("clause_quote")) or None,
+            "no quote: nothing found", _check_word(bool(q.get("clause"))),
+        ]  # fmt: skip
+    q = (
+        indep.get("quotes_checked")
+        if isinstance(indep.get("quotes_checked"), Mapping)
+        else {}
+    )
+    return [
+        indep.get("verdict"),
+        _clean(indep.get("paper_quote")) or None,
+        indep.get("paper_page"),
+        _clean(indep.get("clause_quote")) or None,
+        _check_word(bool(q.get("paper"))),
+        _check_word(bool(q.get("clause"))),
+    ]
+
+
+def _evidence_row(n: int, line: Mapping, status: str) -> list:
+    q = line.get("quotes_checked") or {}
+    label = line.get("rule_label")
+    page = line.get("clause_page")
+    ref = against(line) + (f", page {page}" if page not in (None, "") else "")
+    return [
+        n,
+        status,
+        _clean(line.get("reasoning")) or None,
+        _clean(line.get("comment")) or None,
+        _clean(line.get("paper_quote")) or None,
+        line.get("paper_page"),
+        _clean(line.get("clause_quote")) or None,
+        ref or None,
+        _check_word(bool(q.get("paper"))),
+        _check_word(bool(q.get("clause"))),
+        _second_reader(line),
+        _calls(line),
+        _clean(line.get("reason_code")) or None,
+        line.get("item_id"),
+        label.get("label_key") if isinstance(label, Mapping) else None,
+        *_independent_cells(line),
+    ]
+
+
+def _own_status(line: Mapping, kind: str) -> str:
+    got = _status_of(line)
+    return got[0] if got and kind not in words.OTHER_KINDS else kind
+
+
+def evidence_sheet(items: list, others: list) -> dict:
+    """The sheet Evidence: one row per line, the comment rows first (same Item No as the sheet CRS), then every other line."""
+    from .crs_ai_workbook import _table
+
+    rows = [_evidence_row(n, ln, st) for n, (ln, st, _o) in enumerate(items, start=1)]
+    rows += [  # order 14 lane B: a line merged into a comment or met keeps its own Status here; its place is on the sheet "Not a comment"
+        _evidence_row(len(items) + k, ln, _own_status(ln, kind))
+        for k, (ln, kind) in enumerate(others, start=1)
+    ]
+    return {
+        "columns": EVIDENCE_COLUMNS,
+        "rows": _table(rows),
+        "statuses": [st for _l, st, _o in items] + [None] * len(others),
+        "widths": EVIDENCE_WIDTHS,
     }

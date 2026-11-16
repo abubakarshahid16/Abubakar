@@ -53,6 +53,8 @@ DNA_SHEET = "Does not apply"
 HELD_SHEET = "Rule books not held"
 NOT_CHECKED_SHEET = "What was not checked"
 HOW_SHEET = "How it was reviewed"
+#: Order 14 lane B: the fields that carry no finding (met, does not apply, a coverage line), listed apart and counted, never dropped
+NOT_A_COMMENT_SHEET = "Not a comment"
 FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
@@ -585,6 +587,18 @@ def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     )
 
 
+def aside_line(aside: list[tuple[dict, str]]) -> str:
+    """ONE sentence counting the points that are not comments, by what they are (order 14 lane B)."""
+    by: Counter = Counter()
+    for c, kind in aside:
+        by[kind] += c["n_points"]
+    n = sum(by.values())
+    if not n:
+        return "Not a comment: none (every point that is not removed is in a comment)."
+    each = "; ".join(f"{kind}: {k}" for kind, k in sorted(by.items(), key=lambda kv: (kv[0] != words.KIND_NOTHING_TO_CHANGE, kv[0])))
+    return f"Not a comment: {n} points carry no finding ({each}); listed on the sheet {NOT_A_COMMENT_SHEET}."
+
+
 def no_rule_words(points: list[dict]) -> str:
     """What the rule-books cell says when no book is named: a rule book the reader may not read is counted and not named; otherwise the
     comment rests on NO rule book and says so (a field check never looks like a rule-backed comment)."""
@@ -659,6 +673,8 @@ def build_team(
     by_id = {p["id"]: p for p in raw}
     grouped = comments.group(raw)
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
+    aside = comments.set_aside(raw)  # order 14 lane B: no finding, so not a comment; named on Evidence, counted, listed on its sheet
+    comment_of.update({i: kind for c, kind in aside for i in c["member_ids"]})
     evidence, cut = [], 0
     for p in raw:
         row, cc = row_of(numbers[p["id"]], p, comment_of.get(p["id"], "removed"))
@@ -675,6 +691,8 @@ def build_team(
     lines = [
         completeness.team_statement(listing["of"], len(grouped)),
         count_line(listing, len(evidence), len(grouped)),
+        aside_line(aside),
+        *([f"Coverage note: {note}"] if (note := comments.coverage_note(raw)) else []),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (
             f"; {cut} cell(s) shortened with {CUT_MARK} (the whole text is in the column Full text)"
@@ -698,6 +716,13 @@ def build_team(
         wb, REMOVED_SHEET, ("No", "Field or item", "Page", "Removed by", "When", "Why"),
         [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("page"), (p["decision"].get("by") or NOT_RECORDED), p["decision"].get("at") or NOT_RECORDED, p["decision"].get("reason") or NOT_RECORDED)] for p in removed],
         (6, 40, 8, 22, 22, 60), note="Points an engineer removed. They stay in the record and are counted in the line above the sheet CRS.",
+    )  # fmt: skip
+    _sheet_table(
+        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses"),
+        [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), ", ".join(str(g) for g in x["pages"]) or None,
+                             comment_full_texts(x)["clauses"])] for x, kind in aside],
+        (40, 28, 8, 20, 12, 60),
+        note=f"{aside_line(aside)} Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
     )  # fmt: skip
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(

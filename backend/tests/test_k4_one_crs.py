@@ -118,7 +118,8 @@ def test_the_team_file_has_all_the_sheets():
 
     names = lw(io.BytesIO(crs_one.build_team(doc, scope_all()))).sheetnames
     assert names == [
-        "CRS", "Evidence", "Removed (record)", "Does not apply", "Rule books not held", "What was not checked", "How it was reviewed",
+        "CRS", "Evidence", "Removed (record)", "Not a comment", "Does not apply", "Rule books not held", "What was not checked",
+        "How it was reviewed",
     ]  # fmt: skip
 
 
@@ -702,27 +703,27 @@ def test_points_of_one_field_make_one_comment_listing_every_clause_and_page():
 def test_the_strongest_status_wins_and_a_weaker_one_never_does():
     from app import crs_comments
 
-    c = crs_comments.group([_fp(1, 4), _fp(2, 3), _fp(3, 4)])[0]
+    c = crs_comments.group([_fp(1, 4), _fp(2, 3), _fp(3, 4)], findings_only=False)[0]
     assert c["rank"] == 3 and c["pill"] == "pill3"
-    c = crs_comments.group([_fp(1, 5), _fp(2, 4)])[0]
+    c = crs_comments.group([_fp(1, 5), _fp(2, 4)], findings_only=False)[0]
     assert c["rank"] == 4  # a Query is stronger than a Met
-    c = crs_comments.group([_fp(1, 7), _fp(2, 7)])[0]
+    c = crs_comments.group([_fp(1, 7), _fp(2, 7)], findings_only=False)[0]
     assert c["rank"] == 7  # merging never raises a class
-    c = crs_comments.group([_fp(1, 1), _fp(2, 3)])[0]
+    c = crs_comments.group([_fp(1, 1), _fp(2, 3)], findings_only=False)[0]
     assert c["rank"] == 1 and c["pill"] == "pill1"  # a proven Fail keeps its own class
 
 
 def test_a_contradiction_is_never_merged_silently():
     from app import crs_comments
 
-    c = crs_comments.group([_fp(1, 5), _fp(2, 3)])[0]
+    c = crs_comments.group([_fp(1, 5), _fp(2, 3)], findings_only=False)[0]
     assert (
         c["disagree"]
         and c["rank"] == 4
         and "disagree" in c["pill"]
         and c["n_points"] == 2
     )
-    assert not crs_comments.group([_fp(1, 5), _fp(2, 6)])[0]["disagree"]
+    assert not crs_comments.group([_fp(1, 5), _fp(2, 6)], findings_only=False)[0]["disagree"]
 
 
 def test_a_point_with_no_field_groups_by_clause_else_stands_alone():
@@ -767,7 +768,9 @@ def test_a_comment_that_loses_a_point_from_its_count_is_refused(monkeypatch):
     monkeypatch.setattr(
         crs_one,
         "comments",
-        types.SimpleNamespace(group=lossy, DISAGREE=crs_comments.DISAGREE),
+        types.SimpleNamespace(
+            group=lossy, DISAGREE=crs_comments.DISAGREE, set_aside=crs_comments.set_aside, coverage_note=crs_comments.coverage_note
+        ),
     )
     with pytest.raises(cc.Incomplete) as e:
         cc.file_or_refuse(doc, scope_all(), "team")

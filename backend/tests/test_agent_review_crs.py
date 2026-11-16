@@ -140,7 +140,7 @@ def test_the_internal_copy_has_four_sheets_and_the_ten_columns_in_order(tmp_path
     wb = openpyxl.load_workbook(path)
     assert wb.sheetnames == [
         "CRS",
-        "Not reviewed or not applicable",
+        "Not a comment",
         "Evidence",
         "Notes",
     ]
@@ -159,28 +159,14 @@ def test_the_internal_copy_has_four_sheets_and_the_ten_columns_in_order(tmp_path
 def test_the_item_rows_run_fail_ai_not_met_query_ai_met_pass(tmp_path):
     path = C.write_internal(LINES, tmp_path / "i.xlsx", META)
     rows = rows_of(path)
-    # Fail (R-1, S-1, then the 'should' Fail R-6), AI opinion not met (R-3), Query (R-8), AI opinion met (R-4), Pass (R-2)
-    assert [r["Status"] for r in rows] == [
-        "Fail",
-        "Fail",
-        "Fail",
-        "AI opinion",
-        "Query",
-        "AI opinion",
-        "Pass",
-    ]
-    assert fields(path) == [
-        "Field R1",
-        "Field S1",
-        "Field R6",
-        "Field R3",
-        "Field R8",
-        "Field R4",
-        "Field R2",
-    ]
-    assert [r["Item No"] for r in rows] == list(range(1, 8))
+    # Fail (R-1, S-1, then the 'should' Fail R-6), AI opinion not met (R-3), Query (R-8). Order 14 lane B: the met lines (AI opinion
+    # met R-4, Pass R-2) carry no finding: they are not comments, they are "Checked, nothing to change" on the sheet "Not a comment"
+    assert [r["Status"] for r in rows] == ["Fail", "Fail", "Fail", "AI opinion", "Query"]
+    assert fields(path) == ["Field R1", "Field S1", "Field R6", "Field R3", "Field R8"]
+    assert [r["Item No"] for r in rows] == list(range(1, 6))
     assert "the requirement is not met" in rows[3]["COMPANY Comments"]
-    assert "the requirement is met" in rows[5]["COMPANY Comments"]
+    met = [r for r in rows_of(path, "Not a comment") if r["What it is"] == "Checked, nothing to change"]
+    assert [r["Item No"] for r in met] == [6, 7]
 
 
 def test_lines_that_are_not_item_rows_are_on_their_own_sheet_numbered_on_from_the_crs_rows(
@@ -194,11 +180,12 @@ def test_lines_that_are_not_item_rows_are_on_their_own_sheet_numbered_on_from_th
     }
     cut = mk("R-9", "Query", None, error="stop_max_tokens", reasoning="")
     path = C.write_internal([*LINES, cut], tmp_path / "i.xlsx", meta)
-    other = rows_of(path, "Not reviewed or not applicable")
+    other = rows_of(path, "Not a comment")
     assert [r["What it is"] for r in other] == [
-        "Rule not yet approved", "Does not apply", "Not reviewed", "Not checked: rule book not held",
+        "Checked, nothing to change", "Checked, nothing to change", "Rule not yet approved", "Does not apply", "Not reviewed",
+        "Not checked: rule book not held",
     ]  # fmt: skip
-    assert [r["Item No"] for r in other] == [8, 9, 10, 11]  # the CRS sheet holds 1 to 7
+    assert [r["Item No"] for r in other] == [6, 7, 8, 9, 10, 11]  # the CRS sheet holds 1 to 5
     assert "Book X" in all_text(path)
     main = fields(path)
     assert not {"Field R7", "Field R5", "Field R9"} & set(
@@ -409,20 +396,21 @@ def test_the_notes_counts_equal_the_rows_and_the_priority_rule_is_printed(tmp_pa
     for status in words.STATUSES:
         assert int(notes[f"Count: {status}"]) == statuses.count(status)
     assert int(notes["Count: rows on the CRS sheet"]) == len(statuses)
-    other = rows_of(path, "Not reviewed or not applicable")
+    other = rows_of(path, "Not a comment")
     assert int(
-        notes["Count: rows on the sheet 'Not reviewed or not applicable'"]
+        notes["Count: rows on the sheet 'Not a comment'"]
     ) == len(other)
-    for kind in words.OTHER_KINDS:
+    for kind in (*words.OTHER_KINDS, *words.NOT_A_COMMENT_KINDS):
         assert int(notes[f"Count: {kind}"]) == [r["What it is"] for r in other].count(
             kind
         )
-    # the one function that decides a line's place (`sheet_of`) agrees with the rows
+    # the one function that decides a line's place (`sheet_of`) agrees with the rows; order 14 lane B: a met line is not a comment
     assert len(statuses) + len(other) == len(LINES)
+    met = (words.ORDER_PASS, words.ORDER_AI_MET, words.ORDER_AI_VERDICT_MET)
     assert len(statuses) == sum(
         1
         for ln in LINES
-        if C.sheet_of(ln) in (C.CRS_SHEET, C.PASSED_SHEET, C.HELD_PASS_SHEET)
+        if C.sheet_of(ln) in (C.CRS_SHEET, C.PASSED_SHEET, C.HELD_PASS_SHEET) and WB.status_of(ln)[1] not in met
     )
 
 
@@ -444,7 +432,7 @@ def test_the_evidence_sheet_has_one_row_per_item_with_the_same_item_no(tmp_path)
     lines = [*LINES, mk("R-9", "Query", None, error="stop_max_tokens", reasoning="")]
     path = C.write_internal(lines, tmp_path / "i.xlsx", META)
     evidence = rows_of(path, "Evidence")
-    shown = rows_of(path) + rows_of(path, "Not reviewed or not applicable")
+    shown = rows_of(path) + rows_of(path, "Not a comment")
     assert [e["Item No"] for e in evidence] == [r["Item No"] for r in shown]
     first = evidence[0]
     assert (
@@ -570,8 +558,11 @@ def test_comment_by_is_the_ai_reviewer_and_the_discipline_when_known(tmp_path):
     ],
 )
 def test_the_priority_rule(line, priority, tmp_path):
-    row = rows_of(C.write_internal([line], tmp_path / "i.xlsx", META))[0]
-    assert row["Priority"] == priority
+    rows = rows_of(C.write_internal([line], tmp_path / "i.xlsx", META))
+    if priority is None:  # order 14 lane B: a met line carries no finding: no comment row, so no priority
+        assert rows == []
+    else:
+        assert rows[0]["Priority"] == priority
 
 
 def test_the_main_sheet_is_styled_by_code(tmp_path):
@@ -619,7 +610,7 @@ def test_the_main_sheet_is_styled_by_code(tmp_path):
 
 def test_every_other_sheet_is_styled_the_same_way(tmp_path):
     wb = openpyxl.load_workbook(C.write_internal(LINES, tmp_path / "i.xlsx", META))
-    for name in ("Not reviewed or not applicable", "Evidence", "Notes"):
+    for name in ("Not a comment", "Evidence", "Notes"):
         ws = wb[name]
         assert ws["A1"].fill.fgColor.rgb == "FF1F3864" and ws["A1"].font.bold
         assert ws.freeze_panes == "A2" and ws.page_setup.orientation == "landscape"
@@ -674,7 +665,7 @@ def test_a_not_reviewed_line_is_not_an_item_row_in_any_copy(tmp_path):
     lines = [nr, held, mk("R-1", "Fail", "Fail")]
     internal = C.write_internal(lines, tmp_path / "i.xlsx", META)
     assert [r["Status"] for r in rows_of(internal)] == ["Fail"]
-    other = rows_of(internal, "Not reviewed or not applicable")
+    other = rows_of(internal, "Not a comment")
     assert [r["What it is"] for r in other] == ["Not reviewed", "Not reviewed"]
     assert "cut off" in other[0]["Reason"]  # plain words, never the stored code
     assert len(rows_of(C.write_contractor(lines, tmp_path / "c.xlsx", META))) == 1
@@ -694,7 +685,7 @@ def test_a_not_reviewed_line_of_an_unapproved_rule_is_only_on_the_other_sheet(tm
     )
     assert [r["Status"] for r in rows_of(internal)] == ["Fail"]
     assert [
-        r["What it is"] for r in rows_of(internal, "Not reviewed or not applicable")
+        r["What it is"] for r in rows_of(internal, "Not a comment")
     ] == ["Not reviewed", "Not reviewed"]
 
 
@@ -981,7 +972,7 @@ def test_every_other_sheet_reason_starts_with_a_capital_and_keeps_ai_upper_case(
     nr = mk("R-N", "Query", None, error="stop_max_tokens", reasoning="")
     reason = rows_of(
         C.write_internal([nr], tmp_path / "i.xlsx", META),
-        "Not reviewed or not applicable",
+        "Not a comment",
     )[0]["Reason"]
     assert reason == "The AI reviewer's answer was cut off."
 
@@ -1000,8 +991,8 @@ def test_a_scorer_reads_both_layouts_by_header_name_and_says_which(tmp_path):
     )
     assert layout == aks.LAYOUT_NEW
     assert (
-        sum(1 for x in got if x.is_pass) == 1 and len(got) == 3
-    )  # one Pass, Fail + AI opinion (not met) comments
+        sum(1 for x in got if x.is_pass) == 0 and len(got) == 2
+    )  # Fail + AI opinion (not met) comments; order 14 lane B: the Pass is on the sheet "Not a comment" (Status "Pass")
     old = openpyxl.Workbook()
     ws = old.active
     ws.title = "CRS"
@@ -1040,14 +1031,18 @@ def skills(monkeypatch):
     WB._WORDING.clear()
 
 
-def test_a_checklist_lines_part_one_is_the_item_wording_by_item_id(skills):
+def test_a_checklist_lines_part_one_is_the_books_verified_quote_never_the_item_wording(skills):
+    """Order 14 lane B (owner, 16 Nov 2026): the comment quotes the clause code verified in the book, never our checklist's wording."""
     line = mk("S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"})
     assert (
         WB.checklist_wording("S-1") == "The nameplate is steel and is fixed."
     )  # a code word is scrubbed
     one = WB.layout_comment(line, *WB.status_of(line)).split("\n")[0]
-    assert one == 'STD-1 clause 4.1 requires: "The nameplate is steel and is fixed.".'
+    assert one == 'STD-1 clause 4.1 requires: "Nameplates shall be steel and fixed".'
     assert not words.has_banned(one)
+    unverified = {**line, "quotes_checked": {"paper": True, "clause": False}}
+    one = WB.layout_comment(unverified, *WB.status_of(line)).split("\n")[0]
+    assert WB.NO_QUOTE in one and 'Our checklist asks (our words, not the book\'s): "The nameplate is steel and is fixed."' in one
 
 
 def test_a_checklist_line_falls_back_to_todays_text_and_the_notes_sheet_says_so(
@@ -1185,7 +1180,7 @@ def test_every_other_cell_is_still_one_line(tmp_path):
     line = mk("R-1", "Fail", "Fail", paper_quote="two\nlines", reasoning="a\nb")
     path = C.write_internal([line], tmp_path / "i.xlsx", META)
     wb = openpyxl.load_workbook(path)
-    for sheet in ("Evidence", "Notes", "Not reviewed or not applicable"):
+    for sheet in ("Evidence", "Notes", "Not a comment"):
         for row in wb[sheet].iter_rows(min_row=2, values_only=True):
             assert all("\n" not in str(c) for c in row if c is not None), (sheet, row)
     ws = wb["CRS"]
