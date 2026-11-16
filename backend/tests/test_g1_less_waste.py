@@ -99,7 +99,8 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 60 on 15 Nov (#1814): the second exit of the datasheet evaluator, a value nobody can trust is not a verdict
     # raised to 61 on 15 Nov (#1828): crs_ai_actions.py words the action of a CRS row by case
     # raised to 62 on 16 Nov (#1845, the lead's decision): datasheet_sum.py, split out of the datasheet_checks danger zone, decides a checklist verdict
-    assert len(vp.VERDICT_PATH) <= 62
+    # raised to 63 on 17 Nov (#1584, online search for rule books not held): standards_web_search.py decides what leaves the machine
+    assert len(vp.VERDICT_PATH) <= 63
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

@@ -271,6 +271,26 @@ describe("5 and 6 the rule book chips and the rule books not held", () => {
     mount(); await loaded();
     expect(screen.getByTestId("v2-not-held")).toHaveTextContent("Not checked, rule book not held: Book A, Book B, Book C and 2 more. See all");
   });
+  it("shows no online line while the online search is off (no found_online in the listing)", async () => {
+    mount(); await loaded();
+    expect(screen.queryByTestId("v2-found-online")).toBeNull();
+  });
+  it("with the online search on, says what it found, marked not verified, one line per book", async () => {
+    const l = listing();
+    l.counts.not_held = {
+      ...l.counts.not_held,
+      found_online: [
+        { name: "Book A", outcome: "found", words: "Book A title; 7th edition; (2020); Publisher (found online, not verified; the book is not held)", url: null },
+        { name: "Book B", outcome: "not searched", words: "not searched: not a public standard name, so it was not sent", url: null },
+      ],
+    };
+    api.list.mockResolvedValue(ok(l));
+    mount(); await loaded();
+    const lines = within(screen.getByTestId("v2-found-online")).getAllByRole("listitem");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toHaveTextContent("Found online (not verified, book not held): Book A: Book A title; 7th edition; (2020); Publisher (found online, not verified; the book is not held)");
+    expect(lines[1]).toHaveTextContent("Book B: not searched: not a public standard name, so it was not sent");
+  });
   it("shows nothing when none is missing", async () => {
     const l = listing(); l.counts.not_held = { names: [], more: 0, total: 0, note: null };
     api.list.mockResolvedValue(ok(l));

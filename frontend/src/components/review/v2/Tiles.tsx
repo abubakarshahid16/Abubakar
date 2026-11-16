@@ -69,10 +69,22 @@ export function NotHeldLine({ counts, onSeeAll }: { counts: PointsListing["count
   const h = counts.not_held;
   if (!h.total) return null;
   const names = h.names.join(", ");
+  const found = h.found_online ?? [];
   return (
-    <p data-testid="v2-not-held" className="text-xs text-slateish-300">
-      Not checked, rule book not held: {names}{h.more > 0 ? ` and ${h.more} more` : ""}.{" "}
-      <button type="button" onClick={onSeeAll} className="text-signal-300 underline-offset-2 hover:underline">See all</button>
-    </p>
+    <>
+      <p data-testid="v2-not-held" className="text-xs text-slateish-300">
+        Not checked, rule book not held: {names}{h.more > 0 ? ` and ${h.more} more` : ""}.{" "}
+        <button type="button" onClick={onSeeAll} className="text-signal-300 underline-offset-2 hover:underline">See all</button>
+      </p>
+      {found.length > 0 && (
+        <ul data-testid="v2-found-online" className="text-xs text-slateish-400">
+          {found.map((f) => (
+            <li key={f.name}>
+              Found online (not verified, book not held): {f.name}: {f.words}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
