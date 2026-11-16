@@ -389,7 +389,11 @@ def get_document(document_id: str, request: Request,
     row = connect().execute(
         "SELECT * FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
-    return upload_mod.to_api(row)
+    doc = upload_mod.to_api(row)
+    # FTU-1: the same derived review status as the list (the latest run's), never the schema's default "not_reviewed" for every paper
+    doc["review_status"] = submittal_review_mod.review_status_for(
+        [document_id], allowed_document_ids=frozenset([document_id])).get(document_id, "not_reviewed")
+    return doc
 
 
 @router.post("/api/documents/{document_id}/extract", response_model=schemas.ExtractResult,

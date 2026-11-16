@@ -12,7 +12,7 @@ from collections.abc import Mapping
 
 from . import agent_review_two_reader as two
 from . import crs_ai_words as words
-from .agent_review_verdict import SILENCE_CODES, SILENCE_WHY, quote_defers
+from .agent_review_verdict import SILENCE_CODES, quote_defers
 
 _SAYS = (words.STATUS_AI, words.STATUS_AI_VERDICT, words.STATUS_QUERY)
 REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
@@ -46,18 +46,40 @@ def action_case(line: Mapping) -> str:
         return "cut_off"  # R98/R101: the second reader's answer was cut off (its own marker): never "the readers disagree"
     if two.disagrees(line) or two.absence_disagrees(line):
         return "disagree"  # the two readers reached opposite verdicts: code's own flag
-    checked = (line.get("quotes_checked") or {}).get("paper")
-    verified = bool(checked and " ".join(str(line.get("paper_quote") or "").split()))
+    verified = bool(verified_quote(line))
     if line.get("reason_code") == "value_deferred":
         return "deferred"
     if verified and quote_defers(line.get("paper_quote")):
         return "deferred"
+    if says_silent(line):  # FTU-1: the line's OWN reason says the paper does not state it; a quote it carries is where it looked
+        return "blank"
     if verified:
         return "stated"
-    silent = line.get("reason_code") in SILENCE_CODES or line.get("silence_query")
-    if silent or line.get("verdict_label") == two.WORD_NOT_STATED:
-        return "blank"
     return "unknown"
+
+
+def verified_quote(line: Mapping) -> str:
+    """The line's paper quote when code found it on the page, else ""."""
+    checked = (line.get("quotes_checked") or {}).get("paper")
+    return " ".join(str(line.get("paper_quote") or "").split()) if checked else ""
+
+
+def says_silent(line: Mapping) -> bool:
+    """The line's OWN record says the paper does not state the value: a silence reason code, the silence query flag or the word
+    "not stated" (never the reader's free words)."""
+    return (
+        line.get("reason_code") in SILENCE_CODES
+        or bool(line.get("silence_query"))
+        or line.get("verdict_label") == two.WORD_NOT_STATED
+    )
+
+
+def looked_only(line: Mapping) -> bool:
+    """FTU-1: the line says the paper does not state the value AND carries a quote code found on the page that does not defer the value:
+    that quote is where the reader looked (often another field's label), never evidence of a value. The ONE home of this rule: the
+    point builder (`review_points.ai_point`), the older AI sheet (`crs_ai_workbook`) and the reason words (`reason_for`) read it."""
+    quote = verified_quote(line)
+    return bool(quote) and says_silent(line) and not quote_defers(quote)
 
 
 _STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
@@ -88,15 +110,19 @@ def provisional(line: Mapping) -> bool:
     return bool(quote) and bool(extract_measurements(quote))
 
 
-STATED_REASON = "a value is stated on the paper (a quote code verified); it is not proven that it meets the rule"
+#: FTU-1 (retracts R68b's "a value is stated on the paper"): a quote code found on the page is not a stated VALUE. When the line's own
+#: reason says the paper does not state it, the reason says so and names the quote as where the reader looked.
+NOT_STATED_REASON = (
+    "the paper does not state this value (the AI reviewer's reading, not proven by code); "
+    "the words it quoted are where it looked, not evidence of a value"
+)
 
 
 def reason_for(line: Mapping, why: str) -> str:
-    """The reason shown with a line, made to agree with what code verified: a value STATED on the paper (a verified quote) means the sheet
-    is not silent, so a stored "the paper is silent" reason is not shown (the action and the reason say the same)."""
-    silent = line.get("reason_code") in SILENCE_CODES or line.get("silence_query")
-    silent = silent or SILENCE_WHY.rstrip(".").lower() in str(why or "").lower()
-    return STATED_REASON if silent and action_case(line) == "stated" else why
+    """The reason shown with a line, made to agree with the line's OWN reason code (FTU-1): a line that says the paper does not state the
+    value says so, also when it carries a quote code found on the page (`looked_only`: where it looked, not evidence); otherwise the
+    stored reason in plain words."""
+    return NOT_STATED_REASON if looked_only(line) else why
 
 
 def query_action(line: Mapping, what: str, ref: str) -> str:

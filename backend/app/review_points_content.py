@@ -123,6 +123,20 @@ def paper_value(finding: dict | None) -> tuple[str, int | None]:
     return text, page
 
 
+#: FTU-1: the words of a quote that code found on the page on a point whose OWN reason says the paper does not state the value: where the
+#: reader looked, never evidence of a value (often another field's label). One home for the page note and the CRS cell.
+LOOKED_NOTE = 'Not evidence of a value: the reader says the paper does not state it, and looked here: "{quote}" (found on the page by code).'
+
+
+def looked_note(quote: str) -> str:
+    return LOOKED_NOTE.format(quote=clean(quote))
+
+
+def says_no_value(kind: str | None, finding: dict | None) -> bool:
+    """The rule-check point's OWN record says the paper gives no value: its kind or its stored status (never free words)."""
+    return kind == "missing_information" or str((finding or {}).get("compliance_status") or "") == "MISSING_INFORMATION"
+
+
 def rule_text(finding: dict | None) -> str:
     """The stored text of the requirement or checklist entry ("" when none)."""
     f = finding or {}

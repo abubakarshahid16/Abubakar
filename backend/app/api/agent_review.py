@@ -607,12 +607,14 @@ def agent_trace(
 def agent_crs(
     review_run_id: str,
     request: Request,
-    copy: str = Query(..., description="internal or company; contractor or issue"),
+    copy: str | None = Query(None, description="internal or company; contractor or issue"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"copy"})
-    copy = crs_copy_words.agent_copy(copy)  # V2: one set of copy words on every CRS route
-    crs_copy_words.refuse_old_file_when_off()  # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered
+    # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered. FTU-1: said FIRST, so a missing or wrong copy word
+    # gets the same plain sentence and a 422 never lists copies this route then refuses
+    crs_copy_words.refuse_old_file_when_off()
+    copy = crs_copy_words.agent_copy(copy or "")  # V2: one set of copy words on every CRS route (a missing word: 422 with the list)
     _run_or_404(review_run_id, scope)
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():

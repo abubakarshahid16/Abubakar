@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from datetime import UTC, datetime
 from io import BytesIO
+from pathlib import Path
 
 from openpyxl import Workbook
 
@@ -61,6 +63,9 @@ CONTRACT_CLASS = "AI draft rule, internal only"
 CONTRACT_SHOWN = ("inconsistent", "engineer to check")
 FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
+#: FTU-1: the download is named after the paper (its own document number, else its file stem), built from the database at run time
+FILE_STEM_LIMIT = 60
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
 ISSUED_NAME = "crs-contractor-one.xlsx"
 #: The AI reviewer's own reasoning, labelled as its view (never a code-proven line's). The WHOLE reasoning: it is never cut, so no mark and no Full text entry are needed.
@@ -134,7 +139,10 @@ def reason_of(point: dict) -> str:
 
 
 def paper_shows(point: dict) -> str:
-    """Only a quote code verified, with its check note, or the page's own words for "no verified quote"."""
+    """Only a quote code verified, with its check note, or the page's own words for "no verified quote". A found quote on a point that
+    says the paper does not state the value is said as where the reader looked, never as evidence (FTU-1: the page's own note)."""
+    if point.get("paper_looked"):
+        return point["paper_quote_note"]
     if point.get("paper_quote"):
         return f'"{point["paper_quote"]}" ({point["paper_quote_note"]})'
     if point.get("paper_value"):  # stored, but code did not verify it: shown as stored, never as verified
@@ -615,9 +623,20 @@ def no_rule_words(points: list[dict]) -> str:
     return content.UNREADABLE_BOOK if held else content.NO_RULE_CITED
 
 
-def comment_full_texts(c: dict) -> dict[str, str]:
-    """The whole text of each long cell of a comment (the strongest point's words and every clause): the source of its Full text."""
+def comment_note(c: dict, ms: list[dict]) -> str:
+    """The Note of a comment, WHOLE: the readers' disagreement or the count of its points, its tags, and each other point (R91)."""
+    note = comments.DISAGREE if c["disagree"] else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
+    note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
+    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])  # R91: each other point, its class and ask
+    return _clean(note.strip(" ;"))
+
+
+def comment_full_texts(c: dict, by_id: dict | None = None) -> dict[str, str]:
+    """The whole text of each long cell of a comment (the strongest point's words, every clause and, with `by_id`, its Note): the source
+    of its Full text. FTU-1: the Note is a long cell like the others, so a shortened Note carries the mark and its whole text."""
     out = full_texts(c["strongest"])
+    if by_id is not None:
+        out["note"] = comment_note(c, [by_id[i] for i in c["member_ids"]])
     out["clauses"] = "; ".join(
         " ".join(
             x
@@ -647,7 +666,7 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     """(the cells of one comment, how many were shortened). The strongest point's words lead; every clause, page and tag is listed;
     a shortened cell keeps its whole text in the column Full text."""
     ms = [by_id[i] for i in c["member_ids"]]
-    long_cells = comment_full_texts(c)
+    long_cells = comment_full_texts(c, by_id)
     shown, cut_n, full = {}, 0, []
     for key, text in long_cells.items():
         shown[key], cut = _cut(text)
@@ -655,18 +674,11 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
             cut_n += 1
             full.append(f"{key.replace('_', ' ')}: {text}")
     decided = sum(1 for p in ms if (p.get("decision") or {}).get("state"))
-    note = (
-        comments.DISAGREE
-        if c["disagree"]
-        else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
-    )
-    note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])  # R91: each other point, its class and ask
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
         ", ".join(str(x) for x in c["pages"]) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
         shown["paper_shows"], c["strongest"].get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, c["strongest"].get("checked_by") or None, f"{decided} of {len(ms)} decided",
-        note.strip(" ;") or None, "\n".join(full) or None,
+        shown["note"] or None, "\n".join(full) or None,
     ]  # fmt: skip
     return [_cell(x) for x in cells], cut_n
 
@@ -935,6 +947,33 @@ def build_contractor(
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ------------------------------------------------------------------------------------------------ the file's name
+
+
+def paper_file_stem(text: str) -> str:
+    """A name part safe in any file system: runs of characters outside [A-Za-z0-9._-] become one "-", at most `FILE_STEM_LIMIT`."""
+    safe = _UNSAFE_NAME.sub("-", str(text or "")).strip("-._")
+    return safe[:FILE_STEM_LIMIT].rstrip("-._")
+
+
+def file_name(copy: str, stem: str) -> str:
+    base = (FILE_CONTRACTOR if copy == "contractor" else FILE_TEAM).removesuffix(".xlsx")
+    return f"{base}-{stem}.xlsx" if stem else f"{base}.xlsx"
+
+
+def download_name(paper_id: str, copy: str) -> str:
+    """The one-CRS download's name: "crs-team-<the paper's document number>.xlsx" (or crs-contractor-...), else its file stem; the bare
+    name when neither gives a safe character. Read from the database; nothing of a paper is written in code."""
+    from . import crs_ai_header
+
+    conn = connect()
+    number = crs_ai_header.document_header(conn, paper_id).get("document_number") or ""
+    if not paper_file_stem(number):
+        row = conn.execute("SELECT filename FROM documents WHERE id = ?", (paper_id,)).fetchone()
+        number = Path(str(row["filename"] or "")).stem if row else ""
+    return file_name(copy, paper_file_stem(number))
 
 
 # ------------------------------------------------------------------------------------------------ signing: the same builder, kept

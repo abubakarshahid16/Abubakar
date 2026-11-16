@@ -349,10 +349,13 @@ def near_same(a: frozenset[str], b: frozenset[str]) -> bool:
 
 def _evidence(ms: list[dict]) -> set[tuple]:
     """What the points of a field show: (page, paper quote) and (book key, clause) pairs; two fields sharing one are about one thing."""
+    from .crs_ai_actions import looked_only
+
     out = set()
     for p in ms:
         q = _norm(p.get("paper_quote") or _line_of(p).get("paper_quote"))
-        if q:
+        # FTU-1: a quote that is only where a reader looked is not evidence of a value, so it never joins two fields
+        if q and not (p.get("paper_looked") or looked_only(_line_of(p)) or looked_only(p)):
             out.add(("paper", p.get("page"), q))
         book, clause = p.get("rule_book") or (p.get("rule_ref") or {}).get("name"), p.get("clause")
         if _norm(book) and _norm(clause):

@@ -160,16 +160,19 @@ def test_a_checklist_entry_that_states_its_own_strength_is_believed():
     assert prio(words.STATUS_QUERY, words.ORDER_QUERY, clause_quote="The tag shall be steel.", source="skill", strength="advice") == "Low"
 
 
-def test_a_verified_quote_means_the_sheet_is_not_silent_and_action_and_reason_agree():
+def test_a_silent_line_with_a_verified_quote_keeps_its_own_reason_and_action_and_reason_agree():
+    """FTU-1 (retracts R68b's "a verified quote means the sheet is not silent"): code found the quote on the page, not that it states the
+    value. The line's own reason code decides: the action asks the contractor to STATE the value and the reason says the paper does not
+    state it, naming the quote as where the reader looked."""
     line = query(quotes_checked={"paper": True, "clause": True}, paper_quote="Body: steel", reason_code="sheet_silent",
                  not_proven_reason="the paper is silent on this; a missing statement is not a failure")  # fmt: skip
-    assert action_of(line).startswith("Contractor to confirm or justify")
-    assert actions.reason_for(line, "the AI reviewer found the paper silent on this") == actions.STATED_REASON
+    assert action_of(line) == "Contractor to state Set pressure, or the page where it is shown."
+    assert actions.reason_for(line, "the AI reviewer found the paper silent on this") == actions.NOT_STATED_REASON
     cell = wb.layout_comment(line, words.STATUS_QUERY, words.ORDER_QUERY)
-    assert "silent" not in cell.split("\n")[1].lower() and actions.STATED_REASON in cell
+    assert "a value is stated" not in cell and actions.NOT_STATED_REASON in cell
     from app import crs_one
 
-    assert "silent" not in crs_one.reason_of({"_line": line, "source": "ai_review"}).lower()
+    assert crs_one.reason_of({"_line": line, "source": "ai_review"}) == actions.NOT_STATED_REASON
     # without a verified quote the stored reason stands
     bare = query(reason_code="sheet_silent")
     assert actions.reason_for(bare, "the paper is silent") == "the paper is silent"

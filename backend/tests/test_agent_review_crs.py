@@ -800,7 +800,9 @@ def test_the_paper_does_not_state_is_printed_only_for_the_absence_proof():
     assert _line2(proven) == "The paper does not state Field R1 (pages searched: 1, 2)."
 
 
-def test_a_silent_line_with_a_verified_quote_does_not_say_the_paper_is_silent():
+def test_a_silent_line_with_a_verified_quote_says_where_it_looked_never_that_the_paper_states_it():
+    """FTU-1 (retracts the earlier "a verified quote means the paper is not silent"): code found the quote on the page, not that it is
+    the value. The line's own reason (silent) is said, and the quote is shown as where the reader looked."""
     line = mk(
         "R-1",
         "Query",
@@ -809,9 +811,10 @@ def test_a_silent_line_with_a_verified_quote_does_not_say_the_paper_is_silent():
         silence_query=True,
         why=V.SILENCE_WHY,
     )
-    assert "does not state" not in _line2(
-        line
-    ) and 'The paper states "Nameplate: steel"' in _line2(line)
+    got = _line2(line)
+    assert 'The paper states "Nameplate: steel"' not in got
+    assert "did not find" in got and '("Nameplate: steel", page 2, found on the page by code)' in got
+    assert actions.NOT_STATED_REASON in got
 
 
 @pytest.mark.parametrize("verdict", ["Fail", "Query", "Pass"])

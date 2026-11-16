@@ -272,13 +272,13 @@ def one_crs(
     from .. import crs_completeness, crs_one
 
     if copy == "contractor" and (issued := crs_one.issued_file(document_id)):
-        data, name = issued[1], issued[0]["filename"]
+        data = issued[1]  # the signed bytes, as archived; served under the paper's own name
     else:
-        try:  # THE HARD RULE: page, database and file agree, or the file is refused with the sentence (never a short file)
-            data = crs_completeness.file_or_refuse(document_id, scope, copy)
+        try:  # THE HARD RULE: page, database and file agree, or the file is refused with the sentence (never a short file); a paper
+            data = crs_completeness.file_or_refuse(document_id, scope, copy)  # never reviewed is refused with its own sentence (FTU-1)
         except crs_completeness.Incomplete as exc:
             raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
-        name = crs_one.FILE_CONTRACTOR if copy == "contractor" else crs_one.FILE_TEAM
+    name = crs_one.download_name(document_id, copy)  # FTU-1: named after the paper, from the database
     return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 

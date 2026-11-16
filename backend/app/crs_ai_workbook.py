@@ -21,6 +21,7 @@ from pathlib import Path
 from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
+from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 from . import crs_comments, crs_export, crs_layout, kind_review_table
 from .agent_review_crs import (
@@ -259,11 +260,13 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = f"The paper does not state {field}" + (
             f" (pages searched: {searched})." if searched else "."
         )
-    elif silent and not has:
+    elif silent and (not has or actions.looked_only(line)):
         searched = _searched(line)
         out = f"The AI reviewer did not find {field} in the paper" + (
             f" (pages searched: {searched})." if searched else "."
         )
+        if has:  # FTU-1: a found quote on a line that says the paper is silent is where it looked, never the value
+            out += f' The words it quoted are where it looked ("{has}"{where}, found on the page by code), not evidence of a value.'
     elif guard == NO_VALUE_WHY:
         out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
