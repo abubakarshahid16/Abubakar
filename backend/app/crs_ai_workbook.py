@@ -295,11 +295,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     ):
         out += f" Not confirmed: {why}."
     if guard:  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion (lane B: never "no correction needed")
-        view = words.plain(
-            " ".join(str(line.get("comment") or line.get("reasoning") or "").split())[
-                :400
-            ]
-        )
+        view = words.plain(wording.one_reader_view(line))
         out += f" {wording.ONE_READER}the requirement is met." + (
             f" {view}" if view else ""
         )
@@ -332,6 +328,11 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         and status == words.STATUS_AI_VERDICT
     ):
         return f"Contractor to state {field_words(line) or 'the value asked for'}, or the page where it is shown."
+    guard = crs_comments.guarded_question_words(line)
+    if (
+        status == words.STATUS_QUERY and guard
+    ):  # order 14 (G6): a guarded AI "met" is a question in every run; R94's words stay
+        return f"Engineer to check the AI reviewer's view: {guard}."
     if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
         return action  # a question for the engineer, never worded for the contractor
     what, ref = field_words(line) or "the item", against(line)
