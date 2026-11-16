@@ -2,8 +2,8 @@
 (`claude_spend` is not touched and does not count these dollars).
 
 CAPS (settings): `groq_crosscheck_usd_per_run` (default USD 0.50 for one review run) and `groq_crosscheck_usd_per_day`
-(default USD 2.00 for one UTC day). A call RESERVES its worst case (every prompt character a token at half its size, every
-allowed output token spent) under the ledger lock before it leaves; the reservation is refused when it could cross either
+(default USD 2.00 for one UTC day). A call RESERVES its worst case (every prompt byte a token, every allowed output token
+spent: a strict upper bound) under the ledger lock before it leaves; the reservation is refused when it could cross either
 cap. After the call it is SETTLED to what the answer's usage says (else the worst case), or RELEASED when the call provably
 did no billable work (`groq_transport.unbilled`: refused here, never connected, or a 4xx). A reservation a dead process
 left open counts at its worst case for good: errs toward spent.
@@ -19,6 +19,7 @@ rather than overshooting it.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from contextlib import contextmanager
@@ -27,6 +28,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 LEDGER_NAME = "groq_spend.jsonl"
 #: USD per million tokens (input, output).
@@ -64,10 +67,11 @@ def price_for(model: str | None) -> tuple[float, float]:
     return PRICES.get(str(model or ""), UNKNOWN_PRICE)
 
 
-def worst_case_usd(model: str | None, prompt_chars: int, max_tokens: int) -> float:
-    """The most one call could cost: every prompt character a token at half a token's usual size, every output token."""
+def worst_case_usd(model: str | None, prompt_bytes: int, max_tokens: int) -> float:
+    """The most one call could cost, a STRICT upper bound (review R-1854): a token is at least one byte of the UTF-8 prompt, so
+    the prompt is at most `prompt_bytes` tokens plus the chat template's own, and every allowed output token is spent."""
     pin, pout = price_for(model)
-    tokens_in = int(prompt_chars) // 2 + TEMPLATE_TOKENS
+    tokens_in = int(prompt_bytes) + TEMPLATE_TOKENS
     return round(tokens_in * pin / 1e6 + int(max_tokens) * pout / 1e6, 8)
 
 
@@ -190,12 +194,24 @@ def reserve(run: str | None, model: str, worst: float) -> Reservation:
 
 
 def settle(res: Reservation, usd: float | None) -> float:
-    """Close the reservation at what the call cost (its usage), else at the reserved worst case. Returns what was charged."""
-    charged = res.worst if usd is None else float(usd)
+    """Close the reservation at what the call cost (its usage), else at the reserved worst case. Returns what was charged.
+
+    NEVER ABOVE THE RESERVATION (review R-1854): the caps were checked against the reservation, so a settlement above it could
+    pass a cap. The charge is capped at the reserved worst case; anything above it is written on the line as `excess_usd` and
+    logged as a warning (the reservation is a strict bound, so this means the price table or the usage is wrong)."""
+    reported = res.worst if usd is None else float(usd)
+    charged = min(reported, res.worst)
+    excess = round(reported - charged, 8)
+    if excess > 0:
+        log.warning(
+            "groq spend: a call reported more than its reservation (excess USD %.6f)",
+            excess,
+        )
     with _ledger_lock():
         _append(
             {"settles": res.id, "at": datetime.now(UTC).isoformat(timespec="seconds"), "day": res.day,
-             "run": res.run, "model": res.model, "cost_usd": charged, "estimated": usd is None}
+             "run": res.run, "model": res.model, "cost_usd": charged, "estimated": usd is None,
+             **({"excess_usd": excess} if excess > 0 else {})}
         )  # fmt: skip
     return charged
 

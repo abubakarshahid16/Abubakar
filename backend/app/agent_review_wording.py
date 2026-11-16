@@ -398,7 +398,16 @@ def read_time(line: Mapping) -> dict:
     defences that read the stored class keep working); never rewritten in the table. Any other line is returned as it is."""
     if line.get("source") not in ("rule", "skill"):
         return dict(line)
-    return {**line, "not_proven_reason": classify(line)["not_proven_reason"]}
+    reason = classify(line)["not_proven_reason"]
+    return {**line, "not_proven_reason": _with_note(reason, crosscheck.said(line))}
+
+
+def _with_note(reason: str | None, note: str | None) -> str | None:
+    """The reason with the cross-check's not-run sentence after it (ONE home: `apply` and `read_time`)."""
+    if not note:
+        return reason
+    base = str(reason or "").rstrip(" .;")
+    return f"{base}; {note}" if base else note
 
 
 def apply(line: Mapping) -> dict:
@@ -416,9 +425,10 @@ def apply(line: Mapping) -> dict:
     if words and out["verdict_class"] in (CLASS_QUERY, CLASS_OPINION, CLASS_UNAPPROVED):
         base = str(out.get("not_proven_reason") or "").rstrip(" .;")
         out["not_proven_reason"] = f"{base}; {words}" if base else words
-    if note := crosscheck.said(line):  # the second AI on, this line not asked: said
-        base = str(out.get("not_proven_reason") or "").rstrip(" .;")
-        out["not_proven_reason"] = f"{base}; {note}" if base else note
+    # the second AI on, this line not asked: said (the page reads it through `read_time`)
+    out["not_proven_reason"] = _with_note(
+        out.get("not_proven_reason"), crosscheck.said(line)
+    )
     return out
 
 

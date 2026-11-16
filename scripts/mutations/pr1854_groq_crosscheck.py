@@ -9,6 +9,7 @@ _T = "tests/test_groq_crosscheck.py"
 _C = "tests/test_socket_containment.py"
 _P = APP / "groq_transport.py"
 _S = APP / "groq_spend.py"
+_R = APP / "agent_review_crosscheck_run.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1854-01", phase=1854, description="the switch is not asked before a client is built",
@@ -67,4 +68,29 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_S, anchor='        and not (e.get("reservation") and e["reservation"] in closed)\n',
              replacement='        and not e.get("reservation")\n',
              target=_T, keyword="caps_refuse", tags=("budget",)),
+    # review R-1854
+    Mutation(id="M1854-15", phase=1854, description="a quote code did not verify is sent",
+             path=_R, anchor="        if not quotes_verified(line):\n",
+             replacement="        if False:\n",
+             target=_T, keyword="quote_code_did_not_verify", tags=("privacy", "critical")),
+    Mutation(id="M1854-16", phase=1854, description="a quote over the cap is sent",
+             path=_R, anchor="        if quotes_too_long(line):\n",
+             replacement="        if False:\n",
+             target=_T, keyword="quote_over_the_cap", tags=("privacy",)),
+    Mutation(id="M1854-17", phase=1854, description="a run whose start did not show the second AI sends to it",
+             path=APP / "groq_approved.py", anchor="    if not shown_before_start():\n",
+             replacement="    if False:\n",
+             target=_T, keyword="did_not_show_the_second_ai or no_run_at_all or no_stored_list", tags=("privacy", "critical")),
+    Mutation(id="M1854-18", phase=1854, description="a settlement above the reservation is charged in full (a cap can pass)",
+             path=_S, anchor="    charged = min(reported, res.worst)\n",
+             replacement="    charged = reported\n",
+             target=_T, keyword="strict_upper_bound", tags=("budget",)),
+    Mutation(id="M1854-19", phase=1854, description="the reservation counts a token per four prompt bytes (not a bound)",
+             path=_S, anchor="    tokens_in = int(prompt_bytes) + TEMPLATE_TOKENS\n",
+             replacement="    tokens_in = int(prompt_bytes) // 4 + TEMPLATE_TOKENS\n",
+             target=_T, keyword="strict_upper_bound or prices_and_the_worst_case", tags=("budget",)),
+    Mutation(id="M1854-20", phase=1854, description="a line already a Query is sent again",
+             path=_R, anchor='    return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES\n',
+             replacement='    return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES or line.get("verdict") == "Query"\n',
+             target=_T, keyword="already_a_query or test_candidates", tags=("privacy", "budget")),
 )

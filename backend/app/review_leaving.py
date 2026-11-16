@@ -387,4 +387,11 @@ def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
             explicit=plan.choice == "claude",
         )
     )
+    from . import groq_approved
+    from .review_engine import AI_REVIEW, ON_CLAUDE
+
+    # the second AI (Groq, #1584): its line is SHOWN before the start; a run whose stored plan lacks it sends nothing to Groq
+    second = groq_approved.plan_line(leaves, plan.part(AI_REVIEW).engine == ON_CLAUDE)
+    if second is not None:
+        docs[groq_approved.PLAN_KEY] = second
     return docs

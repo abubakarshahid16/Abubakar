@@ -5,13 +5,16 @@ off): off, nothing here runs, no state is kept and no line changes. Runs after t
 readers, on the Claude path only (a local run and a Local-only plan send nothing anywhere).
 
 WHICH LINES (`candidate`): an AI met or not met that code did not prove ("AI thinks: met / not met", either class, and
-"AI verdict, two readers agree"), or a line on which two Claude readers disagreed (a Query). Never a proven Pass or Fail,
+"AI verdict, two readers agree"). Never a line already a Query (the Claude second opinion said no, two readers disagree):
+no answer could change what it shows. Never a proven Pass or Fail,
 never a code line, never a failed call, never a line already answered (resume).
 
 WHAT LEAVES, per line, through `groq_transport.send` only: the system sentence and THE SAME narrow question as the Claude
 second opinion (`agent_claude.second_prompt`: the colour, the paper quote and the clause quote). Both quotes must have been
-verified by code on their pages; the paper, and the rule book the clause quote is from, must pass `groq_approved.refusal`
-(both approved lists, no block, no contract). Never a page, a whole document, a file name or a title.
+verified by code on their pages, and each at most `MAX_QUOTE_CHARS` (a longer quote keeps the line at home, never cut and
+sent); the paper, and the rule book the clause quote is from, must pass `groq_approved.refusal` (the run's stored plan showed
+the second AI's line before the start, both approved lists, no block, no contract). Never a page, a whole document, a file
+name or a title.
 
 MONEY: `groq_spend` reserves the worst case before each call (USD per run and per day caps of its own), settles to the
 answer's usage after, releases a call that did no billable work (a 4xx, a refusal before sending). Counted on the run as
@@ -31,7 +34,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import agent_claude, claude_spend, groq_approved, groq_spend, groq_transport
 from . import agent_review_crosscheck as cc
-from . import agent_review_two_reader as two_reader
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
 from .agent_trace import words
@@ -47,18 +49,25 @@ CANDIDATE_CLASSES = frozenset(
     {wording.CLASS_OPINION, wording.CLASS_UNAPPROVED, wording.CLASS_TWO_READERS}
 )
 OFF_LOCAL, OFF_STOPPED = "local_run", "run_stopped"
+#: The longest quote that may leave (characters). A longer one keeps its line at home (review R-1854: send less).
+MAX_QUOTE_CHARS = 400
 
 
 def candidate(line: Mapping) -> bool:
-    """May the second AI be asked about this stored line? See the module docstring."""
+    """May the second AI be asked about this stored line? Only an AI met or not met the engineer would see as an opinion or as
+    "two readers agree": a line already a Query (the Claude second opinion said no, two readers disagree) is never sent, since
+    no answer could change what it shows (review R-1854: send less)."""
     if cc.answered(line) or not cc.unproven_ai_line(line):
         return False
-    if wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES:
-        return True
-    second = line.get("second_opinion")
-    return (
-        isinstance(second, Mapping) and second.get("agree") is False
-    ) or two_reader.disagrees(line)
+    return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES
+
+
+def quotes_too_long(line: Mapping) -> bool:
+    """A quote longer than `MAX_QUOTE_CHARS`: the line is not sent at all (never cut and sent)."""
+    return any(
+        len(str(line.get(k) or "")) > MAX_QUOTE_CHARS
+        for k in ("paper_quote", "clause_quote")
+    )
 
 
 def quotes_verified(line: Mapping) -> bool:
@@ -125,6 +134,8 @@ def stats_template() -> dict:
         "no_answer": 0,
         "not_approved": 0,
         "not_verified": 0,
+        "too_long": 0,
+        "not_shown": 0,
         "not_run_cap": 0,
         "off": None,
         "model": None,
@@ -201,6 +212,10 @@ class CrosscheckMixin:
                 _not_run("quotes_not_verified", cc.NOT_VERIFIED_SAID),
                 "not_verified",
             )
+        if quotes_too_long(line):
+            return self._crosscheck_store(
+                line, _not_run("quote_too_long", cc.TOO_LONG_SAID), "too_long"
+            )
         ids = sorted(
             {str(self.paper)}
             | (
@@ -210,6 +225,10 @@ class CrosscheckMixin:
             )
         )
         refused = groq_approved.refusal(ids)
+        if refused == groq_approved.NOT_SHOWN:
+            return self._crosscheck_store(
+                line, _not_run(refused, cc.NOT_SHOWN_SAID), "not_shown"
+            )
         if refused is not None:
             return self._crosscheck_store(
                 line, _not_run(refused, cc.NOT_APPROVED_SAID), "not_approved"
@@ -220,9 +239,8 @@ class CrosscheckMixin:
         """One reserved, sent and settled call. A cap switches the step off for the rest of the run."""
         st, model = self._crosscheck, str(settings.groq_crosscheck_model)
         body = body_for(line, model)
-        worst = groq_spend.worst_case_usd(
-            model, len(json.dumps(body["messages"], ensure_ascii=False)), MAX_TOKENS
-        )
+        sent_bytes = json.dumps(body["messages"], ensure_ascii=False).encode("utf-8")
+        worst = groq_spend.worst_case_usd(model, len(sent_bytes), MAX_TOKENS)
         try:
             res = groq_spend.reserve(run, model, worst)
         except groq_spend.GroqBudgetExceeded as exc:

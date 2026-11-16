@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 
 import httpx
 import pytest
@@ -16,11 +17,14 @@ from app import (
     agent_claude,
     classification,
     claude_approved,
+    claude_spend,
     db,
     groq_approved,
     groq_spend,
     groq_transport,
     review_engine,
+    review_leaving,
+    review_shown,
 )
 from app import agent_review_crosscheck as cc
 from app import agent_review_crosscheck_run as ccrun
@@ -28,7 +32,7 @@ from app import agent_review_wording as W
 from app.config import Settings, settings
 from tests import agent_review_support as s
 from tests.test_agent_review_guards import run_review, w  # noqa: F401
-from tests.test_agent_review_job import lines_of
+from tests.test_agent_review_job import lines_of, run_job, start
 
 KEY = "fake-key-for-tests-0123456789"
 SECRET_ECHO = "the API echoes " + KEY
@@ -141,6 +145,32 @@ BODY = {"model": "openai/gpt-oss-120b", "messages": [{"role": "user", "content":
 # ------------------------------------------------------------------ the world: an invented library on a temp database
 
 
+NOW = "2026-11-17T00:00:00Z"
+
+
+def record_start(run_id, *, second_ai=True, shown=True, docs=(s.PAPER, s.STD)):
+    """What a start from the review page stores: the plan (with or without the second AI's line) and the shown list."""
+    line = {"to": "Groq", "words": groq_approved.PLAN_WORDS}
+    plan = {
+        "choice": "claude",
+        "documents": {groq_approved.PLAN_KEY: line} if second_ai else {},
+    }
+    with db.connect() as conn:
+        review_engine.record_in(
+            conn, run_id, plan, "tester", then_ai=False, bar_claude=False, now=NOW
+        )
+        if shown:
+            review_shown.record_in(conn, run_id, list(docs), NOW)
+
+
+def run_shown_review(**kw):
+    """A review run started as the review page starts one (its plan and its shown list stored), then run."""
+    run_id, job_id = start()
+    record_start(run_id, **kw)
+    run_job(job_id)
+    return run_id
+
+
 @pytest.fixture
 def lib(tmp_path, monkeypatch):
     s.setup_world(tmp_path, monkeypatch)
@@ -150,7 +180,11 @@ def lib(tmp_path, monkeypatch):
         register = claude_approved.REGISTER_NAME_KEY + " (1).pdf"
         s.add_document(conn, "doc_register", register, "invented")
     classification.set_role("doc_contract", "CONTRACT_DOCUMENT")
-    yield
+    record_start("run-shown")
+    with claude_spend.for_run(
+        "run-shown"
+    ):  # inside a run that showed the second AI's line
+        yield
     db.reset_connection()
 
 
@@ -385,7 +419,7 @@ def test_a_torn_ledger_line_counts_at_the_day_cap(tmp_path, monkeypatch):
 def test_prices_and_the_worst_case():
     assert groq_spend.worst_case_usd(
         "openai/gpt-oss-120b", 1000, 1000
-    ) == pytest.approx((700 * 0.15 + 1000 * 0.75) / 1e6)
+    ) == pytest.approx((1200 * 0.15 + 1000 * 0.75) / 1e6)
     assert groq_spend.price_for("someone/unknown") == groq_spend.UNKNOWN_PRICE
     assert groq_spend.UNKNOWN_PRICE >= max(groq_spend.PRICES.values())
     assert groq_spend.cost_usd(
@@ -511,10 +545,9 @@ def test_candidates():
     disagreed = {
         **opinion_line(),
         "second_opinion": {"agree": False, "model": "m"},
-    }  # two Claude readers disagreed
-    assert W.classify(disagreed)["verdict_class"] == W.CLASS_QUERY and ccrun.candidate(
-        disagreed
-    )
+    }  # the Claude second opinion said no: already a Query, nothing to change
+    assert W.classify(disagreed)["verdict_class"] == W.CLASS_QUERY
+    assert not ccrun.candidate(disagreed)
 
 
 def test_the_question_is_the_claude_second_opinion_question():
@@ -611,11 +644,11 @@ def _counts(run_id):
 def test_a_run_asks_the_unproven_lines_only_and_a_disagreement_is_a_query(
     w, monkeypatch, groq
 ):
-    off_run = run_review()
+    off_run = run_shown_review()
     off_rows, off_usd = _rows(off_run), _counts(off_run)[0]
     switch_on(monkeypatch)
     approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
-    run_id = run_review()
+    run_id = run_shown_review()
     on_rows = _rows(run_id)
     sent = [json.loads(x["body"]["messages"][1]["content"]) for x in groq.sent]
     # only the lines code did not prove: R-coat (an AI met) and R-mark (an AI not met); never R-frame (compared by code)
@@ -664,7 +697,7 @@ def test_a_run_asks_the_unproven_lines_only_and_a_disagreement_is_a_query(
 def test_only_the_two_quotes_leave(w, monkeypatch, groq):
     switch_on(monkeypatch)
     approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
-    run_review()
+    run_shown_review()
     assert groq.sent
     for req in groq.sent:
         text = json.dumps(req["body"])
@@ -691,7 +724,7 @@ def test_not_approved_sends_nothing_and_the_line_says_so(w, monkeypatch, no_clie
     approve(
         claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER)]
     )  # the rule book is not on the Groq list
-    run_id = run_review()
+    run_id = run_shown_review()
     rows = _rows(run_id)
     assert (
         cc.NOT_APPROVED_SAID in rows["R-mark"][2]
@@ -707,10 +740,10 @@ def test_not_approved_sends_nothing_and_the_line_says_so(w, monkeypatch, no_clie
 def test_a_4xx_costs_nothing_and_changes_no_line(w, monkeypatch):
     fake = FakeGroq(status=429, raw=b'{"error": {"message": "slow down"}}')
     monkeypatch.setattr(httpx, "Client", fake.client)
-    off_rows = _rows(run_review())
+    off_rows = _rows(run_shown_review())
     switch_on(monkeypatch)
     approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
-    run_id = run_review()
+    run_id = run_shown_review()
     assert len(fake.sent) == 2
     step = _counts(run_id)[1]["crosscheck_step"]
     assert (step["no_answer"], step["usd"]) == (2, 0.0) and groq_spend.spent(
@@ -728,7 +761,7 @@ def test_a_5xx_is_charged_its_worst_case(w, monkeypatch):
     monkeypatch.setattr(httpx, "Client", fake.client)
     switch_on(monkeypatch)
     approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
-    run_id = run_review()
+    run_id = run_shown_review()
     assert (
         groq_spend.spent(run=run_id) > 0
     )  # may have been billed: charged at the worst case
@@ -738,7 +771,7 @@ def test_the_run_cap_stops_the_step_and_the_rest_say_so(w, monkeypatch, groq):
     switch_on(monkeypatch)
     monkeypatch.setattr(settings, "groq_crosscheck_usd_per_run", 0.0)
     approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
-    run_id = run_review()
+    run_id = run_shown_review()
     assert groq.sent == []
     step = _counts(run_id)[1]["crosscheck_step"]
     assert (
@@ -747,3 +780,218 @@ def test_the_run_cap_stops_the_step_and_the_rest_say_so(w, monkeypatch, groq):
         and step["not_run_cap"] == 2
     )
     assert cc.CAP_SAID in _rows(run_id)["R-mark"][2]
+
+
+# ------------------------------------------------------------------ 7. review R-1854
+
+
+class FakeRunner(ccrun.CrosscheckMixin):
+    """The runner's parts the cross-check step reads, around stored lines."""
+
+    def __init__(self, *lines):
+        self.lines = {ln["item_id"]: dict(ln) for ln in lines}
+        self.paper, self.local, self.sink = s.PAPER, None, None
+        self._stop, self._lock = threading.Event(), threading.Lock()
+
+    def exit_line(self, line):
+        return W.apply(line)
+
+
+def _line(item_id, **extra):
+    return {
+        **opinion_line(),
+        "item_id": item_id,
+        "standard_document_id": s.STD,
+        **extra,
+    }
+
+
+def _ready(monkeypatch):
+    switch_on(monkeypatch)
+    approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
+
+
+@pytest.mark.parametrize(
+    "checks",
+    [
+        {"paper": False, "clause": True},
+        {"paper": True, "clause": False},
+        {"paper": False, "clause": False},
+        {},
+    ],
+)
+def test_a_quote_code_did_not_verify_is_never_sent(checks, lib, monkeypatch, groq):
+    _ready(monkeypatch)
+    # an AI "not met" stays an opinion with an unverified quote (an unverified "met" is already a Query, N9): the gate is
+    # the only thing between its quotes and the wire
+    bad = {
+        **_line("R-bad", quotes_checked=checks),
+        "ai_verdict": "Fail",
+        "reason_code": "not_met",
+    }
+    assert ccrun.candidate(bad)
+    runner = FakeRunner(bad, _line("R-good"))
+    runner.run_crosscheck()
+    assert len(groq.sent) == 1  # the verified line only: the guard on the guard
+    sent = json.loads(groq.sent[0]["body"]["messages"][1]["content"])
+    assert sent["document_quote"] == "invented paper words"
+    rec = runner.lines["R-bad"][cc.FIELD]
+    assert (
+        rec["asked"] is False
+        and rec["code"] == "quotes_not_verified"
+        and rec["said"] == cc.NOT_VERIFIED_SAID
+    )
+    assert runner.crosscheck_counts()["crosscheck_step"]["not_verified"] == 1
+
+
+@pytest.mark.parametrize("field", ["paper_quote", "clause_quote"])
+def test_a_quote_over_the_cap_keeps_the_line_at_home(field, lib, monkeypatch, groq):
+    _ready(monkeypatch)
+    at_cap = "w" * ccrun.MAX_QUOTE_CHARS
+    runner = FakeRunner(
+        _line("R-long", **{field: at_cap + "x"}), _line("R-at-cap", **{field: at_cap})
+    )
+    runner.run_crosscheck()
+    assert len(groq.sent) == 1 and at_cap in json.dumps(
+        groq.sent[0]["body"]
+    )  # exactly at the cap is sent whole
+    assert at_cap + "x" not in json.dumps(groq.sent)  # never cut and sent either
+    rec = runner.lines["R-long"][cc.FIELD]
+    assert rec["code"] == "quote_too_long" and rec["said"] == cc.TOO_LONG_SAID
+    assert W.apply(runner.lines["R-long"])["not_proven_reason"].endswith(
+        cc.TOO_LONG_SAID
+    )
+
+
+def test_a_line_already_a_query_is_not_asked(lib, monkeypatch, groq):
+    _ready(monkeypatch)
+    runner = FakeRunner(_line("R-q", second_opinion={"agree": False, "model": "m"}))
+    runner.run_crosscheck()
+    assert groq.sent == [] and cc.FIELD not in runner.lines["R-q"]
+    assert runner.crosscheck_counts()["crosscheck_step"]["candidates"] == 0
+
+
+@pytest.mark.parametrize(
+    "second_ai,shown", [(False, True), (True, False), (False, False)]
+)
+def test_a_run_whose_start_did_not_show_the_second_ai_sends_nothing(
+    second_ai, shown, lib, monkeypatch, no_client
+):
+    _ready(monkeypatch)
+    record_start("run-other", second_ai=second_ai, shown=shown)
+    with claude_spend.for_run("run-other"):
+        assert groq_approved.refusal([s.PAPER]) == groq_approved.NOT_SHOWN
+        runner = FakeRunner(_line("R-1"))
+        runner.run_crosscheck()
+    rec = runner.lines["R-1"][cc.FIELD]
+    assert rec["code"] == groq_approved.NOT_SHOWN and rec["said"] == cc.NOT_SHOWN_SAID
+    with (
+        pytest.raises(groq_transport.GroqRefused, match=groq_approved.NOT_SHOWN),
+        claude_spend.for_run("run-other"),
+    ):
+        groq_transport.send(BODY, document_ids=[s.PAPER])
+
+
+def test_no_run_at_all_sends_nothing(lib, monkeypatch, no_client):
+    _ready(monkeypatch)
+    with claude_spend.for_run(
+        None
+    ):  # a script or a retry queue: no review run, no stored list
+        assert groq_approved.refusal([s.PAPER]) == groq_approved.NOT_SHOWN
+    assert (
+        groq_approved.refusal([s.PAPER]) is None
+    )  # the guard on the guard: the shown run passes
+
+
+def test_a_queued_run_with_no_stored_list_sends_nothing_and_says_so(
+    w, monkeypatch, no_client
+):
+    switch_on(monkeypatch)
+    approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
+    run_id = (
+        run_review()
+    )  # queued straight onto the job queue, as a script does: no plan, no shown list
+    assert cc.NOT_SHOWN_SAID in _rows(run_id)["R-mark"][2]
+    assert _counts(run_id)[1]["crosscheck_step"]["not_shown"] == 2
+
+
+def test_the_plan_shows_the_second_ai_line_only_when_it_can_run(lib, monkeypatch):
+    assert groq_approved.plan_line(True, True) is None  # switch off: not shown
+    switch_on(monkeypatch)
+    assert groq_approved.plan_line(True, True)["words"] == groq_approved.PLAN_WORDS
+    assert groq_approved.plan_line(False, True) is None  # nothing leaves (Local only)
+    assert (
+        groq_approved.plan_line(True, False) is None
+    )  # the AI review is not on Claude
+
+    class Part:
+        engine = review_engine.ON_CLAUDE
+
+    class Plan:
+        text_leaves, choice = True, "claude"
+
+        def part(self, name):
+            return Part()
+
+    monkeypatch.setattr(
+        review_leaving, "leaving_for", lambda *a, **k: {"leaving": [], "not_sent": []}
+    )
+    monkeypatch.setattr(review_engine, "_earlier_books", lambda *a: [])
+    ctx = (db.connect(), s.PAPER, frozenset({s.PAPER}), None, None)
+    docs = review_leaving.documents_block(ctx, Plan(), ())
+    assert docs[groq_approved.PLAN_KEY]["words"] == groq_approved.PLAN_WORDS
+    assert "Groq (another AI company)" in groq_approved.PLAN_WORDS
+    monkeypatch.setattr(settings, "groq_crosscheck_enabled", False)
+    assert groq_approved.PLAN_KEY not in review_leaving.documents_block(ctx, Plan(), ())
+
+
+def test_a_follow_on_plan_may_not_add_the_second_ai_line():
+    started = {"documents": {}}
+    again = {"documents": {groq_approved.PLAN_KEY: {"words": "x"}, "leaving": []}}
+    groq_approved.narrow_replan(started, again)
+    assert groq_approved.PLAN_KEY not in again["documents"]
+    kept = {"documents": {groq_approved.PLAN_KEY: {"words": "x"}}}
+    groq_approved.narrow_replan(
+        {"documents": {groq_approved.PLAN_KEY: {"words": "x"}}}, kept
+    )
+    assert groq_approved.PLAN_KEY in kept["documents"]
+
+
+def test_the_not_run_note_is_on_the_page_too():
+    line = {
+        **opinion_line(),
+        cc.FIELD: {
+            "asked": False,
+            "agree": None,
+            "code": "c",
+            "said": cc.NOT_APPROVED_SAID,
+        },
+    }
+    assert W.read_time(line)["not_proven_reason"].endswith("; " + cc.NOT_APPROVED_SAID)
+    assert (
+        W.read_time(opinion_line())["not_proven_reason"]
+        == W.classify(opinion_line())["not_proven_reason"]
+    )
+
+
+def test_the_reservation_is_a_strict_upper_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    line = _line("R-u", paper_quote="\u4e2d" * 100)  # 100 characters, 300 UTF-8 bytes
+    body = ccrun.body_for(line, "openai/gpt-oss-120b")
+    sent = json.dumps(body["messages"], ensure_ascii=False).encode("utf-8")
+    worst = groq_spend.worst_case_usd(
+        "openai/gpt-oss-120b", len(sent), ccrun.MAX_TOKENS
+    )
+    every_byte_a_token = groq_spend.cost_usd(
+        "openai/gpt-oss-120b",
+        {"prompt_tokens": len(sent), "completion_tokens": ccrun.MAX_TOKENS},
+    )
+    assert worst >= every_byte_a_token
+    monkeypatch.setattr(settings, "groq_crosscheck_usd_per_run", worst * 1.5)
+    res = groq_spend.reserve("run-x", "openai/gpt-oss-120b", worst)
+    assert (
+        groq_spend.settle(res, worst * 3) == worst
+    )  # never charged above the reservation
+    assert groq_spend.spent(run="run-x") == pytest.approx(worst)
+    excess = [e for e in groq_spend.entries() if e.get("excess_usd")]
+    assert excess and excess[0]["excess_usd"] == pytest.approx(worst * 2)

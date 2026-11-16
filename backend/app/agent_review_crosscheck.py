@@ -30,6 +30,10 @@ NOT_VERIFIED_SAID = "cross-check not run: a quote was not verified by code"
 CAP_SAID = "cross-check not run: the second AI's money cap is reached"
 NO_ANSWER_SAID = "cross-check not run: the second AI gave no usable answer"
 STOPPED_SAID = "cross-check not run: the step stopped"
+TOO_LONG_SAID = "cross-check not run: quote too long"
+NOT_SHOWN_SAID = (
+    "cross-check not run: the second AI was not on the list shown before the start"
+)
 
 
 def record(line: Mapping) -> Mapping | None:
