@@ -271,6 +271,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_roles` | Which role a datasheet field name states when it fits several: the one the sheet's equipment type checks (#900) |
 | `datasheet_coverage` | The reader-coverage line of a datasheet review: checklist fields read, and on the sheet but not read |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
+| `datasheet_sum` | Order 14 lane A: the checklist rule kind sum_percent_of (two datasheet fields added and compared with a percent of a third, e.g. SAES-J-600 5.1.1 back pressures vs 10% of set); a missing or marked part stops the check, never 0; pure |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |
