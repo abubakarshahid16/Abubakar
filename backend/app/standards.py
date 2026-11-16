@@ -389,6 +389,8 @@ def clause_number(section: str | None) -> str | None:
     head = section.split(" ", 1)[0].strip().rstrip(".")
     if not head:
         return None
+    if chunker.DASH_ID.fullmatch(head):  # a code paragraph id, "UG-150" / "44-2" (chunker, CHUNKER_VERSION 12)
+        return head
     parts = [p for p in head.split(".") if p]
     # It came through _validate_heading, so it is digits with at most one
     # single-letter annex prefix. Re-checked rather than trusted: this function
