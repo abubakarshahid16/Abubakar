@@ -965,6 +965,19 @@ def file_name(copy: str, stem: str) -> str:
     return f"{base}-{stem}.xlsx" if stem else f"{base}.xlsx"
 
 
+def _number_is_a_suggestion(conn, paper_id: str) -> bool:
+    """The document number was written by the classifier (it is in the row's `field_evidence`) and no one has confirmed the row: a
+    suggestion, so the file is named after its file stem instead (FTU-1 review)."""
+    from . import classification
+
+    row = conn.execute(
+        "SELECT confirmed_at, field_evidence FROM document_classification WHERE document_id = ?", (paper_id,)
+    ).fetchone()
+    if row is None or row["confirmed_at"]:
+        return False
+    return "document_number" in classification._load_evidence(row["field_evidence"])
+
+
 def download_name(paper_id: str, copy: str) -> str:
     """The one-CRS download's name: "crs-team-<the paper's document number>.xlsx" (or crs-contractor-...), else its file stem; the bare
     name when neither gives a safe character. Read from the database; nothing of a paper is written in code."""
@@ -972,7 +985,7 @@ def download_name(paper_id: str, copy: str) -> str:
 
     conn = connect()
     number = crs_ai_header.document_header(conn, paper_id).get("document_number") or ""
-    if not paper_file_stem(number):
+    if not paper_file_stem(number) or _number_is_a_suggestion(conn, paper_id):
         row = conn.execute("SELECT filename FROM documents WHERE id = ?", (paper_id,)).fetchone()
         number = Path(str(row["filename"] or "")).stem if row else ""
     return file_name(copy, paper_file_stem(number))

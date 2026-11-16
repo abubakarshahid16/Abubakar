@@ -462,8 +462,8 @@ def file_or_refuse(paper_id: str, scope, copy: str, **build_kw) -> bytes:
     from . import review_points_service as svc
 
     listing, raw, facts = svc.export_listing(paper_id, scope)
-    # FTU-1: no finished review, so there is nothing to put in a CRS file
-    if not (facts.get("rc_run") or facts.get("ai_run")):
+    # FTU-1: no finished review and no point on the page (an engineer's added point is one), so nothing to put in a CRS file
+    if not (facts.get("rc_run") or facts.get("ai_run") or raw):
         raise Incomplete(
             {"ok": False, "sentence": NOT_REVIEWED, "missing": [], "not_reviewed": True}
         )

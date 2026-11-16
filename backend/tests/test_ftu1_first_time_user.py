@@ -64,6 +64,7 @@ def silent_line(
     code: str = "absent", *, opinion: bool = True, paper_quote: str = OTHER_LABEL, **kw
 ) -> dict:
     """An AI line whose OWN reason code says the paper does not state the value, carrying a quote code found on the page."""
+    kw = {"field": "Set pressure", "field_roles": ["set_pressure"], **kw}
     line = mk(
         "R-5",
         "Query",
@@ -109,11 +110,37 @@ def test_a_not_met_on_silence_says_the_paper_does_not_state_it_and_never_shows_t
     )
     # the page shows the same words (its note), and a silent query asks the contractor to STATE the value, never to confirm it
     assert point["paper_quote_note"] == shows
-    if not opinion:
-        assert (
-            "confirm or justify" not in (point["action"] or "")
-            and "to state" in point["action"]
-        )
+    # the action says what the reason says, on a question AND on a one-reader "not met"
+    assert "confirm or" not in (point["action"] or "")
+    assert point["action"].startswith("Contractor to state Set pressure")
+
+
+@pytest.mark.parametrize(
+    "quote", ["Set pressure: 12 barg", "Rated 12 barg", "Set pressure 316 SS"]
+)
+@pytest.mark.parametrize("opinion", [True, False])
+def test_a_silent_line_whose_quote_may_state_the_value_is_the_engineers_to_check(
+    quote, opinion
+):
+    line = silent_line("absent", opinion=opinion, paper_quote=quote)
+    assert crs_ai_actions.silent_quote(line) == crs_ai_actions.CONTRADICTS
+    point = review_points.ai_point(line, CTX)
+    shows, reason = crs_one.paper_shows(point), crs_one.reason_of(point)
+    assert "not evidence" not in shows.lower()
+    assert quote in shows and "may state it" in shows
+    assert reason == crs_ai_actions.CONTRADICT_REASON
+    assert point["action"].startswith("Engineer to check Set pressure")
+    assert "Contractor" not in point["action"]
+    assert point["paper_quote"] is None  # never the contractor's "The paper shows"
+    cell = wb.layout_comment(line, *wb.status_of(line))
+    assert "may state it" in cell and "not evidence" not in cell.lower()
+    assert f'The paper states "{quote}"' not in cell
+
+
+def test_only_the_fields_own_label_or_other_words_without_a_figure_are_where_it_looked():
+    for quote in ("Set pressure", "Set pressure:", OTHER_LABEL, "Body: steel"):
+        got = crs_ai_actions.silent_quote(silent_line(paper_quote=quote))
+        assert got == crs_ai_actions.LOOKED, quote
 
 
 def test_the_older_ai_sheet_says_the_same_for_a_not_met_on_silence():
@@ -130,6 +157,32 @@ def test_the_older_ai_sheet_says_the_same_for_a_not_met_on_silence():
         crs_ai_actions.action_case(silent_line("sheet_silent", opinion=False))
         == "blank"
     )
+    # the one rule of silence: a silence flag with another reason code says the same
+    flagged = silent_line("needs_drawing_or_calc", silence_query=True)
+    cell = wb.layout_comment(flagged, *wb.status_of(flagged))
+    assert f'The paper states "{OTHER_LABEL}"' not in cell
+    shows = cell.split("\n")[
+        1
+    ]  # the "what the paper shows" part says the silence and where it looked
+    assert "did not find Set pressure" in shows and "where it looked" in shows
+
+
+def test_the_ai_reviews_own_sheet_and_evidence_cell_never_say_a_looked_quote_is_stated():
+    from app import agent_review_crs as arc
+
+    flagged = silent_line("needs_drawing_or_calc", opinion=False, silence_query=True)
+    assert arc.stated(flagged) == ""
+    assert f'the sheet states "{OTHER_LABEL}"' not in arc.company_comment(flagged)
+    check = arc.EVIDENCE_COLUMNS.index("Paper quote check")
+    assert "not evidence" in arc._evidence_row(1, flagged, "Query")[check]
+    may = silent_line("absent", opinion=False, paper_quote="Set pressure: 12 barg")
+    said = arc.company_comment(may)
+    assert "may state it" in said and "not shown on the sheet" not in said
+    assert "Engineer to check" in said
+    assert "engineer checks" in arc._paper_check_words(may)
+    plain = mk("R-5", "Query", "Fail", paper_quote="Body: steel")
+    assert arc.stated(plain) == "Body: steel"
+    assert arc._paper_check_words(plain) == "verified"
 
 
 def test_a_stated_value_without_a_silence_code_is_still_evidence_and_a_deferral_still_reads_as_deferred():
@@ -174,8 +227,19 @@ def test_a_rule_check_point_with_no_value_shows_its_passage_only_as_where_it_loo
     sides = {"submittal": {"verified": True, "page": 4}, "standard": {}}
     point = review_points.rule_point(row, ctx, finding, sides)
     assert point["paper_quote"] is None and point["paper_looked"] == "Design data"
+    assert (
+        point["paper_value"] is None
+    )  # never 'As stored (not verified by code)' beside it
     shows = crs_one.paper_shows(point)
     assert "not evidence" in shows.lower() and "Design data" in shows
+    figure = review_points.rule_point(
+        row,
+        ctx,
+        {**finding, "contractor_evidence_text": "Design pressure 12 barg"},
+        sides,
+    )
+    assert "not evidence" not in crs_one.paper_shows(figure).lower()
+    assert "may state it" in crs_one.paper_shows(figure)
     # a value the rule check found is still its evidence
     found = review_points.rule_point(
         row, ctx, {**finding, "compliance_status": "NON_COMPLIANT"}, sides
@@ -233,7 +297,8 @@ def test_a_point_name_taken_from_its_comment_is_never_cut_without_a_mark():
         "comment": f"{content.PLACEHOLDER} on the design pressure of the drum",
     }
     name = review_points.rule_point(row, ctx, None, {})["name"]
-    assert name.endswith("...") and len(name.split()) == 8
+    assert name.endswith(crs_completeness.CUT_MARK) and "..." not in name
+    assert len(name.split()) == 7
 
 
 def test_a_long_note_ends_with_the_mark_and_its_whole_text_is_in_full_text(monkeypatch):
@@ -248,6 +313,24 @@ def test_a_long_note_ends_with_the_mark_and_its_whole_text_is_in_full_text(monke
     note = rows[0][head.index("Note")]
     assert note.endswith(crs_one.CUT_MARK) and len(note) <= crs_one.CELL_LIMIT
     assert f"note: {long_note}" in rows[0][head.index("Full text")]
+    report = crs_completeness.checked_files(doc, scope_all())["team"][1]
+    assert report["ok"] and report["cut_cells_marked"] >= 1
+
+
+def test_a_long_note_from_the_real_builder_is_marked_and_whole_in_full_text():
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    lines = [
+        mk(f"R-{i}", "Query", "Fail", why="x y", field="Shared field", clause=f"4.{i}")
+        for i in range(1, 9)
+    ]
+    ai_run(doc, lines)
+    data = crs_completeness.file_or_refuse(doc, scope_all(), "team")
+    head, rows = rows_after(sheet(data), "Comment")
+    row = next(r for r in rows if r[head.index("Points")] == 8)
+    note, full = row[head.index("Note")], row[head.index("Full text")]
+    assert note.endswith(crs_one.CUT_MARK) and len(note) <= crs_one.CELL_LIMIT
+    assert "note: 8 points on this field" in full and full.count("Also:") == 7
     report = crs_completeness.checked_files(doc, scope_all())["team"][1]
     assert report["ok"] and report["cut_cells_marked"] >= 1
 
@@ -273,6 +356,20 @@ def test_a_paper_never_reviewed_gets_no_crs_file_but_a_plain_sentence(copy):
     assert "spreadsheet" not in got.headers.get("content-type", "")
     with pytest.raises(crs_completeness.Incomplete):
         crs_completeness.file_or_refuse(doc, scope_all(), copy)
+
+
+def test_a_paper_with_no_review_but_an_engineers_own_point_gets_its_file():
+    doc = _submittal()
+    client = _client(doc)
+    added = client.post(
+        f"/api/reviews/papers/{doc}/points/add",
+        json={"text": "Add the tag plate", "page": 1},
+    )
+    assert added.status_code == 200, added.text
+    got = client.get(f"/api/reviews/papers/{doc}/crs")
+    assert got.status_code == 200 and got.content[:2] == b"PK"
+    _head, rows = rows_after(sheet(got.content, crs_one.EVIDENCE_SHEET), "No")
+    assert len(rows) == 1 and "Add the tag plate" in str(rows[0])
 
 
 def test_a_paper_with_only_a_running_review_is_not_reviewed_yet():
@@ -329,6 +426,27 @@ def test_the_one_crs_file_is_named_after_the_papers_number_else_its_file_stem():
         _name_of(client.get(f"/api/reviews/papers/{doc}/crs?copy=team"))
         == "crs-team-XX-0000-Rev-A.xlsx"
     )
+
+
+def test_a_document_number_the_classifier_only_suggested_is_not_the_file_name():
+    doc, rc, ai, client = world_with_both()
+    _set_number(doc, "XX-0001")
+    evidence = '{"document_number": {"value": "XX-0001", "method": "label"}}'
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET field_evidence = ?, confirmed_at = NULL"
+            " WHERE document_id = ?",
+            (evidence, doc),
+        )
+    team = f"/api/reviews/papers/{doc}/crs?copy=team"
+    assert _name_of(client.get(team)) == "crs-team-drum.xlsx"
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE document_classification SET confirmed_at = '2026-11-17'"
+            " WHERE document_id = ?",
+            (doc,),
+        )
+    assert _name_of(client.get(team)) == "crs-team-XX-0001.xlsx"
 
 
 def test_a_file_name_keeps_only_safe_characters_at_most_sixty():

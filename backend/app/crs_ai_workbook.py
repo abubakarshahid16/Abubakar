@@ -47,7 +47,6 @@ from .agent_review_verdict import (
     FAIL,
     NO_VALUE_WHY,
     PASS,
-    SILENCE_CODES,
     met_unsafe_why,
     moved_by_guard,
 )
@@ -244,7 +243,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     ):
         return words.absence_cell(line, field_words(line) or _item_ask(line))
     code = line.get("reason_code")
-    silent = code in SILENCE_CODES or line.get("silence_query")
+    silent = actions.says_silent(line)
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
     if code == "value_deferred" or guard == DEFERRED_WHY:
         out = (
@@ -260,13 +259,12 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = f"The paper does not state {field}" + (
             f" (pages searched: {searched})." if searched else "."
         )
-    elif silent and (not has or actions.looked_only(line)):
+    elif silent and not has:
         searched = _searched(line)
         out = f"The AI reviewer did not find {field} in the paper" + (
             f" (pages searched: {searched})." if searched else "."
         )
-        if has:  # FTU-1: a found quote on a line that says the paper is silent is where it looked, never the value
-            out += f' The words it quoted are where it looked ("{has}"{where}, found on the page by code), not evidence of a value.'
+        out += actions.quote_words(line, where)
     elif guard == NO_VALUE_WHY:
         out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
@@ -341,7 +339,9 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     what, ref = field_words(line) or "the item", against(line)
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
-    if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
+    # FTU-1: a silent "not met" asks what its case asks (state it, or the engineer checks)
+    opinion = status in (words.STATUS_AI, words.STATUS_AI_VERDICT)
+    if opinion and not actions.says_silent(line):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
     return query_action(line, what, ref)
 

@@ -372,10 +372,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         if quotes.get("paper") and _clean(line.get("paper_quote"))
         else None
     )
-    # FTU-1: a line whose own reason says the paper does not state the value: its found quote is where it looked, never evidence
-    looked, paper_q = (
-        (paper_q, None) if paper_q and actions.looked_only(line) else (None, paper_q)
-    )
+    # FTU-1: a line whose own reason says the paper does not state the value: its found quote is never shown as evidence; it is
+    # where it looked, or (when it may state the value) the engineer's to check
+    seen = actions.silent_quote(line) if paper_q else ""
+    looked, paper_q = (paper_q, None) if seen else (None, paper_q)
     book_readable = bool(book_name)
     # The rule book's own words are the book's: a caller who may not read the book gets neither its name nor its text (rule 5).
     clause_q = (
@@ -443,7 +443,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "clause_quote": clause_q,
         "paper_quote_note": PAPER_CHECK
         if paper_q
-        else (content.looked_note(looked) if looked else NO_PAPER_QUOTE),
+        else (
+            content.looked_note(looked, seen == actions.CONTRADICTS)
+            if looked
+            else NO_PAPER_QUOTE
+        ),
         "clause_quote_note": _clause_note(line)
         if clause_q
         else (NO_CLAUSE_QUOTE if book_readable else NO_BOOK_ACCESS),
@@ -507,6 +511,7 @@ def rule_point(
     """One CRS row of the rule check as a point. `finding`: its stored finding (or None); `sides`: {"submittal": .., "standard": ..}
     as `evidence_boxes.side` answered (document None when the side cannot be shown)."""
     from . import crs_normal
+    from .claims import extract_measurements
     from .crs_mapping import (
         ROW_KIND_ENGINEER_COMMENT,
         ROW_KIND_PAGE_READER_ONLY,
@@ -613,7 +618,7 @@ def rule_point(
         "action": action or None,
         "action_source": action_source,
         # U5d: what the stored finding itself holds, never presented as verified unless code verified it
-        "paper_value": value or None,
+        "paper_value": None if looked else (value or None),  # FTU-1: never beside a found passage
         "paper_value_page": value_page,
         # order 14 lane B: our checklist's own wording is never shown as the rule book's words: it is `check_text`, labelled as ours
         "rule_text": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
@@ -627,7 +632,11 @@ def rule_point(
         "clause_quote": clause_q or None,
         "paper_quote_note": PASSAGE_PAPER_CHECK
         if paper_q
-        else (content.looked_note(looked) if looked else NO_PAPER_QUOTE),
+        else (
+            content.looked_note(looked, bool(extract_measurements(looked)))
+            if looked
+            else NO_PAPER_QUOTE
+        ),
         "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),

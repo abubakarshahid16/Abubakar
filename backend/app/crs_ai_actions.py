@@ -51,7 +51,10 @@ def action_case(line: Mapping) -> str:
         return "deferred"
     if verified and quote_defers(line.get("paper_quote")):
         return "deferred"
-    # FTU-1: the line's OWN reason says the paper does not state it; a quote it carries is where it looked
+    # FTU-1: the line's OWN reason says the paper does not state it: a found quote that may state it is the engineer's to check (the
+    # reader contradicts itself); otherwise the contractor states the value
+    if silent_quote(line) == CONTRADICTS:
+        return "contradicts"
     if says_silent(line):
         return "blank"
     if verified:
@@ -75,12 +78,48 @@ def says_silent(line: Mapping) -> bool:
     )
 
 
-def looked_only(line: Mapping) -> bool:
-    """FTU-1: the line says the paper does not state the value AND carries a quote code found on the page that does not defer the value:
-    that quote is where the reader looked (often another field's label), never evidence of a value. The ONE home of this rule: the
-    point builder (`review_points.ai_point`), the older AI sheet (`crs_ai_workbook`) and the reason words (`reason_for`) read it."""
+LOOKED, CONTRADICTS = "looked", "contradicts"
+
+
+def silent_quote(line: Mapping) -> str:
+    """FTU-1: what a quote code found on the page IS on a line whose own record says the paper does not state the value (a quote that
+    defers the value is read as a deferral, not here): `LOOKED` only when code can show it is no value of this field (the field's own
+    label and nothing else, or words that carry neither the field's label nor a figure); `CONTRADICTS` when it may state the value
+    (the field's label with more after it, or a figure): the reader contradicts itself and the engineer checks; "" otherwise. The ONE
+    home of the rule: the points (`review_points`), the sheets (`crs_ai_workbook`, `agent_review_crs`) and the reason words read it."""
+    from . import agent_review_pass_guards as guards
+    from .agent_review_verdict import quote_is_label_only
+    from .claims import extract_measurements
+
     quote = verified_quote(line)
-    return bool(quote) and says_silent(line) and not quote_defers(quote)
+    if not quote or not says_silent(line) or quote_defers(quote):
+        return ""
+    if quote_is_label_only(line):
+        return LOOKED
+    if extract_measurements(quote) or guards.quote_carries_field(line, quote):
+        return CONTRADICTS
+    return LOOKED
+
+
+def looked_only(line: Mapping) -> bool:
+    return silent_quote(line) == LOOKED
+
+
+#: FTU-1: the neutral words of a line whose reader says "not stated" but quoted words that may state it (code decides neither way)
+CONTRADICT_REASON = (
+    "the AI reviewer says the paper does not state this value, but the words it quoted are on the page and may state it; "
+    "code did not decide which is right, so the engineer checks"
+)
+
+
+def quote_words(line: Mapping, where: str = "") -> str:
+    """The sentence a sheet adds about such a quote ("" for any other line): where the reader looked, or a quote that may state it."""
+    seen, quote = silent_quote(line), verified_quote(line)
+    if seen == LOOKED:
+        return f' The words it quoted are where it looked ("{quote}"{where}, found on the page by code), not evidence of a value.'
+    if seen == CONTRADICTS:
+        return f' It quoted "{quote}"{where} (found on the page by code), which may state it: code did not decide which is right.'
+    return ""
 
 
 _STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
@@ -121,9 +160,10 @@ NOT_STATED_REASON = (
 
 def reason_for(line: Mapping, why: str) -> str:
     """The reason shown with a line, made to agree with the line's OWN reason code (FTU-1): a line that says the paper does not state the
-    value says so, also when it carries a quote code found on the page (`looked_only`: where it looked, not evidence); otherwise the
-    stored reason in plain words."""
-    return NOT_STATED_REASON if looked_only(line) else why
+    value says so when code can show its found quote is no value (`LOOKED`); when the quote may state it, neutral words (`CONTRADICTS`);
+    otherwise the stored reason in plain words."""
+    seen = silent_quote(line)
+    return {LOOKED: NOT_STATED_REASON, CONTRADICTS: CONTRADICT_REASON}.get(seen, why)
 
 
 def query_action(line: Mapping, what: str, ref: str) -> str:
@@ -139,6 +179,8 @@ def query_action(line: Mapping, what: str, ref: str) -> str:
         return f"Contractor to provide {what}{sheet_mark(line)}; it is deferred on the sheet."
     if case == "disagree":
         return f"Engineer to check {what}: the readers disagree."
+    if case == "contradicts":
+        return f"Engineer to check {what}: the AI reviewer says it is not stated, but quoted words from the page that may state it."
     if case == "cut_off":
         return f"Engineer to check {what}: the second AI reader's answer was cut off, so the two readers did not agree."
     if case == "unknown":

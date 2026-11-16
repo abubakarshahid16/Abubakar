@@ -75,7 +75,7 @@ def is_placeholder(text) -> bool:
 
 def _head(text: str, words: int = 9) -> str:
     parts = clean(text).split()
-    return " ".join(parts[:words]) + (" ..." if len(parts) > words else "")
+    return " ".join(parts[:words]) + ("…" if len(parts) > words else "")  # FTU-1: the one cut mark (`crs_completeness.CUT_MARK`)
 
 
 HIDDEN_FIELD = "a requirement not shown: its rule book is not one you may read, or the point is not linked to a held rule book"
@@ -128,8 +128,15 @@ def paper_value(finding: dict | None) -> tuple[str, int | None]:
 LOOKED_NOTE = 'Not evidence of a value: the reader says the paper does not state it, and looked here: "{quote}" (found on the page by code).'
 
 
-def looked_note(quote: str) -> str:
-    return LOOKED_NOTE.format(quote=clean(quote))
+#: FTU-1: the same kind of point when the found quote may state the value (it names the field, or holds a figure): neutral words, no verdict
+MAY_STATE_NOTE = (
+    'The reader says the paper does not state it, but quoted: "{quote}" (found on the page by code), which may state it; '
+    "code did not decide which is right, so the engineer checks."
+)
+
+
+def looked_note(quote: str, may_state: bool = False) -> str:
+    return (MAY_STATE_NOTE if may_state else LOOKED_NOTE).format(quote=clean(quote))
 
 
 def says_no_value(kind: str | None, finding: dict | None) -> bool:
