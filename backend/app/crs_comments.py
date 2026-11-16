@@ -94,6 +94,53 @@ def is_coverage(point: dict) -> bool:
     return _line_of(point).get("source") == "group"
 
 
+# ------------------------------------------------------------------------------------------------ the fixed field list (lead, R94)
+
+_ROLES: list = []  # (rules, the field list's names by role), read once
+
+
+def _role_names() -> tuple[dict, dict]:
+    if not _ROLES:
+        from . import datasheet_checks
+        from . import form_reader_fields as form
+
+        rules = datasheet_checks.load_rules()
+        groups = datasheet_checks._synonyms()
+        names = {r: form.display_name(r, rules, form._synonyms_of(r, rules, groups)) for r in rules.get("roles") or {}}
+        _ROLES.append((rules, names))
+    return _ROLES[0]
+
+
+def role_name(role: object) -> str:
+    """A field role's name on the equipment's FIXED FIELD LIST (`form_reader_fields`, CLAUDE.md rule 13), the same in every run; the
+    role's words when the list has no entry for it; '' for no role."""
+    role = str(role or "").strip()
+    if not role:
+        return ""
+    words_ = role.replace("_", " ")
+    return _role_names()[1].get(role) or words_[:1].upper() + words_[1:]
+
+
+def topic_name(topic: object) -> str:
+    """A checklist item's topic as a field-list name: the ONE field whose name's words all stand in the topic ("PSV orifice designation and
+    size" -> "Orifice designation"); the topic itself when none or several do. Data only: the same in every run."""
+    have = set(re.findall(r"[a-z0-9]+", str(topic or "").lower()))
+    hits = {n for n in _role_names()[1].values() if (w := set(re.findall(r"[a-z0-9]+", n.lower()))) and w <= have}
+    return next(iter(hits)) if len(hits) == 1 else " ".join(str(topic or "").split())
+
+
+def label_name(label: object) -> str:
+    """A paper label read by CODE (a rule-check point's field) as its field-list name when the list knows it (`datasheet_checks.role_of`):
+    "Compressibility factor" -> "Compressibility"; the label itself otherwise."""
+    from . import datasheet_checks
+    from .datasheets import normalise_field_name
+
+    if not label:
+        return ""
+    rules, names = _role_names()
+    return names.get(datasheet_checks.role_of(normalise_field_name(str(label)), rules)) or str(label)
+
+
 def _field_of(point: dict) -> str:
     """The point's field: an AI point's stored line's field (`crs_ai_workbook.field_name`), else its name, with the tag list taken off
     by `review_points.split_tags` (called, never copied: the tag scanner is review_points', #1823); "" when it is not a field. The name
@@ -103,8 +150,8 @@ def _field_of(point: dict) -> str:
         from . import crs_ai_workbook
 
         name = rp.split_tags(crs_ai_workbook.field_name(line))[0]
-    else:
-        name = rp.split_tags(point.get("name") or "")[0]
+    else:  # a rule-check point: its code-read label, as the field list names it
+        name = label_name(rp.split_tags(point.get("name") or "")[0])
     return _norm(name) if is_field(name) else ""
 
 

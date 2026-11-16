@@ -69,6 +69,8 @@ def mk(iid, verdict, ai=None, item=OK, paper_kind=None, **kw):
     ):  # a PROVEN Fail: a failed code comparison (the lead's application of the same limit)
         base["compare"] = {"decided": True, "verdict": "does_not_meet"}
     base.update(kw)
+    if base.get("field") and not (base.get("rule_label") or {}).get("field"):  # order 14 lane B: a comment is named by the item's
+        base["rule_label"] = {**(base.get("rule_label") or {}), "field": base["field"]}  # field role: each invented item its own
     return W.final_cap(base, item, skill_ids=SK, paper_kind=paper_kind)
 
 
@@ -788,7 +790,7 @@ def test_the_paper_does_not_state_is_printed_only_for_the_absence_proof():
             )
             line2 = _line2(line)
             assert "does not state" not in line2, (reason, line2)
-            assert "The AI reviewer did not find Field R1 in the paper" in line2
+            assert f"The AI reviewer did not find {WB.field_words(line)} in the paper" in line2
             assert (
                 words.why_phrase(reason) in line2 or line["not_proven_reason"] != reason
             ), (reason, line2)

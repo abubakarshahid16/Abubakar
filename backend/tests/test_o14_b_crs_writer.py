@@ -38,6 +38,13 @@ def mk(iid, verdict="Query", ai=None, item=OK, **kw):
     if verdict == "Pass":
         base["compare"] = {"decided": True, "verdict": "meets"}
     base.update(kw)
+    if (
+        "rule_label" not in kw and base.get("field")
+    ):  # a comment is named by the item's field role (lead, R94): invent one from the field
+        base["rule_label"] = {
+            "tier": "AI approved",
+            "field": "_".join(str(base["field"]).lower().split()),
+        }
     return W.final_cap(base, item, skill_ids=SK)
 
 
@@ -766,36 +773,57 @@ def test_a_cut_off_second_reader_is_said_as_such_never_as_unconfirmed():
     )  # lane D's constant, once merged, is the same text
 
 
-def test_a_comment_is_named_by_the_items_own_field_not_the_label_the_ai_quoted(
+def test_a_comment_is_named_by_the_fixed_field_list_never_by_what_the_ai_quoted(
     monkeypatch,
 ):
+    """Lead's decision after R94: a comment's name is DETERMINISTIC: the item's field role as the equipment's fixed field list names it,
+    a checklist topic mapped to the one field it names, a rule-check label mapped to its field; never the label the AI quoted."""
+    role = {"tier": "AI approved", "field": "set_pressure"}
     run1 = mk(
         "R-1",
         field="Max. inlet pr. at design temp",
-        rule_label={"tier": "AI approved", "field": "set_pressure"},
+        field_label_ai="Max. inlet pr.",
+        rule_label=role,
     )
-    run2 = mk(
-        "R-1",
-        field="Required relieving capacity",
-        rule_label={"tier": "AI approved", "field": "set_pressure"},
-    )
+    run2 = mk("R-1", field="Required relieving capacity", rule_label=role)
     assert WB.field_name(run1) == WB.field_name(run2) == "Set pressure"
     assert (
-        WB._page_text(run1) == "p.2 - Max. inlet pr. at design temp"
-    )  # the paper's own label stays beside the page
+        WB.field_name(
+            mk(
+                "R-2",
+                field="Fluid",
+                field_label_ai="Fluid",
+                rule_label={"tier": "AI approved"},
+            )
+        )
+        == ""
+    )  # no role: never the AI's quoted label
     monkeypatch.setattr(
         WB,
         "_skill_item",
-        lambda _i: {"topic": "PSV inlet line pressure drop", "expected": "x"},
+        lambda _i: {"topic": "PSV orifice designation and size", "expected": "x"},
     )
-    skill = mk(
-        "S-1",
-        item={"source": "skill", "item_id": "S-1"},
-        field="Required relieving capacity",
+    assert (
+        WB.field_name(mk("S-1", item={"source": "skill", "item_id": "S-1"}))
+        == "Orifice designation"
     )
-    assert WB.field_name(skill) == "PSV inlet line pressure drop"
-    plain = mk("R-2", field="Fluid")  # no field role: the paper's label, as before
-    assert WB.field_name(plain) == "Fluid"
+    monkeypatch.setattr(
+        WB,
+        "_skill_item",
+        lambda _i: {"topic": "PSV inlet and outlet size and rating", "expected": "x"},
+    )
+    assert (
+        WB.field_name(mk("S-1", item={"source": "skill", "item_id": "S-1"}))
+        == "PSV inlet and outlet size and rating"
+    )  # several fields
+    assert (
+        crs_comments.label_name("Compressibility factor")
+        == crs_comments.label_name("Compressibility")
+        == "Compressibility"
+    )
+    assert (
+        crs_comments.label_name("Code symbol stamping") == "Code symbol stamping"
+    )  # not on the list: the label itself
 
 
 def test_two_proven_fails_on_one_field_keep_their_own_requirement_and_action_everywhere():
@@ -1075,3 +1103,34 @@ def test_an_older_run_file_missing_a_whole_sheet_is_refused(monkeypatch):
     buf = io.BytesIO()
     wb.save(buf)
     assert not crs_completeness.older_report("run", "internal", buf.getvalue())["ok"]
+
+
+def test_rule_check_labels_of_one_listed_field_are_one_comment():
+    """Two spellings of one field on the equipment's fixed field list ("Compressibility", "Compressibility factor") are one comment, even
+    with no shared clause; a label the list does not know keeps its own name."""
+
+    def pt(i, name):
+        return {"id": i, "name": name, "rank": 4, "tile": "questions"}
+
+    got = crs_comments.group(
+        [
+            pt("1", "Compressibility"),
+            pt("2", "Compressibility factor"),
+            pt("3", "Code symbol stamping"),
+        ]
+    )
+    assert sorted(c["n_points"] for c in got) == [1, 2]
+
+
+def test_the_words_name_the_paper_field_when_the_item_names_none_but_never_the_ais_unverified_label():
+    """The comment's KEY is deterministic (`field_name`); its WORDS may say the field as the paper prints it when code verified that
+    label, so a line with no role still reads "Contractor to confirm Gasket ...", never "the item"; the AI's unverified label never."""
+    verified = mk("R-1", field="Gasket", rule_label={"tier": "AI approved"})
+    assert WB.field_name(verified) == "" and WB.field_words(verified) == "Gasket"
+    assert "Contractor to confirm Gasket against STD-1 clause 4.1" in WB.layout_comment(
+        verified, *WB.status_of(verified)
+    )
+    unverified = mk(
+        "R-2", field=None, field_label_ai="Gasket", rule_label={"tier": "AI approved"}
+    )
+    assert WB.field_words(unverified) == ""

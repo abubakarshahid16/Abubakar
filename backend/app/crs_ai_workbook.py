@@ -92,35 +92,35 @@ OTHER_KIND_OF_SHEET = {
 
 
 def item_field(line: Mapping) -> str:
-    """The ITEM's own field, the same in every run (order 14, lane A's G6 analysis): a rule's field role from its label ("set_pressure"
-    -> "Set pressure"), a checklist item's topic; '' when the item names none."""
+    """The ITEM's own field, the same in every run (lead, R94): a rule's field role as the equipment's fixed field list names it, a
+    checklist item's topic mapped to the one field it names, else the topic; '' when the item names none."""
     if line.get("source") == "skill":
-        return _skill_item(line.get("item_id")).get("topic", "")
+        return crs_comments.topic_name(
+            _skill_item(line.get("item_id")).get("topic", "")
+        )
     label = line.get("rule_label")
-    role = (
-        _clean(label.get("field")).replace("_", " ")
-        if isinstance(label, Mapping)
-        else ""
+    return (
+        crs_comments.role_name(label.get("field")) if isinstance(label, Mapping) else ""
     )
-    return role[:1].upper() + role[1:]
 
 
 def field_name(line: Mapping) -> str:
-    """The field in words a reader knows: the item's own field (`item_field`, not the label the AI happened to quote, which varies
-    between runs), else the label printed on the paper, else the item's field roles; never an item id."""
-    label = (
-        item_field(line)
-        or _clean(line.get("field"))
-        or _clean(line.get("field_label_ai"))
-    )
+    """The field in words a reader knows, NEVER what the AI quoted (lead, R94: deterministic, so a comment's name does not move between
+    runs): the item's own field (`item_field`), else the item's field roles as the field list names them."""
+    label = item_field(line)
     if label:
         return label
-    roles = [
-        str(r).replace("_", " ").strip()
+    return ", ".join(
+        crs_comments.role_name(r)
         for r in line.get("field_roles") or []
         if str(r).strip()
-    ]
-    return ", ".join(roles)
+    )
+
+
+def field_words(line: Mapping) -> str:
+    """The field as the comment's WORDS say it: its name (`field_name`, the comment's key), else the paper's label that code verified on
+    the page. Never the AI's unverified label."""
+    return field_name(line) or _clean(line.get("field"))
 
 
 def _page_text(line: Mapping) -> str:
@@ -196,7 +196,7 @@ def _no_quote(line: Mapping) -> str:
 
 def _requires(line: Mapping, status: str) -> str:
     """Part 1: what the rule requires: the clause quote code verified in the book, else `_no_quote`."""
-    ref, ask, field = against(line), _item_ask(line), field_name(line)
+    ref, ask, field = against(line), _item_ask(line), field_words(line)
     verb = (
         "recommends"
         if line.get("recommendation") or line.get("rule_kind") == "advice"
@@ -227,7 +227,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     """Part 2: what the paper shows (only a quote code verified), or that it does not state the value. An AI opinion says it is
     the AI reviewer's view and that code did not prove it."""
     field, has, page = (
-        field_name(line) or "the value asked for",
+        field_words(line) or "the value asked for",
         stated(line),
         line.get("paper_page"),
     )
@@ -236,7 +236,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return words.absence_cell(line, field_name(line) or _item_ask(line))
+        return words.absence_cell(line, field_words(line) or _item_ask(line))
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -326,10 +326,10 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
+        return f"Contractor to state {field_words(line) or 'the value asked for'}, or the page where it is shown."
     if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
         return action  # a question for the engineer, never worded for the contractor
-    what, ref = field_name(line) or "the item", against(line)
+    what, ref = field_words(line) or "the item", against(line)
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):

@@ -386,7 +386,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
-    field, tags = split_tags(wb.field_name(line), ctx.get("known_tags") or frozenset())
+    field, tags = split_tags(wb.field_words(line), ctx.get("known_tags") or frozenset())
     name = (
         _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
