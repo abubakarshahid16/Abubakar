@@ -71,7 +71,7 @@ def _counts(orphaned=0, rows=10, cells="aaa"):
     }
 
 
-def _apply(monkeypatch, tmp_path, before, after, seen=None):
+def _apply(monkeypatch, tmp_path, before, after, seen=None, chunk_step=None):
     import socket
 
     from app import chunker, standards
@@ -93,7 +93,7 @@ def _apply(monkeypatch, tmp_path, before, after, seen=None):
             (seen if seen is not None else []).append("network refused")
         return {}
 
-    monkeypatch.setattr(chunker, "chunk_document", step)
+    monkeypatch.setattr(chunker, "chunk_document", chunk_step or step)
     monkeypatch.setattr(standards, "extract_requirements", step)
     monkeypatch.setattr(standards, "extract_table_values", step)
 
@@ -148,3 +148,59 @@ def test_crs_cell_changes_are_reported_without_text(monkeypatch, tmp_path):
             }
         }
     }
+
+
+def _book_db(tmp_path):
+    db = tmp_path / "copy.sqlite"
+    c = sqlite3.connect(db)
+    c.executescript(
+        "CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT);"
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);"
+        "CREATE TABLE standard_requirements (id TEXT PRIMARY KEY, standard_document_id TEXT);"
+        "INSERT INTO documents VALUES ('d', 'book.pdf'); INSERT INTO pages VALUES ('d', 1, 'x');"
+        "INSERT INTO standard_requirements VALUES ('r', 'd');"
+    )
+    c.commit()
+    c.close()
+    return db
+
+
+def test_another_process_holding_the_database_is_a_no_go(tmp_path, monkeypatch):
+    """R92: the lsof check (the server must be stopped)."""
+    import subprocess
+
+    mod = _script()
+    db = _book_db(tmp_path)
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="999999\n", stderr=""),
+    )
+    checks = {c: ok for c, ok, _d in mod.go_no_go(db, "d", False, None)}
+    assert checks["nothing else holds the database open (server stopped)"] is False
+    assert mod.main(["--db", str(db), "--doc", "d"]) == 2
+
+
+def test_an_owners_yes_made_of_spaces_is_no_yes(tmp_path):
+    """R92: both checks of the owner's yes: the refusal up front, and the go/no-go line."""
+    mod = _script()
+    live = tmp_path / "x" / "backend" / "data" / "rag_intelligence.sqlite"
+    live.parent.mkdir(parents=True)
+    live.write_bytes(b"")
+    assert mod.main(["--db", str(live), "--doc", "d", "--owner-yes", "   "]) == 3
+    checks = {c: ok for c, ok, _d in mod.go_no_go(_book_db(tmp_path), "d", True, "   ")}
+    assert checks["live database: the owner's yes is given"] is False
+
+
+def test_a_step_that_fails_halfway_prints_the_way_back_and_keeps_the_report(
+    monkeypatch, tmp_path, capsys
+):
+    def boom(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    code, rep = _apply(monkeypatch, tmp_path, _counts(), _counts(), chunk_step=boom)
+    out = capsys.readouterr().out
+    assert code == 1 and "FAILED HALFWAY" in out and "WAY BACK (do it now)" in out
+    assert rep["failed"].startswith("RuntimeError") and rep["restore"][1].startswith(
+        "cp "
+    )

@@ -886,8 +886,9 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
     start of its sentence. Exact string matches only; nothing fuzzy. When several superseded rules lead to one successor,
     their labels must agree (state, paper kind, field, reading), else nothing is carried ("conflicting"). A successor that
     already has a label keeps its own. The label rows (`rule_label`, `rule_equipment_label`) are copied verbatim under the
-    successor's id (same models, prompt, hashes, quote page), logged by the tables' own event triggers and once in the
-    audit. A PERSON's approval or refusal (`rulebook_approval`, keyed by the rule-book version) is NEVER carried, and an
+    successor's id (same models, prompt, hashes, quote page, and the same rule-book version link, so a person's LATER
+    decision on that version reaches the successor too: R92), logged by the tables' own event triggers and once in the
+    audit. A PERSON's approval or refusal (the rule book's approvals, keyed by its version) is NEVER carried, and an
     old rule a person decided (approved OR refused) carries NOTHING, not even its AI label, so a refusal is never
     bypassed: the successor waits for a person; both are counted for the owner. No model; no network."""
     out = {"carried": 0, "carried_identical": 0, "carried_heading_restored": 0, "carried_equipment": 0,
@@ -899,14 +900,28 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
     labelled = {r[0]: r[1:] for r in conn.execute(
         "SELECT rule_ref, state, paper_kind, field, reading_json, rule_version_id FROM rule_label"
         " WHERE source = 'requirement'")}
-    decided: set[str] = set()  # versions a PERSON decided (approve or refuse): their old rules carry nothing
-    if "rulebook_approval" in held:
-        decided = {r[0] for r in conn.execute("SELECT DISTINCT rule_version_id FROM rulebook_approval")}
+    from . import compiled_rule_report
+
+    _decided: dict[str, bool] = {}
+
+    def decided(version: str | None) -> bool:
+        """A PERSON decided this rule-book version (approve or refuse), read through the rule book's own module."""
+        if not version:
+            return False
+        if version not in _decided:
+            _decided[version] = bool(compiled_rule_report.book_approval_rows(conn, version))
+        return _decided[version]
+
+    # the rules the NEWEST re-chunk of this book superseded (it runs just before this extraction); an older re-chunk's
+    # rows belong to an earlier re-extraction and are not read again
+    latest_rechunk = conn.execute(
+        "SELECT superseded_by_run FROM standard_requirements WHERE standard_document_id = ? AND superseded_by_run LIKE ?"
+        " ORDER BY superseded_at DESC LIMIT 1", (document_id, RECHUNK_RUN_PREFIX + "%")).fetchone()
     gone: dict[tuple, list[str]] = {}
     for rid, req, src in conn.execute(
             "SELECT id, requirement_text, source_text FROM standard_requirements"
-            " WHERE standard_document_id = ? AND (superseded_by_run = ? OR superseded_by_run LIKE ?)",
-            (document_id, run_id, RECHUNK_RUN_PREFIX + "%")):
+            " WHERE standard_document_id = ? AND superseded_by_run IN (?, ?)",
+            (document_id, run_id, latest_rechunk[0] if latest_rechunk else run_id)):
         if rid in labelled:
             gone.setdefault((_carry_text(req), _carry_text(src)), []).append(rid)
     if not gone:
@@ -930,7 +945,7 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
             out["successor_labelled"] += 1
             sources_used.update(old)
             continue
-        if any(labelled[o][4] in decided for o in old if labelled[o][4]):
+        if any(decided(labelled[o][4]) for o in old):
             out["person_decided_not_carried"] += 1  # a person's word on the old rule: the successor waits for a person
             continue
         if len({labelled[o][:4] for o in old}) != 1:
@@ -938,15 +953,15 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
             continue
         targets.append((rid, sorted(old), how))
     cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_label)")]
-    keep = [c for c in cols if c not in ("rule_ref", "rule_version_id")]
+    keep = [c for c in cols if c != "rule_ref"]
     has_equipment = "rule_equipment_label" in held
     eq_cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")] if has_equipment else []
     with conn:
         for dst_id, old, how in targets:
             src_id = old[0]  # they agree; the first by id is copied
             conn.execute(
-                f"INSERT INTO rule_label (rule_ref, rule_version_id, {', '.join(keep)})"
-                f" SELECT ?, NULL, {', '.join(keep)} FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
+                f"INSERT INTO rule_label (rule_ref, {', '.join(keep)})"
+                f" SELECT ?, {', '.join(keep)} FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
                 (dst_id, src_id))
             out["carried"] += 1
             out[f"carried_{how}"] += 1
@@ -964,7 +979,7 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
     all_old = [o for ids in gone.values() for o in ids]
     out["old_rules_carried"] = sum(1 for o in all_old if o in sources_used)
     out["old_rules_not_carried"] = sum(1 for o in all_old if o not in sources_used)
-    out["person_decisions_not_carried"] = sum(1 for o in all_old if labelled[o][4] and labelled[o][4] in decided)
+    out["person_decisions_not_carried"] = sum(1 for o in all_old if decided(labelled[o][4]))
     return out
 
 

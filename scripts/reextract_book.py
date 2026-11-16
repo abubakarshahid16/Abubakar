@@ -47,7 +47,9 @@ DEFAULT_PAPERS = (
     "doc_d30f4c63d481",
     "doc_da3fcc0aaacc",
     "doc_2ec2934f8d3f",
-)  # valve, pump, vessel
+    "doc_b4f0d52bf927",
+    "doc_0d5c6f72ad0d",
+)  # valve, pump, vessel, HAZOP procedure, second procedure
 RANGES = {"UG-150..UG-156": r"^UG-15[0-6]\b", "UW-51/UW-52": r"^UW-5[12]\b"}
 
 
@@ -341,7 +343,7 @@ def _main(argv: list[str] | None = None) -> int:
     _print(
         f"database {db.name} ({'LIVE' if live else 'a copy'}), book {args.doc}, {'DRY RUN' if args.dry_run else 'APPLY'}"
     )
-    if live and not args.dry_run and not args.owner_yes:
+    if live and not args.dry_run and not (args.owner_yes or "").strip():
         _print(
             "REFUSED: a live database is written only with --owner-yes (the owner's yes and a verified backup)"
         )
@@ -358,7 +360,19 @@ def _main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         import sqlite3
 
-        conn = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)
+        if live:  # the CRS builders open the app's own connection, which refuses a live file: read a temporary copy
+            from app import live_guard as guard
+
+            copy = guard.diagnostic_copy(db)
+            settings.data_dir, settings.db_path = copy.parent, copy
+            _print(
+                f"DRY RUN on a live database: counts read from a temporary copy {copy} (backup API, read only); "
+                "remove it afterwards"
+            )
+            db_read = copy
+        else:
+            db_read = db
+        conn = sqlite3.connect(f"{db_read.as_uri()}?mode=ro", uri=True)
         report["before"] = counts(conn, args.doc, papers)
         cells_before = report["before"].pop("crs_cells", {})
         _print("BEFORE " + json.dumps(report["before"]))
@@ -374,7 +388,6 @@ def _main(argv: list[str] | None = None) -> int:
     )
     timing["backup_s"] = round(time.monotonic() - t, 1)
     _print(f"BACKUP {json.dumps(report['backup'])}")
-    from app import chunker, standards
     from app.db import connect
 
     conn = connect()
@@ -382,6 +395,29 @@ def _main(argv: list[str] | None = None) -> int:
     cells_before = report["before"].pop("crs_cells", {})
     _print("BEFORE " + json.dumps(report["before"]))
     allowed = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
+    way_back = [
+        "stop the server",
+        f"cp '{report['backup']['backup']}' '{db}'",
+        f"rm -f '{db}-wal' '{db}-shm'",
+        "start the server",
+    ]
+    try:
+        return _steps(args, report, papers, allowed, timing, cells_before, way_back)
+    except Exception as exc:  # noqa: BLE001 - a step that fails halfway still shows the way back, and the report is kept
+        report["failed"] = (
+            f"{type(exc).__name__} during the steps; part of the change may be written"
+        )
+        report["restore"] = way_back
+        _print(f"FAILED HALFWAY: {report['failed']}")
+        _print("WAY BACK (do it now): " + " ; ".join(way_back))
+        _write(args.report, report)
+        return 1
+
+
+def _steps(args, report, papers, allowed, timing, cells_before, way_back) -> int:
+    from app import chunker, standards
+    from app.db import connect
+
     t = time.monotonic()
     chunked = chunker.chunk_document(
         args.doc, force=True, acknowledge_orphaned_findings=True
@@ -439,12 +475,7 @@ def _main(argv: list[str] | None = None) -> int:
     if not report["crs_cell_changes"]:
         _print("CRS CELLS: no cell of the stored CRS files changed")
     report["problems"] = problems
-    report["restore"] = [
-        "stop the server",
-        f"cp '{report['backup']['backup']}' '{db}'",
-        f"rm -f '{db}-wal' '{db}-shm'",
-        "start the server",
-    ]
+    report["restore"] = way_back
     _print(
         "CHECKS "
         + (

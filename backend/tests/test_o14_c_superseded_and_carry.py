@@ -295,3 +295,42 @@ def test_a_superseded_rule_never_wins_the_duplicate_check_over_its_identical_suc
         doc["rules_left_out"]["superseded"] == 1
         and "stored_repeat" not in doc["rules_left_out"]
     )
+
+
+def test_a_persons_later_refusal_of_the_version_reaches_the_carried_successor(book):
+    """R92: the successor keeps the label's rule-book version link, so a refusal made AFTER the carry stops both."""
+    book.execute(
+        "INSERT INTO standard_requirements VALUES ('old-bridged', 'd-book', 'Stems shall be sealed.',"
+        " 'Stems shall be sealed.', '2026-11-16', ?, 'ch-plain')",
+        (RUN,),
+    )
+    book.execute(
+        "INSERT INTO standard_requirements VALUES ('new-bridged', 'd-book', 'Stems shall be sealed.',"
+        " 'Stems shall be sealed.', NULL, NULL, 'ch-plain')"
+    )
+    _label(book, "old-bridged", rule_version_id="v-bridged")
+    standards.carry_labels(book, "d-book", RUN)
+    assert (
+        rule_labels.usable_tier(book, requirement_id="new-bridged").tier
+        == rule_labels.AI_TIER
+    )
+    book.execute(
+        "INSERT INTO rulebook_approval VALUES ('a9', 'v-bridged', 'reject', 'u1', 't', NULL, NULL)"
+    )
+    assert rule_labels.usable_tier(book, requirement_id="old-bridged").tier is None
+    assert rule_labels.usable_tier(book, requirement_id="new-bridged").tier is None
+
+
+def test_only_the_newest_rechunk_of_the_book_is_read(book):
+    """R92: an older re-chunk's rows belong to an earlier re-extraction and are not read again."""
+    book.execute(
+        "INSERT INTO standard_requirements VALUES ('old-older-rechunk', 'd-book', 'Plugs shall be tight.',"
+        " 'Plugs shall be tight.', '2026-01-01', 'xrun_rechunk_1', 'ch-plain')"
+    )
+    book.execute(
+        "INSERT INTO standard_requirements VALUES ('new-older-rechunk', 'd-book', 'Plugs shall be tight.',"
+        " 'Plugs shall be tight.', NULL, NULL, 'ch-plain')"
+    )
+    _label(book, "old-older-rechunk", rule_version_id=None)
+    standards.carry_labels(book, "d-book", RUN)
+    assert _has(book, "new-rechunk") and not _has(book, "new-older-rechunk")
