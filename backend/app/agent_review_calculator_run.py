@@ -226,6 +226,10 @@ def _checklist_lines(
     """The approved checklist, PER TAG GROUP; a group-level result (no fact) is named by its group."""
     from . import checklist_scope, degraded_read
 
+    from .agent_review_checklist_books import ChecklistBooks
+    from .db import connect
+
+    books = ChecklistBooks(connect())  # each book and clause read once per run
     made = []
     counts = cells_mod.page_tag_counts(facts)
     for key, gfacts in cells_mod.groups(facts).items():
@@ -241,6 +245,7 @@ def _checklist_lines(
             page_texts=pages,
             cells=cells_mod.cells_of(gfacts, tables, counts),
             document_id=submittal,
+            books=books,
         ):
             made.append(
                 wording.final_cap(line, line, tier_lookup, paper_kind=kind.kind)
