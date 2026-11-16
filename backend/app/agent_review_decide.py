@@ -249,6 +249,12 @@ class DecideMixin:
             guard = self.pass_guard(item, label if label_ok else "")
             if guard is not None:
                 decision, reason_code, deferred_page = guard
+        else:
+            fixed = self.deferred_reason(
+                item, answer, ev, decision, error, label if label_ok else ""
+            )
+            if fixed is not None:
+                decision, reason_code, deferred_page = fixed
         pg = self._pass_guards(item, answer, pages, ev)
         if pg is not None and not pg["ok"] and reason_code == ev["reason_code"]:
             reason_code = str(
@@ -268,6 +274,46 @@ class DecideMixin:
             (label if label_ok else None, label, reason_code, deferred_page),
         )  # fmt: skip
         return {**line, "pass_guard": pg} if pg is not None else line
+
+    def deferred_reason(
+        self,
+        item: Mapping,
+        answer: Mapping,
+        ev: Mapping,
+        decision: Mapping,
+        error: str | None,
+        label: str,
+    ) -> tuple[dict, str, int] | None:
+        """(decision, "value_deferred", page) for a line the AI left as Query (decided by the engineer) whose field is marked
+        deferred on the page of the line's OWN verified paper quote and shown with a value nowhere on that page; else None. It
+        corrects the reason only: the line stays a Query, `reason_code_ai` stays the AI's own, no other line is touched. Field
+        words: the item's roles, else the printed label. A line without a verified paper page is not corrected."""
+        page = verdict._page_no(answer.get("paper_page"))
+        if (
+            error
+            or page is None
+            or not ev["checks"].paper
+            or decision["verdict"] != verdict.QUERY
+            or decision["decided_by"] != verdict.BY_ENGINEER
+            or verdict.ai_verdict_word(answer.get("verdict")) != verdict.QUERY
+            or ev["reason_code"] == "not_applicable"
+        ):
+            return None
+        roles = " ".join(
+            str(r).replace("_", " ") for r in item.get("field_roles") or []
+        )
+        text = self.pages.page(self.paper, page) or ""
+        if not any(f and absence.deferred_on_page(f, text) for f in (roles, label)):
+            return None
+        return (
+            {
+                "verdict": verdict.QUERY,
+                "decided_by": verdict.BY_ENGINEER,
+                "why": f"the sheet marks this value as not final on page {page}",
+            },
+            "value_deferred",
+            page,
+        )
 
     def _pass_guards(
         self, item: Mapping, answer: Mapping, pages: Mapping[int, str], ev: Mapping

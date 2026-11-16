@@ -385,3 +385,100 @@ def test_the_review_runners_guard_also_tries_the_printed_label():
     assert (
         got is not None and got[1] == "value_deferred" and got[0]["verdict"] == "Query"
     )
+
+
+# ---------------------------------------------------------------- round 3: the narrowed tie
+
+
+def test_a_label_line_tie_needs_two_field_words_or_the_exact_label_words():
+    one_word_field = "bearing"  # one content word
+    assert (
+        A.deferred_mark(one_word_field, {1: "Bearing housing material\nBy Contractor"})
+        is None
+    )  # another field's longer label
+    assert (
+        A.deferred_mark(one_word_field, {1: "Bearing\nBy Contractor"}) == 1
+    )  # the label line IS the field's words
+    assert (
+        A.deferred_mark("casing material", {1: "Casing material\nBy Contractor"}) == 1
+    )
+    # a header line over a row that is not the field's own: one word fields never tie
+    assert (
+        A.deferred_mark(one_word_field, {1: "Bearing lubrication\nBy Contractor"})
+        is None
+    )
+    # a note line holding a figure is not a label line
+    assert (
+        A.deferred_mark("casing material", {1: "Note 3 casing material\nBy Contractor"})
+        is None
+    )
+    # a label line that already holds its own one-word value: a one-word field does not tie
+    assert A.deferred_mark("casing", {1: "Casing steel\nBy Contractor"}) is None
+    # two labels on one line, one-word fields: neither ties (the two-word case is a known limit, a Query only)
+    assert A.deferred_mark("casing", {1: "Casing Bearing\nBy Contractor"}) is None
+    assert A.deferred_mark("bearing", {1: "Casing Bearing\nBy Contractor"}) is None
+
+
+# ---------------------------------------------------------------- round 3: the reason of a Query the AI left
+
+
+def _runner(page_text):
+    from app.agent_review_decide import DecideMixin
+
+    class Run(DecideMixin):
+        paper, total_pages = "p", 3
+
+        class pages:  # noqa: N801
+            @staticmethod
+            def page(paper, n):
+                return {2: page_text}.get(n)
+
+    return Run()
+
+
+def _fix(
+    page_text,
+    *,
+    paper_page=2,
+    verdict_word="Query",
+    by="engineer",
+    error=None,
+    code="needs_drawing_or_calc",
+    label="",
+    checked=True,
+):
+    from app import agent_review_verdict as V
+
+    decision = {"verdict": "Query", "decided_by": by, "why": "x"}
+    ev = {"checks": V.QuoteCheck(checked, True), "reason_code": code}
+    answer = {"paper_page": paper_page, "verdict": verdict_word}
+    item = {"field_roles": ["casing_material"]}
+    return _runner(page_text).deferred_reason(item, answer, ev, decision, error, label)
+
+
+MARKED = "DATA SHEET\nCasing material\nBy Contractor"
+
+
+def test_a_query_whose_field_is_deferred_on_its_own_quote_page_takes_value_deferred():
+    got = _fix(MARKED)
+    assert got is not None and got[1] == "value_deferred" and got[2] == 2
+    assert got[0]["verdict"] == "Query" and "page 2" in got[0]["why"]
+    assert (
+        _fix("DATA SHEET\nCsg matl\nBy Contractor", label="Csg matl") is not None
+    )  # the printed label
+
+
+def test_the_reason_is_not_corrected_off_the_quote_page_or_where_a_value_is_given_or_for_other_lines():
+    assert (
+        _fix(MARKED, paper_page=1) is None
+    )  # the mark is not on the page of the line's own quote
+    assert _fix(MARKED, paper_page=None) is None  # no verified paper page
+    assert _fix(MARKED, checked=False) is None  # quote not verified
+    # the field is also printed with a value on that page (another tag): never "not final"
+    assert _fix(MARKED + "\nCasing material\nCarbon steel") is None
+    assert _fix(MARKED + "\nCasing material steel A105") is None
+    assert _fix(MARKED, verdict_word="Pass") is None  # an AI Pass is the pass guard's
+    assert _fix(MARKED, verdict_word="Fail") is None  # an AI not-met is never touched
+    assert _fix(MARKED, by="AI verdict") is None  # a two-reader decision
+    assert _fix(MARKED, code="not_applicable") is None
+    assert _fix(MARKED, error="ai_call_failed") is None
