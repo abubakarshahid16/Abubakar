@@ -110,8 +110,10 @@ def whole(pages: Pages) -> bool:
 
 
 def _finish(r: Result) -> Result:
-    """A finding whose quote does not stand on its page is not a finding: it goes to the engineer."""
-    if r.outcome == INCONSISTENT and not all(q.verified for q in r.quotes):
+    """A result whose quote does not stand on its page decides nothing, either way: it goes to the engineer."""
+    if r.outcome in (INCONSISTENT, CONSISTENT) and not all(
+        q.verified for q in r.quotes
+    ):
         r.outcome = ENGINEER
         r.message += " A quote did not verify on its page, so code does not decide."
     return r
@@ -175,10 +177,44 @@ def is_stage_line(line: str) -> bool:
     )
 
 
+_CLAUSE_NUMBER = re.compile(r"^\s*(?P<num>\d+(?:\.\d+)+)\.?\s")
+
+
+def numbered_schedules(pages: Pages) -> list[list[tuple[int, str]]]:
+    """Sibling numbered clauses that each state ONE percentage ("7.2.1.1 Twenty percent (20%) of ...", 7.2.1.2, ...): one
+    schedule per parent number. Kept only when every sibling under that parent states one percentage and the siblings are
+    numbered 1 to n without a gap (a parent that also holds clauses of another kind is not a schedule)."""
+    by_parent: dict[str, list[tuple[int, int, str, int]]] = {}
+    for page, line in lines_of(pages):
+        m = _CLAUSE_NUMBER.match(line)
+        if not m:
+            continue
+        parent, _dot, last = m.group("num").rpartition(".")
+        members = by_parent.setdefault(parent, [])
+        if any(n == int(last) for n, _p, _l, _k in members):
+            continue  # the number again: a wrapped cross-reference ("... Sub-Article / 7.2.2.2 and upon ..."), not a clause
+        members.append((int(last), page, line, len(percents(line))))
+    out = []
+    for members in by_parent.values():
+        numbers = [n for n, _p, _l, _k in members]
+        if (
+            len(members) >= 2
+            and numbers == list(range(1, len(members) + 1))
+            and all(k == 1 for _n, _p, _l, k in members)
+        ):
+            out.append([(p, ln) for _n, p, ln, _k in members])
+    return out
+
+
 def schedules(pages: Pages) -> list[list[tuple[int, str]]]:
-    """Runs of stage lines in reading order, at most MAX_GAP other lines apart; a run of two or more is one payment schedule."""
+    """Payment schedules: sibling numbered clauses of one percentage each (`numbered_schedules`), then runs of stage lines in
+    reading order, at most MAX_GAP other lines apart, outside those clauses; a run of two or more is one payment schedule."""
+    numbered = numbered_schedules(pages)
+    taken = {(p, ln) for run in numbered for p, ln in run}
     runs, current, gap = [], [], 0
     for page, line in lines_of(pages):
+        if (page, line) in taken:
+            continue
         if is_stage_line(line):
             current.append((page, line))
             gap = 0
@@ -189,7 +225,7 @@ def schedules(pages: Pages) -> list[list[tuple[int, str]]]:
                 current, gap = [], 0
     if current:
         runs.append(current)
-    return [r for r in runs if len(r) >= 2]
+    return numbered + [r for r in runs if len(r) >= 2]
 
 
 def count_claims(pages: Pages) -> list[tuple[int, int, str]]:
@@ -226,13 +262,15 @@ def _schedule_result(pages: Pages, run: list[tuple[int, str]]) -> Result:
     shown = " + ".join(f"{v[0]:g}" for v in values) + f" = {total:g}%"
     pages_word = ", ".join(str(p) for p in where)
     if abs(total - 100.0) < 1e-9:
-        return Result(
-            "CT-01",
-            f"payment schedule p{where[0]}",
-            CONSISTENT,
-            shown,
-            f"The {len(run)} payment stages on page {pages_word} add up to 100%.",
-            quotes,
+        return _finish(
+            Result(
+                "CT-01",
+                f"payment schedule p{where[0]}",
+                CONSISTENT,
+                shown,
+                f"The {len(run)} payment stages on page {pages_word} add up to 100%.",
+                quotes,
+            )
         )
     return _finish(
         Result(
@@ -447,14 +485,30 @@ def _name(part: Part) -> str:
     )
 
 
-def _present_for(ref: Part, present: dict[Part, str]) -> str | None:
-    """Where the referred part is present. A reference that names its higher part matches only a present part of that higher part
-    (or one whose higher part is not stated); a reference that names none matches the part under any higher part."""
+AMBIGUOUS = "held under several higher parts"
+UNNAMED = "higher part not named"
+
+
+def _present_for(
+    ref: Part, present: dict[Part, str], own: Part | None = None
+) -> str | None:
+    """Where the referred part is present, or AMBIGUOUS, or None. A reference that names its higher part matches only a
+    present part of that higher part (or one whose higher part is not stated). A reference that names none, in a paper that
+    is one part of the contract, matches only the paper's own sub-part or a sibling under the paper's own higher part (in
+    Schedule K, "Attachment II" is Schedule K's, never another schedule's). In a paper that is no part (the agreement), the
+    one held part with that label; with that label held under several higher parts code does not choose: AMBIGUOUS."""
     key, parent = ref
-    for (k, p), where in present.items():
-        if k == key and (parent is None or p is None or p == parent):
-            return where
-    return None
+    found = [(p, where) for (k, p), where in present.items() if k == key]
+    if parent is not None:
+        return next((w for p, w in found if p is None or p == parent), None)
+    if own is not None:
+        family = {x for x in (own[0], own[1]) if x is not None}
+        return next((w for p, w in found if p in family), None)
+    if not found:
+        return None
+    if DEPTH[key[0]] > 0:
+        return UNNAMED  # a sub-part with no higher part, in a paper that is no part: whose it is is not said
+    return found[0][1] if len({p for p, _w in found}) == 1 else AMBIGUOUS
 
 
 def _inside(ref: Part, own: Part | None) -> bool:
@@ -512,8 +566,20 @@ def check_attachments(
         first_per_page = list({p: (p, ln) for p, ln in reversed(where)}.values())[::-1]
         quotes = [quote(pages, p, ln) for p, ln in sorted(first_per_page)]
         on = ", ".join(str(p) for p in sorted({p for p, _l in where}))
-        at = _present_for(part, present)
-        if at:
+        at = _present_for(part, present, own)
+        if at in (AMBIGUOUS, UNNAMED):
+            out.append(
+                Result(
+                    "CT-02",
+                    _name(part),
+                    ENGINEER,
+                    at,
+                    f"{_name(part)} is referred to on page {on} without its higher part, and held documents carry that "
+                    "label under a higher part: the engineer checks which one is meant.",
+                    quotes,
+                )
+            )
+        elif at:
             out.append(
                 Result(
                     "CT-02",

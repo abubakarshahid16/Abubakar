@@ -513,3 +513,76 @@ def test_a_giving_verb_far_from_the_guarantee_word_does_not_name_a_giver():
     pages = [(1, PARTIES + "6.1 The Supplier shall provide the installation, testing and commissioning of every pump and skid"
                            " on site to maintain the vendor warranty.")]  # fmt: skip
     assert _one(cc.check_guarantees(pages), "CT-03", "warranty").outcome == cc.ENGINEER
+
+
+def test_sibling_numbered_clauses_of_one_percentage_each_are_a_payment_schedule():
+    pages = [(1, "7.2 Material price\n7.2.1.1 Twenty percent (20%) of the price on order.\n7.2.1.2 Seventy percent (70%) of"
+                 " the price on delivery.\n7.2.1.3 Ten percent (10%) of the price on acceptance.\n"
+                 "7.3.1 Thirty percent (30%) of the price on order.\n7.3.2 The rest is paid as agreed.")]  # fmt: skip
+    results = cc.check_stages(pages)
+    assert [(r.value, r.outcome) for r in results] == [
+        ("20 + 70 + 10 = 100%", cc.CONSISTENT)
+    ]  # 7.3.x: a sibling has none
+    pages[0] = (1, pages[0][1].replace("Ten percent (10%)", "Five percent (5%)"))
+    assert [r.outcome for r in cc.check_stages(pages)] == [cc.INCONSISTENT]
+
+
+def test_a_wrapped_cross_reference_does_not_break_a_numbered_schedule_and_an_unverified_quote_decides_nothing():
+    pages = [(1, "7.2.2.1 Thirty percent (30%) of the price on order.\n7.2.2.2 Sixty-five percent (65%) of the price on"
+                 " delivery.\n7.2.2.3 Remaining five percent (5%) of the price.\nThe rest is paid under Sub-Article\n"
+                 "7.2.2.2 and upon acceptance.")]  # fmt: skip
+    assert [(r.value, r.outcome) for r in cc.check_stages(pages)] == [
+        ("30 + 65 + 5 = 100%", cc.CONSISTENT)
+    ]
+    r = cc._finish(
+        cc.Result(
+            "CT-01",
+            "t",
+            cc.CONSISTENT,
+            "v",
+            "m",
+            [cc.Quote(1, "not on the page", False)],
+        )
+    )
+    assert r.outcome == cc.ENGINEER
+
+
+def test_a_label_held_under_several_higher_parts_is_not_credited_to_any_one_of_them():
+    package = {
+        "doc_a2": [(1, 'SCHEDULE "A"\nATTACHMENT II\nManpower')],
+        "doc_h2": [(1, 'SCHEDULE "H"\nATTACHMENT II\nDivision of responsibilities')],
+    }
+    agreement = [(1, "FORM OF AGREEMENT\n1.1 The manpower plan is in Attachment II.")]
+    a = _one(cc.check_attachments(agreement, package), "CT-02", "Attachment II")
+    assert a.outcome == cc.ENGINEER and a.value == "higher part not named"
+    one = {
+        "doc_a2": package["doc_a2"]
+    }  # even one holder: the agreement does not say whose Attachment II it means
+    assert (
+        _one(cc.check_attachments(agreement, one), "CT-02", "Attachment II").value
+        == "higher part not named"
+    )
+    schedule_h = [
+        (1, 'SCHEDULE "H"\nSpecial terms\n1.1 The split of work is in Attachment II.')
+    ]
+    h = _one(cc.check_attachments(schedule_h, package), "CT-02", "Attachment II")
+    assert h.value == "present (held document doc_h2)"  # the paper's own Attachment II
+
+
+def test_in_a_schedule_an_attachment_with_no_named_parent_is_never_another_schedules():
+    package = {"doc_w1": [(1, 'SCHEDULE "W"\nATTACHMENT I\nTools')]}
+    schedule_k = [
+        (1, 'SCHEDULE "K"\nScope of work\n1.1 Offices are listed in Attachment I.')
+    ]
+    r = _one(cc.check_attachments(schedule_k, package), "CT-02", "Attachment I")
+    assert r.outcome == cc.ENGINEER and r.value.startswith("not held")
+    attachment_w2 = [
+        (
+            1,
+            'SCHEDULE "W"\nATTACHMENT II\nProcurement\n1.1 Tools are listed in Attachment I.',
+        )
+    ]
+    sib = _one(cc.check_attachments(attachment_w2, package), "CT-02", "Attachment I")
+    assert (
+        sib.value == "present (held document doc_w1)"
+    )  # a sibling under the paper's own schedule
