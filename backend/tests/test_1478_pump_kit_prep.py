@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import card_trust, pump_kit, rule_cards
+from app import card_trust, pump_kit, question_card, rule_cards
 from app import datasheet_checks as dc
 from app.config import settings
 
@@ -295,7 +295,11 @@ def test_the_clean_sheet_raises_no_fail_on_any_held_card():
         if card.get("needs"):
             continue
         # a QUESTION ONLY card (its limit an AI draft) asks on a clean sheet too: never a pass (order 14 lane D)
-        want = "NEEDS_ENGINEER_REVIEW" if dc.question_only(card) else "COMPLIANT"
+        want = (
+            "NEEDS_ENGINEER_REVIEW"
+            if question_card.question_only(card)
+            else "COMPLIANT"
+        )
         assert _kit_status(card, BASE) == want, card["id"]
 
 

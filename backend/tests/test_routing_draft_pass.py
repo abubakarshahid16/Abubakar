@@ -918,25 +918,50 @@ def test_a_marked_or_open_condition_value_never_says_does_not_apply():
     open_cond = {**COND, "may_be_any": ["maybe"]}
     assert status("maybe so", open_cond) == ("NEEDS_ENGINEER_REVIEW", hold_reason.OTHER)
     assert status("no", open_cond) == ("NOT_APPLICABLE", None)
-    # an item whose answer cannot be wrong whatever the condition goes on as for an unknown condition
+    # held for every item, also one evaluated when its condition is unknown: a placeholder decides nothing
     assert status("TBA", when_unknown="evaluate") == (
         "NEEDS_ENGINEER_REVIEW",
-        hold_reason.APPLICABILITY_NOT_STATED_ABSENT,
+        hold_reason.DEFERRED_MARKER,
     )
 
 
-def test_a_question_only_calculation_keeps_its_numbers_never_its_verdict():
-    asked = {"limit_draft": {"status": "AI draft, engineer to confirm"}}
-    got = dc._never_decided(
-        asked, {"status": "NON_COMPLIANT", "detail": "1.2 is not at least 1.5."}
-    )
-    assert (
-        got["status"] == "NEEDS_ENGINEER_REVIEW"
-        and got[hold_reason.KEY] == hold_reason.LIMIT_NOT_CONFIRMED
-    )
-    assert (
-        got["detail"].endswith("1.2 is not at least 1.5.")
-        and "Not decided" in got["detail"]
-    )
-    plain = {"status": "COMPLIANT", "detail": "ok"}
-    assert dc._never_decided({}, plain) is plain
+def test_a_question_only_card_of_any_rule_kind_keeps_its_numbers_never_its_verdict():
+    """A card marked question only is held whatever its rule kind (here a comparison that would say Fail)."""
+    card = {
+        "id": "Q-1",
+        "text": "Invented margin card",
+        "source": {"standard": "STD-1", "clause": "4.2"},
+        "rule": {
+            "kind": "percent_of",
+            "field": "design_pressure",
+            "op": ">=",
+            "right": "operating_pressure",
+            "percent": 105,
+        },
+    }
+    facts = [
+        {**_fact("design pressure", "9 barg", 1), "raw_value": "9", "raw_unit": "barg"},
+        {
+            **_fact("operating pressure", "10 barg", 2),
+            "raw_value": "10",
+            "raw_unit": "barg",
+        },
+    ]
+
+    def run(item):
+        rules = {
+            **dc.load_rules(),
+            "checklists": {
+                "Pressure Vessel": {"items": [item], "sign_off": {"status": "draft"}}
+            },
+        }
+        got = dc.evaluate(
+            facts, equipment_type="Pressure Vessel", page_texts={2: "x"}, rules=rules
+        )
+        return next(r for r in got if r["rule_id"] == "Q-1")
+
+    assert run(card)["status"] == "NON_COMPLIANT"  # the plain card decides
+    asked = run({**card, "limit_draft": {"status": "AI draft, engineer to confirm"}})
+    assert asked["status"] == "NEEDS_ENGINEER_REVIEW" and "rule_said" not in asked
+    assert asked[hold_reason.KEY] == hold_reason.LIMIT_NOT_CONFIRMED
+    assert asked["detail"].startswith("Not decided") and "105% of" in asked["detail"]

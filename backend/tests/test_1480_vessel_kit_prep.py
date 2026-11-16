@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import card_trust, kit_core, pump_kit, rule_cards, vessel_kit
+from app import card_trust, kit_core, pump_kit, question_card, rule_cards, vessel_kit
 from app import datasheet_checks as dc
 from app.config import settings
 
@@ -327,7 +327,11 @@ def test_the_clean_sheet_raises_no_fail_on_any_held_card():
         if card.get("needs"):
             continue
         # a QUESTION ONLY card (its limit an AI draft) asks on a clean sheet too: never a pass (order 14 lane D)
-        want = "NEEDS_ENGINEER_REVIEW" if dc.question_only(card) else "COMPLIANT"
+        want = (
+            "NEEDS_ENGINEER_REVIEW"
+            if question_card.question_only(card)
+            else "COMPLIANT"
+        )
         assert _kit_status(card, BASE) == want, card["id"]
 
 
@@ -595,7 +599,7 @@ def test_the_margin_card_asks_for_the_mop_too():
         (
             "10",
             "limit_not_confirmed",
-            "maximum operating pressure 10 barg (page 1): stated",
+            "Also stated: maximum operating pressure 10 barg (page 1)",
         ),
     ):
         rows = no_mop + (

@@ -97,11 +97,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=_D,
         anchor=(
             "    where = f\"{_label(fact, field)} {_said(fact)} (page {fact.get('page')})\"\n"
-            "    if question_only(item):\n"  # re-anchored in PR 1849 (a question-only card asks first)
+            '    if kind == "required":\n'
         ),
         replacement=(
             "    where = f\"{_label(fact, field)} {_shown(fact)} (page {fact.get('page')})\"\n"
-            "    if question_only(item):\n"  # re-anchored in PR 1849 (a question-only card asks first)
+            '    if kind == "required":\n'
         ),
         target=_T,
         keyword="checklist_item_quotes_a_long_value",
