@@ -93,6 +93,7 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
+    (APP + "standards_web_search.py", "what leaves for the online search of rule books not held (egress, cost)"),
     (
         APP + "agent_review_calculator_run.py",
         "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass",

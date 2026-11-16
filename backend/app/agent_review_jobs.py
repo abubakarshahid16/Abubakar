@@ -46,6 +46,7 @@ from . import (
     review_engine,
     review_jobs,
     review_shown,
+    standards_web_search,
 )
 from . import agent_review_items as items_mod
 from . import agent_review_local as local_mod
@@ -698,6 +699,8 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         )
         job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
     crs_completeness.record_after_run(run_id)
+    # off by default: public names of books not held; shown, never used
+    standards_web_search.after_run(run_id)
     return "done"
 
 

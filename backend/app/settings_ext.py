@@ -484,6 +484,16 @@ class SettingsExt(BaseModel):
     #: The standards reader's and datasheet reader's model. Empty: `claude_reasoning_model`.
     #: The process environment wins over `backend/.env`. Env: STANDARDS_READER_MODEL.
     standards_reader_model: str = ""
+    #: Owner decision, 17 Nov 2026 (#1584 comment 6927034366, pending his confirmation there): online search for rule books we do
+    #: not hold (`standards_web_search`). After an AI review, for each rule book it listed as not held, Claude's web search (the
+    #: existing Claude lane, no new company or key) is asked for the PUBLIC catalogue entry of that standard: title, latest edition
+    #: and year, publisher, one publisher URL. Only the public name, rebuilt by code, leaves; never document text. Shown on the page
+    #: and the CRS sheet "Rule books not held" as "not verified", never a rule, clause or verdict input. OFF (default): nothing is
+    #: asked or created and the page and the CRS file are byte-same. Env: STANDARDS_WEB_SEARCH_ENABLED.
+    standards_web_search_enabled: bool = False
+    #: The most one review run may spend on that search, worst case reserved before each request (inside the run's USD 15 and the
+    #: day and month caps of `claude_spend`). Env: STANDARDS_WEB_SEARCH_USD_PER_RUN.
+    standards_web_search_usd_per_run: float = Field(0.50, ge=0)
     #: #1584 (owner decision, 2 Nov): a document uploaded for review joins the Claude approved list by itself
     #: (`claude_auto_approve`), and so does a standard its review cites or that governs it; a blocked hash and the
     #: register file (rule 3) never do: it is blocked by its file name, built in (owner, 12 Nov 2026), so no block file is needed;

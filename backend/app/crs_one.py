@@ -33,7 +33,7 @@ from openpyxl import Workbook
 from . import crs_ai_words as words
 from . import crs_comments as comments
 from . import crs_completeness as completeness
-from . import crs_export_quality, crs_layout
+from . import crs_export_quality, crs_layout, standards_web_search
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from . import review_points_content as content
@@ -686,6 +686,19 @@ def contract_rows(results) -> tuple[list[list], int]:
     return rows, consistent
 
 
+HELD_MEANS = "Cited by the paper (or asked for), not held in the library: not checked against it"
+
+
+def held_table(held: list[str], found: list[dict] | None) -> tuple[tuple, list[list], tuple]:
+    """The sheet "Rule books not held": (columns, rows, widths). With the online search on (`found` is a list, maybe empty), one more
+    column says what it found, "not verified"; it is never a rule quote, a clause or a point. Off (`found` None): as before."""
+    if found is None:
+        return ("Rule book", "What it means"), [[_cell(n), HELD_MEANS] for n in held], (48, 80)
+    words_of = {f["name"]: f["words"] for f in found}
+    rows = [[_cell(n), HELD_MEANS, _cell(words_of.get(n) or "not searched")] for n in held]
+    return ("Rule book", "What it means", standards_web_search.COLUMN), rows, (48, 80, 90)
+
+
 def build_team(
     paper_id: str,
     scope,
@@ -773,9 +786,10 @@ def build_team(
         (12, 48, 30, 8), note="These points are also rows of the sheet Evidence (they are counted on the page); listed here by themselves.",
     )  # fmt: skip
     held = extra.get("not_held") or []
+    columns, rows, widths = held_table(held, extra.get("found_online"))
     _sheet_table(
-        wb, HELD_SHEET, ("Rule book", "What it means"), [[_cell(n), "Cited by the paper (or asked for), not held in the library: not checked against it"] for n in held],
-        (48, 80), note=f"{len(held)} rule book(s) not held. They are not points: nothing was checked against them.",
+        wb, HELD_SHEET, columns, rows, widths,
+        note=f"{len(held)} rule book(s) not held. They are not points: nothing was checked against them.",
     )  # fmt: skip
     _sheet_table(
         wb,
