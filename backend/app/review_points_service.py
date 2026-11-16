@@ -403,9 +403,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
-    found = standards_web_search.shown(conn, ai_run, not_held)  # None while the switch is off: nothing is added
-    if found is not None:  # what the online search found for each book not held: shown as not verified, never a point
-        counts["not_held"]["found_online"] = found
+    online = standards_web_search.into(counts, conn, ai_run, not_held)  # off: {} and nothing added; never a point
     proposal = review_code_proposal.propose(
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),
@@ -442,10 +440,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
     listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
-    facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
-    if found is not None:
-        facts["found_online"] = found
-    return listing, points, facts
+    return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run, **online}
 
 
 def assemble(paper_id: str, scope) -> dict:

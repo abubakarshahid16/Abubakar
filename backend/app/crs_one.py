@@ -686,17 +686,28 @@ def contract_rows(results) -> tuple[list[list], int]:
     return rows, consistent
 
 
-HELD_MEANS = "Cited by the paper (or asked for), not held in the library: not checked against it"
+HELD_MEANS = (
+    "Cited by the paper (or asked for), not held in the library: not checked against it"
+)
 
 
-def held_table(held: list[str], found: list[dict] | None) -> tuple[tuple, list[list], tuple]:
-    """The sheet "Rule books not held": (columns, rows, widths). With the online search on (`found` is a list, maybe empty), one more
-    column says what it found, "not verified"; it is never a rule quote, a clause or a point. Off (`found` None): as before."""
+def held_table(held: list[str], found: list[dict] | None) -> tuple:
+    """The sheet "Rule books not held": (columns, rows, widths). With the online search
+    on (`found` a list), one more column says what it found, "not verified"; never a
+    rule quote, a clause or a point. Off (`found` None): exactly as before."""
     if found is None:
-        return ("Rule book", "What it means"), [[_cell(n), HELD_MEANS] for n in held], (48, 80)
-    words_of = {f["name"]: f["words"] for f in found}
-    rows = [[_cell(n), HELD_MEANS, _cell(words_of.get(n) or "not searched")] for n in held]
-    return ("Rule book", "What it means", standards_web_search.COLUMN), rows, (48, 80, 90)
+        return (
+            ("Rule book", "What it means"),
+            [[_cell(n), HELD_MEANS] for n in held],
+            (48, 80),
+        )
+    said = {f["name"]: f["words"] for f in found}
+    rows = [[_cell(n), HELD_MEANS, _cell(said.get(n) or "not searched")] for n in held]
+    return (
+        ("Rule book", "What it means", standards_web_search.COLUMN),
+        rows,
+        (48, 80, 90),
+    )
 
 
 def build_team(

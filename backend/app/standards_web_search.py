@@ -538,3 +538,12 @@ def shown(conn, run_id: str | None, names: list[str]) -> list[dict] | None:
             {"name": name, **{k: (row or {}).get(k) for k in keep}, "words": words(row)}
         )
     return out
+
+
+def into(counts: dict, conn, run_id: str | None, names: list[str]) -> dict:
+    """Add `found_online` to the page's counts of books not held; return the facts the CRS file reads. Off: {} and nothing added."""
+    found = shown(conn, run_id, names)
+    if found is None:
+        return {}
+    counts["not_held"]["found_online"] = found
+    return {"found_online": found}
