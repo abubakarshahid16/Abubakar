@@ -619,3 +619,9 @@ class SettingsExt(BaseModel):
     #: `agent_review_answer`, local only; the database backup covers it). OFF (default): nothing is read or written and a run is exactly
     #: as before. A run can ask for fresh answers (`fresh` on the start route, `--fresh` in the trial script). Env: AGENT_REVIEW_REUSE_ANSWERS_ENABLED.
     agent_review_reuse_answers_enabled: bool = False
+    # order 14 lane C
+    #: Order 14 lane C (16 Nov 2026): rule choice asks a book that reference/kind_books.json lists WITH CLAUSES for the paper's kind
+    #: (and equipment type) only in those clauses; the rest are left out as "this part of the book does not govern this equipment".
+    #: The same file is what gate G2 reads, so the two never disagree. Needs correct clause labels: keep it off until the book is
+    #: re-extracted with CHUNKER_VERSION 12. OFF (default): no rule is left out by a clause limit. Env: KIND_BOOK_CLAUSE_LIMIT_ENABLED.
+    kind_book_clause_limit_enabled: bool = False

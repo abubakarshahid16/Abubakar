@@ -248,6 +248,13 @@ def decide_rule(
             book_role=book["role"],
         )
         return out
+    if out["ask"] and (
+        part := rule_choice.outside_clause_limit(
+            conn, requirement_id, norm_kind(paper_kind), equipment_type
+        )
+    ):  # order 14 lane C: a book listed with clauses for this kind (reference/kind_books.json) is asked only in them
+        out.update(ask=False, reason=rule_choice.PART_OUTSIDE, tier=None, part_note=part)
+        return out
     if equipment is None or not out["ask"]:
         return out
     label = rule_equipment.label_for(conn, "requirement", str(requirement_id)) or {}

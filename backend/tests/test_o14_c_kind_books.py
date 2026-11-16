@@ -227,3 +227,63 @@ def test_asme_viii_governs_a_pump_only_in_its_casing_weld_radiography_clauses():
     assert books.judge(asme, "UW-51")[0] == "pass" and books.judge(asme, "UW-52(b)")[0] == "pass"
     for wrong in ("UG-118", "19-3", "7.16"):
         assert books.judge(asme, wrong)[0] == "fail", wrong
+
+
+# ---- the clause limit at rule choice: the same kind_books.json G2 reads -------------------------------------------------------
+
+
+@pytest.fixture
+def limited(conn, monkeypatch, tmp_path):  # noqa: F811
+    """Book d-eq is "SAES-Z-100"; a pump datasheet takes it only in ZZ-51 and ZZ-52."""
+    import json
+
+    from app import agent_review_rule_choice as rc
+
+    conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT)")
+    conn.execute("CREATE TABLE document_classification (document_id TEXT PRIMARY KEY, document_number TEXT)")
+    conn.execute("CREATE TABLE standard_requirements (id TEXT PRIMARY KEY, standard_document_id TEXT, clause TEXT)")
+    conn.execute("INSERT INTO documents VALUES ('d-eq', 'SAES-Z-100.pdf')")
+    conn.execute("INSERT INTO document_classification VALUES ('d-eq', 'SAES-Z-100')")
+    for rid, clause in (("in", "ZZ-51(b)"), ("in2", "ZZ-52"), ("out", "ZZ-118"), ("nil", None), ("far", "ZZ-510")):
+        conn.execute("INSERT INTO standard_requirements VALUES (?, 'd-eq', ?)", (rid, clause))
+        label(conn, rid, kind="datasheet")
+    path = tmp_path / "kind_books.json"
+    path.write_text(json.dumps({"format": rc.KIND_BOOKS_FORMAT, "kinds": {
+        "datasheet|pump": [{"book": "SAES-Z-100", "clauses": ["ZZ-51", "ZZ-52"]}],
+        "datasheet|relief valve": [{"book": "SAES-Z-100"}]}}))
+    monkeypatch.setattr(rc, "KIND_BOOKS_PATH", path)
+    monkeypatch.setattr(settings, "kind_book_clause_limit_enabled", True, raising=False)
+    return conn
+
+
+def test_a_book_limited_to_clauses_for_a_kind_is_asked_only_in_them(limited):
+    from app import agent_review_rule_choice as rc
+
+    ask = {r: R.decide_rule(limited, r, "datasheet", equipment_type="pump") for r in ("in", "in2", "out", "nil", "far")}
+    assert ask["in"]["ask"] and ask["in2"]["ask"]
+    for r in ("out", "nil", "far"):
+        assert ask[r]["ask"] is False and ask[r]["reason"] == rc.PART_OUTSIDE, r
+    assert "only in ZZ-51, ZZ-52" in ask["out"]["part_note"]
+    # another type that takes the whole book, and a type with no entry: nothing is left out
+    assert R.decide_rule(limited, "out", "datasheet", equipment_type="relief valve")["ask"] is True
+    assert R.decide_rule(limited, "out", "datasheet", equipment_type="compressor")["ask"] is True
+
+
+def test_the_clause_limit_off_changes_nothing(limited, monkeypatch):
+    monkeypatch.setattr(settings, "kind_book_clause_limit_enabled", False, raising=False)
+    assert R.decide_rule(limited, "out", "datasheet", equipment_type="pump")["ask"] is True
+
+
+def test_rule_choice_and_gate_g2_read_clauses_the_same_way():
+    import sys
+    from pathlib import Path
+
+    from app import agent_review_rule_choice as rc
+
+    sys.path.insert(0, str(Path(kind_standards.__file__).resolve().parents[2] / "scripts"))
+    import crs_gates
+
+    prefixes = ["UG-150", "UG-156", "UW-51", "4.1"]
+    for clause in ("UG-150", "UG-150(a)", "UG-150.1", "UG-1500", "UG-15", "uw-51 (b)", "Clause 4.1.2", "4.10", "", "7.16"):
+        assert rc.clause_in(clause, prefixes) == crs_gates.clause_in(clause, prefixes), clause
+    assert rc.KIND_BOOKS_FORMAT == crs_gates.MAPPING_FORMAT
