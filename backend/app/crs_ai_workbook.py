@@ -51,7 +51,7 @@ from .agent_review_verdict import (
     moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
-from .crs_ai_actions import query_action, reason_for, reasoning_part
+from .crs_ai_actions import provisional, query_action, reason_for, reasoning_part
 
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"
@@ -205,7 +205,12 @@ def _requires(line: Mapping, status: str) -> str:
     if (
         status == words.STATUS_QUERY and (mark := _deferred_mark(line)) is not None
     ):  # lane D: the sheet leaves it to the vendor
-        head = f"Vendor to provide {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
+        lead = (
+            "Contractor to confirm the provisional value of"
+            if provisional(line)
+            else "Vendor to provide"
+        )
+        head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
         return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
     if status == words.STATUS_QUERY:
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"

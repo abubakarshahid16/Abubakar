@@ -7,6 +7,7 @@ carries the AI reviewer's own reasoning, labelled as its view (P5); a proven Pas
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 from . import agent_review_two_reader as two
@@ -38,6 +39,34 @@ def action_case(line: Mapping) -> str:
     return "unknown"
 
 
+_STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
+
+
+def sheet_mark(line: Mapping) -> str:
+    """How the sheet marks a deferred value, from the quote code VERIFIED on the page (lane D): " (marked * on page N)" for a lone star,
+    ' (marked "<its words>" on page N)', " (left open on page N)" with no verified quote; "" when not even the page is known."""
+    from .agent_review_crs import stated
+
+    has, page = stated(line), line.get("deferred_page") or line.get("paper_page")
+    on = f" on page {page}" if page not in (None, "") else ""
+    if has and _STAR.search(has):
+        return f" (marked *{on})"
+    return f' (marked "{has}"{on})' if has else (f" (left open{on})" if on else "")
+
+
+def provisional(line: Mapping) -> bool:
+    """The sheet prints a FIGURE with a unit beside its deferral mark ("340 psig By Contractor"): a provisional value to be confirmed, not
+    a blank to be provided. Read by the app's one number reader (`claims.extract_measurements`) in the verified quote only."""
+    from .claims import extract_measurements
+
+    quote = (
+        " ".join(str(line.get("paper_quote") or "").split())
+        if (line.get("quotes_checked") or {}).get("paper")
+        else ""
+    )
+    return bool(quote) and bool(extract_measurements(quote))
+
+
 STATED_REASON = "a value is stated on the paper (a quote code verified); it is not proven that it meets the rule"
 
 
@@ -54,8 +83,12 @@ def query_action(line: Mapping, what: str, ref: str) -> str:
     case = action_case(line)
     if case == "stated":
         return f"Contractor to confirm or justify {what}{' against ' + ref if ref else ''}."
-    if case == "deferred":
-        return f"Contractor to provide {what}; it is deferred on the sheet."
+    if (
+        case == "deferred"
+    ):  # lane D: the words follow what the sheet shows (its mark, its page, a provisional figure)
+        if provisional(line):
+            return f"Contractor to confirm the provisional value of {what}{sheet_mark(line)}{' against ' + ref if ref else ''}."
+        return f"Contractor to provide {what}{sheet_mark(line)}; it is deferred on the sheet."
     if case == "disagree":
         return f"Engineer to check {what}: the readers disagree."
     if case == "cut_off":

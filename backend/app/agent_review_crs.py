@@ -723,9 +723,6 @@ def evidence_sheet(items: list, others: list) -> dict:
 # ------------------------------------------------------------------------------------------------ words of the AI run file (order 14 lane B)
 
 
-_STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
-
-
 def _deferred_mark(line: Mapping) -> str | None:
     """None when the value is not left open on the sheet; else how the sheet marks it (verified quote): " (marked * on page N)", or its words."""
     from .agent_review_verdict import DEFERRED_WHY
@@ -735,11 +732,9 @@ def _deferred_mark(line: Mapping) -> str | None:
     ).startswith(DEFERRED_WHY)
     if not deferred:
         return None
-    has, page = stated(line), line.get("deferred_page") or line.get("paper_page")
-    on = f" on page {page}" if page not in (None, "") else ""
-    if has and _STAR.search(has):
-        return f" (marked *{on})"
-    return f' (marked "{has}"{on})' if has else (f" (left open{on})" if on else "")
+    from .crs_ai_actions import sheet_mark
+
+    return sheet_mark(line)
 
 
 def _other_reason(line: Mapping, kind: str) -> str:
