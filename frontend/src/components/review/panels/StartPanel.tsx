@@ -103,6 +103,7 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
             notSent={plan.documents.not_sent}
             notReadable={plan.documents.not_readable}
             textLeaves={plan.text_leaves}
+            webSearch={plan.documents.web_search}
           />
         </>
       )}
