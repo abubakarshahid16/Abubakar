@@ -28,6 +28,8 @@ export interface ReviewPlan {
     not_readable?: number;
     /** True when the list could not be worked out: no Claude start is offered. */
     unreadable?: boolean;
+    /** Only with the online search for rule books not held on and the AI review on Claude: what that search may send. */
+    web_search?: string;
   };
   cost: {
     at_most_usd: number | null;
@@ -125,7 +127,14 @@ export interface PointsListing {
     several_books_points?: number;
     other_rule_books_points: number;
     other_rule_books_note: string | null;
-    not_held: { names: string[]; more: number; total: number; note: string | null };
+    not_held: {
+      names: string[];
+      more: number;
+      total: number;
+      note: string | null;
+      /** Only with the online search on: what it found for each rule book not held, in the backend's own words, "not verified"; never a rule, a clause or a point. */
+      found_online?: { name: string; outcome: string | null; words: string; url: string | null }[];
+    };
     decided?: number;
     decided_of?: number;
   };

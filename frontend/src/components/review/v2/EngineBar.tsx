@@ -46,7 +46,7 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
 
   const list = ready && listKnown ? (
     <LeavingList leaving={leaving ?? []} notSent={ready.documents.not_sent ?? []} notReadable={ready.documents.not_readable ?? 0}
-      textLeaves={ready.text_leaves} />
+      textLeaves={ready.text_leaves} webSearch={ready.documents.web_search} />
   ) : null;
 
   return (

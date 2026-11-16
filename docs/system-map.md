@@ -511,6 +511,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `watch_api` | GET /api/watch/status - what the watched drop folder is doing |
 | `watcher` | Watched-folder auto-ingest |
 | `web_standards` | Owner order 2d-2: for a standard the submittal CITES but the library does NOT HOLD, an OPTIONAL check against |
+| `standards_web_search` | Online search for rule books we do not hold (owner, 17 Nov 2026, #1584; off by default): after an AI review, the public name of each rule book not held (rebuilt by code) to Claude's web search through `agent_claude`, metered with the search fee; the answer stored per run and shown as "not verified" on the page and the CRS sheet "Rule books not held", never a rule or verdict input |
 | `work_budget` | A hard work budget for a request that can grow with the library (#606) |
 | `workbook` | Read an xlsx into sheets for a read-only preview. Standard library only |
 | `word_flow` | #1473: a Word file read as `docx_reader` pages for the datasheet fact reader (PAGE_READ_BY_READING_ENABLED) |

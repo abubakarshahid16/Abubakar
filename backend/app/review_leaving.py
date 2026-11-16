@@ -387,4 +387,10 @@ def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
             explicit=plan.choice == "claude",
         )
     )
+    # rule 1, the list before the start: the online search for books not held (off: no key, the plan is unchanged)
+    from . import standards_web_search
+
+    ai_on_claude = leaves and plan.part("ai_review").engine == "claude"
+    if note := standards_web_search.plan_note(ai_on_claude):
+        docs["web_search"] = note
     return docs

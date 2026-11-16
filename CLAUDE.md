@@ -106,7 +106,11 @@ carries the client's name; only the owner can rename it.
    for only those files. Local sends no file content to Claude; Claude without
    explicit document selection can answer general questions but gets no document
    content from the library or prior document-bearing chat history.
-   Other Claude workflows retain the owner-approved document list. The market search sends only the human-typed
+   Other Claude workflows retain the owner-approved document list. The ONLINE SEARCH FOR RULE BOOKS WE DO NOT HOLD (owner,
+   17 Nov 2026, #1584 comment 6930244442; `standards_web_search.py`, `STANDARDS_WEB_SEARCH_ENABLED`, off by default) sends
+   only a public standard's name taken from the app's own tables of public standards (never the paper's words), through
+   `reader_transport.py` under the same caps; a stored answer is reused for 90 days and says when it was searched.
+   The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
    `market_transport.py` (market lane, off by default), `model_transport.py`
