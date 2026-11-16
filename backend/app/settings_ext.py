@@ -487,7 +487,8 @@ class SettingsExt(BaseModel):
     #: Owner decision, 17 Nov 2026 (#1584 comment 6927034366, pending his confirmation there): online search for rule books we do
     #: not hold (`standards_web_search`). After an AI review, for each rule book it listed as not held, Claude's web search (the
     #: existing Claude lane, no new company or key) is asked for the PUBLIC catalogue entry of that standard: title, latest edition
-    #: and year, publisher, one publisher URL. Only the public name, rebuilt by code, leaves; never document text. Shown on the page
+    #: and year, publisher, one publisher URL, only after the run sent its paper to Claude and declared as carrying the paper. Only
+    #: the public name, rebuilt by code, leaves; never document text; the pre-start plan says so. Shown on the page
     #: and the CRS sheet "Rule books not held" as "not verified", never a rule, clause or verdict input. OFF (default): nothing is
     #: asked or created and the page and the CRS file are byte-same. Env: STANDARDS_WEB_SEARCH_ENABLED.
     standards_web_search_enabled: bool = False

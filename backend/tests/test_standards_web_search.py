@@ -1,9 +1,11 @@
-"""Online search for rule books we do not hold (owner, 17 Nov 2026, #1584). Fake senders only: no network, no real key."""
+"""Online search for rule books we do not hold (owner, 17 Nov 2026, #1584; review R-1853). Fake senders only: no network, no real
+key."""
 
 from __future__ import annotations
 
 import io
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -17,6 +19,7 @@ from app import (
     crs_one,
     db,
     review_engine,
+    review_leaving,
     review_points_service,
 )
 from app import standards_web_search as sws
@@ -44,6 +47,7 @@ FOUND = {
     "publisher": "American Petroleum Institute",
     "url": "https://www.api.org/products-and-services/standards",
 }
+EXPORTED = "2026-11-17 10:00 UTC"
 
 
 @pytest.fixture(autouse=True)
@@ -61,12 +65,19 @@ def _on(monkeypatch, tmp_path, temp_db):  # noqa: F811
 
 class Sender:
     def __init__(
-        self, reply: dict | None = None, raises: Exception | None = None, usage=USAGE
+        self, reply=None, raises=None, usage=USAGE, stop="end_turn", content=None
     ):
+        text = (
+            reply
+            if isinstance(reply, str)
+            else json.dumps(FOUND if reply is None else reply)
+        )
         self.answer = {
             "model": sws.MODEL,
-            "stop_reason": "end_turn",
-            "content": [
+            "stop_reason": stop,
+            "content": content
+            if content is not None
+            else [
                 {
                     "type": "server_tool_use",
                     "id": "s1",
@@ -74,26 +85,36 @@ class Sender:
                     "input": {"query": "q"},
                 },
                 {"type": "web_search_tool_result", "tool_use_id": "s1", "content": []},
-                {"type": "text", "text": json.dumps(FOUND if reply is None else reply)},
+                {"type": "text", "text": text},
             ],
             "usage": usage,
         }
-        self.raises, self.bodies, self.headers = raises, [], []
+        self.raises, self.bodies, self.headers, self.timeouts = raises, [], [], []
 
     def __call__(self, url, *, headers, body, timeout):
         self.bodies.append(json.loads(json.dumps(body)))
         self.headers.append(dict(headers))
+        self.timeouts.append(timeout)
         if self.raises is not None:
             raise self.raises
         return self.answer
 
 
-def missing(run_id: str, *names: str) -> None:
+def answered(run_id: str, finish: str = "end_turn") -> None:
+    """A ledger line of the run's AI reviewer: one Claude call answered (the paper went to Claude)."""
+    with claude_spend.for_run(run_id):
+        claude_spend.record(step=agent_claude.STEP, model="claude-sonnet-5-5", usage={"input_tokens": 10, "output_tokens": 5},
+                            prompt_sha256="x", wall_time_s=0.0, finish_reason=finish)  # fmt: skip
+
+
+def missing(run_id: str, *names: str, sent: bool = True) -> None:
     with db.connect() as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO agent_review_missing_book (run_id, name, why) VALUES (?,?,?)",
             [(run_id, n, "cited") for n in names],
         )
+    if sent:
+        answered(run_id)
 
 
 def rows(run_id: str) -> dict[str, dict]:
@@ -107,12 +128,12 @@ def rows(run_id: str) -> dict[str, dict]:
 
 
 def has_table() -> bool:
-    return (
+    found = (
         db.connect()
         .execute("SELECT 1 FROM sqlite_master WHERE name = 'standards_web_search'")
         .fetchone()
-        is not None
     )
+    return found is not None
 
 
 def cells(data: bytes) -> dict[str, list]:
@@ -121,6 +142,10 @@ def cells(data: bytes) -> dict[str, list]:
         ws.title: [list(r) for r in ws.iter_rows(values_only=True)]
         for ws in wb.worksheets
     }
+
+
+def open_reservations() -> list[dict]:
+    return [e for e in claude_spend.entries() if e.get("reserved")]
 
 
 # ------------------------------------------------------------------------------------------------ off
@@ -133,9 +158,7 @@ def test_off_nothing_is_asked_nothing_is_created_and_the_page_and_file_are_uncha
     missing(ai, "API 521")
     monkeypatch.setattr(settings, "standards_web_search_enabled", False)
     before_page = review_points_service.assemble(doc, scope_all())
-    before = cells(
-        crs_one.build_team(doc, scope_all(), exported="2026-11-17 10:00 UTC")
-    )
+    before = cells(crs_one.build_team(doc, scope_all(), exported=EXPORTED))
     send = Sender()
     assert sws.search_run(ai, send=send, env=ENV) == {"ran": False}
     sws.after_run(ai)
@@ -147,11 +170,9 @@ def test_off_nothing_is_asked_nothing_is_created_and_the_page_and_file_are_uncha
     assert has_table()
     monkeypatch.setattr(settings, "standards_web_search_enabled", False)
     assert review_points_service.assemble(doc, scope_all()) == before_page
-    assert (
-        cells(crs_one.build_team(doc, scope_all(), exported="2026-11-17 10:00 UTC"))
-        == before
-    )
+    assert cells(crs_one.build_team(doc, scope_all(), exported=EXPORTED)) == before
     assert before[crs_one.HELD_SHEET][2] == ["Rule book", "What it means"]
+    assert sws.plan_note(True) is None
 
 
 # ------------------------------------------------------------------------------------------------ what leaves
@@ -186,6 +207,7 @@ def test_only_the_cleaned_public_name_leaves_never_the_paper_or_its_words():
     sent = json.dumps(body)
     for leak in ("drum.pdf", "Datasheet", "page 4", "SAES", doc):
         assert leak not in sent
+    assert send.timeouts[0] <= sws.REQUEST_TIMEOUT_SECONDS
     stored = rows(ai)
     assert stored["Datasheet 1 page 4 note on drum.pdf"]["outcome"] == sws.NOT_SEARCHED
     assert stored["Datasheet 1 page 4 note on drum.pdf"]["searched_name"] is None
@@ -201,9 +223,20 @@ def test_only_the_cleaned_public_name_leaves_never_the_paper_or_its_words():
         ("asme bpvc section viii div. 1", "ASME BPVC SECTION VIII DIV 1"),
         ("ISO 15156" + chr(0x2011) + "3", "ISO 15156-3"),  # a non-breaking hyphen
         ("ASME B16.5" + chr(0x2013) + "2017", "ASME B16.5-2017"),  # an en dash
+        ("ASME B31.3", "ASME B31.3"),
+        ("API 520 Part I", "API 520 PART I"),
+        ("API 520-I", "API 520-I"),
+        ("NACE TM0177", "NACE TM0177"),
+        ("API 650 13th Edition", "API 650 13TH EDITION"),
+        ("ISO 9001:2015", "ISO 9001 2015"),
         ("API 610 as per the datasheet", None),
         ("API 610; see page 3", None),
         ("SAES-L-108", None),
+        # tags and document numbers (review R-1853, finding 7)
+        ("API 610 EF1975-DAS-I-06", None),
+        ("ASTM KJO1975", None),
+        ("IEC TK1001", None),
+        ("AWS EF1975.06", None),
         (chr(0x391) + "PI 521", None),  # a Greek capital alpha that looks like an A
         ("ISO " + chr(0xFF19) + "001", None),  # a full-width digit nine
         ("API", None),
@@ -215,6 +248,76 @@ def test_a_name_is_rebuilt_from_closed_word_shapes_or_refused(raw, cleaned):
     assert sws.clean_name(raw) == cleaned
 
 
+# ------------------------------------------------------------------------------------------------ the names come from the paper
+
+
+def test_a_run_that_sent_nothing_to_claude_sends_no_name():
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521", "ISO 9001", sent=False)
+    answered(ai, finish="refused:not_approved")  # refusals and failures only
+    answered(ai, finish="failed:HTTPStatusError:http_400")
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    assert send.bodies == []
+    assert {r["why"] for r in rows(ai).values()} == {sws.NOT_SENT_WORDS}
+
+
+def test_a_blocked_paper_sends_no_name_even_after_its_review_sent_it():
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521")
+    with db.connect() as conn:  # the register's name: blocked on every route, built in
+        conn.execute(
+            "UPDATE documents SET filename = 'Engineering Deliverables.pdf' WHERE id = 'doc_sub'"
+        )
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    assert send.bodies == []
+    assert rows(ai)["API 521"]["why"].startswith(
+        "the paper is not cleared for Claude now"
+    )
+
+
+def test_with_the_list_enforced_an_unapproved_paper_sends_nothing_and_an_approved_one_is_declared(
+    monkeypatch,
+):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521")
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    assert send.bodies == [] and rows(ai)["API 521"]["why"].startswith(
+        "the paper is not cleared for Claude now (not_approved)"
+    )
+    with db.connect() as conn:
+        conn.execute("DELETE FROM standards_web_search")
+    claude_approved.list_path().write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "sha256": "sha-doc_sub",
+                        "document_id": "doc_sub",
+                        "status": "approved",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen = []
+    real = claude_approved.refusal
+    monkeypatch.setattr(
+        claude_approved,
+        "refusal",
+        lambda: seen.append(claude_approved.carried()) or real(),
+    )
+    sws.search_run(ai, send=send, env=ENV)
+    assert len(send.bodies) == 1
+    assert seen and all(
+        "doc_sub" in (c or ()) for c in seen
+    )  # every check was asked about THE PAPER
+
+
 def test_a_run_kept_on_this_computer_sends_nothing():
     _doc, _rc, ai, _client = world_with_both()
     missing(ai, "API 521", "ISO 9001")
@@ -223,21 +326,35 @@ def test_a_run_kept_on_this_computer_sends_nothing():
         sws.search_run(ai, send=send, env=ENV)
     assert send.bodies == []
     assert {r["outcome"] for r in rows(ai).values()} == {sws.NOT_SEARCHED}
-    assert all("Claude lane is closed" in r["why"] for r in rows(ai).values())
 
 
-def test_an_outer_declaration_of_a_paper_is_replaced_by_no_document_even_with_the_list_enforced(
-    monkeypatch,
-):
-    _doc, _rc, ai, _client = world_with_both()
-    missing(ai, "API 521")
-    monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
-    send = Sender()
-    with claude_approved.carrying(["doc_not_approved"]):
-        sws.search_run(ai, send=send, env=ENV)
-    assert len(send.bodies) == 1
-    reserved = [e for e in claude_spend._raw_lines() if e.get("reserved")]
-    assert reserved and all(not e.get("sent_documents") for e in reserved)
+def test_the_plan_before_the_start_says_what_the_search_may_send(monkeypatch):
+    monkeypatch.setattr(
+        review_leaving,
+        "leaving_for",
+        lambda *a, **k: {"leaving": [], "not_sent": [], "not_readable": 0},
+    )
+    monkeypatch.setattr(review_engine, "_earlier_books", lambda conn, doc: [])
+
+    def plan(ai_engine: str, leaves: bool = True):
+        part = SimpleNamespace(engine=ai_engine)
+        return SimpleNamespace(
+            text_leaves=leaves, choice="claude", part=lambda name: part
+        )
+
+    ctx = (db.connect(), "doc_sub", frozenset(), None, None)
+    docs = review_leaving.documents_block(ctx, plan("claude"), ())
+    assert docs["web_search"] == sws.plan_note(True)
+    assert (
+        "public names of rule books" in docs["web_search"]
+        and "never document text" in docs["web_search"]
+    )
+    assert "web_search" not in review_leaving.documents_block(ctx, plan("local"), ())
+    assert "web_search" not in review_leaving.documents_block(
+        ctx, plan("claude", leaves=False), ()
+    )
+    monkeypatch.setattr(settings, "standards_web_search_enabled", False)
+    assert "web_search" not in review_leaving.documents_block(ctx, plan("claude"), ())
 
 
 # ------------------------------------------------------------------------------------------------ money
@@ -252,9 +369,8 @@ def test_the_search_fee_is_reserved_before_and_charged_after():
     assert (
         len(held) == 2
     )  # the request's own worst case and the search part metered does not see
-    assert any(
-        abs(e["cost_usd"] - round(sws.extra_worst_usd(), 6)) < 1e-6 for e in held
-    )
+    extra = sws.extra_worst_usd(sws.body_parts("API 521"))
+    assert any(abs(e["cost_usd"] - round(extra, 6)) < 1e-6 for e in held)
     assert any(
         e.get("finish_reason") == "web_search_fee" and abs(e["cost_usd"] - 0.02) < 1e-9
         for e in lines
@@ -262,12 +378,31 @@ def test_the_search_fee_is_reserved_before_and_charged_after():
     tokens = claude_spend.cost_usd(sws.MODEL, USAGE)
     assert rows(ai)["API 521"]["usd"] == pytest.approx(tokens + 0.02)
     assert claude_spend.spent(sws.STEP) == pytest.approx(tokens + 0.02)
+    assert open_reservations() == []
+
+
+def test_the_worst_case_covers_three_samplings_of_every_result_at_the_long_context_rate():
+    parts = sws.body_parts("API 521")
+    samplings, prompt = sws.MAX_USES + 1, sws._prompt_tokens(parts)
+    worst_call = {
+        "input_tokens": samplings
+        * (sws.MAX_USES * sws.SEARCH_RESULT_TOKENS_WORST + prompt + 100),
+        "output_tokens": claude_spend.output_cap(sws.MODEL, sws.MAX_TOKENS),
+    }
+    assert (
+        worst_call["input_tokens"] > claude_spend.LONG_PROMPT_TOKENS
+    )  # billed at the long-context card
+    billed = (
+        claude_spend.cost_usd(sws.MODEL, worst_call)
+        + sws.MAX_USES * sws.USD_PER_SEARCH_WORST
+    )
+    assert billed <= sws.main_worst_usd(parts) + sws.extra_worst_usd(parts)
 
 
 def test_at_most_twelve_books_are_searched_in_one_run():
     _doc, _rc, ai, _client = world_with_both()
     missing(ai, *[f"ISO {9000 + i}" for i in range(14)])
-    send = Sender()
+    send = Sender(usage={"input_tokens": 100, "output_tokens": 10})
     got = sws.search_run(ai, send=send, env=ENV)
     assert got["asked"] == sws.MAX_PER_RUN == len(send.bodies) == 12
     assert sum(r["why"] == sws.COUNT_WORDS for r in rows(ai).values()) == 2
@@ -283,6 +418,17 @@ def test_the_usd_limit_per_run_refuses_before_anything_is_sent(monkeypatch):
     assert {r["why"] for r in rows(ai).values()} == {sws.CAP_WORDS}
 
 
+def test_the_time_limit_stops_the_search_and_says_so(monkeypatch):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521", "ISO 9001")
+    monkeypatch.setattr(sws, "TIME_LIMIT_SECONDS", 0.0)
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    assert send.bodies == []
+    assert {r["why"] for r in rows(ai).values()} == {sws.TIME_WORDS}
+    assert sws.TIME_WORDS.startswith("search stopped: time limit")
+
+
 def test_a_claude_spend_cap_stops_the_run_and_nothing_is_sent(monkeypatch):
     _doc, _rc, ai, _client = world_with_both()
     missing(ai, "API 521", "ISO 9001")
@@ -292,10 +438,8 @@ def test_a_claude_spend_cap_stops_the_run_and_nothing_is_sent(monkeypatch):
     send = Sender()
     sws.search_run(ai, send=send, env=ENV)
     assert send.bodies == []
-    assert all(
-        r["why"].startswith("a spending limit stopped it") for r in rows(ai).values()
-    )
-    assert claude_spend.spent() == 0
+    assert all(r["why"].startswith("a limit stopped it") for r in rows(ai).values())
+    assert claude_spend.spent(sws.STEP) == 0
 
 
 def test_a_4xx_costs_nothing():
@@ -310,7 +454,56 @@ def test_a_4xx_costs_nothing():
     assert len(send.bodies) == 1
     row = rows(ai)["API 521"]
     assert row["outcome"] == sws.FAILED and row["usd"] == 0
-    assert claude_spend.spent() == 0
+    assert claude_spend.spent(sws.STEP) == 0 and open_reservations() == []
+
+
+# ------------------------------------------------------------------------------------------------ the failure tuple, by index
+
+
+def test_a_longer_failure_tuple_is_read_by_index_and_the_reservation_is_closed(
+    monkeypatch,
+):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521", "ISO 9001")
+    monkeypatch.setattr(agent_claude, "_send_once", lambda raw, request, body, step: (None, ("transport", "transport_ReadTimeout", True, True)))  # fmt: skip
+    sws.search_run(ai, send=Sender(), env=ENV)
+    got = rows(ai)
+    assert {r["outcome"] for r in got.values()} == {sws.FAILED}
+    assert all(
+        r["usd"] > 0 for r in got.values()
+    )  # may have been billed: charged at the worst case
+    assert open_reservations() == []
+
+
+def test_an_account_stop_stops_the_loop_and_releases_the_reservation(monkeypatch):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521", "ISO 9001")
+    calls = []
+
+    def stop(raw, request, body, step):
+        calls.append(step)
+        return None, ("stop", "account_no_credit", False, False)
+
+    monkeypatch.setattr(agent_claude, "_send_once", stop)
+    sws.search_run(ai, send=Sender(), env=ENV)
+    assert len(calls) == 1  # the second book is not asked
+    assert {r["why"] for r in rows(ai).values()} == {
+        "a limit stopped it (account_no_credit)"
+    }
+    assert open_reservations() == [] and claude_spend.spent(sws.STEP) == 0
+
+
+def test_an_error_after_the_send_never_leaves_the_reservation_open(monkeypatch):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521")
+
+    def boom(raw, request, body, step):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(agent_claude, "_send_once", boom)
+    with pytest.raises(RuntimeError):
+        sws.search_run(ai, send=Sender(), env=ENV)
+    assert open_reservations() == []
 
 
 # ------------------------------------------------------------------------------------------------ what comes back
@@ -339,7 +532,7 @@ def test_a_url_off_the_publishers_sites_is_dropped(url, kept):
     assert row["title"] == FOUND["title"]
 
 
-def test_nothing_found_is_said_and_a_bad_reply_is_not_invented():
+def test_nothing_found_is_said_only_for_a_readable_answer_that_says_so():
     _doc, _rc, ai, _client = world_with_both()
     missing(ai, "API 521")
     sws.search_run(
@@ -350,6 +543,56 @@ def test_nothing_found_is_said_and_a_bad_reply_is_not_invented():
     assert sws.words(row) == "searched online, nothing found on the publisher's site"
 
 
+@pytest.mark.parametrize(
+    "sender",
+    [
+        Sender(stop="pause_turn"),
+        Sender(stop="max_tokens"),
+        Sender(stop="refusal"),
+        Sender("I could not find this standard on the publisher's site."),
+        Sender({"answer": "none"}),
+        Sender(
+            content=[
+                {
+                    "type": "server_tool_use",
+                    "id": "s1",
+                    "name": "web_search",
+                    "input": {"query": "q"},
+                },
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": "s1",
+                    "content": {
+                        "type": "web_search_tool_result_error",
+                        "error_code": "unavailable",
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "title": None,
+                            "latest_edition": None,
+                            "year": None,
+                            "publisher": None,
+                            "url": None,
+                        }
+                    ),
+                },
+            ]
+        ),
+    ],
+    ids=["pause_turn", "max_tokens", "refusal", "prose", "other_json", "search_error"],
+)
+def test_an_unreadable_answer_is_search_incomplete_never_nothing_found(sender):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 521")
+    sws.search_run(ai, send=sender, env=ENV)
+    row = rows(ai)["API 521"]
+    assert row["outcome"] == sws.INCOMPLETE and row["title"] is None
+    assert sws.words(row) == "search incomplete: the answer could not be read"
+
+
 def test_what_is_found_is_only_on_the_sheet_of_books_not_held_never_a_rule_quote_clause_or_point(
     monkeypatch,
 ):
@@ -357,11 +600,11 @@ def test_what_is_found_is_only_on_the_sheet_of_books_not_held_never_a_rule_quote
     missing(ai, "API 521", "SAES-L-108")
     monkeypatch.setattr(settings, "standards_web_search_enabled", False)
     off_page = review_points_service.assemble(doc, scope_all())
-    off = cells(crs_one.build_team(doc, scope_all(), exported="2026-11-17 10:00 UTC"))
+    off = cells(crs_one.build_team(doc, scope_all(), exported=EXPORTED))
     monkeypatch.setattr(settings, "standards_web_search_enabled", True)
     sws.search_run(ai, send=Sender(), env=ENV)
     on_page = review_points_service.assemble(doc, scope_all())
-    on = cells(crs_one.build_team(doc, scope_all(), exported="2026-11-17 10:00 UTC"))
+    on = cells(crs_one.build_team(doc, scope_all(), exported=EXPORTED))
     # the points, their quotes, clauses and words are the same: the search is no verdict input
     assert (
         on_page["points"] == off_page["points"]
@@ -377,7 +620,7 @@ def test_what_is_found_is_only_on_the_sheet_of_books_not_held_never_a_rule_quote
     )
     # every other sheet is the same cell for cell; the found title is only in the new column
     for title in off:
-        if title != crs_one.HELD_SHEET:
+        if title not in (crs_one.HELD_SHEET, crs_one.HOW_SHEET):
             assert on[title] == off[title], title
     held = on[crs_one.HELD_SHEET]
     assert held[2] == ["Rule book", "What it means", sws.COLUMN]
@@ -391,6 +634,12 @@ def test_what_is_found_is_only_on_the_sheet_of_books_not_held_never_a_rule_quote
         sum(FOUND["title"] in str(c) for sheet in on.values() for r in sheet for c in r)
         == 1
     )
+    # "How it was reviewed" says the search's own cost, apart from the AI review's (review R-1853, finding 6)
+    added = [r for r in on[crs_one.HOW_SHEET] if r not in off[crs_one.HOW_SHEET]]
+    assert added == [
+        [sws.COST_ROW, pytest.approx(rows(ai)["API 521"]["usd"])]
+        + [None] * (len(added[0]) - 2)
+    ]
 
 
 def test_the_key_is_used_in_the_header_and_appears_nowhere_else(caplog):

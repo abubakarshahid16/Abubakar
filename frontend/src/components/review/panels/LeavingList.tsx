@@ -6,12 +6,14 @@
  */
 import type { LeavingDocument, NotSentDocument } from "../../../api/reviewPlan";
 
-export function LeavingList({ leaving, notSent, notReadable, textLeaves }: {
+export function LeavingList({ leaving, notSent, notReadable, textLeaves, webSearch }: {
   leaving: LeavingDocument[];
   notSent: NotSentDocument[];
   notReadable: number;
   /** Whether any text leaves at all under the chosen engine. False = Local only (or a part kept on this computer). */
   textLeaves: boolean;
+  /** The plan's sentence about the online search for rule books not held (public names only); absent while it is off. */
+  webSearch?: string | null;
 }) {
   const nothing = !textLeaves || leaving.length === 0;
   return (
@@ -35,6 +37,9 @@ export function LeavingList({ leaving, notSent, notReadable, textLeaves }: {
           <p className="text-xs text-slateish-400">
             A rule book found only during the review is not sent; the result lists it.
           </p>
+          {webSearch && (
+            <p className="text-xs text-slateish-300" data-testid="leaving-web-search">{webSearch}</p>
+          )}
         </>
       )}
       {notSent.length > 0 && (

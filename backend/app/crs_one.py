@@ -573,6 +573,8 @@ def _how_rows(extra: dict, scope) -> list[list]:
             "under Older files on the review page (one file per earlier run, kept as it was)",
         ]
     )
+    if (online := standards_web_search.cost_of(extra.get("found_online"))) is not None:
+        rows.append([standards_web_search.COST_ROW, online])
     for r in _run_facts(extra):
         rows.append([f"{r['what']}: run id", r["run"]])
     return rows

@@ -28,6 +28,8 @@ export interface ReviewPlan {
     not_readable?: number;
     /** True when the list could not be worked out: no Claude start is offered. */
     unreadable?: boolean;
+    /** Only with the online search for rule books not held on and the AI review on Claude: what that search may send. */
+    web_search?: string;
   };
   cost: {
     at_most_usd: number | null;

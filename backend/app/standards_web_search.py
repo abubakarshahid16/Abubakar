@@ -9,26 +9,34 @@ the one CRS file's sheet "Rule books not held", headed "Found online (not verifi
 clause, never a verdict input, never a point, and the review's counts do not change.
 
 WHAT LEAVES THE MACHINE. Only the public name of a standard, rebuilt by code from a closed set of word shapes (`clean_name`: a
-publisher family such as API or ISO first, then words with a digit, a roman numeral or a fixed qualifier such as "Part" or
-"Section"); a name with any other word is refused and nothing is sent for it. Never document text, never a file name, never a page,
-never the paper's name. The request carries a fixed system sentence, "Standard: <name>", and the web search tool limited to the
-publishers' own sites (`PUBLISHER_DOMAINS`). Declared to the approved-documents gate as carrying NO document
-(`claude_approved.per_request_consent(())`, an empty declaration that replaces any outer one), so a run kept on this computer
-("Local only") still sends nothing: the gate and `agent_claude.gate_open` both read the run's bar.
+publisher family such as API or ISO first, then designation numbers, part and section words, roman numerals, years and edition
+words); a name with any other word, a tag or a document number is refused and nothing is sent for it. Never document text, never a
+file name, never a page, never the paper's name. The request carries a fixed system sentence, "Standard: <name>", and the web search
+tool limited to the publishers' own sites (`PUBLISHER_DOMAINS`).
+
+THE NAMES COME FROM THE PAPER (review R-1853, finding 1), so they go only where the paper itself already went:
+  * the search runs only when this run's AI reviewer had at least one Claude call ANSWERED (`paper_went_to_claude`: a settled,
+    not refused, not cached ledger line of the run under the reviewer's step). A run kept on this computer, refused, halted or on
+    the local model searches nothing;
+  * every request is declared as carrying THE PAPER (`claude_approved.carrying([paper])` inside `reviewing(run)`), so the block
+    list, the contract check and the approved list are asked again at send time, as for the paper's own calls. A paper refused now
+    (blocked after the plan, a contract at send time, not approved) sends nothing.
+The pre-start plan says it (`plan_note`, in `GET /api/reviews/plan` under `documents.web_search`).
 
 THE LANE. The existing Claude lane only: `agent_claude._request` (the provider switch, both egress flags, https, the allowed host, the
 key) and `agent_claude._send_once` (`claude_spend.metered`: reserve, send through `reader_transport`, settle). No new company, no new
 key, no new socket module.
 
-MONEY. One request per missing book, at most `MAX_PER_RUN` a run, and at most `settings.standards_web_search_usd_per_run` a run.
-The web search tool has its own price per search beside the tokens, and its results come back as input tokens that the prompt does not
-show, so `claude_spend.metered`'s worst case (the prompt and `max_tokens`) is not enough. Before each request a second reservation
-under the same step holds the rest of the worst case (`extra_worst_usd`: every allowed search at twice the list price and every
-allowed search's results at the dearest input rate); it is settled to the searches the answer reports, released when the API provably
-did no work. So the run, step, day and month caps in `claude_spend` hold. A 4xx costs nothing, as on every Claude call.
+MONEY. One request per missing book, at most `MAX_PER_RUN` a run, at most `settings.standards_web_search_usd_per_run` a run and at
+most `TIME_LIMIT_SECONDS` of wall time a run. The web search tool has its own price per search, and its results come back as input
+tokens that the prompt does not show, so `claude_spend.metered`'s worst case (the prompt and `max_tokens`) is not enough: before each
+request a second reservation under the same step holds the rest (`extra_worst_usd`, its formula there). It is settled to the searches
+the answer reports, released when the API provably did no work, and charged at its worst case on any other path, never left open.
+So the run, step, day and month caps in `claude_spend` hold; the run's spend record (`claude_spend_report.record_run`, written after
+the job) includes the search, and the CRS file states its cost apart from the AI review's. A 4xx costs nothing.
 
-OFF (`settings.standards_web_search_enabled`, default False): nothing is asked, nothing is created, the page and the CRS file are
-byte for byte as before. No document text, no answer text and no key is logged; the log says counts and outcomes only.
+OFF (`settings.standards_web_search_enabled`, default False): nothing is asked, nothing is created, the page, the plan and the CRS
+file are byte for byte as before. No document text, no answer text and no key is logged; the log says counts and outcomes only.
 """
 
 from __future__ import annotations
@@ -38,6 +46,7 @@ import json
 import logging
 import re
 import sqlite3
+import time
 import unicodedata
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
@@ -57,60 +66,48 @@ MAX_USES = 2
 MAX_TOKENS = 1024
 MAX_PER_RUN = 12
 NAME_LIMIT = 60
+#: The wall time one run may spend searching (review R-1853, finding 6), and the wait for one answer within it.
+TIME_LIMIT_SECONDS = 180.0
+REQUEST_TIMEOUT_SECONDS = 60.0
 #: Anthropic's list price of the web search tool, USD 10 per 1,000 searches: an ESTIMATE, the invoice is the truth. Reserved at
 #: twice that, so a price change cannot break a cap; settled at the list price.
 USD_PER_SEARCH = 0.01
 USD_PER_SEARCH_WORST = 0.02
-#: The input tokens one search's results may add over the server's loop, generously; priced at the dearest input rate.
-SEARCH_RESULT_TOKENS_WORST = 75_000
+#: The input tokens one search's results may add, generously.
+SEARCH_RESULT_TOKENS_WORST = 50_000
 TABLE = "standards_web_search"
 COLUMN = "Found online (not verified, book not held)"
 NOT_VERIFIED = "found online, not verified; the book is not held"
+#: The row of the CRS file's "How it was reviewed" that states the search's cost apart from the AI review's (finding 6).
+COST_ROW = (
+    "Online search for rule books not held: cost (USD, not in the AI review's cost)"
+)
 
 #: Publisher families whose standards are public and sold by their publisher; the first word of a name that may leave.
-FAMILIES = (
-    "API",
-    "ASME",
-    "ISO",
-    "NACE",
-    "AMPP",
-    "ASTM",
-    "IEC",
-    "EN",
-    "BS",
-    "ANSI",
-    "MSS",
-    "AWS",
-    "NFPA",
-    "IEEE",
-)
-#: Words a standard's public name may carry besides its family and its numbers.
+FAMILIES = frozenset(
+    {"API", "ASME", "ISO", "NACE", "AMPP", "ASTM", "IEC", "EN", "BS", "ANSI", "MSS", "AWS", "NFPA", "IEEE"}
+)  # fmt: skip
+#: Part, section, division and kind words a standard's public name may carry.
 QUALIFIERS = frozenset(
-    {
-        "PART",
-        "SECTION",
-        "SEC",
-        "DIVISION",
-        "DIV",
-        "STD",
-        "RP",
-        "SPEC",
-        "MR",
-        "TM",
-        "SP",
-        "BPVC",
-        "PTC",
-        "TR",
-        "TS",
-    }
+    {"PART", "SECTION", "SEC", "DIVISION", "DIV", "STD", "RP", "SPEC", "MR", "TM", "SP", "BPVC", "PTC", "TR", "TS"}
+)  # fmt: skip
+#: Edition words.
+EDITION_WORDS = frozenset({"EDITION", "ED"})
+#: The two-letter prefixes a designation may carry (NACE MR0175, NACE TM0177, NACE SP0472, API RP 520 written RP520).
+DESIGNATION_PREFIXES = ("MR", "TM", "SP", "RP", "TR", "TS")
+#: The shapes of a designation: numbers with dots and dashes (610, 15156-3, 1.1, 16.5, 520-I, 9001-2015); one letter and numbers
+#: (B31.3, A105, B16.5-2017); an allowed two-letter prefix and numbers (MR0175); an ordinal (7th). A token with three or more
+#: letters mixed with digits (a tag, a document number: EF1975-DAS-I-06, KJO1975, TK1001, EF1975.06) matches none.
+_NUMBERS = r"[0-9]{1,6}(?:\.[0-9]{1,3}){0,3}(?:-(?:[0-9]{1,4}|[IVX]{1,4}))?[A-Z]?"
+_DESIGNATION = re.compile(
+    rf"(?:{_NUMBERS}|[A-Z]{_NUMBERS}|(?:{'|'.join(DESIGNATION_PREFIXES)})[0-9]{{2,6}}(?:-[0-9]{{1,4}})?|[0-9]{{1,2}}(?:ST|ND|RD|TH))"
 )
+_ROMAN = re.compile(r"(?=[IVX])X?(IX|IV|V?I{0,3})")
 #: The publishers' own sites: the search is limited to them and a URL is kept only on one of them (or a sub-domain).
 PUBLISHER_DOMAINS = (
     "api.org", "asme.org", "iso.org", "ampp.org", "nace.org", "astm.org", "iec.ch", "ieee.org", "nfpa.org", "aws.org",
     "msshq.org", "ansi.org", "bsigroup.com", "cen.eu",
 )  # fmt: skip
-_ROMAN = re.compile(r"(?=[IVX])X?(IX|IV|V?I{0,3})")
-_WORD = re.compile(r"[A-Za-z0-9.\-]{1,16}")
 
 SYSTEM = (
     "You look up the public catalogue entry of one engineering standard on its publisher's own website. Use the web search tool at "
@@ -120,34 +117,66 @@ SYSTEM = (
     "Do not guess."
 )
 
-FOUND, NOTHING, NOT_SEARCHED, FAILED = (
+FOUND, NOTHING, INCOMPLETE, NOT_SEARCHED, FAILED = (
     "found",
     "nothing found",
+    "search incomplete",
     "not searched",
     "search failed",
 )
 NOT_PUBLIC = "not a public standard name, so it was not sent"
 CAP_WORDS = "the USD limit for online search in this review was reached"
 COUNT_WORDS = f"at most {MAX_PER_RUN} rule books are searched in one review"
+TIME_WORDS = (
+    f"search stopped: time limit ({int(TIME_LIMIT_SECONDS // 60)} minutes a review)"
+)
+NOT_SENT_WORDS = (
+    "this review sent nothing to Claude, so no name taken from the paper is sent either"
+)
+UNREADABLE_WORDS = "the answer could not be read"
+PLAN_WORDS = (
+    "After the AI review, the public names of rule books this paper cites that the library does not hold may be sent to "
+    "Claude's web search (the name only, never document text; at most {n} names and USD {usd:.2f}). What it finds is shown as "
+    "not verified, never used."
+)
 
 
 def enabled() -> bool:
     return bool(settings.standards_web_search_enabled)
 
 
+def plan_note(ai_review_on_claude: bool) -> str | None:
+    """The pre-start plan's sentence (rule 1: the screen lists what will be sent), or None: the switch off, or no Claude AI review."""
+    if not (enabled() and ai_review_on_claude):
+        return None
+    return PLAN_WORDS.format(
+        n=MAX_PER_RUN, usd=float(settings.standards_web_search_usd_per_run)
+    )
+
+
 # ------------------------------------------------------------------------------------------------ what may leave
+
+
+def _word(token: str) -> str | None:
+    """One word of a name after the family, upper case, or None when it is not an allowed shape."""
+    upper = token.upper()
+    if upper in FAMILIES or upper in QUALIFIERS or upper in EDITION_WORDS:
+        return upper
+    if _ROMAN.fullmatch(upper) or (len(upper) == 1 and upper.isalpha()):
+        return upper
+    return upper if _DESIGNATION.fullmatch(upper) else None
 
 
 def clean_name(raw) -> str | None:
     """The public name of a standard as code rebuilds it, or None when it is not one (nothing is sent for it).
 
     No fold: punctuation becomes a space, any dash a hyphen; a letter or digit outside plain ASCII (a look-alike, a full-width
-    form) is refused, never guessed. The first word must be a publisher family, and every other word a family, a fixed
-    qualifier, a roman numeral, one letter or a short word with a digit. So no sentence of a paper can ride along:
-    "API 610 as per the datasheet" is refused, "NACE MR0175/ISO 15156-3" leaves as "NACE MR0175 ISO 15156-3"."""
-    text = str(raw or "")
+    form) is refused, never guessed. The first word must be a publisher family; every other word a family, a part, section or
+    kind word, an edition word, a roman numeral, one letter or a designation (`_DESIGNATION`). So no sentence, tag or document
+    number of a paper can ride along: "API 610 as per the datasheet" and "API 610 EF1975-DAS-I-06" are refused,
+    "NACE MR0175/ISO 15156-3" leaves as "NACE MR0175 ISO 15156-3"."""
     out = []
-    for ch in text:
+    for ch in str(raw or ""):
         if ch.isascii() and (ch.isalnum() or ch in ".-"):
             out.append(ch)
         elif (
@@ -158,19 +187,14 @@ def clean_name(raw) -> str | None:
             return None
         else:
             out.append(" ")
-    words = [w.strip(".-") for w in "".join(out).split()]
-    words = [w for w in words if w]
-    if not words or len(words) > 8 or words[0].upper() not in FAMILIES:
+    tokens = [w.strip(".-") for w in "".join(out).split()]
+    tokens = [w for w in tokens if w]
+    if not tokens or len(tokens) > 8 or tokens[0].upper() not in FAMILIES:
         return None
-    for i, word in enumerate(words):
-        upper = word.upper()
-        if upper in FAMILIES or upper in QUALIFIERS or _ROMAN.fullmatch(upper):
-            words[i] = upper
-        elif not (len(word) == 1 and word.isalpha()) and not (
-            _WORD.fullmatch(word) and any(c.isdigit() for c in word)
-        ):
-            return None
-    name = " ".join(words)
+    words = [_word(t) for t in tokens]
+    if any(w is None for w in words):
+        return None
+    name = " ".join(w for w in words if w)
     if len(name) > NAME_LIMIT or not any(c.isdigit() for c in name):
         return None
     return name
@@ -196,19 +220,54 @@ def body_parts(name: str) -> dict:
     }
 
 
-def extra_worst_usd() -> float:
-    """What `claude_spend.metered` does not see: every allowed search's fee and results, and the tool definition."""
-    tokens = SEARCH_RESULT_TOKENS_WORST * MAX_USES + len(json.dumps(tool())) // 3 + 1
-    p_in, _out, p_write, _read = claude_spend.price_for(MODEL, tokens)
-    return MAX_USES * USD_PER_SEARCH_WORST + tokens * max(p_in, p_write) / 1_000_000
+def _out_cap() -> int:
+    return claude_spend.output_cap(MODEL, MAX_TOKENS)
+
+
+def _prompt_tokens(parts: dict) -> int:
+    """The prompt as `claude_spend.metered` counts it (messages and system, ~3 characters a token)."""
+    return (
+        len(json.dumps([parts["messages"], parts["system"]], ensure_ascii=False)) // 3
+        + 1
+    )
+
+
+def extra_worst_usd(parts: dict) -> float:
+    """What `claude_spend.metered` does not see (review R-1853, finding 5). With S = MAX_USES + 1 samplings of the server's loop
+    (one before each search and one after the last), R = SEARCH_RESULT_TOKENS_WORST, P the prompt tokens, T the tool definition's:
+
+        searches  = MAX_USES x USD_PER_SEARCH_WORST
+        tokens    = S x MAX_USES x R  +  (S - 1) x P  +  S x T        (every sampling reads every result, the prompt again, the tool)
+        extra     = searches + tokens x in_long + P x (in_long - in_short) + out x (out_long - out_short)
+
+    in = the dearer of the input and cache-write rates; "long" is the rate card past `claude_spend.LONG_PROMPT_TOKENS`, which bills
+    EVERY token of the call, the prompt and the output `metered` priced at the short card included; out = the `max_tokens` the
+    request carries."""
+    samplings = MAX_USES + 1
+    prompt = _prompt_tokens(parts)
+    tool_tokens = len(json.dumps(tool())) // 3 + 1
+    tokens = (
+        samplings * MAX_USES * SEARCH_RESULT_TOKENS_WORST
+        + (samplings - 1) * prompt
+        + samplings * tool_tokens
+    )
+    long_in, long_out, long_write, _ = claude_spend.price_for(
+        MODEL, claude_spend.LONG_PROMPT_TOKENS + 1
+    )
+    short_in, short_out, short_write, _ = claude_spend.price_for(MODEL, 0)
+    in_long, in_short = max(long_in, long_write), max(short_in, short_write)
+    per_token = (
+        tokens * in_long
+        + prompt * (in_long - in_short)
+        + _out_cap() * (long_out - short_out)
+    )
+    return MAX_USES * USD_PER_SEARCH_WORST + per_token / 1_000_000
 
 
 def main_worst_usd(parts: dict) -> float:
     """`claude_spend.metered`'s own worst case of the request (its messages and system, and the `max_tokens` it carries)."""
     chars = len(json.dumps([parts["messages"], parts["system"]], ensure_ascii=False))
-    return claude_spend.worst_case_usd(
-        MODEL, chars, claude_spend.output_cap(MODEL, MAX_TOKENS)
-    )
+    return claude_spend.worst_case_usd(MODEL, chars, _out_cap())
 
 
 # ------------------------------------------------------------------------------------------------ what comes back
@@ -252,36 +311,43 @@ def publisher_url(value) -> str | None:
 
 
 def _year(value) -> int | None:
-    try:
-        year = (
-            int(str(value).strip()[:4])
-            if value is not None and not isinstance(value, bool)
-            else None
-        )
-    except ValueError:
+    if not isinstance(value, int) or isinstance(value, bool):
         return None
-    return (
-        year
-        if year is not None and 1900 <= year <= datetime.now(UTC).year + 1
-        else None
-    )
+    return value if 1900 <= value <= datetime.now(UTC).year + 1 else None
 
 
-def read_answer(answer: dict) -> dict:
-    """The fields of the reply, each cleaned and capped; an off-list URL dropped. Nothing found: every field None."""
-    text = "".join(
-        str(b.get("text") or "")
-        for b in answer.get("content") or []
-        if isinstance(b, dict) and b.get("type") == "text"
+FIELDS = ("title", "latest_edition", "year", "publisher", "url")
+
+
+def read_answer(answer: dict) -> tuple[dict, bool]:
+    """(the fields of the reply, each cleaned and capped, an off-list URL dropped; whether the reply could be READ).
+
+    Readable (review R-1853, finding 3) only when the answer ended normally, no search came back as an error, and its text is one
+    JSON object with the asked keys. A pause, a cut at `max_tokens`, a refusal, a search error or prose is not readable: it is
+    never "nothing found"."""
+    blocks = [b for b in answer.get("content") or [] if isinstance(b, dict)]
+    search_error = any(
+        b.get("type") == "web_search_tool_result"
+        and not isinstance(b.get("content"), list)
+        for b in blocks
     )
-    got = agent_claude.parse_json_object(text) or {}
-    return {
+    text = "".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+    got = agent_claude.parse_json_object(text)
+    readable = (
+        answer.get("stop_reason") in ("end_turn", "stop_sequence")
+        and not search_error
+        and isinstance(got, dict)
+        and any(k in got for k in FIELDS)
+    )
+    got = got if isinstance(got, dict) else {}
+    fields = {
         "title": _short(got.get("title"), 200),
         "latest_edition": _short(got.get("latest_edition"), 60),
         "year": _year(got.get("year")),
         "publisher": _short(got.get("publisher"), 100),
         "url": publisher_url(got.get("url")),
     }
+    return fields, bool(readable)
 
 
 def searches_made(answer: dict) -> int:
@@ -308,68 +374,80 @@ def searches_made(answer: dict) -> int:
 
 
 class _Stop(Exception):
-    """A limit (a cap, the run kept on this computer, the lane closed): no further name is searched in this run."""
+    """A limit (a cap, an account stop, the run kept on this computer, the lane closed): no further name is searched in this run."""
 
     def __init__(self, why: str) -> None:
         super().__init__(why)
         self.why = why
 
 
-def search_one(name: str, *, send=None, env=None) -> dict:
+def _failure(failure) -> tuple[str, str, bool]:
+    """(kind, code, billed) of `agent_claude._send_once`'s failure, read by index, so a longer tuple (a retry flag) reads the same."""
+    return str(failure[0]), str(failure[1]), bool(failure[2])
+
+
+def search_one(
+    name: str, *, send=None, env=None, timeout: float = REQUEST_TIMEOUT_SECONDS
+) -> dict:
     """Ask for one cleaned public name. Returns the row's fields and its cost; raises `_Stop` when nothing more may be sent."""
     parts = body_parts(name)
-    extra = extra_worst_usd()
     try:
         raw = agent_claude._transport(send)
-        request = agent_claude._request(
-            MODEL, claude_spend.output_cap(MODEL, MAX_TOKENS), env
-        )
+        request = agent_claude._request(MODEL, _out_cap(), env)
     except agent_claude.AgentClaudeError as exc:
         raise _Stop(f"the Claude lane is closed ({exc.code})") from None
+    request = {**request, "timeout": min(float(request["timeout"]), float(timeout))}
     body = dict(request["body"])
     body.update(parts)
-    body["model"], body["max_tokens"] = (
-        MODEL,
-        claude_spend.output_cap(MODEL, MAX_TOKENS),
-    )
+    body["model"], body["max_tokens"] = MODEL, _out_cap()
     digest = hashlib.sha256(
         json.dumps(body, sort_keys=True).encode("utf-8")
     ).hexdigest()
     try:
-        held = claude_spend.reserve(STEP, extra, model=MODEL, prompt_sha256=digest)
+        held = claude_spend.reserve(
+            STEP, extra_worst_usd(parts), model=MODEL, prompt_sha256=digest
+        )
     except claude_spend.StopRun as exc:
-        del request
-        raise _Stop(f"a spending limit stopped it ({type(exc).__name__})") from None
-    answer, failure = agent_claude._send_once(raw, request, body, step=STEP)
-    del request  # the headers (the key) leave this frame before anything else happens
-    if failure is not None:
-        kind, code, billed = failure
-        if billed:
-            claude_spend.settle(
-                held,
-                usage=None,
-                finish_reason=f"failed:{code}",
-                model=MODEL,
-                estimated_usd=held.worst_usd,
-            )
-        else:
-            claude_spend.release(held, f"unbilled:{code}")
-        if kind == "stop":
-            raise _Stop(f"a spending limit stopped it ({code})")
+        request = None
+        raise _Stop(f"a limit stopped it ({type(exc).__name__})") from None
+    closed = False
+    try:
+        answer, failure = agent_claude._send_once(raw, request, body, step=STEP)
+        request = (
+            None  # the headers (the key) leave this frame before anything else happens
+        )
+        if failure is not None:
+            kind, code, billed = _failure(failure)
+            if billed:
+                claude_spend.settle(held, usage=None, finish_reason=f"failed:{code}", model=MODEL,
+                                    estimated_usd=held.worst_usd)  # fmt: skip
+            else:
+                claude_spend.release(held, f"unbilled:{code}")
+            closed = True
+            if kind == "stop":
+                raise _Stop(f"a limit stopped it ({code})")
+            usd = (held.worst_usd + main_worst_usd(parts)) if billed else 0.0
+            return {"outcome": FAILED, "why": code, "usd": usd}
+        answer = answer if isinstance(answer, dict) else {}
+        fee = searches_made(answer) * USD_PER_SEARCH
+        claude_spend.settle(held, usage=None, finish_reason="web_search_fee", model=MODEL, estimated_usd=fee)  # fmt: skip
+        closed = True
+        usd = round(agent_claude._usd(MODEL, answer, body) + fee, 6)
+        fields, readable = read_answer(answer)
+        if not readable:
+            return {"outcome": INCOMPLETE, "why": UNREADABLE_WORDS, "usd": usd}
+        found = any(fields[k] for k in ("title", "latest_edition", "year", "url"))
         return {
-            "outcome": FAILED,
-            "why": code,
-            "usd": (held.worst_usd + main_worst_usd(parts)) if billed else 0.0,
+            "outcome": FOUND if found else NOTHING,
+            "why": None,
+            "usd": usd,
+            **fields,
         }
-    answer = answer if isinstance(answer, dict) else {}
-    fee = searches_made(answer) * USD_PER_SEARCH
-    claude_spend.settle(
-        held, usage=None, finish_reason="web_search_fee", model=MODEL, estimated_usd=fee
-    )
-    usd = round(agent_claude._usd(MODEL, answer, body) + fee, 6)
-    fields = read_answer(answer)
-    found = any(fields[k] for k in ("title", "latest_edition", "year", "url"))
-    return {"outcome": FOUND if found else NOTHING, "why": None, "usd": usd, **fields}
+    finally:
+        request = None
+        if not closed:  # any other path after the reservation: charged at its worst case, never left open
+            claude_spend.settle(held, usage=None, finish_reason="failed:unsettled", model=MODEL,
+                                estimated_usd=held.worst_usd)  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------------------ the run
@@ -380,7 +458,7 @@ _STATEMENTS = (
         run_id TEXT NOT NULL,
         name TEXT NOT NULL CHECK (length(name) > 0),
         searched_name TEXT,
-        outcome TEXT NOT NULL CHECK (outcome IN ('{FOUND}', '{NOTHING}', '{NOT_SEARCHED}', '{FAILED}')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('{FOUND}', '{NOTHING}', '{INCOMPLETE}', '{NOT_SEARCHED}', '{FAILED}')),
         why TEXT,
         title TEXT,
         latest_edition TEXT,
@@ -416,6 +494,32 @@ def _missing(conn, run_id: str) -> list[str]:
         return []
 
 
+def _paper(conn, run_id: str) -> str | None:
+    row = conn.execute(
+        "SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def paper_went_to_claude(run_id: str) -> bool:
+    """True only when this run's AI reviewer had at least one Claude call ANSWERED: a settled ledger line of the run under the
+    reviewer's step that was not refused, not a cache hit and not a failure. Anything else (no line, refusals only, failures only,
+    an unreadable ledger) is False: nothing taken from the paper is sent."""
+    try:
+        lines = claude_spend.entries()
+    except (OSError, ValueError):
+        return False
+    for e in lines:
+        if e.get("run") != run_id or e.get("step") != agent_claude.STEP:
+            continue
+        if e.get("refused") or e.get("reserved") or e.get("cached"):
+            continue
+        finish = str(e.get("finish_reason") or "")
+        if finish and not finish.startswith(("failed", "refused", "cache_hit")):
+            return True
+    return False
+
+
 def _write(conn, run_id: str, name: str, searched: str | None, row: dict) -> None:
     with conn:
         conn.execute(
@@ -424,6 +528,39 @@ def _write(conn, run_id: str, name: str, searched: str | None, row: dict) -> Non
             (run_id, name, searched, row["outcome"], row.get("why"), row.get("title"), row.get("latest_edition"), row.get("year"),
              row.get("publisher"), row.get("url"), datetime.now(UTC).isoformat(timespec="seconds"), float(row.get("usd") or 0.0)),
         )  # fmt: skip
+
+
+def _held_back(run_id: str, paper: str | None) -> str | None:
+    """Why nothing taken from this paper may be sent now, or None. Asked inside the paper's declaration."""
+    from . import claude_approved
+
+    if not paper or not paper_went_to_claude(run_id):
+        return NOT_SENT_WORDS
+    refused = claude_approved.refusal()
+    if refused is not None:
+        return f"the paper is not cleared for Claude now ({refused[0]}), so nothing taken from it is sent"
+    return None
+
+
+class _Budget:
+    """What one run may still spend: requests, USD and wall time."""
+
+    def __init__(self) -> None:
+        self.cap = float(settings.standards_web_search_usd_per_run)
+        self.until = time.monotonic() + TIME_LIMIT_SECONDS
+        self.spent, self.asked = 0.0, 0
+
+    def refuses(self, parts: dict) -> str | None:
+        if self.asked >= MAX_PER_RUN:
+            return COUNT_WORDS
+        if self.spent + extra_worst_usd(parts) + main_worst_usd(parts) > self.cap:
+            return CAP_WORDS
+        if self.until - time.monotonic() < 5.0:
+            return TIME_WORDS
+        return None
+
+    def timeout(self) -> float:
+        return max(1.0, min(REQUEST_TIMEOUT_SECONDS, self.until - time.monotonic()))
 
 
 def search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
@@ -444,50 +581,47 @@ def search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
         r[0]
         for r in conn.execute(f"SELECT name FROM {TABLE} WHERE run_id = ?", (run_id,))
     }
-    cap = float(settings.standards_web_search_usd_per_run)
-    spent, asked, stop = 0.0, 0, None
-    # declared: this prompt carries NO document (only a public standard name); it replaces any outer declaration
-    with claude_approved.per_request_consent(()):
+    paper = _paper(conn, run_id)
+    budget, stop = _Budget(), None
+    # declared: these prompts carry what was taken from THE PAPER (review R-1853, finding 1); the gate asks about it at every send
+    with (
+        claude_approved.carrying([paper] if paper else []),
+        claude_approved.reviewing(run_id),
+    ):
+        stop = _held_back(run_id, paper)
         for name in names:
             if name in done:
                 continue
             searched = clean_name(name)
-            row: dict
-            if searched is None:
-                row = {"outcome": NOT_SEARCHED, "why": NOT_PUBLIC}
-            elif stop is not None:
-                row = {"outcome": NOT_SEARCHED, "why": stop}
-            elif asked >= MAX_PER_RUN:
-                row = {"outcome": NOT_SEARCHED, "why": COUNT_WORDS}
-            elif spent + extra_worst_usd() + main_worst_usd(body_parts(searched)) > cap:
-                row = {"outcome": NOT_SEARCHED, "why": CAP_WORDS}
+            parts = body_parts(searched) if searched else None
+            why = NOT_PUBLIC if parts is None else (stop or budget.refuses(parts))
+            if why is not None:
+                row = {"outcome": NOT_SEARCHED, "why": why}
             else:
                 try:
-                    row = search_one(searched, send=send, env=env)
-                    asked += 1
-                    spent += float(row.get("usd") or 0.0)
+                    row = search_one(
+                        searched, send=send, env=env, timeout=budget.timeout()
+                    )
+                    budget.asked += 1
+                    budget.spent += float(row.get("usd") or 0.0)
                 except _Stop as exc:
                     stop = exc.why
                     row = {"outcome": NOT_SEARCHED, "why": stop}
-            _write(
-                conn,
-                run_id,
-                name,
-                searched if row["outcome"] in (FOUND, NOTHING, FAILED) else None,
-                row,
-            )
+            sent = row["outcome"] in (FOUND, NOTHING, INCOMPLETE, FAILED)
+            _write(conn, run_id, name, searched if sent else None, row)
     log.info(
         "standards web search: run %s, %d book(s) not held, %d asked, USD %.4f",
         run_id,
         len(names),
-        asked,
-        spent,
+        budget.asked,
+        budget.spent,
     )
-    return {"ran": True, "asked": asked, "usd": round(spent, 6)}
+    return {"ran": True, "asked": budget.asked, "usd": round(budget.spent, 6)}
 
 
 def after_run(run_id: str) -> None:
-    """The AI review job's hook, after the run is completed: never fails the review (a failure is logged by kind only)."""
+    """The AI review job's hook, after the job is marked done and before the run's spend record is written (so it includes the
+    search): never fails the review (a failure is logged by kind only); at most `TIME_LIMIT_SECONDS`."""
     if not enabled():
         return
     try:
@@ -502,7 +636,7 @@ def after_run(run_id: str) -> None:
 def words(row: dict | None) -> str:
     """The one plain sentence for one book, on the page and in the CRS file's column."""
     if not row:
-        return "not searched"
+        return "not searched yet"
     if row["outcome"] == FOUND:
         bits = [row.get("title"), row.get("latest_edition"), f"({row['year']})" if row.get("year") else None, row.get("publisher"),
                 row.get("url")]  # fmt: skip
@@ -522,23 +656,15 @@ def shown(conn, run_id: str | None, names: list[str]) -> list[dict] | None:
             r["name"]: dict(r)
             for r in conn.execute(f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,))
         }
-    out = []
-    for name in names:
-        row = rows.get(name)
-        keep = (
-            "outcome",
-            "title",
-            "latest_edition",
-            "year",
-            "publisher",
-            "url",
-            "searched_at",
-            "usd",
-        )
-        out.append(
-            {"name": name, **{k: (row or {}).get(k) for k in keep}, "words": words(row)}
-        )
-    return out
+    keep = ("outcome", *FIELDS, "searched_at", "usd")
+    return [
+        {
+            "name": n,
+            **{k: (rows.get(n) or {}).get(k) for k in keep},
+            "words": words(rows.get(n)),
+        }
+        for n in names
+    ]
 
 
 def into(counts: dict, conn, run_id: str | None, names: list[str]) -> dict:
@@ -548,3 +674,10 @@ def into(counts: dict, conn, run_id: str | None, names: list[str]) -> dict:
         return {}
     counts["not_held"]["found_online"] = found
     return {"found_online": found}
+
+
+def cost_of(found: list[dict] | None) -> float | None:
+    """The search's own cost for the CRS file's "How it was reviewed" (it is not in the AI review's cost), or None while off."""
+    if found is None:
+        return None
+    return round(sum(float(f.get("usd") or 0.0) for f in found), 6)
