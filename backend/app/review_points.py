@@ -710,16 +710,22 @@ BOOK_MISSING = "Book missing"
 #: What a book-missing point says when the stored reference names no clause (order 14 lane C, C1): never a silent blank.
 CLAUSE_NOT_NAMED = "clause not named by the reviewer"
 _EDITION_YEAR = re.compile(r"(?:19|20)\d\d")
+#: An edition, revision or issue number is not a clause: "11th edition", "7th", "rev 3", "Rev. B2", "edition 5", "issue 2".
+_EDITION_NUMBER = re.compile(
+    r"\b\d+(?:st|nd|rd|th)\b(?:\s+(?:edition|ed\.?|revision|rev\.?))?|\b(?:rev(?:ision)?|edition|ed|issue|version|ver)\.?\s*[A-Z]?\d+[a-z]?\b",
+    re.I,
+)
 
 
 def names_a_clause(reference: str) -> bool:
     """Does a stored rule reference name a clause beyond its book(s)? Each book of the reference (";"-separated) is read on its own:
     the standard identifier `standard_ids.find_citations` reads is taken out (a book it cannot read: its first word with a digit, the
-    book's own number); a number left over is a clause ("X-1 6.1", "X-1 (edition not recorded) cl. 5.2"), an edition year is not
-    ("X-1 2017")."""
+    book's own number); a number left over is a clause ("X-1 6.1", "X-1 (edition not recorded) cl. 5.2"); an edition year, an edition
+    or a revision number is not ("X-1 2017", "X-1 11th edition", "X-1 rev 3")."""
     from .standard_ids import find_citations
 
     for part in str(reference or "").split(";"):
+        part = _EDITION_NUMBER.sub(" ", part)
         spans = find_citations(part)
         rest = part
         for _raw, start, end in sorted(spans, key=lambda s: -s[1]):

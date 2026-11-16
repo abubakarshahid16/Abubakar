@@ -202,7 +202,7 @@ def test_two_ways_and_one_cause_for_every_row_not_found(tmp_path):
     s = aks.summary(res)
     assert s["two_ways"]["problems_found_of_all"] == "1 of 5"
     assert s["two_ways"]["problems_found_where_rule_held"] == "1 of 4"
-    assert s["two_ways"]["books_the_file_says_not_held"] == ["NH9"]
+    assert s["two_ways"]["books_the_file_says_not_held"] == ["NH-9"]  # as the file writes it
     assert res["missed"] == {"book not held": [3], "misread": [4], "wrong label": [5], "not asked": [6], "left as a question": [7]}
     assert s["comment_lines_answering_no_key_row"] == 3  # design pressure on page 6, "Some other field", "Not on the key"
 
@@ -211,7 +211,119 @@ def test_the_held_sheet_alone_says_a_book_is_not_held(tmp_path):
     key = [{"kind": "problem", "role": "cdtp", "page": "absent", "std": "NH-9 6.1"}]
     path = _team(tmp_path, [_point(1, "1", "Question", "Questions for you", "Set pressure", "2")], held=("NH-9",))
     res = aks.score_files(_key(tmp_path, key), path)
-    assert res["missed"] == {"book not held": [2]} and res["two_ways"]["not_held_books"] == ["NH9"]
+    assert res["missed"] == {"book not held": [2]} and res["two_ways"]["not_held_books"] == ["NH-9"]
     # without the listing the same row is simply not asked: the scorer never guesses a book is missing
     res = aks.score_files(_key(tmp_path, key), _team(tmp_path, [_point(1, "1", "Question", "Questions for you", "Set pressure", "2")], name="t3.xlsx"))
     assert res["missed"] == {"not asked": [2]}
+
+
+# ------------------------------------------------------------------------------------------------ review R1 of PR #1863
+
+
+def _missing_point(no, page, lead, words, pill="Question", cls="Questions for you"):
+    return _point(no, str(no), pill, cls, "1 > para 1-4", page, book=words, action=f"{lead}: x. {words}. The rule cannot be checked.",
+                  reason=words)  # fmt: skip
+
+
+@pytest.mark.parametrize("page", ["absent", "2"])
+def test_a_line_that_says_its_book_is_missing_is_never_a_find(tmp_path, page):
+    lead = _lead("hazop_procedure", "H01")
+    key = [{"kind": "problem", "role": "hazop_procedure:H01", "page": page, "std": "IEC 61882 6.1"}]
+    pts = [_missing_point(1, "2" if page == "2" else "not recorded", lead, "Book missing: IEC 61882, clause 6.1")]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, pts))
+    assert res["problems_found"] == [] and res["missed"] == {"book not held": [2]}
+    assert aks.summary(res)["two_ways"]["problems_found_of_all"] == "0 of 1"
+
+
+def test_a_book_missing_line_hides_no_find_of_another_line_and_says_book_not_held_where_the_key_book_is_held(tmp_path):
+    lead = _lead("hazop_procedure", "H01")
+    key = [{"kind": "problem", "role": "hazop_procedure:H01", "page": "2", "std": "XS-1 6.1"}]  # the key's own book is held
+    only = [_missing_point(1, "2", lead, "Book missing: OTHER-7 (clause not named by the reviewer)")]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, only))
+    assert res["problems_found"] == [] and res["missed"] == {"book not held": [2]}
+    both = [*only, _point(2, "2", "Question", "Questions for you", "1 > para 1-4", "2", action=f"{lead}: section found at page 2.")]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, both, name="t2.xlsx"))
+    assert res["problems_found"] == [2]  # a line that does not say so still finds
+
+
+def test_a_two_reader_verdict_that_says_its_book_is_missing_decides_nothing(tmp_path):
+    key = [{"kind": "problem", "role": "set_pressure", "page": "2"}]
+    pts = [_point(1, "1", "Not met · two readers agree", "Not met", "Set pressure", "2", reason="Book missing: NH-9, clause 4")]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, pts))
+    assert res["ai_verdict_found"] == [] and res["problems_found"] == [] and res["missed"] == {"book not held": [2]}
+
+
+@pytest.mark.parametrize(
+    "cell, books",
+    [
+        ("Book missing: ASME B16.5, clause 6.1", ["ASME B16.5"]),
+        ("Book missing: ASME B16.5 (clause not named by the reviewer)", ["ASME B16.5"]),
+        ("Book missing: NACE MR0175/ISO 15156, clause 7", ["ISO 15156", "NACE MR0175"]),
+        ("Book missing: XS-1 6.1", ["XS-1"]),
+        ("Book missing: API 6D; XS-9, clause 3", ["API 6D", "XS-9"]),
+    ],
+)
+def test_a_dotted_book_name_is_kept_whole(tmp_path, cell, books):
+    path = _team(tmp_path, [_point(1, "1", "Question", "Questions for you", "F", "2", reason=f"{cell}. The rule cannot be checked.")])
+    assert sorted(aks.not_held_books(path)) == books
+
+
+def test_held_is_decided_by_the_same_standard_rule_not_a_letters_key():
+    nh = frozenset({"ASME B16.5", "NACE MR0175", "ISO 15156"})
+
+    def held(std):
+        return aks.rule_held(aks.KeyRow(2, "problem", frozenset(), frozenset(), standard_text=std), nh)
+
+    assert not held("ASME B16.5 6.1") and held("ASME B16.47 3")  # B16.5 is not B16.47 (a letters key "ASMEB16" made both one)
+    assert not held("ISO 15156-2 A.1") and not held("NACE MR0175/ISO 15156 7") and held("XS-1 4.2") and held("")
+
+
+def test_a_workbook_with_no_known_layout_is_refused_never_scored_as_zero(tmp_path, capsys):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Nr", "Remark", "Where"])
+    ws.append([1, "Invented remark", "p.2"])
+    path = tmp_path / "other.xlsx"
+    wb.save(path)
+    key = _key(tmp_path, [{"kind": "problem", "role": "set_pressure", "page": "2"}])
+    with pytest.raises(aks.CRSLayoutError, match="could not read this file's layout"):
+        aks.score_files(key, path)
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("aks_cli", Path(__file__).resolve().parents[2] / "scripts" / "answer_key_score.py")
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    assert cli.main(["--key", str(key), "--crs", str(path)]) == 2
+    assert "could not read this file's layout" in capsys.readouterr().err
+
+
+def test_a_per_point_table_without_a_comment_column_is_refused(tmp_path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Evidence"
+    ws.append(["Field or item", "Page", "Pill", "Class", "Notes"])
+    ws.append(["Set pressure", "2", "Not met · proven by code", "Not met", "x"])
+    path = tmp_path / "d.xlsx"
+    wb.save(path)
+    with pytest.raises(aks.CRSLayoutError, match="no column 'Comment'"):
+        aks.read_crs_layout(path)
+
+
+def test_a_pill_without_its_firmness_is_unknown_and_reported(tmp_path):
+    pts = [
+        _point(1, "1", "Not met - proven by code", "Not met", "Set pressure", "2"),  # no "·": not read as an AI opinion
+        _point(2, "Nothing to change", "Met", "Met", "Body material", "1"),
+        _point(3, "2", "Added by an engineer", "Not met", "Design pressure", "3"),  # an engineer's own point is a comment
+    ]
+    key = [{"kind": "problem", "role": "set_pressure", "page": "2"}]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, pts))
+    assert res["lines_unknown_verdict"] == 2 and res["problems_found"] == [] and res["comment_lines"] == 1
+
+
+def test_the_scorer_words_are_the_apps_own():
+    from app import review_points as rp
+
+    assert aks.BOOK_MISSING_WORDS == rp.BOOK_MISSING
+    assert set(aks.FIRMNESS) == {firm for _what, firm in rp.RANKS.values() if firm}
+    assert aks.says_book_missing(rp.book_missing_words("XS-1", "4.2"))

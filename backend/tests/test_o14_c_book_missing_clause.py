@@ -34,6 +34,10 @@ def test_the_words_name_the_clause_or_say_plainly_it_was_not_named():
     assert w("BOOK-77", "") == "Book missing: BOOK-77 (clause not named by the reviewer)"
     assert w("IEC 99001; IEC 99002-3", "") == "Book missing: IEC 99001; IEC 99002-3 (clause not named by the reviewer)"
     assert w("API 9999 2017", "") == "Book missing: API 9999 2017 (clause not named by the reviewer)"  # an edition year is no clause
+    # an edition or revision number is no clause either (review R1 of PR #1863)
+    for ref in ("API 9999 11th edition", "API 9998 7th", "Spec 12-AB rev 3", "XS-1 Rev. B2", "XS-2 edition 5"):
+        assert w(ref, "") == f"Book missing: {ref} (clause not named by the reviewer)", ref
+    assert w("XS-1 11th edition 6.1", "") == "Book missing: XS-1 11th edition 6.1"  # a clause beside an edition is still a clause
 
 
 def test_a_point_with_no_clause_says_so_in_its_action_and_reason():
@@ -83,4 +87,4 @@ def test_the_built_team_file_names_the_clause_in_every_book_missing_row():
     from tools import answer_key_score as aks
 
     path = io.BytesIO(data)
-    assert {"BOOK77", "BOOK78", "BOOK79", "BOOK80"} <= aks.not_held_books(path)
+    assert {"BOOK-77", "BOOK-78", "BOOK-79", "BOOK-80"} <= aks.not_held_books(path)

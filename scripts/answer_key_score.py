@@ -69,7 +69,12 @@ def main(argv: list[str] | None = None) -> int:
     if not a.json:
         print(aks.SOURCE)
     for crs in a.crs:
-        res = aks.score(key, aks.read_crs(crs), patterns)
+        try:
+            lines, layout = aks.read_crs_layout(crs)
+        except aks.CRSLayoutError as exc:  # never scored as "0 lines": 0 of N is not a measurement
+            print(f"CRS {Path(crs).name}: {exc}", file=sys.stderr)
+            return 2
+        res = {**aks.score(key, lines, patterns, aks.not_held_books(crs)), "layout": layout}
         out = {"crs": str(crs), **aks.summary(res)}
         if hand is not None:
             out["overlap_with_hand"] = aks.overlap(res["problems_found"], hand)
@@ -86,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
                     "other_clause_not_judged",
                     "key_rows_without_field",
                     "matched_lines",
+                    "missed",
                 )
             }
         if a.json:
