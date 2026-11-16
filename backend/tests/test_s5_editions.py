@@ -104,7 +104,9 @@ def test_the_template_policy_file_loads_and_a_bad_entry_is_named(tmp_path):
     with pytest.raises(se.BadPolicy, match="c1"):
         se.load_policies(bad)
     bad.write_text(
-        json.dumps({"contracts": {"c2": {"rule": "in_effect_on", "date": "2020-01"}}})
+        json.dumps(
+            {"contracts": {"c2": {"rule": "in_effect_on", "date": "2020"}}}
+        )  # a year alone is too coarse
     )
     with pytest.raises(se.BadPolicy, match="c2"):
         se.load_policies(bad)

@@ -3,7 +3,14 @@
 `agent_review_crs` decides WHERE a line goes (`sheet_of`, still the one decision); this module reads it (`status_of`) and decides the words
 (fixed sentences and the plain-phrase table are in `crs_ai_words`). `crs_layout` draws the workbook. Every count printed on the Notes sheet
 is the length of the rows written, taken from the same lists. No new AI call: only what the stored line holds. U5: the Query action and
-the AI's reasoning line come from `crs_ai_actions`, the priority from `crs_ai_words.priority_ai`."""
+the AI's reasoning line come from `crs_ai_actions`, the priority from `crs_ai_words.priority_ai`.
+
+ORDER 14 LANE B (owner, 16 Nov 2026). The sheet CRS holds ONE comment per field or topic, grouped by the same function as the paper's one
+CRS (`crs_comments.group`): the strongest line leads, the other lines of that field are listed on it and stand on the sheet "Not a comment"
+as "Part of comment n". A field that carries no finding (met, a "N rules could not be matched" line) is not a comment: it is on that sheet
+too, counted, and the coverage lines become ONE coverage note on the first sheet. Every line keeps its own row on Evidence (completeness).
+What a rule requires is the clause quote code verified in the book, whole; when there is none the comment says so in plain words and
+shows our checklist's or the stored rule's words only labelled as such, never as the book's."""
 
 from __future__ import annotations
 
@@ -15,16 +22,19 @@ from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
-from . import crs_export, crs_layout, kind_review_table
+from . import crs_comments, crs_export, crs_layout, kind_review_table
 from .agent_review_crs import (
     HELD_PASS_SHEET,
     NOT_APPLICABLE_SHEET,
     NOT_CHECKED_HERE_SHEET,
     NOT_REVIEWED_SHEET,
+    OTHER_COLUMNS,
+    OTHER_WIDTHS,
     PASSED_SHEET,
     UNAPPROVED_SHEET,
+    _deferred_mark,
+    _other_reason,
     against,
-    asks,
     line_page,
     sheet_of,
     stated,
@@ -41,7 +51,7 @@ from .agent_review_verdict import (
     moved_by_guard,
 )
 from .agent_run_crs import _cell, _page_cell
-from .crs_ai_actions import query_action, reason_for, reasoning_part
+from .crs_ai_actions import provisional, query_action, reason_for, reasoning_part
 
 OPINION_MET = "met"
 OPINION_NOT_MET = "not met"
@@ -81,22 +91,43 @@ OTHER_KIND_OF_SHEET = {
 }
 
 
+def item_field(line: Mapping) -> str:
+    """The ITEM's own field, the same in every run (lead, R94): a rule's field role as the equipment's fixed field list names it, a
+    checklist item's topic mapped to the one field it names, else the topic; '' when the item names none."""
+    if line.get("source") == "skill":
+        return crs_comments.topic_name(
+            _skill_item(line.get("item_id")).get("topic", "")
+        )
+    label = line.get("rule_label")
+    return (
+        crs_comments.role_name(label.get("field")) if isinstance(label, Mapping) else ""
+    )
+
+
 def field_name(line: Mapping) -> str:
-    """The field in words a reader knows: the label printed on the paper, else the item's field words; never an item id."""
-    label = _clean(line.get("field")) or _clean(line.get("field_label_ai"))
+    """The field in words a reader knows, NEVER what the AI quoted (lead, R94: deterministic, so a comment's name does not move between
+    runs): the item's own field (`item_field`), else the item's field roles as the field list names them."""
+    label = item_field(line)
     if label:
         return label
-    roles = [
-        str(r).replace("_", " ").strip()
+    return ", ".join(
+        crs_comments.role_name(r)
         for r in line.get("field_roles") or []
         if str(r).strip()
-    ]
-    return ", ".join(roles)
+    )
+
+
+def field_words(line: Mapping) -> str:
+    """The field as the comment's WORDS say it: its name (`field_name`, the comment's key), else the paper's label that code verified on
+    the page. Never the AI's unverified label."""
+    return field_name(line) or _clean(line.get("field"))
 
 
 def _page_text(line: Mapping) -> str:
     page = line_page(line)
-    label = _clean(line.get("field")) or _clean(line.get("field_label_ai"))
+    label = _clean(line.get("field")) or _clean(
+        line.get("field_label_ai")
+    )  # the paper's own label, as the AI quoted it
     base = _page_cell(page) or ""
     return f"{base} - {label}" if base and label else base or label
 
@@ -106,13 +137,13 @@ _WORDING: list[
 ] = []  # filled only by a COMPLETE load, like `agent_review_verdict.checklist_ids`
 
 
-def checklist_wording(item_id: object) -> str:
-    """The checklist item's own requirement wording ("Expected") by item id, through the app's one loader (`agent_skills`).
-    '' when the item or the data is not found on this machine (the caller then falls back to the line's own text)."""
+def _skill_item(item_id: object) -> dict:
+    """A checklist item's "expected" wording and "topic" by item id, through the app's one loader (`agent_skills`), plain words; {}
+    when the item or the data is not found on this machine. Kept only after a COMPLETE load."""
     if not _WORDING:
         from . import agent_skills
 
-        found: dict[str, str] = {}
+        found: dict[str, dict] = {}
         complete = True
         for kind in agent_skills.KINDS:
             try:
@@ -121,37 +152,76 @@ def checklist_wording(item_id: object) -> str:
                 complete = False
                 continue
             found.update(
-                {f"S-{it['id']}": _clean(it.get("expected")) for it in skill["items"]}
+                {
+                    f"S-{it['id']}": {
+                        k: words.plain(it.get(k)) for k in ("expected", "topic")
+                    }
+                    for it in skill["items"]
+                }
             )
         if not (complete and found):
-            return words.plain(found.get(str(item_id)))
+            return found.get(str(item_id)) or {}
         _WORDING.append(found)
-    return words.plain(_WORDING[0].get(str(item_id)))
+    return _WORDING[0].get(str(item_id)) or {}
+
+
+def checklist_wording(item_id: object) -> str:
+    """The checklist item's own requirement wording ("Expected") by item id; '' when not found on this machine."""
+    return _skill_item(item_id).get("expected", "")
 
 
 def _item_ask(line: Mapping) -> str:
-    """The words of what is asked: a checklist line's own item wording first, else the verified clause quote or stored rule text."""
-    if line.get("source") == "skill":
-        wording_text = checklist_wording(line.get("item_id"))
-        if wording_text:
-            return " ".join(wording_text.split()[:30])
-    return asks(line)
+    """The words shown as the rule book's own: the clause quote ONLY when code verified it in the book, WHOLE (never cut, never our
+    checklist's wording, never the stored rule text); '' when there is none (the comment then says so: `_no_quote`)."""
+    q = line.get("quotes_checked") or {}
+    return _clean(line.get("clause_quote")) if q.get("clause") else ""
+
+
+NO_QUOTE = "No verified quote of this clause is held: the engineer reads the clause."
+
+
+def _no_quote(line: Mapping) -> str:
+    """What a comment says when no verified clause quote is held: that, in plain words, then the words we do hold, each labelled as what
+    it is (our checklist's wording; the stored rule text that code did not find in the book). Never shown as the book's words."""
+    out = NO_QUOTE
+    ours = (
+        checklist_wording(line.get("item_id")) if line.get("source") == "skill" else ""
+    )
+    if ours:
+        out += f' Our checklist asks (our words, not the book\'s): "{ours}".'
+    elif (stored := _clean(line.get("requirement"))) and line.get("source") != "group":
+        out += f' The stored rule text, not found in the book by code: "{stored}".'
+    return out
 
 
 def _requires(line: Mapping, status: str) -> str:
-    """Part 1: what the rule requires, in the rule's own held words (a checklist item's own wording, the verified clause quote, else the stored rule text)."""
-    ref, ask, field = against(line), _item_ask(line), field_name(line)
+    """Part 1: what the rule requires: the clause quote code verified in the book, else `_no_quote`."""
+    ref, ask, field = against(line), _item_ask(line), field_words(line)
     verb = (
         "recommends"
         if line.get("recommendation") or line.get("rule_kind") == "advice"
         else "requires"
     )
+    if (
+        status == words.STATUS_QUERY and (mark := _deferred_mark(line)) is not None
+    ):  # lane D: the sheet leaves it to the vendor
+        lead = (
+            "Contractor to confirm the provisional value of"
+            if provisional(line)
+            else "Vendor to provide"
+        )
+        head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
+        return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
     if status == words.STATUS_QUERY:
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
-        return head + (f', which {verb}: "{ask}".' if ask else ".")
+        return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
     if ask:
         return f'{ref or "The rule"} {verb}: "{ask}".'
-    return f"{ref or 'The rule'} applies" + (f" to {field}." if field else ".")
+    return (
+        f"{ref or 'The rule'} applies"
+        + (f" to {field}." if field else ".")
+        + f" {_no_quote(line)}"
+    )
 
 
 def _searched(line: Mapping) -> str:
@@ -162,7 +232,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     """Part 2: what the paper shows (only a quote code verified), or that it does not state the value. An AI opinion says it is
     the AI reviewer's view and that code did not prove it."""
     field, has, page = (
-        field_name(line) or "the value asked for",
+        field_words(line) or "the value asked for",
         stated(line),
         line.get("paper_page"),
     )
@@ -171,7 +241,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return words.absence_cell(line, field_name(line) or _item_ask(line))
+        return words.absence_cell(line, field_words(line) or _item_ask(line))
     code = line.get("reason_code")
     silent = code in SILENCE_CODES or line.get("silence_query")
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
@@ -224,14 +294,19 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         and guard != NO_VALUE_WHY
     ):
         out += f" Not confirmed: {why}."
-    if guard and (
-        view := words.plain(
+    if guard:  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion (lane B: never "no correction needed")
+        view = words.plain(
             " ".join(str(line.get("comment") or line.get("reasoning") or "").split())[
                 :400
             ]
         )
-    ):
-        out += f" {wording.ONE_READER}{view}"  # N9: a "met" the guard moved: one reader's view, marked, never the conclusion
+        out += f" {wording.ONE_READER}the requirement is met." + (
+            f" {view}" if view else ""
+        )
+    if draft := words.ai_draft_words(
+        line
+    ):  # lane A: a code check against an AI-draft limit, said as such
+        out += f" {draft}"
     return out + reasoning_part(line, status, guard)
 
 
@@ -239,9 +314,16 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     """Part 3: what the contractor must do: ONE fixed sentence per Status, completed with the field label and the rule reference the
     line already carries. No free text of the AI reader reaches it (its suggested action is on the Evidence sheet). Pass and AI
     opinion (met): no action line."""
+    if (
+        line.get("ai_draft") is True
+    ):  # lane A: the limit is an AI draft: the engineer confirms it first
+        return f"Engineer to confirm the AI-draft limit of {against(line) or 'the rule'}, then the comparison."
     if status == words.STATUS_PASS:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
+        # R94: the pass guard objected: the engineer checks, never "no action"
+        if objection := crs_comments.guard_words(line):
+            return f"Engineer to check the AI reviewer's view: {objection}."
         return "No action unless the engineer disagrees with the AI reviewer's view."
     if status == words.STATUS_AI_VERDICT and order == words.ORDER_AI_VERDICT_MET:
         return "No action unless the engineer disagrees with the AI reviewer's verdict."
@@ -249,10 +331,10 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         line.get("verdict_label") == two.WORD_NOT_STATED
         and status == words.STATUS_AI_VERDICT
     ):
-        return f"Contractor to state {field_name(line) or 'the value asked for'}, or the page where it is shown."
+        return f"Contractor to state {field_words(line) or 'the value asked for'}, or the page where it is shown."
     if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
         return action  # a question for the engineer, never worded for the contractor
-    what, ref = field_name(line) or "the item", against(line)
+    what, ref = field_words(line) or "the item", against(line)
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
     if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
@@ -270,6 +352,7 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
             _requires(line, status),
             _paper_shows(line, status, order),
             _contractor_to(line, status, order),
+            *crs_comments.also_words(line),
         )
     )
 
@@ -335,9 +418,9 @@ def _title(meta: Mapping) -> str:
     )
 
 
-def ordered_item_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str, int]]:
-    """The item rows in the internal order (Fail, AI opinion not met, Query, AI opinion met, Pass); a 'should' Fail after the
-    'shall' Fails; each group keeps the order the lines came in."""
+def item_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str, int]]:
+    """Every line that is an item (one row each before grouping) in the internal order (Fail, AI opinion not met, Query, AI opinion met,
+    Pass); a 'should' Fail after the 'shall' Fails; each group keeps the order the lines came in."""
     keyed = []
     for pos, ln in enumerate(lines):
         got = status_of(ln)
@@ -349,178 +432,95 @@ def ordered_item_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str, int
     return [(ln, status, order) for order, _r, _p, ln, status in keyed]
 
 
-def other_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str]]:
-    """The lines that are not item rows, with what each is called, in the order the lines came in."""
+def _split(
+    lines: Iterable[Mapping],
+) -> tuple[list[tuple[Mapping, str, int]], list[tuple[Mapping, str]]]:
+    """(the comment rows, every other line with what it is called). ONE comment per field or topic (`crs_comments.group`), led by its
+    strongest line, which carries its other lines (`_comment`); a field with no finding and a coverage line are not comments. Each
+    line is in exactly one of the two lists: comment rows + other lines = every line."""
+    lines = list(lines)
+    rows, kind_of = _grouped(item_lines(lines))
     out = []
     for ln in lines:
-        kind = OTHER_KIND_OF_SHEET.get(sheet_of(ln))
+        kind = OTHER_KIND_OF_SHEET.get(sheet_of(ln)) or kind_of.get(id(ln))
         if kind is not None:
             out.append((ln, kind))
-    return out
+    return rows, out
 
 
-def _other_reason(line: Mapping, kind: str) -> str:
-    if kind == words.KIND_NOT_APPLICABLE:
-        return (
-            words.plain(line.get("comment"))
-            or "The AI reviewer judged the rule not applicable to this paper."
-        )
-    if kind == words.KIND_NOT_CHECKED_HERE:
-        return two.OTHER_WHY + "."
-    if kind == words.KIND_UNAPPROVED:
-        view = {wording.THINKS_MET: "met", wording.THINKS_NOT_MET: "not met"}.get(
-            str(line.get("verdict_label"))
-        )
-        tail = (
-            f" The AI reviewer's view ({view}) is not shown as a comment."
-            if view
-            else ""
-        )
-        return "The rule has not been approved yet." + tail
-    text = (
-        words.why_phrase(line.get("not_proven_reason"))
-        or "the AI reviewer gave no answer"
-    )
-    return (
-        text[:1].upper() + text[1:] + "."
-    )  # only the first letter: never "the ai reviewer"
+def _grouped(items: list) -> tuple[list, dict[int, str]]:
+    return crs_comments.group_lines(items)
 
 
-OTHER_COLUMNS = (
-    "Item No",
-    "Document Name",
-    "Page No./Section",
-    "Standard Reference",
-    "What it is",
-    "Reason",
-)
-OTHER_WIDTHS = (9.0, 26.0, 20.0, 26.0, 30.0, 90.0)
-EVIDENCE_COLUMNS = (
-    "Item No", "Status", "AI reasoning", "AI reader's suggested action", "Paper quote", "Paper page", "Clause quote", "Rule book and clause",
-    "Paper quote check", "Clause quote check", "Second reader", "AI calls (models)", "Reason code", "Item id (internal)",
-    "Rule id (internal)", "Independent reader: verdict", "Independent reader: paper quote", "Independent reader: paper page",
-    "Independent reader: clause quote", "Independent reader: paper quote check", "Independent reader: clause quote check",
-)  # fmt: skip
-EVIDENCE_WIDTHS = (
-    9.0,
-    13.0,
-    60.0,
-    45.0,
-    45.0,
-    9.0,
-    45.0,
-    26.0,
-    16.0,
-    16.0,
-    18.0,
-    30.0,
-    22.0,
-    24.0,
-    30.0,
-    16.0,
-    45.0,
-    9.0,
-    45.0,
-    16.0,
-    16.0,
-)
+def contractor_rows(
+    lines: Iterable[Mapping], kind: str | None = None
+) -> list[tuple[Mapping, str, int]]:
+    """The contractor copy's rows: the lines it may issue (`_contractor_items`, chosen line by line), ONE ROW EACH (R91): every
+    proven Fail keeps its own requirement and action, never folded into another Fail's row; an older stored copy still counts."""
+    return _contractor_items(item_lines([wording.read_time(ln) for ln in lines]), kind)
 
 
-def _check_word(ok: bool) -> str:
-    return "verified" if ok else "not verified"
+def ordered_item_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str, int]]:
+    """The comment rows of the sheet CRS, worst first: ONE per field or topic (`_split`)."""
+    return _split(lines)[0]
 
 
-def _second_reader(line: Mapping) -> str:
-    second = line.get("second_opinion")
-    if isinstance(second, Mapping):
-        return "asked: agreed" if second.get("agree") else "asked: disagreed"
-    return "not asked"
-
-
-def _calls(line: Mapping) -> str:
-    second = line.get("second_opinion")
-    parts = []
-    if _clean(line.get("model")):
-        reused = line.get(
-            "reused_answer"
-        )  # point E: internal copy only (the contractor copy has no Evidence sheet)
-        mark = (
-            f" ({reused['text']})"
-            if isinstance(reused, Mapping) and reused.get("text")
-            else ""
-        )
-        parts.append(f"first reader {_clean(line['model'])}{mark}")
-    if isinstance(second, Mapping) and _clean(second.get("model")):
-        parts.append(f"second reader {_clean(second['model'])}")
-    indep = two.stored(line)
-    if indep is not None and _clean(indep.get("model")):
-        parts.append(f"independent reader {_clean(indep['model'])}")
-    return "; ".join(parts) or "none"
-
-
-def _independent_cells(line: Mapping) -> list:
-    """The independent second reader's verdict, its two quotes and both quote checks (blank when it was not asked)."""
-    indep = two.independent(line)
-    if indep is None:
-        return [None] * 6
-    if (
-        indep.get("verdict") == two.A_NOT_STATED
-    ):  # it found nothing: there is no paper quote to check
-        q = indep.get("quotes_checked") or {}
-        return [
-            "not stated", None, None, _clean(indep.get("clause_quote")) or None,
-            "no quote: nothing found", _check_word(bool(q.get("clause"))),
-        ]  # fmt: skip
-    q = (
-        indep.get("quotes_checked")
-        if isinstance(indep.get("quotes_checked"), Mapping)
-        else {}
-    )
-    return [
-        indep.get("verdict"),
-        _clean(indep.get("paper_quote")) or None,
-        indep.get("paper_page"),
-        _clean(indep.get("clause_quote")) or None,
-        _check_word(bool(q.get("paper"))),
-        _check_word(bool(q.get("clause"))),
-    ]
-
-
-def _evidence_row(n: int, line: Mapping, status: str) -> list:
-    q = line.get("quotes_checked") or {}
-    label = line.get("rule_label")
-    page = line.get("clause_page")
-    ref = against(line) + (f", page {page}" if page not in (None, "") else "")
-    return [
-        n,
-        status,
-        _clean(line.get("reasoning")) or None,
-        _clean(line.get("comment")) or None,
-        _clean(line.get("paper_quote")) or None,
-        line.get("paper_page"),
-        _clean(line.get("clause_quote")) or None,
-        ref or None,
-        _check_word(bool(q.get("paper"))),
-        _check_word(bool(q.get("clause"))),
-        _second_reader(line),
-        _calls(line),
-        _clean(line.get("reason_code")) or None,
-        line.get("item_id"),
-        label.get("label_key") if isinstance(label, Mapping) else None,
-        *_independent_cells(line),
-    ]
+def other_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str]]:
+    """Every line that is not a comment row, with what it is called, in the order the lines came in: not reviewed, does not apply, rule
+    not yet approved, not checked here; checked with nothing to change; a coverage line; part of comment n (`_split`)."""
+    return _split(lines)[1]
 
 
 def _models(names: Iterable[str] | None) -> str:
     return ", ".join(names or []) or "not reported"
 
 
+def _count_rows(
+    meta: Mapping, items: list, others: list, missing: list
+) -> list[tuple[str, object]]:
+    """The Notes sheet's counts: Status per comment row, the review's decisions over every item line, the lines that are not
+    comments by kind, and the one coverage note (order 14 lane B)."""
+    every = meta.get("_item_lines") or [ln for ln, _s, _o in items]
+    kinds = {
+        k: sum(1 for _l, kk in others if kk == k)
+        for k in (*words.OTHER_KINDS, *words.NOT_A_COMMENT_KINDS)
+    }
+    kinds[words.KIND_NOT_HELD] = len(missing)
+    merged = len(others) - sum(v for k, v in kinds.items() if k != words.KIND_NOT_HELD)
+    rows = [
+        (f"Count: {s}", sum(1 for _l, st, _o in items if st == s))
+        for s in words.STATUSES
+    ]
+    rows += wording.group_rows(every)
+    rows += words.decisions_rows(
+        wording.decisions_of(
+            (ln.get("verdict_class"), ln.get("verdict_label")) for ln in every
+        )
+    )
+    rows.append(
+        ("Count: rows on the CRS sheet", len(items))
+    )  # one comment per field or topic
+    rows.append(
+        ("Count: lines merged into a comment (listed as 'Part of comment n')", merged)
+    )
+    rows += [
+        (f"Count: {k}", kinds[k])
+        for k in (*words.OTHER_KINDS, *words.NOT_A_COMMENT_KINDS)
+    ]
+    rows.append(
+        (
+            f"Count: rows on the sheet '{words.NOT_A_COMMENT_SHEET}'",
+            len(others) + len(missing),
+        )
+    )
+    return rows + (
+        [("Coverage note", meta["_coverage"])] if meta.get("_coverage") else []
+    )
+
+
 def _notes_rows(
     meta: Mapping, items: list, others: list, missing: list
 ) -> list[tuple[str, object]]:
-    count = {s: sum(1 for _l, st, _o in items if st == s) for s in words.STATUSES}
-    kinds = {k: sum(1 for _l, kk in others if kk == k) for k in words.OTHER_KINDS}
-    kinds[words.KIND_NOT_HELD] = len(missing)
     rows: list[tuple[str, object]] = [("Priority rule", words.PRIORITY_RULE_AI)]
     if any(ln.get("source") == "skill" for ln, _s, _o in items):
         have = any(
@@ -550,17 +550,7 @@ def _notes_rows(
             or "none",
         )
     )
-    rows += [(f"Count: {s}", count[s]) for s in words.STATUSES]
-    rows += wording.group_rows(ln for ln, _s, _o in items)
-    dec = wording.decisions_of(
-        (ln.get("verdict_class"), ln.get("verdict_label")) for ln, _st, _o in items
-    )
-    rows += words.decisions_rows(dec)
-    rows.append(("Count: rows on the CRS sheet", len(items)))
-    rows += [(f"Count: {k}", kinds[k]) for k in words.OTHER_KINDS]
-    rows.append(
-        (f"Count: rows on the sheet '{words.OTHER_SHEET}'", len(others) + len(missing))
-    )
+    rows += _count_rows(meta, items, others, missing)
     for (
         key,
         label,
@@ -692,6 +682,9 @@ def _other_sheet(others: list, missing: list, paper: str, first_no: int) -> dict
             against(ln) or None,
             kind,
             _other_reason(ln, kind),
+            (status_of(ln) or (None,))[0]
+            if kind == words.KIND_NOTHING_TO_CHANGE
+            else None,
         ]
         for k, (ln, kind) in enumerate(others)
     ]
@@ -702,24 +695,10 @@ def _other_sheet(others: list, missing: list, paper: str, first_no: int) -> dict
              "The rule book is not in the library" + (f" ({why})." if why else ".")]
         )  # fmt: skip
     return {
-        "name": words.OTHER_SHEET,
+        "name": words.NOT_A_COMMENT_SHEET,
         "columns": OTHER_COLUMNS,
         "rows": _table(rows),
         "widths": OTHER_WIDTHS,
-    }
-
-
-def _evidence_sheet(items: list, others: list) -> dict:
-    rows = [_evidence_row(n, ln, st) for n, (ln, st, _o) in enumerate(items, start=1)]
-    rows += [
-        _evidence_row(len(items) + k, ln, kind)
-        for k, (ln, kind) in enumerate(others, start=1)
-    ]
-    return {
-        "columns": EVIDENCE_COLUMNS,
-        "rows": _table(rows),
-        "statuses": [st for _l, st, _o in items] + [None] * len(others),
-        "widths": EVIDENCE_WIDTHS,
     }
 
 
@@ -746,18 +725,26 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
     lines = [wording.read_time(ln) for ln in lines]  # read time
-    items = ordered_item_lines(lines)
+    items, others = _split(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)
     if contractor:
-        items = _contractor_items(items, meta.get("paper_kind"))
+        items = _contractor_items(
+            item_lines(lines), meta.get("paper_kind")
+        )  # R91: one row per proven Fail
         books, label = _books_used(ln for ln, _s, _o in items), BOOKS_SHOWN
     else:  # the books of the lines the AI reviewer answered (a not-reviewed line used no book)
         books = _books_used(ln for ln in lines if not wording.is_not_reviewed(ln))
         label = BOOKS_REVIEWED
+    coverage = crs_comments.coverage_note(lines) if not contractor else ""
+    if isinstance(
+        meta.get("editions"), dict
+    ):  # lane G: what the edition cutoff says of each held book
+        books = [f"{b} ({words.edition_words(meta['editions'].get(b))})" for b in books]
     view: dict = {
         "title": _title(meta),
-        "header": _header_pairs(meta, books, label),
+        "header": _header_pairs(meta, books, label)
+        + ([("Coverage note:", coverage)] if coverage else []),
         "sentence": words.generated_by(crs_export.default_company()),
         "rows": _table(
             [
@@ -776,11 +763,22 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         view["rows"] = [r[:9] for r in view["rows"]]
         view["plain"] = True
         return view
-    others = other_lines(lines)
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
     view["other"] = _other_sheet(others, missing, paper, len(items) + 1)
-    view["evidence"] = _evidence_sheet(items, others)
-    rows = _notes_rows({**meta, "books_used": books}, items, others, missing)
+    from .agent_review_crs import evidence_sheet
+
+    view["evidence"] = evidence_sheet(items, others)
+    rows = _notes_rows(
+        {
+            **meta,
+            "books_used": books,
+            "_coverage": coverage,
+            "_item_lines": [ln for ln, _s, _o in item_lines(lines)],
+        },
+        items,
+        others,
+        missing,
+    )
     view["notes"] = {
         "columns": ("Topic", "Detail"),
         "rows": _table([[a, b] for a, b in rows]),

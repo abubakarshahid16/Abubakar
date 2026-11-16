@@ -336,6 +336,19 @@ def decide(choice: str, f: Facts) -> Plan:
 # ----------------------------------------------------------------------------------------------- reading the facts
 
 
+def _is_contract(conn, document_id: str, kind: str | None, role: str | None) -> bool:
+    """A contract by its decided kind, by its role, or by a kind STORED for it in any state (suggested or confirmed) that says
+    contract (order 14 lane E, review R99, rule 1: a contract whose role was later set to a submittal and whose cover reads as a
+    datasheet is still a contract). Only narrows what may leave."""
+    from . import claude_auto_approve
+
+    return (
+        kind == "contract"
+        or role == "CONTRACT_DOCUMENT"
+        or claude_auto_approve.stored_kind_is_contract(conn, document_id)
+    )
+
+
 def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, object]:
     """The facts for one paper from the app and the installed switches. Reads only. Also returns the PaperReading."""
     from . import (
@@ -367,7 +380,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         )
     except claude_approved.BlockListUnreadable:
         blocked = True  # fail closed
-    is_contract = kind == "contract" or role == "CONTRACT_DOCUMENT"
+    is_contract = _is_contract(conn, document_id, kind, role)
     yes = is_contract and contract_yes.has_yes(document_id)
     approved = _paper_approved(sha, role, is_contract, yes, claude_approved, settings)
     lane_open = reasoning_provider.claude_lane_open()

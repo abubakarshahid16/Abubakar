@@ -333,3 +333,22 @@ def test_the_job_logs_a_plain_warning_when_there_is_no_checklist_data(
         "agent review: no checklist data found; no line can be a checklist line" in msgs
     )
     assert not [m for m in msgs if "Marking blue" in m]
+
+
+def test_5b_a_query_with_a_marked_own_quote_takes_value_deferred(w):
+    text = "Marking blue By Contractor"
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = text || ? WHERE document_id = ? AND page_no = 1",
+            ("\n" + text, s.PAPER),
+        )
+    w["fake"].answers["R-mark"] = {
+        **s.ANSWERS["R-mark"], "verdict": "Query", "reason_code": "needs_drawing_or_calc", "paper_quote": text, "paper_page": 1,
+    }
+    w["fake"].answers["R-frame"] = {**s.ANSWERS["R-frame"], "verdict": "Query", "reason_code": "needs_drawing_or_calc"}
+    lines = lines_of(run_review())
+    line = json.loads(lines["R-mark"]["line_json"])
+    assert line["verdict"] == "Query" and line["reason_code"] == "value_deferred" and line["deferred_page"] == 1
+    assert line["reason_code_ai"] == "needs_drawing_or_calc"
+    other = json.loads(lines["R-frame"]["line_json"])  # its own quote carries no mark
+    assert other["reason_code"] != "value_deferred"

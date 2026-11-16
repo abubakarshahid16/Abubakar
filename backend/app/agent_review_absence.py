@@ -558,17 +558,17 @@ def comment(words: tuple[str, ...], standard: Any, clause: Any) -> str:
 
 def deferred_mark(field_text: str, texts: Mapping[int, str]) -> int | None:
     """The first page where ONE line carries all the field's content words AND a deferral mark from the existing vocabulary
-    (`blank_markers.names_a_marker`: "By Contractor", "TBA", "vendor to advise", ...), else None. A figure followed by 'By
+    (`blank_markers.defers_value`: "By Contractor", "TBA", "vendor to advise", a "*" vendor-to-fill mark, ...), else None. A figure followed by 'By
     Contractor' is not a confirmed value. General: words, no layout. `texts` is {page number: page text}."""
     from .agent_bind import content_words
-    from .blank_markers import names_a_marker
+    from .blank_markers import defers_value
 
     want = content_words(field_text)
     if not want:
         return None
     for n in sorted(texts):
         for raw in (texts.get(n) or "").splitlines():
-            if names_a_marker(raw) and want <= content_words(raw):
+            if defers_value(raw) and want <= content_words(raw):
                 return n
     return None
 

@@ -345,6 +345,31 @@ def _checklist_base(
     }
 
 
+#: The words an AI-draft checklist line carries (order 14, lane A): the limit was written from the stored book by an AI and no engineer
+#: has confirmed it, so code shows what it compared and the line stays a question (CLAUDE.md rule 4).
+AI_DRAFT_WORDS = "AI draft, engineer to confirm"
+
+
+def ai_draft_ids() -> frozenset[str]:
+    """The checklist entries marked `ai_draft` in the checklist data: their lines are never a Pass or Fail, whatever the comparison said.
+    Read each time (a small file): a failed read marks nothing, and `datasheet_checks` refuses the same broken file loudly."""
+    from . import datasheet_checks
+
+    try:
+        table = datasheet_checks.load_rules().get("checklists") or {}
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(
+        item["id"]
+        for entry in table.values()
+        if isinstance(entry, Mapping)
+        for item in entry.get("items") or []
+        if isinstance(item, Mapping)
+        and item.get("ai_draft")
+        and isinstance(item.get("id"), str)
+    )
+
+
 def presence_counts(results: list[Mapping]) -> dict:
     """How the checks that only ask a field be STATED came out: checked, stated (they make no line), missing (each is already its own Query line)."""
     only = approved_code.presence_only_ids()
@@ -367,13 +392,23 @@ def checklist_lines(
     page_texts: Mapping[int, str],
     cells: Mapping[str, table_cell.Cell] | None = None,
     document_id: str | None = None,
+    books=None,
 ) -> list[dict]:
     """The approved checklist's results (`datasheet_checks.evaluate`: pure, code only) as lines. The clause side is the approved entry's own
     wording (`APPROVED_CHECKLIST`, the entry id as the clause): no document, so its quote is the entry itself. The paper quote must be found on
     its page. A result not decided (COMPLIANT or NON_COMPLIANT), or held, is a Query with its detail; a check that does not apply is no line."""
     out: list[dict] = []
     presence_only = approved_code.presence_only_ids()
+    drafts = ai_draft_ids()
     for r in results:
+        if r.get("rule_id") in drafts:
+            # an AI-draft limit the value meets is not a proven Pass and asks nothing: no line (like a presence check that is stated)
+            if (r.get("rule_said") or r.get("status")) not in (
+                comparison.NOT_APPLICABLE,
+                COMPLIANT,
+            ):
+                out.append(_ai_draft_line(r, page_texts, cells, document_id))
+            continue
         status = r.get("status")
         if status == comparison.NOT_APPLICABLE:
             continue
@@ -411,6 +446,62 @@ def checklist_lines(
             met = status == COMPLIANT
             out.append({**line, "verdict": PASS if met else FAIL, "decided_by": verdict_mod.BY_CODE,
                         "compare": {"decided": True, "verdict": "meets" if met else "does_not_meet", "reason": detail}})  # fmt: skip
+    return out if books is None else [with_book(ln, books) for ln in out]
+
+
+#: How a line names a book the library does not hold (order 14: "book missing", never guessed).
+BOOK_MISSING = "book missing: "
+
+
+def with_book(line: Mapping, books) -> dict:
+    """The checklist line with its book's own words (order 14, lane A). `books.cite(standard, clause)` (`agent_review_checklist_books`)
+    gives the held clause's stored text found by code in the book's pages, or that the book is held but no such text was found, or
+    that the book is not held. The entry's own wording moves to `check_words` and is never shown as the book's quote; a book not held
+    shows no clause and no rule words, and its line is never a Pass or Fail."""
+    standard = line.get("standard")
+    got = (
+        books.cite(standard, line.get("clause"))
+        if standard and standard != APPROVED_CHECKLIST
+        else {}
+    )
+    if not got:
+        return dict(line)
+    out = {
+        **line,
+        "check_words": line.get("check_words") or line.get("clause_quote") or "",
+    }
+    checks = {**(line.get("quotes_checked") or {})}
+    if got.get("missing"):
+        out.update(standard=f"{BOOK_MISSING}{got['missing']}", clause="", clause_quote="", book_missing=got["missing"],
+                   quotes_checked={**checks, "clause": False})  # fmt: skip
+        if out.get("verdict") in (PASS, FAIL):
+            reason = (out.get("compare") or {}).get("reason")
+            why = f"the book {got['missing']} is not held, so its rule is not shown or decided"
+            out = _undecided(out, why, "not_decided", reason)
+        return out
+    out.update(clause_quote=got.get("quote") or "", clause_page=got.get("page"), standard_document_id=got.get("book_id"),
+               quotes_checked={**checks, "clause": bool(got.get("quote"))})  # fmt: skip
+    return out
+
+
+def _ai_draft_line(r: Mapping, page_texts, cells, document_id) -> dict:
+    """An AI-draft checklist result as a Query: what code compared, in its own words, behind `AI_DRAFT_WORDS`. Never a Pass or Fail."""
+    fact_id = r.get("fact_id")
+    cell = (cells or {}).get(str(fact_id)) if fact_id else None
+    line = _checklist_base(r, cell, page_texts, document_id)
+    detail = str(r.get("detail") or "")[:200]
+    said = r.get("rule_said") or r.get("status")
+    out = _undecided(
+        line,
+        f"{AI_DRAFT_WORDS}: {detail or 'the check could not decide'}",
+        "not_decided",
+        detail,
+    )
+    # the entry is written in our own words, not the book's: never shown as the standard's quote (gate G1), kept under its own key
+    out["check_words"], out["clause_quote"] = out.get("clause_quote") or "", ""
+    out["quotes_checked"] = {**out["quotes_checked"], "clause": False}
+    out["ai_draft"] = True
+    out["compare"] = {**out["compare"], "code_said": said}
     return out
 
 

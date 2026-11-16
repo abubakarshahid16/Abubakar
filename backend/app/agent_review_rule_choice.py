@@ -425,3 +425,121 @@ __all__: list[Any] = [
     "store_group_lines",
     "unapproved_sentence",
 ]
+
+
+# ---- order 14 lane C: the clause limit of a book for a kind of paper (ONE home with gate G2) --------------------------------
+
+#: The one home of "which books govern which kind, down to the clause": gate G2 (`scripts/crs_gates.py --mapping`) reads it,
+#: and so does rule choice here, so the two never disagree.
+KIND_BOOKS_PATH = Path(__file__).parent / "reference" / "kind_books.json"
+KIND_BOOKS_FORMAT = "crs-gates-kind-books/1"
+_KIND_BOOKS: dict[tuple, dict] = {}
+
+
+def clause_limit_enabled() -> bool:
+    """Order 14 lane C, `KIND_BOOK_CLAUSE_LIMIT_ENABLED` (default off). Off: no rule is left out by a clause limit."""
+    from .config import settings
+
+    return bool(getattr(settings, "kind_book_clause_limit_enabled", False))
+
+
+def kind_books(path: Path | None = None) -> dict:
+    """reference/kind_books.json, read once per version of the file. A file in another format RAISES."""
+    path = path or KIND_BOOKS_PATH
+    key = (str(path), path.stat().st_mtime_ns)
+    if key not in _KIND_BOOKS:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("format") != KIND_BOOKS_FORMAT or not isinstance(
+            data.get("kinds"), dict
+        ):
+            raise ValueError(f"{path.name}: not a {KIND_BOOKS_FORMAT} file")
+        _KIND_BOOKS.clear()
+        _KIND_BOOKS[key] = {_fold(k): v for k, v in data["kinds"].items()}
+    return _KIND_BOOKS[key]
+
+
+def _fold(text: Any) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _clause_key(clause: Any) -> str:
+    c = re.sub(r"^(?:clause|section|para(?:graph)?)\.?\s*", "", _fold(clause))
+    return c.replace(" ", "")
+
+
+def clause_in(clause: Any, prefixes: Iterable[str] | None) -> bool:
+    """True when the clause is one of the prefixes or under one ("UG-150" covers "UG-150(a)" and "UG-150.1", never "UG-1500").
+    The same rule as gate G2 (`crs_gates.clause_in`; a test holds them equal)."""
+    if prefixes is None:
+        return True
+    c = _clause_key(clause)
+    for p in (_clause_key(x) for x in prefixes):
+        if p and (c == p or (c.startswith(p) and c[len(p)] in ".(-)")):
+            return True
+    return False
+
+
+def clause_limit(
+    paper_kind: str | None, equipment_type: str | None, book_labels: Iterable[str]
+) -> list[str] | None:
+    """The clause prefixes this kind of paper (most specific key first: "<kind>|<equipment type>", then "<kind>") takes from
+    the book these names point at, or None: no entry for the paper, the book is not listed, or it is listed whole."""
+    from .standard_ids import same_standard
+
+    if not paper_kind:
+        return None
+    table = kind_books()
+    keys = (
+        [f"{_fold(paper_kind)}|{_fold(equipment_type)}"] if equipment_type else []
+    ) + [_fold(paper_kind)]
+    labels = [lbl for lbl in book_labels if lbl]
+    for key in keys:
+        if key not in table:
+            continue
+        for entry in table[key]:
+            if (
+                isinstance(entry, dict)
+                and entry.get("clauses")
+                and any(
+                    same_standard(str(entry.get("book") or ""), lbl) for lbl in labels
+                )
+            ):
+                return [str(c) for c in entry["clauses"]]
+        return None
+    return None
+
+
+def outside_clause_limit(
+    conn: sqlite3.Connection,
+    requirement_id: str,
+    paper_kind: str | None,
+    equipment_type: str | None,
+) -> str | None:
+    """Why a rule is NOT asked of this paper because its clause lies outside the part of its book that governs the paper's
+    kind ("<book> governs a <kind> only in <clauses>; this rule is in <clause>"), or None. Off, no limit, or no stored rule:
+    None (it only narrows, rule 5). A rule with no clause in a limited book is outside: nothing shows it is in the part."""
+    if not clause_limit_enabled() or not paper_kind:
+        return None
+    from . import kind_standards
+
+    row = (
+        conn.execute(
+            "SELECT standard_document_id, clause FROM standard_requirements WHERE id = ?",
+            (str(requirement_id),),
+        ).fetchone()
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'standard_requirements'"
+        ).fetchone()
+        else None
+    )
+    if row is None:
+        return None
+    labels = kind_standards._book_labels(conn, row[0])
+    limit = clause_limit(paper_kind, equipment_type, labels)
+    if limit is None or clause_in(row[1], limit):
+        return None
+    where = f"{equipment_type} {paper_kind}" if equipment_type else str(paper_kind)
+    return (
+        f"{labels[0] if labels else 'its book'} governs a {where} only in {', '.join(limit)}; "
+        f"this rule is in {row[1] or 'no stated clause'}"
+    )

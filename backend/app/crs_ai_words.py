@@ -67,6 +67,22 @@ OTHER_KINDS = (
     KIND_NOT_CHECKED_HERE,
     KIND_NOT_HELD,
 )
+#: Order 14 lane B (owner, 16 Nov 2026: "drop noise rows, merge repeats, move 'N rules not matched' to a coverage note"). A line or point
+#: that carries no finding is NOT a comment: it is listed apart, counted and named, never dropped (the completeness rule still holds).
+NOT_A_COMMENT_SHEET = "Not a comment"  # the AI run file's sheet of every line that is not a comment row (Excel: 31 characters at most)
+KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two readers or one reader): the engineer ticks it, no comment
+KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
+KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
+KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
+NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
+#: Words that say there is nothing to do ("no correction needed", "found none", "could not be read" and their plain variants). A model's
+#: own sentence is shown without them (`drop_noise`); our own fixed words never use them.
+NOISE = re.compile(
+    r"\b(?:no corrections? (?:is |are |was |were )?(?:needed|required)"
+    r"|found none|none (?:was |were )?found"
+    r"|(?:could|can) ?not be read|couldn'?t be read|can'?t be read)\b[^.;!?]*[.;!?]?",
+    re.IGNORECASE,
+)
 
 
 def priority_rule(statuses) -> str:
@@ -188,6 +204,11 @@ ABSENCE_PLAIN: dict[str, str] = {
     "absence_second_disagreed": "the second AI reader did not agree with the first reader",
     "absence_second_same_model": "no independent second AI reader confirmed the absence",
 }
+#: Lane D's reason text for a second reader cut off by its token limit, keyed by its exact words (the constant lives in
+#: `agent_review_wording.CUT_OFF_WHY` once lane D is merged; a test keeps the two equal).
+CUT_OFF_WHY = (
+    "the second AI reader's answer was cut off, so the two readers did not agree"
+)
 WHY_PHRASES: dict[str, str] = {
     SILENCE_WHY: "the AI reviewer found the paper silent on this, which could not be confirmed",
     CONDITIONAL_WHY: "the rule holds only under a condition, which the AI reviewer could not settle from the paper",
@@ -198,6 +219,8 @@ WHY_PHRASES: dict[str, str] = {
     NOT_STATED_WHY: "the AI reviewer's own words say the paper leaves this out",
     NO_VALUE_WHY: "only the field name was quoted, with nothing after it",
     DISAGREE_WHY: "the two AI readers disagreed",
+    # lane D's CUT_OFF_WHY (agent_review_wording, on o14/D-pump): the second reader was cut off, it never said the opposite
+    CUT_OFF_WHY: "the second AI reader's answer was cut off, so the two readers did not agree",
     **{absence.ABSENCE_WHY[k]: v for k, v in ABSENCE_PLAIN.items() if k in absence.ABSENCE_WHY},
 }  # fmt: skip
 #: A reason with a part that changes (a verdict colour, a page number, an error text): matched by its start or its words.
@@ -238,6 +261,7 @@ CODE_PHRASES = {
     "pass_field_not_quoted": "the field's words are not on the quoted line or the line above it",
     "pass_field_unknown": "the rule's field is not known",
     "pass_condition_not_quoted": "the condition the rule applies under is not quoted",
+    "field_unknown_cannot_check_deferral": "the field is not known, so whether its value is left open could not be checked",
     "ai_call_failed": "the AI reviewer gave no answer",
     "not_asked_too_long": "not asked: too long for the local model",
     "not_applicable": "does not apply",
@@ -364,7 +388,84 @@ def plain(text: object) -> str:
     raw = _ID_RE.sub("", raw)
     raw = _SNAKE.sub(lambda m: code_phrase(m.group(0)), raw)
     keep = [s for s in _SENTENCES.split(raw) if s.strip() and not has_banned(s)]
-    return " ".join(" ".join(keep).split())
+    return drop_noise(" ".join(" ".join(keep).split()))
+
+
+#: Order 14 (lane A's answer to lane B, 16 Nov 2026): a code check against a limit that is an AI draft. Never Pass or Fail; a Query.
+AI_DRAFT = "AI draft, engineer to confirm"
+_COMPARED = ("COMPLIANT", "NON_COMPLIANT")
+
+
+def ai_draft_words(line: Mapping) -> str:
+    """The words of an AI-draft check (`line["ai_draft"]` is True): "code compared the stated value with a limit that is an AI draft"
+    ONLY when code really compared (`compare.code_said` COMPLIANT or NON_COMPLIANT); otherwise nothing was compared and only the
+    check's own detail is said. '' for any other line."""
+    if line.get("ai_draft") is not True:
+        return ""
+    why = _clean(
+        line.get("why")
+    )  # lane A: the bare detail is compare.reason; "why" already begins with AI_DRAFT
+    detail = _clean((line.get("compare") or {}).get("reason")) or (
+        why[len(AI_DRAFT) :] if why.startswith(AI_DRAFT) else why
+    )
+    detail = detail.strip(" :.")
+    said = str((line.get("compare") or {}).get("code_said") or "").upper()
+    if said in _COMPARED:
+        return (
+            f"{AI_DRAFT}: code compared the stated value with a limit that is an AI draft"
+            + (f"; {detail}." if detail else ".")
+        )
+    return f"{AI_DRAFT}: {detail}." if detail else f"{AI_DRAFT}."
+
+
+#: Order 14 lane G: what the contract's edition cutoff says of the held edition of a cited book (`standard_editions.against_cutoff`),
+#: in the owner's words. Keyed by lane G's own status sentences; an unknown status is "not known", never a guess.
+EDITION_WORDS = {
+    "held edition binds": "binds",
+    "held edition is later than the cutoff: for information only": "later, for information only",
+    "held edition is older than the one that binds": "older than the edition that binds",
+    "cannot tell: the date reaches into the cutoff": "cannot tell",
+    "edition not known": "not known",
+}
+
+
+def edition_words(result: Mapping | None) -> str:
+    """ "edition: binds" (and the edition that binds, and lane G's caveat, when it gives them) for one book's cutoff result."""
+    if not result:
+        return "edition: not known"
+    out = "edition: " + EDITION_WORDS.get(_clean(result.get("status")), "not known")
+    binding, held = _clean(result.get("binding")), _clean(result.get("held"))
+    if binding and binding != held:
+        out += f" (the edition that binds: {binding})"
+    if caveat := _clean(result.get("caveat")):
+        out += f"; {caveat}"
+    return out
+
+
+#: The pass guard's objections to an AI "met" (`agent_review_pass_guards.CODES`, and the decide step's own): a second doubt (R94).
+GUARD_OBJECTIONS = (
+    "pass_field_unknown",
+    "pass_field_not_quoted",
+    "pass_condition_not_quoted",
+    "field_unknown_cannot_check_deferral",
+)
+
+
+def guard_words(line: Mapping) -> str:
+    """The pass guard's objection to an AI "met", in plain words; '' when it made none."""
+    reason = _clean(line.get("reason_code")).lower()
+    return code_phrase(reason) if reason in GUARD_OBJECTIONS else ""
+
+
+def drop_noise(text: object) -> str:
+    """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
+    a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
+    only that is not a comment (`crs_comments.not_a_comment`)."""
+    raw = _clean(text)
+    if not NOISE.search(raw):
+        return raw
+    out = " ".join(NOISE.sub(" ", raw).split()).strip(" ;,")
+    return out[:1].upper() + out[1:] if out else ""
 
 
 def comment_by(discipline: object) -> str:
@@ -430,7 +531,16 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
+    "EDITION_WORDS",
+    "GUARD_OBJECTIONS",
+    "KIND_COVERAGE",
+    "KIND_IN_COMMENT",
+    "KIND_MET_NOT_CONFIRMED",
+    "KIND_NOTHING_TO_CHANGE",
+    "NOISE",
     "NORMAL_STATUSES",
+    "NOT_A_COMMENT_KINDS",
+    "NOT_A_COMMENT_SHEET",
     "OTHER_SHEET",
     "PRIORITY_RULE",
     "PRIORITY_RULE_AI",
@@ -438,9 +548,13 @@ __all__ = [
     "STATUSES",
     "UNKNOWN_WHY",
     "WHY_PHRASES",
+    "ai_draft_words",
     "code_phrase",
     "comment_by",
+    "drop_noise",
+    "edition_words",
     "generated_by",
+    "guard_words",
     "has_banned",
     "plain",
     "priority",

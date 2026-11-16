@@ -341,7 +341,7 @@ def test_a_guarded_line_is_on_the_query_side_of_the_workbook_with_its_new_reason
     assert status_of == {
         "R-4": "AI opinion",
         "R-9": "Query",
-    }  # the moved line is on the Query side
+    }  # the moved line is on the Query side (order 14 lane B: the held "met" of the same field is part of its comment, own Status kept)
     text = "\n".join(
         str(c) for r in wb["CRS"].iter_rows(values_only=True) for c in r if c
     )
@@ -458,7 +458,7 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
     }
     on_other = {
         r[0]
-        for r in wb["Not reviewed or not applicable"].iter_rows(
+        for r in wb["Not a comment"].iter_rows(
             min_row=2, values_only=True
         )
     }
@@ -470,9 +470,9 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
         )
     assert None not in place.values() and not on_main & on_other
     by_line = {ln["item_id"]: ln for ln in lines}
-    assert {i: p == "CRS" for i, p in place.items()} == {
-        i: WB.status_of(by_line[i]) is not None for i in ids
-    }  # the one decision (`sheet_of`, read by `status_of`) is where each line stands
+    leads = {ln["item_id"] for ln, _s, _o in WB.ordered_item_lines(lines)}
+    assert {i for i, p in place.items() if p == "CRS"} == leads  # order 14 lane B: one comment per field, its strongest line leads
+    assert leads <= {i for i in ids if WB.status_of(by_line[i]) is not None}  # only an item line can lead a comment
     seen = {i: [C.sheet_of(by_line[i])] for i in ids}
     rows = C.sheet_rows(lines)
     for title, n in rows.items():
@@ -496,7 +496,7 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
     notes = {r[0]: r[1] for r in wb["Notes"].iter_rows(min_row=2, values_only=True)}
     assert int(notes["Count: rows on the CRS sheet"]) == len(on_main)
     assert int(
-        notes["Count: rows on the sheet 'Not reviewed or not applicable'"]
+        notes["Count: rows on the sheet 'Not a comment'"]
     ) == len(on_other)
     assert len(on_main) + len(on_other) == len(lines)
 
@@ -562,7 +562,7 @@ def test_a_moved_line_leads_with_the_guard_reason_and_marks_the_first_readers_vi
     }
     wb = openpyxl.load_workbook(C.write_internal([moved], tmp_path / "i.xlsx", meta))
     cells = [str(c) for r in wb["CRS"].iter_rows(values_only=True) for c in r if c]
-    assert any(W.ONE_READER + view in c for c in cells)
+    assert any(W.ONE_READER + "the requirement is met. " + view in c for c in cells)  # order 14 lane B: the view says "met" in our words
     # a moved line with no first-reader text says only the guard reason
     bare = W.final_cap(
         {**base, "reasoning": None, "second_opinion": {"agree": False}}, ok

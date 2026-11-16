@@ -357,6 +357,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         return None
     item = str(line.get("item_id") or "")
     book_doc, _name = ctx["book_of"].get(item, (None, None))
+    if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
+        # order 14 lane B: a checklist line has no asked-rule row; its book is the held document the line itself stored
+        book_doc = line["standard_document_id"]
     book_name = (
         _plain(line.get("standard"))
         if book_doc and not rule_book_hidden(book_doc, ctx)
@@ -383,7 +386,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
-    field, tags = split_tags(wb.field_name(line), ctx.get("known_tags") or frozenset())
+    field, tags = split_tags(wb.field_words(line), ctx.get("known_tags") or frozenset())
     name = (
         _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
@@ -556,9 +559,22 @@ def rule_point(
         page = content.paper_value(finding)[1]
     value, value_page = content.paper_value(finding)
     # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
+    if finding and finding.get("requirement_id"):  # lane C's re-read: never the old clause of a superseded requirement
+        shown = dict(finding)
+        reread_clauses([shown], ctx.setdefault("_reread", {}))
+        if shown.get("clause_reread"):
+            finding = {**finding, "standard_clause": shown.get("paragraph_id") or ""}
     action, action_source = content.action_of(row, finding, _plain, own_only=hidden, comment_only=app_text_only)
     ref = content.rule_ref(row, finding)
-    return {
+    # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
+    missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
+    if missing:  # order 14 lane B (lane D, G7): a rule whose book is not held is a question, never a verdict; none of its words shown
+        rank, other_kind = 4, None
+        rule_words = ref["clause"] or content.rule_text(finding)
+        if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
+            action, action_source = f"{BOOK_MISSING}: {missing}. The rule cannot be checked until the book is held; engineer to check.", "check"
+        ref = {"name": ref["name"], "clause": "", "page": None}
+    point = {
         "id": f"rc:{key}",
         "source": SOURCE_RULE_CHECK,
         "source_words": SOURCE_WORDS[SOURCE_RULE_CHECK],
@@ -576,7 +592,9 @@ def rule_point(
         # U5d: what the stored finding itself holds, never presented as verified unless code verified it
         "paper_value": value or None,
         "paper_value_page": value_page,
-        "rule_text": None if hidden else (content.rule_text(finding) or None),
+        # order 14 lane B: our checklist's own wording is never shown as the rule book's words: it is `check_text`, labelled as ours
+        "rule_text": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
+        "check_text": (content.rule_text(finding) or None) if not hidden and is_check_text(finding) else None,
         "rule_hidden": hidden,
         "rule_ref": ref if (ref["name"] or ref["clause"]) and not ref_hidden else None,
         "reason_words": content.reason_words(kind, finding),
@@ -607,10 +625,94 @@ def rule_point(
         ),
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_book_missing": missing or None,
         "_row_key": key,
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
+    if missing:
+        point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=f"{BOOK_MISSING}: {missing}",
+                     clause_quote_note=NO_CLAUSE_QUOTE)  # fmt: skip
+    return point
+
+
+REREAD = "clause re-read"
+
+
+def _successor_clauses(conn, book: str, cache: dict) -> tuple[dict, dict]:
+    """A book's CURRENT rules by text, as lane C's label carry links them: {(requirement text, source text): {clause}} and the same with
+    the rule's own heading line (its chunk's section) put in front. Read once per book (`cache`)."""
+    if book not in cache:
+        same: dict = {}
+        headed: dict = {}
+        for r in conn.execute(
+            "SELECT r.clause, r.requirement_text, r.source_text, c.section FROM standard_requirements r"
+            " LEFT JOIN chunks c ON c.id = r.chunk_id WHERE r.standard_document_id = ? AND r.superseded_at IS NULL",
+            (book,),
+        ):
+            if not _clean(r["clause"]):
+                continue
+            req, src, sec = _clean(r["requirement_text"]), _clean(r["source_text"]), _clean(r["section"])
+            same.setdefault((req, src), set()).add(_clean(r["clause"]))
+            if sec:
+                headed.setdefault((_clean(f"{sec} {req}"), _clean(f"{sec} {src}")), set()).add(_clean(r["clause"]))
+        cache[book] = (same, headed)
+    return cache[book]
+
+
+def reread_clauses(findings: list[dict], cache: dict | None = None) -> None:
+    """Order 14 lane B (lane C's re-read of a book): a finding whose requirement was SUPERSEDED never shows its old clause, which may be a
+    false label ("2.5", "7.16"). Its reference shows the successor's clause, the current rule of the same book with identical text (or
+    identical once its heading line is put back: lane C's carry), as "<clause> (clause re-read)"; with no single successor, no clause.
+    In place, display only (`clause_identified` False, `paragraph_id`): the finding's own `standard_clause`, which decisions are keyed
+    by, is untouched. Reads only."""
+    from .db import connect
+
+    ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
+    if not ids:
+        return
+    conn, cache, old = connect(), cache if cache is not None else {}, {}
+    for start in range(0, len(ids), 500):
+        part = ids[start : start + 500]
+        for r in conn.execute(
+            f"SELECT id, standard_document_id, requirement_text, source_text FROM standard_requirements"
+            f" WHERE superseded_at IS NOT NULL AND id IN ({','.join('?' for _ in part)})",
+            part,
+        ):
+            old[r["id"]] = r
+    for f in findings:
+        r = old.get(f.get("requirement_id"))
+        if r is None:
+            continue
+        same, headed = _successor_clauses(conn, r["standard_document_id"], cache)
+        key = (_clean(r["requirement_text"]), _clean(r["source_text"]))
+        clauses = same.get(key) or headed.get(key) or set()
+        f["clause_identified"], f["clause_reread"] = False, True
+        f["paragraph_id"] = f"{next(iter(clauses))} ({REREAD})" if len(clauses) == 1 else None
+
+
+BOOK_MISSING = "Book missing"
+_CHECK_TEXT = re.compile(r"^Datasheet check [A-Za-z0-9-]+:")
+
+
+def is_check_text(finding: dict | None) -> bool:
+    """The finding's stored rule text is our datasheet checklist's own wording ("Datasheet check <id>: ..."), not the book's."""
+    f = finding or {}
+    return f.get("origin") == "datasheet_check" or bool(_CHECK_TEXT.match(content.rule_text(finding)))
+
+
+def book_missing(book_doc, name: str, ctx: dict) -> str:
+    """The cited book's name when the library holds no document for it (no linked document and `applicability.find_standard` finds
+    none), else "". The library is read once per listing (kept in `ctx`)."""
+    name = _clean(name)
+    if book_doc or not name:
+        return ""
+    from .applicability import find_standard
+    from .db import connect
+
+    if "_library" not in ctx:
+        ctx["_library"] = library_of(connect())
+    return "" if find_standard(ctx["_library"], name) else name
 
 
 #: Priority words, worst first (a point with none sorts after the ones that have one).
@@ -786,13 +888,15 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
+    documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,
         "paper_document_id": paper_document_id,
         "book_of": _book_of(conn, run_id),
         "readable": readable,
         "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
-        "everything": {r[0] for r in conn.execute("SELECT id FROM documents")} <= readable,
+        "everything": documents <= readable,
+        "documents": documents,  # the held documents: a line's own stored book counts only when it is one of them
     }
     return [p for p in (ai_point(ln, ctx) for ln in lines) if p is not None], held
 

@@ -17,6 +17,7 @@ from . import agent_review_context as ctxc
 from . import agent_review_crs as crs_lines
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_standards as standards_mod
+from . import agent_review_two_reader as two_reader
 from . import agent_review_verdict as verdict
 from .agent_review_local import NO_VERDICT_CODE
 from .agent_review_request import (
@@ -25,6 +26,7 @@ from .agent_review_request import (
     FATAL,
     FINAL_MAX_TOKENS,
     FINAL_MODEL,
+    SECOND_MAX_TOKENS,
     TIGHTENING,
     _hints,
     _text_of,
@@ -34,6 +36,9 @@ from .agent_review_request import (
 )
 from .agent_trace import words
 from .reader_api import _fold
+
+#: Order 14: the token limit of the ONE retry of a second opinion whose reply was cut off (twice the normal limit).
+SECOND_RETRY_MAX_TOKENS = 2 * SECOND_MAX_TOKENS
 
 
 def _holds(decision: Mapping) -> dict:
@@ -172,6 +177,13 @@ class DecideMixin:
             ):
                 try:
                     out["second"] = self.second_opinion(iid, ai, answer)
+                    if two_reader.cut_off_reply(out["second"]):
+                        # order 14 (the lead's decision): a reply cut off by its token limit is asked ONCE more, with twice the
+                        # limit for this call only; cut again, it stays cut and counts as a disagreement (`second_cut_off`)
+                        again = self.second_opinion(
+                            iid, ai, answer, limit=SECOND_RETRY_MAX_TOKENS
+                        )
+                        out["second"] = {**again, "retried": True}
                 except FATAL as exc:
                     self._halt(exc)
             out["decision"] = verdict.textual_verdict(
@@ -249,6 +261,12 @@ class DecideMixin:
             guard = self.pass_guard(item, label if label_ok else "")
             if guard is not None:
                 decision, reason_code, deferred_page = guard
+        if (
+            deferred_page is None
+        ):  # the line's OWN verified quote carries a deferral mark
+            fixed = self.deferred_quote(answer, ev, decision, error)
+            if fixed is not None:
+                decision, reason_code, deferred_page = fixed
         pg = self._pass_guards(item, answer, pages, ev)
         if pg is not None and not pg["ok"] and reason_code == ev["reason_code"]:
             reason_code = str(
@@ -268,6 +286,47 @@ class DecideMixin:
             (label if label_ok else None, label, reason_code, deferred_page),
         )  # fmt: skip
         return {**line, "pass_guard": pg} if pg is not None else line
+
+    def deferred_quote(
+        self, answer: Mapping, ev: Mapping, decision: Mapping, error: str | None
+    ) -> tuple[dict, str, int] | None:
+        """(decision, "value_deferred", page) when the line's OWN paper quote is verified by code (it stands in the page) and
+        itself carries a deferral mark (`blank_markers.defers_value`: "By Contractor", "TBA", a lone "*" to fill). Nothing else: no other
+        line of the page, no field words. It only lowers confidence: EVERY Pass (a gate Pass, a two-reader Pass and a
+        code-compared Pass alike) becomes a Query; a Query decided by the engineer that the AI left, or that a guard made of
+        the AI's Pass ("met" on a value the sheet marks not final; order 14 lane A), takes the reason value_deferred; any
+        other Query (a code or two-reader decision), an AI not-met opinion, a not-applicable line and a line with an error
+        are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
+        from .blank_markers import defers_value
+
+        page = verdict._page_no(answer.get("paper_page"))
+        quote = str(answer.get("paper_quote") or "")
+        ai = verdict.ai_verdict_word(answer.get("verdict"))
+        if (
+            error
+            or page is None
+            or not ev["checks"].paper
+            or not defers_value(quote)
+            or ev["reason_code"] == "not_applicable"
+        ):
+            return None
+        pass_to_query = decision["verdict"] == verdict.PASS
+        query_left = (
+            decision["verdict"] == verdict.QUERY
+            and decision["decided_by"] == verdict.BY_ENGINEER
+            and ai in (verdict.QUERY, verdict.PASS)
+        )
+        if not (pass_to_query or query_left):
+            return None
+        return (
+            {
+                "verdict": verdict.QUERY,
+                "decided_by": verdict.BY_ENGINEER,
+                "why": f"the sheet marks this value as not final on page {page}",
+            },
+            "value_deferred",
+            page,
+        )
 
     def _pass_guards(
         self, item: Mapping, answer: Mapping, pages: Mapping[int, str], ev: Mapping
@@ -318,9 +377,9 @@ class DecideMixin:
             if second is None
             else {
                 k: second.get(k)
-                for k in ("agree", "model", "reason")
-                if k != "reason" or second.get("reason")
-            },
+                for k in ("agree", "model", "reason", "retried")
+                if k not in ("reason", "retried") or second.get(k)
+            },  # "retried": a reply cut off by its token limit was asked once more (order 14)
             "ai_verdict": verdict.ai_verdict_word(answer.get("verdict")),
             "reason_code": reason_code,
             "reason_code_ai": str(answer.get("reason_code") or "") or None,

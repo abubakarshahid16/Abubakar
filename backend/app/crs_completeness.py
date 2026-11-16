@@ -176,6 +176,19 @@ def _table_rows(ws, first_header: str) -> list[list]:
     return [r for r in values[start + 1 :] if any(c is not None for c in r)]
 
 
+def absent_sheets(data: bytes, copy: str) -> list[str]:
+    """The sheets the count needs that the file lacks, each as a sentence: team, the Evidence and CRS sheets; contractor, its one sheet."""
+    from . import crs_one
+
+    need = (
+        (crs_one.EVIDENCE_SHEET, crs_one.TEAM_SHEET)
+        if copy == "team"
+        else (crs_one.CONTRACTOR_SHEET,)
+    )
+    have = load_workbook(BytesIO(data), read_only=True).sheetnames
+    return [f"the sheet {name} is missing" for name in need if name not in have]
+
+
 def rows_in_file(data: bytes, copy: str) -> tuple[int, list[int]]:
     """(rows in the workbook as built, the point numbers found). Team: the sheet CRS and the sheet Removed (record); contractor:
     its one sheet."""
@@ -329,25 +342,31 @@ def sentence_of(report: dict) -> str:
 
 
 def _comment_accounting(data: bytes, raw: list[dict]) -> list[str]:
-    """The sheet CRS must hold every comment of the one grouping function, and its Points column must add up to the points that are in
-    a comment (every point of the page except the removed ones)."""
+    """The sheet CRS must hold every comment of the one grouping function and the sheet "Not a comment" every field that carries no
+    finding (order 14 lane B); their Points columns plus the removed points must add up to every point of the page."""
     from . import crs_comments, crs_one
 
-    ws = load_workbook(BytesIO(data))[crs_one.TEAM_SHEET]
-    rows = _table_rows(ws, "Comment")
-    groups = crs_comments.group(raw)
-    head = next(
-        list(r) for r in ws.iter_rows(values_only=True) if r and r[0] == "Comment"
-    )
-    at = head.index("Points")
-    out = []
-    if len(rows) != len(groups):
+    wb = load_workbook(BytesIO(data))
+    groups, aside = crs_comments.group(raw), crs_comments.set_aside(raw)
+    removed = sum(1 for p in raw if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE)
+    out, points = [], 0
+    for sheet, first, want, what in (
+        (crs_one.TEAM_SHEET, "Comment", len(groups), "comments"),
+        (crs_one.NOT_A_COMMENT_SHEET, "Field or item", len(aside), "fields that are not comments"),
+    ):
+        if sheet not in wb.sheetnames:
+            out.append(f"the sheet {sheet} is missing")
+            continue
+        ws = wb[sheet]
+        rows = _table_rows(ws, first)
+        head = next(list(r) for r in ws.iter_rows(values_only=True) if r and r[0] == first)
+        points += sum(int(r[head.index("Points")] or 0) for r in rows)
+        if len(rows) != want:
+            out.append(f"the sheet {sheet} has {len(rows)} rows, the grouping has {want} {what}")
+    if points + removed != len(raw):
         out.append(
-            f"the sheet CRS has {len(rows)} comments, the grouping has {len(groups)}"
-        )
-    if sum(int(r[at] or 0) for r in rows) != sum(g["n_points"] for g in groups):
-        out.append(
-            "the comments on the sheet CRS do not add up to the points they cover"
+            f"the comments ({points} points with the fields that are not comments) and the {removed} removed points do not add up "
+            f"to the {len(raw)} points of the page"
         )
     return out
 
@@ -365,17 +384,19 @@ def verify(
     (contractor)."""
     db = database_lines(paper_id, scope, facts)
     page = listing["of"]
-    in_file, numbers = rows_in_file(data, copy)
-    missing: list[str] = []
+    # R101: a file missing a whole sheet is refused with a sentence (409), never a KeyError (500)
+    absent = absent_sheets(data, copy)
+    in_file, numbers = rows_in_file(data, copy) if not absent else (0, [])
+    missing: list[str] = list(absent)
     if copy == "team":
         accounted = in_file
         present = set(numbers)
-        missing = [_named(p) for n, p in enumerate(raw, start=1) if n not in present]
+        missing += [_named(p) for n, p in enumerate(raw, start=1) if n not in present]
     else:
         mine, reasons = contractor_split(raw)
         accounted = in_file + sum(reasons.values())
         if in_file != len(mine):
-            missing = [f"{len(mine) - in_file} row(s) of the contractor file"]
+            missing += [f"{len(mine) - in_file} row(s) of the contractor file"]
     on_page = {p["id"]: p for p in raw}
     missing += [
         f"{label} is stored but not on the page"
@@ -387,9 +408,13 @@ def verify(
         for pid, p in on_page.items()
         if pid not in db["ids"]
     ]
-    if copy == "team":
+    if copy == "team" and not absent:
         missing += _comment_accounting(data, raw)
-    cuts = cut_report(data, raw) if copy == "team" else {"marked": 0, "problems": []}
+    cuts = (
+        cut_report(data, raw)
+        if copy == "team" and not absent
+        else {"marked": 0, "problems": []}
+    )
     missing += cuts["problems"]
     ok = page == db["total"] == accounted and not missing
     report = {
@@ -446,7 +471,7 @@ OLDER_LIST_AT_MOST = 8
 
 def _older_expected(conn, run_id: str, copy: str) -> int:
     """How many rows the stored file of this run's AI review should hold, by the exporter's OWN selection (`crs_ai_workbook`:
-    `ordered_item_lines`, `other_lines`, `_contractor_items`; no second rule): internal = item rows + the other lines (the Evidence
+    `ordered_item_lines`, `other_lines`, `contractor_rows`; no second rule): internal = item rows + the other lines (the Evidence
     sheet's rows); contractor = what its selection issues (nothing for a general review, whose contractor copies are empty by design)."""
     if copy == "contractor" and conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone():
         return 0
@@ -460,7 +485,20 @@ def _older_expected(conn, run_id: str, copy: str) -> int:
     if copy != "contractor":
         return len(items) + len(crs_ai_workbook.other_lines(lines))
     kind = conn.execute("SELECT paper_kind FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone()
-    return len(crs_ai_workbook._contractor_items(items, kind["paper_kind"] if kind else None))
+    return len(crs_ai_workbook.contractor_rows(lines, kind["paper_kind"] if kind else None))
+
+
+def _older_listed(wb) -> int | None:
+    """The rows of an older run file's sheet CRS plus its sheet of the other lines (today's "Not a comment", before order 14 "Not
+    reviewed or not applicable"), without the rows of rule books not held (they are not lines); None when the file has neither."""
+    from . import crs_ai_words as words
+
+    other = next((n for n in (words.NOT_A_COMMENT_SHEET, words.OTHER_SHEET) if n in wb.sheetnames), None)
+    if "CRS" not in wb.sheetnames or other is None:
+        return None
+    crs = _table_rows(wb["CRS"], "Item No")
+    rest = [r for r in _table_rows(wb[other], "Item No") if len(r) < 5 or r[4] != words.KIND_NOT_HELD]
+    return len(crs) + len(rest)
 
 
 def older_report(run_id: str, copy: str, data: bytes) -> dict:
@@ -482,6 +520,13 @@ def older_report(run_id: str, copy: str, data: bytes) -> dict:
     expected = _older_expected(conn, run_id, copy)
     ai_lines = conn.execute("SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", (run_id,)).fetchone()[0]
     missing = [] if copy == "contractor" else [f"item {n}" for n in sorted(set(range(1, expected + 1)) - found)]
+    general = conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone()
+    if copy != "contractor" and not general:  # R91: the sheet CRS and the sheet of the other lines hold every line too (the AI run file)
+        listed = _older_listed(wb)
+        if listed is None:  # R94: the Evidence layout always has both sheets; one missing is not complete
+            missing.append("the sheet CRS or the sheet of the other lines is missing")
+        elif listed != ai_lines:
+            missing.append(f"the sheets CRS and Not a comment hold {listed} row(s) for the {ai_lines} line(s) of the run")
     ok = len(rows) == expected and not missing
     sentence = "Complete: the older file holds every line of its run."
     if not ok:

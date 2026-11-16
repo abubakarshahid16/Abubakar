@@ -34,6 +34,7 @@ from .agent_review_verdict import (
     BY_ABSENCE,
     BY_CODE,
     BY_ENGINEER,
+    DEFERRED_WHY,
     DISAGREE_WHY,
     FAIL,
     NOT_A_RULE,
@@ -41,6 +42,7 @@ from .agent_review_verdict import (
     PASS,
     QUERY,
     RULE_NOT_APPROVED,
+    SILENCE_CODES,
     SILENCE_WHY,
     TIER_NOT_APPROVED,
     TIER_NOT_ESTABLISHED,
@@ -48,6 +50,13 @@ from .agent_review_verdict import (
     hold_silence,
     item_tier,
     met_unsafe_why,
+    quote_defers,
+)
+
+#: The reason of a line whose second AI reader's answer was cut off by its token limit (`two_reader.second_cut_off`): the two
+#: readers did not agree, but the second one never said the opposite, so the words must not say they disagree (order 14).
+CUT_OFF_WHY = (
+    "the second AI reader's answer was cut off, so the two readers did not agree"
 )
 
 CLASS_PROVEN = "Proven by code"
@@ -207,6 +216,33 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     return f"{out} {ONE_READER}{view[:400]}" if view else out
 
 
+def _verified_quote_defers(rec: object) -> bool:
+    """A reader's record whose paper quote code verified on its page defers the value (`quote_defers`)."""
+    checks = rec.get("quotes_checked") if isinstance(rec, Mapping) else None
+    return (
+        isinstance(checks, Mapping)
+        and bool(checks.get("paper"))
+        and quote_defers(rec.get("paper_quote"))
+    )
+
+
+def not_met_deferred_why(line: Mapping) -> str | None:
+    """Why an AI opinion "not met" (the gate's verdict Query) must be a Query, else None, when a paper quote code verified on
+    its page defers the value ("By Contractor", "TBA", a "*" vendor-to-fill mark: `quote_defers`): (a) the line's OWN quote,
+    when its "not met" rests on silence (reason absent, absent_pages_not_named or sheet_silent); (b) the quote of the
+    second reader asked whether the paper states the item (`two_reader.stored_absence`), whatever the first reader quoted:
+    it found the field marked for the vendor, so the readers do not agree that it is missing (R98: without (b) such a line
+    fell through to "AI thinks: not met"). The sheet does not leave the value out, it asks the vendor for it. A proven Fail,
+    another reason and an unverified quote pass through. It only makes a line less confident."""
+    if line.get("ai_verdict") != FAIL or line.get("verdict") != QUERY:
+        return None
+    if _verified_quote_defers(two_reader.stored_absence(line)):
+        return DEFERRED_WHY
+    if str(line.get("reason_code") or "") not in SILENCE_CODES:
+        return None
+    return DEFERRED_WHY if _verified_quote_defers(line) else None
+
+
 def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
     """Steps 1, 2 and 2b of `classify`: the AI gave no answer (Not reviewed); a silent paper (Query); an AI "met" whose paper
     defers the value or whose quotes code could not verify (Query, N9). None when none applies."""
@@ -239,6 +275,14 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "not_proven_reason": _moved_reason(line, unsafe)
             + (f"; {why}" if unapproved else ""),
         }
+    if (
+        deferred := not_met_deferred_why(line)
+    ):  # 2b'. a "not met" on silence whose own verified quote defers the value (order 14 lane D)
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": deferred + (f"; {why}" if unapproved else ""),
+        }
     if got := two_reader.other_class(
         line
     ):  # 2d. both readers: needs a drawing or a calculation, not checked here
@@ -251,13 +295,15 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": two_reader.absence_disagree_why(line),
         }
-    if two_reader.disagrees(line) or two_reader.other_disagrees(
-        line
-    ):  # 2c. the independent second reader reached the opposite verdict: a Query
+    if (
+        two_reader.disagrees(line) or two_reader.other_disagrees(line)
+    ):  # 2c. the independent second reader reached the opposite verdict, or its answer was cut off: a Query
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
-            "not_proven_reason": DISAGREE_WHY,
+            "not_proven_reason": CUT_OFF_WHY
+            if two_reader.second_cut_off(line)
+            else DISAGREE_WHY,
         }
     return None
 

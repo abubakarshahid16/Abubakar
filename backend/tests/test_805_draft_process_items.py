@@ -236,7 +236,7 @@ def test_no_draft_item_is_in_the_approved_checklists_table(on):
     for entry in dc.load_rules()["checklists"].values():
         if isinstance(entry, dict):
             assert not any(di.is_draft(i) for i in entry["items"])
-    assert len(dc.load_rules()["checklists"][PSV]["items"]) == 47
+    assert len(dc.load_rules()["checklists"][PSV]["items"]) == 49  # order 14 lane A: + PSV-A01, PSV-A02 (AI drafts)
 
 
 TYPES = ["Centrifugal Pump", "Pressure Vessel", "Heat Exchanger", PSV]

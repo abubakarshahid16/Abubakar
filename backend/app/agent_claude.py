@@ -586,7 +586,7 @@ def _second_opinion(
         return {
             "agree": None,
             "reason": words(exc.code, 20),
-            "usd": 0.0,
+            "usd": float(getattr(exc, "usd", 0.0) or 0.0),
             "model": "unknown",
         }
     text = "".join(

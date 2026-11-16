@@ -1,5 +1,5 @@
 {
-  "_about": "Which standards apply to which document kinds, by the standard's ROLE (owner order 3 Nov 2026, 'choose the rulebook by document kind'). Owner-editable data: nothing in code names a standard or a kind. A standard whose role is not listed for the document's kind is LEFT OUT of that review and counted in the run note; a standard with no role here, a kind with no entry, a manual choice by an engineer and an undecided or guessed kind are never left out (a kind only narrows). Switch: STANDARD_ROLES_BY_KIND_ENABLED, off by default. A contract keeps ALL roles: it is not checked against equipment design, but no standard is silently dropped for it. A standard chosen by a person or the project (methods in `never_left_out_methods`) is never left out; only standards the review's own matching picked can be, and only if they were actually included.",
+  "_about": "Which standards apply to which document kinds, by the standard's ROLE (owner order 3 Nov 2026, 'choose the rulebook by document kind'). Owner-editable data: nothing in code names a standard or a kind. A standard whose role is not listed for the document's kind is LEFT OUT of that review and counted in the run note; a standard with no role here, a kind with no entry, a manual choice by an engineer and an undecided or guessed kind are never left out (a kind only narrows). Switch: STANDARD_ROLES_BY_KIND_ENABLED, off by default. A contract keeps ALL roles: it is not checked against equipment design, but no standard is silently dropped for it. A standard chosen by a person or the project (methods in `never_left_out_methods`) is never left out; only standards the review's own matching picked can be, and only if they were actually included. `governing_books_role` (order 14 lane C, 16 Nov 2026): a standard not named under `standards` that governs an equipment type in reference/governing_standards.json (its books, its books in part, the materials books) takes this role, so a procedure or study is never given an equipment's design books because its equipment type was read from a phrase; a datasheet, drawing, specification and contract keep them.",
   "version": 1,
   "roles": {
     "equipment design": "Says how a piece of equipment or an instrument is designed, built or protected (design sections, fireproofing). It does not say how a study or a procedure is run.",
@@ -68,6 +68,7 @@
     "IEC 61511-2": "process/method",
     "IEC 61511-3": "process/method"
   },
+  "governing_books_role": "equipment design",
   "never_left_out_methods": [
     "manual",
     "project",

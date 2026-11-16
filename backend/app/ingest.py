@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
 from . import claude_auto_approve
-from . import doc_router, errors, intake, job_queue, page_ledger, sheet_chunks, states
+from . import doc_router, document_kind, errors, intake, job_queue, page_ledger, sheet_chunks, states
 from . import intake_blocks
 from .chunker import chunk_document
 from . import reading_state, telemetry
@@ -504,6 +504,7 @@ class IngestionWorker(ReviewDrain):
                 if status == states.CHUNKING:
                     result["chunk"] = chunk_document(doc_id)
                     _route_document_kind(doc_id, result)
+                    document_kind.after_read_in(doc_id)  # order 14 lane E: suggested kind and role, switch inside
                     intake_blocks.refresh(doc_id)
                     telemetry.record(
                         telemetry.CHUNK,

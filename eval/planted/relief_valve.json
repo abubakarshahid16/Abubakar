@@ -32,7 +32,8 @@
         {"role": "overpressure", "field": "Overpressure", "value": "21", "unit": "%"},
         {"role": "built_up_back_pressure", "field": "Built-up back pressure", "value": "0.5", "unit": "barg"},
         {"role": "superimposed_back_pressure", "field": "Superimposed back pressure", "value": "0.2", "unit": "barg"},
-        {"role": "cdtp", "field": "CDTP", "value": "10", "unit": "barg"}
+        {"role": "cdtp", "field": "CDTP", "value": "10", "unit": "barg"},
+        {"role": "inlet_pressure_drop", "field": "Inlet pressure drop", "value": "2", "unit": "%"}
       ]
     },
     {

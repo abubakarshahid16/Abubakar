@@ -721,4 +721,15 @@ describe("11 the list of documents that leave, before the start (owner, 12 Nov 2
     expect(screen.getByTestId("v2-clause-stored")).toHaveTextContent("not verified by code");
     expect(screen.getByTestId("v2-reason")).toHaveTextContent("Checked by: Rule check: datasheet checklist.");
   });
+
+  it("an opened point shows our checklist's own words as ours, never as the rule book's", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [point({
+      id: "s2", rank: 4, tile: "questions", firm: null, name: "Inlet rating", pill: "Question", paper_quote: null, clause_quote: null,
+      rule_text: null, check_text: "Datasheet check PSV-05: The inlet rating is stated.",
+    })] })));
+    mount(); await loaded();
+    fireEvent.click(within(screen.getByTestId("v2-point")).getByRole("button", { name: /Inlet rating/ }));
+    expect(screen.getByTestId("v2-check-text")).toHaveTextContent("Our checklist asks (our words): \u201cDatasheet check PSV-05: The inlet rating is stated.\u201d");
+    expect(screen.queryByTestId("v2-clause-stored")).toBeNull();
+  });
 });

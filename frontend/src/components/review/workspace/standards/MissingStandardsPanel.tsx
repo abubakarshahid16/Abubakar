@@ -30,6 +30,11 @@ import { api, auth, classification } from "../../../../api/client";
 import { hasAdminCapability } from "../../../Shell";
 import { uploadOne } from "../../../Uploader";
 import { READ_IN_SLOW_MESSAGE, waitUntilReadIn } from "../newReview";
+import { roleSuggestionSwitch } from "../../../../api/roleSuggestion";
+
+/** Order 14 lane E, switch on: the role is suggested, a person confirms it. */
+export const SUGGESTED_STANDARD_MESSAGE =
+  "Uploaded. Suggested role: company standard (it was uploaded from the missing standards list). Suggested, confirm or change it on the Documents page.";
 
 export interface MissingStandardsPanelProps {
   runId: string;
@@ -91,11 +96,16 @@ export async function uploadMissingStandard(
 ): Promise<{ ok: true; message: string; readIn?: string } | { ok: false; message: string }> {
   const who = await uploadDisciplines();
   if (!who.ok) return who;
-  const uploaded = await uploadOne(file, who.disciplines, onProgress);
+  const suggesting = (await roleSuggestionSwitch()).enabled;
+  const uploaded = suggesting
+    ? await uploadOne(file, who.disciplines, onProgress, "standards")
+    : await uploadOne(file, who.disciplines, onProgress);
   if (uploaded.phase === "error") return { ok: false, message: `Not uploaded: ${uploaded.message}` };
   if (uploaded.phase !== "done") return { ok: false, message: "The upload did not finish." };
   if (uploaded.duplicateOf) return { ok: true, message: ALREADY_IN_LIBRARY_MESSAGE };
   if (uploaded.awaitingGrant) return { ok: true, message: AWAITING_ACCESS_MESSAGE };
+  // Order 14 lane E: with the suggested role on, the role is SUGGESTED (this list is for company standards), never set here.
+  if (suggesting) return { ok: true, message: SUGGESTED_STANDARD_MESSAGE };
   // Unknown is treated as "not an administrator": the softer promise.
   const me = await auth.me();
   const isAdmin = me.ok && hasAdminCapability(me.data);

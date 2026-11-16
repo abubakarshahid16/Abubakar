@@ -159,6 +159,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.agent_review_schemas` | The AI reviewer's request and response shapes (#1690): status, summary, lines, trace and Rules used, with closed word lists; contract only, no route yet, no behaviour; read by the TypeScript generator |
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
 | `api.review_start` | Routes: GET /api/reviews/plan (what a Review would do, no side effect), POST /api/reviews/start (admin), POST and DELETE /api/reviews/contract-yes (admin): the ONE Review button's three choices (12 Nov 2026, #1584) |
+| `api.upload_role_suggestion` | Route: GET /api/document-kinds/role-suggestion: whether the one-upload role suggestion is on and which roles the review page lists (order 14 lane E); read only |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
 | `api.rule_equipment` | Route: POST /api/admin/rule-equipment/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores an equipment label file after checking each row again |
@@ -271,6 +272,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_roles` | Which role a datasheet field name states when it fits several: the one the sheet's equipment type checks (#900) |
 | `datasheet_coverage` | The reader-coverage line of a datasheet review: checklist fields read, and on the sheet but not read |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
+| `datasheet_sum` | Order 14 lane A: the checklist rule kind sum_percent_of (two datasheet fields added and compared with a percent of a third, e.g. SAES-J-600 5.1.1 back pressures vs 10% of set); a missing or marked part stops the check, never 0; pure |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |
@@ -436,6 +438,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_code_proposal` | The proposed review code from one stated rule, with its reason line and "So far" wording |
 | `api.review_points` | Routes: GET /api/reviews/papers/{id}/points, POST .../points/decision, .../points/decisions, .../points/add (12 Nov 2026) |
 | `agent_review_calculator` | The calculator of the one reviewer: a stored datasheet fact against a numeric rule (`comparison.compare`) and the approved checklist (`datasheet_checks.evaluate`) as lines of the AI review; Pass or Fail only with a compared value and both quotes found by code. Pure; wired by a later PR (ONE-REVIEWER.md) |
+| `agent_review_checklist_books` | Order 14 lane A: the book behind a calculator checklist line: the held clause's stored text found by code in the book's pages (the line's quote), held with no text found, or "book missing" (no clause, no rule words, never a Pass or Fail); reads the caller's connection only |
 | `agent_review_code_proof` | The proof behind a proven Pass or Fail of the one reviewer, recomputed from the line's own texts and values (the value inside the paper quote, the limit inside the clause quote, the comparison again, a real page); read by the calculator and by the exit |
 | `agent_review_calculator_run` | The calculator STEP of the AI review job (setting `AI_REVIEW_CALCULATOR_ENABLED`, off): reads the stored datasheet facts, pairs them with numeric rules, makes and stores the code lines before the first reader call; says in words when it did not run |
 | `agent_review_code_trace` | The trace of a code line (the calculator's): its stored proof in plain fields (the quotes found, the two numbers, the comparison, the decision); read by the trace route |
@@ -447,6 +450,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_engine` | The one resolver of the Review button's choice (Automatic, Claude, Local only): which part runs on which engine and why, whether text leaves, the pre-start answer, the stored choice, and the run-wide bar that keeps a run on this computer (12 Nov 2026) |
 | `review_engine_start` | Starting a review from the plan: queues the rule check, then the AI review the plan runs, checked again before it starts |
 | `contract_yes` | The owner's yes to send ONE contract upload to Claude: recorded by checksum on the approved list with who and when, audited, withdrawable |
+| `contract_checks` | Order 14 lane E: the contract checks code can decide on a contract's own text (CT-01 stages add to 100%, CT-02 every labelled attachment present, CT-03 one giver per guarantee) against the draft checklist `reference/contract_checks.json`; each result quoted and verified on its page, internal only; pure |
 | `review_leaving` | The documents a Claude review of one paper may send, worked out before the start for the caller's access (paper, cited rule books, cited specifications, chosen project papers) and what will not go, with reasons |
 | `review_cost` | The cost lines of the Review plan: a paper's last measured AI review cost and the upper bound per part and in total (moved out of `review_engine`) |
 | `review_shown` | The list a review run was started with (the documents the screen showed would leave): a cited specification that is not the paper is sent only if the run's stored list names it; ids only |

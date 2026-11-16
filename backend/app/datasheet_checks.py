@@ -434,7 +434,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
             raise ValueError(f"checklist item {item.get('id')!r} needs an id, text and a source clause")
-        if (item.get("rule") or {}).get("kind") not in _RULE_KINDS:
+        if (item.get("rule") or {}).get("kind") not in (*_RULE_KINDS, "sum_percent_of"):
             raise ValueError(f"checklist item {item['id']!r}: unknown rule kind")
     draft = (entry.get("sign_off") or {}).get("status") != "signed"
     return {"key": key, "items": items, "draft": draft, **governs(entry)}
@@ -616,7 +616,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     (the field is not given; qualified by the pages read when stored),
     NEEDS_ENGINEER_REVIEW (with the reason) or NOT_APPLICABLE (its condition
     does not hold, with the reason). Pure: code decides, no model."""
-    from . import claims
+    from . import claims, datasheet_sum
 
     rule = item["rule"]
     source = item["source"]
@@ -676,8 +676,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                        f"'{_said(cond_fact)}' (page {cond_fact.get('page')}).",
                        cond_fact, condition["role"])
     kind = rule["kind"]
-    if kind == "calc":
-        return evaluate_calc(item, field, get, res, rules)
+    if kind in ("calc", "sum_percent_of"):  # R13; a sum: datasheet_sum.sum_percent_of
+        return getattr(datasheet_sum, kind, evaluate_calc)(item, field, get, res, rules)
     fact, why = _one(get(field))
     if fact is None and unknown is not None:
         # The condition is unknown and the field is absent: whether the contractor owes this value is not known, so it is not a missing value.

@@ -31,6 +31,7 @@ from .. import (
 from .. import admin as admin_mod
 from .. import chunker as chunk_mod
 from .. import classification as classification_mod
+from .. import document_kind as document_kind_mod
 from .. import extract as extract_mod
 from .. import fts_index as keyword_mod
 from .. import ingest as ingest_mod
@@ -68,6 +69,7 @@ def upload_disciplines(scope: access.AccessScope = Depends(access.current_scope)
 async def upload_document(
     file: UploadFile = File(...),
     disciplines: list[str] | None = Form(None),
+    uploaded_from: str | None = Form(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Accept an identified upload, visible to the disciplines it names (#609).
@@ -103,6 +105,9 @@ async def upload_document(
     elif duplicate_of is not None and not scope.may_read(duplicate_of):
         return {"document": None, "job_id": "", "duplicate_of": None,
                 "awaiting_grant": True}
+    # Order 14 lane E (switch inside): only for a new upload or a duplicate this caller may read (R99, rule 5): a caller who
+    # cannot read the held document writes no kind row, no role suggestion and no upload context onto it.
+    document_kind_mod.after_upload(row["id"], uploaded_from, duplicate_of is not None)
     # A new upload is readable by its uploader at once: an engineer may only
     # choose their own disciplines, and an administrator holds every document.
     return {

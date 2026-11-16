@@ -37,7 +37,9 @@ def test_a_value_deferred_on_the_sheet_is_provided_and_says_it_is_deferred():
     by_code = query(reason_code="value_deferred")
     for line in (by_quote, by_code):
         assert actions.action_case(line) == "deferred"
-        assert action_of(line) == "Contractor to provide Set pressure; it is deferred on the sheet."
+    # order 14 lane D: the action says how the sheet marks it and where (a verified quote; else "left open" on its page)
+    assert action_of(by_quote) == 'Contractor to provide Set pressure (marked "Set pressure: by vendor" on page 2); it is deferred on the sheet.'
+    assert action_of(by_code) == "Contractor to provide Set pressure (left open on page 2); it is deferred on the sheet."
 
 
 def test_a_blank_field_is_to_be_stated():

@@ -449,7 +449,9 @@ class Runner(
             self.gate.release(app, usd)
 
     # ---- the second opinion (agent_run_second.ask_second_opinion through the same lane and the step gate)
-    def second_opinion(self, item_id: str, ai_verdict: str, answer: Mapping) -> dict:
+    def second_opinion(
+        self, item_id: str, ai_verdict: str, answer: Mapping, limit=SECOND_MAX_TOKENS
+    ) -> dict:
         if (
             self.local is not None
         ):  # never Claude here; the local second reader is the staged step after the first (run_two_readers)
@@ -465,18 +467,18 @@ class Runner(
             "doc_quote": answer.get("paper_quote"),
             "clause_quote": answer.get("clause_quote"),
         }
-        runner = self
-        kept: dict = {}
+        runner, kept = self, {}
+        more = {} if limit == SECOND_MAX_TOKENS else {"max_tokens": limit}
 
         class _Opinion:
             def second_opinion(self, f, evidence):
                 prompt_chars = len(json.dumps(evidence, ensure_ascii=False)) + 1200
                 worst = claude_spend.worst_case_usd(
-                    agent_claude.SECOND_MODEL, prompt_chars, SECOND_MAX_TOKENS
+                    agent_claude.SECOND_MODEL, prompt_chars, limit
                 )
                 runner._admit(worst)
                 try:
-                    reply = runner.opinion.second_opinion(f, evidence)
+                    reply = runner.opinion.second_opinion(f, evidence, **more)
                 except Exception:
                     runner._release(worst, worst)
                     runner._add_usd(worst)

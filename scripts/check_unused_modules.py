@@ -41,6 +41,9 @@ ENTRY_POINTS = (
     "ocr_box_convert",
     # page pictures of the AI reviewer (drawings and scans): not wired into the job (text pages only)
     "agent_review_pages",
+    # order 14 lane E: the contract checks, reached from scripts/contract_checks.py until lane B's "Contract checks" sheet
+    # imports them (then this line goes)
+    "contract_checks",
 )
 
 

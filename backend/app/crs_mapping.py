@@ -1438,10 +1438,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                    submittal_name: str,
                    unread_pages: list[int] | None = None,
                    standards_check: dict | None = None) -> list[dict]:
-    """The CRS rows for one run - ONE ROW PER FIELD ISSUE, and (order 139
-    part 2) ONE COMMENT PER DATASHEET FIELD for a value left blank, not found
-    or for an engineer to check: the finding rows are `crs_groups`, built
-    here in its order.
+    """The CRS rows for one run - ONE ROW PER FIELD ISSUE, and (order 139 part 2) ONE COMMENT PER DATASHEET FIELD
+    for a value left blank, not found or for an engineer to check: the finding rows are `crs_groups`, built here in its order.
 
     CRS QUICK WINS (2026-09-27, audit crs.md defects 2, 8, 9):
 
@@ -1469,10 +1467,12 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     p.3, both rank 2. Carried-forward rows (rank 5) are appended last by
     `main._crs_content`.
 
-    Never rows: rejected findings; UNREAD_PAGES and PAGE_READER_ONLY
-    questions, questions with no datasheet field behind them (#139) and
-    NOT_IN_DOCUMENT_SCOPE (all Review notes, B3/2f); a COMPLIANT result.
+    Never rows: rejected findings; UNREAD_PAGES and PAGE_READER_ONLY questions, questions with no datasheet field
+    behind them (#139) and NOT_IN_DOCUMENT_SCOPE (all Review notes, B3/2f); a COMPLIANT result.
     """
+    from . import review_points as _rp
+
+    _rp.reread_clauses(findings)  # lane B: a superseded clause is never shown
     rows: list[dict] = []
     #: order 139 part 2: rows[i]'s place on the sheet (`finding_row_sort_key`)
     sort_keys: list[tuple] = []
