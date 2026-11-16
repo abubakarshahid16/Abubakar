@@ -244,6 +244,9 @@ class Cue:
     at_start: bool
     depth: int = -1  # a labelled part's depth (`contract_checks.DEPTH`)
     verified: bool = False
+    rule: re.Pattern[str] | None = (
+        None  # THE pattern of the fixed list that found it (E3 checks it by identity)
+    )
 
 
 @dataclass
@@ -347,7 +350,9 @@ def _word_cues(lines: list[tuple[int, str]], i: int) -> list[Cue]:
                     (
                         m.end() - m.start(),
                         m.start(),
-                        Cue(group, tier, name, page, _quote(lines, i), at_start),
+                        Cue(
+                            group, tier, name, page, _quote(lines, i), at_start, rule=rx
+                        ),
                     )
                 )
     kept: list[tuple[int, int, Cue]] = []
@@ -367,7 +372,7 @@ def _label_cues(lines: list[tuple[int, str]]) -> list[Cue]:
         if is_heading(text) and parts._heading_part(text):
             for word, label, _pos in parts.labels(text):
                 found.append((word, label, Cue(LABEL_GROUP[word], LABEL, f"label: {word}", page, _quote(lines, i),
-                                               at_start=True, depth=parts.DEPTH[word])))  # fmt: skip
+                                               at_start=True, depth=parts.DEPTH[word], rule=parts._LABEL)))  # fmt: skip
     listed = {
         w
         for w, _l, _c in found
@@ -393,6 +398,7 @@ def cues_of(pages: Pages) -> list[Cue]:
                     first_page,
                     m.group(0),
                     at_start=False,
+                    rule=BODY_AGREEMENT,
                 )
             )
     return out
@@ -559,6 +565,44 @@ def kind_needs_engineer(conn: sqlite3.Connection) -> set[str]:
         return set()
 
 
+def top_headings(pages: Pages, page: int) -> list[str]:
+    """The heading-shaped lines among the TOP_LINES of one page (the tool's own heading test, read again from the page)."""
+    text = dict(pages).get(page, "")
+    top = [ln.strip().strip("|").strip() for ln in text.splitlines() if ln.strip()][
+        :TOP_LINES
+    ]
+    return [ln for ln in top if is_heading(ln)]
+
+
+def fixed_heading(c: Cue, pages: Pages) -> bool:
+    """E3, measured again: the reason is a heading in the top lines of its page (or the body's opening words on the first page)
+    that THE pattern of the fixed list, held by identity, finds on that line, naming the cue's own group."""
+    if c.name == "agreement opening words":
+        first = pages[0] if pages else (None, "")
+        return (c.rule is BODY_AGREEMENT and c.group == 1 and c.page == first[0]
+                and BODY_AGREEMENT.search(" ".join(first[1].split())) is not None
+                and BODY_AGREEMENT.fullmatch(c.quote) is not None)  # fmt: skip
+    lines = [
+        ln
+        for ln in top_headings(pages, c.page)
+        if c.quote == ln or c.quote.startswith(ln + " ")
+    ]
+    if c.name.startswith("label: "):
+        word = c.name[len("label: ") :]
+        return (c.rule is parts._LABEL and LABEL_GROUP.get(word) == c.group
+                and any(parts._heading_part(ln) and word in {w for w, _l, _i in parts.labels(ln)} for ln in lines))  # fmt: skip
+    fixed = [(group, rx) for name, group, _t, rx in CUES if name == c.name]
+    return (len(fixed) == 1 and c.rule is fixed[0][1] and c.group == fixed[0][0]
+            and any(c.rule.search(ln) for ln in lines))  # fmt: skip
+
+
+PASS, FAIL, NOT_MEASURED = "PASS", "FAIL", "NOT MEASURED"
+
+
+def _state(ok: bool, measured: bool = True) -> str:
+    return NOT_MEASURED if not measured else PASS if ok else FAIL
+
+
 def run_once(db: str, ids: list[str]) -> list[Sorted]:
     return [sort_pages(d, load_pages(db, d)) for d in ids]
 
@@ -569,7 +613,9 @@ def checks(
     ids: list[str],
     held_back: set[str],
     proof: dict,
-) -> list[tuple[str, bool, str]]:
+    pages_of: dict[str, Pages],
+) -> list[tuple[str, str, str]]:
+    """E1-E9, each measured: PASS, FAIL, or NOT MEASURED when the thing it counts was not given (a missing path is never a 0)."""
     out = []
     one = [s.document_id for s in first]
     ok = (
@@ -580,71 +626,75 @@ def checks(
     out.append(
         (
             "E1",
-            ok,
+            _state(ok),
             f"{len(ids)} documents, {len(set(one))} with exactly one group, {len(set(ids) - set(one))} without",
         )
     )
     firm = [s for s in first if s.group != ENGINEER]
-    bad = [s.document_id for s in firm if not (s.reason and s.reason.verified)]
+
+    def checked(s: Sorted) -> bool:  # the quote check run again on the page read again
+        on = dict(pages_of.get(s.document_id, []))
+        return bool(s.reason) and parts.verified(
+            s.reason.quote, on.get(s.reason.page, "")
+        )
+
+    bad = [s.document_id for s in firm if not checked(s)]
     out.append(
         (
             "E2",
-            not bad,
+            _state(not bad),
             f"{len(firm)} firm groups, {len(firm) - len(bad)} with a heading verified on its page",
         )
     )
-    names = (
-        {n for n, *_ in CUES}
-        | {f"label: {w}" for w in LABEL_GROUP}
-        | {"agreement opening words"}
-    )
-    odd = [s.document_id for s in firm if s.reason.name not in names]
-    out.append(
-        (
-            "E3",
-            not odd,
-            f"every firm group from the fixed general cues ({len(names)} kinds); {len(odd)} from elsewhere",
-        )
-    )
+    odd = [
+        s.document_id
+        for s in firm
+        if not (s.reason and fixed_heading(s.reason, pages_of.get(s.document_id, [])))
+    ]
+    out.append(("E3", _state(not odd), f"{len(firm) - len(odd)} of {len(firm)} firm reasons are a heading in the top lines "
+                                       f"of their page found by a fixed general cue; {len(odd)} not"))  # fmt: skip
     e4 = (
         proof["ledger_before"] == proof["ledger_after"]
         and proof["sockets"] == 0
         and not proof["own_imports"]
     )
-    out.append(("E4", e4, f"Claude ledger lines {proof['ledger_before']} -> {proof['ledger_after']}; outbound connection "
+    out.append(("E4", _state(e4, proof["ledger_measured"]), f"Claude ledger lines {proof['ledger_before']} -> {proof['ledger_after']}; outbound connection "
                           f"attempts {proof['sockets']} (Claude, second AI, web: none); transport imports in this tool "
                           f"{len(proof['own_imports'])}"))  # fmt: skip
     same = [a.engineer() for a in first] == [b.engineer() for b in second]
     out.append(
         (
             "E5",
-            same,
+            _state(same),
             f"two runs, {'identical' if same else 'DIFFERENT'} group and reason for {len(first)}",
         )
     )
     forced = [s.document_id for s in first if s.document_id in held_back and s.group != ENGINEER
-              and not (s.reason and s.reason.verified)]  # fmt: skip
+              and not (checked(s) and fixed_heading(s.reason, pages_of.get(s.document_id, [])))]  # fmt: skip
     in_firm = sum(
         1 for s in first if s.document_id in held_back and s.group != ENGINEER
     )
-    out.append(("E6", not forced, f"{len(held_back & set(ids))} left to the engineer by the kind decider: {in_firm} in a firm "
+    out.append(("E6", _state(not forced), f"{len(held_back & set(ids))} left to the engineer by the kind decider: {in_firm} in a firm "
                                   f"group, each with a verified heading; {len(forced)} forced"))  # fmt: skip
     out.append(
         (
             "E7",
-            proof["approved_before"] == proof["approved_after"],
+            _state(
+                proof["approved_before"] == proof["approved_after"],
+                proof["approved_measured"],
+            ),
             "approved-to-send list counts and checksum "
             f"{'identical' if proof['approved_before'] == proof['approved_after'] else 'CHANGED'} before and after",
         )
     )
     e8 = proof["live_before"] == proof["live_after"] and proof["copy_not_live"]
-    out.append(("E8", e8, f"read a copy ({'not the live file' if proof['copy_not_live'] else 'THE LIVE FILE'}); live "
+    out.append(("E8", _state(e8, proof["live_measured"]), f"read a copy ({'not the live file' if proof['copy_not_live'] else 'THE LIVE FILE'}); live "
                           f"checksum {'unchanged' if proof['live_before'] == proof['live_after'] else 'CHANGED'}"))  # fmt: skip
     known = {i["id"] for i in parts.checklist()["items"]}
     e9 = set(CHECKS) == set(GROUPS) and all(
         set(c) <= known for c, _w in CHECKS.values()
     )
-    out.append(("E9", e9, "each group lists its contract checks: " + "; ".join(
+    out.append(("E9", _state(e9), "each group lists its contract checks: " + "; ".join(
         f"{g}: {', '.join(c) or 'none'}" for g, (c, _w) in sorted(CHECKS.items()))))  # fmt: skip
     return out
 
@@ -743,7 +793,10 @@ def main(argv: list[str] | None = None) -> int:
     conn = _read_only(str(db))
     try:
         ids, held_back = contract_ids(conn), kind_needs_engineer(conn)
-        proof = {"live_before": [sha256(p) for p in live_files], "ledger_before": line_count(a.ledger),
+        proof = {"live_measured": a.live_db is not None and a.live_db.is_file(),
+                 "ledger_measured": a.ledger is not None and a.ledger.is_file(),
+                 "approved_measured": a.approved is not None and a.approved.is_file(),
+                 "live_before": [sha256(p) for p in live_files], "ledger_before": line_count(a.ledger),
                  "approved_before": approved_counts(a.approved, conn), "own_imports": own_imports(),
                  "copy_not_live": a.live_db is None or db != a.live_db.resolve()}  # fmt: skip
         attempts: list = []
@@ -761,9 +814,16 @@ def main(argv: list[str] | None = None) -> int:
               f"{'  [kind decider: engineer]' if s.document_id in held_back else ''}")  # fmt: skip
     for g, name in GROUPS.items():
         print(f"group {g} ({name}): {sum(1 for s in first if s.group == g)}")
-    results = checks(first, second, ids, held_back, proof)
-    for code, ok, text in results:
-        print(f"{code} {'PASS' if ok else 'FAIL'}: {text}")
+    results = checks(
+        first, second, ids, held_back, proof, {d: load_pages(str(db), d) for d in ids}
+    )
+    for code, state, text in results:
+        print(f"{code} {state}: {text}")
+    for code, flag in (("E4", "--ledger"), ("E7", "--approved"), ("E8", "--live-db")):
+        if any(c == code and st == NOT_MEASURED for c, st, _t in results):
+            print(
+                f"{code} needs {flag} pointing at an existing file: without it nothing is counted, so it does not pass"
+            )
     print("E10 accuracy not yet measured (the engineer fills the form)")
     if a.engineer_dir:
         written = write_engineer(a.engineer_dir, first, held_back)
@@ -777,7 +837,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             encoding="utf-8",
         )
-    return 0 if all(ok for _c, ok, _t in results) else 1
+    return 0 if all(st == PASS for _c, st, _t in results) else 1
 
 
 if __name__ == "__main__":

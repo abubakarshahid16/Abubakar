@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import socket
 import sqlite3
 import sys
@@ -253,33 +254,148 @@ def test_the_live_database_is_refused(tmp_path, capsys):
     assert "REFUSED" in capsys.readouterr().out
 
 
-def test_a_changed_ledger_list_or_live_file_fails_e4_e7_e8():
-    s = cs.Sorted(
-        "doc_x",
-        2,
-        "w",
-        cs.Cue(
-            2,
-            cs.NAME,
-            "general conditions",
-            1,
-            "GENERAL CONDITIONS",
-            True,
-            verified=True,
-        ),
+GC_RULE = next(rx for name, _g, _t, rx in cs.CUES if name == "general conditions")
+GC_PAGES = [(1, "GENERAL CONDITIONS\n" + BODY)]
+MEASURED = {"ledger_measured": True, "approved_measured": True, "live_measured": True}
+BASE = {"ledger_before": 2, "ledger_after": 2, "sockets": 0, "own_imports": [], "approved_before": {"a": 1},
+        "approved_after": {"a": 1}, "live_before": ["x"], "live_after": ["x"], "copy_not_live": True, **MEASURED}  # fmt: skip
+
+
+def _gc(
+    quote: str = "GENERAL CONDITIONS",
+    rule=GC_RULE,
+    name: str = "general conditions",
+    doc: str = "doc_x",
+) -> cs.Sorted:
+    return cs.Sorted(
+        doc, 2, "w", cs.Cue(2, cs.NAME, name, 1, quote, True, verified=True, rule=rule)
     )
-    base = {"ledger_before": 2, "ledger_after": 2, "sockets": 0, "own_imports": [], "approved_before": {"a": 1},
-            "approved_after": {"a": 1}, "live_before": ["x"], "live_after": ["x"], "copy_not_live": True}  # fmt: skip
-    assert all(
-        passed for _code, passed, _t in cs.checks([s], [s], ["doc_x"], set(), base)
-    )
-    bad = {**base, "ledger_after": 3, "approved_after": {"a": 2}, "live_after": ["y"]}
-    failed = {
-        code
-        for code, passed, _t in cs.checks([s], [s], ["doc_x"], set(), bad)
-        if not passed
+
+
+def _states(sorted_, proof=BASE, pages=GC_PAGES, held=frozenset()) -> dict[str, str]:
+    ids = [s.document_id for s in sorted_]
+    return {
+        code: state
+        for code, state, _t in cs.checks(
+            sorted_, sorted_, ids, set(held), proof, dict.fromkeys(ids, pages)
+        )
     }
-    assert failed == {"E4", "E7", "E8"}
+
+
+def test_a_changed_ledger_list_or_live_file_fails_e4_e7_e8():
+    assert set(_states([_gc()]).values()) == {cs.PASS}
+    bad = {**BASE, "ledger_after": 3, "approved_after": {"a": 2}, "live_after": ["y"]}
+    assert {c for c, st in _states([_gc()], bad).items() if st != cs.PASS} == {
+        "E4",
+        "E7",
+        "E8",
+    }
+
+
+def test_a_path_left_out_is_not_measured_never_a_pass():
+    none = {
+        **BASE,
+        "ledger_measured": False,
+        "approved_measured": False,
+        "live_measured": False,
+    }
+    states = _states([_gc()], none)
+    assert (states["E4"], states["E7"], states["E8"]) == (cs.NOT_MEASURED,) * 3
+
+
+def test_the_command_without_the_paths_says_not_measured_and_exits_1(tmp_path, capsys):
+    db = _copy(tmp_path)
+    assert cs.main(["--db", str(db)]) == 1
+    out = capsys.readouterr().out
+    for e in ("E4", "E7", "E8"):
+        assert f"{e} NOT MEASURED" in out, out
+    missing = tmp_path / "no-such-file"
+    assert (
+        cs.main(
+            [
+                "--db",
+                str(db),
+                "--ledger",
+                str(missing),
+                "--approved",
+                str(missing),
+                "--live-db",
+                str(missing),
+            ]
+        )
+        == 1
+    )
+    assert capsys.readouterr().out.count("NOT MEASURED") >= 3
+
+
+def test_e3_fails_a_reason_not_found_by_the_fixed_cue_itself():
+    assert _states([_gc()])["E3"] == cs.PASS
+    forged = re.compile(
+        r"GENERAL CONDITIONS"
+    )  # a cue of the same name and words, but not THE pattern of the list
+    assert _states([_gc(rule=forged)])["E3"] == cs.FAIL
+    assert (
+        _states([_gc(name="special conditions")])["E3"] == cs.FAIL
+    )  # a name the pattern does not belong to
+
+
+def test_e3_fails_a_reason_that_is_not_a_heading_in_the_top_lines():
+    low = [
+        (
+            1,
+            "\n".join(f"Line {i} of the cover" for i in range(cs.TOP_LINES))
+            + "\nGENERAL CONDITIONS\n"
+            + BODY,
+        )
+    ]
+    assert _states([_gc()], pages=low)["E3"] == cs.FAIL
+    sentence = "The general conditions apply to this order as agreed by both of the parties to it, in full and always."
+    assert _states([_gc(quote=sentence)], pages=[(1, sentence)])["E3"] == cs.FAIL
+
+
+def test_e2_runs_the_quote_check_again_on_the_page():
+    assert _states([_gc()], pages=[(1, "SPECIAL CONDITIONS\n" + BODY)])["E2"] == cs.FAIL
+
+
+def test_e6_a_needs_engineer_paper_with_a_verified_heading_may_take_its_group():
+    s = cs.sort_pages("doc_x", GC_PAGES)
+    assert s.group == 2
+    states = {
+        c: st
+        for c, st, _t in cs.checks(
+            [s], [s], ["doc_x"], {"doc_x"}, BASE, {"doc_x": GC_PAGES}
+        )
+    }
+    assert states["E6"] == cs.PASS
+    text = next(
+        t
+        for c, _st, t in cs.checks(
+            [s], [s], ["doc_x"], {"doc_x"}, BASE, {"doc_x": GC_PAGES}
+        )
+        if c == "E6"
+    )
+    assert "1 in a firm group" in text and "0 forced" in text
+    # the same paper with a reason that is not on its page is forced: E6 fails
+    assert (
+        _states([_gc(quote="GENERAL CONDITIONS OF HIRE")], held={"doc_x"})["E6"]
+        == cs.FAIL
+    )
+
+
+def test_the_copy_cannot_be_written_and_is_unchanged_after_the_command(
+    tmp_path, capsys
+):
+    db = _copy(tmp_path)
+    conn = cs._read_only(str(db))
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("INSERT INTO pages VALUES ('doc_x', 1, 'x')")
+    finally:
+        conn.close()
+    before = cs.sha256(db)
+    cs.main(["--db", str(db)])
+    capsys.readouterr()
+    assert cs.sha256(db) == before
 
 
 # ------------------------------------------------------------------------------------------------ nothing leaves the machine
