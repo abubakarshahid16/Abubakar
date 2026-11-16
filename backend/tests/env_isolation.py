@@ -299,6 +299,8 @@ EGRESS_SAFE: dict[str, object] = {
     "kind_chooses_rules_enabled": False,
     # --- local only, no model or socket: standards by role and document kind (off by default)
     "standard_roles_by_kind_enabled": False,
+    # --- local only, no model or socket: a book listed with clauses for a kind is asked only in them (order 14 lane C, off by default)
+    "kind_book_clause_limit_enabled": False,
     # --- local only, no model or socket: rules for another equipment type or kind are left out and counted (off by default)
     "rules_by_equipment_scope_enabled": False,
     # --- local only, no model or socket: extraction stores each rule's equipment scope (off by default)

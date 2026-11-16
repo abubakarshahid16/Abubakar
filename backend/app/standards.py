@@ -389,6 +389,8 @@ def clause_number(section: str | None) -> str | None:
     head = section.split(" ", 1)[0].strip().rstrip(".")
     if not head:
         return None
+    if chunker.DASH_ID.fullmatch(head):  # a code paragraph id, "UG-150" / "44-2" (chunker, CHUNKER_VERSION 12)
+        return head
     parts = [p for p in head.split(".") if p]
     # It came through _validate_heading, so it is digits with at most one
     # single-letter annex prefix. Re-checked rather than trusted: this function
@@ -867,6 +869,137 @@ def _supersede(document_id: str, ids: list[str], run_id: str, *, action: str) ->
     return marked
 
 
+def _carry_text(text: str | None) -> str:
+    return " ".join(str(text or "").split())
+
+
+#: The run id a RE-CHUNK writes on the rules whose chunk it removed (`orphan_guard`, "xrun_rechunk_<time>"): they are
+#: superseded before the extraction runs, so the label carry reads them too.
+RECHUNK_RUN_PREFIX = "xrun_rechunk_"
+
+
+def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dict:
+    """Order 14 lane C: a rule this re-extraction (`run_id`), or a re-chunk of the book, superseded keeps its AI LABELS on its successors in the same
+    book. A label describes the TEXT, not the clause, so it goes to EVERY current rule whose requirement text and source
+    text are (a) identical to the old rule's (whitespace aside), or (b) identical once the successor's own heading line
+    (its chunk's section, "UCI-2 SERVICE RESTRICTIONS") is put back in front: the old rule had read the heading as the
+    start of its sentence. Exact string matches only; nothing fuzzy. When several superseded rules lead to one successor,
+    their labels must agree (state, paper kind, field, reading), else nothing is carried ("conflicting"). A successor that
+    already has a label keeps its own. The label rows (`rule_label`, `rule_equipment_label`) are copied verbatim under the
+    successor's id (same models, prompt, hashes, quote page), with the successor's OWN rule-book version link: the version
+    whose quote is the successor's own text on its own page (`rule_labels.bridge_map`, as the labeller links), never the
+    old rule's (R93, R95); so a person's LATER decision on the successor's own version reaches it (R92). No such version:
+    no link, and a person decides it afresh. Logged by the tables' own event triggers and once in the
+    audit. A PERSON's approval or refusal (the rule book's approvals, keyed by its version) is NEVER carried, and an
+    old rule a person decided (approved OR refused) carries NOTHING, not even its AI label, so a refusal is never
+    bypassed: the successor waits for a person; both are counted for the owner. No model; no network."""
+    out = {"carried": 0, "carried_identical": 0, "carried_heading_restored": 0, "carried_equipment": 0,
+           "old_rules_carried": 0, "old_rules_not_carried": 0, "conflicting": 0, "successor_labelled": 0,
+           "person_decided_not_carried": 0, "person_decisions_not_carried": 0,
+           "version_link_own": 0, "version_link_none": 0}
+    held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "rule_label" not in held:
+        return out
+    labelled = {r[0]: r[1:] for r in conn.execute(
+        "SELECT rule_ref, state, paper_kind, field, reading_json, rule_version_id FROM rule_label"
+        " WHERE source = 'requirement'")}
+    from . import compiled_rule_report
+
+    _decided: dict[str, bool] = {}
+
+    def decided(version: str | None) -> bool:
+        """A PERSON decided this rule-book version (approve or refuse), read through the rule book's own module."""
+        if not version:
+            return False
+        if version not in _decided:
+            _decided[version] = bool(compiled_rule_report.book_approval_rows(conn, version))
+        return _decided[version]
+
+    # the rules the NEWEST re-chunk of this book superseded (it runs just before this extraction); an older re-chunk's
+    # rows belong to an earlier re-extraction and are not read again
+    latest_rechunk = conn.execute(
+        "SELECT superseded_by_run FROM standard_requirements WHERE standard_document_id = ? AND superseded_by_run LIKE ?"
+        " ORDER BY superseded_at DESC LIMIT 1", (document_id, RECHUNK_RUN_PREFIX + "%")).fetchone()
+    gone: dict[tuple, list[str]] = {}
+    for rid, req, src in conn.execute(
+            "SELECT id, requirement_text, source_text FROM standard_requirements"
+            " WHERE standard_document_id = ? AND superseded_by_run IN (?, ?)",
+            (document_id, run_id, latest_rechunk[0] if latest_rechunk else run_id)):
+        if rid in labelled:
+            gone.setdefault((_carry_text(req), _carry_text(src)), []).append(rid)
+    if not gone:
+        return out
+    has_section = "chunks" in held
+    sources_used: set[str] = set()
+    targets: list[tuple[str, list[str], str]] = []
+    for rid, req, src, section, page in conn.execute(
+            "SELECT r.id, r.requirement_text, r.source_text, "
+            + ("c.section" if has_section else "NULL") + ", r.page"
+            + " FROM standard_requirements r"
+            + (" LEFT JOIN chunks c ON c.id = r.chunk_id" if has_section else "")
+            + " WHERE r.standard_document_id = ? AND r.superseded_at IS NULL", (document_id,)):
+        how, old = "identical", gone.get((_carry_text(req), _carry_text(src)))
+        if not old and section:
+            how, old = "heading_restored", gone.get(
+                (_carry_text(f"{section} {req}"), _carry_text(f"{section} {src}")))
+        if not old:
+            continue
+        if rid in labelled:
+            out["successor_labelled"] += 1
+            sources_used.update(old)
+            continue
+        if any(decided(labelled[o][4]) for o in old):
+            out["person_decided_not_carried"] += 1  # a person's word on the old rule: the successor waits for a person
+            continue
+        if len({labelled[o][:4] for o in old}) != 1:
+            out["conflicting"] += 1
+            continue
+        targets.append((rid, sorted(old), how, page, src))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_label)")]
+    keep = [c for c in cols if c not in ("rule_ref", "rule_version_id")]
+
+    from . import rule_labels
+
+    bridge = rule_labels.bridge_map(conn)
+
+    def link_for(dst_page, dst_src) -> str | None:
+        """The successor's OWN rule-book version (R95): the version whose quote is the successor's own text on its own
+        page of this book, found as the labeller finds it (`rule_labels.bridge_map`), never the old rule's link. None
+        when there is no such version or the successor has no page: then a person decides it afresh."""
+        if dst_page is None:
+            return None
+        return bridge.get((document_id, dst_page, " ".join(str(dst_src or "").split())))
+
+    has_equipment = "rule_equipment_label" in held
+    eq_cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")] if has_equipment else []
+    with conn:
+        for dst_id, old, how, dst_page, dst_src in targets:
+            src_id = old[0]  # they agree; the first by id is copied
+            conn.execute(
+                f"INSERT INTO rule_label (rule_ref, rule_version_id, {', '.join(keep)})"
+                f" SELECT ?, ?, {', '.join(keep)} FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
+                (dst_id, link := link_for(dst_page, dst_src), src_id))
+            out["version_link_own" if link else "version_link_none"] += 1
+            out["carried"] += 1
+            out[f"carried_{how}"] += 1
+            sources_used.update(old)
+            if has_equipment and conn.execute(
+                "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (src_id,)
+            ).fetchone() and not conn.execute(  # a successor's own equipment label is kept (the table never replaces a row)
+                "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (dst_id,)
+            ).fetchone():
+                conn.execute(
+                    f"INSERT INTO rule_equipment_label (rule_ref, {', '.join(c for c in eq_cols if c != 'rule_ref')})"
+                    f" SELECT ?, {', '.join(c for c in eq_cols if c != 'rule_ref')} FROM rule_equipment_label"
+                    " WHERE source = 'requirement' AND rule_ref = ?", (dst_id, src_id))
+                out["carried_equipment"] += 1
+    all_old = [o for ids in gone.values() for o in ids]
+    out["old_rules_carried"] = sum(1 for o in all_old if o in sources_used)
+    out["old_rules_not_carried"] = sum(1 for o in all_old if o not in sources_used)
+    out["person_decisions_not_carried"] = sum(1 for o in all_old if decided(labelled[o][4]))
+    return out
+
+
 def extract_requirements(
     document_id: str, *, allowed_document_ids: frozenset[str],
     actor: dict | None = None, replace: bool = True,
@@ -1098,6 +1231,10 @@ def extract_requirements(
     superseded = _supersede(
         document_id, [i for i in reproducible.values() if i not in kept],
         run_id, action="re_extraction")
+    carried = carry_labels(connect(), document_id, run_id) if superseded else None
+    if carried and carried["carried"]:
+        _audit("standard.rule_labels_carried", actor, document_id,
+               detail=f"run={run_id} " + " ".join(f"{k}={v}" for k, v in carried.items()))
     fields_changed: dict[str, int] = {}
     for names in reread.values():
         for name in names:
@@ -1126,6 +1263,8 @@ def extract_requirements(
         "readings_changed": len(reread),
         "reading_fields_changed": fields_changed,
         "superseded": superseded,
+        # order 14 lane C: AI labels carried from superseded rules to their identical successors (None: nothing superseded)
+        "labels_carried": carried,
         "document_id": document_id,
         "chunks_read": len(chunks),
         "requirements": written,

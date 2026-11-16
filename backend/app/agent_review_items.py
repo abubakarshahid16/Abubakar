@@ -538,7 +538,10 @@ def _candidate_rules(
             no_equipment_filter=paper_kind
             in kind_review_table.no_main_equipment_kinds(),
         )
-        return reqs, left, run_id
+        return drop_superseded(reqs, left), left, run_id
+    # superseded rows go BEFORE the duplicate check: an old row and its identical current successor share a key, and the
+    # old one must never win it (R89 blocker)
+    requirement_rows = drop_superseded(list(requirement_rows), left)
     seen_keys, reqs = set(), []
     for r in sorted(
         requirement_rows,
@@ -551,6 +554,16 @@ def _candidate_rules(
         seen_keys.add(k)
         reqs.append({**r, "state": "candidate", "reason_code": None})
     return reqs, left, run_id
+
+
+def drop_superseded(reqs: list[dict], left: dict[str, int]) -> list[dict]:
+    """Order 14 lane C: a rule a re-extraction SUPERSEDED is never a candidate, by whichever road it came (the selected
+    books' rows, a stored run's per-rule decisions, rows a caller chose): its current successor stands for it. Counted
+    under `rules_left_out["superseded"]`, never dropped silently. A row without the column (an older shape) stays."""
+    kept = [r for r in reqs if not r.get("superseded_at")]
+    if len(kept) != len(reqs):
+        left["superseded"] = left.get("superseded", 0) + len(reqs) - len(kept)
+    return kept
 
 
 def _checklist(

@@ -1,0 +1,170 @@
+{
+  "format": "crs-gates-kind-books/1",
+  "_about": "Order 14 lane C (16 Nov 2026): which books GOVERN each kind of paper, down to the clause where a book governs only in part. Gate G2 reads this file (`scripts/crs_gates.py --mapping`); a book this file does not list for the paper's kind fails G2 ('book not listed for this kind'), and a book limited to clauses fails outside them. Sources: reference/standard_roles.json (a procedure or study takes process/method and general books; its method books), reference/governing_standards.json (equipment type -> books, the materials books, the books that govern in part), the owner's order 14 (ASME VIII Div 1 for relief valves: UG-150 to UG-156 only; pump numbers from SAES-G-005 and SAES-K-503; ASME VIII Div 1 for a pump only UW-51 and UW-52, the radiography of welded casings a pump sheet cites, owner 16 Nov, engineer to confirm) and the held book's own title for the company books added per type (SAES-D-001 design criteria for pressure vessels; SAES-L-109 flanges, stud bolts and gaskets; SAES-L-132 materials selection for process equipment). tests/test_o14_c_kind_books.py keeps it a SUPERSET of the app's tables per type (it never lists fewer books than the review selects by type) and keeps every equipment design book out of the procedure and study entries. A kind or type with no entry here: G2 is not run for it. Owner-editable data; an engineer adds books per type.",
+  "kinds": {
+    "procedure": [
+      {
+        "book": "IEC 61882"
+      },
+      {
+        "book": "IEC 61511-1"
+      },
+      {
+        "book": "IEC 61511-2"
+      },
+      {
+        "book": "IEC 61511-3"
+      },
+      {
+        "book": "SAEP-104"
+      },
+      {
+        "book": "SAEP-250"
+      },
+      {
+        "book": "SAEP-354"
+      }
+    ],
+    "study": [
+      {
+        "book": "IEC 61882"
+      },
+      {
+        "book": "IEC 61511-1"
+      },
+      {
+        "book": "IEC 61511-2"
+      },
+      {
+        "book": "IEC 61511-3"
+      },
+      {
+        "book": "SAEP-104"
+      },
+      {
+        "book": "SAEP-250"
+      },
+      {
+        "book": "SAEP-354"
+      }
+    ],
+    "datasheet|relief valve": [
+      {
+        "book": "API 520 Part I"
+      },
+      {
+        "book": "API 520 Part II"
+      },
+      {
+        "book": "API 521"
+      },
+      {
+        "book": "API 526"
+      },
+      {
+        "book": "API 527"
+      },
+      {
+        "book": "SAES-J-600"
+      },
+      {
+        "book": "NACE MR0175"
+      },
+      {
+        "book": "ISO 15156"
+      },
+      {
+        "book": "NACE MR0103"
+      },
+      {
+        "book": "ISO 17945"
+      },
+      {
+        "book": "ASME BPVC Section VIII Division 1",
+        "clauses": [
+          "UG-150",
+          "UG-151",
+          "UG-152",
+          "UG-153",
+          "UG-154",
+          "UG-155",
+          "UG-156"
+        ]
+      }
+    ],
+    "datasheet|pump": [
+      {
+        "book": "API 610"
+      },
+      {
+        "book": "API 674"
+      },
+      {
+        "book": "API 675"
+      },
+      {
+        "book": "API 676"
+      },
+      {
+        "book": "API 682"
+      },
+      {
+        "book": "SAES-G-005"
+      },
+      {
+        "book": "SAES-K-503"
+      },
+      {
+        "book": "ASME BPVC Section VIII Division 1",
+        "clauses": [
+          "UW-51",
+          "UW-52"
+        ]
+      },
+      {
+        "book": "NACE MR0175"
+      },
+      {
+        "book": "ISO 15156"
+      },
+      {
+        "book": "NACE MR0103"
+      },
+      {
+        "book": "ISO 17945"
+      }
+    ],
+    "datasheet|pressure vessel": [
+      {
+        "book": "ASME BPVC Section VIII Division 1"
+      },
+      {
+        "book": "SAES-D-001"
+      },
+      {
+        "book": "ASME B16.5"
+      },
+      {
+        "book": "ASME B16.47"
+      },
+      {
+        "book": "SAES-L-109"
+      },
+      {
+        "book": "SAES-L-132"
+      },
+      {
+        "book": "NACE MR0175"
+      },
+      {
+        "book": "ISO 15156"
+      },
+      {
+        "book": "NACE MR0103"
+      },
+      {
+        "book": "ISO 17945"
+      }
+    ]
+  }
+}
