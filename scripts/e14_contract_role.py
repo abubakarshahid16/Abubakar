@@ -93,9 +93,8 @@ def apply(
     from app.config import settings
     from app.db import connect
 
-    settings.claude_auto_approve_reviews_enabled = (
-        True  # the worst case: even with the standing approval on
-    )
+    if not backup:  # a copy: the worst case, the standing approval on; live runs with its own settings
+        settings.claude_auto_approve_reviews_enabled = True
     conn = connect()
     before = {d: _state(conn, d) for d in docs}
     decided = {}
