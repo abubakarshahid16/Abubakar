@@ -211,7 +211,9 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     the guard's reason first; for two readers who disagree, a plain sentence saying the second reader disagreed; then the
     first reader's own words ONLY marked as one reader's view that is not confirmed. Never the line's conclusion."""
     if unsafe == GUARD_MET_WHY and line.get("why"):
-        return str(line["why"])  # order 14 (G6): the guard's own reason, as it read when the line was "AI thinks: met"
+        return str(
+            line["why"]
+        )  # order 14 (G6): the guard's own reason, as it read when the line was "AI thinks: met"
     out = unsafe + "."
     if unsafe == DISAGREE_WHY:
         out += " " + SECOND_DISAGREED.strip()
