@@ -873,73 +873,93 @@ def _carry_text(text: str | None) -> str:
     return " ".join(str(text or "").split())
 
 
+#: The run id a RE-CHUNK writes on the rules whose chunk it removed (`orphan_guard`, "xrun_rechunk_<time>"): they are
+#: superseded before the extraction runs, so the label carry reads them too.
+RECHUNK_RUN_PREFIX = "xrun_rechunk_"
+
+
 def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dict:
-    """Order 14 lane C: a rule this re-extraction (`run_id`) superseded keeps its AI LABELS on its successor, the CURRENT
-    rule of the same book whose requirement text and source text are IDENTICAL (whitespace aside). The label rows
-    (`rule_label`, `rule_equipment_label`) are copied verbatim under the successor's id: same models, prompt, hashes and
-    quote page, so every guard (`rule_labels.approval_guard`) judges them as before; the insert is logged by the tables'
-    own event triggers and once in the audit. Only when BOTH sides are unique for that text (one superseded labelled row,
-    one current row); a successor that already has a label keeps its own. A PERSON's approval or refusal
-    (`rulebook_approval`, keyed by the rule-book version) is NEVER carried: those that would have carried are only
+    """Order 14 lane C: a rule this re-extraction (`run_id`), or a re-chunk of the book, superseded keeps its AI LABELS on its successors in the same
+    book. A label describes the TEXT, not the clause, so it goes to EVERY current rule whose requirement text and source
+    text are (a) identical to the old rule's (whitespace aside), or (b) identical once the successor's own heading line
+    (its chunk's section, "UCI-2 SERVICE RESTRICTIONS") is put back in front: the old rule had read the heading as the
+    start of its sentence. Exact string matches only; nothing fuzzy. When several superseded rules lead to one successor,
+    their labels must agree (state, paper kind, field, reading), else nothing is carried ("conflicting"). A successor that
+    already has a label keeps its own. The label rows (`rule_label`, `rule_equipment_label`) are copied verbatim under the
+    successor's id (same models, prompt, hashes, quote page), logged by the tables' own event triggers and once in the
+    audit. A PERSON's approval or refusal (`rulebook_approval`, keyed by the rule-book version) is NEVER carried, only
     counted, for the owner. No model; no network."""
-    out = {"carried": 0, "carried_equipment": 0, "ambiguous": 0, "no_successor": 0,
-           "successor_labelled": 0, "person_decisions_not_carried": 0}
+    out = {"carried": 0, "carried_identical": 0, "carried_heading_restored": 0, "carried_equipment": 0,
+           "old_rules_carried": 0, "old_rules_not_carried": 0, "conflicting": 0, "successor_labelled": 0,
+           "person_decisions_not_carried": 0}
     held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "rule_label" not in held:
         return out
-    rows = conn.execute(
-        "SELECT id, requirement_text, source_text, superseded_by_run FROM standard_requirements"
-        " WHERE standard_document_id = ? AND (superseded_at IS NULL OR superseded_by_run = ?)",
-        (document_id, run_id)).fetchall()
-    current: dict[tuple, list[str]] = {}
+    labelled = {r[0]: r[1:] for r in conn.execute(
+        "SELECT rule_ref, state, paper_kind, field, reading_json, rule_version_id FROM rule_label"
+        " WHERE source = 'requirement'")}
     gone: dict[tuple, list[str]] = {}
-    for rid, req, src, by in rows:
-        key = (_carry_text(req), _carry_text(src))
-        (gone if by == run_id else current).setdefault(key, []).append(rid)
-    labelled = {r[0] for r in conn.execute(
-        "SELECT rule_ref FROM rule_label WHERE source = 'requirement'")}
-    has_equipment = "rule_equipment_label" in held
+    for rid, req, src in conn.execute(
+            "SELECT id, requirement_text, source_text FROM standard_requirements"
+            " WHERE standard_document_id = ? AND (superseded_by_run = ? OR superseded_by_run LIKE ?)",
+            (document_id, run_id, RECHUNK_RUN_PREFIX + "%")):
+        if rid in labelled:
+            gone.setdefault((_carry_text(req), _carry_text(src)), []).append(rid)
+    if not gone:
+        return out
+    has_section = "chunks" in held
+    sources_used: set[str] = set()
+    targets: list[tuple[str, list[str], str]] = []
+    for rid, req, src, section in conn.execute(
+            "SELECT r.id, r.requirement_text, r.source_text, "
+            + ("c.section" if has_section else "NULL")
+            + " FROM standard_requirements r"
+            + (" LEFT JOIN chunks c ON c.id = r.chunk_id" if has_section else "")
+            + " WHERE r.standard_document_id = ? AND r.superseded_at IS NULL", (document_id,)):
+        how, old = "identical", gone.get((_carry_text(req), _carry_text(src)))
+        if not old and section:
+            how, old = "heading_restored", gone.get(
+                (_carry_text(f"{section} {req}"), _carry_text(f"{section} {src}")))
+        if not old:
+            continue
+        if rid in labelled:
+            out["successor_labelled"] += 1
+            sources_used.update(old)
+            continue
+        if len({labelled[o][:4] for o in old}) != 1:
+            out["conflicting"] += 1
+            continue
+        targets.append((rid, sorted(old), how))
     cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_label)")]
+    keep = [c for c in cols if c not in ("rule_ref", "rule_version_id")]
+    has_equipment = "rule_equipment_label" in held
     eq_cols = [r[1] for r in conn.execute("PRAGMA table_info(rule_equipment_label)")] if has_equipment else []
     with conn:
-        for key, old_ids in gone.items():
-            old = [i for i in old_ids if i in labelled]
-            if not old:
-                continue
-            new = current.get(key) or []
-            if not new:
-                out["no_successor"] += len(old)
-                continue
-            if len(old) != 1 or len(new) != 1:
-                out["ambiguous"] += len(old)
-                continue
-            src_id, dst_id = old[0], new[0]
-            if dst_id in labelled:
-                out["successor_labelled"] += 1
-                continue
-            version = conn.execute(
-                "SELECT rule_version_id FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
-                (src_id,)).fetchone()[0]
-            if version and "rulebook_approval" in held:
-                out["person_decisions_not_carried"] += conn.execute(
-                    "SELECT COUNT(*) FROM rulebook_approval WHERE rule_version_id = ?", (version,)).fetchone()[0]
-            keep = [c for c in cols if c not in ("rule_ref", "rule_version_id")]
+        for dst_id, old, how in targets:
+            src_id = old[0]  # they agree; the first by id is copied
             conn.execute(
                 f"INSERT INTO rule_label (rule_ref, rule_version_id, {', '.join(keep)})"
                 f" SELECT ?, NULL, {', '.join(keep)} FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
                 (dst_id, src_id))
             out["carried"] += 1
+            out[f"carried_{how}"] += 1
+            sources_used.update(old)
             if has_equipment and conn.execute(
                 "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (src_id,)
-            ).fetchone() and not conn.execute(
-                "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (dst_id,)
             ).fetchone():
-                keep_eq = [c for c in eq_cols if c != "rule_ref"]
                 conn.execute(
-                    f"INSERT INTO rule_equipment_label (rule_ref, {', '.join(keep_eq)})"
-                    f" SELECT ?, {', '.join(keep_eq)} FROM rule_equipment_label"
+                    f"INSERT INTO rule_equipment_label (rule_ref, {', '.join(c for c in eq_cols if c != 'rule_ref')})"
+                    f" SELECT ?, {', '.join(c for c in eq_cols if c != 'rule_ref')} FROM rule_equipment_label"
                     " WHERE source = 'requirement' AND rule_ref = ?", (dst_id, src_id))
                 out["carried_equipment"] += 1
+    all_old = [o for ids in gone.values() for o in ids]
+    out["old_rules_carried"] = sum(1 for o in all_old if o in sources_used)
+    out["old_rules_not_carried"] = sum(1 for o in all_old if o not in sources_used)
+    if "rulebook_approval" in held:
+        versions = [labelled[o][4] for o in all_old if o in sources_used and labelled[o][4]]
+        for v in versions:
+            out["person_decisions_not_carried"] += conn.execute(
+                "SELECT COUNT(*) FROM rulebook_approval WHERE rule_version_id = ?", (v,)).fetchone()[0]
     return out
 
 

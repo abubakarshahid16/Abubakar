@@ -83,7 +83,11 @@ def book(monkeypatch):
     c = sqlite3.connect(":memory:")
     c.execute(
         "CREATE TABLE standard_requirements (id TEXT PRIMARY KEY, standard_document_id TEXT, requirement_text TEXT,"
-        " source_text TEXT, superseded_at TEXT, superseded_by_run TEXT)"
+        " source_text TEXT, superseded_at TEXT, superseded_by_run TEXT, chunk_id TEXT)"
+    )
+    c.execute("CREATE TABLE chunks (id TEXT PRIMARY KEY, section TEXT)")
+    c.execute(
+        "INSERT INTO chunks VALUES ('ch-head', 'ZZ-12 NUTS AND WASHERS'), ('ch-plain', '4.1 General')"
     )
     c.execute(
         "CREATE TABLE rulebook_approval (id TEXT PRIMARY KEY, rule_version_id TEXT, decision TEXT, approver_id TEXT,"
@@ -92,10 +96,10 @@ def book(monkeypatch):
     schema.create_tables(c)
     rule_equipment.create_tables(c)
 
-    def rule(rid, text, by=None, doc="d-book"):
+    def rule(rid, text, by=None, doc="d-book", chunk="ch-plain"):
         c.execute(
-            "INSERT INTO standard_requirements VALUES (?, ?, ?, ?, ?, ?)",
-            (rid, doc, text, text, "2026-11-16" if by else None, by),
+            "INSERT INTO standard_requirements VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (rid, doc, text, text, "2026-11-16" if by else None, by, chunk),
         )
 
     rule("old-same", "The relief device shall be set at the stated pressure.", RUN)
@@ -113,8 +117,36 @@ def book(monkeypatch):
     rule("new-earlier", "Springs shall be marked.")
     rule("old-person", "Bonnets shall be vented.", RUN)
     rule("new-person", "Bonnets shall be vented.")
-    for ref in ("old-same", "old-changed", "old-twice", "old-taken", "old-earlier"):
+    rule("old-head", "ZZ-12 NUTS AND WASHERS Nuts shall be of the stated grade.", RUN)
+    rule(
+        "new-head", "Nuts shall be of the stated grade.", chunk="ch-head"
+    )  # its heading line, read apart now
+    rule("old-head-other", "ZZ-13 BOLTS Washers shall be hardened.", RUN)
+    rule(
+        "new-head-other", "Washers shall be hardened.", chunk="ch-head"
+    )  # another heading: no match
+    rule(
+        "old-rechunk", "Gaskets shall be replaced.", "xrun_rechunk_1794835902"
+    )  # its chunk went at the re-chunk
+    rule("new-rechunk", "Gaskets shall be replaced.")
+    rule("old-split-1", "Covers shall be bolted.", RUN)
+    rule("old-split-2", "Covers  shall be bolted.", RUN)
+    rule(
+        "new-split", "Covers shall be bolted."
+    )  # two old rules, different labels: nothing is carried
+    for ref in (
+        "old-rechunk",
+        "old-same",
+        "old-changed",
+        "old-twice",
+        "old-taken",
+        "old-earlier",
+        "old-head",
+        "old-head-other",
+        "old-split-1",
+    ):
         _label(c, ref, rule_version_id=None)
+    _label(c, "old-split-2", rule_version_id=None, kind="drawing")
     _label(c, "new-taken", state="needs_human", rule_version_id=None)
     _label(c, "old-person")  # rule_version_id v-old-person
     c.execute(
@@ -129,16 +161,16 @@ def book(monkeypatch):
     return c
 
 
+def _has(c, ref):
+    return rule_labels.label_for(c, requirement_id=ref) is not None
+
+
 def test_an_identical_successor_gets_the_ai_label_and_is_judged_as_before(book):
     got = standards.carry_labels(book, "d-book", RUN)
-    assert got["carried"] == 2  # old-same, old-person
     new = rule_labels.label_for(book, requirement_id="new-same")
     old = rule_labels.label_for(book, requirement_id="old-same")
-    assert new is not None and {
-        k: new[k] for k in ("state", "paper_kind", "quote_sha256", "a_model", "b_model")
-    } == {
-        k: old[k] for k in ("state", "paper_kind", "quote_sha256", "a_model", "b_model")
-    }
+    keys = ("state", "paper_kind", "quote_sha256", "a_model", "b_model")
+    assert new is not None and {k: new[k] for k in keys} == {k: old[k] for k in keys}
     assert (
         rule_labels.usable_tier(book, requirement_id="new-same").tier
         == rule_labels.AI_TIER
@@ -150,24 +182,39 @@ def test_an_identical_successor_gets_the_ai_label_and_is_judged_as_before(book):
     )
 
 
-def test_changed_ambiguous_already_labelled_and_other_runs_are_not_carried(book):
+def test_every_identical_successor_gets_the_label(book):
     got = standards.carry_labels(book, "d-book", RUN)
-    assert (
-        rule_labels.label_for(book, requirement_id="new-changed") is None
-        and got["no_successor"] == 1
-    )
-    assert (
-        rule_labels.label_for(book, requirement_id="new-twice-a") is None
-        and got["ambiguous"] == 1
-    )
+    assert _has(book, "new-twice-a") and _has(book, "new-twice-b")
+    # new-same, new-twice-a, new-twice-b, new-person, new-rechunk
+    assert got["carried_identical"] == 5
+
+
+def test_a_rule_superseded_by_the_rechunk_of_the_book_carries_its_label_too(book):
+    standards.carry_labels(book, "d-book", RUN)
+    assert _has(book, "new-rechunk")
+
+
+def test_a_successor_whose_heading_line_was_read_apart_gets_the_label(book):
+    got = standards.carry_labels(book, "d-book", RUN)
+    assert _has(book, "new-head") and got["carried_heading_restored"] == 1
+    assert not _has(
+        book, "new-head-other"
+    )  # the old text names another heading: no exact match
+
+
+def test_changed_conflicting_already_labelled_and_other_runs_are_not_carried(book):
+    got = standards.carry_labels(book, "d-book", RUN)
+    assert not _has(book, "new-changed")
+    assert not _has(book, "new-split") and got["conflicting"] == 1
     assert (
         rule_labels.label_for(book, requirement_id="new-taken")["state"]
         == "needs_human"
     )  # its own label stays
     assert got["successor_labelled"] == 1
+    assert not _has(book, "new-earlier")  # superseded by another run
     assert (
-        rule_labels.label_for(book, requirement_id="new-earlier") is None
-    )  # superseded by another run
+        got["old_rules_not_carried"] == 4
+    )  # old-changed, old-head-other, old-split-1, old-split-2
 
 
 def test_a_persons_approval_is_never_carried_only_counted(book):
@@ -181,6 +228,10 @@ def test_a_persons_approval_is_never_carried_only_counted(book):
 
 
 def test_carrying_twice_changes_nothing(book):
-    standards.carry_labels(book, "d-book", RUN)
+    first = standards.carry_labels(book, "d-book", RUN)
     again = standards.carry_labels(book, "d-book", RUN)
-    assert again["carried"] == 0 and again["successor_labelled"] == 3
+    assert (
+        again["carried"] == 0
+        and again["successor_labelled"]
+        == first["carried"] + first["successor_labelled"]
+    )
