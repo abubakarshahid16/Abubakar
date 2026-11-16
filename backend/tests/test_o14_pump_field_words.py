@@ -17,14 +17,18 @@ def role(label):
 def test_speed_words():
     assert role("RPM") == role("Rated RPM") == role("Speed (rpm)") == "rated_speed"
     assert role("Nominal RPM") == role("RATED LOAD RPM") == "driver_speed"
-    assert role("Specific speed") is None and role("Speed") is None  # a bare "Speed" is usually a type, not the figure
+    assert (
+        role("Specific speed") is None and role("Speed") is None
+    )  # a bare "Speed" is usually a type, not the figure
 
 
 def test_power_words():
     assert role("NAMEPLATE POWER") == role("Motor rated power") == "driver_rating"
     assert role("HYDRAULIC POWER") == "hydraulic_power"
     assert role("Pump power") == "absorbed_power"
-    assert role("RATED POWER") is None  # often the driver's: never compared as absorbed power
+    assert (
+        role("RATED POWER") is None
+    )  # often the driver's: never compared as absorbed power
 
 
 def test_rated_power_on_the_sheet_is_a_question_not_a_missing_value():

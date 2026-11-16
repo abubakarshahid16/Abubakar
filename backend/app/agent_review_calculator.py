@@ -364,7 +364,9 @@ def ai_draft_ids() -> frozenset[str]:
         for entry in table.values()
         if isinstance(entry, Mapping)
         for item in entry.get("items") or []
-        if isinstance(item, Mapping) and item.get("ai_draft") and isinstance(item.get("id"), str)
+        if isinstance(item, Mapping)
+        and item.get("ai_draft")
+        and isinstance(item.get("id"), str)
     )
 
 
@@ -400,7 +402,10 @@ def checklist_lines(
     for r in results:
         if r.get("rule_id") in drafts:
             # an AI-draft limit the value meets is not a proven Pass and asks nothing: no line (like a presence check that is stated)
-            if (r.get("rule_said") or r.get("status")) not in (comparison.NOT_APPLICABLE, COMPLIANT):
+            if (r.get("rule_said") or r.get("status")) not in (
+                comparison.NOT_APPLICABLE,
+                COMPLIANT,
+            ):
                 out.append(_ai_draft_line(r, page_texts, cells, document_id))
             continue
         status = r.get("status")
@@ -450,7 +455,12 @@ def _ai_draft_line(r: Mapping, page_texts, cells, document_id) -> dict:
     line = _checklist_base(r, cell, page_texts, document_id)
     detail = str(r.get("detail") or "")[:200]
     said = r.get("rule_said") or r.get("status")
-    out = _undecided(line, f"{AI_DRAFT_WORDS}: {detail or 'the check could not decide'}", "not_decided", detail)
+    out = _undecided(
+        line,
+        f"{AI_DRAFT_WORDS}: {detail or 'the check could not decide'}",
+        "not_decided",
+        detail,
+    )
     # the entry is written in our own words, not the book's: never shown as the standard's quote (gate G1), kept under its own key
     out["check_words"], out["clause_quote"] = out.get("clause_quote") or "", ""
     out["quotes_checked"] = {**out["quotes_checked"], "clause": False}

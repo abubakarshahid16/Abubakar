@@ -406,7 +406,7 @@ def is_draft_checklist(text: str | None) -> bool:
 #: not (yet) approved for the repo stay on the machine. Client standard items
 #: approved by the owner (2026-10-10) are in the committed JSON, in our own words.
 LOCAL_DIR_NAME = "checklists"
-_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed", "above_by", "calc", "sum_percent_of")
+_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed", "above_by", "calc")
 
 
 def _local_items(key: str) -> list[dict]:
@@ -434,7 +434,7 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
         source = item.get("source") or {}
         if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
             raise ValueError(f"checklist item {item.get('id')!r} needs an id, text and a source clause")
-        if (item.get("rule") or {}).get("kind") not in _RULE_KINDS:
+        if (item.get("rule") or {}).get("kind") not in (*_RULE_KINDS, "sum_percent_of"):
             raise ValueError(f"checklist item {item['id']!r}: unknown rule kind")
     draft = (entry.get("sign_off") or {}).get("status") != "signed"
     return {"key": key, "items": items, "draft": draft, **governs(entry)}
@@ -616,7 +616,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     (the field is not given; qualified by the pages read when stored),
     NEEDS_ENGINEER_REVIEW (with the reason) or NOT_APPLICABLE (its condition
     does not hold, with the reason). Pure: code decides, no model."""
-    from . import claims
+    from . import claims, datasheet_sum
 
     rule = item["rule"]
     source = item["source"]
@@ -676,10 +676,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                        f"'{_said(cond_fact)}' (page {cond_fact.get('page')}).",
                        cond_fact, condition["role"])
     kind = rule["kind"]
-    if kind == "calc":
-        return evaluate_calc(item, field, get, res, rules)
-    if kind == "sum_percent_of":
-        return evaluate_sum(rule, get, res, held, rules)
+    if kind in ("calc", "sum_percent_of"):  # R13; a sum: datasheet_sum.sum_percent_of
+        return getattr(datasheet_sum, kind, evaluate_calc)(item, field, get, res, rules)
     fact, why = _one(get(field))
     if fact is None and unknown is not None:
         # The condition is unknown and the field is absent: whether the contractor owes this value is not known, so it is not a missing value.
@@ -917,54 +915,6 @@ def _is_percent(fact: dict) -> bool:
         return True
     label = str(fact.get("field_label") or fact.get("field_name") or "")
     return not unit and "%" in label
-
-
-def _sum_part(get, role: str, res, held):
-    """(the fact, None) for one value of a sum, or (None, the result that stops it): not given, stated twice, or marked by the
-    contractor. Nothing is guessed: a part that is not there is never taken as 0."""
-    fact, why = _one(get(role))
-    if fact is None:
-        return None, held(why_held.checked_against(None, why), _sentence(
-            f"the {_pretty(role).lower()} {'has two different values' if why == 'two different values' else 'is not given'}, "
-            f"so the sum is not worked out"))
-    if blank_markers.fact_is_placeholder(fact, figure_wins=True):
-        return None, res(MISSING_INFORMATION, f"{_label(fact, role)} is marked '{_said(fact) or fact.get('blank_marker')}' "
-                                              f"on page {fact.get('page')}; the contractor is to provide the value.", fact, role)
-    return fact, None
-
-
-def evaluate_sum(rule: dict, get, res, held, rules: dict) -> dict:
-    """Order 14 lane A (SAES-J-600 5.1.1): `field` plus `plus` compared with a percent of `right`, e.g. the superimposed back pressure plus the
-    built-up back pressure below 10% of the set pressure. Each part is a gauge pressure converted to kPa, or a percentage of `right` when the
-    sheet states it so; the sum is compared, never one part alone. A part not given, marked, unread or on no gauge basis stops the check
-    with its reason (never a Pass on a missing part)."""
-    reference = rule["right"]
-    parts = []
-    for role in (rule["field"], rule["plus"]):
-        fact, stop = _sum_part(get, role, res, held)
-        if stop is not None:
-            return stop
-        parts.append((role, fact))
-    first = parts[0][1]
-    try:
-        ref_fact = _input(get, reference)
-        ref_kpa = _gauge_kpa(ref_fact, reference, rules)
-        if ref_kpa <= 0:
-            raise _NotCalculated(f"the {_pretty(reference).lower()} is not above 0")
-        total = 0.0
-        for role, fact in parts:
-            if _is_percent(fact):
-                total += _number_of(fact, role) / 100.0 * ref_kpa
-            else:
-                total += _gauge_kpa(fact, role, rules)
-    except _NotCalculated as exc:
-        return res(NEEDS_ENGINEER_REVIEW, _sentence(f"{exc.reason}, so the sum was not worked out"), first)
-    percent = total / ref_kpa * 100.0
-    ok = _hold(rule["op"], percent, float(rule["percent"]), _OPS)
-    said = " plus ".join(f"{_label(f, r)} {_said(f)} (page {f.get('page')})" for r, f in parts)
-    return res(COMPLIANT if ok else NON_COMPLIANT,
-               f"{said} is {percent:.1f}% of {_quoted(ref_fact, reference)}, which is "
-               f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['percent']}%.", first)
 
 
 def _overpressure_kpa(get, set_kpa_g: float, rules: dict) -> tuple[float, dict]:
