@@ -332,7 +332,7 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
         and status == words.STATUS_AI_VERDICT
     ):
         return f"Contractor to state {field_words(line) or 'the value asked for'}, or the page where it is shown."
-    guard = crs_comments.guard_words(line) if line.get("ai_verdict") == "Pass" else ""
+    guard = crs_comments.guarded_question_words(line)
     if (
         status == words.STATUS_QUERY and guard
     ):  # order 14 (G6): a guarded AI "met" is a question in every run; R94's words stay

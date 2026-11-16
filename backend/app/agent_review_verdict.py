@@ -716,7 +716,7 @@ NO_VALUE_WHY = (
 DISAGREE_WHY = "two AI readers disagree on this line"
 #: Order 14, 16 Nov 2026 (G6): an AI "met" the pass guard objected to (R94) is a question in every run; the second reader's yes or no used to decide.
 GUARD_CODES = ("pass_field_unknown", "pass_field_not_quoted", "pass_condition_not_quoted", "field_unknown_cannot_check_deferral")  # fmt: skip
-GUARD_MET_WHY = "the pass guard objected to this AI 'met', so it is not confirmed"
+GUARD_MET_WHY = "code could not confirm this AI 'met'"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase

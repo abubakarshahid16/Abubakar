@@ -158,7 +158,7 @@ def test_a_pass_quoted_on_another_fields_row_is_ai_thinks_met_with_a_plain_reaso
     row = lines_of(run_id)["R-coat"]
     assert (row["verdict_class"], row["word"]) == GUARDED_QUERY
     assert (
-        row["reason"] == G.FIELD_LINE_WHY
+        row["reason"].startswith(f"{V.GUARD_MET_WHY}: {G.FIELD_LINE_WHY}")  # order 14 (G6): lead, then the guard's own reason
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_FIELD_NOT_QUOTED
     )
 
@@ -284,7 +284,7 @@ def test_a_conditional_rule_needs_a_quote_of_the_condition(w, conditional):
     row = lines_of(run_id)["R-coat"]
     assert (row["verdict_class"], row["word"]) == GUARDED_QUERY
     assert (
-        row["reason"] == G.CONDITION_NOT_QUOTED_WHY
+        row["reason"].startswith(f"{V.GUARD_MET_WHY}: {G.CONDITION_NOT_QUOTED_WHY}")  # order 14 (G6): lead, then the guard's own reason
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_CONDITION_NOT_QUOTED
     )
 

@@ -136,3 +136,37 @@ def test_an_ai_not_met_the_second_reader_disagreed_with_is_a_question():
     assert (
         kept["verdict_label"] != W.WORD_QUERY
     )  # the second reader agreed: the AI's "not met" stands as before
+
+
+# --- second review (R2-1851): the row still says the AI judged it met; a disagreement keeps its action; specific reasons win
+
+
+def test_a_guarded_question_says_the_ai_judged_it_met_and_the_guards_own_reason():
+    item_line = _ai(
+        "Pass",
+        reason_code="pass_field_not_quoted",
+        second_opinion={"agree": True},
+        why="the field's words are elsewhere",
+    )
+    out = W.final_cap(item_line, ITEM, None, {"S-1"}, "datasheet")
+    line = {**item_line, **out}
+    assert out["not_proven_reason"].startswith(
+        f"{V.GUARD_MET_WHY}: the field's words are elsewhere"
+    )
+    assert V.moved_by_guard(
+        line
+    )  # the workbook's "One AI reader's view, not confirmed: the requirement is met." follows from this
+
+
+def test_a_guarded_met_the_second_reader_disagreed_with_keeps_the_disagreement_action():
+    from app import crs_comments
+
+    line = _ai(
+        "Pass", reason_code="pass_field_unknown", second_opinion={"agree": False}
+    )
+    assert (
+        crs_comments.guarded_question_words(line) == ""
+    )  # the readers-disagree action stays, as before
+    assert crs_comments.guarded_question_words(
+        _ai("Pass", reason_code="pass_field_unknown", second_opinion=None)
+    )

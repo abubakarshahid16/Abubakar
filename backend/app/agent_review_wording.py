@@ -210,11 +210,14 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     """THE text the engineer reads for a "met" the guard made a Query (screen reason, workbook comment and verdict cells):
     the guard's reason first; for two readers who disagree, a plain sentence saying the second reader disagreed; then the
     first reader's own words ONLY marked as one reader's view that is not confirmed. Never the line's conclusion."""
-    if unsafe == GUARD_MET_WHY and line.get("why"):
-        return str(
-            line["why"]
-        )  # order 14 (G6): the guard's own reason, as it read when the line was "AI thinks: met"
-    out = unsafe + "."
+    lead = (
+        f"{unsafe}: {line['why']}"
+        if unsafe == GUARD_MET_WHY and line.get("why")
+        else unsafe
+    )
+    out = (
+        lead + "."
+    )  # order 14 (G6): a guarded "met" names the guard's own reason after the lead
     if unsafe == DISAGREE_WHY:
         out += " " + SECOND_DISAGREED.strip()
     view = " ".join(str(line.get("comment") or line.get("reasoning") or "").split())
@@ -282,17 +285,6 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             + (f"; {why}" if unapproved else ""),
         }
     if (
-        line.get("ai_verdict") == FAIL
-        and line.get("verdict") == QUERY
-        and isinstance(line.get("second_opinion"), Mapping)
-        and line["second_opinion"].get("agree") is False
-    ):  # 2b0. order 14, 16 Nov night: the second reader DISAGREED with a "not met": two readers disagree, a question (as for a "met")
-        return {
-            "verdict_label": WORD_QUERY,
-            "verdict_class": CLASS_QUERY,
-            "not_proven_reason": DISAGREE_WHY + (f"; {why}" if unapproved else ""),
-        }
-    if (
         deferred := not_met_deferred_why(line)
     ):  # 2b'. a "not met" on silence whose own verified quote defers the value (order 14 lane D)
         return {
@@ -311,6 +303,17 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": two_reader.absence_disagree_why(line),
+        }
+    if (
+        line.get("ai_verdict") == FAIL
+        and line.get("verdict") == QUERY
+        and isinstance(line.get("second_opinion"), Mapping)
+        and line["second_opinion"].get("agree") is False
+    ):  # 2c0. order 14, 16 Nov night: the second reader DISAGREED with a "not met": two readers disagree, a question (as for a "met")
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": DISAGREE_WHY + (f"; {why}" if unapproved else ""),
         }
     if (
         two_reader.disagrees(line) or two_reader.other_disagrees(line)

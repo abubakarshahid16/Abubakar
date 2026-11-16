@@ -198,6 +198,14 @@ def guard_objected(point: dict) -> bool:
 guard_words = words.guard_words
 
 
+def guarded_question_words(line: dict) -> str:
+    """Order 14 (G6): the guard's objection for an AI "met" that is now a question, when the engineer's action should say it; ''
+    when the second reader disagreed (that line's action says the readers disagree, as before) or the line is no AI "met"."""
+    second = line.get("second_opinion")
+    disagreed = isinstance(second, dict) and second.get("agree") is False
+    return "" if line.get("ai_verdict") != "Pass" or disagreed else words.guard_words(line)
+
+
 def tick_only(point: dict) -> bool:
     """An AI line its reader judged met (its reason "met" or "pass_...") whose PAPER quote code verified, held back only because its
     CLAUSE quote was not verified: the engineer ticks it; it is not a comment. Never ticked (each checked on its own, whatever reason
