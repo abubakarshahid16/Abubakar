@@ -84,6 +84,16 @@ unless otherwise stated in the purchase order for the equipment.
 """
 
 
+#: The same table with a change-type column in another vocabulary ("Major", "Minor"). The change-type title rule does
+#: not know these words, so ONLY the revision-history region keeps the rows from being read as headings: without it the
+#: table's bare 1, 3, 4, 8 and its dotted rows set the numbering and the body's 1, 2, 3 are refused as a restart. The
+#: tests named for mutations M897 and M898 use it; with the usual words they passed whatever the region did.
+CHANGES_P1_OTHER_WORDS = (
+    CHANGES_P1.replace("Modification", "Major").replace("Deletion", "Minor").replace("Addition", "Major")
+)
+CHANGES_P2_OTHER_WORDS = CHANGES_P2.replace("Modification", "Major").replace("Editorial", "Minor")
+
+
 def _sections(blocks: list[ch.Block], page: int) -> list[str | None]:
     return [b.section for b in blocks if b.page_start == page]
 
@@ -95,13 +105,19 @@ def _segment(pages: list[tuple[int, str]]) -> list[ch.Block]:
 
 # ---------------------------------------------------------------- chunker
 
-def test_the_body_keeps_its_own_clause_numbers_after_a_change_table():
+@pytest.mark.parametrize(
+    "p1, p2", [(CHANGES_P1, CHANGES_P2), (CHANGES_P1_OTHER_WORDS, CHANGES_P2_OTHER_WORDS)], ids=["usual", "other_words"]
+)
+def test_the_body_keeps_its_own_clause_numbers_after_a_change_table(p1, p2):
     """THE DEFECT. Without the region, the table's rows set the numbering and
-    the body's 1, 2, 3 are refused - the Scope is filed under a table row."""
-    blocks = _segment([(2, CHANGES_P1), (3, CHANGES_P2), (4, BODY)])
+    the body's 1, 2, 3 are refused - the Scope is filed under a table row. The
+    "other_words" table is caught by nothing but the region (M897), and its rows
+    must also stay out of the heading pre-pass (M898)."""
+    blocks = _segment([(2, p1), (3, p2), (4, BODY)])
     body = [s for s in _sections(blocks, 4) if s]
     assert body[:3] == ["1 Scope", "2 Conflicts and Deviations", "3 References"]
     assert not any(s.startswith(("14.1.5", "5.1.4", "9.2")) for s in body)
+    assert {s for p in (2, 3) for s in _sections(blocks, p)} == {"Summary of Changes"}
 
 
 def test_the_change_table_is_filed_under_its_own_title():
@@ -223,6 +239,14 @@ def test_a_numbered_requirement_keeps_its_sentence_and_takes_its_number():
     blocks = _segment([(7, page)])
     loads = [b for b in blocks if "Design loads shall" in b.text]
     assert len(loads) == 1 and loads[0].section == "4.2"
+    # A requirement short enough to pass every title test: only the "shall" rule (M904) keeps it a numbered paragraph.
+    # (The long line above is caught by the numbered-requirement rule, and a "shall" line of five words or more by the
+    # reads-as-a-sentence rule, so neither tested the "shall" rule.)
+    short = ("4\nDesign\n4.1 General\nThe design shall be prepared by a qualified engineer.\n"
+             "4.4 Loads shall apply\nWind and seismic loads are combined as tabled.\n")
+    blocks = _segment([(7, short)])
+    loads = [b for b in blocks if "Loads shall apply" in b.text]
+    assert len(loads) == 1 and loads[0].section == "4.4"
     # still a clause line wherever the chunker counts clauses (page kind)
     assert ch.looks_like_heading("4.4 Design loads shall be as per the building code")
     assert ch.count_clause_headings(page) >= 2
