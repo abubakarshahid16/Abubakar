@@ -156,3 +156,58 @@ def fact_is_placeholder(fact: dict, *, figure_wins: bool = False) -> bool:
             fact.get("blank_marker"),
         )
     )
+
+
+# ---------------------------------------------------------------- order 14 lane D: "*" where a value is expected
+
+#: A star that FILLS a value's place: inside or next to a drawn blank ("___*___", "*_____", "_____*"), or a lone star
+#: followed by a unit ("FLUSH * m3/h", "* kW"). A lone star at the END of a line is a footnote ("A216 WCB *" marks a stated
+#: value), and a star glued to a word or a figure ("TYPE*", "24.8*", "2*4") is no blank either.
+_UNIT = (
+    r"\(?(?:m3/h|m3/hr|m³/h|l/s|l/min|gpm|kg/h|t/h|m|mm|cm|ft|in|kw|w|hp|bar|barg|bara|mbar|psi|psig|psia|pa|kpa|mpa"
+    r"|°c|°f|deg\s?c|deg\s?f|c|f|k|%|rpm|r/min|dba|db\(a\)|db|kg|kg/m3|cp|cst|mm2/s|hz|v|kv|a|s|min|h|nm|n)\)?"
+)
+_FILL_STAR = re.compile(
+    r"(?:_+\*+_*|_*\*+_+|(?:^|(?<=\s))\*+(?=\s+"
+    + _UNIT
+    + r"(?:[\s,;]|$))|^\s*\*+\s*$)",
+    re.IGNORECASE,
+)
+
+#: A line that OPENS with a star and then words is a legend or a footnote ("* vendor to advise / complete",
+#: "*see note 3"): the star points at other cells, it does not stand in one.
+_NOTE_STAR = re.compile(r"^\s*\(?\*+\)?\s*[A-Za-z]")
+
+#: A star that leads into a pointer ("* see note 3", "* note 2", "* ref. 4"): a note mark, not a blank.
+_STAR_POINTER = re.compile(
+    r"\*+\s*(?:see|note|notes|ref|remark|remarks)\b", re.IGNORECASE
+)
+
+#: A clause number in brackets inside a label ("ALLOWED RANGE (9.4.2)"): it points at a book, it is no value.
+_BRACKETED_CLAUSE = re.compile(r"\(\s*\d+(?:\.\d+){2,}\s*\)")
+
+
+def star_fills_value(text: str | None) -> bool:
+    """True when `text` (one printed line or one quoted cell) carries the enquiry sheet's "* = vendor to fill" mark where a
+    value is expected: a star in or beside a drawn blank, a lone star before a unit, or a cell that is only a star, AND no
+    figure stands on the line (a figure the line states wins: "RATED FLOW 24.8 m3/h *" states its flow, the star is that
+    value's footnote). Never a note mark: a line that opens with a star and words (a legend), a star before "see / note /
+    ref", a lone star at the end of a line (a footnote on what stands before it), a star glued to a word or a figure. A
+    clause number in brackets ("(6.1.11)") and a pointer number ("note 3", "Class 300") are no figure. General: marks,
+    units and figures only, no field name, no layout."""
+    line = " ".join((text or "").split())
+    if not line or "*" not in line:
+        return False
+    if _NOTE_STAR.match(line) or _STAR_POINTER.search(line):
+        return False
+    if not _FILL_STAR.search(line):
+        return False
+    return not _has_standalone_figure(_BRACKETED_CLAUSE.sub(" ", line))
+
+
+def defers_value(text: str | None) -> bool:
+    """THE deferral question for a printed line or a paper quote: a phrase marker ("By Contractor", "TBA", "vendor to
+    advise": `names_a_marker`) OR the lone "*" vendor-to-fill mark where a value is expected (`star_fills_value`).
+    `names_a_marker` stays phrases only, because the readers use it on single cells, where a lone star is handled by
+    `classify`; the deferral finders read whole lines and quotes, so they ask this."""
+    return names_a_marker(text) or star_fills_value(text)
