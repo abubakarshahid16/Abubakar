@@ -49,7 +49,7 @@ import re
 import sqlite3
 import time
 import unicodedata
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -141,6 +141,8 @@ UNREADABLE_WORDS = "the answer could not be read"
 #: Names the reading of the answer, so a change to it misses the answers stored before (`claude_spend.answer_on_file`).
 ANSWER_VERSION = "standards-web-search-answer-1"
 STORED_WORDS = "from the stored answer of an earlier search: nothing sent, USD 0"
+#: A stored answer older than this is not used ("latest edition" changes with time): the name is searched again, paid, capped.
+MAX_STORED_AGE_DAYS = 90
 PLAN_WORDS = (
     "After the AI review, the public names of rule books this paper cites that the library does not hold may be sent to "
     "Claude's web search (the name only, never document text; at most {n} names and USD {usd:.2f}). What it finds is shown as "
@@ -374,11 +376,8 @@ def main_worst_usd(parts: dict) -> float:
 
 
 def _short(value, limit: int) -> str | None:
-    text = (
-        " ".join(str(value).split())
-        if isinstance(value, (str, int, float)) and not isinstance(value, bool)
-        else ""
-    )
+    plain = isinstance(value, (str, int, float)) and not isinstance(value, bool)
+    text = " ".join(str(value).split()) if plain else ""
     text = "".join(c for c in text if c.isprintable())
     return text[:limit] or None
 
@@ -403,17 +402,13 @@ def publisher_url(value) -> str | None:
         or port not in (None, 443)
     ):
         return None
-    return (
-        value
-        if any(host == d or host.endswith("." + d) for d in PUBLISHER_DOMAINS)
-        else None
-    )
+    ours = any(host == d or host.endswith("." + d) for d in PUBLISHER_DOMAINS)
+    return value if ours else None
 
 
 def _year(value) -> int | None:
-    if not isinstance(value, int) or isinstance(value, bool):
-        return None
-    return value if 1900 <= value <= datetime.now(UTC).year + 1 else None
+    ok = isinstance(value, int) and not isinstance(value, bool)
+    return value if ok and 1900 <= value <= datetime.now(UTC).year + 1 else None
 
 
 FIELDS = ("title", "latest_edition", "year", "publisher", "url")
@@ -456,6 +451,17 @@ def _asked_keys(text: str) -> bool:
     return isinstance(got, dict) and any(k in got for k in FIELDS)
 
 
+def stored_on(stored: dict | None) -> str | None:
+    """When a stored answer was searched (its record's UTC time), or None when unknown, in the future or too old to use."""
+    try:
+        when = datetime.fromisoformat(str((stored or {}).get("stored_at")))
+        age = datetime.now(UTC) - when
+        fresh = timedelta(0) <= age <= timedelta(days=MAX_STORED_AGE_DAYS)
+    except (ValueError, TypeError):  # no time, or one without its zone: never used
+        return None
+    return when.isoformat(timespec="seconds") if fresh else None
+
+
 def _row(fields: dict, usd: float, why: str | None = None) -> dict:
     found = any(fields[k] for k in ("title", "latest_edition", "year", "url"))
     return {"outcome": FOUND if found else NOTHING, "why": why, "usd": usd, **fields}
@@ -470,12 +476,8 @@ def searches_made(answer: dict) -> int:
         counted = max(0, int(stated.get("web_search_requests") or 0))
     except (TypeError, ValueError):
         counted = 0
-    blocks = sum(
-        1
-        for b in answer.get("content") or []
-        if isinstance(b, dict) and b.get("type") == "server_tool_use"
-    )
-    return max(counted, blocks)
+    blocks = [b for b in answer.get("content") or [] if isinstance(b, dict)]
+    return max(counted, sum(b.get("type") == "server_tool_use" for b in blocks))
 
 
 # ------------------------------------------------------------------------------------------------ one request
@@ -514,8 +516,9 @@ def search_one(
             STEP, body, version=ANSWER_VERSION, valid=_asked_keys, prompt_sha256=digest
         )
         fields, readable = read_answer(stored or {})
-        if readable:
-            return _row(fields, 0.0, STORED_WORDS)
+        # a hit keeps the ORIGINAL search time; a stored answer read_answer refuses (not expected) is asked again, paid
+        if readable and (when := stored_on(stored)):
+            return {**_row(fields, 0.0, STORED_WORDS), "searched_at": when}
         held = claude_spend.reserve(
             STEP, extra_worst_usd(parts), model=MODEL, prompt_sha256=digest
         )
@@ -583,14 +586,9 @@ def _has_table(conn) -> bool:
 
 
 def _missing(conn, run_id: str) -> list[str]:
+    sql = "SELECT name FROM agent_review_missing_book WHERE run_id = ? ORDER BY name"
     try:
-        return [
-            r[0]
-            for r in conn.execute(
-                "SELECT name FROM agent_review_missing_book WHERE run_id = ? ORDER BY name",
-                (run_id,),
-            )
-        ]
+        return [r[0] for r in conn.execute(sql, (run_id,))]
     except sqlite3.OperationalError:  # no AI review tables: no book listed
         return []
 
@@ -627,7 +625,8 @@ def _write(conn, run_id: str, name: str, searched: str | None, row: dict) -> Non
             f"INSERT OR REPLACE INTO {TABLE} (run_id, name, searched_name, outcome, why, title, latest_edition, year, publisher, url,"
             " searched_at, usd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, name, searched, row["outcome"], row.get("why"), row.get("title"), row.get("latest_edition"), row.get("year"),
-             row.get("publisher"), row.get("url"), datetime.now(UTC).isoformat(timespec="seconds"), float(row.get("usd") or 0.0)),
+             row.get("publisher"), row.get("url"), row.get("searched_at") or datetime.now(UTC).isoformat(timespec="seconds"),
+             float(row.get("usd") or 0.0)),
         )  # fmt: skip
 
 
@@ -750,7 +749,8 @@ def words(row: dict | None) -> str:
     """The one plain sentence for one book, on the page and in the CRS file's column."""
     if not row:
         return "not searched yet"
-    stored = f"; {STORED_WORDS}" if row.get("why") == STORED_WORDS else ""
+    hit, when = row.get("why") == STORED_WORDS, str(row.get("searched_at"))[:10]
+    stored = f"; {STORED_WORDS}, searched on {when}" if hit else ""
     if row["outcome"] == FOUND:
         bits = [row.get("title"), row.get("latest_edition"), f"({row['year']})" if row.get("year") else None, row.get("publisher"),
                 row.get("url")]  # fmt: skip

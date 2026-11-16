@@ -888,7 +888,7 @@ def test_a_second_identical_search_opens_no_socket_and_costs_nothing(cache_on):
         and row["why"] == sws.STORED_WORDS
     )
     assert row["title"] == FOUND["title"] and row["searched_name"] == "ISO 9003"
-    assert sws.words(row).endswith(sws.STORED_WORDS)
+    assert sws.STORED_WORDS + ", searched on " in sws.words(row)
     assert (
         len(list(settings.claude_cache_dir.rglob("*.json"))) == 1
     )  # the readable answer, kept once
@@ -934,3 +934,58 @@ def test_an_unreadable_answer_is_never_kept(cache_on, unreadable):
         rows(ai)["ISO 9004"]["outcome"] == sws.FOUND
         and rows(ai)["ISO 9004"]["why"] is None
     )
+
+
+def _stored_at(when) -> None:
+    """Set the one stored answer's record time (None: a record from before the time was kept)."""
+    (path,) = settings.claude_cache_dir.rglob("*.json")
+    record = json.loads(path.read_text("utf-8"))
+    record["stored_at"] = when
+    path.write_text(json.dumps(record), "utf-8")
+
+
+def test_a_stored_answer_carries_its_original_search_date_not_today(cache_on):
+    from datetime import UTC, datetime, timedelta
+
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "ISO 9005")
+    sws.search_run(ai, send=Sender(), env=ENV)
+    then = (datetime.now(UTC) - timedelta(days=30)).isoformat(timespec="seconds")
+    _stored_at(then)
+    again = Sender()
+    _search_again(ai, again)
+    row = rows(ai)["ISO 9005"]
+    assert again.bodies == [] and row["why"] == sws.STORED_WORDS
+    assert row["searched_at"] == then, "a stored answer was dated today"
+    assert sws.words(row).endswith(f"searched on {then[:10]}")
+
+
+@pytest.mark.parametrize("age_days", [sws.MAX_STORED_AGE_DAYS + 1, None, -2])
+def test_a_stored_answer_too_old_undated_or_future_dated_is_asked_again(
+    cache_on, age_days
+):
+    from datetime import UTC, datetime, timedelta
+
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "ISO 9006")
+    sws.search_run(ai, send=Sender(), env=ENV)
+    when = None
+    if age_days is not None:
+        when = datetime.now(UTC) - timedelta(days=age_days)
+        when = when.isoformat(timespec="seconds")
+    _stored_at(when)
+    again = Sender()
+    got = _search_again(ai, again)
+    assert len(again.bodies) == 1 and got["asked"] == 1 and got["usd"] > 0
+    assert rows(ai)["ISO 9006"]["why"] is None
+
+
+def test_a_different_answer_version_misses_the_stored_answer(cache_on, monkeypatch):
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "ISO 9007")
+    sws.search_run(ai, send=Sender(), env=ENV)
+    monkeypatch.setattr(sws, "ANSWER_VERSION", sws.ANSWER_VERSION + "-changed")
+    again = Sender()
+    _search_again(ai, again)
+    assert len(again.bodies) == 1, "an answer stored under another version was used"
+    assert rows(ai)["ISO 9007"]["why"] is None

@@ -16,7 +16,8 @@ does not change what it says.
 ONLY COMPLETE ANSWERS ARE KEPT: a normal stop, some text, and the caller's validity
 check. Never a refusal, a cut-off, an error, an empty reply or a reply that fails its
 check. A tool-use turn is not an answer either. Corrupt or unreadable means a miss,
-never a crash.
+never a crash. Each file says when it was stored (`stored_at`, UTC), so a caller whose
+question changes with time can refuse an old answer.
 
 THE FILES HOLD DOCUMENT TEXT (the answers quote it). They live only inside `data_dir`
 and git-ignored: any other folder means no cache, with the reason stated
@@ -39,6 +40,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .ai.json_reply import unfenced
@@ -194,6 +196,7 @@ def write(key: str, *, step: str, payload, cost_usd: float, valid=None) -> bool:
             "usage": payload.get("usage"),
             "cost_usd": float(cost_usd or 0.0),
             "documents": documents,
+            "stored_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         handle, temp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
         with os.fdopen(handle, "w", encoding="utf-8") as fh:
