@@ -880,6 +880,20 @@ def test_a_line_already_a_query_is_not_asked(ai, lib, monkeypatch, groq):
     assert runner.crosscheck_counts()["crosscheck_step"]["candidates"] == 0
 
 
+def test_a_met_the_guard_holds_is_not_asked(lib, monkeypatch, groq):
+    """A Query by the met guard alone (the paper quote defers the value; no second reader said anything): not sent either."""
+    _ready(monkeypatch)
+    line = _line("R-tba", paper_quote="TBA")
+    assert not agent_run_second.disagreed(line.get("second_opinion"))
+    assert W.classify(line)["verdict_class"] == W.CLASS_QUERY
+    runner = FakeRunner(line, _line("R-good"))
+    runner.run_crosscheck()
+    assert (
+        len(groq.sent) == 1 and cc.FIELD not in runner.lines["R-tba"]
+    )  # the good line only
+    assert runner.crosscheck_counts()["crosscheck_step"]["candidates"] == 1
+
+
 @pytest.mark.parametrize(
     "second_ai,shown", [(False, True), (True, False), (False, False)]
 )

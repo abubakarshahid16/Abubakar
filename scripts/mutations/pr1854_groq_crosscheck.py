@@ -92,5 +92,5 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1854-20", phase=1854, description="a line already a Query is sent again",
              path=_R, anchor='    return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES\n',
              replacement='    return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES or line.get("verdict") == "Query"\n',
-             target=_T, keyword="already_a_query or test_candidates", tags=("privacy", "budget")),
+             target=_T, keyword="already_a_query or guard_holds or test_candidates", tags=("privacy", "budget")),
 )
