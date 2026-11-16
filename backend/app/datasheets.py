@@ -12,7 +12,7 @@ and that is the whole design:
       ['VAPOR PRESSURE:', 'bar a (psia)', '0.35 (6.09)']
       ['SPECIFIC GRAVITY:', '0.85 @ 150 OF']
 
-  DS-0000-DAS-I-01 (pressure safety valves, 5 pages) - `find_tables()` reports a
+  DS-0000-QRS-I-01 (pressure safety valves, 5 pages) - `find_tables()` reports a
   table on 5 of 5 pages too, and the rate is MEANINGLESS: every one of them is
   the two-row title block. The actual PSV data is not in it at all.
 
@@ -350,7 +350,7 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
     page is a five-row section, not furniture.
 
     AND THE VALUE DECIDES, NOT THE LABEL ALONE. Repetition by itself was wrong
-    and it cost a whole document: `DS-0000-DAS-I-01` is FIVE INSTANCES OF ONE
+    and it cost a whole document: `DS-0000-QRS-I-01` is FIVE INSTANCES OF ONE
     FORM, one pressure safety valve per page, so every real field - `Set
     pressure`, `Relieving temperature`, `Density at relieving temper.` -
     appears on every page. The page-count rule classified the entire form as a
@@ -3034,7 +3034,7 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
     from this page" is true of a scanned page with no text and of a page whose
     every pair was filtered out, and those want opposite responses: the first
     is an OCR question, the second is a rule that is too strict. The second is
-    what happened to every page of DS-0000-DAS-I-01, and the message sent the
+    what happened to every page of DS-0000-QRS-I-01, and the message sent the
     reader looking for a parsing problem that was not there.
 
     So the sentence is only used when it is TRUE, and otherwise the page says
@@ -3726,7 +3726,7 @@ def _extract_facts(
             # used to say "no label-value pairs recovered" whatever had happened,
             # so a page whose pairs were all FILTERED read exactly like a page that
             # could not be parsed at all - and it sent the reader to the wrong half
-            # of the pipeline. On DS-0000-DAS-I-01 that message was printed for five
+            # of the pipeline. On DS-0000-QRS-I-01 that message was printed for five
             # pages from which 190 pairs each had been recovered and discarded.
             dropped: dict[str, int] = {}
             # B4: a row the GRID reader read by position is not read again by

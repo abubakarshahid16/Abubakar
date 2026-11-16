@@ -1408,8 +1408,8 @@ are NATIVE TEXT (not scanned):
 
 | File | Pages | What it is |
 |---|---|---|
-| `DS-0000-DAS-M-01.pdf` | 7 | client centrifugal pump datasheet (booster water pumps) |
-| `DS-0000-DAS-I-01.pdf` | 5 | client pressure safety valve datasheet |
+| `DS-0000-QRS-M-01.pdf` | 7 | client centrifugal pump datasheet (booster water pumps) |
+| `DS-0000-QRS-I-01.pdf` | 5 | client pressure safety valve datasheet |
 | `SAES-A-105.pdf` | 14 | the client's own standard |
 
 **`SAES-A-105.pdf` exists after all.** Phase 3B reported it absent from the
@@ -1421,15 +1421,15 @@ honesty audit.
 
 | File | Pages with a parsed table | Rate |
 |---|---|---|
-| `DS-0000-DAS-M-01.pdf` | 7 of 7 | **100%** |
-| `DS-0000-DAS-I-01.pdf` | 5 of 5 | **100%** |
+| `DS-0000-QRS-M-01.pdf` | 7 of 7 | **100%** |
+| `DS-0000-QRS-I-01.pdf` | 5 of 5 | **100%** |
 | `SAES-A-105.pdf` | 3 of 14 | 21% |
 
 **The Datasheet 1 figure is worthless, and reading the content is what showed it.**
 Every one of those five "tables" is the two-row title block:
 
 ```
-['EXAMPLE OPERATING COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSV)', 'DOCUMENT NO. DS-0000-DAS-I-01']
+['EXAMPLE OPERATING COMPANY', 'DATA SHEET FOR PRESSURE SAFETY VALVES (PSV)', 'DOCUMENT NO. DS-0000-QRS-I-01']
 ['PROJECT NO. P-1000001', '', 'Sheet 2 of 6', 'Rev. 1']
 ```
 
@@ -1514,8 +1514,8 @@ preference.
 
 | | facts | blanks | pages | unparsed | fraction |
 |---|---|---|---|---|---|
-| `DS-0000-DAS-I-01.pdf` | 37 | 25 | 5 | 1 | 0.80 |
-| `DS-0000-DAS-M-01.pdf` | 9 | 8 | 7 | 4 | 0.43 |
+| `DS-0000-QRS-I-01.pdf` | 37 | 25 | 5 | 1 | 0.80 |
+| `DS-0000-QRS-M-01.pdf` | 9 | 8 | 7 | 4 | 0.43 |
 
 What it gets right is genuinely right:
 

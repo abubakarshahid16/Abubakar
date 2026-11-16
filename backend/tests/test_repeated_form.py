@@ -1,6 +1,6 @@
 """A form repeated on every page is not a title block.
 
-THE DEFECT, MEASURED ON A REAL DOCUMENT. `DS-0000-DAS-I-01` is a client pressure
+THE DEFECT, MEASURED ON A REAL DOCUMENT. `DS-0000-QRS-I-01` is a client pressure
 safety valve datasheet: five pages, one valve per page, the SAME FORM each
 time. Every real field - `Set pressure`, `Relieving temperature`, `Density at
 relieving temper.` - therefore appears on all five pages, and the furniture
@@ -50,7 +50,7 @@ import pytest
 from app import datasheets, page_reason_words
 
 
-TITLE_BLOCK = ("DOCUMENT NO.", "DS-0000-DAS-I-01")
+TITLE_BLOCK = ("DOCUMENT NO.", "DS-0000-QRS-I-01")
 FOOTER = ("Company General Use", "")
 
 
@@ -76,7 +76,7 @@ def test_a_repeated_form_with_per_page_values_is_not_furniture():
 
     assert "set pressure" not in furniture, (
         "the form field was stripped as a header - this is the defect that "
-        "took DS-0000-DAS-I-01 from 37 facts to zero")
+        "took DS-0000-QRS-I-01 from 37 facts to zero")
     assert "relieving temperature" not in furniture
 
 
@@ -298,7 +298,7 @@ def test_a_page_with_no_pairs_says_exactly_that():
 def test_a_page_whose_pairs_were_filtered_names_the_filters():
     """THE MESSAGE THAT SENT A READER TO THE WRONG HALF OF THE PIPELINE.
 
-    Five pages of DS-0000-DAS-I-01 reported "no label-value pairs recovered"
+    Five pages of DS-0000-QRS-I-01 reported "no label-value pairs recovered"
     while 190 pairs per page had been recovered and discarded. One sentence
     covered both a scanned page with no text and a rule that was too strict,
     and those want opposite responses.

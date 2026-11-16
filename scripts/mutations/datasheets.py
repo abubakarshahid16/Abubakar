@@ -285,7 +285,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M174", phase=13,
         description="COUNT PAGES ALONE AGAIN, so a form repeated on every "
-                    "page is stripped as a header - DS-0000-DAS-I-01 back to "
+                    "page is stripped as a header - DS-0000-QRS-I-01 back to "
                     "zero facts from 162 rows",
         path=APP / "datasheets.py",
         anchor="        is_field = distinct >= 2 and answered * 2 > len(pages)",

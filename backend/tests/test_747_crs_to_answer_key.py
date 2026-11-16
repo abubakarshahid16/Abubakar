@@ -1,6 +1,6 @@
 """#747: a DRAFT answer key from a real Comment Resolution Sheet.
 
-The real CRSs KJO engineers wrote are the answer key. Builders never read
+The real CRSs client engineers wrote are the answer key. Builders never read
 them; this converter is built and tested on INVENTED sheets rendered in the
 client's own template (`crs_export.build_crs`). Each comment becomes one
 defect item with the standard and clause it names; a comment whose standard
