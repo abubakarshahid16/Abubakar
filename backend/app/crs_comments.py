@@ -355,7 +355,8 @@ def _evidence(ms: list[dict]) -> set[tuple]:
     for p in ms:
         q = _norm(p.get("paper_quote") or _line_of(p).get("paper_quote"))
         # FTU-1: a quote that is only where a reader looked is not evidence of a value, so it never joins two fields
-        if q and not (p.get("paper_looked") or looked_only(_line_of(p)) or looked_only(p)):
+        looked = p.get("paper_looked") or looked_only(_line_of(p)) or looked_only(p)
+        if q and not looked:
             out.add(("paper", p.get("page"), q))
         book, clause = p.get("rule_book") or (p.get("rule_ref") or {}).get("name"), p.get("clause")
         if _norm(book) and _norm(clause):

@@ -373,7 +373,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         else None
     )
     # FTU-1: a line whose own reason says the paper does not state the value: its found quote is where it looked, never evidence
-    looked, paper_q = (paper_q, None) if paper_q and actions.looked_only(line) else (None, paper_q)
+    looked, paper_q = (
+        (paper_q, None) if paper_q and actions.looked_only(line) else (None, paper_q)
+    )
     book_readable = bool(book_name)
     # The rule book's own words are the book's: a caller who may not read the book gets neither its name nor its text (rule 5).
     clause_q = (
@@ -430,14 +432,18 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "clause": clause if book_name else None,
         "action": action or None,
         # U5d: the line's STORED words when code did not verify them (shown as stored, "not verified by code"); never when the book is unreadable
-        "paper_value": (None if paper_q or looked else (_clean(line.get("paper_quote")) or None)),
+        "paper_value": (
+            None if paper_q or looked else (_clean(line.get("paper_quote")) or None)
+        ),
         "paper_value_page": page,
         "rule_text": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
         "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
         "paper_looked": looked,
         "clause_quote": clause_q,
-        "paper_quote_note": PAPER_CHECK if paper_q else (content.looked_note(looked) if looked else NO_PAPER_QUOTE),
+        "paper_quote_note": PAPER_CHECK
+        if paper_q
+        else (content.looked_note(looked) if looked else NO_PAPER_QUOTE),
         "clause_quote_note": _clause_note(line)
         if clause_q
         else (NO_CLAUSE_QUOTE if book_readable else NO_BOOK_ACCESS),
@@ -544,7 +550,11 @@ def rule_point(
         else ""
     )
     # FTU-1: a point whose own record says the paper gives no value shows the found passage only as where it looked, never as evidence
-    looked, paper_q = (paper_q, "") if paper_q and content.says_no_value(kind, finding) else ("", paper_q)
+    looked, paper_q = (
+        (paper_q, "")
+        if paper_q and content.says_no_value(kind, finding)
+        else ("", paper_q)
+    )
     clause_q = (
         _clean((finding or {}).get("requirement_source_text"))
         if side_s.get("verified") and finding
@@ -557,7 +567,8 @@ def rule_point(
     )
     name = (
         _plain(field)
-        or _plain(content._head(comment, 7))  # FTU-1: a shortened name carries its mark (the whole comment is the point's action)
+        # FTU-1: a shortened name carries its mark (the whole comment is the point's action)
+        or _plain(content._head(comment, 7))
         or "A point of the rule check"
     )
     if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
@@ -614,7 +625,9 @@ def rule_point(
         "paper_quote": paper_q or None,
         "paper_looked": looked or None,
         "clause_quote": clause_q or None,
-        "paper_quote_note": PASSAGE_PAPER_CHECK if paper_q else (content.looked_note(looked) if looked else NO_PAPER_QUOTE),
+        "paper_quote_note": PASSAGE_PAPER_CHECK
+        if paper_q
+        else (content.looked_note(looked) if looked else NO_PAPER_QUOTE),
         "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),

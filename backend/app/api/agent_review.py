@@ -614,7 +614,8 @@ def agent_crs(
     # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered. FTU-1: said FIRST, so a missing or wrong copy word
     # gets the same plain sentence and a 422 never lists copies this route then refuses
     crs_copy_words.refuse_old_file_when_off()
-    copy = crs_copy_words.agent_copy(copy or "")  # V2: one set of copy words on every CRS route (a missing word: 422 with the list)
+    # V2: one set of copy words on every CRS route (a missing word: 422 with the list)
+    copy = crs_copy_words.agent_copy(copy or "")
     _run_or_404(review_run_id, scope)
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():

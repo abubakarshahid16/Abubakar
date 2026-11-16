@@ -813,7 +813,8 @@ def test_a_silent_line_with_a_verified_quote_says_where_it_looked_never_that_the
     )
     got = _line2(line)
     assert 'The paper states "Nameplate: steel"' not in got
-    assert "did not find" in got and '("Nameplate: steel", page 2, found on the page by code)' in got
+    assert "did not find" in got
+    assert '("Nameplate: steel", page 2, found on the page by code)' in got
     assert actions.NOT_STATED_REASON in got
 
 

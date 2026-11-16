@@ -288,7 +288,8 @@ def _comment_cuts(
         "requires": col["What the rule requires"],
         "reason": col["Reason"],
         "clauses": col["Rule books and clauses"],
-        "note": col["Note"],  # FTU-1: the Note is a long cell too: shortened only with the mark and its whole text beside it
+        # FTU-1: the Note is a long cell too: shortened only with the mark and its whole text beside it
+        "note": col["Note"],
     }
     by_id = {p["id"]: p for p in raw}
     by_no = {c["number"]: c for c in crs_comments.group(raw)}
@@ -461,8 +462,11 @@ def file_or_refuse(paper_id: str, scope, copy: str, **build_kw) -> bytes:
     from . import review_points_service as svc
 
     listing, raw, facts = svc.export_listing(paper_id, scope)
-    if not (facts.get("rc_run") or facts.get("ai_run")):  # FTU-1: no finished review, so there is nothing to put in a CRS file
-        raise Incomplete({"ok": False, "sentence": NOT_REVIEWED, "missing": [], "not_reviewed": True})
+    # FTU-1: no finished review, so there is nothing to put in a CRS file
+    if not (facts.get("rc_run") or facts.get("ai_run")):
+        raise Incomplete(
+            {"ok": False, "sentence": NOT_REVIEWED, "missing": [], "not_reviewed": True}
+        )
     build = crs_one.build_team if copy == "team" else crs_one.build_contractor
     data = build(paper_id, scope, listing_raw=(listing, raw, facts), **build_kw)
     report = verify(paper_id, scope, copy, data, listing, raw, facts)

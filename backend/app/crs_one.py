@@ -625,9 +625,11 @@ def no_rule_words(points: list[dict]) -> str:
 
 def comment_note(c: dict, ms: list[dict]) -> str:
     """The Note of a comment, WHOLE: the readers' disagreement or the count of its points, its tags, and each other point (R91)."""
-    note = comments.DISAGREE if c["disagree"] else (f"{c['n_points']} points on this field" if c["n_points"] > 1 else "")
+    many = f"{c['n_points']} points on this field" if c["n_points"] > 1 else ""
+    note = comments.DISAGREE if c["disagree"] else many
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])  # R91: each other point, its class and ask
+    # R91: each other point, its class and ask
+    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])
     return _clean(note.strip(" ;"))
 
 

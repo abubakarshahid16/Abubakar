@@ -51,7 +51,8 @@ def action_case(line: Mapping) -> str:
         return "deferred"
     if verified and quote_defers(line.get("paper_quote")):
         return "deferred"
-    if says_silent(line):  # FTU-1: the line's OWN reason says the paper does not state it; a quote it carries is where it looked
+    # FTU-1: the line's OWN reason says the paper does not state it; a quote it carries is where it looked
+    if says_silent(line):
         return "blank"
     if verified:
         return "stated"
