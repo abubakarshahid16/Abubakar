@@ -347,7 +347,7 @@
     },
     "inlet_pressure_drop": {
       "never_negative": true,
-      "kind": "percent",
+      "kind": "number",
       "names": [
         "^(estimated )?inlet (piping |pipe |line )?(press(ure|\\.)? )?(drop|loss)( %)?$",
         "^(estimated )?inlet (piping |pipe |line )?(press(ure|\\.)? )?(drop|loss) \\(?(%|psi|kpa|bar)\\)?$"
