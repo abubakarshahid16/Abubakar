@@ -182,14 +182,14 @@ NO_QUOTE = "No verified quote of this clause is held: the engineer reads the cla
 
 def _no_quote(line: Mapping) -> str:
     """What a comment says when no verified clause quote is held: that, in plain words, then the words we do hold, each labelled as what
-    it is (our checklist's wording; the stored rule text that code did not find in the book). Never shown as the book's words."""
+    it is (our checklist's wording; the stored rule text code did not find in the book, never of a book not held). Never the book's."""
     out = NO_QUOTE
     ours = (
         checklist_wording(line.get("item_id")) if line.get("source") == "skill" else ""
     )
     if ours:
         out += f' Our checklist asks (our words, not the book\'s): "{ours}".'
-    elif (stored := _clean(line.get("requirement"))) and line.get("source") != "group":
+    elif stored := words.stored_rule_text(line):
         out += f' The stored rule text, not found in the book by code: "{stored}".'
     return out
 
@@ -726,9 +726,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
-    lines = words.mark_not_held(
-        [wording.read_time(ln) for ln in lines], missing
-    )  # read time
+    lines = words.mark_not_held([wording.read_time(ln) for ln in lines], missing)
     items, others = _split(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)

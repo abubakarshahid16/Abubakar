@@ -12,6 +12,9 @@ from app import crs_ai_words as words
 from app import crs_comments
 from app import review_points as rp
 from app.review_points_service import run_meta
+from tests.test_agent_review_routes import (
+    client,  # noqa: F401 - fixture: a finished AI run on an invented paper
+)
 from tests.test_crs_gates import Row, g
 
 # ------------------------------------------------------------------------------------------------ G5: silence needs a proof
@@ -280,4 +283,215 @@ def test_a_line_whose_book_the_run_does_not_hold_shows_the_book_as_not_held_and_
     )  # the line as the file showed it before
     assert g.g7_missing([old], ["STD-Q-9"], [], ["STD-Q-9"]).failed == [
         ("R1", "rule words shown for a book not held")
+    ]
+
+
+# ------------------------------------------------------------------------------------------------ G7 through the BUILT run file
+
+
+NOT_HELD_META = {"paper": "Paper A", "run_id": "run-1", "date": "2026-11-17", "header": {"project": "Project Q"},
+                 "rule_labels": {"missing_rule_books": [{"rule_book": "STD-Q-9", "why": "not in the library"}]}}  # fmt: skip
+Q_QUOTE, Q_RULE = (
+    "Nozzle loads shall be listed for every branch.",
+    "Nozzle loads shall be stated on the sheet.",
+)
+
+
+def _built(lines: list[dict], copy: str) -> str:
+    """Every cell of the run file the app's own builder draws, as one text."""
+    import io
+
+    import openpyxl
+
+    from app import crs_ai_workbook, crs_layout
+
+    data = crs_layout.build_layout_crs(
+        crs_ai_workbook.layout_view(lines, NOT_HELD_META, copy)
+    )
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    return "\n".join(
+        str(c)
+        for ws in wb.worksheets
+        for row in ws.iter_rows(values_only=True)
+        for c in row
+        if c is not None
+    )
+
+
+def _not_held_lines() -> list[dict]:
+    from tests.test_o14_b_crs_writer import mk
+
+    ask = mk("R-1", field="Nozzle load", standard="STD-Q-9", clause="6.5", clause_quote=Q_QUOTE, requirement=Q_RULE,
+             quotes_checked={"paper": True, "clause": False})  # fmt: skip
+    proven = mk("R-2", "Fail", "Fail", field="Seal flush", standard="STD-Q-9", clause="7.2", reason_code=None,
+                compare={"decided": True, "verdict": "does_not_meet"})  # fmt: skip
+    held = mk("R-3", "Fail", "Fail", field="Set pressure", reason_code=None, standard_document_id="doc_1",
+              compare={"decided": True, "verdict": "does_not_meet"})  # fmt: skip
+    return [ask, proven, held]
+
+
+def test_the_built_team_file_shows_a_book_not_held_and_none_of_its_clause_or_rule_words():
+    team = _built(_not_held_lines(), "internal")
+    assert "STD-Q-9 (rule book not held)" in team
+    assert "clause 6.5" not in team and "6.5" not in team.replace(
+        "STD-Q-9 (rule book not held)", ""
+    )
+    assert (
+        Q_QUOTE not in team
+    )  # the Evidence sheet's clause quote (`shown_clause_quote`)
+    assert (
+        Q_RULE not in team
+    )  # the stored rule text is never printed for a book not held
+
+
+def test_a_proven_line_on_a_book_not_held_is_an_engineer_question_and_never_reaches_the_contractor():
+    lines = _not_held_lines()
+    team = _built(lines, "internal")
+    assert "STD-Q-9 clause 7.2" in team  # a proven line keeps its clause
+    assert (
+        words.PROVEN_NOT_HELD_WHY in team and "Engineer to check the rule" in team
+    )  # an engineer question
+    contractor = _built(lines, "contractor")
+    assert (
+        "STD-Q-9" not in contractor and "not held" not in contractor
+    )  # never a firm contractor row, never the internal mark
+    assert (
+        "STD-1 clause 4.1" in contractor
+    )  # the proven Fail on a held book is still issued
+    got = words.mark_not_held(
+        [lines[1]], NOT_HELD_META["rule_labels"]["missing_rule_books"]
+    )[0]
+    assert (
+        got["verdict"] == "Query"
+        and got["verdict_class"] == w.CLASS_QUERY
+        and words.NOT_HELD_KEY not in got
+    )
+
+
+def test_a_calculator_line_naming_a_part_of_a_book_not_held_is_that_book_not_held():
+    missing = [{"rule_book": "API-610"}]
+    calc = {
+        "source": "code",
+        "standard": "API 610 datasheet annex",
+        "clause": "A.1",
+        "verdict": "Query",
+    }
+    assert (
+        words.mark_not_held([calc], missing)[0][words.NOT_HELD_KEY] is True
+    )  # the annex is part of the book: not held
+    proven = words.mark_not_held([{**calc, "verdict": "Fail"}], missing)[0]
+    assert (
+        proven["verdict"] == "Query" and proven["clause"] == "A.1"
+    )  # code's verdict on a book not held: the engineer checks it
+    other = words.mark_not_held(
+        [{**calc, "standard": "API 682 datasheet annex"}], missing
+    )[0]
+    assert (
+        words.NOT_HELD_KEY not in other
+    )  # another book of the family is not that book
+
+
+def test_g7_still_fails_a_not_held_line_whose_stored_rule_text_the_file_prints():
+    line = {
+        "source": "rule",
+        "standard": "STD-Q-9",
+        "clause": "6.5",
+        "requirement": Q_RULE,
+        words.NOT_HELD_KEY: True,
+    }
+    shown = g._line_row(
+        "R1",
+        line,
+        cells=(f'The stored rule text, not found in the book by code: "{Q_RULE}".',),
+    )
+    assert g.g7_missing([shown], ["STD-Q-9"], [], ["STD-Q-9"]).failed == [
+        ("R1", "rule words shown for a book not held")
+    ]
+    quiet = g._line_row("R1", line, cells=("STD-Q-9 (rule book not held)",))
+    assert g.g7_missing([quiet], ["STD-Q-9"], [], ["STD-Q-9"]).failed == []
+
+
+# ------------------------------------------------------------------------------------------------ the lines tab reads what the CRS reads
+
+
+def _stored_row(line: dict) -> dict:
+    import json
+
+    return {"item_id": line["item_id"], "verdict_class": line["verdict_class"], "word": "AI thinks: not met", "page": 1,
+            "clause": "4.1", "rule_book": "STD-A-100", "reason": "stored", "rule_tier": "AI approved", "part": None,
+            "text_source": None, "line_json": json.dumps(line)}  # fmt: skip
+
+
+def test_the_lines_tab_shows_an_older_runs_unproven_silence_as_the_query_the_crs_shows():
+    from app.api import agent_review as api
+
+    got = api._read_line(_stored_row(_absent_line(rule_tier="AI approved")))
+    assert got.verdict_class == w.CLASS_QUERY and got.word == "Query"
+
+
+def test_the_query_counts_read_the_lines_as_the_crs_reads_them():
+    """The groups count the READER's own Queries only (its answer was "Query"); an older run's AI "not met" read as a Query today is a
+    Query of the gate, not of the reader, so it is in no group (the page and the first sheet count the same way)."""
+    import json
+
+    from app.agent_review_local import AI_QUERY_WHY
+    from app.api import agent_review as api
+
+    conn = _conn_with_missing("run-1", [])
+    conn.execute(
+        "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, verdict_class TEXT, word TEXT, line_json TEXT)"
+    )
+    asked = _absent_line(
+        item_id="R-2",
+        ai_verdict="Query",
+        why=AI_QUERY_WHY,
+        verdict_class=w.CLASS_QUERY,
+        verdict_label=w.WORD_QUERY,
+    )
+    for ln in (_absent_line(), asked):
+        conn.execute("INSERT INTO agent_review_line VALUES (?,?,?,?,?)",
+                     ("run-1", ln["item_id"], ln["verdict_class"], ln["verdict_label"], json.dumps(ln)))  # fmt: skip
+    groups, no_answer = api._query_groups(conn, "run-1")
+    assert (
+        groups.contractor_silent + groups.engineer_drawing + groups.could_not_decide,
+        no_answer,
+    ) == (1, 0)
+
+
+def test_the_page_and_the_lines_tab_read_a_proven_line_on_a_book_not_held_as_the_crs_does(
+    client,  # noqa: F811 - the fixture
+):
+    import json
+
+    from app import db, review_points
+    from tests.test_agent_review_routes import finished_run
+
+    run_id = finished_run(client)
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY item_id",
+        (run_id,),
+    ).fetchone()
+    line = {**json.loads(row["line_json"]), "verdict": "Fail", "ai_verdict": "Fail", "decided_by": v.BY_CODE, "error": None,
+            "verdict_class": w.CLASS_PROVEN, "verdict_label": "Fail", "standard": "STD-Q-9", "standard_document_id": None,
+            "compare": {"decided": True, "verdict": "does_not_meet"}}  # fmt: skip
+    conn.execute("UPDATE agent_review_line SET verdict_class = ?, word = 'Fail', line_json = ? WHERE run_id = ? AND item_id = ?",
+                 (w.CLASS_PROVEN, json.dumps(line), run_id, row["item_id"]))  # fmt: skip
+    conn.execute(
+        "INSERT INTO agent_review_missing_book (run_id, name, why) VALUES (?, 'STD-Q-9', 'not in the library')",
+        (run_id,),
+    )
+    conn.commit()
+    points, _held = review_points.ai_points_of_run(
+        conn, run_id, "doc_paper", frozenset()
+    )
+    mine = [
+        p for p in points if (p.get("_line") or {}).get("item_id") == row["item_id"]
+    ]
+    assert (
+        mine and mine[0]["rank"] == 4
+    )  # a Question on the page, as in the run file: never "Not met, proven by code"
+    listed = client.get(f"/api/reviews/runs/{run_id}/agent/lines").json()["lines"]
+    assert [x["verdict_class"] for x in listed if x["item_id"] == row["item_id"]] == [
+        w.CLASS_QUERY
     ]

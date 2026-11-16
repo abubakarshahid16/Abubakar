@@ -71,7 +71,8 @@ THE GATES, EXACTLY.
      run that the file's OWN book-missing listing does not name (the page's sheet "Rule books not held"; the run file's "not held" rows
      and its Notes line); a name elsewhere, such as inside a question, is not a listing. A question with no clause and no rule text
      passes (it asks, it does not guess). The run file shows a line whose book is on the run's missing list with its book "not held"
-     and no clause (`crs_ai_words.mark_not_held`); the gate reads that line as the file shows it.
+     and no clause (`crs_ai_words.mark_not_held`); the gate reads that line as the file shows it (order 14 gate change 2: no clause,
+     no clause quote), and still fails it when a cell prints the line's stored rule text.
 """
 
 from __future__ import annotations
@@ -897,9 +898,12 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
 
     rank = rp.rank_of_ai_line(ln)[0]
     name = rp.split_tags(crs_ai_workbook.field_name(ln))[0]
-    gone = bool(
-        ln.get(NOT_HELD_KEY)
-    )  # the file shows its book "not held", no clause and no clause words (`mark_not_held`)
+    # the file shows a not-held book as "not held", no clause and no clause words (`mark_not_held`); its stored rule text, if printed
+    gone = bool(ln.get(NOT_HELD_KEY))
+    req = " ".join(str(ln.get("requirement") or "").split())
+    shown_req = (
+        gone and bool(req) and any(req in " ".join(c.split()) for c in _cells(cells))
+    )
     book, clause = (
         str(ln.get("standard") or ""),
         "" if gone else str(ln.get("clause") or ""),
@@ -913,7 +917,7 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
         book=book, clause=clause, clauses=((book, clause),) if clause else (),
         quotes=tuple(q for q in (asked, None if gone else ln.get("clause_quote")) if q), quote_docs=(doc,) if doc else (),
         quote_page=page if isinstance(page, int) and not isinstance(page, bool) else None,
-        names=(book,) if book.strip() else (), shows_rule_words=bool(clause or (ln.get("clause_quote") and not gone) or asked),
+        names=(book,) if book.strip() else (), shows_rule_words=bool(clause or (ln.get("clause_quote") and not gone) or asked or shown_req),
         is_missing_listing=rank == 0 or ln.get("verdict_class") == KIND_NOT_HELD,
         reason=str(ln.get("reason_code") or ""), paper_figure=str(ln.get("paper_figure") or ""), rules=(str(ln.get("item_id") or ""),),
         paper_lines=(str(ln["paper_quote"]),) if ln.get("paper_quote") else (), open_question=_open_question(ln),

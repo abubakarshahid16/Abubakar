@@ -151,6 +151,12 @@ def query_group_counts(lines: Iterable[Mapping]) -> dict[str, int]:
 
 def reader_query_action(line: Mapping) -> str | None:
     """What the engineer reads as the action of a reader's own Query: a question for the engineer is never worded for the contractor."""
+    from .crs_ai_words import (
+        PROVEN_NOT_HELD_WHY,
+    )  # order 14 G7: code's verdict on a book not held (`mark_not_held`)
+
+    if line.get("why") == PROVEN_NOT_HELD_WHY:
+        return "Engineer to check the rule: code decided this line, but its rule book is not held."
     return {
         GROUP_DRAWING: "Engineer to judge this: it needs a drawing or a calculation.",
         GROUP_COULD_NOT: "Engineer to decide: the AI reviewer could not.",

@@ -218,7 +218,10 @@ ABSENCE_PLAIN: dict[str, str] = {
 CUT_OFF_WHY = (
     "the second AI reader's answer was cut off, so the two readers did not agree"
 )
+#: The reason of a line proven by code whose rule book the run does not hold (a contradiction: the engineer checks it, `mark_not_held`).
+PROVEN_NOT_HELD_WHY = "code decided this line, but the rule book it cites is not held"
 WHY_PHRASES: dict[str, str] = {
+    PROVEN_NOT_HELD_WHY: PROVEN_NOT_HELD_WHY,
     SILENCE_WHY: "the AI reviewer found the paper silent on this, which could not be confirmed",
     CONDITIONAL_WHY: "the rule holds only under a condition, which the AI reviewer could not settle from the paper",
     TABLE_NOTE_WHY: "the rule is a table row or a note whose conditions may lie outside the quoted text",
@@ -467,10 +470,13 @@ NOT_HELD_KEY, BOOK_NOT_HELD = "book_not_held", "rule book not held"
 
 
 def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
-    """The lines with `NOT_HELD_KEY` set on each line (a rule, a checklist item or a calculator line) that names a rule book on the
-    run's own book-missing list (`missing`: `review_points_service.run_meta`, the one reading) and links no held document for it.
-    Such a line is shown with its book and "rule book not held", never with a clause or clause words of it (order 14, G7: a rule
-    whose book we do not hold is listed as book missing, never guessed). Read time, pure; idempotent."""
+    """The lines as every CRS shows them when a line (a rule, a checklist item or a calculator line, whose book may be a part of a
+    book: "API 610 datasheet annex" is API 610) names a rule book on the run's own book-missing list (`missing`:
+    `review_points_service.run_meta`, the one reading) and links no held document for it (order 14, G7: never guessed).
+    NOT proven by code: `NOT_HELD_KEY` is set; it is shown with its book and "rule book not held", no clause, no clause words.
+    Proven by code (Pass or Fail): a contradiction, so it is an engineer's Query with `PROVEN_NOT_HELD_WHY`, keeping its clause; it
+    never reaches the contractor copy (proven Fails only), which therefore never carries the internal mark. Read time, pure;
+    idempotent."""
     from .standard_ids import same_standard
 
     names = [
@@ -486,8 +492,28 @@ def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
             and not ln.get("standard_document_id")
             and any(same_standard(std, n) for n in names)
         )
-        out.append({**ln, NOT_HELD_KEY: True} if gone else dict(ln))
+        if not gone:
+            out.append(dict(ln))
+        elif ln.get("verdict") in ("Pass", "Fail"):
+            out.append(_proven_not_held(ln))
+        else:
+            out.append({**ln, NOT_HELD_KEY: True})
     return out
+
+
+def _proven_not_held(line: Mapping) -> dict:
+    from .agent_review_verdict import BY_ENGINEER, QUERY
+    from .agent_review_wording import CLASS_QUERY, WORD_QUERY
+
+    return {**line, "verdict": QUERY, "decided_by": BY_ENGINEER, "why": PROVEN_NOT_HELD_WHY, "verdict_class": CLASS_QUERY,
+            "verdict_label": WORD_QUERY, "not_proven_reason": PROVEN_NOT_HELD_WHY}  # fmt: skip
+
+
+def stored_rule_text(line: Mapping) -> str:
+    """The stored rule text a comment may print, labelled as not found in the book: none for a group line or a book not held."""
+    if line.get("source") == "group" or line.get(NOT_HELD_KEY):
+        return ""
+    return _clean(line.get("requirement"))
 
 
 def shown_clause_quote(line: Mapping) -> str | None:
@@ -588,6 +614,7 @@ __all__ = [
     "PRIORITY_RULE",
     "PRIORITY_RULE_AI",
     "PRIORITY_RULE_NORMAL",
+    "PROVEN_NOT_HELD_WHY",
     "STATUSES",
     "UNKNOWN_WHY",
     "WHY_PHRASES",
@@ -604,5 +631,6 @@ __all__ = [
     "priority",
     "priority_ai",
     "shown_clause_quote",
+    "stored_rule_text",
     "why_phrase",
 ]

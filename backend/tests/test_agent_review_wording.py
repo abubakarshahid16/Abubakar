@@ -312,7 +312,7 @@ def test_a_silent_paper_is_a_query_for_every_kind_but_a_datasheet(code, kind):
         assert out["not_proven_reason"] == V.SILENCE_WHY
 
 
-def test_a_datasheet_keeps_the_ai_opinion_and_other_reasons_are_never_held_as_silence():
+def test_an_unproven_datasheet_absence_is_a_query_not_held_as_silence_and_other_reasons_keep_their_verdict():
     kept = W.final_cap(
         line("Query", "Fail", reason_code="absent", why="code cannot prove an absence"),
         RULE_OK,

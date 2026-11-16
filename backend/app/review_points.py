@@ -901,6 +901,7 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
+    lines = words.mark_not_held(lines, [{"rule_book": n} for n in held])  # order 14 G7
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,
