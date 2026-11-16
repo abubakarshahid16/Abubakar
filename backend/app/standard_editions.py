@@ -51,10 +51,13 @@ class BadPolicy(ValueError):
 # ---------------------------------------------------------------------------------------------------- dates
 
 _DATE = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$")
+#: a contract's cutoff: one day, or one month when the contract names only a month ("in effect as of March 2019").
+#: A year alone is refused: too coarse to pick anything.
+_CUTOFF = re.compile(r"^\d{4}-\d{2}(?:-\d{2})?$")
 
 
 def date_span(text) -> tuple[date, date] | None:
-    """The first and last day an ISO date can mean: '2023-06-10' is one day, '2023-06' the month, '2023' the year.
+    """The first and last day an ISO date can mean: '2019-03-10' is one day, '2019-03' the month, '2019' the year.
     None when it is not a date. A coarse date is a span, so a cutoff inside it is not decided by guessing."""
     found = _DATE.match(str(text or "").strip())
     if not found:
@@ -84,11 +87,12 @@ def load_policies(path: str | os.PathLike | None = None) -> dict[str, dict]:
     for name, rule in contracts.items():
         if rule.get("rule") not in RULES:
             raise BadPolicy(f"{name}: rule must be one of {', '.join(RULES)}")
-        if (
-            date_span(rule.get("date")) is None
-            or date_span(rule["date"])[0] != date_span(rule["date"])[1]
+        if date_span(rule.get("date")) is None or not _CUTOFF.match(
+            str(rule["date"]).strip()
         ):
-            raise BadPolicy(f"{name}: date must be one full day, YYYY-MM-DD")
+            raise BadPolicy(
+                f"{name}: date must be one full day (YYYY-MM-DD) or one month (YYYY-MM)"
+            )
         if rule.get("feed_conflict", "none") not in FEED_CONFLICTS:
             raise BadPolicy(
                 f"{name}: feed_conflict must be one of {', '.join(FEED_CONFLICTS)}"
@@ -171,9 +175,12 @@ def pick(editions, policy: dict, family: str, feed_edition: str | None = None) -
         chosen = newest[0]
         basis = "newest edition (this family always uses the latest)"
     else:
-        cutoff = date_span(policy["date"])[0]
-        in_time = [(e, s) for e, s in dated if s[1] <= cutoff]
-        straddle = [e for e, s in dated if s[0] <= cutoff < s[1]]
+        first, last = date_span(
+            policy["date"]
+        )  # one day, or the month a contract names
+        in_time = [(e, s) for e, s in dated if s[1] <= first]
+        # an edition whose date reaches into the cutoff (a coarse date, or one issued inside the cutoff month)
+        straddle = [e for e, s in dated if s[0] <= last and s[1] > first]
         if straddle:
             return Pick(
                 NEEDS_ENGINEER,
@@ -194,7 +201,7 @@ def pick(editions, policy: dict, family: str, feed_edition: str | None = None) -
                 "two editions on file have overlapping dates; the later one cannot be told",
             )
         chosen = best[0]
-        basis = f"latest edition on or before {policy['date']}"
+        basis = f"latest edition issued by {policy['date']}"
     note = ""
     if (
         feed_edition
@@ -225,6 +232,75 @@ def strictest(values, comparator: str):
     if not numbers or comparator not in (">=", ">", "<=", "<"):
         return None
     return max(numbers) if comparator in (">=", ">") else min(numbers)
+
+
+# ---------------------------------------------------------------------------------------------------- the held book against the cutoff
+
+BINDING, LATER, EARLIER, CANNOT_TELL, NOT_KNOWN = (
+    "held edition binds",
+    "held edition is later than the cutoff: for information only",
+    "held edition is older than the one that binds",
+    "cannot tell: the date reaches into the cutoff",
+    "edition not known",
+)
+
+
+def against_cutoff(held: dict | None, policy: dict, family: str, register=()) -> dict:
+    """What the cutoff says of the edition the library HOLDS. `held` = {"edition", "date"} as the book prints it (the
+    date as YYYY, YYYY-MM or YYYY-MM-DD; None when not printed); `register` = other editions on file with their dates.
+    The edition in force on the cutoff date binds; a later one is for information only; an unknown date is "edition
+    not known", never a guess. With the held edition the only one on file before the cutoff, it binds UNLESS a later
+    edition was issued before the cutoff and is not on file: said in `caveat`. Pure."""
+    span = date_span((held or {}).get("date"))
+    edition = str((held or {}).get("edition") or (held or {}).get("date") or "").strip()
+    out = {
+        "held": edition or None,
+        "held_date": (held or {}).get("date"),
+        "binding": None,
+        "caveat": "",
+    }
+    if span is None:
+        return {
+            **out,
+            "status": NOT_KNOWN,
+            "reason": "the held book prints no readable issue date",
+        }
+    first, last = date_span(policy["date"])
+    if any(_in_family(family, f) for f in policy.get("always_latest_families", [])):
+        return {
+            **out,
+            "status": NOT_KNOWN,
+            "reason": "this family always takes its newest edition: the register decides",
+        }
+    if span[0] > last:
+        got = pick(list(register), policy, family) if register else None
+        binding = got.editions[0] if got and got.status == PICKED else None
+        return {**out, "status": LATER, "binding": binding,
+                "reason": f"issued {held['date']}, after the cutoff {policy['date']}; the edition in force then "
+                + ("is " + binding if binding else "is not on file")}  # fmt: skip
+    if span[1] > first:
+        return {**out, "status": CANNOT_TELL,
+                "reason": f"issued {held['date']}: it reaches into the cutoff {policy['date']}; engineer to check"}  # fmt: skip
+    on_file = list(register)
+    if edition not in {str(r.get("edition")) for r in on_file}:
+        on_file.append({"edition": edition, "date": held["date"]})
+    got = pick(on_file, policy, family)
+    if got.status != PICKED:
+        return {**out, "status": NOT_KNOWN, "reason": got.reason}
+    if got.editions[0] != edition:
+        return {
+            **out,
+            "status": EARLIER,
+            "binding": got.editions[0],
+            "reason": got.reason,
+        }
+    caveat = (
+        ""
+        if register
+        else "binds unless a later edition was issued before the cutoff: none is on file"
+    )
+    return {**out, "status": BINDING, "binding": edition, "caveat": caveat,
+            "reason": f"issued {held['date']}, before the cutoff {policy['date']}"}  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------------- the register
