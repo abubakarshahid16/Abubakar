@@ -10,7 +10,7 @@ def test_off_the_points_routes_do_not_exist_and_the_status_says_off(monkeypatch)
     monkeypatch.setattr(settings, "review_page_v2_enabled", False)
     doc = _submittal()
     client = _client(doc)
-    assert client.get("/api/reviews/page-v2").json() == {"enabled": False}
+    assert client.get("/api/reviews/page-v2").json() == {"enabled": False, "old_crs_download": True}
     assert client.get(f"/api/reviews/papers/{doc}/points").status_code == 404
     assert (
         client.post(
@@ -24,5 +24,5 @@ def test_on_the_status_says_on_and_the_list_answers(monkeypatch):
     monkeypatch.setattr(settings, "review_page_v2_enabled", True)
     doc = _submittal()
     client = _client(doc)
-    assert client.get("/api/reviews/page-v2").json() == {"enabled": True}
+    assert client.get("/api/reviews/page-v2").json()["enabled"] is True
     assert client.get(f"/api/reviews/papers/{doc}/points").status_code == 200
