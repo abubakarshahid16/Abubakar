@@ -345,7 +345,10 @@ export function ReviewWorkspace({
 
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
   const aiReadRef = useRef(false);
-  const signOffRaw = useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy, aiReviewRead: () => aiReadRef.current });
+  const signOffRaw = useSignOff({
+    runId, rows, decisions, refresh, numbers, beforeCopy, aiReviewRead: () => aiReadRef.current,
+    documentId: run?.submittal_document_id ?? null,
+  });
   const signer = useSigner();
   // S2: Sign (from the bar or the sign-off panel) runs the issuing checks in
   // useSignOff and, when nothing is left, opens the ONE preview-and-confirm

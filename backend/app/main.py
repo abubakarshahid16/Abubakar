@@ -3237,6 +3237,7 @@ def export_review_crs(
     """
     reject_unknown_params(request, {"copy"})
     copy = crs_copy_words.rule_check_copy(copy)  # V2: one set of copy words on every CRS route
+    crs_copy_words.refuse_old_file_when_off()  # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered
     if copy == "issue":
         if submittal_review_mod.get_review_run(
                 review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
