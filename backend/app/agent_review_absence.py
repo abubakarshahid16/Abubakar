@@ -557,14 +557,9 @@ def comment(words: tuple[str, ...], standard: Any, clause: Any) -> str:
 
 
 def deferred_mark(field_text: str, texts: Mapping[int, str]) -> int | None:
-    """The first page where a deferral mark from the existing vocabulary (`blank_markers.names_a_marker`: "By Contractor",
-    "TBA", "vendor to advise", ...) belongs to the field, else None. A figure followed by 'By Contractor' is not a confirmed
-    value. It belongs to the field in one of two ways, both words only (no layout): (1) ONE line carries all the field's
-    content words and the mark; (2) the mark is on its own line and the line DIRECTLY before it is a label line: it carries
-    all the field's content words and no figure, AND the field has two or more content words or the label line's words
-    are exactly the field's (one shared word ties a neighbouring field's label: wrong); a sheet that prints a name on one
-    line and its value on the next. The second way only ever makes a result less confident. This is the ONE home: the review's request module
-    calls it. `texts` is {page number: page text}."""
+    """The first page where ONE line carries all the field's content words AND a deferral mark from the existing vocabulary
+    (`blank_markers.names_a_marker`: "By Contractor", "TBA", "vendor to advise", ...), else None. A figure followed by 'By
+    Contractor' is not a confirmed value. General: words, no layout. `texts` is {page number: page text}."""
     from .agent_bind import content_words
     from .blank_markers import names_a_marker
 
@@ -572,40 +567,10 @@ def deferred_mark(field_text: str, texts: Mapping[int, str]) -> int | None:
     if not want:
         return None
     for n in sorted(texts):
-        lines = (texts.get(n) or "").splitlines()
-        for i, raw in enumerate(lines):
-            if not names_a_marker(raw):
-                continue
-            if want <= content_words(raw):
-                return n
-            before = lines[i - 1] if i else ""
-            have = content_words(before)
-            if (
-                not re.search(r"\d", before)
-                and want <= have
-                and (len(want) >= 2 or have == want)
-            ):
+        for raw in (texts.get(n) or "").splitlines():
+            if names_a_marker(raw) and want <= content_words(raw):
                 return n
     return None
-
-
-def deferred_on_page(field_text: str, page_text: str) -> bool:
-    """True when the field's value is deferred on THIS page and the page shows it nowhere with a value: the deferral mark ties to
-    the field (`deferred_mark`) and no other line carries all the field's content words, no mark, and a next line with no mark
-    (a field printed with its value on that page). Words only. Used to correct a reason for the page a line's own quote is on."""
-    from .agent_bind import content_words
-    from .blank_markers import names_a_marker
-
-    want = content_words(field_text)
-    if not want or deferred_mark(field_text, {1: page_text}) is None:
-        return False
-    lines = (page_text or "").splitlines()
-    for i, raw in enumerate(lines):
-        if want <= content_words(raw) and not names_a_marker(raw):
-            after = lines[i + 1] if i + 1 < len(lines) else ""
-            if not names_a_marker(after):
-                return False
-    return True
 
 
 def pass_guard(
@@ -631,8 +596,6 @@ def pass_guard(
             None,
         )
     page = deferred_mark(field_text, texts)
-    if page is None and label:  # role words tied nothing: try the printed label
-        page = deferred_mark(label, texts)
     if page is None:
         return None
     return (

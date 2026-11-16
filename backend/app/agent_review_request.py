@@ -501,12 +501,20 @@ def reason_of(
 
 
 def deferred_mark(field: str, pages: Any, paper: str, total: int) -> int | None:
-    """The first page where a deferral mark belongs to the field, else None. The one home of the rule is
-    `agent_review_absence.deferred_mark` (same line, or a label line directly before the mark's line); this only gathers the
-    paper's pages for it."""
-    from .agent_review_absence import deferred_mark as one_home
+    """The first page where ONE line carries all the field's content words AND a deferral mark from the existing vocabulary
+    (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...), else None. A figure followed by a deferral mark is not a
+    confirmed value. General: words, no layout."""
+    from . import blank_markers
+    from .agent_bind import content_words
 
-    return one_home(field, {n: pages.page(paper, n) or "" for n in range(1, total + 1)})
+    want = content_words(field)
+    if not want:
+        return None
+    for n in range(1, total + 1):
+        for raw in (pages.page(paper, n) or "").splitlines():
+            if blank_markers.names_a_marker(raw) and want <= content_words(raw):
+                return n
+    return None
 
 
 # ---------------------------------------------------------------- the app's per-step cap: admission, never a raise

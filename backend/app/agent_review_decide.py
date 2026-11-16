@@ -249,10 +249,10 @@ class DecideMixin:
             guard = self.pass_guard(item, label if label_ok else "")
             if guard is not None:
                 decision, reason_code, deferred_page = guard
-        else:
-            fixed = self.deferred_reason(
-                item, answer, ev, decision, error, label if label_ok else ""
-            )
+        if (
+            deferred_page is None
+        ):  # the line's OWN verified quote carries a deferral mark
+            fixed = self.deferred_quote(answer, ev, decision, error)
             if fixed is not None:
                 decision, reason_code, deferred_page = fixed
         pg = self._pass_guards(item, answer, pages, ev)
@@ -275,35 +275,34 @@ class DecideMixin:
         )  # fmt: skip
         return {**line, "pass_guard": pg} if pg is not None else line
 
-    def deferred_reason(
-        self,
-        item: Mapping,
-        answer: Mapping,
-        ev: Mapping,
-        decision: Mapping,
-        error: str | None,
-        label: str,
+    def deferred_quote(
+        self, answer: Mapping, ev: Mapping, decision: Mapping, error: str | None
     ) -> tuple[dict, str, int] | None:
-        """(decision, "value_deferred", page) for a line the AI left as Query (decided by the engineer) whose field is marked
-        deferred on the page of the line's OWN verified paper quote and shown with a value nowhere on that page; else None. It
-        corrects the reason only: the line stays a Query, `reason_code_ai` stays the AI's own, no other line is touched. Field
-        words: the item's roles, else the printed label. A line without a verified paper page is not corrected."""
+        """(decision, "value_deferred", page) when the line's OWN paper quote is verified by code (it stands in the page) and
+        itself carries a deferral mark (`blank_markers.names_a_marker`: "By Contractor", "TBA", ...). Nothing else: no other
+        line of the page, no field words. It only lowers confidence: a Pass becomes a Query; a Query the AI left (decided by
+        the engineer) takes the reason value_deferred; an AI not-met opinion, a two-reader decision, a not-applicable line
+        and a line with an error are never touched. Nothing becomes Pass, Fail or not met. `reason_code_ai` stays the AI's."""
+        from .blank_markers import names_a_marker
+
         page = verdict._page_no(answer.get("paper_page"))
+        quote = str(answer.get("paper_quote") or "")
+        ai = verdict.ai_verdict_word(answer.get("verdict"))
         if (
             error
             or page is None
             or not ev["checks"].paper
-            or decision["verdict"] != verdict.QUERY
-            or decision["decided_by"] != verdict.BY_ENGINEER
-            or verdict.ai_verdict_word(answer.get("verdict")) != verdict.QUERY
+            or not names_a_marker(quote)
             or ev["reason_code"] == "not_applicable"
         ):
             return None
-        roles = " ".join(
-            str(r).replace("_", " ") for r in item.get("field_roles") or []
+        pass_to_query = decision["verdict"] == verdict.PASS
+        query_left = (
+            decision["verdict"] == verdict.QUERY
+            and decision["decided_by"] == verdict.BY_ENGINEER
+            and ai == verdict.QUERY
         )
-        text = self.pages.page(self.paper, page) or ""
-        if not any(f and absence.deferred_on_page(f, text) for f in (roles, label)):
+        if not (pass_to_query or query_left):
             return None
         return (
             {
@@ -614,8 +613,6 @@ class DecideMixin:
                 None,
             )
         page = deferred_mark(field, self.pages, self.paper, self.total_pages)
-        if page is None and label:  # role words tied nothing: try the printed label
-            page = deferred_mark(label, self.pages, self.paper, self.total_pages)
         if page is None:
             return None
         return (

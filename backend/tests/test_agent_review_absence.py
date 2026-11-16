@@ -287,198 +287,71 @@ def test_deferred_mark_needs_all_the_field_words_and_a_mark_on_one_line():
     assert A.deferred_mark("design pressure", {}) is None
 
 
-# ---------------------------------------------------------------- a label line, then the value line with the mark
-
-LABEL_THEN_MARK = {
-    1: "DATA SHEET\nCasing material\nBy Contractor\nRated flow\n120 m3/h"
-}
+# ---------------------------------------------------------------- the line's OWN quote carries the deferral mark (PR #1839)
 
 
-def test_a_mark_on_the_line_after_the_field_label_is_the_fields_deferral():
-    assert A.deferred_mark("casing material", LABEL_THEN_MARK) == 1
-    assert (
-        A.deferred_mark("rated flow", LABEL_THEN_MARK) is None
-    )  # its own value is a figure
-    got = A.pass_guard({"field_roles": ["casing_material"]}, "", LABEL_THEN_MARK)
-    assert got is not None and got[1] == "value_deferred" and got[2] == 1
-    assert got[0]["verdict"] == "Query" and "page 1" in got[0]["why"]
-
-
-def test_a_mark_line_does_not_belong_to_a_field_when_the_line_before_is_not_its_label():
-    no = (
-        {1: "Casing material 12 mm\nBy Contractor"},  # the label line holds a figure
-        {1: "Bearing type\nBy Contractor"},  # another field's label
-        {1: "Casing material\n\nBy Contractor"},  # the mark is not directly after
-        {
-            1: "Casing material\nfiller line\nBy Contractor"
-        },  # the mark is not directly after
-        {1: "By Contractor\nCasing material"},  # the mark is before the label
-        {1: "Casing\nBy Contractor"},  # a word of the field is missing
-    )
-    for pages in no:
-        assert A.deferred_mark("casing material", pages) is None, pages
-
-
-def test_a_pass_on_a_field_deferred_on_the_next_line_becomes_a_query_and_nothing_becomes_a_pass():
-    # the guard only ever answers Query (or None); it has no way to answer Pass or Fail
-    for pages in (
-        LABEL_THEN_MARK,
-        {1: "Casing material\nSteel"},
-        {},
-        {1: "Casing material 5\nBy Contractor"},
-    ):
-        got = A.pass_guard({"field_roles": ["casing_material"]}, "", pages)
-        assert got is None or got[0]["verdict"] == "Query"
-    assert (
-        A.pass_guard(
-            {"field_roles": ["casing_material"]}, "", {1: "Casing material\nSteel"}
-        )
-        is None
-    )
-
-
-def test_the_request_modules_deferred_mark_is_the_same_rule():
-    class Pages:
-        def page(self, paper, n):
-            return {1: "Bearing type\nSleeve", 2: LABEL_THEN_MARK[1]}.get(n)
-
-    import app.agent_review_request as R
-
-    assert R.deferred_mark("casing material", Pages(), "p", 3) == 2
-    assert R.deferred_mark("bearing type", Pages(), "p", 3) is None
-
-
-ABBREVIATED = {1: "DATA SHEET\nCsg matl\nBy Contractor\nRated flow\n120 m3/h"}
-
-
-def test_the_label_as_printed_is_tried_when_the_role_words_tie_nothing():
-    item = {"field_roles": ["casing_material"]}
-    assert (
-        A.pass_guard(item, "", ABBREVIATED) is None
-    )  # the role words are not on the sheet
-    got = A.pass_guard(item, "Csg matl", ABBREVIATED)
-    assert got is not None and got[1] == "value_deferred" and got[2] == 1
-    assert got[0]["verdict"] == "Query"
-    assert (
-        A.pass_guard(item, "Rated flow", ABBREVIATED) is None
-    )  # that label's value is a figure
-    assert (
-        A.pass_guard(item, "Csg matl", {1: "Csg matl 5\nBy Contractor"}) is None
-    )  # figure on the label line
-    assert A.pass_guard(item, "Csg matl", {1: "Csg matl\nSteel"}) is None  # no mark
-
-
-def test_the_review_runners_guard_also_tries_the_printed_label():
+def _runner():
     from app.agent_review_decide import DecideMixin
 
-    class Run(DecideMixin):
-        paper, total_pages = "p", 1
-
-        class pages:  # noqa: N801
-            @staticmethod
-            def page(paper, n):
-                return ABBREVIATED[1]
-
-    item = {"field_roles": ["casing_material"]}
-    assert Run().pass_guard(item, "") is None
-    got = Run().pass_guard(item, "Csg matl")
-    assert (
-        got is not None and got[1] == "value_deferred" and got[0]["verdict"] == "Query"
-    )
-
-
-# ---------------------------------------------------------------- round 3: the narrowed tie
-
-
-def test_a_label_line_tie_needs_two_field_words_or_the_exact_label_words():
-    one_word_field = "bearing"  # one content word
-    assert (
-        A.deferred_mark(one_word_field, {1: "Bearing housing material\nBy Contractor"})
-        is None
-    )  # another field's longer label
-    assert (
-        A.deferred_mark(one_word_field, {1: "Bearing\nBy Contractor"}) == 1
-    )  # the label line IS the field's words
-    assert (
-        A.deferred_mark("casing material", {1: "Casing material\nBy Contractor"}) == 1
-    )
-    # a header line over a row that is not the field's own: one word fields never tie
-    assert (
-        A.deferred_mark(one_word_field, {1: "Bearing lubrication\nBy Contractor"})
-        is None
-    )
-    # a note line holding a figure is not a label line
-    assert (
-        A.deferred_mark("casing material", {1: "Note 3 casing material\nBy Contractor"})
-        is None
-    )
-    # a label line that already holds its own one-word value: a one-word field does not tie
-    assert A.deferred_mark("casing", {1: "Casing steel\nBy Contractor"}) is None
-    # two labels on one line, one-word fields: neither ties (the two-word case is a known limit, a Query only)
-    assert A.deferred_mark("casing", {1: "Casing Bearing\nBy Contractor"}) is None
-    assert A.deferred_mark("bearing", {1: "Casing Bearing\nBy Contractor"}) is None
-
-
-# ---------------------------------------------------------------- round 3: the reason of a Query the AI left
-
-
-def _runner(page_text):
-    from app.agent_review_decide import DecideMixin
-
-    class Run(DecideMixin):
-        paper, total_pages = "p", 3
-
-        class pages:  # noqa: N801
-            @staticmethod
-            def page(paper, n):
-                return {2: page_text}.get(n)
-
-    return Run()
+    return DecideMixin()
 
 
 def _fix(
-    page_text,
+    quote,
     *,
-    paper_page=2,
     verdict_word="Query",
     by="engineer",
+    dec="Query",
+    paper_page=2,
     error=None,
     code="needs_drawing_or_calc",
-    label="",
     checked=True,
 ):
     from app import agent_review_verdict as V
 
-    decision = {"verdict": "Query", "decided_by": by, "why": "x"}
+    decision = {"verdict": dec, "decided_by": by, "why": "x"}
     ev = {"checks": V.QuoteCheck(checked, True), "reason_code": code}
-    answer = {"paper_page": paper_page, "verdict": verdict_word}
-    item = {"field_roles": ["casing_material"]}
-    return _runner(page_text).deferred_reason(item, answer, ev, decision, error, label)
+    answer = {"paper_page": paper_page, "verdict": verdict_word, "paper_quote": quote}
+    return _runner().deferred_quote(answer, ev, decision, error)
 
 
-MARKED = "DATA SHEET\nCasing material\nBy Contractor"
-
-
-def test_a_query_whose_field_is_deferred_on_its_own_quote_page_takes_value_deferred():
-    got = _fix(MARKED)
+def test_a_query_whose_own_verified_quote_carries_the_mark_takes_value_deferred():
+    got = _fix("Casing material 12 mm By Contractor")
     assert got is not None and got[1] == "value_deferred" and got[2] == 2
     assert got[0]["verdict"] == "Query" and "page 2" in got[0]["why"]
+    got = _fix("Casing material TBA", verdict_word="Pass", dec="Pass", by="AI verdict")
     assert (
-        _fix("DATA SHEET\nCsg matl\nBy Contractor", label="Csg matl") is not None
-    )  # the printed label
+        got is not None and got[0]["verdict"] == "Query" and got[1] == "value_deferred"
+    )  # a Pass is lowered
 
 
-def test_the_reason_is_not_corrected_off_the_quote_page_or_where_a_value_is_given_or_for_other_lines():
-    assert (
-        _fix(MARKED, paper_page=1) is None
-    )  # the mark is not on the page of the line's own quote
-    assert _fix(MARKED, paper_page=None) is None  # no verified paper page
-    assert _fix(MARKED, checked=False) is None  # quote not verified
-    # the field is also printed with a value on that page (another tag): never "not final"
-    assert _fix(MARKED + "\nCasing material\nCarbon steel") is None
-    assert _fix(MARKED + "\nCasing material steel A105") is None
-    assert _fix(MARKED, verdict_word="Pass") is None  # an AI Pass is the pass guard's
-    assert _fix(MARKED, verdict_word="Fail") is None  # an AI not-met is never touched
-    assert _fix(MARKED, by="AI verdict") is None  # a two-reader decision
-    assert _fix(MARKED, code="not_applicable") is None
-    assert _fix(MARKED, error="ai_call_failed") is None
+def test_no_correction_unless_the_lines_own_quote_carries_the_mark():
+    # the page layouts that fooled the label-line version: the quote of the line is a GIVEN value, the mark belongs to
+    # another tag (rows, cells in sequence), another field (next field), a header, or a label line with its own value
+    for quote in (
+        "Set pressure 12 bar",  # two tags in rows: this tag's value is given
+        "12 bar",  # two tags as cells in sequence
+        "Casing material carbon steel",  # a label line with its own word value
+        "DESIGN DATA",  # a header line
+        "Bearing type",  # the mark on the next line belongs to the next field
+        "",
+    ):
+        assert _fix(quote) is None, quote
+        assert _fix(quote, verdict_word="Pass", dec="Pass", by="AI verdict") is None, (
+            quote
+        )
+
+
+def test_the_correction_never_touches_other_kinds_of_line_and_never_makes_one_more_decided():
+    q = "Casing material By Contractor"
+    assert _fix(q, checked=False) is None  # quote not verified by code
+    assert _fix(q, paper_page=None) is None  # no paper page
+    assert _fix(q, verdict_word="Fail") is None  # an AI not-met opinion
+    assert _fix(q, by="AI verdict") is None  # a two-reader / AI decision
+    assert _fix(q, by="decided by code") is None
+    assert _fix(q, code="not_applicable") is None
+    assert _fix(q, error="ai_call_failed") is None
+    for dec in ("Fail", "Not met"):
+        assert _fix(q, dec=dec) is None
+    for args in ({}, {"verdict_word": "Pass", "dec": "Pass", "by": "AI verdict"}):
+        assert _fix(q, **args)[0]["verdict"] == "Query"  # never a Pass, Fail or not met
