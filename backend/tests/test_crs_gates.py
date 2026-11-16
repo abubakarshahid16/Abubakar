@@ -194,12 +194,94 @@ def test_g2_skips_a_row_that_names_no_clause():
     assert got.status == NOT_RUN and got.checked == 0
 
 
+# ------------------------------------------------------------------------------------------------ G1 and G2: cut quotes, fused names
+
+
+def test_g1_checks_a_cut_quote_piece_by_piece():
+    cut = Row(
+        "R1",
+        quotes=("The inlet pressure loss shall not exceed ... of the set pressure.",),
+        quote_docs=("doc_std",),
+        quote_page=3,
+    )
+    assert g.g1_quotes([cut], _Books()).status == PASS
+    half_wrong = Row(
+        "R2",
+        quotes=(
+            "The inlet pressure loss shall not exceed ... our own checklist words here",
+        ),
+        quote_docs=("doc_std",),
+    )
+    assert g.g1_quotes([half_wrong], _Books()).failed == [
+        ("R2", "quote not in the stored book")
+    ]
+    assert g.quote_pieces("each device shall be marked … in the units of the order") == [
+        "each device shall be marked", "in the units of the order",
+    ]  # fmt: skip
+    assert g.quote_pieces("ab ... cd") == []
+    assert g.g1_quotes(
+        [Row("R3", quotes=("ab ... cd",), quote_docs=("doc_std",))], _Books()
+    ).failed == [("R3", "quote too short to check")]
+
+
+def test_a_book_name_that_carries_its_clause_is_read_as_book_and_clause():
+    assert g.split_fused("STD-A-100 4.2") == ("STD-A-100", "4.2")
+    assert g.split_fused("STD-A-100 clause 4.1.4.4") == ("STD-A-100", "4.1.4.4")
+    assert g.split_fused("STD-A-100 4.2", "5.1") == (
+        "STD-A-100 4.2",
+        "5.1",
+    )  # the row's own clause wins
+    assert g.split_fused("API 521") == ("API 521", "") and g.split_fused(
+        "API RP 520 Pt-2"
+    ) == ("API RP 520 Pt-2", "")
+
+
+def _rc_point(name, **over):
+    return {"id": "rc:k1", "rank": 3, "rule_ref": {"name": name, "clause": ""}, "rule_text": "each device shall be marked with its set pressure",
+            "_book_docs": [], "books": [], **over}  # fmt: skip
+
+
+def test_g1_finds_the_held_book_of_a_fused_name_and_says_not_in_the_book():
+    held = g._point_row("E1", _rc_point("STD-A-100 4.2"), LIBRARY)
+    assert (
+        held.quote_docs == ("doc_std",)
+        and held.clause == "4.2"
+        and held.book == "STD-A-100"
+    )
+    assert g.g1_quotes([held], _Books()).status == PASS
+    wrong = g._point_row(
+        "E2",
+        _rc_point("STD-A-100 4.2", rule_text="a checklist sentence not in the book"),
+        LIBRARY,
+    )
+    assert g.g1_quotes([wrong], _Books()).failed == [
+        ("E2", "quote not in the stored book")
+    ]
+    missing = g._point_row("E3", _rc_point("STD-Z-900 1.1"), LIBRARY)
+    assert g.g1_quotes([missing], _Books()).failed == [("E3", "no held book to search")]
+
+
+def test_g2_counts_and_fails_a_fused_clause_on_a_kind_its_book_does_not_govern():
+    row = g._point_row("E1", _rc_point("STD-D-1 3.2"), LIBRARY)
+    books = g.KindBooks("t", [{"book": "STD-M-10"}], does_not=["STD-D-1"])
+    got = g.g2_books([row], books, "procedure", None)
+    assert (
+        got.status == FAIL
+        and got.checked == 1
+        and got.failed == [("E1", "book does not govern this kind: clause 3.2")]
+    )
+
+
 # ------------------------------------------------------------------------------------------------ G3
 
 
 @pytest.mark.parametrize("words", [
     "Searched pages 1 to 4: found none.", "None found on the sheet.", "One reader's view: No correction needed.",
-    "no corrections required", "Page 3 could not be read.", "the table cannot be read",
+    "no corrections required", "Page 3 could not be read.", "the table cannot be read", "No action required.",
+    "No change needed.", "No changes are required", "Nothing to correct.", "Correction not needed.", "no correction necessary",
+    "Nothing found.", "No findings.", "None.", "The page is not readable.", "page 4 is not readable by the code",
+    "It is not something a valve data sheet has to state.", "The sheet does not have to state it.",
+    "Both are stated as Required on every sheet, which meets the accessories requirement.",
 ])  # fmt: skip
 def test_g3_fails_each_noise_phrase(words):
     got = g.g3_noise([Row("C1", cells=("Set pressure", words))])
@@ -207,9 +289,32 @@ def test_g3_fails_each_noise_phrase(words):
 
 
 def test_g3_passes_a_real_comment_and_close_but_honest_words():
-    rows = [Row("C1", cells=("Set pressure", "Contractor to state the set pressure against STD-A-100 clause 4.2.")),
-            Row("C2", cells=("Body", "The value could not be confirmed against the rule; the engineer decides."))]  # fmt: skip
+    rows = [Row("C1", rank=3, cells=("Set pressure", "Contractor to state the set pressure against STD-A-100 clause 4.2.")),
+            Row("C2", rank=4, cells=("Body", "The value could not be confirmed against the rule; the engineer decides.")),
+            Row("C3", rank=3, cells=("Set pressure", "The paper does not state the set pressure.")),
+            Row("C4", rank=4, cells=("Body", "Contractor to confirm the body material meets the rule.")),
+            Row("C5", rank=4, reason="value_deferred", cells=("Seal", "No finding can be made until the vendor fills the field."))]  # fmt: skip
     assert g.g3_noise(rows).status == PASS
+
+
+@pytest.mark.parametrize("rank, reason, why", [
+    (5, "", "class Met"), (6, "", "class Met"), (7, "", "class Met"), (8, "", "class Does not apply"),
+    (4, "pass_field_unknown", "pass reason"), (4, "met", "pass reason"), (3, "PASS_value", "pass reason"),
+])  # fmt: skip
+def test_g3_fails_a_row_whose_class_or_reason_says_nothing_is_to_be_corrected(
+    rank, reason, why
+):
+    got = g.g3_noise(
+        [
+            Row(
+                "C1",
+                rank=rank,
+                reason=reason,
+                cells=("Lifting lever", "Contractor to confirm the lever."),
+            )
+        ]
+    )
+    assert got.failed == [("C1", why)]
 
 
 # ------------------------------------------------------------------------------------------------ G4
@@ -225,6 +330,42 @@ def test_g4_fails_two_comments_on_one_field_written_two_ways():
         "C3",
         "C4",
     ]
+
+
+def test_g4_fails_near_same_fields_and_the_four_back_pressure_comments():
+    rows = [Row("C1", field="Compressibility factor"), Row("C2", field="Compressibility"),
+            Row("C3", field="Required relieving capacity"), Row("C4", field="Required capacity"),
+            Row("C5", field="Valve type / Back press. Constant/Variable"), Row("C6", field="Back press. variable"),
+            Row("C7", field="Back press. constant"), Row("C8", field="Back press. constant/variable")]  # fmt: skip
+    got = g.g4_one_per_field(rows)
+    assert sorted(i for i, _w in got.failed) == [f"C{n}" for n in range(1, 9)]
+    assert dict(got.failed)["C2"] == "near-same field as C1" and got.counts == {
+        "near-same field": 8
+    }
+
+
+def test_g4_keeps_truly_different_fields_with_a_shared_word_apart():
+    rows = [Row("C1", field="Inlet size"), Row("C2", field="Outlet size"), Row("C3", field="Type"), Row("C4", field="Seal type"),
+            Row("C5", field="Fluid"), Row("C6", field="Mole. wt. of relieved fluid"), Row("C7", field="Design pressure"),
+            Row("C8", field="Operating pressure")]  # fmt: skip
+    assert g.g4_one_per_field(rows).status == PASS
+    assert not g.near_same(
+        g.field_words("Fluid"), g.field_words("Fluid phase")
+    )  # one short word: not near-same
+
+
+def test_g4_judges_near_same_in_pairs_never_chained():
+    rows = [
+        Row("C1", field="Design pressure"),
+        Row("C2", field="Design/operating pressure"),
+        Row("C3", field="Operating pressure"),
+    ]
+    got = g.g4_one_per_field(rows)
+    assert dict(got.failed) == {
+        "C1": "near-same field as C2",
+        "C2": "near-same field as C1",
+        "C3": "near-same field as C2",
+    }
 
 
 def test_g4_passes_one_comment_per_field_and_per_topic():
@@ -265,52 +406,126 @@ def test_g5_passes_a_firm_finding_with_its_value_and_clause_and_leaves_questions
     assert got.status == PASS and got.checked == 2
 
 
-def test_g5_fails_a_firm_finding_without_a_paper_value_an_unverified_value_or_a_clause():
+def test_g5_fails_a_firm_finding_without_a_paper_value_an_unverified_value_a_book_or_a_clause():
     rows = [_firm("C1", paper_value=None, value_verified=False), _firm("C2", rank=1, value_verified=False),
             _firm("C3", rank=2, clause=""), _firm("C4", rank=7, book="")]  # fmt: skip
     got = g.g5_firm(rows)
     assert got.status == FAIL and dict(got.failed) == {
-        "C1": "no paper value", "C2": "paper value not verified on the page", "C3": "no book and clause", "C4": "no book and clause",
+        "C1": "no paper value", "C2": "paper value not verified on the page", "C3": "no clause", "C4": "no book",
     }  # fmt: skip
 
 
-def test_g5_counts_an_absence_proven_by_code_as_the_value_but_still_wants_the_clause():
-    rows = [_firm("C1", paper_value=None, value_verified=False, absence_proven=True),
-            _firm("C2", paper_value=None, value_verified=False, absence_proven=True, clause="")]  # fmt: skip
-    got = g.g5_firm(rows)
-    assert got.failed == [("C2", "no book and clause")]
+def test_g5_a_firm_absent_finding_needs_a_code_proof_or_its_value_inside_the_quote():
+    label_only = _firm("C1", reason="absent", paper_value="Set pressure: By Contractor")
+    proven = _firm(
+        "C2",
+        reason="absent",
+        paper_value=None,
+        value_verified=False,
+        absence_proven=True,
+    )
+    value_in = _firm(
+        "C3",
+        reason="absent",
+        paper_value="Set pressure 150 psig",
+        paper_figure="150 psig",
+    )
+    value_out = _firm(
+        "C4", reason="absent", paper_value="Set pressure", paper_figure="150 psig"
+    )
+    got = g.g5_firm([label_only, proven, value_in, value_out])
+    assert dict(got.failed) == {
+        "C1": "absent, not proven by code",
+        "C4": "absent, not proven by code",
+    }
     assert g.absence_proven(
         {"absence_check": {"proven": True}}
     ) and not g.absence_proven({"absence_check": {"proven": False}})
 
 
+def test_g5_counts_an_absence_proven_by_code_as_the_value_but_still_wants_the_clause():
+    rows = [_firm("C1", paper_value=None, value_verified=False, absence_proven=True),
+            _firm("C2", paper_value=None, value_verified=False, absence_proven=True, clause="")]  # fmt: skip
+    assert g.g5_firm(rows).failed == [("C2", "no clause")]
+
+
 # ------------------------------------------------------------------------------------------------ G6
 
 
-def _sig(n, rank=3, clause="4.2"):
+def _sig(n, rank=3, clause="4.2", rule=None):
     return g.signature(
-        Row(f"C{n}", field=f"Field {n}", rank=rank, clauses=(("STD-A-100", clause),))
+        Row(
+            f"C{n}",
+            field=f"Field {n}",
+            rank=rank,
+            clauses=(("STD-A-100", clause),),
+            rules=(rule or f"S-{n}",),
+        )
     )
 
 
-def test_g6_passes_the_same_comments_twice_and_says_the_denominator():
+def test_g6_measures_same_comments_of_the_larger_run_and_prints_the_union_for_information():
     a = [_sig(n) for n in range(20)]
     got = g.g6_replay(a, list(a))
-    assert got.status == PASS and "20 of 20 comments the same (100.0%" in got.note
-    b = [*a[:19], _sig(99)]  # 19 the same of 21 counted once: 90.5%
+    assert (
+        got.status == PASS
+        and "20 of 20 (larger run) comments the same (100.0%" in got.note
+    )
+    b = [
+        *a[:18],
+        _sig(98),
+        _sig(99),
+    ]  # 18 of 20 = 90%: passes (the union would say 18 of 22)
     got = g.g6_replay(a, b)
-    assert got.status == PASS and got.checked == 21 and "19 of 21" in got.note
+    assert (
+        got.status == PASS
+        and got.checked == 20
+        and "18 of 20 (larger run)" in got.note
+        and "union: 18 of 22" in got.note
+    )
+    got = g.g6_replay(a[:18], a)  # the larger run counts: 18 of 20
+    assert got.status == PASS and "18 of 20 (larger run)" in got.note
 
 
 def test_g6_fails_below_ninety_percent_a_changed_class_and_a_changed_clause():
     a = [_sig(n) for n in range(10)]
-    b = [*a[:8], _sig(8, rank=4), _sig(9, clause="7.16")]  # 8 of 12 the same
+    b = [*a[:8], _sig(8, rank=4), _sig(9, clause="7.16")]  # 8 of 10
     got = g.g6_replay(a, b)
-    assert got.status == FAIL and "8 of 12 comments the same (66.7%" in got.note
+    assert (
+        got.status == FAIL
+        and "8 of 10 (larger run) comments the same (80.0%" in got.note
+    )
+
+
+def test_g6_never_takes_two_comments_from_different_rules_for_one():
+    one = Row(
+        "C1",
+        field="Set pressure",
+        rank=3,
+        clauses=(("STD-A-100", "4.2"),),
+        rules=("S-EQ-02",),
+    )
+    other = Row(
+        "C2",
+        field="Set pressure",
+        rank=3,
+        clauses=(("STD-A-100", "4.2"),),
+        rules=("R-77",),
+    )
+    assert g.signature(one) != g.signature(other)
+    got = g.g6_replay([g.signature(one)], [g.signature(other)])
+    assert got.status == FAIL and "0 of 1" in got.note
 
 
 def test_g6_is_not_run_without_a_second_run():
     assert g.g6_replay(None, None).status == NOT_RUN
+
+
+def test_the_rule_key_of_a_point_is_the_same_in_two_runs():
+    assert (
+        g._rule_key("ai:run-1:S-EQ-02") == g._rule_key("ai:run-2:S-EQ-02") == "S-EQ-02"
+    )
+    assert g._rule_key("rc:abc") == "rc:abc"
 
 
 # ------------------------------------------------------------------------------------------------ G7
@@ -324,7 +539,7 @@ def test_g7_fails_a_guessed_rule_for_a_missing_book_and_rule_words_in_a_question
     rows = [Row("E1", rank=3, names=("STD-Z-900",), clause="6.1", shows_rule_words=True),
             Row("E2", rank=4, names=("STD-Z-900",), shows_rule_words=True),
             Row("E3", rank=8, names=("STD-Z-900",))]  # fmt: skip
-    got = g.g7_missing(rows, ["STD-Z-900"], LIBRARY, "rule books not held std-z-900")
+    got = g.g7_missing(rows, ["STD-Z-900"], LIBRARY, ["STD-Z-900"])
     assert got.status == FAIL and dict(got.failed) == {
         "E1": "verdict on a rule whose book is not held", "E2": "rule words shown for a book not held",
         "E3": "verdict on a rule whose book is not held",
@@ -334,20 +549,56 @@ def test_g7_fails_a_guessed_rule_for_a_missing_book_and_rule_words_in_a_question
 def test_g7_passes_the_missing_listing_a_bare_question_and_a_held_book():
     rows = [Row("E1", names=("STD-Z-900",), is_missing_listing=True), Row("E2", rank=4, names=("STD-Z-900",)),
             Row("E3", rank=3, names=("STD-A-100",), clause="4.1", shows_rule_words=True)]  # fmt: skip
-    got = g.g7_missing(rows, ["STD-Z-900"], LIBRARY, "rule books not held: std-z-900")
+    got = g.g7_missing(rows, ["STD-Z-900"], LIBRARY, ["STD-Y-1; STD-Z-900"])
     assert got.status == PASS
 
 
-def test_g7_fails_a_missing_book_the_file_does_not_name_and_a_book_the_library_lacks():
+def test_g7_fails_a_missing_book_named_only_in_a_question_and_a_book_the_library_lacks():
     got = g.g7_missing(
         [Row("E1", rank=5, names=("STD-Y-800",), clause="2")],
         ["STD-Z-900"],
         LIBRARY,
-        "nothing listed",
+        [],
     )
     assert got.status == FAIL and dict(got.failed) == {
-        "E1": "verdict on a rule whose book is not held", "missing book 1": "not listed as book missing",
+        "E1": "verdict on a rule whose book is not held", "missing book 1": "not in the book-missing listing",
     }  # fmt: skip
+
+
+def test_g7_listed_means_named_in_the_book_missing_listing_not_anywhere_in_the_file():
+    assert g.g7_missing([], ["STD-Z-900"], LIBRARY, ["STD-Y-1"]).failed == [
+        ("missing book 1", "not in the book-missing listing")
+    ]
+    from openpyxl import Workbook
+
+    from app import crs_ai_words as words
+    from app.crs_ai_workbook import OTHER_COLUMNS
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = words.OTHER_SHEET
+    ws.append(list(OTHER_COLUMNS))
+    ws.append(
+        [
+            1,
+            "paper.pdf",
+            "p.1",
+            "STD-Z-900 clause 2",
+            words.KIND_NOT_APPLICABLE,
+            "a question that names the book",
+        ]
+    )
+    ws.append(
+        [
+            2,
+            "paper.pdf",
+            None,
+            "STD-Y-1",
+            words.KIND_NOT_HELD,
+            "The rule book is not in the library.",
+        ]
+    )
+    assert g._run_listing(wb) == ["STD-Y-1"]  # the question row is not a listing
 
 
 # ------------------------------------------------------------------------------------------------ on a finished run, both files

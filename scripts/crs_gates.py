@@ -22,34 +22,48 @@ Item No n of the file. G3 to G6 judge the comment rows (C / R on the sheet CRS);
 the page; every R line of the run file).
 
 THE GATES, EXACTLY.
+  A book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1"), is read as that book and
+  that clause (`split_fused`) in every gate; a book a row names but did not link is found in the library by `applicability.find_standard`.
   G1 Every quote shown as a standard's words is found word for word in the stored pages of the cited book
      (`agent_review_standards.verify`: the review's own matcher, the book's stored pages, never the checklist or the stored
      requirement row). Shown as a standard's words: on the page a point's clause quote or its rule text "as stored"; in the run file
      a line's clause quote and the words its comment quotes after "requires:" (`crs_ai_workbook._item_ask`, a checklist line's own
-     item wording first). A shown quote with no held book to search fails.
+     item wording first). A quote cut with a visible mark ("..." or "…") is checked piece by piece, every piece found. A shown quote
+     with no held book to search fails ("no held book to search"); one the book does not hold fails ("quote not in the stored book").
   G2 Every cited clause (a row naming a book AND a clause) is in a book that governs the paper's kind. The mapping is a JSON file
      (`--mapping`, format MAPPING_FORMAT; lane C owns its contents; a book may be limited to clause prefixes) and, without it, the app's
      own tables: `reference/standard_roles.json` (kind -> roles, standard -> role; `kind_standards`) and
      `reference/governing_standards.json` (equipment type -> books, materials books, books that apply in part; `applicability`).
      With the app's tables a book with no entry, or one that applies to the type only in part, is NOT JUDGED (counted, never a pass);
      with a file, a book the file does not list for the kind fails. No mapping for the kind: "G2 not run: no kind-to-book mapping".
-  G3 No comment row says one of NOISE_PATTERNS ("found none", "no correction needed", "could not be read" and their plain variants), in
-     any cell. The sheet Evidence is not judged: the completeness rule keeps every point there.
+  G3 No comment row has nothing to correct. It fails by CLASS: Met (ranks 5-7), Does not apply (8), or a pass reason stored on its line
+     ("met", "pass_..."); and by WORDS, in any cell: NOISE_PATTERNS ("found none", "no correction needed", "could not be read", "not
+     readable", "no action required", "no change needed", "need not state it", "... stated ..., which meets the" and close variants).
+     The sheet Evidence is not judged: the completeness rule keeps every point there.
   G4 One comment per field or topic. FIELD = the row's field name (the point's name with its tags taken off, `review_points.split_tags`;
      `crs_comments.is_field` says it is a field) folded by `field_key`: lower case, text in brackets dropped, every character that is not a
      letter or digit dropped ("Over pressure %" = "Overpressure"). TOPIC, for a row with no field = the book's key and the clause. A row
-     with neither is its own key. Two comment rows with one key fail (both ids are listed).
+     with neither is its own key. Two comment rows with one key fail. NEAR-SAME fields fail too, judged in pairs (never chained): the
+     words of the shorter name are all in the longer, make at least half of it, and are not one short word (`near_same`):
+     "compressibility" / "compressibility factor", "required capacity" / "required relieving capacity", the back-pressure comments;
+     never "inlet size" / "outlet size", "type" / "seal type", "fluid" / "mole. wt. of relieved fluid".
   G5 A firm finding names the value on the paper and the clause. FIRM = the row's class is a decision or a not-met, on the app's own rank
      scale (`review_points.RANKS`): 1 Not met proven by code, 2 Not met two readers agree, 3 Not met one reader, 6 Met two readers
-     agree, 7 Met proven by code (not 4 Question, 5 Met one reader, 8 Does not apply). It must carry a paper quote that code verified on
-     the page (a value shown only "as stored, not verified" fails; a code-proven absence, the line's `absence_check` "proven", names
-     "not on the paper" and counts) AND a book and a clause.
-  G6 Same input twice gives at least REPLAY_AT_LEAST % the same comments. SAME COMMENT = the same G4 key, the same rank and the same set
-     of (book key, clause). Reported as "M of N" where N = the comments of both runs together counted once (|A or B|), M = in both.
+     agree, 7 Met proven by code (not 4 Question, 5 Met one reader, 8 Does not apply). The value: a code-proven absence (the line's
+     `absence_check` "proven") names "not on the paper"; a finding whose reason is "absent" needs that proof, or the value it read
+     (`paper_figure`) inside its verified quote: a verified quote of an empty field's label alone fails; any other firm row needs a paper
+     quote code verified on the page. Then a book ("no book") and a clause ("no clause").
+  G6 Same input twice gives at least REPLAY_AT_LEAST % the same comments: M same of the LARGER run's comment count, printed "M of N
+     (larger run)", with the union figure for information. SAME COMMENT = the same G4 key, the same rank, the same set of (book key,
+     clause) and the same rule keys (the item ids behind it: two comments from different rules are never one; the paper quote is not in
+     the identity, because two readers quote one value with different spans). On the page only the AI run's own comments are compared
+     (its points grouped by `crs_comments.group`), never the old rule check's.
   G7 A rule whose book we do not hold is listed as "book missing", never guessed. A book is NOT HELD when it is in the run's missing
      list (`agent_review_missing_book`) or the library holds no document for it (`applicability.find_standard`). Fails: a row citing
      such a book that gives a verdict (met, not met, does not apply) or shows a clause or a rule text of it; and a missing book of the
-     run that the file does not name anywhere. A question with no clause and no rule text passes (it asks, it does not guess).
+     run that the file's OWN book-missing listing does not name (the page's sheet "Rule books not held"; the run file's "not held" rows
+     and its Notes line); a name elsewhere, such as inside a question, is not a listing. A question with no clause and no rule text
+     passes (it asks, it does not guess).
 """
 
 from __future__ import annotations
@@ -74,18 +88,26 @@ FILE_PAGE, FILE_RUN = "page", "run"
 REPLAY_AT_LEAST = 90
 FIRM_RANKS = frozenset({1, 2, 3, 6, 7})
 MAPPING_FORMAT = "crs-gates-kind-books/1"
+_NEED = r"(?:needed|required|necessary)"
 NOISE_PATTERNS = (  # (the words the owner named, the pattern of them and their plain variants), matched on folded text
-    ("found none", r"\bfound none\b|\bnone (?:was |were )?found\b"),
-    (
-        "no correction needed",
-        r"\bno corrections? (?:is |are |was |were )?(?:needed|required)\b",
-    ),
-    (
-        "could not be read",
-        r"\b(?:could|can) ?not be read\b|\bcouldn'?t be read\b|\bcan'?t be read\b",
-    ),
-)
+    ("found none", r"\bfound none\b|\bnone (?:was |were )?found\b|\bnothing (?:was )?found\b|^no findings?\.?$|\bno findings? (?:was |were )?(?:made|raised|found)\b|^none\.?$"),
+    ("no correction needed", rf"\bno corrections? (?:is |are |was |were )?{_NEED}\b|\bcorrections? (?:is |are )?not {_NEED}\b"
+                             rf"|\bnothing to correct\b|\bno actions? (?:is |are )?{_NEED}\b|\bno changes? (?:is |are )?{_NEED}\b"),
+    ("could not be read", r"\b(?:could|can) ?not be read\b|\bcouldn'?t be read\b|\bcan'?t be read\b|\bnot readable\b|\bunreadable\b"),
+    # the owner's row 12: the reader's own words say the paper need not state the item (a "does not apply" written as a query)
+    ("need not state it", r"\b(?:does|do) not (?:have|need) to (?:state|show|give)\b|\bneed not (?:state|show|give)\b"
+                          r"|\bnot something [\w ,/'-]{0,60}?(?:has|needs) to (?:state|show|give)\b"),
+    # the owner's row 11: the reader's own words say the stated value meets the rule (a "met" written as a query)
+    ("says it meets the rule", r"\b(?:stated|given|shown)\b[^.]{0,80}?,? which meets the\b"),
+)  # fmt: skip
 _NOISE = tuple((label, re.compile(rx)) for label, rx in NOISE_PATTERNS)
+NO_COMMENT_RANKS = {
+    5: "class Met",
+    6: "class Met",
+    7: "class Met",
+    8: "class Does not apply",
+}  # G3: nothing for the contractor to do
+CUT_MARKS = r"\s*(?:\.\.\.|…)\s*"  # the visible cut marks of the builders (`agent_review_crs._short`, `crs_completeness.CUT_MARK`)
 LIST_AT_MOST = 40  # failing ids printed per gate; the counts are always whole
 
 
@@ -112,6 +134,13 @@ class Row:
     names: tuple[str, ...] = ()  # every book the row names
     shows_rule_words: bool = False  # the row shows a clause or a rule text of its book
     is_missing_listing: bool = False  # the row IS the "rule book not held" listing
+    reason: str = ""  # the stored reason code of the row's (strongest) line, e.g. "absent", "met", "pass_field_unknown"
+    paper_figure: str = (
+        ""  # the value the reader read from the paper, when it recorded one
+    )
+    rules: tuple[
+        str, ...
+    ] = ()  # the rule keys (item ids) behind the row: G6 never takes two different rules for one comment
 
 
 @dataclass
@@ -154,6 +183,18 @@ def _finish(
 # ------------------------------------------------------------------------------------------------ G1 quotes from the book
 
 
+def quote_pieces(quote: str) -> list[str]:
+    """A quote cut with a visible mark ("..." or "…") as its pieces, each checked by itself; a piece shorter than the matcher's own
+    minimum (`agent_review_pass_guards.MIN_QUOTE_CHARS`) proves nothing and is left out. An uncut quote is one piece."""
+    from app.agent_review_pass_guards import MIN_QUOTE_CHARS
+
+    return [
+        p.strip()
+        for p in re.split(CUT_MARKS, quote)
+        if len(p.strip()) >= MIN_QUOTE_CHARS
+    ]
+
+
 def g1_quotes(rows: list[Row], books) -> Result:
     """`books`: an object with `.book(document id) -> pass_guards.Book` (default `agent_review_standards.BookPages()`, each book read
     once); every shown quote goes through `agent_review_standards.verify`, the review's one in-book check."""
@@ -173,8 +214,16 @@ def g1_quotes(rows: list[Row], books) -> Result:
             failed.append((r.id, "no held book to search"))
             continue
         for q in shown:
-            if not any(
-                standards.verify(d, q, r.quote_page, books).found for d in r.quote_docs
+            pieces = quote_pieces(q)
+            if not pieces:
+                failed.append((r.id, "quote too short to check"))
+                break
+            if not all(
+                any(
+                    standards.verify(d, p, r.quote_page, books).found
+                    for d in r.quote_docs
+                )
+                for p in pieces
             ):
                 failed.append((r.id, "quote not in the stored book"))
                 break
@@ -330,12 +379,24 @@ def noise_in(text) -> str | None:
     return next((label for label, rx in _NOISE if rx.search(t)), None)
 
 
+def no_comment_class(r: Row) -> str | None:
+    """Why the row's own class says there is nothing to correct (G3), or None: Met (ranks 5-7), Does not apply (8), or a pass reason
+    stored on its line ("met", "pass_..."), whatever its words."""
+    if r.rank in NO_COMMENT_RANKS:
+        return NO_COMMENT_RANKS[r.rank]
+    reason = _fold(r.reason)
+    if reason == "met" or reason.startswith("pass"):
+        return "pass reason"
+    return None
+
+
 def g3_noise(rows: list[Row]) -> Result:
     failed = []
     for r in rows:
+        why = no_comment_class(r)
         hit = next((h for h in (noise_in(c) for c in r.cells) if h), None)
-        if hit:
-            failed.append((r.id, f'says "{hit}"'))
+        if why or hit:
+            failed.append((r.id, why or f'says "{hit}"'))
     return _finish("G3", len(rows), failed, f"{len(rows)} comment rows")
 
 
@@ -363,22 +424,85 @@ def key_of(r: Row) -> str:
     return f"row|{r.id}"
 
 
+def field_words(name) -> frozenset[str]:
+    """The words of a field name (see G4): folded, bracketed text dropped, split on every character that is not a letter or digit."""
+    t = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", _fold(name))
+    return frozenset(w for w in re.split(r"[^0-9a-z]+", t) if w)
+
+
+NEAR_SAME_ONE_WORD = 8  # a one-word name is near-same to a longer one only when that word is this long: "compressibility", never "type"
+
+
+def near_same(a: frozenset[str], b: frozenset[str]) -> bool:
+    """Two field names are near-same when the words of the shorter are all in the longer, make at least half of it, and the shorter is
+    not one short generic word ("compressibility" / "compressibility factor", "required capacity" / "required relieving capacity";
+    never "inlet size" / "outlet size", "fluid" / "mole. wt. of relieved fluid", "type" / "seal type")."""
+    short, long_ = sorted((a, b), key=len)
+    if not short or short == long_ or not short <= long_ or 2 * len(short) < len(long_):
+        return False
+    return len(short) > 1 or len(next(iter(short))) >= NEAR_SAME_ONE_WORD
+
+
 def g4_one_per_field(rows: list[Row]) -> Result:
-    by: dict[str, list[str]] = {}
-    for r in rows:
-        by.setdefault(key_of(r), []).append(r.id)
-    failed = [
-        (i, f"{len(ids)} comments on one {k.split('|', 1)[0]}")
-        for k, ids in by.items()
-        if len(ids) > 1
-        for i in ids
+    keys = [key_of(r) for r in rows]
+    words = [
+        field_words(r.field) if k.startswith("field|") else frozenset()
+        for r, k in zip(rows, keys, strict=True)
     ]
-    return _finish(
+    by: dict[str, list[int]] = {}
+    for i, k in enumerate(keys):
+        by.setdefault(k, []).append(i)
+    why: dict[int, str] = {}
+    for k, ms in by.items():  # one key, more than one comment
+        if len(ms) > 1:
+            why.update(
+                {i: f"{len(ms)} comments on one {k.split('|', 1)[0]}" for i in ms}
+            )
+    for i in range(
+        len(rows)
+    ):  # near-same fields, judged in PAIRS (never chained: "design pressure" and "operating pressure" stay apart)
+        for j in range(i + 1, len(rows)):
+            if keys[i] != keys[j] and near_same(words[i], words[j]):
+                why.setdefault(i, f"near-same field as {rows[j].id}")
+                why.setdefault(j, f"near-same field as {rows[i].id}")
+    failed = [(rows[i].id, why[i]) for i in sorted(why)]
+    res = _finish(
         "G4", len(rows), failed, f"{len(rows)} comment rows, {len(by)} fields or topics"
     )
+    res.counts = dict(
+        Counter(
+            "near-same field" if w.startswith("near-same") else w for _i, w in failed
+        )
+    )
+    return res
 
 
 # ------------------------------------------------------------------------------------------------ G5 firm findings
+
+
+ABSENT_REASONS = frozenset(
+    {"absent"}
+)  # the reader's reason code for "the paper does not state it" (`agent_review_decide.reason_of`)
+
+
+def _unnamed(r: Row) -> str | None:
+    """Why a firm row does not name the paper's value (G5), or None. An absence proven by code names "not on the paper". A finding
+    whose reason is "absent" names a value only through that proof, or when the value it read stands inside its verified quote: a
+    verified quote of an empty field's label alone names nothing. Any other firm row needs a paper quote code verified on the page."""
+    if r.absence_proven:
+        return None
+    if _fold(r.reason) in ABSENT_REASONS:
+        figure = _fold(r.paper_figure)
+        if r.value_verified and figure and figure in _fold(r.paper_value):
+            return None
+        return "absent, not proven by code"
+    if r.value_verified:
+        return None
+    return (
+        "paper value not verified on the page"
+        if str(r.paper_value or "").strip()
+        else "no paper value"
+    )
 
 
 def g5_firm(rows: list[Row]) -> Result:
@@ -387,15 +511,13 @@ def g5_firm(rows: list[Row]) -> Result:
         if r.rank not in FIRM_RANKS:
             continue
         firm += 1
-        named = (
-            r.value_verified or r.absence_proven
-        )  # an absence proven by code names "not on the paper" as the value
-        if not named and not str(r.paper_value or "").strip():
-            failed.append((r.id, "no paper value"))
-        elif not named:
-            failed.append((r.id, "paper value not verified on the page"))
-        elif not (str(r.book).strip() and str(r.clause).strip()):
-            failed.append((r.id, "no book and clause"))
+        why = _unnamed(r)
+        if why:
+            failed.append((r.id, why))
+        elif not str(r.book).strip():
+            failed.append((r.id, "no book"))
+        elif not str(r.clause).strip():
+            failed.append((r.id, "no clause"))
     return _finish(
         "G5", firm, failed, f"{firm} firm findings of {len(rows)} comment rows"
     )
@@ -405,7 +527,8 @@ def g5_firm(rows: list[Row]) -> Result:
 
 
 def signature(r: Row) -> list:
-    """The G6 identity of one comment row (JSON-able): its G4 key, its rank, its sorted (book key, clause) pairs."""
+    """The G6 identity of one comment row (JSON-able): its G4 key, its rank, its sorted (book key, clause) pairs and its sorted rule keys
+    (the item ids behind it, so two comments on one field from different rules are never one)."""
     pairs = sorted(
         {
             (_book_key(b), _clause_key(c))
@@ -417,6 +540,7 @@ def signature(r: Row) -> list:
         key_of(r) if not key_of(r).startswith("row|") else "row|",
         r.rank,
         [list(p) for p in pairs],
+        sorted(set(r.rules)),
     ]
 
 
@@ -433,25 +557,30 @@ def g6_replay(
     a = Counter(json.dumps(s, sort_keys=True) for s in first)
     b = Counter(json.dumps(s, sort_keys=True) for s in second)
     both, union = sum((a & b).values()), sum((a | b).values())
-    pct = (100.0 * both / union) if union else None
+    larger = max(
+        len(first), len(second)
+    )  # the lead's decision: M same of the LARGER run's comment count
+    pct = (100.0 * both / larger) if larger else None
     failed = (
         []
         if pct is not None and pct >= REPLAY_AT_LEAST
         else [("replay", f"under {REPLAY_AT_LEAST}% the same")]
     )
-    note = (f"{both} of {union} comments the same ({pct:.1f}%; first run {len(first)}, second run {len(second)}; "
-            f"needs {REPLAY_AT_LEAST}%)" if union else "neither run has a comment")  # fmt: skip
-    return _finish("G6", union, failed, note)
+    note = (f"{both} of {larger} (larger run) comments the same ({pct:.1f}%; first run {len(first)}, second run {len(second)}; "
+            f"needs {REPLAY_AT_LEAST}%); for information, union: {both} of {union} ({100.0 * both / union:.1f}%)"
+            if larger else "neither run has a comment")  # fmt: skip
+    return _finish("G6", larger, failed, note)
 
 
 # ------------------------------------------------------------------------------------------------ G7 book missing
 
 
 def g7_missing(
-    rows: list[Row], missing: list[str], library: list[dict], file_text: str
+    rows: list[Row], missing: list[str], library: list[dict], listing: list[str]
 ) -> Result:
-    """`missing`: the run's missing-book names; `library`: the held books (`review_points.library_of`); `file_text`: every cell of the
-    built file, folded, for the "listed" check."""
+    """`missing`: the run's missing-book names; `library`: the held books (`review_points.library_of`); `listing`: the cells of the
+    file's own book-missing listing (the page's sheet "Rule books not held"; the run file's "not held" rows and its Notes line), never
+    any other cell: a name inside a question is not a listing."""
     from app import applicability
     from app.standard_ids import same_standard
 
@@ -461,27 +590,32 @@ def g7_missing(
             or applicability.find_standard(library, name) is None
         )
 
-    failed, checked = [], 0
+    def listed(name: str) -> bool:
+        return any(
+            _fold(name) in _fold(cell) or same_standard(name, str(cell))
+            for cell in listing
+        )
+
+    failed, n_rows = [], 0
     for r in rows:
         if r.is_missing_listing:
             continue
         gone = [n for n in r.names if str(n or "").strip() and not_held(n)]
         if not gone:
             continue
-        checked += 1
+        n_rows += 1
         if r.rank not in (None, 4):
             failed.append((r.id, "verdict on a rule whose book is not held"))
         elif r.shows_rule_words:
             failed.append((r.id, "rule words shown for a book not held"))
     for k, name in enumerate(missing, start=1):
-        checked += 1
-        if _fold(name) not in file_text:
-            failed.append((f"missing book {k}", "not listed as book missing"))
+        if not listed(name):
+            failed.append((f"missing book {k}", "not in the book-missing listing"))
     return _finish(
         "G7",
-        checked,
+        n_rows + len(missing),
         failed,
-        f"{len(missing)} books missing in the run; {checked} rows or books checked",
+        f"{n_rows} rows cite a book not held; {len(missing)} books missing in the run, each looked for in the file's book-missing listing",
     )
 
 
@@ -496,19 +630,51 @@ def _cells(row) -> tuple[str, ...]:
     return tuple(str(c) for c in row if c is not None and str(c).strip())
 
 
-def _all_text(wb) -> str:
-    return _fold(
-        " ".join(
-            str(c)
-            for ws in wb.worksheets
-            for r in ws.iter_rows(values_only=True)
-            for c in r
-            if c is not None
-        )
+_FUSED = re.compile(
+    r"^(?P<book>.+?)[\s,]+(?:(?:clause|section|para(?:graph)?)\.?\s+)?(?P<clause>(?:[A-Z]{1,4}-)?\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*)$",
+    re.IGNORECASE,
+)
+
+
+def split_fused(name, clause="") -> tuple[str, str]:
+    """(book, clause) of a book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1").
+    Split only when the row has no clause of its own and the name without its tail is still the SAME standard (`standard_ids.key`):
+    "API 521" and "API RP 520 Pt-2" stay whole."""
+    from app import standard_ids
+
+    name, clause = str(name or "").strip(), str(clause or "").strip()
+    m = None if clause else _FUSED.match(name)
+    if (
+        m
+        and standard_ids.parse(m["book"]) is not None
+        and standard_ids.key(m["book"]) == standard_ids.key(name)
+    ):
+        return m["book"], m["clause"]
+    return name, clause
+
+
+def _held_docs(names, library: list[dict]) -> tuple[str, ...]:
+    """The held documents of the books a row names but did not link (`applicability.find_standard`, the one lookup)."""
+    from app import applicability
+
+    found = (applicability.find_standard(library, split_fused(n)[0]) for n in names)
+    return tuple(dict.fromkeys(e["id"] for e in found if e))
+
+
+def _reason_of(p: dict) -> str:
+    return str(
+        (p.get("_line") or {}).get("reason_code")
+        or (p.get("_finding") or {}).get("reason_code")
+        or ""
     )
 
 
-def _point_row(rid: str, p: dict) -> Row:
+def _rule_key(point_id: str) -> str:
+    """The rule key of a point id ("ai:<run>:<item>" -> item; "rc:<key>" -> key): the same rule in two runs has the same key."""
+    return point_id.split(":", 2)[-1] if point_id.startswith("ai:") else point_id
+
+
+def _point_row(rid: str, p: dict, library: list[dict]) -> Row:
     """A point of the page's list (an Evidence row of the one CRS)."""
     line, ref = p.get("_line") or {}, p.get("rule_ref") or {}
     names = [b.get("name") for b in p.get("books") or []] + [
@@ -517,15 +683,19 @@ def _point_row(rid: str, p: dict) -> Row:
         line.get("standard"),
     ]
     names = tuple(dict.fromkeys(str(n).strip() for n in names if str(n or "").strip()))
-    book = str(p.get("rule_book") or ref.get("name") or "")
-    clause = str(p.get("clause") or ref.get("clause") or "")
+    book, clause = split_fused(
+        p.get("rule_book") or ref.get("name"), p.get("clause") or ref.get("clause")
+    )
     page = line.get("clause_page")
+    docs = tuple(
+        dict.fromkeys(d for d in (p.get("_book_docs") or [p.get("_book_doc")]) if d)
+    ) or _held_docs(names, library)
     return Row(
         id=rid, field="", rank=p.get("rank"), book=book, clause=clause, clauses=((book, clause),) if clause else (),
-        quotes=tuple(q for q in (p.get("clause_quote"), p.get("rule_text")) if q),
-        quote_docs=tuple(dict.fromkeys(d for d in (p.get("_book_docs") or [p.get("_book_doc")]) if d)),
+        quotes=tuple(q for q in (p.get("clause_quote"), p.get("rule_text")) if q), quote_docs=docs,
         quote_page=page if isinstance(page, int) and not isinstance(page, bool) else None,
-        names=names, shows_rule_words=bool(clause or p.get("clause_quote") or p.get("rule_text")),
+        names=tuple(split_fused(n)[0] for n in names), shows_rule_words=bool(clause or p.get("clause_quote") or p.get("rule_text")),
+        reason=_reason_of(p), paper_figure=str(line.get("paper_figure") or ""), rules=(_rule_key(p["id"]),),
     )  # fmt: skip
 
 
@@ -540,20 +710,27 @@ def _comment_row(c: dict, cells) -> Row:
     from app import crs_comments
 
     s = c["strongest"]
+    ref = s.get("rule_ref") or {}
+    book, clause = split_fused(
+        s.get("rule_book") or ref.get("name"), s.get("clause") or ref.get("clause")
+    )
     return Row(
         id=f"C{c['number']}", cells=_cells(cells), field=crs_comments._field_of(s), rank=c["rank"],
         paper_value=s.get("paper_quote") or s.get("paper_value"), value_verified=bool(s.get("paper_quote")),
-        absence_proven=absence_proven(s.get("_line") or {}),
-        book=str(s.get("rule_book") or (s.get("rule_ref") or {}).get("name") or ""), clause=str(s.get("clause") or ""),
-        clauses=tuple((str(k.get("book") or ""), str(k.get("clause") or "")) for k in c["clauses"]),
+        absence_proven=absence_proven(s.get("_line") or {}), book=book, clause=clause,
+        clauses=tuple(split_fused(k.get("book"), k.get("clause")) for k in c["clauses"]),
+        reason=_reason_of(s), paper_figure=str((s.get("_line") or {}).get("paper_figure") or ""),
+        rules=tuple(_rule_key(i) for i in c["member_ids"]),
     )  # fmt: skip
 
 
-def page_file(paper_id: str, scope) -> dict:
-    """The paper's ONE CRS (team copy) built by `crs_one.build_team` and read back: comment rows, Evidence rows, facts."""
+def page_file(paper_id: str, scope, library: list[dict]) -> dict:
+    """The paper's ONE CRS (team copy) built by `crs_one.build_team` and read back: comment rows, Evidence rows, the book-missing
+    listing, and the AI run's own comments (G6 compares those only: the rule check's points are not the AI review's replay)."""
     from openpyxl import load_workbook
 
     from app import crs_comments, crs_one
+    from app import review_points as rp
     from app import review_points_service as svc
     from app.crs_completeness import _table_rows
 
@@ -574,10 +751,14 @@ def page_file(paper_id: str, scope) -> dict:
         raise GateInputError(
             "the sheet CRS does not hold the comments its builder groups"
         )
+    ai_only = crs_comments.group(
+        [p for p in raw if p.get("source") == rp.SOURCE_AI_REVIEW]
+    )
     return {
         "rows": [_comment_row(c, built[c["number"]]) for c in grouped],
-        "evidence": [_point_row(f"E{n}", p) for n, p in enumerate(raw, start=1)],
-        "text": _all_text(wb), "runs": listing["runs"],
+        "evidence": [_point_row(f"E{n}", p, library) for n, p in enumerate(raw, start=1)],
+        "listing": [str(r[0]) for r in _table_rows(wb[crs_one.HELD_SHEET], "Rule book") if r and r[0]],
+        "replay_rows": [_comment_row(c, ()) for c in ai_only], "runs": listing["runs"],
     }  # fmt: skip
 
 
@@ -602,6 +783,7 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
         quote_page=page if isinstance(page, int) and not isinstance(page, bool) else None,
         names=(book,) if book.strip() else (), shows_rule_words=bool(clause or ln.get("clause_quote") or asked),
         is_missing_listing=rank == 0 or ln.get("verdict_class") == KIND_NOT_HELD,
+        reason=str(ln.get("reason_code") or ""), paper_figure=str(ln.get("paper_figure") or ""), rules=(str(ln.get("item_id") or ""),),
     )  # fmt: skip
 
 
@@ -660,7 +842,35 @@ def run_file(run_id: str, paper_id: str) -> dict:
         _line_row(f"R{len(items) + k}", ln)
         for k, (ln, _kind) in enumerate(others, start=1)
     ]
-    return {"rows": rows, "evidence": evidence, "text": _all_text(wb)}
+    return {
+        "rows": rows,
+        "evidence": evidence,
+        "listing": _run_listing(wb),
+        "replay_rows": rows,
+    }
+
+
+def _run_listing(wb) -> list[str]:
+    """The run file's own book-missing listing: the "not held" rows of the sheet of other lines and the Notes line of books not held."""
+    from app import crs_ai_words as words
+    from app.crs_ai_workbook import OTHER_COLUMNS
+    from app.crs_completeness import _table_rows
+
+    out = []
+    if words.OTHER_SHEET in wb.sheetnames:
+        kind_col, book_col = (
+            OTHER_COLUMNS.index("What it is"),
+            OTHER_COLUMNS.index("Standard Reference"),
+        )
+        out += [str(r[book_col]) for r in _table_rows(wb[words.OTHER_SHEET], "Item No")
+                if len(r) > kind_col and r[kind_col] == words.KIND_NOT_HELD and r[book_col]]  # fmt: skip
+    if "Notes" in wb.sheetnames:
+        out += [
+            str(r[1])
+            for r in _table_rows(wb["Notes"], "Topic")
+            if len(r) > 1 and _fold(r[0]).startswith("rule books not held")
+        ]
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ one run, every gate
@@ -695,9 +905,12 @@ def paper_facts(conn, run_id: str) -> dict:
     }  # fmt: skip
 
 
-def rows_of(run_id: str, which: str, scope) -> tuple[dict, dict]:
+def rows_of(
+    run_id: str, which: str, scope, library: list[dict] | None = None
+) -> tuple[dict, dict]:
     """(the facts, the file) for one run and one file kind. The page's CRS is drawn from the paper's LATEST runs: an older run is refused."""
     from app.db import connect
+    from app.review_points import library_of
 
     facts = paper_facts(connect(), run_id)
     if which == FILE_RUN:
@@ -706,7 +919,9 @@ def rows_of(run_id: str, which: str, scope) -> tuple[dict, dict]:
                 f"run {run_id} is not an AI review run: it has no file of its own"
             )
         return facts, run_file(run_id, facts["paper"])
-    got = page_file(facts["paper"], scope)
+    got = page_file(
+        facts["paper"], scope, library if library is not None else library_of(connect())
+    )
     if run_id not in (got["runs"] or {}).values():
         raise GateInputError(f"the paper's one CRS is drawn from its latest runs {sorted(v for v in got['runs'].values() if v)}, "
                              f"not from run {run_id}: give a copy where this run is the latest")  # fmt: skip
@@ -729,7 +944,8 @@ def check(
     from app.review_points import library_of
 
     scope = scope or access.unrestricted_scope()
-    facts, got = rows_of(run_id, which, scope)
+    library = library_of(connect())
+    facts, got = rows_of(run_id, which, scope, library)
     kind, equipment = facts["kind"], facts["equipment"]
     if kind is None:
         from app import kind_standards
@@ -742,7 +958,7 @@ def check(
     )
     if mapping_path and mapping is None:
         mapping = None  # the file says nothing about this kind: G2 is not run (the app's tables are not mixed in)
-    sigs = [signature(r) for r in got["rows"]]
+    sigs = [signature(r) for r in got["replay_rows"]]
     if replay is None:
         g6 = g6_replay(None, None)
     elif replay.get("paper") != facts["paper"]:
@@ -756,9 +972,7 @@ def check(
         g4_one_per_field(got["rows"]),
         g5_firm(got["rows"]),
         g6,
-        g7_missing(
-            got["evidence"], facts["missing"], library_of(connect()), got["text"]
-        ),
+        g7_missing(got["evidence"], facts["missing"], library, got["listing"]),
     ]
     return {"run_id": run_id, "paper": facts["paper"], "file": which, "kind": kind, "equipment": equipment,
             "comment_rows": len(got["rows"]), "evidence_rows": len(got["evidence"]), "signatures": sigs,
