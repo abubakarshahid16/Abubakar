@@ -129,6 +129,13 @@ def document_reading(scope: access.AccessScope = Depends(access.current_scope)) 
     return {"documents": reading_state.readable(scope)}
 
 
+def review_statuses(ids: list[str]) -> dict[str, str]:
+    """FTU-1: THE review status of each document the route already selected for this caller (the list and the single route alike):
+    `submittal_review.review_status_for`, the latest run's status, `not_reviewed` when there is no run."""
+    got = submittal_review_mod.review_status_for(ids, allowed_document_ids=frozenset(ids))
+    return {d: got.get(d, "not_reviewed") for d in ids}
+
+
 @router.get("/api/documents", response_model=list[schemas.Document],
             responses=schemas.ERRORS_422)
 def list_documents(request: Request, response: Response,
@@ -244,8 +251,7 @@ def list_documents(request: Request, response: Response,
     # be fine here too, but the review tables are owned by another module and
     # this keeps the authority for "has it been reviewed" in that module.
     page_ids = [row["id"] for row in rows]
-    review_status = submittal_review_mod.review_status_for(
-        page_ids, allowed_document_ids=frozenset(page_ids))
+    review_status = review_statuses(page_ids)
     metadata = {}
     if page_ids:
         marks = ",".join("?" * len(page_ids))
@@ -277,7 +283,7 @@ def list_documents(request: Request, response: Response,
             # Null renders as nothing. Absent metadata and a null column are
             # the same answer - not recorded - and neither becomes a default.
             doc[field] = meta.get(field)
-        doc["review_status"] = review_status.get(row["id"], "not_reviewed")
+        doc["review_status"] = review_status[row["id"]]
         info = dropped.get(row["id"], {})
         doc["pages_excluded"] = info.get("pages_excluded", 0)
         doc["pages_excluded_characters"] = info.get("characters_dropped", 0)
@@ -390,11 +396,8 @@ def get_document(document_id: str, request: Request,
         "SELECT * FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
     doc = upload_mod.to_api(row)
-    # FTU-1: the same derived review status as the list (the latest run's), never the schema's default "not_reviewed" for every paper
-    status = submittal_review_mod.review_status_for(
-        [document_id], allowed_document_ids=frozenset([document_id])
-    )
-    doc["review_status"] = status.get(document_id, "not_reviewed")
+    # FTU-1: the list's own derivation, never the schema's default "not_reviewed" for every paper
+    doc["review_status"] = review_statuses([document_id])[document_id]
     return doc
 
 

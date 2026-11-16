@@ -143,6 +143,50 @@ def test_only_the_fields_own_label_alone_is_where_it_looked():
         assert got == crs_ai_actions.LOOKED, quote
 
 
+def test_label_only_means_all_of_the_labels_words_and_nothing_else():
+    kind = crs_ai_actions.found_quote_kind
+    assert kind("Insulation required", ["Insulation required"]) == crs_ai_actions.LOOKED
+    for quote in ("Required", "Insulation", "Insulation required: yes"):
+        assert kind(quote, ["Insulation required"]) == crs_ai_actions.CONTRADICTS, quote
+
+
+@pytest.mark.parametrize("passage", ["Body material: carbon steel", "Carbon steel"])
+def test_one_decision_gives_every_cell_of_a_silent_row_in_both_homes(passage):
+    """The rule check's point and the AI review's line, same field and same found quote: the same kind, reason, action and note."""
+    ctx = {"run_id": "r", "paper_document_id": "d", "readable": frozenset({"doc_std"})}
+    row = {
+        "row_kind": "missing_information",
+        "finding_id": "f-9",
+        "comment": "Contractor to state the body material.",
+        "page_section": "Page 4 - Body material",
+    }
+    finding = {
+        "compliance_status": "MISSING_INFORMATION",
+        "contractor_evidence_text": passage,
+        "standard_document_id": "doc_std",
+    }
+    sides = {"submittal": {"verified": True, "page": 4}, "standard": {}}
+    rc = review_points.rule_point(row, ctx, finding, sides)
+    line = silent_line(
+        "absent",
+        opinion=False,
+        paper_quote=passage,
+        field="Body material",
+        field_roles=["body_material"],
+    )
+    ai = review_points.ai_point(line, CTX)
+    want = crs_ai_actions.silent_row_words("Body material", passage)
+    assert want.kind == crs_ai_actions.CONTRADICTS
+    for point in (rc, ai):
+        assert crs_one.reason_of(point) == want.reason
+        assert point["action"] == want.action
+        assert point["action"].startswith("Engineer to check Body material")
+        assert crs_one.paper_shows(point) == point["paper_quote_note"] == want.note
+        assert "not evidence" not in want.note.lower()
+        assert "no value found" not in crs_one.reason_of(point)
+        assert point["paper_quote"] is None and point["paper_value"] is None
+
+
 #: the lead's probes (field, verified quote): a quote that may state the value, whatever its shape
 PROBES = [
     ("Body material", "Carbon steel"),
@@ -417,18 +461,19 @@ def test_a_paper_with_only_a_running_review_is_not_reviewed_yet():
 # ------------------------------------------------------------------------------------------------ 4. the review status is true
 
 
-def test_the_documents_api_says_a_reviewed_paper_is_reviewed_on_the_list_and_on_its_own_route():
-    doc = _submittal()
-    other = _submittal("doc_other", "other.pdf")
-    _run(doc)
-    client = _client(doc, other)
-    one = client.get(f"/api/documents/{doc}")
-    assert one.status_code == 200 and one.json()["review_status"] == "completed"
-    assert (
-        client.get(f"/api/documents/{other}").json()["review_status"] == "not_reviewed"
-    )
+def test_the_documents_api_says_the_same_review_status_on_the_list_and_on_its_own_route():
+    rc_only = _submittal()
+    ai_only = _submittal("doc_ai", "ai.pdf")
+    neither = _submittal("doc_none", "none.pdf")
+    _run(rc_only)
+    ai_run(ai_only, [mk("R-1", "Fail", "Fail")])
+    client = _client(rc_only, ai_only, neither)
+    want = {rc_only: "completed", ai_only: "completed", neither: "not_reviewed"}
+    single = {
+        d: client.get(f"/api/documents/{d}").json()["review_status"] for d in want
+    }
     listed = {d["id"]: d["review_status"] for d in client.get("/api/documents").json()}
-    assert listed == {doc: "completed", other: "not_reviewed"}
+    assert single == want and listed == want
 
 
 # ------------------------------------------------------------------------------------------------ 5. the file is named after the paper

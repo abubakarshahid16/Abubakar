@@ -310,7 +310,8 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
             else f"{where}: does not meet {rule}"
         )
         return f"{head}. {req}." + (f" {said}" if said else "")
-    if quote_said := _quote_said(line):  # FTU-1: the reader says "not stated" but quoted words that may state it
+    # FTU-1: the reader says "not stated" but quoted words that may state it
+    if quote_said := _quote_said(line):
         return f"{where}: {quote_said} {req}. Engineer to check."
     if code in ("absent", "absent_pages_not_named") or (verdict == FAIL and not has):
         pages = f" (pages searched: {searched})" if searched else ""
@@ -342,9 +343,10 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
 
 
 def _quote_said(line: Mapping) -> str:
-    from .crs_ai_actions import CONTRADICTS, quote_words, silent_quote
+    from .crs_ai_actions import CONTRADICTS, silent_row
 
-    return quote_words(line).strip() if silent_quote(line) == CONTRADICTS else ""
+    row = silent_row(line)
+    return row.note if row and row.kind == CONTRADICTS else ""
 
 
 def comment_by(line: Mapping) -> str:
@@ -689,13 +691,12 @@ def _independent_cells(line: Mapping) -> list:
 
 
 def _paper_check_words(line: Mapping) -> str | None:
-    """The paper quote's check cell; FTU-1: on a line that says "not stated", what its found quote is, never just "checked"."""
-    from .crs_ai_actions import CONTRADICTS, LOOKED, silent_quote
+    """The paper quote's check cell; FTU-1: on a silent row, its row's check words (`crs_ai_actions.silent_row`), never just "checked"."""
+    from .crs_ai_actions import silent_row
 
-    said = {LOOKED: "where the reader looked, not evidence of a value", CONTRADICTS: "may state it; the engineer checks"}
-    seen = silent_quote(line)
+    row = silent_row(line)
     word = _check_word(bool((line.get("quotes_checked") or {}).get("paper")))
-    return f"{word}; {said[seen]}" if seen else word
+    return f"{word}; {row.check}" if row else word
 
 
 def _evidence_row(n: int, line: Mapping, status: str) -> list:

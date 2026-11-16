@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from typing import NamedTuple
 
 from . import agent_review_two_reader as two
 from . import crs_ai_words as words
@@ -80,52 +81,105 @@ def says_silent(line: Mapping) -> bool:
 
 LOOKED, CONTRADICTS = "looked", "contradicts"
 
+#: FTU-1: the reason of a silent row whose found quote is the field's own label alone (code can show it holds no value)
+NOT_STATED_REASON = (
+    "the paper does not state this value (the reader's reading, not proven by code); "
+    "the words it quoted are where it looked, not evidence of a value"
+)
+#: FTU-1: the reason of a silent row whose found quote is anything else: it may state the value, code decides neither way
+CONTRADICT_REASON = (
+    "the reader says the paper does not state this value, but the words it quoted are on the page and may state it; "
+    "code did not decide which is right, so the engineer checks"
+)
+
+
+class SilentRow(NamedTuple):
+    """Every wording cell of ONE silent row, decided together: its kind, Reason, action, the paper cell (note) and the quote's check cell."""
+
+    kind: str
+    reason: str
+    action: str
+    note: str
+    check: str
+
+
+def whole_label(quote: str, labels) -> bool:
+    """The quote is exactly one of the field's labels: ALL of that label's words and nothing else, and no figure (stemmed words, the
+    same stemmer as `agent_review_verdict.quote_is_label_only`, which stays the met guard's wider test)."""
+    from .agent_bind import _stem
+
+    def stems(text: object) -> set[str]:
+        return {
+            _stem(w)
+            for w in re.findall(r"[a-z]+", str(text or "").replace("_", " ").lower())
+        }
+
+    have = stems(quote)
+    return (
+        bool(have)
+        and not re.search(r"\d", quote)
+        and any(have == stems(lab) for lab in labels if lab)
+    )
+
 
 def found_quote_kind(quote: str, labels) -> str:
-    """FTU-1: what a quote code found on the page IS when its own record says the paper gives no value. `LOOKED` (where the reader
-    looked, not evidence of a value) ONLY when code can show it holds no value: it is the field's own label and nothing else
-    (`agent_review_verdict.quote_is_label_only`). EVERY other found quote is `CONTRADICTS`, whatever its shape: it may state the
-    value, so the engineer checks, in neutral words. The ONE rule for the AI review's lines and the rule check's points."""
-    from .agent_review_verdict import quote_is_label_only
-
-    item = {"paper_quote": quote, "field_roles": [str(x) for x in labels if x]}
-    return LOOKED if quote_is_label_only(item) else CONTRADICTS
+    """`LOOKED` only when code can show the found quote holds no value (`whole_label`); `CONTRADICTS` for every other quote."""
+    return LOOKED if whole_label(quote, labels) else CONTRADICTS
 
 
-def silent_quote(line: Mapping) -> str:
-    """`found_quote_kind` of a line whose own record says the paper does not state the value (`says_silent`) and whose quote code found
-    on the page does not defer the value (a deferral is read as one); "" for any other line. Read by the points (`review_points`), the
-    sheets (`crs_ai_workbook`, `agent_review_crs`) and the reason words."""
+def silent_row_words(field: str, quote: str, labels=(), where: str = "") -> SilentRow:
+    """FTU-1: THE ONE decision of a silent row (its own record says the paper gives no value) that carries a quote code found on the
+    page: the kind (`found_quote_kind`) and every wording cell with it, so the cells of one row can never disagree. Read by the AI
+    review's lines (`silent_row`: the points, both sheets, the reason) and the rule check's points (`review_points.rule_point`)."""
+    what = field or "the value asked for"
+    if found_quote_kind(quote, [field, *labels]) == LOOKED:
+        return SilentRow(
+            LOOKED,
+            NOT_STATED_REASON,
+            f"Contractor to state {what}, or the page where it is shown.",
+            f'Not evidence of a value: the reader says the paper does not state it, and looked here: "{quote}"{where} '
+            "(found on the page by code).",
+            "where the reader looked, not evidence of a value",
+        )
+    return SilentRow(
+        CONTRADICTS,
+        CONTRADICT_REASON,
+        f"Engineer to check {what}: the reader says it is not stated, but quoted words from the page that may state it.",
+        f'The reader says the paper does not state it, but quoted: "{quote}"{where} (found on the page by code), which may '
+        "state it; code did not decide which is right, so the engineer checks.",
+        "may state it; the engineer checks",
+    )
+
+
+def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | None:
+    """`silent_row_words` of an AI line whose own record says the paper does not state the value (`says_silent`) and whose quote code
+    found on the page does not defer the value (a deferral is read as one); None for any other line."""
+    from .agent_review_crs import field_words
+
     quote = verified_quote(line)
     if not quote or not says_silent(line) or quote_defers(quote):
-        return ""
+        return None
     labels = (
         line.get("field_label_ai"),
         line.get("field"),
         *(line.get("field_roles") or []),
     )
-    return found_quote_kind(quote, labels)
+    return silent_row_words(what or field_words(line), quote, labels, where)
+
+
+def silent_quote(line: Mapping) -> str:
+    row = silent_row(line)
+    return row.kind if row else ""
 
 
 def looked_only(line: Mapping) -> bool:
     return silent_quote(line) == LOOKED
 
 
-#: FTU-1: the neutral words of a line whose reader says "not stated" but quoted words that may state it (code decides neither way)
-CONTRADICT_REASON = (
-    "the AI reviewer says the paper does not state this value, but the words it quoted are on the page and may state it; "
-    "code did not decide which is right, so the engineer checks"
-)
-
-
 def quote_words(line: Mapping, where: str = "") -> str:
-    """The sentence a sheet adds about such a quote ("" for any other line): where the reader looked, or a quote that may state it."""
-    seen, quote = silent_quote(line), verified_quote(line)
-    if seen == LOOKED:
-        return f' The words it quoted are where it looked ("{quote}"{where}, found on the page by code), not evidence of a value.'
-    if seen == CONTRADICTS:
-        return f' It quoted "{quote}"{where} (found on the page by code), which may state it: code did not decide which is right.'
-    return ""
+    """The paper cell a sheet adds for a silent row ("" for any other line): `silent_row`'s note."""
+    row = silent_row(line, where=where)
+    return f" {row.note}" if row else ""
 
 
 _STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
@@ -156,24 +210,20 @@ def provisional(line: Mapping) -> bool:
     return bool(quote) and bool(extract_measurements(quote))
 
 
-#: FTU-1 (retracts R68b's "a value is stated on the paper"): a quote code found on the page is not a stated VALUE. When the line's own
-#: reason says the paper does not state it, the reason says so and names the quote as where the reader looked.
-NOT_STATED_REASON = (
-    "the paper does not state this value (the AI reviewer's reading, not proven by code); "
-    "the words it quoted are where it looked, not evidence of a value"
-)
-
-
 def reason_for(line: Mapping, why: str) -> str:
     """The reason shown with a line, made to agree with the line's OWN reason code (FTU-1): a line that says the paper does not state the
     value says so when code can show its found quote is no value (`LOOKED`); when the quote may state it, neutral words (`CONTRADICTS`);
     otherwise the stored reason in plain words."""
-    seen = silent_quote(line)
-    return {LOOKED: NOT_STATED_REASON, CONTRADICTS: CONTRADICT_REASON}.get(seen, why)
+    row = silent_row(line)
+    return row.reason if row else why
 
 
 def query_action(line: Mapping, what: str, ref: str) -> str:
     """Part 3 of a Query: the sentence for the case the line is in."""
+    if row := silent_row(
+        line, what
+    ):  # FTU-1: a silent row's action is decided with its other cells
+        return row.action
     case = action_case(line)
     if case == "stated":
         return f"Contractor to confirm or justify {what}{' against ' + ref if ref else ''}."
@@ -185,8 +235,6 @@ def query_action(line: Mapping, what: str, ref: str) -> str:
         return f"Contractor to provide {what}{sheet_mark(line)}; it is deferred on the sheet."
     if case == "disagree":
         return f"Engineer to check {what}: the readers disagree."
-    if case == "contradicts":
-        return f"Engineer to check {what}: the AI reviewer says it is not stated, but quoted words from the page that may state it."
     if case == "cut_off":
         return f"Engineer to check {what}: the second AI reader's answer was cut off, so the two readers did not agree."
     if case == "unknown":
