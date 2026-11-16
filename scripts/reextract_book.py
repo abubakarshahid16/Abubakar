@@ -358,27 +358,7 @@ def _main(argv: list[str] | None = None) -> int:
     settings.data_dir, settings.db_path = db.parent, db
     settings.startup_warmup = False
     if args.dry_run:
-        import sqlite3
-
-        if live:  # the CRS builders open the app's own connection, which refuses a live file: read a temporary copy
-            from app import live_guard as guard
-
-            copy = guard.diagnostic_copy(db)
-            settings.data_dir, settings.db_path = copy.parent, copy
-            _print(
-                f"DRY RUN on a live database: counts read from a temporary copy {copy} (backup API, read only); "
-                "remove it afterwards"
-            )
-            db_read = copy
-        else:
-            db_read = db
-        conn = sqlite3.connect(f"{db_read.as_uri()}?mode=ro", uri=True)
-        report["before"] = counts(conn, args.doc, papers)
-        cells_before = report["before"].pop("crs_cells", {})
-        _print("BEFORE " + json.dumps(report["before"]))
-        _print("DRY RUN: nothing was written")
-        _write(args.report, report)
-        return 0
+        return _dry_run(args, db, live, papers, report, settings)
     timing: dict[str, float] = {}
     t = time.monotonic()
     report["backup"] = backup(
@@ -412,6 +392,48 @@ def _main(argv: list[str] | None = None) -> int:
         _print("WAY BACK (do it now): " + " ; ".join(way_back))
         _write(args.report, report)
         return 1
+
+
+def _dry_run(
+    args, db: Path, live: bool, papers: list[str], report: dict, settings
+) -> int:
+    """Checks passed: the BEFORE counts, written nowhere. A live database is read through a temporary backup-API copy (the
+    CRS builders open the app's own connection, which refuses a live file); that copy is REMOVED when the dry run ends,
+    whatever happens (R93: a dry run that leaves a full copy of the data behind has written something)."""
+    import sqlite3
+
+    copy_dir = None
+    try:
+        if live:
+            from app import live_guard as guard
+
+            copy = guard.diagnostic_copy(db)
+            copy_dir = copy.parent
+            settings.data_dir, settings.db_path = copy.parent, copy
+            _print(
+                f"DRY RUN on a live database: counts read from a temporary copy {copy} (backup API, read only)"
+            )
+            db_read = copy
+        else:
+            db_read = db
+        conn = sqlite3.connect(f"{db_read.as_uri()}?mode=ro", uri=True)
+        try:
+            report["before"] = counts(conn, args.doc, papers)
+        finally:
+            conn.close()
+        report["before"].pop("crs_cells", None)
+        _print("BEFORE " + json.dumps(report["before"]))
+    finally:
+        if copy_dir is not None:
+            shutil.rmtree(copy_dir, ignore_errors=True)
+            report["temporary_copy_removed"] = not copy_dir.exists()
+            _print(f"temporary copy {copy_dir} removed: {not copy_dir.exists()}")
+    _print(
+        "DRY RUN: nothing was written to the database"
+        + (" and the temporary copy is gone" if live else "")
+    )
+    _write(args.report, report)
+    return 0
 
 
 def _steps(args, report, papers, allowed, timing, cells_before, way_back) -> int:

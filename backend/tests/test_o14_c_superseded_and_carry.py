@@ -83,9 +83,13 @@ def book(monkeypatch):
     c = sqlite3.connect(":memory:")
     c.execute(
         "CREATE TABLE standard_requirements (id TEXT PRIMARY KEY, standard_document_id TEXT, requirement_text TEXT,"
-        " source_text TEXT, superseded_at TEXT, superseded_by_run TEXT, chunk_id TEXT)"
+        " source_text TEXT, superseded_at TEXT, superseded_by_run TEXT, chunk_id TEXT, page INTEGER DEFAULT 1)"
     )
     c.execute("CREATE TABLE chunks (id TEXT PRIMARY KEY, section TEXT)")
+    c.execute("CREATE TABLE rulebook_version (id TEXT PRIMARY KEY)")
+    c.execute(
+        "CREATE TABLE rulebook_provenance (rule_version_id TEXT, standard_document_id TEXT, page INTEGER, quote TEXT)"
+    )
     c.execute(
         "INSERT INTO chunks VALUES ('ch-head', 'ZZ-12 NUTS AND WASHERS'), ('ch-plain', '4.1 General')"
     )
@@ -96,10 +100,10 @@ def book(monkeypatch):
     schema.create_tables(c)
     rule_equipment.create_tables(c)
 
-    def rule(rid, text, by=None, doc="d-book", chunk="ch-plain"):
+    def rule(rid, text, by=None, doc="d-book", chunk="ch-plain", page=1):
         c.execute(
-            "INSERT INTO standard_requirements VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (rid, doc, text, text, "2026-11-16" if by else None, by, chunk),
+            "INSERT INTO standard_requirements VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (rid, doc, text, text, "2026-11-16" if by else None, by, chunk, page),
         )
 
     rule("old-same", "The relief device shall be set at the stated pressure.", RUN)
@@ -301,14 +305,18 @@ def test_a_persons_later_refusal_of_the_version_reaches_the_carried_successor(bo
     """R92: the successor keeps the label's rule-book version link, so a refusal made AFTER the carry stops both."""
     book.execute(
         "INSERT INTO standard_requirements VALUES ('old-bridged', 'd-book', 'Stems shall be sealed.',"
-        " 'Stems shall be sealed.', '2026-11-16', ?, 'ch-plain')",
+        " 'Stems shall be sealed.', '2026-11-16', ?, 'ch-plain', 1)",
         (RUN,),
     )
     book.execute(
         "INSERT INTO standard_requirements VALUES ('new-bridged', 'd-book', 'Stems shall be sealed.',"
-        " 'Stems shall be sealed.', NULL, NULL, 'ch-plain')"
+        " 'Stems shall be sealed.', NULL, NULL, 'ch-plain', 1)"
     )
     _label(book, "old-bridged", rule_version_id="v-bridged")
+    book.execute("INSERT INTO rulebook_version VALUES ('v-bridged')")
+    book.execute(
+        "INSERT INTO rulebook_provenance VALUES ('v-bridged', 'd-book', 1, 'q')"
+    )
     standards.carry_labels(book, "d-book", RUN)
     assert (
         rule_labels.usable_tier(book, requirement_id="new-bridged").tier
@@ -325,12 +333,86 @@ def test_only_the_newest_rechunk_of_the_book_is_read(book):
     """R92: an older re-chunk's rows belong to an earlier re-extraction and are not read again."""
     book.execute(
         "INSERT INTO standard_requirements VALUES ('old-older-rechunk', 'd-book', 'Plugs shall be tight.',"
-        " 'Plugs shall be tight.', '2026-01-01', 'xrun_rechunk_1', 'ch-plain')"
+        " 'Plugs shall be tight.', '2026-01-01', 'xrun_rechunk_1', 'ch-plain', 1)"
     )
     book.execute(
         "INSERT INTO standard_requirements VALUES ('new-older-rechunk', 'd-book', 'Plugs shall be tight.',"
-        " 'Plugs shall be tight.', NULL, NULL, 'ch-plain')"
+        " 'Plugs shall be tight.', NULL, NULL, 'ch-plain', 1)"
     )
     _label(book, "old-older-rechunk", rule_version_id=None)
     standards.carry_labels(book, "d-book", RUN)
     assert _has(book, "new-rechunk") and not _has(book, "new-older-rechunk")
+
+
+def _old_new(
+    book,
+    text,
+    old_page=1,
+    new_page=1,
+    olds=("o1",),
+    versions=("v-x",),
+    quoted_pages=(1,),
+):
+    for i, (o, v) in enumerate(zip(olds, versions, strict=True)):
+        book.execute(
+            "INSERT INTO standard_requirements VALUES (?, 'd-book', ?, ?, '2026-11-16', ?, 'ch-plain', ?)",
+            (o, text, text if i == 0 else text + " ", RUN, old_page),
+        )
+        _label(book, o, rule_version_id=v)
+        if v:
+            book.execute("INSERT OR IGNORE INTO rulebook_version VALUES (?)", (v,))
+            for qp in quoted_pages:
+                book.execute(
+                    "INSERT INTO rulebook_provenance VALUES (?, 'd-book', ?, 'q')",
+                    (v, qp),
+                )
+    book.execute(
+        "INSERT INTO standard_requirements VALUES ('n1', 'd-book', ?, ?, NULL, NULL, 'ch-plain', ?)",
+        (text, text, new_page),
+    )
+
+
+def _link(book, ref):
+    return rule_labels.label_for(book, requirement_id=ref)["rule_version_id"]
+
+
+def test_r93_the_link_is_kept_for_one_old_rule_on_the_same_page_quoted_there(book):
+    _old_new(book, "Caps shall be fitted.")
+    got = standards.carry_labels(book, "d-book", RUN)
+    assert _link(book, "n1") == "v-x" and got["version_link_kept"] >= 1
+
+
+def test_r93_a_version_quoting_another_page_gives_no_link_and_no_borrowed_approval(
+    book,
+):
+    """R93 fault A: successor on p.1, its old rule's version quotes p.2. The AI label goes, the link does not, so a person's
+    later approval of that other version never reads as an approval of this rule."""
+    _old_new(book, "Caps shall be fitted.", quoted_pages=(2,))
+    got = standards.carry_labels(book, "d-book", RUN)
+    assert (
+        _has(book, "n1")
+        and _link(book, "n1") is None
+        and got["version_link_dropped"] >= 1
+    )
+    book.execute(
+        "INSERT INTO rulebook_approval VALUES ('a7', 'v-x', 'approve', 'u1', 't', 'relief valve', 'owner')"
+    )
+    assert (
+        rule_labels.usable_tier(
+            book, requirement_id="n1", equipment_type="relief valve"
+        ).tier
+        == rule_labels.AI_TIER
+    )
+
+
+def test_r93_an_old_rule_on_another_page_gives_no_link(book):
+    _old_new(book, "Caps shall be fitted.", old_page=2, new_page=1, quoted_pages=(1, 2))
+    standards.carry_labels(book, "d-book", RUN)
+    assert _has(book, "n1") and _link(book, "n1") is None
+
+
+def test_r93_two_old_rules_with_their_own_links_give_no_link(book):
+    """R93 probes c/d: two old rules (identical text, different links) led to one successor; the first link was kept."""
+    _old_new(book, "Caps shall be fitted.", olds=("o1", "o2"), versions=("v-x", "v-y"))
+    standards.carry_labels(book, "d-book", RUN)
+    assert _has(book, "n1") and _link(book, "n1") is None

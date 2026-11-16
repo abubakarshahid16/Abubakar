@@ -204,3 +204,70 @@ def test_a_step_that_fails_halfway_prints_the_way_back_and_keeps_the_report(
     assert rep["failed"].startswith("RuntimeError") and rep["restore"][1].startswith(
         "cp "
     )
+
+
+# ---- R93: the live dry run removes its temporary copy; five papers by default -------------------------------------------
+
+
+def _live_dry(monkeypatch, tmp_path, counts_fn):
+    from app import live_guard
+
+    mod = _script()
+    live = tmp_path / "x" / "backend" / "data" / "rag_intelligence.sqlite"
+    live.parent.mkdir(parents=True)
+    sqlite3.connect(live).close()
+    made = {}
+
+    def fake_copy(path):
+        d = tmp_path / "diagnostic-copy-test"
+        d.mkdir()
+        copy = d / "rag_intelligence.sqlite"
+        sqlite3.connect(copy).close()
+        made["dir"] = d
+        return copy
+
+    monkeypatch.setattr(live_guard, "diagnostic_copy", fake_copy)
+    monkeypatch.setattr(mod, "go_no_go", lambda *a, **k: [("all", True, "")])
+    monkeypatch.setattr(mod, "counts", counts_fn)
+    return mod, live, made
+
+
+def test_a_live_dry_run_removes_its_temporary_copy(monkeypatch, tmp_path, capsys):
+    mod, live, made = _live_dry(monkeypatch, tmp_path, lambda *a, **k: _counts())
+    assert mod.main(["--db", str(live), "--doc", "d", "--dry-run"]) == 0
+    assert not made["dir"].exists()
+    out = capsys.readouterr().out
+    assert f"temporary copy {made['dir']} removed: True" in out
+
+
+def test_a_live_dry_run_removes_its_copy_even_when_reading_fails(monkeypatch, tmp_path):
+    def boom(*_a, **_k):
+        raise RuntimeError("cannot read")
+
+    mod, live, made = _live_dry(monkeypatch, tmp_path, boom)
+    try:
+        mod.main(["--db", str(live), "--doc", "d", "--dry-run"])
+    except RuntimeError:
+        pass
+    assert not made["dir"].exists()
+
+
+def test_the_five_papers_are_checked_by_default(monkeypatch, tmp_path):
+    seen = {}
+
+    def grab(_conn, _doc, papers):
+        seen["papers"] = list(papers)
+        return _counts()
+
+    mod = _script()
+    db = _book_db(tmp_path)
+    monkeypatch.setattr(mod, "go_no_go", lambda *a, **k: [("all", True, "")])
+    monkeypatch.setattr(mod, "counts", grab)
+    assert mod.main(["--db", str(db), "--doc", "d", "--dry-run"]) == 0
+    assert seen["papers"] == [
+        "doc_d30f4c63d481",  # valve
+        "doc_da3fcc0aaacc",  # pump
+        "doc_2ec2934f8d3f",  # vessel
+        "doc_b4f0d52bf927",  # HAZOP procedure
+        "doc_0d5c6f72ad0d",  # second procedure
+    ]
