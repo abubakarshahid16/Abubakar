@@ -19,6 +19,6 @@ Rule 4: no requirement is invented. A kit item cites the held clause that REQUIR
 
 - 3 to 5 real contracts or schedules (for example one schedule and its attachments in full) with the engineer's note of what is checked.
 - The list of required clauses per schedule, from the owner's contract-review checklist (not from the schedule itself, which says what the contractor does, not what a contract must contain).
-- The KJO standards the contract is compared with, already held, and the deliverables register for "deliverables against transmittals".
+- The client's standards the contract is compared with, already held, and the deliverables register for "deliverables against transmittals".
 
 Until then the router still names these kinds (`document_kinds`), the kind chooses the rule set (#1474), and nothing else runs on them.

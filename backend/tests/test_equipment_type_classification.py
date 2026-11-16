@@ -96,13 +96,13 @@ SOME CLIENT (X.Y.Z.)
 Project: A Refinery Debottlenecking Project
 CENTRIFUGAL PUMP DATA SHEET
 Item No.: 99-G-911 A/B
-Doc. No.: SITE-DAS-M-01
+Doc. No.: SITE-QRS-M-01
 This sheet is subject to final engineering checks.
 """
 
 PSV_COVER = """Page 1 of 5
 PRESSURE SAFETY VALVES (PSV)
-DOCUMENT NO. SITE-DAS-I-02
+DOCUMENT NO. SITE-QRS-I-02
 Design Code: API RP 520 Pt-1&2
 Tag No. PSV-1001 A/B
 Location 1st Stage Separator
@@ -142,7 +142,7 @@ No equipment of any kind is named anywhere on this particular page.
 COMPRESSOR_COVER = """Sheet 1 of 4
 CENTRIFUGAL COMPRESSOR DATA SHEET
 Item No.: 21-K-101
-Doc. No.: SITE-DAS-M-09
+Doc. No.: SITE-QRS-M-09
 This sheet is subject to final engineering checks.
 """
 EXCHANGER_COVER = """Page 1 of 6

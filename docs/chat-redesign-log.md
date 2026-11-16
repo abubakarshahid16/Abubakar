@@ -21,7 +21,7 @@ No client text, document numbers or standards text in this file.
   work…"). No Claude in chat, no streaming, no stop, no web.
 - Owner decisions applied (record in CURRENT_STATE if absent): Claude API is
   the chat's reader and reasoner (hardware decision 2026-09-24), local Ollama
-  the offline fallback; KJO permits sending submittals and standards text;
+  the offline fallback; the client permits sending submittals and standards text;
   build mode (no evidence packs or review stops inside this order); the repo
   is public, so no client text, document numbers or standards text in PRs,
   issues or logs.

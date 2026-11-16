@@ -1,6 +1,6 @@
 """Which equipment a fact describes.
 
-A DATASHEET CAN COVER MORE THAN ONE THING. `DS-0000-DAS-I-01` is four pressure
+A DATASHEET CAN COVER MORE THAN ONE THING. `DS-0000-QRS-I-01` is four pressure
 safety valves on four pages - PSV-9901, PSV-9903, PSV-9960, PSV-9906 - each
 with its own set pressure, its own relieving temperature, its own everything.
 Without a tag those fifty-five facts are one undifferentiated pile, and a

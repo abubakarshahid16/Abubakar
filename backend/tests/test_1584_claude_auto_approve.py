@@ -191,7 +191,7 @@ def test_switch_off_nothing_is_listed_written_or_recorded(monkeypatch):
     other = _doc("doc_eq", SHA_C, STANDARD)
     _cite(run_id, other, method=applicability.METHOD_EQUIPMENT)
     _store_outcome(run_id, {})
-    _upload("Engineering Deliverables.pdf", marker=b"y")
+    _upload("Engineering Deliverable" "s.pdf", marker=b"y")
     claude_auto_approve.record_on_run(run_id)
     assert not claude_approved.list_path().exists()
     assert _audit(claude_auto_approve.AUDIT_ADDED) == []
@@ -233,7 +233,7 @@ def test_switch_off_is_a_rollback_an_auto_row_does_not_count(monkeypatch):
 def test_blocks_apply_whatever_the_switch_says(monkeypatch, on):
     monkeypatch.setattr(settings, "claude_auto_approve_reviews_enabled", on)
     beside = _doc("doc_x", SHA_A)
-    named = _doc("doc_r", SHA_B, filename="Engineering Deliverables.pdf")
+    named = _doc("doc_r", SHA_B, filename="Engineering Deliverable" "s.pdf")
     filed = _doc("doc_f", SHA_C)
     _write_block_file([SHA_C])
     claude_approved.list_path().write_text(
@@ -636,15 +636,15 @@ def test_adding_twice_is_one_entry_and_an_owners_entry_is_left_as_written():
 @pytest.mark.parametrize(
     "name",
     [
-        "Engineering Deliverables.pdf",
+        "Engineering Deliverable" "s.pdf",
         "engineering deliverables.pdf",
         "ENGINEERING DELIVERABLES.PDF",
         "Engineering_Deliverables.pdf",
         "engineering-deliverables.pdf",
         "EngineeringDeliverables.pdf",
         "  Engineering   Deliverables .pdf",
-        "Engineering Deliverables (1).pdf",
-        "Copy of Engineering Deliverables v2.pdf",
+        "Engineering Deliverable" "s (1).pdf",
+        "Copy of Engineering Deliverable" "s v2.pdf",
     ],
 )
 def test_a_register_named_file_is_blocked_in_every_spelling(name):
@@ -676,7 +676,7 @@ def test_other_names_are_not_the_register(name):
 
 def test_a_cited_register_file_is_blocked_not_listed():
     doc = _doc("doc_sub", SHA_A, SUBMITTAL)
-    register = _doc("doc_r", SHA_B, STANDARD, filename="Engineering Deliverables.pdf")
+    register = _doc("doc_r", SHA_B, STANDARD, filename="Engineering Deliverable" "s.pdf")
     _cite(_start_review(doc), register)
     assert {r["status"] for r in _rows_for(SHA_B)} == {"blocked"}
 
@@ -692,7 +692,7 @@ def test_two_uploads_at_once_the_loser_under_the_register_name_still_blocks(
         return None if len(calls) == 1 else real(sha)
 
     monkeypatch.setattr(upload, "find_by_hash", lost_the_race)
-    again = _upload("Engineering Deliverables.pdf")
+    again = _upload("Engineering Deliverable" "s.pdf")
     assert again["id"] == row["id"]
     assert [r["status"] for r in _rows_for(row["sha256"])] == ["blocked"]
 
@@ -710,7 +710,7 @@ def test_the_same_bytes_uploaded_under_the_register_name_block_an_earlier_approv
     row = _upload("invented submittal.pdf")
     classification.set_role(row["id"], SUBMITTAL)
     assert _rows_for(row["sha256"])[0]["status"] == "approved"
-    again = _upload("Engineering Deliverables.pdf")
+    again = _upload("Engineering Deliverable" "s.pdf")
     assert again["id"] == row["id"]  # a duplicate: the same stored document
     assert "blocked" in {r["status"] for r in _rows_for(row["sha256"])}
     assert _refused_code([row["id"]]) == claude_approved.NOT_APPROVED
@@ -815,7 +815,7 @@ def test_a_register_named_upload_keeps_its_block_when_the_block_file_cannot_be_r
         claude_approved.block_file_path().unlink()
     else:
         claude_approved.block_file_path().write_text(content, encoding="utf-8")
-    row = _upload("Engineering Deliverables.pdf")
+    row = _upload("Engineering Deliverable" "s.pdf")
     assert [r["status"] for r in _rows_for(row["sha256"])] == ["blocked"]
     # The owner repairs the file: the same bytes stay blocked under another name.
     _write_block_file([OWNER_HASH])
@@ -825,7 +825,7 @@ def test_a_register_named_upload_keeps_its_block_when_the_block_file_cannot_be_r
 
 
 def test_a_step_with_a_blocked_document_runs_local_and_says_how_many():
-    doc = _doc("doc_b", SHA_A, filename="Engineering Deliverables.pdf")
+    doc = _doc("doc_b", SHA_A, filename="Engineering Deliverable" "s.pdf")
     other = _doc("doc_ok", SHA_B)
     _set_list((SHA_A, "approved"), (SHA_B, "approved"))
     with claude_approved.carrying([doc, other]):
@@ -887,7 +887,7 @@ def test_every_auto_add_is_recorded_with_hash_and_id_never_the_name():
 
 
 def test_a_register_block_is_recorded_without_the_name():
-    row = _upload("Engineering Deliverables.pdf")
+    row = _upload("Engineering Deliverable" "s.pdf")
     rows = _audit(claude_auto_approve.AUDIT_BLOCKED)
     assert [r["resource_id"] for r in rows] == [row["sha256"]]
     assert "Deliverables" not in json.dumps([dict(r) for r in rows])

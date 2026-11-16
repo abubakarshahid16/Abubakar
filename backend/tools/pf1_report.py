@@ -245,7 +245,7 @@ def build_report(
     return report
 
 
-#: The Stage E pass mark (owner decision, order 170.1, final): on the R1 KJO
+#: The Stage E pass mark (owner decision, order 170.1, final): on the R1 client
 #: answer key and the R2 blind set. A PF1 set has NO pass mark until the owner
 #: sets one after its baseline; `--bar stage-e` shows these four numbers against
 #: this bar for a set that is scored for it.

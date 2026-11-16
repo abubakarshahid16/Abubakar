@@ -427,7 +427,7 @@ def test_the_same_old_file_cannot_be_recorded_again_after_the_content_changed(tm
         {"checker_kind": "code"},
         {"checker_kind": "owner"},
         {"checker_kind": "ai_engineer_chat_helper2"},
-        {"checker_kind": "Claude chat helper, KJO engineer role"},
+        {"checker_kind": "Claude chat helper, client engineer role"},
         {"checker_kind": None},
         {"rule_version_id": "v2"},
         {"quote_sha256": "0" * 64},

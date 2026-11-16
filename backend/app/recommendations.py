@@ -50,7 +50,7 @@ CODE = "recommendation_query"
 
 def named(applicable: list[dict]) -> set[str]:
     """The standards the datasheet itself NAMES (its design standards): the only ones whose
-    recommendations a review raises (default house rule, to be confirmed by KJO)."""
+    recommendations a review raises (default house rule, to be confirmed by the client)."""
     from . import applicability
     from .config import settings
 
