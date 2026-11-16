@@ -122,17 +122,41 @@ def key_of(point: dict) -> str:
     return f"point|{point.get('id')}"
 
 
+#: The guard reasons of an AI "met" that code could not CONFIRM but that say nothing is open or missing: the quote was not found, the
+#: readers disagree. Such a line is ticked by the engineer, not a comment. A "met" held because the value is open (deferred), not stated
+#: or only a label stays a comment: a missing statement is never shown as nothing to change (CLAUDE.md rule 4).
+def _tick_whys() -> frozenset[str]:
+    from . import agent_review_verdict as v
+
+    return frozenset({v.UNVERIFIED_PAPER_WHY, v.UNVERIFIED_CLAUSE_WHY, v.DISAGREE_WHY})
+
+
+def tick_only(point: dict) -> bool:
+    """An AI line its reader judged met (its reason "met" or "pass_...") that code could not confirm, for a reason that leaves nothing
+    open or missing (`_tick_whys`): the engineer ticks it; it is not a comment."""
+    from .agent_review_verdict import met_unsafe_why
+
+    line = _line_of(point)
+    reason = str(line.get("reason_code") or "").strip().lower()
+    if not (reason == "met" or reason.startswith("pass")):
+        return False
+    return (met_unsafe_why(line) or "") in _tick_whys()
+
+
 def not_a_comment(comment: dict) -> str | None:
     """What a grouped field is called when it carries NO finding (it is then not a comment), else None: a coverage line; every point
-    met (`KIND_NOTHING_TO_CHANGE`); none of it applies or was checked (the strongest point's own kind). A field where readers disagree
-    is always a comment."""
+    met (`KIND_NOTHING_TO_CHANGE`); every point met or a met code could not confirm (`KIND_MET_NOT_CONFIRMED`); none of it applies or
+    was checked (the strongest point's own kind). A field where readers disagree is always a comment."""
     s = comment["strongest"]
     if is_coverage(s):
         return words.KIND_COVERAGE
     if comment["disagree"]:
         return None
+    ms = comment.get("_members") or [s]
     if comment["tile"] == "met":
         return words.KIND_NOTHING_TO_CHANGE
+    if all(p.get("tile") == "met" or tick_only(p) for p in ms):
+        return words.KIND_MET_NOT_CONFIRMED
     if comment["tile"] == "does_not_apply":
         return s.get("other_kind") or words.KIND_NOT_APPLICABLE
     return None
@@ -199,8 +223,45 @@ def coverage_note(points: list[dict]) -> str:
     )
 
 
+def field_words(field: str) -> frozenset[str]:
+    """The words of a field (folded, split on every character that is not a letter or digit; text in brackets KEPT, R61)."""
+    return frozenset(w for w in re.split(r"[^0-9a-z]+", _norm(field)) if w)
+
+
+NEAR_SAME_ONE_WORD = 8  # a one-word field is near-same to a longer one only when that word is this long ("compressibility", never "gas")
+
+
+def near_same(a: frozenset[str], b: frozenset[str]) -> bool:
+    """The shorter field's words are all in the longer, make at least half of it, and are not one short word: "compressibility" and
+    "compressibility factor", "required capacity" and "required relieving capacity"; never "inlet size" and "outlet size", never "gas" and
+    "gas (h2 and co2 content)" (R61)."""
+    short, long_ = sorted((a, b), key=len)
+    if not short or short == long_ or not short <= long_ or 2 * len(short) < len(long_):
+        return False
+    return len(short) > 1 or len(next(iter(short))) >= NEAR_SAME_ONE_WORD
+
+
+def _near_same_roots(order: list[str], members: dict[str, list[dict]]) -> dict[str, str]:
+    """Each field key -> the field key it joins: a shorter field joins the ONE longer field it is near-same to (two or more candidates:
+    it stays alone, never guessed); followed to the end, so every field lands on one comment."""
+    wds = {k: field_words(_field_of(members[k][0])) for k in order if k.startswith("field|")}
+    parent = {}
+    for k, w in wds.items():
+        longer = [k2 for k2, w2 in wds.items() if k2 != k and len(w2) > len(w) and near_same(w, w2)]
+        if len(longer) == 1:
+            parent[k] = longer[0]
+    root = {}
+    for k in order:
+        r, seen = k, set()
+        while r in parent and r not in seen:
+            seen.add(r)
+            r = parent[r]
+        root[k] = r
+    return root
+
+
 def _group_all(points: list[dict]) -> list[dict]:
-    """Every grouped field (comments and the fields that carry no finding), numbered in order."""
+    """Every grouped field (comments and the fields that carry no finding), numbered in order. Near-same fields are one comment."""
     order: list[str] = []
     members: dict[str, list[dict]] = {}
     for p in points:
@@ -211,12 +272,17 @@ def _group_all(points: list[dict]) -> list[dict]:
             order.append(k)
             members[k] = []
         members[k].append(p)
+    root = _near_same_roots(order, members)
+    for k in order:
+        if root[k] != k:
+            members[root[k]].extend(members.pop(k))
+    order = [k for k in order if k in members]
     out = []
     for number, k in enumerate(order, start=1):
         ms = members[k]
         strongest = min(
-            ms, key=lambda p: p["rank"]
-        )  # rank 1 is the worst: the strongest status
+            ms, key=lambda p: (p["rank"], tick_only(p))
+        )  # rank 1 is the worst: the strongest status; a met code could not confirm never leads a field that has a real question
         tiles = {p.get("tile") for p in ms}
         disagree = bool(tiles & set(_NOT_MET)) and bool(tiles & set(_MET))
         lead = (
@@ -252,6 +318,7 @@ def _group_all(points: list[dict]) -> list[dict]:
                 "clauses": _clauses(ms),
                 "book_held": any(p.get("_book_docs") or p.get("_book_doc") for p in ms),  # cites a held book (named or not)
                 "disagree": disagree,
+                "_members": ms,
             }
         )
     # WORST FIRST (U5): by the comment's own rank (its strongest point: proven Fail, two-reader not met, AI not met, question, met), then
@@ -269,7 +336,7 @@ def _group_all(points: list[dict]) -> list[dict]:
 
 def public(comment: dict) -> dict:
     """The comment as the page's listing carries it: the strongest point object is left out (the points are in the listing)."""
-    return {k: v for k, v in comment.items() if k != "strongest"}
+    return {k: v for k, v in comment.items() if k not in ("strongest", "_members")}
 
 
 # ------------------------------------------------------------------------------------------------ the AI run's own file (order 14 lane B)

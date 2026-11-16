@@ -28,8 +28,12 @@ from .agent_review_crs import (
     NOT_APPLICABLE_SHEET,
     NOT_CHECKED_HERE_SHEET,
     NOT_REVIEWED_SHEET,
+    OTHER_COLUMNS,
+    OTHER_WIDTHS,
     PASSED_SHEET,
     UNAPPROVED_SHEET,
+    _deferred_mark,
+    _other_reason,
     against,
     line_page,
     sheet_of,
@@ -167,6 +171,11 @@ def _requires(line: Mapping, status: str) -> str:
         if line.get("recommendation") or line.get("rule_kind") == "advice"
         else "requires"
     )
+    if (
+        status == words.STATUS_QUERY and (mark := _deferred_mark(line)) is not None
+    ):  # lane D: the sheet leaves it to the vendor
+        head = f"Vendor to provide {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
+        return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
     if status == words.STATUS_QUERY:
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
         return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
@@ -258,6 +267,10 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out += f" {wording.ONE_READER}the requirement is met." + (
             f" {view}" if view else ""
         )
+    if draft := words.ai_draft_words(
+        line
+    ):  # lane A: a code check against an AI-draft limit, said as such
+        out += f" {draft}"
     return out + reasoning_part(line, status, guard)
 
 
@@ -265,6 +278,10 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     """Part 3: what the contractor must do: ONE fixed sentence per Status, completed with the field label and the rule reference the
     line already carries. No free text of the AI reader reaches it (its suggested action is on the Evidence sheet). Pass and AI
     opinion (met): no action line."""
+    if (
+        line.get("ai_draft") is True
+    ):  # lane A: the limit is an AI draft: the engineer confirms it first
+        return f"Engineer to confirm the AI-draft limit of {against(line) or 'the rule'}, then the comparison."
     if status == words.STATUS_PASS:
         return "No action."
     if status == words.STATUS_AI and order == words.ORDER_AI_MET:
@@ -415,57 +432,6 @@ def other_lines(lines: Iterable[Mapping]) -> list[tuple[Mapping, str]]:
     """Every line that is not a comment row, with what it is called, in the order the lines came in: not reviewed, does not apply, rule
     not yet approved, not checked here; checked with nothing to change; a coverage line; part of comment n (`_split`)."""
     return _split(lines)[1]
-
-
-def _other_reason(line: Mapping, kind: str) -> str:
-    if kind == words.KIND_COVERAGE:
-        return (
-            words.plain(line.get("why"))
-            or "Rules of a rule book could not be matched to a field: an engineer checks them."
-        )
-    if kind == words.KIND_NOTHING_TO_CHANGE:
-        got = status_of(line)
-        said = {words.STATUS_PASS: "Met, proven by code", words.STATUS_AI_VERDICT: "Met, two AI readers agree; engineer to confirm",
-                words.STATUS_AI: "Met in the AI reviewer's view, not proven by code; engineer to confirm"}.get(got[0] if got else "", "Met")  # fmt: skip
-        return f"{said}. No comment: nothing to change."
-    if kind.startswith(words.KIND_IN_COMMENT.split("{")[0]):
-        return "The same field or topic as that comment: its rule book, clause and page are listed there."
-    if kind == words.KIND_NOT_APPLICABLE:
-        return (
-            words.plain(line.get("comment"))
-            or "The AI reviewer judged the rule not applicable to this paper."
-        )
-    if kind == words.KIND_NOT_CHECKED_HERE:
-        return two.OTHER_WHY + "."
-    if kind == words.KIND_UNAPPROVED:
-        view = {wording.THINKS_MET: "met", wording.THINKS_NOT_MET: "not met"}.get(
-            str(line.get("verdict_label"))
-        )
-        tail = (
-            f" The AI reviewer's view ({view}) is not shown as a comment."
-            if view
-            else ""
-        )
-        return "The rule has not been approved yet." + tail
-    text = (
-        words.why_phrase(line.get("not_proven_reason"))
-        or "the AI reviewer gave no answer"
-    )
-    return (
-        text[:1].upper() + text[1:] + "."
-    )  # only the first letter: never "the ai reviewer"
-
-
-OTHER_COLUMNS = (
-    "Item No",
-    "Document Name",
-    "Page No./Section",
-    "Standard Reference",
-    "What it is",
-    "Reason",
-    "Status",  # order 14 lane B: a met line's own Status (Pass, AI verdict, AI opinion), so a reader of the file still finds it
-)
-OTHER_WIDTHS = (9.0, 26.0, 20.0, 26.0, 30.0, 90.0, 14.0)
 
 
 def _models(names: Iterable[str] | None) -> str:

@@ -73,7 +73,8 @@ NOT_A_COMMENT_SHEET = "Not a comment"  # the AI run file's sheet of every line t
 KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two readers or one reader): the engineer ticks it, no comment
 KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
-NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_COVERAGE)
+KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # quote not found or readers disagree; nothing open or missing
+NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
 #: Words that say there is nothing to do ("no correction needed", "found none", "could not be read" and their plain variants). A model's
 #: own sentence is shown without them (`drop_noise`); our own fixed words never use them.
 NOISE = re.compile(
@@ -382,6 +383,28 @@ def plain(text: object) -> str:
     return drop_noise(" ".join(" ".join(keep).split()))
 
 
+#: Order 14 (lane A's answer to lane B, 16 Nov 2026): a code check against a limit that is an AI draft. Never Pass or Fail; a Query.
+AI_DRAFT = "AI draft, engineer to confirm"
+_COMPARED = ("COMPLIANT", "NON_COMPLIANT")
+
+
+def ai_draft_words(line: Mapping) -> str:
+    """The words of an AI-draft check (`line["ai_draft"]` is True): "code compared the stated value with a limit that is an AI draft"
+    ONLY when code really compared (`compare.code_said` COMPLIANT or NON_COMPLIANT); otherwise nothing was compared and only the
+    check's own detail is said. '' for any other line."""
+    if line.get("ai_draft") is not True:
+        return ""
+    why = _clean(line.get("why"))
+    detail = (why[len(AI_DRAFT) :] if why.startswith(AI_DRAFT) else why).strip(" :.")
+    said = str((line.get("compare") or {}).get("code_said") or "").upper()
+    if said in _COMPARED:
+        return (
+            f"{AI_DRAFT}: code compared the stated value with a limit that is an AI draft"
+            + (f"; {detail}." if detail else ".")
+        )
+    return f"{AI_DRAFT}: {detail}." if detail else f"{AI_DRAFT}."
+
+
 def drop_noise(text: object) -> str:
     """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
     a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
@@ -458,6 +481,7 @@ __all__ = [
     "BANNED",
     "KIND_COVERAGE",
     "KIND_IN_COMMENT",
+    "KIND_MET_NOT_CONFIRMED",
     "KIND_NOTHING_TO_CHANGE",
     "NOISE",
     "NORMAL_STATUSES",
@@ -470,6 +494,7 @@ __all__ = [
     "STATUSES",
     "UNKNOWN_WHY",
     "WHY_PHRASES",
+    "ai_draft_words",
     "code_phrase",
     "comment_by",
     "drop_noise",

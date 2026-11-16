@@ -105,12 +105,39 @@ def test_a_met_field_is_not_a_comment_and_is_counted_apart():
 
 
 def test_the_readers_view_never_prints_no_correction_needed():
-    """A "met" the guard moved to a Query is a real question; the AI's "No correction needed" is not printed, its other words are."""
-    line = mk("R-1", "Query", ai="Pass", quotes_checked={"paper": False, "clause": True}, reason_code="met",
+    """A "met" the guard held because the value is open stays a question; the AI's "No correction needed" is not printed, its other
+    words are."""
+    line = mk("R-1", "Query", ai="Pass", paper_quote="Set pressure TBA", reason_code="met",
               comment="No correction needed; confirm the mark at vendor stage.")  # fmt: skip
     cell = _crs_rows(_view([line]))[0][3]
     assert words.NOISE.search(cell) is None
     assert "the requirement is met. Confirm the mark at vendor stage." in cell
+
+
+def test_a_met_code_could_not_confirm_is_ticked_not_commented_but_an_open_value_stays():
+    unverified = mk(
+        "R-1",
+        "Query",
+        ai="Pass",
+        quotes_checked={"paper": False, "clause": True},
+        reason_code="met",
+        field="Body",
+    )
+    open_value = mk(
+        "R-2",
+        "Query",
+        ai="Pass",
+        paper_quote="Set pressure TBA",
+        reason_code="pass_field_unknown",
+        field="Set pressure",
+    )
+    view = _view([unverified, open_value])
+    assert [r[2] for r in view["rows"]] == ["p.2 - Set pressure"]
+    other = {r[0]: r for r in view["other"]["rows"]}
+    assert (
+        other[2][4] == words.KIND_MET_NOT_CONFIRMED
+        and "The engineer ticks it." in other[2][5]
+    )
 
 
 def test_drop_noise_keeps_the_rest_and_leaves_other_text_alone():
@@ -287,3 +314,188 @@ def test_a_proven_fail_reaches_the_contractor_copy_even_when_its_field_disagrees
     text = " ".join(str(c) for r in contractor["rows"] for c in r)
     assert "AI" not in text and "disagree" not in text
     assert len(WB.contractor_rows([fail, met, ask])) == 1
+
+
+def test_near_same_fields_are_one_comment_but_a_short_word_and_two_candidates_never_merge():
+    def pt(i, field):
+        return {"id": i, "name": field, "rank": 4, "tile": "questions"}
+
+    got = crs_comments.group([pt("1", "Compressibility"), pt("2", "Compressibility factor"), pt("3", "Required capacity"),
+                              pt("4", "Required relieving capacity"), pt("5", "Gas"), pt("6", "Gas (H2 and CO2 content)"),
+                              pt("7", "Inlet size"), pt("8", "Outlet size")])  # fmt: skip
+    assert sorted(c["n_points"] for c in got) == [1, 1, 1, 1, 2, 2]
+    two = crs_comments.group(
+        [
+            pt("1", "Design pressure"),
+            pt("2", "Design pressure margin"),
+            pt("3", "Design pressure test"),
+        ]
+    )
+    assert [c["n_points"] for c in two] == [
+        1,
+        1,
+        1,
+    ]  # "Design pressure" has two longer candidates: it stays alone, never guessed
+
+
+def test_a_checklist_line_gets_its_own_held_book_on_the_page():
+    from app import review_points as rp
+
+    line = mk(
+        "S-1",
+        "Query",
+        ai="Fail",
+        item={"source": "skill", "item_id": "S-1"},
+        standard_document_id="doc-book",
+        why="x",
+    )
+    ctx = {"run_id": "r", "paper_document_id": "p", "book_of": {}, "readable": frozenset({"doc-book"}), "library": [],
+           "everything": True, "documents": frozenset({"doc-book"})}  # fmt: skip
+    assert rp.ai_point(dict(line), ctx)["rule_book"] == "STD-1"
+    assert (
+        rp.ai_point(dict(line), {**ctx, "documents": frozenset()})["rule_book"] is None
+    )  # a book that is not held is never named
+
+
+def test_a_rule_whose_book_is_not_held_is_a_book_missing_question_with_no_rule_words():
+    from app import review_points as rp
+
+    ctx = {
+        "run_id": "r",
+        "paper_document_id": "p",
+        "readable": frozenset({"p"}),
+        "_library": [],
+    }
+    row = {"row_kind": "clause_review", "finding_id": "f1", "page_section": "p.2 - Seal plan", "comment": "Plan 52 is required.",
+           "standard_reference": "BOOK-77", "priority": "High"}  # fmt: skip
+    finding = {"standard_document_id": None, "standard_clause": "8.5", "requirement_source_text": "Plan 52 shall be used.",
+               "requirement": "Plan 52 shall be used.", "reason_code": "NON_COMPLIANT"}  # fmt: skip
+    p = rp.rule_point(row, ctx, finding, {}, proof=(True, True))
+    assert (
+        p["rank"] == 4
+        and p["clause"] is None
+        and p["rule_text"] is None
+        and p["clause_quote"] is None
+    )
+    assert (
+        p["action"].startswith("Book missing: BOOK-77.")
+        and p["reason_words"] == "Book missing: BOOK-77"
+    )
+    held = rp.rule_point(
+        row,
+        {**ctx, "_library": [{"document_number": "BOOK-77", "id": "d1"}]},
+        finding,
+        {},
+        proof=(True, True),
+    )
+    assert held["clause"] == "8.5"  # a held book: unchanged
+    hidden = rp.rule_point(row, ctx, finding, {}, proof=(False, False))
+    assert "BOOK-77" not in str(
+        hidden["action"]
+    )  # a viewer for whom the reference is hidden never gets the name (rule 5)
+
+
+def test_a_value_left_to_the_vendor_reads_vendor_to_provide_with_the_mark_and_page():
+    star = mk(
+        "R-1",
+        "Query",
+        reason_code="value_deferred",
+        paper_quote="Seal plan *",
+        deferred_page=3,
+        field="Seal plan",
+    )
+    one = WB.layout_comment(star, *WB.status_of(star)).split("\n")[0]
+    assert one.startswith(
+        "Vendor to provide Seal plan (marked * on page 3); STD-1 clause 4.1 requires:"
+    )
+    words_mark = mk(
+        "R-2",
+        "Query",
+        reason_code="value_deferred",
+        paper_quote="By Contractor",
+        field="Set pressure",
+    )
+    assert WB.layout_comment(words_mark, *WB.status_of(words_mark)).startswith(
+        'Vendor to provide Set pressure (marked "By Contractor" on page 2)'
+    )
+
+
+def test_an_ai_draft_check_says_compared_only_when_code_compared():
+    base = {
+        "ai_draft": True,
+        "why": "AI draft, engineer to confirm: The numbers read: 4 % against at most 3 %.",
+    }
+    compared = {**base, "compare": {"code_said": "NON_COMPLIANT"}}
+    assert words.ai_draft_words(compared) == (
+        "AI draft, engineer to confirm: code compared the stated value with a limit that is an AI draft; The numbers read: 4 % against at most 3 %."
+    )
+    missing = {
+        **base,
+        "why": "AI draft, engineer to confirm: the value is not given",
+        "compare": {"code_said": "MISSING_INFORMATION"},
+    }
+    assert (
+        words.ai_draft_words(missing)
+        == "AI draft, engineer to confirm: the value is not given."
+    )
+    assert words.ai_draft_words({"why": "x"}) == ""
+    line = mk("C-1", "Query", **compared, reason_code="not_decided")
+    cell = WB.layout_comment(line, *WB.status_of(line))
+    assert "code compared the stated value" in cell and cell.endswith(
+        "Engineer to confirm the AI-draft limit of STD-1 clause 4.1, then the comparison."
+    )
+
+
+def test_the_general_review_file_holds_one_comment_per_topic(tmp_path):
+    from app import agent_general_crs
+    from app import agent_general_review as core
+
+    def query(i, topic):
+        return core.finalize_line({"part": 2, "verdict_class": core.CLASS_QUERY, "subkind": core.SUB_CHECKLIST, "line_id": f"q{i}",
+                                   "document": "p.pdf", "topic": topic, "text": f"checklist: {topic}: not found in the paper"})  # fmt: skip
+
+    lines = [
+        query(1, "owner of each action"),
+        query(2, "Owner of each action"),
+        query(3, "test interval"),
+    ]
+    agent_general_crs.write_all(
+        lines, tmp_path, {"paper": "p.pdf", "run_id": "r", "date": "d"}, [], {}
+    )
+    wb = openpyxl.load_workbook(tmp_path / "crs-internal.xlsx")
+    rows = [[c.value for c in r] for r in wb["CRS"].iter_rows()]
+    head = next(i for i, r in enumerate(rows) if r[0] == "Item No")
+    assert len([r for r in rows[head + 1 :] if r[0] is not None]) == 2
+    other = [[c.value for c in r] for r in wb[words.OTHER_SHEET].iter_rows()]
+    assert any(r[4] == "Part of comment 1" for r in other)
+    ev = [[c.value for c in r] for r in wb["Evidence"].iter_rows()]
+    assert (
+        len(
+            [
+                r
+                for r in ev[
+                    next(i for i, r in enumerate(ev) if r[0] == "Item No") + 1 :
+                ]
+                if r[0] is not None
+            ]
+        )
+        == 3
+    )  # every line kept
+
+
+def test_contract_check_results_list_what_to_look_at_and_count_the_consistent_ones():
+    from types import SimpleNamespace as NS
+
+    q = [
+        NS(page=4, text="Stage 1: 30 %", verified=True),
+        NS(page=5, text="not on the page", verified=False),
+    ]
+    results = [NS(ct="CT-01", topic="payment stages", outcome="inconsistent", value="90 %", message="Stages add to 90 %, not 100 %.", quotes=q),
+               NS(ct="CT-02", topic="attachments", outcome="consistent", value="5 of 5", message="", quotes=[]),
+               NS(ct="CT-03", topic="guarantee names", outcome="engineer to check", value="2 names", message="Two names.", quotes=[])]  # fmt: skip
+    rows, consistent = crs_one.contract_rows(results)
+    assert consistent == 1 and [r[1] for r in rows] == ["CT-01", "CT-03"]
+    assert (
+        rows[0][6] == '"Stage 1: 30 %" (page 4)'
+        and rows[0][7] == crs_one.CONTRACT_CLASS
+    )  # only the verified quote

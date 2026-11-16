@@ -717,3 +717,84 @@ def evidence_sheet(items: list, others: list) -> dict:
         "statuses": [st for _l, st, _o in items] + [None] * len(others),
         "widths": EVIDENCE_WIDTHS,
     }
+
+
+# ------------------------------------------------------------------------------------------------ words of the AI run file (order 14 lane B)
+
+
+_STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")
+
+
+def _deferred_mark(line: Mapping) -> str | None:
+    """None when the line's value is not left open on the sheet; else how the sheet marks it, from the quote code verified: " (marked *
+    on page N)" for a lone star, else the quoted words (order 14 lane D: a senior engineer says the vendor is to fill it)."""
+    from .agent_review_verdict import DEFERRED_WHY
+
+    deferred = line.get("reason_code") == "value_deferred" or str(
+        line.get("not_proven_reason") or ""
+    ).startswith(DEFERRED_WHY)
+    if not deferred:
+        return None
+    has, page = stated(line), line.get("deferred_page") or line.get("paper_page")
+    on = f" on page {page}" if page not in (None, "") else ""
+    if has and _STAR.search(has):
+        return f" (marked *{on})"
+    return f' (marked "{has}"{on})' if has else (f" (left open{on})" if on else "")
+
+
+def _other_reason(line: Mapping, kind: str) -> str:
+    if kind == words.KIND_COVERAGE:
+        return (
+            words.plain(line.get("why"))
+            or "Rules of a rule book could not be matched to a field: an engineer checks them."
+        )
+    if kind == words.KIND_NOTHING_TO_CHANGE:
+        got = _status_of(line)
+        said = {words.STATUS_PASS: "Met, proven by code", words.STATUS_AI_VERDICT: "Met, two AI readers agree; engineer to confirm",
+                words.STATUS_AI: "Met in the AI reviewer's view, not proven by code; engineer to confirm"}.get(got[0] if got else "", "Met")  # fmt: skip
+        return f"{said}. No comment: nothing to change."
+    if kind == words.KIND_MET_NOT_CONFIRMED:
+        why = words.why_phrase(met_unsafe_why(line))
+        return (
+            "The AI reader judged it met; code could not confirm it"
+            + (f" ({why})" if why and why != words.UNKNOWN_WHY else "")
+            + ". The engineer ticks it."
+        )
+    if kind.startswith(words.KIND_IN_COMMENT.split("{")[0]):
+        return "The same field or topic as that comment: its rule book, clause and page are listed there."
+    if kind == words.KIND_NOT_APPLICABLE:
+        return (
+            words.plain(line.get("comment"))
+            or "The AI reviewer judged the rule not applicable to this paper."
+        )
+    if kind == words.KIND_NOT_CHECKED_HERE:
+        return two.OTHER_WHY + "."
+    if kind == words.KIND_UNAPPROVED:
+        view = {wording.THINKS_MET: "met", wording.THINKS_NOT_MET: "not met"}.get(
+            str(line.get("verdict_label"))
+        )
+        tail = (
+            f" The AI reviewer's view ({view}) is not shown as a comment."
+            if view
+            else ""
+        )
+        return "The rule has not been approved yet." + tail
+    text = (
+        words.why_phrase(line.get("not_proven_reason"))
+        or "the AI reviewer gave no answer"
+    )
+    return (
+        text[:1].upper() + text[1:] + "."
+    )  # only the first letter: never "the ai reviewer"
+
+
+OTHER_COLUMNS = (
+    "Item No",
+    "Document Name",
+    "Page No./Section",
+    "Standard Reference",
+    "What it is",
+    "Reason",
+    "Status",  # order 14 lane B: a met line's own Status (Pass, AI verdict, AI opinion), so a reader of the file still finds it
+)
+OTHER_WIDTHS = (9.0, 26.0, 20.0, 26.0, 30.0, 90.0, 14.0)

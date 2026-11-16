@@ -55,6 +55,10 @@ NOT_CHECKED_SHEET = "What was not checked"
 HOW_SHEET = "How it was reviewed"
 #: Order 14 lane B: the fields that carry no finding (met, does not apply, a coverage line), listed apart and counted, never dropped
 NOT_A_COMMENT_SHEET = "Not a comment"
+#: Order 14 lane E's contract checks (CT-01..), an AI-draft checklist: internal only, never on the contractor file
+CONTRACT_SHEET = "Contract checks"
+CONTRACT_CLASS = "AI draft rule, internal only"
+CONTRACT_SHOWN = ("inconsistent", "engineer to check")
 FILE_TEAM = "crs-team.xlsx"
 FILE_CONTRACTOR = "crs-contractor.xlsx"
 #: the archived copy of the one contractor file (`crs_issue.archive`): the file the engineer signed is this builder's, byte for byte
@@ -111,6 +115,8 @@ def reason_of(point: dict) -> str:
     )
     if point.get("source") == rp.SOURCE_ADDED:
         return "Added by an engineer."
+    if line and (draft := words.ai_draft_words(line)):  # lane A: a check against an AI-draft limit: said first, in code's own words
+        return _clean(draft)
     if line:
         why = words.why_phrase(line.get("not_proven_reason") or line.get("why") or "")
         code = (
@@ -144,6 +150,8 @@ def rule_requires(point: dict) -> str:
         return content.UNREADABLE_BOOK
     if point.get("rule_text"):
         return f'"{point["rule_text"]}" (as stored; {content.NOT_VERIFIED})'
+    if point.get("check_text"):  # order 14 lane B: our checklist's words, said to be ours
+        return f'Our checklist asks (our words, not the book\'s): "{point["check_text"]}"'
     return content.NOTHING
 
 
@@ -653,6 +661,21 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     return [_cell(x) for x in cells], cut_n
 
 
+def contract_rows(results) -> tuple[list[list], int]:
+    """(the rows of the sheet Contract checks, how many results were consistent). One row per result whose outcome is "inconsistent" or
+    "engineer to check" (lane E's `Result`: ct, topic, outcome, value, message, quotes of page, text, verified); a consistent result is
+    counted, not listed. A quote is shown only when code verified it on its page."""
+    rows, consistent = [], 0
+    for r in results or []:
+        outcome = _clean(getattr(r, "outcome", "")).lower()
+        if outcome not in CONTRACT_SHOWN:
+            consistent += outcome == "consistent"
+            continue
+        quotes = "; ".join(f'"{_clean(q.text)}" (page {q.page})' for q in getattr(r, "quotes", []) or [] if getattr(q, "verified", False))
+        rows.append([_cell(c) for c in (len(rows) + 1, r.ct, r.topic, outcome, r.value, r.message, quotes or content.NOTHING, CONTRACT_CLASS)])
+    return rows, consistent
+
+
 def build_team(
     paper_id: str,
     scope,
@@ -660,6 +683,7 @@ def build_team(
     exported: str | None = None,
     signed: bool = False,
     listing_raw=None,
+    contract_results=None,
 ) -> bytes:
     """The ONE team workbook of a paper (see the module words): sheet CRS = one comment per field, sheet Evidence = every point."""
     from . import review_points_service as svc
@@ -724,6 +748,13 @@ def build_team(
         (40, 28, 8, 20, 12, 60),
         note=f"{aside_line(aside)} Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
     )  # fmt: skip
+    if contract_results is not None:  # order 14 lane E: the contract checks, an AI-draft checklist (internal only; not points of the page)
+        c_rows, consistent = contract_rows(contract_results)
+        _sheet_table(
+            wb, CONTRACT_SHEET, ("No", "Check", "Topic", "Outcome", "Value", "What to do", "Quote (verified by code)", "Class"), c_rows,
+            (6, 10, 30, 18, 30, 60, 60, 26),
+            note=f"{len(c_rows)} contract check result(s) to look at; {consistent} consistent (not listed). {CONTRACT_CLASS}: never on the contractor file.",
+        )  # fmt: skip
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(
         wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page"),

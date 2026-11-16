@@ -182,7 +182,9 @@ def test_the_screens_line_text_is_the_three_lines_of_the_files_comment_cell(clie
     item_lines = [ln for ln in lines if ln["word"] != "Not reviewed"]
     assert item_lines
     for ln in item_lines:
-        assert ln["reason"].count("\n") == 2 and ln["reason"] in cells, ln["item_id"]
+        assert ln["reason"].count("\n") == 2, ln["item_id"]
+    # order 14 lane B: a met line is not a comment row (sheet "Not a comment"); every comment cell is the screen text of one of its lines
+    assert cells and cells <= {ln["reason"] for ln in item_lines}
     assert all(
         "\n" not in ln["reason"] for ln in lines if ln["word"] == "Not reviewed"
     )  # not an item row: its stored reason
