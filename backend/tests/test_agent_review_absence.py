@@ -289,12 +289,16 @@ def test_deferred_mark_needs_all_the_field_words_and_a_mark_on_one_line():
 
 # ---------------------------------------------------------------- a label line, then the value line with the mark
 
-LABEL_THEN_MARK = {1: "DATA SHEET\nCasing material\nBy Contractor\nRated flow\n120 m3/h"}
+LABEL_THEN_MARK = {
+    1: "DATA SHEET\nCasing material\nBy Contractor\nRated flow\n120 m3/h"
+}
 
 
 def test_a_mark_on_the_line_after_the_field_label_is_the_fields_deferral():
     assert A.deferred_mark("casing material", LABEL_THEN_MARK) == 1
-    assert A.deferred_mark("rated flow", LABEL_THEN_MARK) is None  # its own value is a figure
+    assert (
+        A.deferred_mark("rated flow", LABEL_THEN_MARK) is None
+    )  # its own value is a figure
     got = A.pass_guard({"field_roles": ["casing_material"]}, "", LABEL_THEN_MARK)
     assert got is not None and got[1] == "value_deferred" and got[2] == 1
     assert got[0]["verdict"] == "Query" and "page 1" in got[0]["why"]
@@ -305,7 +309,9 @@ def test_a_mark_line_does_not_belong_to_a_field_when_the_line_before_is_not_its_
         {1: "Casing material 12 mm\nBy Contractor"},  # the label line holds a figure
         {1: "Bearing type\nBy Contractor"},  # another field's label
         {1: "Casing material\n\nBy Contractor"},  # the mark is not directly after
-        {1: "Casing material\nfiller line\nBy Contractor"},  # the mark is not directly after
+        {
+            1: "Casing material\nfiller line\nBy Contractor"
+        },  # the mark is not directly after
         {1: "By Contractor\nCasing material"},  # the mark is before the label
         {1: "Casing\nBy Contractor"},  # a word of the field is missing
     )
@@ -315,10 +321,20 @@ def test_a_mark_line_does_not_belong_to_a_field_when_the_line_before_is_not_its_
 
 def test_a_pass_on_a_field_deferred_on_the_next_line_becomes_a_query_and_nothing_becomes_a_pass():
     # the guard only ever answers Query (or None); it has no way to answer Pass or Fail
-    for pages in (LABEL_THEN_MARK, {1: "Casing material\nSteel"}, {}, {1: "Casing material 5\nBy Contractor"}):
+    for pages in (
+        LABEL_THEN_MARK,
+        {1: "Casing material\nSteel"},
+        {},
+        {1: "Casing material 5\nBy Contractor"},
+    ):
         got = A.pass_guard({"field_roles": ["casing_material"]}, "", pages)
         assert got is None or got[0]["verdict"] == "Query"
-    assert A.pass_guard({"field_roles": ["casing_material"]}, "", {1: "Casing material\nSteel"}) is None
+    assert (
+        A.pass_guard(
+            {"field_roles": ["casing_material"]}, "", {1: "Casing material\nSteel"}
+        )
+        is None
+    )
 
 
 def test_the_request_modules_deferred_mark_is_the_same_rule():
@@ -337,12 +353,18 @@ ABBREVIATED = {1: "DATA SHEET\nCsg matl\nBy Contractor\nRated flow\n120 m3/h"}
 
 def test_the_label_as_printed_is_tried_when_the_role_words_tie_nothing():
     item = {"field_roles": ["casing_material"]}
-    assert A.pass_guard(item, "", ABBREVIATED) is None  # the role words are not on the sheet
+    assert (
+        A.pass_guard(item, "", ABBREVIATED) is None
+    )  # the role words are not on the sheet
     got = A.pass_guard(item, "Csg matl", ABBREVIATED)
     assert got is not None and got[1] == "value_deferred" and got[2] == 1
     assert got[0]["verdict"] == "Query"
-    assert A.pass_guard(item, "Rated flow", ABBREVIATED) is None  # that label's value is a figure
-    assert A.pass_guard(item, "Csg matl", {1: "Csg matl 5\nBy Contractor"}) is None  # figure on the label line
+    assert (
+        A.pass_guard(item, "Rated flow", ABBREVIATED) is None
+    )  # that label's value is a figure
+    assert (
+        A.pass_guard(item, "Csg matl", {1: "Csg matl 5\nBy Contractor"}) is None
+    )  # figure on the label line
     assert A.pass_guard(item, "Csg matl", {1: "Csg matl\nSteel"}) is None  # no mark
 
 
@@ -360,4 +382,6 @@ def test_the_review_runners_guard_also_tries_the_printed_label():
     item = {"field_roles": ["casing_material"]}
     assert Run().pass_guard(item, "") is None
     got = Run().pass_guard(item, "Csg matl")
-    assert got is not None and got[1] == "value_deferred" and got[0]["verdict"] == "Query"
+    assert (
+        got is not None and got[1] == "value_deferred" and got[0]["verdict"] == "Query"
+    )
