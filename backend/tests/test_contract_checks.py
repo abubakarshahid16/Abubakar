@@ -179,17 +179,29 @@ def test_a_part_of_another_schedule_is_not_matched_by_the_same_label_of_this_one
         _one(results, "CT-02", "Attachment I of Schedule K").value
         == "present (held document doc_att1)"
     )
-    q = _one(results, "CT-02", "Attachment III of Schedule W")
-    assert (
-        q.outcome != cc.CONSISTENT
-    )  # Attachment III of Schedule K does not answer for Schedule W's
+    # Attachment III of Schedule K does not answer for Schedule W's: no result says it is present
+    assert not [
+        r for r in results if r.outcome == cc.CONSISTENT and "Schedule W" in r.topic
+    ]
+    assert "Attachment III of Schedule W" in _one(results, "CT-02", "Schedule W").value
 
 
 def test_a_sibling_part_outside_the_package_goes_to_the_engineer_not_a_finding():
     results = cc.check_attachments(PART_K, PACKAGE_K)
-    for topic in ("Schedule C", "Schedule W", "Attachment III of Schedule W"):
+    for topic in ("Schedule C", "Schedule W"):
         r = _one(results, "CT-02", topic)
-        assert r.outcome == cc.ENGINEER and r.value == "not held"
+        assert r.outcome == cc.ENGINEER and r.value.startswith("not held")
+
+
+def test_a_missing_sub_part_of_a_missing_part_is_said_in_one_comment():
+    results = cc.check_attachments(PART_K, PACKAGE_K)
+    w = _one(results, "CT-02", "Schedule W")
+    assert (
+        w.value == "not held; also Attachment III of Schedule W"
+        and "Attachment III of Schedule W" in w.message
+    )
+    assert not [r for r in results if r.topic == "Attachment III of Schedule W"]
+    assert cc.judge_rows(results)["G4"]["status"] == "PASS"
 
 
 def test_a_package_document_is_its_deepest_heading_label_under_the_next_higher_one():
@@ -313,6 +325,17 @@ def test_the_rows_pass_the_shared_gates_g3_g4_g5_and_g5_sees_an_unverified_value
         cc.FIRM_RANK,
     )
     assert cc._gates().g5_firm(rows).status == "FAIL"
+
+
+def test_a_missing_part_without_every_page_read_fails_g5():
+    pages = [
+        (1, "1.1 The codes are in Appendix F."),
+        (3, "Schedule A Scope"),
+    ]  # page 2 has no stored text
+    results = cc.check_attachments(pages)
+    f = _one(results, "CT-02", "Appendix F")
+    assert f.outcome == cc.INCONSISTENT and not f.absence_proven
+    assert cc.judge_rows(results)["G5"]["status"] == "FAIL"
 
 
 def test_stored_lines_are_kept_and_a_contradiction_is_named():

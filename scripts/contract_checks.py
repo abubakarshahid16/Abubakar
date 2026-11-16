@@ -490,7 +490,8 @@ def check_attachments(
             if head == part and present.get(head) == f"page {page}":
                 continue  # the heading itself is not a reference
             refs.setdefault(part, []).append((page, line))
-    out = []
+    out: list[Result] = []
+    by_part: dict[Part, Result] = {}
     scope = f"the {len(pages)} pages of this paper" + (
         f" and {len(package)} held package documents" if package else ""
     )
@@ -536,7 +537,33 @@ def check_attachments(
                     )
                 )
             )
-    return out
+        by_part[part] = out[-1]
+    return _fold_into_parent(by_part, out)
+
+
+def _fold_into_parent(by_part: dict[Part, Result], out: list[Result]) -> list[Result]:
+    """One comment per missing part (G4): a missing sub-part whose higher part is itself missing with the same outcome is said
+    inside the higher part's comment ('Schedule W is not held; Attachment III of it is referred to on page 2'), with its quotes."""
+    keep = []
+    for r in out:
+        part = next(p for p, x in by_part.items() if x is r)
+        (_key, parent) = part
+        up = next(
+            (x for (k, _pp), x in by_part.items() if parent and k == parent), None
+        )
+        if (
+            up is not None
+            and up is not r
+            and r.outcome != CONSISTENT
+            and up.outcome == r.outcome
+        ):
+            pages_of = ", ".join(str(q.page) for q in r.quotes)
+            up.message += f" {_name(part)} is referred to on page {pages_of} too."
+            up.value += f"; also {_name(part)}"
+            up.quotes += [q for q in r.quotes if q not in up.quotes]
+            continue
+        keep.append(r)
+    return keep
 
 
 # ------------------------------------------------------------------------------------------------ CT-03 one name per guarantee
@@ -742,6 +769,11 @@ def gate_rows(results: list[Result]) -> list:
                 paper_value=r.value,
                 value_verified=bool(r.quotes) and all(q.verified for q in r.quotes),
                 absence_proven=r.absence_proven,
+                # a finding that something is missing is an absence (G5): it stands only on the proof that every page was read
+                reason="absent"
+                if r.value.startswith(("not present", "not held"))
+                or " 0 found" in r.value
+                else "",
                 book=BOOK,
                 clause=r.ct,
             )
