@@ -40,8 +40,11 @@ def test_a_refused_second_opinion_reports_what_it_cost_too():
 
 def test_a_star_that_opens_a_note_line_is_no_deferral():
     assert (
-        blank_markers.defers_value("* psig") is False
-    )  # the note guard alone stops it (a star, then a word)
+        blank_markers.defers_value("* psig values are gauge pressure") is False
+    )  # the note guard alone stops it (a star, then words: a note line)
+    assert (
+        blank_markers.defers_value("* psig") is True
+    )  # lane D's rule (review R102): a lone star whose unit ENDS the cell is a value to fill
 
 
 def test_a_star_that_points_to_a_note_is_no_deferral():
