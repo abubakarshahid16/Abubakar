@@ -38,6 +38,22 @@ title), is a pass line. A Verdict cell must be one of the closed set (Pass, Fail
 engineer", each optionally followed by ", <who decided>"); any other verdict, or a Fail or Query on the pass
 sheet, is an unknown verdict: the line is not counted and the count is reported.
 Other sheets (internal notes, not applicable, unproven AI passes) are not read.
+THE TEAM FILE (`crs_one.build_team`, order 14). Its per-point table (the header row holding "Field or item", "Page", "Pill" and
+"Class": the sheet "Evidence", one row per point) is read; its sheet "CRS" groups those points into comments and is not read again,
+so no point of a comment is folded away. Class and Pill decide the kind: Not met proven by code = Fail, Not met two readers agree = a
+two-reader verdict, Not met one reader = an AI opinion, Questions for you = Query, Met proven by code = Pass, Met two readers agree =
+a two-reader verdict; Met one reader (the AI's own met) and Does not apply are no comment and no pass. A point an engineer removed is
+not read; a point that is not in a comment (its Comment cell is not a number) counts only as a pass or a two-reader "met".
+THE ELEMENT ROLE. A procedure playbook's line prints its element's own lead (`procedure_playbook_rows.element_lead`: "<playbook
+title>, <element title> (<standard> <clause>)"); a line printing it carries the role "<playbook id>:<element id>" of that element,
+read from the app's own playbook files, whatever its Page/Section cell holds (a section path for a playbook row).
+THE PAGES. A page cell's own page list ("p.2", "p.1-4", "p.2, 7", "page 2", "pages 2 and 4") ends where the cell goes on (" - " and a
+section path such as "1 > para 1-4"); the section path's own numbers are never pages.
+TWO WAYS (owner, 12 Nov 2026): problems found of ALL problem rows, and of the rows whose rule book is held. A book is NOT held when
+the CRS file itself says so: a row of its sheet "Rule books not held", or a cell that says "Book missing: <book>". Each problem or
+complies row that is not found gets ONE cause: book not held; misjudged (a pass or a "met" answered it); left as a question (a
+complies row raised as a comment); misread (the field was raised, on another page); wrong label (the row's clause was raised under
+another field); not asked.
 
 THE NUMBERS (each with its denominator, rows by sheet row number):
   problems found          problem rows a comment line answers            of the problem rows
@@ -129,6 +145,8 @@ class Line:
     ai_kind: str = ""
     #: the line's Status (new layout) or Verdict (old layout), folded: "pass", "fail", "query", "ai opinion", "ai verdict"
     status: str = ""
+    #: the procedure playbook elements whose own lead the line prints ("<playbook id>:<element id>", `element_roles`)
+    element_roles: frozenset = field(default=frozenset())
 
 
 def fold(text) -> str:
@@ -204,11 +222,25 @@ def line_label(page_section, comment) -> str:
     return _cut_qualifier(lead.group(1)) if lead else ""
 
 
+#: A page cell's own page list at its start: "p.2", "p.1-4", "p.2, 7", "page 2", "pages 2 and 4". A range is written without
+#: spaces ("1-4"); " - " ends the list (what follows is a label or a section path, whose numbers are not pages).
+_PAGE_LIST = r"\d+(?:[-\u2013]\d+)?(?:\s*(?:,|and)\s*\d+(?:[-\u2013]\d+)?)*"
+_PAGE_LEAD = re.compile(rf"^\s*(?:p\.|pages?\b)\s*({_PAGE_LIST})(?![\d.])", re.I)
+
+
+def page_cell_pages(cell) -> frozenset:
+    """The pages of a page-only cell ("8", "2, 7", "1-4", "page 2"); "not recorded" or anything else: as `line_pages` reads it."""
+    text = str(cell or "").strip()
+    if re.fullmatch(_PAGE_LIST, text):
+        return parse_pages(text)
+    return line_pages(text, "")
+
+
 def line_pages(page_section, comment) -> frozenset:
-    """The paper pages of one CRS line: "p.<pages>" first, then "... on pages N, M", then a comment lead
-    "<label> (page N):". No page: empty."""
+    """The paper pages of one CRS line: its page list first ("p.<pages>", "page <n>", `_PAGE_LEAD`), then "... on pages N, M",
+    then a comment lead "<label> (page N):". No page: empty."""
     page_section = str(page_section or "")
-    m = re.match(r"\s*p\.\s*([0-9][0-9,\s\-\u2013]*)", page_section)
+    m = _PAGE_LEAD.match(page_section)
     if m:
         return parse_pages(m.group(1))
     m = _READ_ON.search(page_section)
@@ -225,6 +257,28 @@ def _playbook_elements() -> frozenset:
         data = json.loads(path.read_text(encoding="utf-8"))
         out.update(f"{data['id']}:{e['id']}" for e in data.get("elements", []))
     return frozenset(out)
+
+
+@lru_cache(maxsize=1)
+def _element_leads() -> tuple:
+    """(folded lead, "<playbook id>:<element id>") of every element of the app's playbooks, longest lead first. The lead is the one
+    the CRS row prints (`procedure_playbook_rows.element_lead`), followed by " (" and the element's standard and clause."""
+    from app import playbooks
+    from app.procedure_playbook_rows import element_lead
+
+    found, _broken = playbooks.available(PLAYBOOKS)
+    out = [
+        (fold(element_lead(pb.title, e.title)) + " (", f"{pb.id}:{e.id}")
+        for pb in found.values()
+        for e in pb.elements
+    ]
+    return tuple(sorted(out, key=lambda x: -len(x[0])))
+
+
+def element_roles(text) -> frozenset:
+    """The playbook element roles whose own lead the text prints (see the module words: THE ELEMENT ROLE)."""
+    folded = fold(text)
+    return frozenset(role for lead, role in _element_leads() if lead in folded)
 
 
 def _registry():
@@ -407,6 +461,118 @@ def _text(row) -> str:
 
 LAYOUT_NEW = "new layout (Status column, order 13)"
 LAYOUT_OLD = "old layout (Verdict column or sheet names)"
+LAYOUT_TEAM = "team file (per-point table, order 14)"
+#: The columns of the team file's per-point table this scorer reads (`crs_one.TEAM_COLUMNS`; a test holds them to it).
+TEAM_FIELD, TEAM_PAGE, TEAM_PILL, TEAM_CLASS = "Field or item", "Page", "Pill", "Class"
+TEAM_COMMENT, TEAM_BOOK, TEAM_CLAUSE = "Comment", "Rule book", "Clause"
+TEAM_REMOVED = "removed"
+#: The words that say a rule book is not held (`review_points.BOOK_MISSING`) and the team file's sheet listing such books.
+BOOK_MISSING_WORDS = "Book missing"
+HELD_SHEET = "Rule books not held"
+
+
+def _is_team_header(row) -> bool:
+    cells = {str(c or "").strip() for c in row or ()}
+    return {TEAM_FIELD, TEAM_PAGE, TEAM_PILL, TEAM_CLASS} <= cells
+
+
+def _team_kind(cls, pill, comment) -> tuple[str, str, str] | None:
+    """(kind, status, ai_kind) of one team-file point from its Class and Pill (`review_points.RANKS`: "<what> · <how firm>"); None:
+    no comment and no pass (the AI's own met, does not apply). kind "unknown": a class this scorer does not know."""
+    cls = fold(cls)
+    firm = fold(str(pill or "").split("\u00b7", 1)[1]) if "\u00b7" in str(pill or "") else ""
+    if cls == "not met":
+        if firm == "proven by code":
+            return "comment", "fail", ""
+        if firm == "two readers agree":
+            from app.crs_ai_words import ABSENCE_OPENER
+
+            gone = fold(f"{ABSENCE_OPENER}: two AI readers each read every page") in fold(comment)
+            return "ai", "ai verdict", "not stated" if gone else "not met"
+        return "comment", "ai opinion", ""
+    if cls == "questions for you":
+        return "comment", "query", ""
+    if cls == "met":
+        if firm == "proven by code":
+            return "pass", "pass", ""
+        if firm == "two readers agree":
+            return "ai", "ai verdict", "met"
+        return None
+    if cls == "does not apply":
+        return None
+    return "unknown", cls, ""
+
+
+def _team_clause(book, clause) -> tuple | None:
+    """The (standard, clause) a team-file point cites: its Rule book and Clause cells; a book named only as missing is that book."""
+    book = re.sub(rf"^\s*{BOOK_MISSING_WORDS}\s*:\s*", "", str(book or ""), flags=re.I)
+    book = re.sub(r"\((?:clause not named)[^)]*\)", " ", book, flags=re.I)
+    return clause_ref(f"{book} {clause or ''}")
+
+
+def read_team_table(ws_title: str, rows: list, hi: int) -> list[Line]:
+    """The lines of a team file's per-point table (header row `hi`; see the module words: THE TEAM FILE)."""
+    head = [str(c or "").strip() for c in rows[hi]]
+    col = {name: head.index(name) for name in head if name}
+    out = []
+    for number, row in enumerate(rows[hi + 1 :], start=hi + 2):
+        if not row or sum(1 for c in row if c not in (None, "")) < 3:
+            continue
+        row = list(row) + [None] * (len(head) - len(row))
+        cell = {name: row[i] for name, i in col.items()}
+        text = _text(row)
+        in_comment = str(cell.get(TEAM_COMMENT) or "").strip()
+        if fold(in_comment) == TEAM_REMOVED:
+            continue
+        got = _team_kind(cell.get(TEAM_CLASS), cell.get(TEAM_PILL), text)
+        if got is None:
+            continue
+        kind, status, ai_kind = got
+        if kind in ("comment", "unknown") and not in_comment.isdigit():
+            continue  # not in a comment: a coverage line or a field set aside (`crs_comments.set_aside`)
+        label = _cut_qualifier(str(cell.get(TEAM_FIELD) or ""))
+        cited = _team_clause(cell.get(TEAM_BOOK), cell.get(TEAM_CLAUSE))
+        if cited and cited[1] is None and (named := clause_ref(cell.get(TEAM_FIELD))) and named[0] == cited[0]:
+            cited = named  # no Clause cell: the clause the field's own name gives for the same book
+        out.append(
+            Line(
+                ws_title,
+                number,
+                label,
+                page_cell_pages(cell.get(TEAM_PAGE)),
+                text,
+                kind == "pass",
+                clause=cited,
+                unknown_verdict=kind == "unknown",
+                ai_kind=ai_kind,
+                status=status,
+                element_roles=element_roles(text),
+            )
+        )
+    return out
+
+
+def not_held_books(path) -> frozenset:
+    """The standards (folded, `clause_ref`) the CRS file itself says are not held: the rows of its sheet "Rule books not held" and
+    every cell that says "Book missing: <book>[; <book>]" (a clause after the book is dropped)."""
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    names: list[str] = []
+    for ws in wb.worksheets:
+        rows = [list(r) for r in ws.iter_rows(values_only=True)]
+        if ws.title == HELD_SHEET:
+            hi = next((i for i, r in enumerate(rows) if r and str(r[0] or "").strip() == "Rule book"), None)
+            names += [str(r[0]) for r in rows[(hi + 1) if hi is not None else len(rows):] if r and r[0]]
+        for r in rows:
+            for c in r or ():
+                m = re.search(rf"\b{BOOK_MISSING_WORDS}\s*:\s*([^.\n]+)", str(c or ""), re.I)
+                if m:
+                    names += re.sub(r"\([^)]*\)", " ", m.group(1)).split(";")
+    out = set()
+    for n in names:
+        got = clause_ref(n.split(", clause")[0])
+        if got:
+            out.add(got[0])
+    return frozenset(out)
 
 
 def read_crs(path) -> list[Line]:
@@ -427,6 +593,11 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
         first = fold(rows[0][0] if rows and rows[0] else "")
         pass_sheet = ws.title.lower().startswith("passed") or first == TICK_TITLE
+        ti = next((i for i, r in enumerate(rows[:40]) if _is_team_header(r)), None)
+        if ti is not None:
+            out.extend(read_team_table(ws.title, rows, ti))
+            layout = LAYOUT_TEAM
+            continue
         if ws.title != CRS_SHEET and not pass_sheet:
             continue
         hi = next((i for i, r in enumerate(rows) if r and r[0] == "Item No"), None)
@@ -499,6 +670,7 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
                     unknown_verdict=kind == "unknown",
                     ai_kind=ai_kind if sti is not None else "",
                     status=status if sti is not None else verdict,
+                    element_roles=element_roles(text),
                 )
             )
     return out, layout
@@ -578,10 +750,18 @@ def _word_match(k: KeyRow, line: Line) -> bool:
     )
 
 
-def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
+def score(
+    key: list[KeyRow],
+    lines: list[Line],
+    patterns: dict,
+    not_held: frozenset = frozenset(),
+) -> dict:
     spellings = key_spellings(key)
     lines = [
-        replace(ln, roles=roles_named(ln.label, patterns, spellings)) for ln in lines
+        replace(
+            ln, roles=roles_named(ln.label, patterns, spellings) | ln.element_roles
+        )
+        for ln in lines
     ]
     unknown = [ln for ln in lines if ln.unknown_verdict]
     ai_lines = [
@@ -679,7 +859,73 @@ def score(key: list[KeyRow], lines: list[Line], patterns: dict) -> dict:
     res["wrong_pass_lines"] = len(hidden_by_pass)
     _score_ai_verdicts(res, key, ai_lines)
     res["decisions"] = decision_figures(key, lines)
+    _two_ways(res, key, lines, not_held)
     return res
+
+
+def rule_held(k: KeyRow, not_held: frozenset) -> bool:
+    """The key row's rule book is held, as far as the CRS file says: its standard is not one the file lists as not held."""
+    return k.clause is None or k.clause[0] not in not_held
+
+
+MISS_CAUSES = (
+    "book not held",
+    "misjudged",
+    "left as a question",
+    "counted for another row",
+    "wrong label",
+    "misread",
+    "not asked",
+)
+
+
+def miss_cause(k: KeyRow, res: dict, lines: list[Line], not_held: frozenset) -> str:
+    """ONE cause for a problem or complies row that is not found (see the module words: TWO WAYS)."""
+    if not rule_held(k, not_held):
+        return "book not held"
+    if k.scored_as == "problem" and (
+        k.row in res["wrong_passes"] or k.row in res["ai_verdict_wrong"]
+    ):
+        return "misjudged"
+    if k.scored_as == "complies" and k.row in res["ai_verdict_wrong"]:
+        return "misjudged"
+    asked = [ln for ln in lines if not ln.is_pass and not ln.unknown_verdict]
+    if any(answers(k, ln) for ln in asked):
+        # a complies row a comment answers was left to the engineer; a problem row answered on field and page but not credited:
+        # its line counted for another row (one line, one row)
+        return "left as a question" if k.scored_as == "complies" else "counted for another row"
+    on_page = [ln for ln in lines if not ln.unknown_verdict and (k.absent or k.pages & ln.pages)]
+    if k.clause is not None and k.clause[1] and any(ln.clause == k.clause for ln in on_page):
+        return "wrong label"  # its clause was raised on its page, under a field that is not the row's
+    if any(k.roles & ln.roles for ln in lines if not ln.unknown_verdict):
+        return "misread"  # its field was raised, on another page
+    return "not asked"
+
+
+def _two_ways(res: dict, key: list[KeyRow], lines: list[Line], not_held: frozenset) -> None:
+    """Problems found of all problem rows and of those whose rule book is held; each row not found with its cause; the comment lines
+    that answer no row of the key (unmarked)."""
+    found = set(res["problems_found"]) | set(res["ai_verdict_found"])
+    confirmed = set(res["complies_confirmed"]) | set(res["ai_verdict_complies_confirmed"])
+    problems = [k for k in key if k.scored_as == "problem"]
+    held = [k for k in problems if rule_held(k, not_held)]
+    missed: dict[str, list] = {c: [] for c in MISS_CAUSES}
+    for k in key:
+        if (k.scored_as == "problem" and k.row not in found) or (
+            k.scored_as == "complies" and k.row not in confirmed
+        ):
+            missed[miss_cause(k, res, lines, not_held)].append(k.row)
+    judged = [k for k in key if k.scored_as != "not scored"]
+    asked = [ln for ln in lines if not ln.is_pass and not ln.unknown_verdict]
+    res["two_ways"] = {
+        "found_of_all": [sorted(found & {k.row for k in problems}), len(problems)],
+        "found_where_rule_held": [sorted(found & {k.row for k in held}), len(held)],
+        "not_held_books": sorted(not_held),
+    }
+    res["missed"] = {c: rows for c, rows in missed.items() if rows}
+    res["lines_answering_no_key_row"] = sum(
+        1 for ln in asked if not any(answers(k, ln) for k in judged)
+    )
 
 
 def decision_figures(key: list[KeyRow], lines: list[Line]) -> dict:
@@ -777,7 +1023,9 @@ def score_files(key_path, crs_path, sheet: str | None = None) -> dict:
     rules, patterns = _registry()
     lines, layout = read_crs_layout(crs_path)
     return {
-        **score(read_key(key_path, rules, sheet), lines, patterns),
+        **score(
+            read_key(key_path, rules, sheet), lines, patterns, not_held_books(crs_path)
+        ),
         "layout": layout,
     }
 
@@ -816,4 +1064,23 @@ def summary(res: dict) -> dict:
             "no field": sum(len(v) for v in res["key_rows_without_field"].values()),
             "no page": sum(len(v) for v in res["key_rows_without_page"].values()),
         },
+        **(
+            {
+                "two_ways": {
+                    "problems_found_of_all": "{} of {}".format(
+                        len(res["two_ways"]["found_of_all"][0]),
+                        res["two_ways"]["found_of_all"][1],
+                    ),
+                    "problems_found_where_rule_held": "{} of {}".format(
+                        len(res["two_ways"]["found_where_rule_held"][0]),
+                        res["two_ways"]["found_where_rule_held"][1],
+                    ),
+                    "books_the_file_says_not_held": res["two_ways"]["not_held_books"],
+                },
+                "not_found_by_cause": {c: len(v) for c, v in res["missed"].items()},
+                "comment_lines_answering_no_key_row": res["lines_answering_no_key_row"],
+            }
+            if "two_ways" in res
+            else {}
+        ),
     }

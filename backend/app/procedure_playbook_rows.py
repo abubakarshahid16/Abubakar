@@ -122,8 +122,14 @@ def matches(playbook: playbooks.Playbook, cover: str) -> bool:
     return bool(cue) and all(playbooks._hits((w,), cover) for w in cue)
 
 
+def element_lead(playbook_title: str, element_title: str) -> str:
+    """How a row names its playbook element: "<playbook title>, <element title>". The row's comment goes on " (<standard> <clause>):
+    ..."; the answer-key scorer (`tools/answer_key_score.py`) reads a row's element from this lead, so the two never differ."""
+    return f"{playbook_title}, {element_title}"
+
+
 def _comment(playbook: playbooks.Playbook, report: dict, entry: dict) -> str:
-    head = f"{playbook.title}, {entry['title']} ({entry['source']['standard']} {entry['source']['clause']})"
+    head = f"{element_lead(playbook.title, entry['title'])} ({entry['source']['standard']} {entry['source']['clause']})"
     state = entry["state"]
     if state == playbooks.PRESENT:
         ev = (entry["evidence"] or [{}])[0]

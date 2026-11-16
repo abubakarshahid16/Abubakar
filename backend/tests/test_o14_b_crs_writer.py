@@ -412,9 +412,10 @@ def test_a_rule_whose_book_is_not_held_is_a_book_missing_question_with_no_rule_w
         and p["rule_text"] is None
         and p["clause_quote"] is None
     )
+    # order 14 lane C (C1): the clause the finding names (8.5) is said with the missing book; it was dropped before
     assert (
-        p["action"].startswith("Book missing: BOOK-77.")
-        and p["reason_words"] == "Book missing: BOOK-77"
+        p["action"].startswith("Book missing: BOOK-77, clause 8.5.")
+        and p["reason_words"] == "Book missing: BOOK-77, clause 8.5"
     )
     held = rp.rule_point(
         row,

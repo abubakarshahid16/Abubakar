@@ -569,11 +569,12 @@ def rule_point(
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
     missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
     unproven_ai = False
+    missing_words = book_missing_words(missing, ref["clause"]) if missing else ""  # order 14 lane C (C1): the clause, or "not named"
     if missing:  # order 14 lane B (lane D, G7): a rule whose book is not held is a question, never a verdict; none of its words shown
         rank, other_kind = 4, None
         rule_words = ref["clause"] or content.rule_text(finding)
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
-            action, action_source = f"{BOOK_MISSING}: {missing}. The rule cannot be checked until the book is held; engineer to check.", "check"
+            action, action_source = f"{missing_words}. The rule cannot be checked until the book is held; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
     elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
         # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
@@ -633,12 +634,13 @@ def rule_point(
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_book_missing": missing or None,
+        "_book_missing_words": missing_words or None,
         "_row_key": key,
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
     if missing:
-        point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=f"{BOOK_MISSING}: {missing}",
+        point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE)  # fmt: skip
     if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)
         point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE)
@@ -705,6 +707,41 @@ def reread_clauses(findings: list[dict], cache: dict | None = None) -> None:
 
 
 BOOK_MISSING = "Book missing"
+#: What a book-missing point says when the stored reference names no clause (order 14 lane C, C1): never a silent blank.
+CLAUSE_NOT_NAMED = "clause not named by the reviewer"
+_EDITION_YEAR = re.compile(r"(?:19|20)\d\d")
+
+
+def names_a_clause(reference: str) -> bool:
+    """Does a stored rule reference name a clause beyond its book(s)? Each book of the reference (";"-separated) is read on its own:
+    the standard identifier `standard_ids.find_citations` reads is taken out (a book it cannot read: its first word with a digit, the
+    book's own number); a number left over is a clause ("X-1 6.1", "X-1 (edition not recorded) cl. 5.2"), an edition year is not
+    ("X-1 2017")."""
+    from .standard_ids import find_citations
+
+    for part in str(reference or "").split(";"):
+        spans = find_citations(part)
+        rest = part
+        for _raw, start, end in sorted(spans, key=lambda s: -s[1]):
+            rest = rest[:start] + " " + rest[end:]
+        tokens = [t.strip(".:") for t in re.split(r"[\s,()]+", rest) if re.search(r"\d", t)]
+        if not spans:
+            tokens = tokens[1:]  # no identifier read: the first token with a digit is the book's own number
+        if any(not _EDITION_YEAR.fullmatch(t) for t in tokens):
+            return True
+    return False
+
+
+def book_missing_words(name: str, clause: str | None) -> str:
+    """THE words of a point whose rule book is not held (its action and its reason): the book and the clause the reviewer named, or
+    plainly that it named none. "Book missing: X-1, clause 8.5"; "Book missing: X-1 6.1" (the reference holds the clause);
+    "Book missing: X-1 (clause not named by the reviewer)"."""
+    name, clause = _clean(name), _clean(clause)
+    if clause:
+        return f"{BOOK_MISSING}: {name}, clause {clause}"
+    if names_a_clause(name):
+        return f"{BOOK_MISSING}: {name}"
+    return f"{BOOK_MISSING}: {name} ({CLAUSE_NOT_NAMED})"
 _CHECK_TEXT = re.compile(r"^Datasheet check [A-Za-z0-9-]+:")
 
 
