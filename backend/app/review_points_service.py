@@ -507,10 +507,40 @@ def undecided(paper_id: str, scope) -> tuple[int, int]:
     )
 
 
+def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
+    """THE meta an AI run's CRS is drawn again with (the engineer's decided copy, the gates): the file kept beside the run's sheets
+    (`crs-meta.json`; unreadable or missing: a minimal meta, the paper and the run id), and the rule books NOT HELD always from the run's
+    own record in the database (`agent_review_missing_book`, written with the meta), so a sheet drawn without that file (a restored
+    database, a copy) still lists every book missing (order 14, G7). The file's list stands only when the database holds none."""
+    import json
+    from pathlib import Path
+
+    path = Path(folder) / "crs-meta.json"
+    try:
+        meta = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        meta = {}
+    meta = meta if isinstance(meta, dict) else {}
+    meta.setdefault("paper", paper_id)
+    meta.setdefault("run_id", run_id)
+    held = [
+        {"rule_book": r["name"], "why": r["why"] or ""}
+        for r in conn.execute(
+            "SELECT name, why FROM agent_review_missing_book WHERE run_id = ? ORDER BY rowid",
+            (run_id,),
+        )
+    ]
+    if held:
+        labels = (
+            meta.get("rule_labels") if isinstance(meta.get("rule_labels"), dict) else {}
+        )
+        meta["rule_labels"] = {**labels, "missing_rule_books": held}
+    return meta
+
+
 def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | None:
     """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in), or None
-    when nothing was decided or added for this paper (the stored file stands). The run's own meta is read from the file kept beside the
-    sheet; an older run without one gets a minimal meta (the paper and the run id)."""
+    when nothing was decided or added for this paper (the stored file stands). The run's own meta: `run_meta`."""
     import json
     from pathlib import Path
 
@@ -529,17 +559,7 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
         )
     ]
     folder = Path(folder)
-    meta_path = folder / "crs-meta.json"
-    try:
-        meta = (
-            json.loads(meta_path.read_text(encoding="utf-8"))
-            if meta_path.is_file()
-            else {}
-        )
-    except (OSError, ValueError):
-        meta = {}
-    meta.setdefault("paper", paper_id)
-    meta.setdefault("run_id", run_id)
+    meta = run_meta(conn, run_id, paper_id, folder)
     kept = decisions_mod.apply_to_lines(
         paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
     )

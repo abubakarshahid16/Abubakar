@@ -77,12 +77,19 @@ KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a 
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
 KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
 NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
-#: Words that say there is nothing to do ("no correction needed", "found none", "could not be read" and their plain variants). A model's
-#: own sentence is shown without them (`drop_noise`); our own fixed words never use them.
+_NEED = r"(?:needed|required|necessary)"
+#: THE words that say there is nothing to do (the owner's "found none", "no correction needed", "could not be read" and their plain
+#: variants), as (label, pattern) on folded (lower case) text: ONE home, read by `NOISE` here and by the CRS gate G3
+#: (`scripts/crs_gates.py`), so a phrase the gate fails is a phrase the CRS never shows (order 14).
+NOTHING_TO_DO_PATTERNS = (
+    ("found none", r"\bfound none\b|\bnone (?:was |were )?found\b|\bnothing (?:was )?found\b|^no findings?\.?$|\bno findings? (?:was |were )?(?:made|raised|found)\b|^none\.?$"),
+    ("no correction needed", rf"\bno corrections? (?:is |are |was |were )?{_NEED}\b|\bcorrections? (?:is |are )?not {_NEED}\b"
+                             rf"|\bnothing to correct\b|\bno actions? (?:is |are )?{_NEED}\b|\bno changes? (?:is |are )?{_NEED}\b"),
+    ("could not be read", r"\b(?:could|can) ?not be read\b|\bcouldn'?t be read\b|\bcan'?t be read\b|\bnot readable\b|\bunreadable\b"),
+)  # fmt: skip
+#: A model's own sentence is shown without those words, up to the end of their clause (`drop_noise`); our own fixed words never use them.
 NOISE = re.compile(
-    r"\b(?:no corrections? (?:is |are |was |were )?(?:needed|required)"
-    r"|found none|none (?:was |were )?found"
-    r"|(?:could|can) ?not be read|couldn'?t be read|can'?t be read)\b[^.;!?]*[.;!?]?",
+    "(?:" + "|".join(rx for _label, rx in NOTHING_TO_DO_PATTERNS) + r")[^.;!?]*[.;!?]?",
     re.IGNORECASE,
 )
 
@@ -537,6 +544,7 @@ __all__ = [
     "KIND_NOTHING_TO_CHANGE",
     "NOISE",
     "NORMAL_STATUSES",
+    "NOTHING_TO_DO_PATTERNS",
     "NOT_A_COMMENT_KINDS",
     "NOT_A_COMMENT_SHEET",
     "OTHER_SHEET",

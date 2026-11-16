@@ -89,7 +89,8 @@ def test_a_rule_with_no_known_field_never_gets_the_word_nothing_is_asked_and_the
     run_id = run_review()
     got = lines_of(run_id)["R-coat"]
     assert (
-        got["word"] == "AI thinks: not met"
+        got["word"]
+        == "Query"  # order 14 (G5): one reader's word that the paper is silent names no value: a Query, never 'AI thinks: not met'
         and got["verdict_class"] != CLASS
         and fake.absence_bodies == []
     )
