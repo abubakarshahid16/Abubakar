@@ -335,12 +335,17 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
         }
     if crosscheck.disagrees(line):  # 2e. the second AI (Groq) disagrees: a Query
         also_why = f"; {why}" if unapproved else ""
-        return {
-            "verdict_label": WORD_QUERY,
-            "verdict_class": CLASS_QUERY,
-            "not_proven_reason": crosscheck.DISAGREE_WHY + also_why,
-        }
+        return _a_query(crosscheck.DISAGREE_WHY + also_why)
     return None
+
+
+def _a_query(reason: str) -> dict:
+    """The words of a line that is a Query for the engineer, with its reason."""
+    return {
+        "verdict_label": WORD_QUERY,
+        "verdict_class": CLASS_QUERY,
+        "not_proven_reason": reason,
+    }
 
 
 def classify(line: Mapping) -> dict:
