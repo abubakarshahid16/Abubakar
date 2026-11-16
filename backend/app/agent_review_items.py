@@ -538,7 +538,10 @@ def _candidate_rules(
             no_equipment_filter=paper_kind
             in kind_review_table.no_main_equipment_kinds(),
         )
-        return reqs, left, run_id
+        return drop_superseded(reqs, left), left, run_id
+    # superseded rows go BEFORE the duplicate check: an old row and its identical current successor share a key, and the
+    # old one must never win it (R89 blocker)
+    requirement_rows = drop_superseded(list(requirement_rows), left)
     seen_keys, reqs = set(), []
     for r in sorted(
         requirement_rows,
@@ -713,7 +716,6 @@ def build_items(
     reqs, left, run_id = _candidate_rules(
         ro, document_id, paper_kind, requirement_rows, run_id
     )
-    reqs = drop_superseded(reqs, left)
     eq_ctx = rules_mod.load_equipment(conn, document_id, equipment_filter)
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]

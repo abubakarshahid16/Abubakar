@@ -185,8 +185,10 @@ def test_an_identical_successor_gets_the_ai_label_and_is_judged_as_before(book):
 def test_every_identical_successor_gets_the_label(book):
     got = standards.carry_labels(book, "d-book", RUN)
     assert _has(book, "new-twice-a") and _has(book, "new-twice-b")
-    # new-same, new-twice-a, new-twice-b, new-person, new-rechunk
-    assert got["carried_identical"] == 5
+    # new-same, new-twice-a, new-twice-b, new-rechunk
+    assert (
+        got["carried_identical"] == 4
+    )  # new-person is not carried: a person decided the old rule
 
 
 def test_a_rule_superseded_by_the_rechunk_of_the_book_carries_its_label_too(book):
@@ -212,18 +214,45 @@ def test_changed_conflicting_already_labelled_and_other_runs_are_not_carried(boo
     )  # its own label stays
     assert got["successor_labelled"] == 1
     assert not _has(book, "new-earlier")  # superseded by another run
-    assert (
-        got["old_rules_not_carried"] == 4
-    )  # old-changed, old-head-other, old-split-1, old-split-2
+    # old-changed, old-head-other, old-split-1, old-split-2, old-person (a person decided it)
+    assert got["old_rules_not_carried"] == 5
 
 
-def test_a_persons_approval_is_never_carried_only_counted(book):
+def test_a_rule_a_person_decided_carries_nothing(book):
+    """A person's approval is never carried, and neither is the AI label of a rule a person decided (R89 item 3)."""
     got = standards.carry_labels(book, "d-book", RUN)
-    assert got["person_decisions_not_carried"] == 1
-    assert rule_labels.usable_tier(book, requirement_id="old-person").tier == "owner"
-    carried = rule_labels.usable_tier(book, requirement_id="new-person")
     assert (
-        carried.tier == rule_labels.AI_TIER and carried.label["rule_version_id"] is None
+        got["person_decided_not_carried"] == 1
+        and got["person_decisions_not_carried"] == 1
+    )
+    assert rule_labels.usable_tier(book, requirement_id="old-person").tier == "owner"
+    assert not _has(book, "new-person")
+
+
+def test_a_persons_refusal_is_never_bypassed(book):
+    book.execute("UPDATE rulebook_approval SET decision = 'reject'")
+    standards.carry_labels(book, "d-book", RUN)
+    assert (
+        rule_labels.usable_tier(book, requirement_id="new-person").tier
+        != rule_labels.AI_TIER
+    )
+
+
+def test_a_successor_with_only_an_equipment_label_gets_the_rule_label_and_keeps_its_own(
+    book,
+):
+    """R89 item 2: the equipment-label insert must not replace a successor's own row (the table refuses it)."""
+    book.execute(
+        "INSERT INTO rule_equipment_label (source, rule_ref, equip_state, equip_general, equip_type, labelled_at,"
+        " model_a, model_b, prompt_version, list_sha) VALUES ('requirement', 'new-same', 'agreed', 0, 'pump',"
+        " 't', ?, ?, 'rule-equip-v1', ?)",
+        (s.MODEL_A, s.MODEL_B, "c" * 64),
+    )
+    got = standards.carry_labels(book, "d-book", RUN)
+    assert _has(book, "new-same") and got["carried_equipment"] == 0
+    assert (
+        rule_equipment.label_for(book, "requirement", "new-same")["equip_type"]
+        == "pump"
     )
 
 
@@ -234,4 +263,35 @@ def test_carrying_twice_changes_nothing(book):
         again["carried"] == 0
         and again["successor_labelled"]
         == first["carried"] + first["successor_labelled"]
+    )
+
+
+def test_a_superseded_rule_never_wins_the_duplicate_check_over_its_identical_successor(
+    con,  # noqa: F811
+):
+    """R89 blocker: the old row and its current successor share the duplicate key; with the old row sorting first, the
+    successor was counted as a repeat and the old row then dropped, so the rule vanished."""
+    _supersede(con)
+    con.execute(
+        "INSERT INTO standard_requirements (id, clause, page, requirement_text, source_text, requirement_type,"
+        " standard_document_id, superseded_at) SELECT 'a-old', clause, page, requirement_text, source_text,"
+        " requirement_type, standard_document_id, '2026-11-16' FROM standard_requirements WHERE id = 'r-coat'"
+    )
+    con.execute("UPDATE standard_requirements SET id = 'z-new' WHERE id = 'r-coat'")
+    _label(con, "z-new")
+    cur = con.cursor()
+    cur.row_factory = sqlite3.Row
+    rows = [
+        dict(r)
+        for r in cur.execute(
+            "SELECT * FROM standard_requirements WHERE id IN ('a-old', 'z-new')"
+        )
+    ]
+    doc = it.build_items(
+        con, "doc_never_reviewed", KIND, skills=[], cache={}, requirement_rows=rows
+    )
+    assert _rules(doc) == {"z-new"}
+    assert (
+        doc["rules_left_out"]["superseded"] == 1
+        and "stored_repeat" not in doc["rules_left_out"]
     )

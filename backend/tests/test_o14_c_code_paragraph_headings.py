@@ -83,3 +83,84 @@ def test_dotted_clauses_read_as_before():
 
 def test_the_chunker_version_moved_so_stored_chunks_read_as_stale():
     assert ch.CHUNKER_VERSION == "12"
+
+
+# ---- R89 probes: a false open must not end a clause early --------------------------------------------------------------
+
+HEADS = ["ZX-150", "GENERAL REQUIREMENTS", FILLER, "ZX-151", "RESPONSIBILITIES", FILLER]
+
+
+def _secs_after(*lines: str) -> list[str | None]:
+    return _sections("\n".join([*HEADS, *lines, FILLER]))
+
+
+def test_a_cross_reference_wrapped_onto_its_own_line_opens_nothing():
+    secs = _secs_after(
+        "The weld shall be examined as required by",
+        "ZX-153",
+        "GENERAL REQUIREMENTS FOR WELDS",
+    )
+    assert not any(s and s.startswith("ZX-153") for s in secs)
+
+
+def test_notes_under_an_id_open_nothing():
+    secs = _secs_after("ZX-152", "NOTES", "ZX-152", "GENERAL NOTE")
+    assert not any(s and s.startswith("ZX-152") for s in secs)
+
+
+def test_a_list_of_ids_with_one_word_names_opens_nothing():
+    secs = _secs_after(
+        "Materials listed below.",
+        "SA-105",
+        "FORGINGS",
+        "SA-106",
+        "PIPE",
+        "SA-516",
+        "PLATE",
+    )
+    assert not any(s and s.startswith("SA-") for s in secs)
+
+
+def test_a_real_code_paragraph_still_opens_after_a_sentence_and_after_a_capitals_title():
+    secs = _sections(
+        "\n".join(
+            [
+                "MANDATORY APPENDIX 12",
+                "PRESSURE VESSELS",
+                "12-1",
+                "SCOPE",
+                FILLER,
+                "12-2",
+                "GENERAL REQUIREMENTS",
+                FILLER,
+            ]
+        )
+    )
+    assert "12-1 SCOPE" in secs and "12-2 GENERAL REQUIREMENTS" in secs
+
+
+def test_a_code_paragraph_starts_its_own_heading_chain():
+    """R89: the chain reset. A code paragraph nests under no dotted figure read before it."""
+    paths: dict = {}
+    text = "\n".join(["4.2", "Pipes larger than 2 inch", FILLER, *HEADS])
+    ch.segment_document([(1, text)], set(), None, paths)
+    assert paths["ZX-150 GENERAL REQUIREMENTS"] == "ZX-150 GENERAL REQUIREMENTS"
+
+
+def test_known_limit_a_datasheet_tag_line_series_reads_as_headings():
+    """KNOWN LIMIT (listed for the owner): tags alone on a line with a capitals line under them, two or more of one
+    series, after a finished sentence, read as code paragraphs. Only a re-chunk of such a datasheet would show it."""
+    secs = _sections(
+        "\n".join(
+            [
+                "Tags are listed below.",
+                "XQ-1",
+                "INLET FLANGE",
+                FILLER,
+                "XQ-2",
+                "OUTLET FLANGE",
+                FILLER,
+            ]
+        )
+    )
+    assert "XQ-1 INLET FLANGE" in secs

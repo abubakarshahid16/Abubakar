@@ -887,17 +887,21 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
     their labels must agree (state, paper kind, field, reading), else nothing is carried ("conflicting"). A successor that
     already has a label keeps its own. The label rows (`rule_label`, `rule_equipment_label`) are copied verbatim under the
     successor's id (same models, prompt, hashes, quote page), logged by the tables' own event triggers and once in the
-    audit. A PERSON's approval or refusal (`rulebook_approval`, keyed by the rule-book version) is NEVER carried, only
-    counted, for the owner. No model; no network."""
+    audit. A PERSON's approval or refusal (`rulebook_approval`, keyed by the rule-book version) is NEVER carried, and an
+    old rule a person decided (approved OR refused) carries NOTHING, not even its AI label, so a refusal is never
+    bypassed: the successor waits for a person; both are counted for the owner. No model; no network."""
     out = {"carried": 0, "carried_identical": 0, "carried_heading_restored": 0, "carried_equipment": 0,
            "old_rules_carried": 0, "old_rules_not_carried": 0, "conflicting": 0, "successor_labelled": 0,
-           "person_decisions_not_carried": 0}
+           "person_decided_not_carried": 0, "person_decisions_not_carried": 0}
     held = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "rule_label" not in held:
         return out
     labelled = {r[0]: r[1:] for r in conn.execute(
         "SELECT rule_ref, state, paper_kind, field, reading_json, rule_version_id FROM rule_label"
         " WHERE source = 'requirement'")}
+    decided: set[str] = set()  # versions a PERSON decided (approve or refuse): their old rules carry nothing
+    if "rulebook_approval" in held:
+        decided = {r[0] for r in conn.execute("SELECT DISTINCT rule_version_id FROM rulebook_approval")}
     gone: dict[tuple, list[str]] = {}
     for rid, req, src in conn.execute(
             "SELECT id, requirement_text, source_text FROM standard_requirements"
@@ -926,6 +930,9 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
             out["successor_labelled"] += 1
             sources_used.update(old)
             continue
+        if any(labelled[o][4] in decided for o in old if labelled[o][4]):
+            out["person_decided_not_carried"] += 1  # a person's word on the old rule: the successor waits for a person
+            continue
         if len({labelled[o][:4] for o in old}) != 1:
             out["conflicting"] += 1
             continue
@@ -946,6 +953,8 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
             sources_used.update(old)
             if has_equipment and conn.execute(
                 "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (src_id,)
+            ).fetchone() and not conn.execute(  # a successor's own equipment label is kept (the table never replaces a row)
+                "SELECT 1 FROM rule_equipment_label WHERE source = 'requirement' AND rule_ref = ?", (dst_id,)
             ).fetchone():
                 conn.execute(
                     f"INSERT INTO rule_equipment_label (rule_ref, {', '.join(c for c in eq_cols if c != 'rule_ref')})"
@@ -955,11 +964,7 @@ def carry_labels(conn: sqlite3.Connection, document_id: str, run_id: str) -> dic
     all_old = [o for ids in gone.values() for o in ids]
     out["old_rules_carried"] = sum(1 for o in all_old if o in sources_used)
     out["old_rules_not_carried"] = sum(1 for o in all_old if o not in sources_used)
-    if "rulebook_approval" in held:
-        versions = [labelled[o][4] for o in all_old if o in sources_used and labelled[o][4]]
-        for v in versions:
-            out["person_decisions_not_carried"] += conn.execute(
-                "SELECT COUNT(*) FROM rulebook_approval WHERE rule_version_id = ?", (v,)).fetchone()[0]
+    out["person_decisions_not_carried"] = sum(1 for o in all_old if labelled[o][4] and labelled[o][4] in decided)
     return out
 
 

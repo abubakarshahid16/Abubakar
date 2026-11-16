@@ -333,6 +333,10 @@ _CLAUSE_NUMBER_ONLY = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+)*)\.?\s*$")
 #: clause (order 14, lane C). `standards.clause_number` accepts the same shape.
 DASH_ID = re.compile(r"(?:[A-Z]{1,4}|\d{1,3})-\d{1,3}")
 _DASH_ID_ONLY = re.compile(rf"^\s*({DASH_ID.pattern})\s*$")
+#: The words that lead into a cross-reference ("as required by", "in accordance with", "see"): an id on the line after
+#: one of them is the reference wrapped onto its own line, never a heading. Measured on the held ASME code: no real
+#: code paragraph heading follows one of these words (some follow "of", "or" and "when", which are therefore not here).
+_REFERENCE_LEADS = frozenset({"by", "with", "see", "per", "in", "to", "under", "accordance", "and"})
 #: Its title: capitals, short, no sentence end ("GENERAL REQUIREMENTS", "MATERIALS AND ALLOWABLE DESIGN").
 _CAPS_TITLE = re.compile(r"^[A-Z][A-Z0-9 ,&/()'\-]{2,80}$")
 #: The clause number part of a heading, body or annex.
@@ -1073,11 +1077,19 @@ def _dash_id_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     ("UG-153(a) ...", "UW-12.") never match the id-alone line; a sentence after the id is never a capitals title.
     Whether the id is REAL is decided for the whole document (`plausible_heading_numbers`: its series has siblings)."""
     number = _DASH_ID_ONLY.match(lines[i]).group(1)
+    before = next((lines[k].strip() for k in range(i - 1, -1, -1) if lines[k].strip()), "")
+    if before.endswith("-") or (before.split() or [""])[-1] in _REFERENCE_LEADS:
+        return None, 1  # R89: a cross-reference wrapped onto its own line ("... as required by" / "UG-153")
     for j in range(i + 1, min(i + 3, len(lines))):
         title = " ".join(lines[j].split())
         if not title:
             continue
         words = title.split()
+        if re.fullmatch(r"(?:GENERAL\s+)?NOTES?(?:\s*\(?\d+\)?)?", title):  # R89: "NOTES" under an id is no title
+            return None, 1
+        after = next((lines[k] for k in range(j + 1, min(j + 3, len(lines))) if lines[k].strip()), "")
+        if _DASH_ID_ONLY.match(after):  # R89: a list of ids with one-word names ("SA-105" / "FORGINGS" / "SA-106")
+            return None, 1
         # a title holds a WORD (three letters or more, nothing else), and is no list of short codes: a material's
         # grade list ("B21/B22/B24V", "WCA, WCB, WCC") under its specification number is not a title
         items = [x.strip() for x in re.split(r"[,/]", title) if x.strip()]

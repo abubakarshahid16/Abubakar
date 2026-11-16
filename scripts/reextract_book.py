@@ -192,8 +192,75 @@ def counts(conn, doc: str, papers: list[str]) -> dict:
                 "contractor_rows": contractor["rows_in_file"],
                 "agree": bool(team["ok"] and contractor["ok"]),
             }
+            out.setdefault("crs_cells", {})[paper] = {
+                copy: cell_hashes(got[copy][0]) for copy in ("team", "contractor")
+            }
         except Exception as exc:  # noqa: BLE001 - a paper the database cannot build is reported, not hidden
             out["crs"][paper] = {"error": type(exc).__name__}
+    return out
+
+
+_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+
+
+def cell_hashes(workbook: bytes) -> dict:
+    """{sheet: {"<row>|<column header>": short hash of the cell}} of one CRS file: hashes only, never the text. A cell
+    that holds a date-time (the file's own made-at stamp) is left out: it differs at every build."""
+    import hashlib
+    import io
+
+    import openpyxl
+
+    out: dict[str, dict[str, str]] = {}
+    wb = openpyxl.load_workbook(io.BytesIO(workbook), read_only=True)
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        # the header is the first row with three or more text cells (the sheet's title lines come before it)
+        at = next(
+            (
+                i
+                for i, row in enumerate(rows)
+                if sum(isinstance(v, str) and v.strip() != "" for v in row) >= 3
+            ),
+            0,
+        )
+        header = (
+            [str(h or f"col{i + 1}") for i, h in enumerate(rows[at])] if rows else []
+        )
+        cells: dict[str, str] = {}
+        for r, row in enumerate(rows[at + 1 :], start=at + 2):
+            for c, value in enumerate(row):
+                text = "" if value is None else str(value)
+                if _STAMP.match(text):
+                    continue
+                name = header[c] if c < len(header) else f"col{c + 1}"
+                cells[f"{r}|{name}"] = hashlib.sha256(text.encode()).hexdigest()[:12]
+        out[ws.title] = cells
+    return out
+
+
+def cell_changes(before: dict, after: dict) -> dict:
+    """Per paper and copy: the sheets, rows and column headers whose cells changed (no text)."""
+    out: dict = {}
+    for paper, copies in before.items():
+        for copy, sheets in copies.items():
+            now = (after.get(paper) or {}).get(copy) or {}
+            for sheet, cells in sheets.items():
+                new = now.get(sheet) or {}
+                changed = sorted(
+                    k for k in set(cells) | set(new) if cells.get(k) != new.get(k)
+                )
+                if changed:
+                    rows = sorted({int(k.split("|", 1)[0]) for k in changed})
+                    cols: dict[str, int] = {}
+                    for k in changed:
+                        col = k.split("|", 1)[1]
+                        cols[col] = cols.get(col, 0) + 1
+                    out.setdefault(paper, {}).setdefault(copy, {})[sheet] = {
+                        "rows_changed": len(rows),
+                        "rows": rows[:50],
+                        "cells_by_column": cols,
+                    }
     return out
 
 
@@ -293,6 +360,7 @@ def _main(argv: list[str] | None = None) -> int:
 
         conn = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)
         report["before"] = counts(conn, args.doc, papers)
+        cells_before = report["before"].pop("crs_cells", {})
         _print("BEFORE " + json.dumps(report["before"]))
         _print("DRY RUN: nothing was written")
         _write(args.report, report)
@@ -311,6 +379,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     conn = connect()
     report["before"] = counts(conn, args.doc, papers)
+    cells_before = report["before"].pop("crs_cells", {})
     _print("BEFORE " + json.dumps(report["before"]))
     allowed = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     t = time.monotonic()
@@ -344,6 +413,7 @@ def _main(argv: list[str] | None = None) -> int:
     }
     _print("STEPS " + json.dumps(report["steps"]))
     report["after"] = counts(connect(), args.doc, papers)
+    cells_after = report["after"].pop("crs_cells", {})
     _print("AFTER  " + json.dumps(report["after"]))
     problems = []
     if report["after"]["findings_orphaned"]:
@@ -358,6 +428,16 @@ def _main(argv: list[str] | None = None) -> int:
             problems.append(
                 f"CRS counts of {paper} do not agree (before and after): {before}"
             )
+    report["crs_cell_changes"] = cell_changes(cells_before, cells_after)
+    for paper, copies in report["crs_cell_changes"].items():
+        for copy, sheets in copies.items():
+            for sheet, ch in sheets.items():
+                _print(
+                    f"CRS CELLS CHANGED (stored CRS reads differently; for the owner): {paper} {copy} sheet "
+                    f"'{sheet}': {ch['rows_changed']} rows, cells by column {ch['cells_by_column']}"
+                )
+    if not report["crs_cell_changes"]:
+        _print("CRS CELLS: no cell of the stored CRS files changed")
     report["problems"] = problems
     report["restore"] = [
         "stop the server",
