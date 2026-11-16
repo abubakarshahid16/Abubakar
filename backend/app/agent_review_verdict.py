@@ -714,9 +714,9 @@ NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )
 DISAGREE_WHY = "two AI readers disagree on this line"
-#: Order 14, 16 Nov 2026 (G6): an AI "met" whose field code does not know is a question in every run; the second reader's yes or no used to decide.
-FIELD_UNKNOWN_CODES = ("pass_field_unknown", "field_unknown_cannot_check_deferral")
-FIELD_UNKNOWN_MET_WHY = "code could not match the quoted line to the rule's field, so this AI 'met' is not confirmed"
+#: Order 14, 16 Nov 2026 (G6): an AI "met" the pass guard objected to (R94) is a question in every run; the second reader's yes or no used to decide.
+GUARD_CODES = ("pass_field_unknown", "pass_field_not_quoted", "pass_condition_not_quoted", "field_unknown_cannot_check_deferral")  # fmt: skip
+GUARD_MET_WHY = "the pass guard objected to this AI 'met', so it is not confirmed"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase
@@ -789,8 +789,8 @@ def met_unsafe_why(line: Mapping) -> str | None:
     second = line.get("second_opinion")
     if isinstance(second, Mapping) and second.get("agree") is False:
         return DISAGREE_WHY
-    if line.get("reason_code") in FIELD_UNKNOWN_CODES:
-        return FIELD_UNKNOWN_MET_WHY
+    if line.get("reason_code") in GUARD_CODES:
+        return GUARD_MET_WHY
     return None
 
 

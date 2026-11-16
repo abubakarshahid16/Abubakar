@@ -31,6 +31,9 @@ SPACED = "DATA SHEET\nCoating layers two\nfiller line one\nfiller line two\nMark
 STACKED = "DATA SHEET\nCoating layers\nTwo layers carbon steel\nfiller line one\nfiller line two\nMarking\nBlue paint"
 VERDICT_MET = ("AI verdict, two readers agree", "AI verdict: met")
 THINKS_MET = ("AI opinion, engineer to confirm", "AI thinks: met")
+#: order 14 (G6, 17 Nov 2026): an AI "met" the pass guard objected to is a question for the engineer in every run, whatever the
+#: second reader says (before: "AI thinks: met" when the second reader agreed or was not asked, a question when it disagreed).
+GUARDED_QUERY = ("Query for the engineer", "Query")
 
 
 def stored(run_id, iid):
@@ -144,7 +147,7 @@ def test_a_label_line_below_the_value_line_never_counts(w):
     )
     run_id = run_review()
     assert (
-        cls(run_id) == THINKS_MET
+        cls(run_id) == GUARDED_QUERY
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_FIELD_NOT_QUOTED
     )
 
@@ -153,7 +156,7 @@ def test_a_pass_quoted_on_another_fields_row_is_ai_thinks_met_with_a_plain_reaso
     setup(w, paper_quote="Marking blue")
     run_id = run_review()
     row = lines_of(run_id)["R-coat"]
-    assert (row["verdict_class"], row["word"]) == THINKS_MET
+    assert (row["verdict_class"], row["word"]) == GUARDED_QUERY
     assert (
         row["reason"] == G.FIELD_LINE_WHY
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_FIELD_NOT_QUOTED
@@ -166,7 +169,7 @@ def test_a_rule_whose_field_is_not_known_is_never_proven_or_ai_verdict_met(w):
             it["rule_label"] = {**it["rule_label"], "field": None}
     setup(w)
     run_id = run_review()
-    assert (  # order 14 (G6): a "met" whose field code does not know is a question in every run, never an AI verdict
+    assert (  # order 14 (G6): a "met" the pass guard objected to is a question in every run, never an AI verdict
         cls(run_id) == ("Query for the engineer", "Query")
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_FIELD_UNKNOWN
     )
@@ -174,7 +177,7 @@ def test_a_rule_whose_field_is_not_known_is_never_proven_or_ai_verdict_met(w):
 
 def test_the_ais_own_field_label_is_never_evidence(w):
     setup(w, paper_quote="Marking blue", field_label="Coating layers")
-    assert cls(run_review()) == THINKS_MET
+    assert cls(run_review()) == GUARDED_QUERY
 
 
 def test_a_single_generic_word_is_the_field_only_as_the_whole_label_line():
@@ -279,7 +282,7 @@ def test_a_conditional_rule_needs_a_quote_of_the_condition(w, conditional):
     setup(w, page=COND_PAGE, clause_quote=conditional)
     run_id = run_review()
     row = lines_of(run_id)["R-coat"]
-    assert (row["verdict_class"], row["word"]) == THINKS_MET
+    assert (row["verdict_class"], row["word"]) == GUARDED_QUERY
     assert (
         row["reason"] == G.CONDITION_NOT_QUOTED_WHY
         and stored(run_id, "R-coat")["reason_code"] == G.CODE_CONDITION_NOT_QUOTED
@@ -295,7 +298,7 @@ def test_the_value_quote_repeated_is_not_a_condition_quote(w, conditional):
         condition_quote="Coating layers two",
         condition_page=1,
     )
-    assert cls(run_review()) == THINKS_MET
+    assert cls(run_review()) == GUARDED_QUERY
 
 
 def test_an_unrelated_line_is_not_a_condition_quote(w, conditional):
@@ -307,7 +310,7 @@ def test_an_unrelated_line_is_not_a_condition_quote(w, conditional):
         condition_quote="Service: crude",
         condition_page=1,
     )  # "service" is the head, not the condition
-    assert cls(run_review()) == THINKS_MET
+    assert cls(run_review()) == GUARDED_QUERY
 
 
 def test_a_verified_quote_holding_a_word_of_the_condition_lets_the_pass_become_ai_verdict_met(
@@ -427,7 +430,7 @@ def test_a_wrong_field_pass_never_becomes_ai_verdict_met_by_any_path(
     setup(w, paper_quote="Marking blue")
     fake.second = {"R-coat": {**s.ANSWERS["R-coat"], "paper_quote": "Marking blue"}}
     run_id = run_review()
-    assert cls(run_id) == THINKS_MET
+    assert cls(run_id) == GUARDED_QUERY
     line = stored(run_id, "R-coat")
     assert (
         line["pass_guard"]["ok"] is False
@@ -582,7 +585,7 @@ def test_the_label_only_rule_also_holds_for_a_field_the_registry_does_not_know(w
         paper_quote="Two layers carbon steel",
     )
     assert (
-        cls(run_review()) == THINKS_MET
+        cls(run_review()) == GUARDED_QUERY
     )  # "Coating layers: two layers" is a row with a value, not a label line
 
 

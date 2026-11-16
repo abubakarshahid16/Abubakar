@@ -2,7 +2,7 @@
 
 1. A "not met" written by the rule check's AI step whose finding names no clause is a question for the engineer, and its AI-written
    rule words are never shown as the book's. Decided on the stored finding, so every viewer sees the same rank (review R-1851).
-2. An AI "met" whose field code does not know is a question in every run, worded for the engineer as R94 says;
+2. An AI "met" the pass guard objected to (R94's four codes) is a question in every run, worded for the engineer as R94 says;
    a second answer that was cut off keeps its own words.
 3. An AI "not met" the second reader disagreed with is a question, as a disagreed "met" already was."""
 
@@ -72,11 +72,11 @@ def _ai(verdict: str, **kw) -> dict:
     return {**base, **kw}
 
 
-def test_a_field_unknown_ai_met_is_a_question_whatever_the_second_reader_says():
-    for code in V.FIELD_UNKNOWN_CODES:
+def test_a_guarded_ai_met_is_a_question_whatever_the_second_reader_says():
+    for code in V.GUARD_CODES:
         for second in ({"agree": True}, None):
             line = _ai("Pass", reason_code=code, second_opinion=second)
-            assert V.met_unsafe_why(line) == V.FIELD_UNKNOWN_MET_WHY
+            assert V.met_unsafe_why(line) == V.GUARD_MET_WHY
             assert (
                 W.final_cap(line, ITEM, None, {"S-1"}, "datasheet")["verdict_label"]
                 == W.WORD_QUERY
@@ -85,12 +85,6 @@ def test_a_field_unknown_ai_met_is_a_question_whatever_the_second_reader_says():
         V.met_unsafe_why(_ai("Pass", reason_code=None, second_opinion={"agree": True}))
         is None
     )  # no objection: unchanged
-    held = _ai(
-        "Pass", reason_code="pass_field_not_quoted", second_opinion={"agree": True}
-    )
-    assert (
-        V.met_unsafe_why(held) is None
-    )  # a KNOWN field the quote missed stays R94's engineer tick (steady in every run)
 
 
 def test_a_guarded_ai_met_whose_second_answer_was_cut_off_keeps_the_cut_off_words():

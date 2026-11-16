@@ -37,7 +37,7 @@ from .agent_review_verdict import (
     DEFERRED_WHY,
     DISAGREE_WHY,
     FAIL,
-    FIELD_UNKNOWN_MET_WHY,
+    GUARD_MET_WHY,
     NOT_A_RULE,
     OWNER_TIER,
     PASS,
@@ -210,6 +210,8 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     """THE text the engineer reads for a "met" the guard made a Query (screen reason, workbook comment and verdict cells):
     the guard's reason first; for two readers who disagree, a plain sentence saying the second reader disagreed; then the
     first reader's own words ONLY marked as one reader's view that is not confirmed. Never the line's conclusion."""
+    if unsafe == GUARD_MET_WHY and line.get("why"):
+        return str(line["why"])  # order 14 (G6): the guard's own reason, as it read when the line was "AI thinks: met"
     out = unsafe + "."
     if unsafe == DISAGREE_WHY:
         out += " " + SECOND_DISAGREED.strip()
@@ -269,7 +271,7 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
         }
     if (
         (unsafe := met_unsafe_why(line))
-        and not (unsafe == FIELD_UNKNOWN_MET_WHY and two_reader.second_cut_off(line))
+        and not (unsafe == GUARD_MET_WHY and two_reader.second_cut_off(line))
     ):  # 2b. N9: the guard's reason leads; one reader's view follows, marked (a cut-off second answer keeps its own words, 2c)
         return {
             "verdict_label": WORD_QUERY,
