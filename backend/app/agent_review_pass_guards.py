@@ -152,18 +152,6 @@ def _carries(folded: str, names: list[str]) -> bool:
     return bool(want) and want <= agent_bind.content_words(folded)
 
 
-def quote_carries_field(item: Mapping, quote: Any) -> bool:
-    """The quote carries the item's own field words (its rule label's field, its field roles, or the label code found on the page),
-    by the same test as guard A (`_carries`). FTU-1 reads it: a quote that names the field may state its value."""
-    names = [
-        *field_names(item),
-        *(str(item.get(k) or "").strip() for k in ("field", "field_label_ai")),
-    ]
-    names = [n for n in dict.fromkeys(names) if n]
-    folded = _fold(str(quote or ""))
-    return bool(names and folded.strip()) and _carries(folded, names)
-
-
 def _other_field_words(folded: str, names: list[str]) -> bool:
     """The line carries the words of a registry field that is NOT the rule's own."""
     own = absence.field_words([(n, "rule label") for n in names])

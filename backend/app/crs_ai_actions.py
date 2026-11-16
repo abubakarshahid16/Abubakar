@@ -81,24 +81,30 @@ def says_silent(line: Mapping) -> bool:
 LOOKED, CONTRADICTS = "looked", "contradicts"
 
 
-def silent_quote(line: Mapping) -> str:
-    """FTU-1: what a quote code found on the page IS on a line whose own record says the paper does not state the value (a quote that
-    defers the value is read as a deferral, not here): `LOOKED` only when code can show it is no value of this field (the field's own
-    label and nothing else, or words that carry neither the field's label nor a figure); `CONTRADICTS` when it may state the value
-    (the field's label with more after it, or a figure): the reader contradicts itself and the engineer checks; "" otherwise. The ONE
-    home of the rule: the points (`review_points`), the sheets (`crs_ai_workbook`, `agent_review_crs`) and the reason words read it."""
-    from . import agent_review_pass_guards as guards
+def found_quote_kind(quote: str, labels) -> str:
+    """FTU-1: what a quote code found on the page IS when its own record says the paper gives no value. `LOOKED` (where the reader
+    looked, not evidence of a value) ONLY when code can show it holds no value: it is the field's own label and nothing else
+    (`agent_review_verdict.quote_is_label_only`). EVERY other found quote is `CONTRADICTS`, whatever its shape: it may state the
+    value, so the engineer checks, in neutral words. The ONE rule for the AI review's lines and the rule check's points."""
     from .agent_review_verdict import quote_is_label_only
-    from .claims import extract_measurements
 
+    item = {"paper_quote": quote, "field_roles": [str(x) for x in labels if x]}
+    return LOOKED if quote_is_label_only(item) else CONTRADICTS
+
+
+def silent_quote(line: Mapping) -> str:
+    """`found_quote_kind` of a line whose own record says the paper does not state the value (`says_silent`) and whose quote code found
+    on the page does not defer the value (a deferral is read as one); "" for any other line. Read by the points (`review_points`), the
+    sheets (`crs_ai_workbook`, `agent_review_crs`) and the reason words."""
     quote = verified_quote(line)
     if not quote or not says_silent(line) or quote_defers(quote):
         return ""
-    if quote_is_label_only(line):
-        return LOOKED
-    if extract_measurements(quote) or guards.quote_carries_field(line, quote):
-        return CONTRADICTS
-    return LOOKED
+    labels = (
+        line.get("field_label_ai"),
+        line.get("field"),
+        *(line.get("field_roles") or []),
+    )
+    return found_quote_kind(quote, labels)
 
 
 def looked_only(line: Mapping) -> bool:

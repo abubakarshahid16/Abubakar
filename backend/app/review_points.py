@@ -511,7 +511,6 @@ def rule_point(
     """One CRS row of the rule check as a point. `finding`: its stored finding (or None); `sides`: {"submittal": .., "standard": ..}
     as `evidence_boxes.side` answered (document None when the side cannot be shown)."""
     from . import crs_normal
-    from .claims import extract_measurements
     from .crs_mapping import (
         ROW_KIND_ENGINEER_COMMENT,
         ROW_KIND_PAGE_READER_ONLY,
@@ -633,7 +632,9 @@ def rule_point(
         "paper_quote_note": PASSAGE_PAPER_CHECK
         if paper_q
         else (
-            content.looked_note(looked, bool(extract_measurements(looked)))
+            content.looked_note(
+                looked, actions.found_quote_kind(looked, [field]) == actions.CONTRADICTS
+            )
             if looked
             else NO_PAPER_QUOTE
         ),

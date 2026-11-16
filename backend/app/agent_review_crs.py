@@ -133,7 +133,7 @@ MAX_ASK_WORDS = 30
 
 def _short(text: Any, limit: int) -> str:
     words = _clean(text).split()
-    return " ".join(words[:limit]) + (" ..." if len(words) > limit else "")
+    return " ".join(words[:limit]) + ("…" if len(words) > limit else "")  # FTU-1: the one cut mark
 
 
 def asks(line: Mapping) -> str:

@@ -56,8 +56,8 @@ CTX = {
     "book_of": {"R-5": ("doc_std", "STD-1")},
     "readable": frozenset({"doc_std"}),
 }
-#: an invented label of ANOTHER field, found on the page by code: where the AI looked, not a value of the field it judged
-OTHER_LABEL = "Body material"
+#: the field's OWN label and nothing else, found on the page by code: the ONE shape code can show holds no value
+OTHER_LABEL = "Set pressure"
 
 
 def silent_line(
@@ -137,10 +137,40 @@ def test_a_silent_line_whose_quote_may_state_the_value_is_the_engineers_to_check
     assert f'The paper states "{quote}"' not in cell
 
 
-def test_only_the_fields_own_label_or_other_words_without_a_figure_are_where_it_looked():
-    for quote in ("Set pressure", "Set pressure:", OTHER_LABEL, "Body: steel"):
+def test_only_the_fields_own_label_alone_is_where_it_looked():
+    for quote in ("Set pressure", "Set pressure:", "SET PRESSURE"):
         got = crs_ai_actions.silent_quote(silent_line(paper_quote=quote))
         assert got == crs_ai_actions.LOOKED, quote
+
+
+#: the lead's probes (field, verified quote): a quote that may state the value, whatever its shape
+PROBES = [
+    ("Body material", "Carbon steel"),
+    ("Quantity", "Qty 4"),
+    ("Number of stages", "Stages: 4"),
+    ("Flange rating", "Class 300"),
+    ("Flange facing", "RF"),
+    ("Painting", "Yes"),
+]
+
+
+@pytest.mark.parametrize(("field", "quote"), PROBES)
+@pytest.mark.parametrize("opinion", [True, False])
+def test_every_other_found_quote_on_a_silent_line_is_neutral_and_the_engineer_checks(
+    field, quote, opinion
+):
+    role = field.lower().replace(" ", "_")
+    line = silent_line(
+        "absent", opinion=opinion, paper_quote=quote, field=field, field_roles=[role]
+    )
+    assert crs_ai_actions.silent_quote(line) == crs_ai_actions.CONTRADICTS
+    point = review_points.ai_point(line, CTX)
+    shows, reason = crs_one.paper_shows(point), crs_one.reason_of(point)
+    assert "not evidence" not in shows.lower() and "may state it" in shows
+    assert reason == crs_ai_actions.CONTRADICT_REASON
+    assert point["action"].startswith(f"Engineer to check {field}")
+    cell = wb.layout_comment(line, *wb.status_of(line))
+    assert "not evidence" not in cell.lower() and "may state it" in cell
 
 
 def test_the_older_ai_sheet_says_the_same_for_a_not_met_on_silence():
@@ -217,7 +247,7 @@ def test_a_rule_check_point_with_no_value_shows_its_passage_only_as_where_it_loo
         "row_kind": kind,
         "finding_id": "f-1",
         "comment": "Contractor to state the design pressure.",
-        "page_section": "Page 4",
+        "page_section": "Page 4 - Design data",
     }
     finding = {
         "compliance_status": status,
@@ -232,14 +262,13 @@ def test_a_rule_check_point_with_no_value_shows_its_passage_only_as_where_it_loo
     )  # never 'As stored (not verified by code)' beside it
     shows = crs_one.paper_shows(point)
     assert "not evidence" in shows.lower() and "Design data" in shows
-    figure = review_points.rule_point(
-        row,
-        ctx,
-        {**finding, "contractor_evidence_text": "Design pressure 12 barg"},
-        sides,
-    )
-    assert "not evidence" not in crs_one.paper_shows(figure).lower()
-    assert "may state it" in crs_one.paper_shows(figure)
+    # the same ONE rule as the AI review's lines: anything but the field's own label alone may state it
+    for passage in ("Design pressure 12 barg", "Body material: carbon steel"):
+        other = review_points.rule_point(
+            row, ctx, {**finding, "contractor_evidence_text": passage}, sides
+        )
+        assert "not evidence" not in crs_one.paper_shows(other).lower(), passage
+        assert "may state it" in crs_one.paper_shows(other), passage
     # a value the rule check found is still its evidence
     found = review_points.rule_point(
         row, ctx, {**finding, "compliance_status": "NON_COMPLIANT"}, sides
@@ -299,6 +328,13 @@ def test_a_point_name_taken_from_its_comment_is_never_cut_without_a_mark():
     name = review_points.rule_point(row, ctx, None, {})["name"]
     assert name.endswith(crs_completeness.CUT_MARK) and "..." not in name
     assert len(name.split()) == 7
+
+
+def test_a_quote_shortened_on_the_older_ai_sheet_ends_with_the_one_cut_mark():
+    from app import agent_review_crs as arc
+
+    got = arc.stated(mk("R-5", "Query", "Fail", paper_quote="word " * 30 + "end"))
+    assert got.endswith(crs_completeness.CUT_MARK) and "..." not in got
 
 
 def test_a_long_note_ends_with_the_mark_and_its_whole_text_is_in_full_text(monkeypatch):
