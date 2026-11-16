@@ -34,6 +34,7 @@ from .agent_review_verdict import (
     BY_ABSENCE,
     BY_CODE,
     BY_ENGINEER,
+    DEFERRED_WHY,
     DISAGREE_WHY,
     FAIL,
     NOT_A_RULE,
@@ -41,6 +42,7 @@ from .agent_review_verdict import (
     PASS,
     QUERY,
     RULE_NOT_APPROVED,
+    SILENCE_CODES,
     SILENCE_WHY,
     TIER_NOT_APPROVED,
     TIER_NOT_ESTABLISHED,
@@ -48,6 +50,7 @@ from .agent_review_verdict import (
     hold_silence,
     item_tier,
     met_unsafe_why,
+    quote_defers,
 )
 
 CLASS_PROVEN = "Proven by code"
@@ -207,6 +210,22 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     return f"{out} {ONE_READER}{view[:400]}" if view else out
 
 
+def not_met_deferred_why(line: Mapping) -> str | None:
+    """Why an AI opinion "not met" that rests on silence (reason absent, absent_pages_not_named or sheet_silent; the gate's
+    verdict Query) must be a Query, else None: the paper quote code verified on the page itself defers the value ("By
+    Contractor", "TBA", a "*" vendor-to-fill mark: `quote_defers`), so the sheet does not leave it out, it asks the vendor
+    for it. Acts only on such a line; a proven Fail, any other reason and an unverified quote pass through. It only makes
+    a line less confident."""
+    if line.get("ai_verdict") != FAIL or line.get("verdict") != QUERY:
+        return None
+    if str(line.get("reason_code") or "") not in SILENCE_CODES:
+        return None
+    checks = line.get("quotes_checked")
+    if not (isinstance(checks, Mapping) and checks.get("paper")):
+        return None
+    return DEFERRED_WHY if quote_defers(line.get("paper_quote")) else None
+
+
 def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
     """Steps 1, 2 and 2b of `classify`: the AI gave no answer (Not reviewed); a silent paper (Query); an AI "met" whose paper
     defers the value or whose quotes code could not verify (Query, N9). None when none applies."""
@@ -238,6 +257,14 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": _moved_reason(line, unsafe)
             + (f"; {why}" if unapproved else ""),
+        }
+    if (
+        deferred := not_met_deferred_why(line)
+    ):  # 2b'. a "not met" on silence whose own verified quote defers the value (order 14 lane D)
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": deferred + (f"; {why}" if unapproved else ""),
         }
     if got := two_reader.other_class(
         line
