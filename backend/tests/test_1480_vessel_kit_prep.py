@@ -517,7 +517,7 @@ def test_the_margin_card_asks_never_compares_and_carries_the_books_two_bands():
     assert draft["mop_up_to_6900_kPa"] == "greater of 1.1 x MOP and MOP + 15 psi"
     assert (
         draft["mop_6900_kPa_and_above"]
-        == "greater of 1.05 x MOP and MOP plus a margin in psi"
+        == "greater of 1.05 x MOP and a second value that the stored text prints as 1100 psi"
     )
     assert (
         draft["mop_6900_kPa_and_above_margin"]

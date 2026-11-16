@@ -318,7 +318,7 @@
       "id": "VSLD-05",
       "draft": true,
       "severity": "critical",
-      "text": "AI draft, engineer to confirm. QUESTION ONLY, never decided: state the design pressure and the maximum operating pressure (MOP); both are asked for. The clause says the internal design pressure is set by a table. As the AI reads its stored text: for a MOP up to 6,900 kPa (1,000 psi) the design pressure is the greater of 1.1 x MOP and MOP + 15 psi; for a MOP of 6,900 kPa (1,000 psi) and above it is the greater of 1.05 x MOP and MOP plus a margin in psi that the stored table text does not show clearly (engineer to confirm: stored table text unclear). The engineer confirms both minimum margins. Code does not compute it.",
+      "text": "AI draft, engineer to confirm. QUESTION ONLY, never decided: state the design pressure and the maximum operating pressure (MOP); both are asked for. The clause says the internal design pressure is set by a table. As the AI reads its stored text: for a MOP up to 6,900 kPa (1,000 psi) the design pressure is the greater of 1.1 x MOP and MOP + 15 psi; for a MOP of 6,900 kPa (1,000 psi) and above it is the greater of 1.05 x MOP and a second value that the stored text prints as 1100 psi that the stored table text does not show clearly (engineer to confirm: stored table text unclear). The engineer confirms both minimum margins. Code does not compute it.",
       "source": {
         "standard": "SAES-D-001",
         "clause": "6.2.3",
@@ -338,7 +338,7 @@
         ],
         "quotes_verified_against": "SAES-D-001 6.2.3, stored page 14: the quotes only, never the table's margins",
         "mop_up_to_6900_kPa": "greater of 1.1 x MOP and MOP + 15 psi",
-        "mop_6900_kPa_and_above": "greater of 1.05 x MOP and MOP plus a margin in psi",
+        "mop_6900_kPa_and_above": "greater of 1.05 x MOP and a second value that the stored text prints as 1100 psi",
         "mop_6900_kPa_and_above_margin": "engineer to confirm: stored table text unclear",
         "note": "stored table text garbled: the band-1 margin reads as 15 psi; where the band-2 margin stands the stored text prints a lone '1100' and 'psi', not a clear margin. The engineer confirms both minimum margins"
       },

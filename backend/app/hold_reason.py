@@ -21,9 +21,9 @@ back from it, so a reworded sentence cannot move a finding:
 - `RULE_NOT_PROVEN`: the check decided Pass or Fail, and is held only because its
   rule is not proven (a draft or unsigned rule, its verdict kept as `rule_said`):
   `rule_trust.label_check` and `kit_core.held`, where that hold is made.
-- `LIMIT_NOT_CONFIRMED`: a QUESTION ONLY card (`datasheet_checks.question_only`: its limit
+- `LIMIT_NOT_CONFIRMED`: a QUESTION ONLY card (`question_card.question_only`: its limit
   is an AI draft no engineer confirmed) asked for its values and compared nothing; it never
-  had a Pass or Fail to keep (`datasheet_checks.evaluate_item`).
+  had a Pass or Fail to keep (`question_card.decide_nothing`, called from `kit_core.rows`).
 - `OTHER`: any other held result. The named fallback, chosen in ONE place
   (`stored`), never a guess from the words.
 
