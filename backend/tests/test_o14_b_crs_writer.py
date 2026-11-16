@@ -499,3 +499,75 @@ def test_contract_check_results_list_what_to_look_at_and_count_the_consistent_on
         rows[0][6] == '"Stage 1: 30 %" (page 4)'
         and rows[0][7] == crs_one.CONTRACT_CLASS
     )  # only the verified quote
+
+
+def test_two_near_same_candidates_join_the_one_that_shares_a_book_clause():
+    def pt(i, field, clause):
+        return {
+            "id": i,
+            "name": field,
+            "rank": 4,
+            "tile": "questions",
+            "rule_book": "STD-1",
+            "clause": clause,
+        }
+
+    got = crs_comments.group(
+        [
+            pt("1", "Design pressure", "8"),
+            pt("2", "Design pressure margin", "8"),
+            pt("3", "Design pressure test", "9"),
+        ]
+    )
+    assert sorted(c["n_points"] for c in got) == [1, 2]
+
+
+def test_each_cited_book_says_what_the_edition_cutoff_says_of_it():
+    binds = {
+        "status": "held edition binds",
+        "held": "2019",
+        "binding": "2019",
+        "caveat": "",
+    }
+    later = {
+        "status": "held edition is later than the cutoff: for information only",
+        "held": "2023",
+        "binding": "2016",
+    }
+    assert words.edition_words(binds) == "edition: binds"
+    assert (
+        words.edition_words(later)
+        == "edition: later, for information only (the edition that binds: 2016)"
+    )
+    assert (
+        words.edition_words(None)
+        == words.edition_words({"status": "a new word"})
+        == "edition: not known"
+    )
+    view = WB.layout_view(
+        [mk("R-1", field="Set pressure")],
+        {**META, "editions": {"STD-1": binds}},
+        "internal",
+    )
+    assert (
+        dict(view["header"])["Rule books used (reviewed lines):"]
+        == "STD-1 (edition: binds)"
+    )
+    pts = [
+        {"books": [{"name": "STD-1"}]},
+        {"books": [{"name": "STD-1"}, {"name": "STD-2"}]},
+    ]
+    assert (
+        crs_one._books_line(pts, {"STD-1": binds})
+        == "STD-1 (2; edition: binds); STD-2 (1; edition: not known)"
+    )
+    assert crs_one._books_line(pts) == "STD-1 (2); STD-2 (1)"
+
+
+def test_a_name_whose_candidates_are_already_one_comment_joins_it():
+    def pt(i, field):
+        return {"id": i, "name": field, "rank": 4, "tile": "questions"}
+
+    got = crs_comments.group([pt("1", "Back press. Variable"), pt("2", "Back press. Constant/Variable"),
+                              pt("3", "Valve type / Back press. Constant/Variable")])  # fmt: skip
+    assert [c["n_points"] for c in got] == [3]

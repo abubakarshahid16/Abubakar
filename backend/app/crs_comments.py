@@ -241,23 +241,44 @@ def near_same(a: frozenset[str], b: frozenset[str]) -> bool:
     return len(short) > 1 or len(next(iter(short))) >= NEAR_SAME_ONE_WORD
 
 
+def _evidence(ms: list[dict]) -> set[tuple]:
+    """What the points of a field show: (page, paper quote) and (book key, clause) pairs; two fields sharing one are about one thing."""
+    out = set()
+    for p in ms:
+        q = _norm(p.get("paper_quote") or _line_of(p).get("paper_quote"))
+        if q:
+            out.add(("paper", p.get("page"), q))
+        book, clause = p.get("rule_book") or (p.get("rule_ref") or {}).get("name"), p.get("clause")
+        if _norm(book) and _norm(clause):
+            out.add(("rule", _book_key(book), _clause_key(clause)))
+    return out
+
+
 def _near_same_roots(order: list[str], members: dict[str, list[dict]]) -> dict[str, str]:
     """Each field key -> the field key it joins: a shorter field joins the ONE longer field it is near-same to (two or more candidates:
     it stays alone, never guessed); followed to the end, so every field lands on one comment."""
     wds = {k: field_words(_field_of(members[k][0])) for k in order if k.startswith("field|")}
-    parent = {}
+    parent, many = {}, {}
     for k, w in wds.items():
         longer = [k2 for k2, w2 in wds.items() if k2 != k and len(w2) > len(w) and near_same(w, w2)]
+        if len(longer) > 1:  # two candidates: only the one that shares a paper line or a book and clause with it
+            longer = [k2 for k2 in longer if _evidence(members[k]) & _evidence(members[k2])] or longer
         if len(longer) == 1:
             parent[k] = longer[0]
-    root = {}
-    for k in order:
+        elif longer:
+            many[k] = longer
+
+    def root_of(k: str) -> str:
         r, seen = k, set()
         while r in parent and r not in seen:
             seen.add(r)
             r = parent[r]
-        root[k] = r
-    return root
+        return r
+
+    for k, longer in many.items():  # several candidates that are already one comment: it joins that comment
+        if len({root_of(k2) for k2 in longer}) == 1:
+            parent[k] = longer[0]
+    return {k: root_of(k) for k in order}
 
 
 def _group_all(points: list[dict]) -> list[dict]:

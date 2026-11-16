@@ -405,6 +405,30 @@ def ai_draft_words(line: Mapping) -> str:
     return f"{AI_DRAFT}: {detail}." if detail else f"{AI_DRAFT}."
 
 
+#: Order 14 lane G: what the contract's edition cutoff says of the held edition of a cited book (`standard_editions.against_cutoff`),
+#: in the owner's words. Keyed by lane G's own status sentences; an unknown status is "not known", never a guess.
+EDITION_WORDS = {
+    "held edition binds": "binds",
+    "held edition is later than the cutoff: for information only": "later, for information only",
+    "held edition is older than the one that binds": "older than the edition that binds",
+    "cannot tell: the date reaches into the cutoff": "cannot tell",
+    "edition not known": "not known",
+}
+
+
+def edition_words(result: Mapping | None) -> str:
+    """ "edition: binds" (and the edition that binds, and lane G's caveat, when it gives them) for one book's cutoff result."""
+    if not result:
+        return "edition: not known"
+    out = "edition: " + EDITION_WORDS.get(_clean(result.get("status")), "not known")
+    binding, held = _clean(result.get("binding")), _clean(result.get("held"))
+    if binding and binding != held:
+        out += f" (the edition that binds: {binding})"
+    if caveat := _clean(result.get("caveat")):
+        out += f"; {caveat}"
+    return out
+
+
 def drop_noise(text: object) -> str:
     """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
     a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
@@ -479,6 +503,7 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
+    "EDITION_WORDS",
     "KIND_COVERAGE",
     "KIND_IN_COMMENT",
     "KIND_MET_NOT_CONFIRMED",
@@ -498,6 +523,7 @@ __all__ = [
     "code_phrase",
     "comment_by",
     "drop_noise",
+    "edition_words",
     "generated_by",
     "has_banned",
     "plain",

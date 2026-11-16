@@ -342,17 +342,18 @@ def _header_pairs(
     ]
 
 
-def _books_line(points: list[dict]) -> str:
+def _books_line(points: list[dict], editions: dict | None = None) -> str:
+    """Each cited book with its count of points; with `editions` (lane G: book name -> `standard_editions.against_cutoff` result) also
+    what the contract's edition cutoff says of the held edition."""
     c: Counter = Counter()
     for p in points:
         for b in p.get("books") or []:
             c[b["name"]] += 1
-    return (
-        "; ".join(
-            f"{n} ({k})" for n, k in sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))
-        )
-        or "none"
-    )
+
+    def one(n: str, k: int) -> str:
+        return f"{n} ({k}; {words.edition_words(editions.get(n))})" if editions is not None else f"{n} ({k})"
+
+    return "; ".join(one(n, k) for n, k in sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))) or "none"
 
 
 def _put_block(ws, pairs: list[tuple[str, str]], lines: list[str]) -> int:
@@ -684,6 +685,7 @@ def build_team(
     signed: bool = False,
     listing_raw=None,
     contract_results=None,
+    editions: dict | None = None,
 ) -> bytes:
     """The ONE team workbook of a paper (see the module words): sheet CRS = one comment per field, sheet Evidence = every point."""
     from . import review_points_service as svc
@@ -723,7 +725,7 @@ def build_team(
             if cut
             else "; no cell shortened"
         ),
-        "Rule books used (points): " + _books_line(raw),
+        "Rule books used (points): " + _books_line(raw, editions),
     ]
     header_row = _put_block(
         ws,

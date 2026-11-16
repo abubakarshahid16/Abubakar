@@ -703,6 +703,10 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         books = _books_used(ln for ln in lines if not wording.is_not_reviewed(ln))
         label = BOOKS_REVIEWED
     coverage = crs_comments.coverage_note(lines) if not contractor else ""
+    if isinstance(
+        meta.get("editions"), dict
+    ):  # lane G: what the edition cutoff says of each held book
+        books = [f"{b} ({words.edition_words(meta['editions'].get(b))})" for b in books]
     view: dict = {
         "title": _title(meta),
         "header": _header_pairs(meta, books, label)
