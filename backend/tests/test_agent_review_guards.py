@@ -148,6 +148,21 @@ def test_5_the_deferral_guard_reads_every_page_of_the_paper_not_only_the_pages_s
     )
 
 
+def test_5b_a_mark_on_the_line_after_the_label_makes_the_pass_a_query(w):
+    text = "Coating layers\nBy Contractor\nNotes invented"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages(document_id, page_no, text, char_count, batch_no) VALUES (?,2,?,?,0)",
+            (s.PAPER, text, len(text)),
+        )
+    line = json.loads(lines_of(run_review())["R-coat"]["line_json"])
+    assert (
+        line["verdict"] == "Query"
+        and line["reason_code"] == "value_deferred"
+        and line["deferred_page"] == 2
+    )
+
+
 def test_6_a_budget_stop_during_the_context_check_halts_the_run_and_writes_a_partial_run(
     w, monkeypatch
 ):

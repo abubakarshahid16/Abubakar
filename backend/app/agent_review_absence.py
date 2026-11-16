@@ -557,9 +557,13 @@ def comment(words: tuple[str, ...], standard: Any, clause: Any) -> str:
 
 
 def deferred_mark(field_text: str, texts: Mapping[int, str]) -> int | None:
-    """The first page where ONE line carries all the field's content words AND a deferral mark from the existing vocabulary
-    (`blank_markers.names_a_marker`: "By Contractor", "TBA", "vendor to advise", ...), else None. A figure followed by 'By
-    Contractor' is not a confirmed value. General: words, no layout. `texts` is {page number: page text}."""
+    """The first page where a deferral mark from the existing vocabulary (`blank_markers.names_a_marker`: "By Contractor",
+    "TBA", "vendor to advise", ...) belongs to the field, else None. A figure followed by 'By Contractor' is not a confirmed
+    value. It belongs to the field in one of two ways, both words only (no layout): (1) ONE line carries all the field's
+    content words and the mark; (2) the mark is on its own line and the line DIRECTLY before it is a label line: it carries
+    all the field's content words and neither a figure nor a mark (a sheet that prints a name on one line and its value on
+    the next). The second way only ever makes a result less confident. This is the ONE home: the review's request module
+    calls it. `texts` is {page number: page text}."""
     from .agent_bind import content_words
     from .blank_markers import names_a_marker
 
@@ -567,8 +571,19 @@ def deferred_mark(field_text: str, texts: Mapping[int, str]) -> int | None:
     if not want:
         return None
     for n in sorted(texts):
-        for raw in (texts.get(n) or "").splitlines():
-            if names_a_marker(raw) and want <= content_words(raw):
+        lines = (texts.get(n) or "").splitlines()
+        for i, raw in enumerate(lines):
+            if not names_a_marker(raw):
+                continue
+            if want <= content_words(raw):
+                return n
+            before = lines[i - 1] if i else ""
+            if (
+                before.strip()
+                and not re.search(r"\d", before)
+                and not names_a_marker(before)
+                and want <= content_words(before)
+            ):
                 return n
     return None
 
