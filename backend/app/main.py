@@ -302,6 +302,8 @@ app.include_router(api_deliverables.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
+from .api import upload_role_suggestion as upload_role_suggestion_mod  # noqa: E402  order 14 lane E
+app.include_router(upload_role_suggestion_mod.router)  # one upload: the suggested role's switch and the review roles
 
 # THE CLAUDE LANE (#222, revived by owner decision 2026-09-25). Every route is
 # gated on the reader's two egress flags and answers 409 model_disabled when

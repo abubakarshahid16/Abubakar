@@ -249,13 +249,41 @@ def _is_rule_book(row) -> bool:
     return row["document_role"] == claude_approved.STANDARD_ROLE
 
 
+def stored_kind_is_contract(conn, document_id: str) -> bool:
+    """A kind STORED for this paper (`document_kinds`, in ANY state: suggested by the kind reader or confirmed by an engineer)
+    says contract. Order 14 lane E (R99, rule 1): the stored kind counts even when the paper's role was later set to a submittal
+    and the cover reader calls it something else (a datasheet): it only NARROWS what may leave. No kinds table (a bare library) =
+    no stored kind; an unreadable table = a contract (the safe side)."""
+    import sqlite3
+
+    try:
+        held = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_kinds'"
+        ).fetchone()
+        if held is None:
+            return False
+        row = conn.execute(
+            "SELECT kind FROM document_kinds WHERE document_id = ?", (document_id,)
+        ).fetchone()
+    except sqlite3.Error as exc:
+        log.warning(
+            "stored kind of %s unreadable (%s): treated as a contract",
+            document_id,
+            type(exc).__name__,
+        )
+        return True
+    return row is not None and str(row[0] or "").strip().lower() == "contract"
+
+
 def is_contract_paper(document_id: str) -> bool:
-    """Is this paper a CONTRACT by its decided kind (or by its role, a contract document)? Owner, 12 Nov 2026 (#1584, comment
+    """Is this paper a CONTRACT by its decided kind, by a kind stored for it in any state, or by its role (a contract document)? Owner, 12 Nov 2026 (#1584, comment
     6820183348): a contract is allowed on the local model without asking, and goes to Claude only with the owner's yes for
     that upload (`contract_yes`), so it never joins the list by itself. Unreadable = treated as a contract (the safe side)."""
     try:
         row = _document(document_id)
         if row is not None and row["document_role"] == "CONTRACT_DOCUMENT":
+            return True
+        if stored_kind_is_contract(connect(), document_id):
             return True
         from . import agent_review_kind
 

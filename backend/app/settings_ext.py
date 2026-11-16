@@ -625,3 +625,9 @@ class SettingsExt(BaseModel):
     #: The same file is what gate G2 reads, so the two never disagree. Needs correct clause labels: keep it off until the book is
     #: re-extracted with CHUNKER_VERSION 12. OFF (default): no rule is left out by a clause limit. Env: KIND_BOOK_CLAUSE_LIMIT_ENABLED.
     kind_book_clause_limit_enabled: bool = False
+    # order 14 lane E
+    #: One upload for the whole app (owner, 16 Nov 2026): a file uploaded on any page gets a SUGGESTED kind AND a SUGGESTED role
+    #: (`document_kind.suggest_kind_and_role`), stored in the kind row's evidence, never in `document_role`, so a suggestion never
+    #: counts for the Claude approved list; a person confirms or changes it. The review page also lists contract documents. OFF
+    #: (default): every upload page, route and list is byte-same. Env: UPLOAD_ROLE_SUGGESTION_ENABLED.
+    upload_role_suggestion_enabled: bool = False

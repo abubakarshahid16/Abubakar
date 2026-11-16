@@ -1,0 +1,94 @@
+{
+  "_about": "Order 14 lane E (16 Nov 2026): the contract checklist CT-01 to CT-08. AI DRAFT, ENGINEER TO CONFIRM: no engineer has signed it off and no real contract has proved it. Written from the owner's three examples (stages add to 100%, every listed attachment present, one name per guarantee) and from the KINDS of the 19 decided lines of the stored test-contract run (an invented paper with planted errors), never from their text. Read by `scripts/contract_checks.py` only; nothing in the app reads it, nothing is switched on. A code comparison against this draft is internal only: never a firm Pass or Fail on the contractor copy until the approver confirms the item.",
+  "format": "contract-checks/1",
+  "status": "AI draft, engineer to confirm",
+  "approver": "the owner",
+  "approved": false,
+  "code_check_words": {
+    "full": "code decides it from the paper's own text, with a quote verified on its page",
+    "partly": "code decides one part (named in `code_part`); the rest is a reading task for the AI reviewer or the engineer",
+    "not": "a reading task only; code verifies the quotes the reader gives, it does not decide"
+  },
+  "items": [
+    {
+      "id": "CT-01",
+      "title": "Payment or progress stages add up to 100% and match the number of stages the contract states",
+      "source": "owner example 1",
+      "code_check": "full",
+      "code_part": "code adds the percentage stated on each stage line of one payment schedule and names the page of each; a total other than 100 is a finding. When the contract states a number of instalments, stages or milestones, code compares it with the stages it found. A line with two percentages, or a schedule split over gaps, goes to the engineer.",
+      "needs_text": "the payment or milestone schedule as stored page text (one stage per line, each with its percentage), and the sentence that states the number of instalments",
+      "not_code": "whether each stage's trigger event is clear and measurable",
+      "result_words": ["consistent", "inconsistent", "engineer to check"]
+    },
+    {
+      "id": "CT-02",
+      "title": "Every schedule, appendix, annex, exhibit or attachment the contract refers to is present",
+      "source": "owner example 2",
+      "code_check": "full",
+      "code_part": "code lists every labelled reference (a word Schedule, Appendix, Annex, Exhibit or Attachment and a label: a letter, a number or a Roman numeral) with its pages, and every part that is present: a heading line in the contract (not a line of a list of attachments) or the first heading lines of a held document given with the contract. A reference with no present part is a finding.",
+      "needs_text": "all pages of the contract as stored text, and the held documents of the same package (their first page)",
+      "not_code": "an unlabelled reference (for example 'the list of equipment') and a label used under two parents (Attachment III of two different schedules): both go to the reader",
+      "result_words": ["consistent", "inconsistent"]
+    },
+    {
+      "id": "CT-03",
+      "title": "One named party gives each guarantee, warranty or security",
+      "source": "owner example 3",
+      "code_check": "partly",
+      "code_part": "code reads the parties the contract defines (a name followed by its role in brackets) and, per guarantee kind (warranty, performance guarantee, bank guarantee, bond, security), the party named before the guarantee word in each sentence. Two different parties for one kind is a finding; one party is consistent; no party named goes to the engineer.",
+      "needs_text": "the parties sentence (names with their roles in brackets) and every sentence with a guarantee, warranty, bond or security word",
+      "not_code": "who gives a guarantee when the sentence names no party, and a guarantor that is not a defined party (a parent company or a bank named only once)",
+      "result_words": ["consistent", "inconsistent", "engineer to check"]
+    },
+    {
+      "id": "CT-04",
+      "title": "One term has one value everywhere (payment days, warranty period, liability cap, completion milestone) between the body and the schedules",
+      "source": "test-contract line kinds: paper against itself (three), engineering comment (one)",
+      "code_check": "partly",
+      "code_part": "once a reader pairs two quotes about one term, code verifies both quotes on their pages and compares the two numbers with their units (`numparse`)",
+      "needs_text": "the two quotes and their pages",
+      "not_code": "finding which two sentences speak about the same term",
+      "result_words": ["consistent", "inconsistent", "engineer to check"]
+    },
+    {
+      "id": "CT-05",
+      "title": "Every term used is defined, every blank is filled and every rate or date is stated",
+      "source": "test-contract line kinds: paper against itself (three), engineering comment (one)",
+      "code_check": "partly",
+      "code_part": "code can find blank placeholders ([ ], runs of underscores outside a signature line) and words that defer a value ('as agreed', 'to be agreed'); a capitalised term used and never defined is a candidate for the reader",
+      "needs_text": "all pages of the contract as stored text",
+      "not_code": "whether a capitalised word is a defined term or a name",
+      "result_words": ["consistent", "inconsistent", "engineer to check"]
+    },
+    {
+      "id": "CT-06",
+      "title": "Liability and damages are bounded: a cap on liquidated damages is stated, it sits inside the liability cap, and excluded losses are defined",
+      "source": "test-contract line kinds: engineering comment (two)",
+      "code_check": "partly",
+      "code_part": "when both caps are stated as a percentage of the price, code compares them; a cap that is never stated can be shown absent only by reading every page",
+      "needs_text": "the liquidated damages clause, the liability clause and the definitions",
+      "not_code": "whether excluded losses are defined clearly enough",
+      "result_words": ["consistent", "inconsistent", "engineer to check"]
+    },
+    {
+      "id": "CT-07",
+      "title": "The order of precedence is one rule, not two rules that conflict",
+      "source": "test-contract line kinds: engineering comment (one)",
+      "code_check": "not",
+      "code_part": "",
+      "needs_text": "the precedence clause and its sub-clauses",
+      "not_code": "deciding that two precedence sentences conflict is a reading task",
+      "result_words": ["engineer to check"]
+    },
+    {
+      "id": "CT-08",
+      "title": "The clauses a supply contract needs are present and complete: governing law, disputes, force majeure, title and risk, assignment, changes, acceptance and tests, termination payments, confidentiality scope, defect remedy",
+      "source": "test-contract line kinds: engineering comment (six)",
+      "code_check": "partly",
+      "code_part": "code can show a heading word absent from every page once every page is read; whether a clause that is present is complete is a reading task",
+      "needs_text": "all pages of the contract as stored text",
+      "not_code": "the completeness of a clause that is present",
+      "result_words": ["engineer to check"]
+    }
+  ]
+}

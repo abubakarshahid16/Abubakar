@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import { reviewPlan } from "../api/reviewPlan";
+import { roleSuggestionSwitch } from "../api/roleSuggestion";
 import { StartReviewStep } from "../components/review/panels/StartReviewStep";
 import { loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
 import type { WorkspaceTab } from "../components/review/workspace/contract";
@@ -98,8 +99,10 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
   }, [load]);
 
   const fetchBoth = async () => {
+    // Order 14 lane E: the roles this page lists come from the suggested-role switch: off, contractor submittals only (as before).
+    const roles = (await roleSuggestionSwitch()).review_roles;
     const [subs, runsResult] = await Promise.all([
-      api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"], limit: LIST_MAX }),
+      api.documents({ document_role: roles, limit: LIST_MAX }),
       reviewsApi.reviewRuns(),
     ]);
     if (!runsResult.ok) {

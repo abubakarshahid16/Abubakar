@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, authorize, reportResponseStatus } from "../api/client";
+import { roleSuggestionSwitch } from "../api/roleSuggestion";
 
 type Picker =
   | { s: "loading" }
@@ -47,11 +48,14 @@ export function uploadOne(
   file: File,
   disciplines: string[],
   onProgress: (percent: number) => void,
+  uploadedFrom?: string,
 ): Promise<UploadState> {
   return new Promise((resolve) => {
     const form = new FormData();
     form.append("file", file);
     for (const name of disciplines) form.append("disciplines", name);
+    // Order 14 lane E: the page the file came in on, only when the suggested role is on (the caller decides).
+    if (uploadedFrom) form.append("uploaded_from", uploadedFrom);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/documents");
     // After open(), before send(): setRequestHeader throws outside that window.
@@ -154,15 +158,18 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
       }));
       setItems((prev) => [...queued, ...prev]);
 
+      const from = (await roleSuggestionSwitch()).enabled ? "documents" : undefined;
       for (let i = 0; i < list.length; i += 1) {
         const item = queued[i];
-        const state = await uploadOne(list[i], chosen, (percent) =>
+        const progress = (percent: number) =>
           setItems((prev) =>
             prev.map((it) =>
               it.id === item.id ? { ...it, state: { phase: "uploading", percent } } : it,
             ),
-          ),
-        );
+          );
+        const state = from
+          ? await uploadOne(list[i], chosen, progress, from)
+          : await uploadOne(list[i], chosen, progress);
         setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, state } : it)));
         onUploaded();
       }

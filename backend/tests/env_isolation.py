@@ -284,6 +284,7 @@ EGRESS_SAFE: dict[str, object] = {
     "nothing_read_fails_enabled": False,
     # --- local only, no model or socket: a specification is checked against a must-contain list (#1479, off by default)
     "spec_kit_enabled": False,
+    "upload_role_suggestion_enabled": False,  # order 14 lane E: suggested kind and role on upload, off
     # --- local only, no model or socket: a range printed twice is one value; a combined label names its attributes (#1472, off by default)
     "datasheet_one_value_enabled": False,
     # --- local only, no socket: the bench also prints the planted-defect table (#1607, off by default)
