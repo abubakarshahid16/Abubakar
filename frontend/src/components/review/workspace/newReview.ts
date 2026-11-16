@@ -68,6 +68,7 @@ export const ADMIN_UNKNOWN_MESSAGE =
 
 /** The role the submittal must already hold for a re-dropped file to go on. */
 const SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL";
+const CONTRACT_ROLE = "CONTRACT_DOCUMENT";
 
 /** A role in plain words, from the one list that names roles
  *  (`MetadataEditor.ROLE_OPTIONS`): "a company standard". */
@@ -172,6 +173,8 @@ async function checkDuplicateRole(
   }
   const role = r.data.document_role;
   if (role === SUBMITTAL_ROLE) return { ok: true };
+  // A contract document is never offered the one-click re-mark as a contractor submittal (order 14 lane E, R99, rule 1).
+  if (role === CONTRACT_ROLE) return { ok: false, message: alreadyInLibraryMessage(role) };
   // The role WAS read and is not a contractor submittal: nothing is changed
   // here, but the screen may offer the administrator a confirmed re-mark
   // (`markAndReview`). Never automatic.
@@ -206,6 +209,15 @@ export type StartNewReviewResult =
   | NewReviewOutcome
   | { ok: false; message: string; offerMark: OfferMark }
   | { ok: false; message: string; askFirst: AskFirst };
+
+/** Said instead of the re-mark offer when the paper reads as a contract (order 14 lane E, R99). */
+export const CONTRACT_NOT_MARKED_MESSAGE = "It is not marked as a document from a contractor from here and no review was started: "
+  + "set its role on the Documents page.";
+
+/** The suggestion says the paper is a contract: its suggested role, the role its contents read as, or its kind. */
+export function readsAsContract(s: RoleSuggestion): boolean {
+  return s.role === CONTRACT_ROLE || s.kind_says === CONTRACT_ROLE || s.kind === "contract";
+}
 
 /** The confirm question for the re-mark offer, in plain words. */
 export function markOfferWords(offer: OfferMark): string {
@@ -310,6 +322,12 @@ export async function startNewReview(
     const cls = await classification.ofDocument(documentId);
     if (changed()) return fail(SIGNED_OUT_MESSAGE);
     const suggestion = cls.ok ? roleSuggestionOf(cls.data.document_kind_evidence) : null;
+    if (suggestion && readsAsContract(suggestion)) {
+      // R99 (rule 1): a paper whose kind says contract is never offered the one-click "mark as a contractor submittal".
+      const message = `${suggestionWords(suggestion)} ${CONTRACT_NOT_MARKED_MESSAGE}`;
+      onPhase({ kind: "error", message });
+      return { ok: false, message };
+    }
     const offer: OfferMark = { documentId, role: null, suggestion: suggestion ?? { role: null, basis: "none" } };
     const message = markOfferWords(offer);
     onPhase({ kind: "error", message });
