@@ -98,12 +98,17 @@ def silent_cause(line: Mapping) -> str | None:
     return None
 
 
+ACCOUNT_WORDS = {"account_no_credit": "the Claude account has no credit", "account_usage_limit": "the Claude account's usage limit is reached"}  # fmt: skip
+
+
 def stop_word(exc: BaseException) -> str:
     """Plain words for why the optional step ended: what the code saw, no detail from any document."""
     if isinstance(exc, agent_claude.AgentGateClosed):
         return "the Claude lane was closed"
     if isinstance(exc, agent_claude.AgentBudgetStop):
-        return "a spending cap refused a call"
+        return ACCOUNT_WORDS.get(
+            getattr(exc, "code", ""), "a spending cap refused a call"
+        )
     return f"an error ({type(exc).__name__})"
 
 
@@ -256,8 +261,10 @@ class RereadMixin:
                 raise RereadFailed(word, paid) from None
             except (
                 agent_claude.AgentTransportError
-            ):  # it may have been billed: the run is charged this limit's worst case
-                paid += app_worst_usd(agent_claude.SECOND_MODEL, parts, limit)
+            ) as exc:  # it may have been billed: this limit's worst case; a refusal: 0
+                paid += exc.charge(
+                    app_worst_usd(agent_claude.SECOND_MODEL, parts, limit)
+                )
                 self._optional.paid = paid
                 raise RereadFailed(FAIL_CALL_ERROR, paid) from None
             except FATAL:

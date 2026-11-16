@@ -714,6 +714,9 @@ NO_VALUE_WHY = (
     "the AI reader quoted only the field's name, with no value; check the paper"
 )
 DISAGREE_WHY = "two AI readers disagree on this line"
+#: Order 14, 16 Nov 2026 (G6): an AI "met" the pass guard objected to (R94) is a question in every run; the second reader's yes or no used to decide.
+GUARD_CODES = ("pass_field_unknown", "pass_field_not_quoted", "pass_condition_not_quoted", "field_unknown_cannot_check_deferral")  # fmt: skip
+GUARD_MET_WHY = "code could not confirm this AI 'met'"
 _GENERIC_BY = re.compile(
     r"by\s", re.IGNORECASE
 )  # "by calculation ...": running text; real "by contractor" is a phrase
@@ -760,11 +763,7 @@ def quote_is_label_only(line: Mapping) -> bool:
 
 
 def met_unsafe_why(line: Mapping) -> str | None:
-    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None. (a) the paper quote
-    it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (a line with no record of
-    the check counts as not verified; a "met" with NO clause quote recorded, for example a checklist item whose clause was
-    not quoted, is therefore a Query BY DESIGN: the gate already refuses a Pass without a verified clause quote). Acts ONLY
-    on a line whose verdict is Query (the lines shown as "AI thinks: met"); a proven Fail or Pass passes through. Never touches a proven Pass or any other AI word: it only makes a line less confident."""
+    """Why an AI opinion "met" (ai_verdict Pass, the gate's verdict Query) must be a Query, else None: (a) the paper quote it rests on defers the value; (b) the paper quote or the clause quote was not verified by code (no record of the check counts as not verified; a "met" with NO clause quote recorded is a Query BY DESIGN: the gate refuses a Pass without a verified clause quote); then not stated, label only, a second reader's disagreement, and a field code could not match (order 14). Acts ONLY on a line whose verdict is Query (the lines shown as "AI thinks: met"); a proven Fail or Pass passes through. Never touches a proven Pass or any other AI word: it only makes a line less confident."""
     if (
         line.get("ai_verdict") != PASS or line.get("verdict") != QUERY
     ):  # a proven Pass or Fail is never touched
@@ -788,8 +787,10 @@ def met_unsafe_why(line: Mapping) -> str | None:
     # {"agree": False} = DISAGREED; {"agree": None} = asked but no usable answer (failed / not run). Only an explicit
     # False moves the line; "not asked" and "failed" are neither agreement nor disagreement.
     second = line.get("second_opinion")
-    if isinstance(second, Mapping) and second.get("agree") is False:
+    if agent_run_second.disagreed(second):
         return DISAGREE_WHY
+    if line.get("reason_code") in GUARD_CODES:
+        return GUARD_MET_WHY
     return None
 
 

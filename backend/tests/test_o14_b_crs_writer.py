@@ -995,16 +995,11 @@ def test_a_met_the_pass_guard_objected_to_is_never_nothing_to_change_and_its_obj
         reason_code="pass_field_unknown",
         why="no second opinion",
     )
-    assert WB.status_of(held) == (
-        words.STATUS_AI,
-        words.ORDER_AI_MET,
-    )  # an AI opinion "met"
-    view = _view([held])
-    assert view["rows"] == []
-    row = view["other"]["rows"][0]
+    st, order = WB.status_of(held)
+    assert st == words.STATUS_QUERY  # order 14 (G6): a guarded AI "met" is a question in every run, worded for the engineer (R94)
     assert (
-        row[4] == words.KIND_MET_NOT_CONFIRMED
-        and "the rule's field is not known" in row[5]
+        f"Engineer to check the AI reviewer's view: {words.guard_words(held)}."
+        in WB.layout_comment(held, st, order)
     )
     query = mk("S-1", "Query", ai="Pass", item={"source": "skill", "item_id": "S-1"}, field="Body", reason_code="pass_field_not_quoted",
                quotes_checked={"paper": True, "clause": False})  # fmt: skip

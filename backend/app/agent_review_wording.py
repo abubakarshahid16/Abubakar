@@ -18,6 +18,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as code_proof
 from . import agent_review_two_reader as two_reader
+from . import agent_run_second
 from .agent_review_local import (
     AI_QUERY_WHY,
     LOCAL_TOO_LONG,
@@ -37,6 +38,7 @@ from .agent_review_verdict import (
     DEFERRED_WHY,
     DISAGREE_WHY,
     FAIL,
+    GUARD_MET_WHY,
     NOT_A_RULE,
     OWNER_TIER,
     PASS,
@@ -209,11 +211,25 @@ def _moved_reason(line: Mapping, unsafe: str) -> str:
     """THE text the engineer reads for a "met" the guard made a Query (screen reason, workbook comment and verdict cells):
     the guard's reason first; for two readers who disagree, a plain sentence saying the second reader disagreed; then the
     first reader's own words ONLY marked as one reader's view that is not confirmed. Never the line's conclusion."""
-    out = unsafe + "."
+    lead = (
+        f"{unsafe}: {line['why']}"
+        if unsafe == GUARD_MET_WHY and line.get("why")
+        else unsafe
+    )
+    out = (
+        lead + "."
+    )  # order 14 (G6): a guarded "met" names the guard's own reason after the lead
     if unsafe == DISAGREE_WHY:
         out += " " + SECOND_DISAGREED.strip()
+    view = one_reader_view(line)
+    return f"{out} {ONE_READER}{view}" if view else out
+
+
+def one_reader_view(line: Mapping, limit: int = 400) -> str:
+    """THE one-reader view a moved "met" shows (wording and workbook, rule 8): the reader's own words, cut at `limit` with the
+    visible mark "…" (completeness rule 3; the whole text stays on the Evidence sheet)."""
     view = " ".join(str(line.get("comment") or line.get("reasoning") or "").split())
-    return f"{out} {ONE_READER}{view[:400]}" if view else out
+    return view if len(view) <= limit else view[:limit].rstrip() + "…"
 
 
 def _verified_quote_defers(rec: object) -> bool:
@@ -266,9 +282,10 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": SILENCE_WHY + also,
         }
-    if unsafe := met_unsafe_why(
-        line
-    ):  # 2b. N9: the guard's reason leads; one reader's view follows, marked
+    if (
+        (unsafe := met_unsafe_why(line))
+        and not (unsafe == GUARD_MET_WHY and two_reader.second_cut_off(line))
+    ):  # 2b. N9: the guard's reason leads; one reader's view follows, marked (a cut-off second answer keeps its own words, 2c)
         return {
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
@@ -294,6 +311,16 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             "verdict_label": WORD_QUERY,
             "verdict_class": CLASS_QUERY,
             "not_proven_reason": two_reader.absence_disagree_why(line),
+        }
+    if (
+        line.get("ai_verdict") == FAIL
+        and line.get("verdict") == QUERY
+        and agent_run_second.disagreed(line.get("second_opinion"))
+    ):  # 2c0. order 14, 16 Nov night: the second reader DISAGREED with a "not met": two readers disagree, a question (as for a "met")
+        return {
+            "verdict_label": WORD_QUERY,
+            "verdict_class": CLASS_QUERY,
+            "not_proven_reason": DISAGREE_WHY + (f"; {why}" if unapproved else ""),
         }
     if (
         two_reader.disagrees(line) or two_reader.other_disagrees(line)
