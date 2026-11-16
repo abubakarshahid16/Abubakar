@@ -766,18 +766,23 @@ def test_a_cut_off_second_reader_is_said_as_such_never_as_unconfirmed():
     )  # lane D's constant, once merged, is the same text
 
 
-def test_a_comment_is_named_by_the_papers_verified_field_else_the_items_own_field(
+def test_a_comment_is_named_by_the_items_own_field_not_the_label_the_ai_quoted(
     monkeypatch,
 ):
-    """R94 (lead's decision): one comment per PAPER field. The label code verified on the page names the comment; the rule's field
-    role or the checklist topic only when the paper's label is not verified; the AI's own label last."""
-    role = {"tier": "AI approved", "field": "set_pressure"}
-    on_paper = mk("R-1", field="Max. inlet pr. at design temp", rule_label=role)
-    no_paper = mk(
-        "R-2", field=None, field_label_ai="Required relieving capacity", rule_label=role
+    run1 = mk(
+        "R-1",
+        field="Max. inlet pr. at design temp",
+        rule_label={"tier": "AI approved", "field": "set_pressure"},
     )
-    assert WB.field_name(on_paper) == "Max. inlet pr. at design temp"
-    assert WB.field_name(no_paper) == "Set pressure"
+    run2 = mk(
+        "R-1",
+        field="Required relieving capacity",
+        rule_label={"tier": "AI approved", "field": "set_pressure"},
+    )
+    assert WB.field_name(run1) == WB.field_name(run2) == "Set pressure"
+    assert (
+        WB._page_text(run1) == "p.2 - Max. inlet pr. at design temp"
+    )  # the paper's own label stays beside the page
     monkeypatch.setattr(
         WB,
         "_skill_item",
@@ -786,13 +791,11 @@ def test_a_comment_is_named_by_the_papers_verified_field_else_the_items_own_fiel
     skill = mk(
         "S-1",
         item={"source": "skill", "item_id": "S-1"},
-        field=None,
-        field_label_ai="Required relieving capacity",
+        field="Required relieving capacity",
     )
     assert WB.field_name(skill) == "PSV inlet line pressure drop"
-    assert (
-        WB.field_name(mk("R-3", field=None, field_label_ai="Fluid")) == "Fluid"
-    )  # nothing else: the AI's label
+    plain = mk("R-2", field="Fluid")  # no field role: the paper's label, as before
+    assert WB.field_name(plain) == "Fluid"
 
 
 def test_two_proven_fails_on_one_field_keep_their_own_requirement_and_action_everywhere():
