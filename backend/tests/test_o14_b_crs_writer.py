@@ -682,3 +682,16 @@ def test_a_superseded_requirement_shows_its_successors_clause_never_the_old_fals
         "2.5",
         "UG-20",
     ]  # the stored clause (decision keys) is untouched
+
+
+def test_the_rule_checks_crs_rows_pass_through_the_re_read(monkeypatch):
+    """The rule check's CRS rows (`crs_mapping.build_crs_rows`) never print a superseded clause: they run the re-read first."""
+    from app import crs_mapping
+    from app import review_points as rp
+
+    seen = []
+    monkeypatch.setattr(
+        rp, "reread_clauses", lambda findings, cache=None: seen.append(list(findings))
+    )
+    crs_mapping.build_crs_rows([], [], "paper.pdf")
+    assert seen == [[]]
