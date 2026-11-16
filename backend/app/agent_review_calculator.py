@@ -392,6 +392,7 @@ def checklist_lines(
     page_texts: Mapping[int, str],
     cells: Mapping[str, table_cell.Cell] | None = None,
     document_id: str | None = None,
+    books=None,
 ) -> list[dict]:
     """The approved checklist's results (`datasheet_checks.evaluate`: pure, code only) as lines. The clause side is the approved entry's own
     wording (`APPROVED_CHECKLIST`, the entry id as the clause): no document, so its quote is the entry itself. The paper quote must be found on
@@ -445,6 +446,41 @@ def checklist_lines(
             met = status == COMPLIANT
             out.append({**line, "verdict": PASS if met else FAIL, "decided_by": verdict_mod.BY_CODE,
                         "compare": {"decided": True, "verdict": "meets" if met else "does_not_meet", "reason": detail}})  # fmt: skip
+    return out if books is None else [with_book(ln, books) for ln in out]
+
+
+#: How a line names a book the library does not hold (order 14: "book missing", never guessed).
+BOOK_MISSING = "book missing: "
+
+
+def with_book(line: Mapping, books) -> dict:
+    """The checklist line with its book's own words (order 14, lane A). `books.cite(standard, clause)` (`agent_review_checklist_books`)
+    gives the held clause's stored text found by code in the book's pages, or that the book is held but no such text was found, or
+    that the book is not held. The entry's own wording moves to `check_words` and is never shown as the book's quote; a book not held
+    shows no clause and no rule words, and its line is never a Pass or Fail."""
+    standard = line.get("standard")
+    got = (
+        books.cite(standard, line.get("clause"))
+        if standard and standard != APPROVED_CHECKLIST
+        else {}
+    )
+    if not got:
+        return dict(line)
+    out = {
+        **line,
+        "check_words": line.get("check_words") or line.get("clause_quote") or "",
+    }
+    checks = {**(line.get("quotes_checked") or {})}
+    if got.get("missing"):
+        out.update(standard=f"{BOOK_MISSING}{got['missing']}", clause="", clause_quote="", book_missing=got["missing"],
+                   quotes_checked={**checks, "clause": False})  # fmt: skip
+        if out.get("verdict") in (PASS, FAIL):
+            reason = (out.get("compare") or {}).get("reason")
+            why = f"the book {got['missing']} is not held, so its rule is not shown or decided"
+            out = _undecided(out, why, "not_decided", reason)
+        return out
+    out.update(clause_quote=got.get("quote") or "", clause_page=got.get("page"), clause_document_id=got.get("book_id"),
+               quotes_checked={**checks, "clause": bool(got.get("quote"))})  # fmt: skip
     return out
 
 
