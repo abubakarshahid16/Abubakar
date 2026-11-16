@@ -1,5 +1,5 @@
 {
-  "_about": "#1480 vessel kit PREPARATION (parked kit, milestone 58), all DRAFT. Box list and draft rule cards for a pressure vessel datasheet, built only from the standards the library already holds (SAES-D-001). Every card is a draft: no engineer has signed it off, no real vessel document has proved it. Read only when `vessel_kit_draft_enabled` is on (off by default); every result is held for the engineer. Rule text is in our own words, never the standard's. Clause numbers and pages are as stored in the library and not verified. A card whose value no held clause requires stays draft 'needs ...' (order 301.1, A-1440). ASME VIII-1 is held, but 0 of its 4,073 stored rules carry ASME's own clause numbers, so no card cites an ASME clause as verified.",
+  "_about": "#1480 vessel kit PREPARATION (parked kit, milestone 58), all DRAFT. Box list and draft rule cards for a pressure vessel datasheet, built only from the standards the library already holds (SAES-D-001). Every card is a draft: no engineer has signed it off, no real vessel document has proved it. Read only when `vessel_kit_draft_enabled` is on (off by default); every result is held for the engineer. Rule text is in our own words, never the standard's. Clause numbers and pages are as stored in the library and not verified. A card whose value no held clause requires stays draft 'needs ...' (order 301.1, A-1440). ASME VIII-1 is held, but 0 of its 4,073 stored rules carry ASME's own clause numbers, so no card cites an ASME clause as verified. A QUESTION ONLY card (one with `limit_draft`) decides nothing: its `limit_draft.quotes` are the stored page's own words, each found on that page by the quote check; everything else in it is an AI draft for the engineer.",
   "equipment_type": "Pressure Vessel",
   "status": "DRAFT",
   "standards_held": [
@@ -318,7 +318,7 @@
       "id": "VSLD-05",
       "draft": true,
       "severity": "critical",
-      "text": "AI draft, engineer to confirm. QUESTION ONLY, never decided: state the design pressure and the maximum operating pressure (MOP). The clause's rule is a table with two bands: for a MOP up to 6,900 kPa (1,000 psi) the design pressure is the greater of 1.1 x MOP and MOP + 15 psi; for a MOP of 6,900 kPa (1,000 psi) and above it is the greater of 1.05 x MOP and MOP + 100 psi. The stored table text is garbled, so the engineer confirms both minimum margins. Code does not compute it.",
+      "text": "AI draft, engineer to confirm. QUESTION ONLY, never decided: state the design pressure and the maximum operating pressure (MOP); both are asked for. The clause says the internal design pressure is set by a table. As the AI reads its stored text: for a MOP up to 6,900 kPa (1,000 psi) the design pressure is the greater of 1.1 x MOP and MOP + 15 psi; for a MOP of 6,900 kPa (1,000 psi) and above it is the greater of 1.05 x MOP and MOP plus a margin in psi that the stored table text does not show clearly (engineer to confirm: stored table text unclear). The engineer confirms both minimum margins. Code does not compute it.",
       "source": {
         "standard": "SAES-D-001",
         "clause": "6.2.3",
@@ -331,10 +331,16 @@
       },
       "limit_draft": {
         "status": "AI draft, engineer to confirm",
+        "quotes": [
+          "The internal design pressure shall be according to the following table",
+          "Up to 6,900 kPa (1,000 psi)",
+          "6,900 kPa (1,000 psi) and above"
+        ],
+        "quotes_verified_against": "SAES-D-001 6.2.3, stored page 14: the quotes only, never the table's margins",
         "mop_up_to_6900_kPa": "greater of 1.1 x MOP and MOP + 15 psi",
-        "mop_6900_kPa_and_above": "greater of 1.05 x MOP and MOP + 100 psi",
-        "note": "stored table text garbled: the engineer confirms the two minimum margins (15 psi, 100 psi)",
-        "verified_against": "SAES-D-001 6.2.3, stored page 14"
+        "mop_6900_kPa_and_above": "greater of 1.05 x MOP and MOP plus a margin in psi",
+        "mop_6900_kPa_and_above_margin": "engineer to confirm: stored table text unclear",
+        "note": "stored table text garbled: the band-1 margin reads as 15 psi; where the band-2 margin stands the stored text prints a lone '1100' and 'psi', not a clear margin. The engineer confirms both minimum margins"
       },
       "tests": [
         {
@@ -351,7 +357,7 @@
               "barg"
             ]
           ],
-          "expect": "COMPLIANT"
+          "expect": "NEEDS_ENGINEER_REVIEW"
         },
         {
           "name": "breaks",
@@ -379,6 +385,17 @@
             ]
           ],
           "expect": "MISSING_INFORMATION"
+        },
+        {
+          "name": "no MOP is a question",
+          "facts": [
+            [
+              "design pressure",
+              "11",
+              "barg"
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
         }
       ]
     },

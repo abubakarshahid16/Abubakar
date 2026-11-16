@@ -120,7 +120,8 @@ def generated_cases(item: dict, rules: dict) -> list[dict]:
             "kind": "generated",
             "facts": [_fact(name, "7")],
             "text": "",
-            "expect": COMPLIANT,
+            # a QUESTION ONLY card asks for the value and never passes it (`datasheet_checks.question_only`)
+            "expect": REVIEW if dc.question_only(item) else COMPLIANT,
         },
         {
             "name": "breaks",

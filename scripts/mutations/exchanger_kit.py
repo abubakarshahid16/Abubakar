@@ -28,10 +28,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1513,
         description="the exchanger design pressure card compares 1.05 x operating pressure again instead of only asking",
         path=DATA,
-        anchor='"kind": "required",\n        "field": "design_pressure",\n        "right": "operating_pressure"',
+        # re-anchored in PR 1849: the old comparison back also drops the card's question-only mark (`limit_draft`)
+        anchor='"kind": "required",\n        "field": "design_pressure",\n        "right": "operating_pressure"\n      },\n      "limit_draft"',
         replacement=(
             '"kind": "percent_of",\n        "field": "design_pressure",\n        "op": ">=",\n'
-            '        "right": "operating_pressure",\n        "percent": 105'
+            '        "right": "operating_pressure",\n        "percent": 105\n      },\n      "old_limit_draft"'
         ),
         target=TARGET,
         keyword="planted or limit or each_held",

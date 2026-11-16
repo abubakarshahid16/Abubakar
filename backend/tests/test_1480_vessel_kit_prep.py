@@ -326,7 +326,9 @@ def test_the_clean_sheet_raises_no_fail_on_any_held_card():
     for card in vessel_kit.cards():
         if card.get("needs"):
             continue
-        assert _kit_status(card, BASE) == "COMPLIANT", card["id"]
+        # a QUESTION ONLY card (its limit an AI draft) asks on a clean sheet too: never a pass (order 14 lane D)
+        want = "NEEDS_ENGINEER_REVIEW" if dc.question_only(card) else "COMPLIANT"
+        assert _kit_status(card, BASE) == want, card["id"]
 
 
 def test_a_card_bound_is_the_cards_own_and_the_committed_role_is_untouched():
@@ -408,15 +410,15 @@ def test_switch_on_a_low_margin_and_a_low_joint_efficiency_fail_on_a_whole_sheet
         _sheet(design_pressure=("10.4", "barg"), joint_efficiency=("0.7", None))
     )
     assert (
-        out["VSLD-05"]["rule_said"] == "COMPLIANT"
-    )  # asked, never compared (owner, 16 Nov)
+        "rule_said" not in out["VSLD-05"]
+    )  # asked, never compared (owner, 16 Nov): no Pass kept
     assert out["VSLD-05"]["status"] == "NEEDS_ENGINEER_REVIEW"
     assert out["VSLD-04"]["rule_said"] == "NON_COMPLIANT"
     assert out["VSLD-05"]["draft"] is True
     assert out["VSLD-05"]["standard"] == "SAES-D-001"
     assert out["VSLD-05"]["clause"] == "6.2.3"
     clean = _live(BASE)
-    assert clean["VSLD-05"]["rule_said"] == "COMPLIANT"
+    assert "rule_said" not in clean["VSLD-05"]
     assert clean["VSLD-04"]["rule_said"] == "COMPLIANT"
 
 
@@ -454,11 +456,12 @@ def test_a_kit_result_is_always_held_whatever_rule_auto_use_says(
         assert row["rule_said"] == "NON_COMPLIANT"
         assert row["detail"].startswith("The numbers read:")
     clean = _live(BASE)
-    for rule_id in ("VSLD-04", "VSLD-05"):
-        row = rule_trust.label_check(clean[rule_id])
-        assert (
-            row["status"] == "NEEDS_ENGINEER_REVIEW" and row["rule_said"] == "COMPLIANT"
-        )
+    row = rule_trust.label_check(clean["VSLD-04"])
+    assert row["status"] == "NEEDS_ENGINEER_REVIEW" and row["rule_said"] == "COMPLIANT"
+    row = rule_trust.label_check(
+        clean["VSLD-05"]
+    )  # QUESTION ONLY: held, and no Pass kept to leave the CRS
+    assert row["status"] == "NEEDS_ENGINEER_REVIEW" and not row.get("rule_said")
 
 
 def test_a_signed_off_vessel_checklist_cannot_confirm_a_kit_card(kit_on, monkeypatch):
@@ -495,19 +498,31 @@ def test_the_margin_card_asks_never_compares_and_carries_the_books_two_bands():
     Until the engineer confirms it, the card asks for the value and computes nothing."""
     for design in ("10.4", "10", "9", "20"):
         got = _kit_status(_by_id()["VSLD-05"], _sheet(design_pressure=(design, "barg")))
-        assert got == "COMPLIANT", (
+        assert got == "NEEDS_ENGINEER_REVIEW", (
             design
-        )  # "stated": held for the engineer, never a limit result
+        )  # asked: never a Pass of a limit no engineer confirmed
     card = _by_id()["VSLD-05"]
     text = card["text"]
     assert text.startswith("AI draft, engineer to confirm") and "QUESTION ONLY" in text
     assert "1.1 x MOP" in text and "1.05 x MOP" in text and "6,900 kPa" in text
-    assert "MOP + 15 psi" in text and "MOP + 100 psi" in text
+    # the stored band-2 table text is unclear: its margin is the engineer's to confirm, never stated as the clause's rule
+    assert "MOP + 15 psi" in text and "MOP + 100 psi" not in text
+    assert "engineer to confirm: stored table text unclear" in text
     draft = card["limit_draft"]
     assert draft["status"] == "AI draft, engineer to confirm"
     assert draft["mop_up_to_6900_kPa"] == "greater of 1.1 x MOP and MOP + 15 psi"
-    assert draft["mop_6900_kPa_and_above"] == "greater of 1.05 x MOP and MOP + 100 psi"
-    assert "page 14" in draft["verified_against"]
+    assert (
+        draft["mop_6900_kPa_and_above"]
+        == "greater of 1.05 x MOP and MOP plus a margin in psi"
+    )
+    assert (
+        draft["mop_6900_kPa_and_above_margin"]
+        == "engineer to confirm: stored table text unclear"
+    )
+    assert (
+        "page 14" in draft["quotes_verified_against"]
+        and "never the table's margins" in draft["quotes_verified_against"]
+    )
     assert "percentage" in _by_id()["VSLD-04"]["text"]
 
 
@@ -555,3 +570,65 @@ def test_a_pump_row_is_held_with_the_pump_words_and_a_vessel_row_with_the_vessel
     assert pump["kit"] == "pump" and vessel["kit"] == "vessel"
     assert pump["status"] == vessel["status"] == "NEEDS_ENGINEER_REVIEW"
     assert kit_core.held(result, {}) is result
+
+
+# ------------------------------------------- review of #1849: the margin card asks for BOTH values; it quotes only the page
+
+
+def test_the_margin_card_asks_for_the_mop_too():
+    """It asks for the design pressure AND the MOP (the clause's limit needs both): a missing or marked MOP is said."""
+    no_mop = [
+        r
+        for r in _sheet(design_pressure=("9", "barg"))
+        if r[0] != "maximum operating pressure"
+    ]
+    assert _kit_status(_by_id()["VSLD-05"], no_mop) == "NEEDS_ENGINEER_REVIEW"
+    rules = dc.load_rules()
+    card = _by_id()["VSLD-05"]
+    one = {
+        **rules,
+        "checklists": {VESSEL: {"items": [card], "sign_off": {"status": "draft"}}},
+    }
+    for mop, code, words in (
+        (None, "other", "operating pressure the clause's limit needs is not given"),
+        ("TBA", "deferred_marker", "is marked 'TBA'"),
+        (
+            "10",
+            "limit_not_confirmed",
+            "maximum operating pressure 10 barg (page 1): stated",
+        ),
+    ):
+        rows = no_mop + (
+            [("maximum operating pressure", mop, "barg" if mop != "TBA" else None)]
+            if mop
+            else []
+        )
+        facts = [
+            _fact(n, v, u, blank=v if v in ("*", "TBA") else None) for n, v, u in rows
+        ]
+        got = next(
+            r
+            for r in dc.evaluate(
+                facts, equipment_type=VESSEL, page_texts=PAGES, rules=one
+            )
+            if r["rule_id"] == "VSLD-05"
+        )
+        assert (
+            got["status"] == "NEEDS_ENGINEER_REVIEW"
+            and got["hold_reason"] == code
+            and "rule_said" not in got
+        )
+        assert words in got["detail"], got["detail"]
+
+
+def test_the_margin_card_quotes_only_what_the_stored_page_holds():
+    """Its quotes are the stored page's words (checked on page 14 by the quote check); the band-2 margin, garbled in the
+    stored table text, is the engineer's to confirm and never written as the clause's rule."""
+    card = _by_id()["VSLD-05"]
+    draft = card["limit_draft"]
+    assert (
+        draft["quotes"][0]
+        == "The internal design pressure shall be according to the following table"
+    )
+    assert all(len(q) >= 8 for q in draft["quotes"]) and "verified_against" not in draft
+    assert "MOP + 100 psi" not in str(card)

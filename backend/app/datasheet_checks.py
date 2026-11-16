@@ -610,6 +610,70 @@ def _words_near(words: list[str], tokens: list[str]) -> bool:
     return False
 
 
+#: Order 14 lane D: a card whose LIMIT is an AI draft no engineer has confirmed carries it under this key. Such a card
+#: is QUESTION ONLY (`question_only`): it asks for its values and never gives Pass, Fail or a kept `rule_said` on any
+#: switch, so no draft pass can take it off the CRS (CLAUDE.md rule 4: a guess is shown as a guess).
+QUESTION_ONLY_KEY = "limit_draft"
+
+
+def question_only(item: dict) -> bool:
+    """Is this card QUESTION ONLY (its limit not confirmed by an engineer)? Read from the card, never from its id."""
+    return bool(item.get(QUESTION_ONLY_KEY))
+
+
+def _names(fact: dict, words) -> bool:
+    stated = _fold(_shown(fact))
+    return any(_fold(word) in stated for word in words or [])
+
+
+def _open_condition(fact: dict, condition: dict) -> str | None:
+    """Why a STATED condition value decides nothing, else None. Only a value that rules the condition out may say
+    "does not apply" (CLAUDE.md rule 4). "marked": a placeholder ("*", "TBA", "HOLD", "-"; `blank_markers`, the one
+    home) naming none of the condition's words. "open": a value naming none of them but one of its `may_be_any` words
+    (a stated liquid "water" is not a stated service: it may still be firewater)."""
+    if _names(fact, condition["any"]):
+        return None
+    if blank_markers.fact_is_placeholder(fact):
+        return "marked"
+    return "open" if _names(fact, condition.get("may_be_any")) else None
+
+
+def _open_words(fact: dict, condition: dict, why: str) -> str:
+    role = _pretty(condition["role"]).lower()
+    if why == "marked":
+        return (f"whether it applies depends on the {role}, and the sheet marks it "
+                f"'{_said(fact) or fact.get('blank_marker')}' (page {fact.get('page')})")
+    return (f"whether it applies depends on the {role}: '{_said(fact)}' (page {fact.get('page')}) does not name "
+            f"{' or '.join(repr(w) for w in condition['any'])} but does not rule it out; engineer to check")
+
+
+def _asked(item: dict, fact: dict, where: str, noted: str, get, held) -> dict:
+    """A QUESTION ONLY card's result for a value the sheet states: held, never compared. A card with a `right` side asks
+    for that value too (both are needed to check the limit), so a missing or marked one is said."""
+    rule = item["rule"]
+    if rule.get("right"):
+        other, why = _one(get(rule["right"]))
+        if other is None or blank_markers.fact_is_placeholder(other, figure_wins=True):
+            state = ("is not given" if why == "absent" else "is stated twice with different values"
+                     if other is None else f"is marked '{_said(other) or other.get('blank_marker')}' "
+                     f"on page {other.get('page')}")
+            code = why_held.DEFERRED_MARKER if other is not None else why_held.checked_against(None, why)
+            return held(code, _sentence(
+                f"the {_pretty(rule['right']).lower()} the clause's limit needs {state}; stated: {where}"), fact)
+        where = f"{where} and {_quoted(other, rule['right'])}"
+    return held(why_held.LIMIT_NOT_CONFIRMED,
+                f"{where}: stated. The limit is an AI draft no engineer has confirmed, so code compared nothing; "
+                f"engineer to check the value against the clause.{noted}", fact)
+
+
+def _never_decided(item: dict, result: dict) -> dict:
+    """A QUESTION ONLY card's calculation keeps its numbers in the words but never its Pass or Fail."""
+    if not question_only(item) or result.get("status") not in (COMPLIANT, NON_COMPLIANT):
+        return result
+    return {**result, "status": NEEDS_ENGINEER_REVIEW, why_held.KEY: why_held.LIMIT_NOT_CONFIRMED,
+            "detail": f"Not decided: the limit is an AI draft no engineer has confirmed. Worked out: {result['detail']}"}
+
+
 def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules: dict,
                   *, draft: bool, page_texts: dict[int, str] | None = None) -> dict:
     """One checklist item's result: COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION
@@ -644,6 +708,12 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     unknown = None    # the first condition the sheet does not state, if any
     for condition in conditions:
         cond_fact, why = _one(get(condition["role"]))
+        if cond_fact is not None and (open_why := _open_condition(cond_fact, condition)):
+            if item.get("when_unknown") == "evaluate":
+                unknown = unknown or {**condition, "_why": "absent"}
+                continue
+            code = why_held.DEFERRED_MARKER if open_why == "marked" else why_held.OTHER
+            return held(code, _sentence(_open_words(cond_fact, condition, open_why)), cond_fact, condition["role"])
         # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot be wrong whatever the
         # condition ("k is above 1"). Any other item with an unknown condition is an engineer's question.
         if cond_fact is None:
@@ -677,7 +747,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                        cond_fact, condition["role"])
     kind = rule["kind"]
     if kind in ("calc", "sum_percent_of"):  # R13; a sum: datasheet_sum.sum_percent_of
-        return getattr(datasheet_sum, kind, evaluate_calc)(item, field, get, res, rules)
+        return _never_decided(item, getattr(datasheet_sum, kind, evaluate_calc)(item, field, get, res, rules))
     fact, why = _one(get(field))
     if fact is None and unknown is not None:
         # The condition is unknown and the field is absent: whether the contractor owes this value is not known, so it is not a missing value.
@@ -717,6 +787,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     noted = f" The sheet marks this value '{fact['value_note']}'." if fact.get("value_note") else ""
     where = f"{_label(fact, field)} {_said(fact)} (page {fact.get('page')})"
+    if question_only(item):
+        return _asked(item, fact, where, noted, get, held)
     if kind == "required":
         return res(COMPLIANT, f"{where} is stated.{noted}", fact)
     if kind == "allowed":

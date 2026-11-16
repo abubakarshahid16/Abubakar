@@ -21,6 +21,9 @@ back from it, so a reworded sentence cannot move a finding:
 - `RULE_NOT_PROVEN`: the check decided Pass or Fail, and is held only because its
   rule is not proven (a draft or unsigned rule, its verdict kept as `rule_said`):
   `rule_trust.label_check` and `kit_core.held`, where that hold is made.
+- `LIMIT_NOT_CONFIRMED`: a QUESTION ONLY card (`datasheet_checks.question_only`: its limit
+  is an AI draft no engineer confirmed) asked for its values and compared nothing; it never
+  had a Pass or Fail to keep (`datasheet_checks.evaluate_item`).
 - `OTHER`: any other held result. The named fallback, chosen in ONE place
   (`stored`), never a guess from the words.
 
@@ -38,6 +41,7 @@ APPLICABILITY_NOT_STATED_ABSENT = "applicability_not_stated_absent"
 FIELD_SEVERAL_VALUES = "field_several_values"
 DEFERRED_MARKER = "deferred_marker"
 RULE_NOT_PROVEN = "rule_not_proven"
+LIMIT_NOT_CONFIRMED = "limit_not_confirmed"
 OTHER = "other"
 
 #: The closed set. A code outside it is never stored or returned.
@@ -49,6 +53,7 @@ CODES = frozenset(
         FIELD_SEVERAL_VALUES,
         DEFERRED_MARKER,
         RULE_NOT_PROVEN,
+        LIMIT_NOT_CONFIRMED,
         OTHER,
     }
 )

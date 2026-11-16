@@ -1,5 +1,5 @@
 {
-  "_about": "#1478 pump kit PREPARATION, all DRAFT. Box list and draft rule cards for a centrifugal pump datasheet, built only from the standards the library already holds. Every card is a draft: no engineer has signed it off, no real pump document has proved it. Read only when `pump_kit_draft_enabled` is on (off by default). Rule text is in our own words, never the standard's. Cards whose value no held standard requires stay draft 'needs a standard we do not hold' (order 301.1).",
+  "_about": "#1478 pump kit PREPARATION, all DRAFT. Box list and draft rule cards for a centrifugal pump datasheet, built only from the standards the library already holds. Every card is a draft: no engineer has signed it off, no real pump document has proved it. Read only when `pump_kit_draft_enabled` is on (off by default). Rule text is in our own words, never the standard's. Cards whose value no held standard requires stay draft 'needs a standard we do not hold' (order 301.1). A QUESTION ONLY card (one with `limit_draft`) decides nothing: its `limit_draft.quotes` are the stored page's own words, each found on that page by the quote check; everything else in it is an AI draft for the engineer.",
   "equipment_type": "Centrifugal Pump",
   "status": "DRAFT",
   "standards_held": [
@@ -334,6 +334,9 @@
         "role": "fluid",
         "any": [
           "fire"
+        ],
+        "may_be_any": [
+          "water"
         ]
       },
       "rule": {
@@ -342,11 +345,17 @@
       },
       "limit_draft": {
         "status": "AI draft, engineer to confirm",
+        "quotes": [
+          "All pressure-casing components of firewater pumps shall be hydrostatically tested as assemblies.",
+          "The test pressure shall not be less than one and one half (1.5) times the sum of the pump",
+          "but in no case shall it be less than 1,724 kPa gauge (250 psig). The hydrostatic test duration shall not be less than 10 minutes."
+        ],
+        "quotes_verified_against": "SAES-G-005 6.7.4, stored page 29: the quotes only",
         "applies_to": "firewater pumps only",
         "test_pressure_at_least": "1.5 x (shutoff head + maximum allowable suction head)",
         "floor": "1724 kPa gauge (250 psig)",
         "duration_at_least": "10 minutes",
-        "verified_against": "SAES-G-005 6.7.4, stored page 29"
+        "applicability_note": "a stated fluid naming water but not fire (\"water\", \"sea water\") does not say whether this is a firewater pump, and a placeholder fluid states nothing: both stay a question for the engineer"
       },
       "tests": [
         {
@@ -363,7 +372,7 @@
               "kPa"
             ]
           ],
-          "expect": "COMPLIANT"
+          "expect": "NEEDS_ENGINEER_REVIEW"
         },
         {
           "name": "breaks",
@@ -407,6 +416,38 @@
             ]
           ],
           "expect": "NOT_APPLICABLE"
+        },
+        {
+          "name": "a placeholder fluid is a question",
+          "facts": [
+            [
+              "fluid",
+              "TBA",
+              null
+            ],
+            [
+              "hydrotest pressure",
+              "100",
+              "kPa"
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
+        },
+        {
+          "name": "water does not say fire service",
+          "facts": [
+            [
+              "fluid",
+              "sea water",
+              null
+            ],
+            [
+              "hydrotest pressure",
+              "100",
+              "kPa"
+            ]
+          ],
+          "expect": "NEEDS_ENGINEER_REVIEW"
         }
       ]
     },
