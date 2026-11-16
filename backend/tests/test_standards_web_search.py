@@ -808,3 +808,44 @@ def test_a_publisher_alone_is_nothing_found_not_incomplete():
         "content": [{"type": "text", "text": '{"publisher": "API", "title": null}'}],
     }
     assert sws.read_answer(answer)[1] is True
+
+
+# --- review R4-1856: the book itself first, one search per name, the list stays public names
+
+
+def test_the_cited_book_itself_is_searched_not_a_relative():
+    assert sws.known_public_name("NACE MR0175") == "NACE MR0175"
+    assert sws.known_public_name("API RP 520") == "API 520"
+    assert sws.known_public_name("IEC 61511") == "IEC 61511"
+
+
+def test_every_listed_name_is_itself_a_clean_public_name():
+    import re
+
+    from app import standard_ids
+
+    for name in (
+        sws.known_names()
+    ):  # a publisher family, read as a standard, plain characters only
+        assert name.split()[0].upper() in sws.FAMILIES and standard_ids.parse(name), (
+            name
+        )
+        assert (
+            re.fullmatch(r"[A-Za-z0-9 ./-]+", name) and len(name) <= sws.NAME_LIMIT
+        ), name
+
+
+def test_one_search_per_name_sent_in_a_run():
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "ISO 15156", "ISO 15156-3")
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    assert len(send.bodies) == 1 and rows(ai)["ISO 15156-3"]["why"] == sws.SEARCHED_ONCE
+
+
+def test_a_name_on_no_list_writes_a_not_sent_row_and_sends_nothing():
+    _doc, _rc, ai, _client = world_with_both()
+    missing(ai, "API 99999")
+    send = Sender()
+    sws.search_run(ai, send=send, env=ENV)
+    assert send.bodies == [] and rows(ai)["API 99999"]["why"] == sws.NOT_PUBLIC

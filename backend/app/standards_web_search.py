@@ -127,6 +127,7 @@ FOUND, NOTHING, INCOMPLETE, NOT_SEARCHED, FAILED = (
     "search failed",
 )
 NOT_PUBLIC = "not on the app's own list of public standards, so it was not sent"
+SEARCHED_ONCE = "searched once already in this review under the same name"
 CAP_WORDS = "the USD limit for online search in this review was reached"
 COUNT_WORDS = f"at most {MAX_PER_RUN} rule books are searched in one review"
 TIME_WORDS = (
@@ -173,10 +174,8 @@ _YEAR_OR_ORDINAL = re.compile(r"(?:19|20)[0-9]{2}|[0-9]{1,2}(?:ST|ND|RD|TH)")
 
 
 def _designations_in_place(words: list[str]) -> bool:
-    """Review R2-1856 (a short tag or number riding after a designation): after each family word, only its FIRST designation may
-    have any designation shape; a later one must be a year or an ordinal, or follow a part / section / kind word. A lone letter
-    (not a roman numeral) must follow such a word too. So "API 610 P101A", "ASME B16.5 V2301", "API 610 E 101" are refused,
-    "API RP 520 Part I", "ASME VIII Div 1", "ISO 15156-3 2020", "API 610 11th Edition" pass."""
+    """Review R2-1856: after a family word only its first designation may have any shape; a later one is a year or ordinal or
+    follows a part/section/kind word, as must a lone letter ("API 610 P101A" refused; "API RP 520 Part I" passes)."""
     seen, prev = False, ""
     for w in words:
         if w in FAMILIES:
@@ -232,9 +231,12 @@ def clean_name(raw) -> str | None:
     return name
 
 
-#: The app's own tables of public standards by name (review R3-1856, the rethink after three rounds of shape rules: what leaves is
-#: ALWAYS a name from these tables, never text taken from a paper; a cited book that matches no entry is not searched).
-KNOWN_NAME_TABLES = ("governing_standards.json", "kind_books.json")
+#: The app's own tables of public standards (review R3-1856 rethink): what leaves is ALWAYS a name from them, never a paper's text.
+KNOWN_NAME_TABLES = (
+    "governing_standards.json",
+    "kind_books.json",
+    "public_standards.json",
+)
 
 
 @lru_cache(maxsize=1)
@@ -274,16 +276,24 @@ def known_names() -> tuple[str, ...]:
 
 
 def known_public_name(raw) -> str | None:
-    """The name that may leave for a cited book: the matching entry of the app's own tables (`known_names`), or None. The paper's
-    own text never leaves: `clean_name` must accept it AND it must be the same standard as a table entry; the entry is sent."""
+    """The name that may leave for a cited book: the matching entry of `known_names` (the entry is sent, never the paper's text)."""
     from . import standard_ids
 
     cleaned = clean_name(raw)
     if not cleaned:
         return None
-    return next(
-        (k for k in known_names() if standard_ids.same_standard(cleaned, k)), None
-    )
+    flat = standard_ids.flat_key(cleaned)
+    exact = [k for k in known_names() if standard_ids.flat_key(k) == flat]
+    if exact:  # review R4-1856: the cited book itself when the list holds it, never a relative of it
+        return exact[0]
+    cited = standard_ids.parse(cleaned)
+    same = [k for k in known_names() if standard_ids.same_standard(cleaned, k)]
+    same_key = [
+        k
+        for k in same
+        if cited and (p := standard_ids.parse(k)) and p.key() == cited.key()
+    ]
+    return (same_key or same or [None])[0]
 
 
 def tool() -> dict:
@@ -433,16 +443,12 @@ def read_answer(answer: dict) -> tuple[dict, bool]:
         "publisher": _short(got.get("publisher"), 100),
         "url": publisher_url(got.get("url")),
     }
-    reported = any(
-        got.get(k) not in (None, "", [], {})
-        for k in ("title", "latest_edition", "year", "url")
-    )  # a publisher alone is a "nothing"
-    if (
-        readable
-        and reported
-        and not any(fields[k] for k in ("title", "latest_edition", "year", "url"))
-    ):
-        readable = False  # review R2-1856: something was reported but nothing usable was kept: never "nothing found"
+    usable = [
+        k for k in FIELDS if k != "publisher"
+    ]  # R2-1856: reported, nothing kept: not "nothing found"
+    reported = any(got.get(k) not in (None, "", [], {}) for k in usable)
+    # review R2-1856: something was reported but nothing usable was kept: never "nothing found"
+    readable = readable and (any(fields[k] for k in usable) or not reported)
     return fields, bool(readable)
 
 
@@ -691,12 +697,17 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
         claude_approved.reviewing(run_id),
     ):
         stop = _held_back(run_id, paper)
+        sent_names: set[str] = set()
         for name in names:
             if name in done:
                 continue
             searched = known_public_name(name)
             parts = body_parts(searched) if searched else None
             why = NOT_PUBLIC if parts is None else (stop or budget.refuses(parts))
+            if (
+                why is None and searched in sent_names
+            ):  # review R4-1856: one search per name sent, never paid twice
+                why = SEARCHED_ONCE
             if why is not None:
                 row = {"outcome": NOT_SEARCHED, "why": why}
             else:
@@ -710,6 +721,8 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
                     stop = exc.why
                     row = {"outcome": NOT_SEARCHED, "why": stop}
             sent = row["outcome"] in (FOUND, NOTHING, INCOMPLETE, FAILED)
+            if sent:
+                sent_names.add(searched)
             _write(conn, run_id, name, searched if sent else None, row)
     log.info(
         "standards web search: run %s, %d book(s) not held, %d asked, USD %.4f",
