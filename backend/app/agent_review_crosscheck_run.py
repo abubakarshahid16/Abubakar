@@ -32,7 +32,14 @@ import logging
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
-from . import agent_claude, claude_spend, groq_approved, groq_spend, groq_transport
+from . import (
+    agent_claude,
+    agent_run_second,
+    claude_spend,
+    groq_approved,
+    groq_spend,
+    groq_transport,
+)
 from . import agent_review_crosscheck as cc
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
@@ -58,6 +65,9 @@ def candidate(line: Mapping) -> bool:
     "two readers agree": a line already a Query (the Claude second opinion said no, two readers disagree) is never sent, since
     no answer could change what it shows (review R-1854: send less)."""
     if cc.answered(line) or not cc.unproven_ai_line(line):
+        return False
+    # "the second reader said no" has ONE home (rule 8); such a line is a Query by the wording's own rule (#1851)
+    if agent_run_second.disagreed(line.get("second_opinion")):
         return False
     return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES
 

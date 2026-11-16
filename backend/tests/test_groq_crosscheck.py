@@ -15,6 +15,7 @@ import pytest
 
 from app import (
     agent_claude,
+    agent_run_second,
     classification,
     claude_approved,
     claude_spend,
@@ -863,9 +864,17 @@ def test_a_quote_over_the_cap_keeps_the_line_at_home(field, lib, monkeypatch, gr
     )
 
 
-def test_a_line_already_a_query_is_not_asked(lib, monkeypatch, groq):
+@pytest.mark.parametrize("ai", ["Pass", "Fail"])
+def test_a_line_already_a_query_is_not_asked(ai, lib, monkeypatch, groq):
+    """A met the guard holds and a not met the second reader said no to (#1851) are Queries: nothing to change, nothing sent."""
     _ready(monkeypatch)
-    runner = FakeRunner(_line("R-q", second_opinion={"agree": False, "model": "m"}))
+    said_no = {"agree": False, "model": "m"}
+    assert agent_run_second.disagreed(said_no)
+    line = {**_line("R-q", second_opinion=said_no), "ai_verdict": ai}
+    assert (
+        W.classify(line)["verdict_class"] == W.CLASS_QUERY
+    )  # main's own rule, for both words
+    runner = FakeRunner(line)
     runner.run_crosscheck()
     assert groq.sent == [] and cc.FIELD not in runner.lines["R-q"]
     assert runner.crosscheck_counts()["crosscheck_step"]["candidates"] == 0
