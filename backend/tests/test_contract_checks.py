@@ -131,7 +131,9 @@ CONTRACT = [
 
 
 def test_a_referred_appendix_that_is_not_present_is_a_finding_on_its_pages():
-    results = cc.check_attachments(CONTRACT)
+    results = cc.check_attachments(
+        CONTRACT, complete=True
+    )  # the caller holds the whole contract
     f = _one(results, "CT-02", "Appendix F")
     assert (
         f.outcome == cc.INCONSISTENT
@@ -145,7 +147,7 @@ def test_a_referred_appendix_that_is_not_present_is_a_finding_on_its_pages():
 
 def test_a_list_of_schedules_does_not_make_them_present():
     # Schedule B and C appear only in the list on page 1: a list refers to parts, it does not hold them
-    b = _one(cc.check_attachments(CONTRACT), "CT-02", "Schedule B")
+    b = _one(cc.check_attachments(CONTRACT, complete=True), "CT-02", "Schedule B")
     assert b.outcome == cc.INCONSISTENT
 
 
@@ -332,14 +334,14 @@ def test_a_missing_part_without_every_page_read_fails_g5():
         (1, "1.1 The codes are in Appendix F."),
         (3, "Schedule A Scope"),
     ]  # page 2 has no stored text
-    results = cc.check_attachments(pages)
+    results = cc.check_attachments(pages, complete=True)
     f = _one(results, "CT-02", "Appendix F")
     assert f.outcome == cc.INCONSISTENT and not f.absence_proven
     assert cc.judge_rows(results)["G5"]["status"] == "FAIL"
 
 
 def test_stored_lines_are_kept_and_a_contradiction_is_named():
-    results = cc.check_attachments(CONTRACT)
+    results = cc.check_attachments(CONTRACT, complete=True)
     lines = [
         {
             "item_id": "G-1",
@@ -396,7 +398,7 @@ def test_the_command_reads_read_only_and_prints_no_paper_text(tmp_path, capsys):
     assert cc.main(["--db", str(db), "--document", "doc_x", "--json", str(out)]) == 0
     printed = capsys.readouterr().out + out.read_text()
     assert (
-        "Appendix F: not present" in printed
+        "Appendix F: not in the papers given" in printed
         and "two pumps" not in printed
         and "codes are in" not in printed
     )
@@ -421,3 +423,93 @@ def test_the_checks_live_in_the_app_and_run_all_is_lane_bs_entry():
     assert (
         "sqlite3" not in source and "connect(" not in source
     )  # pure: pages in, results out
+
+
+def test_a_higher_part_on_the_next_line_is_read():
+    pages = [
+        (
+            1,
+            'SCHEDULE "K"\nScope\n2.1 Material as listed in Appendix I of\nSchedule W.\n2.2 Items in Attachment III.',
+        )
+    ]
+    results = cc.check_attachments(pages)
+    w = _one(
+        results, "CT-02", "Schedule W"
+    )  # a missing appendix of a missing schedule: one comment
+    assert w.value == "not held; also Appendix I of Schedule W"
+    assert not [
+        r for r in results if r.outcome == cc.CONSISTENT and "Schedule W" in r.topic
+    ]
+
+
+def test_in_a_part_of_a_contract_a_sub_part_with_no_named_higher_part_goes_to_the_engineer():
+    pages = [
+        (
+            1,
+            'SCHEDULE "K"\nScope\n2.1 Thereof, Appendix "C" - instructions.\n2.2 Spares per Appendix D to this Schedule K.'
+            "\nAppendix E\nThe spare parts are listed here with their prices and their delivery dates.",
+        )
+    ]
+    results = cc.check_attachments(pages, complete=True)
+    c = _one(results, "CT-02", "Appendix C")
+    assert c.outcome == cc.ENGINEER and c.value.startswith("not held")
+    # named as this paper's own, and the papers are the whole contract: a missing one is a finding
+    d = _one(results, "CT-02", "Appendix D of Schedule K")
+    assert d.outcome == cc.INCONSISTENT
+
+
+def test_a_part_missing_from_a_paper_that_holds_none_of_its_kind_is_not_a_finding():
+    pages = [(1, "1.1 The Works are in Schedule A.\n1.2 Codes in Appendix F.")]
+    f = _one(cc.check_attachments(pages), "CT-02", "Appendix F")
+    assert f.outcome == cc.ENGINEER and f.value == "not in the papers given"
+    assert (
+        _one(cc.check_attachments(pages, complete=True), "CT-02", "Appendix F").outcome
+        == cc.INCONSISTENT
+    )
+
+
+def test_a_list_of_schedules_with_titles_between_does_not_make_them_present():
+    pages = [
+        (
+            1,
+            'FORM OF AGREEMENT\nThe following form part of this Contract:\nSCHEDULE "A"\nGeneral Terms\nSCHEDULE "B"\n'
+            'Scope of Work\nSCHEDULE "C"\nPrices\nOrder of precedence:\n1.\nSchedule "B"\n2.\nSchedule "A"\n3.',
+        )
+    ]
+    results = cc.check_attachments(pages, complete=True)
+    assert {r.topic: r.outcome for r in results} == {
+        "Schedule A": cc.INCONSISTENT,
+        "Schedule B": cc.INCONSISTENT,
+        "Schedule C": cc.INCONSISTENT,
+    }  # none is present: the list names them, it does not hold them
+    assert {r.outcome for r in cc.check_attachments(pages)} == {
+        cc.ENGINEER
+    }  # the package may hold them
+    held = cc.check_attachments(
+        pages,
+        {
+            "doc_a": [
+                (1, 'SCHEDULE "A"\nGeneral Terms and Conditions of the contract text')
+            ]
+        },
+    )
+    assert _one(held, "CT-02", "Schedule A").value == "present (held document doc_a)"
+
+
+def test_a_heading_inside_the_paper_counts_only_for_the_whole_contract():
+    # Schedule A has a heading with a body on page 2; in papers that may not be the whole contract a heading line is no
+    # proof (a list of schedules or a reference at the start of a line looks the same)
+    a = _one(cc.check_attachments(CONTRACT), "CT-02", "Schedule A")
+    assert a.outcome == cc.ENGINEER and a.value == "not in the papers given"
+    assert (
+        _one(
+            cc.check_attachments(CONTRACT, complete=True), "CT-02", "Schedule A"
+        ).outcome
+        == cc.CONSISTENT
+    )
+
+
+def test_a_giving_verb_far_from_the_guarantee_word_does_not_name_a_giver():
+    pages = [(1, PARTIES + "6.1 The Supplier shall provide the installation, testing and commissioning of every pump and skid"
+                           " on site to maintain the vendor warranty.")]  # fmt: skip
+    assert _one(cc.check_guarantees(pages), "CT-03", "warranty").outcome == cc.ENGINEER

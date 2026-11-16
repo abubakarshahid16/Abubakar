@@ -330,6 +330,8 @@ _BELONGS = re.compile(
     r"[\"'\u201c\u201d\u2018\u2019]?[\s,]*(?:(?:of|to|in|under)\s+(?:this\s+|the\s+)?)?$",
     re.I,
 )
+LIST_SPAN = 4  # the opening lines read for a list of parts: HEADING_LINES times this
+LIST_OTHERS = 2  # other labels of the same kind that make the opening a list (one alone is a wrapped reference)
 HEADING_LINES = (
     3  # the first non-empty lines of a package document that name what it is
 )
@@ -350,7 +352,7 @@ def labels(line: str) -> list[tuple[str, str, int]]:
 
 def parts(line: str) -> list[tuple[Part, int]]:
     """Every labelled part of the line with the higher part it belongs to, when the next label is a higher one joined by
-    'of', 'to', 'in', 'under' or a comma ('Attachment III, to SCHEDULE Q' is Attachment III of Schedule W)."""
+    'of', 'to', 'in', 'under' or a comma ('Attachment III, to SCHEDULE W' is Attachment III of Schedule W)."""
     found = list(_LABEL.finditer(line))
     out = []
     for i, m in enumerate(found):
@@ -375,9 +377,27 @@ def _heading_part(line: str) -> Part | None:
     return None
 
 
+BODY_LOOKAHEAD, BODY_WORDS = (
+    6,
+    6,
+)  # a part's heading is followed, before the next labelled line, by a sentence of its own
+
+
+def _has_body(lines: list[tuple[int, str]], starts: list, i: int) -> bool:
+    """The heading at line i is followed by body text: a line of BODY_WORDS or more words before the next line that starts with
+    a label. A list of schedules (labels with their titles on the next line, or a numbered order of precedence) has none."""
+    for j in range(i + 1, min(len(lines), i + 1 + BODY_LOOKAHEAD)):
+        if starts[j]:
+            return False
+        if len(re.findall(r"[^\W\d_]+", lines[j][1])) >= BODY_WORDS:
+            return True
+    return False
+
+
 def headings(pages: Pages) -> dict[Part, int]:
-    """Parts present in the paper: a line that starts with a label, unless it is one line of a list (two or more lines in a row
-    on one page that start with the same label word: a list of attachments refers to them, it does not hold them)."""
+    """Parts present in the paper: a line that starts with a label AND is followed by body text of its own (`_has_body`). A
+    line of a list of parts (two label lines in a row on one page, or labels with only their titles between them) refers to
+    the parts; it does not hold them."""
     lines = lines_of(pages)
     starts = [_heading_part(ln) for _p, ln in lines]
     out: dict[Part, int] = {}
@@ -392,6 +412,8 @@ def headings(pages: Pages) -> dict[Part, int]:
         ]
         if any(n[0][0] == here[0][0] and n[0] != here[0] for n in near):
             continue  # a line of a list
+        if not _has_body(lines, starts, i):
+            continue  # a title in a list, not a part
         out.setdefault(here, page)
     return out
 
@@ -400,14 +422,18 @@ def package_part(pages: Pages) -> list[Part]:
     """What a held package document is: the deepest labels on its first heading lines, each with the next higher label there as
     the part it belongs to ('SCHEDULE K' then 'ATTACHMENT I' is Attachment I of Schedule K; 'EXHIBIT I, ATTACHMENT III, SCHEDULE K'
     is Exhibit I of Attachment III)."""
-    first = [ln for p, ln in lines_of(pages) if p == (pages[0][0] if pages else 1)][
-        :HEADING_LINES
-    ]
+    page_one = [ln for p, ln in lines_of(pages) if p == (pages[0][0] if pages else 1)]
+    first = page_one[:HEADING_LINES]
     found = [
         (w, lab) for ln in first if _heading_part(ln) for w, lab, _i in labels(ln)
     ]  # heading lines only, not a mention
     if not found:
         return []
+    opening = [_heading_part(ln) for ln in page_one[: HEADING_LINES * LIST_SPAN]]
+    for w, lab in found:
+        others = {h[0][1] for h in opening if h and h[0][0] == w and h[0][1] != lab}
+        if len(others) >= LIST_OTHERS:
+            return []  # the paper opens with a list of parts of one kind: it names them, it is none of them
     deepest = max(DEPTH[w] for w, _l in found)
     higher = [k for k in found if DEPTH[k[0]] < deepest]
     parent = max(higher, key=lambda k: DEPTH[k[0]]) if higher else None
@@ -432,19 +458,27 @@ def _present_for(ref: Part, present: dict[Part, str]) -> str | None:
 
 
 def _inside(ref: Part, own: Part | None) -> bool:
-    """A reference to this paper's own contents: the paper is a whole contract (no part label), or the reference belongs to the
-    paper's part, or it names no higher part and sits below the paper's level. A sibling or higher part (another Schedule
-    referred to from Schedule K) is outside: a package of parts does not have to hold it."""
+    """A reference to this paper's own contents: the paper is a whole contract (no part label), or the reference names this
+    paper's part as its higher part. A sibling or higher part (another Schedule referred to from Schedule K) is outside: a
+    package of parts does not have to hold it. A sub-part whose higher part the text does not name ("Thereof, Appendix C",
+    "listed in Attachment I") may belong to any part of the contract, so code does not call it missing from THIS paper:
+    the engineer reads it."""
     if own is None:
         return True
-    (word, _lab), parent = ref
-    return parent == own[0] or (parent is None and DEPTH[word] > DEPTH[own[0][0]])
+    _key, parent = ref
+    return parent == own[0]
 
 
 def check_attachments(
-    pages: Pages, package: dict[str, Pages] | None = None
+    pages: Pages, package: dict[str, Pages] | None = None, complete: bool = False
 ) -> list[Result]:
-    present = {k: f"page {p}" for k, p in headings(pages).items()}
+    """CT-02. Evidence that a part is present: a held package document whose first heading lines name it, or the paper's
+    own first heading lines. A heading INSIDE the paper counts only when the caller says the papers are the whole contract
+    (`complete`): in a real contract a list of schedules, an order of precedence or a reference at the start of a line looks
+    like a heading. A missing part is a firm finding only with `complete`; otherwise the contract's parts may be files not
+    given here: "not in the papers given", and the engineer checks the whole contract. Code never calls a part missing from
+    a contract it has not seen whole."""
+    present = {k: f"page {p}" for k, p in headings(pages).items()} if complete else {}
     own = package_part(pages)
     own = (
         own[0] if own else None
@@ -455,9 +489,17 @@ def check_attachments(
         for k in package_part(doc_pages):
             present.setdefault(k, f"held document {doc}")
     refs: dict[Part, list[tuple[int, str]]] = {}
-    for page, line in lines_of(pages):
+    lines = lines_of(pages)
+    for n, (page, line) in enumerate(lines):
         head = _heading_part(line)
-        for part, _i in parts(line):
+        # the higher part may stand on the next line ("listed in Attachment I of" / "Schedule W."): read the two lines
+        # together, keep the references that start on this line
+        following = (
+            lines[n + 1][1] if n + 1 < len(lines) and lines[n + 1][0] == page else ""
+        )
+        for part, at in parts(f"{line} {following}" if following else line):
+            if at >= len(line):
+                continue
             if head == part and present.get(head) == f"page {page}":
                 continue  # the heading itself is not a reference
             refs.setdefault(part, []).append((page, line))
@@ -490,8 +532,22 @@ def check_attachments(
                     ENGINEER,
                     "not held",
                     f"{_name(part)} is referred to on page {on}. It is a part of the contract outside "
-                    f"{_name(own)}, and it is not in {scope}: the engineer checks it in the whole contract.",
+                    f"{_name(own)} (or its higher part is not named), and it is not in {scope}: the engineer checks it "
+                    "in the whole contract.",
                     quotes,
+                )
+            )
+        elif not complete:
+            out.append(
+                Result(
+                    "CT-02",
+                    _name(part),
+                    ENGINEER,
+                    "not in the papers given",
+                    f"{_name(part)} is referred to on page {on}; it is not in {scope}. These may not be the whole "
+                    "contract: the engineer checks it in the whole contract.",
+                    quotes,
+                    whole(pages),
                 )
             )
         else:
@@ -642,19 +698,24 @@ _GIVES = re.compile(
 )
 
 
+GIVER_GAP = 5  # words between the giving verb and the guarantee word ("furnish a bank guarantee": 2)
+
+
 def giver(sentence: str, start: int, names: dict[str, str]) -> str | None:
     """The party that gives the guarantee: the sentence's subject (after its clause number) followed by a giving verb, before the
     guarantee word ('The Supplier warrants ...', 'CONTRACTOR shall furnish a performance bond'). A party named anywhere else
-    (the one it benefits, the one who obtains it from others) is not the giver: then None, and the engineer reads it."""
+    (the one it benefits, the one who obtains it from others) is not the giver: then None, and the engineer reads it. The
+    verb must govern the guarantee word: at most GIVER_GAP words between them ('provide the installation ... to maintain
+    the vendor's warranty' gives work, not the warranty)."""
     body = _CLAUSE_NO.sub("", sentence, count=1)
     body = re.sub(r"^the\s+", "", body, flags=re.I)
     at = start - (len(sentence) - len(body))  # the guarantee word's place in `body`
     for alias, party in sorted(names.items(), key=lambda kv: -len(kv[0])):
         for spelt in dict.fromkeys((alias, alias.upper())):
             verb = _GIVES.match(body, len(spelt)) if body.startswith(spelt) else None
-            if (
-                verb and verb.end() - len(verb.group(0).split()[-1]) <= at
-            ):  # the giving verb comes before (or is) the word
+            if not verb or verb.end() - len(verb.group(0).split()[-1]) > at:
+                continue  # no giving verb, or it comes after the word
+            if len(body[verb.end() : max(at, verb.end())].split()) <= GIVER_GAP:
                 return party
     return None
 
@@ -717,9 +778,13 @@ def check_guarantees(pages: Pages) -> list[Result]:
 # ------------------------------------------------------------------------------------------------ all checks
 
 
-def run_all(pages: Pages, package: dict[str, Pages] | None = None) -> list[Result]:
+def run_all(
+    pages: Pages, package: dict[str, Pages] | None = None, complete: bool = False
+) -> list[Result]:
+    """Every check code decides. `complete`: the caller knows `pages` and `package` are the WHOLE contract (only then is
+    a part missing from them a firm finding, CT-02)."""
     return (
         check_stages(pages)
-        + check_attachments(pages, package)
+        + check_attachments(pages, package, complete)
         + check_guarantees(pages)
     )

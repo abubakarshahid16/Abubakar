@@ -1,7 +1,7 @@
 """CONTRACT CHECKS CT-01 to CT-03 (order 14 lane E, 16 Nov 2026): what code can decide on a contract's own text. READ ONLY.
 
     python scripts/contract_checks.py --db <COPY or live db, opened ?mode=ro> --document <doc id> [--package <doc id> ...]
-                                      [--lines <run id> --mapping <item-to-CT JSON>] [--json <report file>] [--show-text]
+                                      [--lines <run id> --mapping <item-to-CT JSON>] [--json <report file>] [--show-text] [--complete]
 
 The checks themselves live in the app (`app.contract_checks`, `run_all(pages, package)`; checklist
 `backend/app/reference/contract_checks.json`, CT-01 to CT-08, AI DRAFT, ENGINEER TO CONFIRM). This command runs them on stored pages
@@ -201,14 +201,16 @@ def report(
     show_text: bool = False,
     run_id: str | None = None,
     mapping: dict | None = None,
+    complete: bool = False,
 ) -> dict:
     pages = load_pages(db, document)
     package = {d: load_pages(db, d) for d in package_ids}
-    results = run_all(pages, package)
+    results = run_all(pages, package, complete)
     out = {
         "document": document,
         "pages": len(pages),
         "package": package_ids,
+        "complete": complete,
         "checklist": {
             "status": checklist()["status"],
             "approver": checklist()["approver"],
@@ -240,11 +242,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mapping", help="JSON {item id: CT id} for --lines")
     ap.add_argument("--json")
     ap.add_argument("--show-text", action="store_true")
+    ap.add_argument(
+        "--complete",
+        action="store_true",
+        help="the paper and the package are the WHOLE contract (only then is a missing part a finding)",
+    )
     a = ap.parse_args(argv)
     mapping = (
         json.loads(Path(a.mapping).read_text(encoding="utf-8")) if a.mapping else {}
     )
-    rep = report(a.db, a.document, a.package, a.show_text, a.lines, mapping)
+    rep = report(a.db, a.document, a.package, a.show_text, a.lines, mapping, a.complete)
     if a.json:
         Path(a.json).write_text(json.dumps(rep, indent=1), encoding="utf-8")
     for k, v in rep["counts"].items():
