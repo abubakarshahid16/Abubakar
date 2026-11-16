@@ -619,8 +619,10 @@ def _check_word(ok: bool) -> str:
 def _second_reader(line: Mapping) -> str:
     second = line.get("second_opinion")
     if isinstance(second, Mapping):
-        cut = str(line.get("not_proven_reason") or "").startswith(words.CUT_OFF_WHY)  # R98: a cut answer never "disagreed"
-        return "asked: agreed" if second.get("agree") else "asked: answer cut off" if cut else "asked: disagreed"
+        from .crs_ai_actions import second_cut_off  # R101: the cut-off marker; an answer neither yes nor no is no disagreement
+
+        agree = second.get("agree")
+        return "asked: agreed" if agree is True else "asked: disagreed" if agree is False else "asked: answer cut off" if second_cut_off(line) else "asked: no usable answer"
     return "not asked"
 
 

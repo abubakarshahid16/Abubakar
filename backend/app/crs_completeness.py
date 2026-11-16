@@ -176,6 +176,19 @@ def _table_rows(ws, first_header: str) -> list[list]:
     return [r for r in values[start + 1 :] if any(c is not None for c in r)]
 
 
+def absent_sheets(data: bytes, copy: str) -> list[str]:
+    """The sheets the count needs that the file lacks, each as a sentence: team, the Evidence and CRS sheets; contractor, its one sheet."""
+    from . import crs_one
+
+    need = (
+        (crs_one.EVIDENCE_SHEET, crs_one.TEAM_SHEET)
+        if copy == "team"
+        else (crs_one.CONTRACTOR_SHEET,)
+    )
+    have = load_workbook(BytesIO(data), read_only=True).sheetnames
+    return [f"the sheet {name} is missing" for name in need if name not in have]
+
+
 def rows_in_file(data: bytes, copy: str) -> tuple[int, list[int]]:
     """(rows in the workbook as built, the point numbers found). Team: the sheet CRS and the sheet Removed (record); contractor:
     its one sheet."""
@@ -371,17 +384,19 @@ def verify(
     (contractor)."""
     db = database_lines(paper_id, scope, facts)
     page = listing["of"]
-    in_file, numbers = rows_in_file(data, copy)
-    missing: list[str] = []
+    # R101: a file missing a whole sheet is refused with a sentence (409), never a KeyError (500)
+    absent = absent_sheets(data, copy)
+    in_file, numbers = rows_in_file(data, copy) if not absent else (0, [])
+    missing: list[str] = list(absent)
     if copy == "team":
         accounted = in_file
         present = set(numbers)
-        missing = [_named(p) for n, p in enumerate(raw, start=1) if n not in present]
+        missing += [_named(p) for n, p in enumerate(raw, start=1) if n not in present]
     else:
         mine, reasons = contractor_split(raw)
         accounted = in_file + sum(reasons.values())
         if in_file != len(mine):
-            missing = [f"{len(mine) - in_file} row(s) of the contractor file"]
+            missing += [f"{len(mine) - in_file} row(s) of the contractor file"]
     on_page = {p["id"]: p for p in raw}
     missing += [
         f"{label} is stored but not on the page"
@@ -393,9 +408,13 @@ def verify(
         for pid, p in on_page.items()
         if pid not in db["ids"]
     ]
-    if copy == "team":
+    if copy == "team" and not absent:
         missing += _comment_accounting(data, raw)
-    cuts = cut_report(data, raw) if copy == "team" else {"marked": 0, "problems": []}
+    cuts = (
+        cut_report(data, raw)
+        if copy == "team" and not absent
+        else {"marked": 0, "problems": []}
+    )
     missing += cuts["problems"]
     ok = page == db["total"] == accounted and not missing
     report = {

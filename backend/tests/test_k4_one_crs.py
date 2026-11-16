@@ -676,7 +676,7 @@ def _fp(i, rank, name="Design pressure", clause="4.1", page=1, state=None, **kw)
     tile = review_points.TILE_OF_RANK[rank]
     return {
         "id": f"ai:r:{i}", "rank": rank, "tile": tile, "name": name, "clause": clause, "page": page, "rule_book": "STD-1",
-        "tags": [], "source": "ai_review", "decision": {"state": state} if state else {"state": None}, "pill": f"pill{rank}",
+        "rule_text": "the requirement", "tags": [], "source": "ai_review", "decision": {"state": state} if state else {"state": None}, "pill": f"pill{rank}",
         "firm": "one reader", "action": "x", **kw,
     }  # fmt: skip
 
@@ -723,7 +723,9 @@ def test_a_contradiction_is_never_merged_silently():
         and "disagree" in c["pill"]
         and c["n_points"] == 2
     )
-    assert not crs_comments.group([_fp(1, 5), _fp(2, 6)], findings_only=False)[0]["disagree"]
+    assert not crs_comments.group([_fp(1, 5), _fp(2, 6)], findings_only=False)[0][
+        "disagree"
+    ]
 
 
 def test_a_point_with_no_field_groups_by_clause_else_stands_alone():
@@ -769,7 +771,10 @@ def test_a_comment_that_loses_a_point_from_its_count_is_refused(monkeypatch):
         crs_one,
         "comments",
         types.SimpleNamespace(
-            group=lossy, DISAGREE=crs_comments.DISAGREE, set_aside=crs_comments.set_aside, coverage_note=crs_comments.coverage_note
+            group=lossy,
+            DISAGREE=crs_comments.DISAGREE,
+            set_aside=crs_comments.set_aside,
+            coverage_note=crs_comments.coverage_note,
         ),
     )
     with pytest.raises(cc.Incomplete) as e:
@@ -895,3 +900,46 @@ def test_a_point_on_the_page_that_is_not_in_the_database_is_named(monkeypatch):
     with pytest.raises(cc.Incomplete) as e:
         cc.file_or_refuse(doc, scope_all(), "team")
     assert "is on the page but not in the database" in str(e.value)
+
+
+@pytest.mark.parametrize(
+    ("copy", "sheet"),
+    [
+        ("team", "EVIDENCE_SHEET"),
+        ("team", "TEAM_SHEET"),
+        ("contractor", "CONTRACTOR_SHEET"),
+    ],
+)
+def test_a_file_missing_a_whole_sheet_is_refused_with_a_sentence_never_a_crash(
+    monkeypatch, copy, sheet
+):
+    """R101: a built file that lacks a whole sheet the count needs raises `Incomplete` (409, a sentence naming the sheet), never a
+    KeyError (500, no file)."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from app import crs_completeness as cc
+    from app import crs_one
+
+    doc, rc, ai, client = world_with_both()
+    build = crs_one.build_team if copy == "team" else crs_one.build_contractor
+    name = getattr(crs_one, sheet)
+
+    def without(*a, **kw):
+        wb = load_workbook(BytesIO(build(*a, **kw)))
+        wb[
+            name
+        ].title = (
+            "Something else"  # the sheet is gone (a workbook keeps at least one sheet)
+        )
+        out = BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    monkeypatch.setattr(
+        crs_one, "build_team" if copy == "team" else "build_contractor", without
+    )
+    with pytest.raises(cc.Incomplete) as e:
+        cc.file_or_refuse(doc, scope_all(), copy)
+    assert f"the sheet {name} is missing" in e.value.report["missing"]

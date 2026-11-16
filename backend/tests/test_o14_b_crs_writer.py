@@ -228,7 +228,7 @@ def test_the_page_grouping_sets_aside_fields_with_no_finding_and_keeps_a_disagre
     pts = [
         pt("1", "Body", 5, "met"), pt("2", "Body", 7, "met"),
         pt("3", "Location", 8, "does_not_apply", other_kind=words.KIND_UNAPPROVED),
-        pt("4", "Set pressure", 3, "not_met", rule_book="STD-1", clause="8"), pt("5", "Set pressure", 5, "met", rule_book="STD-1", clause="8"),
+        pt("4", "Set pressure", 3, "not_met", rule_book="STD-1", clause="8", rule_text="r"), pt("5", "Set pressure", 5, "met", rule_book="STD-1", clause="8", rule_text="r"),
         pt("6", "Fluid", 4, "questions"),
     ]  # fmt: skip
     got = crs_comments.group(pts)
@@ -971,6 +971,7 @@ def test_a_met_on_one_rule_and_a_not_met_on_another_is_no_disagreement():
             "tile": tile,
             "rule_book": "SAES-J-600",
             "clause": clause,
+            "rule_text": "the requirement",
         }
 
     got = crs_comments.group(
@@ -1142,8 +1143,8 @@ def test_a_cut_off_second_reader_never_reads_the_readers_disagree():
     from app import agent_review_crs as C
     from app import crs_ai_actions as actions
 
-    line = mk("R-1", "Query", ai="Pass", field="Seal plan", not_proven_reason=words.CUT_OFF_WHY, second_opinion={"agree": None},
-              reason_code="met")  # fmt: skip
+    line = mk("R-1", "Query", ai="Pass", field="Seal plan", not_proven_reason=words.CUT_OFF_WHY,
+              second_opinion={"agree": None, "reason": "stop_max_tokens"}, reason_code="met")  # fmt: skip
     line = {**line, "not_proven_reason": words.CUT_OFF_WHY}
     assert actions.action_case(line) == "cut_off"
     said = actions.query_action(line, "Seal plan", "STD-1 clause 4.1")
@@ -1195,3 +1196,195 @@ def test_a_deferred_value_is_worded_as_the_sheet_shows_it():
         paper_quote="By Contractor / Vendor (Note-2, 4)",
     )
     assert not actions.provisional(note)  # a note's number is no value
+
+
+# ------------------------------------------------------------------------------------------------ R101 round 4
+
+
+def test_two_requirements_of_one_clause_are_two_comments_and_never_a_disagreement():
+    """R101 F1 (pump, one clause holding a drain connection and a material): points with no field join only on the same book, clause
+    AND requirement; a met and a not-met of two requirements of one clause stay apart and keep their own status, never "disagree"."""
+
+    def pt(i, rank, tile, req):
+        return {
+            "id": i,
+            "rank": rank,
+            "tile": tile,
+            "name": None,
+            "rule_book": "STD-1",
+            "clause": "4.8",
+            "rule_text": req,
+        }
+
+    apart = crs_comments.group([pt("1", 6, "not_met", "a drain connection"), pt("2", 5, "met", "a non-sparking material")],
+                               findings_only=False)  # fmt: skip
+    assert [c["n_points"] for c in apart] == [1, 1] and not any(
+        c["disagree"] for c in apart
+    )
+    by_member = {tuple(c["member_ids"]): c["rank"] for c in apart}
+    assert by_member == {
+        ("1",): 6,
+        ("2",): 5,
+    }  # each keeps its own status; the not-met is never lowered to a question
+    same = crs_comments.group([pt("1", 6, "not_met", "a drain connection"), pt("2", 5, "met", "A drain  connection.")],
+                              findings_only=False)  # fmt: skip
+    assert [c["n_points"] for c in same] == [2] and same[0]["disagree"]
+    nothing = crs_comments.group(
+        [pt("1", 6, "not_met", ""), pt("2", 6, "not_met", "")], findings_only=False
+    )
+    assert [c["n_points"] for c in nothing] == [
+        1,
+        1,
+    ]  # no requirement text: each point stands alone
+
+
+def test_a_field_with_two_requirements_of_one_clause_is_no_disagreement():
+    """R101 F1: "the readers disagree" needs the same rule: the same item, or the same book, clause AND requirement."""
+
+    def pt(i, rank, tile, req):
+        return {
+            "id": i,
+            "rank": rank,
+            "tile": tile,
+            "name": "Coupling guard",
+            "rule_book": "STD-1",
+            "clause": "4.8",
+            "rule_text": req,
+        }
+
+    got = crs_comments.group(
+        [pt("1", 3, "not_met", "a window"), pt("2", 5, "met", "a material")],
+        findings_only=False,
+    )[0]
+    assert not got["disagree"] and got["rank"] == 3
+
+
+def test_a_comment_joined_by_its_requirement_never_says_on_this_field():
+    """R101 F1: the run file's also-line of a comment keyed by book, clause and requirement says "on this requirement"."""
+    a = mk("R-1", "Query", ai="Fail", field=None, reason_code="not_met")
+    b = mk("R-2", "Query", ai="Fail", field=None, reason_code="not_met", paper_page=3)
+    rows, _ = crs_comments.group_lines([(ln, *WB.status_of(ln)) for ln in (a, b)])
+    assert len(rows) == 1
+    said = crs_comments.also_words(rows[0][0])
+    assert (
+        said
+        and said[0].startswith("Also on this requirement,")
+        and not any("on this field" in s for s in said)
+    )
+
+
+def test_cut_off_is_read_from_the_second_opinions_own_marker_never_the_reason_text():
+    """R101 F2: a cut-off second reader is known by its own marker (no agree, reason "stop_max_tokens"; or a retry with no true/false
+    answer), whatever reason an earlier step wrote; a second reader that gave no usable answer for another reason is never "disagreed"."""
+    from app import agent_review_crs as C
+    from app import crs_ai_actions as actions
+
+    cut = mk("R-1", "Query", ai="Pass", field="Seal type", reason_code="met", second_opinion={"agree": None, "reason": "stop_max_tokens"},
+             not_proven_reason="the AI reviewer was silent")  # fmt: skip
+    assert actions.second_cut_off(cut) and actions.action_case(cut) == "cut_off"
+    assert C._second_reader(cut) == "asked: answer cut off"
+    retried = {
+        **cut,
+        "second_opinion": {"agree": None, "reason": "no_json", "retried": True},
+    }
+    assert actions.second_cut_off(retried)
+    failed = {**cut, "second_opinion": {"agree": None, "reason": "no_json"}}
+    assert (
+        not actions.second_cut_off(failed) and actions.action_case(failed) != "cut_off"
+    )
+    assert C._second_reader(failed) == "asked: no usable answer"
+    assert (
+        C._second_reader({**cut, "second_opinion": {"agree": False}})
+        == "asked: disagreed"
+    )
+    odd = {**cut, "second_opinion": {"agree": "yes", "reason": "stop_max_tokens"}}
+    assert not actions.second_cut_off(
+        odd
+    )  # only an answer that is NO answer (agree None) was cut off, as lane A's rule
+    text_only = {
+        **cut,
+        "second_opinion": {"agree": False},
+        "not_proven_reason": words.CUT_OFF_WHY,
+    }
+    assert not actions.second_cut_off(text_only)
+
+
+def test_the_cut_off_rule_equals_lane_as_when_it_is_merged():
+    """R101 F2: the writer's cut-off rule is lane A's `agent_review_two_reader.second_cut_off` on every shape of second opinion."""
+    import importlib
+
+    from app import crs_ai_actions as actions
+
+    two = importlib.import_module("app.agent_review_two_reader")
+    if not hasattr(two, "second_cut_off"):
+        import pytest
+
+        pytest.skip("lane A's second_cut_off is not on this branch yet")
+    shapes = [None, {}, {"agree": True}, {"agree": False}, {"agree": None}, {"agree": None, "reason": "stop_max_tokens"},
+              {"agree": None, "reason": " stop_max_tokens "}, {"agree": "yes", "reason": "stop_max_tokens"},
+              {"agree": None, "reason": "no_json"}, {"agree": None, "retried": True}, {"agree": True, "retried": True},
+              {"agree": "x", "retried": True}]  # fmt: skip
+    for s in shapes:
+        line = {"second_opinion": s}
+        assert actions.second_cut_off(line) == two.second_cut_off(line), s
+
+
+def test_a_name_only_half_of_a_longer_one_joins_it_only_on_shared_evidence():
+    """R101 H24 (R94): a two-word name that is exactly HALF of a four-word name joins it only when they share a paper line or a rule;
+    a name more than half of the longer one joins it on the name alone."""
+
+    def pt(i, name, **kw):
+        return {"id": i, "rank": 3, "tile": "not_met", "name": name, **kw}
+
+    half = crs_comments.group(
+        [pt("1", "Rated head"), pt("2", "Max rated head impeller")], findings_only=False
+    )
+    assert [c["n_points"] for c in half] == [1, 1]
+    shared = crs_comments.group([pt("1", "Rated head", paper_quote="x 10 m", page=2), pt("2", "Max rated head impeller", paper_quote="x 10 m", page=2)],
+                                findings_only=False)  # fmt: skip
+    assert [c["n_points"] for c in shared] == [2]
+    more = crs_comments.group(
+        [pt("1", "Rated head"), pt("2", "Rated head max")], findings_only=False
+    )
+    assert [c["n_points"] for c in more] == [2]
+
+
+def test_a_guard_objected_ai_met_tells_the_engineer_the_objection():
+    """R101 H25: the run file's action for an AI "met" the pass guard objected to says the objection; one with no objection never asks."""
+    held = mk(
+        "R-9",
+        "Query",
+        ai="Pass",
+        field="Seal",
+        reason_code="pass_field_unknown",
+        why="no second opinion",
+    )
+    st, order = WB.status_of(held)
+    said = WB.layout_comment(held, st, order)
+    assert (
+        f"Engineer to check the AI reviewer's view: {words.guard_words(held)}." in said
+    )
+    plain = mk(
+        "R-8",
+        "Query",
+        ai="Pass",
+        field="Seal",
+        reason_code="met",
+        why="no second opinion",
+    )
+    if WB.status_of(plain) == (st, order):
+        assert "Engineer to check the AI reviewer's view" not in WB.layout_comment(
+            plain, st, order
+        )
+
+
+def test_a_role_is_named_by_the_fixed_field_list_not_by_its_own_words():
+    """R101 H28: `role_name` gives the fixed field list's name ("Rated relieving capacity"), never the role's words ("Rated capacity")."""
+    listed = crs_comments._role_names()[1]
+    role = next(r for r, n in listed.items() if n.lower() != r.replace("_", " "))
+    assert (
+        crs_comments.role_name(role)
+        == listed[role]
+        != role.replace("_", " ").capitalize()
+    )
+    assert crs_comments.role_name("not_on_any_list") == "Not on any list"

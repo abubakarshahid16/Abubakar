@@ -18,11 +18,32 @@ _SAYS = (words.STATUS_AI, words.STATUS_AI_VERDICT, words.STATUS_QUERY)
 REASONING_LABEL = "The AI reviewer's reasoning (not proven by code):"
 
 
+#: The reason a second-opinion reply stores when its answer was cut off by its token limit (`agent_review_run`).
+CUT_OFF_REASONS = frozenset({"stop_max_tokens"})
+
+
+def second_cut_off(line: Mapping) -> bool:
+    """The line's second opinion was asked and its answer was CUT OFF (R101: the line's own marker, never the reason text): no true/false
+    agree and reason "stop_max_tokens", or a retry that still gave no true/false answer. Lane A's `agent_review_two_reader.second_cut_off`
+    holds the same rule; a test keeps the two equal once it is merged."""
+    second = line.get("second_opinion")
+    if not isinstance(second, Mapping) or isinstance(second.get("agree"), bool):
+        return False
+    if second.get("retried"):
+        return (
+            True  # the first reply was cut and its one retry gave no true/false answer
+        )
+    return (
+        second.get("agree") is None
+        and str(second.get("reason") or "").strip() in CUT_OFF_REASONS
+    )
+
+
 def action_case(line: Mapping) -> str:
     """The case: "stated" (a paper quote code verified), "deferred" (the stored reason says so, or the verified quote defers the value), "blank"
     (the paper is silent on the field) or "unknown"."""
-    if str(line.get("not_proven_reason") or "").startswith(words.CUT_OFF_WHY):
-        return "cut_off"  # R98: the second reader's answer was cut off: it never said the opposite, so never "the readers disagree"
+    if second_cut_off(line):
+        return "cut_off"  # R98/R101: the second reader's answer was cut off (its own marker): never "the readers disagree"
     if two.disagrees(line) or two.absence_disagrees(line):
         return "disagree"  # the two readers reached opposite verdicts: code's own flag
     checked = (line.get("quotes_checked") or {}).get("paper")

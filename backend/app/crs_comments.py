@@ -157,16 +157,34 @@ def _field_of(point: dict) -> str:
 
 def key_of(point: dict) -> str:
     """The comment a point belongs to: its FIELD, folded (the tags and pages it applies to are listed on the comment, they do not split
-    it); a point with no field, by its rule book and clause; a coverage line and anything else, the point itself."""
+    it); a point with no field, by its rule book, clause AND requirement text (R101: one clause holds several requirements, so the clause
+    alone never joins two of them); a coverage line and anything else, the point itself."""
     if is_coverage(point):
         return f"coverage|{point.get('id')}"
     field = fold_field(_field_of(point))
     if field:
         return f"field|{field}"
-    book = point.get("rule_book") or (point.get("rule_ref") or {}).get("name")
-    if _norm(book) and _norm(point.get("clause")):
-        return f"clause|{_book_key(book)}|{_clause_key(point.get('clause'))}"
+    if rule := _rule_of(point):
+        return "clause|" + "|".join(rule)
     return f"point|{point.get('id')}"
+
+
+def _requirement_of(p: dict) -> str:
+    """The point's requirement text, folded: what its rule asks (the verified clause quote, the stored rule text, our check's words)."""
+    line = _line_of(p)
+    for text in (p.get("clause_quote"), p.get("rule_text"), p.get("check_text"), line.get("clause_quote"), line.get("requirement")):
+        if _norm(text):
+            return re.sub(r"[^0-9a-z]+", " ", _norm(text)).strip()
+    return ""
+
+
+def _rule_of(p: dict) -> tuple[str, str, str] | None:
+    """(book key, clause, requirement): ONE rule; None unless all three are known."""
+    book = p.get("rule_book") or (p.get("rule_ref") or {}).get("name")
+    req = _requirement_of(p)
+    if _norm(book) and _norm(p.get("clause")) and req:
+        return (_book_key(book), _clause_key(p.get("clause")), req)
+    return None
 
 
 #: The guard reasons of an AI "met" that code could not CONFIRM but that say nothing is open or missing: the quote was not found, the
@@ -200,13 +218,12 @@ def tick_only(point: dict) -> bool:
 
 
 def _rule_keys(p: dict) -> set[tuple]:
-    """Which rule a point answers: its AI item, and its rule book and clause."""
+    """Which rule a point answers: its AI item, and its rule book, clause AND requirement (R101: never the clause alone)."""
     out = set()
     if item := _line_of(p).get("item_id"):
         out.add(("item", str(item)))
-    book = p.get("rule_book") or (p.get("rule_ref") or {}).get("name")
-    if _norm(book) and _norm(p.get("clause")):
-        out.add(("rule", _book_key(book), _clause_key(p.get("clause"))))
+    if rule := _rule_of(p):
+        out.add(("rule", *rule))
     return out
 
 
@@ -459,6 +476,11 @@ def _norm_keep(text) -> str | None:
     return " ".join(str(text or "").split()) or None
 
 
+def _where(comment: dict) -> str:
+    """What a comment's lines share: "on this field", or "on this requirement" for a comment keyed by book, clause and requirement."""
+    return "on this requirement" if str(comment.get("key", "")).startswith("clause|") else "on this field"
+
+
 def group_lines(items: list) -> tuple[list, dict[int, str]]:
     """The AI run file's comment rows from its item lines `(line, status, order)`, with THE grouping of every CRS file (`group`): each
     row is its strongest line carrying `_comment` (its other lines, whether they disagree); and what every other line is called
@@ -469,7 +491,7 @@ def group_lines(items: list) -> tuple[list, dict[int, str]]:
         by = {p["id"]: p for p in points if p["id"] in c["member_ids"]}
         lead = c["strongest"]
         others = [by[i]["_line"] for i in c["member_ids"] if i != lead["id"]]
-        rows.append(({**lead["_line"], "_comment": {"others": others, "disagree": c["disagree"]}}, *lead["_status"]))
+        rows.append(({**lead["_line"], "_comment": {"others": others, "disagree": c["disagree"], "where": _where(c)}}, *lead["_status"]))
         kind_of.update({id(m): words.KIND_IN_COMMENT.format(n=len(rows)) for m in others})
     for c, kind in set_aside(points):
         kind_of.update({id(p["_line"]): kind for p in points if p["id"] in c["member_ids"]})
@@ -507,5 +529,5 @@ def also_words(line: dict) -> list[str]:
         got = wb.status_of(m)
         ask = wb._contractor_to(m, *got) if got else ""
         where = (against(m) or "the rule") + (f" (page {pg})" if (pg := line_page(m)) else "")
-        out.append(f"Also on this field, {_status_words(m)} under {where}" + (f": {ask}" if ask else "."))
+        out.append(f"Also {c.get('where') or 'on this field'}, {_status_words(m)} under {where}" + (f": {ask}" if ask else "."))
     return out
