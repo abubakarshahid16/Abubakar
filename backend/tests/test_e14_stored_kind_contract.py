@@ -15,9 +15,11 @@ import pytest
 
 from app import (
     agent_review_kind,
+    classification,
     claude_approved,
     claude_auto_approve,
     db,
+    doc_router,
     review_engine,
     review_jobs,
 )
@@ -65,7 +67,6 @@ def test_a_stored_contract_kind_is_a_contract_whatever_the_role_and_the_cover_sa
 ):
     paper = _doc("c_stored", "51" * 32)
     _store_kind(paper, "contract", state)
-    from app import classification
 
     # the review page's confirm: runs the upload route of the approved list
     classification.set_role(paper, SUBMITTAL)
@@ -86,7 +87,6 @@ def test_the_same_paper_with_a_stored_datasheet_kind_is_approved(
     """The control: the same steps on a paper whose stored kind is not a contract still approve it (the test can see approval)."""
     paper = _doc("d_stored", "52" * 32)
     _store_kind(paper, "datasheet", "suggested")
-    from app import classification
 
     classification.set_role(paper, SUBMITTAL)
     assert claude_auto_approve.is_contract_paper(paper) is False
@@ -132,3 +132,78 @@ def test_the_review_button_counts_a_stored_contract_kind(
     plan = review_engine.plan_for(db.connect(), sub, world["scope"], "automatic")
     ai = next(p for p in plan["parts"] if p["name"] == "ai_review")
     assert ai["engine"] != "claude" and plan["text_leaves"] is False
+
+
+# ------------------------------------------------------------------ review R103: the router never replaces a contract kind
+
+DATASHEET_COVER = (
+    "ACME PLANT PROJECT\nPUMP DATA SHEET\nRated flow 100 m3/h\nDesign pressure 10 barg"
+)
+
+
+def _with_cover(doc_id: str) -> str:
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?,1,?,?,0)",
+            (doc_id, DATASHEET_COVER, len(DATASHEET_COVER)),
+        )
+    return doc_id
+
+
+def _kind(doc_id: str):
+    row = (
+        db.connect()
+        .execute(
+            "SELECT kind, state, router_version FROM document_kinds WHERE document_id = ?",
+            (doc_id,),
+        )
+        .fetchone()
+    )
+    return (row["kind"], row["state"], row["router_version"]) if row else None
+
+
+def test_the_router_writes_a_new_kind_on_an_ordinary_paper(approvals):  # noqa: F811 - the imported fixture
+    """The control: on a submittal with a stored "procedure" guess and a datasheet cover, a re-route replaces the kind."""
+    paper = _with_cover(_doc("r_plain", "61" * 32, SUBMITTAL))
+    _store_kind(paper, "procedure", "suggested")
+    assert doc_router.route_document(paper) is not None
+    assert _kind(paper)[0] != "procedure"
+
+
+@pytest.mark.parametrize("state", ["suggested", "needs_engineer"])
+def test_a_re_route_keeps_a_stored_contract_kind_and_the_paper_stays_off_the_list(
+    approvals,  # noqa: F811 - the imported fixture
+    cover_says_datasheet,
+    state,
+):
+    """R103's case: a contract re-marked as a submittal, whose cover reads as a datasheet, is re-routed (a re-read or OCR)."""
+    paper = _with_cover(_doc("r_contract", "62" * 32))
+    _store_kind(paper, "contract", state)
+    classification.set_role(paper, SUBMITTAL)
+    assert doc_router.route_document(paper) is None
+    kind, kept_state, version = _kind(paper)
+    assert (kind, kept_state) == ("contract", state)
+    assert version == str(
+        doc_router.vocabulary().get("router_version", "1")
+    )  # seen: route_unrouted will not pick it again
+    doc_router.route_unrouted()  # a router version change re-routes the library: the contract kind stays
+    assert _kind(paper)[:2] == ("contract", state)
+    assert claude_auto_approve.is_contract_paper(paper) is True
+    claude_auto_approve.on_upload(paper)
+    assert not _approved("62" * 32), (
+        "a contract joined the Claude approved list after a re-route"
+    )
+
+
+def test_a_re_route_keeps_the_stored_kind_of_a_contract_document(approvals):  # noqa: F811 - the imported fixture
+    paper = _with_cover(_doc("r_role", "63" * 32, "CONTRACT_DOCUMENT"))
+    _store_kind(paper, "procedure", "suggested")
+    assert doc_router.route_document(paper) is None
+    assert _kind(paper)[:2] == ("procedure", "suggested")
+
+
+def test_a_persons_confirm_still_changes_a_contract_kind(approvals):  # noqa: F811 - the imported fixture
+    paper = _with_cover(_doc("r_confirm", "64" * 32, SUBMITTAL))
+    _store_kind(paper, "contract", "suggested")
+    doc_router.confirm(paper, "datasheet", None)
+    assert _kind(paper)[:2] == ("datasheet", "confirmed")

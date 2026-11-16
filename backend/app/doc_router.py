@@ -215,15 +215,26 @@ def _pages_of(document_id: str) -> list[str]:
     return [r["text"] or "" for r in rows]
 
 
+def _keeps_contract(stored_kind: str | None, role: str | None) -> bool:
+    """A stored kind the router must not replace: "contract", or any kind of a paper whose role is a contract document."""
+    return (
+        str(stored_kind or "").strip().lower() == "contract"
+        or role == "CONTRACT_DOCUMENT"
+    )
+
+
 def route_document(document_id: str) -> Routing | None:
     """Route one document and store the result. A CONFIRMED kind is left alone
-    (None is returned). Idempotent. Switch on: the paper kind too (`paper_kind`)."""
+    (None is returned), and so is a stored "contract" kind or the kind of a
+    contract document (rule 1). Idempotent. Switch on: the paper kind too (`paper_kind`)."""
     from . import paper_kind
 
     paper_kind.classify_quietly(document_id)
     conn = connect()
-    existing = conn.execute("SELECT state, router_version FROM document_kinds WHERE document_id = ?",
-                            (document_id,)).fetchone()
+    existing = conn.execute(
+        "SELECT kind, state, router_version FROM document_kinds WHERE document_id = ?",
+        (document_id,),
+    ).fetchone()
     if existing is not None and existing["state"] == STATE_CONFIRMED:
         return None
     doc = conn.execute("SELECT filename FROM documents WHERE id = ?", (document_id,)).fetchone()
@@ -231,9 +242,21 @@ def route_document(document_id: str) -> Routing | None:
         return None
     recorded = conn.execute("SELECT document_role FROM document_classification WHERE document_id = ?",
                             (document_id,)).fetchone()
+    role = recorded["document_role"] if recorded is not None else None
+    version = str(vocabulary().get("router_version", "1"))
+    if existing is not None and _keeps_contract(existing["kind"], role):
+        # Rule 1 (order 14 lane E, review R103): the router has no contract cue, so it never replaces a stored "contract"
+        # kind, nor the stored kind of a paper whose role is a contract document. Only a person's confirm changes it. The
+        # row is marked as seen by this router version (so `route_unrouted` does not pick it again); its kind is kept.
+        with conn:
+            conn.execute(
+                "UPDATE document_kinds SET router_version = ?, routed_at = ? WHERE document_id = ?"
+                " AND state != 'confirmed'",
+                (version, _now(), document_id),
+            )
+        return None
     routing = route(doc["filename"], _pages_of(document_id),
                     recorded["document_role"] if recorded is not None else None)
-    version = str(vocabulary().get("router_version", "1"))
     with conn:
         conn.execute(
             "INSERT INTO document_kinds (document_id, kind, state, evidence, router_version, routed_at)"
