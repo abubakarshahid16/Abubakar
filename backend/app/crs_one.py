@@ -222,6 +222,16 @@ def group_words(point: dict) -> str:
     return f"{n} alike" if n > 1 else ""
 
 
+#: W-D8: a row whose point records no action says so, never an empty cell (CLAUDE.md rule 4: null renders as words, never as 0 or blank)
+NO_ACTION = "none recorded"
+
+
+def no_action_words(point: dict) -> str:
+    """The honest mark of a point with no action: "none recorded", with what the point is (its pill) when it has one."""
+    pill = _clean(point.get("pill"))
+    return f"{NO_ACTION} ({pill})" if pill else NO_ACTION
+
+
 def full_texts(point: dict) -> dict[str, str]:
     """The whole text of each long cell of a point: the ONE source of what a shortened cell must keep in the column Full text."""
     d = point.get("decision") or {}
@@ -233,7 +243,7 @@ def full_texts(point: dict) -> dict[str, str]:
     if action and point.get("action_source") == "ai_suggestion" and not (d.get("state") == decisions_mod.EDIT and d.get("text")):
         action = f"{content.AI_SUGGESTION[0].upper()}{content.AI_SUGGESTION[1:]}: {action}"  # internal copy only (the contractor file never reads this)
     return {
-        "action": action,
+        "action": action or no_action_words(point),
         "paper_shows": paper_shows(point),
         "requires": rule_requires(point),
         "reason": reason_of(point),
@@ -714,8 +724,9 @@ def comment_note(c: dict, ms: list[dict]) -> str:
     many = f"{c['n_points']} points on this field" if c["n_points"] > 1 else ""
     note = comments.DISAGREE if c["disagree"] else many
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    # R91: each other point, its class and ask
-    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])
+    # R91: each other point, its class and ask; W-D8: a point said in the SAME words as another is listed once, with how many say it
+    said = Counter(member_words(p) for p in ms if p is not c["strongest"])
+    note += "".join(f"\n{w}" + (f" ({n} points say this)" if n > 1 else "") for w, n in said.items())
     return _clean(note.strip(" ;"))
 
 

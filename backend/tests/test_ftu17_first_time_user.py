@@ -230,7 +230,7 @@ def test_a_does_not_apply_with_its_proof_carries_it_and_every_sheet_uses_one_cou
         _na("R-21", "Field A", proof=True),  # alone on its field: not a comment
         _na(
             "R-22", "Field B", proof=True
-        ),  # on a field that also has a finding: inside that comment
+        ),  # on a field that also has a finding: still not a comment (W-D6: a point with no finding is never inside a comment)
         mk("R-23", "Query", "Fail", field="Field B"),
     ]
     doc, _run_id, client = _paper(lines)
@@ -244,7 +244,7 @@ def test_a_does_not_apply_with_its_proof_carries_it_and_every_sheet_uses_one_cou
         and "found on the page by code" in r[proof_col]
         for r in dna
     )
-    said = "Does not apply: 2 (1 not a comment"
+    said = "Does not apply: 2 (2 not a comment"  # W-D6 (order 14, 17 Nov 2026): was "1 not a comment" with one inside Field B's comment
     assert any(said in t for t in _texts(wb[crs_one.TEAM_SHEET]))
     assert any(said in t for t in _texts(wb[crs_one.NOT_A_COMMENT_SHEET]))
     assert any(said in t for t in _texts(wb[crs_one.DNA_SHEET]))

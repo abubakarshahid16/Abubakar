@@ -10,6 +10,7 @@ from . import agent_review_not_applicable as not_applicable
 from . import (
     crs_comments,
     crs_completeness,
+    crs_no_finding,
     evidence_boxes,
     review_code_proposal,
     standards_web_search,
@@ -386,6 +387,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
+    crs_no_finding.mark(conn, points, paper_id)  # W-D7, W-D11: a contents or reference-list "rule", a form not held: never a comment
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)
