@@ -141,7 +141,8 @@ def reason_of(point: dict) -> str:
 def paper_shows(point: dict) -> str:
     """Only a quote code verified, with its check note, or the page's own words for "no verified quote". A found quote on a point that
     says the paper does not state the value is said as where the reader looked, never as evidence (FTU-1: the page's own note)."""
-    if point.get("paper_looked"):
+    # a code-proved absence: its proof, as on the page
+    if point.get("paper_looked") or point.get("paper_proof"):
         return point["paper_quote_note"]
     if point.get("paper_quote"):
         return f'"{point["paper_quote"]}" ({point["paper_quote_note"]})'
