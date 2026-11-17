@@ -2451,13 +2451,13 @@ def _run_comparison(
     extra_not_applied.extend(serviced["items"])
     held_items.extend(serviced["held"])
     service_declarations = serviced["declarations"]
-    # #725 F5 A MATERIALS STANDARD applies only to material fields (`subject_scope.materials_gate`).
+    # #725 F5 materials standards: material fields only; LPV V1: no rule about what the paper lacks
     materials = subject_scope.materials_gate(
         requirements, facts=facts, standard_labels=standard_labels,
         is_materials_standard=applicability_mod.is_materials_standard)
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
-    requirements, unfit = rule_subject_fit.gate_for_run(requirements, submittal_id)  # LPV V1: a rule about what the paper lacks
+    requirements, unfit = rule_subject_fit.gate_for_run(requirements, submittal_id)
     extra_not_applied.extend(unfit)
     # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a relief valve: its
     # relief-device rules only), the rules-by-equipment-scope gate. See `eqs.gate_for_run`.

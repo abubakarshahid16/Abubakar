@@ -342,7 +342,9 @@ def split(
     return kept, left
 
 
-def gate_for_run(requirements: list[dict], submittal_id: str) -> tuple[list[dict], list[dict]]:
+def gate_for_run(
+    requirements: list[dict], submittal_id: str
+) -> tuple[list[dict], list[dict]]:
     """The rule check's gate: (kept, items); each item {"requirement", "code", "detail"} is a does-not-apply decision with its
     reason (`rule_subject_not_on_paper` or `rule_book_example`, both in `scope_ledger.REASONS`)."""
     from .db import connect
