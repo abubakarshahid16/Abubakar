@@ -284,7 +284,19 @@ def test_the_paper_reading_is_ordered(monkeypatch):
 
 
 def test_no_value_forms_and_a_unit_alone_are_not_a_stated_value():
-    for cell in ("N/A", "n/a", "None", "Note 3", "see note 3", "Refer note 2"):
+    for cell in (
+        "N/A",
+        "n/a",
+        "N.A.",
+        "N/A (Note 2)",
+        "None",
+        "Note 3",
+        "see note 3",
+        "see notes",
+        "Refer note 2",
+        "kPa(g)",
+        "bar (g)",
+    ):
         page = f"Body material : {cell}\n"
         fact = {**FACT, "field_value": cell}
         (still,) = _marked([_silent()], _reading(pages={2: page}, facts=[fact]))
@@ -382,3 +394,22 @@ def test_the_lines_tab_and_its_query_groups_read_the_stated_value(lines_world):
         "against the value the paper states" in line["reason"]
         and STATE not in line["reason"]
     )
+
+
+def test_a_container_label_keeps_its_own_wording():
+    page = "Nozzle notes : flanges to be supplied loose\n"
+    line = _silent(
+        field="Nozzle notes",
+        paper_quote="Nozzle notes : flanges",
+        rule_label={"field": None},
+    )
+    fact = {
+        "field_label": "Nozzle notes :",
+        "field_value": "flanges to be supplied loose",
+        "page": 2,
+        "is_blank": 0,
+    }
+    (still,) = _marked([line], _reading(pages={2: page}, facts=[fact]))
+    assert (
+        A.STATED_KEY not in still
+    )  # "Notes" holds many things: never cited as THE value of the rule's field

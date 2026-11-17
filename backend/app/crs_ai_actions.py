@@ -329,8 +329,13 @@ def _words(text: object) -> list[str]:
 
 #: a WHOLE cell that states no value (matched whole, never by stripping words): "N/A", "none", "Note 3", "see note 3"
 _NO_VALUE = re.compile(
-    r"^(?:n\s*/?\s*a|none|nil|nill|not applicable|(?:see|refer|refer to|as per|per)?\s*notes?\s*[-.:]?\s*\d+[a-z]?)$",
+    r"^(?:n\s*[./]?\s*a\.?|none|nil|nill|not applicable|(?:see|refer|refer to|as per|per)?\s*notes?(?:\s*[-.:]?\s*\d+[a-z]?)?)"
+    r"(?:\s*\(\s*(?:see\s+)?notes?\s*[-.:]?\s*\d*[a-z]?\s*\)?)?$",
     re.IGNORECASE,
+)  # "N/A", "N.A.", "N/A (Note 2)", "see notes", "Note 3"
+#: a row whose own label is a container ("Notes", "Remarks", "Nozzle notes") names no one value: it keeps its own wording
+_CONTAINER = re.compile(
+    r"(?:^|\s)(?:notes?|remarks?|comments?)\s*:?\s*$", re.IGNORECASE
 )
 
 
@@ -341,15 +346,17 @@ def holds_a_value(text: str, labels) -> bool:
 
     q = " ".join(str(text or "").split())
     bare = q.strip(" :|=()[]-.*")
+    unit = q.strip(" :|=-.*")  # a unit keeps its reference bracket: "kPa(g)", "bar (g)"
     return (
         bool(_words(q))
         and not whole_label(q, labels)
         and not quote_is_placeholder(q, labels)
         and not quote_defers(q)
         and not _NO_VALUE.match(bare)
+        and not is_unit(bare)
         and not is_unit(
-            bare
-        )  # the whole cell is a unit spelling ("m3/h", "barg"): no figure
+            unit
+        )  # the whole cell is a unit spelling ("m3/h", "barg", "kPa(g)"): no figure
     )
 
 
@@ -367,7 +374,7 @@ def label_cells(text: str, labels) -> list[tuple[str, str]]:
         m = next((h.match(row) for h in heads if h.match(row)), None)
         if m is None:
             continue
-        rest = row[m.end() :].strip(_SEP + "()")
+        rest = row[m.end() :].strip(_SEP)  # a value keeps its brackets: "kPa(g)", "SA 516 (normalised)"
         nxt = "" if _words(rest) else next((r for r in rows[n + 1 :] if r), "")
         out.append((f"{row} {nxt}".strip(), rest if _words(rest) else nxt))
     return out
@@ -443,7 +450,11 @@ def mark_stated(
     every = list(context) if context is not None else lines
     out = []
     for ln in lines:
-        if not says_silent(ln) or proven(ln):
+        if (
+            not says_silent(ln)
+            or proven(ln)
+            or any(_CONTAINER.search(str(x)) for x in _labels_of(ln))
+        ):
             out.append(ln)
             continue
         got = _from_lines(ln, every) or _from_reading(ln, reading)
