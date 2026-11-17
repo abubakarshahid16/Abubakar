@@ -56,7 +56,7 @@ def cut_from(stored: Any, received: Any) -> bool:
     return len(s) < len(r) or s[-1] != r[len(s) - 1]
 
 
-def _holds(hay: list[str], needle: list[str]) -> bool:
+def holds(hay: list[str], needle: list[str]) -> bool:
     n = len(needle)
     return n > 0 and any(hay[i : i + n] == needle for i in range(len(hay) - n + 1))
 
@@ -64,9 +64,9 @@ def _holds(hay: list[str], needle: list[str]) -> bool:
 def cut_inside(text: Any, received: Any) -> bool:
     """True when the line `text` holds the start of `received` (at least PREFIX_WORDS words) but not all of it."""
     t, r = tokens(text), tokens(received)
-    if len(r) <= PREFIX_WORDS or _holds(t, r):
+    if len(r) <= PREFIX_WORDS or holds(t, r):
         return False
-    return _holds(t, r[:PREFIX_WORDS])
+    return holds(t, r[:PREFIX_WORDS])
 
 
 # ---------------------------------------------------------------- the reader's view of the AI's reasoning
@@ -205,7 +205,7 @@ def line_cuts(line: Mapping, rec: Mapping) -> list[tuple[str, str]]:
     if line.get("general"):
         text = line.get("text")
         own = [v for a in _own_answers(line, rec["general"]) for v in a["words"]]
-        if any(_holds(tokens(text), tokens(v)) for v in own if tokens(v)):
+        if any(holds(tokens(text), tokens(v)) for v in own if tokens(v)):
             return []
         cut = [v for v in own if cut_inside(text, v)]
         return [("text", max(cut, key=len))] if cut else []

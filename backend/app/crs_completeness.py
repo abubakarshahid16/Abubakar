@@ -329,6 +329,7 @@ def cut_report(data: bytes, raw: list[dict]) -> dict:
             else:
                 marked += 1
     problems += _reasoning_cuts(head, values[start + 1 :], by_no)
+    problems += words_dropped(values[start + 1 :], by_no)
     marked, problems = _comment_cuts(wb[crs_one.TEAM_SHEET], raw, marked, problems)
     return {"marked": marked, "problems": problems}
 
@@ -349,6 +350,24 @@ def _reasoning_cuts(head: list, rows: list, by_no: dict) -> list[str]:
             )
         elif words_left_out(by_no[r[0]], want):
             out.append(f"row {r[0]}: the AI reviewer's reasoning is not shown whole (cut without the mark)")
+    return out
+
+
+def words_dropped(rows: list, by_no: dict) -> list[str]:
+    """A text dropped ENTIRELY is a cut too (completeness rule 3; order 14, review of PR #1890: 36 rows of a general review held only
+    their kind while each stored line held words, and the counts still agreed). A row of a general review's line whose shown line
+    (`_line`, after the viewer's guard) holds words must carry them somewhere in its cells; each row that does not is named."""
+    out = []
+    for r in rows:
+        if not isinstance(r[0], int) or r[0] not in by_no:
+            continue
+        line = by_no[r[0]].get("_line") or {}
+        said = ai_text_whole.tokens(ai_text_whole.plain_whole(line.get("text")))
+        if not line.get("general") or not said:
+            continue
+        cells = ai_text_whole.tokens(" ".join(str(c) for c in r[1:] if c not in (None, "")))
+        if not ai_text_whole.holds(cells, said[: ai_text_whole.PREFIX_WORDS]):
+            out.append(f"row {r[0]}: the words of the AI line {line.get('item_id') or ''} are not in the file (the row holds only its kind)")
     return out
 
 

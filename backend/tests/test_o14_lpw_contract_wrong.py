@@ -563,3 +563,48 @@ def test_the_script_refuses_a_live_database_without_live_and_goes_through_the_gu
     assert _script(["--db", str(path), "--live", "run-x"]) == 0
     assert asked and _reasoning() == whole
     assert json.loads(capsys.readouterr().out)["rollback_point"] == "invented-backup"
+
+
+# ------------------------------------------------------------------------------------------------ a text dropped entirely
+
+
+def test_a_row_that_holds_only_its_kind_while_its_line_holds_words_is_named():
+    words = "The invented procedure names no owner for the closing step of each action."
+    general = {"general": True, "item_id": "G-007", "text": words}
+    by_no = {
+        1: {"_line": general},  # the row holds only its kind: named
+        2: {"_line": {**general, "item_id": "G-008"}},  # the row holds the words: fine
+        3: {
+            "_line": {"item_id": "S-1", "reasoning": words}
+        },  # a rule line: its reasoning has its own check
+        4: {
+            "_line": {**general, "item_id": "G-009", "text": ""}
+        },  # words hidden from this viewer: nothing to show
+    }
+    rows = [
+        [
+            1,
+            "Question",
+            "A point of the AI review",
+            "Engineer to check the item.",
+            None,
+        ],
+        [
+            2,
+            "Question",
+            "A point of the AI review",
+            f'the AI reviewer\'s words, not proven by code: "{words}"',
+            None,
+        ],
+        [3, "Question", "Closing step", "Engineer to check the item.", None],
+        [
+            4,
+            "Question",
+            "A point of the AI review",
+            "Engineer to check the item.",
+            None,
+        ],
+    ]
+    assert cc.words_dropped(rows, by_no) == [
+        "row 1: the words of the AI line G-007 are not in the file (the row holds only its kind)"
+    ]

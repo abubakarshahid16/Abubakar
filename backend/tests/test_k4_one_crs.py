@@ -770,7 +770,8 @@ def test_the_page_and_the_file_show_the_same_comments_and_every_point_stays_on_e
 
 
 def test_a_comment_that_loses_a_point_from_its_count_is_refused(monkeypatch):
-    from app import crs_comments, crs_completeness as cc
+    from app import crs_comments
+    from app import crs_completeness as cc
 
     doc, rc, ai, client = world_with_both()
     real = crs_comments.group
@@ -981,3 +982,13 @@ def test_a_line_stored_cut_before_the_file_refuses_both_files_and_names_it():
     for copy in ("team", "contractor"):
         rep = got[copy][1]
         assert not rep["ok"] and any("R-8 was stored cut before this file" in m for m in rep["missing"])
+
+
+def test_a_text_dropped_entirely_refuses_the_file(monkeypatch):
+    """Order 14, review of PR #1890: rows that held only their kind passed on counts alone; the dropped-text check is wired in."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    monkeypatch.setattr(cc, "words_dropped", lambda rows, by_no: ["row 1: the words of the AI line G-007 are not in the file"])
+    rep = cc.checked_files(doc, scope_all())["team"][1]
+    assert not rep["ok"] and "row 1: the words of the AI line G-007 are not in the file" in rep["missing"]
