@@ -293,25 +293,46 @@ def _would_ask_to_state(line: Mapping, quote: str, labels) -> bool:
     words, already the engineer's check) keeps its own row."""
     if not quote:
         return not unverified_quote(line)
-    return not quote_defers(quote) and not quote_is_placeholder(quote, labels) and whole_label(quote, labels)
+    return (
+        not quote_defers(quote)
+        and not quote_is_placeholder(quote, labels)
+        and whole_label(quote, labels)
+    )
 
 
 def _field_key(line: Mapping) -> str:
     """The field a line is about: its rule's approved label field, else the paper's label it names (folded)."""
-    label = (line.get("rule_label") or {}).get("field") if isinstance(line.get("rule_label"), Mapping) else None
+    label = (
+        (line.get("rule_label") or {}).get("field")
+        if isinstance(line.get("rule_label"), Mapping)
+        else None
+    )
     text = label or line.get("field") or ""
     return " ".join(re.findall(r"[a-z0-9]+", str(text).replace("_", " ").lower()))
 
 
 def _labels_of(line: Mapping) -> list[str]:
     rule = line.get("rule_label") if isinstance(line.get("rule_label"), Mapping) else {}
-    return [x for x in (line.get("field"), (rule or {}).get("field"), *(line.get("field_roles") or [])) if x]
+    return [
+        x
+        for x in (
+            line.get("field"),
+            (rule or {}).get("field"),
+            *(line.get("field_roles") or []),
+        )
+        if x
+    ]
 
 
 def holds_a_value(quote: str, labels) -> bool:
     """The quote is more than the field's label and is no placeholder or deferral: it can hold the value."""
     q = " ".join(str(quote or "").split())
-    return bool(q) and not whole_label(q, labels) and not quote_is_placeholder(q, labels) and not quote_defers(q)
+    return (
+        bool(q)
+        and not whole_label(q, labels)
+        and not quote_is_placeholder(q, labels)
+        and not quote_defers(q)
+    )
 
 
 def _from_lines(line: Mapping, siblings: list[Mapping]) -> dict | None:
@@ -319,7 +340,12 @@ def _from_lines(line: Mapping, siblings: list[Mapping]) -> dict | None:
     record not "not stated", its quote verified on the page and holding a value. None when there is none."""
     labels = _labels_of(line)
     for other in siblings:
-        if other is line or str(other.get("ai_verdict") or other.get("verdict")) not in ("Pass", "Fail") or says_silent(other):
+        if (
+            other is line
+            or str(other.get("ai_verdict") or other.get("verdict"))
+            not in ("Pass", "Fail")
+            or says_silent(other)
+        ):
             continue
         quote = verified_quote(other)
         if holds_a_value(quote, [*labels, *_labels_of(other)]):
@@ -332,11 +358,22 @@ def _from_reading(line: Mapping, facts: list[Mapping]) -> dict | None:
     (`whole_label`), with a value that is no placeholder and whose value and label code found on its page."""
     labels = _labels_of(line)
     for f in facts:
-        label, value = str(f.get("field_label") or ""), " ".join(str(f.get("field_value") or "").split())
-        if f.get("is_blank") or not whole_label(label, labels) or not holds_a_value(value, labels):
+        label, value = (
+            str(f.get("field_label") or ""),
+            " ".join(str(f.get("field_value") or "").split()),
+        )
+        if (
+            f.get("is_blank")
+            or not whole_label(label, labels)
+            or not holds_a_value(value, labels)
+        ):
             continue
         if f.get("on_page"):
-            return {"quote": f"{label.rstrip(' :')}: {value}", "page": f.get("page"), "from": FROM_READING}
+            return {
+                "quote": f"{label.rstrip(' :')}: {value}",
+                "page": f.get("page"),
+                "from": FROM_READING,
+            }
     return None
 
 
@@ -381,10 +418,20 @@ def paper_reading(paper_id: str | None) -> list[dict]:
 
     def on(text: object, page: object) -> bool:
         words = " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
-        return bool(words) and isinstance(page, int) and f" {words} " in f" {pages.get(page, '')} "
+        return (
+            bool(words)
+            and isinstance(page, int)
+            and f" {words} " in f" {pages.get(page, '')} "
+        )
 
     return [
-        {"field_label": r[0], "field_value": r[1], "page": r[2], "is_blank": r[3], "on_page": on(r[1], r[2]) and on(r[0], r[2])}
+        {
+            "field_label": r[0],
+            "field_value": r[1],
+            "page": r[2],
+            "is_blank": r[3],
+            "on_page": on(r[1], r[2]) and on(r[0], r[2]),
+        }
         for r in rows
     ]
 
@@ -471,10 +518,21 @@ def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | No
     from .agent_review_crs import field_words
 
     quote, name = verified_quote(line), what or field_words(line)
-    labels = (line.get("field_label_ai"), line.get("field"), *(line.get("field_roles") or []))
+    labels = (
+        line.get("field_label_ai"),
+        line.get("field"),
+        *(line.get("field_roles") or []),
+    )
     stated = line.get(STATED_KEY)
-    if stated and says_silent(line) and not proven(line) and _would_ask_to_state(line, quote, [name, *labels]):
-        return stated_row_words(name, stated, where)  # order 14 LPV V2: never ask for a value the paper states
+    if (
+        stated
+        and says_silent(line)
+        and not proven(line)
+        and _would_ask_to_state(line, quote, [name, *labels])
+    ):
+        return stated_row_words(
+            name, stated, where
+        )  # order 14 LPV V2: never ask for a value the paper states
     if not quote or not says_silent(line) or quote_defers(quote) or proven(line):
         return None
     agreed = two.absence_agrees(line)
