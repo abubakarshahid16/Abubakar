@@ -108,6 +108,10 @@ def _drafts_text(cm, group: list[dict]) -> tuple[str, str]:
     return numbered, note
 
 
+#: LPH: the never-printed row key that carries the stored state of the finding a draft row stands on (`crs_normal.settled` reads it).
+STORED_STATE = "stored_state"
+
+
 def row_extras(finding: dict) -> dict:
     """What a row built from this finding adds: every finding it stands on
     (a decision on the row decides all of them, #986) and the keys its drafts
@@ -117,4 +121,6 @@ def row_extras(finding: dict) -> dict:
         "member_keys": finding.get("crs_member_keys") or [],
         # Never printed: the screen shows it as the row's action line.
         "crs_action": finding.get("crs_differ") or None,
+        # Never printed (LPH): the finding's stored state; `crs_normal.crs_status` reads it so a line the AI did not settle is a question
+        STORED_STATE: finding.get("compliance_status") or None,
     }

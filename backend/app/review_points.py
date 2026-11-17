@@ -78,9 +78,9 @@ _RANK_OF_AI_ORDER = {
     words.ORDER_PASS: 7,
 }
 #: The rule check's CRS Status -> rank (it never writes the two-reader class).
+#: LPH (owner, 17 Nov 2026): no rule-check Status reads as an AI "not met" (rank 3); an AI opinion, were one ever written, is a question.
 _RANK_OF_RC_STATUS = {
     words.STATUS_FAIL: 1,
-    words.STATUS_AI: 3,
     words.STATUS_QUERY: 4,
     words.STATUS_PASS: 7,
 }
@@ -574,7 +574,10 @@ def rule_point(
     )
 
     kind = row.get("row_kind")
-    status = crs_normal.crs_status(kind, row.get("priority"))
+    # LPH: a row the AI did not settle (no verdict in its stored finding) is a question
+    status = crs_normal.crs_status(
+        kind, row.get("priority"), row.get(crs_normal.STORED_STATE)
+    )
     rank = _RANK_OF_RC_STATUS.get(status, 4)
     other_kind = None
     if kind in (ROW_KIND_PAGES_NOT_READABLE, ROW_KIND_PAGE_READER_ONLY):
@@ -655,7 +658,8 @@ def rule_point(
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
             action, action_source = f"{missing_words}. {BOOK_NOT_CHECKABLE}; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
-    elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
+    # LPH: by kind, not by rank (the rule check's AI rows are never rank 3 now); its AI-written rule words are never shown as the book's
+    elif kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
         # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
         # finding names no clause is a question for the engineer, never a verdict (decided on the stored finding: the same for every viewer).
         # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
