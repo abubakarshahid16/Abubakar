@@ -91,16 +91,30 @@ def _other_quote(ln: Mapping) -> Mapping | None:
 
 
 def _verified(ln: Mapping, q: Mapping | None) -> Mapping | None:
-    """A quote the CRS comment may print: present AND checked by code (`quotes_verified_by_code` is exactly True) AND a full
-    sentence (`quote_sentence`, LPC C4: "(herein referred" or "4." is on the page but is no evidence)."""
+    """A quote the CRS comment may print: present AND checked by code (`quotes_verified_by_code` is exactly True) AND evidence
+    (`quote_sentence.is_evidence`, LPC C4: "(herein referred" or "4." is on the page but is no evidence)."""
     from . import quote_sentence
 
     ok = (
         ln.get("quotes_verified_by_code") is True
         and q
-        and quote_sentence.is_full_sentence(q.get("text"))
+        and quote_sentence.is_evidence(q.get("text"))
     )
     return q if ok else None
+
+
+def _no_quote(ln: Mapping, q: Mapping | None = None, default: str = "") -> str:
+    """For a quote code verified that is no evidence, the mark with the paper's words and page beside it (LPC C4: completeness, the
+    words are never dropped); else `default` (`NO_QUOTE` for the paper's own quote)."""
+    from . import quote_sentence
+
+    q = _paper_quote(ln) if q is None else q
+    if ln.get("quotes_verified_by_code") is not True or not q or not _c(q.get("text")):
+        return default
+    page = q.get("page")
+    return quote_sentence.refused_words(q.get("text")).rstrip(".") + (
+        f" (page {page})." if page not in (None, "") else "."
+    )
 
 
 def _page_text(ln: Mapping) -> str | None:
@@ -159,7 +173,11 @@ def _paper_shows(ln: Mapping, status: str) -> str:
     never enter the comment (they are on the Evidence sheet); an AI note says, in one fixed sentence, that it is the AI's view."""
     text, page = _quote(_verified(ln, _paper_quote(ln)))
     where = f", page {page}" if page not in (None, "") else ""
-    out = f'The paper states "{text}"{where}.' if text else NO_QUOTE
+    out = (
+        f'The paper states "{text}"{where}.'
+        if text
+        else _no_quote(ln, default=NO_QUOTE)
+    )
     b_text, b_page = (
         _quote(_verified(ln, _other_quote(ln))) if ln["part"] == 3 else ("", None)
     )
@@ -169,6 +187,8 @@ def _paper_shows(ln: Mapping, status: str) -> str:
             + (f", page {b_page}" if b_page not in (None, "") else "")
             + "."
         )
+    elif ln["part"] == 3 and (refused := _no_quote(ln, _other_quote(ln))):
+        out += f" Its other passage: {refused}"
     if status == words.STATUS_AI:
         out += f" {AI_VIEW}"
     if ln.get("figures"):

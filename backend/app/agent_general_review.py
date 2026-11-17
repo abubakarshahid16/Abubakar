@@ -439,7 +439,7 @@ def books_of(conn: sqlite3.Connection, paper: str, kind: str) -> dict:
                     "why": b.get("why") or "cited by the paper",
                 }
             )
-    not_held = _not_held_parts(conn, paper, not_held)
+    not_held = _not_held_parts(conn, paper, not_held, kind)
     fit, not_fit = {}, {}
     for doc_id, name in held.items():
         has = (
@@ -472,19 +472,23 @@ def blank_lines(paper: str, kind: str | None, pages: Mapping[int, str]) -> list[
 
 
 def _not_held_parts(
-    conn: sqlite3.Connection, paper: str, not_held: list[dict]
+    conn: sqlite3.Connection, paper: str, not_held: list[dict], kind: str | None = None
 ) -> list[dict]:
-    """LPC (C2, P2): a cited name that is the paper's own part or a held part of its contract package is never a book not held; a
-    labelled part not held is named by its label (`contract_package`, the one home of that decision)."""
+    """LPC (C2, P2, lead item 1): a cited name that is the paper's own part or a held part of its contract package is never a book
+    not held; a labelled part not held is named by its label; a contract lists EVERY labelled part it cites that is not held
+    (`contract_package.PaperParts.not_held_list`, the one home of that list)."""
     from . import contract_package
 
     parts = contract_package.PaperParts(conn, paper)
-    out: list[dict] = []
-    for b in not_held:
-        name = parts.not_held_name(b["rule_book"])
-        if name and all(x["rule_book"] != name for x in out):
-            out.append({**b, "rule_book": name})
-    return out
+    why = {parts.not_held_name(b["rule_book"]): b.get("why") for b in not_held}
+    return [
+        {
+            "rule_book": n,
+            "why": why.get(n)
+            or "cited by the paper: a part of the contract that is not held",
+        }
+        for n in parts.not_held_list(conn, [b["rule_book"] for b in not_held], kind)
+    ]
 
 
 def decide_mode(

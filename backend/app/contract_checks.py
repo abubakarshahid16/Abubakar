@@ -869,13 +869,15 @@ def run_all(
 # signing", with its page (LPC, 17 Nov 2026).
 
 BLANK_TOPIC = "blank to be filled before signing"
+#: A blank: a run of underscores, a run of dots or ellipses, a bracketed "insert ..." (an empty "[ ]" is a tick box, not a blank).
 _BLANK = re.compile(
-    r"_{4,}|(?:[.\u2026]\s?){5,}|\[\s*\]|\[\s*(?:insert|enter|fill\s+in|state|specify)\b[^\]]{0,60}\]",
+    r"_{4,}|(?:[.\u2026]\s?){5,}|\[\s*(?:insert|enter|fill\s+in|state|specify)\b[^\]]{1,60}\]",
     re.I,
 )
-_LEADER_END = re.compile(
-    r"^\s*\d{1,4}\s*$"
-)  # a contents leader: dots, then a page number at the line's end
+#: A page number: digits, a roman numeral or "Page N" alone; after a run of dots (on its line or the next) it makes a contents leader.
+_PAGE_NO = re.compile(r"^\s*(?:page\s+)?(?:\d{1,4}|[ivxlc]{1,7})\s*$", re.I)
+_LETTER = re.compile(r"[^\W\d_]")
+FULL_WIDTH = 50  # characters: a rule line this long with no label on it is drawn across the page (a separator)
 _BLANK_KINDS = (
     (
         "date",
@@ -916,9 +918,19 @@ def blanks(pages: Pages) -> dict[int, list[tuple[str, str]]]:
     lines = lines_of(pages)
     for i, (page, line) in enumerate(lines):
         above = lines[i - 1][1] if i and lines[i - 1][0] == page else ""
+        if len(line.replace(" ", "")) >= FULL_WIDTH and not _LETTER.search(
+            _BLANK.sub(" ", line)
+        ):
+            continue  # a rule line drawn across the page with no label on its line: a separator, not a blank
+        below = (
+            lines[i + 1][1] if i + 1 < len(lines) and lines[i + 1][0] == page else ""
+        )
         for m in _BLANK.finditer(line):
-            if m.group(0)[0] in ".\u2026" and _LEADER_END.match(line[m.end() :]):
-                continue  # a contents leader, not a blank
+            if m.group(0)[0] in ".\u2026" and (
+                _PAGE_NO.match(line[m.end() :])
+                or (not line[m.end() :].strip() and _PAGE_NO.match(below))
+            ):
+                continue  # a contents leader (its page number on the line or the next), not a blank
             out.setdefault(page, []).append((blank_kind(line, above), line))
     return out
 

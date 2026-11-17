@@ -1186,14 +1186,16 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
-    # LPC: never the paper's own part (the paper is read only when a book is listed)
-    if held:
+    # LPC: never the paper's own part; a contract lists every labelled part it cites that is not held (`not_held_list`)
+    kind = conn.execute(
+        "SELECT paper_kind FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    kind = kind[0] if kind else None
+    if held or str(kind or "").lower() == "contract":
         parts = paper_parts(
             {"paper_document_id": paper_document_id, "readable": readable}
         )
-        held = list(
-            dict.fromkeys(n for n in (parts.not_held_name(x) for x in held) if n)
-        )
+        held = parts.not_held_list(conn, held, kind)
     lines = words.read_now(
         stored, [{"rule_book": n} for n in held]
     )  # the one reading of every CRS (order 14)

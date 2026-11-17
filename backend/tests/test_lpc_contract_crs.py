@@ -29,26 +29,31 @@ from app import (
     review_points_service,
 )
 from tests.test_b1_review_engine import _doc, open_facts
-from tests.test_p3_review_jobs import temp_storage, world  # noqa: F401 - fixtures
+from tests.test_p3_review_jobs import (  # noqa: F401 - fixtures
+    _user,
+    temp_storage,
+    world,
+)
 
 NUMBER = "QX-7781-ZZ"  # invented
 OTHER_NUMBER = "QX-9999-YY"  # invented: another package
 AGREEMENT = [
-    (1, f"Invented Works Programme     AGREEMENT No. {NUMBER}\nForm of Agreement\nPage 1 of 3\nRev 04\n"
+    (1, f"Invented Works Programme     CONTRACT No. {NUMBER}\nForm of Agreement\nPage 1 of 3\nRev 04\n"
         "1.\nPARTIES\nThis Agreement is made on ______ day of ________, 2031.\n"
+        "1.1\nThe parties to this Agreement are named on this page.\n"
         'SCHEDULE "P"  Price and Payment\nSCHEDULE "Q"\nTaxes and Duties\n'),
-    (2, f"Invented Works Programme     AGREEMENT No. {NUMBER}\n2.\nWORK START AND TIME FOR FINISHING\n"
+    (2, f"Invented Works Programme     CONTRACT No. {NUMBER}\n2.\nWORK START AND TIME FOR FINISHING\n"
         "The Builder shall start the work on the date stated in Schedule P.\n"
         "The Agreement Papers listed in Sub-Article 1.1 of this Agreement form the whole agreement.\n"
         "3.\nPAYMENT\nThe Owner shall pay the sum of ____________ Dollars (USD ..........) as set out in SCHEDULE P.\n"
         "Contents of the schedules ..................... 12\n"),
-    (3, f"Invented Works Programme     AGREEMENT No. {NUMBER}\nSignature: ____________\nName: ____________\n"),
+    (3, f"Invented Works Programme     CONTRACT No. {NUMBER}\nSignature: ____________\nName: ____________\n"),
 ]  # fmt: skip
-SCHEDULE_P = [(1, f"Invented Works Programme     AGREEMENT No. {NUMBER}\nSCHEDULE “P” - Price and Payment\nPage 1 of 2\n"
+SCHEDULE_P = [(1, f"Invented Works Programme     CONTRACT No. {NUMBER}\nSCHEDULE “P” - Price and Payment\nPage 1 of 2\n"
                   "The Owner shall pay the price in the stages set out below for the whole of the work.\n")]  # fmt: skip
-ATTACHMENT_P = [(1, f"Invented Works Programme     AGREEMENT No. {NUMBER}\nSCHEDULE “P” - Attachment I - Rate Sheet\n"
+ATTACHMENT_P = [(1, f"Invented Works Programme     CONTRACT No. {NUMBER}\nSCHEDULE “P” - Attachment I - Rate Sheet\n"
                     "The rates below apply to all work ordered under the agreement and its schedules.\n")]  # fmt: skip
-FOREIGN_P = [(1, f"Another Invented Programme     AGREEMENT No. {OTHER_NUMBER}\nSCHEDULE “P” - Price\n"
+FOREIGN_P = [(1, f"Another Invented Programme     CONTRACT No. {OTHER_NUMBER}\nSCHEDULE “P” - Price\n"
                  "The Owner shall pay the price of this other agreement in four stages as set out below.\n")]  # fmt: skip
 
 
@@ -80,7 +85,7 @@ def test_the_cover_gives_the_labelled_number_and_the_revision_never_a_page_count
     cover = contract_package.cover_id(AGREEMENT)
     assert (cover.number, cover.number_label, cover.number_page, cover.revision) == (
         NUMBER,
-        "AGREEMENT No.",
+        "CONTRACT No.",
         1,
         "04",
     )
@@ -98,7 +103,7 @@ def test_sheet_one_says_the_cover_number_or_not_found_on_the_cover(package):
         conn, package["agreement"], {"document_number": "", "revision": ""}
     )
     assert (
-        head["document_number"] == f"{NUMBER} (AGREEMENT No.)"
+        head["document_number"] == f"{NUMBER} (CONTRACT No.)"
         and head["revision"] == "04"
     )
     _paper("bare_1", [(1, "An invented memo with no number on its cover.\n")], n=85)
@@ -356,49 +361,91 @@ def test_the_general_review_adds_the_blank_rows_before_any_model_part(monkeypatc
         ("4.", False),
         ("", False),
         ("______________________", False),
-        (
-            "(USD .......) as set out in Schedule P and referred to as the Price.",
-            False,
-        ),  # opens with a bracket
-        (
-            "certificate and a valid invoice by the Builder of the works.",
-            False,
-        ),  # starts inside a sentence, no verb
+        ("(USD .......) as set out in Schedule P and referred to as the Price.", False),  # opens with a bracket
+        ("certificate and a valid invoice by the Builder of the works.", False),  # starts inside a sentence
+        ("The Builder shall start the work on the date stated in the", False),  # stops on a word that needs more
+        ("The Owner shall pay the sum (herein called", False),  # stops inside an open bracket
         ("The Owner shall pay the price in four stages.", True),
         ("The Builder started the work on the first day.", True),
+        ("Retention 10% of the price", True),  # a one-line clause that states a value
     ],
-)
-def test_a_quote_is_evidence_only_when_it_is_a_full_sentence(text, ok):
-    assert quote_sentence.is_full_sentence(text) is ok
+)  # fmt: skip
+def test_a_quote_is_evidence_only_when_it_is_a_full_sentence_or_a_value_clause(
+    text, ok
+):
+    assert quote_sentence.is_evidence(text) is ok
 
 
-def test_on_a_general_paper_a_fragment_quote_becomes_no_quote_and_a_datasheet_is_untouched():
-    frag = {
-        "paper_quote": "(herein called",
-        "paper_quote_note": "x",
-        "paper_value": None,
-    }
-    whole = {
-        "paper_quote": "The Owner shall pay the price in four stages.",
+def _general_point(quote):
+    return {
+        "source": review_points.SOURCE_AI_REVIEW,
+        "_line": {"general": True},
+        "paper_quote": quote,
         "paper_quote_note": "x",
     }
-    review_points_service.sentence_quotes([frag, whole], "contract")
+
+
+def test_on_a_general_paper_a_fragment_keeps_its_words_beside_the_mark_and_no_compared_value_is_touched():
+    frag, whole = (
+        _general_point("(herein called"),
+        _general_point("The Owner shall pay the price in four stages."),
+    )
+    compared = {"source": review_points.SOURCE_RULE_CHECK, "_row": {"row_kind": "datasheet_check"}, "paper_quote": "95",
+                "paper_quote_note": "x"}  # fmt: skip
+    drafted = {"source": review_points.SOURCE_RULE_CHECK, "_row": {"row_kind": "ai_engineering_check"}, "paper_quote": "4.",
+               "paper_quote_note": "x"}  # fmt: skip
+    review_points_service.sentence_quotes([frag, whole, compared, drafted], "contract")
+    assert frag["paper_quote"] is None and frag["paper_quote_refused"]
     assert (
-        frag["paper_quote"] is None
-        and frag["paper_quote_note"] == quote_sentence.NO_SENTENCE
-        and frag["paper_quote_refused"]
+        frag["paper_quote_note"]
+        == 'No quote: the paper\'s words "(herein called" are not a full sentence.'
     )
     assert whole["paper_quote"] == "The Owner shall pay the price in four stages."
-    cell = {"paper_quote": "50 m3/h", "paper_quote_note": "x"}
+    assert (
+        compared["paper_quote"] == "95"
+    )  # a value code compared keeps its paper value
+    # a rule-check row's quote (here the AI engineering check's) is never read by this test (lead decision on PR #1881)
+    assert drafted["paper_quote"] == "4."
+    cell = _general_point("50 m3")
     review_points_service.sentence_quotes([cell], "datasheet")
-    assert cell["paper_quote"] == "50 m3/h"
+    assert cell["paper_quote"] == "50 m3"
 
 
-def test_the_general_reviews_own_file_prints_no_fragment_as_what_the_paper_states():
+def test_the_page_and_the_one_crs_run_the_sentence_test_on_the_assembled_points(
+    package, monkeypatch
+):
+    from app import access
+
+    frag = {
+        **_general_point("(herein called"),
+        "id": "ai:r:G-001",
+        "rank": 4,
+        "tile": "question",
+        "name": "a point",
+    }
+    monkeypatch.setattr(review_points_service, "runs_of_paper", lambda *a: (None, "r"))
+    monkeypatch.setattr(review_points, "ai_points_of_run", lambda *a: ([frag], []))
+    monkeypatch.setattr(review_points_service, "_paper_kind", lambda *a: "contract")
+    monkeypatch.setattr(
+        review_points_service.settings, "ai_review_calculator_enabled", False
+    )
+    try:
+        review_points_service._assemble(
+            package["agreement"], access.unrestricted_scope()
+        )
+    except Exception:  # noqa: BLE001 - later steps of the listing need a real run; the point was already decided in place
+        pass
+    assert frag["paper_quote"] is None and frag["paper_quote_refused"]
+
+
+def test_the_general_reviews_own_file_prints_no_fragment_as_evidence_but_keeps_its_words():
     line = {"part": 5, "verdict_class": agent_general_review.CLASS_NOTE, "subkind": agent_general_review.SUB_ENGINEERING,
             "text": "an invented note", "quotes_verified_by_code": True, "quote_a": {"text": "4.", "page": 2}}  # fmt: skip
     shows = agent_general_crs.comment_of(line, crs_ai_words.STATUS_AI).split("\n")[1]
-    assert '"4."' not in shows and shows.startswith(agent_general_crs.NO_QUOTE)
+    assert not shows.startswith("The paper states")
+    assert shows.startswith(
+        'No quote: the paper\'s words "4." are not a full sentence (page 2).'
+    )
 
 
 def test_classification_role_is_what_marks_a_contract_for_the_package(package):
@@ -412,3 +459,125 @@ def test_classification_role_is_what_marks_a_contract_for_the_package(package):
     assert got == {
         package["sched_p"]
     }  # a specification of the same number is not a contract paper of the package
+
+
+# --------------------------------------------------------------------------------------------- lead review items 1, 2, 3, 5, 6, 7
+
+
+def test_every_labelled_part_the_contract_cites_is_listed_held_or_not_held(package):
+    conn = db.connect()
+    assert contract_package.cited_parts(conn, package["agreement"]) == {
+        "held": ["Schedule P"],
+        "not_held": ["Schedule Q"],
+    }
+    parts = contract_package.PaperParts(conn, package["agreement"], package["all"])
+    assert parts.not_held_list(conn, ["Time for finishing"], "contract") == [
+        "Schedule Q"
+    ]  # cited by no row, still listed
+    assert parts.not_held_list(conn, [], "procedure") == []
+    got = agent_general_review._not_held_parts(
+        conn, package["agreement"], [], "contract"
+    )
+    assert [b["rule_book"] for b in got] == ["Schedule Q"]
+
+
+def test_a_spaced_cover_number_is_read_whole_and_two_packages_sharing_its_first_group_are_apart(
+    temp_storage,  # noqa: F811
+):
+    first = [
+        (
+            1,
+            "Invented Works     Contract No. 6601 000111\nThe Owner shall pay the price.\n",
+        )
+    ]
+    second = [
+        (
+            1,
+            "Invented Works     Contract No. 6601 000222\nThe Owner shall pay the price.\n",
+        )
+    ]
+    assert contract_package.cover_id(first).number == "6601 000111"
+    _paper("sp_1", first, n=91)
+    _paper("sp_2", second, n=92)
+    assert contract_package.package_papers(db.connect(), "sp_1", {"sp_1", "sp_2"}) == []
+
+
+def test_only_a_document_or_contract_number_and_a_revision_value_are_read_from_the_cover():
+    other = contract_package.cover_id(
+        [(1, "Purchase Order No. PO-4411\nDrawing No. DW-7781\nRevision a\n")]
+    )
+    assert other.number is None and other.revision is None
+    doc = contract_package.cover_id(
+        [(1, "Drawing No. DW-7781\nDoc. No. QX-1-22\nRev. B\n")]
+    )
+    assert (doc.number, doc.revision) == ("QX-1-22", "B")
+
+
+def test_an_entry_of_the_papers_reference_list_is_never_its_own_part():
+    pages = [(1, "1.\nSCOPE\nThis procedure covers the testing of the invented pumps on site.\n"
+                 "2.\nREFERENCES\n2.1 Site Test Handbook\n2.2 Pump Care Guide\n"
+                 "3.\nTESTING\nThe tester shall run the pump for one hour at full load.\n")]  # fmt: skip
+    assert (
+        contract_package.resolve_name("Site Test Handbook", pages).kind
+        == contract_package.BOOK
+    )
+    assert contract_package.resolve_name("Testing", pages).kind == contract_package.OWN
+    placed = [
+        (
+            1,
+            "1.\nSCOPE\nThe Site Manual set out in Clause 9 of this procedure applies to the testers.\n",
+        )
+    ]
+    assert (
+        contract_package.resolve_name("Site Manual", placed).kind
+        == contract_package.BOOK
+    )  # Clause 9 is not in the paper
+
+
+def test_separators_contents_leaders_and_tick_boxes_are_not_blanks():
+    pages = [(1, "1.\nTERMS\n" + "_" * 70 + "\nContents of the schedules ......................\n12\n"
+                 "Annex list ........ iv\nPrice terms ........ Page 3\nAccepted [ ] Refused [ ]\nName: ________\n")]  # fmt: skip
+    found = contract_checks.blanks(pages)
+    assert [k for k, _l in found[1]] == ["signature"]
+
+
+def test_the_start_stores_the_plans_package_papers_with_the_run(package, monkeypatch):
+    from app import review_engine_start
+
+    monkeypatch.setattr(
+        review_engine,
+        "read_facts",
+        lambda *a, **k: (open_facts(kind="contract", is_contract=True), None),
+    )
+    plan = review_engine.plan_for(
+        db.connect(), package["agreement"], package["all"], "claude"
+    )
+    shown = tuple(d["id"] for d in plan["documents"]["leaving"])
+    _user("adm", list(package["all"]), admin=True)
+    run_id, stored = review_engine_start.start(
+        package["agreement"], package["all"], "adm", "claude", shown_document_ids=shown
+    )
+    assert stored["project_document_ids"] == [package["sched_p"]]
+    row = (
+        db.connect()
+        .execute(
+            "SELECT plan_json FROM review_engine_choice WHERE run_id = ?", (run_id,)
+        )
+        .fetchone()
+    )
+    assert package["sched_p"] in row[0]
+
+
+def test_automatic_lists_no_package_paper_as_leaving(package, monkeypatch):
+    monkeypatch.setattr(
+        review_engine,
+        "read_facts",
+        lambda *a, **k: (open_facts(kind="contract", is_contract=True), None),
+    )
+    plan = review_engine.plan_for(
+        db.connect(), package["agreement"], package["all"], "automatic"
+    )
+    leaving = {d["id"] for d in plan["documents"]["leaving"]}
+    assert (
+        package["sched_p"] not in leaving and package["agreement"] not in leaving
+    )  # Automatic never sends a contract

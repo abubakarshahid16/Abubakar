@@ -34,15 +34,17 @@ Pages = list[tuple[int, str]]
 
 COVER_PAGES = 2  # the cover and the title page
 COVER_LINES = 12  # the top lines of each cover page that are read
-#: A labelled number: the label words, then a token of letters, digits and joiners that holds at least one digit.
+#: A labelled number: a DOCUMENT or CONTRACT number label (never a purchase order, drawing or project number: those name another
+#: paper), then a token of letters, digits and joiners that holds a digit; further groups joined by one space are the same number
+#: when each holds a digit ("6600 045321").
 _NUMBER = re.compile(
-    r"\b(?P<label>(?:contract|document|doc|agreement|purchase\s+order|drawing|dwg)\.?\s*(?:no\b\.?|number\b|nr\b\.?|#))\s*[:.]?\s*"
-    r"(?P<number>(?=[A-Z0-9./_-]*\d)[A-Z0-9][A-Z0-9./_-]{2,40})(?![A-Za-z0-9])",
-    re.I,
+    r"\b(?P<label>(?i:contract|document|doc)\.?\s*(?i:no\b\.?|number\b|nr\b\.?|#))\s*[:.]?\s*"
+    r"(?P<number>(?=[A-Za-z0-9./_-]*\d)[A-Za-z0-9][A-Za-z0-9./_-]{2,40}"
+    r"(?:[ ](?=[A-Za-z0-9./_-]*\d)[A-Za-z0-9][A-Za-z0-9./_-]{0,40})*)(?![A-Za-z0-9])",
 )
+#: A revision: the word, then a revision VALUE (digits, an upper-case letter, or a letter and digits), never a word ("Revision a").
 _REVISION = re.compile(
-    r"\b(?:rev|revision)\b\.?\s*(?:no\b\.?)?\s*[:.]?\s*(?P<rev>[A-Z]?\d{1,3}[A-Z]?|[A-Z])(?![A-Za-z0-9])",
-    re.I,
+    r"(?i:\b(?:rev|revision)\b)\.?\s*(?i:no\b\.?)?\s*[:.]?\s*(?P<rev>[A-Z]?\d{1,3}[A-Z]?|[A-Z])(?![A-Za-z0-9])",
 )
 HEADING_WORDS = 12  # a heading is a short line
 _LEAD_NUMBER = re.compile(
@@ -56,7 +58,7 @@ _NUMBER_ONLY = re.compile(
 #: hereof". "referred to in" is not a place: an article that mentions a book does not hold it.
 _SELF_PLACE = re.compile(
     r"^\W{0,3}(?:as\s+)?(?:listed|set\s+out|set\s+forth|defined|described|stated|specified|contained|given)\s+(?:in|under)\s+"
-    r"(?:sub-?)?(?:article|clause|section|paragraph)\s+\d+(?:\.\d+)*[a-z]?"
+    r"(?:sub-?)?(?:article|clause|section|paragraph)\s+(?P<article>\d+(?:\.\d+)*)[a-z]?"
     r"\s*(?:of\s+this\b|hereof\b|herein\b|above\b|below\b)",
     re.I,
 )
@@ -218,32 +220,77 @@ def _is_heading(line: str, before: str) -> bool:
     )
 
 
+#: A heading that opens the paper's list of references (its entries name OTHER papers, never the paper's own parts).
+_REFERENCE_HEADING = re.compile(
+    r"\b(?:references?|bibliography|applicable\s+(?:documents|codes|standards|specifications)|codes\s+and\s+standards"
+    r"|reference\s+documents|related\s+documents|referenced\s+documents)\b",
+    re.I,
+)
+BODY_LOOKAHEAD, BODY_WORDS = (
+    6,
+    6,
+)  # a heading of the body is followed, before the next heading, by a sentence of its own
+
+
+def body_lines(pages: Pages) -> list[tuple[int, str, bool, bool]]:
+    """(page, line, is a heading of the paper's BODY, stands in a list of references) for every line. A heading of the body is a
+    heading (`_is_heading`) followed by a sentence of its own, outside a list of references; a list of references runs from a
+    heading that names one ("REFERENCES", "APPLICABLE DOCUMENTS", "CODES AND STANDARDS") to the next heading of the body."""
+    lines = parts.lines_of(pages)
+    heads = [
+        _is_heading(ln, lines[i - 1][1] if i else "")
+        for i, (_p, ln) in enumerate(lines)
+    ]
+    out, in_refs = [], False
+    for i, (page, line) in enumerate(lines):
+        has_body = False
+        if heads[i]:
+            for j in range(i + 1, min(len(lines), i + 1 + BODY_LOOKAHEAD)):
+                if heads[j]:
+                    break
+                if len(re.findall(r"[^\W\d_]+", lines[j][1])) >= BODY_WORDS:
+                    has_body = True
+                    break
+            if _REFERENCE_HEADING.search(line):
+                in_refs = True
+            elif has_body:
+                in_refs = False
+        out.append((page, line, heads[i] and has_body and not in_refs, in_refs))
+    return out
+
+
 def own_heading_page(name: str, pages: Pages) -> int | None:
-    """The page of the paper's own heading that holds the name as a whole phrase, else None."""
+    """The page of a heading of the paper's BODY (`body_lines`) that holds the name as a whole phrase, else None. An entry of the
+    paper's list of references is never its own part (rule 4: a book not held is never dropped from the list)."""
     want = _fold(name)
     if len(want) < 4:
         return None
-    lines = parts.lines_of(pages)
-    for i, (page, line) in enumerate(lines):
-        before = lines[i - 1][1] if i else ""
-        if (
-            _is_heading(line, before)
-            and f" {want} " in f" {_fold(_LEAD_NUMBER.sub('', line))} "
-        ):
+    for page, line, body_heading, _refs in body_lines(pages):
+        if body_heading and f" {want} " in f" {_fold(_LEAD_NUMBER.sub('', line))} ":
             return page
     return None
 
 
 def self_placed_page(name: str, pages: Pages) -> int | None:
-    """The page on which the paper places the name in one of its own articles ("... listed in Sub-Article 1.1 of this ..."), else None."""
+    """The page on which the paper places the name in one of its OWN articles ("... listed in Sub-Article 1.1 of this ..."), when
+    that article starts a line of the paper's body and the name stands in no list of references; else None."""
     words = [re.escape(w) for w in _fold(name).split()]
     if not words or len("".join(words)) < 4:
         return None
     rx = re.compile(r"\b" + r"\W+".join(words) + r"\b", re.I)
+    marked = body_lines(pages)
+    if any(refs and rx.search(line) for _p, line, _h, refs in marked):
+        return None
+    starts = {
+        m.group(0).strip(" .")
+        for _p, line, _h, refs in marked
+        if not refs and (m := re.match(r"^\s*\d+(?:\.\d+)*\.?", line))
+    }
     for page, text in pages:
         flat = " ".join(str(text or "").split())
         for m in rx.finditer(flat):
-            if _SELF_PLACE.match(flat[m.end() : m.end() + SELF_NEAR]):
+            placed = _SELF_PLACE.match(flat[m.end() : m.end() + SELF_NEAR])
+            if placed and placed.group("article") in starts:
                 return page
     return None
 
@@ -332,6 +379,19 @@ class PaperParts:
         got = self.resolve(name)
         return "" if got.kind in (OWN, HELD) else got.name
 
+    def not_held_list(
+        self, conn: sqlite3.Connection, names: Iterable[str], kind: str | None
+    ) -> list[str]:
+        """THE list of names a review of this paper says it does not hold: each cited name as `not_held_name` says it (never the
+        paper's own part or a held part), then, for a contract, EVERY labelled part it cites that is not held (`cited_parts`), each
+        once, in that order."""
+        out = [n for n in (self.not_held_name(x) for x in names) if n]
+        if self.paper and str(kind or "").strip().lower() == "contract":
+            # could not read: the names the review cited stay, nothing is added
+            with contextlib.suppress(sqlite3.Error):
+                out += cited_parts(conn, self.paper)["not_held"]
+        return list(dict.fromkeys(out))
+
     def held_name(self, got: Resolution) -> str | None:
         """The held paper's file name, only when the caller may read it (rule 5); else None."""
         if got.kind != HELD or got.document_id not in self.readable:
@@ -399,3 +459,27 @@ def project_ids_for(
     room = max(0, general.MAX_PROJECT_PAPERS - len(chosen))
     facts.update(given=ok[:room], left_out=more + max(0, len(ok) - room))
     return chosen + tuple(facts["given"]), facts
+
+
+def cited_parts(conn: sqlite3.Connection, paper: str) -> dict[str, list[str]]:
+    """EVERY labelled part (schedule, annex, appendix, exhibit, attachment) the paper cites, by the CT-02 code part
+    (`contract_checks.check_attachments`, the one finder), against the held papers of its package: {"held": [names], "not_held":
+    [names]}. A part the text refers to without saying whose it is (CT-02's engineer question) is in neither list. Names are the
+    labels ("Schedule X"); held-ness does not depend on who reads (rule 5 decides only whether a held paper's NAME is shown)."""
+    pages = load_pages(conn, paper)
+    package = {
+        p["document_id"]: load_pages(conn, p["document_id"], COVER_PAGES)
+        for p in package_papers(conn, paper, _contract_ids(conn))
+    }
+    out: dict[str, list[str]] = {"held": [], "not_held": []}
+    for r in parts.check_attachments(pages, package):
+        if r.outcome == parts.CONSISTENT and str(r.value).startswith(
+            "present (held document"
+        ):
+            out["held"].append(r.topic)
+        elif r.outcome == parts.ENGINEER and r.value in (
+            "not held",
+            "not in the papers given",
+        ):
+            out["not_held"].append(r.topic)
+    return out

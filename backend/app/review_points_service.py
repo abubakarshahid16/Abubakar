@@ -600,23 +600,30 @@ def _paper_kind(conn, ai_run: str | None, paper_id: str) -> str | None:
 
 
 def sentence_quotes(points: list[dict], kind: str | None) -> None:
-    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), a quote is shown as evidence only when it is a full
-    sentence (`quote_sentence`, the one test); otherwise the point says it holds no quote. A datasheet's points are not touched (a
-    cell value is not a sentence). In place."""
+    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), an AI's quote is shown as evidence only when it passes
+    the one test (`quote_sentence.is_evidence`); otherwise the point says it holds no quote, with the paper's words beside the mark
+    (`quote_sentence.refused_words`). Only a general AI line's evidence quote: a rule-check row's quote (a value a check compared,
+    or a value the AI engineering check named) and every datasheet point are never touched. In place."""
     from . import agent_review_gate, quote_sentence
 
     if not agent_review_gate.general_kind_enabled(kind):
         return
     for p in points:
-        refused = False
-        for key in ("paper_quote", "paper_value"):
-            if p.get(key) and not quote_sentence.is_full_sentence(p[key]):
-                p[key], refused = None, True
-        if refused and not p.get("paper_quote"):
-            p["paper_quote_note"], p["paper_quote_refused"] = (
-                quote_sentence.NO_SENTENCE,
-                True,
-            )
+        q = p.get("paper_quote")
+        if q and _ai_evidence(p) and not quote_sentence.is_evidence(q):
+            p["paper_quote"], p["paper_quote_refused"] = None, True
+            p["paper_quote_note"] = quote_sentence.refused_words(q)
+
+
+def _ai_evidence(point: dict) -> bool:
+    """A point whose paper quote is a general AI line's evidence (never a rule-check row's quote: it may be the value a check
+    compared, which stays as the paper's value)."""
+    line = point.get("_line") or {}
+    return (
+        point.get("source") == rp.SOURCE_AI_REVIEW
+        and isinstance(line, dict)
+        and line.get("general") is True
+    )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:
