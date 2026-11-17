@@ -10,7 +10,12 @@ from __future__ import annotations
 import json
 import re
 
-from . import PROVISIONAL, PROVISIONAL_FAILS, PROVISIONAL_UNCHECKED
+from . import (
+    PAPER_COMPARE_PASSED,
+    PROVISIONAL,
+    PROVISIONAL_FAILS,
+    PROVISIONAL_UNCHECKED,
+)
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
@@ -462,11 +467,23 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "quote": quote if page is not None else "",
         "quote_unverified": quote if (quote and page is None) else "",
         "comment": str(j.get("comment") or "")[:400],
-        "code": "; ".join(notes),
+        "code": _code_note(notes, code_cmp),
         "numbers": nums,
         "code_compare": code_cmp,
         "deferred": deferred,
     }
+
+
+def _code_note(notes: list[str], code_cmp: dict | None) -> str:
+    """The line's code note: its notes joined; a PASSED compare of two paper values with the AI's operator is held back from the
+    comments (`PAPER_COMPARE_PASSED`; the comparison itself is kept in `code_compare`)."""
+    if (
+        isinstance(code_cmp, dict)
+        and code_cmp.get("op_from") == "the AI's answer"
+        and code_cmp.get("result") == "pass"
+    ):
+        return PAPER_COMPARE_PASSED
+    return "; ".join(notes)
 
 
 def _numbers(
