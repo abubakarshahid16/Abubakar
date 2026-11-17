@@ -308,3 +308,73 @@ def test_a_billed_failure_keeps_its_worst_case_in_the_run_meter(aim_db, monkeypa
         m.ask(step="aim_judge", model="claude-sonnet-5-5", system="", cached=None, prompt="invented prompt", carries=set(),
               max_tokens=1000)  # fmt: skip
     assert len(sent) == before
+
+
+# ---- the review's fix check: three small notes ----------------------------------------------------------------------------
+
+
+def test_an_unreadable_ledger_after_the_run_keeps_the_lines_and_stores_the_cost_as_not_read(
+    aim_db, monkeypatch
+):
+    from app import claude_spend
+
+    def broken():
+        raise OSError("invented: the ledger cannot be read")
+
+    monkeypatch.setattr(claude_spend, "run_spent", broken)
+    r = aim_review.run(aim_db, run_id="run_rev_l", paper_id=PAPER, allowed_books=frozenset({BOOK_A}), store=MemoryStore(),
+                       max_usd=5.0, model=E.FakeModel(kind="datasheet", subject_key="test_item"))  # fmt: skip
+    assert r.status == "done" and r.lines, "a paid run's lines are never lost"
+    assert r.usd is None  # null, rendered as nothing, never 0
+    assert any(c.get("code") == E.COST_NOT_READ for c in r.calls)
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Wall thickness of the test item: 12 mm *",
+        "Design temperature of the test item: 80 degC (*)",
+    ],
+)
+def test_a_value_followed_by_a_lone_star_is_deferred_by_code(quote):
+    d = S._decide(
+        _item(kind="presence"),
+        {"label": "Met", "quote": quote, "page": 1},
+        Paper("doc_s", {1: quote + "\n"}),
+        BOOKS,
+        "",
+    )
+    assert d["label"] == "Question" and d["deferred"] is True
+
+
+def test_a_star_glued_to_a_figure_or_a_word_is_not_taken_for_the_mark():
+    from app import blank_markers
+
+    assert not blank_markers.value_marked_by_star("Wall thickness: 12*")
+    assert not blank_markers.value_marked_by_star("*Note 3 applies to the wall")
+    assert not blank_markers.value_marked_by_star("Wall thickness: 12 mm")
+
+
+def test_a_line_whose_book_is_no_longer_held_shows_only_the_fixed_words(temp_db_world):
+    from app import aim_review_view
+    from tests import test_aim_sheet_rule as T
+
+    gone = T._line(
+        8,
+        "Question",
+        "Question",
+        standard="QX-GONE-707",
+        book_document_id="doc_inv_gone",
+        clause="7.7",
+    )
+    T.make_run(
+        "gen_run_gone", [*T.LINES, gone], created="2026-11-18T13:00:00Z", books=[T.BOOK]
+    )
+    body = (
+        T.client(T.PAPER, T.BOOK)
+        .get(f"/api/reviews/papers/{T.PAPER}/general?run_id=gen_run_gone")
+        .json()
+    )
+    text = json.dumps(body)
+    assert "doc_inv_gone" not in text and "QX-GONE-707" not in text
+    assert body["points"][-1]["standard"] == aim_review_view.HIDDEN_BOOK_WORDS

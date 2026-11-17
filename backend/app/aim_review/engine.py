@@ -359,6 +359,37 @@ def _stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
+#: The cost of a run whose ledger could not be read after it: shown as these words, never as 0.
+COST_NOT_READ = "cost not read: the spend ledger could not be read after the review"
+
+
+def _ledger_cost(run_id: str, calls: list[dict]) -> float | None:
+    """The run's cost from the ledger's own lines for it (review R1 N4). A ledger that cannot be read AFTER the run never loses
+    the judged lines (review fix check): None (null, rendered as nothing, never 0), and `calls` gets a line saying why. The
+    ledger's own caps bound the run whatever this says."""
+    from app import claude_spend
+
+    try:
+        with claude_spend.for_run(run_id):
+            return round(claude_spend.run_spent(), 6)
+    except Exception as exc:  # noqa: BLE001 - an unreadable ledger must not fail a paid run's lines
+        log.warning(
+            "general review %s: the spend ledger could not be read (%s)",
+            run_id,
+            type(exc).__name__,
+        )
+        calls.append(
+            {
+                "step": "ledger",
+                "model": "",
+                "usd": None,
+                "ok": False,
+                "code": COST_NOT_READ,
+            }
+        )
+        return None
+
+
 def run(
     conn,
     *,
@@ -405,8 +436,8 @@ def run(
     say(100, "counts")
     # THE COST IS THE LEDGER'S (review R1 N4; REVIEW.md: a paid run's cost is read from the ledger's lines, never from one stored
     # field): what this run's lines in `claude_spend` hold, an open hold at its worst case. The run's own meter only stops calls.
-    with claude_spend.for_run(str(run_id)):
-        ledger_usd = claude_spend.run_spent()
+    calls = [c.as_dict() for c in meter.calls]
+    ledger_usd = _ledger_cost(str(run_id), calls)
     return Result(
         status="stopped" if state.stop_reason else "done",
         stop_reason=state.stop_reason,
@@ -419,8 +450,8 @@ def run(
         unlisted_books=sorted(state.unlisted),
         unlisted_count=len(state.unlisted),
         lines=state.lines(),
-        calls=[c.as_dict() for c in meter.calls],
-        usd=round(ledger_usd, 6),
+        calls=calls,
+        usd=ledger_usd,
         seconds=round(time.time() - t0, 2),
     )
 

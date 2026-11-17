@@ -45,15 +45,15 @@ HIDDEN_BOOK_WORDS = "a rule book you may not open"
 
 
 def book_hidden(conn, row: dict, scope) -> bool:
-    """THE one decision "this line's rule book is hidden from this viewer" (rule 5; REVIEW.md: decide it in ONE function from a
-    RESOLVED document and the viewer's read set). True only when the line names a book id, that id is a held document, and the
-    viewer's read set does not hold it. No book id, a book that is not held, or no viewer (`scope` None: the app's own counting)
-    hides nothing."""
+    """THE one decision "this line's rule book is hidden from this viewer" (rule 5; REVIEW.md: decide it in ONE function from the
+    stored document and the viewer's read set). True when the line names a book id and the viewer cannot open that book: the
+    viewer's read set does not hold it, or the book is no longer in the library (then no stored id is served either, only the
+    fixed words: review fix check). No book id, or no viewer (`scope` None: the app's own counting), hides nothing."""
     doc_id = str(row.get("book_document_id") or "")
     if not doc_id or scope is None:
         return False
     held = conn.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,)).fetchone()
-    return held is not None and not scope.may_read(doc_id)
+    return held is None or not scope.may_read(doc_id)
 
 
 def line_view(row: dict, n: int, hidden: bool = False) -> dict:
@@ -159,6 +159,18 @@ def is_latest(conn, paper_id: str, run: dict) -> bool:
     return old is None or str(run.get("created_at") or "") >= str(old)
 
 
+def _cost_note(run: dict) -> str | None:
+    """The words of a run whose cost was not read from the ledger (the method's own words), else None."""
+    from .aim_review.engine import COST_NOT_READ
+
+    calls = _json(run.get("calls_json"), [])
+    return (
+        COST_NOT_READ
+        if any(isinstance(c, dict) and c.get("code") == COST_NOT_READ for c in calls)
+        else None
+    )
+
+
 def resolve(conn, paper_id: str, run_id: str | None = None) -> dict | None:
     """The general run to show: the one asked for (it must be a general run OF THIS paper), else the paper's latest ENDED one
     (finished or stopped early: a stopped run is shown as stopped, review R1 N1)."""
@@ -226,7 +238,9 @@ def build(conn, run: dict, scope=None) -> dict:
         },
         "checklist": _checklist(conn, run, len(points)),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
-        "cost": {"usd": None if usd is None else float(usd)},
+        # the contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)
+        "cost": {"usd": None if usd is None else float(usd)}
+        | ({"note": _cost_note(run)} if usd is None and _cost_note(run) else {}),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),
         "finished_at": run.get("finished_at"),

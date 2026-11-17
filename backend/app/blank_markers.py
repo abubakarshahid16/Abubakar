@@ -224,6 +224,18 @@ def defers_value(text: str | None) -> bool:
     return names_a_marker(text) or star_fills_value(text)
 
 
+#: A value whose LAST mark is a lone star, bare or bracketed: "12 mm *", "80 degC (*)". Only the star: a star glued to a word
+#: or a figure ("12*", "*Note") is not this form.
+_TRAILING_STAR = re.compile(r"(?:^|\s)(?:\*|\(\s*\*\s*\))\s*$")
+
+
+def value_marked_by_star(text: str | None) -> bool:
+    """The general review's question (order 14, review fix check): does the value END with a lone "*" or "(*)", the enquiry
+    sheet's "vendor to confirm" mark? The older readers keep `star_fills_value`, where a stated figure wins and such a star is
+    read as that figure's footnote; the general review takes the safe side and asks (a Question, never a verdict). Pure."""
+    return bool(_TRAILING_STAR.search(" ".join(str(text or "").split())))
+
+
 # ---------------------------------------------------------------- FTU-16: a whole quote that only marks a value to be given
 
 #: The one word that may follow a whole deferral form ("TBA kW", "* m3/h"): kept apart and checked by `_real_unit` (review R3 of
