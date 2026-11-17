@@ -96,8 +96,9 @@ THE CLAUSES:
 S4_TASK = """TASK S4 - JUDGE THE PAPER ABOVE AGAINST THESE CHECKLIST ITEMS. For each item: read the clause (given), read the
 paper pages it names (and any other page where the thing is), and judge.
 Labels: "Met" (the paper states what the clause requires), "Not met" (the paper states something that breaks it), "Question"
-(the value or statement is missing, unclear, or left open by the vendor: TBA, later, by vendor/contractor, blank), "Does not
-apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
+(the value or statement is missing, unclear, or left open by the vendor: TBA, TBC, TBD, later, *, blank, or "by
+vendor/contractor" with no value given; a note of who supplies a value, such as "By Contractor" or "as per Code", beside a
+stated figure does not leave it open: judge the figure), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
 clause does not decide).
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for a limit, give "numbers" and code will compare them (do not compare

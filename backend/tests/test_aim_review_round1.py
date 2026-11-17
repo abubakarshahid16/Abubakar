@@ -350,9 +350,9 @@ def test_a_value_followed_by_a_lone_star_is_deferred_by_code(quote):
 def test_a_star_glued_to_a_figure_or_a_word_is_not_taken_for_the_mark():
     from app import blank_markers
 
-    assert not blank_markers.value_marked_by_star("Wall thickness: 12*")
-    assert not blank_markers.value_marked_by_star("*Note 3 applies to the wall")
-    assert not blank_markers.value_marked_by_star("Wall thickness: 12 mm")
+    assert not blank_markers.value_left_open("Wall thickness: 12*")
+    assert not blank_markers.value_left_open("*Note 3 applies to the wall")
+    assert not blank_markers.value_left_open("Wall thickness: 12 mm")
 
 
 def test_a_line_whose_book_is_no_longer_held_shows_only_the_fixed_words(temp_db_world):

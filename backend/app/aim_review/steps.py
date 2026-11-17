@@ -118,22 +118,12 @@ def _clause_context(text: L.BookText, it: dict) -> str:
 
 
 def _deferred(quote: str) -> bool:
-    """THE one decision "the paper leaves this value to the vendor" for a quote, from the app's own list (`blank_markers`, the one
-    source; review R1, B2): a phrase marker or the lone vendor-to-fill star anywhere in the quote (`defers_value`), a value that
-    ends with a lone "*" or "(*)" ("12 mm *": `value_marked_by_star`), or a whole-value
-    marker ("*", "VTA", "TBA", "later", "by vendor" ...) as the value after the field's own label (`classify`, `is_whole_deferral`)."""
+    """THE one decision "the paper leaves this value open" for a quote: `blank_markers.value_left_open` (the one list; the lead's
+    decision of 18 Nov 2026). A pending marker (TBA, TBC, TBD, later, VTA, a lone "*"), a blank form, or a who-supplies note
+    ("By Contractor", "as per Code") with no figure stated; a who-supplies note beside a stated figure is not open."""
     from app import blank_markers
 
-    text = " ".join(str(quote or "").split())
-    if not text:
-        return False
-    if blank_markers.defers_value(text) or blank_markers.value_marked_by_star(text):
-        return True
-    value = text.rsplit(":", 1)[-1].strip() if ":" in text else text
-    blank, marker = blank_markers.classify(value)
-    return (blank and marker != "empty") or blank_markers.is_whole_deferral(
-        value, value_field=True
-    )
+    return blank_markers.value_left_open(quote)
 
 
 def _shown_item(it: dict, books: dict, text: L.BookText) -> dict:

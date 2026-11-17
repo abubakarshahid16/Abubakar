@@ -374,3 +374,77 @@ def test_a_stated_value_is_not_taken_for_a_deferred_one():
     }
     d = S._decide(_item(), j, Paper("doc_x", pages), BOOKS, "")
     assert d["label"] == "Met" and d["deferred"] is False
+
+
+# ---- who supplies vs pending (the lead's decision of 18 Nov 2026; invented values) ------------------------------------------
+
+OPEN_PAGES = {
+    1: "Set pressure 380 psig (By Contractor, as per Code)\nInlet size psig (By Contractor)\n",
+    2: "Back pressure 380 psig TBC\nWall thickness 12 mm *\nSeat material By Vendor\n",
+}
+OPEN_PAPER = Paper(paper_id="doc_open", pages=OPEN_PAGES)
+
+
+def test_a_who_supplies_note_beside_a_stated_figure_is_judged_and_compared_by_code():
+    quote = "Set pressure 380 psig (By Contractor, as per Code)"
+    d = S._decide(
+        _item(), {"label": "Met", "quote": quote, "page": 1}, OPEN_PAPER, BOOKS, ""
+    )
+    assert d["label"] == "Met" and d["deferred"] is False and d["quote"] == quote
+    j = {"label": "Met", "quote": quote, "page": 1,
+         "numbers": {"paper_value": "380", "paper_unit": "psig", "operator": "<=", "rule_value": "400", "rule_unit": "psig"}}  # fmt: skip
+    item = _item(kind="limit", rule_quote="The set pressure shall not exceed 400 psig.")
+    d = S._decide(item, j, OPEN_PAPER, BOOKS, "")
+    assert d["deferred"] is False and d["code_compare"]["result"] == "pass"
+    assert d["code_compare"]["read_from"] == "verified quotes" and d["label"] == "Met"
+
+
+@pytest.mark.parametrize(
+    "quote,page",
+    [
+        ("Inlet size psig (By Contractor)", 1),  # a who-supplies note with no figure
+        ("Back pressure 380 psig TBC", 2),  # a pending marker beside a figure
+        ("Wall thickness 12 mm *", 2),  # a lone star beside a figure
+        ("Seat material By Vendor", 2),  # who supplies, nothing stated
+    ],
+)
+@pytest.mark.parametrize("label", ["Met", "Not met"])
+def test_a_value_left_open_is_a_question(quote, page, label):
+    d = S._decide(
+        _item(), {"label": label, "quote": quote, "page": page}, OPEN_PAPER, BOOKS, ""
+    )
+    assert d["label"] == "Question" and d["deferred"] is True, (quote, label)
+    assert (
+        d["quote"] == quote
+    )  # the quote is verified: it is the deferral, not the quote, that makes the Question
+
+
+@pytest.mark.parametrize(
+    "quote,left_open",
+    [
+        ("Set pressure 380 psig (By Contractor, as per Code)", False),
+        ("Set pressure: 380 psig by vendor", False),
+        ("Set pressure psig (By Contractor)", True),
+        ("380 psig TBC", True),
+        ("12 mm *", True),
+        ("380 (*) psig", True),
+        ("By Vendor", True),
+        ("Noise level: 85 dBA, vendor to confirm", True),
+        ("Noise level: to be confirmed", True),
+        ("Rated speed 1480 rpm later", True),
+        (
+            "Rated flow 24 m3/h * see note 3",
+            False,
+        ),  # a star that points at a note is no value mark
+        (
+            "Item 2 set pressure: psig by vendor",
+            True,
+        ),  # "Item 2" is a pointer, no figure for the value
+        ("Body material: carbon steel", False),
+        ("Seal flush plan: N/A", False),
+    ],
+)
+def test_value_left_open_separates_pending_from_who_supplies(quote, left_open):
+    from app import blank_markers
+
+    assert blank_markers.value_left_open(quote) is left_open, quote
