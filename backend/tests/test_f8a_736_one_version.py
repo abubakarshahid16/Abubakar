@@ -66,6 +66,27 @@ def test_a_module_nothing_imports_is_reported(tmp_path, monkeypatch):
     assert unused.main() == 1
 
 
+def test_a_module_reached_only_through_its_package_init_is_reached(tmp_path, monkeypatch):
+    """Order 14: `main` imports the package; the package's `__init__.py` imports its modules (lazily too). They are reached;
+    a module of the package that its `__init__.py` does not import is still reported; the package itself is not a module."""
+    app = tmp_path / "app"
+    pkg = app / "pkg"
+    pkg.mkdir(parents=True)
+    (app / "main.py").write_text("from . import pkg\n", encoding="utf-8")
+    (pkg / "__init__.py").write_text("from .inner import x\ndef f():\n    from .lazy import y\n", encoding="utf-8")
+    (pkg / "inner.py").write_text("x = 1\n", encoding="utf-8")
+    (pkg / "lazy.py").write_text("y = 2\n", encoding="utf-8")
+    (pkg / "orphan.py").write_text("z = 3\n", encoding="utf-8")
+    monkeypatch.setattr(unused, "APP", app)
+    monkeypatch.setattr(unused, "REPO", tmp_path)
+    assert unused.unused() == ["pkg.orphan"]
+    assert "pkg" not in unused.reachable()
+    # a PACKAGE may be an entry point: its __init__.py is walked
+    (app / "main.py").write_text("x = 0\n", encoding="utf-8")
+    monkeypatch.setattr(unused, "ENTRY_POINTS", ("main", "pkg"))
+    assert unused.unused() == ["pkg.orphan"]
+
+
 def test_the_system_map_matches_the_modules():
     assert system_map.problems() == []
 
