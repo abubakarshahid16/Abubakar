@@ -215,7 +215,7 @@ def _finish(
         "date": started[:10],
         "lead_models": sorted(g.lead_models) if g else [],
         "second_models": sorted(g.second_models) if g else [],
-        "header": crs_header.document_header(conn, submittal, None),
+        "header": crs_header.with_cover(conn, submittal, crs_header.document_header(conn, submittal, None)),
         "kind": kind.kind,
     }
     dropped = g.dropped.as_json() if g else {}

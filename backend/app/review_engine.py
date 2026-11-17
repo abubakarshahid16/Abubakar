@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 
-from . import review_cost, review_leaving
+from . import contract_package, review_cost, review_leaving
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -496,7 +496,10 @@ def plan_for(
 
         out["unscored_note"] = agent_review_gate.UNSCORED_WORDS
     ctx = (conn, document_id, allowed, facts, reading)
-    out["documents"] = review_leaving.documents_block(ctx, plan, project_ids)
+    # LPC (P1): a contract under general review is given the papers of its package that it names (`contract_package`)
+    project_ids, out["contract_package"] = contract_package.project_ids_for(conn, document_id, facts.kind, allowed, project_ids)
+    out["project_document_ids"] = list(project_ids)
+    out["documents"] = review_leaving.documents_block(ctx, plan, project_ids, out["contract_package"]["given"])
     leaves = plan.text_leaves
     out["boundary"] = "documents you may read"
     per_run = float(settings.claude_budget_usd_per_run)

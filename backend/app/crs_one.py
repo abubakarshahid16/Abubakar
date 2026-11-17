@@ -153,8 +153,8 @@ def paper_shows(point: dict) -> str:
     """Only a quote code verified, with its check note, or the page's own words for "no verified quote". A found quote on a point that
     says the paper does not state the value is said as where the reader looked, never as evidence (FTU-1: the page's own note)."""
     # a code-proved absence: its proof, as on the page
-    if point.get("paper_looked") or point.get("paper_proof"):
-        return point["paper_quote_note"]
+    if point.get("paper_looked") or point.get("paper_proof") or point.get("paper_quote_refused"):
+        return point["paper_quote_note"]  # LPC (C4): a passage that is not a full sentence is never shown as evidence
     if point.get("paper_quote"):
         return f'"{point["paper_quote"]}" ({point["paper_quote_note"]})'
     if point.get("paper_value"):  # stored, but code did not verify it: shown as stored, never as verified
@@ -324,7 +324,7 @@ def _paper_facts(paper_id: str, runs: list[dict]) -> dict:
         (r["kind"] for r in runs if r.get("kind")), None
     ) or kind_words.decided_kind(paper_id)
     equipment = next((r["equipment"] for r in runs if r.get("equipment")), None)
-    head = crs_ai_header.document_header(conn, paper_id, equipment)
+    head = crs_ai_header.with_cover(conn, paper_id, crs_ai_header.document_header(conn, paper_id, equipment))
     return {
         "name": (doc["filename"] if doc else None) or paper_id, "kind": kind_words.noun_of_kind(kind) if kind else NOT_RECORDED,
         "equipment": equipment or NOT_RECORDED, "head": head,
