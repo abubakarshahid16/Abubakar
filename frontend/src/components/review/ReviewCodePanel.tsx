@@ -16,6 +16,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunSummary } from "../../types/api";
 import { REVIEW_CODES } from "../../types/api";
+import { reasonLabel, reasonRule } from "./codeReason";
 import { estimateDetail, whenLabel } from "./reviewFormat";
 
 export interface ReviewCodePanelProps {
@@ -41,11 +42,11 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
   const [reason, setReason] = useState(run.override_reason ?? "");
   const [state, setState] = useState<State>({ kind: "idle" });
 
-  const differs = Boolean(
-    run.recommended_code && code && code !== run.recommended_code);
+  // the one rule of every picker (`codeReason`): this screen cannot know whether points of the paper are open (null)
+  const rule = reasonRule(code, run.recommended_code, null, run.review_codes?.length ? run.review_codes : REVIEW_CODES);
 
   async function save() {
-    if (differs && !reason.trim()) {
+    if (rule.required && !reason.trim()) {
       setState({
         kind: "error",
         message: "A reason is required when the final code differs from the "
@@ -154,10 +155,10 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
           ))}
         </select>
 
-        {differs && (
+        {rule.show && (
           <div>
             <label className="block text-xs text-slateish-400" htmlFor="override-reason">
-              This differs from the recommendation — say why (required)
+              {reasonLabel(rule, "This differs from the recommendation — say why (required)")}
             </label>
             <textarea
               id="override-reason" rows={2} value={reason}

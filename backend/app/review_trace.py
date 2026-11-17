@@ -240,8 +240,11 @@ def build(review_run_id: str, scope) -> dict:
             counts={"rows": len(rows), "missed_standard": missed},
             items=[f"{r.get('crs_ref') or '-'} | {_short(r.get('standard_reference'), 30)} | "
                    f"{_short(r.get('page_section'), 20)} | {_short(r.get('comment'), 80)}" for r in rows]))
-    # 10 CODE
-    steps.append(_step("CODE", f"{outcome.get('recommended_code') or 'none'} | rule: "
+    # 10 CODE (order 14: one run never shows an approving code, `review_code_proposal.run_level`)
+    from . import review_code_proposal
+
+    shown_code, code_note = review_code_proposal.run_level(outcome.get("recommended_code"))
+    steps.append(_step("CODE", code_note or f"{shown_code or 'none'} | rule: "
                                f"{_short(outcome.get('reason'), 120) or 'none recorded'}"))
     # THE DOCUMENTS THESE RECORDS NAME: a stored trace is served only to a
     # caller who may read every one of them (`stored`).

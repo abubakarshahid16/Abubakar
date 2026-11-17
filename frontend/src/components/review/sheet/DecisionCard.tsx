@@ -10,6 +10,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
+import { reasonLabel, reasonRule } from "../codeReason";
 import { CODE_WORDS } from "../workspace/plainWords";
 
 export function DecisionCard({ run, onDecided }: { run: ReviewRunSummary; onDecided: () => void }) {
@@ -17,11 +18,11 @@ export function DecisionCard({ run, onDecided }: { run: ReviewRunSummary; onDeci
   const [code, setCode] = useState(run.engineer_final_code ?? "");
   const [why, setWhy] = useState(run.override_reason ?? "");
   const [state, setState] = useState<{ kind: "idle" | "saving" } | { kind: "error"; message: string }>({ kind: "idle" });
-  const differs = Boolean(run.recommended_code && code && code !== run.recommended_code);
+  const rule = reasonRule(code, run.recommended_code, null, codes);  // the one rule of every picker (`codeReason`)
   const unchanged = code === (run.engineer_final_code ?? "") && why === (run.override_reason ?? "");
 
   async function save() {
-    if (differs && !why.trim()) {
+    if (rule.required && !why.trim()) {
       setState({ kind: "error", message: "Say why your decision differs from the suggested one." });
       return;
     }
@@ -51,10 +52,10 @@ export function DecisionCard({ run, onDecided }: { run: ReviewRunSummary; onDeci
           </label>
         ))}
       </fieldset>
-      {differs && (
+      {rule.show && (
         <div>
           <label htmlFor={`why-code-${run.review_run_id}`} className="block text-xs text-slateish-400">
-            Say why (required, because it differs from the suggested decision)
+            {reasonLabel(rule, "Say why (required, because it differs from the suggested decision)")}
           </label>
           <textarea id={`why-code-${run.review_run_id}`} rows={2} value={why} onChange={(e) => setWhy(e.target.value)}
             className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100" />

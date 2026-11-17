@@ -357,3 +357,54 @@ def test_a_book_the_run_did_not_hold_but_the_library_holds_today_leaves_the_list
     assert review_points.books_not_held(["ZZ-STD 12", "QQ-STD 7"], [], library) == [
         "QQ-STD 7"
     ]
+
+
+# ------------------------------------------------------------------------------------------ review round 3
+
+
+def test_reading_the_recorded_code_creates_no_table_and_a_read_only_database_says_no_count_kept():
+    import sqlite3
+
+    from app import db
+
+    db.connect().execute(
+        "SELECT 1"
+    )  # the invented database exists, without the table of kept counts
+    ro = sqlite3.connect(f"file:{settings.db_path}?mode=ro", uri=True)
+    try:
+        got = review_code_proposal.recorded_words(
+            ro, "run-x", comparison.CODE_APPROVED, None, undecided=1, of=2
+        )
+        assert (
+            got["team"] == f"{comparison.CODE_APPROVED} (1 of 2 points still to decide)"
+        )
+        assert (
+            ro.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'review_code_open_points'"
+            ).fetchone()
+            is None
+        )
+    finally:
+        ro.close()
+
+
+def test_the_trace_code_step_never_shows_an_approving_code():
+    from app import access, review_trace
+
+    doc = _submittal()
+    run_id = _run(doc, recommended=comparison.CODE_APPROVED_WITH_COMMENTS)
+    scope = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc}))
+    step = next(
+        s for s in review_trace.build(run_id, scope)["steps"] if s["step"] == "CODE"
+    )
+    assert step["summary"] == review_code_proposal.RUN_LEVEL_NOTE
+    other = _run(
+        _submittal("doc_other", "other.pdf"), recommended=comparison.CODE_REJECTED
+    )
+    scope2 = access.AccessScope(
+        user_id="eng", allowed_document_ids=frozenset({"doc_other"})
+    )
+    kept = next(
+        s for s in review_trace.build(other, scope2)["steps"] if s["step"] == "CODE"
+    )
+    assert kept["summary"].startswith(f"{comparison.CODE_REJECTED} | rule: ")

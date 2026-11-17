@@ -245,11 +245,19 @@ def remember_open(review_run_id: str, code: str, undecided: int, of: int) -> Non
 
 
 def _open_at_record(conn, review_run_id: str) -> tuple[int, int] | None:
-    _ensure(conn)
-    row = conn.execute(
-        "SELECT undecided, of_points FROM review_code_open_points WHERE review_run_id = ?",
-        (review_run_id,),
-    ).fetchone()
+    """The count kept when the code was recorded, or None. READ ONLY: no table is created here (the listing and the CRS download read
+    it); a database without the table has no count kept."""
+    import sqlite3
+
+    try:
+        row = conn.execute(
+            "SELECT undecided, of_points FROM review_code_open_points WHERE review_run_id = ?",
+            (review_run_id,),
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return None
+        raise
     return (int(row[0]), int(row[1])) if row else None
 
 
