@@ -69,7 +69,7 @@ def test_a_new_agent_review_or_crs_ai_file_is_listed_or_off_on_purpose():
 def test_the_full_review_sentence_is_the_same_in_every_home():
     sentence = "whether or not the file is on the list; the list only decides where style stops block."
     for home in (
-        "CLAUDE.md",
+        "docs/claude-md-old.md",  # moved there from CLAUDE.md on 18 Nov 2026 (owner, #1584)
         ".claude/skills/release-train/SKILL.md",
         ".claude/commands/review.md",
     ):
