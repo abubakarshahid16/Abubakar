@@ -36,9 +36,16 @@ from . import subject_scope
 
 THINGS_PATH = Path(__file__).parent / "reference" / "rule_subject_things.json"
 EXAMPLE_WORDS = "a worked example in the rule book, not a requirement"
-#: the words of a moved point (never "the AI": code moved it; the engineer confirms)
+#: the ONE label a moved point carries everywhere (pill, page, both files): code moved it, the engineer confirms
+LABEL = "Does not apply? (code, engineer to confirm)"
 ACTION = "Engineer to check whether the rule applies to this paper: {reason}."
 WHY = "Code, not the AI: {reason} (the engineer confirms)."
+#: where the thing was read, in the reason's own words (honesty rule 4: the reason says where it comes from)
+SOURCE_WORDS = {
+    "own": "its own words are about",
+    "list": "the list it sits in is about",
+    "title": "its section is about",
+}
 
 _ENUM = re.compile(r"^\s*\((\d{1,2}|[a-z]|[ivx]{1,4})\)\s", re.IGNORECASE)
 _ITEM = re.compile(r"\((\d{1,2}|[a-z])\)\s")
@@ -55,11 +62,20 @@ LEAD_IN_MAX = 600
 _NEGATION = re.compile(
     r"\b(?:without|no|not|nor|unless|instead of|other than|except|exception|excluding|exclusive of|non)\b(?:\s+\S+){0,6}\s*$"
 )
+#: "flanges such as <thing>", "parts including <thing>": the thing is an example of something else (the rule stays)
+_EXAMPLE_OF = re.compile(
+    r"\b(?:such as|including|includes|include|e g|eg|like|namely)\b(?:\s+\S+){0,3}\s*$"
+)
 _JOINED = re.compile(r"\b(?:and|or)\b|,")
-_REQUIRED_VERB = re.compile(
-    r"^\s*(?:not\s+)?(?:be\s+)?(?:provided|fitted|used|installed|supplied|furnished|required|included|equipped|located|mounted"
-    r"|placed|positioned|arranged|attached|connected)\b",
-    re.IGNORECASE,
+_AND_OR = re.compile(r"\b(?:and|or)\b")
+#: a subject that opens with a condition on the thing ("Where <thing> is fitted, ...", "If ...", "For <things>, ...")
+_CONDITION = re.compile(
+    r"^\W*(?:\(\w{1,4}\)\s*)?(?:where|if|when|whenever|for|in the case of|in case of)\b",
+    re.I,
+)
+#: the words that put the thing in a qualifier of the subject ("the design life OF the <thing>", "procedures BY <thing> systems")
+_QUALIFIER = re.compile(
+    r"\b(?:of|for|in|on|with|by|to|from|within|inside)\b(?:\s+\S+){0,3}\s*$"
 )
 _EXAMPLE_OPEN = re.compile(
     r"^(?:for example|for instance|e\.\s?g\.)[\s,]", re.IGNORECASE
@@ -67,7 +83,7 @@ _EXAMPLE_OPEN = re.compile(
 
 
 @lru_cache(maxsize=4)
-def _things(path: str, mtime: float) -> tuple[tuple[str, tuple[str, ...]], ...]:  # noqa: ARG001 - the file time is the cache key
+def _things(path: str, mtime: float) -> tuple[tuple, ...]:  # noqa: ARG001 - the file time is the cache key
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     out = []
     for entry in data.get("things") or []:
@@ -80,28 +96,56 @@ def _things(path: str, mtime: float) -> tuple[tuple[str, tuple[str, ...]], ...]:
                 }
             )
         )
+        paper = tuple(
+            sorted(
+                {
+                    _compact(w)
+                    for w in [*words, *(entry.get("paper_words") or [])]
+                    if _compact(w)
+                }
+            )
+        )
         if entry.get("name") and words:
-            out.append((str(entry["name"]), words))
+            out.append((str(entry["name"]), words, paper))
     return tuple(out)
 
 
-def things(path: Path | str | None = None) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """((name, folded spellings), ...) from the data file; a malformed entry is skipped (nothing moves for it)."""
+def things(path: Path | str | None = None) -> tuple[tuple, ...]:
+    """((name, folded spellings, paper spellings), ...) from the data file; a malformed entry is skipped (nothing moves for it).
+    The paper spellings (the spellings plus `paper_words`, compacted) are what keeps a rule when the paper names any of them."""
     p = Path(path or THINGS_PATH)
     return _things(str(p), p.stat().st_mtime)
 
 
-def _found(text: object, catalogue) -> list[tuple[str, str, bool]]:
-    """[(name, the spelling found, negated)] for every spelling of a thing that stands whole in `text`."""
+def _compact(text: object) -> str:
+    """Letters and digits only, lower case: "G.R.P.", "Fire-Water" and "FIREWATER" read alike."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def _entry(entry: tuple) -> tuple[str, tuple, tuple]:
+    name, words, *rest = entry
+    return name, words, rest[0] if rest else tuple(_compact(w) for w in words)
+
+
+def _found(text: object, catalogue) -> list[tuple[str, str, bool, int]]:
+    """[(name, the spelling found, doubt, position in the folded text)] for every spelling of a thing that stands whole in `text`.
+    Doubt: a negation within six words before it, or the thing given as an example of something else ("such as", "including")."""
     folded = subject_scope._fold(text)
     out = []
-    for name, words in catalogue:
+    for entry in catalogue:
+        name, words, _paper = _entry(entry)
         for w in words:
             for m in re.finditer(
                 r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", folded
             ):
+                before = folded[: m.start()].rstrip()
                 out.append(
-                    (name, w, bool(_NEGATION.search(folded[: m.start()].rstrip())))
+                    (
+                        name,
+                        w,
+                        bool(_NEGATION.search(before) or _EXAMPLE_OF.search(before)),
+                        m.start(),
+                    )
                 )
     return out
 
@@ -115,24 +159,40 @@ def sentences(text: object) -> list[str]:
     ]
 
 
+_OBLIGATION = re.compile(
+    r"\b(?:shall|must|should|will|needs? to|is to|are to|is required|are required|to be)\b",
+    re.IGNORECASE,
+)
+
+
 def subject_part(sentence: object) -> str:
-    """The sentence's grammatical subject: its words before the first modal verb (`subject_scope._MODAL`); "" with no such verb."""
+    """The sentence's grammatical subject: its words before its obligation ("shall", "must", "is required", "to be" ...); "" with
+    none."""
     text = " ".join(str(sentence or "").split())
-    verb = subject_scope._MODAL.search(text)
+    verb = _OBLIGATION.search(text) or subject_scope._MODAL.search(text)
     return text[: verb.start()] if verb else ""
 
 
 def requires(sentence: str, catalogue) -> bool:
-    """The sentence REQUIRES the thing: it is named after the modal verb, or it is the subject of "shall be provided / fitted /
-    used / installed / ..." (a missing required part is a finding, so such a rule is never set aside)."""
+    """The sentence's OBLIGATION is on the thing: the thing is its object (named after "shall" / "must" / "is required" / "to be"),
+    or the HEAD of its subject ("A sight glass shall be available", "Fire pumps shall comply ..."). Such a rule STAYS asked: on a
+    paper without the thing, the missing thing is the finding. It is NOT an obligation on the thing when the subject opens with a
+    condition ("Where / If / When <thing> is fitted, ...", "For <things>, ...") or the thing only qualifies the subject ("the design
+    life OF the <thing>")."""
     text = " ".join(str(sentence or "").split())
-    verb = subject_scope._MODAL.search(text)
+    verb = _OBLIGATION.search(text) or subject_scope._MODAL.search(text)
     if not verb:
         return False
-    if _found(text[verb.end() :], catalogue):
+    if any(not doubt for _n, _w, doubt, _at in _found(text[verb.end() :], catalogue)):
         return True
-    return bool(_found(text[: verb.start()], catalogue)) and bool(
-        _REQUIRED_VERB.match(text[verb.end() :])
+    subject = text[: verb.start()]
+    if _CONDITION.search(subject):
+        return False
+    folded = subject_scope._fold(subject)
+    return any(
+        not _QUALIFIER.search(folded[:at].rstrip())
+        for _n, _w, doubt, at in _found(subject, catalogue)
+        if not doubt
     )
 
 
@@ -208,6 +268,34 @@ def is_example(requirement: Mapping, passage: object) -> bool:
     return bool(_EXAMPLE_OPEN.search(before) and own and own <= there)
 
 
+def _sources(
+    parts: list[str], passage: object, heading: object, catalogue
+) -> list[tuple[str, str, str]] | None:
+    """[(source, name, spelling)] the rule is about, per sentence (own subject, its list's lead-in, its section's title), or None
+    when a sentence is about nothing on the list, or any of it is in doubt (a negation, an example of something else, a subject
+    joining another group or holding a verb). The title counts only with the thing as its head (its last words)."""
+    title = subject_scope._fold(title_of(heading))
+    shared = [("list", h) for h in _found(lead_in(parts[0], passage), catalogue)]
+    shared += [("title", h) for h in _found(title, catalogue) if title.endswith(h[1])]
+    out: list[tuple[str, str, str]] = []
+    for s in parts:
+        subject = subject_part(s)
+        own = [("own", h) for h in _found(subject, catalogue)]
+        hits = own + shared
+        if not hits or any(h[2] for _src, h in hits):
+            return None
+        cond = bool(
+            _CONDITION.search(subject)
+        )  # "For <things>, the ...": its comma ends the condition, it joins nothing
+        joined = (
+            _AND_OR.search(subject.lower()) if cond else _JOINED.search(subject.lower())
+        )
+        if own and (joined or (_VERB_IN_SUBJECT.search(subject) and not cond)):
+            return None  # "for X and for <thing>", or two sentences glued: about more than the thing
+        out += [(src, h[0], h[1]) for src, h in hits]
+    return out
+
+
 def decide(
     requirement: Mapping,
     passage: object,
@@ -215,7 +303,8 @@ def decide(
     catalogue=None,
     heading: object = "",
 ) -> str | None:
-    """The reason the rule's point moves to the tick section, or None (it stays as it is)."""
+    """The reason the rule's point moves to the tick section, or None (it stays as it is). The reason says where the thing was
+    read: its own words, the list it sits in, or its section."""
     if paper_text is None:
         return None
     if is_example(requirement, passage):
@@ -226,35 +315,19 @@ def decide(
     )
     if not parts or any(requires(s, catalogue) for s in parts):
         return None
-    title = subject_scope._fold(title_of(heading))
-    shared = _found(lead_in(parts[0], passage), catalogue) + [
-        h for h in _found(title, catalogue) if title.endswith(h[1])
-    ]
-    found: list[tuple[str, str, bool]] = []
-    for s in parts:
-        subject = subject_part(s)
-        own = _found(subject, catalogue)
-        hits = own + shared
-        if not hits or any(neg for _n, _w, neg in hits):
-            return None
-        if own and (
-            _JOINED.search(subject.lower()) or _VERB_IN_SUBJECT.search(subject)
-        ):
-            return None  # "for X and for <thing>", or two sentences glued: about more than the thing
-        found += hits
-    paper = subject_scope._fold(paper_text)
-    words = dict(catalogue)
-    names = list(dict.fromkeys(n for n, _w, _neg in found))
-    if any(
-        re.search(r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", paper)
-        for n in names
-        for w in words[n]
-    ):
+    found = _sources(parts, passage, heading, catalogue)
+    if not found:
         return None
-    spelled = " / ".join(dict.fromkeys(w for _n, w, _neg in found))
-    return (
-        f"its own words are about {spelled}; the paper names no {spelled} on any page"
+    paper = _compact(paper_text)
+    entries = {e[0]: _entry(e) for e in catalogue}
+    if any(w and w in paper for _src, n, _sp in found for w in entries[n][2]):
+        return None  # the paper names the thing (or a word the data list says keeps it), in any case or punctuation
+    source = next(
+        src for src in ("own", "list", "title") if any(f[0] == src for f in found)
     )
+    spelled = " / ".join(dict.fromkeys(sp for src, _n, sp in found if src == source))
+    names = " / ".join(dict.fromkeys(sp for _src, _n, sp in found))
+    return f"{SOURCE_WORDS[source]} {spelled}; the paper names no {names} on any page"
 
 
 # ---- the database side --------------------------------------------------------------------------------------------------------
@@ -359,6 +432,7 @@ def to_confirm(conn, points: list[dict], paper_id: str) -> int:
                 rank=9,
                 tile=TILE,
                 firm=None,
+                ai_label=LABEL,  # ONE honest label, never the AI's own answer inside the tick section
                 action=ACTION.format(reason=reason),
                 ai_reasoning=WHY.format(reason=reason),
             )

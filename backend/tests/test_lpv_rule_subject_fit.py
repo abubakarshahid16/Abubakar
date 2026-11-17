@@ -37,11 +37,11 @@ def test_a_list_item_inherits_its_own_lists_lead_in_and_moves_with_the_reason():
     assert "quartzite panes" in fit.lead_in(item, PASSAGE)
     assert (
         _d(item, PASSAGE)
-        == "its own words are about quartzite; the paper names no quartzite on any page"
-    )
-    assert (
-        _d("(4) The service life of the quartzite pane shall be 4 years.") is not None
-    )  # its own subject
+        == "the list it sits in is about quartzite; the paper names no quartzite on any page"
+    )  # the reason says where the thing was read (honesty rule 4)
+    assert _d("(4) The service life of the quartzite pane shall be 4 years.") == (
+        "its own words are about quartzite; the paper names no quartzite on any page"
+    )  # its own subject, the thing only qualifying it ("of the quartzite pane")
 
 
 def test_a_lead_in_is_never_inherited_across_lists():
@@ -62,8 +62,8 @@ def test_a_section_title_counts_only_with_the_thing_as_its_head_and_no_second_gr
     assert (
         _d(rule, heading="6.7 Extra tests for quartzite frames and quartzite") is None
     )  # joins a second group
-    assert (
-        _d(rule, heading="6.7 Extra tests for main quartzite") is not None
+    assert _d(rule, heading="6.7 Extra tests for main quartzite") == (
+        "its section is about quartzite; the paper names no quartzite on any page"
     )  # the thing is the title's head
     assert (
         _d(rule, heading="6.7 Seal core with quartzite liner gaskets") is None
@@ -85,6 +85,11 @@ def test_a_section_title_counts_only_with_the_thing_as_its_head_and_no_second_gr
         "One peep hole shall be located at each end of the frame.",
         "The following shall be installed on every housing: a level peep hole and a drain plug.",  # named after the verb
         "Every housing shall have a peep hole.",
+        "A peep hole shall be available on every housing.",  # an obligation on the thing: never a closed verb list
+        "A peep hole shall be part of the package.",
+        "Peep holes must exist on each frame.",
+        "A peep hole is required on each frame.",
+        "Quartzite frames shall comply with the frame code.",  # the thing is the subject's head
     ],
 )
 def test_a_rule_that_requires_the_thing_never_moves(rule):
@@ -101,6 +106,9 @@ def test_a_rule_that_requires_the_thing_never_moves(rule):
         "For all frames except main quartzite frames, the rated pressure shall be 3 units.",
         "Non-quartzite panes shall be marked.",
         "Steel instead of quartzite frames shall be marked.",
+        "Low grade frames such as quartzite frames shall be marked.",  # an example of something else
+        "Frames including quartzite panes shall be marked.",
+        "For low grade frames such as quartzite frames, the margin shall be 3 units.",  # the rule is about the class
     ],
 )
 def test_a_negation_keeps_the_rule(rule):
@@ -174,7 +182,7 @@ def test_a_worked_example_moves_but_a_list_or_clause_number_is_no_figure():
 
 
 def test_the_data_list_holds_the_spellings():
-    names = {w: n for n, ws in fit.things() for w in ws}
+    names = {w: n for n, ws, *_paper in fit.things() for w in ws}
     for spelling, thing in (("perspex", "acrylic"), ("sightglass", "a viewport or sight glass"), ("gauge glass", "a viewport or sight glass"),
                             ("gre", "fibre-reinforced plastic"), ("fiberglass", "fibre-reinforced plastic"),
                             ("fire fighting pump", "a fire-water pump"), ("firewater pumps", "a fire-water pump")):  # fmt: skip
@@ -269,9 +277,12 @@ def test_to_confirm_moves_the_point_with_its_reason_and_keeps_the_rest(monkeypat
         assert p["tile"] == "na_to_confirm" and p["firm"] is None
         assert (
             p["action"]
-            == "Engineer to check whether the rule applies to this paper: its own words are about quartzite; the paper names no quartzite on any page."
+            == "Engineer to check whether the rule applies to this paper: the list it sits in is about quartzite; the paper names no quartzite on any page."
         )
         assert p["ai_reasoning"].startswith("Code, not the AI:")
+        assert (
+            p["ai_label"] == fit.LABEL
+        )  # ONE label: never the AI's own answer inside the tick section
     assert [p["rank"] for p in points if p["rank"] != 9] == [4, 3, 4, 8]
 
 
@@ -316,3 +327,30 @@ def test_the_points_assembly_runs_it(monkeypatch):
     with pytest.raises(StopIteration):
         svc._assemble("paper-1", Scope())
     assert seen == [(2, "paper-1")]
+
+
+def test_a_condition_on_the_thing_moves_the_rule():
+    assert _d("Where peep holes are fitted, they shall be cleaned weekly.") is not None
+    assert _d("For quartzite frames, the rated pressure shall be 3 units.") is not None
+    assert _d("If quartzite panes are used, they shall be marked.") is not None
+
+
+def test_the_paper_side_ignores_case_punctuation_and_spaces_and_wider_words():
+    rule = {"source_text": "(9) The design life of the acrylic window shall be 10 yr."}
+    for paper in (
+        "Window: ACRYLIC",
+        "Window: P.M.M.A.",
+        "Window : Perspex",
+        "Window: plexi glass",
+    ):
+        assert fit.decide(rule, "", paper * 5, None) is None
+    assert fit.decide(rule, "", "Window: steel " * 5, None) is not None
+    glass = {
+        "source_text": "Where sight glasses are fitted, they shall be cleaned weekly."
+    }
+    assert (
+        fit.decide(glass, "", "Level gauge: REFLEX GLASS " * 5, None) is None
+    )  # a paper word keeps it
+    pump = {"source_text": "For main fire water pumps, the margin shall be 5 %."}
+    assert fit.decide(pump, "", "Service: FIREWATER " * 5, None) is None
+    assert fit.decide(pump, "", "Service: brine " * 5, None) is not None
