@@ -4,6 +4,7 @@ proposed review code (owner, 12 Nov 2026, the redesigned page). Reads only; the 
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 
 from . import agent_review_not_applicable as not_applicable
@@ -540,9 +541,14 @@ def stored_lines(conn, run_id: str) -> list[dict]:
         "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
         (run_id,),
     )
+    try:  # the run's paper, for its stored reading (LPV V2); a database without the run table reads the lines alone
+        paper = conn.execute("SELECT submittal_document_id FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone()
+    except sqlite3.Error:
+        paper = None
     return crs_ai_words.read_now(
         [{**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]} for r in rows],
         missing_books(conn, run_id),
+        paper=paper[0] if paper else None,
     )
 
 

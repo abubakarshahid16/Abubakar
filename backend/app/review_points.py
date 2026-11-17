@@ -1129,7 +1129,7 @@ def ai_points_of_run(
         )
     ]
     lines = words.read_now(
-        stored, [{"rule_book": n} for n in held]
+        stored, [{"rule_book": n} for n in held], paper=paper_document_id
     )  # the one reading of every CRS (order 14)
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {

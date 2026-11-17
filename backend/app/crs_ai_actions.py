@@ -256,6 +256,139 @@ def silent_row_words(
     )
 
 
+# ---- order 14 LPV V2: a value the paper states is never asked for -------------------------------------------------------------
+
+#: the key a line carries when code found, on the paper, the value its own record says is not stated: {"quote", "page", "from"}
+STATED_KEY = "stated_on_paper"
+#: where the stated value was found: another line of the same review on the same field (its quote code verified on the page and
+#: read as the value), or the paper's stored reading (a label that is the field's own label, its value found on its page by code)
+FROM_LINE, FROM_READING = "another point of this review", "the paper's stored reading"
+STATED_REASON = (
+    "the reader says the paper does not state this value, but code found it stated on the page; the engineer checks the rule "
+    "against the stated value"
+)
+
+
+def stated_row_words(field: str, stated: Mapping, where: str = "") -> SilentRow:
+    """V2: every wording cell of a row whose own record says "not stated" while code found the value stated on the paper
+    (`STATED_KEY`). The neutral kind (`CONTRADICTS`: the engineer checks, the contractor copy never asks to state it); the stated
+    quote is cited, never "Contractor to state"."""
+    what = field or "the value asked for"
+    page = stated.get("page")
+    on = f", page {page}" if page not in (None, "") else ""
+    found = f'"{stated.get("quote")}"{on}{where} (found on the page by code; from {stated.get("from")})'
+    return SilentRow(
+        CONTRADICTS,
+        STATED_REASON,
+        f"Engineer to check {what} against the value the paper states: {found}.",
+        f"Stated on the paper: {found}.",
+        "stated on the paper; the engineer checks",
+        f"Not confirmed: {STATED_REASON}; stated: {found}.",
+    )
+
+
+def _would_ask_to_state(line: Mapping, quote: str, labels) -> bool:
+    """The row would ask the contractor to STATE the value: no quote at all (and none code failed to find), or a found quote that
+    is the field's label alone. A quote that defers the value (the paper marks it to be given) or may state it (the paper's own
+    words, already the engineer's check) keeps its own row."""
+    if not quote:
+        return not unverified_quote(line)
+    return not quote_defers(quote) and not quote_is_placeholder(quote, labels) and whole_label(quote, labels)
+
+
+def _field_key(line: Mapping) -> str:
+    """The field a line is about: its rule's approved label field, else the paper's label it names (folded)."""
+    label = (line.get("rule_label") or {}).get("field") if isinstance(line.get("rule_label"), Mapping) else None
+    text = label or line.get("field") or ""
+    return " ".join(re.findall(r"[a-z0-9]+", str(text).replace("_", " ").lower()))
+
+
+def _labels_of(line: Mapping) -> list[str]:
+    rule = line.get("rule_label") if isinstance(line.get("rule_label"), Mapping) else {}
+    return [x for x in (line.get("field"), (rule or {}).get("field"), *(line.get("field_roles") or [])) if x]
+
+
+def holds_a_value(quote: str, labels) -> bool:
+    """The quote is more than the field's label and is no placeholder or deferral: it can hold the value."""
+    q = " ".join(str(quote or "").split())
+    return bool(q) and not whole_label(q, labels) and not quote_is_placeholder(q, labels) and not quote_defers(q)
+
+
+def _from_lines(line: Mapping, siblings: list[Mapping]) -> dict | None:
+    """A line of the same review on the same field that READ a value: decided by code, or met / not met by the reader, its own
+    record not "not stated", its quote verified on the page and holding a value. None when there is none."""
+    labels = _labels_of(line)
+    for other in siblings:
+        if other is line or str(other.get("ai_verdict") or other.get("verdict")) not in ("Pass", "Fail") or says_silent(other):
+            continue
+        quote = verified_quote(other)
+        if holds_a_value(quote, [*labels, *_labels_of(other)]):
+            return {"quote": quote, "page": other.get("paper_page"), "from": FROM_LINE}
+    return None
+
+
+def _from_reading(line: Mapping, facts: list[Mapping]) -> dict | None:
+    """A stored reading of the paper, on ANY page (not only the page the reader quoted), whose label IS the field's own label
+    (`whole_label`), with a value that is no placeholder and whose value and label code found on its page."""
+    labels = _labels_of(line)
+    for f in facts:
+        label, value = str(f.get("field_label") or ""), " ".join(str(f.get("field_value") or "").split())
+        if f.get("is_blank") or not whole_label(label, labels) or not holds_a_value(value, labels):
+            continue
+        if f.get("on_page"):
+            return {"quote": f"{label.rstrip(' :')}: {value}", "page": f.get("page"), "from": FROM_READING}
+    return None
+
+
+def mark_stated(lines: list[dict], facts: list[Mapping] = ()) -> list[dict]:
+    """V2, THE one place that decides it: on each line whose own record says the paper does not state the value
+    (`says_silent`), the value code found stated on the paper (`_from_lines`, then `_from_reading`) under `STATED_KEY`; every
+    other line is returned as it is. `facts`: the paper's stored reading with `on_page` (value and label found on its page)."""
+    by_field: dict[str, list[Mapping]] = {}
+    for ln in lines:
+        if key := _field_key(ln):
+            by_field.setdefault(key, []).append(ln)
+    out = []
+    for ln in lines:
+        if not says_silent(ln) or proven(ln) or not (key := _field_key(ln)):
+            out.append(ln)
+            continue
+        got = _from_lines(ln, by_field.get(key, [])) or _from_reading(ln, facts)
+        out.append({**ln, STATED_KEY: got} if got else ln)
+    return out
+
+
+def paper_reading(paper_id: str | None) -> list[dict]:
+    """The paper's stored reading (live facts) with `on_page`: its value and label found on its page by code. [] when none can
+    be read (then only the review's own lines can show a stated value)."""
+    if not paper_id:
+        return []
+    import sqlite3
+
+    from .db import connect
+
+    try:
+        conn = connect()
+        pages = {int(r[0]): " ".join(re.findall(r"[a-z0-9]+", str(r[1] or "").lower())) for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ?", (paper_id,))}  # fmt: skip
+        rows = conn.execute(
+            "SELECT field_label, field_value, page, is_blank FROM submittal_facts WHERE submittal_document_id = ?"
+            " AND superseded_at IS NULL",
+            (paper_id,),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+
+    def on(text: object, page: object) -> bool:
+        words = " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+        return bool(words) and isinstance(page, int) and f" {words} " in f" {pages.get(page, '')} "
+
+    return [
+        {"field_label": r[0], "field_value": r[1], "page": r[2], "is_blank": r[3], "on_page": on(r[1], r[2]) and on(r[0], r[2])}
+        for r in rows
+    ]
+
+
 @lru_cache(maxsize=1)
 def _field_rules() -> tuple[dict, tuple[tuple[str, tuple], ...]]:
     """The approved checklist's rules and (role, the ways a sheet prints its label) of every field of its fixed field list
@@ -337,21 +470,18 @@ def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | No
     A two-reader "not stated" (`agent_review_two_reader.absence_agrees`) keeps its verdict only on a label-alone quote, said so."""
     from .agent_review_crs import field_words
 
-    quote = verified_quote(line)
+    quote, name = verified_quote(line), what or field_words(line)
+    labels = (line.get("field_label_ai"), line.get("field"), *(line.get("field_roles") or []))
+    stated = line.get(STATED_KEY)
+    if stated and says_silent(line) and not proven(line) and _would_ask_to_state(line, quote, [name, *labels]):
+        return stated_row_words(name, stated, where)  # order 14 LPV V2: never ask for a value the paper states
     if not quote or not says_silent(line) or quote_defers(quote) or proven(line):
         return None
-    labels = (
-        line.get("field_label_ai"),
-        line.get("field"),
-        *(line.get("field_roles") or []),
-    )
     agreed = two.absence_agrees(line)
     value_field = bool(line.get("raw_unit")) or asks_a_value(
         line.get("clause_quote"), line.get("requirement")
     )
-    return silent_row_words(
-        what or field_words(line), quote, labels, where, agreed, value_field
-    )
+    return silent_row_words(name, quote, labels, where, agreed, value_field)
 
 
 def unverified_row(line: Mapping, what: str = "") -> SilentRow | None:
