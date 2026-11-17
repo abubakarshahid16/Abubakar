@@ -33,7 +33,9 @@ PASS_NOT_APPROVED = "Pass (AI, rule not approved, engineer to confirm)"
 FAIL_AI_ONLY = "Fail (AI, rule approved by AI only, engineer to confirm)"  # the shared fixture's rules are stored "AI approved"
 DISAGREE = "AI readers disagree (first: Pass, second: Fail), engineer to decide"
 HINT = "7 (found by word match, not verified)"
-NO_QUOTE = "AI view without a verified quote from the paper: engineer to check"
+NO_QUOTE = (
+    "AI view without a verified quote of the value from the paper: engineer to check"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -437,25 +439,26 @@ def test_the_rule_checks_own_ai_not_met_shows_the_label_with_true_middle_words()
     from app import review_points as rp
     from tests.test_o14_firm_needs_clause import CTX, ROW, VERIFIED, _finding
 
-    label = "Fail (AI, rule approval not recorded, engineer to confirm)"  # its tier is not on the row
+    lead = "Question (AI, not settled, rule approval not recorded)"  # no requirement id on the row
     firm = rp.rule_point(
         dict(ROW), CTX, _finding("5.3.4"), VERIFIED, proof=(True, True)
     )
     rp.with_groups([firm])
-    assert (firm["rank"], firm["tile"], firm["pill"]) == (
-        3,
-        "not_met",
-        label,
-    )  # was "Not met · one reader"; rank and tile kept
+    # #1882: a rule-check AI-written row stores no verdict, so it is a question, never "Fail (AI, ...)"; its line keeps the approval words
+    assert (firm["rank"], firm["tile"], firm["pill"], firm.get("ai_label")) == (
+        4,
+        "questions",
+        "Question",
+        None,
+    )
     assert firm["ai_answer"].startswith(
-        f"{label}: BOOK-9.pdf, clause 5.3.4, page 3; quote: "
+        f"{lead}: BOOK-9.pdf, clause 5.3.4, page 3; quote: "
     )
     asked = rp.rule_point(dict(ROW), CTX, _finding(""), VERIFIED, proof=(True, True))
     rp.with_groups([asked])
-    assert (asked["rank"], asked["pill"]) == (
-        4,
-        label,
-    ) and ", clause not named, " in asked["ai_answer"]  # a question that hid it
+    assert (
+        asked.get("ai_answer") is None
+    )  # #1882's builder note: a row whose AI-written rule words are not the book's gets no line
     plain = rp.rule_point(
         {**ROW, "row_kind": "field_compare", "priority": "1"},
         CTX,
@@ -581,8 +584,8 @@ def test_a_rule_check_rows_words_come_from_its_looked_up_tier(monkeypatch):
     for req, why in want.items():
         finding = {**_finding("5.3.4"), "requirement_id": req}
         p = rp.rule_point(dict(ROW), dict(CTX), finding, VERIFIED, proof=(True, True))
-        assert p["ai_label"] == f"Fail (AI, {why}, engineer to confirm)", req
-        assert p["ai_answer"].startswith(p["ai_label"])
+        # #1882: always a question; its line says the rule's approval words, never "Fail (AI, ...)"
+        assert p["ai_answer"].startswith(f"Question (AI, not settled, {why}): "), req
 
 
 def _disagreeing_old_line() -> dict:
@@ -728,11 +731,10 @@ def test_an_ai_answer_is_shown_only_beside_a_paper_quote_code_verified():
         dict(ROW), dict(CTX), _finding("5.3.4"), unseen, proof=(True, True)
     )
     rp.with_groups([rc])
-    assert (rc["rank"], rc["tile"], rc["pill"]) == (
-        4,
-        "questions",
-        NO_QUOTE,
-    )  # was "Not met" with nothing from the paper
+    # #1882: a rule-check AI row is a question whatever it stores; with no verified passage its line says "quote not found by code"
+    assert (rc["rank"], rc["pill"]) == (4, "Question") and rc["ai_answer"].endswith(
+        "quote not found by code."
+    )
     assert (
         A.class_words("Not met", {"ai_label": NO_QUOTE, "tile": "not_met"})
         == "Questions for you"

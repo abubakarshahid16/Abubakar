@@ -18,9 +18,9 @@ is NOT proven by code (the class "Proven by code" keeps its plain Pass / Fail), 
 readers agree, quotes verified)"), NOT "needs a drawing or a calculation", NOT a line with no answer (an error, a reader's own Query),
 and NOT a line on a rule book the run does not hold (a book not held is never guessed: it stays a question, gate G7). A "does not apply"
 without its proof (`agent_review_wording.not_applicable_question`) is "Does not apply (AI, engineer to confirm)", in its own section.
-The rule check's own AI step (AI clause review, AI engineering check: a one-reader "not met" on the page, or a question when it names no
-clause) is `rule_check_label`: "Fail (AI, <why>, engineer to confirm)", its rule's tier looked up by the finding's requirement id
-(`rule_labels.usable_tier`, ONE lookup, `rule_check_why`). A line two AI readers disagree on is never in a Met / Not met tile: its class
+The rule check's own AI-written rows (AI clause review, AI engineering check, ...) store no verdict, so they are always a QUESTION
+(PR #1882), never "Pass / Fail (AI, ...)": their line is `rule_check_question`, "Question (AI, not settled, <why>)", with its rule's
+approval words looked up by the finding's requirement id (`rule_labels.usable_tier`, ONE lookup, `rule_check_why`). A line two AI readers disagree on is never in a Met / Not met tile: its class
 is a question (`crs_ai_workbook.status_of`), its Class cell says "AI readers disagree, engineer to decide". Every other cell of an AI row
 that says met / not met in our own words (a reason code, the second reader's verdict) carries "(AI, engineer to confirm)" (`marked`).
 
@@ -61,7 +61,9 @@ LABEL = "{answer} (AI, {why}, engineer to confirm)"
 NOT_APPLICABLE_LABEL = "Does not apply (AI, engineer to confirm)"
 #: Lead's decision (17 Nov 2026, with PR #1882): an AI answer is shown only beside a paper quote code verified; without one the line is a
 #: question in these words (the AI reader's own reasoning stays in its labelled column).
-NO_QUOTE_LABEL = "AI view without a verified quote from the paper: engineer to check"
+NO_QUOTE_LABEL = (
+    "AI view without a verified quote of the value from the paper: engineer to check"
+)
 QUOTE_FOUND = "found on the page by code"
 QUOTE_LOOKED = (
     "where the AI reader looked; found on the page by code, it does not show the value"
@@ -128,13 +130,13 @@ def rule_check_why(requirement_id: object, cache: dict | None = None) -> str:
     return why
 
 
-def rule_check_label(
-    requirement_id: object, cache: dict | None = None, verified: bool = True
-) -> str:
-    """THE label of a rule-check AI "not met" (`rule_check_why`); `NO_QUOTE_LABEL` when its paper passage was not verified by code."""
-    if not verified:
-        return NO_QUOTE_LABEL
-    return LABEL.format(answer=FAIL, why=rule_check_why(requirement_id, cache))
+#: The rule check's AI-written row (#1882: no stored verdict, always a question): the lead of its line, with its rule's approval words.
+RULE_CHECK_QUESTION = "Question (AI, not settled, {why})"
+
+
+def rule_check_question(requirement_id: object, cache: dict | None = None) -> str:
+    """THE lead of a rule-check AI-written row's line (`rule_check_why`): a question, never a Pass / Fail."""
+    return RULE_CHECK_QUESTION.format(why=rule_check_why(requirement_id, cache))
 
 
 def is_question(line: Mapping) -> bool:
