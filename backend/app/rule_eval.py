@@ -587,8 +587,13 @@ def cross_rule(requirement: dict) -> dict | None:
 
 def rule_for(requirement: dict) -> tuple[dict | None, str | None]:
     """(rule, source) for a table/relative requirement - parsed once and
-    stored on the requirement, or (None, why) when it stays with an engineer."""
+    stored on the requirement, or (None, why) when it stays with an engineer.
+    LPE: (None, None) for a rule no field of the paper may be paired with
+    (`equipment_rule_books.NOT_PAIRED`): its output field is a pairing too."""
     from .db import connect
+    from .equipment_rule_books import NOT_PAIRED
+    if requirement.get(NOT_PAIRED):
+        return None, None
     if requirement.get("rule_json"):
         try:
             return json.loads(requirement["rule_json"]), requirement.get("rule_source")
