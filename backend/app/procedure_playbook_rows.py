@@ -128,8 +128,11 @@ def cues(playbook: playbooks.Playbook) -> tuple[str, ...]:
 def matches(playbook: playbooks.Playbook, cover: str) -> bool:
     """One of the playbook's phrases stands in the cover lines as a PHRASE (its words adjacent, any case, spaces or hyphens:
     `playbooks._hits`), and no phrase that puts the cover outside its book's scope does (order 14 lane P: "Pressure Safety
-    Valve Bench Test Procedure" is not a pressure test procedure; a pipeline welding procedure is not on-plot piping)."""
+    Valve Bench Test Procedure" is not a pressure test procedure; a pipeline welding procedure is not on-plot piping). A
+    playbook with `title_requires` also needs one of those scope phrases on the cover ("piping" for an on-plot piping book)."""
     if any(playbooks._hits((x,), cover) for x in playbook.title_excludes):
+        return False
+    if playbook.title_requires and not playbooks._hits(playbook.title_requires, cover):
         return False
     return bool(playbooks._hits(cues(playbook), cover))
 

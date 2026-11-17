@@ -17,7 +17,9 @@
   "positive materials identification",
   "alloy verification"
  ],
- "title_excludes": [],
+ "title_excludes": [
+  "calibrat*"
+ ],
  "elements": [
   {
    "id": "M01",

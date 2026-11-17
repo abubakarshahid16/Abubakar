@@ -159,7 +159,11 @@ def _chosen(cover):
         ("Hydrostatic Test Procedure\nDocument PT-2", ["pressure_test_procedure"]),
         ("HYDROTEST PROCEDURE FOR PLANT PIPING", ["pressure_test_procedure"]),
         ("Pneumatic Test Procedure", ["pressure_test_procedure"]),
-        ("WELDING PROCEDURE SPECIFICATION\nDocument W-1", ["piping_welding_procedure"]),
+        (
+            "WELDING PROCEDURE SPECIFICATION FOR PIPING\nDocument W-1",
+            ["piping_welding_procedure"],
+        ),
+        ("Welding Procedure for On-Plot Piping", ["piping_welding_procedure"]),
         ("WPS for carbon steel piping", ["piping_welding_procedure"]),
         (
             "Piping Fabrication, Welding and PMI Procedure",
@@ -188,6 +192,14 @@ def test_a_cover_naming_the_type_chooses_its_playbook(cover, chosen):
         "Pressure Vessel Welding Procedure",
         "Welding Consumables Control Procedure",
         "Welding Machine Calibration Procedure",
+        "Welding Procedure",  # SAES-W-011 1.1 is on-plot piping: a cover must name piping
+        "WELDING PROCEDURE SPECIFICATION",
+        "Rail Welding Procedure",
+        "Underwater Welding Procedure",
+        "Offshore Jacket Welding Procedure",
+        "Pressure Gauge Calibration Procedure for Hydrostatic Test",  # a calibration procedure chooses none of the three
+        "PMI Analyser Calibration Procedure",
+        "Calibration of Piping WPS Welding Machines",
     ],
 )
 def test_a_cover_of_another_kind_of_work_chooses_no_new_playbook(cover):
@@ -439,6 +451,12 @@ def test_a_pressure_test_procedure_gets_engineer_rows_only_and_none_is_a_firm_ve
         assert r["priority"] == crs_mapping.PRIORITY_ENGINEER_TO_CHECK
         assert "compliant" not in r["comment"].lower()
         assert "not been signed off" in r["comment"]
+        assert (
+            r["comment"].count(
+                "An engineer also confirms that each cited book governs this procedure."
+            )
+            == 1
+        )
     states = {r["comment_key"]: (r["playbook_state"], r["comment"]) for r in mine}
 
     def state(eid):
@@ -502,6 +520,63 @@ def test_a_condition_the_paper_names_is_checked_as_usual():
     assert (
         by2["W01"]["state"] != playbooks.CONDITION_NOT_STATED
     )  # an element without a condition is never one
+
+
+def test_a_conditional_element_of_a_paper_not_read_in_full_is_never_condition_not_stated():
+    """Absence proves nothing in a paper not read in full: the element stays "could not be checked"."""
+    from app import db
+    from app.search import every_document_id
+
+    hold("SAES-W-011")
+    doc = _doc("w3", WELDING_SECTIONS[:1], cover="Piping Welding Procedure")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET needs_ocr = 1 WHERE document_id = ? AND page_no = 1",
+            (doc,),
+        )
+    report = playbooks.review(
+        doc,
+        _found()["piping_welding_procedure"],
+        allowed_document_ids=every_document_id(),
+    )
+    by = {e["id"]: e for e in report["elements"]}
+    assert report["document"]["read_in_full"] is False
+    for eid in ("W09", "W10", "W11", "W17"):
+        assert by[eid]["state"] == playbooks.COULD_NOT_BE_CHECKED, eid
+    assert report["counts"][playbooks.CONDITION_NOT_STATED] == 0
+
+
+def test_a_condition_named_only_in_a_heading_counts():
+    from app import db
+    from app.search import every_document_id
+
+    hold("SAES-A-004")
+    hold("SAES-A-007")
+    doc = _doc(
+        "pt3",
+        [("Pneumatic test", "The test is made with dry air after the leak check.")],
+        cover="Pressure Test Procedure",
+    )
+    with (
+        db.connect() as conn
+    ):  # the passage's own text without its heading: the heading lives in the section title only
+        conn.execute(
+            "UPDATE chunks SET text = ? WHERE document_id = ?",
+            ("The test is made with dry air after the leak check.", doc),
+        )
+    by = {
+        e["id"]: e
+        for e in playbooks.review(
+            doc,
+            _found()["pressure_test_procedure"],
+            allowed_document_ids=every_document_id(),
+        )["elements"]
+    }
+    assert by["PT04"]["state"] != playbooks.CONDITION_NOT_STATED
+    assert by["PT05"]["state"] != playbooks.CONDITION_NOT_STATED
+    assert (
+        by["PT03"]["state"] == playbooks.CONDITION_NOT_STATED
+    )  # no chemical treatment anywhere
 
 
 def test_the_report_shows_the_book_page_and_that_its_quote_was_verified():

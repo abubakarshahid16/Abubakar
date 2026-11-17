@@ -99,6 +99,8 @@ class Playbook:
     #: phrases that put a cover outside the scope of the playbook's book (a pipeline for an on-plot piping book).
     title_cues: tuple[str, ...] = ()
     title_excludes: tuple[str, ...] = ()
+    #: Order 14 lane P: phrases of the book's scope, one of which the cover must ALSO hold ("piping" for an on-plot piping book).
+    title_requires: tuple[str, ...] = ()
 
     @property
     def signed_off(self) -> bool:
@@ -155,7 +157,8 @@ def parse(data: object, where: str = "playbook") -> Playbook:
     return Playbook(str(data["id"]).strip(), str(data["title"]).strip(), str(data["version"]).strip(),
                     str(data.get("document_kind") or "").strip(), dict(sign), bool(data.get("clauses_verified", False)),
                     str(data.get("note") or "").strip(), tuple(elements),
-                    _phrases(data, "title_cues", where, empty=True), _phrases(data, "title_excludes", where, empty=True))
+                    _phrases(data, "title_cues", where, empty=True), _phrases(data, "title_excludes", where, empty=True),
+                    _phrases(data, "title_requires", where, empty=True))
 
 
 def _phrases(data: dict, field: str, where: str, empty: bool = False) -> tuple[str, ...]:
@@ -211,7 +214,8 @@ def notice(pb: Playbook) -> str | None:
     if pb.signed_off:
         return None
     return ("This playbook has not been signed off by a client discipline engineer (W5b-10): its checks are a draft, "
-            "and its clause numbers have not been confirmed against the standards.")
+            "and its clause numbers have not been confirmed against the standards. An engineer also confirms that each "
+            "cited book governs this procedure.")
 
 
 # -------------------------------------------------------------------- matching
@@ -355,7 +359,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             entry["found_at"] = [e["locator"] for e in found["evidence"][:3]]
             results.append(entry)
             continue
-        if element.condition and read_in_full and not any(_hits(element.condition[1], c["text"]) for c in body):
+        if element.condition and read_in_full and not any(_hits(element.condition[1], _with_heading(c)) for c in body):
             entry.update(state=CONDITION_NOT_STATED, reason=(
                 f"applies only when the procedure covers {element.condition[0]}, and no passage of the pages read "
                 "names it; this is not a finding that it is met or missing"))
@@ -394,6 +398,11 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "document": {"id": document_id, "filename": filename, "read_in_full": read_in_full,
                          "passages_read": len(body), "not_read_reason": why_not},
             "elements": results, "counts": counts, "ai": ai}
+
+
+def _with_heading(chunk: dict) -> str:
+    """A passage with its heading and section title: a condition named only in a heading ("5 Pneumatic test") counts."""
+    return " ".join(filter(None, [chunk.get("context"), chunk.get("section"), chunk.get("text")]))
 
 
 def _source_out(element: Element) -> dict:

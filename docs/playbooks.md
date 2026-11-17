@@ -50,7 +50,7 @@ value check.
   CRS: book missing, with its clause). The report's `source` shows the page and
   `quote_verified` where the file has them.
 * `applies_when` (optional, per element): `{"label": "a pneumatic test", "any": [cues]}`.
-  In a document read in full where no passage holds one of those cues, the element is
+  In a document read in full where no passage (its text, heading or section title) holds one of those cues, the element is
   `condition_not_stated`: "applies only when the procedure covers <label>, and no passage
   of the pages read names it", an engineer question, never "missing" and never "met".
 * `title_cues` and `title_excludes` (optional, per playbook): see "Which paper a playbook
@@ -107,6 +107,10 @@ Built ONLY from rule books the library holds. Each book's own scope clause says 
 | `piping_welding_procedure` | 18 | SAES-W-011 (scope 1.1: on-plot piping to ASME B31.3) | 17 of 17 | ASME Section IX QW-482 and QW-483 (the suggested WPS and PQR forms SAES-W-011 7.1.2 names; the form numbers are the author's reading) | W09 to W11 post weld heat treatment, W17 alloy materials |
 | `pmi_procedure` | 13 | SAES-A-206 (scope 1) | 13 of 13 | none | none |
 
+PT20's condition (lay-up after the test) is NARROWER than its clause: SAES-A-007 9 asks hydrostatic testing AND lay-up procedures
+for safeguards against oxygen ingress, so a hydrostatic test procedure that never mentions lay-up is asked whether PT20 applies
+rather than told it is missing; the engineer decides.
+
 Each element says in one sentence what its cited clause requires of any procedure of that type (never one paper's wording,
 CLAUDE.md rule 13); an element with a condition starts "When ...". Every row stays an engineer row: never compliant, never a firm
 Pass or Fail.
@@ -116,18 +120,23 @@ Pass or Fail.
 `procedure_playbook_rows.chosen` (the one home of the choice) takes the procedure's cover lines (the heading-shaped lines among the
 first 12 of page 1). A playbook is chosen when one of its `title_cues` stands there as a PHRASE: its words adjacent, any case, a space
 or a hyphen between them, a trailing `*` any ending (`playbooks._hits`). A playbook without `title_cues` uses its title less the
-generic words ("procedure", "study", ...) as one phrase. A cover holding any of its `title_excludes` never chooses it.
+generic words ("procedure", "study", ...) as one phrase. A cover holding any of its `title_excludes` never chooses it, and a
+playbook with `title_requires` (a positive phrase of its book's scope) needs one of those on the cover too.
 
-| playbook | title cues | excluded when the cover names (from the book's scope) |
-|---|---|---|
-| `pressure_test_procedure` | pressure test*, hydrostatic test*, hydrotest*, hydro test*, pneumatic test* | relief valve*, safety valve*, rupture dis*, pump*, compressor*, turbine*, factory acceptance (SAES-A-004 1.5) |
-| `piping_welding_procedure` | welding procedure*, wps, piping welding, welding of piping, welding of on plot piping, piping fabrication | pipeline*, structur*, tank*, vessel* (SAES-W-011 1.1) |
-| `pmi_procedure` | pmi, positive material identification, positive materials identification, alloy verification | none |
-| `hazop_procedure`, `sil_procedure` | their title phrase: "hazop", "sil" | none |
+| playbook | title cues | the cover must also name | excluded when the cover names |
+|---|---|---|---|
+| `pressure_test_procedure` | pressure test*, hydrostatic test*, hydrotest*, hydro test*, pneumatic test* | - | relief valve*, safety valve*, rupture dis*, pump*, compressor*, turbine*, factory acceptance (SAES-A-004 1.5), calibrat* |
+| `piping_welding_procedure` | welding procedure*, wps, piping welding, welding of piping, welding of on plot piping, piping fabrication | piping, pipe, pipes, pipework, on plot, spool* (SAES-W-011 1.1) | pipeline*, structur*, tank*, vessel* (SAES-W-011 1.1), calibrat* |
+| `pmi_procedure` | pmi, positive material identification, positive materials identification, alloy verification | - | calibrat* |
+| `hazop_procedure`, `sil_procedure` | their title phrase: "hazop", "sil" | - | none |
+
+A cover that names calibration ("calibrat*": an equipment or instrument calibration procedure) chooses none of the three. Every row
+of a draft playbook carries the draft notice, which also says that an engineer confirms each cited book governs this procedure.
 
 So "Pressure Safety Valve Bench Test Procedure", "Pressure Transmitter Calibration and Loop Test Procedure" or a pump performance
 test whose cover also says "Discharge Pressure" choose no pressure test playbook; a pipeline, structural, tank or vessel welding
-procedure and a "Welding Consumables Control Procedure" choose no welding playbook; "Piping Fabrication, Welding and PMI Procedure"
+procedure, a bare "Welding Procedure" or a rail, underwater or offshore jacket welding procedure (no piping named) and a
+"Welding Consumables Control Procedure" choose no welding playbook; "Piping Fabrication, Welding and PMI Procedure"
 chooses both the welding and the PMI playbooks.
 
 ### Gate G2: a book governs only its procedure type

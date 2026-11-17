@@ -10,7 +10,7 @@
   "date": null
  },
  "clauses_verified": false,
- "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off. Scope (SAES-W-011 1.1): welding of on-plot piping to ASME B31.3; a cover naming a pipeline, a structure, a tank or a vessel does not choose this playbook (other books govern those).",
+ "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off. Scope (SAES-W-011 1.1): welding of on-plot piping to ASME B31.3; a cover naming a pipeline, a structure, a tank or a vessel does not choose this playbook (other books govern those), and the cover must name piping.",
  "title_cues": [
   "welding procedure*",
   "wps",
@@ -23,7 +23,16 @@
   "pipeline*",
   "structur*",
   "tank*",
-  "vessel*"
+  "vessel*",
+  "calibrat*"
+ ],
+ "title_requires": [
+  "piping",
+  "pipe",
+  "pipes",
+  "pipework",
+  "on plot",
+  "spool*"
  ],
  "elements": [
   {

@@ -25,7 +25,8 @@
   "pump*",
   "compressor*",
   "turbine*",
-  "factory acceptance"
+  "factory acceptance",
+  "calibrat*"
  ],
  "elements": [
   {
