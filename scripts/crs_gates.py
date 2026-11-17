@@ -894,7 +894,7 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
     line's own item wording first); every line's Evidence row shows its clause quote."""
     from app import crs_ai_workbook, crs_comments
     from app import review_points as rp
-    from app.crs_ai_words import KIND_NOT_HELD, NOT_HELD_KEY
+    from app.crs_ai_words import KIND_NOT_HELD, NOT_HELD_KEY, shown_clause_quote
 
     rank = rp.rank_of_ai_line(ln)[0]
     name = rp.split_tags(crs_ai_workbook.field_name(ln))[0]
@@ -915,7 +915,7 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
         paper_value=ln.get("paper_quote"), value_verified=bool((ln.get("quotes_checked") or {}).get("paper")),
         absence_proven=absence_proven(ln),
         book=book, clause=clause, clauses=((book, clause),) if clause else (),
-        quotes=tuple(q for q in (asked, None if gone else ln.get("clause_quote")) if q), quote_docs=(doc,) if doc else (),
+        quotes=tuple(q for q in (asked, shown_clause_quote(ln)) if q), quote_docs=(doc,) if doc else (),
         quote_page=page if isinstance(page, int) and not isinstance(page, bool) else None,
         names=(book,) if book.strip() else (), shows_rule_words=bool(clause or (ln.get("clause_quote") and not gone) or asked or shown_req),
         is_missing_listing=rank == 0 or ln.get("verdict_class") == KIND_NOT_HELD,
@@ -925,18 +925,10 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
 
 
 def run_lines(conn, run_id: str) -> list[dict]:
-    """The run's stored lines as every reader sees them (the reading `crs_completeness._older_expected` uses)."""
-    from app import agent_review_wording as wording
+    """The run's stored lines as every CRS reads them (`review_points_service.stored_lines`: today's rule and the books not held)."""
+    from app.review_points_service import stored_lines
 
-    return [
-        wording.read_time(
-            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
-        )
-        for r in conn.execute(
-            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
-            (run_id,),
-        )
-    ]
+    return stored_lines(conn, run_id)
 
 
 def run_file(run_id: str, paper_id: str) -> dict:
@@ -946,15 +938,13 @@ def run_file(run_id: str, paper_id: str) -> dict:
 
     from app import crs_ai_workbook, crs_layout
     from app.agent_review_jobs import run_dir
-    from app.crs_ai_words import mark_not_held
     from app.crs_completeness import _table_rows
     from app.db import connect
     from app.review_points_service import run_meta
 
     # the app's one reading of the run's meta: the books not held come from the database; the lines as the builder marks them
     meta = run_meta(connect(), run_id, paper_id, run_dir(run_id))
-    missing = (meta.get("rule_labels") or {}).get("missing_rule_books") or []
-    lines = mark_not_held(run_lines(connect(), run_id), missing)
+    lines = run_lines(connect(), run_id)
     wb = load_workbook(
         BytesIO(
             crs_layout.build_layout_crs(

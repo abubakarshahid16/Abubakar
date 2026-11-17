@@ -29,7 +29,6 @@ import json
 import re
 from collections import Counter, defaultdict
 
-from . import agent_review_wording as wording
 from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 from . import review_points_content as content
@@ -917,11 +916,9 @@ def ai_points_of_run(
 ) -> tuple[list[dict], list[str]]:
     """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
     read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
-    lines = [
-        wording.read_time(
-            stored_class_wins(
-                {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
-            )
+    stored = [
+        stored_class_wins(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
         )
         for r in conn.execute(
             "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
@@ -935,7 +932,9 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
-    lines = words.mark_not_held(lines, [{"rule_book": n} for n in held])  # order 14 G7
+    lines = words.read_now(
+        stored, [{"rule_book": n} for n in held]
+    )  # the one reading of every CRS (order 14)
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,

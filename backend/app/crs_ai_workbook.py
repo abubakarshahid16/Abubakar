@@ -174,7 +174,7 @@ def _item_ask(line: Mapping) -> str:
     """The words shown as the rule book's own: the clause quote ONLY when code verified it in the book, WHOLE (never cut, never our
     checklist's wording, never the stored rule text); '' when there is none (the comment then says so: `_no_quote`)."""
     q = line.get("quotes_checked") or {}
-    return _clean(line.get("clause_quote")) if q.get("clause") else ""
+    return words.shown_clause_quote(line) or "" if q.get("clause") else ""
 
 
 NO_QUOTE = "No verified quote of this clause is held: the engineer reads the clause."
@@ -349,6 +349,8 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
     contractor must do. Built from the stored line only; no new AI call; no code word (`words.has_banned`)."""
     if line.get("source") == "group":  # rule choice v2: one sentence for the engineer
         return str(line.get("why") or "")
+    if line.get("why") == words.PROVEN_NOT_HELD_WHY:  # order 14: code compared, the book is not held
+        return words.proven_not_held_comment(line, field_words(line))
     return "\n".join(
         (
             _requires(line, status),
@@ -727,7 +729,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
-    lines = words.mark_not_held([wording.read_time(ln) for ln in lines], missing)
+    lines = words.read_now(lines, missing)
     items, others = _split(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)

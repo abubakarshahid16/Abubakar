@@ -912,6 +912,8 @@ def test_an_older_run_file_missing_a_line_is_refused(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(
         "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+        # order 14: the count reads the lines as the file does, with the run's books not held (`stored_lines`)
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT, why TEXT);"
     )
     lines = [mk("R-1", field="A"), mk("R-2", field="B")]
     conn.executemany(
@@ -940,6 +942,8 @@ def test_an_older_run_file_with_a_comment_row_dropped_is_refused(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(
         "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+        # order 14: the count reads the lines as the file does, with the run's books not held (`stored_lines`)
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT, why TEXT);"
     )
     lines = [mk("R-1", field="A"), mk("R-2", field="B")]
     conn.executemany(
@@ -1084,6 +1088,8 @@ def test_an_older_run_file_missing_a_whole_sheet_is_refused(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(
         "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+        # order 14: the count reads the lines as the file does, with the run's books not held (`stored_lines`)
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT, why TEXT);"
     )
     lines = [mk("R-1", field="A"), mk("R-2", field="B")]
     conn.executemany(

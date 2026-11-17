@@ -502,6 +502,47 @@ def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
     return out
 
 
+def read_now(lines: list[Mapping], missing: list[Mapping] = ()) -> list[dict]:
+    """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
+    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`)."""
+    from .agent_review_wording import read_time
+
+    return mark_not_held([read_time(ln) for ln in lines], missing)
+
+
+def book_not_held(line: Mapping) -> bool:
+    """The line cites a rule book the run does not hold (`mark_not_held`): no quote of that book is ever shown for it."""
+    return bool(line.get(NOT_HELD_KEY)) or line.get("why") == PROVEN_NOT_HELD_WHY
+
+
+def proven_not_held_comment(line: Mapping, field: str) -> str:
+    """The comment of a line code decided against a limit from a rule book the run does not hold: code compared the value, the book
+    behind the limit is not held, the engineer checks it. No quote of that book, no AI reasoning (order 14)."""
+    from .agent_review_wording import reader_query_action
+
+    ref = " ".join(
+        x
+        for x in (
+            _clean(line.get("standard")),
+            f"clause {_clean(line.get('clause'))}"
+            if _clean(line.get("clause"))
+            else "",
+        )
+        if x
+    )
+    has, page = _clean(line.get("paper_quote")), line.get("paper_page")
+    shows = (
+        f'The paper states "{has}"'
+        + (f", page {page}" if page not in (None, "") else "")
+        + ". "
+        if has
+        else ""
+    )
+    return "\n".join((f"{field or 'The value'} against {ref or 'the rule'} ({BOOK_NOT_HELD}).",
+                      f"{shows}Code compared this value with the limit, but the rule book behind the limit is not held.",
+                      reader_query_action(line) or "Engineer to check the rule."))  # fmt: skip
+
+
 def _proven_not_held(line: Mapping) -> dict:
     from .agent_review_verdict import BY_ENGINEER, QUERY
     from .agent_review_wording import CLASS_QUERY, WORD_QUERY
@@ -518,8 +559,8 @@ def stored_rule_text(line: Mapping) -> str:
 
 
 def shown_clause_quote(line: Mapping) -> str | None:
-    """The clause quote a line's Evidence row shows: none for a line whose book is not held (`mark_not_held`), else its own."""
-    if line.get(NOT_HELD_KEY):
+    """The clause quote a line's Evidence row shows: none for a line whose book is not held (`book_not_held`), else its own."""
+    if book_not_held(line):
         return None
     return " ".join(str(line.get("clause_quote") or "").split()) or None
 
@@ -620,6 +661,7 @@ __all__ = [
     "UNKNOWN_WHY",
     "WHY_PHRASES",
     "ai_draft_words",
+    "book_not_held",
     "code_phrase",
     "comment_by",
     "drop_noise",
@@ -631,6 +673,8 @@ __all__ = [
     "plain",
     "priority",
     "priority_ai",
+    "proven_not_held_comment",
+    "read_now",
     "shown_clause_quote",
     "stored_rule_text",
     "why_phrase",

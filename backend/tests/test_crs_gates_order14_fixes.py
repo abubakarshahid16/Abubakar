@@ -16,6 +16,7 @@ from tests.test_agent_review_routes import (
     client,  # noqa: F401 - fixture: a finished AI run on an invented paper
 )
 from tests.test_crs_gates import Row, g
+from tests.test_o14_b_crs_writer import BOOK_WORDS
 
 # ------------------------------------------------------------------------------------------------ G5: silence needs a proof
 
@@ -291,6 +292,7 @@ def test_a_line_whose_book_the_run_does_not_hold_shows_the_book_as_not_held_and_
 
 NOT_HELD_META = {"paper": "Paper A", "run_id": "run-1", "date": "2026-11-17", "header": {"project": "Project Q"},
                  "rule_labels": {"missing_rule_books": [{"rule_book": "STD-Q-9", "why": "not in the library"}]}}  # fmt: skip
+Q_PROVEN = "Flush plans shall be listed with their pressure."
 Q_QUOTE, Q_RULE = (
     "Nozzle loads shall be listed for every branch.",
     "Nozzle loads shall be stated on the sheet.",
@@ -323,7 +325,7 @@ def _not_held_lines() -> list[dict]:
 
     ask = mk("R-1", field="Nozzle load", standard="STD-Q-9", clause="6.5", clause_quote=Q_QUOTE, requirement=Q_RULE,
              quotes_checked={"paper": True, "clause": False})  # fmt: skip
-    proven = mk("R-2", "Fail", "Fail", field="Seal flush", standard="STD-Q-9", clause="7.2", reason_code=None,
+    proven = mk("R-2", "Fail", "Fail", field="Seal flush", standard="STD-Q-9", clause_quote=Q_PROVEN, clause="7.2", reason_code=None,
                 compare={"decided": True, "verdict": "does_not_meet"})  # fmt: skip
     held = mk("R-3", "Fail", "Fail", field="Set pressure", reason_code=None, standard_document_id="doc_1",
               compare={"decided": True, "verdict": "does_not_meet"})  # fmt: skip
@@ -348,9 +350,25 @@ def test_a_proven_line_on_a_book_not_held_is_an_engineer_question_and_never_reac
     lines = _not_held_lines()
     team = _built(lines, "internal")
     assert "STD-Q-9 clause 7.2" in team  # a proven line keeps its clause
+    said = team[
+        team.index("Seal flush against") : team.index("Engineer to check the rule")
+    ]  # the row's comment cell
     assert (
-        words.PROVEN_NOT_HELD_WHY in team and "Engineer to check the rule" in team
-    )  # an engineer question
+        "Code compared this value with the limit, but the rule book behind the limit is not held"
+        in said
+    )
+    assert (
+        "reasoning" not in said and BOOK_WORDS not in said and "requires" not in said
+    )  # no AI view, no quote of the missing book
+    assert (
+        Q_PROVEN not in team
+    )  # nowhere: not in the comment, not on the Evidence sheet
+    read = words.read_now(
+        [lines[1]], NOT_HELD_META["rule_labels"]["missing_rule_books"]
+    )[0]
+    assert (
+        Q_PROVEN not in g._line_row("R2", read, cells=(said,)).quotes
+    )  # the gate reads no quote of the missing book either
     contractor = _built(lines, "contractor")
     assert (
         "STD-Q-9" not in contractor and "not held" not in contractor
@@ -458,12 +476,11 @@ def test_the_query_counts_read_the_lines_as_the_crs_reads_them():
     ) == (1, 0)
 
 
-def test_the_page_and_the_lines_tab_read_a_proven_line_on_a_book_not_held_as_the_crs_does(
-    client,  # noqa: F811 - the fixture
-):
+def _proven_on_missing_book(client) -> tuple[str, str]:  # noqa: F811 - the fixture
+    """A finished invented run whose first line is a code-proven Fail on STD-Q-9, a book on the run's missing list."""
     import json
 
-    from app import db, review_points
+    from app import db
     from tests.test_agent_review_routes import finished_run
 
     run_id = finished_run(client)
@@ -482,6 +499,17 @@ def test_the_page_and_the_lines_tab_read_a_proven_line_on_a_book_not_held_as_the
         (run_id,),
     )
     conn.commit()
+    return run_id, row["item_id"]
+
+
+def test_the_page_and_the_lines_tab_read_a_proven_line_on_a_book_not_held_as_the_crs_does(
+    client,  # noqa: F811 - the fixture
+):
+    from app import db, review_points
+
+    run_id, item = _proven_on_missing_book(client)
+    conn = db.connect()
+    row = {"item_id": item}
     points, _held = review_points.ai_points_of_run(
         conn, run_id, "doc_paper", frozenset()
     )
@@ -495,3 +523,22 @@ def test_the_page_and_the_lines_tab_read_a_proven_line_on_a_book_not_held_as_the
     assert [x["verdict_class"] for x in listed if x["item_id"] == row["item_id"]] == [
         w.CLASS_QUERY
     ]
+
+
+def test_the_completeness_count_of_a_stored_contractor_file_reads_the_lines_as_the_file_does(
+    client,  # noqa: F811 - the fixture
+    tmp_path,
+):
+    from app import crs_ai_workbook, crs_completeness, db
+    from app.review_points_service import run_meta, stored_lines
+
+    run_id, _item = _proven_on_missing_book(client)
+    conn = db.connect()
+    meta = run_meta(conn, run_id, "doc_paper", tmp_path)
+    path = crs_ai_workbook.write(
+        stored_lines(conn, run_id), tmp_path / "c.xlsx", meta, "contractor"
+    )
+    got = crs_completeness.older_report(run_id, "contractor", path.read_bytes())
+    assert (
+        got["ok"] and got["expected"] == got["rows_in_file"]
+    )  # the engineer's question is not counted as a contractor row

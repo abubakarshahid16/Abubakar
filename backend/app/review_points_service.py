@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import agent_review_wording as wording
 from . import (
     crs_comments,
     crs_completeness,
@@ -511,6 +510,29 @@ def undecided(paper_id: str, scope) -> tuple[int, int]:
     )
 
 
+def missing_books(conn, run_id: str) -> list[dict]:
+    """The run's rule books not held, from its own record (`agent_review_missing_book`), as `crs_ai_words.mark_not_held` reads them."""
+    return [{"rule_book": r["name"], "why": r["why"] or ""}
+            for r in conn.execute("SELECT name, why FROM agent_review_missing_book WHERE run_id = ? ORDER BY rowid", (run_id,))]  # fmt: skip
+
+
+def stored_lines(conn, run_id: str) -> list[dict]:
+    """A run's stored lines as every CRS reads them (`crs_ai_words.read_now` with the run's books not held): the decided copy, the
+    completeness count of the stored files (`crs_completeness._older_expected`) and the gates."""
+    import json
+
+    from . import crs_ai_words
+
+    rows = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
+        (run_id,),
+    )
+    return crs_ai_words.read_now(
+        [{**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]} for r in rows],
+        missing_books(conn, run_id),
+    )
+
+
 def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
     """THE meta an AI run's CRS is drawn again with (the engineer's decided copy, the gates): the file kept beside the run's sheets
     (`crs-meta.json`; unreadable or missing: a minimal meta, the paper and the run id), and the rule books NOT HELD always from the run's
@@ -527,13 +549,7 @@ def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
     meta = meta if isinstance(meta, dict) else {}
     meta.setdefault("paper", paper_id)
     meta.setdefault("run_id", run_id)
-    held = [
-        {"rule_book": r["name"], "why": r["why"] or ""}
-        for r in conn.execute(
-            "SELECT name, why FROM agent_review_missing_book WHERE run_id = ? ORDER BY rowid",
-            (run_id,),
-        )
-    ]
+    held = missing_books(conn, run_id)
     if held:
         labels = (
             meta.get("rule_labels") if isinstance(meta.get("rule_labels"), dict) else {}
@@ -545,7 +561,6 @@ def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
 def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | None:
     """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in), or None
     when nothing was decided or added for this paper (the stored file stands). The run's own meta: `run_meta`."""
-    import json
     from pathlib import Path
 
     from . import agent_review_crs, crs_ai_workbook
@@ -553,15 +568,7 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     if not decisions_mod.latest(paper_id) and not decisions_mod.added(paper_id):
         return None
     conn = connect()
-    lines = [
-        wording.read_time(
-            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
-        )
-        for r in conn.execute(
-            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
-            (run_id,),
-        )
-    ]
+    lines = stored_lines(conn, run_id)
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
     kept = decisions_mod.apply_to_lines(
