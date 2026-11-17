@@ -118,9 +118,9 @@ def test_the_team_file_has_all_the_sheets():
 
     names = lw(io.BytesIO(crs_one.build_team(doc, scope_all()))).sheetnames
     assert names == [
-        "CRS", "Evidence", "Removed (record)", "Not a comment", "Does not apply", "Rule books not held", "What was not checked",
-        "How it was reviewed",
-    ]  # fmt: skip
+        "CRS", "Evidence", "Removed (record)", "Not a comment", "AI thinks does not apply", "Does not apply", "Rule books not held",
+        "What was not checked", "How it was reviewed",
+    ]  # fmt: skip  (owner on PR #1872: the lines the AI thinks do not apply have their own sheet)
 
 
 def test_the_header_is_complete_and_a_draft_never_says_date_issued():

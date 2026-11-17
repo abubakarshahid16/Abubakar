@@ -32,15 +32,17 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from . import crs_ai_words as words
-from . import crs_comments as comments
-from . import crs_completeness as completeness
+from . import agent_review_not_applicable as not_applicable
 from . import (
+    crs_ai_header,
     crs_export_quality,
     crs_layout,
     standards_web_search,
     standards_web_search_money,
 )
+from . import crs_ai_words as words
+from . import crs_comments as comments
+from . import crs_completeness as completeness
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from . import review_points_content as content
@@ -58,6 +60,8 @@ TEAM_SHEET, CONTRACTOR_SHEET = "CRS", "CRS"
 EVIDENCE_SHEET = "Evidence"
 REMOVED_SHEET = "Removed (record)"
 DNA_SHEET = "Does not apply"
+#: owner on PR #1872: the lines the AI thinks do not apply, to confirm: their own sheet, never comment rows, never the contractor's
+NA_SHEET = not_applicable.SHEET
 HELD_SHEET = "Rule books not held"
 NOT_CHECKED_SHEET = "What was not checked"
 HOW_SHEET = "How it was reviewed"
@@ -295,7 +299,8 @@ def _run_facts(extra: dict) -> list[dict]:
         models = json.loads(r["models_json"] or "[]") if r else []
         out.append({
             "what": "AI review", "run": ai,
-            "engine": "Claude" if any(str(m).startswith("claude") for m in models) else ("Local" if models else NOT_RECORDED),
+            # FTU-17: the run's stored models, read by the one home the page's points read too (`crs_ai_header`)
+            "engine": crs_ai_header.engine_short(crs_ai_header.engine_of_models(models)),
             "models": models, "date": (r["finished_at"] or r["started_at"]) if r else None,
             "kind": r["paper_kind"] if r else None, "equipment": r["equipment_type"] if r else None, "usd": r["usd"] if r else None,
             "search_in_cost": standards_web_search_money.added(r["counts_json"]) if r else None,
@@ -436,15 +441,8 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
 
     conn = connect()
     rows: list[list] = []
-    other = Counter(p.get("other_kind") for p in points if p.get("rank") == 8)
-    for kind, n in sorted(other.items(), key=lambda kv: str(kv[0])):
-        rows.append(
-            [
-                kind or words.KIND_NOT_APPLICABLE,
-                n,
-                "points of this list, on the sheet CRS and on the sheet Does not apply",
-            ]
-        )
+    for kind, n in set_apart(points).items():  # FTU-17: the one count every sheet reads
+        rows.append([kind, n["all"], "points of this list, on the sheet CRS and on the sheet Does not apply"])
     for run_id in (extra.get("rc_run"), extra.get("ai_run")):
         if not run_id:
             continue
@@ -615,6 +613,74 @@ def count_line(listing: dict, rows_evidence: int, comments: int) -> str:
     )
 
 
+APART_PLACES = (
+    ("aside", f"not a comment (the sheet {NOT_A_COMMENT_SHEET})"),
+    ("comment", f"inside a comment on the sheet {TEAM_SHEET}, on a field that also has a finding"),
+    ("removed", "removed by an engineer"),
+)
+
+
+def set_apart(points: list[dict]) -> dict[str, dict[str, int]]:
+    """FTU-17: THE ONE COUNT of the points that do not apply or were not checked (rank 8; the page's tile "Does not apply" counts the same
+    points), by what each is: {kind: {"all", "aside", "comment", "removed"}}. Every sheet reads it: the first sheet, "Not a comment",
+    "Does not apply" and "What was not checked", so no sheet counts only the part it lists without saying so."""
+    where = {i: "comment" for c in comments.group(points) for i in c["member_ids"]}
+    where.update({i: "aside" for c, _kind in comments.set_aside(points) for i in c["member_ids"]})
+    out: dict[str, dict[str, int]] = {}
+    for p in points:
+        if p.get("rank") != 8:
+            continue
+        got = out.setdefault(p.get("other_kind") or words.KIND_NOT_APPLICABLE, dict.fromkeys(("all", "aside", "comment", "removed"), 0))
+        got["all"] += 1
+        got[where.get(p["id"], "removed")] += 1
+    return dict(sorted(out.items()))
+
+
+def set_apart_line(apart: dict[str, dict[str, int]]) -> str:
+    """The one sentence of `set_apart` ("" when no point is set apart)."""
+    each = [
+        f"{kind}: {n['all']} ("
+        + "; ".join(f"{n[key]} {words_}" for key, words_ in APART_PLACES if n[key])
+        + ")"
+        for kind, n in apart.items()
+    ]
+    return (f"Set apart (each one a row of the sheet {DNA_SHEET}): " + "; ".join(each) + ".") if each else ""
+
+
+def apart_proof(p: dict) -> str | None:
+    """FTU-17: why a point does not apply, with its proof, each part found by code (`agent_review_not_applicable.proof`); None
+    for any other point. A rule book the reader may not read gives no words of its condition (rule 5)."""
+    from .agent_review_not_applicable import proof as not_applicable_proof
+
+    proof = not_applicable_proof(p.get("_line") or {})
+    if not proof or p.get("other_kind") != words.KIND_NOT_APPLICABLE:
+        return None
+    cond = (
+        f"the rule's condition \"{proof['condition']}\" (found in the rule book by code)"
+        if p.get("rule_book")
+        else "the rule's condition (in a rule book you may not read)"
+    )
+    return f"{proof['reason']}: {cond}; the paper: \"{proof['paper_fact']}\" (found on the page by code)."
+
+
+def to_confirm(points: list[dict]) -> list[dict]:
+    """Owner on PR #1872: the lines the AI thinks do not apply (rank 9), not removed: their own sheet, one row each."""
+    return [p for p in points if p.get("rank") == 9 and (p.get("decision") or {}).get("state") != decisions_mod.REMOVE]
+
+
+def to_confirm_line(points: list[dict]) -> str:
+    """The group's ONE count sentence (`agent_review_not_applicable.count_line`), with the sheet it is on."""
+    done = sum(1 for p in points if (p.get("decision") or {}).get("state") == decisions_mod.KEEP)
+    return f"{not_applicable.count_line(len(points), done)[:-1]} (the sheet {NA_SHEET})."
+
+
+def confirmed_words(p: dict) -> str:
+    d = p.get("decision") or {}
+    if d.get("state") != decisions_mod.KEEP:
+        return not_applicable.OPEN
+    return f"{not_applicable.CONFIRMED}: {d.get('by') or NOT_RECORDED}, {d.get('at') or NOT_RECORDED}"
+
+
 def aside_line(aside: list[tuple[dict, str]]) -> str:
     """ONE sentence counting the points that are not comments, by what they are (order 14 lane B)."""
     by: Counter = Counter()
@@ -783,6 +849,8 @@ def build_team(
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
     aside = comments.set_aside(raw)  # order 14 lane B: no finding, so not a comment; named on Evidence, counted, listed on its sheet
     comment_of.update({i: kind for c, kind in aside for i in c["member_ids"]})
+    confirm = to_confirm(raw)
+    comment_of.update({p["id"]: NA_SHEET for p in confirm})
     evidence, cut = [], 0
     for p in raw:
         row, cc = row_of(numbers[p["id"]], p, comment_of.get(p["id"], "removed"))
@@ -797,9 +865,12 @@ def build_team(
     ws = wb.active
     ws.title = TEAM_SHEET
     lines = [
+        *completeness.cancelled_line(paper_id, extra),  # FTU-17: a later review was cancelled: said first
         completeness.team_statement(listing["of"], len(grouped)),
         count_line(listing, len(evidence), len(grouped)),
         aside_line(aside),
+        *([to_confirm_line(confirm)] if confirm else []),
+        *([apart_words] if (apart_words := set_apart_line(set_apart(raw))) else []),
         *([f"Coverage note: {note}"] if (note := comments.coverage_note(raw)) else []),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
         + (
@@ -830,7 +901,7 @@ def build_team(
         [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), comment_page_words(x),
                              comment_full_texts(x)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]))] for x, kind in aside],
         (40, 28, 8, 20, 12, 60, 50),
-        note=f"{aside_line(aside)} Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
+        note=f"{aside_line(aside)} {apart_words + ' ' if apart_words else ''}Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
     )  # fmt: skip
     if contract_results is not None:  # order 14 lane E: the contract checks, an AI-draft checklist (internal only; not points of the page)
         c_rows, consistent = contract_rows(contract_results)
@@ -839,11 +910,17 @@ def build_team(
             (6, 10, 30, 18, 30, 60, 60, 26),
             note=f"{len(c_rows)} contract check result(s) to look at; {consistent} consistent (not listed). {CONTRACT_CLASS}: never on the contractor file.",
         )  # fmt: skip
+    _sheet_table(
+        wb, NA_SHEET, ("No on the sheet Evidence", "Field or item", "Rule books and clauses", "Page", "Why the AI thinks so", "Confirmed"),
+        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), " ".join(x for x in (p.get("rule_book"), p.get("clause")) if x) or None,
+                             point_page_words(p), p.get("ai_reasoning") or p.get("action"), confirmed_words(p))] for p in confirm],
+        (12, 40, 30, 8, 70, 40), note=f"{not_applicable.TITLE}. {to_confirm_line(confirm)} These lines are not comments and never go to the contractor.",
+    )  # fmt: skip
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(
-        wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page"),
-        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("other_kind") or words.KIND_NOT_APPLICABLE, point_page_words(p))] for p in dna],
-        (12, 48, 30, 8), note="These points are also rows of the sheet Evidence (they are counted on the page); listed here by themselves.",
+        wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page", "Why, with its proof (found by code)"),
+        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("other_kind") or words.KIND_NOT_APPLICABLE, point_page_words(p), apart_proof(p))] for p in dna],
+        (12, 48, 30, 8, 70), note=f"{apart_words or 'None.'} These points are also rows of the sheet Evidence (they are counted on the page); listed here by themselves.",
     )  # fmt: skip
     held = extra.get("not_held") or []
     rows_of = rp.not_held_rows(held, raw)
@@ -996,6 +1073,7 @@ def build_contractor(
     ]
     if not mine:
         lines.insert(0, NONE_ISSUED)
+    lines[:0] = completeness.cancelled_line(paper_id, extra)  # FTU-17: a later review was cancelled: said first
     header_row = _put_block(ws, pairs, lines)
     _table(ws, header_row, CONTRACTOR_COLUMNS, cells, CONTRACTOR_WIDTHS)
     buf = BytesIO()

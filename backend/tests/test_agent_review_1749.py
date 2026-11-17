@@ -14,6 +14,7 @@ from app import agent_review_wording as wording
 from app.agent_review_verdict import RULE_NOT_APPROVED
 from app.api import agent_review_schemas as contract
 from tests import agent_review_support as s
+from tests.agent_review_support import NA_PROOF
 from tests.test_agent_review_items import (  # noqa: F401 - the same invented rule book and labels
     KIND,
     PAPER,
@@ -157,7 +158,7 @@ LABELS = (
 
 def _lines():
     """Every shape of line the core can classify: verdict x ai verdict x reason code x tier x error x silence x holds."""
-    for verdict, ai, code, tier, err, silent, held in itertools.product(
+    for verdict, ai, code, tier, err, silent, held, proof in itertools.product(
         ("Pass", "Fail", "Query"),
         (None, "Pass", "Fail"),
         (None, "not_applicable", "sheet_silent"),
@@ -165,10 +166,11 @@ def _lines():
         (None, "stop_max_tokens"),
         (False, True),
         (False, True),
+        (False, True),  # FTU-17: a "does not apply" proof, or none
     ):
         yield {
             "item_id": "S-1", "verdict": verdict, "ai_verdict": ai, "reason_code": code, "rule_tier": tier,
-            "error": err, "silence_query": silent, "conditional_hold": held, "why": "w",
+            "error": err, "silence_query": silent, "conditional_hold": held, "why": "w", **(NA_PROOF if proof else {}),
             **({"decided_by": "decided by code", "compare": {"decided": True, "verdict": "meets" if verdict == "Pass" else "does_not_meet"}} if verdict != "Query" else {}),
         }  # fmt: skip
 
@@ -236,6 +238,7 @@ def test_a_not_applicable_line_is_stored_with_the_contracts_own_word(
         "checklist": True,
         "tier": None,
         "why": "w",
+        **NA_PROOF,  # FTU-17: "does not apply" stands only with its proof
     }
     agent_review_jobs.store_line(run_id, line, None)
     row = dict(

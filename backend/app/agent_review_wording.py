@@ -17,6 +17,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 
 from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as code_proof
+from . import agent_review_not_applicable as not_applicable
 from . import agent_review_two_reader as two_reader
 from . import agent_run_second
 from .agent_review_local import (
@@ -157,6 +158,8 @@ def reader_query_action(line: Mapping) -> str | None:
 
     if line.get("why") == PROVEN_NOT_HELD_WHY:
         return "Engineer to check the rule: code decided this line, but its rule book is not held."
+    if not_applicable_question(line):  # FTU-17: a "does not apply" without its proof
+        return not_applicable.ACTION
     return {
         GROUP_DRAWING: "Engineer to judge this: it needs a drawing or a calculation.",
         GROUP_COULD_NOT: "Engineer to decide: the AI reviewer could not.",
@@ -375,13 +378,12 @@ def classify(line: Mapping) -> dict:
             "verdict_class": CLASS_PROVEN,
             "not_proven_reason": None,
         }
-    if (
-        verdict == QUERY and line.get("reason_code") == "not_applicable"
-    ):  # the AI judged the rule not for this paper
+    if verdict == QUERY and line.get("reason_code") == "not_applicable":  # FTU-17
+        proof = not_applicable.proof(line)  # the AI judged the rule not for this paper
         return {
             "verdict_label": WORD_QUERY,
-            "verdict_class": CLASS_NOT_APPLICABLE,
-            "not_proven_reason": "the AI judged the rule not applicable to this paper",
+            "verdict_class": CLASS_NOT_APPLICABLE if proof else CLASS_QUERY,
+            "not_proven_reason": not_applicable.reason(proof),
         }
     held = (
         line.get("conditional_hold")
@@ -445,13 +447,24 @@ def silence_unproven(line: Mapping) -> bool:
 _NARROWED_AT_READ = (CLASS_OPINION, CLASS_UNAPPROVED)
 
 
+def not_applicable_question(line: Mapping) -> bool:
+    """FTU-17: the reader's own "not applicable" without its proof (`agent_review_not_applicable`): a question for the engineer."""
+    cls = line.get("verdict_class")
+    return (
+        line.get("verdict") == QUERY
+        and line.get("reason_code") == "not_applicable"
+        and cls == CLASS_QUERY
+    )
+
+
 def read_time(line: Mapping) -> dict:
     """A stored line of ANY run as every reader of it sees it: an item row (rule or checklist) gets the reason sentence the SAME rule gives a
     new line (`classify`), so an earlier run's stored reason (the gate's old sentence for a reader's own Query) is worded truly on the page,
     in the points and in a CRS built from it. Only the reason is taken: the stored class and every other key stay as they are (the
-    defences that read the stored class keep working); never rewritten in the table. ONE exception, narrowing only (order 14, G5): a
-    stored AI opinion "not met" (`_NARROWED_AT_READ`) that today's rule makes a Query is read as that Query (its label, class and reason), so an
-    older run's CRS never shows a firm "not met" today's rule would not give. Any other line is returned as it is."""
+    defences that read the stored class keep working); never rewritten in the table. TWO exceptions, narrowing only: a stored AI opinion
+    "not met" (`_NARROWED_AT_READ`, order 14 G5) and a stored "not applicable" without its proof (FTU-17) that today's rule makes a Query
+    are read as that Query (its label, class and reason), so an older run's CRS never shows what today's rule would not give. Any other
+    line is returned as it is."""
     if line.get("source") not in ("rule", "skill"):
         return dict(line)
     got = classify(line)
@@ -461,6 +474,14 @@ def read_time(line: Mapping) -> dict:
     )
     if got["verdict_class"] == CLASS_QUERY and narrowed:
         return {**line, **got}  # order 14 (G5): read as today's Query (narrowing only)
+    if (
+        line.get("verdict_class") == CLASS_NOT_APPLICABLE
+        and got["verdict_class"] == CLASS_QUERY
+    ):
+        return {
+            **line,
+            **got,
+        }  # FTU-17: a stored "not applicable" without its proof is read as today's question (narrowing only)
     return {**line, "not_proven_reason": got["not_proven_reason"]}
 
 

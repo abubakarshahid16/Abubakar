@@ -17,6 +17,7 @@ import { CodeBox } from "./CodeBox";
 import { FoundDuringReview } from "../panels/FoundDuringReview";
 import { EngineBar } from "./EngineBar";
 import { KindLine } from "./KindLine";
+import { NotApplicableSection } from "./NotApplicableSection";
 import { PointsList } from "./PointsList";
 import { BookChips, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
 import { usePoints } from "./usePoints";
@@ -36,7 +37,9 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
   const [viewing, setViewing] = useState<{ page: number } | null>(null);
   const listing = pts.listing.state === "ok" ? pts.listing.data : null;
 
-  const shown = useMemo(() => (listing?.points ?? []).filter((p) => (tile ? p.tile === tile : true) && (book === null ? true : book === NO_BOOK ? p.no_book === true : (p.books ?? []).some((b) => b.id === book) || (!p.books && p.rule_book === book))), [listing, tile, book]);
+  // owner on PR #1872: the lines the AI thinks do not apply are their own section, never in the main list
+  const toConfirm = useMemo(() => (listing?.points ?? []).filter((p) => p.tile === "na_to_confirm"), [listing]);
+  const shown = useMemo(() => (listing?.points ?? []).filter((p) => p.tile !== "na_to_confirm" && (tile ? p.tile === tile : true) && (book === null ? true : book === NO_BOOK ? p.no_book === true : (p.books ?? []).some((b) => b.id === book) || (!p.books && p.rule_book === book))), [listing, tile, book]);
   const undecided = listing ? listing.of - listing.decided : 0;
 
   return (
@@ -93,6 +96,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       {tab === "points" && listing && (
         <div className="space-y-3">
           {pts.problem && <p role="alert" className="text-sm text-danger-500">{pts.problem}</p>}
+          <NotApplicableSection points={toConfirm} counts={listing.counts.not_applicable_to_confirm} confirm={pts.confirmNa} undo={pts.undoNa} busy={pts.busy} />
           <PointsList points={shown} decide={pts.decide} keepAll={pts.keepAll} busy={pts.busy}
             onViewPage={(_d, page) => setViewing({ page })} />
           <AddPoint onAdd={pts.add} busy={pts.busy} />

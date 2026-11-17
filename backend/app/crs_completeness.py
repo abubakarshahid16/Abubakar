@@ -36,11 +36,59 @@ CUT_MARK = "…"  # the visible mark of a shortened cell: one literal, checked h
 REASON_REMOVED = "removed"
 REASON_NO_WORDING = "kept, with no comment written for the contractor"
 REASON_NOT_DECIDED = "not decided yet"
-REASON_ORDER = (REASON_NOT_DECIDED, REASON_NO_WORDING, REASON_REMOVED)
+#: owner on PR #1872: a line the AI thought does not apply and the engineer confirmed (contractor words)
+REASON_NOT_APPLICABLE = "does not apply"
+REASON_ORDER = (REASON_NOT_DECIDED, REASON_NO_WORDING, REASON_NOT_APPLICABLE, REASON_REMOVED)
 
 
 #: FTU-1: the sentence of a CRS asked for a paper with no finished review (the download answers 409 with it, never an empty file)
 NOT_REVIEWED = "This paper has not been reviewed yet; start a review first."
+#: FTU-17: the same, when the paper's latest review was cancelled (the check route says it too, never "Complete")
+CANCELLED_NOT_REVIEWED = "This paper has no finished review: its latest review was cancelled; start a review again."
+
+
+def latest_cancelled(paper_id: str, runs_used=()) -> str | None:
+    """FTU-17: the start date of the paper's NEWEST review run when that run was cancelled and is newer than every run a file holds
+    (`runs_used`); None otherwise. Read from the stored runs only."""
+    conn = connect()
+    at = "COALESCE(started_at, created_at)"
+    row = conn.execute(
+        f"SELECT id, status, {at} AS at FROM review_runs WHERE submittal_document_id = ? ORDER BY {at} DESC LIMIT 1",
+        (paper_id,),
+    ).fetchone()
+    used = [r for r in runs_used if r]
+    if not row or row["status"] != "cancelled" or row["id"] in used:
+        return None
+    marks = ",".join("?" for _ in used)
+    last = (
+        conn.execute(f"SELECT MAX({at}) FROM review_runs WHERE id IN ({marks})", used).fetchone()[0]
+        if used
+        else None
+    )
+    if last and str(row["at"] or "") <= str(last):
+        return None
+    return str(row["at"] or "")[:10] or "date not recorded"
+
+
+def cancelled_line(paper_id: str, facts: dict) -> list[str]:
+    """FTU-17: the first sheet's line of a file whose paper's latest review was cancelled ([] when it was not)."""
+    at = latest_cancelled(paper_id, (facts.get("rc_run"), facts.get("ai_run")))
+    return (
+        [f"Review cancelled: the latest review of this paper (started {at}) was cancelled; this file holds the last finished review."]
+        if at
+        else []
+    )
+
+
+def not_reviewed(raw: list[dict], facts: dict) -> bool:
+    """FTU-1: no finished review and no point on the page (an engineer's added point is one): nothing to put in a CRS file."""
+    return not (facts.get("rc_run") or facts.get("ai_run") or raw)
+
+
+def not_reviewed_report(paper_id: str, copy: str = "") -> dict:
+    """FTU-17: the report of a paper with no finished review: "not reviewed" (or "cancelled"), never "Complete"."""
+    sentence = CANCELLED_NOT_REVIEWED if latest_cancelled(paper_id) else NOT_REVIEWED
+    return {"ok": False, "sentence": sentence, "missing": [], "not_reviewed": True, **({"copy": copy} if copy else {})}
 
 
 class Incomplete(Exception):
@@ -85,6 +133,8 @@ def contractor_split(raw: list[dict]) -> tuple[list[dict], dict[str, int]]:
         )
         if state == decisions_mod.REMOVE:
             reasons[REASON_REMOVED] += 1
+        elif state == decisions_mod.KEEP and p.get("rank") == 9:  # confirmed: does not apply
+            reasons[REASON_NOT_APPLICABLE] += 1
         elif (
             wanted or state == decisions_mod.KEEP
         ):  # kept, but no words of the engineer's own to issue
@@ -358,23 +408,28 @@ def _comment_accounting(data: bytes, raw: list[dict]) -> list[str]:
     wb = load_workbook(BytesIO(data))
     groups, aside = crs_comments.group(raw), crs_comments.set_aside(raw)
     removed = sum(1 for p in raw if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE)
+    # owner on PR #1872: the lines the AI thinks do not apply are their own sheet, one row and one point each
+    to_confirm = len(crs_one.to_confirm(raw))
     out, points = [], 0
     for sheet, first, want, what in (
         (crs_one.TEAM_SHEET, "Comment", len(groups), "comments"),
         (crs_one.NOT_A_COMMENT_SHEET, "Field or item", len(aside), "fields that are not comments"),
+        (crs_one.NA_SHEET, "No on the sheet Evidence", to_confirm, "lines the AI thinks do not apply"),
     ):
         if sheet not in wb.sheetnames:
-            out.append(f"the sheet {sheet} is missing")
+            if want or sheet != crs_one.NA_SHEET:  # the section's sheet is needed only when it has lines
+                out.append(f"the sheet {sheet} is missing")
             continue
         ws = wb[sheet]
         rows = _table_rows(ws, first)
         head = next(list(r) for r in ws.iter_rows(values_only=True) if r and r[0] == first)
-        points += sum(int(r[head.index("Points")] or 0) for r in rows)
+        points += sum(int(r[head.index("Points")] or 0) for r in rows) if "Points" in head else len(rows)
         if len(rows) != want:
             out.append(f"the sheet {sheet} has {len(rows)} rows, the grouping has {want} {what}")
     if points + removed != len(raw):
         out.append(
-            f"the comments ({points} points with the fields that are not comments) and the {removed} removed points do not add up "
+            f"the comments ({points} points with the fields that are not comments and the lines the AI thinks do not apply) and the "
+            f"{removed} removed points do not add up "
             f"to the {len(raw)} points of the page"
         )
     return out
@@ -454,7 +509,10 @@ def checked_files(paper_id: str, scope) -> dict:
         ("contractor", crs_one.build_contractor),
     ):
         data = build(paper_id, scope, listing_raw=(listing, raw, facts))
-        out[copy] = (data, verify(paper_id, scope, copy, data, listing, raw, facts))
+        report = verify(paper_id, scope, copy, data, listing, raw, facts)
+        if not_reviewed(raw, facts):  # FTU-17: nothing was reviewed: said so, never "Complete" (the download refuses it, 409)
+            report = {**report, **not_reviewed_report(paper_id)}
+        out[copy] = (data, report)
     return out
 
 
@@ -465,10 +523,8 @@ def file_or_refuse(paper_id: str, scope, copy: str, **build_kw) -> bytes:
 
     listing, raw, facts = svc.export_listing(paper_id, scope)
     # FTU-1: no finished review and no point on the page (an engineer's added point is one), so nothing to put in a CRS file
-    if not (facts.get("rc_run") or facts.get("ai_run") or raw):
-        raise Incomplete(
-            {"ok": False, "sentence": NOT_REVIEWED, "missing": [], "not_reviewed": True}
-        )
+    if not_reviewed(raw, facts):
+        raise Incomplete(not_reviewed_report(paper_id))
     build = crs_one.build_team if copy == "team" else crs_one.build_contractor
     data = build(paper_id, scope, listing_raw=(listing, raw, facts), **build_kw)
     report = verify(paper_id, scope, copy, data, listing, raw, facts)
