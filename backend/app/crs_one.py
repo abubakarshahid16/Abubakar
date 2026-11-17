@@ -180,7 +180,7 @@ def readers_of(point: dict) -> tuple[str, str, str]:
     if point.get("source") != rp.SOURCE_AI_REVIEW:
         return (
             (
-                content.reader_words(point.get("checked_by"))  # order 14 W-C8: the one name, the same as the header's
+                content.reader_words(point.get("checked_by"), bool(point.get("_value_by_ai")))  # order 14 W-C8: the one name
                 if point.get("source") == rp.SOURCE_RULE_CHECK
                 else "an engineer"
             ),

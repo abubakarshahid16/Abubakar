@@ -154,11 +154,17 @@ def test_the_completeness_check_reports_a_line_stored_cut_and_restore_puts_the_w
         + "\n"
     )
     (folder / "steps" / "p5-w0.json").write_text(
-        json.dumps({"text": json.dumps({"comments": [{"comment": LONG_COMMENT}]})})
+        json.dumps(
+            {
+                "text": json.dumps(
+                    {"comments": [{"quote": QUOTE, "comment": LONG_COMMENT}]}
+                )
+            }
+        )
     )
     general_cut = " ".join(LONG_COMMENT.split()[:40])
     _store("run-c", [("S-1", {"item_id": "S-1", "reasoning": cut}),
-                     ("G-001", {"item_id": "G-001", "general": True, "part": 5, "text": general_cut}),
+                     ("G-001", {"item_id": "G-001", "general": True, "part": 5, "text": general_cut, "quote_a": QUOTE}),
                      ("S-2", {"item_id": "S-2", "reasoning": "A whole answer."})])  # fmt: skip
     problems = ai_text_whole.problems("run-c")
     assert len(problems) == 2 and all(
@@ -173,6 +179,97 @@ def test_the_completeness_check_reports_a_line_stored_cut_and_restore_puts_the_w
         )
     }
     assert got["S-1"]["reasoning"] == whole and got["G-001"]["text"] == LONG_COMMENT
+    reasons = dict(
+        db.connect().execute("SELECT item_id, reason FROM agent_review_line").fetchall()
+    )
+    assert (
+        reasons["S-1"] == cut and reasons["G-001"] == LONG_COMMENT
+    )  # a rule row's reason column is never rewritten
+    assert (
+        ai_text_whole.restore(db.connect(), "run-c", folder) == 0
+    )  # a second pass changes nothing
+
+
+QUOTE = {"page": 3, "text": "Appendix Z lists the forms."}
+
+
+def _record(world, run, trace=(), general=()):
+    folder = world / "agent_reviews" / run
+    (folder / "steps").mkdir(parents=True)
+    (folder / "trace.jsonl").write_text("".join(json.dumps(r) + "\n" for r in trace))
+    (folder / "steps" / "p5-w0.json").write_text(
+        json.dumps({"text": json.dumps({"comments": list(general)})})
+    )
+    return folder
+
+
+def test_two_whole_general_comments_that_share_their_first_words_are_neither_cut_nor_rewritten(
+    world, monkeypatch
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", world)
+    one = "State where the invented forms are held and who keeps them up to date."
+    two_ = "State where the invented forms are held, and give the revision of each."
+    other = {"page": 2, "text": "Actions are recorded without owner or date."}
+    folder = _record(
+        world,
+        "run-s",
+        general=[{"quote": QUOTE, "comment": one}, {"quote": other, "comment": two_}],
+    )
+    _store("run-s", [("G-001", {"item_id": "G-001", "general": True, "part": 5, "text": one, "quote_a": QUOTE}),
+                     ("G-002", {"item_id": "G-002", "general": True, "part": 5, "text": two_, "quote_a": other})])  # fmt: skip
+    assert ai_text_whole.problems("run-s") == []
+    assert ai_text_whole.restore(db.connect(), "run-s", folder) == 0
+    # a line stored cut gets back ITS OWN words, never the longer words of another line that start the same way
+    mine = "State where the invented forms are held and name the owner."
+    longer = "State where the invented forms are held, and give the revision, the date and the owner of each form."
+    third = {"page": 1, "text": "See Table 9 for the schedule."}
+    folder = _record(
+        world,
+        "run-t",
+        general=[
+            {"quote": QUOTE, "comment": mine},
+            {"quote": third, "comment": longer},
+        ],
+    )
+    _store("run-t", [("G-001", {"item_id": "G-001", "general": True, "part": 5, "text": " ".join(mine.split()[:8]), "quote_a": QUOTE}),
+                     ("G-002", {"item_id": "G-002", "general": True, "part": 5, "text": longer, "quote_a": third})])  # fmt: skip
+    assert len(ai_text_whole.problems("run-t")) == 1
+    assert ai_text_whole.restore(db.connect(), "run-t", folder) == 1
+    got = dict(
+        db.connect()
+        .execute("SELECT item_id, reason FROM agent_review_line WHERE run_id = 'run-t'")
+        .fetchall()
+    )
+    assert got == {"G-001": mine, "G-002": longer}
+    assert ai_text_whole.restore(db.connect(), "run-t", folder) == 0
+
+
+def test_a_whole_lead_reasoning_is_never_called_cut_by_a_longer_second_readers(
+    world, monkeypatch
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", world)
+    stored = "The set pressure is stated."  # the line's own words (here: not the first reader's recorded answer)
+    trace = [{"type": "item", "item_id": "S-1", "lead_answer": {"reasoning": "Other invented words entirely."},
+              "second_opinion_answer": {"reasoning": stored + " The margin is not."}}]  # fmt: skip
+    folder = _record(world, "run-l", trace=trace)
+    _store("run-l", [("S-1", {"item_id": "S-1", "reasoning": stored})])
+    assert ai_text_whole.problems("run-l") == []
+    assert ai_text_whole.restore(db.connect(), "run-l", folder) == 0
+
+
+def test_a_run_that_keeps_no_record_is_said_unchecked(world, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", world)
+    _store("run-n", [("S-1", {"item_id": "S-1", "reasoning": "Whole."})])
+    got = ai_text_whole.check("run-n")
+    assert got["problems"] == [] and got["unchecked"] == ai_text_whole.NOT_CHECKED
+    report = {"ok": True, "stored_text_unchecked": got["unchecked"]}
+    assert ai_text_whole.NOT_CHECKED in cc.sentence_of(report)
 
 
 def test_a_run_without_a_stored_cut_reports_nothing(world, monkeypatch):
@@ -193,7 +290,7 @@ def test_a_run_without_a_stored_cut_reports_nothing(world, monkeypatch):
 # ------------------------------------------------------------------------------------------------ W-C6: the reader's view of the reasoning
 
 
-def test_the_reasoning_cell_keeps_every_word_of_a_sentence_and_marks_a_sentence_left_out():
+def test_the_reasoning_cell_keeps_every_word_and_replaces_only_internal_codes_in_place():
     said = "No clause text was supplied, so the margin cannot be read. The sheet leaves the power blank."
     view = crs_ai_actions.reasoning_part(
         {"reasoning": said}, crs_ai_words.STATUS_QUERY, ""
@@ -201,10 +298,16 @@ def test_the_reasoning_cell_keeps_every_word_of_a_sentence_and_marks_a_sentence_
     assert (
         said in view
     )  # the old filter took "cannot be read" out of the middle of the first sentence
-    coded = "The value is given. The reason code is not_met_value per the gate. The unit is bar."
+    plain_words = "The coupling guard is brass, e.g. for a zone with a gate valve, i.e. non-sparking. The tier is not stated."
+    assert (
+        ai_text_whole.plain_whole(plain_words) == plain_words
+    )  # a plain word is never a reason to leave anything out
+    coded = "Line S-EQ-24 says the value is given. The unit is bar."
     shown = ai_text_whole.plain_whole(coded)
-    assert "The value is given." in shown and "The unit is bar." in shown
-    assert ai_text_whole.LEFT_OUT.format(n=1) in shown
+    assert (
+        shown
+        == f"Line {ai_text_whole.ID_MARK} says the value is given. The unit is bar."
+    )
     assert ai_text_whole.reasoning_left_out(coded, shown) == 0
 
 
@@ -260,7 +363,7 @@ def test_sheet_one_counts_reviewed_not_reviewed_and_not_checked_from_one_count()
     assert split == {"reviewed": 2, "not_reviewed": 1, "not_checked": 1}
     line = cc.team_statement(4, 3, split)
     assert line.startswith(
-        "4 points in this review, 4 in this file, as 3 comments: 2 reviewed;"
+        "4 points in this review, 4 in this file, as 3 comments: 2 raised as a finding or a question"
     )
     assert (
         "1 not reviewed" in line
@@ -268,8 +371,10 @@ def test_sheet_one_counts_reviewed_not_reviewed_and_not_checked_from_one_count()
         and "4 points reviewed" not in line
     )
     assert (
-        cc.team_statement(2, 2, {"reviewed": 2, "not_reviewed": 0, "not_checked": 0})
-        == "2 points reviewed, 2 in this file, as 2 comments"
+        "reviewed"
+        not in cc.team_statement(
+            2, 2, {"reviewed": 2, "not_reviewed": 0, "not_checked": 0}
+        ).split(":")[0]
     )
 
 
@@ -300,6 +405,11 @@ def test_one_name_for_who_raised_a_rule_check_point():
         == "Rule check: datasheet checklist (code)"
     )
     assert content.rule_check_engine("Claude") == "code, with its AI steps on Claude"
+    by_ai = content.value_read_by_ai({"_fact": {"extraction_method": "vision"}})
+    assert content.reader_words(content.checked_by("datasheet_check"), by_ai) == (
+        "Rule check: datasheet checklist (code; value read by an AI reader)"
+    )
+    assert not content.value_read_by_ai({"_fact": {"extraction_method": "geometry"}})
 
 
 # ------------------------------------------------------------------------------------------------ W-C9
@@ -318,3 +428,138 @@ def test_a_page_an_ai_step_named_is_shown_only_when_code_proved_it():
         {**ai, "contractor_evidence_text": "Article 9."}, page
     )
     assert ai_engineering_check.page_verified({"origin": "datasheet_check"}, "")
+
+
+def test_a_page_the_ai_named_is_printed_with_its_note_never_as_the_page():
+    from app import crs_comments
+
+    assert crs_comments.point_page_words(
+        {"page": 3, "page_note": review_points.AI_NAMED_PAGE}
+    ) == ("3 (named by the AI, not proven by code)")
+    assert crs_comments.comment_page_words(
+        {
+            "pages": [2, 3],
+            "page_hints": [3],
+            "page_notes": {3: review_points.AI_NAMED_PAGE},
+        }
+    ) == ("2, 3 (named by the AI, not proven by code)")
+
+
+# ------------------------------------------------------------------------------------------------ the AI's ask and the calculator's reason
+
+
+def test_the_ais_ask_and_the_calculators_reason_are_whole():
+    from app import agent_review_calculator as calc
+
+    ask = "Give the set pressure basis, e.g. the relieving case. Then state the margin used for the invented valve."
+    assert crs_lines.ai_ask({"comment": ask}) == ask
+    long = " ".join(["the stated value and the limit use different bases"] * 10)
+    import pytest
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(
+        calc.comparison,
+        "compare",
+        lambda *a, **k: {"status": "NEEDS_ENGINEER_REVIEW", "rationale": long},
+    )
+    try:
+        out = calc.numeric_line({"id": "S-1", "field": "Set pressure"}, {"id": "q1", "text": "x"},
+                                {"field_value": "5", "unit": "bar", "page": 1}, submittal_facts=[],
+                                page_text="Set pressure 5 bar", clause_quote=None, clause_text=None)  # fmt: skip
+    finally:
+        mp.undo()
+    assert long in out["why"]
+
+
+# ------------------------------------------------------------------------------------------------ the restore script
+
+
+def _script(argv):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "restore_whole_ai_text.py"
+    spec = importlib.util.spec_from_file_location("lpw_restore_script", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.main(argv)
+
+
+def _script_world(world):
+    from app.config import settings
+
+    whole = (
+        "The sheet gives the set pressure. The margin (e.g. 10 per cent) is not shown."
+    )
+    _record(
+        world,
+        "run-x",
+        trace=[{"type": "item", "item_id": "S-1", "lead_answer": {"reasoning": whole}}],
+    )
+    _store(
+        "run-x",
+        [
+            (
+                "S-1",
+                {
+                    "item_id": "S-1",
+                    "reasoning": "The sheet gives the set pressure. The margin (e.g.",
+                },
+            )
+        ],
+    )
+    return settings.db_path, whole
+
+
+def _reasoning():
+    return json.loads(
+        db.connect()
+        .execute("SELECT line_json FROM agent_review_line WHERE item_id = 'S-1'")
+        .fetchone()[0]
+    )["reasoning"]
+
+
+def test_the_script_counts_only_by_default_and_a_second_pass_changes_nothing(
+    world, capsys
+):
+    path, whole = _script_world(world)
+    assert (
+        _script(["--db", str(path), "run-x"]) == 0 and _reasoning() != whole
+    )  # dry run: nothing written
+    assert json.loads(capsys.readouterr().out)["cut_before"] == 1
+    assert (
+        _script(["--db", str(path), "--apply", "run-x"]) == 0 and _reasoning() == whole
+    )
+    assert json.loads(capsys.readouterr().out)["runs"]["run-x"]["lines_restored"] == 1
+    assert _script(["--db", str(path), "--apply", "run-x"]) == 0
+    assert json.loads(capsys.readouterr().out)["runs"]["run-x"]["lines_restored"] == 0
+
+
+def test_the_script_refuses_a_live_database_without_live_and_goes_through_the_guard_with_it(
+    world, monkeypatch, capsys
+):
+    import pytest
+
+    from app import live_guard
+
+    path, whole = _script_world(world)
+    monkeypatch.setattr(live_guard, "is_live_shaped", lambda _p: True)
+    with pytest.raises(SystemExit):
+        _script(["--db", str(path), "--apply", "run-x"])
+    assert _reasoning() != whole
+    asked = []
+
+    class Clearance:
+        backup_path = "invented-backup"
+
+    def cleared(
+        target, **kw
+    ):  # the invented guard: records the ask, and the process is then cleared to write (as the real one does)
+        asked.append(kw["reason"])
+        monkeypatch.setattr(live_guard, "is_live_shaped", lambda _p: False)
+        return Clearance()
+
+    monkeypatch.setattr(live_guard, "prepare_live_write", cleared)
+    assert _script(["--db", str(path), "--live", "run-x"]) == 0
+    assert asked and _reasoning() == whole
+    assert json.loads(capsys.readouterr().out)["rollback_point"] == "invented-backup"

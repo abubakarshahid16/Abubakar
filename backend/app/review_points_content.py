@@ -38,14 +38,24 @@ AI_REVIEW_BY = "AI reviewer"
 AI_STEPS = ("clause_review", "ai_engineering_check")
 
 
-def reader_words(checked: str | None) -> str:
+#: How a datasheet value was read (`submittal_facts.extraction_method`) when an AI reader read it.
+AI_READ_METHODS = ("model", "vision")
+
+
+def value_read_by_ai(finding: dict | None) -> bool:
+    return str(((finding or {}).get("_fact") or {}).get("extraction_method") or "") in AI_READ_METHODS
+
+
+def reader_words(checked: str | None, value_by_ai: bool = False) -> str:
     """THE plain name of who raised a rule-check point, in every cell that names a reader (order 14 W-C8: the header said Claude,
-    the column First reader said "the rule check (code)" for a point an AI step raised): its part, then "an AI step" or "code"."""
+    the column First reader said "the rule check (code)" for a point an AI step raised): its part, then "an AI step", "code", or
+    "code; value read by an AI reader" when code compared a value an AI reader took from the paper."""
     name = " ".join(str(checked or "").split()) or "Rule check"
     if name == CHECKED_BY["engineer_comment"]:
         return "an engineer"
-    ai = name in {CHECKED_BY[k] for k in AI_STEPS}
-    return f"{name.removesuffix(' (AI)')} ({'an AI step' if ai else 'code'})"
+    if name in {CHECKED_BY[k] for k in AI_STEPS}:
+        return f"{name.removesuffix(' (AI)')} (an AI step)"
+    return f"{name} ({'code; value read by an AI reader' if value_by_ai else 'code'})"
 
 
 def rule_check_engine(engine: str) -> str:

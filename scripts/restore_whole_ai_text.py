@@ -4,10 +4,11 @@ Until this fix three writers shortened the AI reviewer's own words when a line w
 (`<data dir>/agent_reviews/<run>/trace.jsonl` and `steps/`) keeps what the AI sent, so the whole text is put back from it: no
 model call, no cost. `app.ai_text_whole` finds the lines (the same check `crs_completeness` runs before every download).
 
-A LIVE DATABASE GOES THROUGH `app.live_guard`: with `--live` the guard takes a verified backup and runs a restore drill first.
-Without `--live`, a live database is refused.
+A DRY RUN BY DEFAULT: it counts and writes nothing. `--apply` writes a copy; a LIVE database goes through `app.live_guard`
+only with `--live` (a verified backup and a restore drill first) and is refused otherwise. A second pass changes nothing.
 
-    python scripts/restore_whole_ai_text.py --db <copy.sqlite> [run id ...]        (default: every run with stored lines)
+    python scripts/restore_whole_ai_text.py --db <copy.sqlite> [run id ...]                (counts only; default: every run)
+    python scripts/restore_whole_ai_text.py --db <copy.sqlite> --apply [run id ...]
     python scripts/restore_whole_ai_text.py --db backend/data/rag_intelligence.sqlite --live [run id ...]
 
 The run folders are read from the database's own folder (`<db folder>/agent_reviews`). Prints ids and counts only, never text.
@@ -32,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="write a live database, after the backup and restore drill",
     )
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="write a COPY (without it: counts only, nothing written)",
+    )
     ap.add_argument("--backup-dir", type=Path, default=None)
     ap.add_argument("runs", nargs="*")
     args = ap.parse_args(argv)
@@ -40,7 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     from app import ai_text_whole, db, live_guard
     from app.config import settings
 
-    summary: dict = {"database": str(target)}
+    write = args.apply or args.live
+    summary: dict = {"database": str(target), "written": write}
+    if live_guard.is_live_shaped(target) and not args.live:
+        raise SystemExit(
+            "refusing: that is a live database; pass --live, which takes a verified backup first"
+        )
     if args.live:
         clearance = live_guard.prepare_live_write(
             target,
@@ -48,10 +59,6 @@ def main(argv: list[str] | None = None) -> int:
             backup_dir=args.backup_dir,
         )
         summary["rollback_point"] = clearance.backup_path
-    elif live_guard.is_live_shaped(target):
-        raise SystemExit(
-            "refusing: that is a live database; pass --live, which takes a verified backup first"
-        )
     settings.data_dir, settings.db_path = target.parent, target
     db.reset_connection()
     conn = db.connect()
@@ -65,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     for run in runs:
         folder = target.parent / "agent_reviews" / run
         before = ai_text_whole.cuts_of_run(conn, run, folder)
-        changed = ai_text_whole.restore(conn, run, folder)
+        changed = ai_text_whole.restore(conn, run, folder) if write else 0
         after = ai_text_whole.cuts_of_run(conn, run, folder)
         per_run[run] = {"record": before["checked"], "lines": before["lines"], "cut_before": len(before["cut"]),
                         "lines_restored": changed, "cut_after": len(after["cut"])}  # fmt: skip
@@ -75,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     db.reset_connection()
     live_guard.revoke_all()
     print(json.dumps(summary, indent=2))
-    return 1 if summary["cut_after"] else 0
+    return 1 if write and summary["cut_after"] else 0
 
 
 if __name__ == "__main__":

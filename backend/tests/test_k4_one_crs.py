@@ -522,7 +522,9 @@ def test_the_first_sheet_states_the_counts_from_the_one_function():
     doc, rc, ai, client = world_with_both()
     team = sheet(crs_one.build_team(doc, scope_all()))
     c = review_points_service.assemble(doc, scope_all())["comment_count"]
-    assert cc.team_statement(4, c) in [r[0] for r in team.iter_rows(values_only=True)]
+    # order 14 W-C5: the line takes the page's one split (what was raised, not reviewed, not checked), never "reviewed" for all
+    raw = review_points_service.export_listing(doc, scope_all())[1]
+    assert cc.team_statement(4, c, cc.review_split(raw)) in [r[0] for r in team.iter_rows(values_only=True)]
     con = sheet(crs_one.build_contractor(doc, scope_all()))
     first = [r[0] for r in con.iter_rows(values_only=True) if r[0]]
     assert any(

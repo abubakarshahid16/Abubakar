@@ -104,12 +104,16 @@ class Incomplete(Exception):
 
 
 def team_statement(n: int, comments: int | None = None, split: dict | None = None) -> str:
-    """Sheet 1's count line. With `split` (`review_split`, the ONE count of what was reviewed): when some points were not reviewed
-    or not checked, it says so instead of calling them all reviewed (order 14 W-C5)."""
+    """Sheet 1's count line. With `split` (`review_split`, the ONE count): what happened to the points, never "reviewed" for all of
+    them (order 14 W-C5): a point raised as a question compares nothing, and the sheet What was not checked counts what was not
+    compared."""
     as_comments = f", as {comments} comments" if comments is not None else ""
-    if not split or split["reviewed"] == n:
+    if not split:
         return f"{n} points reviewed, {n} in this file{as_comments}"
-    parts = [f"{split['reviewed']} reviewed"]
+    parts = [
+        f"{split['reviewed']} raised as a finding or a question (a question compares nothing: the sheet What was not checked "
+        "counts what was not compared)"
+    ]
     if split["not_reviewed"]:
         parts.append(f"{split['not_reviewed']} not reviewed (a part of the review that did not run)")
     if split["not_checked"]:
@@ -119,7 +123,8 @@ def team_statement(n: int, comments: int | None = None, split: dict | None = Non
 
 def review_split(raw: list[dict]) -> dict[str, int]:
     """THE count of the page's points by what happened to them (order 14 W-C5): not reviewed (a status: a part that did not run),
-    not checked (the point marks its rule book not held), reviewed (every other point). Adds up to the page's points."""
+    not checked (the point marks its rule book not held), "reviewed" = raised as a finding or a question (every other point). Adds
+    up to the page's points."""
     from . import crs_ai_words as words
     from . import review_points as rp
 
@@ -342,14 +347,14 @@ def _reasoning_cuts(head: list, rows: list, by_no: dict) -> list[str]:
             out.append(
                 f"row {r[0]}: the AI reviewer's reasoning is shortened or changed"
             )
-        elif left := words_left_out(by_no[r[0]], want):
-            out.append(f"row {r[0]}: {left} sentence(s) of the AI reviewer's reasoning are cut without the mark")
+        elif words_left_out(by_no[r[0]], want):
+            out.append(f"row {r[0]}: the AI reviewer's reasoning is not shown whole (cut without the mark)")
     return out
 
 
 def words_left_out(point: dict, shown: str) -> int:
-    """Sentences of the line's STORED reasoning missing from the shown cell without their mark (order 14 W-C6): the cell is checked
-    against what the AI said, not against the point's own copy of the cell. 0 for an empty cell (a field removed by design)."""
+    """1 when the shown cell does not hold the line's STORED reasoning whole (only in-place marks allowed; order 14 W-C6): the cell is
+    checked against what the AI said, not against the point's own copy of the cell. 0 for an empty cell (a field removed by design)."""
     line = point.get("_line") or {}
     return ai_text_whole.reasoning_left_out(line.get("reasoning"), shown) if shown and line.get("reasoning") else 0
 
@@ -386,8 +391,8 @@ def _comment_cuts(
             problems.append(
                 f"comment {r[0]}: the AI reviewer's reasoning is shortened or changed"
             )
-        elif left := words_left_out(by_no[r[0]]["strongest"], want_r):
-            problems.append(f"comment {r[0]}: {left} sentence(s) of the AI reviewer's reasoning are cut without the mark")
+        elif words_left_out(by_no[r[0]]["strongest"], want_r):
+            problems.append(f"comment {r[0]}: the AI reviewer's reasoning is not shown whole (cut without the mark)")
         texts = crs_one.comment_full_texts(by_no[r[0]], by_id, editions)
         for key, full in texts.items():
             shown = "" if r[spots[key]] is None else str(r[spots[key]])
@@ -419,8 +424,9 @@ def _named(p: dict) -> str:
 
 
 def sentence_of(report: dict) -> str:
+    unchecked = f" Not checked: {report['stored_text_unchecked']}." if report.get("stored_text_unchecked") else ""
     if report["ok"]:
-        return "Complete: the page, the database and the file agree."
+        return "Complete: the page, the database and the file agree." + unchecked
     parts = [
         f"This CRS file is not complete and was not given out: the page has {report['page']} points, "
         f"the database holds {report['database']['total']} lines, the file accounts for {report['accounted']}."
@@ -432,7 +438,7 @@ def sentence_of(report: dict) -> str:
             f" and {len(miss) - LIST_AT_MOST} more" if len(miss) > LIST_AT_MOST else ""
         )
         parts.append(f"Missing: {shown}{more}.")
-    return " ".join(parts)
+    return " ".join(parts) + unchecked
 
 
 def _comment_accounting(data: bytes, raw: list[dict]) -> list[str]:
@@ -517,7 +523,8 @@ def verify(
     missing += cuts["problems"]
     # order 14 W-C6: an AI text cut BEFORE the file (when the line was stored) is invisible to the file's own cells: checked
     # against the run's record of what the AI sent
-    stored_cuts = ai_text_whole.problems(facts.get("ai_run"))
+    stored = ai_text_whole.check(facts.get("ai_run"))
+    stored_cuts = stored["problems"]
     missing += stored_cuts
     ok = page == db["total"] == accounted and not missing
     report = {
@@ -531,6 +538,8 @@ def verify(
         "cut_cells_marked": cuts["marked"],
         "cut_problems": len(cuts["problems"]) + len(stored_cuts),
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        # a run that keeps no record of what the AI sent: its lines could not be checked for a cut before storage, and the check SAYS so
+        "stored_text_unchecked": stored["unchecked"],
     }
     report["sentence"] = sentence_of(report)
     return report

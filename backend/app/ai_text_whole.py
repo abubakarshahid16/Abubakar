@@ -8,7 +8,8 @@ module checks the STORED lines against what the AI really sent, kept in the run'
 answers; `steps/*.json`: each general review reply):
 
   * `cuts_of_run`: every stored line whose AI words are only the start of words the AI sent (counts and ids only, never text).
-  * `problems`: the plain sentences `crs_completeness` adds to what is missing, so a file over such a line is refused.
+  * `check`: the plain sentences `crs_completeness` adds to what is missing, so a file over such a line is refused; and the
+    sentence it SAYS when a run keeps no record (its lines cannot be checked).
   * `restore`: puts the whole words back from the record (no model call, no cost).
 
 A reply the model itself cut at its length limit is never used as a line: the part says so in plain words (`REPLY_CUT`) and the
@@ -70,82 +71,91 @@ def cut_inside(text: Any, received: Any) -> bool:
 
 # ---------------------------------------------------------------- the reader's view of the AI's reasoning
 
-#: The AI's reasoning is shown WHOLE (order 14 W-C6): a sentence is left out only when it names an internal code, and then this
-#: mark says so where it was; the "nothing to do" words are never taken out of it (that cut a sentence in two with no mark).
-LEFT_OUT = (
-    "[{n} sentence(s) of the AI's reasoning not shown here: they name internal codes]"
-)
-_LEFT_OUT_RE = re.compile(
-    r"\[(\d+) sentence\(s\) of the AI's reasoning not shown here: they name internal codes\]"
+#: The AI's reasoning is shown WHOLE (order 14 W-C6, review of PR #1890): every sentence and every word. Only a true internal code is
+#: replaced, IN PLACE, by a mark that says what it replaced: an item id, a model name. A reason code in snake case is said in its
+#: words (`crs_ai_words.code_phrase`). A plain word (guard, gate, tier, lane) is never a reason to leave anything out.
+ID_MARK = "[internal item id not shown]"
+MODEL_MARK = "[model name not shown]"
+_MODEL_TAG = re.compile(
+    r"\b(?:claude|sonnet|opus|haiku|gpt|qwen|llama|mistral|gemma|gemini)[\w.:/-]*\d[\w.:/-]*",
+    re.IGNORECASE,
 )
 
 
-def _reader_sentence(sentence: str) -> str:
-    """One sentence of the AI's own text for a reader: ids out, reason codes in words (the same two steps as `crs_ai_words.plain`)."""
+def _model_names() -> re.Pattern | None:
     from . import crs_ai_words as words
 
-    return " ".join(
-        words._SNAKE.sub(
-            lambda m: words.code_phrase(m.group(0)), words._ID_RE.sub("", sentence)
-        ).split()
+    names = sorted((m for m in words._model_ids() if m), key=len, reverse=True)
+    return (
+        re.compile("|".join(re.escape(m) for m in names), re.IGNORECASE)
+        if names
+        else None
     )
 
 
 def plain_whole(text: object) -> str:
-    """The AI's reasoning for a reader, WHOLE: every sentence in order (`_reader_sentence`), a sentence that still names an internal
-    code left out with the visible mark `LEFT_OUT` in its place. Never the "nothing to do" filter, never a cut inside a sentence."""
+    """The AI's reasoning for a reader, WHOLE: ids and model names replaced in place by their marks, reason codes in words."""
     from . import crs_ai_words as words
 
-    out: list[str] = []
-    left = 0
-    for s in words._SENTENCES.split(whole(text)):
-        said = _reader_sentence(s)
-        if not said:
-            continue
-        if words.has_banned(said):
-            left += 1
-            continue
-        if left:
-            out.append(LEFT_OUT.format(n=left))
-            left = 0
-        out.append(said)
-    if left:
-        out.append(LEFT_OUT.format(n=left))
-    return " ".join(out)
+    out = words._ID_RE.sub(ID_MARK, whole(text))
+    if (names := _model_names()) is not None:
+        out = names.sub(MODEL_MARK, out)
+    out = _MODEL_TAG.sub(MODEL_MARK, out)
+    return words._SNAKE.sub(lambda m: words.code_phrase(m.group(0)), out)
 
 
 def reasoning_left_out(stored: object, shown: object) -> int:
-    """How many sentences of the stored reasoning are NOT in the shown cell without the mark for them (0 when whole or marked)."""
-    from . import crs_ai_words as words
-
-    cell = whole(shown)
-    marked = sum(int(m.group(1)) for m in _LEFT_OUT_RE.finditer(cell))
-    missing = sum(
-        1
-        for s in words._SENTENCES.split(whole(stored))
-        if (said := _reader_sentence(s)) and said not in cell
-    )
-    return max(0, missing - marked)
+    """1 when the shown cell does not hold the stored reasoning whole (with only the in-place marks of `plain_whole`), else 0."""
+    want = plain_whole(stored)
+    return 0 if not want or want in whole(shown) else 1
 
 
 # ---------------------------------------------------------------- the run's record
 
+_QUOTE_KEYS = ("quote", "quote_a", "quote_b", "quote_paper", "quote_other")
 
-def _strings(obj: Any, keys: tuple[str, ...]) -> Iterable[str]:
+
+def _fold(text: Any) -> str:
+    return " ".join(tokens(text))
+
+
+def _quotes_of(obj: Mapping) -> set[str]:
+    """The folded texts of the quotes an answer (or a line) carries; a checklist answer's own `paper_quote` too."""
+    got = {
+        _fold(q.get("text"))
+        for k in _QUOTE_KEYS
+        if isinstance(q := obj.get(k), Mapping) and q.get("text")
+    }
+    if obj.get("paper_quote"):
+        got.add(_fold(obj["paper_quote"]))
+    return {q for q in got if q}
+
+
+def _answers(obj: Any) -> Iterable[dict]:
+    """Every dict of a general reply that carries the AI's own words (a comment, a finding, a checklist answer)."""
     if isinstance(obj, Mapping):
-        for k, v in obj.items():
-            if k in keys and isinstance(v, str) and v.strip():
-                yield v
-            else:
-                yield from _strings(v, keys)
+        if any(
+            isinstance(obj.get(k), str) and obj.get(k).strip() for k in GENERAL_KEYS
+        ):
+            yield {
+                "item": str(obj.get("item_id") or "") or None,
+                "quotes": _quotes_of(obj),
+                "words": [
+                    obj[k]
+                    for k in GENERAL_KEYS
+                    if isinstance(obj.get(k), str) and obj[k].strip()
+                ],
+            }
+        for v in obj.values():
+            yield from _answers(v)
     elif isinstance(obj, list):
         for v in obj:
-            yield from _strings(v, keys)
+            yield from _answers(v)
 
 
 def record(folder: Path) -> dict | None:
-    """{"items": item id -> [answers], "general": [the AI's words of every general reply]} from the run's folder, or None when the
-    folder keeps no record (then the stored lines cannot be checked, and the caller says so)."""
+    """{"items": item id -> [lead answers], "general": [answers]} from the run's folder, or None when the folder keeps no record
+    (then the stored lines cannot be checked, and the check SAYS so: `check`)."""
     from .agent_claude import parse_json_object
 
     trace, steps = folder / "trace.jsonl", folder / "steps"
@@ -159,15 +169,16 @@ def record(folder: Path) -> dict | None:
                     rec = json.loads(raw)
                 except ValueError:
                     continue
-                if not isinstance(rec, dict) or rec.get("type") != "item":
-                    continue
-                got = [
-                    a
-                    for k, a in rec.items()
-                    if k.endswith("_answer") and isinstance(a, dict)
-                ]
-                items.setdefault(str(rec.get("item_id")), []).extend(got)
-    general: list[str] = []
+                if (
+                    isinstance(rec, dict)
+                    and rec.get("type") == "item"
+                    and isinstance(rec.get("lead_answer"), dict)
+                ):
+                    # the line is built from the FIRST reader's answer (`agent_review_decide`): never a second reader's
+                    items.setdefault(str(rec.get("item_id")), []).append(
+                        rec["lead_answer"]
+                    )
+    general: list[dict] = []
     for path in sorted(steps.glob("*.json")) if steps.is_dir() else []:
         try:
             got = parse_json_object(
@@ -175,20 +186,35 @@ def record(folder: Path) -> dict | None:
             )
         except (ValueError, OSError, AttributeError):
             continue
-        general.extend(dict.fromkeys(_strings(got, GENERAL_KEYS)))
+        general.extend(_answers(got))
     return {"items": items, "general": general}
 
 
+def _own_answers(line: Mapping, general: list[dict]) -> list[dict]:
+    """The answers a general line was built from: the same checklist item, else the same quote(s). Never another line's answer."""
+    item = str(line.get("checklist_item") or "") or None
+    if item:
+        return [a for a in general if a["item"] == item]
+    quotes = _quotes_of(line)
+    return [a for a in general if quotes and quotes <= a["quotes"]] if quotes else []
+
+
 def line_cuts(line: Mapping, rec: Mapping) -> list[tuple[str, str]]:
-    """[(key, the whole words received)] for every AI text of the stored line that is only the start of what the AI sent."""
-    out: list[tuple[str, str]] = []
+    """[(key, the whole words received)] for every AI text of the stored line that is only the start of what the AI sent for
+    THIS line. A line that holds any of its own answers whole is not cut."""
     if line.get("general"):
         text = line.get("text")
-        out += [("text", v) for v in rec["general"] if cut_inside(text, v)]
-        return out
+        own = [v for a in _own_answers(line, rec["general"]) for v in a["words"]]
+        if any(_holds(tokens(text), tokens(v)) for v in own if tokens(v)):
+            return []
+        cut = [v for v in own if cut_inside(text, v)]
+        return [("text", max(cut, key=len))] if cut else []
+    out: list[tuple[str, str]] = []
     answers = rec["items"].get(str(line.get("item_id")), [])
     for key in RULE_KEYS:
         got = [a.get(key) for a in answers if isinstance(a.get(key), str)]
+        if not line.get(key) or any(tokens(v) == tokens(line.get(key)) for v in got):
+            continue
         cut = [v for v in got if cut_from(line.get(key), v)]
         if cut:
             out.append((key, max(cut, key=len)))
@@ -221,19 +247,34 @@ def cuts_of_run(conn, run_id: str, folder: Path) -> dict:
     return {"checked": True, "lines": len(lines), "cut": cut}
 
 
-def problems(run_id: str | None) -> list[str]:
-    """What `crs_completeness` reports for the run's stored lines: one sentence per line stored cut (ids and counts only)."""
+NOT_CHECKED = (
+    "the AI lines of this review could not be checked for a text cut before it was stored: "
+    "the run keeps no record of what the AI sent"
+)
+
+
+def check(run_id: str | None) -> dict:
+    """{"problems": one sentence per line stored cut (ids and counts only), "unchecked": NOT_CHECKED when the run has lines and
+    no record, else None}. `crs_completeness` refuses a file over a problem and SAYS the unchecked sentence."""
     if not run_id:
-        return []
+        return {"problems": [], "unchecked": None}
     from .agent_review_jobs import run_dir
     from .db import connect
 
     got = cuts_of_run(connect(), run_id, run_dir(run_id))
-    return [
+    problems = [
         f"the AI line {c['item_id']} was stored cut before this file (only the start of the AI's {c['received']} words was kept, "
         "with no mark); its whole text is in the run's record (scripts/restore_whole_ai_text.py puts it back)"
         for c in got["cut"]
     ]
+    return {
+        "problems": problems,
+        "unchecked": NOT_CHECKED if not got["checked"] and got["lines"] else None,
+    }
+
+
+def problems(run_id: str | None) -> list[str]:
+    return check(run_id)["problems"]
 
 
 def _restored_text(text: str, received: str) -> str:
@@ -247,8 +288,9 @@ def _restored_text(text: str, received: str) -> str:
 
 
 def restore(conn, run_id: str, folder: Path) -> int:
-    """Put the whole AI words back on every line of the run stored cut, from the run's record. Returns the lines changed. The
-    caller holds the write (a live database only through `live_guard.prepare_live_write`)."""
+    """Put the whole AI words back on every line of the run stored cut, from the run's record; returns the lines changed. Only
+    `line_json`, and the `reason` column of a GENERAL line (that column is its text); a rule line's `reason` column is never
+    rewritten. A second pass changes nothing. The caller holds the write (a live database only through `live_guard`)."""
     rec = record(folder)
     if rec is None:
         return 0
@@ -265,24 +307,20 @@ def restore(conn, run_id: str, folder: Path) -> int:
                     else whole(v)
                 )
             line["restored_whole_from_record"] = True
-            reason = (
-                line["text"]
-                if line.get("general")
-                else str(  # the column `store_line` writes, from the same keys
-                    line.get("not_proven_reason")
-                    or line.get("reasoning")
-                    or line.get("why")
-                    or ""
+            if line.get("general"):
+                conn.execute(
+                    "UPDATE agent_review_line SET line_json = ?, reason = ? WHERE run_id = ? AND item_id = ?",
+                    (
+                        json.dumps(line, ensure_ascii=False, default=str),
+                        line["text"],
+                        run_id,
+                        item,
+                    ),
                 )
-            )
-            conn.execute(
-                "UPDATE agent_review_line SET line_json = ?, reason = COALESCE(?, reason) WHERE run_id = ? AND item_id = ?",
-                (
-                    json.dumps(line, ensure_ascii=False, default=str),
-                    reason,
-                    run_id,
-                    item,
-                ),
-            )
+            else:
+                conn.execute(
+                    "UPDATE agent_review_line SET line_json = ? WHERE run_id = ? AND item_id = ?",
+                    (json.dumps(line, ensure_ascii=False, default=str), run_id, item),
+                )
             changed += 1
     return changed

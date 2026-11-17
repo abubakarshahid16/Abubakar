@@ -21,7 +21,6 @@ approved on it. Lines get their tier from `agent_review_wording.final_cap`, whic
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -72,7 +71,6 @@ OLD_HEADERS = (
     "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
     "Final Resolution", "Standard Reference", "Priority", "AI Review Comments",
 )  # fmt: skip
-MAX_COMMENT_WORDS = 40
 
 
 def _clean(text: Any) -> str:
@@ -83,12 +81,6 @@ def whole_reasoning(text: Any) -> str:
     """The AI's reasoning WHOLE, spaces made single (order 14 W-C6: it was cut to two "sentences" and 60 words, and the split at
     "e.g." cut it mid-sentence with no mark; completeness rule 3: a stored text is never cut)."""
     return ai_text_whole.whole(text)
-
-
-def _sentence(text: Any, limit: int = MAX_COMMENT_WORDS) -> str:
-    words = _clean(text).split()[:limit]
-    s = " ".join(words).rstrip(" .;,")
-    return s + "." if s else ""
 
 
 def field_words(line: Mapping) -> str:
@@ -131,11 +123,14 @@ def line_page(line: Mapping) -> int | None:
     return page_of(line)[0]
 
 
-def page_words(page, hint: bool = False) -> str | None:
-    """THE printed page: "N", or "N (found by word match, not verified)" for a page hint; None without a page."""
+def page_words(page, hint: bool | str = False) -> str | None:
+    """THE printed page: "N", or "N (<its note>)" for a page that is not proven: a page hint ("found by word match, not verified"),
+    or the note a point carries (a page the AI named, `review_points.AI_NAMED_PAGE`); None without a page."""
     if page in (None, ""):
         return None
-    return f"{page} ({HINT_PAGE_WORDS})" if hint else str(page)
+    if not hint:
+        return str(page)
+    return f"{page} ({hint if isinstance(hint, str) else HINT_PAGE_WORDS})"
 
 
 def page_note(line: Mapping) -> str | None:
@@ -199,14 +194,15 @@ def stated(line: Mapping) -> str:
 MIN_ASK_WORDS = 3
 
 
-def _first_sentence(text: Any) -> str:
-    parts = re.split(r"(?<=[.!?])\s+", _clean(text))
-    return _sentence(parts[0], MAX_ASK_WORDS) if parts and parts[0] else ""
+def _whole_ask(text: Any) -> str:
+    """The AI's words WHOLE as the ask, ended with a full stop when they have none (order 14 W-C6, review of PR #1890: the first
+    "sentence" (a split that broke at "e.g.") and 30 words were kept with a full stop and no mark)."""
+    s = _clean(text).rstrip(" ;,")
+    return s if not s or s.endswith((".", "!", "?")) else s + "."
 
 
 def ai_ask(line: Mapping, contractor: bool = False) -> str:
-    """The AI's own ask in ONE plain sentence: its comment (what to correct or provide), else - on the INTERNAL copy
-    only - the first sentence of its reasoning. The contractor copy never carries reasoning (`contractor=True`).
+    """The AI's own ask, WHOLE: its comment (what to correct or provide), else - on the INTERNAL copy only - its reasoning. The contractor copy never carries reasoning (`contractor=True`).
     Refused when it has fewer than MIN_ASK_WORDS words, or carries a number that is not in a quote code VERIFIED (the
     paper quote or the clause quote): never a value the checked quotes do not hold."""
     q = line.get("quotes_checked") or {}
@@ -223,7 +219,7 @@ def ai_ask(line: Mapping, contractor: bool = False) -> str:
         if contractor
         else (line.get("comment"), line.get("reasoning"))
     )
-    for candidate in (_first_sentence(x) for x in sources):
+    for candidate in (_whole_ask(x) for x in sources):
         if len(candidate.split()) < MIN_ASK_WORDS:
             continue
         if numparse.number_keys(candidate) <= held_numbers:

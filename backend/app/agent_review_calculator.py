@@ -269,7 +269,9 @@ def numeric_line(
     if (why := column_not_the_rules(base, cell)) is not None:
         return _undecided(base, why, "column_not_the_rules")
     base["limit"], base["observed"] = got.get("limit"), got.get("observed")
-    reason = str(got.get("rationale") or "")[:200]
+    reason = " ".join(
+        str(got.get("rationale") or "").split()
+    )  # WHOLE (order 14 W-C6: it was cut at 200 characters, no mark)
     status = got.get("status")
     if status not in (COMPLIANT, NON_COMPLIANT) or not (
         got.get("limit") and got.get("observed")

@@ -496,6 +496,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     }
 
 
+AI_NAMED_PAGE = "named by the AI, not proven by code"
+
+
 def _page_proven(finding: dict, page: int, ctx: dict) -> bool:
     """The page of a rule-check finding is shown only when code proved it (`ai_engineering_check.page_verified`)."""
     from . import ai_engineering_check
@@ -634,8 +637,8 @@ def rule_point(
     )
     if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
         page = content.paper_value(finding)[1]
-    if page is not None and finding and not _page_proven(finding, page, ctx):
-        page = None  # order 14 W-C9: a page an AI step named that code did not prove is never shown as THE page ("page not recorded")
+    # order 14 W-C9: a page an AI step named that code did not prove is never shown as THE page: it carries its note
+    page_note = AI_NAMED_PAGE if page is not None and finding and not _page_proven(finding, page, ctx) else None
     value, value_page = content.paper_value(finding)
     # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
     if finding and finding.get("requirement_id"):  # lane C's re-read: never the old clause of a superseded requirement
@@ -681,6 +684,8 @@ def rule_point(
         "other_kind": other_kind,
         "name": name,
         "page": page,
+        "page_note": page_note,  # `crs_comments.point_page_words` prints it beside the page
+        "_value_by_ai": content.value_read_by_ai(finding),  # order 14 W-C8: the code compared a value an AI reader read
         "rule_book": book_name,
         "clause": (ref["clause"] or None) if not ref_hidden else None,
         "action": action or None,

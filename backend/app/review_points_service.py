@@ -251,7 +251,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
         fid = row.get("finding_id")
         finding = review_mod.get(fid) if fid else None
         if finding is not None and finding.get("fact_id"):  # the value the datasheet check read: its text and its page
-            fact = connect().execute("SELECT field_name, field_value, unit, page FROM submittal_facts WHERE id = ?", (finding["fact_id"],)).fetchone()
+            fact = connect().execute("SELECT field_name, field_value, unit, page, extraction_method FROM submittal_facts WHERE id = ?", (finding["fact_id"],)).fetchone()
             finding = {**finding, "_fact": dict(fact) if fact else None}
         if finding is not None and not scope.may_read(finding["document_id"]):
             finding = None

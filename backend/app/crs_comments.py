@@ -329,15 +329,16 @@ def point_page_words(p: dict) -> str | None:
     a page hint (`page_note`, set from `agent_review_crs.page_of`); None without a page."""
     from .agent_review_crs import page_words
 
-    return page_words(p.get("page"), bool(p.get("page_note")))
+    return page_words(p.get("page"), p.get("page_note") or False)
 
 
 def comment_page_words(c: dict) -> str | None:
     """A comment's pages as the cell prints them, each page hint marked (`point_page_words`); None without a page."""
     from .agent_review_crs import page_words
 
+    notes = c.get("page_notes") or {}
     hints = set(c.get("page_hints") or ())
-    return ", ".join(page_words(n, n in hints) or "" for n in c.get("pages") or ()) or None
+    return ", ".join(page_words(n, notes.get(n) or (n in hints)) or "" for n in c.get("pages") or ()) or None
 
 
 def group(points: list[dict], findings_only: bool = True, near: bool = True) -> list[dict]:
@@ -505,6 +506,8 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
                 "strongest": lead if disagree else strongest,
                 "pages": pages,
                 "page_hints": [n for n in pages if n not in found],  # a page only a page hint gives (`point_page_words`)
+                # each such page with its own note (order 14 W-C9: a page the AI named is never called a word-match hint)
+                "page_notes": {p["page"]: p["page_note"] for p in ms if p.get("page") and p.get("page") not in found and isinstance(p.get("page_note"), str)},
                 "tags": tags,
                 "clauses": _clauses(ms),
                 "book_held": any(p.get("_book_docs") or p.get("_book_doc") for p in ms),  # cites a held book (named or not)
