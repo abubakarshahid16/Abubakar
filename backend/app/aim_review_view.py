@@ -127,7 +127,7 @@ def _latest_old(conn, paper_id: str) -> str | None:
 
 def is_latest(conn, paper_id: str, run: dict) -> bool:
     """True when no finished earlier-engine review of the paper is newer than this general run: the page then draws the general
-    results; otherwise it draws the older sections under "Earlier version"."""
+    results; otherwise it draws the older sections under `aim_review_gate.EARLIER_VERSION`."""
     old = _latest_old(conn, paper_id)
     return old is None or str(run.get("created_at") or "") >= str(old)
 

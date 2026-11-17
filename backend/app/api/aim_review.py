@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from .. import (
     access,
@@ -34,6 +35,19 @@ _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 NO_GENERAL_WORDS = "this paper has no general review"
 
 
+class GeneralReviewOut(BaseModel):
+    """The general review's page (`aim_review_view.served`): the contract keys typed, the additive keys passed through."""
+
+    model_config = {"extra": "allow"}
+    paper_document_id: str
+    run_id: str
+    method: str
+    mark: str
+    status: str
+    comments: list[dict]
+    points: list[dict]
+
+
 def _not_found(document_id: str) -> HTTPException:
     return HTTPException(
         status_code=404,
@@ -51,6 +65,7 @@ def _not_finished(exc: aim_review_view.NotFinished) -> HTTPException:
 
 @router.get(
     "/api/reviews/papers/{document_id}/general",
+    response_model=GeneralReviewOut,
     responses={**schemas.ERRORS_404},
 )
 def general_review(
