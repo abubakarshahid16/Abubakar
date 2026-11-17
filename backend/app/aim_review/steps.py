@@ -13,7 +13,7 @@ import re
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
-from .verify import compare, find_page, norm
+from .verify import compare, find_page, norm, quoted_value
 
 LABELS = ("Met", "Not met", "Question", "Does not apply", "AI opinion")
 HELD = "held standard"
@@ -22,11 +22,6 @@ NOT_JUDGED = "not_judged"
 NOT_ON_ANY_PAGE = "not_on_any_page"
 JUDGE_BATCH = 8
 CLAUSE_WINDOW = 900
-_DEFERRED = re.compile(
-    r"\b(TBA|TBC|TBD|to be (advised|confirmed|determined|provided|supplied)|by (the )?(vendor|contractor|"
-    r"manufacturer|others|seller|supplier)|later stage|\(?later\)?|hold)\b",
-    re.I,
-)
 #: In a windowed judgment, the order in which one item's answers from several windows are kept: a verified quote first, then
 #: the label that asks the most of the vendor (a firm finding is never hidden behind a "met" read in another part of the paper).
 _KEEP_ORDER = ("Not met", "Met", "AI opinion", "Question", "Does not apply")
@@ -123,10 +118,20 @@ def _clause_context(text: L.BookText, it: dict) -> str:
 
 
 def _deferred(quote: str) -> bool:
+    """THE one decision "the paper leaves this value to the vendor" for a quote, from the app's own list (`blank_markers`, the one
+    source; review R1, B2): a phrase marker or the lone vendor-to-fill star anywhere in the quote (`defers_value`), or a whole-value
+    marker ("*", "VTA", "TBA", "later", "by vendor" ...) as the value after the field's own label (`classify`, `is_whole_deferral`)."""
     from app import blank_markers
 
-    return bool(_DEFERRED.search(quote or "")) or blank_markers.names_a_marker(
-        quote or ""
+    text = " ".join(str(quote or "").split())
+    if not text:
+        return False
+    if blank_markers.defers_value(text):
+        return True
+    value = text.rsplit(":", 1)[-1].strip() if ":" in text else text
+    blank, marker = blank_markers.classify(value)
+    return (blank and marker != "empty") or blank_markers.is_whole_deferral(
+        value, value_field=True
     )
 
 
@@ -312,7 +317,10 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
             label = "Question"
     if label in ("Met", "Not met") and not quote:
         label, _ = "Question", notes.append("no paper quote for a verdict")
-    if label in ("Met", "Not met") and (j.get("deferred") or _deferred(quote)):
+    deferred = bool(j.get("deferred")) or _deferred(quote)
+    if (
+        deferred and label != "Question"
+    ):  # ANY label (owner, 18 Nov): a value left to the vendor is a Question
         label = "Question"
         notes.append(
             "the value is left open by the vendor: a question, never a verdict"
@@ -320,7 +328,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
     code_cmp = None
     if nums and label in ("Met", "Not met") and it["source"] == HELD:
-        label, code_cmp = _numbers(nums, quote, notes)
+        label, code_cmp = _numbers(nums, quote, str(it.get("rule_quote") or ""), notes)
     elif it["kind"] == "limit" and label in ("Met", "Not met") and it["source"] == HELD:
         label = "Question"
         notes.append("a limit with no numbers for code to compare")
@@ -338,30 +346,41 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "code": "; ".join(notes),
         "numbers": nums,
         "code_compare": code_cmp,
+        "deferred": deferred,
     }
 
 
-def _numbers(nums: dict, quote: str, notes: list[str]) -> tuple[str, dict | None]:
-    """A held item's numbers: the paper value must be a number of the verified quote (`numparse`), then code compares
-    (`verify.compare`, the app's unit code) and its result decides the label. (label, the comparison or None)."""
-    from app import numparse
-
-    in_quote = str(nums.get("paper_value") or "") and any(
-        abs(k - (numparse.parse_value(str(nums.get("paper_value"))) or float("nan")))
-        < 1e-9
-        for k in numparse.number_keys(quote)
-        if isinstance(k, float)
-    )
-    if not in_quote:
+def _numbers(
+    nums: dict, quote: str, rule_quote: str, notes: list[str]
+) -> tuple[str, dict | None]:
+    """A held item's numbers. A code stamp rests ONLY on the verified quotes (review R1, B1): the paper value and its unit are read
+    by code from the verified paper quote, the rule value, its unit and the operator from the item's verified rule quote
+    (`verify.quoted_value`); the model's numbers only say WHICH value is meant. Then code compares (`verify.compare`, the app's
+    unit code) and its result decides the label. Anything code cannot read from the quotes is a Question. (label, comparison)."""
+    paper = quoted_value(nums.get("paper_value"), quote)
+    if paper is None:
         notes.append("the paper value is not in the verified quote")
         return "Question", None
-    code_cmp = compare(
-        str(nums.get("paper_value")),
+    rule = quoted_value(nums.get("rule_value"), rule_quote)
+    if rule is None:
+        notes.append("the rule value is not in the rule's verified words")
+        return "Question", None
+    if not rule["op"]:
+        notes.append("the rule's verified words give no comparison code can read")
+        return "Question", None
+    told = (
         str(nums.get("paper_unit") or ""),
         str(nums.get("operator") or ""),
-        str(nums.get("rule_value")),
         str(nums.get("rule_unit") or ""),
     )
+    if told != (paper["unit"], rule["op"], rule["unit"]):
+        notes.append(
+            "units and operator read from the quotes, not from the AI's answer"
+        )
+    code_cmp = compare(
+        paper["value"], paper["unit"], rule["op"], rule["value"], rule["unit"]
+    )
+    code_cmp["read_from"] = "verified quotes"
     notes.append("code compared: " + code_cmp["why"])
     return {"pass": "Met", "fail": "Not met"}.get(
         code_cmp["result"], "Question"

@@ -291,6 +291,8 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         "status": result.get("status"),
         "stop_reason": result.get("stop_reason") or None,
         "points": len(result.get("lines") or []),
+        # a run that stopped early (run cap, lane closed, a fault) keeps its lines and says so; it is never a finished review
+        "partial": result.get("status") == "stopped",
     }
     with conn:
         conn.execute(

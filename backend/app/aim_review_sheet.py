@@ -41,7 +41,7 @@ COMMENT_HEADERS = (
     "No.",
     "Field",
     "Page",
-    "Label",
+    "Shown label",
     "Comment",
     "Quote",
     "Standard",
@@ -52,7 +52,7 @@ COMMENT_HEADERS = (
     "Status",
 )
 POINT_HEADERS = (
-    "No.", "Item", "Field", "Page", "Label", "Shown label", "Topic", "Comment", "Quote", "Quote not verified by code",
+    "No.", "Item", "Field", "Page", "Shown label", "Topic", "Comment", "Quote", "Quote not verified by code",
     "Code note", "Standard", "Clause", "Source", "Status",
 )  # fmt: skip
 HEADER_ROW = 4
@@ -114,7 +114,8 @@ def point_rows(model: dict) -> list[list]:
     for p in model["points"]:
         comment, _ = cut(p["comment"], EXCEL_CELL_LIMIT)
         quote, _ = cut(p["quote"], EXCEL_CELL_LIMIT)
-        out.append([p["n"], p["item_id"], p["field"], p["page"], p["label"], p["shown_label"], p["topic"], comment, quote,
+        # no bare method word ("Met", "Not met") where a person reads: the file shows the shown label only (review R1, N2)
+        out.append([p["n"], p["item_id"], p["field"], p["page"], p["shown_label"], p["topic"], comment, quote,
                     "yes" if p["quote_unverified"] else None, p["code_note"], p["standard"], p["clause"], p["source"],
                     model["mark"]])  # fmt: skip
     return out

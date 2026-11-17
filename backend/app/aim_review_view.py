@@ -40,8 +40,35 @@ def _blank(value) -> Any:
     return None if value is None or value == "" else value
 
 
-def line_view(row: dict, n: int) -> dict:
-    """One stored line as the page and the file show it. `n` is the 1-based position in line order."""
+#: What a line says instead of the rule book's name, clause and id when the viewer may not read that book (rule 5).
+HIDDEN_BOOK_WORDS = "a rule book you may not open"
+
+
+def book_hidden(conn, row: dict, scope) -> bool:
+    """THE one decision "this line's rule book is hidden from this viewer" (rule 5; REVIEW.md: decide it in ONE function from a
+    RESOLVED document and the viewer's read set). True only when the line names a book id, that id is a held document, and the
+    viewer's read set does not hold it. No book id, a book that is not held, or no viewer (`scope` None: the app's own counting)
+    hides nothing."""
+    doc_id = str(row.get("book_document_id") or "")
+    if not doc_id or scope is None:
+        return False
+    held = conn.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    return held is not None and not scope.may_read(doc_id)
+
+
+def line_view(row: dict, n: int, hidden: bool = False) -> dict:
+    """One stored line as the page and the file show it. `n` is the 1-based position in line order. `hidden` (from `book_hidden`):
+    the book's name, clause and id are not served, and the name is not left in the comment either; the line is still counted."""
+    if hidden:
+        name = str(row.get("standard") or "")
+        comment = str(row.get("comment") or "")
+        row = {
+            **row,
+            "standard": HIDDEN_BOOK_WORDS,
+            "clause": "",
+            "book_document_id": None,
+            "comment": comment.replace(name, HIDDEN_BOOK_WORDS) if name else comment,
+        }
     page = row.get("page")
     return {
         "n": n,
@@ -133,11 +160,12 @@ def is_latest(conn, paper_id: str, run: dict) -> bool:
 
 
 def resolve(conn, paper_id: str, run_id: str | None = None) -> dict | None:
-    """The general run to show: the one asked for (it must be a general run OF THIS paper), else the paper's latest finished one."""
+    """The general run to show: the one asked for (it must be a general run OF THIS paper), else the paper's latest ENDED one
+    (finished or stopped early: a stopped run is shown as stopped, review R1 N1)."""
     if run_id:
         run = aim_review_store.run(conn, run_id)
         return run if run and run.get("paper_document_id") == paper_id else None
-    return aim_review_store.latest_run(conn, paper_id)
+    return aim_review_store.latest_run(conn, paper_id, ended=True)
 
 
 def build(conn, run: dict, scope=None) -> dict:
@@ -147,7 +175,9 @@ def build(conn, run: dict, scope=None) -> dict:
     if status is None:
         raise NotFinished(NOT_FINISHED_WORDS)
     rows = aim_review_store.lines(conn, run["run_id"])
-    points = [line_view(r, i) for i, r in enumerate(rows, 1)]
+    points = [
+        line_view(r, i, book_hidden(conn, r, scope)) for i, r in enumerate(rows, 1)
+    ]
     # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C)
     comments = [p for p in points if aim_review.sendable(p)]
     by_label = {
@@ -182,6 +212,9 @@ def build(conn, run: dict, scope=None) -> dict:
         "points": points,
         "books": books,
         "books_not_readable": hidden,
+        "points_from_books_not_readable": sum(
+            1 for p in points if p["standard"] == HIDDEN_BOOK_WORDS
+        ),
         "not_held": [
             {"name": str(d.get("name") or ""), "why": str(d.get("why") or "")}
             for d in _json(run.get("not_held_json"), [])

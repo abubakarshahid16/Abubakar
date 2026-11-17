@@ -403,6 +403,10 @@ def run(
         )
         state.stop(f"fault: {type(exc).__name__}")
     say(100, "counts")
+    # THE COST IS THE LEDGER'S (review R1 N4; REVIEW.md: a paid run's cost is read from the ledger's lines, never from one stored
+    # field): what this run's lines in `claude_spend` hold, an open hold at its worst case. The run's own meter only stops calls.
+    with claude_spend.for_run(str(run_id)):
+        ledger_usd = claude_spend.run_spent()
     return Result(
         status="stopped" if state.stop_reason else "done",
         stop_reason=state.stop_reason,
@@ -416,7 +420,7 @@ def run(
         unlisted_count=len(state.unlisted),
         lines=state.lines(),
         calls=[c.as_dict() for c in meter.calls],
-        usd=round(meter.spent, 6),
+        usd=round(ledger_usd, 6),
         seconds=round(time.time() - t0, 2),
     )
 
@@ -495,6 +499,9 @@ def to_line(n: int, d: dict) -> dict:
         "code_compare_json": json.dumps(d["code_compare"], ensure_ascii=False)
         if d.get("code_compare")
         else None,
+        "deferred": bool(
+            d.get("deferred")
+        ),  # the store's shown_label reads it: a deferred value is always a Question
     }
 
 

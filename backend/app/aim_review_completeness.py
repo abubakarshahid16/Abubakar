@@ -83,7 +83,18 @@ def _cut_check(
                 f"comment {n} has no row on the sheet {aim_review_sheet.ALL_POINTS}"
             )
             continue
-        for col, full_col, name in ((4, 7, "comment"), (5, 8, "quote")):
+        for col, full_col, name in (
+            (
+                aim_review_sheet.COMMENT_HEADERS.index("Comment"),
+                aim_review_sheet.POINT_HEADERS.index("Comment"),
+                "comment",
+            ),
+            (
+                aim_review_sheet.COMMENT_HEADERS.index("Quote"),
+                aim_review_sheet.POINT_HEADERS.index("Quote"),
+                "quote",
+            ),
+        ):  # columns found by their header, never by a fixed number
             cell, whole = _text(r[col]), _text(full[n][full_col])
             if cell == whole:
                 continue
@@ -91,7 +102,7 @@ def _cut_check(
                 cell.endswith(CUT_MARK)
                 and whole.startswith(cell[:-1])
                 and len(whole) >= len(cell)
-                and _text(r[10])
+                and _text(r[aim_review_sheet.COMMENT_HEADERS.index("Note")])
             ):
                 marked += 1
             else:
@@ -128,8 +139,10 @@ def _row_problems(
             else None
         )
         if p is not None and (
-            _text(r[7]) != safe_cell_text(p["comment"])
-            or _text(r[8]) != safe_cell_text(p["quote"])
+            _text(r[aim_review_sheet.POINT_HEADERS.index("Comment")])
+            != safe_cell_text(p["comment"])
+            or _text(r[aim_review_sheet.POINT_HEADERS.index("Quote")])
+            != safe_cell_text(p["quote"])
         ):
             problems.append(
                 f"the text of point {r[0]} is cut on the sheet {aim_review_sheet.ALL_POINTS}"

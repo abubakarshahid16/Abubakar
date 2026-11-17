@@ -341,10 +341,22 @@ def lines(conn, run_id: str) -> list[dict]:
     return out
 
 
-def latest_run(conn, paper_id: str, done_only: bool = True) -> dict | None:
+#: The states of a run that ENDED with lines to show: finished, or stopped early (run cap, lane closed, a fault).
+ENDED = ("done", "stopped")
+
+
+def latest_run(
+    conn, paper_id: str, done_only: bool = True, *, ended: bool = False
+) -> dict | None:
+    """The paper's newest general run: `done_only` a finished one; `ended` a finished OR stopped one (what the page shows: a run
+    that stopped early is shown as stopped, never hidden behind an older finished one); neither, any state."""
     if not has_tables(conn):
         return None
-    where = " AND status = 'done'" if done_only else ""
+    where = (
+        f" AND status IN ({','.join(repr(s) for s in ENDED)})"
+        if ended
+        else (" AND status = 'done'" if done_only else "")
+    )
     row = conn.execute(
         f"SELECT * FROM {RUNS} WHERE paper_document_id = ?{where} ORDER BY created_at DESC, run_id DESC LIMIT 1",
         (paper_id,),
@@ -377,7 +389,9 @@ def _book_ids(books) -> list[str]:
         got = (
             b
             if isinstance(b, str)
-            else (b.get("id") or b.get("document_id"))
+            else (
+                b.get("book") or b.get("id") or b.get("document_id")
+            )  # the checklist names its books by `book` (A)
             if isinstance(b, dict)
             else None
         )

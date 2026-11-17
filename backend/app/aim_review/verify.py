@@ -149,3 +149,44 @@ def compare(
         "paper": [pv, pu],
         "rule": [rv, ru],
     }
+
+
+#: The comparison words of the app's one comparator vocabulary (`claims`), as the operators `compare` takes.
+_OP_OF = {
+    "max": "<=",
+    "min": ">=",
+    "<=": "<=",
+    ">=": ">=",
+    "<": "<",
+    ">": ">",
+    "==": "==",
+}
+
+
+def quoted_value(value, quote: str) -> dict | None:
+    """The number `value` as the verified `quote` itself states it: {"value", "unit", "op"} read by code from the quote's own
+    words (`claims.extract_measurements` for a number with its unit, else `numparse.find_numbers` for a bare number; the operator
+    from the words before it, `claims.comparator_ending`). None when the quote does not state that number. Nothing is taken from
+    the model here: a code stamp rests only on what the quotes say."""
+    from app import claims, numparse
+
+    target = numparse.parse_value(str(value if value is not None else ""))
+    if target is None or not quote:
+        return None
+    for m in claims.extract_measurements(quote):
+        got = numparse.parse_value(str(m.raw_value))
+        if got is not None and abs(got - target) < 1e-9:
+            return {
+                "value": str(m.raw_value),
+                "unit": str(m.raw_unit or ""),
+                "op": _OP_OF.get(str(m.comparator or "")),
+            }
+    for n in numparse.find_numbers(quote):
+        if n.value is not None and abs(n.value - target) < 1e-9 and n.sign != "-":
+            words = claims.comparator_ending(quote[: n.start]) or ""
+            return {
+                "value": quote[n.start : n.end].strip(),
+                "unit": "",
+                "op": _OP_OF.get(words),
+            }
+    return None
