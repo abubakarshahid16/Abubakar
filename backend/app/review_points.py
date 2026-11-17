@@ -837,6 +837,24 @@ def with_groups(points: list[dict]) -> list[dict]:
     return points
 
 
+def books_not_held(run_books: list[str], points: list[dict], library: list[dict]) -> list[str]:
+    """THE rule books not held of a paper's list, each once: the AI run's own record first, each name tested again against today's
+    `library` (a book uploaded after the run leaves the list), then every book a point marks "Book missing" (`_book_missing`, the name
+    its row prints, decided at read time by `book_missing`), in list order. The page's "not held" count and the CRS sheet "Rule books
+    not held" both read it, so the sheet never says 0 while rows say "Book missing" (order 14, first-time-user test 15). Same book:
+    `standard_ids.same_standard`, the notion `applicability.find_standard` uses ("API RP 520 Pt-1" is "API 520 Part I")."""
+    from .applicability import find_standard
+    from .standard_ids import same_standard
+
+    out: list[str] = []
+    names = [n for n in (run_books or []) if not find_standard(library, str(n or ""))]
+    for name in [*names, *(p.get("_book_missing") for p in points)]:
+        name = " ".join(str(name or "").split())
+        if name and not any(same_standard(name, seen) for seen in out):
+            out.append(name)
+    return out
+
+
 def counts(
     points: list[dict],
     *,

@@ -140,6 +140,8 @@ export interface PointsListing {
   };
   proposed_code: ProposedCode;
   final_code: string | null;
+  /** The recorded code as the page and each file print it (an approving code recorded with points open says so); null: none. */
+  final_code_words?: { team: string | null; contractor: string | null };
   code_run_id: string | null;
   decided: number;
   of: number;

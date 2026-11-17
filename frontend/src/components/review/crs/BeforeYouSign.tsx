@@ -20,6 +20,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueGate, ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
+import { reasonLabel, reasonRule } from "../codeReason";
 import type { CrsRow } from "./crsRows";
 import { type IssueGateState, MIN_SIGN_REASON, otherItemLines, plural, signLeft, splitOpenItems, unreadPagesLine } from "./issueGate";
 import { unreadPageLine } from "./pageReasons";
@@ -43,7 +44,7 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
   const [code, setCode] = useState("");
   const [why, setWhy] = useState("");
   const [state, setState] = useState<{ busy: boolean; error: PlainError | null }>({ busy: false, error: null });
-  const differs = Boolean(run.recommended_code && code && code !== run.recommended_code);
+  const rule = reasonRule(code, run.recommended_code, null, codes);  // the one rule of every picker (`codeReason`)
   if (run.engineer_final_code) {
     return (
       <div className={`${box} border-ink-700`} data-testid="sign-code">
@@ -52,7 +53,7 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
     );
   }
   async function record() {
-    if (differs && !why.trim()) {
+    if (rule.required && !why.trim()) {
       setState({ busy: false, error: { words: "Say why your code differs from the computer's proposal.", detail: null } });
       return;
     }
@@ -72,9 +73,9 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
           {value === run.recommended_code && <span className="text-xs text-slateish-400">(the computer's proposal)</span>}
         </label>
       ))}
-      {differs && (
+      {rule.show && (
         <label className="block text-xs text-slateish-400">
-          Why it differs from the computer's proposal (required)
+          {reasonLabel(rule, "Why it differs from the computer's proposal (required)")}
           <textarea rows={2} value={why} onChange={(e) => setWhy(e.target.value)} className={`mt-1 w-full ${input}`} />
         </label>
       )}
