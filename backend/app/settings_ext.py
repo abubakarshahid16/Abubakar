@@ -656,3 +656,16 @@ class SettingsExt(BaseModel):
     #: counts for the Claude approved list; a person confirms or changes it. The review page also lists contract documents. OFF
     #: (default): every upload page, route and list is byte-same. Env: UPLOAD_ROLE_SUGGESTION_ENABLED.
     upload_role_suggestion_enabled: bool = False
+    # order 14 general review (aim_review)
+    #: Owner's ONE ORDER (18 Nov 2026): the ONE Review button runs the general review (`app.aim_review`) for every kind of paper.
+    #: THE ONE WAY BACK. False (default): the button runs the general review; the old engine (rule check + old AI reviewer) queues
+    #: nothing and its screens are hidden. True: everything is exactly as before the general review and it is not offered.
+    #: Read only through `aim_review_gate`. Env: REVIEW_OLD_ENGINE_ENABLED.
+    review_old_engine_enabled: bool = False
+    #: The general review run's own meter, USD: the run stops before a call whose worst case would cross it. Refused above 15
+    #: (the per-run cap of CLAUDE.md rule 1). Env: GENERAL_REVIEW_MAX_USD_PER_RUN.
+    general_review_max_usd_per_run: float = Field(5.0, gt=0, le=15.0)
+    #: The model of the general review's identify, select, checklist and judge steps. Env: GENERAL_REVIEW_LEAD_MODEL.
+    general_review_lead_model: str = "claude-sonnet-5-5"
+    #: The model of the attack on a new checklist. Env: GENERAL_REVIEW_STRONG_MODEL.
+    general_review_strong_model: str = "claude-opus-5-5"

@@ -50,10 +50,13 @@ CANCELLED_NOT_REVIEWED = "This paper has no finished review: its latest review w
 def latest_cancelled(paper_id: str, runs_used=()) -> str | None:
     """FTU-17: the start date of the paper's NEWEST review run when that run was cancelled and is newer than every run a file holds
     (`runs_used`); None otherwise. Read from the stored runs only."""
+    from . import aim_review_store
+
     conn = connect()
     at = "COALESCE(started_at, created_at)"
-    row = conn.execute(
-        f"SELECT id, status, {at} AS at FROM review_runs WHERE submittal_document_id = ? ORDER BY {at} DESC LIMIT 1",
+    row = conn.execute(  # a general review run (order 14) is not one of this file's runs
+        f"SELECT r.id, r.status, {at} AS at FROM review_runs r WHERE r.submittal_document_id = ?"
+        f"{aim_review_store.exclude(conn)} ORDER BY {at} DESC LIMIT 1",
         (paper_id,),
     ).fetchone()
     used = [r for r in runs_used if r]

@@ -339,14 +339,15 @@ def last_rule_check_run(conn, document_id) -> str | None:
     AI run (told apart by its explicit marker, its job's stage `agent_review_gate.STAGE`, written with the run in one transaction
     by `agent_review_jobs`) counts only when it holds rows of its own: with no reusable rule check, `agent_review_jobs._scope_run_id`
     runs the selection inline under the AI run's id. A run without a job (older rule-check paths) counts. None: no such run."""
-    from . import agent_review_gate
+    from . import agent_review_gate, aim_review_store
 
     marks = ",".join("?" for _ in DONE)
     row = conn.execute(
         "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status IN ("
         + marks
         + ")"
-        " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
+        + aim_review_store.exclude(conn)  # a general review run (order 14) is not a rule check
+        + " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
         " OR EXISTS (SELECT 1 FROM review_applicable_standards s WHERE s.review_run_id = r.id))"
         " ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
         (document_id, *DONE, agent_review_gate.STAGE),

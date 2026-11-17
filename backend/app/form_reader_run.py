@@ -144,11 +144,15 @@ def standards_of(document_id: str) -> list[str]:
     forced = _READING_FOR.get()
     if forced is not None:
         return list(forced)
+    from . import aim_review_store
+
     try:
         run = (
             connect()
-            .execute(
-                "SELECT id FROM review_runs WHERE submittal_document_id = ? ORDER BY rowid DESC LIMIT 1",
+            .execute(  # a general review run (order 14) stores no applicable standards: not this reader's run
+                "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ?"
+                + aim_review_store.exclude(connect())
+                + " ORDER BY r.rowid DESC LIMIT 1",
                 (document_id,),
             )
             .fetchone()

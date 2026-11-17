@@ -163,6 +163,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.agent_review_schemas` | The AI reviewer's request and response shapes (#1690): status, summary, lines, trace and Rules used, with closed word lists; contract only, no route yet, no behaviour; read by the TypeScript generator |
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
 | `api.review_start` | Routes: GET /api/reviews/plan (what a Review would do, no side effect), POST /api/reviews/start (admin), POST and DELETE /api/reviews/contract-yes (admin): the ONE Review button's three choices (12 Nov 2026, #1584) |
+| `api.aim_history` | Routes: a paper's review history (general and earlier version) and the saved checklists of the general review (order 14) |
+| `api.aim_method` | Route: GET /api/reviews/method: which review method the Review button runs and the Local-only sentence (order 14) |
+| `api.aim_review` | Routes: the general review's results page and its file, team copy only (order 14) |
 | `api.upload_role_suggestion` | Route: GET /api/document-kinds/role-suggestion: whether the one-upload role suggestion is on and which roles the review page lists (order 14 lane E); read only |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
@@ -459,6 +462,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `contract_checks` | Order 14 lane E: the contract checks code can decide on a contract's own text (CT-01 stages add to 100%, CT-02 every labelled attachment present, CT-03 one giver per guarantee) against the draft checklist `reference/contract_checks.json`; each result quoted and verified on its page, internal only; pure |
 | `review_leaving` | The documents a Claude review of one paper may send, worked out before the start for the caller's access (paper, cited rule books, cited specifications, chosen project papers) and what will not go, with reasons |
 | `review_cost` | The cost lines of the Review plan: a paper's last measured AI review cost and the upper bound per part and in total (moved out of `review_engine`) |
+| `aim_review_gate` | Which review method the ONE Review button runs (`REVIEW_OLD_ENGINE_ENABLED`, the one way back; default: the general review), the general review's run meter and models, and its fixed sentences (order 14) |
+| `aim_review_store` | The general review's storage: its runs, lines and saved checklists (`aim_runs`, `aim_lines`, `aim_checklists`), and `exclude`, which keeps a general run out of every old reader of `review_runs` (order 14) |
 | `review_shown` | The list a review run was started with (the documents the screen showed would leave): a cited specification that is not the paper is sent only if the run's stored list names it; ids only |
 | `review_progress` | #1494: the progress block of a running review (pages, elapsed, stall) from the jobs row; read-only, behind a switch |
 | `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |

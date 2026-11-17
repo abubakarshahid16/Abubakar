@@ -111,6 +111,10 @@ TEST_PINS: dict[str, object] = {
     # #882 technique 2, on by default under `match_enabled`; in tests it would
     # be two model calls per requirement left without a value.
     "match_ask_max_per_run": 0,
+    # Order 14 (owner, 18 Nov 2026): the production default runs the general review; the old engine ships as THE way back, so
+    # the suite keeps testing it: on for every test that does not ask otherwise. New tests of the general review set it False
+    # themselves; `test_aim_gate_default.py` proves the production default is the general review.
+    "review_old_engine_enabled": True,
 }
 
 #: Lock 3 (#1626): on by default. The suite stays on the off path these tests were written for
@@ -202,6 +206,11 @@ EGRESS_SAFE: dict[str, object] = {
     "review_unscored_kinds_for_claude_enabled": False,  # 12 Nov: a kind not scored against a key is not offered for Claude
     "review_page_v2_enabled": False,  # 12 Nov: the redesigned review page, off
     "old_crs_download_enabled": False,  # 16 Nov: the older per-review CRS files (no count line), off
+    # order 14: the general review. The way-back switch is pinned ON in tests (TEST_PINS); its production default is False.
+    "review_old_engine_enabled": True,
+    "general_review_max_usd_per_run": 5.0,  # the general review run's own meter (refused above 15)
+    "general_review_lead_model": "claude-sonnet-5-5",  # only on the Claude lane, which stays closed in tests
+    "general_review_strong_model": "claude-opus-5-5",
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off

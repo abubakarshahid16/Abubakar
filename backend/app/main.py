@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import agent_review_open_points as agent_open_points_mod
+from . import aim_review_store as aim_review_store_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
@@ -159,6 +160,7 @@ async def lifespan(app: FastAPI):
             _fts["documents"], _fts["chunks"], _fts["seconds"])
     for _module in (review_mod, deliverables_mod, risks_mod, submittal_review_mod):
         _module.ensure_schema()
+    aim_review_store_mod.ensure_schema()  # order 14: the general review's tables (additive only)
     crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
     # value at every write, so this backfill exists only for rows written
@@ -312,6 +314,14 @@ app.include_router(upload_role_suggestion_mod.router)  # one upload: the suggest
 from . import claude_api as claude_api_mod  # noqa: E402
 
 app.include_router(claude_api_mod.router)
+
+# Order 14: the general review (aim_review) behind the ONE Review button: its page and file, its history, which method runs.
+from .api import aim_history as api_aim_history  # noqa: E402
+from .api import aim_method as api_aim_method  # noqa: E402
+from .api import aim_review as api_aim_review  # noqa: E402
+
+for _r in (api_aim_method, api_aim_history, api_aim_review):
+    app.include_router(_r.router)
 
 
 #: The interactive API description. A map of every route, every parameter and
@@ -1268,9 +1278,10 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
     order 124 item 9): which standards were added and which left, by name,
     under the caller's grants. None when there is no such run.
     """
-    previous = connect().execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND id != ?"
-        " AND status = 'completed' AND created_at < ? ORDER BY created_at DESC LIMIT 1",
+    previous = connect().execute(  # a general review run (order 14) chose no standards: not a run to compare with
+        "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.id != ?"
+        " AND r.status = 'completed' AND r.created_at < ?" + aim_review_store_mod.exclude(connect())
+        + " ORDER BY r.created_at DESC LIMIT 1",
         (run["submittal_document_id"], run["id"], run.get("created_at") or "")).fetchone()
     if previous is None:
         return None

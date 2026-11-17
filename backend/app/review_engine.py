@@ -454,9 +454,12 @@ def _any_book_approved(conn, document_id: str, claude_approved) -> bool:
 
 
 def _earlier_books(conn, document_id: str) -> list[dict]:
-    run = conn.execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND status = 'complete'"
-        " ORDER BY started_at DESC LIMIT 1",
+    from . import aim_review_store
+
+    run = conn.execute(  # a general review run (order 14) is not a rule check
+        "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status = 'complete'"
+        + aim_review_store.exclude(conn)
+        + " ORDER BY r.started_at DESC LIMIT 1",
         (document_id,),
     ).fetchone()
     if run is None:

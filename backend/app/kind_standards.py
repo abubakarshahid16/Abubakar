@@ -246,9 +246,13 @@ def note_for_run(document_id: str, allowed) -> dict | None:
     kind = kind_of(document_id)
     if kind is None:
         return None
+    from . import aim_review_store
+
     conn = connect()
-    run = conn.execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ? ORDER BY created_at DESC LIMIT 1",
+    run = conn.execute(  # a general review run (order 14) stores no applicable standards: not this reader's run
+        "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ?"
+        + aim_review_store.exclude(conn)
+        + " ORDER BY r.created_at DESC LIMIT 1",
         (document_id,),
     ).fetchone()
     if run is None:
