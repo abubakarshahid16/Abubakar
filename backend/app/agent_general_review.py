@@ -96,7 +96,14 @@ _VERDICT_START = re.compile(
 )
 NO_CHECKLIST = "no completeness checklist for this kind of paper"
 NO_PROJECT_PAPER = "no project paper was given to check against"
-HELD_FIT_LINE = "rule books we hold that fit this paper were not used: rule review for this kind is switched off"
+#: W-H7 (order 14): the AI reviewer's OWN rule step is what is off; the rule check is a separate step and may compare the paper with
+#: the same books (a procedure sheet said "were not used" beside hundreds of rule points from them). A stored line in the older words is read in
+#: these (`agent_review_wording.read_time`).
+HELD_FIT_LINE = (
+    "the AI reviewer asked no rule of the rule books we hold that fit this paper: its rule review is switched off for this kind of"
+    " paper (the rule check is a separate step; its own points say what it compared)"
+)
+HELD_FIT_LINE_BEFORE = "rule books we hold that fit this paper were not used: rule review for this kind is switched off"
 UNREAD_QUERY = "could not be checked: the page holds pictures that were not read"
 
 

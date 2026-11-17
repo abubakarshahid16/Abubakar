@@ -502,8 +502,9 @@ def _found_during_review(conn, *run_ids) -> int:
     return len(books)
 
 
-def _unread_pages(run_id: str | None, scope) -> int | None:
-    """How many pages of the paper were not read, from the run's page record; None when it holds none (said, never 0)."""
+def _unread_pages(run_id: str | None, scope) -> list[int] | None:
+    """The pages of the paper not fully read, from the run's page record (`page_ledger.run_unread_pages`, the list every sheet
+    prints); None when it holds none (said, never 0)."""
     if not run_id:
         return None
     from . import comparison, page_ledger
@@ -518,7 +519,7 @@ def _unread_pages(run_id: str | None, scope) -> int | None:
         cov = outcome.get("page_coverage")
         if not cov or cov.get("pages_total") is None:
             return None
-        return len(page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome)))
+        return list(page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome)))
     except Exception as exc:
         logging.getLogger(__name__).warning(
             "review points: the page record is unreadable (%s)", type(exc).__name__

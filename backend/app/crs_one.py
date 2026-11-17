@@ -501,6 +501,8 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
                 ]
             )
     if extra.get("ai_run"):
+        if pictures := ai_pictures_not_read(conn, extra["ai_run"]):  # W-H7: the same pages the AI's own lines name
+            rows.append(["Pages whose pictures the AI reviewer did not read", len(pictures), pictures_words(pictures)])
         r = conn.execute(
             "SELECT stop_reason FROM agent_review_run WHERE run_id = ?",
             (extra["ai_run"],),
@@ -529,7 +531,45 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
     return rows
 
 
-def _how_rows(extra: dict, scope) -> list[list]:
+def rules_asked_why(conn, ai_run: str, asked: int, points: list[dict]) -> str | None:
+    """W-H7 (order 14): THE ONE statement of why the AI reviewer asked no rule, beside the rule check's own count: the sheet said
+    "rules asked 0" and an AI line said the held books "were not used" beside hundreds of rule points from them. None when it asked
+    some, or when its run records no reason (said only from the run's own counts: `parts.1.held_fit_not_used`)."""
+    if asked:
+        return None
+    row = conn.execute("SELECT counts_json FROM agent_review_run WHERE run_id = ?", (ai_run,)).fetchone()
+    try:
+        part1 = (json.loads((row["counts_json"] if row else None) or "{}").get("parts") or {}).get("1") or {}
+    except (ValueError, TypeError, AttributeError):
+        part1 = {}
+    if not part1.get("held_fit_not_used"):
+        return None
+    on_books = sum(1 for p in points if p.get("source") == "rule_check" and p.get("_book_doc") and not p.get("_book_missing"))
+    said = (f"the rule check compared the paper with the held rule books: {on_books} rule point(s) on the sheet {TEAM_SHEET}"
+            if on_books else "the rule check holds no point on the held rule books")  # fmt: skip
+    return f"the AI reviewer's own rule step is switched off for this kind of paper; {said}"
+
+
+def ai_pictures_not_read(conn, ai_run: str) -> list[int]:
+    """W-H7: the pages a general AI review read as text only (pictures or formulas it did not read), from the SAME function the
+    review used (`agent_general_review.unread_pages`), so the sheet and the AI's own lines name the same pages. [] for any other run."""
+    from . import agent_general_review
+
+    row = conn.execute("SELECT submittal_document_id, counts_json FROM agent_review_run WHERE run_id = ?", (ai_run,)).fetchone()
+    try:
+        general = row is not None and json.loads(row["counts_json"] or "{}").get("mode") == "general review"
+    except (ValueError, TypeError, AttributeError):
+        general = False
+    return agent_general_review.unread_pages(conn, row["submittal_document_id"]) if general else []
+
+
+def pictures_words(pages: list[int]) -> str:
+    which = ", ".join(str(n) for n in pages)
+    return (f"page{'s' if len(pages) != 1 else ''} {which}: the AI reviewer reads text, and these pages hold pictures or formulas it did"
+            " not read; its lines that needed them say so")  # fmt: skip
+
+
+def _how_rows(extra: dict, scope, points: list[dict] = ()) -> list[list]:
     from . import page_ledger
 
     conn = connect()
@@ -566,6 +606,10 @@ def _how_rows(extra: dict, scope) -> list[list]:
                 )
             )
             rows.append(["AI review: rules asked", asked])
+            if (why_none := rules_asked_why(conn, r["run"], asked, points)) is not None:
+                rows.append(["AI review: why no rule was asked", why_none])
+            if pictures := ai_pictures_not_read(conn, r["run"]):
+                rows.append(["AI review: pictures it did not read", pictures_words(pictures)])
             for why, n in sorted(left.items(), key=lambda kv: (-kv[1], str(kv[0]))):
                 rows.append(
                     [
@@ -605,8 +649,9 @@ def pages_line(cov: dict, unread: list) -> str:
     which pages it read; otherwise the line says that is not recorded (never "0 read" for an unknown)."""
     n, read = cov["pages_total"], cov.get("pages_read") or []
     partly = f"{len(unread)} not fully read" + (f" (pages {', '.join(str(p) for p in unread)})" if unread else "")
-    if read:
-        return f"{n} pages: {len(read)} read, {partly}"
+    if read:  # W-H7: a page read only in part is in both lists: "read in full" counts the others, so the two numbers add up to N
+        whole = len(set(read) - set(unread))
+        return f"{n} pages: {whole} read in full, {partly}"
     return f"{n} pages: {partly}; how many were read in full is not recorded"
 
 
@@ -960,7 +1005,7 @@ def build_team(
         wb,
         HOW_SHEET,
         ("What", "Detail"),
-        [[_cell(c) for c in r] for r in _how_rows(extra, scope)],
+        [[_cell(c) for c in r] for r in _how_rows(extra, scope, raw)],
         (46, 110),
     )
     buf = BytesIO()

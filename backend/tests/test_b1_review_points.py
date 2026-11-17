@@ -658,11 +658,19 @@ def test_while_points_are_undecided_the_line_says_so_far_and_names_what_is_left(
     assert done["line"] == comparison.CODE_APPROVED_WITH_COMMENTS and not done["so_far"]
 
 
+def test_the_proposed_code_names_the_pages_of_the_one_page_record():
+    """W-H7 (order 14): the header said "2 pages were not read" while the reading sheet said "not fully read (pages 19, 22)": the
+    proposal now prints the run's own list in the sheet's words."""
+    got = review_code_proposal.propose([pt(4, None)], unread_pages=[7, 9])
+    assert got["reason"] == "2 pages were not fully read (pages 7, 9)."
+    assert review_code_proposal.propose([pt(4, None)], unread_pages=[7])["reason"] == "1 page was not fully read (page 7)."
+
+
 def test_manual_review_is_only_for_pages_not_read_and_says_so():
     got = review_code_proposal.propose([pt(4, None)], unread_pages=3)
     assert (
         got["code"] == comparison.CODE_MANUAL
-        and got["reason"] == "3 pages were not read."
+        and got["reason"] == "3 pages were not fully read."  # W-H7: the words every sheet uses for the run's page record
         and "Manual Review Required" in got["line"]
     )
     assert (

@@ -318,7 +318,7 @@ def test_a_silent_row_says_the_readers_sentence_once_and_no_cell_says_both_not_e
 
 def test_pages_not_read_still_say_the_open_count_the_sheet_states(monkeypatch):
     doc, _rc, _ai, client = world_with_both()
-    monkeypatch.setattr(review_points_service, "_unread_pages", lambda run, scope: 2)
+    monkeypatch.setattr(review_points_service, "_unread_pages", lambda run, scope: [3, 4])
     listing = points_of(client, doc)
     left, of = listing["of"] - listing["decided"], listing["of"]
     assert left > 0
@@ -326,7 +326,7 @@ def test_pages_not_read_still_say_the_open_count_the_sheet_states(monkeypatch):
     assert proposal["undecided"] == left and proposal["so_far"]
     assert (
         proposal["line"]
-        == f"Manual Review Required: 2 pages were not read. {left} of {of} points still to decide."
+        == f"Manual Review Required: 2 pages were not fully read (pages 3, 4). {left} of {of} points still to decide."  # W-H7: the sheets' words
     )
     texts = _texts(
         _book(crs_completeness.file_or_refuse(doc, scope_all(), "team")).worksheets[0]

@@ -136,7 +136,9 @@ def test_the_team_file_has_no_placeholder_no_blanket_quote_wall_and_a_checked_by
 
 def test_the_pages_line_cannot_contradict_itself_and_the_files_line_has_no_api_path():
     assert crs_one.pages_line({"pages_total": 7, "pages_read": []}, []) == "7 pages: 0 not fully read; how many were read in full is not recorded"
-    assert crs_one.pages_line({"pages_total": 69, "pages_read": [1, 2, 3]}, [4, 5]) == "69 pages: 3 read, 2 not fully read (pages 4, 5)"
+    assert crs_one.pages_line({"pages_total": 69, "pages_read": [1, 2, 3]}, [4, 5]) == "69 pages: 3 read in full, 2 not fully read (pages 4, 5)"
+    # W-H7: a page read only in part is in both lists; "read in full" never counts it twice ("25 read, 2 not fully read" of 25)
+    assert crs_one.pages_line({"pages_total": 5, "pages_read": [1, 2, 3, 4, 5]}, [2, 4]) == "5 pages: 3 read in full, 2 not fully read (pages 2, 4)"
     doc, rc, ai, client = world_with_both()
     data = crs_one.build_team(doc, scope_all())
     from openpyxl import load_workbook
