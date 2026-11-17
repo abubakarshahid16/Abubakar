@@ -33,6 +33,23 @@ def _was() -> dict[int, str]:
     }
 
 
+def not_checked_words(line: Mapping) -> str:
+    """The words a line marked "not checked" (`crs_ai_words.mark_clause_unconfirmed`) shows after its book's page; "" for any other
+    line. Moved here from `crs_ai_words` (LP1, to keep that file within 800 lines); read by `cause` and `agent_review_crs.against`."""
+    from . import crs_ai_words as words
+    from .agent_review_standards import CLAUSE_BEFORE
+
+    doubt = line.get(words.CLAUSE_UNCHECKED_KEY)
+    if not doubt:
+        return ""
+    said = (
+        words.CLAUSE_NOT_CHECKED_BEFORE
+        if doubt == CLAUSE_BEFORE
+        else words.CLAUSE_NOT_CHECKED
+    )
+    return said.format(clause=line.get(words.CLAUSE_UNCONFIRMED_KEY) or "")
+
+
 def cause(line: Mapping) -> str:
     """Why the line shows no clause, or "" when it shows one (a book not held never shows its clause: `crs_ai_words.mark_not_held`)."""
     from . import crs_ai_words as words
@@ -44,7 +61,7 @@ def cause(line: Mapping) -> str:
     moved = " ".join(str(line.get(words.CLAUSE_UNCONFIRMED_KEY) or "").split())
     if not moved:
         return NO_CLAUSE
-    return words.not_checked_words(line) or words.CLAUSE_NOT_CONFIRMED.replace(
+    return not_checked_words(line) or words.CLAUSE_NOT_CONFIRMED.replace(
         "clause", f"clause {moved}", 1
     )
 

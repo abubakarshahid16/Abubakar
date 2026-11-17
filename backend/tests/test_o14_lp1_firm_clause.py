@@ -24,6 +24,7 @@ from app import crs_ai_workbook as WB
 from app import crs_layout, firm_clause
 from app import review_points as rp
 from app.crs_completeness import _table_rows
+from tests.test_agent_review_routes import client, finished_run  # noqa: F401
 
 _SPEC = importlib.util.spec_from_file_location(
     "crs_gates_lp1", Path(__file__).resolve().parents[2] / "scripts" / "crs_gates.py"
@@ -124,11 +125,12 @@ def test_a_proven_fail_whose_clause_was_not_checked_is_a_question_and_not_a_fail
         verdict="Fail",
         decided_by="decided by code",
         compare={"decided": True, "verdict": "does_not_meet"},
+        tier="owner",  # an owner-approved rule: the contractor copy issues this Fail while its clause stands
     )
     assert line["verdict_class"] == W.CLASS_PROVEN
-    assert (
-        rp.rank_of_ai_line(words.read_now([line], [], holds=NONE)[0])[0] == 1
-    )  # with its clause: a proven Fail
+    (kept,) = words.read_now([line], [], holds=NONE)
+    assert rp.rank_of_ai_line(kept)[0] == 1  # with its clause: a proven Fail
+    assert len(WB.contractor_rows([kept])) == 1  # ... issued to the contractor
     (got,) = words.read_now([line], [], holds=UNSURE)
     assert (
         got["verdict"] == "Query"
@@ -137,6 +139,18 @@ def test_a_proven_fail_whose_clause_was_not_checked_is_a_question_and_not_a_fail
     )
     assert "not met, proven by code" in got["not_proven_reason"]
     assert WB.contractor_rows([got]) == []  # never issued to the contractor
+
+
+def test_a_one_reader_not_met_on_a_book_not_held_is_a_question():
+    line = _not_met(
+        standard_document_id=None
+    )  # the book is on the run's list of books not held
+    (got,) = words.read_now([line], [{"rule_book": "ZZ-9"}], holds=NONE)
+    assert (
+        got[words.NOT_HELD_KEY] is True and got["clause"] == "6.7.4"
+    )  # the stored clause, never shown
+    assert firm_clause.NOT_HELD in got[firm_clause.HELD_KEY]
+    assert got["verdict_class"] == W.CLASS_QUERY and rp.rank_of_ai_line(got)[0] == 4
 
 
 def test_classify_reads_a_held_line_as_a_question_whatever_the_readers_said():
@@ -190,3 +204,66 @@ def test_does_not_apply_lines_under_one_clause_are_not_several_comments_in_the_r
         for n, (ln, _s, _o) in enumerate(WB.ordered_item_lines(read), start=1)
     ]
     assert gates.g4_one_per_field(rows).failed == []
+
+
+def _notes(lines: list[dict], tmp_path) -> dict:
+    path = WB.write(lines, tmp_path / "lp1-notes.xlsx", META, "internal")
+    sheet = openpyxl.load_workbook(path)["Notes"]
+    return {r[0]: r[1] for r in sheet.iter_rows(min_row=2, values_only=True)}
+
+
+def test_the_notes_count_does_not_apply_lines_under_their_own_kind_not_as_merged(
+    tmp_path,
+):
+    lines = [
+        _does_not_apply(f"R-{n}", f"Rule {n} of the widget annex shall hold.")
+        for n in range(1, 4)
+    ]
+    lines.append(_not_met(item="R-9", clause="6.1"))
+    notes = _notes(lines, tmp_path)
+    assert notes[f"Count: {words.KIND_NA_TO_CONFIRM}"] == 3  # the kind's own count row
+    merged = "Count: lines merged into a comment (listed as 'Part of comment n')"
+    assert notes[merged] == 0  # none of them is part of a comment
+
+
+# --- 3. The run's summary and a line's trace read the line as the page does (`read_now`)
+
+
+def test_the_summary_and_the_trace_count_a_held_line_as_a_question(client):  # noqa: F811
+    import json
+
+    from app.db import connect
+
+    run_id = finished_run(client)
+    held = _not_met(clause="")  # an AI reader's "not met" that names no clause
+    before = client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()
+    with connect() as conn:
+        item = conn.execute(
+            "SELECT item_id FROM agent_review_line WHERE run_id = ? LIMIT 1", (run_id,)
+        ).fetchone()[0]
+        old = conn.execute(
+            "SELECT verdict_class FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            (run_id, item),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE agent_review_line SET verdict_class = ?, word = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
+            (
+                W.CLASS_OPINION,
+                held["verdict_label"],
+                json.dumps({**held, "item_id": item}),
+                run_id,
+                item,
+            ),
+        )  # stored as the exit wrote it: an AI opinion
+    body = client.get(f"/api/reviews/runs/{run_id}/agent/summary").json()
+    was, now = before["counts_by_class"], body["counts_by_class"]
+    assert now.get(W.CLASS_OPINION, 0) == was.get(W.CLASS_OPINION, 0) - (
+        old == W.CLASS_OPINION
+    )
+    assert now.get(W.CLASS_QUERY, 0) == was.get(W.CLASS_QUERY, 0) + (
+        old != W.CLASS_QUERY
+    )
+    trace = client.get(f"/api/reviews/runs/{run_id}/agent/lines/{item}/trace").json()
+    assert (
+        firm_clause.NO_CLAUSE in trace["reason"]
+    )  # the held reason, as the page and the files say it
