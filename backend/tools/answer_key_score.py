@@ -51,8 +51,9 @@ THE PAGES. A page cell's own page list ("p.2", "p.1-4", "p.2, 7", "page 2", "pag
 section path such as "1 > para 1-4"); the section path's own numbers are never pages.
 TWO WAYS (owner, 12 Nov 2026): problems found of ALL problem rows, and of the rows whose rule book is held. A book is NOT held when
 the CRS file itself says so: a row of its sheet "Rule books not held", or a cell that says "Book missing: <book>". Each problem or
-complies row that is not found gets ONE cause: book not held; misjudged (a pass or a "met" answered it); left as a question (a
-complies row raised as a comment); misread (the field was raised, on another page); wrong label (the row's clause was raised under
+complies row that is not found gets ONE cause: book not held (the row's own book); misjudged (a pass or a "met" answered it); asked
+against a book not held (the row's own book is held, but only a line saying "Book missing" answered it: such a line never finds);
+left as a question (a complies row raised as a comment); counted for another row; misread (the field was raised, on another page); wrong label (the row's clause was raised under
 another field); not asked.
 
 THE NUMBERS (each with its denominator, rows by sheet row number):
@@ -482,13 +483,18 @@ HELD_SHEET = "Rule books not held"
 
 #: How firm a Not met or Met point is, the second half of its Pill (`review_points.RANKS`; a test holds them to it).
 FIRMNESS = ("proven by code", "two readers agree", "one reader")
-#: Words a line's own cells use when its rule book is not held or its rule cannot be checked (`review_points.book_missing_words`).
-_BOOK_MISSING_SAID = re.compile(rf"\b{BOOK_MISSING_WORDS}\s*:|\bcannot be checked\b", re.I)
+@lru_cache(maxsize=1)
+def _book_missing_said() -> re.Pattern:
+    """ONLY the app's own sentences for a rule book not held, from their home (`review_points.BOOK_MISSING` followed by ":", and the
+    whole sentence `review_points.BOOK_NOT_CHECKABLE`): other words such as "the seat cannot be checked in place" are not them."""
+    from app.review_points import BOOK_MISSING, BOOK_NOT_CHECKABLE
+
+    return re.compile(rf"\b{re.escape(BOOK_MISSING)}\s*:|{re.escape(BOOK_NOT_CHECKABLE)}", re.I)
 
 
 def says_book_missing(text) -> bool:
-    """The line's own cells say its rule book is missing or its rule cannot be checked: such a line asks, it never finds."""
-    return bool(_BOOK_MISSING_SAID.search(str(text or "")))
+    """The line's own cells say, in the app's own sentences, that its rule book is not held: such a line asks, it never finds."""
+    return bool(_book_missing_said().search(str(text or "")))
 
 
 def book_names(text) -> list[str]:
@@ -932,6 +938,7 @@ def rule_held(k: KeyRow, not_held: frozenset) -> bool:
 MISS_CAUSES = (
     "book not held",
     "misjudged",
+    "asked against a book not held",
     "left as a question",
     "counted for another row",
     "wrong label",
@@ -942,16 +949,16 @@ MISS_CAUSES = (
 
 def miss_cause(k: KeyRow, res: dict, lines: list[Line], not_held: frozenset) -> str:
     """ONE cause for a problem or complies row that is not found (see the module words: TWO WAYS)."""
-    if not rule_held(k, not_held) or any(
-        ln.book_missing and answers(k, ln) for ln in lines
-    ):
-        return "book not held"  # the file lists its book as missing, or the only line on its field and page says so
+    if not rule_held(k, not_held):
+        return "book not held"  # the file lists the row's own book as missing
     if k.scored_as == "problem" and (
         k.row in res["wrong_passes"] or k.row in res["ai_verdict_wrong"]
     ):
         return "misjudged"
     if k.scored_as == "complies" and k.row in res["ai_verdict_wrong"]:
         return "misjudged"
+    if any(ln.book_missing and answers(k, ln) for ln in lines):
+        return "asked against a book not held"  # its own book is held; only a question on another, missing book answered it
     asked = [ln for ln in lines if not ln.is_pass and not ln.unknown_verdict]
     if any(answers(k, ln) for ln in asked):
         # a complies row a comment answers was left to the engineer; a problem row answered on field and page but not credited:
@@ -1000,8 +1007,8 @@ def decision_figures(key: list[KeyRow], lines: list[Line]) -> dict:
     for ln in lines:
         if ln.is_pass or ln.status == "fail":
             code.append((ln, ln.is_pass))
-        elif ln.ai_kind in ("met", "not met", "not stated"):
-            two.append((ln, ln.ai_kind == "met"))
+        elif ln.ai_kind in ("met", "not met", "not stated") and not ln.book_missing:
+            two.append((ln, ln.ai_kind == "met"))  # a two-reader line on a book not held decides nothing (as in its own columns)
     right = wrong = 0
     for ln, positive in [*code, *two]:
         verdicts = set()

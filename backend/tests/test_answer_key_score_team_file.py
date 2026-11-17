@@ -235,12 +235,13 @@ def test_a_line_that_says_its_book_is_missing_is_never_a_find(tmp_path, page):
     assert aks.summary(res)["two_ways"]["problems_found_of_all"] == "0 of 1"
 
 
-def test_a_book_missing_line_hides_no_find_of_another_line_and_says_book_not_held_where_the_key_book_is_held(tmp_path):
+def test_a_book_missing_line_hides_no_find_of_another_line_and_its_own_cause_where_the_key_book_is_held(tmp_path):
     lead = _lead("hazop_procedure", "H01")
     key = [{"kind": "problem", "role": "hazop_procedure:H01", "page": "2", "std": "XS-1 6.1"}]  # the key's own book is held
     only = [_missing_point(1, "2", lead, "Book missing: OTHER-7 (clause not named by the reviewer)")]
     res = aks.score_files(_key(tmp_path, key), _team(tmp_path, only))
-    assert res["problems_found"] == [] and res["missed"] == {"book not held": [2]}
+    # review R2 of #1863: the row's own book IS held, so "book not held" would be false; it was asked against another, missing book
+    assert res["problems_found"] == [] and res["missed"] == {"asked against a book not held": [2]}
     both = [*only, _point(2, "2", "Question", "Questions for you", "1 > para 1-4", "2", action=f"{lead}: section found at page 2.")]
     res = aks.score_files(_key(tmp_path, key), _team(tmp_path, both, name="t2.xlsx"))
     assert res["problems_found"] == [2]  # a line that does not say so still finds
@@ -250,7 +251,9 @@ def test_a_two_reader_verdict_that_says_its_book_is_missing_decides_nothing(tmp_
     key = [{"kind": "problem", "role": "set_pressure", "page": "2"}]
     pts = [_point(1, "1", "Not met · two readers agree", "Not met", "Set pressure", "2", reason="Book missing: NH-9, clause 4")]
     res = aks.score_files(_key(tmp_path, key), _team(tmp_path, pts))
-    assert res["ai_verdict_found"] == [] and res["problems_found"] == [] and res["missed"] == {"book not held": [2]}
+    assert res["ai_verdict_found"] == [] and res["problems_found"] == []
+    assert res["missed"] == {"asked against a book not held": [2]}  # the key row names no book: its own is not known missing (R2)
+    assert res["decisions"]["n"] == 0  # nor is it counted as a decision (review R2 of #1863)
 
 
 @pytest.mark.parametrize(
@@ -327,3 +330,30 @@ def test_the_scorer_words_are_the_apps_own():
     assert aks.BOOK_MISSING_WORDS == rp.BOOK_MISSING
     assert set(aks.FIRMNESS) == {firm for _what, firm in rp.RANKS.values() if firm}
     assert aks.says_book_missing(rp.book_missing_words("XS-1", "4.2"))
+
+
+# ------------------------------------------------------------------------------------------------ review R2 of PR #1863
+
+
+def test_only_the_apps_own_book_missing_sentences_bar_a_find(tmp_path):
+    key = [{"kind": "problem", "role": "set_pressure", "page": "2", "std": "XS-1 4.2"}]
+    said = "Set pressure 12 barg exceeds 10 barg; the seat cannot be checked in place, state the test method."
+    pts = [_point(1, "1", "Not met · proven by code", "Not met", "Set pressure", "2", "XS-1", "4.2", action=said)]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, pts))
+    assert res["problems_found"] == [2]  # other words with "cannot be checked" are not the app's sentence
+    from app import review_points as rp
+
+    assert aks.says_book_missing(f"{rp.BOOK_NOT_CHECKABLE}; engineer to check.")
+    assert aks.says_book_missing(rp.book_missing_words("XS-1", ""))
+    assert not aks.says_book_missing(said)
+
+
+def test_a_wrong_pass_wins_over_asked_against_a_book_not_held(tmp_path):
+    lead = _lead("hazop_procedure", "H01")
+    key = [{"kind": "problem", "role": "hazop_procedure:H01", "page": "2", "std": "XS-1 4.2"}]
+    pts = [
+        _missing_point(1, "2", lead, "Book missing: OTHER-7, clause 6.1"),
+        _point(2, "Nothing to change", "Met · proven by code", "Met", "x", "2", action=f"{lead}: ok"),
+    ]
+    res = aks.score_files(_key(tmp_path, key), _team(tmp_path, pts))
+    assert res["wrong_passes"] == [2] and res["missed"] == {"misjudged": [2]}

@@ -574,7 +574,7 @@ def rule_point(
         rank, other_kind = 4, None
         rule_words = ref["clause"] or content.rule_text(finding)
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
-            action, action_source = f"{missing_words}. The rule cannot be checked until the book is held; engineer to check.", "check"
+            action, action_source = f"{missing_words}. {BOOK_NOT_CHECKABLE}; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
     elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
         # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
@@ -707,6 +707,8 @@ def reread_clauses(findings: list[dict], cache: dict | None = None) -> None:
 
 
 BOOK_MISSING = "Book missing"
+#: The sentence a book-missing point's action says after its book (the answer-key scorer reads it from here: never a find).
+BOOK_NOT_CHECKABLE = "The rule cannot be checked until the book is held"
 #: What a book-missing point says when the stored reference names no clause (order 14 lane C, C1): never a silent blank.
 CLAUSE_NOT_NAMED = "clause not named by the reviewer"
 _EDITION_YEAR = re.compile(r"(?:19|20)\d\d")
