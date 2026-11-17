@@ -414,7 +414,14 @@ def _evidence(ms: list[dict]) -> set[tuple]:
 
     out = set()
     for p in ms:
-        q = _norm(p.get("paper_quote") or _line_of(p).get("paper_quote"))
+        line = _line_of(
+            p
+        )  # rule 5: a hidden point's unverified quote is kept apart, for this grouping only (`crs_ai_viewer`)
+        q = _norm(
+            p.get("paper_quote")
+            or line.get("paper_quote")
+            or line.get("_paper_quote_stored")
+        )
         # FTU-1: a found quote on a line that says "not stated" is not evidence of a value, so it never joins two fields
         looked = p.get("paper_looked") or silent_quote(_line_of(p)) or silent_quote(p)
         if q and not looked:

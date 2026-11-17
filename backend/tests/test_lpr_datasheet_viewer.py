@@ -30,8 +30,13 @@ SECRETS = (
     "stainless steel", "7.3.9",  # a rule quote broken by a line break; a clause number alone
     "STDA001",  # another spelling of the book's own name, on a line that links no book
     "asks for steel", "Figure 9", "Use steel",  # the second reader's reason, a figure, the reader's suggested action
+    "Tag plate: brass",  # a paper quote code did not verify: shown to no one who may not see the line
+    "against the rule for",  # never a sentence that runs into the fixed one
 )  # fmt: skip
 HIDDEN = crs_ai_viewer.HIDDEN_RULE
+UNVERIFIED = (
+    "Tag plate: brass"  # a paper quote code did not find on its page (invented)
+)
 DOC: list[str] = []
 
 
@@ -58,7 +63,7 @@ def setup_world() -> str:
         mk("R-23", "Query", "Fail", why="no second opinion", field="", field_roles=[], standard=OTHER_BOOK),
         mk("R-30", "Query", "Fail", why="no second opinion", clause="7.3.9", clause_quote="Plates shall be\nstainless steel"),
         mk("R-40", "Query", None, why="the value is held per STDA001 table", standard=""),
-        mk("R-50", "Query", None, why="x y", quotes_checked={"paper": False, "clause": True}),
+        mk("R-50", "Query", None, why="x y", quotes_checked={"paper": False, "clause": True}, paper_quote=UNVERIFIED),
         # a coverage line: N rules of the hidden book could not be matched (its book is named in the coverage note)
         mk("G-1", "Query", None, item={"source": "group"}, group_count=3, field="", field_roles=[]),
     ]  # fmt: skip
@@ -277,3 +282,96 @@ def test_the_page_points_and_the_team_file_show_a_hidden_datasheet_point_through
     assert [p["rank"] for p in mine["points"]] == [
         p["rank"] for p in full_page["points"]
     ]
+
+
+def test_a_reader_of_every_book_gets_layout_view_untouched_on_a_decided_run():
+    # final check (lead): nothing hidden from him, so no cell of his file is touched: "Rules not asked" keeps its counts
+    from app import crs_ai_workbook as wb
+    from app import review_point_decisions as dm
+    from app import review_points_service as svc
+
+    ai = setup_world()
+    folder = agent_review_jobs.run_dir(ai)
+    (folder / "crs-meta.json").write_text(
+        json.dumps(
+            {
+                "paper": DOC[0],
+                "run_id": ai,
+                "rule_labels": {
+                    "summary_lines": ["3 rules not asked: invented reason"]
+                },
+            }
+        )
+    )
+    pid = next(
+        p["id"]
+        for p in full().get(f"/api/reviews/papers/{DOC[0]}/points").json()["points"]
+        if p["id"].endswith(":R-8")
+    )
+    assert (
+        full()
+        .post(
+            f"/api/reviews/papers/{DOC[0]}/points/decision",
+            json={"point_id": pid, "state": "keep"},
+        )
+        .status_code
+        == 200
+    )
+    got = full().get(f"/api/reviews/runs/{ai}/agent/crs?copy=internal").content
+    conn = db.connect()
+    lines = dm.apply_to_lines(
+        DOC[0], ai, svc.stored_lines(conn, ai), svc._names(dm.people(DOC[0]))
+    )
+    want = wb.layout_view(lines, svc.run_meta(conn, ai, DOC[0], folder), "internal")
+    from app import crs_layout
+
+    assert got == crs_layout.build_layout_crs(want)  # main's own drawing, byte for byte
+    assert HIDDEN not in sheet_text(got) and "3 rules not asked" in sheet_text(got)
+
+
+def test_both_viewers_are_served_the_same_rows_even_when_the_stored_file_is_older():
+    # final check (lead): a stored file drawn by an older reading (its split differs) is never served to one viewer while the other
+    # gets a sheet drawn now: both are drawn now, so the rows on every sheet are the same
+    from app import agent_review_crs as C
+    from tests.test_agent_review_crs import META
+
+    ai = setup_world()
+    folder = agent_review_jobs.run_dir(ai)
+    lines = [
+        mk("R-1", "Pass", "Pass"),
+        *[mk(f"R-{n}", "Query", None, why="x y") for n in (8, 21, 22, 23, 30, 40, 50)],
+        mk(
+            "G-1",
+            "Query",
+            None,
+            item={"source": "group"},
+            group_count=3,
+            field="",
+            field_roles=[],
+        ),
+    ]
+    C.write_internal(
+        lines, folder / "crs-internal.xlsx", {**META, "run_id": ai, "paper": DOC[0]}
+    )  # an older reading, its own split
+    url = f"/api/reviews/runs/{ai}/agent/crs?copy=internal"
+    mine, theirs = full().get(url), restricted().get(url)
+    assert mine.status_code == theirs.status_code == 200, (mine.text, theirs.text)
+    assert sheets(mine.content) == sheets(theirs.content) and statuses(
+        mine.content
+    ) == statuses(theirs.content)
+
+
+def test_the_shown_line_carries_only_a_paper_quote_code_verified():
+    line = mk(
+        "R-50",
+        "Query",
+        None,
+        why="x y",
+        quotes_checked={"paper": False, "clause": True},
+        paper_quote=UNVERIFIED,
+    )
+    assert "paper_quote" not in crs_ai_viewer.shown(line)
+    assert (
+        crs_ai_viewer.shown(mk("R-1", "Fail", "Fail"))["paper_quote"]
+        == "Nameplate: steel"
+    )  # verified: the paper's own words

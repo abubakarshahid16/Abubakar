@@ -598,8 +598,9 @@ def decided_ai_sheet(
     THIS viewer (`readable`: the documents he may read), through the one guard (`review_points.for_viewer`; CLAUDE.md rule 5): a
     general line he may not read is its viewed line; a datasheet line he may not read keeps its place, its grouping and its Status
     (drawn from the full line) and only its cells come from its shown line (`crs_ai_viewer.view_for`). A file with a hidden line has
-    a name of its own (the hidden lines' digest), so one viewer's file is never served to another. None when nothing was decided or
-    added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
+    a name of its own (the hidden lines' digest), so one viewer's file is never served to another. Every viewer is served a sheet
+    drawn now from the lines read as today, so the rows of a restricted viewer's file and of a reader of every book's are the same
+    (the stored file is the run's record, checked for completeness first). Meta: `run_meta`."""
     import hashlib
     from pathlib import Path
 
@@ -631,13 +632,16 @@ def decided_ai_sheet(
         for ln in kept
         if general.HIDE_KEY in ln or hidden_rule(ln)
     )
-    if not decided and not hidden:
-        return None
+    # every viewer is served the SAME way: a sheet drawn now from the lines read as today (never the stored file for one viewer and a
+    # redraw for another, whose rows could differ); a reader of every book gets exactly `crs_ai_workbook.layout_view`
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
-    path = folder / f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
+    path = (
+        folder
+        / f"crs-{copy}-{'decided' if decided else 'now'}{'-viewer-' + digest if hidden else ''}.xlsx"
+    )
     path.write_bytes(
         crs_layout.build_layout_crs(
             crs_ai_viewer.view_for(kept, meta, copy, hidden_rule)

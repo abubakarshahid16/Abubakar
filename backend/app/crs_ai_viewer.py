@@ -21,11 +21,12 @@ HIDDEN_RULE = (
 HIDDEN_SENTENCE = HIDDEN_RULE[:1].upper() + HIDDEN_RULE[1:] + "."
 #: the private mark of a shown line (never printed)
 HIDDEN_KEY = "_rule_hidden"
+#: a paper quote code did not verify, kept on a shown line for the grouping only (`crs_comments._evidence`), never printed
+STORED_QUOTE_KEY = "_paper_quote_stored"
 #: the keys of a line that are the paper's own, the line's class, or a code: copied as they are
 SAFE_KEYS = frozenset(
     (
-        "item_id", "source", "verdict", "verdict_class", "verdict_label", "word", "ai_verdict", "decided_by", "paper_page",
-        "paper_quote", "field", "field_label_ai", "field_roles", "reason_code", "rule_tier", "tier", "recommendation", "rule_kind",
+        "item_id", "source", "verdict", "verdict_class", "verdict_label", "word", "ai_verdict", "decided_by", "paper_page", "field", "field_label_ai", "field_roles", "reason_code", "rule_tier", "tier", "recommendation", "rule_kind",
         "model", "page_hint", "pages_searched", "standard_document_id", "deferred_page", "raw_unit", "strength", "priority",
         "engineer_by", "engineer_added",
     )
@@ -76,6 +77,16 @@ def shown(line: Mapping) -> dict:
     q = line.get("quotes_checked")
     if isinstance(q, Mapping):
         out["quotes_checked"] = {"paper": q.get("paper"), "clause": q.get("clause")}
+    from .crs_ai_actions import verified_quote
+
+    if verified_quote(
+        line
+    ):  # the paper's own words, only as code found them on its page
+        out["paper_quote"] = line["paper_quote"]
+    elif line.get(
+        "paper_quote"
+    ):  # never shown: kept only so the comments group as for a reader of the book
+        out[STORED_QUOTE_KEY] = line["paper_quote"]
     cmp = line.get("compare")
     if isinstance(cmp, Mapping):
         out["compare"] = {
@@ -97,7 +108,7 @@ def shown(line: Mapping) -> dict:
 def comment(line: Mapping) -> str:
     """The three parts of a hidden line's comment: the fixed sentence, the paper's own quote when code verified it (else the fixed
     sentence, never "no verified quote": the rule side is what is not shown), and what the engineer checks."""
-    from .agent_review_crs import field_words, line_page_words
+    from .agent_review_crs import line_page_words
     from .crs_ai_actions import verified_quote
 
     quote, page = verified_quote(line), line_page_words(line)
@@ -117,10 +128,15 @@ def comment(line: Mapping) -> str:
                 ENGINEER_HIDDEN[:1].upper() + ENGINEER_HIDDEN[1:] + ".",
             )
         )
-    what = field_words(line) or "this line"
-    return "\n".join(
-        (HIDDEN_SENTENCE, shows, f"Engineer to check {what}{at} against its rule book.")
-    )
+    return "\n".join((HIDDEN_SENTENCE, shows, action_words(line)))
+
+
+def action_words(line: Mapping) -> str:
+    """What the engineer checks on a hidden line, in one clean sentence: its field and page against its rule book."""
+    from .agent_review_crs import field_words, line_page_words
+
+    page = line_page_words(line)
+    return f"Engineer to check {field_words(line) or 'this line'}{f', page {page}' if page else ''} against its rule book."
 
 
 def _masked(row: list, keep: frozenset[int]) -> list:
@@ -139,10 +155,15 @@ def view_for(
     from . import crs_ai_workbook as wb
     from . import crs_comments
     from .agent_review_crs import EVIDENCE_COLUMNS
+    from .crs_ai_actions import verified_quote
 
     view = wb.layout_view(lines, meta, copy)
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
     read = words.read_now(lines, missing)
+    if not any(
+        hidden(ln) for ln in read
+    ):  # nothing hidden from him: the file exactly as a reader of every book has it
+        return view
     contractor = copy == "contractor"
     items, others = wb._split(read)
     if contractor:
@@ -169,9 +190,13 @@ def view_for(
         if hidden(ln):
             view["other"]["rows"][k] = _masked(view["other"]["rows"][k], KEEP_OTHER)
     keep = frozenset(i for i, c in enumerate(EVIDENCE_COLUMNS) if c in KEEP_EVIDENCE)
+    unverified = keep - {
+        EVIDENCE_COLUMNS.index("Paper quote")
+    }  # a quote code did not verify is not shown either
     for j, ln in enumerate([ln for ln, _s, _o in items] + [ln for ln, _k in others]):
         if hidden(ln):
-            view["evidence"]["rows"][j] = _masked(view["evidence"]["rows"][j], keep)
+            mine = keep if verified_quote(ln) else unverified
+            view["evidence"]["rows"][j] = _masked(view["evidence"]["rows"][j], mine)
     view["notes"]["rows"] = [
         [
             a,

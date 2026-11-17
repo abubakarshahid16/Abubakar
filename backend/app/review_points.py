@@ -474,6 +474,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
     from . import agent_general_crs as general
     from . import agent_review_crs as arc
+    from . import crs_ai_viewer
     from . import crs_ai_workbook as wb
     from .agent_review_two_reader import is_independent
 
@@ -551,7 +552,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         ""
         if rank == 8
         else _plain(
-            wb._contractor_to(
+            crs_ai_viewer.action_words(view)
+            if crs_ai_viewer.is_shown(
+                view
+            )  # a hidden datasheet point: one clean sentence, no rule words
+            else wb._contractor_to(
                 view or shown, status or "", order if order is not None else 3
             )
         )
@@ -576,8 +581,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "clause": clause if book_name else None,
         "action": action or None,
         # U5d: the line's STORED words when code did not verify them (shown as stored, "not verified by code"); never when the book is unreadable
-        "paper_value": (
-            None if paper_q or looked else (_clean(line.get("paper_quote")) or None)
+        "paper_value": (  # a hidden point shows no quote code did not verify (the allow-list's own rule)
+            None
+            if paper_q or looked or crs_ai_viewer.is_shown(view)
+            else (_clean(line.get("paper_quote")) or None)
         ),
         "paper_value_page": page,
         "rule_text": (
