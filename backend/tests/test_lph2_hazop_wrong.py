@@ -117,37 +117,30 @@ def test_the_pictures_the_ai_reviewer_did_not_read_are_the_pages_its_own_lines_n
 # ------------------------------------------------------------------------------------------------ W-H10: editions said once, honestly
 
 
-def test_a_found_online_edition_is_shown_only_with_its_source_and_a_date_before_the_search():
+def test_a_found_online_edition_is_shown_only_with_its_source_and_a_date_not_after_the_search():
     from app import crs_reference
     from app import standards_web_search as sws
 
     base = {"outcome": sws.FOUND, "title": "Invented title", "latest_edition": "3.0", "year": 2019, "publisher": "Invented body",
             "url": "https://www.iso.org/standard/1.html", "searched_at": "2026-11-17T10:00:00+00:00"}  # fmt: skip
-    assert crs_reference.found_online_edition(base) == "3.0; (2019)"
+    found = crs_reference.found_online_edition
+    assert found(base) == "3.0; (2019)"
     assert sws.words(base).endswith(
         "(found online, not verified; the book is not held; searched on 2026-11-17)"
     )
     assert (
-        crs_reference.found_online_edition({**base, "year": 2026})
-        == "edition not found (the date given, 2026, is not before the search)"
+        found({**base, "year": 2026}) == "3.0; (2026)"
+    )  # the year of the search, with its source: shown (lead, review of #1891)
+    assert (
+        found({**base, "year": 2027})
+        == "edition not found (the date given, 2027, is after the search)"
     )
     assert (
-        crs_reference.found_online_edition({**base, "url": None})
+        found({**base, "url": None})
         == "edition not found (no source on the publisher's site)"
     )
-    assert (
-        crs_reference.found_online_edition({**base, "year": None})
-        == "edition not found (no date given)"
-    )
-    assert (
-        crs_reference.found_online_edition(
-            {**base, "latest_edition": None, "year": None}
-        )
-        == "edition not found"
-    )
-    assert "2026" not in sws.words(
-        {**base, "latest_edition": "1.0", "year": 2026}
-    ).split("searched on")[0].replace("(the date given, 2026", "")
+    assert found({**base, "year": None}) == "edition not found (no date given)"
+    assert found({**base, "latest_edition": None, "year": None}) == "edition not found"
 
 
 def test_a_field_never_says_edition_not_recorded_beside_its_books_edition_status():
@@ -199,64 +192,108 @@ def test_an_action_says_the_ai_suggestion_once_is_never_empty_and_the_requiremen
         crs_one.full_texts(_rc_point("rc:2", "x", action=None))["action"]
         == crs_one.NO_ACTION
     )
+    # a set-apart row ("Rule not yet approved", "Not a requirement to check") is never told to write an action
+    apart = _rc_point(
+        "rc:3",
+        "x",
+        action=None,
+        rank=8,
+        tile="does_not_apply",
+        other_kind="Rule not yet approved",
+    )
+    assert crs_one.full_texts(apart)["action"] == ""
 
 
-def test_a_rule_text_cut_where_its_list_begins_carries_a_visible_mark_in_every_cell():
+def test_a_rule_text_cut_where_its_list_begins_carries_a_visible_mark_and_a_quote_of_the_paper_never_does():
     cut = "When the invented factor is low the following shall be applied: a."
+    paper = "The invented study covers these items: a."
     got = crs_one.full_texts(
         _rc_point(
             "rc:1",
             cut,
             rule_text=cut,
-            action=f'Requirement: "{cut}". Check it.',
+            action=f'Requirement: "{cut}". The paper says "{paper}".',
             action_source="check",
         )
     )
     for cell in (got["action"], got["requires"]):
         assert f'"{cut}" {crs_one.LIST_NOT_STORED}' in cell
+    assert (
+        f'"{paper}" {crs_one.LIST_NOT_STORED}' not in got["action"]
+    )  # rule 4: the mark speaks of the rule book only
     whole = "The invented valve shall close in ten seconds."
     assert (
         crs_one.LIST_NOT_STORED
         not in crs_one.full_texts(_rc_point("rc:2", whole, rule_text=whole))["requires"]
     )
+    rule = "Invented items shall comply with ABC-1. b."
     assert (
-        crs_one.mark_cut_lists(
-            f'"Invented items shall comply with ABC-1. b." (as stored)'
-        ).count(crs_one.LIST_NOT_STORED)
+        crs_one.mark_cut_lists(f'"{rule}" (as stored)', [rule]).count(
+            crs_one.LIST_NOT_STORED
+        )
         == 1
+    )
+    assert (
+        crs_one.mark_cut_lists(f'"{rule}" (as stored)', []) == f'"{rule}" (as stored)'
     )
 
 
 # ------------------------------------------------------------------------------------------------ W-H4: not a requirement to check
 
 
-def test_a_scope_deviation_or_definition_clause_is_not_a_requirement_and_an_obliging_sentence_stays_one():
-    from app.review_points_content import not_a_requirement as why
+def test_one_function_sets_apart_only_the_books_top_level_scope_and_deviations_clause_and_a_true_definition():
+    """W-H4 through `rule_text_place.not_a_requirement` (the one function of #1889): a text with a requirement word is never set
+    apart, except a top-level whole-title scope or conflicts-and-deviations clause of the book and a true defining sentence."""
+    from app import rule_text_place as rtp
 
-    assert "scope statement" in why(
-        "This standard covers the invented systems.", "1 Scope"
+    def why(text, section):
+        return rtp.not_a_requirement(text, chunk=("prose", section, ""))
+
+    assert (
+        why("Where in conflict, the invented standards shall govern.", "1 Scope")
+        == rtp.SCOPE_CLAUSE
     )
-    assert "conflicts and deviations" in why(
-        "Any deviation shall follow the invented procedure.",
-        "2 Conflicts and Deviations",
+    assert (
+        why(
+            "Any deviation shall follow the invented procedure.",
+            "2 Conflicts and Deviations",
+        )
+        == rtp.DEVIATIONS_CLAUSE
     )
-    assert "definition" in why("Shall: Indicates a mandatory requirement.", "4.2 Terms")
-    assert "definition" in why(
-        'For this invented standard, the words "hot fluid" shall mean a fluid above 60 C.',
-        "3 Definitions",
+    assert (
+        why("Shall: Indicates a mandatory requirement.", "4.2 Terms") == rtp.DEFINITION
     )
-    assert "reference list" in why("INV-1 Invented Standard", "3 References")
-    assert "defines a word" in why(
-        "Must: indicates a mandatory requirement.", "5 Design"
+    assert (
+        why(
+            'For this invented standard, the words "hot fluid" shall mean a fluid above 60 C.',
+            "3 Definitions",
+        )
+        == rtp.DEFINITION
     )
-    # a sentence in a terms section that still obliges something stays a requirement; ordinary sections and look-alike titles too
-    assert why("Invented layers must be independent of each other.", "4.2 Terms") == ""
-    assert why("The invented valve shall close in 10 s.", "5 Design") == ""
-    assert why("Supply shall include spares.", "5.5 Scope of supply") == ""
-    assert why("The alarm shall sound.", "6.1 Deviation alarms") == ""
+    # a requirement word keeps every other text a requirement (lead, review of #1891)
+    for section in (
+        "7.2 Exceptions",
+        "8.4 Deviations",
+        "6.1 Scope",
+        "3 Applicability",
+        "1.1 Purpose",
+        "3 References",
+        "4.2 Terms",
+    ):
+        assert why("The invented valve shall close in 10 s.", section) is None, section
+    assert (
+        why("A trip is defined as a stop. The invented valve shall close.", "5 Design")
+        is None
+    )
+    assert (
+        why("Invented layers must be independent of each other.", "4.2 Terms") is None
+    )
+    # a rule whose own stored clause is of another top-level clause is not that clause's housekeeping
+    assert rtp.not_a_requirement("The valve shall close.", chunk=("prose", "1 Scope", ""), clause="4.3") is None
+    assert rtp.not_a_requirement("Where in conflict X shall govern.", chunk=("prose", "1 Scope", ""), clause="1.2") == rtp.SCOPE_CLAUSE
 
 
-def test_the_rule_check_sets_such_a_point_apart_with_its_reason_counted_and_never_a_question(
+def test_the_rule_check_sets_such_a_point_apart_with_its_reason_and_no_action_for_the_contractor(
     monkeypatch,
 ):
     from app import review_points as rp
@@ -268,16 +305,12 @@ def test_the_rule_check_sets_such_a_point_apart_with_its_reason_counted_and_neve
         "page_section": "",
         "comment": "x",
     }
-    finding = {
-        "requirement_id": "r1",
-        "standard_document_id": "doc_book",
-        "standard_clause": "2",
-        "requirement": "Any deviation shall follow X.",
-    }
+    finding = {"requirement_id": "r1", "standard_document_id": "doc_book", "standard_clause": "2", "requirement": "Any deviation shall follow X.",
+               "required_action": 'Requirement: "Any deviation shall follow X." Engineer to check.'}  # fmt: skip
     ctx = {
         "readable": frozenset({"doc_book"}),
         "paper_document_id": "doc_p",
-        "req_sections": {"r1": "2 Conflicts and Deviations"},
+        "req_sections": {"r1": (("prose", "2 Conflicts and Deviations", ""), "2")},
     }
     monkeypatch.setattr(rp, "clause_unconfirmed", lambda *a, **k: "")
     monkeypatch.setattr(rp, "shown_rule_words", lambda *a, **k: None)
@@ -287,9 +320,16 @@ def test_the_rule_check_sets_such_a_point_apart_with_its_reason_counted_and_neve
         and got["tile"] == "does_not_apply"
         and got["other_kind"] == rp.content.NOT_A_REQUIREMENT
     )
-    assert "conflicts and deviations" in got["_not_a_requirement"]
-    assert "conflicts and deviations" in crs_one.apart_proof(got)
-    plain = rp.rule_point(row, {**ctx, "req_sections": {"r1": "5 Design"}}, finding, {})
+    assert (
+        got["action"] == rp.content.NOT_A_REQUIREMENT_ACTION
+        and "Requirement:" not in got["action"]
+    )
+    assert "conflicts-and-deviations" in got[
+        "_not_a_requirement"
+    ] and "conflicts-and-deviations" in crs_one.apart_proof(got)
+    plain = rp.rule_point(
+        row, {**ctx, "req_sections": {"r1": (("prose", "5 Design", ""), "5")}}, finding, {}
+    )
     assert plain["rank"] != 8 and not plain["_not_a_requirement"]
 
 

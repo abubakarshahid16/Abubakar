@@ -75,5 +75,25 @@
     "acknowledgements",
     "committee",
     "personnel"
+  ],
+  "_comment_place": [
+    "Read by app/rule_text_place.py (order 14, W-D7): a rule text that sits under one of these headings, and holds no",
+    "requirement word, is a contents entry or a reference-list entry: never the rule a paper is checked against. Matched whole,",
+    "ignoring case and a leading clause number; a reference-list heading is also looked for inside a text, written with a capital."
+  ],
+  "contents_headings": [
+    "contents",
+    "table of contents",
+    "index",
+    "list of tables",
+    "list of figures"
+  ],
+  "reference_list_headings": [
+    "references",
+    "normative references",
+    "referenced documents",
+    "reference documents",
+    "bibliography",
+    "informative references"
   ]
 }

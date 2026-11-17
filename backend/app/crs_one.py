@@ -240,13 +240,24 @@ LIST_NOT_STORED = "[the list that follows in the book is not in the stored rule:
 STORED_NOT_FOUND = "as stored; code did not find these words in the held book"
 
 
-def mark_cut_lists(text: str) -> str:
-    """W-H8 (completeness): a quoted rule text that ends where its list begins ("... shall be applied: a.") says so after its closing
-    quote with a visible mark (`LIST_NOT_STORED`), never shown as if whole; any other text as it is. The rule store holds no more of
-    it, so the mark says where the rest is (the clause in the book)."""
-    if not text or LIST_NOT_STORED in text:
+def mark_cut_lists(text: str, rules=()) -> str:
+    """W-H8 (completeness): a quote of the RULE (one of `rules`, the point's own stored rule words) that ends where its list begins
+    ("... shall be applied: a.") says so after its closing quote with a visible mark (`LIST_NOT_STORED`), never shown as if whole. A
+    quote of the paper, or any other quote, is left as it is (rule 4: the mark speaks of the rule book only)."""
+    own = [_fold_quote(r) for r in rules if _fold_quote(r)]
+    if not text or not own or LIST_NOT_STORED in text:
         return text
-    return _QUOTED.sub(lambda m: f'"{m.group(1)}" {LIST_NOT_STORED}' if _LIST_OPENED.search(m.group(1)) else m.group(0), text)
+
+    def mark(m: re.Match) -> str:
+        q = _fold_quote(m.group(1))
+        ours = any(q == r or (len(q) >= 12 and q in r) for r in own)
+        return f'"{m.group(1)}" {LIST_NOT_STORED}' if ours and _LIST_OPENED.search(m.group(1)) else m.group(0)
+
+    return _QUOTED.sub(mark, text)
+
+
+def _fold_quote(text) -> str:
+    return " ".join(str(text or "").split()).lower()
 
 
 def full_texts(point: dict) -> dict[str, str]:
@@ -261,12 +272,13 @@ def full_texts(point: dict) -> dict[str, str]:
         # W-H8: the stored words may already open with their own "AI suggestion" lead: said once, never twice
         action = _AI_LEAD.sub("", action, count=1) or action
         action = f"{content.AI_SUGGESTION[0].upper()}{content.AI_SUGGESTION[1:]}: {action}"  # internal copy only (the contractor file never reads this)
-    if not action:  # W-H8: an action cell is never empty: the engineer is told it is his to write
+    if not action and point.get("tile") in ("not_met", "questions"):  # W-H8: an open point's action is never empty; set-apart rows stay as they are
         action = NO_ACTION
+    rules = (point.get("clause_quote"), point.get("rule_text"), point.get("_rule_stored"))
     return {
-        "action": mark_cut_lists(action),
+        "action": mark_cut_lists(action, rules),
         "paper_shows": paper_shows(point),
-        "requires": mark_cut_lists(rule_requires(point)),
+        "requires": mark_cut_lists(rule_requires(point), rules),
         "reason": reason_of(point),
     }
 

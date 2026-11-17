@@ -108,6 +108,8 @@ class PointsListingOut(BaseModel):
     comments: list[dict[str, Any]] = []
     comment_count: int = 0
     completeness: dict[str, Any] | None = None
+    #: W-H9: the count check could not run for this page (said plainly; the page is never blocked by it)
+    completeness_note: str | None = None
     #: Owner's section (PR #1872): how many of the ticked lines were already confirmed (no second record was written)
     already_confirmed: int | None = None
 

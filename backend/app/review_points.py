@@ -655,14 +655,15 @@ def rule_point(
     # its reason (rank 8), counted and listed, never a question; its book, clause and words stay on the point
     not_req = ""
     if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden and other_kind is None and not missing:
-        not_req = content.not_a_requirement(content.rule_text(finding), ctx.get("req_sections", {}).get((finding or {}).get("requirement_id")))
-    if not_req:
+        not_req = content.not_a_requirement_words(content.rule_text(finding), ctx.get("req_sections", {}).get((finding or {}).get("requirement_id")))
+    if not_req:  # never "Requirement: ... engineer to check" on a row that is set apart
         rank, other_kind, unproven_ai = 8, content.NOT_A_REQUIREMENT, False
+        action, action_source = content.NOT_A_REQUIREMENT_ACTION, "check"
     # FTU-1: a point whose own record says no value, with a found passage: ALL its wording cells from the one silent-row decision
     f = finding or {}  # FTU-16: a field that asks for a value reads "By Contractor" as a value left to be given
     value_field = bool((f.get("_fact") or {}).get("unit")) or actions.asks_a_value(content.rule_text(finding), f.get("requirement_source_text"))
     silent = actions.silent_row_words(_plain(field), looked, [field], value_field=value_field) if looked else None
-    if silent and not missing and action_source != "hidden":
+    if silent and not missing and not not_req and action_source != "hidden":
         action, action_source = silent.action, "check"
     point = {
         "id": f"rc:{key}",
@@ -735,6 +736,8 @@ def rule_point(
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)  # fmt: skip
+    if not_req:
+        point["reason_words"] = f"{not_req[0].upper()}{not_req[1:]}."
     if ai_note:  # W-H5: said as the AI's note on the paper; its value carries the paper's own label, never a bare number
         point.update(reason_words=content.AI_NOTE_REASON.format(book=missing), paper_label=_plain(field) or None)
     if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)

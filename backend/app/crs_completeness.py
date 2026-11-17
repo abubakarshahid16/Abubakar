@@ -17,9 +17,10 @@ No model, no network; reads only (the stored result is the one write). No docume
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from collections import Counter
+from collections import Counter, OrderedDict
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -742,6 +743,22 @@ def summary(team: dict, contractor: dict) -> dict:
     }  # fmt: skip
 
 
+COUNT_CHECK_NOT_RUN = (
+    "The count check could not run for this page just now; the CRS download runs it again and refuses a file whose counts differ."
+)
+CACHE_AT_MOST = 32
+_CURRENT: OrderedDict = OrderedDict()  # W-H9: the last results of `current`, keyed by what the files are built from
+
+
+def _current_key(paper_id: str, scope, listing_raw: tuple) -> str:
+    """What both files are built from: the paper, its runs, the caller's readable set and every point with its decision and words."""
+    _listing, raw, facts = listing_raw
+    shown = [(p.get("id"), p.get("rank"), p.get("name"), p.get("action"), json.dumps(p.get("decision"), sort_keys=True, default=str))
+             for p in raw]  # fmt: skip
+    what = [paper_id, facts.get("rc_run"), facts.get("ai_run"), sorted(scope.allowed_document_ids or ()), shown]
+    return hashlib.sha256(json.dumps(what, default=str).encode()).hexdigest()
+
+
 def current(paper_id: str, scope, listing_raw: tuple) -> dict | None:
     """W-H9 (order 14): THE ONE SOURCE of the page's three counts: the same check as `GET .../crs/check` and the download, run on the
     list the page shows now. A result stored with a run (`stored`) is a record of that moment; the paper's list can change after it
@@ -749,8 +766,15 @@ def current(paper_id: str, scope, listing_raw: tuple) -> dict | None:
     offers a review; nothing to count)."""
     if not_reviewed(listing_raw[1], listing_raw[2]):
         return None
+    key = _current_key(paper_id, scope, listing_raw)
+    if key in _CURRENT:  # the same list, decisions and caller: the same files, so the same counts (no second build)
+        _CURRENT.move_to_end(key)
+        return _CURRENT[key]
     got = checked_files(paper_id, scope, listing_raw)
-    return summary(got["team"][1], got["contractor"][1])  # no time: the block is today's, and the same list gives the same block
+    out = _CURRENT[key] = summary(got["team"][1], got["contractor"][1])  # no time: the same list gives the same block
+    while len(_CURRENT) > CACHE_AT_MOST:
+        _CURRENT.popitem(last=False)
+    return out
 
 
 def stored_latest(*run_ids: str | None) -> dict | None:

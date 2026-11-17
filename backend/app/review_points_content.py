@@ -188,48 +188,21 @@ def reason_words(kind: str | None, finding: dict | None) -> str:
 #: The other kind (rank 8, "Does not apply" tile) of a rule-check point that is not a requirement of the paper (order 14, W-H4/W-H5):
 #: kept as a point (counted on the page, a row of the sheet Evidence, listed with its reason), never a comment or a question.
 NOT_A_REQUIREMENT = "Not a requirement to check"
-_NUMBER = re.compile(r"^\s*(?:\d+(?:\.\d+)*\.?\s+)?")
-#: A rule book's section TITLE (the whole title, its clause number aside) that holds no requirement on a paper: its scope or
-#: purpose, its terms, its conflicts and deviations, its exceptions. "Scope of supply" or "Deviation alarms" are not whole titles.
-_HOUSEKEEPING = re.compile(
-    r"(?:(?:purpose\s+(?:and|&)\s+)?scope(?:\s+(?:and|&)\s+purpose)?|purpose|applicability"
-    r"|terms?(?:\s*(?:,|and|&)\s*(?:abbreviations?|acronyms?|symbols?))*"
-    r"|conflicts?(?:\s+(?:and|&)\s+deviations?)?|deviations?(?:\s+(?:and|&)\s+(?:waivers?|exceptions?))?|exceptions?|waivers?)\s*:?",
-    re.IGNORECASE,
-)
-_OBLIGES = re.compile(r"\b(?:shall|must|is required|are required|is to be|are to be)\b", re.IGNORECASE)
-_KIND_OF_TITLE = (
-    (re.compile(r"(?:purpose\s+(?:and|&)\s+)?scope|purpose|applicability", re.I), "the rule book's scope statement"),
-    (re.compile(r"terms?\b", re.I), "a definition of the rule book's terms"),
-    (re.compile(r"conflicts?|deviations?|exceptions?|waivers?", re.I), "the rule book's own conflicts and deviations rule"),
-)
+NOT_A_REQUIREMENT_ACTION = "Nothing for the contractor to do: this is not a requirement on the paper (see the reason)."
 
 
-def not_a_requirement(text: str | None, section: str | None) -> str:
-    """W-H4 (order 14): why a stored rule is not a requirement to check against a paper, or "". From the stored clause's own heading
-    (the section title the book prints: scope, terms or definitions, conflicts and deviations, references) or from its own sentence
-    (it only defines a word, `requirement_quality.is_defining_sentence`). General: no word list of any one book; a definition sits in
-    the book, never on the paper."""
-    from . import requirement_quality as rq
+def not_a_requirement_words(text: str | None, where: tuple | None) -> str:
+    """W-H4 (order 14): the reason, in words, why a stored rule is not a requirement to check against a paper, or "". The decision is
+    the ONE function `rule_text_place.not_a_requirement` (a text with a requirement word is never set apart, except the book's own
+    top-level scope or conflicts-and-deviations clause and a true defining sentence); this only words it, with the section title."""
+    from . import rule_text_place
 
-    title, sentence = " ".join(str(section or "").split()), str(text or "")
-    defines = rq.is_defining_sentence(sentence)
-    # in a section of terms or definitions, a sentence that still OBLIGES something ("X must be independent", "the drawing shall be
-    # scaled") stays a requirement: only a sentence that defines a word or obliges nothing is set apart (no real requirement is lost)
-    obliges = bool(_OBLIGES.search(sentence)) and not defines
-    if title:
-        bare = _NUMBER.sub("", title, count=1)
-        terms = rq.is_definitions_heading(title) or (_HOUSEKEEPING.fullmatch(bare) and _KIND_OF_TITLE[1][0].match(bare))
-        if terms:
-            return "" if obliges else f'a definition in the rule book\'s section "{title}", not a requirement'
-        if rq.is_references_heading(title):
-            return f'a reference list of the rule book (section "{title}"), not a requirement'
-        if _HOUSEKEEPING.fullmatch(bare):
-            what = next(w for rx, w in _KIND_OF_TITLE if rx.match(bare))
-            return f'{what} (section "{title}"), not a requirement on the paper'
-    if defines:
-        return "its own sentence only defines a word: a definition, not a requirement"
-    return ""
+    chunk, clause = where or (None, None)  # (the chunk's kind, section, heading chain), the stored clause number
+    place = rule_text_place.not_a_requirement(text, chunk=chunk, clause=clause)
+    if not place:
+        return ""
+    title = " ".join(str((chunk or (None, None))[1] or "").split())
+    return f'{place} (section "{title}"), not a requirement on the paper' if title else f"{place}, not a requirement on the paper"
 
 
 #: W-H5 (order 14): the reason of the AI check's own note on the paper that no rule asks (see `ai_note_on_paper`).

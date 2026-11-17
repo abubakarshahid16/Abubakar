@@ -349,6 +349,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_schema` | #805 plan change 6, part A: the statements of the version 2 tables and their guards, and the words they allow |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
+| `rule_text_place` | Order 14 (W-D7): where a rule's text sits in its book (contents, index or reference-list chunk, heading or page) decides that it is no requirement; a text with a requirement word is never dropped |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `geometry_blank_cells` | An empty ruled cell beside a label is a blank only when the geometry proves it (order 228.9) |
 | `geometry_index_cells` | A side-by-side numbered form is read as two lists; a lone index number is never an answer (order 228.9b) |

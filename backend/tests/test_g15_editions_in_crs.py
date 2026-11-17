@@ -335,3 +335,7 @@ def test_no_row_says_edition_not_recorded_beside_its_books_edition_status_and_th
             assert not ("edition not recorded" in text and "[edition:" in text), text
     got = crs_completeness.checked_files(doc, scope_all())
     assert got["team"][1]["ok"] and got["team"][1]["cut_problems"] == 0, got["team"][1]["sentence"]
+    from app import review_points_service
+
+    page = review_points_service.assemble(doc, scope_all())  # the page says it as the file does (lead, review of #1891)
+    assert not any("edition not recorded" in str(p.get("name")) for p in page["points"])

@@ -10,6 +10,7 @@ from . import agent_review_not_applicable as not_applicable
 from . import (
     crs_comments,
     crs_completeness,
+    crs_editions,
     evidence_boxes,
     review_code_proposal,
     standards_web_search,
@@ -244,11 +245,12 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
     from .agent_review_rules import library_of
 
     conn = connect()
-    # W-H4: the section title each stored requirement of this run sits under in its book (scope, terms, deviations: not a requirement)
+    # W-H4: where each stored requirement of this run sits in its book (its chunk's kind, section title and heading chain), for the one
+    # decision `rule_text_place.not_a_requirement`
     ctx["req_sections"] = {
-        r[0]: r[1]
+        r[0]: ((r[1], r[2], r[3]), r[4])
         for r in conn.execute(
-            "SELECT r.id, c.section FROM review_findings f JOIN standard_requirements r ON r.id = f.requirement_id"
+            "SELECT r.id, c.kind, c.section, c.context, r.clause FROM review_findings f JOIN standard_requirements r ON r.id = f.requirement_id"
             " LEFT JOIN chunks c ON c.id = r.chunk_id WHERE f.review_run_id = ?",
             (run_id,),
         )
@@ -395,6 +397,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
+    points = crs_editions.names_without_unrecorded(points, crs_editions.verdicts(points))  # W-H10: the page says the edition as the file does
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)
@@ -472,7 +475,11 @@ def assemble(paper_id: str, scope) -> dict:
     """The page's listing, with the completeness block from the SAME check the check route and the download run (W-H9)."""
     got = _assemble(paper_id, scope)
     listing = got[0]
-    listing["completeness"] = crs_completeness.current(paper_id, scope, got)
+    try:
+        listing["completeness"] = crs_completeness.current(paper_id, scope, got)
+    except Exception as exc:  # noqa: BLE001 - logged by type; a check that cannot run never blocks the page, it says so
+        logging.getLogger(__name__).warning("review points: the count check could not run (%s)", type(exc).__name__)
+        listing["completeness_note"] = crs_completeness.COUNT_CHECK_NOT_RUN
     return listing
 
 

@@ -988,3 +988,28 @@ def test_a_rule_whose_clause_sits_under_the_books_deviations_heading_is_set_apar
     rule = next(p for p in listing["points"] if p["source"] == "rule_check")
     assert rule["rank"] == 8 and rule["other_kind"] == "Not a requirement to check"
     assert listing["completeness"]["ok"] and cc.checked_files(doc, scope_all())["team"][1]["ok"]
+
+
+def test_the_page_block_is_built_once_per_list_and_a_check_that_cannot_run_never_blocks_the_page(monkeypatch):
+    """W-H9 (lead, review of #1891): the same list and decisions give the same block without a second build; a build error shows the
+    page with one plain line, never an error and never a false "not complete"."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    calls = []
+    real = cc.checked_files
+    monkeypatch.setattr(cc, "checked_files", lambda *a, **k: calls.append(1) or real(*a, **k))
+    first = points_of(client, doc)["completeness"]
+    assert points_of(client, doc)["completeness"] == first and len(calls) == 1
+    other = next(p for p in points_of(client, doc)["points"] if p["source"] == "ai_review")
+    assert decide(client, doc, other["id"], "keep").status_code == 200
+    assert len(calls) == 2  # a decision changes the list: checked again
+
+    def broken(*a, **k):
+        raise RuntimeError("invented build failure")
+
+    monkeypatch.setattr(cc, "checked_files", broken)
+    cc._CURRENT.clear()
+    got = client.get(f"/api/reviews/papers/{doc}/points")
+    assert got.status_code == 200 and got.json()["completeness"] is None
+    assert got.json()["completeness_note"] == cc.COUNT_CHECK_NOT_RUN
