@@ -349,16 +349,29 @@ def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
     )
 
 
+def documents_hidden(doc_ids, names_text: str, ctx: dict) -> bool:
+    """THE one decision of "hidden for this viewer" (CLAUDE.md rule 5), for every surface and every kind of point: True only when a
+    document the line or point names or quotes is RESOLVED and the viewer may not read it: one of `doc_ids` is a held document he
+    may not read, or `names_text` (its book name or free words) names a held book he may not read. An unknown, missing or unresolved
+    document hides nothing: there is no document to hide, so nothing is said about one (the paper itself is his by the route's own
+    check)."""
+    allowed = ctx["readable"] | {ctx.get("paper_document_id")}
+    held = ctx.get("documents") or frozenset()
+    if any(d in held and d not in allowed for d in doc_ids if d):
+        return True
+    text = " ".join(str(names_text or "").split())
+    if not text or "library" not in ctx:
+        return False
+    return not ai_free_text_ok({"reasoning": text}, None, ctx)
+
+
 def general_hidden(line: dict, ctx: dict) -> bool:
-    """Is a general review's line hidden from this viewer (`agent_general_crs.HIDE_KEY`)? Fail closed (CLAUDE.md rule 5: a filter only
-    narrows): yes when a row of it may name or quote a document he may not read (its project paper, the document of any of its
-    quotes; the paper itself is his by the route's own check), or when its free words name a held book he may not read."""
+    """A general review's line through `documents_hidden`: its project paper and the documents of its quotes, and its free words."""
     from . import agent_general_crs as general
 
-    allowed = ctx["readable"] | {ctx.get("paper_document_id")}
-    if any(d not in allowed for d in general.documents_named(line)):
-        return True
-    return not ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)
+    return documents_hidden(
+        general.documents_named(line), general.free_words(line), ctx
+    )
 
 
 def book_doc_of(line: dict, ctx: dict) -> str | None:
@@ -372,13 +385,13 @@ def book_doc_of(line: dict, ctx: dict) -> str | None:
 
 
 def words_hidden(line: dict, ctx: dict) -> bool:
-    """Are the words on an AI line (the AI's, an engineer's edit or reason) hidden from this viewer? A general line: `general_hidden`;
-    any other line: its held rule book is one he may not read (`rule_book_hidden`)."""
+    """Are the words on an AI line (the AI's, an engineer's edit or reason) hidden from this viewer? `documents_hidden`, the one decision:
+    a general line by `general_hidden`; any other line by its held rule book and the book name it cites."""
     from . import agent_general_crs as general
 
     if general.is_general(line):
         return general_hidden(line, ctx)
-    return rule_book_hidden(book_doc_of(line, ctx), ctx)
+    return documents_hidden([book_doc_of(line, ctx)], line.get("standard") or "", ctx)
 
 
 def for_viewer(line: dict, ctx: dict) -> dict:
@@ -776,7 +789,6 @@ def rule_point(
         ),
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
-        "_words_hidden": ref_hidden,  # rule 5: an engineer's words on it are hidden too
         "_book_missing": missing or None,
         "_book_missing_words": missing_words or None,
         "_clause_unconfirmed": unconfirmed or None,
@@ -1250,6 +1262,5 @@ def removed_stub(finding: dict, ctx: dict, *, strength: str = "unknown") -> dict
         "paper_quote": None, "clause_quote": None, "paper_quote_note": NO_PAPER_QUOTE, "clause_quote_note": NO_CLAUSE_QUOTE,
         "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": strength != "should", "strength_unknown": strength == "unknown", "group_key": None, "tags": [],
         "added_by": None, "finding_ids": [finding["id"]], "_book_doc": finding.get("standard_document_id"),
-        "_words_hidden": bool(finding.get("standard_document_id")) and not book_ok,
         "_book_docs": [finding["standard_document_id"]] if finding.get("standard_document_id") else [],
     }  # fmt: skip

@@ -219,6 +219,8 @@ def viewer(*readable: str, library=()) -> dict:
         "everything": False,
         "readable": frozenset(readable),
         "library": list(library),
+        # the held documents: a document is hidden only when it is RESOLVED (held) and the viewer may not read it
+        "documents": frozenset({PAPER, PROJ, *(e["id"] for e in library)}),
     }
 
 
@@ -236,9 +238,13 @@ def test_a_project_paper_the_viewer_may_not_read_is_never_named_or_quoted_on_the
     assert (
         PROJ in shown and PROJ_QUOTE in shown and PROJ_WHAT in shown
     )  # he may read it: his to see
-    # a quote of another paper that says no document is never readable (fail closed)
-    anon = part4(other_document=None, quote_other={"page": 2, "text": PROJ_QUOTE})
-    assert PROJ_QUOTE not in every_word(rp.ai_point(anon, viewer(PAPER, PROJ)))
+    # round 3 (lead): hidden only when a RESOLVED document he may not read is named or quoted; a document that is not held is no
+    # document to hide (one the viewer may not read is hidden; one that is not held, deleted say, hides nothing and says nothing)
+    gone = part4(
+        other_document="doc-gone",
+        quote_other={"document": "doc-gone", "page": 2, "text": PROJ_QUOTE},
+    )
+    assert PROJ_QUOTE in every_word(rp.ai_point(gone, viewer(PAPER)))
 
 
 def test_under_hide_no_cell_names_a_topic_a_sub_kind_or_a_quote_of_a_document_the_viewer_may_not_read():
@@ -542,7 +548,9 @@ def test_an_engineers_edit_or_reason_on_a_hidden_line_never_reaches_a_restricted
         ("run file", run_file),
     ):
         assert words not in text and not any(x in text for x in SECRETS), name
-    assert question.ENGINEER_HIDDEN in page
+    assert (
+        question.engineer_hidden_words(decide["state"]) in page
+    )  # said by what he did
     assert (
         words in full().get(f"/api/reviews/papers/{PAPER}/points").text
     )  # his own words are his
@@ -640,3 +648,115 @@ def test_a_rule_check_point_whose_rule_book_is_hidden_keeps_the_engineers_edit_f
         ENGINEER
         in _client(doc, "doc_std").get(f"/api/reviews/papers/{doc}/points").text
     )
+
+
+# ------------------------------------------------------------------------------------------------ review round 3: where "hidden" is decided
+HIDDEN_SENTENCES = (
+    question.ENGINEER_HIDDEN,
+    question.ENGINEER_REMOVED,
+    question.ENGINEER_KEPT,
+)
+
+
+def edit_rule_check_point(doc: str, reader, text: str) -> str:
+    points = reader().get(f"/api/reviews/papers/{doc}/points").json()["points"]
+    pid = next(p["id"] for p in points if p["id"].startswith("rc:"))
+    r = reader().post(
+        f"/api/reviews/papers/{doc}/points/decision",
+        json={"point_id": pid, "state": "edit", "text": text},
+    )
+    assert r.status_code == 200, r.text
+    return pid
+
+
+def files_of(doc: str, reader) -> dict[str, str]:
+    from tests.test_b1_review_points import sheet_text
+
+    out = {"page": reader().get(f"/api/reviews/papers/{doc}/points").text}
+    for copy in ("team", "contractor"):
+        got = reader().get(f"/api/reviews/papers/{doc}/crs", params={"copy": copy})
+        assert got.status_code == 200, (copy, got.text)
+        out[copy] = sheet_text(got.content)
+    return out
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_a_reader_of_every_book_sees_his_own_edit_on_a_rule_check_point_with_no_book_everywhere(
+    monkeypatch,
+):
+    # the lead's round-3 scenario: he reads the paper and every rule book, one UNRELATED paper is withheld, and he edits a rule-check
+    # point that links no book. No document is named, so nothing is hidden: his own words, never "a document you may not read"
+    from app.config import settings
+    from tests.test_crs_endpoint import _client, _finding, _run, _submittal
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    _submittal("doc-unrelated", "unrelated.pdf")
+    _finding(
+        doc,
+        _run(doc, recommended="Approved with Comments"),
+        "NON_COMPLIANT",
+        standard_document_id=None,
+        standard_clause=None,
+    )
+    reader = lambda: _client(doc, "doc_std")  # noqa: E731 - the scope override is global: made again before each use
+    edit_rule_check_point(doc, reader, ENGINEER)
+    for name, text in files_of(doc, reader).items():
+        assert ENGINEER in text, name
+        assert not any(s in text for s in HIDDEN_SENTENCES), name
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_a_truly_unreadable_linked_book_hides_the_edit_and_the_contractor_file_never_carries_a_placeholder(
+    monkeypatch,
+):
+    from app import crs_completeness
+    from app.config import settings
+    from tests.test_b1_review_points import world_with_both
+    from tests.test_crs_endpoint import _client
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    doc, _rc, _ai, _c = world_with_both()
+    edit_rule_check_point(doc, lambda: _client(doc, "doc_std"), ENGINEER)
+    got = files_of(doc, lambda: _client(doc))
+    assert all(ENGINEER not in t for t in got.values())
+    assert (
+        question.ENGINEER_HIDDEN in got["page"]
+        and question.ENGINEER_HIDDEN in got["team"]
+    )
+    assert not any(
+        s in got["contractor"] for s in HIDDEN_SENTENCES
+    )  # left out, counted apart, no sentence about documents
+    assert f"1 {crs_completeness.REASON_NOT_SHOWN}" in got["contractor"]
+    assert (
+        ENGINEER in files_of(doc, lambda: _client(doc, "doc_std"))["contractor"]
+    )  # the reader of the book: issued
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_a_hidden_remove_or_keep_reason_says_what_the_engineer_did(monkeypatch):
+    from app.config import settings
+    from tests.test_b1_review_points import world_with_both
+    from tests.test_crs_endpoint import _client
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    doc, _rc, _ai, _c = world_with_both()
+    points = (
+        _client(doc, "doc_std")
+        .get(f"/api/reviews/papers/{doc}/points")
+        .json()["points"]
+    )
+    ai = [p["id"] for p in points if p["id"].startswith("ai:")]
+    for pid, state in zip(ai, ("remove", "keep"), strict=False):
+        r = _client(doc, "doc_std").post(
+            f"/api/reviews/papers/{doc}/points/decision",
+            json={"point_id": pid, "state": state, "reason": ENGINEER},
+        )
+        assert r.status_code == 200, r.text
+    page = _client(doc).get(f"/api/reviews/papers/{doc}/points").text
+    assert ENGINEER not in page
+    assert question.ENGINEER_REMOVED in page and question.ENGINEER_KEPT in page

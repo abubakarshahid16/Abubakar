@@ -104,10 +104,26 @@ NO_REASON = "no reason was recorded with this point"
 HIDDEN = "its words are not shown here: they may name a document you may not read"
 UNNAMED_BOOKS = "a rule book (not named here)"
 HIDDEN_DOCUMENT = "a document you may not read"
-#: what a viewer who may not read the document sees of an engineer's edit or reason on a hidden line (his words may quote it)
+#: what a viewer who may not read the document sees of an engineer's edit or reason on a hidden line (his words may quote it), by
+#: what the engineer did (`engineer_hidden_words`)
 ENGINEER_HIDDEN = (
     "an engineer edited this line (details not shown: a document you may not read)"
 )
+ENGINEER_REMOVED = (
+    "an engineer removed this line (details not shown: a document you may not read)"
+)
+ENGINEER_KEPT = (
+    "an engineer kept this line (details not shown: a document you may not read)"
+)
+
+
+def engineer_hidden_words(state) -> str:
+    """The sentence for an engineer's hidden words by his decision: removed, kept, else edited."""
+    return {"remove": ENGINEER_REMOVED, "keep": ENGINEER_KEPT}.get(
+        str(state or ""), ENGINEER_HIDDEN
+    )
+
+
 #: no document of this name exists: a quote of another paper that does not say whose it is can never be shown (fail closed)
 UNKNOWN_DOCUMENT = "\x00a quote that names no document"
 #: every key of a general line that may name a document other than the paper, or hold free words (the AI's, or a sentence code

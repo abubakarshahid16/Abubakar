@@ -973,8 +973,12 @@ def build_team(
 
 def issuable_text(p: dict) -> str:
     """The words a contractor may be given for one point, or "": the engineer's own text (an edit, an added point), else, for a point
-    PROVEN by code to be Not met, the code's own action line. Never the stored waiting placeholder (`NOTE_PARKED`); the engineer's own sentence is issued whatever words it uses."""
+    PROVEN by code to be Not met, the code's own action line. Never the stored waiting placeholder (`NOTE_PARKED`); the engineer's own sentence is issued whatever words it uses.
+    Rule 5: an edit on a point whose words are hidden from this viewer (`_words_hidden`) is never issued in his copy, and no sentence
+    about it either: the point is counted apart (`crs_completeness.REASON_NOT_SHOWN`)."""
     d = p.get("decision") or {}
+    if p.get("_words_hidden") and d.get("state") == decisions_mod.EDIT:
+        return ""
     if p.get("source") == rp.SOURCE_ADDED or d.get("state") == decisions_mod.EDIT:
         text = _clean(
             d.get("text")
