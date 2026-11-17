@@ -1186,9 +1186,14 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
-    parts = paper_parts({"paper_document_id": paper_document_id, "readable": readable})
-    # LPC: never the paper's own part
-    held = list(dict.fromkeys(n for n in (parts.not_held_name(x) for x in held) if n))
+    # LPC: never the paper's own part (the paper is read only when a book is listed)
+    if held:
+        parts = paper_parts(
+            {"paper_document_id": paper_document_id, "readable": readable}
+        )
+        held = list(
+            dict.fromkeys(n for n in (parts.not_held_name(x) for x in held) if n)
+        )
     lines = words.read_now(
         stored, [{"rule_book": n} for n in held]
     )  # the one reading of every CRS (order 14)
