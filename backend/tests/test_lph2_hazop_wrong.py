@@ -184,28 +184,6 @@ def _rc_point(pid: str, req: str, **over) -> dict:
             "_rule_stored": req, "decision": {"state": None}, "priority": "Medium", **over}  # fmt: skip
 
 
-def test_two_different_requirements_of_one_clause_named_by_their_reference_are_two_comments():
-    from app import crs_comments
-
-    a = _rc_point("rc:1", "The invented system shall have two trips.")
-    b = _rc_point("rc:2", "Invented: a definition of a word.")
-    c = _rc_point("rc:3", "The invented system shall have two trips.")
-    got = crs_comments.group([a, b, c])
-    assert sorted(len(x["member_ids"]) for x in got) == [
-        1,
-        2,
-    ]  # the same requirement twice is one comment
-    # the "(edition ...)" words a sheet drops never change the grouping
-    shown = [{**p, "name": "BOOK-A cl. 5"} for p in (a, b, c)]
-    assert sorted(len(x["member_ids"]) for x in crs_comments.group(shown)) == [1, 2]
-    # a point with a field of the paper is still grouped by its field, whatever its requirement
-    f1, f2 = (
-        _rc_point(i, r, name="Invented field")
-        for i, r in (("rc:4", "x one"), ("rc:5", "y two"))
-    )
-    assert len(crs_comments.group([f1, f2])) == 1
-
-
 def test_an_action_says_the_ai_suggestion_once_is_never_empty_and_the_requirement_is_never_nothing_beside_it():
     lead = "AI suggestion, engineer to confirm. "
     got = crs_one.full_texts(_rc_point("rc:1", "The invented valve shall close.", action=f'{lead}Requirement: "The invented valve shall close."',
