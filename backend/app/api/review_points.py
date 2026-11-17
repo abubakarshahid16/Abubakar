@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import (
@@ -92,6 +92,38 @@ class ProposedCodeOut(BaseModel):
     undecided: int
 
 
+class PaperFoundOut(BaseModel):
+    """What the paper's review found, as its page shows it (`review_points_service.found_of`): the four tile totals, the lines still to
+    confirm as not applying, every point of the page and how many are not decided yet; `runs` are the runs the page is built from."""
+
+    not_met: int
+    questions: int
+    met: int
+    does_not_apply: int
+    to_confirm: int
+    points: int
+    undecided: int
+    runs: dict[str, str | None]
+
+
+class KindUsedOut(BaseModel):
+    """The kind the paper's AI review used (`review_points_service.kind_used`): `guess` only when that run used a guess."""
+
+    run_id: str
+    kind: str | None = None
+    known: bool
+    guess: bool
+    confirmed: bool
+    source: str
+
+
+class PageCountsOut(BaseModel):
+    """`GET /api/reviews/page-counts`: {run id: what its paper's page shows}, only for a run the page is built from."""
+
+    boundary: str
+    found: dict[str, PaperFoundOut]
+
+
 class PointsListingOut(BaseModel):
     model_config = {"extra": "allow"}
     paper_document_id: str
@@ -110,6 +142,10 @@ class PointsListingOut(BaseModel):
     completeness: dict[str, Any] | None = None
     #: Owner's section (PR #1872): how many of the ticked lines were already confirmed (no second record was written)
     already_confirmed: int | None = None
+    #: Order 14 LPS S2: the numbers a review list says for this paper (`review_points_service.found_of`), the same as the tiles
+    found: PaperFoundOut | None = None
+    #: Order 14 LPS S3: the kind the paper's AI review used, from its run record; null without one
+    kind_used: KindUsedOut | None = None
 
 
 class PageV2Status(BaseModel):
@@ -245,6 +281,26 @@ def page_v2_status(
     from .. import crs_copy_words
 
     return {"enabled": bool(settings.review_page_v2_enabled), "old_crs_download": crs_copy_words.old_file_offered()}
+
+
+#: the most run ids one page-counts request may carry (each paper is assembled once)
+PAGE_COUNTS_MAX_IDS = 200
+
+
+@router.get("/api/reviews/page-counts", response_model=PageCountsOut, dependencies=ON)
+def page_counts(
+    request: Request,
+    ids: list[str] = Query(..., min_length=1, max_length=PAGE_COUNTS_MAX_IDS),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Order 14 LPS S2: the review list's "Found by the review" numbers, from the ONE home the paper's page reads
+    (`review_points_service.found_of`). A run that is not one of its paper's page runs, or on a paper the caller may not read, is
+    absent: the list then says nothing for it, never 0."""
+    reject_unknown_params(request, {"ids"})
+    return {
+        "boundary": "points on each paper's review page, for the runs that page is built from, on papers you may read",
+        "found": svc.found_of_runs(ids, scope),
+    }
 
 
 @router.get(

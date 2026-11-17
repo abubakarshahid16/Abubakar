@@ -126,3 +126,8 @@ export function pastCountsLabel(counts: ReadyCounts | null | undefined): string 
 
 export const PAST_COUNTS_NOTE =
   "Counts are what each review found, not what is left to decide. They count findings; the comment sheet groups findings into fewer comment lines.";
+
+/** Order 14 LPS S2: the same note when the counts are the paper's page numbers (the redesigned page is on). */
+export const PAST_PAGE_COUNTS_NOTE =
+  "Counts are what the paper's review page shows: its Not met and Questions for you tiles, every point on the page and how many "
+  + "are not decided yet. A review the page is not built from says nothing.";

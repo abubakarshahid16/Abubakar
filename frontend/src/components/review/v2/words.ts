@@ -2,7 +2,7 @@
  * ONE home for the plain words of the redesigned review page (owner, 12 Nov 2026; SPEC.md). Nothing here decides anything: the
  * backend's plan and points already carry the facts; these functions only SAY them. No code word, no id, no model name.
  */
-import type { EngineChoice, PointsListing, ReviewPlan, ReviewPoint } from "../../../api/reviewPoints";
+import type { EngineChoice, KindUsed, PointsListing, ReviewPlan, ReviewPoint } from "../../../api/reviewPoints";
 
 export const ENGINE_LABELS: Record<EngineChoice, string> = { automatic: "Automatic", claude: "Claude", local: "Local only" };
 export const NEEDS_YES = "is a contract: Automatic keeps it on this computer, so choose Claude to send it to Claude";
@@ -123,3 +123,9 @@ export function signWaits(opts: { undecided: number; codeRecorded: boolean | nul
   return `Sign and issue waits: ${sentence}.`;
 }
 
+
+/** Order 14 LPS S3: the kind the review USED (its run record), "(guessed, not confirmed)" only when that run used a guess. */
+export function kindUsedWords(used: KindUsed, label: string | null): string {
+  if (!used.known || !used.kind) return "Kind: unknown to the review (no cue found)";
+  return `${label ?? used.kind.replace(/_/g, " ")}${used.guess ? " (guessed, not confirmed)" : ""}`;
+}

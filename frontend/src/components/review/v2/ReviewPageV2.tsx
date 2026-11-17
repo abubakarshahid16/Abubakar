@@ -1,7 +1,8 @@
 /**
  * The redesigned review page (owner, 12 Nov 2026; SPEC.md), drawn only while `REVIEW_PAGE_V2_ENABLED` is on. Top to bottom: the header
  * with the kind and the ONE engine choice and Review button; the engine line; the review code box; four tiles; rule book chips; the
- * rule books not held; three tabs (Points, CRS sheet, How it was reviewed); the list of points; Add a point; the bottom row.
+ * rule books not held; three tabs (Points, CRS sheet, How it was reviewed); the list of points; Add a point; what the online search
+ * found for the rule books not held (folded); the bottom row.
  *
  * The CRS sheet and How it was reviewed tabs hold today's screens, handed in by the workspace (it owns their state).
  */
@@ -19,7 +20,7 @@ import { EngineBar } from "./EngineBar";
 import { KindLine } from "./KindLine";
 import { NotApplicableSection } from "./NotApplicableSection";
 import { PointsList } from "./PointsList";
-import { BookChips, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
+import { BookChips, FoundOnline, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
 import { usePoints } from "./usePoints";
 
 export type V2Tab = "points" | "sheet" | "how";
@@ -48,7 +49,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         <div className="min-w-[16rem] flex-1 space-y-1">
           <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
           <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
-          <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} />
+          <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} kindUsed={listing?.kind_used ?? null} />
         </div>
         <div className="min-w-[18rem]"><EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} /></div>
       </header>
@@ -100,6 +101,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
           <PointsList points={shown} decide={pts.decide} keepAll={pts.keepAll} busy={pts.busy}
             onViewPage={(_d, page) => setViewing({ page })} />
           <AddPoint onAdd={pts.add} busy={pts.busy} />
+          <FoundOnline counts={listing.counts} />
         </div>
       )}
       {tab === "sheet" && <div data-testid="v2-sheet-tab">{sheetTab}</div>}

@@ -280,6 +280,24 @@ def _tiers(review_run_id: str, allowed) -> tuple[dict, dict, dict | None, list |
     return tiers, outcome, split, timed_out
 
 
+def _ai_review_runs(ids: list[str]) -> set[str]:
+    """The ids among `ids` that are AI review runs (`agent_review_run`): their lines live there, not in this run's findings, so the
+    tier count of such a run said 0 while its paper's page held questions (order 14 LPS). Empty when the table is not there."""
+    import sqlite3
+
+    from ..db import connect
+
+    wanted = list(dict.fromkeys(ids))
+    try:
+        rows = connect().execute(
+            f"SELECT run_id FROM agent_review_run WHERE run_id IN ({','.join('?' for _ in wanted)})",
+            wanted,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    return {r[0] for r in rows}
+
+
 @router.get(
     "/api/reviews/runs/counts",
     response_model=RunCountsBatch,
@@ -298,14 +316,17 @@ def review_run_counts(
 ):
     """Order 117 item 5: the review inbox's tier counts in one call instead
     of one `/summary` per row. Only the counts: no trace, coverage or AI
-    numbers are read. A run the caller may not read, or that is not there, is
-    left out (rule 5: intersection with what the caller may read). Read only.
+    numbers are read. A run the caller may not read, or that is not there, or
+    an AI review run (its lines are not this run's findings), is left out (rule 5: intersection with what the caller may read). Read only.
     Declared before `/api/reviews/runs/{review_run_id}` so "counts" is not
     read as a run id."""
     reject_unknown_params(request, {"ids"})
     allowed = scope.allowed_document_ids
     counts: dict[str, dict] = {}
+    ai_runs = _ai_review_runs(ids)
     for review_run_id in dict.fromkeys(ids):
+        if review_run_id in ai_runs:
+            continue  # order 14 LPS: an AI review's findings are not this run's tiers; its count is not known here, never 0
         if (
             submittal_review_mod.get_review_run(
                 review_run_id, allowed_document_ids=allowed

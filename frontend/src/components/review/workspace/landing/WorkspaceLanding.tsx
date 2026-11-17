@@ -74,6 +74,11 @@ export const LANDING_COUNTS_NOTE =
   '"Found by the review" counts the findings each review still holds as a comment or as needing your judgement. '
   + "Findings removed by an engineer are not counted, and the comment sheet groups findings into fewer comment lines.";
 
+/** Order 14 LPS S2: the same note when the counts are the paper's page numbers (the redesigned page is on). */
+export const LANDING_PAGE_COUNTS_NOTE =
+  '"Found by the review" says what each paper\'s review page shows: its Not met and Questions for you tiles, out of every point '
+  + "on that page, and how many are not decided yet. Older reviews of a file say nothing: the page shows the newest.";
+
 export const NOT_ADMIN_LANDING_MESSAGE =
   "Only an administrator can start a review. You can open any review listed below.";
 
@@ -130,6 +135,7 @@ export function WorkspaceLanding({
    *  list, which may be cut short; say so where that count is shown. */
   const documentsCut = truncationNote(documents.length, submittalsTotal, "contractor submittals");
   const anyCountKnown = Object.values(counts).some((c) => c !== null);
+  const pageCounts = Object.values(counts).some((c) => c?.page != null);
   // The same rule as the count lines themselves: the rows show theirs only in
   // Detailed view (LandingDocumentRow `simple`); the flat list always does.
   const anyCountShown = anyCountKnown && (showAll || !simple);
@@ -315,7 +321,7 @@ export function WorkspaceLanding({
               </button>
             </div>
             {anyCountShown && (
-              <p className="text-xs text-slateish-400" data-testid="landing-counts-note">{LANDING_COUNTS_NOTE}</p>
+              <p className="text-xs text-slateish-400" data-testid="landing-counts-note">{pageCounts ? LANDING_PAGE_COUNTS_NOTE : LANDING_COUNTS_NOTE}</p>
             )}
             {showAll ? (
               <AllReviewsList items={shownItems} counts={counts} onOpenRun={onOpenRun} />

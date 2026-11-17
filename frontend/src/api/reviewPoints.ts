@@ -122,7 +122,36 @@ export interface ProposedCode {
   proposed_by: string;
 }
 
+/** Order 14 LPS S2: what a paper's review found, exactly as its page's tiles show it (`review_points_service.found_of`), the one home of
+ *  the review list's "Found by the review" line. `runs`: the runs the page is built from. */
+export interface PaperFound {
+  not_met: number;
+  questions: number;
+  met: number;
+  does_not_apply: number;
+  /** The lines the AI thinks do not apply, still to confirm (counted apart from the tiles). */
+  to_confirm: number;
+  points: number;
+  undecided: number;
+  runs: { rule_check: string | null; ai_review: string | null };
+}
+
+/** Order 14 LPS S3: the kind the paper's AI review used, from its run record; `guess` only when that run used a guess. */
+export interface KindUsed {
+  run_id: string;
+  kind: string | null;
+  known: boolean;
+  guess: boolean;
+  confirmed: boolean;
+  /** How the run decided it, in the backend's plain words. */
+  source: string;
+}
+
 export interface PointsListing {
+  /** Order 14 LPS S2: the numbers the review list says for this paper (the same as the tiles). */
+  found?: PaperFound | null;
+  /** Order 14 LPS S3: the kind the review used; null without an AI review run record. */
+  kind_used?: KindUsed | null;
   paper_document_id: string;
   runs: { rule_check: string | null; ai_review: string | null };
   points: ReviewPoint[];
@@ -171,14 +200,20 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 const paper = (id: string) => `/reviews/papers/${encodeURIComponent(id)}/points`;
 const isObject = (b: unknown): b is Record<string, unknown> => typeof b === "object" && b !== null;
 
-/** Whether the redesigned page is on. Anything unreadable is "off": the old page stays. */
-export async function pageV2Switch(): Promise<boolean> {
+/** Whether the redesigned page is on: true, false, or null when the answer could not be read (order 14 LPS: a count must not fall
+ *  back to a number the page does not show on one failed read). */
+export async function pageV2SwitchState(): Promise<boolean | null> {
   try {
     const r = await request<{ enabled: boolean }>("/reviews/page-v2", undefined, (b) => isObject(b) && typeof b.enabled === "boolean");
-    return r.ok && r.data.enabled;
+    return r.ok ? r.data.enabled : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Whether the redesigned page is on. Anything unreadable is "off": the old page stays. */
+export async function pageV2Switch(): Promise<boolean> {
+  return (await pageV2SwitchState()) === true;
 }
 
 /** Owner order, 16 Nov 2026: whether the older per-review CRS files (they do not state "N points reviewed, N in this file") are
@@ -194,6 +229,12 @@ export async function oldCrsDownloadOffered(): Promise<boolean> {
 }
 
 export const reviewPoints = {
+  /** Order 14 LPS S2: {run id: its paper's page numbers}, only for runs the page is built from (others are absent, never 0). */
+  pageCounts: (runIds: string[]) =>
+    request<{ boundary: string; found: Record<string, PaperFound> }>(
+      `/reviews/page-counts?${runIds.map((id) => "ids=" + encodeURIComponent(id)).join("&")}`,
+      undefined, (b) => isObject(b) && isObject(b.found),
+    ),
   plan: (documentId: string, engine: EngineChoice) =>
     request<ReviewPlan>(
       `/reviews/plan?submittal_document_id=${encodeURIComponent(documentId)}&engine=${engine}`,
