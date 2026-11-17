@@ -21,7 +21,7 @@ import type { ReadyCounts } from "../inbox/inboxState";
 import { dayTimeWords } from "./landing/dateWords";
 import { CompareReviews } from "./compare/CompareReviews";
 import type { PastReview, PastReviewsListProps } from "./contract";
-import { PAST_COUNTS_NOTE, type PastReviewRow, loadPastReviewCounts, pastCountsLabel, signedWords } from "./pastReviews";
+import { PAST_COUNTS_NOTE, PAST_PAGE_COUNTS_NOTE, type PastReviewRow, loadPastReviewCounts, pastCountsLabel, signedWords } from "./pastReviews";
 
 export interface PastReviewsListWithCompareProps extends PastReviewsListProps {
   /** The review on screen. Absent: no compare buttons (the landing page). */
@@ -61,6 +61,7 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
 
   if (reviews.length === 0) return null;
   const anyCount = reviews.some((r) => !r.signed && r.runId !== currentRunId && counts[r.runId]);
+  const pageCounts = reviews.some((r) => !r.signed && r.runId !== currentRunId && counts[r.runId]?.page != null);
 
   return (
     <div>
@@ -102,7 +103,7 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
           onClose={() => { setComparing(null); opener.current?.focus(); }}
         />
       )}
-      {anyCount && <p className="mt-1 text-xs text-slateish-400" data-testid="past-counts-note">{PAST_COUNTS_NOTE}</p>}
+      {anyCount && <p className="mt-1 text-xs text-slateish-400" data-testid="past-counts-note">{pageCounts ? PAST_PAGE_COUNTS_NOTE : PAST_COUNTS_NOTE}</p>}
     </div>
   );
 }

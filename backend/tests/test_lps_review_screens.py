@@ -62,9 +62,10 @@ def test_s2_the_list_number_is_the_pages_tiles_for_the_pages_runs_and_nothing_fo
     assert set(body["found"]) == {ai, rc}  # the page's two runs; the older run and an unknown id are absent, never 0
     assert body["found"][ai] == body["found"][rc] == found
     assert "page" in body["boundary"] and "you may read" in body["boundary"]
-    # the run's own count is what said "0 findings": an AI review's run holds no rule-check findings
-    old = client.get("/api/reviews/runs/counts", params=[("ids", ai)]).json()["counts"][ai]
-    assert old["comment"] + old["needs_you"] == 0 and found["not_met"] + found["questions"] > 0
+    # the run's own count said "0 findings" (an AI review's run holds no rule-check findings): it is now absent there (the older list
+    # then says nothing), while the rule check's own count stays
+    old = client.get("/api/reviews/runs/counts", params=[("ids", ai), ("ids", rc)]).json()["counts"]
+    assert ai not in old and rc in old and found["not_met"] + found["questions"] > 0
 
 
 def test_s2_a_paper_the_caller_may_not_read_is_absent_and_the_route_is_off_with_the_page():

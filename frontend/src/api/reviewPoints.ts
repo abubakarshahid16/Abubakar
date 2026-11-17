@@ -195,14 +195,20 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 const paper = (id: string) => `/reviews/papers/${encodeURIComponent(id)}/points`;
 const isObject = (b: unknown): b is Record<string, unknown> => typeof b === "object" && b !== null;
 
-/** Whether the redesigned page is on. Anything unreadable is "off": the old page stays. */
-export async function pageV2Switch(): Promise<boolean> {
+/** Whether the redesigned page is on: true, false, or null when the answer could not be read (order 14 LPS: a count must not fall
+ *  back to a number the page does not show on one failed read). */
+export async function pageV2SwitchState(): Promise<boolean | null> {
   try {
     const r = await request<{ enabled: boolean }>("/reviews/page-v2", undefined, (b) => isObject(b) && typeof b.enabled === "boolean");
-    return r.ok && r.data.enabled;
+    return r.ok ? r.data.enabled : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Whether the redesigned page is on. Anything unreadable is "off": the old page stays. */
+export async function pageV2Switch(): Promise<boolean> {
+  return (await pageV2SwitchState()) === true;
 }
 
 /** Owner order, 16 Nov 2026: whether the older per-review CRS files (they do not state "N points reviewed, N in this file") are

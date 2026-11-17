@@ -112,6 +112,7 @@ describe("LPS S1: contract papers and whole packages can be chosen; each start i
     expect(within(box).getAllByRole("listitem").map((li) => li.textContent?.replace("Start review", "").trim())).toEqual([
       "Invented agreement.pdf", "Invented schedule P.pdf", "Invented schedule Q.pdf",
     ]);
+    expect(within(card).queryByRole("button", { name: "Start review" })).toBeNull(); // a package id never gets a Start button of its own
     expect(box).toHaveTextContent("Each paper is reviewed on its own");
     expect(box).toHaveTextContent("Automatic keeps a contract on this computer");
     await userEvent.click(within(box).getByRole("button", { name: "Start review of Invented schedule P.pdf" }));

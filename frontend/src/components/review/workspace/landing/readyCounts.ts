@@ -4,7 +4,7 @@
  * re-exports it unchanged so the old screens and tests keep their import).
  */
 import { reviews as reviewsApi } from "../../../../api/client";
-import { pageV2Switch, reviewPoints } from "../../../../api/reviewPoints";
+import { pageV2SwitchState, reviewPoints } from "../../../../api/reviewPoints";
 import type { ReadyCounts } from "../../inbox/inboxState";
 
 /** Order 117 item 5: the most run ids one counts request may carry; the
@@ -20,8 +20,11 @@ export const RUN_COUNTS_MAX_IDS = 200;
  *  comment sheet groups findings into rows. Whoever shows these says so. */
 export async function loadReadyCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
   // Order 14 LPS S2: with the redesigned page on, the paper's page is what the reader opens, so its numbers are the ONE home of the
-  // line; a run's own finding count (0 for an AI review) is never shown then, not even when the page numbers cannot be read.
-  if (await pageV2Switch()) return loadPageCounts(runIds);
+  // line; a run's own finding count is never shown then, not even when the page numbers cannot be read. When the switch itself
+  // cannot be read, nothing is said (null), never a count the page may not show.
+  const pageOn = await pageV2SwitchState();
+  if (pageOn === null) return Object.fromEntries(runIds.map((id) => [id, null]));
+  if (pageOn) return loadPageCounts(runIds);
   const out: Record<string, ReadyCounts | null> = {};
   const chunks: string[][] = [];
   for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
@@ -56,7 +59,9 @@ export async function loadPageCounts(runIds: string[]): Promise<Record<string, R
     }
     for (const id of chunk) {
       const f = got && got.ok && Object.prototype.hasOwnProperty.call(got.data.found, id) ? got.data.found[id] : undefined;
-      out[id] = f ? { findings: f.not_met + f.questions, needs_you: f.questions, page: f } : null;
+      // what waits for the engineer is every point not decided yet (decided points are taken off), so "Waiting for you" and
+      // "all decided" never stand side by side
+      out[id] = f ? { findings: f.not_met + f.questions, needs_you: f.undecided, page: f } : null;
     }
   }));
   return out;

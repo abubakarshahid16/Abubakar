@@ -12,7 +12,7 @@ const sw = vi.fn();
 const pageCounts = vi.fn();
 const reviewRunCounts = vi.fn();
 vi.mock("../../../../api/reviewPoints", () => ({
-  pageV2Switch: () => sw(),
+  pageV2SwitchState: () => sw(),
   reviewPoints: { pageCounts: (...a: unknown[]) => pageCounts(...a) },
 }));
 vi.mock("../../../../api/client", () => ({ reviews: { reviewRunCounts: (...a: unknown[]) => reviewRunCounts(...a) } }));
@@ -44,6 +44,22 @@ describe("LPS S2: the review list says what the paper's page shows", () => {
     pageCounts.mockRejectedValue(new Error("down"));
     expect(await loadReadyCounts(["ai-1"])).toEqual({ "ai-1": null });
     expect(reviewRunCounts).not.toHaveBeenCalled();
+  });
+
+  it("when the switch itself cannot be read, says nothing (null), never the run's count", async () => {
+    sw.mockResolvedValue(null);
+    expect(await loadReadyCounts(["ai-1", "rc-1"])).toEqual({ "ai-1": null, "rc-1": null });
+    expect(reviewRunCounts).not.toHaveBeenCalled();
+    expect(pageCounts).not.toHaveBeenCalled();
+  });
+
+  it("what waits for the engineer is the points not decided yet: all decided waits for nothing", async () => {
+    sw.mockResolvedValue(true);
+    pageCounts.mockResolvedValue({ ok: true, data: { boundary: "b", found: { "ai-1": { ...PAGE, undecided: 0 }, "rc-1": { ...PAGE, undecided: 5 } } } });
+    const got = await loadReadyCounts(["ai-1", "rc-1"]);
+    expect(got["ai-1"]?.needs_you).toBe(0); // 72 questions, all decided: nothing waits
+    expect(foundLine(got["ai-1"])).toContain("all decided");
+    expect(got["rc-1"]?.needs_you).toBe(5);
   });
 
   it("with the page off, the run counts stay as before", async () => {

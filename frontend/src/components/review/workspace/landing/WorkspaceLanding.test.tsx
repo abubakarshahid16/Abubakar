@@ -19,6 +19,8 @@ const cancelJob = vi.fn();
 const reviewRunCounts = vi.fn();
 const watchRun = vi.fn();
 
+// Order 14 LPS: these tests read the older per-run counts, so the redesigned page's switch is off here (on, the page's numbers are used).
+vi.mock("../../../../api/reviewPoints", async (orig) => ({ ...(await orig<typeof import("../../../../api/reviewPoints")>()), pageV2SwitchState: async () => false }));
 vi.mock("../../../../api/client", () => ({
   api: {},
   auth: { me: async () => ({ ok: true, data: { required: true, user: { id: "u-1", roles: ["admin"] } } }) },
