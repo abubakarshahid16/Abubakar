@@ -349,7 +349,7 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
     contractor must do. Built from the stored line only; no new AI call; no code word (`words.has_banned`)."""
     if line.get("source") == "group":  # rule choice v2: one sentence for the engineer
         return str(line.get("why") or "")
-    if line.get("why") == words.PROVEN_NOT_HELD_WHY:  # order 14: code compared, the book is not held
+    if line.get("why") == words.PROVEN_NOT_HELD_WHY:  # order 14: book not held
         return words.proven_not_held_comment(line, field_words(line))
     return "\n".join(
         (
