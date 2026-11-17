@@ -350,14 +350,13 @@ def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
 
 
 def documents_hidden(doc_ids, names_text: str, ctx: dict) -> bool:
-    """THE one decision of "hidden for this viewer" (CLAUDE.md rule 5), for every surface and every kind of point: True only when a
-    document the line or point names or quotes is RESOLVED and the viewer may not read it: one of `doc_ids` is a held document he
-    may not read, or `names_text` (its book name or free words) names a held book he may not read. An unknown, missing or unresolved
-    document hides nothing: there is no document to hide, so nothing is said about one (the paper itself is his by the route's own
-    check)."""
+    """THE one decision of "hidden for this viewer" (CLAUDE.md rule 5), for every surface and every kind of point. Fail closed: True
+    when ANY document id the line or point carries (`doc_ids`: a linked book, a project paper, the document of a quote) is not one he
+    may read, held or not (a deleted document's id stays on the stored line, and no one is allowed it), or when `names_text` (its book
+    name or free words) names a held book he may not read. Only a line that carries no document id and names none hides nothing (the
+    paper itself is his by the route's own check). Said as "a document that is not available to you": true for both."""
     allowed = ctx["readable"] | {ctx.get("paper_document_id")}
-    held = ctx.get("documents") or frozenset()
-    if any(d in held and d not in allowed for d in doc_ids if d):
+    if any(d not in allowed for d in doc_ids if d):
         return True
     text = " ".join(str(names_text or "").split())
     if not text or "library" not in ctx or ctx.get("everything"):

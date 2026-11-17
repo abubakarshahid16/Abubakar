@@ -238,13 +238,13 @@ def test_a_project_paper_the_viewer_may_not_read_is_never_named_or_quoted_on_the
     assert (
         PROJ in shown and PROJ_QUOTE in shown and PROJ_WHAT in shown
     )  # he may read it: his to see
-    # round 3 (lead): hidden only when a RESOLVED document he may not read is named or quoted; a document that is not held is no
-    # document to hide (one the viewer may not read is hidden; one that is not held, deleted say, hides nothing and says nothing)
+    # final check (lead): a document that is not held (deleted: its id stays on the stored line) is no one's to read: hidden too
     gone = part4(
         other_document="doc-gone",
         quote_other={"document": "doc-gone", "page": 2, "text": PROJ_QUOTE},
     )
-    assert PROJ_QUOTE in every_word(rp.ai_point(gone, viewer(PAPER)))
+    assert PROJ_QUOTE not in every_word(rp.ai_point(gone, viewer(PAPER)))
+    assert question.HIDDEN_DOCUMENT in every_word(rp.ai_point(gone, viewer(PAPER)))
 
 
 def test_under_hide_no_cell_names_a_topic_a_sub_kind_or_a_quote_of_a_document_the_viewer_may_not_read():
@@ -263,9 +263,9 @@ def test_under_hide_no_cell_names_a_topic_a_sub_kind_or_a_quote_of_a_document_th
             cells
         )
     row = question.question_row({**disagree, question.HIDE_KEY: True})
-    assert "disagrees with a document you may not read" in row.action
+    assert "disagrees with a document that is not available to you" in row.action
     assert (
-        row.requires == "A document you may not read applies to this paper."
+        row.requires == "A document that is not available to you applies to this paper."
     )  # the part-4 quote is not printed
     assert (
         row.paper_quote == "Flush for two minutes"

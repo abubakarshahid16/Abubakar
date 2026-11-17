@@ -285,8 +285,12 @@ def test_summary_lines_trace_crs_and_rules_used_after_a_review(client):
     assert {r["tier"] for r in used["asked"]} == {"AI approved"} and len(
         used["asked"]
     ) == 4
+    # PR #1876/#1883 (rule 5, fail closed): its book "doc_other" is no document of this library, so no one is allowed it: the rule
+    # is counted with its reason, never named
+    from app.crs_ai_viewer import HIDDEN_RULE
+
     assert used["left_out"] == [
-        {"rule_book": "INV-OTHER", "clause": "9.1", "reason": "needs another paper"}
+        {"rule_book": HIDDEN_RULE, "clause": "", "reason": "needs another paper"}
     ]
     assert used["left_out_counts"] == {"needs another paper": 1}
     assert (used["equipment_state"], used["equipment_notes"]) == (

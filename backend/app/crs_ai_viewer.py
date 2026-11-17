@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-HIDDEN_RULE = "the rule for this line comes from a rule book you may not read"
+HIDDEN_RULE = (
+    "the rule for this line comes from a rule book that is not available to you"
+)
 HIDDEN_SENTENCE = HIDDEN_RULE[:1].upper() + HIDDEN_RULE[1:] + "."
 #: the private mark of a shown line (never printed)
 HIDDEN_KEY = "_rule_hidden"
