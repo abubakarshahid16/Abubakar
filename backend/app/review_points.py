@@ -378,9 +378,8 @@ def book_doc_of(line: dict, ctx: dict) -> str | None:
     book_doc, _name = (ctx.get("book_of") or {}).get(
         str(line.get("item_id") or ""), (None, None)
     )
-    if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
-        book_doc = line["standard_document_id"]
-    return book_doc
+    # fail closed: ANY stored book id counts, held or not (a deleted book's id stays on the line, and no one is allowed it)
+    return book_doc or line.get("standard_document_id") or None
 
 
 def words_hidden(line: dict, ctx: dict) -> bool:
@@ -1119,7 +1118,9 @@ def counts(
             "total": len(to_confirm),
             "confirmed": confirmed,
             "open": len(to_confirm) - confirmed,
-            "sentence": not_applicable.count_line(len(to_confirm), confirmed) if to_confirm else None,
+            "sentence": not_applicable.count_line(len(to_confirm), confirmed)
+            if to_confirm
+            else None,
         },
         "total": len(points),
         "total_counts": "points of this paper's review (the rule check and the AI review together)",
@@ -1132,7 +1133,7 @@ def counts(
         "no_rule_book_points": no_book,
         "several_books_points": several,  # counted under EACH of its books, so the chips can add up to more than the total
         "other_rule_books_points": unnamed,
-        "other_rule_books_note": "points on rule books you may not read: counted, not named"
+        "other_rule_books_note": "points on rule books that are not available to you: counted, not named"
         if unnamed
         else None,
         "not_held": {

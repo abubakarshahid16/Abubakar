@@ -208,14 +208,14 @@ def _ref_state(reference: str, library: list[dict], readable: frozenset[str]) ->
 
 def readability_proof(row: dict, finding: dict | None, docs: list[str], readable: frozenset[str], library: list[dict], everything: bool) -> tuple[bool, bool]:
     """(content, reference): may this viewer see the requirement-derived CONTENT of a rule-check point, and the stored REFERENCE (a book
-    name)? Fail closed: shown only when readability is PROVEN. A viewer who may read the whole library is not restricted. Linked books: all
-    must be readable. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
+    name)? Fail closed: shown only when readability is PROVEN. Linked books: all must be readable by him, for every viewer (a deleted
+    book is no one's: hidden even from a viewer who may read the whole library); with no link, that viewer is not restricted. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
     reference that resolves to readable held books only proves both. Everything else is hidden."""
-    if everything:
-        return True, True
-    if docs:
+    if docs:  # fail closed, for every viewer: a linked book he may not read, or one that is gone (deleted), is not available to him
         ok = all(d in readable for d in docs)
         return ok, ok
+    if everything:
+        return True, True
     state = _ref_state((row or {}).get("standard_reference"), library, readable)
     if _checklist_origin(finding):
         return True, state != "unreadable"

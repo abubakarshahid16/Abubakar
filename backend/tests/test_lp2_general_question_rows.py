@@ -760,3 +760,30 @@ def test_a_hidden_remove_or_keep_reason_says_what_the_engineer_did(monkeypatch):
     page = _client(doc).get(f"/api/reviews/papers/{doc}/points").text
     assert ENGINEER not in page
     assert question.ENGINEER_REMOVED in page and question.ENGINEER_KEPT in page
+
+
+def test_a_deleted_rule_book_is_not_available_to_any_viewer():
+    # check of 2d3857f8 (lead): a deleted book's id stays on stored lines and rule-check rows; no one is allowed it, so its words are
+    # hidden from every viewer, a reader of the whole library included (fail closed, counted)
+    from app import review_points_service as svc
+
+    everyone = {**CTX, "paper_document_id": PAPER, "readable": frozenset({PAPER, "doc-std"}), "everything": True,
+                "documents": frozenset({PAPER, "doc-std"}), "book_of": {}}  # fmt: skip
+    line = {
+        "item_id": "R-9",
+        "standard": "STD-77",
+        "standard_document_id": "doc-deleted",
+        "reasoning": "per STD-77",
+    }
+    assert rp.book_doc_of(line, everyone) == "doc-deleted" and rp.words_hidden(
+        line, everyone
+    )
+    assert not rp.words_hidden(
+        {**line, "standard_document_id": "doc-std"}, everyone
+    )  # a held book he may read: shown
+    assert svc.readability_proof(
+        {}, None, ["doc-deleted"], everyone["readable"], [], True
+    ) == (False, False)
+    assert svc.readability_proof(
+        {}, None, ["doc-std"], everyone["readable"], [], True
+    ) == (True, True)
