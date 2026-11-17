@@ -64,6 +64,17 @@ def _paper(
 # ------------------------------------------------------------------------------------------------ 1. the engine that read a line
 
 
+@pytest.fixture
+def local_models(monkeypatch):
+    """The app's own local settings name the invented local models (the positive fact behind "local")."""
+    monkeypatch.setattr(
+        settings, "agent_review_local_model_a", "local-lead-x", raising=False
+    )
+    monkeypatch.setattr(
+        settings, "agent_review_local_model_b", "local-second-y", raising=False
+    )
+
+
 @pytest.mark.parametrize(
     ("models", "model", "point_words", "header"),
     [
@@ -81,6 +92,7 @@ def _paper(
         ),
     ],
 )
+@pytest.mark.usefixtures("local_models")
 def test_the_page_the_points_route_and_the_crs_name_the_engine_the_run_stored(
     models, model, point_words, header
 ):
@@ -203,7 +215,9 @@ def test_a_does_not_apply_without_its_proof_is_its_own_section_never_a_main_ques
     doc, _run_id, client = _paper([_na("R-21", "Design pressure", proof=False)])
     listing = points_of(client, doc)
     point = next(p for p in listing["points"] if p["source"] == "ai_review")
-    assert point["rank"] == 9 and point["tile"] == "na_to_confirm"  # owner on PR #1872: not a main question
+    assert (
+        point["rank"] == 9 and point["tile"] == "na_to_confirm"
+    )  # owner on PR #1872: not a main question
     assert point["action"].startswith("Engineer to check whether the rule applies")
     assert listing["counts"]["tiles"]["does_not_apply"]["total"] == 0
     assert listing["counts"]["tiles"]["questions"]["total"] == 0
@@ -308,3 +322,80 @@ def test_an_older_runs_stored_does_not_apply_without_proof_is_read_as_the_questi
     assert point["rank"] == 9 and point["action"].startswith(
         "Engineer to check whether the rule applies"
     )
+
+
+@pytest.mark.parametrize(
+    ("models", "engine"),
+    [
+        (["unknown"], ""),
+        (["some-other-company-model"], ""),
+        (["anthropic.claude-invented"], "claude"),
+        (["claude-invented-a", "local-lead-x"], "both"),
+        (["local-lead-x", "some-other-company-model"], ""),
+        (["local-lead-x"], "local"),
+    ],
+)
+def test_local_needs_a_positive_fact_never_any_name_that_is_not_claude(
+    local_models, models, engine
+):
+    from app import crs_ai_header
+
+    assert crs_ai_header.engine_of_models(models) == engine
+    # a line whose own model is neither leaves the run's engine
+    assert (
+        crs_ai_header.engine_of_line({"model": "some-other-company-model"}, "claude")
+        == "claude"
+    )
+    assert crs_ai_header.engine_of_line({"model": "some-other-company-model"}, "") == ""
+    assert crs_ai_header.engine_of_line({"engine": "local"}, "") == "local"
+
+
+def test_the_ai_run_files_header_reads_the_one_engine_home(local_models):
+    from app import crs_ai_header
+
+    assert (
+        crs_ai_header.reviewed_by("r", ai=True, usd=0.2, models=["claude-invented-a"])
+        == "AI reviewer on Claude"
+    )
+    assert crs_ai_header.reviewed_by(
+        "r", ai=True, usd=0.0, models=["local-lead-x"]
+    ).startswith("AI reviewer on the local model")
+    assert (
+        crs_ai_header.reviewed_by(
+            "r", ai=True, usd=0.2, models=["some-other-company-model"]
+        )
+        == "AI reviewer (engine not recorded)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("quote", "field"),
+    [
+        ("Liquid handled: water", "Fluid"),
+        ("Liquid: water", "Set pressure"),  # a value word of a text field is never a label, even beside a measured field
+        ("Liquid: water", "Fluid"),
+        ("Gas / vapour: yes", "Fluid"),
+        ("Bellows: balanced", "Valve type"),
+        ("Bellows material: steel", "Valve type"),
+    ],
+)
+def test_a_value_word_or_a_related_text_field_is_never_called_another_field(
+    quote, field
+):
+    assert not crs_ai_actions.about_another_field(quote, [field])
+
+
+def test_a_two_reader_verdict_keeps_its_own_words_with_an_unverified_quote(monkeypatch):
+    from app import agent_review_wording as W
+
+    line = _silent(
+        "Rated flow: 30 m3/h", quotes_checked={"paper": False, "clause": True}
+    )
+    assert (
+        crs_ai_actions.unverified_row(line) is not None
+    )  # one reader: the quote decides nothing
+    monkeypatch.setattr(
+        W, "is_two_reader", lambda ln: True
+    )  # the class "AI verdict, two readers agree" (`classify`)
+    assert crs_ai_actions.unverified_row(line) is None
+    assert crs_ai_actions.action_case(line) != crs_ai_actions.UNVERIFIED

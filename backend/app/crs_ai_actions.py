@@ -51,8 +51,16 @@ def action_case(line: Mapping) -> str:
     case = _case_of_record(line)
     # FTU-17: a quote code did NOT find on the page never decides the action: a row that would ask the contractor on the reader's own
     # record ("blank", "deferred") while carrying such a quote is the engineer's to check
-    if case in ("blank", "deferred") and unverified_quote(line):
-        return UNVERIFIED
+    from .agent_review_wording import is_two_reader
+
+    if (
+        case in ("blank", "deferred")
+        and unverified_quote(line)
+        and not is_two_reader(line)
+    ):
+        return (
+            UNVERIFIED  # a two-reader verdict keeps its own words (review of PR #1872)
+        )
     return case
 
 
@@ -288,23 +296,38 @@ def _content_words(text: object) -> set[str]:
     } - NEUTRAL_WORDS
 
 
+#: The kinds of the fixed field list that are not a measured quantity: two fields of these kinds may describe one thing ("Valve type"
+#: and "Bellows"), so a label of one is never said to be about another field of the other (review of PR #1872).
+_UNMEASURED_KINDS = frozenset({"text", None})
+
+
 def about_another_field(quote: str, labels) -> bool:
-    """FTU-17: the found quote is about ANOTHER field: this row's field is a field of the fixed field list, the quote OPENS with the label
-    of a DIFFERENT field of that list, and it holds NONE of this field's own words (any word of its labels or roles). Anything less certain
-    (a row named by a section or a clause, no label of another field, or one shared word, as in "Design pressure" for "Set pressure")
-    is not said to be about another field."""
+    """FTU-17: the found quote is about ANOTHER field, by code's own reading only when all of this holds:
+      * this row's field is a field of the fixed field list (its roles);
+      * the quote's LABEL (its words before the first ":", "|" or "="), WHOLE, is the label of a different field of that list (the
+        list's own label patterns, never its value words such as "gas" or "liquid");
+      * that label is no label of this field's own roles, and the quote holds none of this field's words;
+      * the two fields are of DIFFERENT kinds and at least one is a measured quantity (a flow quote for a pressure field). Two text
+        fields ("Valve type", "Bellows"), or two of one kind, may describe one thing: not said.
+    Anything less certain is not said to be about another field (the row stays "may state it")."""
+    from . import datasheet_checks as dc
     from .datasheets import normalise_field_name
 
+    rules, _ = _field_rules()
     mine = _own_roles(labels)
     own = set().union(*(_content_words(x) for x in [*labels, *mine] if x))
-    text = normalise_field_name(" ".join(str(quote or "").split()))
-    if not mine or not text or own & _content_words(text):
+    text = " ".join(str(quote or "").split())
+    if not mine or not text or own & _content_words(normalise_field_name(text)):
         return False
-    # the quote OPENS with that label (a label is where a quote starts; a word inside a value, "gas", is never read as a label)
-    found = {
-        role for role, pats in _field_rules()[1] if any(p.match(text) for p in pats)
-    }
-    return bool(found - mine) and not mine & found
+    head = re.split(r"[:|=]", text, maxsplit=1)[0]
+    other = dc.role_of(
+        normalise_field_name(head), rules
+    )  # a label alone, or the label before its value
+    if not other or other in mine:
+        return False
+    kinds = {rules["roles"][other].get("kind")}
+    mine_kinds = {rules["roles"][r].get("kind") for r in mine}
+    return not kinds & mine_kinds and not (kinds | mine_kinds) <= _UNMEASURED_KINDS
 
 
 def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | None:
