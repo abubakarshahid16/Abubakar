@@ -139,40 +139,34 @@ AGREED_NOT_STATED_REASON = (
 )
 
 
-#: Words that carry no value of their own once the markers and the label are gone ("Set pressure is TBA").
-_NO_VALUE_WORDS = frozenset(
-    {"is", "are", "the", "a", "an", "of", "be", "as", "and", "or"}
-)
+#: The separators a quote may hold between the field's label and its marker ("Set pressure: TBA", "Set pressure | *", "Flow = TBA").
+_SEPARATORS = " :|="
 
 
 def quote_is_placeholder(quote: str, labels=(), value_field: bool = False) -> bool:
-    """FTU-16: the found quote only marks a value still to be given. ONLY when, after its markers and units
-    (`blank_markers.strip_markers`) and the field's own label words are taken out, NO figure and no value word is left: a quote that
-    also states something ("Set pressure | 10 barg | -", "10 barg; test pressure by contractor") is never a placeholder. And only by
-    a to-be-given marker or placeholder ink: a dash alone is ambiguous (often "not applicable"), and a whose-job phrase ("By
-    Contractor") is a value left to be given only on a field that asks for a value (`value_field`); on any other it may be a scope
-    answer ("Painting: By Contractor"). Anything else is not a placeholder (the caller then decides it neutrally)."""
+    """FTU-16: the found quote only marks a value still to be given. ONLY when the WHOLE quote, after taking out exactly the field's own
+    label at its start and the separators ":", "|", "=", is one fixed deferral form (`blank_markers.is_whole_deferral`: "TBA", "*", a
+    run of "_", "later", ... optionally with a unit; "by vendor" / "by contractor" only on a field that asks for a value). No other word
+    is dropped: anything else, however it looks ("Rate: A | TBA", "Thickness: M *", "-", "N/A"), is not a placeholder, and the caller
+    decides it neutrally (the engineer checks)."""
     from . import blank_markers
-    from .agent_bind import _stem
 
-    left, kinds = blank_markers.strip_markers(quote)
-    own = {
-        _stem(w)
-        for lab in labels
-        if lab
-        for w in re.findall(r"[a-z]+", str(lab).replace("_", " ").lower())
-    }
-    left = [
-        w
-        for w in left
-        if re.search(r"\d", w)
-        or (w.lower() not in _NO_VALUE_WORDS and _stem(w.lower()) not in own)
-    ]
-    if [w.lower() for w in left] in (["later"], ["hold"]):
-        left, kinds = [], {*kinds, "given"}
-    if left:
-        return False
-    return bool(kinds & {"given", "fill"}) or ("who" in kinds and value_field)
+    text = " ".join(str(quote or "").split())
+    for label in sorted(
+        {" ".join(str(x).replace("_", " ").split()) for x in labels if x},
+        key=len,
+        reverse=True,
+    ):
+        if (
+            label
+            and text.lower().startswith(label.lower())
+            and text[len(label) : len(label) + 1] in ("", *_SEPARATORS)
+        ):
+            text = text[len(label) :]
+            break
+    return blank_markers.is_whole_deferral(
+        text.strip(_SEPARATORS), value_field=value_field
+    )
 
 
 def asks_a_value(*texts) -> bool:

@@ -224,45 +224,20 @@ def defers_value(text: str | None) -> bool:
     return names_a_marker(text) or star_fills_value(text)
 
 
-# ---------------------------------------------------------------- FTU-16: what a quote holds besides its markers
+# ---------------------------------------------------------------- FTU-16: a whole quote that only marks a value to be given
 
-#: A WHO phrase: says whose job the value is ("By Contractor", "as per vendor"). Alone it is ambiguous: a scope answer ("Painting: By
-#: Contractor") or a value left to someone; only a field that asks for a value reads it as a value to be given.
-_WHO = re.compile(
-    r"\bby\s+(?:the\s+)?(?:contractor|vendor|supplier|manufacturer|seller|bidder|others)"
-    r"(?:\s*/\s*(?:vendor|contractor|supplier|manufacturer))?\b"
-    r"|\bas\s+per\s+(?:the\s+)?(?:vendor|supplier|manufacturer|contractor)\b",
-    re.IGNORECASE,
-)
-#: A TO-BE-GIVEN phrase: the value itself is still to come ("TBA", "to be confirmed", "vendor to advise", "to follow").
-_GIVEN = re.compile(
-    r"\b(?:to\s+be\s+(?:advised|confirmed|determined|specified|furnished|provided|decided)"
-    r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+"
-    r"(?:advise|confirm|specify|furnish|provide|state|determine|decide)"
-    r"|tba|tbc|tbd|tbn|vta|to\s+follow)\b",
-    re.IGNORECASE,
-)
-_DASH = re.compile(r"(?:^|(?<=[\s|(:;,]))[-\u2013\u2014]+(?=[\s|):;,]|$)")  # a hyphen, an en or an em dash
-_TOKEN = re.compile(r"[A-Za-z0-9]+(?:[.,/][A-Za-z0-9]+)*")
-_UNIT_TOKEN = re.compile(
-    r"^" + _UNIT.replace(r"\(?", "").replace(r"\)?", "") + r"$", re.IGNORECASE
-)
+_UNIT_TAIL = r"(?:\s+" + _UNIT + r")?"
+#: The WHOLE forms (after the field's own label is taken out) that mean "the value is still to be given": a to-be-given abbreviation,
+#: placeholder ink (stars, a run of "_" or of "."), or "later", optionally followed by a unit. Nothing else: no word is dropped to
+#: reach one, so a quote that holds anything more is never one (FTU-16 review: the safe side).
+_WHOLE_DEFERRAL = re.compile(r"^(?:tba|tbd|tbc|[_*]+|\.{2,}|later)" + _UNIT_TAIL + r"$", re.IGNORECASE)
+#: "By vendor" / "by contractor" as the whole quote: a value left to someone ONLY on a field that asks for a value (otherwise it may be
+#: a scope answer: "Painting: By Contractor").
+_WHOLE_WHO = re.compile(r"^by\s+(?:the\s+)?(?:vendor|contractor)" + _UNIT_TAIL + r"$", re.IGNORECASE)
 
 
-def strip_markers(text: str | None) -> tuple[list[str], set[str]]:
-    """(the words and figures `text` holds besides its markers and units, the kinds of marker found: "given" a to-be-given phrase, "who"
-    a whose-job phrase, "fill" placeholder ink (a star or an underscore run), "dash" a dash standing alone). Pure; the words are the
-    printed ones, in order. Whether what is left is the field's own label is the caller's question."""
+def is_whole_deferral(text: str | None, *, value_field: bool = False) -> bool:
+    """FTU-16: the WHOLE `text` (the caller has taken out the field's own label) is one fixed deferral form (`_WHOLE_DEFERRAL`), or "by
+    vendor" / "by contractor" on a field that asks for a value. Pure."""
     t = " ".join(str(text or "").split())
-    kinds: set[str] = set()
-    for pattern, kind in ((_GIVEN, "given"), (_WHO, "who")):
-        if pattern.search(t):
-            kinds.add(kind)
-            t = pattern.sub(" ", t)
-    if re.search(r"[_*]", t):
-        kinds.add("fill")
-        t = re.sub(r"[_*]+", " ", t)
-    if _DASH.search(t):
-        kinds.add("dash")
-        t = _DASH.sub(" ", t)
-    return [w for w in _TOKEN.findall(t) if not _UNIT_TOKEN.match(w)], kinds
+    return bool(t) and bool(_WHOLE_DEFERRAL.match(t) or (value_field and _WHOLE_WHO.match(t)))

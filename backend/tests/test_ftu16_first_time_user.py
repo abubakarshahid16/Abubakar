@@ -508,3 +508,82 @@ def test_an_added_point_without_a_decision_is_kept_and_decided_on_the_sign_gate(
         before[0],
         before[1] + 1,
     )
+
+
+# ------------------------------------------------------------------------------------------------ review R2 of PR #1867: whole forms only
+
+NEUTRAL_PROBES = [
+    "Rate: A | TBA",
+    "Pump type: HP | TBA",
+    "Thickness: M *",
+    "Grade: Steel *",
+    "Set pressure | 10 barg | -",
+    "Set pressure 10 barg | Back pressure | TBA",
+    "Design pressure 10 barg; test pressure by contractor",
+    "12.5 barg (final value to be confirmed)",
+    "-10",
+    "0",
+    "N/A",
+    "2-3",
+    "-",
+    "--",
+    "—",
+    "Painting: By Contractor",
+]
+LABELS = [
+    "Rate",
+    "Pump type",
+    "Thickness",
+    "Steel grade",
+    "Set pressure",
+    "Design pressure",
+    "Painting",
+]
+
+
+@pytest.mark.parametrize("quote", NEUTRAL_PROBES)
+def test_every_probe_that_is_not_one_whole_marker_form_is_neutral(quote):
+    """A quote is a placeholder only when the WHOLE of it, after the field's own label, is one fixed marker form; nothing is dropped
+    to reach one. "Painting: By Contractor" is neutral on a field that asks no value (a scope answer)."""
+    assert not review_points.actions.quote_is_placeholder(
+        quote, LABELS, value_field=quote.startswith("Painting") is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("quote", "labels", "value_field"),
+    [
+        ("TBA", ["Set pressure"], False),
+        ("Set pressure: TBA", ["Set pressure"], False),
+        ("* m3/h", ["Rated flow"], False),
+        ("___", ["Rated flow"], False),
+        ("By Contractor", ["Set pressure"], True),
+        ("Set pressure: By Contractor", ["Set pressure"], True),
+    ],
+)
+def test_one_whole_marker_form_after_the_label_is_a_value_to_be_given(
+    quote, labels, value_field
+):
+    assert review_points.actions.quote_is_placeholder(
+        quote, labels, value_field=value_field
+    )
+
+
+def test_by_contractor_alone_on_a_field_that_asks_no_value_is_neutral():
+    assert not review_points.actions.quote_is_placeholder(
+        "By Contractor", ["Painting"], value_field=False
+    )
+
+
+@pytest.mark.parametrize(
+    ("reference", "book", "clause"),
+    [
+        ("IEC 61882 Section 6.1", "IEC 61882", "6.1"),
+        ("ZZ-SPEC-001 Sec. 7", "ZZ-SPEC-001", "7"),
+        ("ASME Section VIII Div 1", "ASME Section VIII Div 1", None),
+    ],
+)
+def test_section_is_a_clause_prefix_and_a_section_with_no_number_stays_in_the_name(
+    reference, book, clause
+):
+    assert review_points.book_and_clause(reference) == (book, clause)
