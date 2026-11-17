@@ -7,6 +7,9 @@ uses for each rule (`agent_review_equipment.equipment_decision`, mode "type", th
 is not agreed, a rule of another equipment type and a superseded rule never keep a book. Rule choice inside a kept book is not
 touched: the AI reviewer's filters decide each rule exactly as before.
 
+Hotfix 19c (17 Nov 2026): behind `equipment_rule_books_enabled`, OFF by default: the older field-name matcher matched single field
+words to unrelated rules of the books this route kept. Off, `candidates` keeps nothing, so a paper keeps the books it kept before.
+
 Read only. No equipment word is written here (rule 13): the paper's equipment and the taxonomy come from the data files. A
 database without the label table, or a paper whose equipment is not usable, keeps nothing by this route.
 """
@@ -74,7 +77,12 @@ def tagged_counts(
 def candidates(
     conn: sqlite3.Connection, document_id: str, library: list[dict]
 ) -> dict[str, dict]:
-    """{standard id: selection row} for every library book holding agreed rules tagged for this paper's equipment."""
+    """{standard id: selection row} for every library book holding agreed rules tagged for this paper's equipment. Nothing (and so
+    nothing kept or ordered by this route) while `equipment_rule_books_enabled` is off (hotfix 19c, the default)."""
+    from .config import settings
+
+    if not settings.equipment_rule_books_enabled:
+        return {}
     counts, names = tagged_counts(conn, document_id, {e["id"] for e in library})
     by_id = {e["id"]: e for e in library}
     said = ", ".join(names)

@@ -739,3 +739,86 @@ def test_an_ai_answer_is_shown_only_beside_a_paper_quote_code_verified():
         A.class_words("Not met", {"ai_label": NO_QUOTE, "tile": "not_met"})
         == "Questions for you"
     )  # never a plain Not met beside it
+
+
+# ------------------------------------------------------------------------------------------------ hotfix 19c: a deferred value
+
+
+DEFERRED = "The paper leaves this value open (to be filled): engineer to confirm with the contractor"
+
+
+def _deferred_lines() -> list[dict]:
+    return [
+        # the reader's own "not met" on a verified quote that leaves the value to the contractor (the 19a pump "Fail" rows)
+        mk("R-D1", "Query", "Fail", reason_code="not_met", field="Field Deferred", paper_quote="Rated power | *"),
+        # the reader's "met" the gate held because the quote defers (its reason says so)
+        mk("R-D2", "Query", "Pass", reason_code="met", field="Field Deferred Met", paper_quote="Seal kind: by contractor"),
+        # the same "not met" on a quote that gives a value: the AI's own answer stays
+        mk("R-D3", "Query", "Fail", reason_code="not_met", field="Field Stated"),
+    ]  # fmt: skip
+
+
+def test_a_deferred_value_is_a_question_never_the_ai_readers_pass_or_fail():
+    """Hotfix 19c: a line whose verified paper quote defers the value, or whose gate reason says so, shows the question words on the
+    page, in the team file's Pill and Class cells and in the run file; never "Pass / Fail (AI, ...)" or "Met / Not met (AI, ...)"."""
+    from tests.test_b1_review_points import ai_run, points_of
+
+    assert (
+        A.DEFERRED_LABEL == DEFERRED
+        and A.is_label(DEFERRED)
+        and A.answer_of(DEFERRED) is None
+    )
+    by = {ln["item_id"]: ln for ln in _deferred_lines()}
+    assert {k: A.label(v) for k, v in by.items()} == {
+        "R-D1": DEFERRED,
+        "R-D2": DEFERRED,
+        "R-D3": FAIL_AI_ONLY,
+    }
+    assert A.defers(
+        {
+            **by["R-D3"],
+            "paper_quote": "",
+            "not_proven_reason": "the quoted paper text defers or leaves open this value",
+        }
+    )
+    unverified = {**by["R-D1"], "quotes_checked": {"paper": False, "clause": True}}
+    assert not A.defers(
+        unverified
+    )  # a quote code did not verify never says what the paper does
+    assert WB.status_of(by["R-D1"]) == (words.STATUS_QUERY, words.ORDER_QUERY)
+    assert A.line_sentence(by["R-D1"]).startswith(
+        f"{DEFERRED}. STD-1, clause 4.1, page 2;"
+    )
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    ai_run(doc, _deferred_lines())
+    client = _client(doc, "doc_std")
+    pts = {p["id"].rsplit(":", 1)[1]: p for p in points_of(client, doc)["points"]}
+    assert (pts["R-D1"]["tile"], pts["R-D1"]["pill"]) == ("questions", DEFERRED)
+    assert pts["R-D2"]["pill"] == DEFERRED and pts["R-D3"]["pill"] == FAIL_AI_ONLY
+
+    team = load_workbook(
+        io.BytesIO(crs_completeness.file_or_refuse(doc, scope_all(), "team"))
+    )
+    head, rows = rows_after(team[crs_one.EVIDENCE_SHEET], "No")
+    pill = {r[head.index("Field or item")]: r[head.index("Pill")] for r in rows}
+    cls = {r[head.index("Field or item")]: r[head.index("Class")] for r in rows}
+    assert (
+        pill["Field Deferred"] == DEFERRED
+        and cls["Field Deferred"] == "Questions for you"
+    )
+    assert (
+        pill["Field Deferred Met"] == DEFERRED
+        and cls["Field Deferred Met"] == "Questions for you"
+    )
+    assert cls["Field Stated"] == "Not met (AI, engineer to confirm)"
+
+    for lines in (
+        _deferred_lines()[:1],
+        _deferred_lines()[1:2],
+    ):  # one line a file: the two would merge into one comment
+        view = WB.layout_view(lines, {**META, "rule_labels": {}}, "internal")
+        (row,) = view["rows"]
+        assert f"\n{DEFERRED}. " in row[3]
+        assert "(AI, rule" not in row[3] and " (AI, engineer to confirm)" not in row[3]

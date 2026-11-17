@@ -29,6 +29,8 @@ _N = iter(range(10_000))
 @pytest.fixture(autouse=True)
 def labels_table(temp_storage, monkeypatch):  # noqa: F811
     monkeypatch.setattr(settings, "agent_review_enabled", True)
+    # hotfix 19c: the route is behind its switch (off by default); these tests are about the route itself
+    monkeypatch.setattr(settings, "equipment_rule_books_enabled", True)
     rule_equipment.create_tables(db.connect())
 
 
@@ -332,3 +334,44 @@ def test_the_runs_tag_only_books_are_read_from_its_selection():
     )
     assert equipment_rule_books.tag_only_books(db.connect(), run) == {book}
     assert equipment_rule_books.tag_only_books(db.connect(), None) == frozenset()
+
+
+def _included(result) -> set[str]:
+    return {r["standard_document_id"] for r in result["selected"] if r["included"]}
+
+
+def test_switch_off_a_pump_paper_keeps_exactly_the_books_it_kept_before_the_route(
+    monkeypatch,
+):
+    """Hotfix 19c: with `equipment_rule_books_enabled` off (the default) a pump paper keeps exactly the books it kept before #1877
+    (the route answering nothing), no row is chosen by `equipment_rules` and the route's own answer is empty; on, as #1877."""
+    cited = _book("std_c", "API 9610")
+    _rule(cited, typ="pump", fam="rotating")
+    tagged = _book("std_t", "SAES-X-901")  # a book kept ONLY by the route
+    _rule(tagged, typ="pump", fam="rotating")
+    _rule(tagged, typ="pump", fam="rotating")
+    sub = _doc(
+        "sub",
+        "pump-sheet.pdf",
+        "CONTRACTOR_SUBMITTAL",
+        text="Pump shall comply with API 9610. Rated flow 10 m3/h.",
+        equipment_type="pump",
+    )
+    allowed = _scope(cited, tagged, sub)
+    library = applicability._library(allowed)
+
+    monkeypatch.setattr(settings, "equipment_rule_books_enabled", False)
+    assert equipment_rule_books.candidates(db.connect(), sub, library) == {}
+    off = applicability.select(sub, allowed_document_ids=allowed, persist=False)
+    assert not any(
+        r["method"] == applicability.METHOD_EQUIPMENT_RULES for r in off["selected"]
+    )
+    with monkeypatch.context() as m:  # before #1877: the route did not exist
+        m.setattr(applicability, "equipment_rule_candidates", lambda *_a: {})
+        before = applicability.select(sub, allowed_document_ids=allowed, persist=False)
+    assert _included(off) == _included(before) == {cited}
+
+    monkeypatch.setattr(settings, "equipment_rule_books_enabled", True)
+    on = applicability.select(sub, allowed_document_ids=allowed, persist=False)
+    assert _included(on) == {cited, tagged}
+    assert _rows(on)[tagged]["method"] == applicability.METHOD_EQUIPMENT_RULES
