@@ -9,7 +9,11 @@ import sqlite3
 
 from app import agent_review_kind as K
 from app import crs_ai_header, crs_one, run_record, subject_scope
-from tests.test_agent_general_review import job_world, start, world  # noqa: F401  (fixtures)
+from tests.test_agent_general_review import (  # noqa: F401  (fixtures)
+    job_world,
+    start,
+    world,
+)
 
 
 def _reading(kind="datasheet", equipment=None, unsure=None, known=True):
