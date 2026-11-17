@@ -457,6 +457,19 @@ def viewer_ctx(
     }
 
 
+def group_rule(line: dict, book_doc, clause) -> tuple[str, str, str] | None:
+    """The rule a hidden datasheet point is grouped by (`crs_comments._rule_of`), as a reader of its book has it: (its book by
+    identity, as `review_points_service.resolve_books` names it for him; the clause key; the rule's words folded); None when he would
+    have none. Internal only: never shown, never in a key as words."""
+    from . import crs_comments as cc
+
+    clause = clause or line.get(words.CLAUSE_UNCONFIRMED_KEY)
+    said = _clean(line.get("clause_quote") or line.get("requirement"))
+    req = re.sub(r"[^0-9a-z]+", " ", cc._norm(said)).strip()
+    ok = book_doc and _plain(line.get("standard")) and cc._norm(clause) and req
+    return (f"doc|{book_doc}", cc._clause_key(clause), req) if ok else None
+
+
 def ai_point(line: dict, ctx: dict) -> dict | None:
     """One AI line as a point; None for a line that is not a point (a rule book not held). `ctx`: run_id, paper_document_id,
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
@@ -471,10 +484,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     if rank == 4 and wording_mod.not_applicable_question(line):
         rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
     hidden = words_hidden(line, ctx)  # rule 5: his words on it are hidden too
-    if general.is_general(
-        line
-    ):  # LP2, rule 5: a general line's words through the one guard; a datasheet point is the page's own
-        line = for_viewer(line, ctx)
+    # rule 5, ONE guard: a general line's words through `for_viewer`; a hidden datasheet point keeps its rank, grouping and counts
+    # from the full line, and every word it shows (its action, its reason, the files' cells) comes from the allow-list (`view`)
+    view = for_viewer(line, ctx) if hidden else None
+    if general.is_general(line):
+        line, view = (view or line), None
     item = str(line.get("item_id") or "")
     book_doc = book_doc_of(line, ctx)
     book_name = (
@@ -538,7 +552,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         ""
         if rank == 8
         else _plain(
-            wb._contractor_to(shown, status or "", order if order is not None else 3)
+            wb._contractor_to(
+                view or shown, status or "", order if order is not None else 3
+            )
         )
     )
     return {
@@ -554,7 +570,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "other_kind": other_kind,
         "name": name,
         "page": page,
-        "page_note": arc.page_note(line),  # a page hint is printed as one (`crs_comments.point_page_words`), never as THE page
+        "page_note": arc.page_note(
+            line
+        ),  # a page hint is printed as one (`crs_comments.point_page_words`), never as THE page
         "rule_book": book_name,
         "clause": clause if book_name else None,
         "action": action or None,
@@ -563,9 +581,21 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             None if paper_q or looked else (_clean(line.get("paper_quote")) or None)
         ),
         "paper_value_page": page,
-        "rule_text": (None if clause_q or not book_readable else shown_rule_words(book_doc, line.get("clause_quote") or line.get("requirement"),
-                                                                                 line.get("rule_page") or line.get("clause_page"), ctx)),
-        "_rule_stored": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
+        "rule_text": (
+            None
+            if clause_q or not book_readable
+            else shown_rule_words(
+                book_doc,
+                line.get("clause_quote") or line.get("requirement"),
+                line.get("rule_page") or line.get("clause_page"),
+                ctx,
+            )
+        ),
+        "_rule_stored": (
+            None
+            if clause_q or not book_readable
+            else (_clean(line.get("clause_quote") or line.get("requirement")) or None)
+        ),
         "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
         "paper_looked": looked,
@@ -585,7 +615,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "shall": not bool(line.get("recommendation")),
         # P6: the priority comes from the finding (`crs_ai_words.priority_ai`); P5: the AI's own reasoning, labelled, never for a proven line
         "priority": words.priority_ai(status, line, order) if status else "",
-        "ai_reasoning": actions.reasoning_part(line, status or "", "").strip() if ai_free_text_ok(line, book_doc, ctx) else "",  # free words that can name a book the viewer may not read: the field is removed
+        "ai_reasoning": actions.reasoning_part(line, status or "", "").strip()
+        if view is None and ai_free_text_ok(line, book_doc, ctx)
+        else "",  # free words that can name a book the viewer may not read: the field is removed
         "group_key": group_key(
             SOURCE_AI_REVIEW,
             rank,
@@ -603,7 +635,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_words_hidden": hidden,
-        "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
+        "_group_rule": group_rule(line, book_doc, clause) if view is not None else None,
+        "_line": view
+        or shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
     }
 
 

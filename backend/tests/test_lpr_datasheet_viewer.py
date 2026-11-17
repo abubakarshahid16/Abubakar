@@ -246,3 +246,34 @@ def test_a_comment_note_counts_the_points_whose_rule_is_not_shown_and_stays_whol
         and "A requirement" not in note
         and "1 more point(s) whose rule is not shown to you" in note
     )
+
+
+def test_the_page_points_and_the_team_file_show_a_hidden_datasheet_point_through_the_same_allow_list():
+    # one rule on every surface: a hidden point's action, reason and the team file's cells come from the allow-list; its rank,
+    # grouping and counts from the full line (the same for both viewers)
+    setup_world()
+    page = restricted().get(f"/api/reviews/papers/{DOC[0]}/points")
+    team = restricted().get(
+        f"/api/reviews/papers/{DOC[0]}/crs", params={"copy": "team"}
+    )
+    assert page.status_code == 200 and team.status_code == 200, (page.text, team.text)
+    text = sheet_text(team.content)
+    assert leaked(page.text) == [] and leaked(text) == [], (
+        leaked(page.text),
+        leaked(text),
+    )
+    full_page = full().get(f"/api/reviews/papers/{DOC[0]}/points").json()
+    full_team = sheet_text(
+        full().get(f"/api/reviews/papers/{DOC[0]}/crs", params={"copy": "team"}).content
+    )
+    assert (
+        leaked(full_team) != []
+    )  # the reader of the book sees them (so the check above is not vacuous)
+    mine = page.json()
+    assert (mine["of"], mine["comment_count"]) == (
+        full_page["of"],
+        full_page["comment_count"],
+    )
+    assert [p["rank"] for p in mine["points"]] == [
+        p["rank"] for p in full_page["points"]
+    ]
