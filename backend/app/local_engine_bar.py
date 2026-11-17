@@ -85,17 +85,20 @@ def because(step: str, why: str) -> None:
         reasons[step] = why
 
 
-def engine_value(setting: str | None) -> str:
+def engine_value(setting: str | None) -> str | None:
     """The value of the engine setting a step without one of its own is governed by (LP3), by its settings name. Only these
     two may be named (each one of `REVIEW_ENGINE_SETTINGS`, so a run that uses them is barred; `test_n2_agent_review_engine`
-    reads this body): any other name, or None, is "" and never opens Claude."""
+    reads this body). CLOSED BY DEFAULT: any other name, or None, is None - not a setting this reads - and never opens
+    Claude."""
     from .config import settings
 
     governing = {
         "ai_clause_review_engine": settings.ai_clause_review_engine,  # the clause-check proposal
         "match_engine": settings.match_engine,  # the field naming
     }
-    return str(governing.get(setting or "", "") or "").strip().lower()
+    if setting not in governing:
+        return None
+    return str(governing[setting] or "").strip().lower()
 
 
 def why_not_claude(setting: str | None) -> str:
@@ -104,10 +107,11 @@ def why_not_claude(setting: str | None) -> str:
     from . import claude_approved
     from . import reasoning_provider as rp
 
-    if not setting or setting not in REVIEW_ENGINE_SETTINGS:
+    value = engine_value(setting)
+    if value is None:  # not a setting this step can be governed by: never a false word about some other setting
         return NO_CLAUDE_SETTING
-    name = setting.upper()
-    if engine_value(setting) != rp.CLAUDE:
+    name = str(setting).upper()  # the setting `engine_value` read
+    if value != rp.CLAUDE:
         return f"its own engine setting {name} is not claude, and a Claude-lane run does not load the local engine"
     if not rp.claude_lane_open():
         code = rp._lane_unavailable()[0]

@@ -278,3 +278,77 @@ def test_a_claude_lane_review_runs_both_steps_on_claude_and_skips_neither(
         r["step"] for r in _outcome(run_id).get(local_engine_bar.OUTCOME_KEY) or []
     }
     assert CLAUSE_STEP not in skipped and field_naming.NAMING_STEP not in skipped
+
+
+# ------------------------------------------------------------- review round 1 of #1879
+
+
+def test_field_naming_refused_by_the_approved_list_is_not_sent_and_says_so(
+    declared, engine_calls
+):
+    declared.setattr(settings, "match_engine", "claude")
+    declared.setattr(claude_approved, "refusal", lambda: ("NOT_APPROVED", "invented"))
+    sent = _claude('{"names": []}')
+    declared.setattr(reader_transport, "transport", lambda: sent)
+    requirements, facts = _naming(declared)
+    with local_engine_bar.bar():
+        assert field_naming.naming_provider().name != rp.CLAUDE
+        result = field_naming.ensure_names(requirements, facts)
+        stated = {r["step"]: r["note"] for r in local_engine_bar.stated()}
+    assert result["refused"] and sent.models == [] and engine_calls == []
+    assert stated[field_naming.NAMING_STEP] == (
+        "not run: its own engine setting MATCH_ENGINE is claude, but a document in its prompt may not be sent "
+        "to Claude (NOT_APPROVED)"
+    )
+
+
+def test_a_setting_the_steps_cannot_be_governed_by_stays_closed(declared, engine_calls):
+    """Closed by default: a name `engine_value` does not read is None, never claude, even when that setting says claude;
+    and the reason never names a setting that was not read."""
+    declared.setattr(settings, "vision_reader_engine", "claude")
+    declared.setattr(settings, "match_engine", "claude")
+    assert local_engine_bar.engine_value("vision_reader_engine") is None
+    assert (
+        local_engine_bar.engine_value("lp3_unknown") is None
+        and local_engine_bar.engine_value(None) is None
+    )
+    assert local_engine_bar.engine_value("match_engine") == "claude"
+    assert (
+        local_engine_bar.why_not_claude("vision_reader_engine")
+        == local_engine_bar.NO_CLAUDE_SETTING
+    )
+    sent = _claude(PROPOSAL)
+    declared.setattr(reader_transport, "transport", lambda: sent)
+    spec = ai_task_runner.TaskSpec(
+        name="lp3_other",
+        version="v1",
+        instruction="i",
+        schema={"type": "object"},
+        engine="vision_reader_engine",
+    )
+    with local_engine_bar.bar():
+        result = ai_task_runner.run_task(spec, "some text")
+    assert result.reason == "not run: this step has no Claude setting"
+    assert sent.models == [] and engine_calls == []
+
+
+@pytest.mark.parametrize(
+    ("model", "said"),
+    [
+        ("claude-invented-5", "cloud model"),
+        ("local-invented:2b", "local model"),
+        (None, None),
+    ],
+)
+def test_the_clause_checks_say_where_they_ran(model, said):
+    from app import ai_numbers
+
+    counts = {
+        "sentences": 2,
+        "asked": 1,
+        "proposed": 1,
+        "could_not_read": 0,
+        "not_asked_budget": 0,
+        "model": model,
+    }
+    assert ai_numbers.clause_checks(counts)["where"] == said

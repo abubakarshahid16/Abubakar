@@ -183,10 +183,19 @@ def wording(summary: dict | None) -> dict | None:
                          "not_tried": _n(summary.get("not_tried"))})
 
 
+def _clause_engine(model: str | None) -> str | None:
+    """Where the clause checks ran, from the model that answered (LP3): Claude's model names say cloud; any other model is
+    the local runner's; none answered, nothing (rule 4: never "local model" for a step no model answered)."""
+    if not model:
+        return None
+    return "claude" if where(model) == CLOUD else "ollama"
+
+
 def clause_checks(counts: dict | None) -> dict | None:
     """#645 AI clause checks, from the run outcome's
     `requirement_split.clause_checks` (`ai_requirements.propose_checks`).
-    Always the local runner's model: standards text stays on this machine."""
+    The model that answered says where it ran: the local runner's, or Claude in a Claude-lane review run when
+    AI_CLAUSE_REVIEW_ENGINE says claude (LP3). No model answered: nothing is said about where."""
     if not counts:
         return None
     from . import ai_requirements
@@ -195,7 +204,7 @@ def clause_checks(counts: dict | None) -> dict | None:
     no_limit, refused = ai_requirements.split_refusals(counts)
     return _step("AI clause checks", "incomplete" if incomplete else "ran",
                  [ai_requirements.report_line(counts)],
-                 engine="ollama", model=counts.get("model"),
+                 engine=_clause_engine(counts.get("model")), model=counts.get("model"),
                  counts={"sentences": _n(counts.get("sentences")), "asked": _n(counts.get("asked")),
                          "proposed": _n(counts.get("proposed")),
                          "no_limit": no_limit,

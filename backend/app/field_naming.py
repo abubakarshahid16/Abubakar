@@ -2,8 +2,8 @@
 plan B4, orders 5.2 and 5.3). Behind `settings.field_naming_enabled` (or the geometry reader).
 
 THE MODEL NAMES; IT NEVER WRITES A VALUE. A language model (the labelling
-provider: Haiku when Claude is configured and allowed, the local engine
-otherwise) is handed a NUMBERED dictionary of field names built by Python and
+provider: Haiku when Claude is configured and allowed - with REASONING_PROVIDER=per_task, in a Claude-lane
+review run, when MATCH_ENGINE says claude (`naming_provider`, LP3) - the local engine otherwise) is handed a NUMBERED dictionary of field names built by Python and
 a batch of items - datasheet labels, or requirement sentences. For each item
 it may answer one dictionary NUMBER and a quote, or null. It cannot invent a
 name (only a number that indexes Python's list), and nothing it says is

@@ -538,7 +538,8 @@ def ensure_schema() -> None:
 
 def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
                    limit: int, provider=None) -> dict:
-    """Ask the local model for a check per undecided clause sentence (at most
+    """Ask the model for a check per undecided clause sentence (the local runner's; in a Claude-lane review run Claude when
+    AI_CLAUSE_REVIEW_ENGINE says claude, LP3) (at most
     `limit` per run), verify each in code, store what passes as a draft.
     Returns the run report's counts: {sentences, asked, proposed, refused
     {why: n}, could_not_read, not_asked_budget}. Every count is out of
@@ -589,7 +590,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     report = {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
-            # the local runner's model (`ai_task_runner`); None when none answered
+            # the model that answered (`ai_task_runner`: local, or Claude under AI_CLAUSE_REVIEW_ENGINE); None when none answered
             "model": model}
     report["by_standard"] = clause_check_rank.by_standard(ordered, asked)
     return report
