@@ -172,6 +172,9 @@ def rule_requires(point: dict) -> str:
         return f'"{point["rule_text"]}" (as stored; {content.NOT_VERIFIED})'
     if point.get("check_text"):  # order 14 lane B: our checklist's words, said to be ours
         return f'Our checklist asks (our words, not the book\'s): "{point["check_text"]}"'
+    if point.get("_rule_stored") and point.get("source") == rp.SOURCE_RULE_CHECK:
+        # W-H8: the action cell quoted the rule while this cell said "nothing recorded": the stored words, said to be unfound in the book
+        return f'"{point["_rule_stored"]}" ({STORED_NOT_FOUND})'
     return content.NOTHING
 
 
@@ -222,6 +225,27 @@ def group_words(point: dict) -> str:
     return f"{n} alike" if n > 1 else ""
 
 
+#: W-H8: the lead some stored AI suggestions open with, which the internal copy's own label already says.
+_AI_LEAD = re.compile(r"^\s*(?:the\s+)?AI(?:'s)?\s+suggestion\s*,\s*engineer\s+to\s+confirm\s*[.:]\s*", re.IGNORECASE)
+NO_ACTION = "No action was written for this point: engineer to check it against the paper and write the action."
+#: W-H8: a stored rule text that ends where its list begins ("... shall be applied: a."): the rule store cut it there.
+_LIST_OPENED = re.compile(
+    r"(?:(?:[:;,]|\b(?:following|including|include|includes))\s*(?:\(?[a-z0-9]{1,2}[.)])?|\.\s+\(?[a-z][.)])\s*$", re.IGNORECASE
+)
+_QUOTED = re.compile(r'"([^"]{12,})"')
+LIST_NOT_STORED = "[the list that follows in the book is not in the stored rule: read the clause in the book]"
+STORED_NOT_FOUND = "as stored; code did not find these words in the held book"
+
+
+def mark_cut_lists(text: str) -> str:
+    """W-H8 (completeness): a quoted rule text that ends where its list begins ("... shall be applied: a.") says so after its closing
+    quote with a visible mark (`LIST_NOT_STORED`), never shown as if whole; any other text as it is. The rule store holds no more of
+    it, so the mark says where the rest is (the clause in the book)."""
+    if not text or LIST_NOT_STORED in text:
+        return text
+    return _QUOTED.sub(lambda m: f'"{m.group(1)}" {LIST_NOT_STORED}' if _LIST_OPENED.search(m.group(1)) else m.group(0), text)
+
+
 def full_texts(point: dict) -> dict[str, str]:
     """The whole text of each long cell of a point: the ONE source of what a shortened cell must keep in the column Full text."""
     d = point.get("decision") or {}
@@ -231,11 +255,15 @@ def full_texts(point: dict) -> dict[str, str]:
         else point.get("action")
     )
     if action and point.get("action_source") == "ai_suggestion" and not (d.get("state") == decisions_mod.EDIT and d.get("text")):
+        # W-H8: the stored words may already open with their own "AI suggestion" lead: said once, never twice
+        action = _AI_LEAD.sub("", action, count=1) or action
         action = f"{content.AI_SUGGESTION[0].upper()}{content.AI_SUGGESTION[1:]}: {action}"  # internal copy only (the contractor file never reads this)
+    if not action:  # W-H8: an action cell is never empty: the engineer is told it is his to write
+        action = NO_ACTION
     return {
-        "action": action,
+        "action": mark_cut_lists(action),
         "paper_shows": paper_shows(point),
-        "requires": rule_requires(point),
+        "requires": mark_cut_lists(rule_requires(point)),
         "reason": reason_of(point),
     }
 

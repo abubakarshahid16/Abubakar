@@ -161,12 +161,33 @@ def key_of(point: dict) -> str:
     alone never joins two of them); a coverage line and anything else, the point itself."""
     if is_coverage(point):
         return f"coverage|{point.get('id')}"
+    if ref_key := _reference_rule_key(point):
+        return ref_key
     field = fold_field(_field_of(point))
     if field:
         return f"field|{field}"
     if rule := _rule_of(point):
         return "clause|" + "|".join(rule)
     return f"point|{point.get('id')}"
+
+
+def _reference_rule_key(p: dict) -> str:
+    """W-H8 (order 14): a rule-check point with no field of the paper is NAMED by its rule reference ("BOOK cl. 5"): that name is not
+    a field, so two different requirements of one clause are never one comment (a procedure sheet put nine of them, among them a
+    definition and a note, under one). Keyed by the reference AND the requirement text; "" for any other point, or when the
+    requirement is not known (then the reference keeps them together, as before)."""
+    if p.get("source") != rp.SOURCE_RULE_CHECK:
+        return ""
+    ref = _no_brackets((p.get("rule_ref") or {}).get("name"))
+    name = _no_brackets(rp.split_tags(p.get("name") or "")[0])  # "(edition ...)" words come and go by sheet: never part of the key
+    req = _requirement_of(p)
+    if not (ref and req and name.startswith(ref)):
+        return ""
+    return f"rule|{fold_field(name)}|{req}"
+
+
+def _no_brackets(text) -> str:
+    return _norm(re.sub(r"\([^()]*\)", " ", str(text or "")))
 
 
 def _requirement_of(p: dict) -> str:

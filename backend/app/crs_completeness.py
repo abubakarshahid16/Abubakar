@@ -738,7 +738,7 @@ def summary(team: dict, contractor: dict) -> dict:
     return {
         "ok": bool(team.get("ok") and contractor.get("ok")), "page": team["page"], "database": team["database"]["total"],
         "team_rows": team["rows_in_file"], "contractor_rows": contractor["rows_in_file"], "missing": missing,
-        "sentence": (bad or [None])[0], "checked_at": team["checked_at"],
+        "sentence": (bad or [None])[0],
     }  # fmt: skip
 
 
@@ -750,7 +750,7 @@ def current(paper_id: str, scope, listing_raw: tuple) -> dict | None:
     if not_reviewed(listing_raw[1], listing_raw[2]):
         return None
     got = checked_files(paper_id, scope, listing_raw)
-    return summary(got["team"][1], got["contractor"][1])
+    return summary(got["team"][1], got["contractor"][1])  # no time: the block is today's, and the same list gives the same block
 
 
 def stored_latest(*run_ids: str | None) -> dict | None:
