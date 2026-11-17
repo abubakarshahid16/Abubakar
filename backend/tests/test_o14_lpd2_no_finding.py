@@ -245,6 +245,11 @@ def test_an_ai_fail_absent_or_any_ai_words_on_a_rule_not_yet_approved_stay_a_com
         words.KIND_UNAPPROVED: ["p4", "p5"],
         words.KIND_NOT_REVIEWED: ["p6"],
     }
+    kept = crs_comments.group(
+        pts
+    )  # each kept field is a QUESTION for the engineer, never a "does not apply" comment (gate G3)
+    assert {c["tile"] for c in kept} == {"questions"}
+    assert all(c["pill"] == f"Question · {words.KIND_UNAPPROVED}" for c in kept)
 
 
 def test_a_met_point_is_shown_where_met_lines_belong_unless_it_answers_the_same_rule_as_the_finding():

@@ -511,6 +511,10 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
             else strongest
         ) or strongest
         rank = DISAGREE_RANK if disagree else strongest["rank"]
+        # order 14 (lead, last review of PR #1889): a COMMENT whose points the AI raised on a rule not yet approved or that does not
+        # apply (an AI Fail, absent or ask kept visible) is a question for the engineer, never a "does not apply" comment
+        raised = kind is None and rank == 8
+        rank = DISAGREE_RANK if raised else rank
         tags = sorted({t for p in ms for t in p.get("tags") or []})
         pages = sorted({p["page"] for p in ms if p.get("page")})
         found = {p["page"] for p in ms if p.get("page") and not p.get("page_note")}
@@ -526,6 +530,8 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
                 "pill": (
                     f"Question · {DISAGREE}"
                     if disagree
+                    else f"Question · {strongest.get('other_kind') or words.KIND_NOT_APPLICABLE}"
+                    if raised
                     else strongest.get("pill") or rp.RANKS[rank][0]
                 ),
                 "firm": None if disagree else strongest.get("firm"),
