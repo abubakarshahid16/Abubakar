@@ -35,12 +35,14 @@ Pages = list[tuple[int, str]]
 COVER_PAGES = 2  # the cover and the title page
 COVER_LINES = 12  # the top lines of each cover page that are read
 #: A labelled number: a DOCUMENT or CONTRACT number label (never a purchase order, drawing or project number: those name another
-#: paper), then a token of letters, digits and joiners that holds a digit; further groups joined by one space are the same number
-#: when each holds a digit ("6600 045321").
+#: paper), then a token of letters, digits and joiners that holds a digit. Only a number of digits alone continues over a space, and
+#: only with a group of 3 or more digits that is not a year and not "N of M" ("6600 045321"); a date, a page count or a group after
+#: an id with letters or joiners is never part of the number ("ZZ-100-01 17 Nov 2026" is "ZZ-100-01").
+_GROUP = r"[ ](?!(?:19|20)\d\d(?!\d))\d{3,}(?![A-Za-z0-9./_-])(?!\s+of\b)"
 _NUMBER = re.compile(
     r"\b(?P<label>(?i:contract|document|doc)\.?\s*(?i:no\b\.?|number\b|nr\b\.?|#))\s*[:.]?\s*"
-    r"(?P<number>(?=[A-Za-z0-9./_-]*\d)[A-Za-z0-9][A-Za-z0-9./_-]{2,40}"
-    r"(?:[ ](?=[A-Za-z0-9./_-]*\d)[A-Za-z0-9][A-Za-z0-9./_-]{0,40})*)(?![A-Za-z0-9])",
+    rf"(?P<number>\d{{3,}}(?:{_GROUP})+(?![A-Za-z0-9./_-])"
+    r"|(?=[A-Za-z0-9./_-]*\d)[A-Za-z0-9][A-Za-z0-9./_-]{2,40})(?![A-Za-z0-9])",
 )
 #: A revision: the word, then a revision VALUE (digits, an upper-case letter, or a letter and digits), never a word ("Revision a").
 _REVISION = re.compile(

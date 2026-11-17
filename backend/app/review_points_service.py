@@ -613,20 +613,20 @@ def sentence_quotes(points: list[dict], kind: str | None) -> None:
         if not _read_by_c4(p):
             continue
         rule = p.get("source") == rp.SOURCE_RULE_CHECK
-        # a rule-check row also shows its stored passage ("as stored, not verified"): the same test, the same mark
-        for key in ("paper_quote", "paper_value") if rule else ("paper_quote",):
-            q = p.get(key)
-            if not q or quote_sentence.is_evidence(q):
-                continue
-            if rule and quote_sentence.holds_value(q):
-                continue
-            page = p.get("page") if key == "paper_quote" else p.get("paper_value_page")
-            p[key] = None
-            if not p.get("paper_quote"):
-                p["paper_quote_refused"] = True
-                p["paper_quote_note"] = quote_sentence.refused_words(q).rstrip(".") + (
-                    f" (page {page})." if page not in (None, "") else "."
-                )
+        refused: list[tuple[object, object]] = []
+        q = p.get("paper_quote")
+        exempt = rule and quote_sentence.holds_value(q)
+        if q and not quote_sentence.is_evidence(q) and not exempt:
+            refused.append((q, p.get("page")))
+            p["paper_quote"] = None
+        # a rule-check row also shows its stored passage ("as stored, not verified"): the same test; a value in it stays as evidence
+        v = p.get("paper_value") if rule else None
+        if v and not quote_sentence.is_evidence(v) and not quote_sentence.holds_value(v):
+            refused.append((v, p.get("paper_value_page")))
+            p["paper_value"] = None
+        if refused and not p.get("paper_quote"):
+            p["paper_quote_refused"] = True
+            p["paper_quote_note"] = quote_sentence.refused_many(refused)
 
 
 def _read_by_c4(point: dict) -> bool:

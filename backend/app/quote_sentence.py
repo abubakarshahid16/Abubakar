@@ -23,6 +23,7 @@ import re
 
 MIN_WORDS = 6
 VALUE_WORDS = 2
+LABEL_MAX = 6  # words of a label before a value
 _TOKEN = re.compile(r"[^\W_]+(?:[.,'’-][^\W_]+)*")  # a word or a number  # noqa: RUF001
 _WORD = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")  # noqa: RUF001
 #: Modal and auxiliary verbs: closed-class words of English, true for any paper.
@@ -137,12 +138,13 @@ def is_full_sentence(text: object) -> bool:
 
 
 def is_value_clause(text: object) -> bool:
-    """Is the quote a one-line clause that states a value (a number and at least two words)?"""
+    """Is the quote a one-line clause that states a value: it starts and ends whole, has two or more words, and holds a real value
+    (`_values`: a figure with a unit, a comparator or a range; never a clause, page or article number)?"""
     flat = _flat(text)
     return (
         _starts_and_ends_whole(flat)
-        and bool(_DIGIT.search(flat))
         and len(_WORD.findall(flat)) >= VALUE_WORDS
+        and bool(_values(flat))
     )
 
 
@@ -159,13 +161,138 @@ def refused_words(text: object) -> str:
     return f'No quote: the paper\'s words "{flat}" are not a full sentence.'
 
 
-#: A figure with a unit or a percent sign ("10 barg", "6%", "49 months", "5 MPa"; a capitalised word after a clause number, "2.1 Site",
-#: is not a unit), a comparator before a figure ("< 15", ">= 3"), a range
-#: ("10-20", "10 to 20"), a bare figure that is not a clause or list number ("80", never "4." or "2.1."), a code value (one token
-#: that mixes letters and digits, "A105", "316L", or one upper-case token, "WCB").
+#: The units a value may carry: a closed list of measurement and money units (general vocabulary of any engineering paper). A word
+#: that is not one ("Site", "of", "after") is never a unit.
+UNITS = frozenset(
+    [
+        "%",
+        "°c",
+        "°f",
+        "degc",
+        "degf",
+        "mm",
+        "cm",
+        "m",
+        "km",
+        "in",
+        "ft",
+        "yd",
+        "mil",
+        "kg",
+        "g",
+        "t",
+        "lb",
+        "lbs",
+        "n",
+        "kn",
+        "mn",
+        "nm",
+        "w",
+        "kw",
+        "mw",
+        "kwh",
+        "mwh",
+        "v",
+        "kv",
+        "a",
+        "ma",
+        "hz",
+        "khz",
+        "rpm",
+        "bar",
+        "barg",
+        "bara",
+        "mbar",
+        "psi",
+        "psig",
+        "psia",
+        "pa",
+        "kpa",
+        "mpa",
+        "gpa",
+        "l",
+        "ml",
+        "m3",
+        "m³",
+        "m3/h",
+        "m3/hr",
+        "nm3/h",
+        "l/s",
+        "l/min",
+        "gpm",
+        "gph",
+        "s",
+        "sec",
+        "secs",
+        "min",
+        "mins",
+        "h",
+        "hr",
+        "hrs",
+        "hour",
+        "hours",
+        "day",
+        "days",
+        "week",
+        "weeks",
+        "month",
+        "months",
+        "year",
+        "years",
+        "db",
+        "dba",
+        "usd",
+        "sar",
+        "kwd",
+        "eur",
+        "gbp",
+        "ppm",
+        "ppb",
+        "cp",
+        "cst",
+        "mph",
+        "kph",
+        "m/s",
+    ]
+)
+#: Words that make the number after them a reference, never a value ("Page 3", "Section 12", "Article 4").
+REFERENCE_WORDS = frozenset(
+    [
+        "page",
+        "pages",
+        "section",
+        "sections",
+        "clause",
+        "clauses",
+        "article",
+        "articles",
+        "sub-article",
+        "part",
+        "item",
+        "note",
+        "table",
+        "figure",
+        "fig",
+        "appendix",
+        "schedule",
+        "annex",
+        "paragraph",
+        "para",
+        "rev",
+        "revision",
+        "no",
+        "number",
+        "of",
+        "chapter",
+        "step",
+    ]
+)
 _FIGURE = r"\d+(?:[.,]\d+)*"
 _VALUE = re.compile(
-    rf"[<>\u2264\u2265=]\s*{_FIGURE}|{_FIGURE}\s*(?:-|\u2013|to)\s*{_FIGURE}|{_FIGURE}\s*(?:%|(?:[a-z\u00b0\u00b5/][A-Za-z/]{{0,7}}|[A-Za-z]{{1,3}})\b)",
+    rf"(?P<cmp>[<>\u2264\u2265=]\s*{_FIGURE})"
+    rf"|(?P<range>{_FIGURE}\s*(?:-|\u2013|to)\s*{_FIGURE})"
+    rf"|(?P<cur>(?:[$\u20ac\u00a3]|\b(?:USD|SAR|EUR|GBP|KWD))\s*{_FIGURE})"
+    rf"|(?P<unit>{_FIGURE})\s*(?P<u>%|[\u00b0A-Za-z\u00b3/0-9]+)",
 )
 _BARE_FIGURE = re.compile(rf"^[+-]?{_FIGURE}$")
 _CODE = re.compile(
@@ -173,12 +300,70 @@ _CODE = re.compile(
 )
 
 
+def _after_reference(flat: str, start: int) -> bool:
+    words = _WORD.findall(flat[:start])
+    return bool(words) and words[-1].lower() in REFERENCE_WORDS
+
+
+def _values(flat: str) -> list[re.Match]:
+    """Every real value in the text: a comparator, a range, a money figure, or a figure with a unit of `UNITS`, never after a
+    reference word."""
+    out = []
+    for m in _VALUE.finditer(flat):
+        if m.group("unit") and m.group("u").lower().rstrip(".") not in UNITS:
+            continue
+        if not _after_reference(flat, m.start()):
+            out.append(m)
+    return out
+
+
+def _label_ok(prefix: str) -> bool:
+    """A label before a value: empty, or words that start with a capital and name no reference ("Set pressure", "Material")."""
+    prefix = prefix.strip(" :=-")
+    if not prefix:
+        return True
+    words = _WORD.findall(prefix)
+    return (
+        prefix[:1].isupper()
+        and not _DIGIT.search(prefix)
+        and len(words) <= LABEL_MAX
+        and not any(w.lower() in REFERENCE_WORDS for w in words)
+    )
+
+
 def holds_value(text: object) -> bool:
-    """Does the quote hold a value a check can compare (a figure, with a unit, a comparator, a range, or a code value)? A clause or
-    list number ("4.", "2.1.") and a fragment of words are not values."""
+    """Does the quote hold a value a check can compare? The whole quote is a figure ("80"), a code value ("316L", "WCB"), or a
+    value at its end after at most a label: a figure with a unit, a comparator, a range or a money figure ("Set pressure 10 barg",
+    "< 15", "Material A105"). A clause, page or article number ("4.", "2.1 Site Conditions", "Page 3 of 8") and a value inside a
+    fragment ("and 10 days after") are not."""
     flat = _flat(text)
     if not flat:
         return False
-    if _BARE_FIGURE.match(flat) or _VALUE.search(flat):
+    if _BARE_FIGURE.match(flat) or (len(flat.split()) == 1 and _CODE.match(flat)):
         return True
-    return len(flat.split()) == 1 and bool(_CODE.match(flat))
+    found = _values(flat)
+    if found and not flat[found[-1].end() :].strip(" ."):
+        return _label_ok(flat[: found[-1].start()])
+    head, _, last = flat.rpartition(" ")
+    return bool(head) and bool(_CODE.match(last)) and _label_ok(head)
+
+
+def refused_many(found: list[tuple[object, object]]) -> str:
+    """The mark for one or more refused passages [(words, page)], every different passage with its page beside it (never dropped)."""
+    seen: dict[str, object] = {}
+    for text, page in found:
+        flat = _flat(text)
+        if flat and flat not in seen:
+            seen[flat] = page
+    if not seen:
+        return refused_words("")
+    parts = [
+        f'"{t}"' + (f" (page {pg})" if pg not in (None, "") else "")
+        for t, pg in seen.items()
+    ]
+    words = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    if len(parts) == 1:
+        ((text, page),) = seen.items()
+        where = f" (page {page})" if page not in (None, "") else ""
+        return f'No quote: the paper\'s words "{text}" are not a full sentence{where}.'
+    return f"No quote: the paper's words {words} are not full sentences."

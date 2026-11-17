@@ -537,10 +537,19 @@ def test_an_entry_of_the_papers_reference_list_is_never_its_own_part():
 
 
 def test_separators_contents_leaders_and_tick_boxes_are_not_blanks():
-    pages = [(1, "1.\nTERMS\n" + "_" * 70 + "\nContents of the schedules ......................\n12\n"
+    pages = [(1, "CONTENTS\n1.\nTERMS\n" + "_" * 70 + "\nThe schedules ......................\n12\n"
                  "Annex list ........ iv\nPrice terms ........ Page 3\nAccepted [ ] Refused [ ]\nName: ________\n")]  # fmt: skip
     found = contract_checks.blanks(pages)
     assert [k for k, _l in found[1]] == ["signature"]
+
+
+def test_a_dotted_blank_before_a_page_footer_and_a_long_rule_under_a_label_are_blanks():
+    pages = [(1, "The Owner shall pay the sum of ......................\n12\n"
+                 "Witness:\n" + "_" * 70 + "\n")]  # fmt: skip
+    found = contract_checks.blanks(pages)
+    assert (
+        len(found[1]) == 2
+    )  # not a contents page, so "12" is a footer; the long rule has its label above
 
 
 def test_the_start_stores_the_plans_package_papers_with_the_run(package, monkeypatch):
@@ -658,3 +667,57 @@ def test_a_rule_check_rows_stored_passage_without_a_value_is_refused_and_a_value
         "are not a full sentence (page 3)."
     )
     assert value["paper_value"] == "6%"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Document No. ZZ-100-01 17 Nov 2026",
+        "Doc No: ZZ-100 2 of 10",
+        "Contract No. 12345 2026",
+        "Contract No. 6600 045321 2 of 4",
+    ],
+)
+def test_a_cover_number_never_takes_a_date_a_page_count_or_a_year(line):
+    want = {"Document No. ZZ-100-01 17 Nov 2026": "ZZ-100-01", "Doc No: ZZ-100 2 of 10": "ZZ-100",
+            "Contract No. 12345 2026": "12345", "Contract No. 6600 045321 2 of 4": "6600 045321"}  # fmt: skip
+    assert contract_package.cover_id([(1, line)]).number == want[line]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "2.1 Site Conditions",
+        "Section 12 General",
+        "Page 3 of 8",
+        "Article 4 of the",
+        "and 10 days after",
+    ],
+)
+def test_a_clause_page_or_article_number_or_a_plain_word_is_never_a_value(text):
+    assert not quote_sentence.holds_value(text) and not quote_sentence.is_value_clause(
+        text
+    )
+
+
+def test_both_refused_passages_keep_their_words_and_a_held_value_is_still_shown():
+    from app import crs_one
+
+    def row(quote, value):
+        return {"source": review_points.SOURCE_RULE_CHECK, "_row": {"row_kind": "ai_engineering_check"}, "paper_quote": quote,
+                "page": 3, "paper_value": value, "paper_value_page": 4, "paper_quote_note": "x"}  # fmt: skip
+
+    both, kept = (
+        row("(herein called", "and the other part"),
+        row("(herein called", "Set pressure 10 barg"),
+    )
+    review_points_service.sentence_quotes([both, kept], "contract")
+    assert both["paper_quote_note"] == (
+        'No quote: the paper\'s words "(herein called" (page 3) and "and the other part" (page 4) are not full sentences.'
+    )
+    assert kept["paper_value"] == "Set pressure 10 barg"
+    shown = crs_one.paper_shows(kept)
+    assert (
+        shown.startswith('No quote: the paper\'s words "(herein called"')
+        and '"Set pressure 10 barg" (as stored, page 4' in shown
+    )
