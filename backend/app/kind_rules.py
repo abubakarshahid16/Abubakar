@@ -215,6 +215,8 @@ def profile(document_id: str, allowed) -> tuple[dict, tuple]:
         return profile, (None, unknown_mark(document_id))
     library = ap._library(allowed)
     would = ap._match_attribute(library, profile, "equipment_type", ap.METHOD_EQUIPMENT)
+    # LPB: the books our rule sorting tagged for the equipment are equipment-type books too: not chosen for this kind
+    would.update(ap.equipment_rule_candidates(document_id, library))
     token = _IGNORE.set(True)
     try:
         would.update(ap.governing_standards(document_id, library, allowed)[0])

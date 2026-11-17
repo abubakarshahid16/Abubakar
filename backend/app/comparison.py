@@ -2467,9 +2467,9 @@ def _run_comparison(
     held_items.extend(es["held"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
-    from . import ai_applicability as ai_div
+    from . import ai_applicability as div
 
-    divided = ai_div.division_gate_for_run(requirements, stored, facts, standard_labels)
+    divided = div.for_run(requirements, stored, facts, standard_labels, review_run_id)
     requirements = divided["kept"]
     extra_not_applied.extend(divided["items"])
     held_items.extend(divided["held"])

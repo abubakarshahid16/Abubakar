@@ -1222,12 +1222,22 @@ def _semantic_cannot_cover_a_missing_reference(
 _FROM_TYPE = (METHOD_EQUIPMENT, METHOD_SCOPE, METHOD_EQUIPMENT_RULES)
 
 
-def _add_equipment_rule_books(selected: dict, submittal_document_id: str, library: list[dict]) -> None:
-    """LPB: keep every book that holds agreed rules our rule sorting tagged for this paper's equipment. A stronger or equal
-    reason already recorded (cited, governing, equipment type, scope, an engineer) is kept as it is; a weaker one is replaced."""
+def equipment_rule_candidates(submittal_document_id: str, library: list[dict]) -> dict[str, dict]:
+    """LPB: the books holding agreed rules our rule sorting tagged for this paper's equipment (`equipment_rule_books`)."""
     from . import equipment_rule_books
 
-    for standard_id, row in equipment_rule_books.candidates(connect(), submittal_document_id, library).items():
+    return equipment_rule_books.candidates(connect(), submittal_document_id, library)
+
+
+def _add_equipment_rule_books(selected: dict, submittal_document_id: str, library: list[dict],
+                              kind_part: tuple) -> None:
+    """LPB: keep every book that holds agreed rules our rule sorting tagged for this paper's equipment. A stronger or equal
+    reason already recorded (cited, governing, equipment type, scope, an engineer) is kept as it is; a weaker one is replaced.
+    #1474: a document whose KIND takes no equipment-type standards (`kind_rules.profile` gave its part) gets none of them
+    either; `kind_rules.profile` lists them with the equipment-type books it left out."""
+    if kind_part[0] is not None:
+        return
+    for standard_id, row in equipment_rule_candidates(submittal_document_id, library).items():
         existing = selected.get(standard_id)
         if existing is None or _PRIORITY[row["method"]] < _PRIORITY[existing["method"]]:
             selected[standard_id] = dict(row)
@@ -1351,7 +1361,7 @@ def select(
         decisions, scope_not_run = scope_decisions(library, profile)
     # LPB: after the scope pool is chosen (what the model is asked is unchanged), before the scope decisions apply (a scope
     # clause that excludes this equipment still excludes the book; one that covers it records the book as "scope").
-    _add_equipment_rule_books(selected, submittal_document_id, library)
+    _add_equipment_rule_books(selected, submittal_document_id, library, kind_part)
     scope_not_run = keep_no_type(
         submittal_document_id, selected, scope_not_run, library, allowed_document_ids
     )

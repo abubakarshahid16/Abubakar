@@ -20,10 +20,12 @@ METHOD = "equipment_rules"
 #: the stored reason (`review_applicable_standards.selection_reason`): counts and the app's own equipment names, never paper text
 REASON = "holds {n} agreed rule(s) our rule sorting tagged for this equipment ({names})"
 
-_TAGGED_SQL = """SELECT sr.standard_document_id, l.equip_type, l.equip_family, COUNT(*)
+#: Every label of a stored rule, grouped; WHICH labels count is decided by `equipment_decision` alone (one decider: its state,
+#: general flag, type and family), never by a second filter here.
+_TAGGED_SQL = """SELECT sr.standard_document_id, l.equip_state, l.equip_general, l.equip_type, l.equip_family, COUNT(*)
     FROM rule_equipment_label l JOIN standard_requirements sr ON sr.id = l.rule_ref
-    WHERE l.source = 'requirement' AND l.equip_state = 'agreed' AND l.equip_general = 0{superseded}
-    GROUP BY sr.standard_document_id, l.equip_type, l.equip_family"""
+    WHERE l.source = 'requirement'{superseded}
+    GROUP BY sr.standard_document_id, l.equip_state, l.equip_general, l.equip_type, l.equip_family"""
 
 
 def _has(conn: sqlite3.Connection, table: str) -> bool:
@@ -52,12 +54,14 @@ def tagged_counts(
     superseded = " AND sr.superseded_at IS NULL" if "superseded_at" in columns else ""
     wanted = set(book_ids)
     counts: Counter = Counter()
-    for book, rtype, rfam, n in conn.execute(_TAGGED_SQL.format(superseded=superseded)):
+    for book, state, general, rtype, rfam, n in conn.execute(
+        _TAGGED_SQL.format(superseded=superseded)
+    ):
         if book not in wanted:
             continue
         label = {
-            "equip_state": rule_equipment.AGREED,
-            "equip_general": 0,
+            "equip_state": state,
+            "equip_general": general,
             "equip_type": rtype,
             "equip_family": rfam,
         }
@@ -84,3 +88,20 @@ def candidates(
         for book, n in sorted(counts.items())
         if n > 0
     }
+
+
+def tag_only_books(conn: sqlite3.Connection, run_id: str | None) -> frozenset[str]:
+    """The books a run's selection INCLUDED only because they hold rules our rule sorting tagged for the equipment
+    (`selection_method` = METHOD). They come LAST wherever a run has a limit (the AI reviewer's rule budget, the division-scope
+    reads), so a book chosen by a citation, the governing table or its scope clause never loses a place to one of them."""
+    if not run_id:
+        return frozenset()
+    try:
+        rows = conn.execute(
+            "SELECT standard_document_id FROM review_applicable_standards"
+            " WHERE review_run_id = ? AND included = 1 AND selection_method = ?",
+            (run_id, METHOD),
+        ).fetchall()
+    except sqlite3.Error:  # no selection table: no such book
+        return frozenset()
+    return frozenset(str(r[0]) for r in rows)

@@ -288,3 +288,47 @@ def test_an_unsure_equipment_type_holds_the_book_for_the_engineer(monkeypatch):
     assert (
         row["included"] is False and "held for the engineer" in row["held_for_engineer"]
     )
+
+
+def test_a_procedure_gets_no_book_by_equipment_tags_and_is_told_which(monkeypatch):
+    """#1474 holds for this route too: a document whose kind takes no equipment-type standards gets none of these books."""
+    from tests.test_1474_kind_chooses_rules import _set_kind
+
+    monkeypatch.setattr(settings, "kind_chooses_rules_enabled", True)
+    book = _book("std_k", "SAES-X-601")
+    _rule(book, typ="pump", fam="rotating")
+    sub = _pump()
+    _set_kind(sub, "procedure")
+    result = applicability.select(
+        sub, allowed_document_ids=_scope(book, sub), persist=False
+    )
+    assert book not in {
+        r["standard_document_id"] for r in result["selected"] if r["included"]
+    }
+    excluded = {
+        e["standard_document_id"] for e in result["standards_check"]["kind_excluded"]
+    }
+    assert book in excluded
+    _set_kind(sub, "datasheet")  # the same paper read as a datasheet keeps it
+    result = applicability.select(
+        sub, allowed_document_ids=_scope(book, sub), persist=False
+    )
+    assert _rows(result)[book]["included"] is True
+
+
+def test_the_runs_tag_only_books_are_read_from_its_selection():
+    book, other = _book("std_t", "SAES-X-701"), _book("std_o", "SAES-X-702")
+    _rule(book, typ="pump", fam="rotating")
+    sub = _doc(
+        "sub",
+        "pump-sheet.pdf",
+        "CONTRACTOR_SUBMITTAL",
+        text="Per SAES-X-702.",
+        equipment_type="pump",
+    )
+    run = _run(sub)
+    applicability.select(
+        sub, allowed_document_ids=_scope(book, other, sub), review_run_id=run
+    )
+    assert equipment_rule_books.tag_only_books(db.connect(), run) == {book}
+    assert equipment_rule_books.tag_only_books(db.connect(), None) == frozenset()
