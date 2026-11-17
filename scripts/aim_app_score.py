@@ -252,9 +252,17 @@ def wait_read(c: Client, doc: str, timeout: float, poll: float) -> str:
 
 
 def wait_run(
-    c: Client, path: str, params: dict | None, timeout: float, poll: float
+    c: Client,
+    path: str,
+    params: dict | None,
+    timeout: float,
+    poll: float,
+    history: tuple[str, str] | None = None,
 ) -> tuple[str, dict | None]:
-    """Poll a route whose answer has a 'status' until it is final; 404 means 'not there yet'."""
+    """Poll a route whose answer has a 'status' until it is final; any other answer (404, the general page's 409 "not
+    finished") means 'not there yet'. With `history` = (paper id, run id): while the route is not there, the paper's history
+    is read too, and a run it lists as failed or cancelled ends the wait at once (a failed run with nothing stored never
+    gets a page)."""
     end, status = time.time() + timeout, "unknown"
     while time.time() < end:
         code, body = c.json("GET", path, params=params)
@@ -262,12 +270,30 @@ def wait_run(
             status = str(body.get("status"))
             if status in RUN_DONE:
                 return status, body
+        elif history:
+            ended = history_status(c, *history)
+            if ended in ("failed", "cancelled"):
+                return ended, None
         time.sleep(poll)
     return f"timeout (last status {status})", None
 
 
+def history_status(c: Client, doc: str, run_id: str) -> str | None:
+    """The status word GET /api/reviews/papers/{id}/history gives this run, or None."""
+    code, body = c.json(
+        "GET", f"/api/reviews/papers/{urllib.parse.quote(doc, safe='')}/history"
+    )
+    if code != 200 or not isinstance(body, dict):
+        return None
+    for r in body.get("runs") or []:
+        if isinstance(r, dict) and r.get("run_id") == run_id:
+            return str(r.get("status") or "")
+    return None
+
+
 def xlsx_rows(blob: bytes, sheet: str | None) -> int | None:
-    """Rows under the header row of one sheet (the first non-empty row is the header). None when it cannot be read."""
+    """Rows under the table's header row of one sheet. The header row is the first row with three or more filled cells
+    (the mark and title rows above it fill one cell each). None when it cannot be read or has no such row."""
     try:
         import io
 
@@ -280,12 +306,14 @@ def xlsx_rows(blob: bytes, sheet: str | None) -> int | None:
             ws = wb[sheet]
         else:
             return None
-        filled = sum(
-            1
+        rows = [
+            sum(1 for v in row if v not in (None, ""))
             for row in ws.iter_rows(values_only=True)
-            if any(v not in (None, "") for v in row)
-        )
-        return max(filled - 1, 0)
+        ]
+        head = next((i for i, n in enumerate(rows) if n >= 3), None)
+        if head is None:
+            return None
+        return sum(1 for n in rows[head + 1 :] if n > 0)
     except Exception:  # noqa: BLE001 - an unreadable file is NOT MEASURED, said in the record
         return None
 
@@ -575,8 +603,11 @@ def review_one(c: Client, a, paper: str, copy: str, path: Path, engine: str) -> 
                 {"run_id": run_id},
                 a.timeout,
                 a.poll,
+                history=(doc, run_id),
             )
             rec["status"] = status
+            if status in ("failed", "cancelled"):
+                raise Stop(f"the review {status} (the paper's history says so)")
             fetch_general(c, out, label, doc, run_id, rec)
     except Stop as exc:
         rec["status"] = (

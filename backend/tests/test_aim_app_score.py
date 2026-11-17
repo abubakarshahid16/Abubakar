@@ -42,6 +42,11 @@ def _xlsx(sheets: dict[str, int]) -> bytes:
     wb.remove(wb.active)
     for name, rows in sheets.items():
         ws = wb.create_sheet(name)
+        ws.append(
+            ["AI, to be checked"]
+        )  # the app's sheets: mark row, title row, a statement, then the table
+        ws.append([f"{name}: invented title"])
+        ws.append([f"{rows} points reviewed, {rows} in this file"])
         ws.append(["n", "field", "label"])
         for i in range(rows):
             ws.append([i + 1, f"field {i + 1}", "Question"])
@@ -65,6 +70,7 @@ class FakeApp:
         )
         self.requests: list[tuple[str, str, str]] = []  # (method, path, authorization)
         self.starts: list[dict] = []
+        self.fail_runs = False  # a run that fails with nothing stored: the page stays 409, the history says failed
         self.uploads = 0
         self.polls: dict[str, int] = {}
         self.lock = threading.Lock()
@@ -135,8 +141,10 @@ class FakeApp:
         if p.startswith("/api/reviews/papers/") and p.endswith("/general"):
             run = q.get("run_id")
             self.polls[run] = self.polls.get(run, 0) + 1
-            if self.polls[run] < 2:
-                return 200, {"status": "running"}
+            if (
+                self.fail_runs or self.polls[run] < 2
+            ):  # the app's page: 409 "not finished" while queued or running
+                return 409, {"detail": {"message": "not finished"}}
             lines = self.lines(self.comments)
             return 200, {
                 "run_id": run,
@@ -157,6 +165,17 @@ class FakeApp:
                 "unlisted_books": {"count": 0, "sentence": None},
                 "books": [],
                 "not_held": [],
+            }
+        if p.endswith("/history"):
+            doc = parts[4]
+            return 200, {
+                "runs": [
+                    {
+                        "run_id": f"run_{doc}",
+                        "version": "general",
+                        "status": "failed" if self.fail_runs else "running",
+                    }
+                ]
             }
         if p.endswith("/general/sheet"):
             if q.get("copy") != "team":
@@ -688,3 +707,39 @@ def test_switches_fail_otherwise(app, setup, method, capsys):
         == 1
     )
     assert "SWITCHES GATE: FAIL" in capsys.readouterr().out
+
+
+def test_a_failed_run_ends_the_wait_at_once_and_is_not_measured(app, setup, capsys):
+    app.fail_runs = True
+    argv_timeout = "60"  # a long timeout: the history, not the clock, must end the wait
+    rc = driver.main(
+        [
+            "run",
+            "--base-url",
+            app.base,
+            "--token-file",
+            str(setup["token"]),
+            "--copies-dir",
+            str(setup["copies"]),
+            "--out",
+            str(setup["out"]),
+            "--poll",
+            "0.01",
+            "--timeout",
+            argv_timeout,
+            "--papers",
+            "pump",
+            "--copies",
+            "A",
+        ]
+    )
+    assert rc == 1
+    rec = json.loads((setup["out"] / "pump-A-run.json").read_text())
+    assert rec["status"] == "failed" and rec["seconds"] < 30
+    assert "NOT MEASURED" in capsys.readouterr().out
+
+
+def test_sheet_rows_are_counted_under_the_tables_header_row():
+    assert driver.xlsx_rows(_xlsx({"All points": 7}), "All points") == 7
+    assert driver.xlsx_rows(_xlsx({"All points": 0}), "All points") == 0
+    assert driver.xlsx_rows(_xlsx({"All points": 7}), "Comments") is None
