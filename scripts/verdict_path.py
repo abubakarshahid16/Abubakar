@@ -94,6 +94,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "order 14 lane A: the checklist rule kind sum_percent_of decides a checklist verdict from two values",
     ),
     (
+        APP + "question_card.py",
+        "order 14 lane D: a card whose limit no engineer confirmed decides nothing; a condition value that rules nothing out is asked",
+    ),
+    (
         APP + "agent_review_code_proof.py",
         "the proof behind a proven Pass or Fail: recomputed from the line's own texts and values",
     ),
@@ -104,6 +108,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "agent_review_run.py", "runs the AI reviewer and charges its calls"),
     (APP + "rule_trust.py", "which AI-compiled rule may decide a verdict"),
     (APP + "agent_claude.py", "the Claude calls of the AI reviewer (egress, cost)"),
+    (
+        APP + "standards_web_search.py",
+        "what leaves for the online search of rule books not held (egress, cost)",
+    ),
     (
         APP + "agent_review_calculator_run.py",
         "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass",

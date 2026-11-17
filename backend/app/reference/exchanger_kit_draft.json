@@ -1,5 +1,5 @@
 {
-  "_about": "Heat exchanger kit PREPARATION (parked kit #1481, milestone 58), all DRAFT. Box list and draft rule cards for a shell-and-tube heat exchanger datasheet, built only from the standards the library already holds: SAES-E-004 (shell and tube exchangers). Every card is a draft: no engineer has signed it off, no real exchanger document has proved it. Read only when `exchanger_kit_draft_enabled` is on (off by default); every result is held for the engineer. Rule text is in our own words, never the standard's. Clause numbers and pages are as stored in the library and not verified. A card whose value no held clause requires stays draft 'needs ...' (order 301.1, A-1440). TEMA, API 660 and API 661 (the standards the committed checklist names) are NOT held, so no card cites them. The other held exchanger standards (SAES-E-006 double pipe and hairpin, SAES-E-007 air-cooled, SAES-E-014 plate and frame, SAES-E-015) are for other exchanger types and are not used here. ASME VIII-1 is held, but 0 of its 4,073 stored rules carry ASME's own clause numbers, so no card cites an ASME clause.",
+  "_about": "Heat exchanger kit PREPARATION (parked kit #1481, milestone 58), all DRAFT. Box list and draft rule cards for a shell-and-tube heat exchanger datasheet, built only from the standards the library already holds: SAES-E-004 (shell and tube exchangers). Every card is a draft: no engineer has signed it off, no real exchanger document has proved it. Read only when `exchanger_kit_draft_enabled` is on (off by default); every result is held for the engineer. Rule text is in our own words, never the standard's. Clause numbers and pages are as stored in the library and not verified. A card whose value no held clause requires stays draft 'needs ...' (order 301.1, A-1440). TEMA, API 660 and API 661 (the standards the committed checklist names) are NOT held, so no card cites them. The other held exchanger standards (SAES-E-006 double pipe and hairpin, SAES-E-007 air-cooled, SAES-E-014 plate and frame, SAES-E-015) are for other exchanger types and are not used here. ASME VIII-1 is held, but 0 of its 4,073 stored rules carry ASME's own clause numbers, so no card cites an ASME clause. A QUESTION ONLY card (one with `limit_draft`) decides nothing: its `limit_draft.quotes` are the stored page's own words, each found on that page by the quote check; everything else in it is an AI draft for the engineer.",
   "equipment_type": "Heat Exchanger",
   "status": "DRAFT",
   "standards_held": [
@@ -498,18 +498,29 @@
       "id": "EXHD-10",
       "draft": true,
       "severity": "critical",
-      "text": "The design pressure is at least 1.05 times the maximum operating pressure. Not checked: the larger factor of 1.1 (or the fixed offset of 15 psi) that the clause gives for a maximum operating pressure up to 6,900 kPa; the stored table text is garbled, so only the lowest factor in it is used. The check reads whichever operating pressure the sheet states, which may be the normal and not the maximum one. It reads one design pressure: the shell side and the tube side are each the clause's, so a sheet that prints two is an engineer's question.",
+      "text": "AI draft, engineer to confirm. QUESTION ONLY, never decided: state the design pressure and the maximum operating pressure (MOP); both are asked for. The clause says the internal design pressure is set by a table. As the AI reads its stored text: for a MOP up to 6,900 kPa (1,000 psi) the design pressure is the greater of 1.1 x MOP and MOP + 15 psi; for a MOP of 6,900 kPa (1,000 psi) and above it is the greater of 1.05 x MOP and a second value that the stored text prints as 1100 psi that the stored table text does not show clearly (engineer to confirm: stored table text unclear). The engineer confirms both minimum margins. Code does not compute it. The shell side and the tube side each have their own design pressure.",
       "source": {
         "standard": "SAES-E-004",
         "clause": "7.2.3",
         "page": 17
       },
       "rule": {
-        "kind": "percent_of",
+        "kind": "required",
         "field": "design_pressure",
-        "op": ">=",
-        "right": "operating_pressure",
-        "percent": 105
+        "right": "operating_pressure"
+      },
+      "limit_draft": {
+        "status": "AI draft, engineer to confirm",
+        "quotes": [
+          "The internal design pressure shall be according to the following table",
+          "Up to 6,900 kPa (1,000 psi)",
+          "6,900 kPa (1,000 psi) and above"
+        ],
+        "quotes_verified_against": "SAES-E-004 7.2.3, stored page 17: the quotes only, never the table's margins",
+        "mop_up_to_6900_kPa": "greater of 1.1 x MOP and MOP + 15 psi",
+        "mop_6900_kPa_and_above": "greater of 1.05 x MOP and a second value that the stored text prints as 1100 psi",
+        "mop_6900_kPa_and_above_margin": "engineer to confirm: stored table text unclear",
+        "note": "stored table text garbled: the band-1 margin reads as 15 psi; where the band-2 margin stands the stored text prints a lone '1100' and 'psi', not a clear margin. The engineer confirms both minimum margins"
       },
       "tests": [
         {
@@ -526,39 +537,18 @@
               "barg"
             ]
           ],
-          "expect": "COMPLIANT"
+          "expect": "NEEDS_ENGINEER_REVIEW"
         },
         {
           "name": "breaks",
           "facts": [
             [
-              "design pressure",
-              "10.4",
-              "barg"
-            ],
-            [
               "maximum operating pressure",
               "10",
               "barg"
             ]
           ],
-          "expect": "NON_COMPLIANT"
-        },
-        {
-          "name": "at the limit",
-          "facts": [
-            [
-              "design pressure",
-              "10.5",
-              "barg"
-            ],
-            [
-              "maximum operating pressure",
-              "10",
-              "barg"
-            ]
-          ],
-          "expect": "COMPLIANT"
+          "expect": "MISSING_INFORMATION"
         },
         {
           "name": "unclear",
@@ -577,36 +567,15 @@
           "expect": "MISSING_INFORMATION"
         },
         {
-          "name": "a different unit above the limit",
+          "name": "no MOP is a question",
           "facts": [
             [
               "design pressure",
-              "1.2",
-              "MPa"
-            ],
-            [
-              "maximum operating pressure",
-              "1100",
-              "kPa"
+              "11",
+              "barg"
             ]
           ],
-          "expect": "COMPLIANT"
-        },
-        {
-          "name": "a different unit below the limit",
-          "facts": [
-            [
-              "design pressure",
-              "1.15",
-              "MPa"
-            ],
-            [
-              "maximum operating pressure",
-              "1100",
-              "kPa"
-            ]
-          ],
-          "expect": "NON_COMPLIANT"
+          "expect": "NEEDS_ENGINEER_REVIEW"
         }
       ]
     },

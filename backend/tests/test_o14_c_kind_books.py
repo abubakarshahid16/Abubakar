@@ -135,8 +135,8 @@ def test_the_kind_books_file_never_lists_fewer_books_than_the_apps_tables_for_a_
     assert data["format"] == "crs-gates-kind-books/1"
     for key, entries in data["kinds"].items():
         _kind, _, etype = key.partition("|")
-        if not etype:
-            continue
+        if not etype or etype.startswith("playbook:"):
+            continue  # order 14 lane P: a "<kind>|playbook:<id>" key is a procedure type, not an equipment type
         listed = [e["book"] for e in entries]
         want = list(gov["equipment_types"].get(etype, [])) + list(
             gov["materials_standards"]

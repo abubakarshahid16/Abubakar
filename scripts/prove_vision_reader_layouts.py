@@ -52,8 +52,8 @@ sys.path.insert(0, str(REPO / "backend"))
 #: into --bench-dir; a missing file skips only that one layout.
 LAYOUTS: dict[str, tuple[str, int]] = {
     "heat_exchanger_datasheet": ("specification-1-heat-exchanger.pdf", 5),
-    "psv_datasheet": ("DS-0000-DAS-I-01-psv.pdf", 2),
-    "pump_datasheet": ("DS-0000-DAS-M-01-pump.pdf", 2),
+    "psv_datasheet": ("DS-0000-QRS-I-01-psv.pdf", 2),
+    "pump_datasheet": ("DS-0000-QRS-M-01-pump.pdf", 2),
 }
 
 #: Portable (#498): DOCLING_BENCH_DIR when set (the PC: D:\docling-bench\input),

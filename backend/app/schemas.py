@@ -2865,6 +2865,9 @@ class ReviewRunSummary(BaseModel):
     findings_total: int = 0
     by_status: dict[str, int] = {}
     recommended_code: str | None = None
+    #: Order 14: one run cannot read the paper's list, so an approving code is not shown in `recommended_code`; this sentence
+    #: ("No review code proposed: see the review page.") stands in its place. Null otherwise.
+    recommended_code_note: str | None = None
     #: The recommendation's own words. Never re-worded by a screen.
     recommended_reason: str | None = None
     #: 2g: the technical sentence behind `recommended_reason` (the nominal
@@ -4238,8 +4241,8 @@ class PlaybookElementResult(BaseModel):
     expects: str
     source: dict
     standard_held: bool
-    #: present | unclear | missing | could_not_be_checked | standard_not_held.
-    #: "standard_not_held" is never "met".
+    #: present | unclear | missing | could_not_be_checked | standard_not_held | condition_not_stated.
+    #: "standard_not_held" is never "met"; "condition_not_stated" (order 14 lane P) is never "met" or "missing".
     state: str
     reason: str | None = None
     evidence: list[PlaybookEvidenceItem]

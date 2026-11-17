@@ -412,9 +412,10 @@ def test_a_rule_whose_book_is_not_held_is_a_book_missing_question_with_no_rule_w
         and p["rule_text"] is None
         and p["clause_quote"] is None
     )
+    # order 14 lane C (C1): the clause the finding names (8.5) is said with the missing book; it was dropped before
     assert (
-        p["action"].startswith("Book missing: BOOK-77.")
-        and p["reason_words"] == "Book missing: BOOK-77"
+        p["action"].startswith("Book missing: BOOK-77, clause 8.5.")
+        and p["reason_words"] == "Book missing: BOOK-77, clause 8.5"
     )
     held = rp.rule_point(
         row,
@@ -912,6 +913,8 @@ def test_an_older_run_file_missing_a_line_is_refused(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(
         "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+        # order 14: the count reads the lines as the file does, with the run's books not held (`stored_lines`)
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT, why TEXT);"
     )
     lines = [mk("R-1", field="A"), mk("R-2", field="B")]
     conn.executemany(
@@ -940,6 +943,8 @@ def test_an_older_run_file_with_a_comment_row_dropped_is_refused(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(
         "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+        # order 14: the count reads the lines as the file does, with the run's books not held (`stored_lines`)
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT, why TEXT);"
     )
     lines = [mk("R-1", field="A"), mk("R-2", field="B")]
     conn.executemany(
@@ -1084,6 +1089,8 @@ def test_an_older_run_file_missing_a_whole_sheet_is_refused(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(
         "CREATE TABLE agent_review_line (run_id TEXT, item_id TEXT, line_json TEXT); CREATE TABLE agent_review_general (run_id TEXT);"
+        # order 14: the count reads the lines as the file does, with the run's books not held (`stored_lines`)
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT, why TEXT);"
     )
     lines = [mk("R-1", field="A"), mk("R-2", field="B")]
     conn.executemany(

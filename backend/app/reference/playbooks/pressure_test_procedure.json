@@ -1,0 +1,676 @@
+{
+ "format": "review-playbook/1",
+ "id": "pressure_test_procedure",
+ "title": "Pressure test procedure",
+ "version": "2",
+ "document_kind": "procedure",
+ "sign_off": {
+  "status": "draft",
+  "by": null,
+  "date": null
+ },
+ "clauses_verified": false,
+ "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off. Scope (SAES-A-004 1.1, 1.5): pressure testing of pipelines, plant piping and field-fabricated equipment; a cover naming equipment the standard excludes from pressure testing (rotating machinery, relief devices) or a factory acceptance test does not choose this playbook.",
+ "title_cues": [
+  "pressure test*",
+  "hydrostatic test*",
+  "hydrotest*",
+  "hydro test*",
+  "pneumatic test*"
+ ],
+ "title_excludes": [
+  "relief valve*",
+  "safety valve*",
+  "rupture dis*",
+  "pump*",
+  "compressor*",
+  "turbine*",
+  "factory acceptance",
+  "calibrat*"
+ ],
+ "elements": [
+  {
+   "id": "PT02",
+   "title": "Test medium and its quality",
+   "expects": "The procedure names the test medium and the water quality it must meet.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.2",
+    "page": 14,
+    "quote": "Testing fluid quality shall be as per SAES-A-007",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "test medium",
+     "any": [
+      "test medium",
+      "test media",
+      "test fluid*",
+      "test water",
+      "water",
+      "nitrogen"
+     ]
+    },
+    {
+     "label": "quality",
+     "any": [
+      "quality",
+      "analys*",
+      "sampl*",
+      "chloride*",
+      "bacteria",
+      "ph"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT03",
+   "title": "Chemical treatment of the test water",
+   "expects": "When treatment chemicals are used, the procedure injects them continuously at a rate that gives the specified concentration while the system is filled.",
+   "source": {
+    "standard": "SAES-A-007",
+    "clause": "7.5",
+    "page": 9,
+    "quote": "Any treatment chemicals shall be continuously injected at a rate that will provide the specified concentration",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "chemicals",
+     "any": [
+      "chemical*",
+      "inhibitor*",
+      "biocide*",
+      "oxygen scavenger*"
+     ]
+    },
+    {
+     "label": "injection",
+     "any": [
+      "inject*",
+      "dosing",
+      "dosage",
+      "concentration*",
+      "ppm"
+     ]
+    }
+   ],
+   "applies_when": {
+    "label": "chemical treatment of the test water",
+    "any": [
+     "chemical*",
+     "inhibitor*",
+     "biocide*",
+     "oxygen scavenger*",
+     "treated water",
+     "water treatment"
+    ]
+   }
+  },
+  {
+   "id": "PT04",
+   "title": "Approval of a pneumatic test",
+   "expects": "When a pneumatic strength test is used, the procedure says it is done only with the approval the standard names.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.4.2",
+    "page": 14,
+    "quote": "Pneumatic strength testing is not permitted without approval from below entities",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "pneumatic",
+     "any": [
+      "pneumatic"
+     ]
+    },
+    {
+     "label": "approval",
+     "any": [
+      "approv*",
+      "authori*",
+      "permission"
+     ]
+    }
+   ],
+   "applies_when": {
+    "label": "a pneumatic test",
+    "any": [
+     "pneumatic"
+    ]
+   }
+  },
+  {
+   "id": "PT05",
+   "title": "Leak test before a pneumatic test",
+   "expects": "When a pneumatic test is used, the procedure performs a leak test before it.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.8.3",
+    "page": 16,
+    "quote": "Prior to pneumatic pressure test a leak test shall be performed",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "pneumatic",
+     "any": [
+      "pneumatic"
+     ]
+    },
+    {
+     "label": "leak test",
+     "any": [
+      "leak test*",
+      "leak check*",
+      "tightness test*",
+      "soap test*",
+      "bubble test*"
+     ]
+    }
+   ],
+   "applies_when": {
+    "label": "a pneumatic test",
+    "any": [
+     "pneumatic"
+    ]
+   }
+  },
+  {
+   "id": "PT06",
+   "title": "Test pressure and hold time",
+   "expects": "The procedure states the test pressure and how long it is held, with their basis.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.6",
+    "page": 14,
+    "quote": "Test pressures and test durations shall be based on the applicable Saudi Aramco standards",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "test pressure",
+     "any": [
+      "test pressure*"
+     ]
+    },
+    {
+     "label": "duration",
+     "any": [
+      "duration",
+      "hold*",
+      "minute*",
+      "hour*",
+      "min"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT07",
+   "title": "Static head of the test liquid",
+   "expects": "The procedure takes the effect of the static head of the test liquid into account.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.5",
+    "page": 14,
+    "quote": "The effect of the static head of the testing liquid shall be considered",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "static head",
+     "any": [
+      "static head",
+      "hydrostatic head",
+      "liquid head",
+      "elevation*",
+      "highest point*",
+      "lowest point*",
+      "high point*",
+      "low point*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT08",
+   "title": "Overpressure protection by a test relief valve",
+   "expects": "The procedure provides a relief valve on the test system, with its set pressure.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.7.1",
+    "page": 15,
+    "quote": "of adequate capacity set to relieve at 5% above the test pressure shall be installed",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "relief valve",
+     "any": [
+      "relief valve*",
+      "safety valve*",
+      "psv",
+      "prv",
+      "pressure relief*"
+     ]
+    },
+    {
+     "label": "set pressure",
+     "any": [
+      "set*",
+      "relieve*",
+      "relieving"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT09",
+   "title": "Calibrated gauges and recorders",
+   "expects": "The procedure requires all gauges and recorders to be calibrated before use.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.11.6.1",
+    "page": 16,
+    "quote": "All gauges and recorders shall be calibrated prior to use.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "gauges",
+     "any": [
+      "gauge*",
+      "gage*",
+      "recorder*",
+      "transmitter*"
+     ]
+    },
+    {
+     "label": "calibration",
+     "any": [
+      "calibrat*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT10",
+   "title": "Number and range of gauges",
+   "expects": "The procedure uses at least two pressure gauges, one on the test manifold and one at the highest point of the system.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.11.6.4",
+    "page": 17,
+    "quote": "A minimum of two pressure gauges are required for the test system.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "gauges",
+     "any": [
+      "gauge*",
+      "gage*"
+     ]
+    },
+    {
+     "label": "number and place",
+     "any": [
+      "two",
+      "2 nos",
+      "second",
+      "highest point*",
+      "high point*",
+      "manifold*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT11",
+   "title": "Isolation of the test section",
+   "expects": "The procedure says how the test section is isolated (blinds, spectacle blinds or closed valves).",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.12.1",
+    "page": 17,
+    "quote": "Blind flanges, paddle blinds or spectacle blinds shall be used to isolate the test sections.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "isolation",
+     "any": [
+      "blind*",
+      "spectacle*",
+      "spade*",
+      "isolat*",
+      "blank*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT12",
+   "title": "Vents and drains",
+   "expects": "The procedure places vents at the high points of the tested system.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.13.1",
+    "page": 18,
+    "quote": "Vents shall be provided at all high points in the tested system as needed.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "vents",
+     "any": [
+      "vent",
+      "vents",
+      "venting",
+      "vented"
+     ]
+    },
+    {
+     "label": "high points",
+     "any": [
+      "high point*",
+      "highest point*",
+      "top"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT22",
+   "title": "Drains",
+   "expects": "The procedure places drains at the low points of the tested system (scrapable, submarine and buried pipelines excepted).",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.13.2",
+    "page": 18,
+    "quote": "drains shall be provided at all low points in the system",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "drains",
+     "any": [
+      "drain",
+      "drains",
+      "drain valve*",
+      "drain point*"
+     ]
+    },
+    {
+     "label": "low points",
+     "any": [
+      "low point*",
+      "lowest point*",
+      "bottom"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT13",
+   "title": "Rating of temporary connections and the manifold",
+   "expects": "The procedure says the manifold, temporary piping and dummy spools are rated at least as the tested system.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "5.14.1",
+    "page": 18,
+    "quote": "dummy spools shall be of same or higher-pressure rating as the piping system",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "temporary items",
+     "any": [
+      "manifold*",
+      "temporary",
+      "dummy spool*",
+      "test pump*",
+      "hose*"
+     ]
+    },
+    {
+     "label": "rating",
+     "any": [
+      "rating",
+      "rated",
+      "class",
+      "pressure rating"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT14",
+   "title": "Raising the pressure in steps",
+   "expects": "The procedure raises the pressure gradually, in steps, with a check of joints at the first step.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "6.1.4",
+    "page": 20,
+    "quote": "The pressure shall be gradually increased until a gauge pressure which is the lesser of one-half the test pressure",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "pressure",
+     "any": [
+      "pressur*"
+     ]
+    },
+    {
+     "label": "in steps",
+     "any": [
+      "step*",
+      "stage*",
+      "gradual*",
+      "increment*",
+      "slowly"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT15",
+   "title": "Keeping people away from the test area",
+   "expects": "The procedure keeps everyone away from the test area for at least 10 minutes after the test pressure is reached.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "6.1.2",
+    "page": 19,
+    "quote": "No one shall approach the test area for a minimum of 10 minutes after the test pressure is reached",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "exclusion",
+     "any": [
+      "barricad*",
+      "exclusion zone*",
+      "restricted area*",
+      "approach*",
+      "keep clear",
+      "unauthori*",
+      "warning sign*",
+      "cordon*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT16",
+   "title": "Test record",
+   "expects": "The procedure records the test on a pressure test report or chart.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "6.2",
+    "page": 20,
+    "quote": "Test records shall be recorded on Pressure Test Report",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "record",
+     "any": [
+      "test record*",
+      "test report*",
+      "test certificate*",
+      "chart*",
+      "record sheet*",
+      "test form*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT17",
+   "title": "Disposal of the test fluid",
+   "expects": "The procedure disposes of the test fluid as SAEP-327 or the company directs.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "7.2",
+    "page": 20,
+    "quote": "The test fluid shall be disposed in accordance with SAEP-327",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "disposal",
+     "any": [
+      "dispos*",
+      "discharg*",
+      "dump*"
+     ]
+    },
+    {
+     "label": "test fluid",
+     "any": [
+      "water",
+      "test fluid*",
+      "test medium",
+      "test media"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT18",
+   "title": "Reinstatement after the test",
+   "expects": "The procedure removes every temporary item installed for the test (manifolds, valves, blinds, spacers, supports).",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "7.4",
+    "page": 21,
+    "quote": "All temporary items installed for testing purposes (e.g., manifolds, valves, blinds, spacers, supports) shall be removed.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "removal",
+     "any": [
+      "remov*",
+      "dismantl*",
+      "taken out"
+     ]
+    },
+    {
+     "label": "temporary items",
+     "any": [
+      "temporary",
+      "blind*",
+      "spool*",
+      "manifold*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT19",
+   "title": "Lay-up and preservation after the test",
+   "expects": "The procedure says how the system is laid up or preserved after the test.",
+   "source": {
+    "standard": "SAES-A-004",
+    "clause": "7.5",
+    "page": 21,
+    "quote": "shall comply with the lay-up and preservation procedures per SAES-A-007",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "lay-up",
+     "any": [
+      "lay up",
+      "laid up",
+      "layup",
+      "preserv*",
+      "mothball*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PT20",
+   "title": "Safeguards against oxygen ingress",
+   "expects": "When the system is laid up after the test, the procedure has safeguards that keep oxygen out.",
+   "source": {
+    "standard": "SAES-A-007",
+    "clause": "9",
+    "page": 10,
+    "quote": "Hydrostatic testing and lay-up procedures shall contain safe-guards to prevent oxygen ingress",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "oxygen",
+     "any": [
+      "oxygen*",
+      "air ingress",
+      "ingress",
+      "nitrogen blanket*",
+      "inert gas*",
+      "nitrogen purg*"
+     ]
+    }
+   ],
+   "applies_when": {
+    "label": "lay-up after the test",
+    "any": [
+     "lay up",
+     "laid up",
+     "layup",
+     "wet lay*",
+     "dry lay*"
+    ]
+   }
+  },
+  {
+   "id": "PT21",
+   "title": "Documentation the safety instruction asks for",
+   "expects": "The procedure includes the documents that GI-0002.102 paragraph 5.1.2.5 asks a pressure test procedure to include (named by SAES-A-004 5.8.2).",
+   "source": {
+    "standard": "GI-0002.102",
+    "clause": "5.1.2.5"
+   },
+   "evidence": [
+    {
+     "label": "documents",
+     "any": [
+      "checklist*",
+      "permit*",
+      "safety instruction*",
+      "test package*",
+      "attachment*"
+     ]
+    }
+   ]
+  }
+ ]
+}

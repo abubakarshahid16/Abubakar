@@ -6,12 +6,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import agent_review_wording as wording
 from . import (
     crs_comments,
     crs_completeness,
     evidence_boxes,
     review_code_proposal,
+    standards_web_search,
 )
 from . import review as review_mod
 from . import (
@@ -372,6 +372,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ai_pts, not_held = (
         rp.ai_points_of_run(conn, ai_run, paper_id, readable) if ai_run else ([], [])
     )
+    library = rp.library_of(conn)
+    not_held = rp.books_not_held(not_held, [], library)  # the run's record, re-tested against today's library
     rc_pts = _rule_points(rc_run, paper_id, scope) if rc_run else []
     # the AI review is the only reviewer: its notes are points of the one list (a rule check lists its own); the notes are the calculator's: behind its setting
     if ai_run and not rc_run and settings.ai_review_calculator_enabled:
@@ -399,9 +401,12 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d["by"] = names.get(d["by"]) or d["by"]
         p["decision"] = d
     decided = sum(1 for p in points if p["decision"]["state"])
+    not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
     )
+    # the online search for books not held: off, {} and nothing added; never a point
+    online = standards_web_search.into(counts, conn, ai_run, not_held)
     proposal = review_code_proposal.propose(
         points,
         unread_pages=_unread_pages(rc_run or ai_run, scope),
@@ -410,7 +415,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     )
     final = (
         conn.execute(
-            "SELECT engineer_final_code FROM review_runs WHERE id = ?",
+            "SELECT engineer_final_code, override_reason FROM review_runs WHERE id = ?",
             (rc_run or ai_run,),
         ).fetchone()
         if (rc_run or ai_run)
@@ -423,6 +428,15 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
         "counts": counts,
         "proposed_code": proposal,
         "final_code": (final["engineer_final_code"] if final else None) or None,
+        # the recorded code as the page and each file print it (an approving code recorded with points open says so)
+        "final_code_words": review_code_proposal.recorded_words(
+            conn,
+            rc_run or ai_run,
+            (final["engineer_final_code"] if final else None) or None,
+            final["override_reason"] if final else None,
+            undecided=len(points) - decided,
+            of=len(points),
+        ),
         "code_run_id": rc_run or ai_run,
         "decided": decided,
         "of": len(points),
@@ -438,7 +452,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
     listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
-    return listing, points, {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
+    facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
+    return listing, points, {**facts, **online}
 
 
 def assemble(paper_id: str, scope) -> dict:
@@ -507,11 +522,57 @@ def undecided(paper_id: str, scope) -> tuple[int, int]:
     )
 
 
+def missing_books(conn, run_id: str) -> list[dict]:
+    """The run's rule books not held, from its own record (`agent_review_missing_book`), as `crs_ai_words.mark_not_held` reads them."""
+    return [{"rule_book": r["name"], "why": r["why"] or ""}
+            for r in conn.execute("SELECT name, why FROM agent_review_missing_book WHERE run_id = ? ORDER BY rowid", (run_id,))]  # fmt: skip
+
+
+def stored_lines(conn, run_id: str) -> list[dict]:
+    """A run's stored lines as every CRS reads them (`crs_ai_words.read_now` with the run's books not held): the decided copy, the
+    completeness count of the stored files (`crs_completeness._older_expected`) and the gates."""
+    import json
+
+    from . import crs_ai_words
+
+    rows = conn.execute(
+        "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
+        (run_id,),
+    )
+    return crs_ai_words.read_now(
+        [{**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]} for r in rows],
+        missing_books(conn, run_id),
+    )
+
+
+def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
+    """THE meta an AI run's CRS is drawn again with (the engineer's decided copy, the gates): the file kept beside the run's sheets
+    (`crs-meta.json`; unreadable or missing: a minimal meta, the paper and the run id), and the rule books NOT HELD always from the run's
+    own record in the database (`agent_review_missing_book`, written with the meta), so a sheet drawn without that file (a restored
+    database, a copy) still lists every book missing (order 14, G7). The file's list stands only when the database holds none."""
+    import json
+    from pathlib import Path
+
+    path = Path(folder) / "crs-meta.json"
+    try:
+        meta = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        meta = {}
+    meta = meta if isinstance(meta, dict) else {}
+    meta.setdefault("paper", paper_id)
+    meta.setdefault("run_id", run_id)
+    held = missing_books(conn, run_id)
+    if held:
+        labels = (
+            meta.get("rule_labels") if isinstance(meta.get("rule_labels"), dict) else {}
+        )
+        meta["rule_labels"] = {**labels, "missing_rule_books": held}
+    return meta
+
+
 def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | None:
     """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in), or None
-    when nothing was decided or added for this paper (the stored file stands). The run's own meta is read from the file kept beside the
-    sheet; an older run without one gets a minimal meta (the paper and the run id)."""
-    import json
+    when nothing was decided or added for this paper (the stored file stands). The run's own meta: `run_meta`."""
     from pathlib import Path
 
     from . import agent_review_crs, crs_ai_workbook
@@ -519,27 +580,9 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     if not decisions_mod.latest(paper_id) and not decisions_mod.added(paper_id):
         return None
     conn = connect()
-    lines = [
-        wording.read_time(
-            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
-        )
-        for r in conn.execute(
-            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
-            (run_id,),
-        )
-    ]
+    lines = stored_lines(conn, run_id)
     folder = Path(folder)
-    meta_path = folder / "crs-meta.json"
-    try:
-        meta = (
-            json.loads(meta_path.read_text(encoding="utf-8"))
-            if meta_path.is_file()
-            else {}
-        )
-    except (OSError, ValueError):
-        meta = {}
-    meta.setdefault("paper", paper_id)
-    meta.setdefault("run_id", run_id)
+    meta = run_meta(conn, run_id, paper_id, folder)
     kept = decisions_mod.apply_to_lines(
         paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
     )

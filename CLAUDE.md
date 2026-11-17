@@ -14,6 +14,13 @@
 > 100 on its key). Everything else is an AI opinion or a question for the engineer. 0 wrong decisions. The engineer signs. Switching
 > any AI step off by default, or replacing an AI step with a rules-only path, needs the owner's written approval on #692 and #1584.
 
+## Session start (owner, 17 Nov 2026)
+
+At every session start and after every compact, first read STANDING-ORDER.md, HANDOFF.md, REVIEW.md and the top of
+LIVE.md, then continue. They live in `~/project/mirror/proof/order14/` on the owner's Mac (outside the repo); REVIEW.md is also
+at the repo root. HANDOFF.md is updated after every finished job. Local hooks (`.claude/settings.local.json`, not committed) load
+the four files at session start and after a compact, and refresh HANDOFF.md's automatic snapshot before a compact.
+
 ## The goal decides (owner, 12 Nov 2026, standing)
 
 The goal: review like a senior engineer or better, any document, best CRS. If a written rule, an old design line or an old part of the
@@ -99,7 +106,11 @@ carries the client's name; only the owner can rename it.
    for only those files. Local sends no file content to Claude; Claude without
    explicit document selection can answer general questions but gets no document
    content from the library or prior document-bearing chat history.
-   Other Claude workflows retain the owner-approved document list. The market search sends only the human-typed
+   Other Claude workflows retain the owner-approved document list. The ONLINE SEARCH FOR RULE BOOKS WE DO NOT HOLD (owner,
+   17 Nov 2026, #1584 comment 6930244442; `standards_web_search.py`, `STANDARDS_WEB_SEARCH_ENABLED`, off by default) sends
+   only a public standard's name taken from the app's own tables of public standards (never the paper's words), through
+   `reader_transport.py` under the same caps; a stored answer is reused for 90 days and says when it was searched.
+   The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
    `market_transport.py` (market lane, off by default), `model_transport.py`
@@ -198,7 +209,8 @@ carries the client's name; only the owner can rename it.
 
 ## Mistakes not to repeat
 
-One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat". Read it before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
+One line per called-out mistake, kept in `docs/claude-md-detail.md`, section "Mistakes not to repeat", and (from 17 Nov 2026)
+in `REVIEW.md`, section "Rules learned": every repeated mistake gets one line there. Read both before a push. When the owner calls out a mistake on #692 or #1584, add one line to that section in your next PR.
 
 ## Who does what
 

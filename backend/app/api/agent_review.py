@@ -37,8 +37,10 @@ from .. import (
     agent_review_text,
     crs_copy_words,
     agent_review_wording,
+    crs_ai_words,
     crs_ai_workbook,
     errors,
+    review_points_service,
     review_jobs,
     schemas,
     submittal_review,
@@ -326,19 +328,36 @@ def agent_summary(
     )
 
 
+def _line_now(row, missing) -> dict | None:
+    """A stored line as the page and every CRS read it today (order 14): the stored class (`stored_class_wins`), then `read_time`
+    (a "not met" today's rule makes a Query), then the books not held (`mark_not_held`). None when its json cannot be read."""
+    from ..review_points import stored_class_wins
+
+    try:
+        line = json.loads(row["line_json"] or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(line, dict):
+        return None
+    line = stored_class_wins({**line, "item_id": row["item_id"]}, row)
+    (now,) = crs_ai_words.read_now([line], missing)
+    return now
+
+
 def _query_groups(conn, run_id: str) -> tuple[contract.AgentQueryGroups, int]:
-    """(the reader's own Query by group, the lines of this run that carry no verdict at all), from the stored lines, read only."""
-    lines = []
-    for r in conn.execute(
-        "SELECT line_json FROM agent_review_line WHERE run_id = ? AND verdict_class = ?",
-        (run_id, agent_review_wording.CLASS_QUERY),
-    ):
-        try:
-            line = json.loads(r["line_json"])
-        except (TypeError, ValueError):
-            continue
-        if isinstance(line, dict):
-            lines.append(line)
+    """(the reader's own Query by group, the lines of this run that carry no verdict at all), from the stored lines as read today
+    (`_line_now`, so the counts agree with the page and the CRS), read only."""
+    missing = review_points_service.missing_books(conn, run_id)
+    rows = conn.execute(
+        "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ?",
+        (run_id,),
+    )
+    now = (_line_now(r, missing) for r in rows)
+    lines = [
+        ln
+        for ln in now
+        if ln and ln.get("verdict_class") == agent_review_wording.CLASS_QUERY
+    ]
     got = agent_review_wording.query_group_counts(lines)
     return (
         contract.AgentQueryGroups(
@@ -384,22 +403,40 @@ def agent_lines(
         .fetchall()
     )
     page = rows[:limit]
-    lines = [_read_line(dict(r)) for r in page]
+    missing = review_points_service.missing_books(connect(), review_run_id)
+    lines = [_read_line(dict(r), missing) for r in page]
     more = len(rows) > limit
     return contract.AgentLineList(
         lines=lines, next=str(page[-1]["rid"]) if more and page else None
     )
 
 
-def _read_line(row: dict) -> contract.AgentLine:
+def _read_line(row: dict, missing=()) -> contract.AgentLine:
     """One stored line as the contract's line. A pair the contract refuses but that maps by its own one table
     (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
     still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
     row = {k: v for k, v in row.items() if k != "rid"}
     raw = row.pop("line_json", None)
-    row["reason"] = crs_ai_workbook.screen_text(raw) or row.get("reason")  # the file's three lines
-    if _no_verdict_line(raw):  # an earlier run stored the reader's missing verdict as a Query: shown as "Not reviewed" (not rewritten)
-        row.update(verdict_class="Not reviewed", word="Not reviewed", reason=agent_review_wording.NO_VERDICT_WORDS)
+    now = _line_now({**row, "line_json": raw}, missing)
+    shown = json.dumps(now, default=str) if now else raw
+    row["reason"] = crs_ai_workbook.screen_text(shown) or row.get(
+        "reason"
+    )  # the file's three lines
+    query = agent_review_wording.CLASS_QUERY
+    if (
+        now and now["verdict_class"] == query and row.get("verdict_class") != query
+    ):  # today's Query (order 14)
+        row.update(
+            verdict_class=query, word=contract.legal_word(query, now["verdict_label"])
+        )
+    if _no_verdict_line(
+        raw
+    ):  # an earlier run stored the reader's missing verdict as a Query: shown as "Not reviewed" (not rewritten)
+        row.update(
+            verdict_class="Not reviewed",
+            word="Not reviewed",
+            reason=agent_review_wording.NO_VERDICT_WORDS,
+        )
     word = contract.legal_word(str(row.get("verdict_class")), str(row.get("word")))
     if word is not None:
         row["word"] = word
@@ -607,12 +644,15 @@ def agent_trace(
 def agent_crs(
     review_run_id: str,
     request: Request,
-    copy: str = Query(..., description="internal or company; contractor or issue"),
+    copy: str | None = Query(None, description="internal or company; contractor or issue"),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"copy"})
-    copy = crs_copy_words.agent_copy(copy)  # V2: one set of copy words on every CRS route
-    crs_copy_words.refuse_old_file_when_off()  # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered
+    # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered. FTU-1: said FIRST, so a missing or wrong copy word
+    # gets the same plain sentence and a 422 never lists copies this route then refuses
+    crs_copy_words.refuse_old_file_when_off()
+    # V2: one set of copy words on every CRS route (a missing word: 422 with the list)
+    copy = crs_copy_words.agent_copy(copy or "")
     _run_or_404(review_run_id, scope)
     path: Path = agent_review_jobs.run_dir(review_run_id) / f"crs-{copy}.xlsx"
     if not path.is_file():

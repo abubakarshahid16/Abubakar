@@ -387,9 +387,13 @@ def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
             explicit=plan.choice == "claude",
         )
     )
-    from . import groq_approved
+    # rule 1, the list before the start: the online search for books not held (off: no key, the plan is unchanged)
+    from . import groq_approved, standards_web_search
     from .review_engine import AI_REVIEW, ON_CLAUDE
 
+    ai_on_claude = leaves and plan.part(AI_REVIEW).engine == ON_CLAUDE
+    if note := standards_web_search.plan_note(ai_on_claude):
+        docs["web_search"] = note
     # the second AI (Groq, #1584): its line is SHOWN before the start; a run whose stored plan lacks it sends nothing to Groq
     second = groq_approved.plan_line(leaves, plan.part(AI_REVIEW).engine == ON_CLAUDE)
     if second is not None:

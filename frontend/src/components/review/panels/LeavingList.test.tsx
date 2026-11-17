@@ -48,6 +48,15 @@ describe("LeavingList", () => {
     expect(screen.getByText("API 999")).toBeInTheDocument();
   });
 
+  it("says the online search may send public names of books not held, only when the plan says so", () => {
+    const words = "After the AI review, the public names of rule books this paper cites that the library does not hold may be sent to Claude's web search";
+    const { unmount } = render(<LeavingList leaving={leaving} notSent={[]} notReadable={0} textLeaves webSearch={words} />);
+    expect(screen.getByTestId("leaving-web-search")).toHaveTextContent(words);
+    unmount();
+    render(<LeavingList leaving={leaving} notSent={[]} notReadable={0} textLeaves />);
+    expect(screen.queryByTestId("leaving-web-search")).toBeNull();
+  });
+
   it("counts a document the reader may not open and never names it", () => {
     render(<LeavingList leaving={leaving} notSent={[]} notReadable={2} textLeaves />);
     expect(screen.getByText(/2 more document\(s\) cited are ones you may not read/)).toBeInTheDocument();

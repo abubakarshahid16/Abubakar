@@ -29,7 +29,6 @@ import json
 import re
 from collections import Counter, defaultdict
 
-from . import agent_review_wording as wording
 from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 from . import review_points_content as content
@@ -372,6 +371,14 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         if quotes.get("paper") and _clean(line.get("paper_quote"))
         else None
     )
+    # FTU-1: a line whose own reason says the paper does not state the value: its found quote is never shown as evidence; it is
+    # where it looked, or (when it may state the value) the engineer's to check
+    silent = actions.silent_row(line) if paper_q else None
+    # a code-proved absence: its proof, never the reader's quote, is the paper side
+    proof = actions.absence_proof(line)
+    shown_as = (paper_q, None) if paper_q and (silent or proof) else (None, paper_q)
+    looked, paper_q = shown_as
+    proved = f"{proof[:1].upper()}{proof[1:]}." if proof else NO_PAPER_QUOTE
     book_readable = bool(book_name)
     # The rule book's own words are the book's: a caller who may not read the book gets neither its name nor its text (rule 5).
     clause_q = (
@@ -428,13 +435,20 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "clause": clause if book_name else None,
         "action": action or None,
         # U5d: the line's STORED words when code did not verify them (shown as stored, "not verified by code"); never when the book is unreadable
-        "paper_value": (None if paper_q else (_clean(line.get("paper_quote")) or None)),
+        "paper_value": (
+            None if paper_q or looked else (_clean(line.get("paper_quote")) or None)
+        ),
         "paper_value_page": page,
         "rule_text": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
         "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
+        "paper_looked": looked,
+        # the paper side is code's own proof (its note), with or without a reader's quote
+        "paper_proof": bool(proof),
         "clause_quote": clause_q,
-        "paper_quote_note": PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
+        "paper_quote_note": PAPER_CHECK
+        if paper_q
+        else (silent.note if silent else proved),
         "clause_quote_note": _clause_note(line)
         if clause_q
         else (NO_CLAUSE_QUOTE if book_readable else NO_BOOK_ACCESS),
@@ -540,6 +554,12 @@ def rule_point(
         if side_p.get("verified") and finding
         else ""
     )
+    # FTU-1: a point whose own record says the paper gives no value shows the found passage only as where it looked, never as evidence
+    looked, paper_q = (
+        (paper_q, "")
+        if paper_q and content.says_no_value(kind, finding)
+        else ("", paper_q)
+    )
     clause_q = (
         _clean((finding or {}).get("requirement_source_text"))
         if side_s.get("verified") and finding
@@ -552,7 +572,8 @@ def rule_point(
     )
     name = (
         _plain(field)
-        or _plain(" ".join(comment.split()[:7]))
+        # FTU-1: a shortened name carries its mark (the whole comment is the point's action)
+        or _plain(content._head(comment, 7))
         or "A point of the rule check"
     )
     if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
@@ -569,11 +590,12 @@ def rule_point(
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
     missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
     unproven_ai = False
+    missing_words = book_missing_words(missing, ref["clause"]) if missing else ""  # order 14 lane C (C1): the clause, or "not named"
     if missing:  # order 14 lane B (lane D, G7): a rule whose book is not held is a question, never a verdict; none of its words shown
         rank, other_kind = 4, None
         rule_words = ref["clause"] or content.rule_text(finding)
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
-            action, action_source = f"{BOOK_MISSING}: {missing}. The rule cannot be checked until the book is held; engineer to check.", "check"
+            action, action_source = f"{missing_words}. {BOOK_NOT_CHECKABLE}; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
     elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
         # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
@@ -581,6 +603,12 @@ def rule_point(
         # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
         # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
         rank, unproven_ai = 4, True
+    # FTU-1: a point whose own record says no value, with a found passage: ALL its wording cells from the one silent-row decision
+    silent = (
+        actions.silent_row_words(_plain(field), looked, [field]) if looked else None
+    )
+    if silent and not missing and action_source != "hidden":
+        action, action_source = silent.action, "check"
     point = {
         "id": f"rc:{key}",
         "source": SOURCE_RULE_CHECK,
@@ -597,18 +625,24 @@ def rule_point(
         "action": action or None,
         "action_source": action_source,
         # U5d: what the stored finding itself holds, never presented as verified unless code verified it
-        "paper_value": value or None,
+        # FTU-1: never beside a found passage
+        "paper_value": None if looked else (value or None),
         "paper_value_page": value_page,
         # order 14 lane B: our checklist's own wording is never shown as the rule book's words: it is `check_text`, labelled as ours
         "rule_text": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
         "check_text": (content.rule_text(finding) or None) if not hidden and is_check_text(finding) else None,
         "rule_hidden": hidden,
         "rule_ref": ref if (ref["name"] or ref["clause"]) and not ref_hidden else None,
-        "reason_words": content.reason_words(kind, finding),
+        "reason_words": silent.reason
+        if silent
+        else content.reason_words(kind, finding),
         "checked_by": content.checked_by(kind),
         "paper_quote": paper_q or None,
+        "paper_looked": looked or None,
         "clause_quote": clause_q or None,
-        "paper_quote_note": PASSAGE_PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
+        "paper_quote_note": PASSAGE_PAPER_CHECK
+        if paper_q
+        else (silent.note if silent else NO_PAPER_QUOTE),
         "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
@@ -633,12 +667,13 @@ def rule_point(
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_book_missing": missing or None,
+        "_book_missing_words": missing_words or None,
         "_row_key": key,
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
     if missing:
-        point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=f"{BOOK_MISSING}: {missing}",
+        point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE)  # fmt: skip
     if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)
         point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE)
@@ -705,6 +740,49 @@ def reread_clauses(findings: list[dict], cache: dict | None = None) -> None:
 
 
 BOOK_MISSING = "Book missing"
+#: The sentence a book-missing point's action says after its book (the answer-key scorer reads it from here: never a find).
+BOOK_NOT_CHECKABLE = "The rule cannot be checked until the book is held"
+#: What a book-missing point says when the stored reference names no clause (order 14 lane C, C1): never a silent blank.
+CLAUSE_NOT_NAMED = "clause not named by the reviewer"
+_EDITION_YEAR = re.compile(r"(?:19|20)\d\d")
+#: An edition, revision or issue number is not a clause: "11th edition", "7th", "rev 3", "Rev. B2", "edition 5", "issue 2".
+_EDITION_NUMBER = re.compile(
+    r"\b\d+(?:st|nd|rd|th)\b(?:\s+(?:edition|ed\.?|revision|rev\.?))?|\b(?:rev(?:ision)?|edition|ed|issue|version|ver)\.?\s*[A-Z]?\d+[a-z]?\b",
+    re.I,
+)
+
+
+def names_a_clause(reference: str) -> bool:
+    """Does a stored rule reference name a clause beyond its book(s)? Each book of the reference (";"-separated) is read on its own:
+    the standard identifier `standard_ids.find_citations` reads is taken out (a book it cannot read: its first word with a digit, the
+    book's own number); a number left over is a clause ("X-1 6.1", "X-1 (edition not recorded) cl. 5.2"); an edition year, an edition
+    or a revision number is not ("X-1 2017", "X-1 11th edition", "X-1 rev 3")."""
+    from .standard_ids import find_citations
+
+    for part in str(reference or "").split(";"):
+        part = _EDITION_NUMBER.sub(" ", part)
+        spans = find_citations(part)
+        rest = part
+        for _raw, start, end in sorted(spans, key=lambda s: -s[1]):
+            rest = rest[:start] + " " + rest[end:]
+        tokens = [t.strip(".:") for t in re.split(r"[\s,()]+", rest) if re.search(r"\d", t)]
+        if not spans:
+            tokens = tokens[1:]  # no identifier read: the first token with a digit is the book's own number
+        if any(not _EDITION_YEAR.fullmatch(t) for t in tokens):
+            return True
+    return False
+
+
+def book_missing_words(name: str, clause: str | None) -> str:
+    """THE words of a point whose rule book is not held (its action and its reason): the book and the clause the reviewer named, or
+    plainly that it named none. "Book missing: X-1, clause 8.5"; "Book missing: X-1 6.1" (the reference holds the clause);
+    "Book missing: X-1 (clause not named by the reviewer)"."""
+    name, clause = _clean(name), _clean(clause)
+    if clause:
+        return f"{BOOK_MISSING}: {name}, clause {clause}"
+    if names_a_clause(name):
+        return f"{BOOK_MISSING}: {name}"
+    return f"{BOOK_MISSING}: {name} ({CLAUSE_NOT_NAMED})"
 _CHECK_TEXT = re.compile(r"^Datasheet check [A-Za-z0-9-]+:")
 
 
@@ -757,6 +835,24 @@ def with_groups(points: list[dict]) -> list[dict]:
         p["n_alike"] = n
         p["pill"] = _pill(p["rank"], p.get("other_kind"), n, p.get("added_by"))
     return points
+
+
+def books_not_held(run_books: list[str], points: list[dict], library: list[dict]) -> list[str]:
+    """THE rule books not held of a paper's list, each once: the AI run's own record first, each name tested again against today's
+    `library` (a book uploaded after the run leaves the list), then every book a point marks "Book missing" (`_book_missing`, the name
+    its row prints, decided at read time by `book_missing`), in list order. The page's "not held" count and the CRS sheet "Rule books
+    not held" both read it, so the sheet never says 0 while rows say "Book missing" (order 14, first-time-user test 15). Same book:
+    `standard_ids.same_standard`, the notion `applicability.find_standard` uses ("API RP 520 Pt-1" is "API 520 Part I")."""
+    from .applicability import find_standard
+    from .standard_ids import same_standard
+
+    out: list[str] = []
+    names = [n for n in (run_books or []) if not find_standard(library, str(n or ""))]
+    for name in [*names, *(p.get("_book_missing") for p in points)]:
+        name = " ".join(str(name or "").split())
+        if name and not any(same_standard(name, seen) for seen in out):
+            out.append(name)
+    return out
 
 
 def counts(
@@ -883,11 +979,9 @@ def ai_points_of_run(
 ) -> tuple[list[dict], list[str]]:
     """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
     read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
-    lines = [
-        wording.read_time(
-            stored_class_wins(
-                {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
-            )
+    stored = [
+        stored_class_wins(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
         )
         for r in conn.execute(
             "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
@@ -901,6 +995,9 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
+    lines = words.read_now(
+        stored, [{"rule_book": n} for n in held]
+    )  # the one reading of every CRS (order 14)
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,

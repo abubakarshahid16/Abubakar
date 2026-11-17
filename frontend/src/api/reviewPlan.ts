@@ -49,6 +49,8 @@ export interface ReviewPlan {
     not_readable: number;
     summary?: string;
     unreadable?: boolean;
+    /** Only with the online search for rule books not held on and the AI review on Claude: what that search may send. */
+    web_search?: string;
   };
 }
 

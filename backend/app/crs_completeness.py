@@ -37,6 +37,10 @@ REASON_NOT_PROVEN = "not code-proven and not the engineer's own words"
 REASON_ORDER = (REASON_NOT_PROVEN, REASON_NO_WORDING, REASON_REMOVED)
 
 
+#: FTU-1: the sentence of a CRS asked for a paper with no finished review (the download answers 409 with it, never an empty file)
+NOT_REVIEWED = "This paper has not been reviewed yet; start a review first."
+
+
 class Incomplete(Exception):
     """The three counts differ: the file is not given out. `.report` holds the numbers; `str()` is the plain sentence."""
 
@@ -284,7 +288,10 @@ def _comment_cuts(
         "requires": col["What the rule requires"],
         "reason": col["Reason"],
         "clauses": col["Rule books and clauses"],
+        # FTU-1: the Note is a long cell too: shortened only with the mark and its whole text beside it
+        "note": col["Note"],
     }
+    by_id = {p["id"]: p for p in raw}
     by_no = {c["number"]: c for c in crs_comments.group(raw)}
     rcol = col[crs_one.REASONING_COLUMN]
     for r in values[start + 1 :]:
@@ -295,7 +302,7 @@ def _comment_cuts(
             problems.append(
                 f"comment {r[0]}: the AI reviewer's reasoning is shortened or changed"
             )
-        for key, full in crs_one.comment_full_texts(by_no[r[0]]).items():
+        for key, full in crs_one.comment_full_texts(by_no[r[0]], by_id).items():
             shown = "" if r[spots[key]] is None else str(r[spots[key]])
             want = crs_one._cell(full) if full else ""
             if shown == (want or ""):
@@ -455,6 +462,11 @@ def file_or_refuse(paper_id: str, scope, copy: str, **build_kw) -> bytes:
     from . import review_points_service as svc
 
     listing, raw, facts = svc.export_listing(paper_id, scope)
+    # FTU-1: no finished review and no point on the page (an engineer's added point is one), so nothing to put in a CRS file
+    if not (facts.get("rc_run") or facts.get("ai_run") or raw):
+        raise Incomplete(
+            {"ok": False, "sentence": NOT_REVIEWED, "missing": [], "not_reviewed": True}
+        )
     build = crs_one.build_team if copy == "team" else crs_one.build_contractor
     data = build(paper_id, scope, listing_raw=(listing, raw, facts), **build_kw)
     report = verify(paper_id, scope, copy, data, listing, raw, facts)
@@ -475,12 +487,10 @@ def _older_expected(conn, run_id: str, copy: str) -> int:
     sheet's rows); contractor = what its selection issues (nothing for a general review, whose contractor copies are empty by design)."""
     if copy == "contractor" and conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone():
         return 0
-    from . import agent_review_wording, crs_ai_workbook
+    from . import crs_ai_workbook
+    from .review_points_service import stored_lines
 
-    lines = [
-        agent_review_wording.read_time({**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]})
-        for r in conn.execute("SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid", (run_id,))
-    ]
+    lines = stored_lines(conn, run_id)  # the one reading every CRS uses (order 14)
     items = crs_ai_workbook.ordered_item_lines(lines)
     if copy != "contractor":
         return len(items) + len(crs_ai_workbook.other_lines(lines))

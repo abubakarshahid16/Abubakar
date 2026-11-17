@@ -81,7 +81,7 @@ function listing(over: Partial<PointsListing> = {}): PointsListing {
       not_held: { names: ["Book A", "Book B", "Book C"], more: 2, total: 5, note: "Not checked, rule book not held" },
       decided: 2, decided_of: 9,
     },
-    proposed_code: { code: "Approved with Comments", reason: "2 kept comments; none is proven by code to fail a 'shall' rule.", line: "So far: Approved with Comments, 7 points still to decide", so_far: true, undecided: 7, rule: "r", proposed_by: "the system; the engineer decides" },
+    proposed_code: { code: null, reason: "A code that lets the paper proceed is proposed only when every point is decided: a point still to decide may hold a failure.", line: "No review code proposed yet: 7 of 9 points still to decide.", so_far: true, undecided: 7, rule: "r", proposed_by: "the system; the engineer decides" },
     final_code: null, code_run_id: "rc1", decided: 2, of: 9, removed: [],
     contractor_copy: { kind: "datasheet", words: "The contractor file holds only what code proved, or your own words. It never carries an AI wording." }, ...over,
   };
@@ -213,12 +213,18 @@ describe("2 the engine line", () => {
 describe("3 the review code box", () => {
   it("shows the proposed code, ONE line of reason and x of N decided", async () => {
     mount(); await loaded();
-    expect(screen.getByTestId("v2-code-line")).toHaveTextContent("So far: Approved with Comments, 7 points still to decide");
-    expect(screen.getByTestId("v2-code-reason")).toHaveTextContent("2 kept comments");
+    // order 14: the server's shape while points are open (no approving code is proposed; `review_code_proposal`)
+    expect(screen.getByTestId("v2-code-line")).toHaveTextContent("No review code proposed yet: 7 of 9 points still to decide.");
+    expect(screen.getByTestId("v2-code-reason")).toHaveTextContent("proposed only when every point is decided");
     expect(screen.getByText("proposed by the system; you decide")).toBeInTheDocument();
     expect(screen.getByTestId("v2-decided")).toHaveTextContent("2 of 9 decided");
   });
   it("records the final code, asking why when it is not the proposed one", async () => {
+    // a code is proposed only once every point is decided (order 14): the listing of a fully decided review
+    api.list.mockResolvedValue(ok(listing({
+      proposed_code: { code: "Approved with Comments", reason: "2 kept comments; none is proven by code to fail a 'shall' rule.", line: "Approved with Comments", so_far: false, undecided: 0, rule: "r", proposed_by: "the system; the engineer decides" },
+      decided: 9, of: 9,
+    })));
     api.decideCode.mockResolvedValue(ok({}));
     const { props } = mount(); await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Record the code" }));
@@ -229,6 +235,36 @@ describe("3 the review code box", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
     await waitFor(() => expect(api.decideCode).toHaveBeenCalledWith("rc1", "Approved", "checked by hand"));
     await waitFor(() => expect(props.onCodeRecorded).toHaveBeenCalled());
+  });
+});
+
+describe("3b the recorded code while points are open (order 14)", () => {
+  it("preselects nothing, and an approving code with points still to decide asks why before it is sent", async () => {
+    api.decideCode.mockResolvedValue(ok({}));
+    mount(); await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Record the code" }));
+    expect((screen.getByLabelText("Final code") as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
+    expect(await screen.findByText("Choose a code first.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Final code"), { target: { value: "Approved" } });
+    expect(screen.getByLabelText("Why it may proceed with points still to decide")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
+    expect(await screen.findByText("A reason is needed: 7 of 9 points are still to decide.")).toBeInTheDocument();
+    expect(api.decideCode).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Why it may proceed with points still to decide"), { target: { value: "invented reason" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record final code" }));
+    await waitFor(() => expect(api.decideCode).toHaveBeenCalledWith("rc1", "Approved", "invented reason"));
+  });
+  it("a code that lets nothing proceed needs no reason while points are open", async () => {
+    mount(); await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Record the code" }));
+    fireEvent.change(screen.getByLabelText("Final code"), { target: { value: "Rejected / Revise and Resubmit" } });
+    expect(screen.queryByLabelText("Why it may proceed with points still to decide")).toBeNull();
+  });
+  it("the recorded code is printed as the server words it", async () => {
+    api.list.mockResolvedValue(ok(listing({ final_code: "Approved", final_code_words: { team: "Approved (recorded with 7 of 9 points still to decide: invented reason)", contractor: "Approved (recorded by the engineer)" } })));
+    mount(); await loaded();
+    expect(screen.getByText(/Recorded final code: Approved \(recorded with 7 of 9 points still to decide: invented reason\)/)).toBeInTheDocument();
   });
 });
 
@@ -270,6 +306,26 @@ describe("5 and 6 the rule book chips and the rule books not held", () => {
   it("names the first three rule books not held and counts the rest", async () => {
     mount(); await loaded();
     expect(screen.getByTestId("v2-not-held")).toHaveTextContent("Not checked, rule book not held: Book A, Book B, Book C and 2 more. See all");
+  });
+  it("shows no online line while the online search is off (no found_online in the listing)", async () => {
+    mount(); await loaded();
+    expect(screen.queryByTestId("v2-found-online")).toBeNull();
+  });
+  it("with the online search on, says what it found, marked not verified, one line per book", async () => {
+    const l = listing();
+    l.counts.not_held = {
+      ...l.counts.not_held,
+      found_online: [
+        { name: "Book A", outcome: "found", words: "Book A title; 7th edition; (2020); Publisher (found online, not verified; the book is not held)", url: null },
+        { name: "Book B", outcome: "not searched", words: "not searched: not a public standard name, so it was not sent", url: null },
+      ],
+    };
+    api.list.mockResolvedValue(ok(l));
+    mount(); await loaded();
+    const lines = within(screen.getByTestId("v2-found-online")).getAllByRole("listitem");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toHaveTextContent("Found online (not verified, book not held): Book A: Book A title; 7th edition; (2020); Publisher (found online, not verified; the book is not held)");
+    expect(lines[1]).toHaveTextContent("Book B: not searched: not a public standard name, so it was not sent");
   });
   it("shows nothing when none is missing", async () => {
     const l = listing(); l.counts.not_held = { names: [], more: 0, total: 0, note: null };

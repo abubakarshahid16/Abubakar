@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 
 from . import datasheet_checks as dc
+from .question_card import question_only
 
 COMPLIANT, NON_COMPLIANT = dc.COMPLIANT, dc.NON_COMPLIANT
 MISSING, REVIEW = dc.MISSING_INFORMATION, dc.NEEDS_ENGINEER_REVIEW
@@ -120,7 +121,8 @@ def generated_cases(item: dict, rules: dict) -> list[dict]:
             "kind": "generated",
             "facts": [_fact(name, "7")],
             "text": "",
-            "expect": COMPLIANT,
+            # a QUESTION ONLY card asks for the value and never passes it (`question_card`)
+            "expect": REVIEW if question_only(item) else COMPLIANT,
         },
         {
             "name": "breaks",

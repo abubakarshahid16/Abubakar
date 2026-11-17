@@ -152,6 +152,12 @@ def query_group_counts(lines: Iterable[Mapping]) -> dict[str, int]:
 
 def reader_query_action(line: Mapping) -> str | None:
     """What the engineer reads as the action of a reader's own Query: a question for the engineer is never worded for the contractor."""
+    from .crs_ai_words import (
+        PROVEN_NOT_HELD_WHY,
+    )  # order 14 G7: code's verdict on a book not held (`mark_not_held`)
+
+    if line.get("why") == PROVEN_NOT_HELD_WHY:
+        return "Engineer to check the rule: code decided this line, but its rule book is not held."
     return {
         GROUP_DRAWING: "Engineer to judge this: it needs a drawing or a calculation.",
         GROUP_COULD_NOT: "Engineer to decide: the AI reviewer could not.",
@@ -409,6 +415,13 @@ def classify(line: Mapping) -> dict:
             got := two_reader.class_of(line, reason)
         ):  # 4b. two independent readers (value or absence verdict), every quote verified, no guard
             return got
+        # 4c. one reader's word that the paper is silent (nothing proved it) is a question, never "AI thinks: not met"
+        if ai == FAIL and silence_unproven(line):
+            return {
+                "verdict_label": WORD_QUERY,
+                "verdict_class": CLASS_QUERY,
+                "not_proven_reason": reason,
+            }
         return {
             "verdict_label": THINKS_MET if ai == PASS else THINKS_NOT_MET,
             "verdict_class": CLASS_OPINION,
@@ -423,15 +436,44 @@ def classify(line: Mapping) -> dict:
     }
 
 
+def silence_unproven(line: Mapping) -> bool:
+    """The line's "not met" rests on the paper's silence (`SILENCE_CODES`: the reader says the paper does not state it) and nothing
+    proved that silence: no absence proof by code (`BY_ABSENCE`, a proven `absence_check`) and no two-reader absence verdict
+    (`two_reader.absence_agrees`). One reader can miss a value on another page, so such a line names no value on the paper: it is a
+    Query with its reason (order 14, G5), never "AI thinks: not met". It only makes a line less confident."""
+    if (
+        str(line.get("reason_code") or "") not in SILENCE_CODES
+        or line.get("decided_by") == BY_ABSENCE
+    ):
+        return False
+    proof = line.get("absence_check")
+    if isinstance(proof, Mapping) and proof.get("proven") is True:
+        return False
+    return not two_reader.absence_agrees(line)
+
+
+#: The stored classes `read_time` may narrow to a Query when today's rule (`classify`) says Query: an AI opinion "not met" only,
+#: never a proven line, a two-reader verdict, a class already less confident, or an AI "met" (made a Query it would become a NEW
+#: comment row: narrowing never adds a comment to an older run's CRS).
+_NARROWED_AT_READ = (CLASS_OPINION, CLASS_UNAPPROVED)
+
+
 def read_time(line: Mapping) -> dict:
     """A stored line of ANY run as every reader of it sees it: an item row (rule or checklist) gets the reason sentence the SAME rule gives a
     new line (`classify`), so an earlier run's stored reason (the gate's old sentence for a reader's own Query) is worded truly on the page,
     in the points and in a CRS built from it. Only the reason is taken: the stored class and every other key stay as they are (the
-    defences that read the stored class keep working); never rewritten in the table. Any other line is returned as it is."""
+    defences that read the stored class keep working); never rewritten in the table. ONE exception, narrowing only (order 14, G5): a
+    stored AI opinion "not met" (`_NARROWED_AT_READ`) that today's rule makes a Query is read as that Query (its label, class and reason), so an
+    older run's CRS never shows a firm "not met" today's rule would not give. Any other line is returned as it is."""
     if line.get("source") not in ("rule", "skill"):
         return dict(line)
-    reason = classify(line)["not_proven_reason"]
-    return {**line, "not_proven_reason": _with_note(reason, crosscheck.said(line))}
+    got = classify(line)
+    query = got["verdict_class"] == CLASS_QUERY and line.get("ai_verdict") == FAIL
+    narrowed = query and line.get("verdict_class") in _NARROWED_AT_READ  # G5 above
+    out = {**line, **got} if narrowed else dict(line)
+    note = crosscheck.said(line)  # the cross-check's not-run note, on either path
+    out["not_proven_reason"] = _with_note(got["not_proven_reason"], note)
+    return out
 
 
 def _with_note(reason: str | None, note: str | None) -> str | None:

@@ -24,6 +24,7 @@ from . import kind_words as kind_words_mod
 from . import crs_export as crs_export_mod
 from . import crs_ai_cell as crs_ai_cell_mod
 from . import review_point_decisions as review_point_decisions_mod
+from . import review_code_proposal as review_code_proposal_mod
 from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
 from . import crs_mapping as crs_mapping_mod
@@ -1332,6 +1333,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
     plain_reason, plain_details = clause_coverage_mod.plain_outcome(outcome, run["id"])
+    shown_code, code_note = review_code_proposal_mod.run_level(outcome.get("recommended_code"))
     ai_check = ai_engineering_check_mod.ai_check_status(
         run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
     document = connect().execute(
@@ -1352,10 +1354,12 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "ai_observations": drafts,
-        "recommended_code": outcome.get("recommended_code"),
+        # Order 14: one run cannot read the paper's list, so an approving code is never shown here (`review_code_proposal.run_level`).
+        "recommended_code": shown_code,
+        "recommended_code_note": code_note,
         # 2g: plain words for the engineer; the technical sentence under "Details".
         # A run stored before 2g gets its plain sentence from the same counts.
-        "recommended_reason": plain_reason,
+        "recommended_reason": None if code_note else plain_reason,
         "recommended_details": plain_details,
         # The client's configured code labels, in policy order, so the screen
         # offers exactly the labels `record_engineer_code` accepts.
@@ -1457,11 +1461,16 @@ def decide_review_code(
     _require_identity_to_write(scope)
     actor = _actor_from_scope(scope)
     reject_unknown_params(request, set())
-    if submittal_review_mod.get_review_run(
-            review_run_id,
-            allowed_document_ids=scope.allowed_document_ids) is None:
+    found = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if found is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
+    # Order 14: an approving code while points of the paper are still to decide needs a typed reason (the engineer signs; he says why).
+    from . import review_points_service
+    left, of = review_points_service.undecided(found["submittal_document_id"], scope)
+    if refusal := review_code_proposal_mod.open_code_refusal(body.code, body.override_reason, left, of):
+        raise HTTPException(status_code=422, detail=errors.safe_error(errors.INVALID_PARAMETER, refusal))
     try:
         comparison_mod.record_engineer_code(
             review_run_id, code=body.code, reviewer=scope.user_id,
@@ -1472,6 +1481,7 @@ def decide_review_code(
             errors.INVALID_PARAMETER, str(exc))) from exc
     # The final code is the moment a sheet can be issued: every comment an
     # engineer has confirmed must carry its permanent number by then.
+    review_code_proposal_mod.remember_open(review_run_id, body.code, left, of)
     _mint_crs_numbers(review_run_id, scope)
     run = submittal_review_mod.get_review_run(
         review_run_id, allowed_document_ids=scope.allowed_document_ids)
@@ -2961,6 +2971,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             review_run_id, allowed_document_ids=allowed),
         web_status=_json_column(run.get("web_check_status")))
     stamp = _now_date()
+    shown_code, code_note = review_code_proposal_mod.run_level(outcome.get("recommended_code"))
     meta = {
         "document_title": submittal_name,
         "submittal_number": submittal_number,
@@ -2972,15 +2983,16 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "company_transmittal": run.get("crs_company_transmittal") or "",
         "contractor_transmittal": run.get("crs_contractor_transmittal") or "",
         "date_responded": "",
+        # Order 14: this one-run file never shows an approving proposal (`review_code_proposal.run_level`): the note stands in its place.
         "recommended_code": run.get("engineer_final_code")
-                            or outcome.get("recommended_code") or "",
+                            or shown_code or code_note or "",
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
-            else comparison_mod.plain_outcome(outcome)[0]) or "",
+            else "" if code_note else comparison_mod.plain_outcome(outcome)[0]) or "",
         # B10: the AI recommends, an engineer decides; the CRS says the code is not yet a decision.
         "recommended_code_status": (
             crs_export_mod.CODE_DECIDED_BY_ENGINEER if run.get("engineer_final_code")
-            else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
+            else crs_export_mod.CODE_NOT_YET_DECIDED if shown_code
             else ""),
         "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
@@ -3236,8 +3248,8 @@ def export_review_crs(
     reviewing their own work in progress needs no gate.
     """
     reject_unknown_params(request, {"copy"})
+    crs_copy_words.refuse_old_file_when_off()  # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered (FTU-1: first)
     copy = crs_copy_words.rule_check_copy(copy)  # V2: one set of copy words on every CRS route
-    crs_copy_words.refuse_old_file_when_off()  # owner order, 16 Nov 2026: no count line, so off while the one CRS is offered
     if copy == "issue":
         if submittal_review_mod.get_review_run(
                 review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:

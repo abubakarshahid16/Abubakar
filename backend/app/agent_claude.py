@@ -264,12 +264,12 @@ def _transport(send: Callable | None) -> Callable:
     return found
 
 
-def _metered(send: Callable):
+def _metered(send: Callable, step: str = STEP):
     from app import reader_transport
 
     return claude_spend.metered(
         send,
-        step=STEP,
+        step=step,
         unbilled=reader_transport.unbilled,
         keep_if=lambda _answer: False,
     )  # a loop turn is never replayed from the cache
@@ -387,15 +387,18 @@ def _answered_model(answer: Any) -> str:
     return name.strip() if isinstance(name, str) and name.strip() else "unknown"
 
 
-def _send_once(raw: Callable, request: dict, body: dict) -> tuple[Any, tuple | None]:
-    """One metered send. (answer, None) or (None, (kind, code, billed, retry)); the original error is not carried out."""
+def _send_once(
+    raw: Callable, request: dict, body: dict, step: str = STEP
+) -> tuple[Any, tuple | None]:
+    """One metered send under `step` (the AI reviewer's own, or a caller's such as `standards_web_search`). (answer, None) or
+    (None, (kind, code, billed, retry)); the original error is not carried out."""
     import httpx
 
     from app import reader_transport
 
     recorded_failure: tuple | None = None
     try:
-        return _metered(raw)(
+        return _metered(raw, step)(
             request["url"],
             headers=request["headers"],
             body=body,

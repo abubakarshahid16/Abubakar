@@ -77,12 +77,19 @@ KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a 
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
 KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
 NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
-#: Words that say there is nothing to do ("no correction needed", "found none", "could not be read" and their plain variants). A model's
-#: own sentence is shown without them (`drop_noise`); our own fixed words never use them.
+_NEED = r"(?:needed|required|necessary)"
+#: THE words that say there is nothing to do (the owner's "found none", "no correction needed", "could not be read" and their plain
+#: variants), as (label, pattern) on folded (lower case) text: ONE home, read by `NOISE` here and by the CRS gate G3
+#: (`scripts/crs_gates.py`), so a phrase the gate fails is a phrase the CRS never shows (order 14).
+NOTHING_TO_DO_PATTERNS = (
+    ("found none", r"\bfound none\b|\bnone (?:was |were )?found\b|\bnothing (?:was )?found\b|^no findings?\.?$|\bno findings? (?:was |were )?(?:made|raised|found)\b|^none\.?$"),
+    ("no correction needed", rf"\bno corrections? (?:is |are |was |were )?{_NEED}\b|\bcorrections? (?:is |are )?not {_NEED}\b"
+                             rf"|\bnothing to correct\b|\bno actions? (?:is |are )?{_NEED}\b|\bno changes? (?:is |are )?{_NEED}\b"),
+    ("could not be read", r"\b(?:could|can) ?not be read\b|\bcouldn'?t be read\b|\bcan'?t be read\b|\bnot readable\b|\bunreadable\b"),
+)  # fmt: skip
+#: A model's own sentence is shown without those words, up to the end of their clause (`drop_noise`); our own fixed words never use them.
 NOISE = re.compile(
-    r"\b(?:no corrections? (?:is |are |was |were )?(?:needed|required)"
-    r"|found none|none (?:was |were )?found"
-    r"|(?:could|can) ?not be read|couldn'?t be read|can'?t be read)\b[^.;!?]*[.;!?]?",
+    "(?:" + "|".join(rx for _label, rx in NOTHING_TO_DO_PATTERNS) + r")[^.;!?]*[.;!?]?",
     re.IGNORECASE,
 )
 
@@ -142,8 +149,9 @@ def absence_verdict_sentence(item: str, clause_quote: str) -> str:
 
 
 def absence_cell(line: Mapping, item: str) -> str:
-    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's verified clause quote."""
-    quote = plain(" ".join(str(line.get("clause_quote") or "").split())[:300])
+    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's WHOLE verified clause quote (FTU-1:
+    never a silent character cut; a long cell is shortened only by the sheet's one marked cut, with its full text beside it)."""
+    quote = plain(" ".join(str(line.get("clause_quote") or "").split()))
     return absence_verdict_sentence(item or "value for this item", quote)
 
 
@@ -211,7 +219,10 @@ ABSENCE_PLAIN: dict[str, str] = {
 CUT_OFF_WHY = (
     "the second AI reader's answer was cut off, so the two readers did not agree"
 )
+#: The reason of a line proven by code whose rule book the run does not hold (a contradiction: the engineer checks it, `mark_not_held`).
+PROVEN_NOT_HELD_WHY = "code decided this line, but the rule book it cites is not held"
 WHY_PHRASES: dict[str, str] = {
+    PROVEN_NOT_HELD_WHY: PROVEN_NOT_HELD_WHY,
     SILENCE_WHY: "the AI reviewer found the paper silent on this, which could not be confirmed",
     CONDITIONAL_WHY: "the rule holds only under a condition, which the AI reviewer could not settle from the paper",
     TABLE_NOTE_WHY: "the rule is a table row or a note whose conditions may lie outside the quoted text",
@@ -455,6 +466,105 @@ def guard_words(line: Mapping) -> str:
     return code_phrase(reason) if reason in GUARD_OBJECTIONS else ""
 
 
+#: The key `mark_not_held` sets on a line whose rule book the run does not hold, and the words its reference shows instead of a clause.
+NOT_HELD_KEY, BOOK_NOT_HELD = "book_not_held", "rule book not held"
+
+
+def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
+    """The lines as every CRS shows them when a line (a rule, a checklist item or a calculator line, whose book may be a part of a
+    book: "API 610 datasheet annex" is API 610) names a rule book on the run's own book-missing list (`missing`:
+    `review_points_service.run_meta`, the one reading) and links no held document for it (order 14, G7: never guessed).
+    NOT proven by code: `NOT_HELD_KEY` is set; it is shown with its book and "rule book not held", no clause, no clause words.
+    Proven by code (Pass or Fail): a contradiction, so it is an engineer's Query with `PROVEN_NOT_HELD_WHY`, keeping its clause; it
+    never reaches the contractor copy (proven Fails only), which therefore never carries the internal mark. Read time, pure;
+    idempotent."""
+    from .standard_ids import same_standard
+
+    names = [
+        str(b.get("rule_book") or "")
+        for b in missing
+        if isinstance(b, Mapping) and b.get("rule_book")
+    ]
+    out = []
+    for ln in lines:
+        std = str(ln.get("standard") or "").strip()
+        gone = (
+            bool(std)
+            and not ln.get("standard_document_id")
+            and any(same_standard(std, n) for n in names)
+        )
+        if not gone:
+            out.append(dict(ln))
+        elif ln.get("verdict") in ("Pass", "Fail"):
+            out.append(_proven_not_held(ln))
+        else:
+            out.append({**ln, NOT_HELD_KEY: True})
+    return out
+
+
+def read_now(lines: list[Mapping], missing: list[Mapping] = ()) -> list[dict]:
+    """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
+    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`)."""
+    from .agent_review_wording import read_time
+
+    return mark_not_held([read_time(ln) for ln in lines], missing)
+
+
+def book_not_held(line: Mapping) -> bool:
+    """The line cites a rule book the run does not hold (`mark_not_held`): no quote of that book is ever shown for it."""
+    return bool(line.get(NOT_HELD_KEY)) or line.get("why") == PROVEN_NOT_HELD_WHY
+
+
+def proven_not_held_comment(line: Mapping, field: str) -> str:
+    """The comment of a line code decided against a limit from a rule book the run does not hold: code compared the value, the book
+    behind the limit is not held, the engineer checks it. No quote of that book, no AI reasoning (order 14)."""
+    from .agent_review_wording import reader_query_action
+
+    ref = " ".join(
+        x
+        for x in (
+            _clean(line.get("standard")),
+            f"clause {_clean(line.get('clause'))}"
+            if _clean(line.get("clause"))
+            else "",
+        )
+        if x
+    )
+    has, page = _clean(line.get("paper_quote")), line.get("paper_page")
+    shows = (
+        f'The paper states "{has}"'
+        + (f", page {page}" if page not in (None, "") else "")
+        + ". "
+        if has
+        else ""
+    )
+    return "\n".join((f"{field or 'The value'} against {ref or 'the rule'} ({BOOK_NOT_HELD}).",
+                      f"{shows}Code compared this value with the limit, but the rule book behind the limit is not held.",
+                      reader_query_action(line) or "Engineer to check the rule."))  # fmt: skip
+
+
+def _proven_not_held(line: Mapping) -> dict:
+    from .agent_review_verdict import BY_ENGINEER, QUERY
+    from .agent_review_wording import CLASS_QUERY, WORD_QUERY
+
+    return {**line, "verdict": QUERY, "decided_by": BY_ENGINEER, "why": PROVEN_NOT_HELD_WHY, "verdict_class": CLASS_QUERY,
+            "verdict_label": WORD_QUERY, "not_proven_reason": PROVEN_NOT_HELD_WHY}  # fmt: skip
+
+
+def stored_rule_text(line: Mapping) -> str:
+    """The stored rule text a comment may print, labelled as not found in the book: none for a group line or a book not held."""
+    if line.get("source") == "group" or line.get(NOT_HELD_KEY):
+        return ""
+    return _clean(line.get("requirement"))
+
+
+def shown_clause_quote(line: Mapping) -> str | None:
+    """The clause quote a line's Evidence row shows: none for a line whose book is not held (`book_not_held`), else its own."""
+    if book_not_held(line):
+        return None
+    return " ".join(str(line.get("clause_quote") or "").split()) or None
+
+
 def drop_noise(text: object) -> str:
     """The text without the words that say there is nothing to do (`NOISE`, up to the end of their clause); the next word starts with
     a capital when a sentence now starts with it. '' when nothing is left. The finding itself is never in those words: a row that says
@@ -529,6 +639,7 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 
 __all__ = [
     "BANNED",
+    "BOOK_NOT_HELD",
     "EDITION_WORDS",
     "GUARD_OBJECTIONS",
     "KIND_COVERAGE",
@@ -537,16 +648,20 @@ __all__ = [
     "KIND_NOTHING_TO_CHANGE",
     "NOISE",
     "NORMAL_STATUSES",
+    "NOTHING_TO_DO_PATTERNS",
     "NOT_A_COMMENT_KINDS",
     "NOT_A_COMMENT_SHEET",
+    "NOT_HELD_KEY",
     "OTHER_SHEET",
     "PRIORITY_RULE",
     "PRIORITY_RULE_AI",
     "PRIORITY_RULE_NORMAL",
+    "PROVEN_NOT_HELD_WHY",
     "STATUSES",
     "UNKNOWN_WHY",
     "WHY_PHRASES",
     "ai_draft_words",
+    "book_not_held",
     "code_phrase",
     "comment_by",
     "drop_noise",
@@ -554,8 +669,13 @@ __all__ = [
     "generated_by",
     "guard_words",
     "has_banned",
+    "mark_not_held",
     "plain",
     "priority",
     "priority_ai",
+    "proven_not_held_comment",
+    "read_now",
+    "shown_clause_quote",
+    "stored_rule_text",
     "why_phrase",
 ]

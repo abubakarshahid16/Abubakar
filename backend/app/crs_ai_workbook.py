@@ -21,6 +21,7 @@ from pathlib import Path
 from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
+from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 from . import crs_comments, crs_export, crs_layout, kind_review_table
 from .agent_review_crs import (
@@ -46,7 +47,6 @@ from .agent_review_verdict import (
     FAIL,
     NO_VALUE_WHY,
     PASS,
-    SILENCE_CODES,
     met_unsafe_why,
     moved_by_guard,
 )
@@ -174,7 +174,7 @@ def _item_ask(line: Mapping) -> str:
     """The words shown as the rule book's own: the clause quote ONLY when code verified it in the book, WHOLE (never cut, never our
     checklist's wording, never the stored rule text); '' when there is none (the comment then says so: `_no_quote`)."""
     q = line.get("quotes_checked") or {}
-    return _clean(line.get("clause_quote")) if q.get("clause") else ""
+    return words.shown_clause_quote(line) or "" if q.get("clause") else ""
 
 
 NO_QUOTE = "No verified quote of this clause is held: the engineer reads the clause."
@@ -182,14 +182,14 @@ NO_QUOTE = "No verified quote of this clause is held: the engineer reads the cla
 
 def _no_quote(line: Mapping) -> str:
     """What a comment says when no verified clause quote is held: that, in plain words, then the words we do hold, each labelled as what
-    it is (our checklist's wording; the stored rule text that code did not find in the book). Never shown as the book's words."""
+    it is (our checklist's wording; the stored rule text code did not find in the book, never of a book not held). Never the book's."""
     out = NO_QUOTE
     ours = (
         checklist_wording(line.get("item_id")) if line.get("source") == "skill" else ""
     )
     if ours:
         out += f' Our checklist asks (our words, not the book\'s): "{ours}".'
-    elif (stored := _clean(line.get("requirement"))) and line.get("source") != "group":
+    elif stored := words.stored_rule_text(line):
         out += f' The stored rule text, not found in the book by code: "{stored}".'
     return out
 
@@ -212,7 +212,7 @@ def _requires(line: Mapping, status: str) -> str:
         )
         head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
         return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
-    if status == words.STATUS_QUERY:
+    if status == words.STATUS_QUERY and not actions.silent_row(line):
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
         return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
     if ask:
@@ -243,7 +243,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     ):
         return words.absence_cell(line, field_words(line) or _item_ask(line))
     code = line.get("reason_code")
-    silent = code in SILENCE_CODES or line.get("silence_query")
+    silent = actions.says_silent(line)
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
     if code == "value_deferred" or guard == DEFERRED_WHY:
         out = (
@@ -260,10 +260,9 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
             f" (pages searched: {searched})." if searched else "."
         )
     elif silent and not has:
-        searched = _searched(line)
-        out = f"The AI reviewer did not find {field} in the paper" + (
-            f" (pages searched: {searched})." if searched else "."
-        )
+        searched = f" (pages searched: {_searched(line)})." if _searched(line) else "."
+        found = actions.quote_words(line, where).strip()
+        out = found or f"The AI reviewer did not find {field} in the paper{searched}"
     elif guard == NO_VALUE_WHY:
         out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
@@ -338,7 +337,9 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     what, ref = field_words(line) or "the item", against(line)
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
-    if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
+    # FTU-1: a silent "not met" asks what its case asks (state it, or the engineer checks)
+    opinion = status in (words.STATUS_AI, words.STATUS_AI_VERDICT)
+    if opinion and not actions.says_silent(line):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
     return query_action(line, what, ref)
 
@@ -348,6 +349,8 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
     contractor must do. Built from the stored line only; no new AI call; no code word (`words.has_banned`)."""
     if line.get("source") == "group":  # rule choice v2: one sentence for the engineer
         return str(line.get("why") or "")
+    if line.get("why") == words.PROVEN_NOT_HELD_WHY:  # order 14: book not held
+        return words.proven_not_held_comment(line, field_words(line))
     return "\n".join(
         (
             _requires(line, status),
@@ -725,7 +728,8 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     no model, no run number."""
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
-    lines = [wording.read_time(ln) for ln in lines]  # read time
+    missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
+    lines = words.read_now(lines, missing)
     items, others = _split(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)
@@ -764,7 +768,6 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
         view["rows"] = [r[:9] for r in view["rows"]]
         view["plain"] = True
         return view
-    missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
     view["other"] = _other_sheet(others, missing, paper, len(items) + 1)
     from .agent_review_crs import evidence_sheet
 

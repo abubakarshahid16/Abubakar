@@ -211,6 +211,32 @@ def guarded_question_words(line: dict) -> str:
     return words.guard_words(line)
 
 
+def met_question_why(line: dict) -> str | None:
+    """Why an AI "met" the gate made a Query is a REAL question about the paper, else None (R91; each doubt checked on its own,
+    whatever reason `met_unsafe_why` gives first): the paper quote was not verified by code, it defers the value, words say the value
+    is not stated, the quote is the field's label only, or the second reader disagreed. Only the clause quote unverified, or the pass
+    guard's own objection alone, says nothing open about the paper. The one test for `tick_only` and for the CRS gate G3."""
+    from . import agent_review_verdict as v
+    from . import agent_run_second
+
+    if line.get("ai_verdict") != v.PASS or line.get("verdict") != v.QUERY:
+        return None
+    checks = line.get("quotes_checked")
+    if not (isinstance(checks, dict) and checks.get("paper")):
+        return v.UNVERIFIED_PAPER_WHY
+    if v.quote_defers(line.get("paper_quote")):
+        return v.DEFERRED_WHY
+    if line.get("not_mentioned_hold"):
+        return v.NOT_STATED_WHY
+    if v.quote_is_label_only(line):
+        return v.NO_VALUE_WHY
+    return (
+        v.DISAGREE_WHY
+        if agent_run_second.disagreed(line.get("second_opinion"))
+        else None
+    )
+
+
 def tick_only(point: dict) -> bool:
     """An AI line its reader judged met (its reason "met" or "pass_...") whose PAPER quote code verified, held back only because its
     CLAUSE quote was not verified: the engineer ticks it; it is not a comment. Never ticked (each checked on its own, whatever reason
@@ -222,10 +248,9 @@ def tick_only(point: dict) -> bool:
     reason = str(line.get("reason_code") or "").strip().lower()
     if reason != "met":  # a "pass_..." reason is the pass guard's objection: a second doubt, never ticked (R94)
         return False
-    second = line.get("second_opinion")
-    if line.get("not_mentioned_hold") or v.quote_is_label_only(line) or v.quote_defers(line.get("paper_quote")):
-        return False
-    if isinstance(second, dict) and second.get("agree") is False:
+    if met_question_why(
+        line
+    ):  # R91: a real question, never ticked (shared with gate G3)
         return False
     return v.met_unsafe_why(line) == v.UNVERIFIED_CLAUSE_WHY
 
@@ -349,10 +374,14 @@ def near_same(a: frozenset[str], b: frozenset[str]) -> bool:
 
 def _evidence(ms: list[dict]) -> set[tuple]:
     """What the points of a field show: (page, paper quote) and (book key, clause) pairs; two fields sharing one are about one thing."""
+    from .crs_ai_actions import silent_quote
+
     out = set()
     for p in ms:
         q = _norm(p.get("paper_quote") or _line_of(p).get("paper_quote"))
-        if q:
+        # FTU-1: a found quote on a line that says "not stated" is not evidence of a value, so it never joins two fields
+        looked = p.get("paper_looked") or silent_quote(_line_of(p)) or silent_quote(p)
+        if q and not looked:
             out.add(("paper", p.get("page"), q))
         book, clause = p.get("rule_book") or (p.get("rule_ref") or {}).get("name"), p.get("clause")
         if _norm(book) and _norm(clause):

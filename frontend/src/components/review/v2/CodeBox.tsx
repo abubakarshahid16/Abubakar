@@ -1,23 +1,30 @@
 /** SPEC 3: the review code box: the proposed code with ONE line of reason, "x of N decided", and where the engineer records the final
- *  code (a reason is asked when it differs from the proposal, as the older panel asks). */
+ *  code (a reason is asked when it differs from the proposal, as the older panel asks). Order 14: nothing is preselected (the engineer
+ *  picks), and an approving code while points are still to decide asks why; the server refuses it without a reason too. */
 import { useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { PointsListing } from "../../../api/reviewPoints";
 import { REVIEW_CODES } from "../../../types/api";
+import { reasonLabel, reasonRule } from "../codeReason";
 
 export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRecorded: () => void }) {
   const p = listing.proposed_code;
   const [open, setOpen] = useState(false);
-  const [code, setCode] = useState<string>(listing.final_code ?? p.code ?? REVIEW_CODES[0]);
+  const [code, setCode] = useState<string>(listing.final_code ?? p.code ?? "");
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const differs = p.code != null && code !== p.code;
+  const left = listing.of - listing.decided;
+  const rule = reasonRule(code, p.code, left);  // the one rule of every picker (`codeReason`)
 
   async function save() {
     if (!listing.code_run_id) return;
-    if (differs && !reason.trim()) { setProblem("A reason is needed when the final code is not the proposed one."); return; }
+    if (!code) { setProblem("Choose a code first."); return; }
+    if (rule.required && !reason.trim()) {
+      setProblem(rule.because === "open" ? `A reason is needed: ${left} of ${listing.of} points are still to decide.` : "A reason is needed when the final code is not the proposed one.");
+      return;
+    }
     setSaving(true); setProblem(null);
     const r = await reviewsApi.decideCode(listing.code_run_id, code, reason.trim() || null);
     setSaving(false);
@@ -38,7 +45,7 @@ export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRec
       </div>
       <p data-testid="v2-code-reason" className="text-sm text-slateish-300">{p.reason}</p>
       <p className="text-xs text-slateish-400">
-        {listing.final_code ? `Recorded final code: ${listing.final_code}. ` : "The final code is not recorded yet. "}
+        {listing.final_code ? `Recorded final code: ${listing.final_code_words?.team ?? listing.final_code}. ` : "The final code is not recorded yet. "}
         {listing.code_run_id && (
           <button type="button" onClick={() => setOpen((v) => !v)} className="text-signal-300 underline-offset-2 hover:underline">
             {listing.final_code ? "Change it" : "Record the code"}
@@ -49,11 +56,12 @@ export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRec
         <div className="flex flex-wrap items-end gap-2 pt-1">
           <label className="text-xs text-slateish-300">Final code
             <select value={code} onChange={(e) => setCode(e.target.value)} className="ml-2 rounded border border-ink-500 bg-ink-800 px-2 py-1 text-sm text-slateish-100">
+              <option value="" disabled>Choose a code</option>
               {REVIEW_CODES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </label>
-          {differs && (
-            <label className="text-xs text-slateish-300">Why it differs
+          {rule.show && (
+            <label className="text-xs text-slateish-300">{reasonLabel(rule, "Why it differs")}
               <input value={reason} onChange={(e) => setReason(e.target.value)} className="ml-2 w-72 rounded border border-ink-500 bg-ink-800 px-2 py-1 text-sm text-slateish-100" />
             </label>
           )}
