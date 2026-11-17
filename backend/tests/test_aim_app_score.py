@@ -70,7 +70,11 @@ class FakeApp:
         )
         self.requests: list[tuple[str, str, str]] = []  # (method, path, authorization)
         self.starts: list[dict] = []
-        self.fail_runs = False  # a run that fails with nothing stored: the page stays 409, the history says failed
+        self.fail_runs = False
+        self.default_disc: list[str] = ["Invented-A"]
+        self.upload_bodies: list[
+            bytes
+        ] = []  # a run that fails with nothing stored: the page stays 409, the history says failed
         self.uploads = 0
         self.polls: dict[str, int] = {}
         self.lock = threading.Lock()
@@ -108,8 +112,19 @@ class FakeApp:
                 "local_available": False,
                 "mark": "AI, to be checked",
             }
+        if p == "/api/documents/upload-disciplines":
+            return 200, {
+                "required": True,
+                "choices": ["Invented-A", "Invented-B"],
+                "default": self.default_disc,
+            }
         if p == "/api/documents" and verb == "POST":
             assert b"filename=" in body
+            self.upload_bodies.append(body[:400])
+            if (
+                b'name="disciplines"' not in body
+            ):  # signed in: the app asks for at least one discipline
+                return 422, {"detail": {"message": "choose at least one discipline"}}
             with self.lock:
                 self.uploads += 1
                 n = self.uploads
@@ -743,3 +758,23 @@ def test_sheet_rows_are_counted_under_the_tables_header_row():
     assert driver.xlsx_rows(_xlsx({"All points": 7}), "All points") == 7
     assert driver.xlsx_rows(_xlsx({"All points": 0}), "All points") == 0
     assert driver.xlsx_rows(_xlsx({"All points": 7}), "Comments") is None
+
+
+def test_upload_sends_the_screens_default_discipline(app, setup):
+    assert _run(app, setup, papers=("pump",)) == 0
+    assert (
+        b'name="disciplines"' in app.upload_bodies[0]
+        and b"Invented-A" in app.upload_bodies[0]
+    )
+
+
+def test_upload_with_no_default_discipline_is_not_measured_and_retried_later(
+    app, setup, capsys
+):
+    app.default_disc = []
+    assert _run(app, setup, papers=("pump",)) == 1
+    assert "give --discipline" in capsys.readouterr().out
+    assert app.uploads == 0 and app.starts == []
+    # it never started, so the next run tries it again (here with a chosen discipline)
+    assert _run(app, setup, "--discipline", "Invented-B", papers=("pump",)) == 0
+    assert b"Invented-B" in app.upload_bodies[-1]
