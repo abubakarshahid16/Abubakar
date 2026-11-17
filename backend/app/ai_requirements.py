@@ -46,8 +46,9 @@ quote's figures agrees; a condition is in the sentence, and a sentence that
 is conditional with no condition proposed is refused (the #858 lesson). What
 passes is stored as a DRAFT for the engineer (`clause_check_drafts`), never as
 a requirement: no verdict is ever decided on an unapproved proposal. The
-model is the runner's local model - standards text never leaves the machine. The model is the runner's setting
-(`settings.ai_task_model`, qwen3.5:2b by default). No rule here names a
+model is the runner's local model (`settings.ai_task_model`, qwen3.5:2b by default); in a Claude-lane review run
+it is Claude when `AI_CLAUSE_REVIEW_ENGINE=claude` and the lane and the approved list allow it
+(`ai_task_runner.own_engine`, LP3), else the step does not run and the run says why. No rule here names a
 document, a standard or a clause.
 """
 from __future__ import annotations
@@ -372,6 +373,8 @@ CLAUSE_TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
     instruction=CLAUSE_INSTRUCTION,
     schema=CLAUSE_SCHEMA,
     num_predict=300,
+    # LP3: one clause sentence of a rule book, verified by code: the clause step's own setting governs it in a Claude-lane run
+    engine="ai_clause_review_engine",
 ))
 
 #: Why a proposed check was refused - plain words for the run report; never
@@ -535,7 +538,8 @@ def ensure_schema() -> None:
 
 def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
                    limit: int, provider=None) -> dict:
-    """Ask the local model for a check per undecided clause sentence (at most
+    """Ask the model for a check per undecided clause sentence (the local runner's; in a Claude-lane review run Claude when
+    AI_CLAUSE_REVIEW_ENGINE says claude, LP3) (at most
     `limit` per run), verify each in code, store what passes as a draft.
     Returns the run report's counts: {sentences, asked, proposed, refused
     {why: n}, could_not_read, not_asked_budget}. Every count is out of
@@ -543,7 +547,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     from .db import connect
 
     asked = proposed = unread = no_limit = 0
-    model = None
+    model = engine = None
     refused: dict[str, int] = {}
     drafts = []
     # #645 live run (12 Oct): the cap goes first to the sentences that print
@@ -560,6 +564,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
         # the model that answered, whatever it answered (live run: 20 answers,
         # none passed, and the run recorded no model)
         model = model or result.model
+        engine = engine or result.engine  # LP3: where it ran, from the provider that answered
         check, why = verify_proposal(result.data, sentence)
         if why == NO_LIMIT:
             # the model's answer, not a refusal: it read no limit in the sentence
@@ -586,8 +591,8 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     report = {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
-            # the local runner's model (`ai_task_runner`); None when none answered
-            "model": model}
+            # the model that answered (`ai_task_runner`: local, or Claude under AI_CLAUSE_REVIEW_ENGINE); None when none answered
+            "model": model, "engine": engine}
     report["by_standard"] = clause_check_rank.by_standard(ordered, asked)
     return report
 

@@ -184,6 +184,15 @@ def _rescued_ids(conn, ids: list, eq_ctx) -> tuple[set[str], set[str]]:
 _MANDATORY = re.compile(r"\b(shall|must)\b", re.I)
 
 
+def not_approved(why: Mapping | None) -> bool:
+    """Is this rule's tier the "not AI approved" one? Compared case-insensitively with THE tier word
+    (`agent_review_verdict.TIER_NOT_APPROVED`): the stored word and a shown word may differ in case."""
+    from .agent_review_verdict import TIER_NOT_APPROVED
+
+    tier = str((why or {}).get("tier") or "").strip().lower()
+    return tier == TIER_NOT_APPROVED.lower()
+
+
 def score(
     row: Mapping, why: Mapping, governing_ids: set[str], approved_fields: set[str]
 ) -> int:
@@ -199,7 +208,7 @@ def score(
         s += 1
     if row.get("operator") and row.get("value") is not None:
         s += 1
-    s += -2 if why.get("tier") == "Not AI approved" else 1
+    s += -2 if not_approved(why) else 1
     return s
 
 
@@ -211,13 +220,18 @@ def rank_and_cut(
     governing_ids: set[str],
     approved_fields: set[str],
     first_ids: set[str] | frozenset[str] = frozenset(),
+    last_ids: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[dict], list[dict], dict]:
     """(rows asked, left-out records below the limit, facts). A rule that can be DECIDED (approved) is never cut in favour of one
     that can only be an opinion: approved rules rank first, then the others, each by its score. Order among equal scores: books that govern this equipment by
-    `governing_standards.json` (`first_ids`) before books only cited, then book, page, id (stable, no randomness)."""
+    `governing_standards.json` (`first_ids`) before books only cited, then book, page, id (stable, no randomness).
+    LPB: the rules of a book kept ONLY because our rule sorting tagged it for the equipment (`last_ids`) come after every rule
+    of the books chosen otherwise (cited, governing, scope, ...), so adding such books never takes a place from a rule asked
+    without them; approved before not approved within each of the two groups."""
     scored = [
         (
-            (why_kept.get(str(r.get(id_key))) or {}).get("tier") == "Not AI approved",
+            str(r.get("standard_document_id")) in last_ids,
+            not_approved(why_kept.get(str(r.get(id_key)))),
             -score(
                 r,
                 why_kept.get(str(r.get(id_key))) or {},
@@ -232,9 +246,9 @@ def rank_and_cut(
         )
         for r in kept
     ]
-    scored.sort(key=lambda t: t[:6])
-    top = [t[6] for t in scored[: max(0, int(limit))]]
-    cut = [t[6] for t in scored[max(0, int(limit)) :]]
+    scored.sort(key=lambda t: t[:7])
+    top = [t[7] for t in scored[: max(0, int(limit))]]
+    cut = [t[7] for t in scored[max(0, int(limit)) :]]
     left = [
         {
             "rule_version_id": r.get(id_key),

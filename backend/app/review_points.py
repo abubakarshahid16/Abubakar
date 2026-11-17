@@ -29,6 +29,7 @@ import json
 import re
 from collections import Counter, defaultdict
 
+from . import agent_review_ai_answer as ai_answer
 from . import agent_review_not_applicable as not_applicable
 from . import agent_review_wording as wording_mod
 from . import crs_ai_actions as actions
@@ -46,7 +47,7 @@ RANKS: dict[int, tuple[str, str]] = {
     6: ("Met", "two readers agree"),
     7: ("Met", "proven by code"),
     8: ("Does not apply", ""),
-    9: ("AI thinks it does not apply, to confirm", ""),  # owner on PR #1872: its own section (`agent_review_not_applicable`)
+    9: (ai_answer.NOT_APPLICABLE_LABEL, ""),  # owner on PR #1872: its own section; LP0 (17 Nov 2026): the owner's words for it
 }
 TILES = ("not_met", "questions", "met", "does_not_apply")
 TILE_OF_RANK = {
@@ -77,9 +78,9 @@ _RANK_OF_AI_ORDER = {
     words.ORDER_PASS: 7,
 }
 #: The rule check's CRS Status -> rank (it never writes the two-reader class).
+#: LPH (owner, 17 Nov 2026): no rule-check Status reads as an AI "not met" (rank 3); an AI opinion, were one ever written, is a question.
 _RANK_OF_RC_STATUS = {
     words.STATUS_FAIL: 1,
-    words.STATUS_AI: 3,
     words.STATUS_QUERY: 4,
     words.STATUS_PASS: 7,
 }
@@ -138,6 +139,13 @@ def rank_of_ai_line(line: dict) -> tuple[int, str | None, int | None]:
     if wb.OTHER_KIND_OF_SHEET.get(sheet_of(line)) == words.KIND_NOT_HELD:
         return 0, None, None
     return 8, None, None
+
+
+def shown_rank(line: dict, rank: int | None = None) -> int:
+    """The rank an AI line is SHOWN with, on the page and in the AI run's own file alike (one home, LP1): `rank_of_ai_line`, except
+    that an unproven "does not apply" is its own section, never a main question (rank 9, owner on PR #1872)."""
+    rank = rank_of_ai_line(line)[0] if rank is None else rank
+    return 9 if rank == 4 and wording_mod.not_applicable_question(line) else rank
 
 
 def group_key(
@@ -285,9 +293,13 @@ def split_tags(name: str, known: frozenset[str] = frozenset()) -> tuple[str, lis
     return _clean(" ".join(x for x in keep if x)), list(dict.fromkeys(tags))
 
 
-def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None) -> str:
+def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None, ai_label: str | None = None) -> str:
+    """The pill: what the point is and how firm. LP0 (owner, 17 Nov 2026): a line code did not prove whose AI reader answered shows that
+    answer, labelled as the AI's (`agent_review_ai_answer.label`), never a plain Pass / Fail and never a bare "Question"."""
     if added_by:
         return "Added by " + added_by
+    if ai_label:
+        return f"{ai_label} · {n_alike} alike" if rank == 4 and n_alike > 1 else ai_label
     what, firm = RANKS[rank]
     if rank == 8 and other_kind:
         what = other_kind
@@ -434,8 +446,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     rank, status, order = rank_of_ai_line(line)
     if rank == 0:
         return None
-    if rank == 4 and wording_mod.not_applicable_question(line):
-        rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
+    rank = shown_rank(line, rank)
     hidden = words_hidden(line, ctx)  # rule 5: his words on it are hidden too
     line = for_viewer(line, ctx)  # LP2, rule 5: every reader sees the one guard
     item = str(line.get("item_id") or "")
@@ -472,6 +483,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         from .agent_review_crs import sheet_of
 
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
+    # LP0 (owner, 17 Nov 2026): the AI's own answer, labelled, on a question, a one-reader met / not met, a rule not yet approved and an
+    # unproven "does not apply"; words only: the rank, tile and counts stay (`agent_review_ai_answer`)
+    answer_label = ai_answer.label(line) if rank in (3, 4, 5, 8, 9) else None
+    if rank == 8 and (other_kind != words.KIND_UNAPPROVED or answer_label == ai_answer.NOT_APPLICABLE_LABEL):
+        answer_label = None  # "Does not apply (AI, engineer to confirm)" is said only in its own section (rank 9)
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
     field, tags = split_tags(wb.field_words(line), ctx.get("known_tags") or frozenset())
@@ -484,6 +500,8 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)
     # are never one group, so "Keep all" never decides them unseen.
     reason = line.get("reason_code") or line.get("not_proven_reason") or ""
+    if answer_label:  # LP0: points with different AI answers are never one group ("Keep all" never decides them unseen)
+        reason = f"{reason}|{answer_label}"
     shown = (
         line
         if book_readable
@@ -563,6 +581,12 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         ),
         "tags": tags,
         "added_by": None,
+        # LP0 (owner, 17 Nov 2026): the AI's own answer and its line (standard, clause, page, quote); words only, never a decision
+        "ai_label": answer_label,
+        # hidden: from the viewer's readable books only (rule 5); a readable book with a blank name is "name not recorded"
+        "ai_answer": ai_answer.sentence(answer_label, book=book_name, clause=ai_answer.clause_words(line) if book_doc else ai_answer.NO_CLAUSE,
+                                        page=arc.line_page_words(line), evidence=paper_q, looked=looked, linked=bool(book_doc),
+                                        hidden=rule_book_hidden(book_doc, ctx)) if answer_label else None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_words_hidden": hidden,
@@ -634,7 +658,10 @@ def rule_point(
     )
 
     kind = row.get("row_kind")
-    status = crs_normal.crs_status(kind, row.get("priority"))
+    # LPH: a row the AI did not settle (no verdict in its stored finding) is a question
+    status = crs_normal.crs_status(
+        kind, row.get("priority"), row.get(crs_normal.STORED_STATE)
+    )
     rank = _RANK_OF_RC_STATUS.get(status, 4)
     other_kind = None
     if kind in (ROW_KIND_PAGES_NOT_READABLE, ROW_KIND_PAGE_READER_ONLY):
@@ -715,7 +742,8 @@ def rule_point(
         if rule_words or action_source != "check":  # a check's own sentence that cites no rule of the book (a missing reference) stays
             action, action_source = f"{missing_words}. {BOOK_NOT_CHECKABLE}; engineer to check.", "check"
         ref = {"name": ref["name"], "clause": "", "page": None}
-    elif rank == 3 and kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
+    # LPH: by kind, not by rank (the rule check's AI rows are never rank 3 now); its AI-written rule words are never shown as the book's
+    elif kind in _AI_WRITTEN_RULE_KINDS and not _clean((finding or {}).get("standard_clause")):
         # Honesty rule 4 (no claim without a resolving citation; gates G1 and G5): a "not met" written by the rule check's AI step whose
         # finding names no clause is a question for the engineer, never a verdict (decided on the stored finding: the same for every viewer).
         # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
@@ -794,6 +822,11 @@ def rule_point(
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
+    if not missing and not unproven_ai and kind in crs_normal._AI_ROW_KINDS:  # LP0 + #1882: a question with its rule's approval words
+        point["ai_answer"] = ai_answer.sentence(
+            ai_answer.rule_check_question((finding or {}).get("requirement_id"), ctx.setdefault("_rule_tiers", {})), book=book_name, clause=f"clause {point['clause']}" if point["clause"] else ai_answer.NO_CLAUSE,
+            page=str(page) if page is not None else None, evidence=paper_q or None, looked=looked or None, hidden=hidden, linked=bool(book_doc),
+        )  # fmt: skip
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)  # fmt: skip
@@ -955,7 +988,7 @@ def with_groups(points: list[dict]) -> list[dict]:
     for p in points:
         n = size.get(p.get("group_key"), 1) if p.get("group_key") else 1
         p["n_alike"] = n
-        p["pill"] = _pill(p["rank"], p.get("other_kind"), n, p.get("added_by"))
+        p["pill"] = _pill(p["rank"], p.get("other_kind"), n, p.get("added_by"), p.get("ai_label"))
     return points
 
 

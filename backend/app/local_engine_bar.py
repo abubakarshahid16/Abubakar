@@ -11,7 +11,9 @@ A SKIPPED AI STEP IS STATED, NEVER DROPPED (CLAUDE.md top rule). `refuses(step)`
 the step and how many calls it would have made; `record_on_run` writes the notes to the
 run's `outcome_json` and `review_audit` prints them. A step does not move to Claude
 here: the provider switch and each step's own engine setting decide that (rule 1), so
-a step that stays off is skipped and says so.
+a step that stays off is skipped and says so. LP3 (17 Nov 2026): a step that knows WHY
+(its own setting is local, the lane or the approved list refused it, or it has no Claude
+setting at all) notes it with `because`, and the run and the sheet print that reason.
 
 THE BAR ALSO HOLDS WHERE A STEP FORGOT. `model_transport.endpoint` refuses too, with
 an error shaped like a stopped engine (`LocalEngineNotLoaded`), which every caller
@@ -68,6 +70,67 @@ SAYS_ITSELF = frozenset({"review_ai_check"})
 _SKIPPED: ContextVar[dict[str, int] | None] = ContextVar(
     "local_engine_barred", default=None
 )
+#: LP3 (order 14 live proof, 17 Nov 2026): WHY a step did not run, when its caller knows (`because`). A step with no reason
+#: noted keeps `NOTE`. Plain fixed words and setting names only, never text.
+_WHY: ContextVar[dict[str, str] | None] = ContextVar("local_engine_bar_why", default=None)
+
+#: The reason of a step that has no engine setting of its own, so it cannot go to Claude under rule 1.
+NO_CLAUDE_SETTING = "this step has no Claude setting"
+
+
+def because(step: str, why: str) -> None:
+    """Note WHY `step` does not run in this Claude-lane run (it is counted where it is refused). Nothing outside the bar."""
+    reasons = _WHY.get()
+    if reasons is not None and why:
+        reasons[step] = why
+
+
+def engine_value(setting: str | None) -> str | None:
+    """The value of the engine setting a step without one of its own is governed by (LP3), by its settings name. Only these
+    two may be named (each one of `REVIEW_ENGINE_SETTINGS`, so a run that uses them is barred; `test_n2_agent_review_engine`
+    reads this body). CLOSED BY DEFAULT: any other name, or None, is None - not a setting this reads - and never opens
+    Claude."""
+    from .config import settings
+
+    governing = {
+        "ai_clause_review_engine": settings.ai_clause_review_engine,  # the clause-check proposal
+        "match_engine": settings.match_engine,  # the field naming
+    }
+    if setting not in governing:
+        return None
+    return str(governing[setting] or "").strip().lower()
+
+
+def why_not_claude(setting: str | None) -> str:
+    """Why a step whose OWN engine setting is `setting` (a settings attribute; None: it has none) does not run on Claude in this
+    run: plain words naming the setting, never a document. The one home of these words (LP3)."""
+    from . import claude_approved
+    from . import reasoning_provider as rp
+
+    value = engine_value(setting)
+    if value is None:  # not a setting this step can be governed by: never a false word about some other setting
+        return NO_CLAUDE_SETTING
+    name = str(setting).upper()  # the setting `engine_value` read
+    if value != rp.CLAUDE:
+        return f"its own engine setting {name} is not claude, and a Claude-lane run does not load the local engine"
+    if not rp.claude_lane_open():
+        code = rp._lane_unavailable()[0]
+        return f"its own engine setting {name} is claude, but the Claude lane is closed for it ({code})"
+    refused = claude_approved.refusal()
+    if refused is not None:
+        return f"its own engine setting {name} is claude, but a document in its prompt may not be sent to Claude ({refused[0]})"
+    return f"its own engine setting {name} is claude, but no Claude reader was given to it"
+
+
+def note_of(step: str) -> str:
+    """The note `stated` writes for `step`: its reason when one was given, else the bar's own `NOTE`."""
+    why = (_WHY.get() or {}).get(step)
+    return f"not run: {why}" if why else NOTE
+
+
+def step_words(step: str) -> str:
+    """The plain name of a step, as the sheet prints it."""
+    return _words(step)
 
 
 def active() -> bool:
@@ -168,9 +231,11 @@ def _is_agent_job(job_id) -> bool | None:
 @contextmanager
 def bar() -> Iterator[None]:
     token = _SKIPPED.set({})
+    why = _WHY.set({})
     try:
         yield
     finally:
+        _WHY.reset(why)
         _SKIPPED.reset(token)
 
 
@@ -187,13 +252,19 @@ def barring_local_engine(job):
     return wrapper
 
 
+def _not_checked(row: dict) -> str:
+    """The run's own reason when the step said why it did not run (LP3), else `NOT_CHECKED`."""
+    note = str(row.get("note") or "")
+    return f"not checked: {note.removeprefix('not run: ')}" if note.startswith("not run: ") else NOT_CHECKED
+
+
 def unchecked_lines(outcome: dict) -> list[dict]:
     """Each step this run skipped, as `absence.unchecked_parts` lists it: a skipped step
     never leaves a sheet looking complete for that step."""
     return [
         {
             "part": f"skipped:{row['step']}",
-            "line": f"{_words(row['step'])}: {NOT_CHECKED}.",
+            "line": f"{_words(row['step'])}: {_not_checked(row)}.",
             "note": "Not checked",
         }
         for row in outcome.get(OUTCOME_KEY) or []
@@ -205,7 +276,7 @@ def stated() -> list[dict]:
     """What the run skipped, for the run record and the audit."""
     skipped = _SKIPPED.get() or {}
     return [
-        {"step": step, "calls_not_made": count, "note": NOTE}
+        {"step": step, "calls_not_made": count, "note": note_of(step)}
         for step, count in sorted(skipped.items())
     ]
 
