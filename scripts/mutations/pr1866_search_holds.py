@@ -8,7 +8,7 @@ from ._base import APP, Mutation
 
 _M = APP / "standards_web_search_money.py"
 _S = APP / "claude_spend.py"
-_T = "backend/tests/test_standards_web_search_money.py"
+_T = "tests/test_standards_web_search_money.py"
 _TAGS = ("budget", "critical")
 
 
