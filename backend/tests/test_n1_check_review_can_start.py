@@ -250,3 +250,34 @@ def test_several_finished_rule_checks_with_scope_decisions_the_newest_wins(
         c.commit()
         got = agent_review_jobs.reusable_scope_run(c, world["sub"])
     assert got == allr[-1]
+
+
+def test_a_rule_check_selected_with_the_book_switch_set_the_other_way_is_not_reused(
+    world, monkeypatch
+):
+    """Hotfix 19c: the book-selection switch (`equipment_rule_books_enabled`) changes which rule books a run selects, so an AI-only
+    start never reuses a rule check whose selection was made with it set the other way; with the same value it is reused."""
+    monkeypatch.setattr(settings, "equipment_rule_books_enabled", True)
+    _copy_world(
+        world, monkeypatch
+    )  # one finished rule check, selected with the switch on
+    with db.connect() as c:
+        (on_run,) = [r["id"] for r in c.execute("SELECT id FROM review_runs")]
+        assert agent_review_jobs.reusable_scope_run(c, world["sub"]) == on_run
+        monkeypatch.setattr(settings, "equipment_rule_books_enabled", False)
+        assert agent_review_jobs.reusable_scope_run(c, world["sub"]) is None
+        c.execute("UPDATE jobs SET state = 'done'")
+    off_run, _j = _enqueue(world)  # a rule check selected with the switch off
+    with db.connect() as c:
+        c.execute(
+            "UPDATE review_runs SET status = 'completed' WHERE id = ?", (off_run,)
+        )
+        c.execute(
+            "INSERT INTO review_scope_decisions(review_run_id, requirement_id, state, reason_code, reason, decided_by, created_at)"
+            " VALUES (?, 'r1', 'applies', 'x', 'x', 't', '2026-11-15')",
+            (off_run,),
+        )
+        c.commit()
+        assert agent_review_jobs.reusable_scope_run(c, world["sub"]) == off_run
+        monkeypatch.setattr(settings, "equipment_rule_books_enabled", True)
+        assert agent_review_jobs.reusable_scope_run(c, world["sub"]) == on_run

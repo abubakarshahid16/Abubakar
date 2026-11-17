@@ -540,6 +540,12 @@ class SettingsExt(BaseModel):
     agent_review_rule_choice_v2_enabled: bool = False
     agent_review_budget_claude: int = 150
     agent_review_budget_local: int = 40
+    #: Hotfix 19c (17 Nov 2026): book selection by our own rule sorting (`equipment_rule_books`, PR #1877). ON: a rule book is kept
+    #: for a paper when it holds agreed rules our rule sorting tagged for the paper's equipment (selection method "equipment_rules").
+    #: OFF (default): that route keeps and orders no book; every other route, and the rest of #1877, is unchanged. Off because the
+    #: older field-name matcher matched single field words to unrelated rules of those books (live update 19a). Env:
+    #: EQUIPMENT_RULE_BOOKS_ENABLED.
+    equipment_rule_books_enabled: bool = False
     #: Owner order 13, 12 Nov 2026 (point 10): the class "AI verdict, two readers agree" for the AI reviewer. After the first reader
     #: answers, a second reader of a different model family answers the SAME question independently (it never sees the first
     #: answer); a line is of the class only when both verdicts agree, code verified both readers' quotes and no guard objects.

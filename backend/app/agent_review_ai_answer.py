@@ -16,7 +16,9 @@ that such a line no longer hides the AI reader's own answer behind a bare "Query
 WHICH LINES (`label`): a line of the AI reviewer (a rule or a checklist item) whose reader answered met (Pass) or not met (Fail) and that
 is NOT proven by code (the class "Proven by code" keeps its plain Pass / Fail), NOT a two-reader verdict (its own words, "Met (AI, two
 readers agree, quotes verified)"), NOT "needs a drawing or a calculation", NOT a line with no answer (an error, a reader's own Query),
-and NOT a line on a rule book the run does not hold (a book not held is never guessed: it stays a question, gate G7). A "does not apply"
+and NOT a line on a rule book the run does not hold (a book not held is never guessed: it stays a question, gate G7). A line whose verified paper quote
+DEFERS the value, or whose gate reason says it does (`defers`), is a question in its own words (`deferred_label`, hotfix 19c), never the
+reader's Pass / Fail: the paper asks the contractor for that value. A "does not apply"
 without its proof (`agent_review_wording.not_applicable_question`) is "Does not apply (AI, engineer to confirm)", in its own section.
 The rule check's own AI-written rows (AI clause review, AI engineering check, ...) store no verdict, so they are always a QUESTION
 (PR #1882), never "Pass / Fail (AI, ...)": their line is `rule_check_question`, "Question (AI, not settled, <why>)", with its rule's
@@ -64,6 +66,15 @@ NOT_APPLICABLE_LABEL = "Does not apply (AI, engineer to confirm)"
 NO_QUOTE_LABEL = (
     "AI view without a verified quote of the value from the paper: engineer to check"
 )
+#: Hotfix 19c (17 Nov 2026): a line whose paper quote, verified by code, DEFERS the value ("vendor to fill", "by contractor", "TBA":
+#: `agent_review_verdict.quote_defers`), or whose gate reason says so (`DEFERRED_WHY`), is a question in these words: the paper asks
+#: the contractor for the value, so no AI reader's Pass / Fail or Met / Not met is shown on it (`defers`).
+DEFERRED_LABEL = "The paper leaves this value open (to be filled): engineer to confirm with the contractor"
+#: The same question when the verified quote STATES a figure beside its deferral mark ("340 psig by contractor"): the paper gives a
+#: value, still to be confirmed (lead's review of #1892: "leaves this value open" would be untrue). Read by the app's one number reader
+#: (`crs_ai_actions.provisional`).
+DEFERRED_VALUE_LABEL = "The paper gives a value but marks it as still to be confirmed (by the contractor): engineer to confirm"
+DEFERRED_LABELS = (DEFERRED_LABEL, DEFERRED_VALUE_LABEL)
 QUOTE_FOUND = "found on the page by code"
 QUOTE_LOOKED = (
     "where the AI reader looked; found on the page by code, it does not show the value"
@@ -141,12 +152,37 @@ def rule_check_question(requirement_id: object, cache: dict | None = None) -> st
 
 def is_question(line: Mapping) -> bool:
     """An AI opinion line (stored "AI thinks") that is a question on every page and file (`crs_ai_workbook.status_of`): its two readers
-    disagree, or it holds no paper quote code verified (an AI answer is shown only beside one)."""
+        disagree, it holds no paper quote code verified (an AI answer is shown only beside one), or its paper leaves the value open
+    (`defers`, hotfix 19c)."""
     from . import agent_review_wording as wording
 
     return wording.is_opinion(line) and (
-        bool(disagreement(line)) or not line_quotes(line)[0]
+        bool(disagreement(line)) or not line_quotes(line)[0] or defers(line)
     )
+
+
+def defers(line: Mapping) -> bool:
+    """The line's paper leaves the value open: its paper quote, VERIFIED on the page by code, defers the value (`quote_defers`), or
+    the gate's own reason says so (`not_proven_reason` opens with `DEFERRED_WHY`, written only from a verified quote). A quote code
+    did not verify never says what the paper does."""
+    from .agent_review_verdict import DEFERRED_WHY, quote_defers
+
+    q = line.get("quotes_checked")
+    if (
+        isinstance(q, Mapping)
+        and q.get("paper")
+        and quote_defers(line.get("paper_quote"))
+    ):
+        return True
+    return str(line.get("not_proven_reason") or "").startswith(DEFERRED_WHY)
+
+
+def deferred_label(line: Mapping) -> str:
+    """THE words of a deferred line (`defers`): its verified quote states a figure (`crs_ai_actions.provisional`, the app's one number
+    reader) -> the value is given but still to be confirmed; else the value is left open. Both are questions."""
+    from .crs_ai_actions import provisional
+
+    return DEFERRED_VALUE_LABEL if provisional(line) else DEFERRED_LABEL
 
 
 def is_ai_row(line: Mapping) -> bool:
@@ -159,11 +195,17 @@ def is_ai_row(line: Mapping) -> bool:
     )
 
 
-def marked(text: object, ai_row: bool = True) -> object:
+def marked(text: object, ai_row: bool = True, line: Mapping | None = None) -> object:
     """A cell that says met / not met in our own words on an AI row, marked as the AI's ("met (AI, engineer to confirm)"); any other
-    text, or a decision's row (`ai_row` False), unchanged."""
+    text, or a decision's row (`ai_row` False), unchanged. On a deferred line (`defers`, hotfix 19c) the reader's word is said as the
+    reader's and not a decision, with the line's question words (`deferred_label`)."""
     t = " ".join(str(text or "").split())
-    return f"{t} {AI_MARK}" if ai_row and t.lower() in _MET_WORDS else text
+    if not (ai_row and t.lower() in _MET_WORDS):
+        return text
+    if line is not None and defers(line):
+        said = deferred_label(line)
+        return f'AI reader said "{t}", not a decision: {said[:1].lower()}{said[1:]}'
+    return f"{t} {AI_MARK}"
 
 
 def disagreement(line: Mapping) -> tuple[str, str] | None:
@@ -214,6 +256,9 @@ def label(line: Mapping) -> str | None:
         or wording.is_not_reviewed(line)
     ):
         return None
+    # hotfix 19c: the paper asks the contractor for the value: a question, never the AI's Pass / Fail
+    if defers(line):
+        return deferred_label(line)
     evidence, _looked = line_quotes(line)
     if not evidence:  # no paper quote code verified: no answer is shown as Pass / Fail
         return NO_QUOTE_LABEL
@@ -279,7 +324,7 @@ def sentence(
             f"page {page}" if page else NO_PAGE,
         )
     )
-    sep = ". " if answer_label == NO_QUOTE_LABEL else ": "
+    sep = ". " if answer_label in (NO_QUOTE_LABEL, *DEFERRED_LABELS) else ": "
     return f"{answer_label}{sep}{where}; {quote_words(evidence, looked)}."
 
 
@@ -353,7 +398,12 @@ def class_words(tile_words: str, point: Mapping) -> str:
         return tile_words
     if str(point["ai_label"]).startswith("AI readers disagree (first: "):
         return DISAGREE_CLASS
-    if point["ai_label"] == NO_QUOTE_LABEL and point.get("tile") in ("not_met", "met"):
+    if point["ai_label"] in (NO_QUOTE_LABEL, *DEFERRED_LABELS) and point.get(
+        "tile"
+    ) in (
+        "not_met",
+        "met",
+    ):
         return "Questions for you"  # never reached by a stored line (`is_question`): said as a question if it ever is
     if point.get("tile") in ("not_met", "met"):
         return AI_CLASS.format(tile=tile_words)
@@ -381,7 +431,7 @@ def is_label(text: object) -> bool:
     """Is `text` (a pill or a cell) one of this module's labels? The scorer reads an AI row back with it, never as a decision."""
     t = " ".join(str(text or "").split())
     return (
-        t in (NOT_APPLICABLE_LABEL, NO_QUOTE_LABEL)
+        t in (NOT_APPLICABLE_LABEL, NO_QUOTE_LABEL, *DEFERRED_LABELS)
         or t.startswith("AI readers disagree (first: ")
         or any(
             t.startswith(LABEL.format(answer=a, why=w)) for a in ANSWERS for w in WHYS

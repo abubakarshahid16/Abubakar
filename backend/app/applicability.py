@@ -81,7 +81,8 @@ METHOD_MANUAL = "manual"                  # an engineer's own decision
 #: (applicability_v2.decide on a stored, verified scope record).
 METHOD_SCOPE = "scope"
 #: LPB (owner, 17 Nov 2026): the book holds AGREED rules our own rule sorting tagged for the paper's equipment
-#: (`equipment_rule_books`, the AI reviewer's own equipment decision per rule).
+#: (`equipment_rule_books`, the AI reviewer's own equipment decision per rule). Hotfix 19c: only while `equipment_rule_books_enabled`
+#: is on (off by default); off, this route keeps no book.
 METHOD_EQUIPMENT_RULES = "equipment_rules"
 
 #: B5 (live wiring, 2026-09-25): methods that are EVIDENCE a standard governs

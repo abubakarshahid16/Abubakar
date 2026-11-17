@@ -726,7 +726,7 @@ def _independent_cells(line: Mapping) -> list:
         else {}
     )
     return [
-        ai_answer.marked(indep.get("verdict"), ai_answer.is_ai_row(line)),  # LP0: on an AI row, marked as the AI's
+        ai_answer.marked(indep.get("verdict"), ai_answer.is_ai_row(line), line),  # LP0: on an AI row, marked as the AI's
         _clean(indep.get("paper_quote")) or None,
         indep.get("paper_page"),
         _clean(indep.get("clause_quote")) or None,
@@ -762,7 +762,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         _check_word(bool(q.get("clause"))),
         _second_reader(line),
         _calls(line),
-        ai_answer.marked(_clean(line.get("reason_code")), ai_answer.is_ai_row(line)) or None,  # LP0: an AI row's met / not met is marked
+        ai_answer.marked(_clean(line.get("reason_code")), ai_answer.is_ai_row(line), line) or None,  # LP0: an AI row's met / not met is marked
         line.get("item_id"),
         label.get("label_key") if isinstance(label, Mapping) else None,
         *_independent_cells(line),
@@ -815,6 +815,8 @@ def _other_reason(line: Mapping, kind: str) -> str:
             or "Rules of a rule book could not be matched to a field: an engineer checks them."
         )
     answer = ai_answer.label(line)  # LP0 (owner, 17 Nov 2026): the AI's own answer, labelled
+    if answer in ai_answer.DEFERRED_LABELS and kind in (words.KIND_NOTHING_TO_CHANGE, words.KIND_MET_NOT_CONFIRMED):
+        return f"{answer}."  # hotfix 19c: a deferred value is a question; no "judged it met" beside it
     if kind == words.KIND_NOTHING_TO_CHANGE:
         got = _status_of(line)
         if answer and got and got[0] == words.STATUS_AI:
