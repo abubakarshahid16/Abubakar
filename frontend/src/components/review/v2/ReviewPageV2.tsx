@@ -10,6 +10,9 @@ import { type ReactNode, useMemo, useState } from "react";
 import type { ReviewRunSummary } from "../../../types/api";
 import type { DocumentRecord } from "../../../types/api";
 import { PageImageViewer } from "../../PageImageViewer";
+import { GeneralHistory } from "../general/GeneralHistory";
+import { GeneralResults } from "../general/GeneralResults";
+import { latestGeneral, useGeneralReview } from "../general/useGeneralReview";
 import { AddPoint } from "./AddPoint";
 import { BottomRow } from "./BottomRow";
 import { OlderFiles } from "./OlderFiles";
@@ -30,7 +33,13 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
   sheetTab: ReactNode; howTab: ReactNode; onSign: () => void; signBlockers: string[]; signed: boolean; onCodeRecorded: () => void;
 }) {
   const documentId = run.submittal_document_id ?? null;
-  const pts = usePoints(documentId);
+  // Order 14: when the paper's latest finished review is a general one, the general results are drawn instead of the old sections.
+  const { general, method } = useGeneralReview(documentId);
+  const latest = latestGeneral(general);
+  const generalLatest = latest !== null;
+  // the older sections wait until it is known which review is the latest, so one page never flashes into the other
+  const drawOld = !generalLatest && general.state !== "loading";
+  const pts = usePoints(generalLatest ? null : documentId);
   const [tab, setTab] = useState<V2Tab>("points");
   const [tile, setTile] = useState<TileKey | null>(null);
   const [book, setBook] = useState<string | null>(null);
@@ -53,9 +62,17 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         <div className="min-w-[18rem]"><EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} /></div>
       </header>
 
-      {pts.listing.state === "loading" && <p className="text-slateish-300">Reading the points…</p>}
-      {pts.listing.state === "error" && <p role="alert" className="text-danger-500">{pts.listing.message}</p>}
-      {listing && (
+      {general.state === "loading" && <p className="text-slateish-300">Reading the review…</p>}
+      {latest && (
+        <GeneralResults review={latest} onViewPage={(page) => setViewing({ page })}
+          howTab={<><GeneralHistory documentId={latest.paper_document_id} />{howTab}</>} />
+      )}
+      {drawOld && (general.state === "ok" || method === "general") && (
+        <h2 data-testid="earlier-version" className="text-lg font-semibold text-slateish-200">Earlier version</h2>
+      )}
+      {drawOld && pts.listing.state === "loading" && <p className="text-slateish-300">Reading the points…</p>}
+      {drawOld && pts.listing.state === "error" && <p role="alert" className="text-danger-500">{pts.listing.message}</p>}
+      {drawOld && listing && (
         <>
           <FoundDuringReview count={listing.found_during_review ?? 0} />
           <CodeBox listing={listing} onRecorded={() => { void pts.reload(); onCodeRecorded(); }} />
@@ -84,16 +101,16 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         </>
       )}
 
-      <div role="tablist" aria-label="Review" className="flex gap-1 border-b border-ink-600">
+      {drawOld && <div role="tablist" aria-label="Review" className="flex gap-1 border-b border-ink-600">
         {(Object.keys(TAB_LABEL) as V2Tab[]).map((t) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm ${tab === t ? "border-b-2 border-signal-400 text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}`}>
             {t === "points" && listing ? `Points (${listing.of})` : TAB_LABEL[t]}
           </button>
         ))}
-      </div>
+      </div>}
 
-      {tab === "points" && listing && (
+      {drawOld && tab === "points" && listing && (
         <div className="space-y-3">
           {pts.problem && <p role="alert" className="text-sm text-danger-500">{pts.problem}</p>}
           <NotApplicableSection points={toConfirm} counts={listing.counts.not_applicable_to_confirm} confirm={pts.confirmNa} undo={pts.undoNa} busy={pts.busy} />
@@ -102,15 +119,15 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
           <AddPoint onAdd={pts.add} busy={pts.busy} />
         </div>
       )}
-      {tab === "sheet" && <div data-testid="v2-sheet-tab">{sheetTab}</div>}
-      {tab === "how" && (
+      {drawOld && tab === "sheet" && <div data-testid="v2-sheet-tab">{sheetTab}</div>}
+      {drawOld && tab === "how" && (
         <div data-testid="v2-how-tab">
           {howTab}
-          {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} />}
+          {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} documentId={documentId} />}
         </div>
       )}
 
-      {listing && (
+      {drawOld && listing && (
         <BottomRow documentId={documentId} undecided={undecided}
           codeRecorded={listing.final_code != null} blockers={signBlockers} signed={signed} onSign={onSign} />
       )}
