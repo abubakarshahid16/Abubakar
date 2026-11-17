@@ -510,12 +510,24 @@ def test_a_paper_limit_with_no_operator_in_any_rule_is_an_ai_opinion_never_a_cod
     assert (
         d["label"] == "AI opinion" and d["code_compare"]["op_from"] == "the AI's answer"
     )
-    assert "code compared two values of the paper: 12 bar <= 20 bar: true" in d["code"]
+    # the numbers PASS with the AI's operator: no finding, held back in All points (the lead, 18 Nov 2026)
+    assert d["code"] == "paper_compare_passed" and not _sent(d)
+    assert d["code_compare"]["why"] == "12 bar <= 20 bar: true"
     line = to_line(1, d)
     shown = aim_review_store.shown_label(
         line["label"], line["code_compare_json"], line["deferred"]
     )
     assert shown not in (aim_review_store.PASS_BY_CODE, aim_review_store.FAIL_BY_CODE)
+
+
+def test_a_paper_compare_with_no_rule_operator_that_fails_is_a_sent_ai_opinion():
+    d = _pp("Design pressure 12 bar gauge at the inlet", "12", "bar", "20", "bar",
+            "Maximum working pressure of the item 20 bar gauge", "The design pressure is compared with the working pressure.",
+            label="Not met", op=">=")  # fmt: skip
+    assert d["label"] == "AI opinion" and d["code_compare"]["result"] == "fail"
+    assert "code compared two values of the paper: 12 bar >= 20 bar: false" in d[
+        "code"
+    ] and _sent(d)
 
 
 def test_a_limit_quote_that_is_not_on_the_paper_is_never_compared():
