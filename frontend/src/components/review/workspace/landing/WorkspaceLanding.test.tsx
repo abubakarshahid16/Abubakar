@@ -19,6 +19,8 @@ const cancelJob = vi.fn();
 const reviewRunCounts = vi.fn();
 const watchRun = vi.fn();
 
+// Order 14 LPS: these tests read the older per-run counts, so the redesigned page's switch is off here (on, the page's numbers are used).
+vi.mock("../../../../api/reviewPoints", async (orig) => ({ ...(await orig<typeof import("../../../../api/reviewPoints")>()), pageV2SwitchState: async () => false }));
 vi.mock("../../../../api/client", () => ({
   api: {},
   auth: { me: async () => ({ ok: true, data: { required: true, user: { id: "u-1", roles: ["admin"] } } }) },
@@ -33,7 +35,9 @@ vi.mock("../../../../api/client", () => ({
 /** THE ONE START: a review starts through `reviewPlan.start` from the pre-start step; "Review all" runs Local only. */
 const planFor = vi.fn();
 vi.mock("../../../../api/reviewPlan", () => ({
-  reviewPlan: { plan: (...a: unknown[]) => planFor(...a), start: (...a: unknown[]) => startReviewRun(...a) },
+  reviewPlan: { plan: (...a: unknown[]) => planFor(...a), start: (...a: unknown[]) => startReviewRun(...a),
+    // LPS S1: the picker also asks for the contract papers; none here
+    contractPapers: async () => ({ ok: true, data: { boundary: "0 contract papers you may read", papers: [], packages: [] } }) },
 }));
 vi.mock("../reviewWatch", () => ({ watchRun: (...a: unknown[]) => watchRun(...a) }));
 vi.mock("../NewReviewDropZone", () => ({

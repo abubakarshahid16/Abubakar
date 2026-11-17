@@ -33,6 +33,9 @@ WHY_PAPER = "paper under review"
 WHY_CITED = "cited by the paper"
 WHY_GOVERNS = "governs the equipment type"
 WHY_CHOSEN = "chosen by you for this review"
+WHY_PACKAGE = (
+    "a paper of the same contract package that this paper names (given automatically)"
+)
 WHY_EARLIER_SCOPE = "applied by scope in the last review of this paper"
 CONTRACT_WORDS = "a contract goes to Claude only when you choose Claude for the review"
 NOT_HELD = "not held in the library"
@@ -171,6 +174,7 @@ def leaving_for(
     leaves: bool,
     project_ids=(),
     explicit: bool = False,
+    package_ids=(),
 ) -> dict:
     """`{"leaving": [...], "not_sent": [...], "not_readable": n, "count": {...}, "summary": str}`. Never raises: a fault yields an
     EMPTY leaving list with the reason (the screen then offers no Claude start)."""
@@ -188,6 +192,7 @@ def leaving_for(
             project_ids,
             out,
             explicit,
+            frozenset(package_ids),
         )
     except (sqlite3.Error, ValueError, OSError) as exc:
         log.warning("review leaving list unreadable (%s)", type(exc).__name__)
@@ -214,7 +219,15 @@ def _finish(out: dict) -> dict:
 
 
 def _fill(
-    conn, document_id, allowed, facts, equipment_type, project_ids, out, explicit=False
+    conn,
+    document_id,
+    allowed,
+    facts,
+    equipment_type,
+    project_ids,
+    out,
+    explicit=False,
+    package_ids=frozenset(),
 ) -> None:
     from . import applicability
 
@@ -263,6 +276,19 @@ def _fill(
             "contract": _is_contract(document_id),
         }
     )
+
+    # order 14 LPD: a contract's package general terms, its contract rule book (switch off or not a contract: none). Listed here,
+    # before the start, so a run with a stored list may carry it; the gate below decides whether it leaves (a contract: an explicit
+    # Claude start only).
+    from . import contract_rule_book
+
+    book = contract_rule_book.rule_book_of(
+        conn, document_id, allowed, getattr(facts, "kind", None)
+    )["id"]
+    if book:
+        row = _doc_rows(conn, [book]).get(book)
+        if row is not None:
+            put(row, CONTRACT, contract_rule_book.WHY_LISTED)
 
     # THE RULE BOOKS: the review's own selection (`applicability.select`, the function the run calls), read-only and without the
     # step that asks a model. Every standard it would apply is listed, whatever method chose it. What only the model step would
@@ -325,7 +351,7 @@ def _fill(
                 if row["role"] == claude_approved.SPECIFICATION_ROLE
                 else PROJECT_PAPER
             )
-            put(row, kind, WHY_CHOSEN)
+            put(row, kind, WHY_PACKAGE if pid in package_ids else WHY_CHOSEN)
 
 
 def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
@@ -360,7 +386,7 @@ def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
         put(row, kind, WHY_EARLIER_SCOPE)
 
 
-def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
+def documents_block(ctx, plan, project_ids, package_ids=()) -> dict:  # noqa: PLR0915
     """`documents` of the plan: the older keys (the last review's rule book names) and the list of what would leave.
     `ctx` is `(conn, document_id, allowed, facts, reading)`."""
     from .review_engine import _earlier_books
@@ -386,6 +412,7 @@ def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
             leaves=leaves,
             project_ids=tuple(project_ids),
             explicit=plan.choice == "claude",
+            package_ids=tuple(package_ids),
         )
     )
     # rule 1, the list before the start: the online search for books not held (off: no key, the plan is unchanged)

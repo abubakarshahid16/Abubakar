@@ -880,3 +880,53 @@ describe("the AI's own answer on a line code did not prove", () => {
     expect(within(section).getByTestId("v2-na-line")).toHaveTextContent("Does not apply (AI, engineer to confirm) · not confirmed yet");
   });
 });
+
+describe("order 14 LPS: the kind the review used (S3) and what was found online (S4)", () => {
+  const used = (over: Partial<NonNullable<PointsListing["kind_used"]>> = {}) => ({
+    run_id: "ai1", kind: "datasheet", known: true, guess: false, confirmed: false, source: "read by code from the cover and title", ...over,
+  });
+
+  it("S3: says the kind the review USED, with no 'guessed' when the run read it, even though the stored kind is a guess", async () => {
+    api.list.mockResolvedValue(ok(listing({ kind_used: used() })));
+    mount(); await loaded();
+    const kind = await screen.findByTestId("v2-kind-used");
+    await waitFor(() => expect(kind).toHaveTextContent(/^Datasheet$/));
+    expect(screen.getByTestId("v2-kind-line").textContent ?? "").not.toMatch(/guessed/);
+    expect(screen.queryByTestId("kind-chip")).toBeNull(); // the stored guess is not said a second time
+  });
+
+  it("S3: says '(guessed, not confirmed)' only when the run used a guess, and 'unknown' when it found no cue", async () => {
+    api.list.mockResolvedValue(ok(listing({ kind_used: used({ guess: true, source: "guessed by code (until an engineer confirms it)" }) })));
+    const first = mount(); await loaded();
+    await waitFor(() => expect(screen.getByTestId("v2-kind-used")).toHaveTextContent("Datasheet (guessed, not confirmed)"));
+    first.unmount();
+    api.list.mockResolvedValue(ok(listing({ kind_used: used({ kind: null, known: false, source: "no cue found: unknown" }) })));
+    mount(); await loaded();
+    expect(await screen.findByTestId("v2-kind-used")).toHaveTextContent("Kind: unknown to the review (no cue found)");
+  });
+
+  it("S3: without a run record the stored kind shows as before", async () => {
+    mount(); await loaded();
+    await waitFor(() => expect(screen.getByTestId("kind-chip")).toHaveTextContent("Datasheet? · guessed, not confirmed"));
+    expect(screen.queryByTestId("v2-kind-used")).toBeNull();
+  });
+
+  it("S4: the online list sits below the comments and Add a point, folded until pressed", async () => {
+    const l = listing();
+    l.counts.not_held = { ...l.counts.not_held, found_online: [{ name: "Book A", outcome: "found", words: "Book A title (found online, not verified)", url: null }] };
+    api.list.mockResolvedValue(ok(l));
+    mount(); await loaded();
+    const box = screen.getByTestId("v2-found-online");
+    expect(box.tagName).toBe("DETAILS");
+    expect(box).not.toHaveAttribute("open");
+    expect(box).toHaveTextContent("Found online for 1 rule book not held (not verified)");
+    const points = screen.getByTestId("v2-points");
+    const notHeld = screen.getByTestId("v2-not-held");
+    // DOCUMENT_POSITION_FOLLOWING: the box comes after the list of comments, never next to the tiles
+    expect(points.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notHeld.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notHeld.contains(box)).toBe(false);
+    fireEvent.click(within(box).getByText(/Found online for 1 rule book/));
+    expect(box).toHaveAttribute("open");
+  });
+});

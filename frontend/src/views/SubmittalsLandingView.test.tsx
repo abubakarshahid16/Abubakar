@@ -22,6 +22,8 @@ const startReviewRun = vi.fn();
 const reviewRunSummary = vi.fn();
 const reviewRunCounts = vi.fn();
 
+// Order 14 LPS: these tests read the older per-run counts, so the redesigned page's switch is off here (on, the page's numbers are used).
+vi.mock("../api/reviewPoints", async (orig) => ({ ...(await orig<typeof import("../api/reviewPoints")>()), pageV2SwitchState: async () => false }));
 vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
   reviews: {
@@ -34,7 +36,9 @@ vi.mock("../api/client", () => ({
 /** THE ONE START: a review starts through `reviewPlan.start` (POST /reviews/start) from the pre-start step; "Review all" runs Local only. */
 const planFor = vi.fn();
 vi.mock("../api/reviewPlan", () => ({
-  reviewPlan: { plan: (...args: unknown[]) => planFor(...args), start: (...args: unknown[]) => startReviewRun(...args) },
+  reviewPlan: { plan: (...args: unknown[]) => planFor(...args), start: (...args: unknown[]) => startReviewRun(...args),
+    // LPS S1: the picker also asks for the contract papers; none here
+    contractPapers: async () => ({ ok: true, data: { boundary: "0 contract papers you may read", papers: [], packages: [] } }) },
 }));
 
 // Order 132 item 3: the drop zone is told who the reader is (its own behaviour is NewReviewDropZone.test.tsx's).

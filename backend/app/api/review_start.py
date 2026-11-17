@@ -5,6 +5,7 @@ for a contract upload.
     POST   /api/reviews/start                                  queue what the plan allows (admin); 409 with a plain sentence
     POST   /api/reviews/contract-yes                           record the owner's yes for ONE contract upload (admin)
     DELETE /api/reviews/contract-yes/{document_id}             withdraw it (admin)
+    GET    /api/reviews/contract-papers                        the contract papers the picker offers, grouped by package (reads only)
 
 The resolver is `review_engine.decide`; this file only carries it. Scope: a paper the caller may not read is a 404, as everywhere.
 """
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from .. import (
     access,
+    contract_package,
     contract_yes,
     errors,
     review_engine,
@@ -127,6 +129,65 @@ def review_plan(
         record = {k: v for k, v in record.items() if k in ("document_id", "status")}
     got["contract_yes"] = record
     return got
+
+
+class ContractPaperOut(BaseModel):
+    document_id: str
+    filename: str
+
+
+class ContractPackageOut(BaseModel):
+    #: the labelled number the papers' covers print (`contract_package.cover_id`), the package's name on the screen
+    number: str | None = None
+    #: the package's papers, in file-name order (`contract_package.package_papers`)
+    papers: list[str]
+
+
+class ContractPapersOut(BaseModel):
+    boundary: str
+    papers: list[ContractPaperOut]
+    packages: list[ContractPackageOut]
+
+
+def contract_choices(conn, allowed) -> dict:
+    """Order 14 LPS S1: what the "Choose a submittal" picker offers besides the submittals: every contract paper (role contract)
+    the caller may read, and the packages they form (`contract_package.package_papers`: the same labelled cover number; a paper
+    with no cover number has no package). Picking one starts NOTHING: each paper still starts through the one pre-start step
+    (`GET /api/reviews/plan`, then `POST /api/reviews/start` with the list shown), so rule 1 decides what may leave, unchanged."""
+    allowed = frozenset(allowed)
+    rows = conn.execute(
+        "SELECT d.id, d.filename FROM documents d JOIN document_classification c ON c.document_id = d.id"
+        " WHERE c.document_role = 'CONTRACT_DOCUMENT'"
+    ).fetchall()
+    names = {r["id"]: r["filename"] or r["id"] for r in rows if r["id"] in allowed}
+    order = sorted(names, key=lambda d: (str(names[d]).lower(), d))
+    packages: list[dict] = []
+    grouped: set[str] = set()
+    for paper in order:
+        if paper in grouped:
+            continue
+        others = contract_package.package_papers(conn, paper, allowed)
+        if not others:
+            continue
+        for o in others:
+            names.setdefault(o["document_id"], o["name"])  # a package paper whose decided kind is contract, role not set
+        members = sorted({paper, *(o["document_id"] for o in others)}, key=lambda d: (str(names[d]).lower(), d))
+        grouped |= set(members)
+        cover = contract_package.cover_id(contract_package.load_pages(conn, paper, contract_package.COVER_PAGES))
+        packages.append({"number": cover.number, "papers": members})
+    papers = [{"document_id": d, "filename": names[d]} for d in sorted(names, key=lambda d: (str(names[d]).lower(), d))]
+    return {
+        "boundary": f"{len(papers)} contract paper{'' if len(papers) == 1 else 's'} you may read",
+        "papers": papers,
+        "packages": packages,
+    }
+
+
+@router.get("/api/reviews/contract-papers", response_model=ContractPapersOut)
+def contract_papers(request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+    """The contract papers and packages the review picker offers (reads only, the caller's scope; rule 5)."""
+    reject_unknown_params(request, set())
+    return contract_choices(connect(), scope.allowed_document_ids)
 
 
 @router.post(

@@ -109,7 +109,9 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 66 on 17 Nov (LP0, lead's review of PR #1878, rule 14d): agent_review_ai_answer.py words the AI's own answer on a
     # line code did not prove (a CRS cell and the page's pill); agent_review_wording.py, where it would belong, is at its limit
     # raised to 67 on 17 Nov (merge round 19a): LP1 (firm_clause.py) and LP0 (agent_review_ai_answer.py) each added one module
-    assert len(vp.VERDICT_PATH) <= 67
+    # raised to 68 on 17 Nov (contract round 19d): #1880 adds contract_rule_book.py, which decides what a contract's general
+    # review may carry to Claude and the draft label of its lines
+    assert len(vp.VERDICT_PATH) <= 68
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

@@ -386,6 +386,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
+    sentence_quotes(points, _paper_kind(conn, ai_run, paper_id))
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)
@@ -455,8 +456,79 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
     listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
+    listing["kind_used"] = kind_used(conn, ai_run)  # LPS S3: the kind the review USED, from its run record
+    listing["found"] = found_of(listing)  # LPS S2: THE one home of the "Found by the review" number of the review list
     facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
     return listing, points, {**facts, **online}
+
+
+def found_of(listing: dict) -> dict:
+    """THE one home of what a review list says the paper's review found (order 14 LPS, S2): the SAME tile totals the paper's page
+    shows (`counts.tiles`), the lines the AI thinks do not apply (still to confirm), every point of the page and how many are not
+    decided yet, and the runs the page is built from. The review list says these numbers, never a run's own finding count (an AI
+    review's run holds no findings of the rule check, so that count said 0 while the page held 72 questions)."""
+    tiles = listing["counts"]["tiles"]
+    return {
+        "not_met": tiles["not_met"]["total"],
+        "questions": tiles["questions"]["total"],
+        "met": tiles["met"]["total"],
+        "does_not_apply": tiles["does_not_apply"]["total"],
+        "to_confirm": sum(1 for p in listing["points"] if p.get("tile") == not_applicable.TILE),
+        "points": listing["of"],
+        "undecided": listing["of"] - listing["decided"],
+        "runs": dict(listing["runs"]),
+    }
+
+
+def kind_used(conn, ai_run: str | None) -> dict | None:
+    """The kind the paper's AI review USED, from its run record (`agent_review_run.paper_kind`, `kind_source`), order 14 LPS S3:
+    `guess` only when that run used a guess. None without an AI review run or its record: the page then shows the stored kind."""
+    import sqlite3
+
+    from . import agent_review_kind as kind_mod
+
+    if not ai_run:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT paper_kind, kind_source FROM agent_review_run WHERE run_id = ?", (ai_run,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    source = str(row["kind_source"] or "")
+    known = bool(row["paper_kind"]) and row["paper_kind"] != kind_mod.UNKNOWN and source != kind_mod.SOURCE_NONE
+    return {
+        "run_id": ai_run,
+        "kind": row["paper_kind"] if known else None,
+        "known": known,
+        "guess": known and source == kind_mod.SOURCE_GUESS,
+        "confirmed": known and source == kind_mod.SOURCE_CONFIRMED,
+        "source": source,
+    }
+
+
+def found_of_runs(run_ids: list[str], scope) -> dict[str, dict]:
+    """{run id: `found_of` its paper's page} for each run that IS one of its paper's page runs (the latest finished rule check or AI
+    review), on a paper the caller may read (rule 5: narrows only). An older run, a run not finished, or a paper the caller may not
+    read is absent: the list then says nothing for it, never 0. Each paper is assembled once."""
+    conn = connect()
+    readable = frozenset(scope.allowed_document_ids)
+    by_paper: dict[str, dict | None] = {}
+    out: dict[str, dict] = {}
+    for run_id in dict.fromkeys(run_ids):
+        row = conn.execute("SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)).fetchone()
+        paper = row["submittal_document_id"] if row else None
+        if not paper or paper not in readable:
+            continue
+        if paper not in by_paper:
+            rc_run, ai_run = runs_of_paper(conn, paper)
+            by_paper[paper] = assemble(paper, scope)["found"] if (rc_run or ai_run) else None
+        found = by_paper[paper]
+        if found is not None and run_id in found["runs"].values():
+            out[run_id] = found
+    return out
 
 
 def assemble(paper_id: str, scope) -> dict:
@@ -589,6 +661,59 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     )
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
+
+
+def _paper_kind(conn, ai_run: str | None, paper_id: str) -> str | None:
+    """The kind the paper was reviewed as: its AI run's kind, else the decided kind."""
+    from . import kind_words
+
+    return _contractor_copy(conn, ai_run)["kind"] or kind_words.decided_kind(paper_id)
+
+
+def sentence_quotes(points: list[dict], kind: str | None) -> None:
+    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), a quote is shown as evidence only when it passes the one
+    test (`quote_sentence.is_evidence`); otherwise the point says it holds no quote, with the paper's words and page beside the mark
+    (`quote_sentence.refused_words`). Read: a general AI line's quote, and a rule-check row's quote unless it HOLDS A VALUE
+    (`quote_sentence.holds_value`: a figure, a figure with a unit, a comparator, a range or a code value: what a check compares stays
+    the paper's value). Every datasheet point is never touched. In place."""
+    from . import agent_review_gate, quote_sentence
+
+    if not agent_review_gate.general_kind_enabled(kind):
+        return
+    for p in points:
+        if not _read_by_c4(p):
+            continue
+        rule = p.get("source") == rp.SOURCE_RULE_CHECK
+        refused: list[tuple[object, object]] = []
+        q = p.get("paper_quote")
+        exempt = rule and quote_sentence.holds_value(q)
+        if q and not quote_sentence.is_evidence(q) and not exempt:
+            refused.append((q, p.get("page")))
+            p["paper_quote"] = None
+        # a rule-check row also shows its stored passage ("as stored, not verified"): the same test; a value in it stays as evidence
+        v = p.get("paper_value") if rule else None
+        if (
+            v
+            and not quote_sentence.is_evidence(v)
+            and not quote_sentence.holds_value(v)
+        ):
+            refused.append((v, p.get("paper_value_page")))
+            p["paper_value"] = None
+        if refused and not p.get("paper_quote"):
+            p["paper_quote_refused"] = True
+            p["paper_quote_note"] = quote_sentence.refused_many(refused)
+
+
+def _read_by_c4(point: dict) -> bool:
+    """A general AI line's point, or a rule-check row's point (whose quote a value may exempt)."""
+    line = point.get("_line") or {}
+    if point.get("source") == rp.SOURCE_RULE_CHECK:
+        return True
+    return (
+        point.get("source") == rp.SOURCE_AI_REVIEW
+        and isinstance(line, dict)
+        and line.get("general") is True
+    )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

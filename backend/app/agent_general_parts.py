@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from . import agent_claude, kind_review_table
+from . import agent_claude, contract_rule_book, kind_review_table
 from . import agent_general_prompts as prompts
 from . import agent_general_review as core
 from . import agent_review_local as local_mod
@@ -75,6 +75,8 @@ class GeneralRun(FindingsMixin):
         window_tokens: int | None = None,
         concurrency: int = 3,
         local: Any = None,
+        draft_books: Iterable[str] = (),
+        code_lines: Iterable[Mapping] = (),
     ) -> None:
         # the LOCAL engine (`agent_review_local`): the same parts, staged (every first-reader call, then every second-reader call),
         # in windows and batches that fit the local window; None = the Claude path exactly as before
@@ -88,6 +90,10 @@ class GeneralRun(FindingsMixin):
                 local_mod.GENERAL_GROUP_TOKENS,
             )
         self.paper, self.docs, self.kind = paper, docs, kind
+        # order 14 LPD: the contract rule book (a project paper) and the contract checklist's items: their lines say "AI draft"
+        self.draft_books = frozenset(str(d) for d in draft_books)
+        self.draft_items = frozenset(str(i["item_id"]) for i in items if i.get("draft"))
+        self.code_lines = [dict(ln) for ln in code_lines]
         self.not_held = list(books.get("not_held") or [])
         self.held_fit = dict(books.get("held_fit") or {})
         self.held_not_fit = dict(books.get("held_not_fit") or {})
@@ -194,7 +200,10 @@ class GeneralRun(FindingsMixin):
         return agent_claude.parse_json_object(text)
 
     def add(self, line: Mapping) -> dict:
-        out = core.finalize_line(line)
+        # the exit first, on the line as written: the draft label is added after, so it can never hide a verdict word from the guard
+        out = contract_rule_book.mark(
+            core.finalize_line(line), self.draft_books, self.draft_items
+        )
         model_text = out["part"] in (3, 4, 5) or out.get("subkind") in (
             core.SUB_CHECKLIST,
             core.SUB_CONCERN,
@@ -410,6 +419,8 @@ class GeneralRun(FindingsMixin):
         return False
 
     def part2(self) -> None:
+        for ln in self.code_lines:  # order 14 LPD: what code decided of the contract checklist, before the AI's answers
+            self.add(ln)
         if not self.items:
             self.add({"part": 2, "verdict_class": CLASS_NOT_REVIEWED, "subkind": None, "document": self.paper,
                       "text": core.NO_CHECKLIST})  # fmt: skip
@@ -417,6 +428,7 @@ class GeneralRun(FindingsMixin):
                 "asked": 0,
                 "note": core.NO_CHECKLIST,
                 **self.items_info,
+                **self._code_count(),
             }
             return
         found, failed = self._p2_collect()
@@ -436,10 +448,20 @@ class GeneralRun(FindingsMixin):
             "covered_with_verified_quote": present,
             "lines": sum(1 for ln in self.lines if ln["part"] == 2),
             **self.items_info,
+            **self._code_count(),
         }
 
+    def _code_count(self) -> dict:
+        return {"contract_code_checks": len(self.code_lines)} if self.code_lines else {}
+
     # ---- all parts
+    def blank_lines(self) -> None:
+        """LPC (C3): code's own lines first: one per page of a contract with blanks to fill (`core.blank_lines`), no model."""
+        for line in core.blank_lines(self.paper, self.kind, self.pages):
+            self.add(line)
+
     def run_all(self) -> None:
+        self.blank_lines()
         if self.local is not None:
             self.run_all_local()
             return
@@ -447,11 +469,14 @@ class GeneralRun(FindingsMixin):
         self.part2()
         self.part3()
         self.part4()
+        # rule 1: a contract check by code is worded from EVERY held package paper, also the ones not on the list shown before
+        # the start, so on this Claude path its words never enter a prompt (it stays on the sheet)
         known = [
             ln["text"]
             for ln in self.lines
             if ln["part"] in (2, 3, 4)
             and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY)
+            and ln.get("subkind") != contract_rule_book.SUB_CODE
         ]
         self.part5(known)
 

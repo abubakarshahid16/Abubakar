@@ -66,6 +66,8 @@ SUB_CONCERN = "checklist concern"
 SUB_UNREAD = "could not be checked"
 SUB_SILENT = "silent on a project requirement"
 SUB_DISAGREES = "disagrees with {document}"
+SUB_BLANK = "blank to be filled before signing"  # LPC (C3): `contract_checks.BLANK_TOPIC`, found by code
+BLANK_FIELD = "Blank to be filled before signing"
 
 #: Words that may never be the verdict word, label or class of a line of this mode (the wording of the rule review).
 FORBIDDEN = (
@@ -370,7 +372,7 @@ def check_project_papers(
         elif _is_rule_book(conn, d):
             why = "a rule book is not a project paper"
         elif claude_approved.blocked_by_name(row[0]):
-            why = "this document is blocked by its file name or checksum, so it is not sent"
+            why = "this document is blocked by its file name, so it is not sent (its checksum is checked again when it would be sent)"
         elif not conn.execute(
             "SELECT 1 FROM pages WHERE document_id = ? AND TRIM(text) <> '' LIMIT 1",
             (d,),
@@ -437,6 +439,7 @@ def books_of(conn: sqlite3.Connection, paper: str, kind: str) -> dict:
                     "why": b.get("why") or "cited by the paper",
                 }
             )
+    not_held = _not_held_parts(conn, paper, not_held, kind)
     fit, not_fit = {}, {}
     for doc_id, name in held.items():
         has = (
@@ -449,6 +452,43 @@ def books_of(conn: sqlite3.Connection, paper: str, kind: str) -> dict:
         )
         (fit if has else not_fit)[doc_id] = name
     return {"not_held": not_held, "held_fit": fit, "held_not_fit": not_fit}
+
+
+def blank_lines(paper: str, kind: str | None, pages: Mapping[int, str]) -> list[dict]:
+    """LPC (C3): ONE Query per page of a contract on which code finds blanks to fill (`contract_checks.check_blanks`, the CT-05 code
+    part): "blank to be filled before signing", with its page, the kinds and the count. Code's own words and page, no model; never a
+    verdict. [] for any other kind of paper (a procedure's form is meant to be filled)."""
+    from . import contract_checks
+
+    if str(kind or "").strip().lower() != "contract":
+        return []
+    out = []
+    for r in contract_checks.check_blanks(sorted(pages.items())):
+        page = r.quotes[0].page
+        out.append({"part": 2, "verdict_class": CLASS_QUERY, "subkind": SUB_BLANK, "document": paper, "text": r.message,
+                    "topic": SUB_BLANK, "field": BLANK_FIELD, "paper_page": page, "quote_a": None, "quotes_verified_by_code": False,
+                    "code_check": r.ct})  # fmt: skip
+    return out
+
+
+def _not_held_parts(
+    conn: sqlite3.Connection, paper: str, not_held: list[dict], kind: str | None = None
+) -> list[dict]:
+    """LPC (C2, P2, lead item 1): a cited name that is the paper's own part or a held part of its contract package is never a book
+    not held; a labelled part not held is named by its label; a contract lists EVERY labelled part it cites that is not held
+    (`contract_package.PaperParts.not_held_list`, the one home of that list)."""
+    from . import contract_package
+
+    parts = contract_package.PaperParts(conn, paper)
+    why = {parts.not_held_name(b["rule_book"]): b.get("why") for b in not_held}
+    return [
+        {
+            "rule_book": n,
+            "why": why.get(n)
+            or "cited by the paper: a part of the contract that is not held",
+        }
+        for n in parts.not_held_list(conn, [b["rule_book"] for b in not_held], kind)
+    ]
 
 
 def decide_mode(
