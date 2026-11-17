@@ -509,10 +509,50 @@ def test_a_changed_meta_draws_a_new_file():
     assert drawn(frozenset({DOC[0], BOOK_DOC})) != before
 
 
-def test_a_file_is_written_whole_or_not_at_all(tmp_path):
+def test_a_file_is_written_whole_or_not_at_all(tmp_path, monkeypatch):
     folder = tmp_path / "drawn"
     folder.mkdir()
     target = folder / "x.xlsx"
     crs_ai_viewer.write_atomic(target, b"whole")
     assert target.read_bytes() == b"whole"
     assert [p.name for p in folder.iterdir()] == ["x.xlsx"]  # no temp file left
+
+    def fails(*_a, **_k):
+        raise OSError("the disk is full (invented)")
+
+    monkeypatch.setattr(Path, "replace", fails)  # the write fails at its last step
+    with pytest.raises(OSError):
+        crs_ai_viewer.write_atomic(target, b"half")
+    assert target.read_bytes() == b"whole"  # the old file intact, never half a new one
+    assert [p.name for p in folder.iterdir()] == ["x.xlsx"]  # and no temp file left
+
+
+def test_the_run_file_is_written_through_the_atomic_helper(monkeypatch):
+    with_run()
+    seen = []
+    real = crs_ai_viewer.write_atomic
+    monkeypatch.setattr(
+        crs_ai_viewer,
+        "write_atomic",
+        lambda path, data: (seen.append(path), real(path, data)),
+    )
+    drawn(frozenset({DOC[0], BOOK_DOC}))
+    assert seen, "the drawn file must be written by write_atomic"
+
+
+def test_a_changed_reference_file_or_setting_changes_the_key(tmp_path, monkeypatch):
+    # final check (lead): a JSON-only or switch-only update (e.g. the contractor-copy gate in the kind table, the company name) draws
+    # again: the reference data and the non-secret settings are in the key
+    root = tmp_path / "app"
+    (root / "reference").mkdir(parents=True)
+    (root / "a.py").write_text("X = 1\n")
+    table = root / "reference" / "kind_review_table.json"
+    table.write_text(json.dumps({"datasheet": {"contractor_copy": True}}))
+    before = crs_ai_viewer.code_version(root)
+    table.write_text(
+        json.dumps({"datasheet": {"contractor_copy": False}})
+    )  # the gate withdrawn
+    assert crs_ai_viewer.code_version(root) != before
+    again = crs_ai_viewer.code_version(root)
+    monkeypatch.setattr(settings, "crs_company_name", "Invented Company B")
+    assert crs_ai_viewer.code_version(root) != again

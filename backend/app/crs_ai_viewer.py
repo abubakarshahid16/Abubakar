@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -272,15 +273,44 @@ def _main_row(
     return [*row[:3], wb.comment_cell(text), *row[4:]][: 9 if contractor else None]
 
 
-@functools.lru_cache(maxsize=1)
-def code_version() -> str:
-    """The app's own code, as a digest of every module's source (read once per process): part of the key of a drawn file, so a live
-    update (any change to the code that draws or words a sheet) draws the file again instead of serving an older drawing."""
-    root = Path(__file__).resolve().parent
+#: the app's own files a drawing depends on: its code and its reference data (the kind table's contractor-copy gate, the wording
+#: vocabularies, the checklists)
+DRAWING_SUFFIXES = (".py", ".json")
+#: a setting whose name says it is a secret is never part of the key (no secret is read into a file name, not even hashed)
+SECRET_WORDS = ("key", "token", "secret", "password", "credential")
+
+
+def code_version(root: Path | None = None) -> str:
+    """What a drawing depends on, as one digest: the app's code and reference data (every .py and .json file under the app, by
+    content; re-read only when a file's size or time changes) and the settings that are not secrets (CRS_COMPANY_NAME, the
+    switches): part of the key of a drawn file, so a live update of code, data or a switch draws the file again instead of serving an
+    older drawing."""
+    from .config import settings
+
+    root = root or Path(__file__).resolve().parent
+    files = tuple(
+        (str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns)
+        for p in sorted(root.rglob("*"))
+        if p.suffix in DRAWING_SUFFIXES and p.is_file()
+    )
+    shown = {
+        k: v
+        for k, v in settings.model_dump().items()
+        if not any(w in k.lower() for w in SECRET_WORDS)
+    }
+    said = json.dumps(shown, sort_keys=True, default=str)
+    return hashlib.sha256(
+        (_files_digest(str(root), files) + said).encode()
+    ).hexdigest()[:16]
+
+
+@functools.lru_cache(maxsize=4)
+def _files_digest(where: str, files: tuple) -> str:
+    root = Path(where)
     digest = hashlib.sha256()
-    for path in sorted(root.rglob("*.py")):
-        digest.update(str(path.relative_to(root)).encode() + b"\0" + path.read_bytes())
-    return digest.hexdigest()[:16]
+    for name, _size, _time in files:
+        digest.update(name.encode() + b"\0" + (root / name).read_bytes())
+    return digest.hexdigest()
 
 
 def write_atomic(path: Path, data: bytes) -> None:
