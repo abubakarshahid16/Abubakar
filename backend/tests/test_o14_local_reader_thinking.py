@@ -204,3 +204,23 @@ def test_a_model_that_thinks_anyway_is_planned_again_and_every_item_is_answered(
         for i, n in collections.Counter(i for i, _ in plans).items()
         if i != first
     )
+
+
+# ---------------------------------------------------------------- the answer net and a tokenizer that counts a little more than the estimate
+
+
+def test_a_count_a_little_over_the_estimate_is_kept_only_when_the_request_cannot_have_been_cut():
+    cut = local_mod._cut_prompt
+    text = "word " * 600  # lower bound 500
+    # measured on a real request: the model counted 7,962 tokens where the estimate said 7,643 (+4%): it fits even at 1.25x
+    assert cut(7962, 16384, text, 680, 7643) is None
+    # beyond the spread: the estimate cannot be trusted, discarded as before
+    assert cut(9600, 16384, text, 680, 7643) == "prompt longer than the estimate said"
+    # within the spread, but a request that would NOT fit the window at the spread: it may have been cut, discarded as before
+    assert cut(13800, 16384, text, 680, 13200) == "prompt longer than the estimate said"
+    # the other nets are unchanged
+    assert (
+        cut(15700, 16384, text, 680, 15000)
+        == "prompt reached the room the window leaves it"
+    )
+    assert cut(100, 16384, text, 680, 7643) == "prompt shorter than the request needs"

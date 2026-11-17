@@ -105,6 +105,11 @@ SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (
 #: discarded for that alone. (3) A per-call nonce starts the system text so the engine's prompt cache can never make a full prompt look short.
 CUT_MARGIN = 64
 ESTIMATE_SLACK = 64  # tokens the chat template adds to what the estimate counts
+#: How far a model's OWN count may run over the estimate without that being a sign of a cut (measured 17 Nov 2026 on real valve requests:
+#: a 14B model of another family counted 0.82 to 1.044 x the estimate, so 15 of 23 answers were thrown away at +64 tokens). An answer
+#: whose count is over the estimate is kept only when the WHOLE request would still fit the window at this spread (it cannot have been
+#: cut) and the count is within it; otherwise it is discarded exactly as before.
+TOKENIZER_SPREAD = 1.25
 #: The general review on the local engine: windows of pages, checklist batches and project-paper groups that fit the window under the
 #: engine's output ceiling (units: `agent_general_review.tokens_of`, characters / 4). A paper longer than one window is read in windows;
 #: the sheet says which pages were and were not read.
@@ -429,7 +434,13 @@ def _cut_prompt(
         return "prompt reached the room the window leaves it"
     if reported < lower_bound_tokens(text):
         return "prompt shorter than the request needs"
-    if reported > estimate + ESTIMATE_SLACK:
+    if (
+        reported > estimate + ESTIMATE_SLACK
+        and not (
+            reported <= estimate * TOKENIZER_SPREAD
+            and estimate * TOKENIZER_SPREAD + int(num_predict) + CUT_MARGIN <= window
+        )
+    ):  # over the estimate AND (beyond the spread, or a request that may not fit at the spread): the estimate cannot be trusted here
         return "prompt longer than the estimate said"
     return None
 
