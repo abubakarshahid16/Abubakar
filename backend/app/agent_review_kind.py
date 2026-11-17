@@ -199,7 +199,11 @@ def equipment_reading(
         return sorted(found)[0], source, None
     reason = " ".join(str((doubt or {}).get("reason") or "").split())
     lead = "equipment " + UNSURE_PREFIX
-    return None, source, (reason[len(lead):] if reason.lower().startswith(lead) else reason) or None
+    return (
+        None,
+        source,
+        (reason[len(lead) :] if reason.lower().startswith(lead) else reason) or None,
+    )
 
 
 def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:

@@ -129,7 +129,11 @@ def test_the_header_facts_are_what_the_app_holds_and_blank_otherwise():
         header.document_header(conn, "d2")["discipline"] == ""
     )  # a stored equipment type is not read on its own
     # order 14 LPV V4: an equipment type is not a discipline (a pump sheet's discipline read "pump"): nothing stored, nothing shown
-    assert second["discipline"] == "" and second["project"] == "" and second["revision"] == ""
+    assert (
+        second["discipline"] == ""
+        and second["project"] == ""
+        and second["revision"] == ""
+    )
     assert header.document_header(conn, "nobody") == dict.fromkeys(header.FIELDS, "")
     assert header.document_header(conn, "nobody", "safety_valve")["discipline"] == ""
 

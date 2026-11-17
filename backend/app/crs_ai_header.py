@@ -25,7 +25,9 @@ def equipment_words(equipment_type: object) -> str:
 
 
 def document_header(
-    conn, document_id: str, equipment_type: object = None  # noqa: ARG001 - the callers' signature (V4: no longer read)
+    conn,
+    document_id: str,
+    equipment_type: object = None,  # noqa: ARG001 - the callers' signature (V4: no longer read)
 ) -> dict[str, str]:
     """{project, document_number, title, revision, date, discipline} of one document from `document_classification`.
     The discipline is the stored one (the cover's own words, else its canonical spelling); else '' (the sheet says "not recorded").

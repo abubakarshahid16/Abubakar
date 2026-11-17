@@ -249,7 +249,9 @@ def models_used(conn, review_run_id: str, run: dict) -> dict[str, list[str]]:
     claude = {n for n in (run.get("model_name") or "").split(", ") if n}
     out: dict[str, list[str]] = {"claude": [], "local": [], "unknown": []}
     for name in _models(conn, review_run_id, run, _loads(run.get("outcome_json"))):
-        bare = name.removeprefix("ollama:").removeprefix("claude:")  # an engine mark the run stored before the name
+        bare = name.removeprefix("ollama:").removeprefix(
+            "claude:"
+        )  # an engine mark the run stored before the name
         kind = (
             "claude" if name in claude or bare in claude or "claude" in name.lower()
             else "local" if name.startswith("ollama:") or bare in local
