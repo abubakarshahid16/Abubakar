@@ -257,7 +257,7 @@ def test_an_approving_code_with_points_still_to_decide_is_refused_without_a_reas
     ]
     assert (
         contractor
-        == f"{comparison.CODE_APPROVED_WITH_COMMENTS} (recorded by the engineer)"
+        == f"{comparison.CODE_APPROVED_WITH_COMMENTS} (recorded by COMPANY)"  # FTU-16: no internal word on the contractor file
     )
     assert (
         points_of(client, doc)["final_code_words"]["team"] == team

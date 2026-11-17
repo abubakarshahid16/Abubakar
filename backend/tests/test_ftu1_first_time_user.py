@@ -238,7 +238,12 @@ def test_the_older_ai_sheet_says_the_same_for_a_not_met_on_silence():
     shows = cell.split("\n")[
         1
     ]  # the "what the paper shows" part says the silence and where it looked
-    assert "looked here" in shows and "where it looked" in shows
+    # FTU-16: the one cell says the reason once with where it looked, and never both "not evidence" and "does not state"
+    assert (
+        "looked here" in shows
+        and "does not state this value" in shows
+        and "not evidence" not in shows.lower()
+    )
 
 
 def test_the_ai_reviews_own_sheet_and_evidence_cell_never_say_a_looked_quote_is_stated():
@@ -711,7 +716,9 @@ def test_every_part_of_the_older_sheet_cell_of_a_silent_row_comes_from_the_one_f
     part1, part2, part3 = wb.layout_comment(line, *wb.status_of(line)).split("\n")[:3]
     want = crs_ai_actions.silent_row(line, where=", page 2")
     assert "Contractor" not in part1
-    assert part2.startswith(want.note) and "did not find" not in part2
+    # FTU-16: the one cell of the older sheet is the function's own `cell` (the reason said once, with the quote)
+    assert part2.startswith(want.cell) and "did not find" not in part2
+    assert part2.lower().count("the reader says") == 1
     assert part3 == crs_ai_actions.silent_row(line).action
 
 

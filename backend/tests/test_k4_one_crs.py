@@ -196,10 +196,10 @@ def test_a_contractor_file_with_no_row_says_why_in_words_with_counts():
     text = "\n".join(
         str(c) for r in ws.iter_rows(values_only=True) for c in r if c is not None
     )
+    # FTU-16: contractor words, and ONE count line that adds up (the older "0 row(s) in this copy ..." line repeated its counts)
     assert (
-        "This review has none" in text
-        and "4 points" in text
-        and "0 row(s) in this copy" in text
+        crs_one.NONE_ISSUED in text
+        and "4 points reviewed, 0 in this file, 4 not issued: " in text
     )
     assert "working copy, not issued" in text.lower()
 
@@ -465,7 +465,10 @@ def test_no_cell_of_the_contractor_file_holds_ai_awaiting_or_confirm_text_even_w
     ]
     _h, rows = rows_after(sheet(data), "Item No")
     assert all(r[6] in (None, "Fail", "Kept", "Edited", "Added") for r in rows)
-    assert any(re.search(r"not issued: .*no engineer wording", c) for c in cells)
+    assert any(
+        re.search(r"not issued: .*kept, with no comment written for the contractor", c)
+        for c in cells
+    )  # FTU-16: contractor words
 
 
 def test_the_sign_reply_the_archive_and_the_page_button_are_the_same_bytes():
@@ -534,11 +537,14 @@ def test_the_contractor_split_adds_up_to_the_points_with_each_reason():
     ]
     mine, reasons = cc.contractor_split(rows)
     assert len(mine) + sum(reasons.values()) == len(rows) == 5
-    assert reasons == {
-        cc.REASON_NO_WORDING: 1,
-        cc.REASON_REMOVED: 1,
-        cc.REASON_NOT_PROVEN: 1,
-    }
+    assert (
+        reasons
+        == {
+            cc.REASON_NO_WORDING: 1,
+            cc.REASON_REMOVED: 1,
+            cc.REASON_NOT_DECIDED: 1,  # FTU-16: the reason is named for what it is (no decision yet), in contractor words
+        }
+    )
 
 
 def test_all_three_counts_agree_and_the_check_is_stored_with_the_run():

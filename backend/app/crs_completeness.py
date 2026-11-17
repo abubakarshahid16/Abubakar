@@ -31,10 +31,12 @@ from .db import connect
 log = logging.getLogger(__name__)
 LIST_AT_MOST = 10
 CUT_MARK = "…"  # the visible mark of a shortened cell: one literal, checked here whatever a builder writes
-REASON_REMOVED = "removed by an engineer"
-REASON_NO_WORDING = "no engineer wording"
-REASON_NOT_PROVEN = "not code-proven and not the engineer's own words"
-REASON_ORDER = (REASON_NOT_PROVEN, REASON_NO_WORDING, REASON_REMOVED)
+#: The reasons a point is not in the contractor file, in the contractor's words (they are printed on the contractor file's first sheet:
+#: FTU-16, no internal words there). Each point is counted under exactly ONE reason, so a removed point is counted once.
+REASON_REMOVED = "removed"
+REASON_NO_WORDING = "kept, with no comment written for the contractor"
+REASON_NOT_DECIDED = "not decided yet"
+REASON_ORDER = (REASON_NOT_DECIDED, REASON_NO_WORDING, REASON_REMOVED)
 
 
 #: FTU-1: the sentence of a CRS asked for a paper with no finished review (the download answers 409 with it, never an empty file)
@@ -88,7 +90,7 @@ def contractor_split(raw: list[dict]) -> tuple[list[dict], dict[str, int]]:
         ):  # kept, but no words of the engineer's own to issue
             reasons[REASON_NO_WORDING] += 1
         else:
-            reasons[REASON_NOT_PROVEN] += 1
+            reasons[REASON_NOT_DECIDED] += 1  # no decision yet (nothing else reaches here)
     return mine, dict(reasons)
 
 

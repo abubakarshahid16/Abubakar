@@ -604,9 +604,9 @@ def rule_point(
         # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
         rank, unproven_ai = 4, True
     # FTU-1: a point whose own record says no value, with a found passage: ALL its wording cells from the one silent-row decision
-    silent = (
-        actions.silent_row_words(_plain(field), looked, [field]) if looked else None
-    )
+    f = finding or {}  # FTU-16: a field that asks for a value reads "By Contractor" as a value left to be given
+    value_field = bool((f.get("_fact") or {}).get("unit")) or actions.asks_a_value(content.rule_text(finding), f.get("requirement_source_text"))
+    silent = actions.silent_row_words(_plain(field), looked, [field], value_field=value_field) if looked else None
     if silent and not missing and action_source != "hidden":
         action, action_source = silent.action, "check"
     point = {
@@ -837,22 +837,97 @@ def with_groups(points: list[dict]) -> list[dict]:
     return points
 
 
+#: A clause number, with its clause / section / paragraph word when one is printed ("Sec. 5.3", "Sec.5.3": the dot needs no space).
+_CLAUSE_TOKEN = re.compile(
+    r"(?:\b(?:cl(?:ause)?|section|sec|para(?:graph)?)(?:\.\s*|\s+)|(?<![\w.]))(\d+(?:\.\d+)*[A-Za-z]?|[A-Z]{1,3}-\d+(?:\.\d+)*[A-Za-z]?)(?![\w.])",
+    re.I,
+)
+#: A number after one of these words is part of the BOOK's name, never its clause ("Section 6.1" IS a clause) ("Part 2", "Table 5", "Class 300", "type 3.1").
+_BOOK_QUALIFIER = re.compile(
+    r"\b(?:part|pt|table|tab|annex|appendix|class|type|ed|edition|rev|revision|issue|div|division|vol|volume)\.?\s*$", re.I
+)
+
+
+def book_and_clause(reference: str) -> tuple[str, str | None]:
+    """FTU-16: (the book, the clause or None) of one stored rule reference: "IEC 61882 6.1" is the book "IEC 61882" and the clause "6.1".
+    The clause exists only when `names_a_clause` says the reference names one beyond its book; the book ends where the identifier
+    `standard_ids.find_citations` reads ends (a book it cannot read: at its first token with a digit, the book's own number). An edition
+    year is never the clause, and a number after Part / Pt / Table / Annex / Class / Type / Div / edition words stays in the book's
+    name ("X-1 Part 2" and "X-1 Part 3" are two books). General: identifiers and numbers only, no book's own spelling."""
+    from .standard_ids import find_citations
+
+    text = _clean(reference)
+    if not text or ";" in text or not names_a_clause(text):
+        return text, None
+    spans = find_citations(text)
+    if spans:
+        end = min(spans, key=lambda sp: sp[1])[2]
+    else:
+        first = re.search(r"\S*\d\S*", text)
+        end = first.end() if first else len(text)
+    rest = _EDITION_NUMBER.sub(lambda m: " " * len(m.group(0)), text[end:])
+    for m in _CLAUSE_TOKEN.finditer(rest):
+        if _EDITION_YEAR.fullmatch(m.group(1)) or _BOOK_QUALIFIER.search(rest[: m.start()]):
+            continue  # an edition year, or a part / table / class ... number: the book's own name
+        book = (text[:end] + text[end:][: m.start()]).strip(" ,;:-(")
+        return (book or text), m.group(1)
+    return text, None
+
+
+def book_name_of(reference: str) -> str:
+    """The book alone of a stored reference (`book_and_clause`): what the list of rule books not held names and counts."""
+    return book_and_clause(reference)[0]
+
+
+def _books_marked(point: dict) -> list[str]:
+    """The books ONE point marks as not held: a rule-check row's "Book missing" (its reference may join several books with ";") and
+    an AI review's note "Rule book not held" (`review_points_notes.missing_book_points`), each book without its clause."""
+    names = [*str(point.get("_book_missing") or "").split(";"), point.get("_not_held_book") or ""]
+    return [n for n in (book_name_of(x) for x in names) if n]
+
+
 def books_not_held(run_books: list[str], points: list[dict], library: list[dict]) -> list[str]:
     """THE rule books not held of a paper's list, each once: the AI run's own record first, each name tested again against today's
     `library` (a book uploaded after the run leaves the list), then every book a point marks "Book missing" (`_book_missing`, the name
     its row prints, decided at read time by `book_missing`), in list order. The page's "not held" count and the CRS sheet "Rule books
     not held" both read it, so the sheet never says 0 while rows say "Book missing" (order 14, first-time-user test 15). Same book:
-    `standard_ids.same_standard`, the notion `applicability.find_standard` uses ("API RP 520 Pt-1" is "API 520 Part I")."""
+    `standard_ids.same_standard`, the notion `applicability.find_standard` uses ("API RP 520 Pt-1" is "API 520 Part I"). FTU-16: each
+    name is the book alone (`book_name_of`: "IEC 61882 6.1" is "IEC 61882"), so a book is listed and counted once, never with a clause."""
     from .applicability import find_standard
     from .standard_ids import same_standard
 
     out: list[str] = []
     names = [n for n in (run_books or []) if not find_standard(library, str(n or ""))]
-    for name in [*names, *(p.get("_book_missing") for p in points)]:
-        name = " ".join(str(name or "").split())
+    for name in [*names, *(b for p in points for b in _books_marked(p))]:
+        name = book_name_of(" ".join(str(name or "").split()))
         if name and not any(same_standard(name, seen) for seen in out):
             out.append(name)
     return out
+
+
+def not_held_rows(not_held: list[str], points: list[dict]) -> dict[str, int]:
+    """FTU-16: {book of `not_held`: how many points (rows) mark it not held}; 0 for a book only the review's scope found not held, that
+    no row cites. The two sources are kept apart on the sheet and in the page's count: they are different statements."""
+    from .standard_ids import same_standard
+
+    rows = dict.fromkeys(not_held, 0)
+    for p in points:
+        for hit in _held_hits(not_held, p, same_standard):
+            rows[hit] += 1
+    return rows
+
+
+def _held_hits(not_held: list[str], point: dict, same) -> list[str]:
+    """The books of `not_held` that ONE point marks, each once."""
+    hits = (next((b for b in not_held if same(name, b)), None) for name in _books_marked(point))
+    return list(dict.fromkeys(h for h in hits if h is not None))
+
+
+def points_marking(not_held: list[str], points: list[dict]) -> int:
+    """How many points mark at least one book of `not_held` (a point that marks two books counts once)."""
+    from .standard_ids import same_standard
+
+    return sum(1 for p in points if _held_hits(not_held, p, same_standard))
 
 
 def counts(
@@ -910,6 +985,7 @@ def counts(
         for p in points
         if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
     )
+    rows_of = not_held_rows(not_held, points)
     out = {
         "tiles": tiles,
         "total": len(points),
@@ -931,6 +1007,9 @@ def counts(
             "more": max(0, len(not_held) - 3),
             "total": len(not_held),
             "note": "Not checked, rule book not held" if not_held else None,
+            # FTU-16: the two sources apart, the same split the CRS sheet "Rule books not held" states
+            "on_rows": sum(1 for n in rows_of.values() if n),
+            "scope_only": sum(1 for n in rows_of.values() if not n),
         },
     }
     if decided is not None:
