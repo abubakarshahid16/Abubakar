@@ -386,6 +386,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
+    sentence_quotes(points, _paper_kind(conn, ai_run, paper_id))
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)
@@ -589,6 +590,33 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     )
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
+
+
+def _paper_kind(conn, ai_run: str | None, paper_id: str) -> str | None:
+    """The kind the paper was reviewed as: its AI run's kind, else the decided kind."""
+    from . import kind_words
+
+    return _contractor_copy(conn, ai_run)["kind"] or kind_words.decided_kind(paper_id)
+
+
+def sentence_quotes(points: list[dict], kind: str | None) -> None:
+    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), a quote is shown as evidence only when it is a full
+    sentence (`quote_sentence`, the one test); otherwise the point says it holds no quote. A datasheet's points are not touched (a
+    cell value is not a sentence). In place."""
+    from . import agent_review_gate, quote_sentence
+
+    if not agent_review_gate.general_kind_enabled(kind):
+        return
+    for p in points:
+        refused = False
+        for key in ("paper_quote", "paper_value"):
+            if p.get(key) and not quote_sentence.is_full_sentence(p[key]):
+                p[key], refused = None, True
+        if refused and not p.get("paper_quote"):
+            p["paper_quote_note"], p["paper_quote_refused"] = (
+                quote_sentence.NO_SENTENCE,
+                True,
+            )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

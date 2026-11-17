@@ -861,6 +861,80 @@ def run_all(
     )
 
 
+# ------------------------------------------------------------------------------------------------ CT-05 code part: blanks to fill
+# The checklist's CT-05 code part (`reference/contract_checks.json`): code finds the blanks left to fill - a run of underscores, a
+# run of dots or ellipses that is not a contents leader, empty brackets, a bracketed "insert ..." - and says what each one is for
+# by the plain words on its line (or the line above): a date, a price, a signature, else a blank. A blank is never a verdict: the
+# contract is a draft until it is filled, so each page with blanks is ONE question for the engineer, "blank to be filled before
+# signing", with its page (LPC, 17 Nov 2026).
+
+BLANK_TOPIC = "blank to be filled before signing"
+_BLANK = re.compile(
+    r"_{4,}|(?:[.\u2026]\s?){5,}|\[\s*\]|\[\s*(?:insert|enter|fill\s+in|state|specify)\b[^\]]{0,60}\]",
+    re.I,
+)
+_LEADER_END = re.compile(
+    r"^\s*\d{1,4}\s*$"
+)  # a contents leader: dots, then a page number at the line's end
+_BLANK_KINDS = (
+    (
+        "date",
+        re.compile(
+            r"\b(?:day|date|dated|month|year|(?:19|20)\d\d|january|february|march|april|may|june|july|august|september"
+            r"|october|november|december)\b",
+            re.I,
+        ),
+    ),
+    (
+        "price",
+        re.compile(
+            r"[$\u20ac\u00a3]|\b(?:price|amount|sum|cost|fee|value|dollars?|usd|eur|gbp)\b",
+            re.I,
+        ),
+    ),
+    (
+        "signature",
+        re.compile(
+            r"\b(?:sign(?:ed|ature)?|witness|name|title|designation|stamp|seal)\b", re.I
+        ),
+    ),
+)
+
+
+def blank_kind(line: str, above: str = "") -> str:
+    """What a blank is for, by the plain words on its line (the line above only for a line of nothing but the blank): 'date',
+    'price', 'signature' or 'blank'."""
+    words = _BLANK.sub(" ", line)
+    if not re.search(r"[^\W\d_]", words):
+        words = _BLANK.sub(" ", above)
+    return next((kind for kind, rx in _BLANK_KINDS if rx.search(words)), "blank")
+
+
+def blanks(pages: Pages) -> dict[int, list[tuple[str, str]]]:
+    """{page: [(kind, line)]} of every blank to fill code finds, in reading order."""
+    out: dict[int, list[tuple[str, str]]] = {}
+    lines = lines_of(pages)
+    for i, (page, line) in enumerate(lines):
+        above = lines[i - 1][1] if i and lines[i - 1][0] == page else ""
+        for m in _BLANK.finditer(line):
+            if m.group(0)[0] in ".\u2026" and _LEADER_END.match(line[m.end() :]):
+                continue  # a contents leader, not a blank
+            out.setdefault(page, []).append((blank_kind(line, above), line))
+    return out
+
+
+def check_blanks(pages: Pages) -> list[Result]:
+    """CT-05 (code part): ONE "engineer to check" result per page that holds blanks, with the page, the kinds and the count."""
+    out = []
+    for page, found in sorted(blanks(pages).items()):
+        kinds = Counter(k for k, _l in found)
+        said = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+        out.append(Result("CT-05", BLANK_TOPIC, ENGINEER, f"{len(found)} blank(s)",
+                          f"Page {page} has {len(found)} blank(s) to fill ({said}): {BLANK_TOPIC}.",
+                          [quote(pages, page, found[0][1])]))  # fmt: skip
+    return out
+
+
 # ------------------------------------------------------------------------------------------------ guards on AI comments
 #
 # Code checks what an AI comment states against the paper, where the paper lets code read it. A comment that a check

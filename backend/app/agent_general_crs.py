@@ -91,8 +91,16 @@ def _other_quote(ln: Mapping) -> Mapping | None:
 
 
 def _verified(ln: Mapping, q: Mapping | None) -> Mapping | None:
-    """A quote the CRS comment may print: present AND checked by code (`quotes_verified_by_code` is exactly True)."""
-    return q if ln.get("quotes_verified_by_code") is True else None
+    """A quote the CRS comment may print: present AND checked by code (`quotes_verified_by_code` is exactly True) AND a full
+    sentence (`quote_sentence`, LPC C4: "(herein referred" or "4." is on the page but is no evidence)."""
+    from . import quote_sentence
+
+    ok = (
+        ln.get("quotes_verified_by_code") is True
+        and q
+        and quote_sentence.is_full_sentence(q.get("text"))
+    )
+    return q if ok else None
 
 
 def _page_text(ln: Mapping) -> str | None:

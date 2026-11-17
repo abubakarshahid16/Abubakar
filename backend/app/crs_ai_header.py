@@ -7,6 +7,8 @@ run number here: those live on the Notes sheet of the internal copy only.
 from __future__ import annotations
 
 import logging
+import re
+import sqlite3
 from collections.abc import Mapping
 
 FIELDS = ("project", "document_number", "title", "revision", "date", "discipline")
@@ -45,6 +47,40 @@ def document_header(
         "revision": _text(got.get("revision")),
         "date": _text(got.get("effective_date")),
         "discipline": discipline,
+    }
+
+
+NOT_ON_COVER = "not found on the cover"
+
+
+def with_cover(conn, document_id: str, head: dict[str, str]) -> dict[str, str]:
+    """LPC (C5): sheet 1's document number and revision. The labelled number and the revision code reads on the paper's COVER
+    (`contract_package.cover_id`: the top lines of pages 1 and 2; a number labelled other than a document number says its label);
+    else the value the app holds for the document; else "not found on the cover". Never guessed. A copy of `head`; the download
+    name still reads `document_header`."""
+    from . import contract_package
+
+    try:
+        cover = contract_package.cover_id(
+            contract_package.load_pages(conn, document_id, contract_package.COVER_PAGES)
+        )
+    except (
+        sqlite3.Error
+    ):  # no page text to read: the value the app holds, else "not found"
+        cover = contract_package.CoverId()
+    label = (
+        ""
+        if re.match(r"doc(?:ument)?\b", str(cover.number_label or ""), re.I)
+        else f" ({cover.number_label})"
+    )
+    number = (
+        f"{cover.number}{label}" if cover.number else head.get("document_number")
+    )  # a contract's number says it is one
+    revision = cover.revision or head.get("revision")
+    return {
+        **head,
+        "document_number": number or NOT_ON_COVER,
+        "revision": revision or NOT_ON_COVER,
     }
 
 
