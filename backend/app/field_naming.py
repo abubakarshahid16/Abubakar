@@ -333,6 +333,25 @@ def _label_of(fact: dict) -> str:
     return fact.get("field_label") or fact.get("field_name") or ""
 
 
+def naming_provider():
+    """The labelling provider of the naming step. In a Claude-lane review run (LP3, 17 Nov 2026) the step has no setting of
+    its own: it pairs requirements with the sheet's fields, which is the matcher's work, so the matcher's own setting
+    (`MATCH_ENGINE`) governs it: Claude (Haiku) when `claude_for_task` allows it, else the local provider, which the bar
+    refuses and states with the reason noted here. Outside such a run: `get_provider`, unchanged."""
+    from . import local_engine_bar
+    from . import reasoning_provider as rp
+    from .config import settings
+
+    if local_engine_bar.active():
+        claude = rp.claude_for_task(settings.match_engine, "labelling", step=NAMING_STEP)
+        if claude is not None:
+            return claude
+        if rp.claude_available()[0]:  # REASONING_PROVIDER=claude: every step may, as before
+            return rp.get_provider("labelling", step=NAMING_STEP)
+        local_engine_bar.because(NAMING_STEP, local_engine_bar.why_not_claude("match_engine"))
+    return rp.get_provider("labelling", step=NAMING_STEP)
+
+
 def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) -> dict:
     """Name the numeric requirements, then the numeric facts' labels (only
     what is not named yet).
@@ -347,8 +366,6 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
     Returns {"requirements": {req_id: field}, "facts": {fact_id: field},
     counts, "refused": reason or None}. A refusal (budget, egress, engine
     down) keeps what was named and reports why."""
-    from .reasoning_provider import get_provider
-
     dictionary = build_dictionary(requirements, facts)
     numeric = [r for r in requirements if r.get("requirement_type") in NUMERIC_TYPES]
     req_items = [(str(r["id"]), " ".join((r.get("requirement_text") or "").split())[:REQUIREMENT_CHARS])
@@ -360,7 +377,7 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
     label_names: dict[str, dict] = {}
     label_dictionary: list[str] = []
     if dictionary and req_items:
-        provider = provider or get_provider("labelling", step=NAMING_STEP)
+        provider = provider or naming_provider()
         try:
             req_names = name_items(REQUIREMENT, req_items, dictionary, provider,
                                    sheet_count=len(sheet_names(facts)))

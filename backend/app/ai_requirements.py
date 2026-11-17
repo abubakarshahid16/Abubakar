@@ -46,8 +46,9 @@ quote's figures agrees; a condition is in the sentence, and a sentence that
 is conditional with no condition proposed is refused (the #858 lesson). What
 passes is stored as a DRAFT for the engineer (`clause_check_drafts`), never as
 a requirement: no verdict is ever decided on an unapproved proposal. The
-model is the runner's local model - standards text never leaves the machine. The model is the runner's setting
-(`settings.ai_task_model`, qwen3.5:2b by default). No rule here names a
+model is the runner's local model (`settings.ai_task_model`, qwen3.5:2b by default); in a Claude-lane review run
+it is Claude when `AI_CLAUSE_REVIEW_ENGINE=claude` and the lane and the approved list allow it
+(`ai_task_runner.own_engine`, LP3), else the step does not run and the run says why. No rule here names a
 document, a standard or a clause.
 """
 from __future__ import annotations
@@ -372,6 +373,8 @@ CLAUSE_TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
     instruction=CLAUSE_INSTRUCTION,
     schema=CLAUSE_SCHEMA,
     num_predict=300,
+    # LP3: one clause sentence of a rule book, verified by code: the clause step's own setting governs it in a Claude-lane run
+    engine="ai_clause_review_engine",
 ))
 
 #: Why a proposed check was refused - plain words for the run report; never

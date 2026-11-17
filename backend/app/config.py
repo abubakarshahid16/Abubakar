@@ -528,7 +528,8 @@ class Settings(SettingsExt, BaseSettings):
     #: AND both STANDARDS_READER_* egress flags AND a key, every call metered
     #: by `claude_spend` under the step `requirement-matcher` (R32). What
     #: leaves is the requirement's sentence and the candidate field names.
-    #: Env: MATCH_ENGINE.
+    #: LP3 (17 Nov 2026): in a Claude-lane review run it also governs the field naming (`field_naming.naming_provider`,
+    #: step `b4-naming2`: requirement sentences and sheet labels against a numbered list). Env: MATCH_ENGINE.
     match_engine: str = "ollama"
     #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
     #: adds its form and table readings to `submittal_facts` during

@@ -98,6 +98,9 @@ class TaskSpec:
     num_predict: int = 400
     #: Corrective asks after a code rejection, on the Claude provider only (`division_claude`).
     claude_retries: int = 0
+    #: LP3: the settings attribute of the engine setting that governs this task in a Claude-lane run (`own_engine`).
+    #: None: it has none, so in such a run it does not run and says so (rule 1: no new way out).
+    engine: str | None = None
 
     def prompt(self, text: str) -> str:
         return (f"{self.instruction.strip()}\n\nANSWER with one JSON object that matches the "
@@ -453,11 +456,29 @@ def _limit_words(exc: claude_spend.StopRun) -> str:
     return STOPPED_BY_LIMIT
 
 
+def own_engine(spec: TaskSpec):
+    """(provider, None) or (None, why) for a task asked with no provider in a Claude-lane run (LP3, 17 Nov 2026): the task
+    runs on the engine its OWN setting names (`spec.engine`) when `claude_for_task` allows it (the provider switch, the lane,
+    the approved list; the same gates every Claude step passes, through `reader_transport` only). Otherwise it does not run,
+    and `why` says plainly why (`local_engine_bar.why_not_claude`). The local engine is never loaded here."""
+    from . import reasoning_provider as rp
+
+    if spec.engine:
+        claude = rp.claude_for_task(local_engine_bar.engine_value(spec.engine), step=f"ai_task:{spec.name}")
+        if claude is not None:
+            return claude, None
+    return None, local_engine_bar.why_not_claude(spec.engine)
+
+
 def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True) -> TaskResult:
     """Run one task. Never raises for a model problem; never guesses."""
     ensure_schema()
-    if provider is None and local_engine_bar.refuses(f"ai_task:{spec.name}"):
-        return _failed(spec, "not loaded", local_engine_bar.NOTE)
+    if provider is None and local_engine_bar.active():
+        provider, why = own_engine(spec)
+        if provider is None:
+            local_engine_bar.because(f"ai_task:{spec.name}", why)
+            local_engine_bar.refuses(f"ai_task:{spec.name}")
+            return _failed(spec, "not loaded", f"not run: {why}")
     provider = provider or make_provider()
     model = getattr(provider, "requested_model", None) or model_in_use()
     text = (text or "").strip()

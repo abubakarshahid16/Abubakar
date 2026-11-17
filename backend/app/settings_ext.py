@@ -78,7 +78,8 @@ class SettingsExt(BaseModel):
     #: The clause review's OWN engine (owner order, 2 Nov 2026). `claude`: every applicable requirement by
     #: Message Batch (`clause_review_claude.py`), under the provider switch, both egress flags, the approved
     #: and block lists, the answer cache and the USD caps. Anything else: the local model, with its limit.
-    #: Env: AI_CLAUSE_REVIEW_ENGINE.
+    #: LP3 (17 Nov 2026): in a Claude-lane review run it also governs the clause-check proposal (`ai_requirements.CLAUSE_TASK`,
+    #: one rule-book sentence per call, step `ai_task:clause_check_proposal`). Env: AI_CLAUSE_REVIEW_ENGINE.
     ai_clause_review_engine: str = "ollama"
     #: How often the idle worker asks the API about a batch. Env: CLAUSE_REVIEW_BATCH_POLL_SECONDS.
     clause_review_batch_poll_seconds: float = Field(300.0, gt=0)
