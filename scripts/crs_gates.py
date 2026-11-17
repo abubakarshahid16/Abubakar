@@ -40,7 +40,8 @@ THE GATES, EXACTLY.
      With the app's tables a book with no entry, or one that applies to the type only in part, is NOT JUDGED (counted, never a pass);
      with a file, a book the file does not list for the kind fails. No mapping for the kind: "G2 not run: no kind-to-book mapping".
   G3 No comment row has nothing to correct. It fails by CLASS: Met (ranks 5-7), Does not apply (8), or a pass reason stored on its line
-     ("met", "pass_...") unless the line records a doubt about the paper (`no_comment_class`); and by WORDS, in any cell:
+     ("met", "pass_...", or any other pass-guard objection to an AI "met", `agent_review_verdict.GUARD_CODES`) unless the line records
+     a doubt about the paper (`no_comment_class`); and by WORDS, in any cell:
      NOISE_PATTERNS (the app's own `crs_ai_words.NOTHING_TO_DO_PATTERNS`: "found none", "no correction needed", "could not be
      read", "not readable", "no action required", "no change needed", "need not state it", "... stated ..., which meets the" and close variants).
      A row whose paper value is a deferral (`agent_review_verdict.quote_defers`: "By Contractor", "TBA") asks the contractor for the
@@ -409,15 +410,18 @@ def noise_in(text) -> str | None:
 
 def no_comment_class(r: Row) -> str | None:
     """Why the row's own class says there is nothing to correct (G3), or None: Met (ranks 5-7), Does not apply (8), or a pass reason
-    stored on its line ("met", "pass_..."), whatever its words. A pass reason on a question whose line records a doubt about the
+    stored on its line ("met", "pass_...", or any pass-guard objection to an AI "met": `agent_review_verdict.GUARD_CODES`, such as
+    "field_unknown_cannot_check_deferral"; order 14 lane D gate change), whatever its words. A pass reason on a question whose line records a doubt about the
     PAPER (`open_question`: the app's one test, `crs_comments.met_question_why`, R91: the paper quote not verified, the value
     deferred or said not stated, a label-only quote, the second reader disagreeing) is a real question, never failed here: the AI's
     "met" is what is in doubt. A pass reason with no such doubt (only the clause quote unverified, the pass guard's objection alone)
     still fails."""
     if r.rank in NO_COMMENT_RANKS:
         return NO_COMMENT_RANKS[r.rank]
+    from app.agent_review_verdict import GUARD_CODES
+
     reason = _fold(r.reason)
-    if (reason == "met" or reason.startswith("pass")) and not r.open_question:
+    if (reason == "met" or reason.startswith("pass") or reason in GUARD_CODES) and not r.open_question:
         return "pass reason"
     return None
 

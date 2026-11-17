@@ -261,3 +261,92 @@ def verify(
     """(book id, quote, page hint) -> found / true page / where, searching the book's stored pages, never the stored requirement row.
     The ONE function for this check (the calculator does not call it yet; the AI lines go through `pass_guards.judge`). Pass one `BookPages` when asking many quotes (each book is read once)."""
     return pass_guards.locate(quote, (books or BookPages()).book(book_id), page_hint)
+
+
+# ------------------------------------------------------------------------------------------------ book words shown on a CRS (order 14, G1)
+
+#: The visible mark between two pieces of a rule's stored words that stand apart in the book (completeness rule 3: never an unmarked cut).
+CUT_MARK = " … "
+#: At most this many pieces: a text that needs more is not shown as the book's words.
+MOST_PIECES = 3
+
+
+def _piece_end(book: pass_guards.Book, words: list[str], i: int, page: int, start: int) -> tuple[int, int]:
+    """(j, at): the most words from `i` whose folded text stands on `page` at or after `start` (j == i: none), and where it starts."""
+    plain = book.plain(page)
+    lo, hi, best = i + 1, len(words), (i, -1)
+    while lo <= hi:  # a prefix of a found text is found at the same place: the longest is found by halving
+        mid = (lo + hi) // 2
+        at = plain.find(pass_guards._fold(" ".join(words[i:mid])), start)
+        if at >= 0:
+            best, lo = (mid, at), mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
+def book_words(doc: Any, text: Any, page_hint: Any = None, books: BookPages | None = None) -> str | None:
+    """The rule's stored words as a CRS may show them as the BOOK's words (honesty rule 4, gate G1): the text itself when code finds it
+    in the book's stored pages (`verify`); the text in pieces joined by `CUT_MARK` when its words stand in the book in this order with
+    other text of the book between them (a running header over a page break: each later piece on the same page after the one before,
+    or on the next page), at most `MOST_PIECES`, every piece at least `pass_guards.OFF_PAGE_MIN` characters (a shorter one proves
+    nothing off its own page); None when code cannot find it (words an AI step or a reading wrote that are not the book's): such words
+    are never shown as the book's text. Pure on the book's stored pages."""
+    shown = " ".join(str(text or "").split())
+    if not shown or not doc:
+        return None
+    books = books or BookPages()
+    try:
+        if verify(doc, shown, page_hint, books).found:
+            return shown
+        book, words = books.book(doc), shown.split()
+    except sqlite3.Error:  # a database without the pages table holds no book: nothing is found
+        log.debug("agent review: no stored pages to search for the rule book %s", doc)
+        return None
+    hints = [p for p in pass_guards._hints(page_hint) if p in book.pages]
+    order = hints + sorted(set(book.pages) - set(hints))
+    best = max(((_piece_end(book, words, 0, p, 0), -k, p) for k, p in enumerate(order)), default=None)
+    if best is None or best[0][0] == 0:
+        return None
+    (i, at), _rank, page = best
+    pieces = [" ".join(words[:i])]
+    end = at + len(pass_guards._fold(pieces[0]))
+    while i < len(words) and len(pieces) < MOST_PIECES:
+        same = _piece_end(book, words, i, page, end)
+        nxt = _piece_end(book, words, i, page + 1, 0) if page + 1 in book.pages else (i, -1)
+        (j, at), page = (same, page) if same[0] >= nxt[0] else (nxt, page + 1)
+        if j == i:
+            return None
+        pieces.append(" ".join(words[i:j]))
+        end, i = at + len(pass_guards._fold(pieces[-1])), j
+    if i < len(words) or any(len(p) < pass_guards.OFF_PAGE_MIN for p in pieces):
+        return None
+    return CUT_MARK.join(pieces)
+
+
+# ------------------------------------------------------------------------------------------------ a clause shown on a CRS (order 14, G4)
+
+
+def clause_holds(doc: Any, clause: Any, words: Any, page: Any, texts: dict | None = None) -> bool | None:
+    """Does the cited clause hold the rule's words in the book's own text (honesty rule 4: no claim without a resolving citation)?
+    True: code places the words (`subject_scope.StandardText.place`, on their page) inside a run of the clause's heading, before any
+    heading that may end it. False: code places them and finds the clause's heading, but the words stand outside every run of it or
+    after a heading that may end it (a clause number carried over a later heading: "the last clause seen" is no citation). None: code
+    cannot tell (the words not placed, no heading of the clause found, no clause). `texts`: each book's text read once per caller."""
+    from .db import connect
+
+    if not doc or not str(clause or "").strip() or not str(words or "").strip():
+        return None
+    texts = {} if texts is None else texts
+    if doc not in texts:
+        try:
+            pages = _paper_pages(connect(), str(doc))
+        except sqlite3.Error:  # a database without the pages table: code cannot tell
+            pages = []
+        texts[doc] = subject_scope.StandardText(pages)
+    text = texts[doc]
+    runs = [run for key in _clause_keys(str(clause)) for run in text.spans(key)]
+    at = text.place({"source_text": str(words), "page": page if isinstance(page, int) and not isinstance(page, bool) else None})
+    if not runs or at is None:
+        return None
+    return any(lo <= at < soft for lo, soft, _hi in runs)

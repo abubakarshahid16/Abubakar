@@ -126,6 +126,9 @@ def against(line: Mapping) -> str:
     std, clause = _clean(line.get("standard")), _clean(line.get("clause"))
     if line.get(words.NOT_HELD_KEY):  # order 14 G7: no clause of a book not held
         return f"{std} ({words.BOOK_NOT_HELD})" if std else ""
+    if std and line.get(words.CLAUSE_UNCONFIRMED_KEY):  # order 14 G4: the page where code found the rule's words, never the clause
+        book = line.get("clause_book") if isinstance(line.get("clause_book"), Mapping) else {}
+        return f"{std} page {book['page']} ({words.CLAUSE_NOT_CONFIRMED})" if book.get("page") else f"{std} ({words.CLAUSE_NOT_CONFIRMED})"
     return " ".join(x for x in (std, f"clause {clause}" if clause else "") if x)
 
 
