@@ -17,7 +17,7 @@ def _m(n: str, desc: str, path, anchor: str, repl: str, kw: str) -> Mutation:
                     target=_T, keyword=kw, tags=_TAGS)  # fmt: skip
 
 
-_SKIP = '{e.get("settles") or e.get("releases") for e in _raw_lines()}:\n'
+_SKIP = '{e.get("settles") or e.get("releases") for e in _raw_lines()}:  # fmt: skip\n'
 
 MUTATIONS: tuple[Mutation, ...] = (
     _m(
