@@ -77,7 +77,7 @@ KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two reader
 KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
 KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
-KIND_NA_TO_CONFIRM = "AI thinks it does not apply, to confirm"  # owner on PR #1872: its own section on the page and in both files (LP1)
+KIND_NA_TO_CONFIRM = "Does not apply (AI, engineer to confirm)"  # owner on PR #1872: its own section on the page and in both files (LP1)
 NOT_A_COMMENT_KINDS = (
     KIND_NOTHING_TO_CHANGE,
     KIND_MET_NOT_CONFIRMED,

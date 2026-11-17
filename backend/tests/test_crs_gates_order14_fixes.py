@@ -68,8 +68,8 @@ def test_an_older_runs_stored_opinion_is_read_as_todays_query_and_never_raised()
         rp.rank_of_ai_line(got)[0] == 4
     )  # a Question on the page and in both files, not "Not met, one reader"
     assert (
-        rp.rank_of_ai_line(_absent_line())[0] == 3
-    )  # the stored line as it was (what the CRS showed)
+        rp.rank_of_ai_line(_absent_line())[0] == 4
+    )  # LP0: the stored line too: it holds no paper quote code verified, so it is a question (it was 3 before LP0)
     # narrowing only: a stored Query is never made an opinion, a proven line is never touched
     query = _absent_line(verdict_class=w.CLASS_QUERY, verdict_label=w.WORD_QUERY, reason_code="not_met",
                          why="the code compared no value on this line")  # fmt: skip

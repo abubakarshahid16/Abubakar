@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 
+from . import agent_review_ai_answer as ai_answer
 from . import crs_ai_words as words
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
@@ -584,6 +585,8 @@ def _status_words(line: dict) -> str:
     got = wb.status_of(line)
     if got is None:
         return "not a comment"
+    if (answer := ai_answer.label(line)) and got[0] in (words.STATUS_AI, words.STATUS_QUERY):
+        return answer  # LP0: the AI's own answer, labelled (`agent_review_ai_answer`)
     st, order = got
     met = order in (words.ORDER_PASS, words.ORDER_AI_MET, words.ORDER_AI_VERDICT_MET)
     return {

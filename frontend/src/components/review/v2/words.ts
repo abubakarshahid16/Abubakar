@@ -48,7 +48,8 @@ export function tileLine(tile: (typeof TILE_ORDER)[number], c: PointsListing["co
   if (tile === "questions") return c.groups != null ? `in ${c.groups} group${c.groups === 1 ? "" : "s"}` : "";
   const bits: string[] = [];
   if (c.two_readers != null) bits.push(`${c.two_readers} two readers`);
-  if (c.one_reader != null) bits.push(`${c.one_reader} one reader`);
+  // LP0 (owner, 17 Nov 2026): the one-reader points are the AI's own answers, never counted as decisions: said so
+  if (c.one_reader != null) bits.push(`${c.one_reader} AI, engineer to confirm`);
   const line = bits.join(" · ");
   if (c.proven_by_code != null && c.proven_by_code > 0) return line ? `${line} · ${c.proven_by_code} proven by code` : `${c.proven_by_code} proven by code`;
   return line;
@@ -66,7 +67,7 @@ export function firmnessLine(c: PointsListing["counts"]): string | null {
   }
   if (proven) parts.push(`${proven} proven by code`);
   if (two != null && two > 0) parts.push(`${two} agreed by two readers`);
-  if (one) parts.push(`${one} one reader's view`);
+  if (one) parts.push(`${one} AI answers, engineer to confirm`);
   return parts.length ? `How firm this is: ${parts.join(", ")}. A person decides each point.` : null;
 }
 

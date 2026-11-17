@@ -106,7 +106,10 @@ def test_the_list_is_short_enough_to_be_honest():
     # ledger (closes holds an ended process left open) and the run's usd; standards_web_search.py is at its 800-line limit
     # raised to 66 on 17 Nov (LP1, order 14 live proof): firm_clause.py reads a firm "not met" that shows no clause as a question;
     # agent_review_wording.py and crs_ai_words.py, where it would belong, are at their 800-line limit
-    assert len(vp.VERDICT_PATH) <= 66
+    # raised to 66 on 17 Nov (LP0, lead's review of PR #1878, rule 14d): agent_review_ai_answer.py words the AI's own answer on a
+    # line code did not prove (a CRS cell and the page's pill); agent_review_wording.py, where it would belong, is at its limit
+    # raised to 67 on 17 Nov (merge round 19a): LP1 (firm_clause.py) and LP0 (agent_review_ai_answer.py) each added one module
+    assert len(vp.VERDICT_PATH) <= 67
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

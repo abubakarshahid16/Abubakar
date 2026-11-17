@@ -190,6 +190,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "firm_clause.py",
         "LP1: a firm not-met that shows no clause is read as a question",
     ),
+    (
+        APP + "agent_review_ai_answer.py",
+        "LP0: words the AI's own answer on a line code did not prove (label, Class cell, answer line)",
+    ),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
