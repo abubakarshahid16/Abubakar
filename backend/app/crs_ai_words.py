@@ -70,14 +70,14 @@ OTHER_KINDS = (
     KIND_NOT_CHECKED_HERE,
     KIND_NOT_HELD,
 )
-#: Order 14 lane B (owner, 16 Nov 2026: "drop noise rows, merge repeats, move 'N rules not matched' to a coverage note"). A line or point
-#: that carries no finding is NOT a comment: it is listed apart, counted and named, never dropped (the completeness rule still holds).
+#: Order 14 lane B (owner, 16 Nov 2026: "drop noise rows, merge repeats, move 'N rules not matched' to a coverage note"). A line or point that carries no finding is NOT a comment: it is listed apart, counted and named, never dropped (the completeness rule still holds).
 NOT_A_COMMENT_SHEET = "Not a comment"  # the AI run file's sheet of every line that is not a comment row (Excel: 31 characters at most)
 KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two readers or one reader): the engineer ticks it, no comment
 KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
 KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
-NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
+KIND_NA_TO_CONFIRM = "AI thinks it does not apply, to confirm"  # owner on PR #1872: its own section on the page and in both files (LP1)
+NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE, KIND_NA_TO_CONFIRM)  # fmt: skip
 _NEED = r"(?:needed|required|necessary)"
 #: THE words that say there is nothing to do (the owner's "found none", "no correction needed", "could not be read" and their plain
 #: variants), as (label, pattern) on folded (lower case) text: ONE home, read by `NOISE` here and by the CRS gate G3
@@ -612,13 +612,13 @@ def read_now(
     lines: list[Mapping], missing: list[Mapping] = (), holds=None
 ) -> list[dict]:
     """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
-    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`),
-    then the clauses that do not hold their rule's words (`mark_clause_unconfirmed`, `holds` as there)."""
+    the completeness count, the gates): today's rule (`read_time`), the books not held (`mark_not_held`), the clauses that do not hold
+    their rule's words (`mark_clause_unconfirmed`, `holds` as there), then a firm "not met" with no clause is a question (`firm_clause`)."""
     from .agent_review_wording import read_time
+    from .firm_clause import hold
 
-    return mark_clause_unconfirmed(
-        mark_not_held([read_time(ln) for ln in lines], missing), holds
-    )
+    read = mark_not_held([read_time(ln) for ln in lines], missing)
+    return hold(mark_clause_unconfirmed(read, holds))
 
 
 def book_not_held(line: Mapping) -> bool:
