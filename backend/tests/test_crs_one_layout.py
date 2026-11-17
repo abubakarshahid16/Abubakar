@@ -48,6 +48,8 @@ def _rows():
             "comment": "An AI draft.",
             "row_kind": "ai_engineering_check",
             "priority": 3,
+            # LPH (17 Nov 2026): an AI row is an AI opinion only when its stored finding records a verdict; this row stands for one
+            "stored_state": "NON_COMPLIANT",
         },
         {
             **base,
@@ -227,10 +229,12 @@ def test_every_row_kind_and_rank_maps_to_one_of_the_four_words_and_a_pass_or_fai
                 "clause_review",
                 "spec_kit",
             ):
-                assert status == "AI opinion", (
-                    kind,
-                    rank,
-                )  # an AI draft is never a Pass or a Fail
+                # an AI draft is never a Pass or a Fail; LPH (17 Nov 2026): it is an AI opinion only when its stored finding records a
+                # verdict, and a Query when the AI did not settle it (no stored verdict)
+                assert status == "Query", (kind, rank)
+                assert (
+                    crs_normal.crs_status(kind, rank, "NON_COMPLIANT") == "AI opinion"
+                ), (kind, rank)
             elif kind == "safety_tick":
                 assert status == "Pass"
             else:

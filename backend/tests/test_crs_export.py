@@ -133,6 +133,7 @@ def test_rows_get_one_fill_per_status_not_per_kind():
                 "comment": "an AI draft",
                 "row_kind": "ai_engineering_check",
                 "priority": 3,
+                "stored_state": "NON_COMPLIANT",  # LPH: an AI row is an AI opinion only when its finding records a verdict
             },
             {"comment": "a tick", "row_kind": "safety_tick", "priority": 3},
         ]

@@ -556,7 +556,10 @@ def rule_point(
     )
 
     kind = row.get("row_kind")
-    status = crs_normal.crs_status(kind, row.get("priority"))
+    # LPH: a row the AI did not settle (no verdict in its stored finding) is a question
+    status = crs_normal.crs_status(
+        kind, row.get("priority"), row.get(crs_normal.STORED_STATE)
+    )
     rank = _RANK_OF_RC_STATUS.get(status, 4)
     other_kind = None
     if kind in (ROW_KIND_PAGES_NOT_READABLE, ROW_KIND_PAGE_READER_ONLY):

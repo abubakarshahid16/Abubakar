@@ -3730,7 +3730,7 @@
     ],
     [
      "B3",
-     "Fail = a figure its code compared and found out of limit (rank 'Out of limit'). Pass = a safety tick: a compliant verdict its code reached through a safety-tier rule, for the engineer to tick. AI opinion = an AI engineering check, clause review, spec kit item or web standard check (a draft until an engineer confirms). Query = every other row; nothing is proven.",
+     "Fail = a figure its code compared and found out of limit (rank 'Out of limit'). Pass = a safety tick: a compliant verdict its code reached through a safety-tier rule, for the engineer to tick. AI opinion = an AI engineering check, clause review, spec kit item or web standard check whose stored finding records the AI's verdict (a draft until an engineer confirms). Query = every other row, an AI row the AI could not settle included; nothing is proven.",
      null,
      "top",
      true,
@@ -3874,7 +3874,7 @@
    ],
    "heights": {
     "2": 39.0,
-    "3": 39.0,
+    "3": 52.0,
     "4": 15.0,
     "5": 15.0,
     "6": 15.0,
@@ -8130,7 +8130,7 @@
     ],
     [
      "B3",
-     "Fail = a figure its code compared and found out of limit (rank 'Out of limit'). Pass = a safety tick: a compliant verdict its code reached through a safety-tier rule, for the engineer to tick. AI opinion = an AI engineering check, clause review, spec kit item or web standard check (a draft until an engineer confirms). Query = every other row; nothing is proven.",
+     "Fail = a figure its code compared and found out of limit (rank 'Out of limit'). Pass = a safety tick: a compliant verdict its code reached through a safety-tier rule, for the engineer to tick. AI opinion = an AI engineering check, clause review, spec kit item or web standard check whose stored finding records the AI's verdict (a draft until an engineer confirms). Query = every other row, an AI row the AI could not settle included; nothing is proven.",
      null,
      "top",
      true,
@@ -8274,7 +8274,7 @@
    ],
    "heights": {
     "2": 39.0,
-    "3": 39.0,
+    "3": 52.0,
     "4": 15.0,
     "5": 15.0,
     "6": 15.0,
