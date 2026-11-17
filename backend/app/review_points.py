@@ -316,15 +316,15 @@ def rule_book_hidden(book_doc, ctx: dict, proof: tuple[bool, bool] | None = None
 
 
 def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
-    """May the AI point's FREE text (its reasoning) reach this viewer? Fail closed. A whole-library viewer: yes. A linked book: only when he may
-    read it. No linked book: the point's cited reference must resolve to held books he may ALL read; a point that cites no rule at all is
+    """May the AI point's FREE text (its reasoning) reach this viewer? Fail closed. A linked book: only when he may read it, for every viewer
+    (a deleted book is no one's). No book and a whole-library viewer: yes. No linked book: the point's cited reference must resolve to held books he may ALL read; a point that cites no rule at all is
     shown only when its free text names no held book he may not read (the same matcher, `standard_ids`, against the held books' names)."""
     if "library" not in ctx:
         return not rule_book_hidden(book_doc, ctx)
+    if book_doc:  # first, for every viewer: a linked book that is gone (deleted) is no one's to read
+        return book_doc in ctx["readable"]
     if ctx.get("everything"):
         return True
-    if book_doc:
-        return book_doc in ctx["readable"]
     from . import applicability, standard_ids
 
     cited = " ".join(str(line.get("standard") or "").split())

@@ -787,3 +787,16 @@ def test_a_deleted_rule_book_is_not_available_to_any_viewer():
     assert svc.readability_proof(
         {}, None, ["doc-std"], everyone["readable"], [], True
     ) == (True, True)
+
+
+def test_a_whole_library_viewer_gets_no_ai_words_about_a_deleted_linked_book():
+    # last check (lead): the AI's free words of a datasheet line whose linked book was deleted reach no one, a reader of the whole
+    # library included (`ai_free_text_ok` tests the linked book before the whole-library shortcut)
+    everyone = {**CTX, "paper_document_id": PAPER, "readable": frozenset({PAPER}), "everything": True,
+                "documents": frozenset({PAPER}), "book_of": {"R-9": ("doc-deleted", "STD-77")}}  # fmt: skip
+    line = {"item_id": "R-9", "source": "rule", "verdict": "Query", "verdict_class": "Query for the engineer", "standard": "STD-77",
+            "reasoning": "The value is below the STD-77 limit", "field": "Field R9"}  # fmt: skip
+    point = rp.ai_point(dict(line), everyone)
+    assert point["ai_reasoning"] == "" and "below the STD-77 limit" not in every_word(
+        rp.public(point)
+    )  # what the page receives
