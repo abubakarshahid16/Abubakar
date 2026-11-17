@@ -104,33 +104,73 @@ class Incomplete(Exception):
 
 
 def team_statement(n: int, comments: int | None = None, split: dict | None = None) -> str:
-    """Sheet 1's count line. With `split` (`review_split`, the ONE count): what happened to the points, never "reviewed" for all of
-    them (order 14 W-C5): a point raised as a question compares nothing, and the sheet What was not checked counts what was not
-    compared."""
+    """Sheet 1's count line. With `split` (`review_split`, the ONE count, from the sheet's own partition): exactly how many points
+    were raised as a finding or a question, and every other group by its name and count (order 14 W-C5); never "reviewed" for all."""
     as_comments = f", as {comments} comments" if comments is not None else ""
     if not split:
         return f"{n} points reviewed, {n} in this file{as_comments}"
     parts = [
-        f"{split['reviewed']} raised as a finding or a question (a question compares nothing: the sheet What was not checked "
-        "counts what was not compared)"
+        f"{split['raised']} raised as a finding or a question (a question compares nothing: the sheet What was not checked "
+        "counts what was not compared)",
+        *(f"{k} {label}" for label, k in split["other"].items() if k),
     ]
-    if split["not_reviewed"]:
-        parts.append(f"{split['not_reviewed']} not reviewed (a part of the review that did not run)")
-    if split["not_checked"]:
-        parts.append(f"{split['not_checked']} not checked (rule book not held)")
     return f"{n} points in this review, {n} in this file{as_comments}: " + "; ".join(parts)
 
 
-def review_split(raw: list[dict]) -> dict[str, int]:
-    """THE count of the page's points by what happened to them (order 14 W-C5): not reviewed (a status: a part that did not run),
-    not checked (the point marks its rule book not held), "reviewed" = raised as a finding or a question (every other point). Adds
-    up to the page's points."""
+NOT_REVIEWED_WORDS = "not reviewed (a part of the review that did not run)"
+NOT_CHECKED_WORDS = "not checked (rule book not held)"
+TO_CONFIRM_WORDS = "to confirm 'does not apply'"
+REMOVED_WORDS = "removed by an engineer"
+MET_IN_COMMENT_WORDS = "met, listed inside a comment with a question"
+
+
+def _group_words(kind: str) -> str:
+    """A group of the sheet Not a comment (or a set-apart kind) in the words of the count line."""
     from . import crs_ai_words as words
+
+    return {
+        words.KIND_NOT_REVIEWED: NOT_REVIEWED_WORDS,
+        words.KIND_NOT_HELD: NOT_CHECKED_WORDS,
+        words.KIND_COVERAGE: "coverage notes",
+        words.KIND_NOTHING_TO_CHANGE: "checked, nothing to change",
+        words.KIND_MET_NOT_CONFIRMED: "AI says met, not confirmed (engineer to tick)",
+        words.KIND_NOT_APPLICABLE: "does not apply",
+        words.KIND_UNAPPROVED: "rule not yet approved",
+        words.KIND_NOT_CHECKED_HERE: "not checked on this paper",
+    }.get(kind, kind)
+
+
+def review_split(raw: list[dict]) -> dict:
+    """THE count of the page's points by what happened to them, from the SAME partition the sheets use (order 14 W-C5; review of PR
+    #1890: "raised" counted met, does-not-apply and coverage points too). {"raised": the points of the sheet CRS's comments that
+    are findings or questions (ranks 1-4), "other": {group words: count}}: removed, to confirm "does not apply"
+    (`crs_one.to_confirm`), each kind of the sheet Not a comment (`crs_comments.set_aside`), the comment points that only mark a
+    rule book not held, a met point inside a comment, a set-apart point inside a comment. Adds up to the page's points."""
+    from . import crs_ai_words as words
+    from . import crs_comments
     from . import review_points as rp
 
-    not_reviewed = sum(1 for p in raw if p.get("other_kind") == words.KIND_NOT_REVIEWED)
-    not_checked = sum(1 for p in raw if p.get("other_kind") != words.KIND_NOT_REVIEWED and rp._books_marked(p))
-    return {"reviewed": len(raw) - not_reviewed - not_checked, "not_reviewed": not_reviewed, "not_checked": not_checked}
+    kind_of = {i: kind for c, kind in crs_comments.set_aside(raw) for i in c["member_ids"]}
+    other: dict[str, int] = {}
+    raised = 0
+    for p in raw:
+        if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE:
+            label = REMOVED_WORDS
+        elif p.get("rank") == 9:
+            label = TO_CONFIRM_WORDS
+        elif p["id"] in kind_of:
+            label = _group_words(kind_of[p["id"]])
+        elif rp._books_marked(p):
+            label = NOT_CHECKED_WORDS
+        elif p.get("rank") in (5, 6, 7):  # a met point grouped into a comment with a question: listed there, not raised
+            label = MET_IN_COMMENT_WORDS
+        elif p.get("rank") == 8:
+            label = _group_words(p.get("other_kind") or words.KIND_NOT_APPLICABLE)
+        else:
+            raised += 1
+            continue
+        other[label] = other.get(label, 0) + 1
+    return {"raised": raised, "other": other}
 
 
 def contractor_statement(n: int, m: int, reasons: dict[str, int]) -> str:

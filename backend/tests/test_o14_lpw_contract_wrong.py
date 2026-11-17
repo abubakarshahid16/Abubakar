@@ -352,30 +352,28 @@ def test_a_general_not_reviewed_line_is_a_status_never_a_question():
 # ------------------------------------------------------------------------------------------------ W-C5
 
 
-def test_sheet_one_counts_reviewed_not_reviewed_and_not_checked_from_one_count():
-    raw = [
-        {"other_kind": crs_ai_words.KIND_NOT_REVIEWED},
-        {"_book_missing": "Invented Book 7"},
-        {},
-        {},
-    ]
+def test_sheet_one_counts_exactly_what_its_words_say_from_the_sheets_own_partition(
+    monkeypatch,
+):
+    from app import crs_comments
+
+    raw = [{"id": f"p{n}", "rank": 4} for n in range(1, 9)]
+    raw[4]["rank"] = 9  # the AI thinks it does not apply: to confirm
+    raw[5]["_book_missing"] = "Invented Book 7"
+    raw[7]["decision"] = {"state": "remove"}
+    raw += [{"id": "p9", "rank": 6}, {"id": "p10", "rank": 8, "other_kind": crs_ai_words.KIND_UNAPPROVED}]  # inside comments
+    aside = [({"member_ids": ["p1"]}, crs_ai_words.KIND_NOT_REVIEWED), ({"member_ids": ["p2", "p3"]}, crs_ai_words.KIND_COVERAGE),
+             ({"member_ids": ["p4"]}, crs_ai_words.KIND_NOTHING_TO_CHANGE)]  # fmt: skip
+    monkeypatch.setattr(crs_comments, "set_aside", lambda _raw: aside)
     split = cc.review_split(raw)
-    assert split == {"reviewed": 2, "not_reviewed": 1, "not_checked": 1}
-    line = cc.team_statement(4, 3, split)
-    assert line.startswith(
-        "4 points in this review, 4 in this file, as 3 comments: 2 raised as a finding or a question"
-    )
-    assert (
-        "1 not reviewed" in line
-        and "1 not checked (rule book not held)" in line
-        and "4 points reviewed" not in line
-    )
-    assert (
-        "reviewed"
-        not in cc.team_statement(
-            2, 2, {"reviewed": 2, "not_reviewed": 0, "not_checked": 0}
-        ).split(":")[0]
-    )
+    assert split["raised"] == 1 and split["raised"] + sum(split["other"].values()) == 10
+    line = cc.team_statement(10, 2, split)
+    assert line.startswith("10 points in this review, 10 in this file, as 2 comments: 1 raised as a finding or a question")
+    for said in ("1 not reviewed (a part of the review that did not run)", "2 coverage notes", "1 checked, nothing to change",
+                 "1 to confirm 'does not apply'", "1 not checked (rule book not held)", "1 removed by an engineer",
+                 "1 met, listed inside a comment with a question", "1 rule not yet approved"):  # fmt: skip
+        assert said in line, said
+    assert "10 points reviewed" not in line
 
 
 def test_the_not_checked_sentence_is_about_the_rule_check_never_that_nothing_was_checked():
@@ -608,3 +606,132 @@ def test_a_row_that_holds_only_its_kind_while_its_line_holds_words_is_named():
     assert cc.words_dropped(rows, by_no) == [
         "row 1: the words of the AI line G-007 are not in the file (the row holds only its kind)"
     ]
+
+
+# ------------------------------------------------------------------------------------------------ restore never takes another answer's words
+
+
+def _forged(world, monkeypatch, run, general, stored):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", world)
+    folder = world / "agent_reviews" / run
+    (folder / "steps").mkdir(parents=True)
+    (folder / "steps" / "p2-w0.json").write_text(
+        json.dumps({"text": json.dumps(general)})
+    )
+    _store(run, stored)
+    return folder
+
+
+SHARED = "The invented procedure names the closing step but gives no owner"  # 11 words
+
+
+def test_one_checklist_item_answered_twice_restores_the_answer_the_text_runs_into(
+    world, monkeypatch
+):
+    a = SHARED + " and no date for the actions it records in the log."
+    b = (
+        " ".join(SHARED.split()[:8])
+        + " different words follow here in the second, much longer answer of the same item, "
+    )
+    b += "which goes on well past the first answer's own length."  # the LONGER answer is not the one the text holds
+    general = {
+        "answers": [{"item_id": "S-C1", "note": a}, {"item_id": "S-C1", "note": b}]
+    }
+    cut = "checklist: Closure: partly covered: " + " ".join(a.split()[:12])
+    folder = _forged(world, monkeypatch, "run-f1", general,
+                     [("G-001", {"item_id": "G-001", "general": True, "part": 2, "checklist_item": "S-C1", "text": cut})])  # fmt: skip
+    assert ai_text_whole.restore(db.connect(), "run-f1", folder) == 1
+    text = json.loads(
+        db.connect()
+        .execute("SELECT line_json FROM agent_review_line WHERE run_id = 'run-f1'")
+        .fetchone()[0]
+    )["text"]
+    assert text == "checklist: Closure: partly covered: " + a
+    assert ai_text_whole.restore(db.connect(), "run-f1", folder) == 0
+
+
+def test_two_answers_that_fit_as_well_are_never_restored_and_are_reported(
+    world, monkeypatch
+):
+    a = SHARED + " so the actions stay open."
+    b = SHARED + " so the review cannot close."
+    general = {
+        "answers": [{"item_id": "S-C1", "note": a}, {"item_id": "S-C1", "note": b}]
+    }
+    cut = "checklist: Closure: partly covered: " + SHARED
+    folder = _forged(world, monkeypatch, "run-f2", general,
+                     [("G-001", {"item_id": "G-001", "general": True, "part": 2, "checklist_item": "S-C1", "text": cut})])  # fmt: skip
+    [problem] = ai_text_whole.problems("run-f2")
+    assert "cut, not restorable: two answers fit" in problem
+    assert ai_text_whole.restore(db.connect(), "run-f2", folder) == 0
+    assert ai_text_whole.problems("run-f2") == [
+        problem
+    ]  # still reported, never silently "fixed"
+
+
+def test_two_lines_on_one_quote_each_get_their_own_words(world, monkeypatch):
+    a = SHARED + " and the log has no date column for any action."
+    b = (
+        SHARED
+        + "; the second finding is about the missing chair signature, which is longer than the first one's words."
+    )
+    q = {"page": 2, "text": "Actions are recorded without owner or date."}
+    general = {"findings": [{"quote_a": q, "what": a}, {"quote_a": q, "what": b}]}
+    folder = _forged(world, monkeypatch, "run-f3", general,
+                     [("G-001", {"item_id": "G-001", "general": True, "part": 3, "quote_a": q, "text": " ".join(a.split()[:13])}),
+                      ("G-002", {"item_id": "G-002", "general": True, "part": 3, "quote_a": q, "text": " ".join(b.split()[:13])})])  # fmt: skip
+    assert ai_text_whole.restore(db.connect(), "run-f3", folder) == 2
+    got = dict(
+        db.connect()
+        .execute(
+            "SELECT item_id, reason FROM agent_review_line WHERE run_id = 'run-f3'"
+        )
+        .fetchall()
+    )
+    assert got == {"G-001": a, "G-002": b}
+    assert ai_text_whole.restore(db.connect(), "run-f3", folder) == 0
+
+
+def test_a_note_and_a_concern_of_one_answer_sharing_words_restore_the_one_the_text_holds(
+    world, monkeypatch
+):
+    note = (
+        SHARED
+        + " for the review meeting, and the note goes on at length about the minutes, the attendees and the agenda form."
+    )
+    concern = SHARED + " and the closing date is left to the chair alone."
+    general = {"answers": [{"item_id": "S-C2", "note": note, "concern": concern}]}
+    cut = "checklist: Closure: covered, but " + " ".join(concern.split()[:16])
+    folder = _forged(world, monkeypatch, "run-f4", general,
+                     [("G-001", {"item_id": "G-001", "general": True, "part": 2, "checklist_item": "S-C2", "text": cut})])  # fmt: skip
+    assert ai_text_whole.restore(db.connect(), "run-f4", folder) == 1
+    text = json.loads(
+        db.connect()
+        .execute("SELECT line_json FROM agent_review_line WHERE run_id = 'run-f4'")
+        .fetchone()[0]
+    )["text"]
+    assert text == "checklist: Closure: covered, but " + concern
+    assert ai_text_whole.restore(db.connect(), "run-f4", folder) == 0
+
+
+def test_the_calculators_checklist_detail_is_whole():
+    from app import agent_review_calculator as calc
+
+    long = " ".join(["the stated value cannot be compared with the approved entry"] * 6)
+    out = calc.checklist_lines([{"rule_id": "INV-1", "status": "NEEDS_ENGINEER_REVIEW", "detail": long, "field": "Set pressure",
+                                 "value": "5", "page": 1}], page_texts={1: "Set pressure 5"})  # fmt: skip
+    assert long in json.dumps(out)
+
+
+def test_the_calculators_ai_draft_detail_is_whole(monkeypatch):
+    from app import agent_review_calculator as calc
+
+    monkeypatch.setattr(calc, "ai_draft_ids", lambda: {"INV-2"})
+    long = " ".join(
+        ["the limit is an AI draft and the stated value sits on its edge"] * 5
+    )
+    out = calc.checklist_lines([{"rule_id": "INV-2", "status": "NEEDS_ENGINEER_REVIEW", "detail": long, "field": "Set pressure",
+                                 "value": "5", "page": 1}], page_texts={1: "Set pressure 5"})  # fmt: skip
+    assert out and long in json.dumps(out)

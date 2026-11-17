@@ -199,25 +199,45 @@ def _own_answers(line: Mapping, general: list[dict]) -> list[dict]:
     return [a for a in general if quotes and quotes <= a["quotes"]] if quotes else []
 
 
-def line_cuts(line: Mapping, rec: Mapping) -> list[tuple[str, str]]:
-    """[(key, the whole words received)] for every AI text of the stored line that is only the start of what the AI sent for
-    THIS line. A line that holds any of its own answers whole is not cut."""
+def _run_into(text: Any, received: Any) -> int:
+    """How many first words of `received` the stored text runs into, up to where it stops following them (0 when fewer than
+    PREFIX_WORDS)."""
+    t, r = tokens(text), tokens(received)
+    for n in range(len(r), PREFIX_WORDS - 1, -1):
+        if holds(t, r[:n]):
+            return n
+    return 0
+
+
+def _the_one(text: Any, cut: list[str]) -> str | None:
+    """The one answer the stored text runs into up to its cut point (the most words followed exactly); None when two different
+    answers fit as well: then the line is cut but NOT restorable (review of PR #1890: never another answer's words)."""
+    reach = {whole(v): _run_into(text, v) for v in cut}
+    best = max(reach.values())
+    fits = [v for v, n in reach.items() if n == best]
+    return fits[0] if len(fits) == 1 else None
+
+
+def line_cuts(line: Mapping, rec: Mapping) -> list[tuple[str, str | None]]:
+    """[(key, the whole words received, or None when two answers fit and the line cannot be restored)] for every AI text of the
+    stored line that is only the start of what the AI sent for THIS line. A line that holds any of its own answers whole is not
+    cut."""
     if line.get("general"):
         text = line.get("text")
         own = [v for a in _own_answers(line, rec["general"]) for v in a["words"]]
         if any(holds(tokens(text), tokens(v)) for v in own if tokens(v)):
             return []
         cut = [v for v in own if cut_inside(text, v)]
-        return [("text", max(cut, key=len))] if cut else []
+        return [("text", _the_one(text, cut))] if cut else []
     out: list[tuple[str, str]] = []
     answers = rec["items"].get(str(line.get("item_id")), [])
     for key in RULE_KEYS:
         got = [a.get(key) for a in answers if isinstance(a.get(key), str)]
         if not line.get(key) or any(tokens(v) == tokens(line.get(key)) for v in got):
             continue
-        cut = [v for v in got if cut_from(line.get(key), v)]
+        cut = list(dict.fromkeys(whole(v) for v in got if cut_from(line.get(key), v)))
         if cut:
-            out.append((key, max(cut, key=len)))
+            out.append((key, cut[0] if len(cut) == 1 else None))
     return out
 
 
@@ -235,7 +255,8 @@ def _lines(conn, run_id: str) -> list[tuple[str, dict]]:
 
 
 def cuts_of_run(conn, run_id: str, folder: Path) -> dict:
-    """{"checked": the record was there, "lines": stored lines, "cut": [{"item_id", "key", "received"}] (the AI's word count)}."""
+    """{"checked": the record was there, "lines": stored lines, "cut": [{"item_id", "key", "received"}] (the AI's word count; None
+    when two answers fit and the line cannot be restored)}."""
     rec = record(folder)
     lines = _lines(conn, run_id)
     if rec is None:
@@ -243,7 +264,13 @@ def cuts_of_run(conn, run_id: str, folder: Path) -> dict:
     cut = []
     for item, line in lines:
         for key, v in line_cuts(line, rec):
-            cut.append({"item_id": item, "key": key, "received": len(tokens(v))})
+            cut.append(
+                {
+                    "item_id": item,
+                    "key": key,
+                    "received": len(tokens(v)) if v is not None else None,
+                }
+            )
     return {"checked": True, "lines": len(lines), "cut": cut}
 
 
@@ -265,6 +292,8 @@ def check(run_id: str | None) -> dict:
     problems = [
         f"the AI line {c['item_id']} was stored cut before this file (only the start of the AI's {c['received']} words was kept, "
         "with no mark); its whole text is in the run's record (scripts/restore_whole_ai_text.py puts it back)"
+        if c["received"] is not None
+        else f"the AI line {c['item_id']} was stored cut before this file, with no mark; cut, not restorable: two answers fit"
         for c in got["cut"]
     ]
     return {
@@ -290,7 +319,7 @@ def _restored_text(text: str, received: str) -> str:
 def restore(conn, run_id: str, folder: Path) -> int:
     """Put the whole AI words back on every line of the run stored cut, from the run's record; returns the lines changed. Only
     `line_json`, and the `reason` column of a GENERAL line (that column is its text); a rule line's `reason` column is never
-    rewritten. A second pass changes nothing. The caller holds the write (a live database only through `live_guard`)."""
+    rewritten. A line two answers fit is never restored (it stays reported). A second pass changes nothing. The caller holds the write (a live database only through `live_guard`)."""
     rec = record(folder)
     if rec is None:
         return 0
@@ -298,7 +327,9 @@ def restore(conn, run_id: str, folder: Path) -> int:
     with conn:
         for item, line in _lines(conn, run_id):
             cuts = line_cuts(line, rec)
-            if not cuts:
+            if not cuts or any(
+                v is None for _k, v in cuts
+            ):  # two answers fit: never restored, stays reported
                 continue
             for key, v in cuts:
                 line[key] = (
