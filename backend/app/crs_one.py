@@ -661,9 +661,9 @@ def apart_proof(p: dict) -> str | None:
     if not proof or p.get("other_kind") != words.KIND_NOT_APPLICABLE:
         return None
     cond = (
-        f"the rule's condition \"{proof['condition']}\" (found in the rule book by code)"
+        f'the rule\'s condition "{proof["condition"]}" (found in the rule book by code)'
         if p.get("rule_book")
-        else "the rule's condition (in a rule book you may not read)"
+        else "the rule's condition (in a rule book that is not available to you)"
     )
     return f"{proof['reason']}: {cond}; the paper: \"{proof['paper_fact']}\" (found on the page by code)."
 

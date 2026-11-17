@@ -123,9 +123,10 @@ def test_the_run_file_shows_a_restricted_viewer_no_rule_words_and_the_same_split
     assert sheets(hidden.content) == sheets(shown) and statuses(
         hidden.content
     ) == statuses(shown)  # the same split, order, Status
-    assert (
-        shown == (agent_review_jobs.run_dir(ai) / "crs-internal.xlsx").read_bytes()
-    )  # main's bytes for the reader of the book
+    stored = (agent_review_jobs.run_dir(ai) / "crs-internal.xlsx").read_bytes()
+    assert sheet_text(shown) == sheet_text(
+        stored
+    )  # the reader of the book: every cell as main gives it
 
 
 def test_the_lines_tab_and_the_trace_show_a_restricted_viewer_no_rule_words():
@@ -325,7 +326,10 @@ def test_a_reader_of_every_book_gets_layout_view_untouched_on_a_decided_run():
     want = wb.layout_view(lines, svc.run_meta(conn, ai, DOC[0], folder), "internal")
     from app import crs_layout
 
-    assert got == crs_layout.build_layout_crs(want)  # main's own drawing, byte for byte
+    want = crs_layout.build_layout_crs(want)
+    assert sheet_text(got) == sheet_text(want) and sheets(got) == sheets(
+        want
+    )  # main's own drawing, every cell
     assert HIDDEN not in sheet_text(got) and "3 rules not asked" in sheet_text(got)
 
 
@@ -375,3 +379,40 @@ def test_the_shown_line_carries_only_a_paper_quote_code_verified():
         crs_ai_viewer.shown(mk("R-1", "Fail", "Fail"))["paper_quote"]
         == "Nameplate: steel"
     )  # verified: the paper's own words
+
+
+def test_a_line_whose_only_book_id_is_a_deleted_book_is_hidden_from_every_viewer():
+    # check of 2d3857f8/cad239d8 (lead): a book was deleted, its id stays on a stored line that has no asked rule; no one is allowed
+    # it, so its name and words are hidden from the reader of every held book too (lines, trace, run file)
+    gone = "STD-GONE-7"
+    ai = setup_world()
+    line = mk(
+        "R-60",
+        "Query",
+        None,
+        why=f"the clause of {gone} was not confirmed",
+        standard=gone,
+        standard_document_id="doc-deleted",
+    )
+    agent_review_jobs.store_line(ai, line, None)
+    with db.connect() as conn:  # no asked rule for it: only the stored book id
+        conn.execute(
+            "DELETE FROM agent_review_rule WHERE run_id = ? AND rule_key = 'R-60'",
+            (ai,),
+        )
+    for reader in (full, restricted):
+        tab = reader().get(f"/api/reviews/runs/{ai}/agent/lines").text
+        trace = reader().get(f"/api/reviews/runs/{ai}/agent/lines/R-60/trace").text
+        assert gone not in tab and gone not in trace, reader.__name__
+    from app import review_points_service as svc
+
+    drawn = svc.decided_ai_sheet(
+        ai,
+        DOC[0],
+        "internal",
+        agent_review_jobs.run_dir(ai),
+        frozenset({DOC[0], BOOK_DOC}),
+    )
+    assert gone not in sheet_text(drawn.read_bytes()) and BOOK in sheet_text(
+        drawn.read_bytes()
+    )

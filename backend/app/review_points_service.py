@@ -208,14 +208,14 @@ def _ref_state(reference: str, library: list[dict], readable: frozenset[str]) ->
 
 def readability_proof(row: dict, finding: dict | None, docs: list[str], readable: frozenset[str], library: list[dict], everything: bool) -> tuple[bool, bool]:
     """(content, reference): may this viewer see the requirement-derived CONTENT of a rule-check point, and the stored REFERENCE (a book
-    name)? Fail closed: shown only when readability is PROVEN. A viewer who may read the whole library is not restricted. Linked books: all
-    must be readable. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
+    name)? Fail closed: shown only when readability is PROVEN. Linked books: all must be readable by him, for every viewer (a deleted
+    book is no one's: hidden even from a viewer who may read the whole library); with no link, that viewer is not restricted. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
     reference that resolves to readable held books only proves both. Everything else is hidden."""
-    if everything:
-        return True, True
-    if docs:
+    if docs:  # fail closed, for every viewer: a linked book he may not read, or one that is gone (deleted), is not available to him
         ok = all(d in readable for d in docs)
         return ok, ok
+    if everything:
+        return True, True
     state = _ref_state((row or {}).get("standard_reference"), library, readable)
     if _checklist_origin(finding):
         return True, state != "unreadable"
@@ -637,16 +637,16 @@ def decided_ai_sheet(
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
-    digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
-    path = (
-        folder
-        / f"crs-{copy}-{'decided' if decided else 'now'}{'-viewer-' + digest if hidden else ''}.xlsx"
-    )
-    path.write_bytes(
-        crs_layout.build_layout_crs(
-            crs_ai_viewer.view_for(kept, meta, copy, hidden_rule)
-        )
-    )
+    # ONE file per drawn content (the lines as drawn, the meta, the copy and what is hidden from this viewer): the same download gives
+    # the same bytes every time, and one viewer's file is never another's (what is hidden is part of its name)
+    import json
+
+    said = json.dumps([kept, meta, copy, hidden], sort_keys=True, default=str)
+    digest = hashlib.sha256(said.encode()).hexdigest()[:24]
+    path = folder / f"crs-{copy}-drawn-{digest}{'-viewer' if hidden else ''}.xlsx"
+    if not path.is_file():
+        view = crs_ai_viewer.view_for(kept, meta, copy, hidden_rule)
+        path.write_bytes(crs_layout.build_layout_crs(view))
     return path
 
 
