@@ -21,11 +21,14 @@ export function DocumentKindChip({
   kinds,
   isAdmin = false,
   onConfirm,
+  hideChip = false,
 }: {
   classification?: DocumentClassification;
   kinds?: DocumentKindOption[];
   isAdmin?: boolean;
   onConfirm?: (kind: string) => void;
+  /** Order 14 LPS S3: the review page says the kind the REVIEW used itself; only the picker (Change kind) is drawn here then. */
+  hideChip?: boolean;
 }) {
   const [changing, setChanging] = useState(false);
   const state = classification?.document_kind_state ?? null;
@@ -65,8 +68,8 @@ export function DocumentKindChip({
   const canPick = isAdmin && !!onConfirm && !!kinds && kinds.length > 0;
   return (
     <>
-      {chip}
-      {canPick && state !== "confirmed" && !changing && (
+      {!hideChip && chip}
+      {canPick && state !== "confirmed" && !changing && !hideChip && (
         <button
           type="button"
           className="text-xs text-signal-400 underline"
@@ -75,7 +78,7 @@ export function DocumentKindChip({
           {state === "suggested" && kind ? "Confirm kind" : "Choose kind"}
         </button>
       )}
-      {canPick && (state === "suggested" || state === "confirmed") && !changing && (
+      {canPick && (state === "suggested" || state === "confirmed" || hideChip) && !changing && (
         <button type="button" className="text-xs text-slateish-400 underline" onClick={() => setChanging(true)}>
           Change kind
         </button>

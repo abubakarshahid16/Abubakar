@@ -456,8 +456,79 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
     listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
+    listing["kind_used"] = kind_used(conn, ai_run)  # LPS S3: the kind the review USED, from its run record
+    listing["found"] = found_of(listing)  # LPS S2: THE one home of the "Found by the review" number of the review list
     facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
     return listing, points, {**facts, **online}
+
+
+def found_of(listing: dict) -> dict:
+    """THE one home of what a review list says the paper's review found (order 14 LPS, S2): the SAME tile totals the paper's page
+    shows (`counts.tiles`), the lines the AI thinks do not apply (still to confirm), every point of the page and how many are not
+    decided yet, and the runs the page is built from. The review list says these numbers, never a run's own finding count (an AI
+    review's run holds no findings of the rule check, so that count said 0 while the page held 72 questions)."""
+    tiles = listing["counts"]["tiles"]
+    return {
+        "not_met": tiles["not_met"]["total"],
+        "questions": tiles["questions"]["total"],
+        "met": tiles["met"]["total"],
+        "does_not_apply": tiles["does_not_apply"]["total"],
+        "to_confirm": sum(1 for p in listing["points"] if p.get("tile") == not_applicable.TILE),
+        "points": listing["of"],
+        "undecided": listing["of"] - listing["decided"],
+        "runs": dict(listing["runs"]),
+    }
+
+
+def kind_used(conn, ai_run: str | None) -> dict | None:
+    """The kind the paper's AI review USED, from its run record (`agent_review_run.paper_kind`, `kind_source`), order 14 LPS S3:
+    `guess` only when that run used a guess. None without an AI review run or its record: the page then shows the stored kind."""
+    import sqlite3
+
+    from . import agent_review_kind as kind_mod
+
+    if not ai_run:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT paper_kind, kind_source FROM agent_review_run WHERE run_id = ?", (ai_run,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    source = str(row["kind_source"] or "")
+    known = bool(row["paper_kind"]) and row["paper_kind"] != kind_mod.UNKNOWN and source != kind_mod.SOURCE_NONE
+    return {
+        "run_id": ai_run,
+        "kind": row["paper_kind"] if known else None,
+        "known": known,
+        "guess": known and source == kind_mod.SOURCE_GUESS,
+        "confirmed": known and source == kind_mod.SOURCE_CONFIRMED,
+        "source": source,
+    }
+
+
+def found_of_runs(run_ids: list[str], scope) -> dict[str, dict]:
+    """{run id: `found_of` its paper's page} for each run that IS one of its paper's page runs (the latest finished rule check or AI
+    review), on a paper the caller may read (rule 5: narrows only). An older run, a run not finished, or a paper the caller may not
+    read is absent: the list then says nothing for it, never 0. Each paper is assembled once."""
+    conn = connect()
+    readable = frozenset(scope.allowed_document_ids)
+    by_paper: dict[str, dict | None] = {}
+    out: dict[str, dict] = {}
+    for run_id in dict.fromkeys(run_ids):
+        row = conn.execute("SELECT submittal_document_id FROM review_runs WHERE id = ?", (run_id,)).fetchone()
+        paper = row["submittal_document_id"] if row else None
+        if not paper or paper not in readable:
+            continue
+        if paper not in by_paper:
+            rc_run, ai_run = runs_of_paper(conn, paper)
+            by_paper[paper] = assemble(paper, scope)["found"] if (rc_run or ai_run) else None
+        found = by_paper[paper]
+        if found is not None and run_id in found["runs"].values():
+            out[run_id] = found
+    return out
 
 
 def assemble(paper_id: str, scope) -> dict:

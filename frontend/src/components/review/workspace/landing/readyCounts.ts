@@ -4,6 +4,7 @@
  * re-exports it unchanged so the old screens and tests keep their import).
  */
 import { reviews as reviewsApi } from "../../../../api/client";
+import { pageV2Switch, reviewPoints } from "../../../../api/reviewPoints";
 import type { ReadyCounts } from "../../inbox/inboxState";
 
 /** Order 117 item 5: the most run ids one counts request may carry; the
@@ -18,6 +19,9 @@ export const RUN_COUNTS_MAX_IDS = 200;
  *  FINDINGS, NOT COMMENT ROWS: the server counts findings per tier; the
  *  comment sheet groups findings into rows. Whoever shows these says so. */
 export async function loadReadyCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
+  // Order 14 LPS S2: with the redesigned page on, the paper's page is what the reader opens, so its numbers are the ONE home of the
+  // line; a run's own finding count (0 for an AI review) is never shown then, not even when the page numbers cannot be read.
+  if (await pageV2Switch()) return loadPageCounts(runIds);
   const out: Record<string, ReadyCounts | null> = {};
   const chunks: string[][] = [];
   for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
@@ -32,6 +36,27 @@ export async function loadReadyCounts(runIds: string[]): Promise<Record<string, 
     for (const id of chunk) {
       const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
       out[id] = c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you } : null;
+    }
+  }));
+  return out;
+}
+
+/** The page's numbers (`GET /api/reviews/page-counts`, the same `found_of` the paper's page reads), for the runs the page is built
+ *  from; any other run, or a failed request, maps to null and its row says "Ready" alone (never 0). */
+export async function loadPageCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
+  const out: Record<string, ReadyCounts | null> = {};
+  const chunks: string[][] = [];
+  for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
+  await Promise.all(chunks.map(async (chunk) => {
+    let got: Awaited<ReturnType<typeof reviewPoints.pageCounts>> | null = null;
+    try {
+      got = await reviewPoints.pageCounts(chunk);
+    } catch {
+      got = null;
+    }
+    for (const id of chunk) {
+      const f = got && got.ok && Object.prototype.hasOwnProperty.call(got.data.found, id) ? got.data.found[id] : undefined;
+      out[id] = f ? { findings: f.not_met + f.questions, needs_you: f.questions, page: f } : null;
     }
   }));
   return out;

@@ -117,7 +117,36 @@ export interface ProposedCode {
   proposed_by: string;
 }
 
+/** Order 14 LPS S2: what a paper's review found, exactly as its page's tiles show it (`review_points_service.found_of`), the one home of
+ *  the review list's "Found by the review" line. `runs`: the runs the page is built from. */
+export interface PaperFound {
+  not_met: number;
+  questions: number;
+  met: number;
+  does_not_apply: number;
+  /** The lines the AI thinks do not apply, still to confirm (counted apart from the tiles). */
+  to_confirm: number;
+  points: number;
+  undecided: number;
+  runs: { rule_check: string | null; ai_review: string | null };
+}
+
+/** Order 14 LPS S3: the kind the paper's AI review used, from its run record; `guess` only when that run used a guess. */
+export interface KindUsed {
+  run_id: string;
+  kind: string | null;
+  known: boolean;
+  guess: boolean;
+  confirmed: boolean;
+  /** How the run decided it, in the backend's plain words. */
+  source: string;
+}
+
 export interface PointsListing {
+  /** Order 14 LPS S2: the numbers the review list says for this paper (the same as the tiles). */
+  found?: PaperFound | null;
+  /** Order 14 LPS S3: the kind the review used; null without an AI review run record. */
+  kind_used?: KindUsed | null;
   paper_document_id: string;
   runs: { rule_check: string | null; ai_review: string | null };
   points: ReviewPoint[];
@@ -189,6 +218,12 @@ export async function oldCrsDownloadOffered(): Promise<boolean> {
 }
 
 export const reviewPoints = {
+  /** Order 14 LPS S2: {run id: its paper's page numbers}, only for runs the page is built from (others are absent, never 0). */
+  pageCounts: (runIds: string[]) =>
+    request<{ boundary: string; found: Record<string, PaperFound> }>(
+      `/reviews/page-counts?${runIds.map((id) => "ids=" + encodeURIComponent(id)).join("&")}`,
+      undefined, (b) => isObject(b) && isObject(b.found),
+    ),
   plan: (documentId: string, engine: EngineChoice) =>
     request<ReviewPlan>(
       `/reviews/plan?submittal_document_id=${encodeURIComponent(documentId)}&engine=${engine}`,

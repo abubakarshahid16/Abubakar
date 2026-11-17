@@ -14,7 +14,9 @@ vi.mock("../api/client", () => ({
     reviewRunCounts: vi.fn().mockResolvedValue({ ok: true, data: { boundary: "", counts: {} } }),
   },
 }));
-vi.mock("../api/reviewPlan", () => ({ reviewPlan: { plan: vi.fn(), start: vi.fn() } }));
+vi.mock("../api/reviewPlan", () => ({
+  reviewPlan: { plan: vi.fn(), start: vi.fn(), contractPapers: async () => ({ ok: true, data: { boundary: "", papers: [], packages: [] } }) },
+}));
 vi.mock("../components/review/workspace/NewReviewDropZone", () => ({ NewReviewDropZone: () => <p data-testid="drop-zone" /> }));
 vi.mock("../api/roleSuggestion", () => ({ roleSuggestionSwitch: () => Promise.resolve(sw) }));
 

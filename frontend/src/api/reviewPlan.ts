@@ -63,7 +63,18 @@ const isPlan = (b: unknown): boolean =>
   Array.isArray(b.documents.leaving) &&
   Array.isArray(b.documents.not_sent);
 
+/** Order 14 LPS S1: the contract papers the picker offers and the packages they form (`GET /api/reviews/contract-papers`). Choosing one
+ *  starts nothing: each paper starts through the one pre-start step, with its own list of what will leave this computer. */
+export interface ContractPapers {
+  boundary: string;
+  papers: { document_id: string; filename: string }[];
+  /** `number`: the labelled number the papers' covers print (null when the cover prints none); `papers`: ids, in file-name order. */
+  packages: { number: string | null; papers: string[] }[];
+}
+
 export const reviewPlan = {
+  contractPapers: (): Promise<Result<ContractPapers>> =>
+    request<ContractPapers>("/reviews/contract-papers", undefined, (b) => isObject(b) && Array.isArray(b.papers) && Array.isArray(b.packages)),
   /** What would run, and which documents would leave, for this paper and engine. No side effect. */
   plan: (submittalDocumentId: string, engine: Engine): Promise<Result<ReviewPlan>> =>
     request<ReviewPlan>(

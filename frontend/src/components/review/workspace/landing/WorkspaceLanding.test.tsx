@@ -33,7 +33,9 @@ vi.mock("../../../../api/client", () => ({
 /** THE ONE START: a review starts through `reviewPlan.start` from the pre-start step; "Review all" runs Local only. */
 const planFor = vi.fn();
 vi.mock("../../../../api/reviewPlan", () => ({
-  reviewPlan: { plan: (...a: unknown[]) => planFor(...a), start: (...a: unknown[]) => startReviewRun(...a) },
+  reviewPlan: { plan: (...a: unknown[]) => planFor(...a), start: (...a: unknown[]) => startReviewRun(...a),
+    // LPS S1: the picker also asks for the contract papers; none here
+    contractPapers: async () => ({ ok: true, data: { boundary: "0 contract papers you may read", papers: [], packages: [] } }) },
 }));
 vi.mock("../reviewWatch", () => ({ watchRun: (...a: unknown[]) => watchRun(...a) }));
 vi.mock("../NewReviewDropZone", () => ({

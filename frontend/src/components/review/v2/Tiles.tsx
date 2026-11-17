@@ -69,22 +69,31 @@ export function NotHeldLine({ counts, onSeeAll }: { counts: PointsListing["count
   const h = counts.not_held;
   if (!h.total) return null;
   const names = h.names.join(", ");
-  const found = h.found_online ?? [];
   return (
-    <>
-      <p data-testid="v2-not-held" className="text-xs text-slateish-300">
-        Not checked, rule book not held: {names}{h.more > 0 ? ` and ${h.more} more` : ""}.{" "}
-        <button type="button" onClick={onSeeAll} className="text-signal-300 underline-offset-2 hover:underline">See all</button>
-      </p>
-      {found.length > 0 && (
-        <ul data-testid="v2-found-online" className="text-xs text-slateish-400">
-          {found.map((f) => (
-            <li key={f.name}>
-              Found online (not verified, book not held): {f.name}: {f.words}
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
+    <p data-testid="v2-not-held" className="text-xs text-slateish-300">
+      Not checked, rule book not held: {names}{h.more > 0 ? ` and ${h.more} more` : ""}.{" "}
+      <button type="button" onClick={onSeeAll} className="text-signal-300 underline-offset-2 hover:underline">See all</button>
+    </p>
+  );
+}
+
+/** Order 14 LPS S4: what the online search found for the rule books not held, BELOW the comments and folded by default (one press
+ *  opens it). Never a rule, a clause or a point: the backend's own words, "not verified". Nothing when the search found nothing. */
+export function FoundOnline({ counts }: { counts: PointsListing["counts"] }) {
+  const found = counts.not_held.found_online ?? [];
+  if (found.length === 0) return null;
+  return (
+    <details data-testid="v2-found-online" className="rounded-[var(--radius-md)] border border-ink-700 px-3 py-2 text-xs text-slateish-400">
+      <summary className="cursor-pointer text-slateish-300">
+        Found online for {found.length} rule book{found.length === 1 ? "" : "s"} not held (not verified)
+      </summary>
+      <ul className="mt-1 space-y-1">
+        {found.map((f) => (
+          <li key={f.name}>
+            Found online (not verified, book not held): {f.name}: {f.words}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

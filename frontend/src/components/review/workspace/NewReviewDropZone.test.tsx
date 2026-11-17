@@ -38,6 +38,8 @@ vi.mock("../../../api/reviewPlan", () => ({
   reviewPlan: {
     plan: (...a: unknown[]) => planFor(...a),
     start: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
+    // LPS S1: the picker also asks for the contract papers; none here
+    contractPapers: async () => ({ ok: true, data: { boundary: "0 contract papers you may read", papers: [], packages: [] } }),
   },
 }));
 vi.mock("../../Uploader", () => ({
