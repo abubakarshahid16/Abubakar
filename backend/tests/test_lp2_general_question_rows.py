@@ -418,3 +418,23 @@ def test_code_written_sentences_of_parts_two_to_five_are_the_reviews_own_reason_
         "the review's own reason: checklist: hold time: partly covered; the AI reviewer's words, not proven by code: \"no minutes given\""
         in partial
     )
+
+
+def test_the_field_column_names_the_lines_own_topic_never_the_fixed_phrase_and_grouping_is_unchanged():
+    # owner, 17 Nov 2026: the "Field or item" column said "A point of the AI review" on every AI note; it now says what the point is
+    # about (its topic, else its kind), through the guard; the grouping key stays the internal one
+    FIXED = "A point of the AI review"
+    topic = stored(2, core.CLASS_QUERY, 8, "checklist: hold time: not found in the paper", model=False,
+                   subkind=core.SUB_CHECKLIST, topic="hold time")  # fmt: skip
+    points = [rp.ai_point(dict(ln), viewer(PAPER)) for ln in (*lines(), topic, part4())]
+    names = [p["name"] for p in points]
+    assert FIXED not in names
+    assert "hold time" in names and core.SUB_ENGINEERING in names
+    assert (
+        f"{core.SUB_SILENT} against {PROJ}" not in names
+    )  # the project paper he may not read is not named
+    assert f"{core.SUB_SILENT} against {question.HIDDEN_DOCUMENT}" in names
+    groups = crs_comments.group(
+        [{**p, "id": f"p{n}"} for n, p in enumerate(points)], findings_only=False
+    )
+    assert len(groups) == len(points)  # each general line its own comment, as before

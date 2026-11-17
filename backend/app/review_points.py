@@ -431,6 +431,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     name = (
         _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
+        or _plain(general.field_label(line))  # LP2: a general line's own topic
         or "A point of the AI review"
     )
     # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)

@@ -236,6 +236,22 @@ def point_words(line: Mapping) -> str:
     )
 
 
+def field_label(line: Mapping) -> str:
+    """The "Field or item" of a general line: what the point is about, never a fixed phrase when the line says it. Its topic; the rule
+    books a part-1 line names; else its kind in plain words (its sub-kind, or its part), with the project paper it is held against.
+    Read through `viewed`, so a hidden name never appears; "" for any other line (the grouping key is the caller's, never this)."""
+    if not is_general(line):
+        return ""
+    line = viewed(line)
+    topic, sub, other = _c(line.get("topic")), _c(line.get("subkind")), _other(line)
+    if topic:
+        return topic
+    if line.get("part") == 1 and _books(line):
+        return _books(line)
+    kind = sub or core.PART_WORDS.get(line.get("part")) or "general review"
+    return kind + (f" against {other}" if other and other not in kind else "")
+
+
 def page_words(line: Mapping) -> str:
     """THE page of the line (`agent_review_crs.line_page_words`, a page hint said as one), or "page not recorded"."""
     page = line_page_words(line)
