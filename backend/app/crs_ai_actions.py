@@ -79,28 +79,33 @@ def says_silent(line: Mapping) -> bool:
     )
 
 
-LOOKED, CONTRADICTS = "looked", "contradicts"
+LOOKED, CONTRADICTS, DEFERRED = "looked", "contradicts", "deferred"
 
-#: FTU-1: the reason of a silent row whose found quote is the field's own label alone (code can show it holds no value)
+#: FTU-1: the reason of a silent row whose found quote is the field's own label alone (code can show it holds no value). FTU-16: the
+#: reader's sentence is said ONCE in a row, here; "not evidence of a value" is the paper cell's alone (`SilentRow.note`).
 NOT_STATED_REASON = (
-    "the paper does not state this value (the reader's reading, not proven by code); "
-    "the words it quoted are where it looked, not evidence of a value"
+    "the paper does not state this value (the reader's reading, not proven by code)"
 )
 #: FTU-1: the reason of a silent row whose found quote is anything else: it may state the value, code decides neither way
 CONTRADICT_REASON = (
     "the reader says the paper does not state this value, but the words it quoted are on the page and may state it; "
     "code did not decide which is right, so the engineer checks"
 )
+#: FTU-16: the reason of a silent row whose found quote is only a placeholder or a to-be-given marker: the value is deferred
+DEFERRED_REASON = "the paper leaves this value to be given: the words quoted are a placeholder, not a value"
 
 
 class SilentRow(NamedTuple):
-    """Every wording cell of ONE silent row, decided together: its kind, Reason, action, the paper cell (note) and the quote's check cell."""
+    """Every wording cell of ONE silent row, decided together: its kind, Reason, action, the paper cell (note) and the quote's check cell.
+    FTU-16: `cell` is the ONE wording of a sheet that puts the paper and the reason in one cell (the AI run's own CRS): the reason once,
+    with the quote, never the note and the reason side by side."""
 
     kind: str
     reason: str
     action: str
     note: str
     check: str
+    cell: str = ""
 
 
 def whole_label(quote: str, labels) -> bool:
@@ -134,29 +139,62 @@ AGREED_NOT_STATED_REASON = (
 )
 
 
+def quote_is_placeholder(quote: str) -> bool:
+    """FTU-16: the found quote only marks a value still to be given: a deferral phrase or marker (`quote_defers`, the AI lines' own
+    test) or placeholder ink where the value goes (`blank_markers.fact_is_placeholder`, the readers' one test, a figure on the cell
+    winning). A pointer to a note ("Note 3") or a bare "by ..." scope line is not one (the same exclusions as `quote_defers`)."""
+    from . import blank_markers
+    from .agent_review_verdict import _GENERIC_BY, is_note_start
+
+    text = " ".join(str(quote or "").split())
+    if not text:
+        return False
+    if quote_defers(text):
+        return True
+    return (
+        blank_markers.fact_is_placeholder({"field_value": text}, figure_wins=True)
+        and not is_note_start(text)
+        and not _GENERIC_BY.match(text)
+    )
+
+
 def silent_row_words(
     field: str, quote: str, labels=(), where: str = "", agreed: bool = False
 ) -> SilentRow:
     """FTU-1: THE ONE decision of a silent row (its own record says the paper gives no value) that carries a quote code found on the
-    page: the kind (`found_quote_kind`) and every wording cell with it, so the cells of one row can never disagree. Read by the AI
-    review's lines (`silent_row`: the points, both sheets, the reason) and the rule check's points (`review_points.rule_point`)."""
+    page: the kind and every wording cell with it, so the cells of one row can never disagree. Read by the AI review's lines
+    (`silent_row`: the points, both sheets, the reason) and the rule check's points (`review_points.rule_point`).
+    FTU-16: a quote that is only a placeholder (`quote_is_placeholder`) means the value is deferred: the contractor states it, never
+    "may state it". The reader's own sentence ("the reader says ... not stated") is said once, in the reason; the action and the
+    paper cell never repeat it, and "not evidence of a value" is the paper cell's alone."""
     what = field or "the value asked for"
+    found = f'"{quote}"{where} (found on the page by code)'
+    if quote_is_placeholder(quote):
+        return SilentRow(
+            DEFERRED,
+            DEFERRED_REASON,
+            f"Contractor to state {what}; the paper leaves it to be given.",
+            f"Left to be given on the page: {found}.",
+            "a placeholder, not a value",
+            f"Not confirmed: {DEFERRED_REASON}; quoted: {found}.",
+        )
     if found_quote_kind(quote, [field, *labels]) == LOOKED:
+        reason = AGREED_NOT_STATED_REASON if agreed else NOT_STATED_REASON
         return SilentRow(
             LOOKED,
-            AGREED_NOT_STATED_REASON if agreed else NOT_STATED_REASON,
+            reason,
             f"Contractor to state {what}, or the page where it is shown.",
-            f'Not evidence of a value: the reader says the paper does not state it, and looked here: "{quote}"{where} '
-            "(found on the page by code).",
+            f"The reader looked here: {found}; not evidence of a value.",
             "where the reader looked, not evidence of a value",
+            f"Not confirmed: {reason}; it looked here: {found}.",
         )
     return SilentRow(
         CONTRADICTS,
         CONTRADICT_REASON,
-        f"Engineer to check {what}: the reader says it is not stated, but quoted words from the page that may state it.",
-        f'The reader says the paper does not state it, but quoted: "{quote}"{where} (found on the page by code), which may '
-        "state it; code did not decide which is right, so the engineer checks.",
+        f"Engineer to check {what}: the words quoted from the page may state it.",
+        f"Quoted from the page: {found}, which may state it.",
         "may state it; the engineer checks",
+        f"Not confirmed: {CONTRADICT_REASON}; quoted: {found}.",
     )
 
 
@@ -207,10 +245,10 @@ def looked_only(line: Mapping) -> bool:
     return silent_quote(line) == LOOKED
 
 
-def quote_words(line: Mapping, where: str = "") -> str:
-    """The paper cell a sheet adds for a silent row ("" for any other line): `silent_row`'s note."""
+def quote_cell(line: Mapping, where: str = "") -> str:
+    """FTU-16: the ONE cell of a sheet that says the paper and the reason together for a silent row ("" for any other line)."""
     row = silent_row(line, where=where)
-    return f" {row.note}" if row else ""
+    return row.cell if row else ""
 
 
 _STAR = re.compile(r"(?:^|[\s(])\*+(?=[\s)]|$)")

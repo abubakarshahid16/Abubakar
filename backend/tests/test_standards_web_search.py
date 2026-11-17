@@ -180,7 +180,11 @@ def test_off_nothing_is_asked_nothing_is_created_and_the_page_and_file_are_uncha
     monkeypatch.setattr(settings, "standards_web_search_enabled", False)
     assert review_points_service.assemble(doc, scope_all()) == before_page
     assert cells(crs_one.build_team(doc, scope_all(), exported=EXPORTED)) == before
-    assert before[crs_one.HELD_SHEET][2] == ["Rule book", "What it means"]
+    assert before[crs_one.HELD_SHEET][2] == [
+        "Rule book",
+        "What it means",
+        crs_one.HELD_SOURCE_COLUMN,
+    ]  # FTU-16: where it comes from
     assert sws.plan_note(True) is None
 
 
@@ -645,11 +649,16 @@ def test_what_is_found_is_only_on_the_sheet_of_books_not_held_never_a_rule_quote
         if title not in (crs_one.HELD_SHEET, crs_one.HOW_SHEET):
             assert on[title] == off[title], title
     held = on[crs_one.HELD_SHEET]
-    assert held[2] == ["Rule book", "What it means", sws.COLUMN]
+    assert held[2] == [
+        "Rule book",
+        "What it means",
+        crs_one.HELD_SOURCE_COLUMN,
+        sws.COLUMN,
+    ]  # FTU-16: the source column first
     assert (
         held[3][0] == "API 521"
-        and FOUND["title"] in held[3][2]
-        and "not verified" in held[3][2]
+        and FOUND["title"] in held[3][3]
+        and "not verified" in held[3][3]
     )
     assert held[3][1] == off[crs_one.HELD_SHEET][3][1]
     assert (
