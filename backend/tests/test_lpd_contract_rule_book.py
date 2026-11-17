@@ -54,10 +54,21 @@ def _contract(conn, doc, filename, no, heading, body="Body text of the invented 
     )
 
 
+def _record(folder, monkeypatch, choices, raw=None):
+    """A recorded choice in a throwaway file (the real one is git-ignored and local): {paper: rule book}."""
+    path = folder / "contract_rule_book.local.json"
+    body = {"format": "contract-rule-book/1", "choices": [{"papers": [p], "rule_book": b, "chosen_by": "engineer-x",
+            "chosen_at": "2026-11-17"} for p, b in choices.items()]}  # fmt: skip
+    path.write_text(raw if raw is not None else json.dumps(body), encoding="utf-8")
+    monkeypatch.setattr(contract_rule_book, "RECORD_FILE", path)
+    return path
+
+
 @pytest.fixture
 def pkg(world, monkeypatch):  # noqa: F811
     """The world of the general review tests, its paper made a contract of package A, and a library around it."""
     monkeypatch.setattr(settings, "contract_rule_book_enabled", True)
+    _record(world, monkeypatch, {g.PAPER: GT})
     with db.connect() as conn:
         conn.execute(
             "DELETE FROM pages WHERE document_id = ? AND page_no = 1", (g.PAPER,)
@@ -112,7 +123,12 @@ def pkg(world, monkeypatch):  # noqa: F811
 ALL = frozenset({g.PAPER, g.PROJ, g.OTHER, GT, SPECIAL, PRICE, FOREIGN})
 
 
-def _book(scope=ALL, kind="contract"):
+def _book(scope=ALL):
+    """What the title rule SUGGESTS (never used by itself)."""
+    return contract_rule_book.suggest(db.connect(), g.PAPER, scope)
+
+
+def _used(scope=ALL, kind="contract"):
     return contract_rule_book.rule_book_of(db.connect(), g.PAPER, scope, kind)
 
 
@@ -121,7 +137,7 @@ def _book(scope=ALL, kind="contract"):
 
 def test_the_general_terms_paper_of_the_same_package_is_the_rule_book(pkg):
     got = _book()
-    assert got == {"id": GT, "why": contract_rule_book.WHY_LISTED}
+    assert got == {"id": GT, "why": contract_rule_book.WHY_SUGGESTED}
     assert set(contract_rule_book.package_papers(db.connect(), g.PAPER, ALL)) == {
         GT,
         SPECIAL,
@@ -132,9 +148,10 @@ def test_the_general_terms_paper_of_the_same_package_is_the_rule_book(pkg):
 def test_switch_off_or_a_paper_that_is_not_a_contract_has_no_rule_book(
     pkg, monkeypatch
 ):
-    assert _book(kind="procedure")["id"] is None
+    assert _used()["id"] == GT  # the recorded choice
+    assert _used(kind="procedure")["id"] is None
     monkeypatch.setattr(settings, "contract_rule_book_enabled", False)
-    assert _book()["id"] is None
+    assert _used()["id"] is None
 
 
 def test_another_package_special_terms_and_a_paper_the_caller_may_not_read_are_never_chosen(
@@ -689,7 +706,7 @@ def test_a_general_terms_paper_whose_heading_names_the_special_conditions_is_sti
             ),
         )
         conn.commit()
-    assert _book() == {"id": GT, "why": contract_rule_book.WHY_LISTED}
+    assert _book() == {"id": GT, "why": contract_rule_book.WHY_SUGGESTED}
     assert (
         contract_rule_book.NONE_FOUND
         == "no general terms paper recognised in this package"
@@ -796,7 +813,7 @@ def test_b_the_paper_names_its_general_terms_and_the_labelled_paper_agrees(pkg):
     }
     assert _book(scope=ALL | {"doc_gt2"}) == {
         "id": GT,
-        "why": contract_rule_book.WHY_LISTED,
+        "why": contract_rule_book.WHY_SUGGESTED,
     }
 
 
@@ -805,3 +822,78 @@ def test_b_disagreeing_with_a_chooses_none(pkg):
         "K", "General Terms and Conditions"
     )  # the paper says its general terms are Schedule K; the titled one is A
     assert _book() == {"id": None, "why": contract_rule_book.NONE_FOUND}
+
+
+# ---------------------------------------------------------------- round 4 of #1880: a RECORDED choice, never the code's own guess
+
+
+def test_with_no_recorded_choice_only_a_suggestion_line_is_written_and_nothing_is_used(
+    pkg, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        contract_rule_book, "RECORD_FILE", tmp_path / "absent.local.json"
+    )
+    got = contract_rule_book.for_run(
+        db.connect(), "r", g.PAPER, "contract", ALL, [], local=True
+    )
+    name = "08 - Schedule A - General Terms and Conditions - Rev 01.pdf"
+    assert got["book"] is None and got["accepted"] == []
+    assert [ln["text"] for ln in got["lines"]] == [
+        f"not reviewed: {contract_rule_book.SUGGESTED.format(name=name)}"
+    ]
+    assert got["items"] and len(got["items"]) == 8  # the checklist needs no rule book
+    docs = _plan("claude", monkeypatch)
+    assert GT not in {d["id"] for d in docs["leaving"]} or (
+        {d["id"]: d for d in docs["leaving"]}[GT]["why"]
+        != contract_rule_book.WHY_LISTED
+    )
+    _record(
+        tmp_path, monkeypatch, {"doc_someone_else": GT}
+    )  # a file with no entry for this paper: no choice either
+    assert _used() == {
+        "id": None,
+        "why": contract_rule_book.SUGGESTED.format(name=name),
+        "suggested": GT,
+    }
+
+
+def test_a_recorded_choice_is_used_and_listed_on_the_plan(pkg, monkeypatch):
+    assert _used()["id"] == GT and _used()["chosen_by"] == "engineer-x"
+    got = {d["id"]: d for d in _plan("claude", monkeypatch)["leaving"]}
+    assert got[GT]["why"] == contract_rule_book.WHY_LISTED
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        "{not json",
+        json.dumps({"format": "other/9", "choices": []}),
+        json.dumps({"format": "contract-rule-book/1", "choices": [{"papers": ["doc_proc"], "rule_book": "doc_gt"}]}),
+        json.dumps({"format": "contract-rule-book/1", "choices": [
+            {"papers": ["doc_proc"], "rule_book": "doc_gt", "chosen_by": "a", "chosen_at": "2026-11-17"},
+            {"papers": ["doc_proc"], "rule_book": "doc_price", "chosen_by": "b", "chosen_at": "2026-11-17"}]}),
+    ),
+)  # fmt: skip
+def test_a_malformed_record_uses_nothing_and_says_so(pkg, monkeypatch, tmp_path, raw):
+    _record(tmp_path, monkeypatch, {}, raw=raw)
+    got = contract_rule_book.for_run(
+        db.connect(), "r", g.PAPER, "contract", ALL, [], local=True
+    )
+    assert got["book"] is None
+    assert (
+        "the recorded contract rule book file cannot be read" in got["lines"][0]["text"]
+    )
+
+
+def test_a_recorded_paper_the_caller_may_not_read_or_that_is_not_held_is_not_used(
+    pkg, monkeypatch, tmp_path
+):
+    assert _used(scope=ALL - {GT}) == {
+        "id": None,
+        "why": contract_rule_book.NOT_READABLE,
+    }
+    _record(tmp_path, monkeypatch, {g.PAPER: "doc_not_held"})
+    assert _used(scope=ALL | {"doc_not_held"}) == {
+        "id": None,
+        "why": contract_rule_book.NOT_READABLE,
+    }

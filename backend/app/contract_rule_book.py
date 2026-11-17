@@ -4,12 +4,11 @@ GENERAL TERMS paper of its own package serves as its contract rule book, togethe
 
   * `package_papers(conn, doc_id, viewer)`: the other papers of the SAME contract package, by THE one finder of order 14 LPC
     (`contract_package.package_papers`: the same labelled cover number, role or kind contract, only papers the viewer may read).
-  * `rule_book_of`: two signals must agree, and a false "no" is always safe (none is used; the run says none was recognised):
-    (A) the paper's own title, labels, numbers, revision, version and year taken off, is EXACTLY the general terms phrase (any other
-    word anywhere is a no; its page-1 heading lines decide by the same rule only when no title names the general terms);
-    (B) when the paper under review lists its general terms under a label ("Schedule X  General Terms and Conditions"), the
-    candidate's own label is that label. With no such entry, (A) decides alone and only when exactly one paper passes it. Never a
-    document id, a file name or a layout of one paper (CLAUDE.md rule 13).
+  * `rule_book_of`: the rule book is a RECORDED choice, never the code's own guess (lead decision, round 4 of #1880): the git-ignored
+    local file `reference/contract_rule_book.local.json` maps the papers under review to the chosen rule book, with who chose it and
+    when (`recorded_choice`; absent = no choice; malformed = no choice and an honest line, never a crash). The recorded paper must be
+    held and readable by the caller, and every send gate still applies. With no recorded choice the run says only what the title
+    rule would SUGGEST (`suggest`: (A) the strict title, (B) the paper's own list), "not used until an engineer confirms it".
   * `checklist_items`: CT-01 to CT-08 as items of the general review's part 2 (the path a procedure's checklist takes).
   * `code_lines`: what code decides of CT-01 to CT-03 (`contract_checks.run_all`) as lines of part 2, each a Query for the engineer.
   * `mark`: every line that comes from the rule book or the checklist says "AI draft, engineer to confirm" and is internal only. The
@@ -22,9 +21,11 @@ only; no model, no network.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
 from . import contract_checks
@@ -35,11 +36,24 @@ CONTRACT_KIND = "contract"
 SOURCE_BOOK = "contract rule book"
 SOURCE_CHECKLIST = "contract checklist"
 SUB_CODE = "contract check by code"
-WHY_LISTED = f"the general terms of this contract's package, used as its contract rule book ({DRAFT})"
+WHY_LISTED = f"the contract rule book recorded for this contract's package ({DRAFT})"
+WHY_SUGGESTED = "its title (and the paper's own list) says it is the general terms: a suggestion only"
+SUGGESTED = (
+    "suggested contract rule book: {name}, not used until an engineer confirms it"
+)
+NONE_SUGGESTED = (
+    "contract rule book: no recorded choice and none suggested, so none is used"
+)
+NOT_READABLE = "the recorded contract rule book is not held or you may not read it, so it is not used"
+MALFORMED = (
+    "the recorded contract rule book file cannot be read ({why}), so none is used"
+)
+RECORD_FILE = Path(__file__).parent / "reference" / "contract_rule_book.local.json"
+RECORD_FORMAT = "contract-rule-book/1"
 NONE_FOUND = "no general terms paper recognised in this package"
 SEVERAL = "{n} papers of this contract's package say general terms: none is used, the engineer names it"
-NOT_LISTED = "the general terms paper was not on the list shown before the start, so it was not sent and not used"
-NO_YES = "the general terms paper is a contract: it goes to Claude only on an explicit Claude start"
+NOT_LISTED = "the recorded contract rule book was not on the list shown before the start, so it was not sent and not used"
+NO_YES = "the recorded contract rule book is a contract: it goes to Claude only on an explicit Claude start"
 HEAD_LINES = 6  # the heading lines of page 1: a title, a header and a number; never the body, which may cite another paper
 
 #: THE general terms, as the whole of what a title says once its labels, numbers, revision, version and year are taken off. Nothing
@@ -176,14 +190,97 @@ def named_general_terms(conn: sqlite3.Connection, paper: str) -> frozenset:
     return frozenset(out)
 
 
+def recorded_choice(paper: str) -> dict:
+    """`{"state": "none" | "chosen" | "malformed", "id", "by", "at", "why"}`: the choice recorded for `paper` in RECORD_FILE.
+    Absent file or no entry for the paper: none. A file that is not the documented shape, or two entries that disagree: malformed
+    (never a crash, never a guess)."""
+    if not RECORD_FILE.is_file():
+        return {"state": "none"}
+    try:
+        data = json.loads(RECORD_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {"state": "malformed", "why": f"not JSON: {type(exc).__name__}"}
+    if not isinstance(data, dict) or data.get("format") != RECORD_FORMAT:
+        return {"state": "malformed", "why": f"the format is not {RECORD_FORMAT}"}
+    choices = data.get("choices")
+    if not isinstance(choices, list):
+        return {"state": "malformed", "why": "no list of choices"}
+    found = []
+    for i, c in enumerate(choices, 1):
+        ok = (
+            isinstance(c, dict)
+            and isinstance(c.get("papers"), list)
+            and c["papers"]
+            and all(isinstance(x, str) and x for x in c["papers"])
+            and all(
+                isinstance(c.get(k), str) and c[k].strip()
+                for k in ("rule_book", "chosen_by", "chosen_at")
+            )
+        )
+        if not ok:
+            return {
+                "state": "malformed",
+                "why": f"choice {i} lacks papers, rule_book, chosen_by or chosen_at",
+            }
+        if paper in c["papers"]:
+            found.append(c)
+    if not found:
+        return {"state": "none"}
+    if len({c["rule_book"] for c in found}) > 1:
+        return {
+            "state": "malformed",
+            "why": "two recorded choices for this paper disagree",
+        }
+    c = found[0]
+    return {
+        "state": "chosen",
+        "id": c["rule_book"],
+        "by": c["chosen_by"],
+        "at": c["chosen_at"],
+    }
+
+
 def rule_book_of(
     conn: sqlite3.Connection, paper: str, viewer: Iterable[str], kind: str | None
 ) -> dict:
-    """`{"id": doc id or None, "why": words}`. The general terms paper of the paper's package when the switch is on and the paper is
-    a contract: a paper of its package (the one finder) that passes (A), its own title is exactly the general terms; when the paper
-    under review lists its general terms under a label (B), that paper's own label must be it too. Exactly one, else none."""
+    """`{"id": doc id or None, "why": words}`. The RECORDED rule book of the paper (`recorded_choice`) when the switch is on, the
+    paper is a contract, and the recorded paper is held and the caller may read it. Never the code's own guess: with no recorded
+    choice the "why" says what `suggest` would suggest, and the id is None."""
     if not enabled() or str(kind or "") != CONTRACT_KIND:
         return {"id": None, "why": "not used"}
+    rec = recorded_choice(paper)
+    if rec["state"] == "malformed":
+        return {"id": None, "why": MALFORMED.format(why=rec["why"])}
+    if rec["state"] == "chosen":
+        held = conn.execute(
+            "SELECT 1 FROM documents WHERE id = ?", (rec["id"],)
+        ).fetchone()
+        readable = rec["id"] in frozenset(viewer)  # rule 5: a filter only narrows
+        if held is None or not readable:
+            return {"id": None, "why": NOT_READABLE}
+        return {
+            "id": rec["id"],
+            "why": WHY_LISTED,
+            "chosen_by": rec["by"],
+            "chosen_at": rec["at"],
+        }
+    got = suggest(conn, paper, viewer)
+    if got["id"] is None:
+        return {"id": None, "why": NONE_SUGGESTED, "suggested": None}
+    row = conn.execute(
+        "SELECT filename FROM documents WHERE id = ?", (got["id"],)
+    ).fetchone()
+    return {
+        "id": None,
+        "why": SUGGESTED.format(name=(row[0] if row else "") or got["id"]),
+        "suggested": got["id"],
+    }
+
+
+def suggest(conn: sqlite3.Connection, paper: str, viewer: Iterable[str]) -> dict:
+    """A SUGGESTION only, never used by itself: `{"id", "why"}`. A paper of the package (the one finder) that passes (A), its own
+    title is exactly the general terms; when the paper under review lists its general terms under a label (B), that paper's own
+    label must be it too. Exactly one, else none."""
     from . import contract_package
 
     package = contract_package.package_papers(conn, paper, frozenset(viewer))
@@ -197,7 +294,7 @@ def rule_book_of(
         ]
     pick = [str(p["document_id"]) for p in passes]
     if len(pick) == 1:
-        return {"id": pick[0], "why": WHY_LISTED}
+        return {"id": pick[0], "why": WHY_SUGGESTED}
     return {"id": None, "why": SEVERAL.format(n=len(pick)) if pick else NONE_FOUND}
 
 
@@ -356,7 +453,11 @@ def for_run(
     book, why, accepted = found["id"], found["why"], []
     if book and book not in set(project):
         accepted, problems = check_project_papers(conn, paper, [book], scope)
-        why = "; ".join(problems) if problems else may_carry(conn, run_id, book, local)
+        why = (
+            "contract rule book not used: " + "; ".join(problems)
+            if problems
+            else may_carry(conn, run_id, book, local)
+        )
         book = book if accepted and not why else None
     out = {
         **none,
@@ -368,6 +469,6 @@ def for_run(
     if book is None:
         out["lines"] = [
             {"part": 4, "verdict_class": CLASS_NOT_REVIEWED, "subkind": None, "document": paper,
-             "text": f"not reviewed: contract rule book not used: {why}"}
+             "text": f"not reviewed: {why}"}
         ]  # fmt: skip
     return out

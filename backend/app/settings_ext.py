@@ -495,9 +495,9 @@ class SettingsExt(BaseModel):
     #: The most one review run may spend on that search, worst case reserved before each request (inside the run's USD 15 and the
     #: day and month caps of `claude_spend`). Env: STANDARDS_WEB_SEARCH_USD_PER_RUN.
     standards_web_search_usd_per_run: float = Field(0.50, ge=0)
-    #: Order 14 LPD (P3; owner, 17 Nov 2026): when a CONTRACT paper is reviewed, the general terms paper of its own package (found by
-    #: a general rule in `contract_rule_book`: role contract, its own title or heading says general terms or conditions, same
-    #: package) serves as its contract rule book (part 4 of the general review) together with the contract checklist CT-01 to CT-08
+    #: Order 14 LPD (P3; owner, 17 Nov 2026): when a CONTRACT paper is reviewed, the general terms paper of its own package (a
+    #: RECORDED choice in the git-ignored `reference/contract_rule_book.local.json`, docs/contract-rule-book.md; never the code's
+    #: own guess) serves as its contract rule book (part 4 of the general review) together with the contract checklist CT-01 to CT-08
     #: (`reference/contract_checks.json`; CT-01 to CT-03 also by code). Every line from either is "AI draft, engineer to confirm",
     #: internal only, never a firm Pass or Fail on the contractor copy. The paper is listed on the pre-start plan's leaving list
     #: first (rule 1: a run with a stored list sends only listed documents). OFF (default): nothing changes. Env:
