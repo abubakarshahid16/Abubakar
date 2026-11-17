@@ -95,6 +95,11 @@ export interface ReviewPoint {
   added_by: string | null;
   n_alike: number;
   pill: string;
+  /** LP0 (owner, 17 Nov 2026): the AI's own answer on a line code did not prove, labelled ("Fail (AI, rule not approved, engineer to
+   *  confirm)"), and its line with the standard, clause, page and quote ("quote not found by code" when code did not find it). Words
+   *  only: such a point is never a decision. Absent (null) on a code-proven point, a two-reader verdict and a point with no AI answer. */
+  ai_label?: string | null;
+  ai_answer?: string | null;
   decision: PointDecision;
 }
 

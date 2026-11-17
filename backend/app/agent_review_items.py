@@ -17,6 +17,7 @@ from . import agent_review_rule_choice as rule_choice
 from . import agent_review_rules as rules_mod
 from . import (
     agent_review_text,
+    equipment_rule_books,
     kind_review_table,
     requirement_split,
     rule_labels,
@@ -758,6 +759,7 @@ def build_items(
                 conn, run_id, rules_mod.paper_equipment_types(conn, document_id), names
             ), rule_choice.approved_field_names(equipment_type),
             rule_choice.equipment_governing_ids(rules_mod.paper_equipment_types(conn, document_id), names),
+            equipment_rule_books.tag_only_books(conn, run_id),
         )  # fmt: skip
         why_kept = {str(r["id"]): why_kept[str(r["id"])] for r in reqs}
         lab_left += v2_left + below

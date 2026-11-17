@@ -80,7 +80,7 @@ describe("T2: how each standard was chosen, in plain words", () => {
 
   it("every code the server writes has words, and none is empty", () => {
     for (const code of ["referenced", "possible_citation", "equipment_type", "governing_standard", "discipline",
-      "service", "semantic", "project", "manual", "model", "scope"]) {
+      "service", "semantic", "project", "manual", "model", "scope", "equipment_rules"]) {
       const entry = selectionMethodWords(code);
       expect(entry.words, code).not.toMatch(/_/);
       expect(entry.words.length, code).toBeGreaterThan(0);

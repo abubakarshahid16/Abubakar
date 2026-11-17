@@ -4966,7 +4966,7 @@
     ],
     [
      "B3",
-     "Fail = a figure its code compared and found out of limit (rank 'Out of limit'). Pass = a safety tick: a compliant verdict its code reached through a safety-tier rule, for the engineer to tick. AI opinion = an AI engineering check, clause review, spec kit item or web standard check (a draft until an engineer confirms). Query = every other row; nothing is proven.",
+     "Fail = a figure its code compared and found out of limit (rank 'Out of limit'). Pass = a safety tick: a compliant verdict its code reached through a safety-tier rule, for the engineer to tick. Query = every other row, every AI engineering check, clause review, spec kit item and web standard check included (the AI does not settle them); nothing is proven.",
      null,
      "top",
      true,

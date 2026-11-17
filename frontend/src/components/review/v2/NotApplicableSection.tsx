@@ -47,7 +47,7 @@ export function NotApplicableSection({ points, counts, confirm, undo, busy }: {
                     {p.clause && <span className="text-xs text-slateish-400"> · clause {p.clause}</span>}
                     {p.page != null && <span className="text-xs text-slateish-400"> · page {p.page}</span>}
                     <span className="block text-xs text-slateish-400">
-                      {ticked ? `${p.decision.words}${p.decision.by ? ` · ${p.decision.by}` : ""}` : "Not confirmed yet"}
+                      {ticked ? `${p.decision.words}${p.decision.by ? ` · ${p.decision.by}` : ""}` : `${p.ai_label ?? p.pill} · not confirmed yet`}
                     </span>
                   </span>
                 </li>

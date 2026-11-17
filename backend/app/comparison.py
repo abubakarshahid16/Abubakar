@@ -2467,9 +2467,9 @@ def _run_comparison(
     held_items.extend(es["held"])
     # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
     # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
-    from . import ai_applicability as ai_div
+    from . import ai_applicability as div
 
-    divided = ai_div.division_gate_for_run(requirements, stored, facts, standard_labels)
+    divided = div.for_run(requirements, stored, facts, standard_labels, review_run_id)
     requirements = divided["kept"]
     extra_not_applied.extend(divided["items"])
     held_items.extend(divided["held"])
@@ -2932,8 +2932,8 @@ def _run_comparison(
     clause_cov = clause_coverage.summarise(decisions)
 
     # #645 CLAUSE TO CHECK: a clause sentence stored with no limit that this
-    # run could not decide is offered to the local model, which proposes a
-    # check; code verifies it against the sentence and keeps it as a DRAFT for
+    # run could not decide is offered to the model (local; Claude under AI_CLAUSE_REVIEW_ENGINE in a
+    # Claude-lane run, LP3), which proposes a check; code verifies it and keeps it as a DRAFT for
     # the engineer. After the findings are written: nothing here changes a
     # verdict of this run or any other. See `ai_requirements.propose_checks`.
     clause_checks = None

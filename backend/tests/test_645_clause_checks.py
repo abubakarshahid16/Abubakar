@@ -111,7 +111,7 @@ def test_proposals_are_stored_as_drafts_and_counted_out_of_the_sentences():
     shares = out.pop("by_standard")  # these requirements carry no standard id
     assert (shares["unknown"]["sentences"], shares["unknown"]["asked"]) == (4, 3)
     assert out == {"sentences": 4, "asked": 3, "proposed": 1, "no_limit": 1, "refused": {},
-                   "could_not_read": 1, "not_asked_budget": 1, "model": "test-model"}
+                   "could_not_read": 1, "not_asked_budget": 1, "model": "test-model", "engine": None}
     rows = [dict(r) for r in connect().execute("SELECT * FROM clause_check_drafts")]
     assert len(rows) == 1
     assert (rows[0]["requirement_id"], rows[0]["status"], rows[0]["value"], rows[0]["unit"]) == (
@@ -135,11 +135,14 @@ def test_the_run_card_prints_the_count_line_as_a_local_step():
     from app import ai_numbers
 
     counts = {"sentences": 5, "asked": 4, "proposed": 2, "refused": {air.VALUE_NOT_IN_QUOTE: 1},
-              "could_not_read": 1, "not_asked_budget": 1, "model": "qwen3.5:2b"}
+              "could_not_read": 1, "not_asked_budget": 1, "model": "qwen3.5:2b", "engine": "ollama"}
     step = ai_numbers.for_run({"requirement_split": {"clause_checks": counts}}, None, None)[
         "clause_checks"]
     assert (step["step"], step["state"], step["where"]) == ("AI clause checks", "incomplete",
                                                             "local model")
+    # LP3 (#1879): where comes from the engine the run stored; a record from before says nothing about where
+    older = {k: v for k, v in counts.items() if k != "engine"}
+    assert ai_numbers.clause_checks(older)["where"] is None
     assert step["lines"] == [air.report_line(counts)]
     assert step["counts"]["proposed"] == 2 and step["counts"]["sentences"] == 5
     assert (step["counts"]["refused"], step["counts"]["no_limit"]) == (1, 0)
