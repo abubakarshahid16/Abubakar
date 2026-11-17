@@ -451,6 +451,10 @@ def verify(
     (contractor)."""
     db = database_lines(paper_id, scope, facts)
     page = listing["of"]
+    if copy == "team":  # W-H10: the team file words a field as its builder does (`crs_editions.names_without_unrecorded`); counts unchanged
+        from . import crs_editions
+
+        raw = crs_editions.names_without_unrecorded(raw, crs_editions.verdicts(raw))
     # R101: a file missing a whole sheet is refused with a sentence (409), never a KeyError (500)
     absent = absent_sheets(data, copy)
     in_file, numbers = rows_in_file(data, copy) if not absent else (0, [])

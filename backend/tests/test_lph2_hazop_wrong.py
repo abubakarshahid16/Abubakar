@@ -82,3 +82,35 @@ def test_the_pictures_the_ai_reviewer_did_not_read_are_the_pages_its_own_lines_n
     assert crs_one.pictures_words([2, 4]).startswith("pages 2, 4: the AI reviewer reads text")
     rule_mode = _ai_run(paper, {"mode": "rule review"})
     assert crs_one.ai_pictures_not_read(conn, rule_mode) == []
+
+
+# ------------------------------------------------------------------------------------------------ W-H10: editions said once, honestly
+
+
+def test_a_found_online_edition_is_shown_only_with_its_source_and_a_date_before_the_search():
+    from app import standards_web_search as sws
+
+    base = {"outcome": sws.FOUND, "title": "Invented title", "latest_edition": "3.0", "year": 2019, "publisher": "Invented body",
+            "url": "https://www.iso.org/standard/1.html", "searched_at": "2026-11-17T10:00:00+00:00"}  # fmt: skip
+    assert sws.edition_words(base) == "3.0; (2019)"
+    assert sws.words(base).endswith("(found online, not verified; the book is not held; searched on 2026-11-17)")
+    assert sws.edition_words({**base, "year": 2026}) == "edition not found (the date given, 2026, is not before the search)"
+    assert sws.edition_words({**base, "url": None}) == "edition not found (no source on the publisher's site)"
+    assert sws.edition_words({**base, "year": None}) == "edition not found (no date given)"
+    assert sws.edition_words({**base, "latest_edition": None, "year": None}) == "edition not found"
+    assert "2026" not in sws.words({**base, "latest_edition": "1.0", "year": 2026}).split("searched on")[0].replace("(the date given, 2026", "")
+
+
+def test_a_field_never_says_edition_not_recorded_beside_its_books_edition_status():
+    from app import crs_editions
+
+    tag = "(edition not recorded)"
+    judged = {"id": "p1", "name": f"BOOK-A {tag} cl. 4.1", "action": f"BOOK-A {tag} cl. 4.1: invented words", "books": [{"id": "d1"}]}
+    other = {"id": "p2", "name": f"BOOK-B {tag} cl. 2", "books": [{"id": "d2"}]}
+    none = {"id": "p3", "name": "Invented field", "books": []}
+    editions = {"d1": {"book": "BOOK-A", "status": "binds"}}
+    got = crs_editions.names_without_unrecorded([judged, other, none], editions)
+    assert got[0]["name"] == "BOOK-A cl. 4.1" and got[0]["action"] == "BOOK-A cl. 4.1: invented words"
+    assert got[1] is other and got[2] is none  # a book not judged keeps its words
+    assert crs_editions.names_without_unrecorded([judged], None) == [judged]  # the check off: byte-same
+    assert judged["name"] == f"BOOK-A {tag} cl. 4.1"  # the page's list is never changed

@@ -899,6 +899,7 @@ def build_team(
     listing, raw, extra = listing_raw or svc.export_listing(paper_id, scope)
     # lane G: None while off, so the file is byte-same
     editions = editions if editions is not None else crs_editions.verdicts(raw)
+    raw = crs_editions.names_without_unrecorded(raw, editions)  # W-H10: the edition is said once in a row, never "not recorded" beside it
     exported = exported or datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     removed = [
         p for p in raw if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE
