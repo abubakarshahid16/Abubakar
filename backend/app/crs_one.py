@@ -699,11 +699,17 @@ def confirmed_words(p: dict) -> str:
 
 #: Order 14 (lead, last review of PR #1889): every line that is not a comment shows its own ask, if it has any, so nothing is hidden.
 ASIDE_ACTION_COLUMN = "What the contractor must do (its own words, if any)"
+AI_WORDS = "AI's words:"
 
 
 def aside_actions(points: list[dict]) -> str:
-    """The own action words of the points of one line of the sheet "Not a comment", each once; "none recorded" when none has any."""
-    said = list(dict.fromkeys(_clean(p.get("action")) for p in points if _clean(p.get("action"))))
+    """The own words of the points of one line of the sheet "Not a comment", each once: the point's action, and an AI line's own words
+    to the contractor labelled "AI's words:" (lead, last review of PR #1889: a met line's words are shown, never hidden); "none
+    recorded" when none has any."""
+    own = [_clean(p.get("action")) for p in points] + [
+        f"{AI_WORDS} {_clean(line.get('comment'))}" for p in points if isinstance(line := p.get("_line"), dict) and _clean(line.get("comment"))
+    ]
+    said = list(dict.fromkeys(w for w in own if w and w != f"{AI_WORDS} "))
     return "\n".join(said) or NO_ACTION
 
 

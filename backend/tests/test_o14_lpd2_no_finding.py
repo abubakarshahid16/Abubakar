@@ -60,6 +60,7 @@ def test_a_book_missing_point_is_not_a_comment_even_on_a_field_that_has_a_findin
         "Invented flow",
         4,
         _book_missing="BOOK-9",
+        _row={"row_kind": "clause_review"},
         action="Book missing: BOOK-9 (clause not named by the reviewer).",
     )
     question = _p(
@@ -71,7 +72,13 @@ def test_a_book_missing_point_is_not_a_comment_even_on_a_field_that_has_a_findin
         rule_text="invented rule",
         action="Contractor to state it.",
     )
-    alone = _p(3, "Invented speed", 4, _book_missing="BOOK-9")
+    alone = _p(
+        3,
+        "Invented speed",
+        4,
+        _book_missing="BOOK-9",
+        _row={"row_kind": "clause_review"},
+    )
     got = crs_comments.group([missing, question, alone])
     assert [(c["name"], c["member_ids"]) for c in got] == [
         ("Invented flow", ["p2"])
@@ -592,6 +599,72 @@ def test_a_rule_that_also_asks_something_else_stays_a_comment_with_the_form_note
         "Contractor to state the code. (Form not held: the rule also names form XF-2741, XF-2745"
     )
     assert _aside([p]) == {} and crs_comments.group([p])[0]["member_ids"] == ["p1"]
+
+
+def test_the_allow_list_is_closed_an_unknown_kind_row_kind_or_reason_stays_a_comment():
+    """Lead (last review of PR #1889): only NAMED kinds are set apart; a forged unknown one stays a comment."""
+    known = _p(1, "Invented a", 8, other_kind=words.KIND_NOT_REVIEWED)
+    odd_kind = _p(2, "Invented b", 8, other_kind="Invented new kind")
+    book_ok = _p(
+        3, "Invented c", 4, _book_missing="BOOK-9", _row={"row_kind": "clause_review"}
+    )
+    book_odd = _p(
+        4,
+        "Invented d",
+        4,
+        _book_missing="BOOK-9",
+        _row={"row_kind": "invented_row_kind"},
+    )
+    text_ok = _ai(
+        5,
+        "Invented e",
+        4,
+        {"ai_verdict": "Query", "reason_code": "unclear_clause"},
+        rule_book="STD-1",
+    )
+    text_odd = _ai(
+        6,
+        "Invented f",
+        4,
+        {"ai_verdict": "Query", "reason_code": "invented_code"},
+        rule_book="STD-1",
+    )
+    pts = [known, odd_kind, book_ok, book_odd, text_ok, text_odd]
+    assert [crs_no_finding.kind_of(p) for p in pts] == [
+        words.KIND_NOT_REVIEWED, None, crs_no_finding.KIND_BOOK_NOT_HELD, None, crs_no_finding.KIND_NO_RULE_TEXT, None,
+    ]  # fmt: skip
+
+
+def test_a_rule_check_does_not_apply_row_whose_record_asks_stays_a_comment():
+    empty = _p(1, "Invented a", 8, other_kind=words.KIND_NOT_APPLICABLE)
+    asking = _p(
+        2,
+        "Invented b",
+        8,
+        other_kind=words.KIND_NOT_APPLICABLE,
+        _finding={"required_action": "Contractor to state it."},
+    )
+    assert (
+        crs_no_finding.kind_of(empty) == words.KIND_NOT_APPLICABLE
+        and crs_no_finding.kind_of(asking) is None
+    )
+
+
+def test_an_ai_met_lines_own_words_are_shown_on_the_not_a_comment_sheet():
+    met = _ai(
+        1,
+        "Invented a",
+        5,
+        {
+            "ai_verdict": "Pass",
+            "reason_code": "met",
+            "comment": "Contractor to confirm the grade.",
+        },
+        action=None,
+    )
+    assert (
+        crs_one.aside_actions([met]) == "AI's words: Contractor to confirm the grade."
+    )
 
 
 @pytest.fixture(autouse=True)

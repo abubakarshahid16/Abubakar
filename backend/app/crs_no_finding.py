@@ -74,6 +74,15 @@ _ASK_KINDS = frozenset(
         "needs_engineer_review",
     }
 )
+#: THE CLOSED LISTS (lead, last review of PR #1889): a kind, row kind or reason code not named here keeps the point a comment.
+#: (f) the "does not apply" kinds a point may be set apart with.
+ALLOWED_OTHER_KINDS = frozenset(words.OTHER_KINDS)
+#: (a) the rule-check row kinds whose book-missing row, with an empty record, asks nothing.
+ALLOWED_BOOK_ROW_KINDS = frozenset({"clause_review", "standard_not_applicable"})
+#: (b) the AI reason codes of a line its reader could not decide for want of rule text.
+ALLOWED_NO_TEXT_CODES = frozenset(
+    {"", "unclear_clause", "needs_drawing_or_calc", "other"}
+)
 #: AI reason codes that are a concern about the paper (a value absent, silent, deferred, not met).
 _CONCERN_CODES = frozenset(
     {"not_met", "absent", "sheet_silent", "value_deferred", "not_stated"}
@@ -154,7 +163,8 @@ def record_asks(point: dict) -> bool:
     return bool(
         open_request(point)
         or _clean(f.get("compliance_status"))
-        or _clean(f.get("reason_code")).upper() not in ("", "COMPLIANT", "NOT_APPLICABLE")
+        or _clean(f.get("reason_code")).upper()
+        not in ("", "COMPLIANT", "NOT_APPLICABLE")
         or _clean(f.get("required_action"))
         or row.get("row_kind") in _ASK_KINDS
         or f.get("origin") == "datasheet_check"
@@ -167,7 +177,11 @@ def ai_concern(line: dict) -> bool:
     than a line of noise)."""
     codes = {str(line.get("reason_code") or ""), str(line.get("reason_code_ai") or "")}
     met = line.get("ai_verdict") == "Pass" or "met" in codes
-    return bool(line.get("ai_verdict") == "Fail" or codes & _CONCERN_CODES or (_clean(line.get("comment")) and not met))
+    return bool(
+        line.get("ai_verdict") == "Fail"
+        or codes & _CONCERN_CODES
+        or (_clean(line.get("comment")) and not met)
+    )
 
 
 def kind_of(point: dict) -> str | None:
@@ -184,22 +198,26 @@ def kind_of(point: dict) -> str | None:
     if line and (line.get("general") or ai_concern(line)):
         return None
     if point.get("tile") == "does_not_apply":
-        return (
-            None
-            if point.get("source") == rp.SOURCE_RULE_CHECK
-            and record_asks(point)
+        kind = point.get("other_kind") or words.KIND_NOT_APPLICABLE
+        if kind not in ALLOWED_OTHER_KINDS or (
+            point.get("source") == rp.SOURCE_RULE_CHECK
             and not line
-            else (point.get("other_kind") or words.KIND_NOT_APPLICABLE)
-        )
+            and record_asks(point)
+        ):
+            return None
+        return kind
     if point.get("rank") != 4:
         return None
+    row_kind = (point.get("_row") or {}).get("row_kind")
     if (
         point.get("_book_missing")
         and point.get("source") == rp.SOURCE_RULE_CHECK
+        and row_kind in ALLOWED_BOOK_ROW_KINDS
         and not record_asks(point)
     ):
         return KIND_BOOK_NOT_HELD
-    if no_rule_text(point):
+    codes = {str(line.get("reason_code") or ""), str(line.get("reason_code_ai") or "")}
+    if no_rule_text(point) and codes <= ALLOWED_NO_TEXT_CODES:
         return KIND_NO_RULE_TEXT
     return None
 
