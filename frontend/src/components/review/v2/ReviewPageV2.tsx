@@ -73,6 +73,9 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
               )}
             </div>
           )}
+          {listing.completeness_note && (
+            <p role="status" data-testid="v2-count-check-not-run" className="text-sm text-slateish-300">{listing.completeness_note}</p>
+          )}
           {listing.comment_count != null && (
             <p data-testid="v2-comment-count" className="text-xs text-slateish-400">
               {listing.of} points reviewed, as {listing.comment_count} comments in the CRS file (one comment per field; every point stays on the sheet Evidence).

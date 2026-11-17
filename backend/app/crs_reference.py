@@ -21,6 +21,7 @@ guessed, and a year that is not an edition is not read as one:
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from . import standard_ids
 
@@ -133,3 +134,30 @@ def internal_bits(finding: dict) -> list[str]:
         )
         if text
     ]
+
+
+# ------------------------------------------------------------------------------------------------ W-H10: an edition found online
+
+EDITION_NOT_FOUND = "edition not found"
+
+
+def found_online_edition(row: dict) -> str:
+    """W-H10 (order 14, rule 4): a found-online edition is shown only with its source (the publisher's page) and its date (the year the
+    reply gives, not after the year of the search); otherwise "edition not found", with why. A year after the search is not taken."""
+    edition, year, searched = row.get("latest_edition"), row.get("year"), year_of(row.get("searched_at"))
+    if not (edition or year):
+        return EDITION_NOT_FOUND
+    if not row.get("url"):
+        return f"{EDITION_NOT_FOUND} (no source on the publisher's site)"
+    if not year:
+        return f"{EDITION_NOT_FOUND} (no date given)"
+    if searched is None or year > searched:
+        return f"{EDITION_NOT_FOUND} (the date given, {year}, is after the search)"
+    return f"{edition}; ({year})" if edition else f"({year})"
+
+
+def year_of(when) -> int | None:
+    try:
+        return datetime.fromisoformat(str(when)).year
+    except (ValueError, TypeError):
+        return None

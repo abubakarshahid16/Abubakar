@@ -317,3 +317,25 @@ def test_the_git_ignored_local_cutoff_file_is_read_when_no_env_names_one(
     assert "c-local" in se.load_policies()
     _cutoff(tmp_path, monkeypatch, contract="c-env")
     assert set(se.load_policies()) == {"c-env"}  # the environment's file wins
+
+
+def test_no_row_says_edition_not_recorded_beside_its_books_edition_status_and_the_check_still_passes(tmp_path, monkeypatch):
+    """W-H10 (order 14): a rule-check field read "BOOK (edition not recorded) cl. ..." while the same row's book read
+    "BOOK [edition: binds]". With the status shown, the field says the edition nowhere else; off, the words stay."""
+    doc = _world()
+    off = load_workbook(io.BytesIO(_files(doc)[0]))
+    said_off = [c for r in off[crs_one.EVIDENCE_SHEET].iter_rows(values_only=True) for c in r if "edition not recorded" in str(c)]
+    assert said_off, "the invented world must carry the words for this test to mean anything"
+    monkeypatch.setattr(settings, "standard_editions_enabled", True)
+    _cutoff(tmp_path, monkeypatch)
+    wb = load_workbook(io.BytesIO(_files(doc)[0]))
+    for name in (crs_one.TEAM_SHEET, crs_one.EVIDENCE_SHEET):
+        for r in wb[name].iter_rows(values_only=True):
+            text = " ".join(str(c) for c in r if c is not None)
+            assert not ("edition not recorded" in text and "[edition:" in text), text
+    got = crs_completeness.checked_files(doc, scope_all())
+    assert got["team"][1]["ok"] and got["team"][1]["cut_problems"] == 0, got["team"][1]["sentence"]
+    from app import review_points_service
+
+    page = review_points_service.assemble(doc, scope_all())  # the page says it as the file does (lead, review of #1891)
+    assert not any("edition not recorded" in str(p.get("name")) for p in page["points"])

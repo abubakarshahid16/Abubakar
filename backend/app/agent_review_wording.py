@@ -464,9 +464,11 @@ def read_time(line: Mapping) -> dict:
     defences that read the stored class keep working); never rewritten in the table. TWO exceptions, narrowing only: a stored AI opinion
     "not met" (`_NARROWED_AT_READ`, order 14 G5) and a stored "not applicable" without its proof (FTU-17) that today's rule makes a Query
     are read as that Query (its label, class and reason), so an older run's CRS never shows what today's rule would not give. Any other
-    line is returned as it is."""
+    line is returned as it is, except a general line stored in words no longer true (`agent_general_review.stored_words_now`, W-H7)."""
     if line.get("source") not in ("rule", "skill"):
-        return dict(line)
+        from .agent_general_review import stored_words_now
+
+        return stored_words_now(line)
     got = classify(line)
     narrowed = (
         line.get("verdict_class") in _NARROWED_AT_READ

@@ -527,9 +527,8 @@ def test_a_held_book_with_approved_rules_of_this_kind_still_runs_and_says_so_in_
     g, _runner = build(world, GFake(), books=got)
     g.part1()
     fit = [ln for ln in g.lines if ln.get("held_rule_books")]
-    assert [ln["text"] for ln in fit] == [
-        "rule books we hold that fit this paper were not used: rule review for this kind is switched off"
-    ]
+    assert [ln["text"] for ln in fit] == [core.HELD_FIT_LINE]  # W-H7: the AI reviewer's own rule step is what is off
+    assert "were not used" not in core.HELD_FIT_LINE and "rule check" in core.HELD_FIT_LINE
     assert fit[0]["verdict_class"] == core.CLASS_NOT_CHECKED and fit[0][
         "held_rule_books"
     ] == ["IEC 61511"]

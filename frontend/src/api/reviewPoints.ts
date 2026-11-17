@@ -159,7 +159,9 @@ export interface PointsListing {
   comments?: { number: number; name: string | null; n_points: number; pill: string; pages: number[]; member_ids: string[]; disagree: boolean }[];
   comment_count?: number;
   /** The three counts of the last review (page, database, file rows). null when none is stored; ok false means the page must say what is missing. */
-  completeness?: { ok: boolean; page: number; database: number; team_rows: number; contractor_rows: number; missing: string[]; sentence: string | null; checked_at: string } | null;
+  completeness?: { ok: boolean; page: number; database: number; team_rows: number; contractor_rows: number; missing: string[]; sentence: string | null; checked_at?: string } | null;
+  /** W-H9: set when the count check could not run for this page (the page is still shown; the download runs the check again). */
+  completeness_note?: string | null;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };

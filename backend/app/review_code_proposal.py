@@ -112,7 +112,7 @@ def removed_fail_sentence(points: list[dict]) -> str:
 def propose(
     points: list[dict],
     *,
-    unread_pages: int | None = None,
+    unread_pages: int | list[int] | None = None,
     resubmit_at: int = 0,
     reviews_ran: bool = False,
 ) -> dict:
@@ -122,8 +122,12 @@ def propose(
     open_now = still_open(points)
     if unread_pages:
         # FTU-16: the open points are counted here too (the HAZOP said "0 of 85 decided" beside "undecided 0"): the same count the
-        # sheet states, said on the line
-        reason = f"{_plural(unread_pages, 'page was', 'pages were')} not read."
+        # sheet states, said on the line. W-H7: the pages of the run's one page record (`page_ledger.run_unread_pages`), in the words
+        # every sheet uses ("not fully read", with the pages), never a second statement
+        listed = unread_pages if isinstance(unread_pages, list) else None
+        n = len(listed) if listed is not None else int(unread_pages)
+        which = f" (page{'s' if n != 1 else ''} {', '.join(str(p) for p in listed)})" if listed else ""
+        reason = f"{_plural(n, 'page was', 'pages were')} not fully read{which}."
         line = f"{comparison.CODE_MANUAL}: {reason}" + (
             f" {len(open_now)} of {_plural(len(points), 'point', 'points')} still to decide." if open_now else ""
         )

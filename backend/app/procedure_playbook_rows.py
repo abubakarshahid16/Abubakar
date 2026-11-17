@@ -174,8 +174,41 @@ def _comment(playbook: playbooks.Playbook, report: dict, entry: dict) -> str:
         body = entry["reason"]
     else:
         body = f"{entry['reason']}; engineer to check"
-    notice = report["playbook"]["notice"]
-    return f"{head}: {body}." + (f" {notice}" if notice else "")
+    # W-H6 (order 14): the playbook's draft notice is said ONCE per sheet (`notice_line`), never repeated in every row
+    return f"{head}: {body}."
+
+
+def notice_line(notices) -> str | None:
+    """W-H6: the ONE line a sheet carries for its playbook rows while a playbook is a draft (each distinct notice once), else None."""
+    said = list(dict.fromkeys(n for n in notices if n))
+    return f"{BY}: {' '.join(said)}" if said else None
+
+
+def same_element_found(entries: list[tuple[playbooks.Playbook, dict]]) -> None:
+    """W-H6 (order 14): two playbooks chosen for one paper can name the SAME element (one title). When one finds it and the other
+    does not, the sheet said "Section not found" in one row while another row cited the section. The row that found nothing says
+    where the other playbook found it (its page, as that row cites it), still unconfirmed and still not checked against a book not
+    held; every other row is left as it is."""
+    found = {}
+    for pb, e in entries:
+        if e.get("evidence") and e.get("section_state") in (playbooks.PRESENT, playbooks.UNCLEAR):
+            found.setdefault(_title_key(e["title"]), (pb, e))
+    for pb, e in entries:
+        hit = found.get(_title_key(e["title"]))
+        if e.get("section_state") != playbooks.MISSING or hit is None or hit[0].id == pb.id:
+            continue
+        other_pb, other = hit
+        page = other.get("cited_page")
+        where = f"page {page}" if page else (other["evidence"][0].get("locator") or "the document")
+        e.update(
+            section_state=playbooks.UNCLEAR, evidence=other["evidence"][:1], cited_page=page,
+            reason=(f"unclear: this checklist's own words were not found, but the same element is found by the {other_pb.title} "
+                    f"checklist at {where}; {e['source']['standard']} is not held, so its text is not quoted; engineer to confirm"),
+        )  # fmt: skip
+
+
+def _title_key(title: str) -> str:
+    return " ".join(_WORD.findall((title or "").lower()))
 
 
 def _row(playbook, report, entry, submittal_name: str, submittal_id: str = "") -> dict:
@@ -234,14 +267,16 @@ def crs_rows(
                 ),
             }
         ]
+    reports = [(pb, playbooks.review(submittal_id, pb, allowed_document_ids=allowed)) for pb in picked]
+    same_element_found([(pb, e) for pb, report in reports for e in report["elements"]])
     rows = []
-    for pb in picked:
-        report = playbooks.review(submittal_id, pb, allowed_document_ids=allowed)
+    for pb, report in reports:
         rows.extend(
-            _row(pb, report, e, submittal_name, submittal_id)
+            {**_row(pb, report, e, submittal_name, submittal_id), "playbook_notice": report["playbook"]["notice"]}
             for e in report["elements"]
         )
-    return rows, []
+    said = notice_line(r["playbook_notice"] for r in rows)
+    return rows, ([{"note": "Playbook check - draft", "standard": "", "count": len(rows), "detail": said}] if said else [])
 
 
 def merge(

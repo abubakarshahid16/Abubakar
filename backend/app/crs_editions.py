@@ -101,6 +101,25 @@ def mark(
     return f"{name} [{words.edition_status_words(result)}]" if result else name
 
 
+def names_without_unrecorded(points: list[dict], editions: dict | None) -> list[dict]:
+    """W-H10 (order 14): a point's field said "(edition not recorded)" while the same row's book said "[edition: binds]". When every
+    held book the point cites has its edition status on this file, the field (and an action that cites the book) drops those words:
+    the edition is said once, in the book's brackets and on the sheet Editions. Off (None) or a book not judged: the points as they
+    are. The page's list is worded the same way (`review_points_service._assemble`), so the page and the file agree."""
+    if editions is None:
+        return points
+    from .crs_reference import NOT_RECORDED
+
+    tag = f" ({NOT_RECORDED})"
+    out = []
+    for p in points:
+        books = p.get("books") or []
+        judged = bool(books) and all(editions.get(b.get("id")) for b in books)
+        words_now = {k: p[k].replace(tag, "") for k in ("name", "action") if judged and isinstance(p.get(k), str) and tag in p[k]}
+        out.append({**p, **words_now} if words_now else p)
+    return out
+
+
 def _where(printed: dict) -> str | None:
     if printed.get("page"):
         return f"p.{printed['page']}: {printed.get('source')}"

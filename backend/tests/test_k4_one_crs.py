@@ -889,6 +889,23 @@ def test_the_page_says_when_the_three_counts_differ_and_names_the_missing_point(
     )
 
 
+def test_the_page_block_shows_the_counts_of_the_check_route_not_an_older_stored_result():
+    """W-H9 (order 14): the run stored its counts when it ended; the paper's list grew after (an added point). The page's block is the
+    check route's numbers, never the older record."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    before = cc.record_after_run(ai)["team"]["page"]
+    got = client.post(f"/api/reviews/papers/{doc}/points/add", json={"text": "Invented added point", "page": 1})
+    assert got.status_code == 200, got.text
+    check = client.get(f"/api/reviews/papers/{doc}/crs/check").json()
+    page = points_of(client, doc)["completeness"]
+    assert check["team"]["page"] == before + 1
+    assert (page["page"], page["database"], page["team_rows"], page["contractor_rows"]) == (
+        check["team"]["page"], check["team"]["database"]["total"], check["team"]["rows_in_file"], check["contractor"]["rows_in_file"],
+    )  # fmt: skip
+
+
 def test_a_point_on_the_page_that_is_not_in_the_database_is_named(monkeypatch):
     from app import crs_completeness as cc
 
@@ -949,3 +966,65 @@ def test_a_file_missing_a_whole_sheet_is_refused_with_a_sentence_never_a_crash(
     with pytest.raises(cc.Incomplete) as e:
         cc.file_or_refuse(doc, scope_all(), copy)
     assert f"the sheet {name} is missing" in e.value.report["missing"]
+
+
+def test_a_rule_whose_clause_sits_under_the_books_deviations_heading_is_set_apart_on_the_page_and_in_the_file(monkeypatch):
+    """W-H4 (order 14), through the listing and the file: the clause's own heading (read from the book's stored section title) makes
+    it not a requirement: set apart with its reason, still counted (page = database = file)."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,token_count,content_hash,retrievable)"
+            " VALUES ('c-dev','doc_std','STD-A-001.pdf',1,2,2,'2 Conflicts and Deviations','prose','x',1,'h-dev',1)"
+        )
+        conn.execute(
+            "INSERT INTO standard_requirements (id,standard_document_id,clause,requirement_text,chunk_id,created_at,updated_at)"
+            " VALUES ('req-dev','doc_std','2.1','Any deviation shall follow the invented procedure.','c-dev','2026-09-19','2026-09-19')"
+        )
+        # a finding with no verdict, no value of the paper and no ask of its own (its own record decides first)
+        conn.execute(
+            "UPDATE review_findings SET requirement_id = 'req-dev', compliance_status = 'NEEDS_ENGINEER_REVIEW', contractor_evidence_text = NULL"
+            " WHERE review_run_id = ?",
+            (rc,),
+        )
+    listing = points_of(client, doc)
+    rule = next(p for p in listing["points"] if p["source"] == "rule_check")
+    assert rule["rank"] != 8  # the invented row asks the contractor something of its own: its own record decides first
+    from app import review_points_content
+
+    real = review_points_content.action_of
+    monkeypatch.setattr(review_points_content, "action_of", lambda *a, **k: ("", "") if real(*a, **k)[1] == "check" else real(*a, **k))
+    listing = points_of(client, doc)
+    rule = next(p for p in listing["points"] if p["source"] == "rule_check")
+    assert rule["rank"] == 8 and rule["other_kind"] == "Not a requirement to check"
+    assert listing["completeness"]["ok"] and cc.checked_files(doc, scope_all())["team"][1]["ok"]
+
+
+def test_the_page_block_is_built_once_per_list_and_a_check_that_cannot_run_never_blocks_the_page(monkeypatch):
+    """W-H9 (lead, review of #1891): the same list and decisions give the same block without a second build; a build error shows the
+    page with one plain line, never an error and never a false "not complete"."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    calls = []
+    real = cc.checked_files
+    monkeypatch.setattr(cc, "checked_files", lambda *a, **k: calls.append(1) or real(*a, **k))
+    first = points_of(client, doc)["completeness"]
+    assert points_of(client, doc)["completeness"] == first and len(calls) == 1
+    other = next(p for p in points_of(client, doc)["points"] if p["source"] == "ai_review")
+    assert decide(client, doc, other["id"], "keep").status_code == 200
+    assert len(calls) == 2  # a decision changes the list: checked again
+    monkeypatch.setattr(cc, "_count", lambda sql, run: 99)  # a line stored after the run, with the list unchanged: checked again
+    points_of(client, doc)
+    assert len(calls) == 3
+
+    def broken(*a, **k):
+        raise RuntimeError("invented build failure")
+
+    monkeypatch.setattr(cc, "checked_files", broken)
+    cc._CURRENT.clear()
+    got = client.get(f"/api/reviews/papers/{doc}/points")
+    assert got.status_code == 200 and got.json()["completeness"] is None
+    assert got.json()["completeness_note"] == cc.COUNT_CHECK_NOT_RUN

@@ -115,9 +115,8 @@ def test_on_a_hazop_procedure_has_one_engineer_row_per_element_and_none_complian
         assert r["engineer_confirmed"] is False
         assert "compliant" not in r["comment"].lower().replace("non-compliant", "")
         assert r["comment_by"] == procedure_playbook_rows.BY
-        assert (
-            "not been signed off" in r["comment"]
-        )  # the draft notice travels with the row
+        # W-H6 (order 14): the draft notice travels with the row, unprinted; the sheet says it once (`notice_line`)
+        assert "not been signed off" in r["playbook_notice"] and "not been signed off" not in r["comment"]
         assert r["standard_reference"].startswith("IEC 61882")
     team = next(r for r in mine if "Team and roles" in r["comment"])
     assert "found at" in team["comment"] and "engineer to confirm" in team["comment"]
@@ -256,3 +255,24 @@ def test_a_hazop_title_chooses_only_the_hazop_playbook(on, monkeypatch):
     assert _chosen_ids("HAZOP Study Procedure\nDocument H-1", monkeypatch) == [
         "hazop_procedure"
     ]
+
+
+def test_w_h6_a_shared_element_and_a_heading_named_for_another_element_on_a_paper_of_two_playbooks(on, monkeypatch):
+    """W-H6 (order 14), through the CRS rows: (1) the HAZOP playbook finds "revalidation" (re-HAZOP) where the SIL playbook's own
+    words find nothing: the SIL row says where the other found it, never "Section not found"; (2) a heading named "Actions" is the
+    recommendations' section, not the worksheet's own; (3) no row repeats the draft notice."""
+    monkeypatch.setattr(settings, "playbook_section_presence_enabled", True)
+    monkeypatch.setattr(settings, "playbook_presence_without_standard_enabled", True)
+    sections = [
+        ("4.5 Invented Actions", "Any recommendation raised is given to a responsible person and tracked to closure."),
+        ("4.6 Design Changes", "After design changes a re-HAZOP of the changed nodes is held by the invented team."),
+    ]
+    run = _run(_doc("p2", sections, cover="HAZOP and SIL Procedure\nDocument HP-002 revision 0"))
+    rows, _meta = _crs(run)
+    mine = _mine(rows)
+    by = {r["comment"].split(" (")[0]: r["comment"] for r in mine}
+    sil_change = by["SIL assessment procedure, Revalidation and management of change"]
+    assert "Section not found" not in sil_change and "found by the HAZOP procedure checklist" in sil_change
+    worksheet = by["HAZOP procedure, Worksheet fields"]
+    assert "a section of its own was found" not in worksheet and "Invented Actions" not in worksheet
+    assert all("not been signed off" not in r["comment"] for r in mine)

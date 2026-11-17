@@ -38,6 +38,7 @@ from . import (
     crs_editions,
     crs_export_quality,
     crs_layout,
+    procedure_playbook_rows,
     standards_web_search,
     standards_web_search_money,
 )
@@ -155,11 +156,13 @@ def paper_shows(point: dict) -> str:
     # a code-proved absence: its proof, as on the page
     if point.get("paper_looked") or point.get("paper_proof"):
         return point["paper_quote_note"]
+    # W-H5: a value of the paper's own table is shown with the paper's label for it, never as a bare number
+    label = f'the paper\'s "{point["paper_label"]}": ' if point.get("paper_label") else ""
     if point.get("paper_quote"):
-        return f'"{point["paper_quote"]}" ({point["paper_quote_note"]})'
+        return f'{label}"{point["paper_quote"]}" ({point["paper_quote_note"]})'
     if point.get("paper_value"):  # stored, but code did not verify it: shown as stored, never as verified
         page = point.get("paper_value_page")
-        return f'"{point["paper_value"]}" (as stored{f", page {page}" if page else ""}; {content.NOT_VERIFIED})'
+        return f'{label}"{point["paper_value"]}" (as stored{f", page {page}" if page else ""}; {content.NOT_VERIFIED})'
     return content.NOTHING
 
 
@@ -172,6 +175,9 @@ def rule_requires(point: dict) -> str:
         return f'"{point["rule_text"]}" (as stored; {content.NOT_VERIFIED})'
     if point.get("check_text"):  # order 14 lane B: our checklist's words, said to be ours
         return f'Our checklist asks (our words, not the book\'s): "{point["check_text"]}"'
+    if point.get("_rule_stored") and point.get("source") == rp.SOURCE_RULE_CHECK:
+        # W-H8: the action cell quoted the rule while this cell said "nothing recorded": the stored words, said to be unfound in the book
+        return f'"{point["_rule_stored"]}" ({STORED_NOT_FOUND})'
     return content.NOTHING
 
 
@@ -222,6 +228,38 @@ def group_words(point: dict) -> str:
     return f"{n} alike" if n > 1 else ""
 
 
+#: W-H8: the lead some stored AI suggestions open with, which the internal copy's own label already says.
+_AI_LEAD = re.compile(r"^\s*(?:the\s+)?AI(?:'s)?\s+suggestion\s*,\s*engineer\s+to\s+confirm\s*[.:]\s*", re.IGNORECASE)
+NO_ACTION = "No action was written for this point: engineer to check it against the paper and write the action."
+#: W-H8: a stored rule text that ends where its list begins ("... shall be applied: a."): the rule store cut it there.
+_LIST_OPENED = re.compile(
+    r"(?:(?:[:;,]|\b(?:following|including|include|includes))\s*(?:\(?[a-z0-9]{1,2}[.)])?|\.\s+\(?[a-z][.)])\s*$", re.IGNORECASE
+)
+_QUOTED = re.compile(r'"([^"]{12,})"')
+LIST_NOT_STORED = "[the list that follows in the book is not in the stored rule: read the clause in the book]"
+STORED_NOT_FOUND = "as stored; code did not find these words in the held book"
+
+
+def mark_cut_lists(text: str, rules=()) -> str:
+    """W-H8 (completeness): a quote of the RULE (one of `rules`, the point's own stored rule words) that ends where its list begins
+    ("... shall be applied: a.") says so after its closing quote with a visible mark (`LIST_NOT_STORED`), never shown as if whole. A
+    quote of the paper, or any other quote, is left as it is (rule 4: the mark speaks of the rule book only)."""
+    own = [_fold_quote(r) for r in rules if _fold_quote(r)]
+    if not text or not own or LIST_NOT_STORED in text:
+        return text
+
+    def mark(m: re.Match) -> str:
+        q = _fold_quote(m.group(1))
+        ours = any(q == r or (len(q) >= 12 and q in r) for r in own)
+        return f'"{m.group(1)}" {LIST_NOT_STORED}' if ours and _LIST_OPENED.search(m.group(1)) else m.group(0)
+
+    return _QUOTED.sub(mark, text)
+
+
+def _fold_quote(text) -> str:
+    return " ".join(str(text or "").split()).lower()
+
+
 def full_texts(point: dict) -> dict[str, str]:
     """The whole text of each long cell of a point: the ONE source of what a shortened cell must keep in the column Full text."""
     d = point.get("decision") or {}
@@ -231,11 +269,16 @@ def full_texts(point: dict) -> dict[str, str]:
         else point.get("action")
     )
     if action and point.get("action_source") == "ai_suggestion" and not (d.get("state") == decisions_mod.EDIT and d.get("text")):
+        # W-H8: the stored words may already open with their own "AI suggestion" lead: said once, never twice
+        action = _AI_LEAD.sub("", action, count=1) or action
         action = f"{content.AI_SUGGESTION[0].upper()}{content.AI_SUGGESTION[1:]}: {action}"  # internal copy only (the contractor file never reads this)
+    if not action and point.get("tile") in ("not_met", "questions"):  # W-H8: an open point's action is never empty; set-apart rows stay as they are
+        action = NO_ACTION
+    rules = (point.get("clause_quote"), point.get("rule_text"), point.get("_rule_stored"))
     return {
-        "action": action,
+        "action": mark_cut_lists(action, rules),
         "paper_shows": paper_shows(point),
-        "requires": rule_requires(point),
+        "requires": mark_cut_lists(rule_requires(point), rules),
         "reason": reason_of(point),
     }
 
@@ -501,6 +544,8 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
                 ]
             )
     if extra.get("ai_run"):
+        if pictures := ai_pictures_not_read(conn, extra["ai_run"]):  # W-H7: the same pages the AI's own lines name
+            rows.append(["Pages whose pictures the AI reviewer did not read", len(pictures), pictures_words(pictures)])
         r = conn.execute(
             "SELECT stop_reason FROM agent_review_run WHERE run_id = ?",
             (extra["ai_run"],),
@@ -529,7 +574,45 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
     return rows
 
 
-def _how_rows(extra: dict, scope) -> list[list]:
+def rules_asked_why(conn, ai_run: str, asked: int, points: list[dict]) -> str | None:
+    """W-H7 (order 14): THE ONE statement of why the AI reviewer asked no rule, beside the rule check's own count: the sheet said
+    "rules asked 0" and an AI line said the held books "were not used" beside hundreds of rule points from them. None when it asked
+    some, or when its run records no reason (said only from the run's own counts: `parts.1.held_fit_not_used`)."""
+    if asked:
+        return None
+    row = conn.execute("SELECT counts_json FROM agent_review_run WHERE run_id = ?", (ai_run,)).fetchone()
+    try:
+        part1 = (json.loads((row["counts_json"] if row else None) or "{}").get("parts") or {}).get("1") or {}
+    except (ValueError, TypeError, AttributeError):
+        part1 = {}
+    if not part1.get("held_fit_not_used"):
+        return None
+    on_books = sum(1 for p in points if p.get("source") == "rule_check" and p.get("_book_doc") and not p.get("_book_missing"))
+    said = (f"the rule check compared the paper with the held rule books: {on_books} rule point(s) on the sheet {TEAM_SHEET}"
+            if on_books else "the rule check holds no point on the held rule books")  # fmt: skip
+    return f"the AI reviewer's own rule step is switched off for this kind of paper; {said}"
+
+
+def ai_pictures_not_read(conn, ai_run: str) -> list[int]:
+    """W-H7: the pages a general AI review read as text only (pictures or formulas it did not read), from the SAME function the
+    review used (`agent_general_review.unread_pages`), so the sheet and the AI's own lines name the same pages. [] for any other run."""
+    from . import agent_general_review
+
+    row = conn.execute("SELECT submittal_document_id, counts_json FROM agent_review_run WHERE run_id = ?", (ai_run,)).fetchone()
+    try:
+        general = row is not None and json.loads(row["counts_json"] or "{}").get("mode") == "general review"
+    except (ValueError, TypeError, AttributeError):
+        general = False
+    return agent_general_review.unread_pages(conn, row["submittal_document_id"]) if general else []
+
+
+def pictures_words(pages: list[int]) -> str:
+    which = ", ".join(str(n) for n in pages)
+    return (f"page{'s' if len(pages) != 1 else ''} {which}: the AI reviewer reads text, and these pages hold pictures or formulas it did"
+            " not read; its lines that needed them say so")  # fmt: skip
+
+
+def _how_rows(extra: dict, scope, points: list[dict] = ()) -> list[list]:
     from . import page_ledger
 
     conn = connect()
@@ -566,6 +649,10 @@ def _how_rows(extra: dict, scope) -> list[list]:
                 )
             )
             rows.append(["AI review: rules asked", asked])
+            if (why_none := rules_asked_why(conn, r["run"], asked, points)) is not None:
+                rows.append(["AI review: why no rule was asked", why_none])
+            if pictures := ai_pictures_not_read(conn, r["run"]):
+                rows.append(["AI review: pictures it did not read", pictures_words(pictures)])
             for why, n in sorted(left.items(), key=lambda kv: (-kv[1], str(kv[0]))):
                 rows.append(
                     [
@@ -605,8 +692,9 @@ def pages_line(cov: dict, unread: list) -> str:
     which pages it read; otherwise the line says that is not recorded (never "0 read" for an unknown)."""
     n, read = cov["pages_total"], cov.get("pages_read") or []
     partly = f"{len(unread)} not fully read" + (f" (pages {', '.join(str(p) for p in unread)})" if unread else "")
-    if read:
-        return f"{n} pages: {len(read)} read, {partly}"
+    if read:  # W-H7: a page read only in part is in both lists: "read in full" counts the others, so the two numbers add up to N
+        whole = len(set(read) - set(unread))
+        return f"{n} pages: {whole} read in full, {partly}"
     return f"{n} pages: {partly}; how many were read in full is not recorded"
 
 
@@ -657,6 +745,8 @@ def apart_proof(p: dict) -> str | None:
     for any other point. A rule book the reader may not read gives no words of its condition (rule 5)."""
     from .agent_review_not_applicable import proof as not_applicable_proof
 
+    if p.get("_not_a_requirement"):  # W-H4: the stored clause's own heading or sentence, read by code
+        return f"{p['_not_a_requirement'][0].upper()}{p['_not_a_requirement'][1:]} (read by code from the rule book's stored clause)."
     proof = not_applicable_proof(p.get("_line") or {})
     if not proof or p.get("other_kind") != words.KIND_NOT_APPLICABLE:
         return None
@@ -854,6 +944,7 @@ def build_team(
     listing, raw, extra = listing_raw or svc.export_listing(paper_id, scope)
     # lane G: None while off, so the file is byte-same
     editions = editions if editions is not None else crs_editions.verdicts(raw)
+    raw = crs_editions.names_without_unrecorded(raw, editions)  # W-H10: the edition is said once in a row, never "not recorded" beside it
     exported = exported or datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     removed = [
         p for p in raw if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE
@@ -896,6 +987,8 @@ def build_team(
             else "; no cell shortened"
         ),
         "Rule books used (points): " + _books_line(raw, crs_editions.by_name(editions)),
+        # W-H6: the playbook rows' draft notice, said once for the sheet (never repeated in each row)
+        *([pb_line] if (pb_line := procedure_playbook_rows.notice_line((p.get("_row") or {}).get("playbook_notice") for p in raw)) else []),
     ]
     header_row = _put_block(
         ws,
@@ -960,7 +1053,7 @@ def build_team(
         wb,
         HOW_SHEET,
         ("What", "Detail"),
-        [[_cell(c) for c in r] for r in _how_rows(extra, scope)],
+        [[_cell(c) for c in r] for r in _how_rows(extra, scope, raw)],
         (46, 110),
     )
     buf = BytesIO()

@@ -17,9 +17,11 @@ No model, no network; reads only (the stored result is the one write). No docume
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from collections import Counter
+import sqlite3
+from collections import Counter, OrderedDict
 from datetime import UTC, datetime
 from io import BytesIO
 
@@ -451,6 +453,10 @@ def verify(
     (contractor)."""
     db = database_lines(paper_id, scope, facts)
     page = listing["of"]
+    if copy == "team":  # W-H10: the team file words a field as its builder does (`crs_editions.names_without_unrecorded`); counts unchanged
+        from . import crs_editions
+
+        raw = crs_editions.names_without_unrecorded(raw, crs_editions.verdicts(raw))
     # R101: a file missing a whole sheet is refused with a sentence (409), never a KeyError (500)
     absent = absent_sheets(data, copy)
     in_file, numbers = rows_in_file(data, copy) if not absent else (0, [])
@@ -500,12 +506,13 @@ def verify(
     return report
 
 
-def checked_files(paper_id: str, scope) -> dict:
-    """Both files built ONCE, each checked: {"team": (bytes, report), "contractor": (bytes, report)}. Reads only."""
+def checked_files(paper_id: str, scope, listing_raw: tuple | None = None) -> dict:
+    """Both files built ONCE, each checked: {"team": (bytes, report), "contractor": (bytes, report)}. Reads only. `listing_raw`: the
+    listing already assembled for this caller (the page's own), so the page and the check count the same list."""
     from . import crs_one
     from . import review_points_service as svc
 
-    listing, raw, facts = svc.export_listing(paper_id, scope)
+    listing, raw, facts = listing_raw or svc.export_listing(paper_id, scope)
     out = {}
     for copy, build in (
         ("team", crs_one.build_team),
@@ -724,6 +731,63 @@ def stored(run_id: str | None) -> dict | None:
         "ok": bool(row["ok"]), "page": row["page"], "database": row["database_lines"], "team_rows": row["team_rows"],
         "contractor_rows": row["contractor_rows"], "missing": missing, "sentence": (bad or [None])[0], "checked_at": row["checked_at"],
     }  # fmt: skip
+
+
+def summary(team: dict, contractor: dict) -> dict:
+    """The page's block, in the shape `stored` gives, from the two reports of ONE check."""
+    missing = list(dict.fromkeys([*team.get("missing", []), *contractor.get("missing", [])]))
+    bad = [r.get("sentence") for r in (team, contractor) if not r.get("ok", True)]
+    return {
+        "ok": bool(team.get("ok") and contractor.get("ok")), "page": team["page"], "database": team["database"]["total"],
+        "team_rows": team["rows_in_file"], "contractor_rows": contractor["rows_in_file"], "missing": missing,
+        "sentence": (bad or [None])[0],
+    }  # fmt: skip
+
+
+COUNT_CHECK_NOT_RUN = (
+    "The count check could not run for this page just now; the CRS download runs it again and refuses a file whose counts differ."
+)
+CACHE_AT_MOST = 32
+_CURRENT: OrderedDict = OrderedDict()  # W-H9: the last results of `current`, keyed by what the files are built from
+
+
+def _current_key(paper_id: str, scope, listing_raw: tuple) -> str:
+    """What both files are built from: the paper, its runs, the caller's readable set and every point with its decision and words."""
+    _listing, raw, facts = listing_raw
+    shown = [(p.get("id"), p.get("rank"), p.get("name"), p.get("action"), json.dumps(p.get("decision"), sort_keys=True, default=str))
+             for p in raw]  # fmt: skip
+    # the runs' stored line counts: a line stored or removed after a run changes the database count
+    lines = [_count("SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", facts.get("ai_run")),
+             _count("SELECT COUNT(*) FROM review_findings WHERE review_run_id = ?", facts.get("rc_run"))]  # fmt: skip
+    what = [paper_id, facts.get("rc_run"), facts.get("ai_run"), lines, sorted(scope.allowed_document_ids or ()), shown]
+    return hashlib.sha256(json.dumps(what, default=str).encode()).hexdigest()
+
+
+def _count(sql: str, run_id: str | None) -> int | None:
+    if not run_id:
+        return None
+    try:
+        return connect().execute(sql, (run_id,)).fetchone()[0]
+    except sqlite3.OperationalError:  # no table yet: no lines (the key still differs from a run that has some)
+        return None
+
+
+def current(paper_id: str, scope, listing_raw: tuple) -> dict | None:
+    """W-H9 (order 14): THE ONE SOURCE of the page's three counts: the same check as `GET .../crs/check` and the download, run on the
+    list the page shows now. A result stored with a run (`stored`) is a record of that moment; the paper's list can change after it
+    (another run, a decision, a newer build), so the page never shows it as today's counts. None for a paper never reviewed (the page
+    offers a review; nothing to count)."""
+    if not_reviewed(listing_raw[1], listing_raw[2]):
+        return None
+    key = _current_key(paper_id, scope, listing_raw)
+    if key in _CURRENT:  # the same list, decisions and caller: the same files, so the same counts (no second build)
+        _CURRENT.move_to_end(key)
+        return _CURRENT[key]
+    got = checked_files(paper_id, scope, listing_raw)
+    out = _CURRENT[key] = summary(got["team"][1], got["contractor"][1])  # no time: the same list gives the same block
+    while len(_CURRENT) > CACHE_AT_MOST:
+        _CURRENT.popitem(last=False)
+    return out
 
 
 def stored_latest(*run_ids: str | None) -> dict | None:

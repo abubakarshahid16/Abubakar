@@ -181,3 +181,47 @@ def reason_words(kind: str | None, finding: dict | None) -> str:
     if base and status and kind in ("datasheet_check", "needs_engineer_review", "missing_information", "clause_review"):
         return f"{base} Status on record: {status}."
     return base
+
+
+# ------------------------------------------------------------------------------------------------ W-H4, W-H5: not a requirement to check
+
+#: The other kind (rank 8, "Does not apply" tile) of a rule-check point that is not a requirement of the paper (order 14, W-H4/W-H5):
+#: kept as a point (counted on the page, a row of the sheet Evidence, listed with its reason), never a comment or a question.
+NOT_A_REQUIREMENT = "Not a requirement to check"
+NOT_A_REQUIREMENT_ACTION = "Nothing for the contractor to do: this is not a requirement on the paper (see the reason)."
+
+
+def not_a_requirement_words(requirement_id: str | None, section: str | None) -> str:
+    """W-H4 (order 14): the reason, in words, why a stored rule is not a requirement to check against a paper, or "". The decision is
+    the ONE function of where a rule's text sits (`rule_text_place.place_of_requirement`: a requirement word keeps it a requirement,
+    except the book's top-level conflicts-and-deviations clause and a true definition); this only words it, with the section title."""
+    from . import rule_text_place
+    from .db import connect
+
+    place = rule_text_place.place_of_requirement(connect(), requirement_id) if requirement_id else None
+    if not place:
+        return ""
+    title = " ".join(str(section or "").split())
+    return f'{place} (section "{title}"), not a requirement on the paper' if title else f"{place}, not a requirement on the paper"
+
+
+#: W-H5 (order 14): the reason of the AI check's own note on the paper that no rule asks (see `ai_note_on_paper`).
+AI_NOTE_REASON = (
+    "An AI engineering note on the paper's own values, not a rule's question: it names no clause, and the rule book it names ({book}) "
+    "is not held. Engineer to decide whether to raise it."
+)
+
+
+def ai_note_on_paper(kind: str | None, finding: dict | None, clause_named: bool) -> bool:
+    """W-H5 (order 14): the rule check's AI step wrote this point about a value of the paper's OWN table or sheet (its row label is the
+    paper's), naming no clause of a rule, from a rule book we do not hold. No rule asks it, so it is never worded as that book's
+    question ("Book missing ... cannot be checked until the book is held", with a bare number as its evidence): it is the AI's own
+    note, in its own words, its value shown with the paper's label."""
+    f = finding or {}
+    if kind not in ("ai_engineering_check", "web_standard_check") or clause_named or _clean_text(f.get("standard_clause")):
+        return False
+    return bool(_clean_text(f.get("contractor_section")))
+
+
+def _clean_text(value) -> str:
+    return " ".join(str(value or "").split())

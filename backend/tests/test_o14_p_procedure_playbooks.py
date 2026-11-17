@@ -450,13 +450,9 @@ def test_a_pressure_test_procedure_gets_engineer_rows_only_and_none_is_a_firm_ve
         assert r["engineer_confirmed"] is False and r["severity"] == ""
         assert r["priority"] == crs_mapping.PRIORITY_ENGINEER_TO_CHECK
         assert "compliant" not in r["comment"].lower()
-        assert "not been signed off" in r["comment"]
-        assert (
-            r["comment"].count(
-                "An engineer also confirms that each cited book governs this procedure."
-            )
-            == 1
-        )
+        # W-H6 (order 14): the notice is said once per sheet, never in each row; it travels with the row unprinted
+        assert "not been signed off" not in r["comment"]
+        assert r["playbook_notice"].count("An engineer also confirms that each cited book governs this procedure.") == 1
     states = {r["comment_key"]: (r["playbook_state"], r["comment"]) for r in mine}
 
     def state(eid):

@@ -10,6 +10,7 @@ from . import agent_review_not_applicable as not_applicable
 from . import (
     crs_comments,
     crs_completeness,
+    crs_editions,
     evidence_boxes,
     review_code_proposal,
     standards_web_search,
@@ -244,6 +245,15 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
     from .agent_review_rules import library_of
 
     conn = connect()
+    # W-H4: the section title each stored requirement of this run sits under in its book (for the reason's words)
+    ctx["req_sections"] = {
+        r[0]: r[1]
+        for r in conn.execute(
+            "SELECT r.id, c.section FROM review_findings f JOIN standard_requirements r ON r.id = f.requirement_id"
+            " LEFT JOIN chunks c ON c.id = r.chunk_id WHERE f.review_run_id = ?",
+            (run_id,),
+        )
+    }
     library = library_of(conn)
     everything = {r[0] for r in conn.execute("SELECT id FROM documents")} <= ctx["readable"]
     out = []
@@ -386,6 +396,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
+    points = crs_editions.names_without_unrecorded(points, crs_editions.verdicts(points))  # W-H10: the page says the edition as the file does
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)
@@ -454,12 +465,25 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     grouped = crs_comments.group(points)  # P2: the SAME function the CRS file uses, so the page and the file show the same comments
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
-    listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
+    listing["completeness"] = None  # W-H9: filled by `assemble` from the live check (`crs_completeness.current`), the one source
     facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
     return listing, points, {**facts, **online}
 
 
 def assemble(paper_id: str, scope) -> dict:
+    """The page's listing, with the completeness block from the SAME check the check route and the download run (W-H9)."""
+    got = _assemble(paper_id, scope)
+    listing = got[0]
+    try:
+        listing["completeness"] = crs_completeness.current(paper_id, scope, got)
+    except Exception as exc:  # noqa: BLE001 - logged by type; a check that cannot run never blocks the page, it says so
+        logging.getLogger(__name__).warning("review points: the count check could not run (%s)", type(exc).__name__)
+        listing["completeness_note"] = crs_completeness.COUNT_CHECK_NOT_RUN
+    return listing
+
+
+def assemble_unchecked(paper_id: str, scope) -> dict:
+    """The listing without the completeness check: only for finding a point before a decision is written (never served)."""
     return _assemble(paper_id, scope)[0]
 
 
@@ -493,8 +517,9 @@ def _found_during_review(conn, *run_ids) -> int:
     return len(books)
 
 
-def _unread_pages(run_id: str | None, scope) -> int | None:
-    """How many pages of the paper were not read, from the run's page record; None when it holds none (said, never 0)."""
+def _unread_pages(run_id: str | None, scope) -> list[int] | None:
+    """The pages of the paper not fully read, from the run's page record (`page_ledger.run_unread_pages`, the list every sheet
+    prints); None when it holds none (said, never 0)."""
     if not run_id:
         return None
     from . import comparison, page_ledger
@@ -509,7 +534,7 @@ def _unread_pages(run_id: str | None, scope) -> int | None:
         cov = outcome.get("page_coverage")
         if not cov or cov.get("pages_total") is None:
             return None
-        return len(page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome)))
+        return list(page_ledger.run_unread_pages(cov, page_ledger.run_reader(outcome)))
     except Exception as exc:
         logging.getLogger(__name__).warning(
             "review points: the page record is unreadable (%s)", type(exc).__name__

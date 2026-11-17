@@ -55,7 +55,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import agent_claude, claude_spend
+from . import agent_claude, claude_spend, crs_reference
 from . import standards_web_search_money as money
 from .config import settings
 from .db import connect
@@ -748,15 +748,15 @@ def after_run(run_id: str, heartbeat=None) -> None:
 
 
 def words(row: dict | None) -> str:
-    """The one plain sentence for one book, on the page and in the CRS file's column."""
+    """The one plain sentence for one book, on the page and in the CRS file's column; a found one says when it was searched (W-H10)."""
     if not row:
         return "not searched yet"
     hit, when = row.get("why") == STORED_WORDS, str(row.get("searched_at"))[:10]
     stored = f"; {STORED_WORDS}, searched on {when}" if hit else ""
     if row["outcome"] == FOUND:
-        bits = [row.get("title"), row.get("latest_edition"), f"({row['year']})" if row.get("year") else None, row.get("publisher"),
-                row.get("url")]  # fmt: skip
-        return "; ".join(b for b in bits if b) + f" ({NOT_VERIFIED})" + stored
+        bits = [row.get("title"), crs_reference.found_online_edition(row), row.get("publisher"), row.get("url")]  # fmt: skip
+        dated = "" if hit or not crs_reference.year_of(row.get("searched_at")) else f"; searched on {when}"  # fmt: skip
+        return "; ".join(b for b in bits if b) + f" ({NOT_VERIFIED}{dated})" + stored
     if row["outcome"] == NOTHING:
         return "searched online, nothing found on the publisher's site" + stored
     return f"{row['outcome']}: {row.get('why') or 'no reason recorded'}"

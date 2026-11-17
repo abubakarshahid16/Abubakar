@@ -108,6 +108,8 @@ class PointsListingOut(BaseModel):
     comments: list[dict[str, Any]] = []
     comment_count: int = 0
     completeness: dict[str, Any] | None = None
+    #: W-H9: the count check could not run for this page (said plainly; the page is never blocked by it)
+    completeness_note: str | None = None
     #: Owner's section (PR #1872): how many of the ticked lines were already confirmed (no second record was written)
     already_confirmed: int | None = None
 
@@ -327,7 +329,7 @@ def decide_point(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     _not_in_section(listing, body.point_id)
     _decide(listing, document_id, body, actor)
     return svc.assemble(document_id, scope)
@@ -348,7 +350,7 @@ def keep_points(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     for pid in body.point_ids:  # all-or-nothing on the ids: an unknown one refuses the whole click before anything is written
         _not_in_section(listing, pid)
     for pid in body.point_ids:
@@ -403,7 +405,7 @@ def confirm_not_applicable(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     already = 0
     for pid in body.point_ids:
         _to_confirm(listing, pid)
@@ -431,7 +433,7 @@ def undo_not_applicable(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     _to_confirm(listing, body.point_id)
     try:
         dec.undo(document_id, body.point_id, actor=actor)

@@ -334,7 +334,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
 
     for element in playbook.elements:
         held = held_cache.setdefault(element.standard, standard_held(element.standard, library))
-        found = _match(element, body)
+        found = _match(element, body, playbook.elements)
         entry = {"id": element.id, "title": element.title, "expects": element.expects,
                  "source": _source_out(element),
                  "standard_held": held, "state": None, "reason": None, "evidence": [],
@@ -709,9 +709,12 @@ def _near(evidence: dict) -> bool:
     return bool(evidence["own_section"] or evidence.get("near_section"))
 
 
-def own_section(element: Element, chunk: dict, near: bool = False) -> bool:
+def own_section(element: Element, chunk: dict, near: bool = False, others: tuple = ()) -> bool:
     """#1522: does the passage's NEAREST heading (its own section title, else the last
-    heading of its chain; never a parent or document title) hold a cue of the element?"""
+    heading of its chain; never a parent or document title) hold a cue of the element?
+    W-H6 (order 14): a heading whose ONLY words for this element are another element's subject (the first evidence group of
+    another of the playbook's elements, `others`) is that other element's section ("... Actions" is the recommendations'
+    section, not the worksheet's, though "action" is one of the worksheet's columns)."""
     chain = [p for p in re.split(r"\s*>\s*", chunk.get("context") or "") if p]
     nearest = (chunk.get("section") or "").strip() or (chain[-1] if chain else "")
     parent = ""
@@ -722,10 +725,22 @@ def own_section(element: Element, chunk: dict, near: bool = False) -> bool:
     titles = [re.sub(r"^[\d\s]+", "", _norm(h)) for h in (nearest, parent)]
     if any(_REFERENCE_HEADING.fullmatch(t) for t in titles):
         return False  # an entry of a definitions or contents list is not a section about the element
+    if _another_subject(element, nearest, others):
+        return False
     return section_index.title_hit(element, chunk, nearest, _hits, near=near)
 
 
-def _match(element: Element, body: list[dict]) -> dict:
+def _another_subject(element: Element, heading: str, elements: tuple) -> bool:
+    """W-H6: the heading names this element only by words that are another element's subject (the first evidence group of another
+    of the playbook's `elements`), and not by this element's own subject (its first evidence group)."""
+    others = [e.groups[0][1] for e in elements if e.id != element.id and e.groups]
+    if not others or not element.groups or _hits(element.groups[0][1], heading):
+        return False
+    spans = [m.group(0) for _label, phrases in element.groups[1:] for m in _hits(phrases, heading)]
+    return bool(spans) and all(any(_hits(o, span) for o in others) for span in spans)
+
+
+def _match(element: Element, body: list[dict], others: tuple = ()) -> dict:
     """Deterministic matching. PRESENT when one passage holds a cue of EVERY
     group (and a quote can be cut from its own text); UNCLEAR when cues are
     found but never all together; MISSING when none is found."""
@@ -751,9 +766,9 @@ def _match(element: Element, body: list[dict]) -> dict:
             "in_text": bool(in_text),
         }
         if own_only:
-            entry["own_section"] = own_section(element, chunk)
+            entry["own_section"] = own_section(element, chunk, others=others)
             if section_index.enabled():  # off: same report as before
-                entry["near_section"] = own_section(element, chunk, near=True)
+                entry["near_section"] = own_section(element, chunk, near=True, others=others)
             entry["ordinal"] = chunk.get("ordinal")  # the passage itself, not its page
             if "heading_guess" in chunk:
                 entry["heading_guess"] = chunk["heading_guess"]
