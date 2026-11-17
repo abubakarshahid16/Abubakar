@@ -72,8 +72,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "07",
         "a late settle closes a hold the sweep already settled (charged twice)",
         _S,
-        "            _append(entry)\n    return entry if done is None",
-        "            pass\n            _append(entry)\n    return entry if done is None",
+        ") is None:  # fmt: skip\n            _append(entry)\n",
+        ") is None or True:  # fmt: skip\n            _append(entry)\n",
         "never_closes_it_again and settle",
     ),
     _m(
