@@ -30,6 +30,10 @@ export function methodLine(info: MethodInfo | null): string | null {
   return info.method === "general" ? `Method: the general review. ${info.mark}.` : "Method: the earlier rule check and AI review.";
 }
 
+/** The one word a person sees for an older review (owner order, 18 Nov 2026): never mixed up with the general review. The same
+ *  words as the backend's `aim_review_gate.EARLIER_VERSION`. */
+export const EARLIER_VERSION = "Earlier version";
+
 export const ENGINE_LABELS: Record<EngineChoice, string> = { automatic: "Automatic", claude: "Claude", local: "Local only" };
 export const NEEDS_YES = "is a contract: Automatic keeps it on this computer, so choose Claude to send it to Claude";
 

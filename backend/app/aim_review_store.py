@@ -60,7 +60,7 @@ _SCHEMA = (
         field             TEXT,
         page              INTEGER,
         quote             TEXT,
-        quote_unverified  INTEGER,
+        quote_unverified  TEXT,
         comment           TEXT,
         standard          TEXT,
         book_document_id  TEXT,
@@ -89,6 +89,12 @@ _SCHEMA = (
         PRIMARY KEY (key, sha256)
     )""",
 )
+
+
+def _unverified_text(value) -> str:
+    """The words the model gave as a quote that code did NOT find on the page ("" when none). Kept as text so a person can see
+    what was claimed; the page and the file show it apart from `quote` and never as a quote (ASK A -> D, decided in the join)."""
+    return value if isinstance(value, str) else ""
 
 
 def ensure_schema(conn=None) -> None:
@@ -212,7 +218,7 @@ def _line_row(run_id: str, n: int, line: dict) -> tuple:
         line.get("field") or "",
         page if isinstance(page, int) and not isinstance(page, bool) else None,
         line.get("quote") or "",
-        1 if line.get("quote_unverified") else 0,
+        _unverified_text(line.get("quote_unverified")),
         line.get("comment") or "",
         line.get("standard") or "",
         line.get("book_document_id"),
@@ -324,7 +330,11 @@ def lines(conn, run_id: str) -> list[dict]:
         d = dict(r)
         d["numbers"] = _json_of(d.get("numbers_json"))
         d["code_compare"] = _json_of(d.get("code_compare_json"))
-        d["quote_unverified"] = bool(d.get("quote_unverified"))
+        d["quote_unverified"] = (
+            d.get("quote_unverified")
+            if isinstance(d.get("quote_unverified"), str)
+            else ""
+        )
         out.append(d)
     return out
 

@@ -6,6 +6,7 @@ import { downloadAgentCrs } from "../agent/downloadAgentCrs";
 import { OlderFileLine } from "../agent/OlderFileLine";
 import { downloadCrs } from "../downloadCrs";
 import { useOldCrsDownload } from "./usePoints";
+import { EARLIER_VERSION } from "./words";
 
 /** One review of the paper, from GET /api/reviews/papers/{id}/history (piece D). `points` is null where the run stores no count. */
 export type HistoryRun = {
@@ -20,8 +21,8 @@ export type HistoryRun = {
 };
 export type PaperHistory = { paper_document_id: string; boundary: string; runs: HistoryRun[] };
 
-/** The one word a person sees for an older review (owner order, 18 Nov 2026): never mixed up with the general review. */
-export const EARLIER_VERSION = "Earlier version";
+// The one word for an older review lives in words.ts (one home); re-exported for the callers that import it from here.
+export { EARLIER_VERSION };
 
 const isHistory = (b: unknown): boolean => typeof b === "object" && b !== null && Array.isArray((b as { runs?: unknown }).runs);
 

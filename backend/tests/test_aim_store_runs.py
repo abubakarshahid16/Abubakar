@@ -315,10 +315,10 @@ def test_numbers_and_code_compare_round_trip(temp_storage):
     got = store.lines(conn, run_id)[0]
     assert got["numbers"] == nums and got["code_compare"] == cmp_
     assert got["code_note"] == "code compared"
-    assert got["quote_unverified"] is False
+    assert got["quote_unverified"] == ""
 
 
-def test_quote_unverified_is_kept_as_a_flag(temp_storage):
+def test_quote_unverified_is_kept_as_its_text_apart_from_the_quote(temp_storage):
     run_id = _started()
     conn = db.connect()
     store.finish_run(
@@ -328,7 +328,7 @@ def test_quote_unverified_is_kept_as_a_flag(temp_storage):
         NOW,
     )
     got = store.lines(conn, run_id)[0]
-    assert got["quote_unverified"] is True and got["quote"] == ""
+    assert got["quote_unverified"] == "words not found" and got["quote"] == ""
 
 
 # ---- readers -----------------------------------------------------------------------------------------------------------------

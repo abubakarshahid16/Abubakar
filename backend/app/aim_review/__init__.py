@@ -106,7 +106,7 @@ def _fake_line(n: int, label: str, shown: str) -> dict:
         "field": f"invented field {n}",
         "page": n,
         "quote": "",
-        "quote_unverified": 0,
+        "quote_unverified": "",
         "comment": f"invented comment {n}",
         "standard": "",
         "book_document_id": None,
