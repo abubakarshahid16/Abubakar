@@ -242,8 +242,10 @@ def clause_words(line: Mapping) -> str:
         return f"clause {shown}"
     moved = " ".join(str(line.get(words.CLAUSE_UNCONFIRMED_KEY) or "").split())
     if moved:
+        from . import firm_clause  # merge round 19a: #1875 moved not_checked_words here; lazy to avoid a cycle
+
         return (
-            words.not_checked_words(line)
+            firm_clause.not_checked_words(line)
             or f"clause {moved} not confirmed by code: the rule's words are not in it"
         )
     return NO_CLAUSE

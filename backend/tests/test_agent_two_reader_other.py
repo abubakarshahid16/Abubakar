@@ -143,7 +143,8 @@ def test_a_verdict_by_the_second_reader_with_verified_quotes_is_a_disagreement_a
     )
     assert other_step(run_id)["disagreed"] == 1
     ev = rows_of(agent_review_jobs.run_dir(run_id) / "crs-internal.xlsx", "Evidence")
-    assert "met" in [r["Independent reader: verdict"] for r in ev]
+    # merge round 19a (#1878): an AI reader's "met" on the run file always carries its mark, never a plain "met"
+    assert "met (AI, engineer to confirm)" in [r["Independent reader: verdict"] for r in ev]
 
 
 @pytest.mark.parametrize(
