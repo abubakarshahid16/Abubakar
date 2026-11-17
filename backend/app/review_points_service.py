@@ -12,6 +12,7 @@ from . import (
     crs_completeness,
     evidence_boxes,
     review_code_proposal,
+    rule_subject_fit,
     standards_web_search,
 )
 from . import review as review_mod
@@ -384,6 +385,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
         decisions_mod.added_point(r, names.get(r["added_by"]) or r["added_by"])
         for r in decisions_mod.added(paper_id)
     ]
+    rule_subject_fit.to_confirm(conn, ai_pts + rc_pts, paper_id)  # LPV V1: a rule about what the paper lacks: the tick section
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
     decided_by_me = decisions_mod.latest(paper_id)

@@ -1,0 +1,158 @@
+{
+  "_about": [
+    "Order 14 LPV, V1 (owner, 17 Nov 2026; the lead's decision after review): a rule whose own subject is one of these things, on a paper that names none of its spellings on any page, is NOT dropped: its point moves to the section 'AI thinks these do not apply, tick to confirm' with the reason 'the paper names no <thing> on any page', and the engineer confirms. Read by app/rule_subject_fit.py.",
+    "Each entry is a construction, a material class, a part or an equipment kind that only SOME equipment has, with its spellings (synonyms included). A spelling must name the thing itself, never a property or a field ('design life', 'pressure').",
+    "A rule that REQUIRES the thing ('... shall be provided', the thing named after the verb) never moves: a missing required part is a finding. A negation near the thing, or a subject joining another group, keeps the rule as it is.",
+    "Generic: no standard, clause, document or layout is named. Engineer-editable data: add a line or a spelling, no code change.",
+    "`paper_words`: wider spellings that, found anywhere on the paper (case, punctuation and spaces ignored: 'G.R.P.', 'FIREWATER'), KEEP the rule as it is; a paper that names the thing never loses the rule."
+  ],
+  "things": [
+    {
+      "name": "acrylic",
+      "words": [
+        "acrylic",
+        "acrylics",
+        "polymethyl methacrylate",
+        "pmma",
+        "perspex",
+        "plexiglas",
+        "plexiglass"
+      ],
+      "paper_words": [
+        "polymethyl",
+        "plexi"
+      ]
+    },
+    {
+      "name": "a viewport or sight glass",
+      "words": [
+        "viewport",
+        "viewports",
+        "view port",
+        "view ports",
+        "sight glass",
+        "sight glasses",
+        "sightglass",
+        "sightglasses",
+        "gauge glass",
+        "gauge glasses",
+        "viewing window",
+        "viewing windows"
+      ],
+      "paper_words": [
+        "glass",
+        "viewport",
+        "view port",
+        "window"
+      ]
+    },
+    {
+      "name": "a glass lining",
+      "words": [
+        "glass lined",
+        "glass lining",
+        "glass linings",
+        "glass-lined"
+      ],
+      "paper_words": [
+        "glass"
+      ]
+    },
+    {
+      "name": "fibre-reinforced plastic",
+      "words": [
+        "fiber reinforced plastic",
+        "fibre reinforced plastic",
+        "glass reinforced plastic",
+        "glass reinforced epoxy",
+        "frp",
+        "grp",
+        "gre",
+        "fiberglass",
+        "fibreglass"
+      ],
+      "paper_words": [
+        "composite",
+        "reinforced plastic",
+        "fibreglass",
+        "fiberglass",
+        "epoxy"
+      ]
+    },
+    {
+      "name": "a fire-water pump",
+      "words": [
+        "firewater pump",
+        "firewater pumps",
+        "fire water pump",
+        "fire water pumps",
+        "fire pump",
+        "fire pumps",
+        "fire fighting pump",
+        "fire fighting pumps",
+        "fire-fighting pump",
+        "fire-fighting pumps"
+      ],
+      "paper_words": [
+        "firewater",
+        "fire water",
+        "fire fighting",
+        "firefighting",
+        "fire pump",
+        "fire service"
+      ]
+    },
+    {
+      "name": "impregnated graphite",
+      "words": [
+        "impregnated graphite"
+      ],
+      "paper_words": [
+        "graphite"
+      ]
+    },
+    {
+      "name": "cast iron",
+      "words": [
+        "cast iron",
+        "ductile iron",
+        "cast irons"
+      ],
+      "paper_words": [
+        "cast iron",
+        "ductile"
+      ]
+    },
+    {
+      "name": "titanium",
+      "words": [
+        "titanium"
+      ],
+      "paper_words": [
+        "titanium",
+        "uns r5"
+      ]
+    },
+    {
+      "name": "aluminium",
+      "words": [
+        "aluminum",
+        "aluminium"
+      ],
+      "paper_words": [
+        "alumin"
+      ]
+    },
+    {
+      "name": "a layered construction",
+      "words": [
+        "layered vessel",
+        "layered vessels",
+        "layered construction"
+      ],
+      "paper_words": [
+        "layered"
+      ]
+    }
+  ]
+}
