@@ -35,7 +35,12 @@ from openpyxl import Workbook
 from . import crs_ai_words as words
 from . import crs_comments as comments
 from . import crs_completeness as completeness
-from . import crs_export_quality, crs_layout, standards_web_search
+from . import (
+    crs_export_quality,
+    crs_layout,
+    standards_web_search,
+    standards_web_search_money,
+)
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from . import review_points_content as content
@@ -292,6 +297,7 @@ def _run_facts(extra: dict) -> list[dict]:
             "engine": "Claude" if any(str(m).startswith("claude") for m in models) else ("Local" if models else NOT_RECORDED),
             "models": models, "date": (r["finished_at"] or r["started_at"]) if r else None,
             "kind": r["paper_kind"] if r else None, "equipment": r["equipment_type"] if r else None, "usd": r["usd"] if r else None,
+            "search_in_cost": bool(r) and standards_web_search_money.included(r["counts_json"]),
         })  # fmt: skip
     return out
 
@@ -581,7 +587,8 @@ def _how_rows(extra: dict, scope) -> list[list]:
         ]
     )
     if (online := standards_web_search.cost_of(extra.get("found_online"))) is not None:
-        rows.append([standards_web_search.COST_ROW, online])
+        inside = any(r.get("search_in_cost") for r in _run_facts(extra))
+        rows.append([standards_web_search_money.COST_ROW_INCLUDED if inside else standards_web_search.COST_ROW, online])
     for r in _run_facts(extra):
         rows.append([f"{r['what']}: run id", r["run"]])
     return rows
