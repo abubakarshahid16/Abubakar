@@ -312,7 +312,12 @@ def test_snapshot_keeps_counts_and_reasons_only():
     assert paper["points_per_tile"]["does_not_apply"] is None
     assert paper["crs_check"]["team"]["rows_in_file"] == 3
     assert "SECRET" not in json.dumps(paper)
-    assert paper["errors"] == ["GET /api/reviews/runs/ai-1: HTTP 404"]
+    # the history route (general review, 18 Nov) does not exist on an app before that update: its 404 is kept, never hidden
+    assert paper["errors"] == [
+        "GET /api/reviews/runs/ai-1: HTTP 404",
+        "GET /api/reviews/papers/doc-x/history: HTTP 404",
+    ]
+    assert paper["history"] is None
 
 
 def test_snapshot_of_an_unreadable_paper_is_null_never_zero():
@@ -338,3 +343,148 @@ def test_papers_take_a_label_or_a_bare_id():
     }
     with pytest.raises(ValueError):
         gate.parse_papers(["PUMP=doc-1", "PUMP=doc-3"])
+
+
+# ------------------------------------------------------------------ history (check 5 of the general-review update)
+
+
+def _old(
+    rules=100,
+    comments=40,
+    points=200,
+    runs=("rc-old-1", "ai-old-1"),
+    crs=None,
+    history="listed",
+):
+    paper = _paper(rules, comments, points, runs)
+    paper["crs_check"] = crs or {
+        "team": {"ok": True, "page": points, "rows_in_file": points},
+        "contractor": {"ok": True, "page": points, "rows_in_file": 0},
+    }
+    if history == "listed":
+        paper["history"] = [
+            {
+                "run_id": r,
+                "version": "earlier version",
+                "part": "rule check",
+                "points": points,
+            }
+            for r in runs
+        ]
+    else:
+        paper["history"] = history
+    return paper
+
+
+def _history(tmp_path, live, rehearsal, accept=()):
+    argv = [
+        "history",
+        "--live",
+        _snap(tmp_path / "live.json", PUMP=live),
+        "--rehearsal",
+        _snap(tmp_path / "reh.json", PUMP=rehearsal),
+    ]
+    for a in accept:
+        argv += ["--accept", a]
+    return gate.main(argv)
+
+
+def test_history_passes_when_every_old_review_is_unchanged(tmp_path, capsys):
+    assert _history(tmp_path, _old(history=None), _old()) == 0
+    assert "HISTORY: PASS" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("metric", ["rules", "comments", "points"])
+def test_history_refuses_a_count_that_differs_by_one(tmp_path, capsys, metric):
+    changed = {
+        "rules": (101, 40, 200),
+        "comments": (100, 39, 200),
+        "points": (100, 40, 201),
+    }[metric]
+    assert _history(tmp_path, _old(), _old(*changed)) == 1
+    assert "changed:" in capsys.readouterr().out
+
+
+def test_history_refuses_a_crs_file_with_one_row_less(tmp_path, capsys):
+    crs = {
+        "team": {"page": 200, "rows_in_file": 199},
+        "contractor": {"page": 200, "rows_in_file": 0},
+    }
+    assert _history(tmp_path, _old(), _old(crs=crs)) == 1
+    assert "team rows_in_file 200 -> 199" in capsys.readouterr().out
+
+
+def test_history_refuses_a_re_reviewed_paper(tmp_path, capsys):
+    assert _history(tmp_path, _old(), _old(runs=("rc-new-1", "ai-old-1"))) == 1
+    assert "another run for rule_check" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "history,words",
+    [
+        (None, "history route could not be read"),
+        (
+            [{"run_id": "rc-old-1", "version": "earlier version"}],
+            "ai_review not listed",
+        ),
+        (
+            [
+                {"run_id": "rc-old-1", "version": "general"},
+                {"run_id": "ai-old-1", "version": "earlier version"},
+            ],
+            "rule_check listed as 'general'",
+        ),
+    ],
+)
+def test_history_refuses_an_old_run_not_listed_as_earlier_version(
+    tmp_path, capsys, history, words
+):
+    assert _history(tmp_path, _old(), _old(history=history)) == 1
+    assert words in capsys.readouterr().out
+
+
+def test_history_zero_on_both_sides_and_missing_are_not_a_pass(tmp_path, capsys):
+    assert _history(tmp_path, _old(rules=0), _old(rules=0)) == 1
+    assert "0 on both sides" in capsys.readouterr().out
+    assert _history(tmp_path, _old(rules=None), _old(rules=None)) == 1
+    assert "NOT MEASURED" in capsys.readouterr().out
+
+
+def test_history_accept_names_one_row_with_its_reason(tmp_path, capsys):
+    rc = _history(
+        tmp_path,
+        _old(rules=0),
+        _old(rules=0),
+        accept=("PUMP:rules_asked:a general review asks no rules",),
+    )
+    out = capsys.readouterr().out
+    assert rc == 0 and "ACCEPTED" in out and "asks no rules" in out
+
+
+def test_snapshot_keeps_the_history_routes_ids_and_words_only():
+    routes = {
+        "/api/reviews/papers/doc-h/history": {
+            "runs": [
+                {
+                    "run_id": "rc-9",
+                    "version": "earlier version",
+                    "part": "rule check",
+                    "status": "completed",
+                    "points": 12,
+                    "files": [{"label": "SECRET-FILE-NAME", "url": "/x"}],
+                }
+            ]
+        }
+    }
+    paper = gate.snapshot_paper(_FakeClient(routes), "doc-h")
+    assert paper["history"] == [
+        {
+            "run_id": "rc-9",
+            "version": "earlier version",
+            "part": "rule check",
+            "status": "completed",
+            "points": 12,
+            "files": 1,
+        }
+    ]
+    assert "SECRET" not in json.dumps(paper)
