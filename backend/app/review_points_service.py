@@ -641,12 +641,16 @@ def decided_ai_sheet(
     # the same bytes every time, and one viewer's file is never another's (what is hidden is part of its name)
     import json
 
-    said = json.dumps([kept, meta, copy, hidden], sort_keys=True, default=str)
+    said = json.dumps(
+        [crs_ai_viewer.code_version(), kept, meta, copy, hidden],
+        sort_keys=True,
+        default=str,
+    )
     digest = hashlib.sha256(said.encode()).hexdigest()[:24]
     path = folder / f"crs-{copy}-drawn-{digest}{'-viewer' if hidden else ''}.xlsx"
-    if not path.is_file():
+    if not path.is_file():  # the app's code is in the key: a live update draws again, never serves an older drawing
         view = crs_ai_viewer.view_for(kept, meta, copy, hidden_rule)
-        path.write_bytes(crs_layout.build_layout_crs(view))
+        crs_ai_viewer.write_atomic(path, crs_layout.build_layout_crs(view))
     return path
 
 

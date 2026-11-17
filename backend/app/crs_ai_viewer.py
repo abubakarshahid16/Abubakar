@@ -13,7 +13,10 @@ every viewer, never the book's words for him.
 
 from __future__ import annotations
 
+import functools
+import hashlib
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
 HIDDEN_RULE = (
     "the rule for this line comes from a rule book that is not available to you"
@@ -267,3 +270,29 @@ def _main_row(
         + f"\nAlso: {len(away)} more line(s) of this comment: {HIDDEN_RULE}."
     )
     return [*row[:3], wb.comment_cell(text), *row[4:]][: 9 if contractor else None]
+
+
+@functools.lru_cache(maxsize=1)
+def code_version() -> str:
+    """The app's own code, as a digest of every module's source (read once per process): part of the key of a drawn file, so a live
+    update (any change to the code that draws or words a sheet) draws the file again instead of serving an older drawing."""
+    root = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        digest.update(str(path.relative_to(root)).encode() + b"\0" + path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    """Write a file whole or not at all: a temp file beside it, then one rename (a reader never sees half a file)."""
+    import os
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        Path(tmp).replace(path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise

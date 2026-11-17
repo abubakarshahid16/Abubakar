@@ -62,7 +62,7 @@ export function BookTable({ table }: { table: AgentBookTable }) {
       {table.note != null && <p data-testid="book-table-note" className="text-sm text-slateish-300">{table.note}</p>}
       <p className="text-sm text-slateish-100" data-testid="book-table-count">
         {inBooks.length} book{inBooks.length === 1 ? "" : "s"} were candidates; {outBooks.length} were considered and not included.
-        {table.hidden_books > 0 && <> {table.hidden_books} more book{table.hidden_books === 1 ? "" : "s"} of this review {table.hidden_books === 1 ? "is" : "are"} not listed because you may not read {table.hidden_books === 1 ? "it" : "them"}.</>}
+        {table.hidden_books > 0 && <> {table.hidden_books} more book{table.hidden_books === 1 ? "" : "s"} of this review {table.hidden_books === 1 ? "is" : "are"} not listed because {table.hidden_books === 1 ? "it is" : "they are"} not available to you.</>}
       </p>
       {inBooks.length > 0 && (
         <div className="overflow-x-auto">

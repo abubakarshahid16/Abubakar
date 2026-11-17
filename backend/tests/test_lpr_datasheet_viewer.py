@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
@@ -105,6 +106,18 @@ def statuses(data: bytes) -> list:
     ]
 
 
+def cells(data: bytes) -> list[tuple]:
+    """Every filled cell of a workbook as (sheet, row, column, value): what two files must share to be "the same sheet"."""
+    wb = load_workbook(io.BytesIO(data))
+    return [
+        (ws.title, c.row, c.column, c.value)
+        for ws in wb.worksheets
+        for row in ws.iter_rows()
+        for c in row
+        if c.value is not None
+    ]
+
+
 def leaked(text: str) -> list[str]:
     return [s for s in SECRETS if s in text]
 
@@ -124,9 +137,9 @@ def test_the_run_file_shows_a_restricted_viewer_no_rule_words_and_the_same_split
         hidden.content
     ) == statuses(shown)  # the same split, order, Status
     stored = (agent_review_jobs.run_dir(ai) / "crs-internal.xlsx").read_bytes()
-    assert sheet_text(shown) == sheet_text(
+    assert cells(shown) == cells(
         stored
-    )  # the reader of the book: every cell as main gives it
+    )  # the reader of the book: every cell (sheet, row, column, value) as main gives it
 
 
 def test_the_lines_tab_and_the_trace_show_a_restricted_viewer_no_rule_words():
@@ -327,9 +340,9 @@ def test_a_reader_of_every_book_gets_layout_view_untouched_on_a_decided_run():
     from app import crs_layout
 
     want = crs_layout.build_layout_crs(want)
-    assert sheet_text(got) == sheet_text(want) and sheets(got) == sheets(
+    assert cells(got) == cells(
         want
-    )  # main's own drawing, every cell
+    )  # main's own drawing: every cell (sheet, row, column, value)
     assert HIDDEN not in sheet_text(got) and "3 rules not asked" in sheet_text(got)
 
 
@@ -416,3 +429,90 @@ def test_a_line_whose_only_book_id_is_a_deleted_book_is_hidden_from_every_viewer
     assert gone not in sheet_text(drawn.read_bytes()) and BOOK in sheet_text(
         drawn.read_bytes()
     )
+
+
+# ------------------------------------------------------------------------------------------------ the drawn file's key (last check)
+def drawn(readable: frozenset[str]) -> Path:
+    from app import review_points_service as svc
+
+    return svc.decided_ai_sheet(
+        DOC[1], DOC[0], "internal", agent_review_jobs.run_dir(DOC[1]), readable
+    )
+
+
+def with_run() -> str:
+    ai = setup_world()
+    DOC[:] = [DOC[0], ai]
+    return ai
+
+
+def test_a_changed_drawing_code_draws_a_new_file(monkeypatch):
+    with_run()
+    before = drawn(frozenset({DOC[0], BOOK_DOC}))
+    monkeypatch.setattr(crs_ai_viewer, "code_version", lambda: "a-live-update")
+    after = drawn(frozenset({DOC[0], BOOK_DOC}))
+    assert (
+        after != before and after.is_file()
+    )  # never the older drawing after an update
+
+
+def test_a_decision_draws_a_new_file_with_it():
+    ai = with_run()
+    before = drawn(frozenset({DOC[0], BOOK_DOC}))
+    pid = next(
+        p["id"]
+        for p in full().get(f"/api/reviews/papers/{DOC[0]}/points").json()["points"]
+        if p["id"].endswith(":R-8")
+    )
+    said = "Engineer wording after the first download"
+    assert (
+        full()
+        .post(
+            f"/api/reviews/papers/{DOC[0]}/points/decision",
+            json={"point_id": pid, "state": "edit", "text": said},
+        )
+        .status_code
+        == 200
+    )
+    after = drawn(frozenset({DOC[0], BOOK_DOC}))
+    assert after != before and said in sheet_text(after.read_bytes())
+    assert said in sheet_text(
+        full().get(f"/api/reviews/runs/{ai}/agent/crs?copy=internal").content
+    )
+
+
+def test_two_viewers_with_different_hidden_lines_get_different_files():
+    ai = with_run()
+    _submittal("doc_std2", "STD-B-002.pdf")
+    line = mk("R-70", "Query", None, why="x y", standard="STD-2X")
+    agent_review_jobs.store_line(ai, line, None)
+    with db.connect() as conn:
+        conn.execute("INSERT OR IGNORE INTO agent_review_rule (run_id, rule_key, asked, rule_book, clause, standard_document_id)"
+                     " VALUES (?, 'R-70', 1, 'STD-2X', '1.1', 'doc_std2')", (ai,))  # fmt: skip
+    a, b = drawn(frozenset({DOC[0], BOOK_DOC})), drawn(frozenset({DOC[0], "doc_std2"}))
+    assert a != b
+    assert "STD-2X" not in sheet_text(a.read_bytes()) and BOOK in sheet_text(
+        a.read_bytes()
+    )
+    assert BOOK not in sheet_text(b.read_bytes()) and "STD-2X" in sheet_text(
+        b.read_bytes()
+    )
+
+
+def test_a_changed_meta_draws_a_new_file():
+    with_run()
+    before = drawn(frozenset({DOC[0], BOOK_DOC}))
+    folder = agent_review_jobs.run_dir(DOC[1])
+    (folder / "crs-meta.json").write_text(
+        json.dumps({"paper": DOC[0], "run_id": DOC[1], "date": "2026-11-18"})
+    )
+    assert drawn(frozenset({DOC[0], BOOK_DOC})) != before
+
+
+def test_a_file_is_written_whole_or_not_at_all(tmp_path):
+    folder = tmp_path / "drawn"
+    folder.mkdir()
+    target = folder / "x.xlsx"
+    crs_ai_viewer.write_atomic(target, b"whole")
+    assert target.read_bytes() == b"whole"
+    assert [p.name for p in folder.iterdir()] == ["x.xlsx"]  # no temp file left

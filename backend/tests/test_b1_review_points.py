@@ -535,7 +535,9 @@ def test_with_nothing_decided_the_stored_ai_sheet_is_served_as_it_was_written():
     # the stored file holds (its cells; the file's own save time is not a cell), and the same download gives the same bytes
     url = f"/api/reviews/runs/{ai}/agent/crs"
     got = client.get(url, params={"copy": "internal"}).content
-    assert sheet_text(got) == sheet_text(stored)
+    from tests.test_lpr_datasheet_viewer import cells
+
+    assert cells(got) == cells(stored)  # every cell: sheet, row, column, value
     assert client.get(url, params={"copy": "internal"}).content == got
 
 

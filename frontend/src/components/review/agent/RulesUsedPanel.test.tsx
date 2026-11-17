@@ -292,7 +292,7 @@ describe("BookTable", () => {
   });
   it("says how many books are not listed because the person may not read them, without naming any", () => {
     render(<RulesUsedView data={data({ book_table: table })} />);
-    expect(screen.getByTestId("book-table-count")).toHaveTextContent("2 more books of this review are not listed because you may not read them.");
+    expect(screen.getByTestId("book-table-count")).toHaveTextContent("2 more books of this review are not listed because they are not available to you.");
   });
   it("a missing count renders as nothing, never 0, and no table at all renders no section", () => {
     const t = { ...table, books: [{ ...table.books[0], stored_rules: null }], hidden_books: 0 };
