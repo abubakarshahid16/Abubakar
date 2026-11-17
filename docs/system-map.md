@@ -463,6 +463,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_leaving` | The documents a Claude review of one paper may send, worked out before the start for the caller's access (paper, cited rule books, cited specifications, chosen project papers) and what will not go, with reasons |
 | `review_cost` | The cost lines of the Review plan: a paper's last measured AI review cost and the upper bound per part and in total (moved out of `review_engine`) |
 | `aim_review_gate` | Which review method the ONE Review button runs (`REVIEW_OLD_ENGINE_ENABLED`, the one way back; default: the general review), the general review's run meter and models, and its fixed sentences (order 14) |
+| `aim_review_completeness` | The hard completeness rule for the general review file: page = database = rows on "All points", comments = rows on "Comments", the mark on every sheet, the cut-mark check; refuses a download (409) that differs; stores its result with the run (order 14) |
+| `aim_review_sheet` | The general review file (Summary, Comments, All points, How it was reviewed), team copy only, every sheet marked "AI, to be checked" (order 14) |
+| `aim_review_view` | The general review results page JSON, one assembly of a stored run that the page, the file and the check all read (order 14) |
 | `aim_review_store` | The general review's storage: its runs, lines and saved checklists (`aim_runs`, `aim_lines`, `aim_checklists`), and `exclude`, which keeps a general run out of every old reader of `review_runs` (order 14) |
 | `aim_review_history` | A paper's review history, general and earlier, newest first (read only; earlier runs keep their own download routes; a paper outside the caller's scope has none) (order 14) |
 | `review_shown` | The list a review run was started with (the documents the screen showed would leave): a cited specification that is not the paper is sent only if the run's stored list names it; ids only |
