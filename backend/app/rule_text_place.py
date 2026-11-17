@@ -137,6 +137,8 @@ def place_of_requirement(conn, requirement_id) -> str | None:
     ).fetchone()
     if r is None:
         return None
+    if any(is_requirement_text(x) for x in (r["source_text"], r["requirement_text"])):
+        return None  # every stored text of the rule is read: a requirement word in any of them and it is a requirement
     return not_a_requirement(
         r["source_text"] or r["requirement_text"],
         chunk=(r["kind"], r["section"], r["context"]),

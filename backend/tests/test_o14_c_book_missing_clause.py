@@ -73,20 +73,14 @@ def test_the_built_team_file_names_the_clause_in_every_book_missing_row():
         r = mine[0]
         assert r["Reason"] == words and str(r["What the contractor must do"]).startswith(words + ".")
         assert r["Rule book"] == words  # it cites a book: never "no rule book cited"
-    # W-D6 (order 14, 17 Nov 2026): a book-missing point that carries no finding is NOT a comment: it stands on the sheet "Not a
-    # comment" (its rule-books cell names the book and the clause there) and is counted with the books not held. Its own record decides
-    # first (lead, review of PR #1889): the engineering check's point (BOOK-77) is an ask to the contractor, so it stays a comment.
+    # Order 14 (lead, last review of PR #1889): each of these three records holds an ask or a code concern (an engineering check, a
+    # "not compliant" finding, a playbook check), so each stays a comment whatever the state of its book
     comments = [list(r) for r in wb[crs_one.TEAM_SHEET].iter_rows(values_only=True)]
     ci = next(i for i, r in enumerate(comments) if r and r[0] == "Comment")
     col = comments[ci].index("Rule books and clauses")
     cells = [str(r[col]) for r in comments[ci + 1 :] if r and r[0] is not None]
-    assert want["BOOK-77"] in cells and not any(want[b] in c for b in ("BOOK-79", "BOOK-80") for c in cells)
-    aside = [list(r) for r in wb[crs_one.NOT_A_COMMENT_SHEET].iter_rows(values_only=True)]
-    ai = next(i for i, r in enumerate(aside) if r and r[0] == "Field or item")
-    acol = aside[ai].index("Rule books and clauses")
-    aside_cells = [str(r[acol]) for r in aside[ai + 1 :] if r and r[0] is not None]
-    for book in ("BOOK-79", "BOOK-80"):
-        assert want[book] in aside_cells
+    for words in want.values():
+        assert words in cells
     assert content.NO_RULE_CITED not in cells  # every comment of this file cites a book (held, or missing and said so)
     from app import crs_completeness
 

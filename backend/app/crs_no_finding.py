@@ -35,17 +35,17 @@ KIND_NO_RULE_TEXT = "Not checked: no rule text was given to the reader"
 KIND_NOT_A_REQUIREMENT = (
     "Not a requirement: the rule's text is a contents or reference-list entry"
 )
-KIND_FORM_NOT_HELD = "Form not held: checked against the field list only"
+KIND_FORM_NOT_HELD = "Form not held: checked against the field list only"  # a comment's action, never a set-apart kind
+KIND_AI_THINKS_MET = (
+    "AI thinks met, engineer to confirm"  # one reader's view, labelled AI
+)
 KINDS = (
     KIND_BOOK_NOT_HELD,
     KIND_NO_RULE_TEXT,
-    KIND_NOT_A_REQUIREMENT,
-    KIND_FORM_NOT_HELD,
+    KIND_AI_THINKS_MET,
 )
 
-NOT_A_REQUIREMENT_ACTION = (
-    "Nothing to ask: the rule's text is {place} in its rule book, not a requirement."
-)
+NOT_A_REQUIREMENT_NOTE = "(The rule's text is {place} in its rule book, not a requirement: an engineer decides whether anything is asked.)"
 FORM_NOT_HELD_ACTION = (
     "Form not held: the rule names form {forms}; this paper is not on it and no document you may read holds it, so the paper was "
     "checked against the equipment's field list only. Whether that form is required is a project-basis question for the engineer."
@@ -61,6 +61,23 @@ OWN_ASK_BOOK = "{ask} ({missing}: not checked against it.)"
 #: values, and the rule check's engineering-check kind (its own record is an ask addressed to the contractor).
 _OPEN_STATUS = frozenset({"MISSING_INFORMATION"})
 _OPEN_KINDS = frozenset({"ai_engineering_check"})
+#: Rule-check kinds whose record is itself an ask (to the contractor or the engineer): never set apart.
+_ASK_KINDS = frozenset(
+    {
+        "ai_engineering_check",
+        "standard_not_cited",
+        "missing_information",
+        "datasheet_check",
+        "playbook_check",
+        "safety_tick",
+        "engineer_comment",
+        "needs_engineer_review",
+    }
+)
+#: AI reason codes that are a concern about the paper (a value absent, silent, deferred, not met).
+_CONCERN_CODES = frozenset(
+    {"not_met", "absent", "sheet_silent", "value_deferred", "not_stated"}
+)
 #: The AI line sources that ask a rule of a book ("rule") or an item of a checklist ("skill"); a coverage line is "group".
 ASKED = ("rule", "skill")
 _SENTENCE = re.compile(r"(?<=[.;])[\"\u201d\u2019)]?\s+(?=[A-Z(\"\u201c])")
@@ -103,7 +120,6 @@ def no_rule_text(point: dict) -> bool:
     # only a line that ASKED a rule or a checklist item (a general review's note asks none: it never had rule text to be given)
     if (
         point.get("source") != rp.SOURCE_AI_REVIEW
-        or point.get("rank") != 4
         or line.get("source") not in ASKED
         or line.get("general")
     ):
@@ -131,27 +147,78 @@ def open_request(point: dict) -> bool:
     )
 
 
+def record_asks(point: dict) -> bool:
+    """Does a RULE-CHECK point's own record hold an ask or a code concern? Any stored status, any required action, any open request, or
+    a kind that is itself an ask (a check that needs no book, a standard not cited, an engineering check)."""
+    f, row = point.get("_finding") or {}, point.get("_row") or {}
+    return bool(
+        open_request(point)
+        or _clean(f.get("compliance_status"))
+        or _clean(f.get("reason_code")).upper() not in ("", "COMPLIANT", "NOT_APPLICABLE")
+        or _clean(f.get("required_action"))
+        or row.get("row_kind") in _ASK_KINDS
+        or f.get("origin") == "datasheet_check"
+    )
+
+
+def ai_concern(line: dict) -> bool:
+    """Does an AI line hold a concern or an ask? Its reader said Fail or not met, the value is absent, silent or deferred, or it wrote ANY
+    words to the contractor on a line it did not judge met (the reader's own words are never read for "no action": an ask hidden is worse
+    than a line of noise)."""
+    codes = {str(line.get("reason_code") or ""), str(line.get("reason_code_ai") or "")}
+    met = line.get("ai_verdict") == "Pass" or "met" in codes
+    return bool(line.get("ai_verdict") == "Fail" or codes & _CONCERN_CODES or (_clean(line.get("comment")) and not met))
+
+
 def kind_of(point: dict) -> str | None:
-    """What a point that carries NO finding of its own is called (one of `KINDS`, or a "does not apply" point's own kind); None for a
-    point that carries a finding. A firm verdict (not met), a met point and an engineer's own point are never set apart here (a met
-    point is set apart by its field, `crs_comments`)."""
-    if _decided_finding(point):
+    """THE CLOSED ALLOW-LIST (lead, last review of PR #1889): what a point that carries nothing to ask is called, or None (it stays a
+    comment). Only: (a) a book-missing rule-check point whose own record holds no ask and no code concern; (b) an AI line given no rule
+    text that holds no ask or concern; (f) a "does not apply / not reviewed / rule not yet approved" point with no AI concern. Coverage
+    notes are keyed apart (`crs_comments.key_of`); met points are named by `met_kind` on their field. Everything else stays a comment:
+    any AI Fail, not met or absent (rule approved or not), any ask in the record, any check that needs no book."""
+    from . import review_points as rp
+
+    if _decided_finding(point) or point.get("rank") in (1, 2, 3):
+        return None
+    line = _line(point)
+    if line and (line.get("general") or ai_concern(line)):
         return None
     if point.get("tile") == "does_not_apply":
-        return point.get("other_kind") or words.KIND_NOT_APPLICABLE
-    if point.get("rank") not in (3, 4) or open_request(
-        point
-    ):  # the point's own record decides FIRST
+        return (
+            None
+            if point.get("source") == rp.SOURCE_RULE_CHECK
+            and record_asks(point)
+            and not line
+            else (point.get("other_kind") or words.KIND_NOT_APPLICABLE)
+        )
+    if point.get("rank") != 4:
         return None
-    if point.get("_book_missing"):
+    if (
+        point.get("_book_missing")
+        and point.get("source") == rp.SOURCE_RULE_CHECK
+        and not record_asks(point)
+    ):
         return KIND_BOOK_NOT_HELD
-    if point.get("_not_a_requirement"):
-        return KIND_NOT_A_REQUIREMENT
-    if point.get("_form_not_held"):
-        return KIND_FORM_NOT_HELD
-    if point.get("rank") == 4 and no_rule_text(point):
+    if no_rule_text(point):
         return KIND_NO_RULE_TEXT
     return None
+
+
+def met_kind(point: dict, tick_only: bool, guard_objected: bool) -> str:
+    """What a met point is called apart from a comment: proven by code, or two readers whose quotes code verified, is "checked, nothing
+    to change"; a one-reader AI "met" (or two readers without verified quotes) is the AI's view, labelled so; a met code could not
+    confirm, or one the pass guard objected to, is the engineer's to tick."""
+    if tick_only or guard_objected:
+        return words.KIND_MET_NOT_CONFIRMED
+    checks = _line(point).get("quotes_checked")
+    verified = (
+        isinstance(checks, dict)
+        and checks.get("paper") is True
+        and checks.get("clause") is True
+    )
+    if point.get("rank") == 7 or (point.get("rank") == 6 and verified):
+        return words.KIND_NOTHING_TO_CHANGE
+    return KIND_AI_THINKS_MET
 
 
 # ------------------------------------------------------------------------------------------------ the database's two flags
@@ -184,16 +251,26 @@ def _book_page(line: dict):
 
 
 def place_of(conn, point: dict) -> str | None:
-    """W-D7: the point's rule text is a contents entry or a reference-list entry (`rule_text_place.not_a_requirement`), or None."""
+    """W-D7: the point's rule text is a contents entry or a reference-list entry (`rule_text_place`), or None. EVERY text of the point
+    is read (the book's quote AND the stored requirement): a requirement word in any of them and it is a requirement."""
     texts = _rule_texts(point)
-    if not texts:
+    if not texts or any(rule_text_place.is_requirement_text(t) for t in texts):
         return None
     line, f = _line(point), point.get("_finding") or {}
     if not line and f.get("requirement_id"):
         return rule_text_place.place_of_requirement(conn, f["requirement_id"])
     book = line.get("standard_document_id") or point.get("_book_doc")
-    return rule_text_place.not_a_requirement(
-        texts[0], conn=conn, book_id=book, page=_book_page(line)
+    return next(
+        (
+            pl
+            for t in texts
+            if (
+                pl := rule_text_place.not_a_requirement(
+                    t, conn=conn, book_id=book, page=_book_page(line)
+                )
+            )
+        ),
+        None,
     )
 
 
@@ -272,27 +349,28 @@ def _own_ask(point: dict) -> None:
         point["action_source"] = source
 
 
+def _note(point: dict, words_: str) -> None:
+    point["action"] = f"{_clean(point.get('action'))} {words_}".strip()
+
+
 def mark(conn, points: list[dict], paper_id, readable=frozenset()) -> None:
-    """Set `_not_a_requirement` and `_form_not_held` on the points the database shows to be such, and give them their honest action
-    words; a book-missing point whose own record is an open request says its own ask. `readable`: the documents the caller may read
+    """The database's facts about a point's rule, said on its row and never hiding it (every such point stays a comment): a book-missing
+    point whose own record is an open request says its own ask first; a rule whose text is a contents or reference-list entry is noted;
+    a FORM-ONLY rule naming a form the paper is not on and no readable document holds says "Form not held" instead of asserting a
+    mismatch, and a rule that also asks something else keeps its ask with the form noted. `readable`: the documents the caller may read
     (rule 5). In place; reads only."""
     cache: dict = {}
     for p in points:
-        if _decided_finding(p) or p.get("rank") not in (3, 4):
-            continue
-        if open_request(p):
-            if p.get("_book_missing"):
-                _own_ask(p)
+        if _decided_finding(p) or p.get("rank") not in (3, 4, 8):
             continue
         if p.get("_book_missing"):
+            if open_request(p):
+                _own_ask(p)
             continue
         if place := place_of(conn, p):
             p["_not_a_requirement"] = place
-            p["action"], p["action_source"] = (
-                NOT_A_REQUIREMENT_ACTION.format(place=place),
-                "check",
-            )
-        elif forms := form_not_held(conn, p, paper_id, cache, readable):
+            _note(p, NOT_A_REQUIREMENT_NOTE.format(place=place))
+        if forms := form_not_held(conn, p, paper_id, cache, readable):
             if form_only(_rule_texts(p)):
                 p["_form_not_held"] = forms
                 p["action"], p["action_source"] = (
@@ -301,6 +379,4 @@ def mark(conn, points: list[dict], paper_id, readable=frozenset()) -> None:
                 )
             else:
                 p["_form_note"] = forms
-                p["action"] = (
-                    f"{_clean(p.get('action'))} {FORM_NOTE.format(forms=', '.join(forms))}".strip()
-                )
+                _note(p, FORM_NOTE.format(forms=", ".join(forms)))

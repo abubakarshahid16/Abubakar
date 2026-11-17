@@ -291,25 +291,14 @@ def _disagree(ms: list[dict]) -> bool:
 
 
 def not_a_comment(comment: dict) -> str | None:
-    """What a grouped field is called when it carries NO finding (it is then not a comment), else None: a coverage line; every point
-    met (`KIND_NOTHING_TO_CHANGE`); every point met or a met code could not confirm (`KIND_MET_NOT_CONFIRMED`); none of it applies or
-    was checked (the strongest point's own kind). A field where readers disagree is always a comment."""
+    """What a grouped entry is called when it is NOT a comment, else None: a coverage line, or the allow-listed kind `split_apart` keyed
+    it by (`_kind`). Everything else is a comment (order 14, lead's last review of PR #1889)."""
     s = comment["strongest"]
     if is_coverage(s):
         return words.KIND_COVERAGE
     if comment.get("_kind"):  # order 14 (W-D6): points that carry no finding of their own, keyed apart from the field's comment
         return comment["_kind"]
-    if comment["disagree"]:
-        return None
-    ms = comment.get("_members") or [s]
-    if comment["tile"] == "met":
-        # R94: an AI "met" the pass guard objected to is never "nothing to change": the engineer ticks it, the objection said
-        return words.KIND_MET_NOT_CONFIRMED if any(guard_objected(p) for p in ms) else words.KIND_NOTHING_TO_CHANGE
-    if all(p.get("tile") in ("met", "does_not_apply") or tick_only(p) for p in ms) and any(tick_only(p) for p in ms):
-        return words.KIND_MET_NOT_CONFIRMED
-    if comment["tile"] == "does_not_apply":
-        return s.get("other_kind") or words.KIND_NOT_APPLICABLE
-    return None
+    return None  # order 14 (lead, last review of PR #1889): only the closed allow-list is set apart (`split_apart`)
 
 
 def _clauses(members: list[dict]) -> list[dict]:
@@ -461,10 +450,10 @@ def _met_like(p: dict) -> bool:
 
 
 def split_apart(ms: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
-    """(the points of a field that stay its comment, the others by what they are). Order 14 (W-D6): a point that carries no finding
-    of its own (`crs_no_finding.kind_of`) is never inside a comment; a met point is set apart too when the field has a finding on
-    ANOTHER rule (R94: a met and a not-met or question on the SAME rule stay together, so a disagreement is never hidden). A field
-    with no finding keeps its met points together (`not_a_comment` names them)."""
+    """(the points of a field that stay its comment, the others by what they are). Order 14, THE CLOSED ALLOW-LIST (lead, last review
+    of PR #1889): only a point `crs_no_finding.kind_of` names (book missing or no rule text with nothing asked, does-not-apply with no AI
+    concern) and a met point (`crs_no_finding.met_kind`) are set apart; a met on the SAME rule as a finding stays with it (R94: a
+    disagreement is never hidden). Everything else stays the field's comment."""
     from . import crs_no_finding
 
     keep: list[dict] = []
@@ -473,12 +462,10 @@ def split_apart(ms: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
         kind = None if is_coverage(p) else crs_no_finding.kind_of(p)
         (apart.setdefault(kind, []) if kind else keep).append(p)
     findings = [p for p in keep if not _met_like(p)]
-    if findings:
-        rules = set().union(*(_rule_keys(p) for p in findings))
-        for p in [p for p in keep if _met_like(p) and not (_rule_keys(p) & rules)]:
-            keep.remove(p)
-            kind = words.KIND_MET_NOT_CONFIRMED if tick_only(p) or guard_objected(p) else words.KIND_NOTHING_TO_CHANGE
-            apart.setdefault(kind, []).append(p)
+    rules = set().union(*(_rule_keys(p) for p in findings)) if findings else set()
+    for p in [p for p in keep if _met_like(p) and not (_rule_keys(p) & rules)]:
+        keep.remove(p)
+        apart.setdefault(crs_no_finding.met_kind(p, tick_only(p), guard_objected(p)), []).append(p)
     return keep, apart
 
 

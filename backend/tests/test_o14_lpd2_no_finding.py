@@ -146,67 +146,160 @@ def _missing(i, name, **f) -> dict:
               _row=row, _finding=f)  # fmt: skip
 
 
-def test_an_open_request_in_the_points_own_record_stays_a_comment_whatever_the_book_state():
-    """Lead (review of PR #1889): the point's own record decides FIRST: information missing (a placeholder, a value to provide), two
-    values that conflict, an engineering check's ask stay comments, and say their own ask before the book."""
+def test_any_ask_or_concern_in_the_points_own_record_stays_a_comment_whatever_the_book_state():
+    """Lead (reviews of PR #1889): the point's own record decides FIRST. Information missing, two values that conflict, an engineering
+    check's ask, a held check, a standard not cited, a "not compliant" record: each stays a comment; only an EMPTY record is set apart.
+    An open request says its own ask before the book."""
     placeholder = _missing(1, "Invented speed", compliance_status="MISSING_INFORMATION")
-    no_label = _missing(2, "Invented material", compliance_status="MISSING_INFORMATION")
     two_values = _missing(
-        3,
+        2,
         "Invented flow",
         compliance_status="NEEDS_ENGINEER_REVIEW",
         hold_reason_code="field_several_values",
     )
     eng_check = _missing(
-        4,
+        3,
         "Invented guard",
         row_kind="ai_engineering_check",
         comment="Contractor to confirm the guard material.",
     )
-    nothing = _missing(
-        5,
+    held = _missing(
+        4,
         "Invented head",
         compliance_status="NEEDS_ENGINEER_REVIEW",
         hold_reason_code="rule_not_proven",
     )
-    pts = [placeholder, no_label, two_values, eng_check, nothing]
+    not_cited = _missing(
+        5,
+        "STD-9",
+        row_kind="standard_not_cited",
+        comment="Contractor did not reference STD-9.",
+    )
+    not_compliant = _missing(
+        6, "Invented seal", row_kind="clause_review", reason_code="NON_COMPLIANT"
+    )
+    empty = _missing(7, "Invented tag", row_kind="clause_review")
+    pts = [placeholder, two_values, eng_check, held, not_cited, not_compliant, empty]
     crs_no_finding.mark(_db(), pts, "paper", frozenset())
     assert {i for c in crs_comments.group(pts) for i in c["member_ids"]} == {
-        "p1",
-        "p2",
-        "p3",
-        "p4",
+        f"p{n}" for n in range(1, 7)
     }
-    assert _aside(pts) == {crs_no_finding.KIND_BOOK_NOT_HELD: ["p5"]}
-    assert (
-        placeholder["action"]
-        == "Invented own ask. Contractor to provide the value (Book missing: BOOK-9 (clause not named by the reviewer): not checked against it.)"
+    assert _aside(pts) == {crs_no_finding.KIND_BOOK_NOT_HELD: ["p7"]}
+    assert placeholder["action"] == (
+        "Invented own ask. Contractor to provide the value (Book missing: BOOK-9 (clause not named by the reviewer): not checked against it.)"
     )
     assert eng_check["action"].startswith(
         "Contractor to confirm the guard material (Book missing"
     )
-    assert nothing["action"].startswith("Book missing: BOOK-9")
+
+
+def test_an_ai_fail_absent_or_any_ai_words_on_a_rule_not_yet_approved_stay_a_comment():
+    """Lead (last review of PR #1889): any AI Fail, not met or absent stays a comment, rule approved or not; so does any AI line that
+    wrote words to the contractor and did not judge the rule met. Only "met" or a line with no words is set apart."""
+    na = {"other_kind": words.KIND_UNAPPROVED}
+    fail = _ai(
+        1,
+        "Invented seal",
+        8,
+        {"ai_verdict": "Fail", "reason_code": "not_met", "comment": "Provide it."},
+        **na,
+    )
+    absent = _ai(
+        2, "Invented plan", 8, {"ai_verdict": "Fail", "reason_code": "absent"}, **na
+    )
+    worded = _ai(
+        3,
+        "Invented pipe",
+        8,
+        {
+            "ai_verdict": "Query",
+            "reason_code": "not_applicable",
+            "comment": "Confirm whether it applies.",
+        },
+        **na,
+    )
+    met = _ai(
+        4,
+        "Invented gear",
+        8,
+        {"ai_verdict": "Pass", "reason_code": "met", "comment": "Nothing."},
+        **na,
+    )
+    silent = _ai(
+        5,
+        "Invented fire",
+        8,
+        {"ai_verdict": "Query", "reason_code": "not_applicable"},
+        **na,
+    )
+    unread = _p(
+        6, "Invented page", 8, other_kind=words.KIND_NOT_REVIEWED
+    )  # a rule-check "not reviewed" row: no record of an ask
+    pts = [fail, absent, worded, met, silent, unread]
+    assert {i for c in crs_comments.group(pts) for i in c["member_ids"]} == {
+        "p1",
+        "p2",
+        "p3",
+    }
+    assert _aside(pts) == {
+        words.KIND_UNAPPROVED: ["p4", "p5"],
+        words.KIND_NOT_REVIEWED: ["p6"],
+    }
 
 
 def test_a_met_point_is_shown_where_met_lines_belong_unless_it_answers_the_same_rule_as_the_finding():
     rule_a = {"rule_book": "STD-1", "clause": "4.1", "rule_text": "invented rule A"}
+    verified = {"quotes_checked": {"paper": True, "clause": True}}
     question = _p(1, "Invented casing", 4, **rule_a)
-    met_other = _p(
+    one_reader = _ai(
         2,
         "Invented casing",
         5,
+        {"ai_verdict": "Pass", "reason_code": "met", "field": "Invented casing"},
         rule_book="STD-1",
         clause="4.2",
-        rule_text="invented rule B",
-        pill="Met · one reader",
+        rule_text="b",
     )
-    met_same = _p(3, "Invented casing", 5, pill="Met · one reader", **rule_a)
-    pts = [question, met_other, met_same]
+    met_same = _ai(
+        3,
+        "Invented casing",
+        5,
+        {"ai_verdict": "Pass", "reason_code": "met", "field": "Invented casing"},
+        **rule_a,
+    )
+    proven = _p(4, "Invented casing", 7, rule_book="STD-1", clause="4.3", rule_text="c")
+    two_ok = _ai(
+        5,
+        "Invented casing",
+        6,
+        {
+            "ai_verdict": "Pass",
+            "reason_code": "met",
+            "field": "Invented casing",
+            **verified,
+        },
+        rule_book="STD-1",
+        clause="4.4",
+        rule_text="d",
+    )
+    two_unverified = _ai(
+        6,
+        "Invented casing",
+        6,
+        {"ai_verdict": "Pass", "reason_code": "met", "field": "Invented casing"},
+        rule_book="STD-1",
+        clause="4.5",
+        rule_text="e",
+    )
+    pts = [question, one_reader, met_same, proven, two_ok, two_unverified]
     got = crs_comments.group(pts)
     assert [c["member_ids"] for c in got] == [
         ["p1", "p3"]
     ]  # the same rule stays: a disagreement is never hidden
-    assert _aside(pts) == {words.KIND_NOTHING_TO_CHANGE: ["p2"]}
+    assert _aside(pts) == {
+        crs_no_finding.KIND_AI_THINKS_MET: ["p2", "p6"],
+        words.KIND_NOTHING_TO_CHANGE: ["p4", "p5"],
+    }
     assert sum(c["n_points"] for c in got) + sum(
         len(v) for v in _aside(pts).values()
     ) == len(pts)  # nothing dropped
@@ -288,21 +381,36 @@ def test_a_quote_taken_from_a_contents_page_is_a_contents_entry():
     )
 
 
-def test_mark_sets_a_contents_rule_apart_with_honest_words():
+def test_a_contents_rule_is_noted_on_its_comment_and_every_text_of_the_line_is_read():
+    """Lead (last review of PR #1889): a contents or reference-list "rule" is noted, never set apart and never "nothing to ask"; every
+    text of the line is read (the book's quote AND the stored requirement): a requirement word in any of them and nothing is noted."""
     conn = _db()
-    conn.execute("INSERT INTO chunks VALUES ('c1', 'b1', 2, 2, NULL, 'toc', 'x', NULL)")
     conn.execute(
-        "INSERT INTO standard_requirements VALUES ('r1', 'Invented heading', 'Invented heading', 'c1')"
+        "INSERT INTO chunks VALUES ('c1', 'b1', 2, 2, NULL, 'toc', '8 Invented Heading .... 9', NULL)"
     )
-    p = _p(1, "Invented other", 4, rule_book="STD-1", _finding={"requirement_id": "r1", "requirement_source_text": "Invented heading"},
-           action="Clarification requested: please confirm Invented other.")  # fmt: skip
+    conn.execute(
+        "INSERT INTO standard_requirements VALUES ('r1', 'Invented Heading', 'Invented Heading', 'c1')"
+    )
+    p = _p(1, "Invented other", 4, rule_book="STD-1", _finding={"requirement_id": "r1", "requirement_source_text": "Invented Heading"},
+           action="Clarification requested.")  # fmt: skip
     crs_no_finding.mark(conn, [p], "paper")
-    assert p["_not_a_requirement"] == rule_text_place.CONTENTS and p[
-        "action"
-    ].startswith("Nothing to ask: the rule's text is a contents")
-    assert _aside([p]) == {crs_no_finding.KIND_NOT_A_REQUIREMENT: ["p1"]}
+    assert p["_not_a_requirement"] == rule_text_place.CONTENTS
+    assert p["action"].startswith(
+        "Clarification requested. (The rule's text is a contents entry"
+    )
+    assert _aside([p]) == {} and crs_comments.group([p])[0]["member_ids"] == ["p1"]
+    line = {"source": "skill", "ai_verdict": "Query", "clause_quote": "Invented Heading", "clause_book": {"page": 2},
+            "standard_document_id": "b1", "requirement": "The set pressure shall not exceed 10 bar.", "comment": "Give it."}  # fmt: skip
+    worded = _ai(
+        2, "Invented set", 4, line, rule_book="STD-1", action="Contractor to give it."
+    )
+    crs_no_finding.mark(conn, [worded], "paper")
+    assert (
+        worded["action"] == "Contractor to give it."
+        and "_not_a_requirement" not in worded
+    )
     hidden = _p(
-        2, "Invented other", 4, _finding={"requirement_id": "r1"}, action="kept"
+        3, "Invented other", 4, _finding={"requirement_id": "r1"}, action="kept"
     )  # a book the caller may not read: untouched
     crs_no_finding.mark(conn, [hidden], "paper")
     assert hidden["action"] == "kept" and "_not_a_requirement" not in hidden
@@ -328,6 +436,16 @@ def test_the_clause_column_and_the_action_name_one_clause():
         )["clause"]
         == ""
     )  # said once
+
+
+def test_the_not_a_comment_sheet_shows_each_lines_own_ask():
+    pts = [
+        _p(1, "Invented", 8, action="Engineer to look."),
+        _p(2, "Invented", 8, action="Engineer to look."),
+        _p(3, "Invented", 8),
+    ]
+    assert crs_one.aside_actions(pts) == "Engineer to look."
+    assert crs_one.aside_actions(pts[2:]) == crs_one.NO_ACTION
 
 
 def test_a_repeated_point_is_listed_once_with_its_count_and_an_empty_action_says_none_recorded():
@@ -422,7 +540,9 @@ def test_a_rule_that_puts_the_paper_on_a_form_it_is_not_on_says_form_not_held():
     assert p["_form_not_held"] == ["XF-1234"] and p["action"].startswith(
         "Form not held: the rule names form XF-1234"
     )
-    assert _aside([p]) == {crs_no_finding.KIND_FORM_NOT_HELD: ["p1"]}
+    assert _aside([p]) == {} and crs_comments.group([p])[0]["member_ids"] == [
+        "p1"
+    ]  # still a comment: never set apart
     on_it = _ai(2, "Invented form", 4, dict(line), rule_book="STD-1", action="kept")
     conn.execute(
         "INSERT INTO chunks VALUES ('k2', 'paper2', 1, 1, NULL, 'prose', 'FORM XF 1234 REV 2', NULL)"

@@ -696,6 +696,16 @@ def confirmed_words(p: dict) -> str:
     return f"{not_applicable.CONFIRMED}: {d.get('by') or NOT_RECORDED}, {d.get('at') or NOT_RECORDED}"
 
 
+#: Order 14 (lead, last review of PR #1889): every line that is not a comment shows its own ask, if it has any, so nothing is hidden.
+ASIDE_ACTION_COLUMN = "What the contractor must do (its own words, if any)"
+
+
+def aside_actions(points: list[dict]) -> str:
+    """The own action words of the points of one line of the sheet "Not a comment", each once; "none recorded" when none has any."""
+    said = list(dict.fromkeys(_clean(p.get("action")) for p in points if _clean(p.get("action"))))
+    return "\n".join(said) or NO_ACTION
+
+
 def aside_line(aside: list[tuple[dict, str]]) -> str:
     """ONE sentence counting the points that are not comments, by what they are (order 14 lane B)."""
     by: Counter = Counter()
@@ -925,10 +935,11 @@ def build_team(
         (6, 40, 8, 22, 22, 60), note="Points an engineer removed. They stay in the record and are counted in the line above the sheet CRS.",
     )  # fmt: skip
     _sheet_table(
-        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point"),
+        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point", ASIDE_ACTION_COLUMN),
         [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), comment_page_words(x),
-                             comment_full_texts(x, editions=editions)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]))] for x, kind in aside],
-        (40, 28, 8, 20, 12, 60, 50),
+                             comment_full_texts(x, editions=editions)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]),
+                             aside_actions([by_id[i] for i in x["member_ids"]]))] for x, kind in aside],
+        (40, 28, 8, 20, 12, 60, 50, 70),
         note=f"{aside_line(aside)} {apart_words + ' ' if apart_words else ''}Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
     )  # fmt: skip
     if contract_results is not None:  # order 14 lane E: the contract checks, an AI-draft checklist (internal only; not points of the page)
