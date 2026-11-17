@@ -2117,7 +2117,10 @@ def test_the_general_review_writes_the_one_layout_with_the_three_part_comment(tm
     ) and note_cell.endswith("confirm or correct it.")
     assert f'"{Q_A}", page 1' in note_cell
     # LPC C4: Q_B starts mid-sentence (lower case), so it is no evidence; its words stay beside the mark, with its page
-    assert f'No quote: the paper\'s words "{Q_B[:-1]}' in note_cell and "(page 3)" in note_cell
+    assert (
+        f"No quote: the paper's words \"{Q_B[:-1]}" in note_cell
+        and "(page 3)" in note_cell
+    )
     assert (
         "not proven by code" in note_cell
         and "Figures: figures differ: by code" in note_cell
