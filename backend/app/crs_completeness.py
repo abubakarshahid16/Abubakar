@@ -278,7 +278,7 @@ def _comment_cuts(
     ws, raw: list[dict], marked: int, problems: list[str]
 ) -> tuple[int, list[str]]:
     """The same rule for the sheet CRS: each comment's long cells against the full text of its strongest point and its clauses."""
-    from . import crs_comments, crs_one
+    from . import crs_comments, crs_editions, crs_one
 
     values = [list(r) for r in ws.iter_rows(values_only=True)]
     start = next(i for i, r in enumerate(values) if r and r[0] == "Comment")
@@ -295,6 +295,8 @@ def _comment_cuts(
     }
     by_id = {p["id"]: p for p in raw}
     by_no = {c["number"]: c for c in crs_comments.group(raw)}
+    # lane G: the book references carry the edition status the builder gave them
+    editions = crs_editions.verdicts(raw)
     rcol = col[crs_one.REASONING_COLUMN]
     for r in values[start + 1 :]:
         if not isinstance(r[0], int) or r[0] not in by_no:
@@ -304,7 +306,8 @@ def _comment_cuts(
             problems.append(
                 f"comment {r[0]}: the AI reviewer's reasoning is shortened or changed"
             )
-        for key, full in crs_one.comment_full_texts(by_no[r[0]], by_id).items():
+        texts = crs_one.comment_full_texts(by_no[r[0]], by_id, editions)
+        for key, full in texts.items():
             shown = "" if r[spots[key]] is None else str(r[spots[key]])
             want = crs_one._cell(full) if full else ""
             if shown == (want or ""):
