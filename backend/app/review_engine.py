@@ -33,7 +33,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from . import review_cost, review_leaving
 from .db import connect
@@ -261,30 +261,19 @@ def gate_unscored_words() -> str:
 
 
 def decide(choice: str, f: Facts) -> Plan:
-    """THE resolver. See the module docstring. Pure."""
+    """THE resolver. See the module docstring. Pure given the installed switches (the way-back switch picks the method)."""
+    from . import aim_review_gate
+
     choice = (choice or "").strip().lower()
     if choice not in CHOICES:
         raise ValueError(f"engine must be one of {', '.join(CHOICES)}")
+    from .review_engine_general import decide_general, narrowed
+
+    if aim_review_gate.general_on():
+        return decide_general(choice, narrowed(choice, f))
     plan = Plan(choice=choice)
     plan.unscored = bool(f.kind) and not f.kind_scored
-    if choice == CLAUDE:
-        # THE EXPLICIT CHOICE IS THE CONSENT (owner, 12 Nov 2026, #1584: "button is enough"): of any kind, a contract, a paper or
-        # book not on the approved list, an unscored kind (a draft, internal copy only). The block list, the lane, the caps and
-        # the kinds the AI review takes are not lifted by it.
-        f = replace(
-            f,
-            contract_yes=True,
-            paper_approved=True,
-            books_ok=True,
-            scored_allowed=True,
-        )
-    elif choice == AUTOMATIC:
-        # AUTOMATIC NEVER SENDS A CONTRACT OR AN UNSCORED KIND TO CLAUDE BY ITSELF: it resolves to Local, and says why.
-        f = replace(
-            f,
-            contract_yes=False,
-            scored_allowed=f.scored_allowed and f.kind is not None and f.kind_scored,
-        )
+    f = narrowed(choice, f)
     plan.needs_yes = bool(f.is_contract and not f.contract_yes)
     if f.is_contract:
         plan.wont_run = [{"part": p, "why": w} for p, w in CHECKLISTS_EMPTY]
@@ -487,13 +476,19 @@ def plan_for(
 ) -> dict:
     """The pre-start answer. No side effect: nothing is written, no call is made, no model is loaded. A dict of plain facts:
     the engine of each part, whether text leaves this computer and which documents, the estimated cost, what will not run."""
+    from . import aim_review_gate
     from .config import settings
 
     facts, reading = read_facts(conn, document_id, allowed)
     plan = decide(choice, facts)
     out = plan.as_dict()
+    out["method"] = aim_review_gate.method()
     out["kind"] = facts.kind
     out["kind_guess"] = facts.kind_guess
+    if aim_review_gate.general_on():
+        from .review_engine_general import general_plan
+
+        return general_plan(conn, document_id, allowed, plan, facts, reading, out)
     if plan.unscored:
         from . import agent_review_gate
 
@@ -747,6 +742,7 @@ def note_on_run(job_id, why: str) -> None:
         log.warning("review engine: the note was not written (%s)", type(exc).__name__)
 
 
+from .review_engine_general import GENERAL_NOT_ON_LOCAL  # noqa: E402,F401,I001 - order 14, re-exported
 from .review_engine_ran import (  # noqa: E402,F401 - moved unchanged, re-exported
     _cost_words,
     _last_cost,

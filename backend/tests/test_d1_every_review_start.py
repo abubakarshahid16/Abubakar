@@ -21,6 +21,9 @@ ENQUEUE_MODULES = {
     "review_jobs_mod",
     "agent_review_jobs",
     "agent_review_jobs_mod",
+    # order 14: the general review's job (queued only by the Review button's start, with the list shown first)
+    "aim_review_jobs",
+    "aim_review_jobs_mod",
 }
 
 #: (file, function) -> the text its body must carry: what makes that start show the list or stay local.
@@ -126,21 +129,23 @@ def test_the_scan_sees_an_aliased_module_a_bare_import_and_a_module_import():
         assert hits, code
 
 
-def test_only_the_two_enqueue_modules_insert_review_jobs():
-    from app import agent_review_jobs, review_jobs
+def test_only_the_enqueue_modules_insert_review_jobs():
+    from app import agent_review_jobs, aim_review_jobs, review_jobs
 
-    stages = {review_jobs.STAGE, agent_review_jobs.STAGE}
-    for name in ("review_jobs.py", "agent_review_jobs.py"):
+    stages = {review_jobs.STAGE, agent_review_jobs.STAGE, aim_review_jobs.STAGE}
+    owners = {"review_jobs.py", "agent_review_jobs.py", "aim_review_jobs.py"}
+    for name in owners:
         assert "INSERT INTO jobs" in (APP / name).read_text(encoding="utf-8")
     others = []
     for p in APP.rglob("*.py"):
-        if p.name in {"review_jobs.py", "agent_review_jobs.py"}:
+        if p.name in owners:
             continue
         text = p.read_text(encoding="utf-8")
         if "INSERT INTO jobs" in text and (
             any(f'"{st}"' in text or f"'{st}'" in text for st in stages)
             or "review_jobs.STAGE" in text
             or "agent_review_jobs.STAGE" in text
+            or "aim_review_jobs.STAGE" in text
         ):
             others.append(str(p.relative_to(APP)))
     assert others == [], f"a raw job insert that may queue a review: {others}"

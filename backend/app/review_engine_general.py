@@ -1,0 +1,174 @@
+"""The ONE Review button's resolver and pre-start answer for the GENERAL review (order 14; owner's ONE ORDER, 18 Nov 2026).
+
+`review_engine.decide` and `review_engine.plan_for` hand over here when `aim_review_gate.general_on()`: the facts are read and
+narrowed or widened by the choice there (`review_engine._narrowed`, the same consent rules as before), so this module only says what
+the general review does with them. Pure resolver; the plan reads and writes nothing beyond `review_engine.plan_for`'s own reads.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+from . import review_cost, review_leaving
+from .review_engine import (
+    AI_REVIEW,
+    AUTOMATIC,
+    CLAUDE,
+    LOCAL,
+    NEEDS_YES,
+    NOT_RUN,
+    ON_CLAUDE,
+    RULE_CHECK,
+    UNKNOWN_CHOOSE,
+    Facts,
+    Part,
+    Plan,
+    unscored_choose_words,
+)
+from .review_engine_ran import _notes
+
+#: Order 14 (owner, 18 Nov 2026): with the general review on, Local only is refused with this code (the sentence is
+#: `aim_review_gate.LOCAL_NOT_AVAILABLE`); nothing is queued.
+GENERAL_NOT_ON_LOCAL = "GENERAL_NOT_ON_LOCAL"
+#: The blockers an explicit choice of Claude lifts (`decide` replaces those facts for Claude): Automatic says so.
+LIFTED_BY_CLAUDE = ("NEEDS_YES", "NOT_APPROVED", "BOOKS_NOT_APPROVED", "UNSCORED")
+CHOOSE_CLAUDE = ", choose Claude to send it"
+GENERAL_ON_CLAUDE = "the general review reads the paper on Claude"
+
+
+def narrowed(choice: str, f: Facts) -> Facts:
+    """What the choice does to the facts, for both methods."""
+    if choice == CLAUDE:
+        # THE EXPLICIT CHOICE IS THE CONSENT (owner, 12 Nov 2026, #1584: "button is enough"): of any kind, a contract, a paper or
+        # book not on the approved list, an unscored kind (a draft, internal copy only). The block list, the lane, the caps and
+        # the kinds the AI review takes are not lifted by it.
+        return replace(
+            f,
+            contract_yes=True,
+            paper_approved=True,
+            books_ok=True,
+            scored_allowed=True,
+        )
+    if choice == AUTOMATIC:
+        # AUTOMATIC NEVER SENDS A CONTRACT OR AN UNSCORED KIND TO CLAUDE BY ITSELF: it resolves to Local, and says why.
+        return replace(
+            f,
+            contract_yes=False,
+            scored_allowed=f.scored_allowed and f.kind is not None and f.kind_scored,
+        )
+    return f
+
+
+def _general_blocker(f: Facts) -> tuple[str, str] | None:
+    """`_ai_blocker` for the general review: every kind is taken, so KIND_UNKNOWN and KIND_NOT_OFFERED do not apply; every other
+    blocker stands as written. An unknown kind is not scored: Automatic does not send it (UNSCORED), an explicit Claude does."""
+    if not f.agent_enabled:
+        return "AI_OFF", "the AI review is switched off on this install"
+    if f.is_contract and not f.contract_yes:
+        return "NEEDS_YES", NEEDS_YES
+    if not (
+        f.provider == "claude" or (f.provider == "per_task" and f.agent_engine_claude)
+    ):
+        return (
+            "CLAUDE_NOT_SET",
+            "Claude is not switched on for the AI review on this install",
+        )
+    if not f.lane_open:
+        return (
+            "LANE_CLOSED",
+            "the connection to Claude is closed on this install (flags or key)",
+        )
+    if f.blocked:
+        return "BLOCKED", "this file is blocked for Claude by name or checksum"
+    if not f.paper_approved:
+        return "NOT_APPROVED", "this paper is not approved for Claude"
+    if not f.books_ok:
+        return "BOOKS_NOT_APPROVED", "the rule books are not approved for Claude"
+    if not f.scored_allowed:
+        return "UNSCORED", UNKNOWN_CHOOSE if f.kind is None else unscored_choose_words()
+    if not f.caps_ok:
+        return "CAPS", "the spending cap leaves no room today"
+    return None
+
+
+def decide_general(choice: str, f: Facts) -> Plan:
+    """The general review (order 14). Parts stay [rule_check, ai_review]; the rule check never runs; the AI review is the general
+    review, on Claude or not run. A start that would run nothing is refused (never queued): Local only with
+    GENERAL_NOT_ON_LOCAL, Automatic and Claude with the blocker's code. Pure: `f` is already narrowed or widened by the choice."""
+    from . import aim_review_gate
+
+    plan = Plan(choice=choice)
+    plan.unscored = bool(f.kind) and not f.kind_scored
+    plan.needs_yes = bool(f.is_contract and not f.contract_yes)
+    off = Part(RULE_CHECK, NOT_RUN, aim_review_gate.OLD_ENGINE_OFF_WORDS)
+    if choice == LOCAL:
+        plan.refused = aim_review_gate.LOCAL_NOT_AVAILABLE
+        plan.refused_code = GENERAL_NOT_ON_LOCAL
+        plan.parts = [
+            off,
+            Part(AI_REVIEW, NOT_RUN, aim_review_gate.LOCAL_NOT_AVAILABLE),
+        ]
+        return plan
+    blocker = _general_blocker(f)
+    if blocker is None:
+        plan.parts = [off, Part(AI_REVIEW, ON_CLAUDE, GENERAL_ON_CLAUDE)]
+        return plan
+    code, words = blocker
+    if (
+        choice == AUTOMATIC
+        and code in LIFTED_BY_CLAUDE
+        and "choose Claude" not in words
+    ):
+        words += CHOOSE_CLAUDE
+    plan.refused = f"Claude cannot be used for this paper: {words}"
+    plan.refused_code = code
+    plan.parts = [off, Part(AI_REVIEW, NOT_RUN, words)]
+    return plan
+
+
+#: The cost basis the plan says for the general review (CONTRACT section 3).
+GENERAL_COST_BASIS = "at most {usd} for this review; a first review of a new type also writes its checklist"
+GENERAL_LEAVES = (
+    "Text of this paper and of the listed rule books leaves this computer for Claude."
+)
+
+
+def general_plan(conn, document_id, allowed, plan, facts, reading, out: dict) -> dict:
+    """The pre-start answer of the general review: the documents the review may send (the paper and the rule books chosen from the
+    library's own records, `aim_review.candidates`), the upper bound of its cost, and one sentence. No write, no model, no call."""
+    from . import aim_review_gate
+    from .config import settings
+
+    if plan.unscored:
+        from . import agent_review_gate
+
+        out["unscored_note"] = agent_review_gate.UNSCORED_WORDS
+    ctx = (conn, document_id, allowed, facts, reading)
+    out["documents"] = review_leaving.documents_block(ctx, plan, ())
+    out["boundary"] = "documents you may read"
+    leaves = plan.text_leaves
+    cap = aim_review_gate.max_usd()
+    last = review_cost.last_cost(conn, document_id)
+    out["cost"] = {
+        "at_most_usd": cap if leaves else None,
+        "by_part_at_most_usd": {
+            "rule_check": None,
+            "ai_review": cap if leaves else None,
+        },
+        "basis": GENERAL_COST_BASIS.format(usd=f"USD {cap:.2f}") if leaves else None,
+        "last_review_usd": last if leaves else None,
+        "last_review_note": "the measured cost of the last AI review of this paper"
+        if (leaves and last is not None)
+        else None,
+        "exact": False,
+    }
+    out["notes"] = _notes(plan, settings)
+    if plan.refused:
+        out["sentence"] = (
+            plan.refused if plan.refused.endswith(".") else plan.refused + "."
+        )
+    else:
+        out["sentence"] = (
+            f"The general review runs on Claude. {GENERAL_LEAVES} {aim_review_gate.AI_MARK}."
+        )
+    return out

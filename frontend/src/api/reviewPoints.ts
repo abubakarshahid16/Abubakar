@@ -11,6 +11,8 @@ export const ENGINE_CHOICES: readonly EngineChoice[] = ["automatic", "claude", "
 export interface PlanPart { name: "rule_check" | "ai_review"; engine: "claude" | "local" | "not_run"; why: string }
 export interface ReviewPlan {
   choice: EngineChoice;
+  /** Order 14: which method the Review button runs ("general" = the general review; "earlier" = the old engine). */
+  method?: "general" | "earlier";
   parts: PlanPart[];
   text_leaves: boolean;
   refused: string | null;

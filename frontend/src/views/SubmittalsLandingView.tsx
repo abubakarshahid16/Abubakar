@@ -26,6 +26,7 @@ import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
 import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
 import { type FailedResult, plainError } from "../components/review/workspace/plainError";
+import { latestGeneralRun } from "../components/review/v2/OlderFiles";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
@@ -128,10 +129,16 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
     return () => window.clearInterval(timer);
   }, [moving, load]);
 
-  function reviewDocument(documentId: string) {
+  async function reviewDocument(documentId: string) {
     const existing = groupRunsByDocument(runs).find((group) => group.documentId === documentId);
     if (existing) {
       onOpenRun(existing.latest.review_run_id);
+      return;
+    }
+    // Order 14: a paper whose only reviews are general ones is not in the old run list: open its newest general review
+    const general = await latestGeneralRun(documentId);
+    if (general) {
+      onOpenRun(general);
       return;
     }
     // THE ONE START: the pre-start step (engine, what will leave this Mac, the list, the cost) opens first; its Start begins.

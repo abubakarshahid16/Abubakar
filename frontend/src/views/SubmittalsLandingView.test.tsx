@@ -37,6 +37,13 @@ vi.mock("../api/reviewPlan", () => ({
   reviewPlan: { plan: (...args: unknown[]) => planFor(...args), start: (...args: unknown[]) => startReviewRun(...args) },
 }));
 
+// Order 14: a paper whose only reviews are general ones is found through its history (null: none).
+const latestGeneralRun = vi.fn();
+vi.mock("../components/review/v2/OlderFiles", async (orig) => ({
+  ...(await orig<typeof import("../components/review/v2/OlderFiles")>()),
+  latestGeneralRun: (...args: unknown[]) => latestGeneralRun(...args),
+}));
+
 // Order 132 item 3: the drop zone is told who the reader is (its own behaviour is NewReviewDropZone.test.tsx's).
 vi.mock("../components/review/workspace/NewReviewDropZone", () => ({
   NewReviewDropZone: ({ isAdmin }: { isAdmin?: boolean }) => <p data-testid="drop-zone">{`admin: ${String(isAdmin)}`}</p>,
@@ -49,6 +56,7 @@ beforeEach(() => {
   planFor.mockReset().mockResolvedValue({ ok: true, data: { choice: "automatic", parts: [], text_leaves: false, refused: null,
     documents: { leaving: [], not_sent: [], not_readable: 0 } } });
   reviewRunSummary.mockReset();
+  latestGeneralRun.mockReset().mockResolvedValue(null);
   reviewRunCounts.mockReset().mockResolvedValue({ ok: true, data: { boundary: "", counts: {} } });
 });
 
@@ -125,6 +133,21 @@ describe("SubmittalsLandingView", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Review" }));
     expect(onOpenRun).toHaveBeenCalledWith("run-1");
     expect(startReviewRun).not.toHaveBeenCalled();
+  });
+
+  it("order 14: opens the newest general review of a paper that has no old run, without starting a new one", async () => {
+    documents.mockResolvedValue({
+      ok: true, data: [{ id: "doc-3", filename: "invented.pdf", document_role: "CONTRACTOR_SUBMITTAL" }],
+    });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    latestGeneralRun.mockResolvedValue("gen-1");
+    const onOpenRun = vi.fn();
+    render(<SubmittalsLandingView onOpenRun={onOpenRun} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("gen-1"));
+    expect(latestGeneralRun).toHaveBeenCalledWith("doc-3");
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("start-review-step")).toBeNull();
   });
 
   it("starts a review for a document with no run yet, then opens the new run", async () => {

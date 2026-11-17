@@ -18,6 +18,8 @@ import logging
 from . import (
     agent_review_gate,
     agent_review_jobs,
+    aim_review_gate,
+    aim_review_jobs,
     job_queue,
     review_engine,
     review_jobs,
@@ -72,11 +74,18 @@ def start(
     parts = {p["name"]: p for p in plan["parts"]}
     plan["project_document_ids"] = list(project_document_ids)
     plan["fresh"] = bool(fresh)
-    then_ai = parts[review_engine.AI_REVIEW]["engine"] in (
+    general = aim_review_gate.general_on()
+    then_ai = not general and parts[review_engine.AI_REVIEW]["engine"] in (
         review_engine.ON_CLAUDE,
         review_engine.ON_LOCAL,
     )
-    bar = parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
+    # the general review is one run on Claude (a start that would run nothing was refused above): no bar; the old rule check is
+    # barred from Claude unless its own plan puts it there
+    bar = (
+        parts[review_engine.AI_REVIEW]["engine"] != review_engine.ON_CLAUDE
+        if general
+        else parts[review_engine.RULE_CHECK]["engine"] != review_engine.ON_CLAUDE
+    )
     # The cap: only what the screen showed AND what is still allowed now. None = no list was shown (the older behaviour).
     # A run that sends nothing (Local only, or Automatic that fell back to the local model) stores NO list: the list only restricts
     # what is SENT, and an empty one would read as "no book may be used" (live, 15 Nov 2026: the AI review was refused at the start).
@@ -94,8 +103,30 @@ def start(
         else None
     )
 
+    writer = _writer(stored_plan, requested_by, then_ai, bar, shown, consent)
+    # Order 14: with the general review on, the ONE Review button runs it; the rule check and the old AI review queue nothing.
+    if general:
+        run_id, _job = aim_review_jobs.enqueue(
+            document_id,
+            allowed_document_ids=allowed,
+            requested_by=requested_by,
+            in_transaction=writer,
+        )
+    else:
+        run_id, _job = review_jobs.enqueue(
+            document_id,
+            allowed_document_ids=allowed,
+            requested_by=requested_by,
+            in_transaction=writer,
+        )
+    return run_id, plan
+
+
+def _writer(stored_plan: dict, requested_by, then_ai: bool, bar: bool, shown, consent):
+    """What the start writes in the SAME transaction as the job: a worker that claims the job finds its choice (and so its bar),
+    the list shown and the consent already there."""
+
     def choice_with_the_job(txn_conn, new_run_id: str) -> None:
-        # In the SAME transaction as the job: a worker that claims the job finds its choice (and so its bar) already there.
         review_engine.record_in(
             txn_conn,
             new_run_id,
@@ -112,13 +143,7 @@ def start(
                 txn_conn, new_run_id, requested_by, consent, job_queue.now_iso()
             )
 
-    run_id, _job = review_jobs.enqueue(
-        document_id,
-        allowed_document_ids=allowed,
-        requested_by=requested_by,
-        in_transaction=choice_with_the_job,
-    )
-    return run_id, plan
+    return choice_with_the_job
 
 
 LIST_NOT_SHOWN_WORDS = "the list of documents was not shown: start from the review page, which shows what will be sent"
@@ -129,6 +154,8 @@ def legacy_start_blocked(conn, document_id: str, allowed: frozenset[str]) -> str
     """The older one-click start (`POST /api/reviews/run`) shows no list and has no engine choice. On an install whose Claude lane is
     open and set to Claude it is refused, in one plain sentence (the screen's start step shows what will be sent); on any other
     install it keeps working, because nothing can leave: a local-only or closed-lane start (scripts and tests keep that path)."""
+    if aim_review_gate.general_on():
+        return LEGACY_START_WORDS  # order 14: only the Review button starts a review (the general review shows its list first)
     facts, _reading = review_engine.read_facts(conn, document_id, allowed)
     claude_set = facts.provider == "claude" or (
         facts.provider == "per_task"
@@ -139,8 +166,9 @@ def legacy_start_blocked(conn, document_id: str, allowed: frozenset[str]) -> str
 
 def follow_up(job_id: str, state: str) -> str | None:
     """After a rule-check job: start the AI review its plan asked for. Returns the new run id or None. Never raises: a start that
-    cannot be made is recorded on the run's choice (`followed_by`), and the rule check's result stands."""
-    if state != job_queue.DONE:
+    cannot be made is recorded on the run's choice (`followed_by`), and the rule check's result stands. With the general review on
+    (order 14) no old AI review is queued: a rule check still in flight from before the switch ends on its own."""
+    if state != job_queue.DONE or aim_review_gate.general_on():
         return None
     conn = connect()
     try:

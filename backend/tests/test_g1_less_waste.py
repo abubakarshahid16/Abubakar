@@ -110,8 +110,9 @@ def test_the_list_is_short_enough_to_be_honest():
     # line code did not prove (a CRS cell and the page's pill); agent_review_wording.py, where it would belong, is at its limit
     # raised to 67 on 17 Nov (merge round 19a): LP1 (firm_clause.py) and LP0 (agent_review_ai_answer.py) each added one module
     # raised to 73 on 18 Nov (order 14, CONTRACT section 7, the integrator): the general review behind the ONE Review button: its
-    # method package, its gate (which engine runs), its store (the label a person sees), its page, its file and its completeness
-    assert len(vp.VERDICT_PATH) <= 73
+    # method package, its gate (which engine runs), its job (which books it may send), its resolver (review_engine_general, split
+    # out of review_engine at its 800-line limit), its store (the label a person sees), its page, its file and its completeness
+    assert len(vp.VERDICT_PATH) <= 75
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():
