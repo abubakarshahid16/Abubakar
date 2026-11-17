@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping
 from typing import NamedTuple
 
+from . import agent_review_crosscheck as crosscheck
 from . import agent_review_two_reader as two
 from . import crs_ai_words as words
 from .agent_review_verdict import SILENCE_CODES, quote_defers
@@ -45,8 +46,8 @@ def action_case(line: Mapping) -> str:
     (the paper is silent on the field) or "unknown"."""
     if second_cut_off(line):
         return "cut_off"  # R98/R101: the second reader's answer was cut off (its own marker): never "the readers disagree"
-    if two.disagrees(line) or two.absence_disagrees(line):
-        return "disagree"  # the two readers reached opposite verdicts: code's own flag
+    if two.disagrees(line) or two.absence_disagrees(line) or crosscheck.disagrees(line):
+        return "disagree"  # opposite verdicts (two readers, or the second AI of another company): code's own flag
     verified = bool(verified_quote(line))
     if line.get("reason_code") == "value_deferred":
         return "deferred"
@@ -169,6 +170,9 @@ def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | No
 
     quote = verified_quote(line)
     if not quote or not says_silent(line) or quote_defers(quote) or proven(line):
+        return None
+    # R2-1854: the second AI disagreed: the engineer's question, worded by `query_action` (one home)
+    if crosscheck.disagrees(line):
         return None
     labels = (
         line.get("field_label_ai"),

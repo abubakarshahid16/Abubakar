@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import uuid
 from contextlib import contextmanager
@@ -76,15 +77,29 @@ def worst_case_usd(model: str | None, prompt_bytes: int, max_tokens: int) -> flo
 
 
 def cost_usd(model: str | None, usage: object) -> float | None:
-    """The cost from the answer's `usage` (prompt_tokens, completion_tokens), or None when it reported none."""
+    """The cost from the answer's `usage` (prompt_tokens, completion_tokens), or None when it reported none or nothing a
+    count can be (a list, a string, NaN, Infinity, 1e999, an integer too big for a float): NEVER raises (review R2-1854)."""
     if not isinstance(usage, dict):
         return None
     try:
         tin, tout = int(usage.get("prompt_tokens")), int(usage.get("completion_tokens"))
-    except (TypeError, ValueError):
+        pin, pout = price_for(model)
+        usd = round(max(0, tin) * pin / 1e6 + max(0, tout) * pout / 1e6, 8)
+    except (TypeError, ValueError, OverflowError):
         return None
-    pin, pout = price_for(model)
-    return round(max(0, tin) * pin / 1e6 + max(0, tout) * pout / 1e6, 8)
+    return usd if math.isfinite(usd) else None
+
+
+def settle_usage(res: Reservation, answer: object) -> float:
+    """Settle `res` from an answer's `usage`: THE one close of a call that answered. Closed exactly once whatever the answer
+    holds; a usage code cannot read settles at the worst case, marked estimated."""
+    try:
+        usd = cost_usd(
+            res.model, answer.get("usage") if isinstance(answer, dict) else None
+        )
+    except Exception:  # noqa: BLE001  belt and braces: the hold is closed whatever happened
+        usd = None
+    return settle(res, usd)
 
 
 def ledger_path() -> Path:
@@ -199,6 +214,8 @@ def settle(res: Reservation, usd: float | None) -> float:
     NEVER ABOVE THE RESERVATION (review R-1854): the caps were checked against the reservation, so a settlement above it could
     pass a cap. The charge is capped at the reserved worst case; anything above it is written on the line as `excess_usd` and
     logged as a warning (the reservation is a strict bound, so this means the price table or the usage is wrong)."""
+    if usd is not None and not (isinstance(usd, int | float) and math.isfinite(usd)):
+        usd = None  # nothing a cost can be: the worst case, estimated (never Infinity on the ledger)
     reported = res.worst if usd is None else float(usd)
     charged = min(reported, res.worst)
     excess = round(reported - charged, 8)

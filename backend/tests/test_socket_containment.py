@@ -348,7 +348,7 @@ def test_a_loopback_caller_still_posts_exactly_what_it_used_to(monkeypatch):
 # ------------------------------------- 3. the package-wide structural guard
 
 
-#: THE FILES THAT MAY OPEN A SOCKET. Four, each with its reason (CLAUDE.md
+#: THE FILES THAT MAY OPEN A SOCKET. Five, each with its reason (CLAUDE.md
 #: rule 1). The three that can carry document text are also forbidden the
 #: other half of a leak - see the `cannot_reach_the_corpus` tests below.
 SOCKET_ALLOWLIST = {
@@ -461,6 +461,19 @@ def test_the_module_scan_finds_the_package():
     assert len(modules) > 30, f"only found {len(modules)} modules in {APP}"
     assert {"answer.py", "analysis.py", "metrics.py", "config.py"} <= names
     assert SOCKET_ALLOWLIST <= names, "an allowlisted transport no longer exists"
+
+
+def test_claude_md_rule_1_names_the_same_socket_modules_as_this_test():
+    """CLAUDE.md rule 1 ("Only N modules may open a socket") and `SOCKET_ALLOWLIST` must agree (review R2-1854): the same
+    count in words and every allowlisted file named, so a new socket lane cannot land in one home only (rule 8)."""
+    import re
+
+    text = (APP.parents[1] / "CLAUDE.md").read_text(encoding="utf-8")
+    said = re.findall(r"Only (\w+) modules may open a\s+socket", text)
+    numbers = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+    assert [numbers.get(w.lower()) for w in said] == [len(SOCKET_ALLOWLIST)], said
+    missing = sorted(m for m in SOCKET_ALLOWLIST if f"`{m}`" not in text)
+    assert not missing, f"CLAUDE.md rule 1 does not name {missing}"
 
 
 def test_only_the_allowlisted_transports_open_a_socket():

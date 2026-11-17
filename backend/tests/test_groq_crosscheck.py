@@ -1018,3 +1018,152 @@ def test_the_reservation_is_a_strict_upper_bound(tmp_path, monkeypatch):
     assert groq_spend.spent(run="run-x") == pytest.approx(worst)
     excess = [e for e in groq_spend.entries() if e.get("excess_usd")]
     assert excess and excess[0]["excess_usd"] == pytest.approx(worst * 2)
+
+
+# ------------------------------------------------------------------ review R2-1854: egress, money, wording, one home
+
+
+@pytest.mark.parametrize(
+    "paper,book",
+    [(s.PAPER, None), (s.PAPER, ""), (None, s.STD), ("", s.STD), (None, None)],
+)
+def test_a_quote_whose_document_is_not_known_stays_home(
+    paper, book, lib, monkeypatch, groq
+):
+    """Every document whose words a request carries must be KNOWN (and on both lists): a clause quote with no book id, or a
+    paper quote with no paper id, is never sent with a partial declaration (R2-1854: it was sent with the paper alone)."""
+    _ready(monkeypatch)
+    runner = FakeRunner(_line("R-nobook", standard_document_id=book))
+    runner.paper = paper
+    runner.run_crosscheck()
+    assert groq.sent == [] and groq.built == 0
+    rec = runner.lines["R-nobook"][cc.FIELD]
+    assert rec["asked"] is False and rec["code"] == "source_unknown"
+    assert rec["said"] == cc.SOURCE_UNKNOWN_SAID
+    assert W.apply(runner.lines["R-nobook"])["not_proven_reason"].endswith(
+        cc.SOURCE_UNKNOWN_SAID
+    )
+    assert runner.crosscheck_counts()["crosscheck_step"]["source_unknown"] == 1
+    assert ccrun.carried_ids(s.PAPER, _line("R-ok")) == sorted({s.PAPER, s.STD})
+
+
+def _usage_answer(usage_json: str) -> bytes:
+    """A good answer whose `usage` is the raw JSON text given (it may hold Infinity, NaN or an absurd number)."""
+    text = json.dumps({"agree": True, "reason": "invented reason"})
+    choices = json.dumps([{"finish_reason": "stop", "message": {"content": text}}])
+    return (
+        '{"model": "openai/gpt-oss-120b", "usage": ' + usage_json + ', "choices": '
+        + choices + "}"
+    ).encode()  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        '{"prompt_tokens": Infinity, "completion_tokens": 10}',
+        '{"prompt_tokens": 10, "completion_tokens": 1e999}',
+        '{"prompt_tokens": NaN, "completion_tokens": 10}',
+        '{"prompt_tokens": -Infinity, "completion_tokens": 10}',
+        '{"prompt_tokens": [1, 2], "completion_tokens": 10}',
+        '{"prompt_tokens": 1' + "0" * 400 + ', "completion_tokens": 10}',
+        '[1, 2]',
+    ],
+)
+def test_every_hold_is_closed_once_whatever_the_usage_says(
+    usage, lib, monkeypatch, groq
+):
+    """R2-1854: a usage of Infinity or 1e999 raised OverflowError between the call and the settlement: holds written, none
+    closed. Now every reservation is closed exactly once, at its worst case and marked estimated, and the line is answered."""
+    _ready(monkeypatch)
+    groq.raw = _usage_answer(usage)
+    runner = FakeRunner(_line("R-a"), _line("R-b"))
+    runner.run_crosscheck()
+    st = runner.crosscheck_counts()["crosscheck_step"]
+    assert st["off"] is None and st["asked"] == 2 and st["agreed"] == 2
+    raw = groq_spend._raw_lines()
+    holds = [e["reservation"] for e in raw if e.get("reservation")]
+    closes = [e for e in raw if e.get("settles") or e.get("releases")]
+    assert len(holds) == 2
+    assert sorted(e.get("settles") for e in closes) == sorted(holds)  # once each
+    worst = {e["reservation"]: e["cost_usd"] for e in raw if e.get("reservation")}
+    for e in closes:
+        assert e["estimated"] is True and e["cost_usd"] == worst[e["settles"]]
+    assert "Infinity" not in groq_spend.ledger_path().read_text(encoding="utf-8")
+    for iid in ("R-a", "R-b"):
+        assert runner.lines[iid][cc.FIELD]["agree"] is True
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"prompt_tokens": float("inf"), "completion_tokens": 1},
+        {"prompt_tokens": 1, "completion_tokens": float("nan")},
+        {"prompt_tokens": 10**400, "completion_tokens": 1},
+        {"prompt_tokens": [1], "completion_tokens": 1},
+        [1, 2],
+    ],
+)
+def test_a_usage_that_is_no_count_costs_nothing_known(usage, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    assert groq_spend.cost_usd("openai/gpt-oss-120b", usage) is None
+    res = groq_spend.reserve("run-u", "openai/gpt-oss-120b", 0.001)
+    assert groq_spend.settle_usage(res, {"usage": usage}) == 0.001
+    assert groq_spend.settle(
+        groq_spend.reserve("run-v", "openai/gpt-oss-120b", 0.001), float("inf")
+    ) == 0.001  # fmt: skip
+    assert groq_spend.spent() == pytest.approx(0.002)
+
+
+def test_a_line_the_second_ai_disagreed_with_asks_the_engineer_in_the_team_file(
+    w, monkeypatch, groq, tmp_path
+):
+    """R2-1854: the action of a line the second AI disagreed with comes from the ONE home of a disagreement ("Engineer to
+    check ...: the readers disagree"), never "Contractor to confirm or justify", in the team file as built."""
+    import openpyxl
+
+    from app import crs_ai_actions, crs_ai_workbook
+    from app.review_points_service import run_meta, stored_lines
+
+    switch_on(monkeypatch)
+    approve(claude=[sha(s.PAPER), sha(s.STD)], groq=[sha(s.PAPER), sha(s.STD)])
+    run_id = run_shown_review()
+    conn = db.connect()
+    lines = stored_lines(conn, run_id)
+    mark = next(ln for ln in lines if ln["item_id"] == "R-mark")
+    assert cc.disagrees(mark) and crs_ai_actions.action_case(mark) == "disagree"
+    meta = run_meta(conn, run_id, s.PAPER, tmp_path)
+    path = crs_ai_workbook.write(lines, tmp_path / "team.xlsx", meta, "internal")
+    cells = [
+        str(c.value)
+        for ws in openpyxl.load_workbook(path).worksheets
+        for row in ws.iter_rows()
+        for c in row
+        if c.value is not None
+    ]
+    disagree = [c for c in cells if ": the readers disagree." in c]
+    assert len(disagree) == 1 and "Engineer to check " in disagree[0]
+    assert not any("Contractor to confirm or justify" in c for c in cells)
+
+
+@pytest.mark.parametrize("ai", ["Pass", "Fail"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"rule_tier": W.RULE_NOT_APPROVED},
+        {"reason_code": "sheet_silent"},
+        {"conditional_hold": True},
+        {"quotes_checked": {"paper": True, "clause": False}},
+    ],
+)
+def test_a_line_the_claude_second_opinion_said_no_to_is_never_a_candidate(ai, extra):
+    """`candidate` has no check of its own for "the second reader said no" (R2-1854: it could never fire): the wording's ONE
+    home makes every such unproven line a Query or a class that is not asked, whatever else the line holds."""
+    line = {
+        **_line("R-n", **extra),
+        "ai_verdict": ai,
+        "second_opinion": {"agree": False, "model": "m"},
+    }
+    assert cc.unproven_ai_line(line)
+    assert W.classify(line)["verdict_class"] not in ccrun.CANDIDATE_CLASSES
+    assert not ccrun.candidate(line)

@@ -12,7 +12,8 @@ never a code line, never a failed call, never a line already answered (resume).
 WHAT LEAVES, per line, through `groq_transport.send` only: the system sentence and THE SAME narrow question as the Claude
 second opinion (`agent_claude.second_prompt`: the colour, the paper quote and the clause quote). Both quotes must have been
 verified by code on their pages, and each at most `MAX_QUOTE_CHARS` (a longer quote keeps the line at home, never cut and
-sent); the paper, and the rule book the clause quote is from, must pass `groq_approved.refusal` (the run's stored plan showed
+sent); the paper, and the rule book the clause quote is from, must both be KNOWN (`carried_ids`: else the line stays home)
+and pass `groq_approved.refusal` (the run's stored plan showed
 the second AI's line before the start, both approved lists, no block, no contract). Never a page, a whole document, a file
 name or a title.
 
@@ -34,7 +35,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import (
     agent_claude,
-    agent_run_second,
     claude_spend,
     groq_approved,
     groq_spend,
@@ -66,9 +66,8 @@ def candidate(line: Mapping) -> bool:
     no answer could change what it shows (review R-1854: send less)."""
     if cc.answered(line) or not cc.unproven_ai_line(line):
         return False
-    # "the second reader said no" has ONE home (rule 8); such a line is a Query by the wording's own rule (#1851)
-    if agent_run_second.disagreed(line.get("second_opinion")):
-        return False
+    # "the second reader said no" is decided in ONE home (rule 8): the wording makes such a line a Query (a met at step 2b,
+    # a not met at 2c0, both before any class below), so no second check of it here (review R2-1854: it could never fire)
     return wording.classify(line)["verdict_class"] in CANDIDATE_CLASSES
 
 
@@ -78,6 +77,17 @@ def quotes_too_long(line: Mapping) -> bool:
         len(str(line.get(k) or "")) > MAX_QUOTE_CHARS
         for k in ("paper_quote", "clause_quote")
     )
+
+
+def carried_ids(paper: object, line: Mapping) -> list[str] | None:
+    """The documents whose words a request for this line carries: the paper (the paper quote) and the rule book the clause
+    quote is from. None when one of them is not KNOWN (no paper id, or a clause quote with no book id): the line stays at
+    home, never sent with a partial declaration (review R2-1854: fail closed)."""
+    book = str(line.get("standard_document_id") or "").strip()
+    paper_id = str(paper or "").strip()
+    if not paper_id or paper_id == "None" or not book:
+        return None
+    return sorted({paper_id, book})
 
 
 def quotes_verified(line: Mapping) -> bool:
@@ -145,6 +155,7 @@ def stats_template() -> dict:
         "not_approved": 0,
         "not_verified": 0,
         "too_long": 0,
+        "source_unknown": 0,
         "not_shown": 0,
         "not_run_cap": 0,
         "off": None,
@@ -226,14 +237,13 @@ class CrosscheckMixin:
             return self._crosscheck_store(
                 line, _not_run("quote_too_long", cc.TOO_LONG_SAID), "too_long"
             )
-        ids = sorted(
-            {str(self.paper)}
-            | (
-                {str(line["standard_document_id"])}
-                if line.get("standard_document_id")
-                else set()
+        ids = carried_ids(self.paper, line)
+        if ids is None:
+            return self._crosscheck_store(
+                line,
+                _not_run("source_unknown", cc.SOURCE_UNKNOWN_SAID),
+                "source_unknown",
             )
-        )
         refused = groq_approved.refusal(ids)
         if refused == groq_approved.NOT_SHOWN:
             return self._crosscheck_store(
@@ -276,7 +286,8 @@ class CrosscheckMixin:
                 "usd": usd,
                 "_count": "no_answer",
             }
-        usd = groq_spend.settle(res, groq_spend.cost_usd(model, answer.get("usage")))
+        # closed exactly once whatever the usage says (an absurd or broken usage settles at the worst case, estimated)
+        usd = groq_spend.settle_usage(res, answer)
         agree, reason, answered_by = parse_reply(answer)
         if agree is None:
             rec = {
