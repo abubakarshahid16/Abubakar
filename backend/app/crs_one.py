@@ -488,7 +488,7 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
                 [
                     "AI step skipped",
                     skipped.get("calls_not_made"),
-                    f"{local_engine_bar.STEP_WORDS.get(skipped.get('step'), skipped.get('step'))}: {_clean(skipped.get('note'))}",
+                    f"{local_engine_bar.step_words(str(skipped.get('step') or ''))}: {_clean(skipped.get('note'))}",
                 ]
             )
         unchecked = outcome.get("unchecked_counts") or {}

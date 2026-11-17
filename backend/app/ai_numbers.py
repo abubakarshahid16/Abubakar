@@ -183,25 +183,35 @@ def wording(summary: dict | None) -> dict | None:
                          "not_tried": _n(summary.get("not_tried"))})
 
 
+def _clause_engine(counts: dict) -> str | None:
+    """Where the clause checks ran: the provider that answered, as the run stored it (`engine`, LP3). A report stored
+    before that, or one no model answered, says nothing about where (rule 4: never guessed from a model's name)."""
+    engine = counts.get("engine")
+    return engine if engine in ("claude", "ollama") else None
+
+
 def clause_checks(counts: dict | None) -> dict | None:
     """#645 AI clause checks, from the run outcome's
     `requirement_split.clause_checks` (`ai_requirements.propose_checks`).
-    Always the local runner's model: standards text stays on this machine."""
+    Where it ran is the provider that answered, as stored (`engine`): the local runner's, or Claude in a Claude-lane review
+    run when AI_CLAUSE_REVIEW_ENGINE says claude (LP3). No model answered, or an older record: nothing is said about where."""
     if not counts:
         return None
     from . import ai_requirements
 
     incomplete = counts.get("could_not_read") or counts.get("not_asked_budget")
     no_limit, refused = ai_requirements.split_refusals(counts)
-    return _step("AI clause checks", "incomplete" if incomplete else "ran",
+    step = _step("AI clause checks", "incomplete" if incomplete else "ran",
                  [ai_requirements.report_line(counts)],
-                 engine="ollama", model=counts.get("model"),
+                 engine=_clause_engine(counts), model=counts.get("model"),
                  counts={"sentences": _n(counts.get("sentences")), "asked": _n(counts.get("asked")),
                          "proposed": _n(counts.get("proposed")),
                          "no_limit": no_limit,
                          "refused": sum(_n(v) for v in refused.values()),
                          "could_not_read": _n(counts.get("could_not_read")),
                          "not_asked_budget": _n(counts.get("not_asked_budget"))})
+    step["where"] = where(_clause_engine(counts))  # never from the model name
+    return step
 
 
 def for_run(outcome: dict | None, ai_check_status: dict | None,
