@@ -19,6 +19,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from ..agent_review_rules import NOT_ON_LIST, REASON_WORDS
+
 #: Class of one CRS line. Only the first is proven by code.
 VerdictClass = Literal[
     "Proven by code",
@@ -77,6 +79,8 @@ LeftOutReason = Literal[
     "this part of the book does not govern this equipment",
     "below the limit for one review",
     "an approved rule whose equipment label is not agreed",
+    #: A rule of a rule book the list shown before the start did not name: dropped before any request (`review_shown`).
+    REASON_WORDS[NOT_ON_LIST],
 ]
 
 #: The closed table every line must match: class -> (allowed words, allowed

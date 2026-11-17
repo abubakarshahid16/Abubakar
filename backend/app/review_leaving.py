@@ -333,10 +333,12 @@ DONE = ("complete", "completed")
 
 
 def last_rule_check_run(conn, document_id) -> str | None:
-    """The paper's newest COMPLETED RULE-CHECK run: the run that records the applicable standards. One review start makes two
-    runs, the rule check and, seconds later, the AI review (no applicable-standards rows of its own); the newest completed run is
-    therefore the AI run, and reading it found no books (live, 17 Nov 2026). The AI run is told apart by its explicit marker, its
-    job's stage (`agent_review_gate.STAGE`, written with the run in one transaction by `agent_review_jobs`). None: no such run."""
+    """The paper's newest COMPLETED run that selected the applicable standards. One review start usually makes two runs: the rule
+    check (it records the applicable standards) and, seconds later, the AI review, which reuses the rule check's selection and
+    records none of its own; the newest completed run is then the AI run, and reading it found no books (live, 17 Nov 2026). So an
+    AI run (told apart by its explicit marker, its job's stage `agent_review_gate.STAGE`, written with the run in one transaction
+    by `agent_review_jobs`) counts only when it holds rows of its own: with no reusable rule check, `agent_review_jobs._scope_run_id`
+    runs the selection inline under the AI run's id. A run without a job (older rule-check paths) counts. None: no such run."""
     from . import agent_review_gate
 
     marks = ",".join("?" for _ in DONE)
@@ -344,7 +346,8 @@ def last_rule_check_run(conn, document_id) -> str | None:
         "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status IN ("
         + marks
         + ")"
-        " AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
+        " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
+        " OR EXISTS (SELECT 1 FROM review_applicable_standards s WHERE s.review_run_id = r.id))"
         " ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
         (document_id, *DONE, agent_review_gate.STAGE),
     ).fetchone()
