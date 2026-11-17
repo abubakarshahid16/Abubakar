@@ -1,11 +1,19 @@
-"""The general review method (order 14, piece A): any paper in, one line per checklist item out.
+"""THE GENERAL REVIEW: one method behind the ONE Review button, for every kind of paper (owner order, 18 Nov 2026).
 
-BASE BRANCH VERSION (integrator): the frozen interface of CONTRACT section A (constants, dataclasses, signatures) and stand-ins
-that return a FIXED fake `Candidates` / `Result`, so pieces B, C, D and F can run against them. Piece A replaces the stand-ins.
-The stand-ins make no model call, open no socket and write nothing.
+S1 identify the paper -> the checklist of its TYPE (saved, else S2 choose books among the listed ones + S3 write the checklist
+from those books' clauses only, no paper + the attack by a stronger model, then saved) -> S4 judge the paper against it in
+batches of 8, by page windows for a long paper. Code verifies every quote and makes every number and unit comparison; a value the
+vendor left open is a Question; an item not from a held standard is never Met or Not met.
+
+Consent (CLAUDE.md rule 1): the books are fixed BEFORE the start. `candidates` (plan time: no model, no socket, no write) says
+which books the review may use; the run takes `allowed_books` (the list shown, minus the paper) and its catalog holds only those;
+a book the paper's type wants that is not on the list is never sent and is counted (`Result.unlisted_books`). Every Claude call
+goes `claude_approved.carrying(ids)` -> `claude_spend.metered(step=..)` -> `reader_transport.transport()`, inside
+`claude_spend.for_run(run_id)` and `claude_approved.reviewing(run_id)` (`engine.ClaudeModel`).
+
+General only (CLAUDE.md rule 13): nothing here names an equipment type, a standard, a paper or a layout.
 """
 
-# ruff: noqa: ARG001 - the stand-ins take the frozen signatures and use none of their arguments; piece A replaces them
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -14,10 +22,9 @@ from typing import Protocol
 
 METHOD_VERSION = "aim-1"
 LABELS = ("Met", "Not met", "Question", "Does not apply", "AI opinion")
-#: The labels that make a comment on the sheet (the rest stay on "All points").
 SENDABLE = ("Not met", "Question", "AI opinion")
 
-#: The reasons a rule book is on the plan's list (`Candidates.books[*]["why"]`).
+#: The reasons a rule book is on the plan's list (`Candidates.books[*]["why"]`). One home: `library` reads them from here.
 WHY_CITED = "cited by the paper"
 WHY_GOVERNS = "governs the equipment type"
 WHY_METHOD = "method book of this kind"
@@ -34,21 +41,19 @@ class Candidates:
     kind: str | None
     equipment_type: str | None
     kind_source: str  # how the app's stored reading decided it
-    books: list[dict]  # {"id": document id, "why": one of WHYS}
-    not_held: list[dict]  # {"name": public standard name, "why": str}
+    books: list[dict]  # {"id", "why"}
+    not_held: list[dict]  # {"name": public standard name, "why"}
     unreadable: int  # books outside `allowed`: counted, never named
     checklist_key: str | None
     checklist_saved: bool
 
 
 class ChecklistStore(Protocol):
-    def get(self, key: str) -> dict | None:  # the current checklist body, or None
-        ...
+    def get(self, key: str) -> dict | None: ...  # the current checklist body, or None
 
     def put(
         self, key: str, checklist: dict, *, run_id: str, usd: float
-    ) -> str:  # returns sha256
-        ...
+    ) -> str: ...  # returns sha256
 
 
 @dataclass
@@ -59,11 +64,13 @@ class Result:
     checklist_key: str
     checklist_sha256: str
     checklist_reused: bool
-    books: list[str]  # document ids actually carried
+    books: list[str]  # rule-book document ids actually carried
     not_held: list[dict]
     unlisted_books: list[str]
     unlisted_count: int
-    lines: list[dict]  # ONE per checklist item, in order: the `aim_lines` columns
+    lines: list[
+        dict
+    ]  # ONE per checklist item, in order: section D's `aim_lines` columns (D adds `shown_label`)
     calls: list[dict] = field(
         default_factory=list
     )  # {step, model, usd, input_tokens, output_tokens, seconds, ok, code}
@@ -71,52 +78,30 @@ class Result:
     seconds: float = 0.0
 
 
-# ---- stand-ins below: piece A replaces them ------------------------------------------------------------------------------
+#: `code_note` of a line whose item was never answered (the run stopped, a batch failed, its book was not on the list).
+NOT_JUDGED = "not_judged"
 
-#: The fixed fake checklist key of the stand-ins (invented).
-FAKE_KEY = "fake-kind/fake-type"
+
+def sendable(line: dict) -> bool:
+    """Does this line go on the comment sheet? Its label is one of SENDABLE, and it is not a Question whose only content is
+    "not judged" (RISKS 2): such a line stays in "All points" and is counted there, never sent to the vendor."""
+    return (
+        line.get("label") in SENDABLE and str(line.get("code_note") or "") != NOT_JUDGED
+    )
 
 
 def candidates(
     conn,
     paper_id: str,
     allowed: frozenset[str],
-    store: ChecklistStore,
+    store: ChecklistStore | None,
     earlier_unlisted: frozenset[str] = frozenset(),
 ) -> Candidates:
-    """STAND-IN: no book, nothing held, nothing read."""
-    return Candidates(
-        kind=None,
-        equipment_type=None,
-        kind_source="stand-in",
-        books=[],
-        not_held=[],
-        unreadable=0,
-        checklist_key=FAKE_KEY,
-        checklist_saved=False,
+    from .library import candidates as _candidates
+
+    return _candidates(
+        conn, paper_id, frozenset(allowed), store, frozenset(earlier_unlisted)
     )
-
-
-def _fake_line(n: int, label: str, shown: str) -> dict:
-    return {
-        "line_no": n,
-        "item_id": f"C{n:02d}",
-        "label": label,
-        "shown_label": shown,
-        "field": f"invented field {n}",
-        "page": n,
-        "quote": "",
-        "quote_unverified": "",
-        "comment": f"invented comment {n}",
-        "standard": "",
-        "book_document_id": None,
-        "clause": "",
-        "source": "stand-in",
-        "topic": "",
-        "code_note": "",
-        "numbers_json": None,
-        "code_compare_json": None,
-    }
 
 
 def run(
@@ -131,27 +116,38 @@ def run(
     cancelled: Callable[[], bool] | None = None,
     model=None,
 ) -> Result:
-    """STAND-IN: a fixed fake result of three lines (one Question, one AI opinion, one Met); no call, no write."""
-    return Result(
-        status="done",
-        stop_reason="",
-        identity={
-            "kind": None,
-            "equipment_type": None,
-            "subject": "invented",
-            "subject_key": "invented",
-            "service": "",
-        },
-        checklist_key=FAKE_KEY,
-        checklist_sha256="0" * 64,
-        checklist_reused=False,
-        books=[],
-        not_held=[],
-        unlisted_books=[],
-        unlisted_count=0,
-        lines=[
-            _fake_line(1, "Question", "Question"),
-            _fake_line(2, "AI opinion", "AI opinion"),
-            _fake_line(3, "Met", "AI opinion: met"),
-        ],
+    from .engine import run as _run
+
+    return _run(
+        conn,
+        run_id=run_id,
+        paper_id=paper_id,
+        allowed_books=frozenset(allowed_books),
+        store=store,
+        max_usd=max_usd,
+        progress=progress,
+        cancelled=cancelled,
+        model=model,
     )
+
+
+__all__ = [
+    "LABELS",
+    "MAX_BOOKS",
+    "METHOD_VERSION",
+    "NOT_JUDGED",
+    "SENDABLE",
+    "WHYS",
+    "WHY_CITED",
+    "WHY_GOVERNS",
+    "WHY_LAST",
+    "WHY_METHOD",
+    "WHY_RULES",
+    "WHY_SAVED",
+    "Candidates",
+    "ChecklistStore",
+    "Result",
+    "candidates",
+    "run",
+    "sendable",
+]

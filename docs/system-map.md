@@ -468,6 +468,13 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `aim_review_view` | The general review results page JSON, one assembly of a stored run that the page, the file and the check all read (order 14) |
 | `aim_review_store` | The general review's storage: its runs, lines and saved checklists (`aim_runs`, `aim_lines`, `aim_checklists`), and `exclude`, which keeps a general run out of every old reader of `review_runs` (order 14) |
 | `aim_review_history` | A paper's review history, general and earlier, newest first (read only; earlier runs keep their own download routes; a paper outside the caller's scope has none) (order 14) |
+| `aim_review.checklist` | The general review's checklist of a paper TYPE: S2 chooses books among the listed ones, S3 writes items from their clauses only (no paper), the attack by a stronger model (order 14) |
+| `aim_review.engine` | The general review's run and its model: Claude through the one lane (carrying -> metered -> transport, inside the run's spend and review context), the fake model for tests (order 14) |
+| `aim_review.library` | The general review's library metadata (governing and method books, rule labels, citations) and the plan-time book list (`candidates`); reads only (order 14) |
+| `aim_review.paper` | The paper the general review reads: its stored pages (text, else OCR) and its page windows (order 14) |
+| `aim_review.prompts` | The general review's task texts and the request-shape check run before every send (order 14) |
+| `aim_review.steps` | The general review's S1 identify and S4 judge by page windows; `_decide`: code verifies every quote and compares every number (order 14) |
+| `aim_review.verify` | The general review's quote check and number comparison, through `numparse` and the app's unit code (no second reader) (order 14) |
 | `review_shown` | The list a review run was started with (the documents the screen showed would leave): a cited specification that is not the paper is sent only if the run's stored list names it; ids only |
 | `review_progress` | #1494: the progress block of a running review (pages, elapsed, stall) from the jobs row; read-only, behind a switch |
 | `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |
