@@ -10,7 +10,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1882-01",
         phase=1882,
-        description="the run file's view drops the stored state, so an AI row whose finding records a verdict loses its class there",
+        description="the run file's view drops the stored state, so the stored state no longer reaches the run file's view, so its AI rows could not be read as questions there",
         path=APP / "crs_export.py",
         anchor="        rows[-1][STORED_STATE] = finding.get(STORED_STATE)\n",
         replacement="",
