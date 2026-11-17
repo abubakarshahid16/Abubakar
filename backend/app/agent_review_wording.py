@@ -115,8 +115,10 @@ def no_verdict(line: Mapping) -> bool:
 
 def reader_query_group(line: Mapping) -> str | None:
     """The group of a line the READER called Query (it cannot decide and says why in a reason code), routed by that code; None for any
-    other line. Earlier runs stored the gate's old sentence for these: they are read the same way, never rewritten."""
+    other line, and for one whose value code found stated on its page (LPV V2). Earlier runs' old sentences are read the same way."""
     if line.get("ai_verdict") != QUERY or line.get("error"):
+        return None
+    if line.get("stated_on_paper"):  # `crs_ai_actions.STATED_KEY`
         return None
     code = str(line.get("reason_code") or line.get("reason_code_ai") or "")
     silent_hold = (

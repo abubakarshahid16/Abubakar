@@ -281,7 +281,9 @@ def stated_row_words(field: str, stated: Mapping, where: str = "") -> SilentRow:
     state it); the page's own words are cited, never "Contractor to state"."""
     what = field or "the value asked for"
     page = stated.get("page")
-    on = f", page {page}" if page not in (None, "") else ""
+    on = (
+        f", page {page}" if page not in (None, "") and "page" not in str(where) else ""
+    )  # the page said once (lines tab)
     found = f'"{stated.get("quote")}"{on}{where} (label and value found together on the page by code; from {stated.get("from")})'
     return SilentRow(
         CONTRADICTS,
@@ -294,16 +296,14 @@ def stated_row_words(field: str, stated: Mapping, where: str = "") -> SilentRow:
 
 
 def _would_ask_to_state(line: Mapping, quote: str, labels) -> bool:
-    """The row would ask the contractor to STATE the value: no quote at all (and none code failed to find), or a found quote that
-    is the field's label alone. A quote that defers the value (the paper marks it to be given) or may state it (the paper's own
-    words, already the engineer's check) keeps its own row."""
+    """The row's own record says "not stated" and code found the value on its page: no quote at all (and none code failed to find),
+    the field's label alone, or a quote that "may state it" all take the stated row's ONE wording. Only a quote that DEFERS the value
+    (the paper itself marks it to be given) keeps its own row."""
     if not quote:
         return not unverified_quote(line)
-    return (
-        not quote_defers(quote)
-        and not quote_is_placeholder(quote, labels)
-        and whole_label(quote, labels)
-    )
+    return not quote_defers(quote) and not quote_is_placeholder(
+        quote, labels
+    )  # label alone, or "may state it": one wording
 
 
 def _labels_of(line: Mapping) -> list[str]:
@@ -327,14 +327,29 @@ def _words(text: object) -> list[str]:
     return re.findall(r"[a-z0-9]+", str(text or "").replace("_", " ").lower())
 
 
+#: a WHOLE cell that states no value (matched whole, never by stripping words): "N/A", "none", "Note 3", "see note 3"
+_NO_VALUE = re.compile(
+    r"^(?:n\s*/?\s*a|none|nil|nill|not applicable|(?:see|refer|refer to|as per|per)?\s*notes?\s*[-.:]?\s*\d+[a-z]?)$",
+    re.IGNORECASE,
+)
+
+
 def holds_a_value(text: str, labels) -> bool:
-    """The text is more than the field's label and is no placeholder or deferral: it can hold the value."""
+    """The text is more than the field's label and is no placeholder or deferral, no whole "N/A" / "none" / "Note 3" form, and no
+    unit standing alone ("m3/h" under "Flow (m3/h)"): it can hold the value."""
+    from .claims import is_unit
+
     q = " ".join(str(text or "").split())
+    bare = q.strip(" :|=()[]-.*")
     return (
         bool(_words(q))
         and not whole_label(q, labels)
         and not quote_is_placeholder(q, labels)
         and not quote_defers(q)
+        and not _NO_VALUE.match(bare)
+        and not is_unit(
+            bare
+        )  # the whole cell is a unit spelling ("m3/h", "barg"): no figure
     )
 
 

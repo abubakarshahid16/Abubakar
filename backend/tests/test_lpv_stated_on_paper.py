@@ -11,9 +11,12 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import pytest
+
 from app import crs_ai_actions as A
 from app import crs_ai_words
 from tests.test_agent_review_crs import mk
+from tests.test_crs_endpoint import temp_db  # noqa: F401  (fixture)
 
 STATE = "Contractor to state"
 PAGE2 = "Invented sheet\nBody material :\nXQ 70 plate\nColour : blue\nSpare : YES\nTested : YES\n"
@@ -275,3 +278,107 @@ def test_the_paper_reading_is_ordered(monkeypatch):
         f["field_value"] for f in got["facts"]
     ] == ["v1", "v1b", "v3"]
     assert A.paper_reading(None) == {}
+
+
+# ---- round 2 of the review ----------------------------------------------------------------------------------------------------
+
+
+def test_no_value_forms_and_a_unit_alone_are_not_a_stated_value():
+    for cell in ("N/A", "n/a", "None", "Note 3", "see note 3", "Refer note 2"):
+        page = f"Body material : {cell}\n"
+        fact = {**FACT, "field_value": cell}
+        (still,) = _marked([_silent()], _reading(pages={2: page}, facts=[fact]))
+        assert A.STATED_KEY not in still, cell
+    page = "Rated flow (m3/h) :\nm3/h\n"
+    line = _silent(
+        field="Rated flow",
+        paper_quote="Rated flow (m3/h) :",
+        rule_label={"field": "rated_flow"},
+    )
+    fact = {
+        "field_label": "Rated flow :",
+        "field_value": "m3/h",
+        "page": 2,
+        "is_blank": 0,
+    }
+    (still,) = _marked([line], _reading(pages={2: page}, facts=[fact]))
+    assert A.STATED_KEY not in still  # the unit under its label is no value
+
+
+def test_the_page_is_said_once():
+    words = A.stated_row_words(
+        "Body material",
+        {"quote": "Body material : XQ 70 plate", "page": 3, "from": A.FROM_READING},
+        ", page 3",
+    )
+    assert words.action.count("page 3") == 1
+
+
+def test_a_may_state_it_row_takes_the_stated_wording_when_code_found_the_value():
+    silent, _ = _marked(
+        [_silent(paper_quote="Body material : see sheet"), _reader_met()]
+    )
+    assert (
+        A.silent_row(silent).reason == A.STATED_REASON
+    )  # one wording, never "may state it" beside a stated mark
+
+
+def test_a_stated_row_is_no_question_for_the_contractor_in_the_groups():
+    from app import agent_review_wording as W
+
+    line = _silent(silence_query=True)
+    assert W.reader_query_group(line) == W.GROUP_SILENT
+    (marked,) = _marked([line], _reading())
+    assert W.reader_query_group(marked) is None
+
+
+@pytest.fixture()
+def lines_world(temp_db, monkeypatch):  # noqa: F811  (the fixture, imported above)
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    """An invented AI run whose silent line's value the paper states on its own page (temp database, the route's own client)."""
+    from app import datasheets, db
+    from tests.test_b1_review_points import ai_run
+    from tests.test_crs_endpoint import NOW, _client, _submittal
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, needs_ocr, batch_no) VALUES (?, 2, ?, 9, 0, 0)",
+            (doc, PAGE2),
+        )
+        conn.execute(
+            "INSERT INTO chunks (id, document_id, filename, ordinal, page_start, page_end, section, kind, text, token_count, content_hash,"
+            " retrievable) VALUES (?, ?, 'drum.pdf', 2, 2, 2, NULL, 'prose', ?, 1, 'h', 1)",
+            (f"{doc}-2", doc, PAGE2),
+        )
+    datasheets.create_fact(
+        submittal_document_id=doc,
+        chunk_id=f"{doc}-2",
+        field_label="Body material :",
+        raw_value="XQ 70 plate",
+        page=2,
+    )
+    run = ai_run(doc, [_silent(silence_query=True)])
+    assert NOW
+    return run, _client(doc, "doc_std")
+
+
+def test_the_lines_tab_and_its_query_groups_read_the_stated_value(lines_world):
+    from app.api import agent_review as api
+    from app.db import connect
+
+    run, client = lines_world
+    groups, _none = api._query_groups(connect(), run)
+    assert (
+        groups.contractor_silent == 0
+    )  # the page states it: no question for the contractor
+    got = client.get(f"/api/reviews/runs/{run}/agent/lines")
+    assert got.status_code == 200, got.text
+    (line,) = got.json()["lines"]
+    assert (
+        "against the value the paper states" in line["reason"]
+        and STATE not in line["reason"]
+    )
