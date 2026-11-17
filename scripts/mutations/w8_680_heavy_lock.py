@@ -54,6 +54,6 @@ MUTATIONS: tuple[Mutation, ...] = (
        "    queued = heavy_lock.waiters()\n", "    queued = []\n", "steps_aside"),
     _m(4416, "--changed selects every mutation", REPO / "scripts" / "mutation_check.py",
        "        if mutated in files or files & tests:\n", "        if True:\n", "changed_mode"),
-    _m(4417, "CLAUDE.md no longer says P1 runs once per merge round", REPO / "CLAUDE.md",
+    _m(4417, "CLAUDE.md no longer says P1 runs once per merge round", REPO / "docs" / "claude-md-old.md",
        "P1 on the PC runs ONCE per merge round", "P1 on the PC runs per PR", "documents"),
 )
