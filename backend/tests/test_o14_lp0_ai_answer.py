@@ -548,3 +548,143 @@ def test_a_readable_book_with_no_name_is_never_said_to_be_hidden():
     assert (
         f"{A.BOOK_HIDDEN}, clause not named" in unread
     )  # the viewer may not read it: neither named nor its clause shown
+
+
+# ------------------------------------------------------------------------------------------------ review round 3
+
+
+def test_a_rule_check_rows_words_come_from_its_looked_up_tier(monkeypatch):
+    from app import review_points as rp
+    from app import rule_labels
+    from tests.test_o14_firm_needs_clause import CTX, ROW, VERIFIED, _finding
+
+    said = {
+        "req-ai": rule_labels.Tier("AI approved"),
+        "req-person": rule_labels.Tier("engineer"),
+        "req-human": rule_labels.Tier(None, rule_labels.NEEDS_A_HUMAN),
+        "req-none": rule_labels.Tier(None, rule_labels.NOT_LABELLED),
+    }
+    monkeypatch.setattr(
+        rule_labels,
+        "usable_tier",
+        lambda _conn, requirement_id=None, **_k: said[requirement_id],
+    )
+    want = {
+        "req-ai": "rule approved by AI only",
+        "req-person": "not proven by code",
+        "req-human": "rule not approved",
+        "req-none": "rule not sorted yet",
+        None: "rule approval not recorded",
+    }
+    for req, why in want.items():
+        finding = {**_finding("5.3.4"), "requirement_id": req}
+        p = rp.rule_point(dict(ROW), dict(CTX), finding, VERIFIED, proof=(True, True))
+        assert p["ai_label"] == f"Fail (AI, {why}, engineer to confirm)", req
+        assert p["ai_answer"].startswith(p["ai_label"])
+
+
+def _disagreeing_old_line() -> dict:
+    """An older run's stored "AI thinks: met" whose second reader said no (stored before the wording made such a line a question)."""
+    line = mk(
+        "R-12",
+        "Query",
+        "Pass",
+        reason_code="met",
+        field="Field Old Disagree",
+        second_opinion={"agree": False},
+    )
+    return {**line, "verdict_class": W.CLASS_OPINION, "verdict_label": W.THINKS_MET}
+
+
+def test_a_disagreement_is_a_question_in_every_file_and_read_alike_by_the_scorer(
+    tmp_path,
+):
+    from tools import answer_key_score as S
+
+    from app import review_points as rp
+
+    line = _disagreeing_old_line()
+    assert WB.status_of(line) == (
+        words.STATUS_QUERY,
+        words.ORDER_QUERY,
+    )  # never a Met / Not met row
+    p = rp.ai_point(
+        line,
+        {
+            "run_id": "r",
+            "paper_document_id": "d",
+            "book_of": {},
+            "readable": frozenset(),
+        },
+    )
+    rp.with_groups([p])
+    assert (p["rank"], p["tile"], p["pill"]) == (4, "questions", DISAGREE)
+    assert A.class_words("Questions for you", p) == A.DISAGREE_CLASS
+    assert S._team_kind(A.DISAGREE_CLASS, DISAGREE, "") == ("comment", "query", "")
+    run_file = tmp_path / "run.xlsx"
+    WB.write([line], run_file, {**META, "rule_labels": {}}, "internal")
+    assert [ln.status for ln in S.read_crs(run_file)] == [
+        "query"
+    ]  # the run file: a question too
+
+
+def test_no_cell_of_an_ai_row_says_met_or_not_met_in_plain_words():
+    lines = [
+        *_lines(),
+        {
+            **mk("R-13", "Query", "Fail", reason_code="not_met", field="Field Indep"),
+            "two_reader": {"verdict": "met"},
+        },
+    ]
+    view = WB.layout_view(lines, {**META, "rule_labels": {}}, "internal")
+    ev = view["evidence"]
+    head = list(ev["columns"])
+    plain = {"met", "not met", "not_met"}
+    for row in ev["rows"]:
+        if row[head.index("Status")] in (words.STATUS_AI, words.STATUS_QUERY):
+            assert not [c for c in row if str(c or "").strip().lower() in plain], row[
+                head.index("Item id (internal)")
+            ]
+    by = {r[head.index("Item id (internal)")]: r for r in ev["rows"]}
+    assert by["R-2"][head.index("Reason code")] == "not_met (AI, engineer to confirm)"
+    assert by["R-1"][head.index("Reason code")] in (
+        None,
+        "",
+        "not_met",
+    )  # a code-proven row keeps its own words
+    assert (
+        by["R-13"][head.index("Independent reader: verdict")]
+        == "met (AI, engineer to confirm)"
+    )
+
+
+def test_the_team_files_reason_and_second_reader_cells_mark_an_ai_answer():
+    from app import crs_one as one
+
+    line = {
+        **mk("R-14", "Query", "Pass", reason_code="met", field="Field Met"),
+        "verdict_class": W.CLASS_OPINION,
+        "why": "",
+    }
+    line["not_proven_reason"] = ""
+    point = {"source": "ai_review", "_line": line}
+    assert one.reason_of(point).endswith("met (AI, engineer to confirm)")
+    proven = {
+        "source": "ai_review",
+        "_line": {
+            **mk("R-1", "Fail", "Fail"),
+            "why": "",
+            "not_proven_reason": "",
+            "reason_code": "met",
+        },
+    }
+    assert "(AI," not in one.reason_of(proven)
+    indep = {
+        "source": "ai_review",
+        "rank": 4,
+        "_line": {**line, "two_reader": {"verdict": "not met"}},
+    }
+    assert (
+        one.readers_of(indep)[1]
+        == "independent reader: not met (AI, engineer to confirm)"
+    )

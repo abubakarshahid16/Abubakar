@@ -137,7 +137,7 @@ def reason_of(point: dict) -> str:
     if line:
         why = words.why_phrase(line.get("not_proven_reason") or line.get("why") or "")
         code = (
-            words.code_phrase(line.get("reason_code"))
+            ai_answer.marked(words.code_phrase(line.get("reason_code")), ai_answer.is_ai_row(line))
             if line.get("reason_code")
             else ""
         )
@@ -197,7 +197,7 @@ def readers_of(point: dict) -> tuple[str, str, str]:
     if isinstance(indep, dict):
         return (
             first,
-            f"independent reader: {_clean(indep.get('verdict')) or NOT_RECORDED}",
+            f"independent reader: {ai_answer.marked(_clean(indep.get('verdict')), ai_answer.is_ai_row(line)) or NOT_RECORDED}",
             "yes" if point.get("rank") in (2, 6) else "no",
         )
     if isinstance(second, dict):

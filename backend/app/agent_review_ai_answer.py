@@ -19,12 +19,16 @@ readers agree, quotes verified)"), NOT "needs a drawing or a calculation", NOT a
 and NOT a line on a rule book the run does not hold (a book not held is never guessed: it stays a question, gate G7). A "does not apply"
 without its proof (`agent_review_wording.not_applicable_question`) is "Does not apply (AI, engineer to confirm)", in its own section.
 The rule check's own AI step (AI clause review, AI engineering check: a one-reader "not met" on the page, or a question when it names no
-clause) is `RULE_CHECK_LABEL`, "Fail (AI, not proven by code, engineer to confirm)": its rule's tier is not on its row.
+clause) is `rule_check_label`: "Fail (AI, <why>, engineer to confirm)", its rule's tier looked up by the finding's requirement id
+(`rule_labels.usable_tier`, ONE lookup, `rule_check_why`). A line two AI readers disagree on is never in a Met / Not met tile: its class
+is a question (`crs_ai_workbook.status_of`), its Class cell says "AI readers disagree, engineer to decide". Every other cell of an AI row
+that says met / not met in our own words (a reason code, the second reader's verdict) carries "(AI, engineer to confirm)" (`marked`).
 
 HONESTY (CLAUDE.md rule 4). The middle words say truly why the answer is not a plain Pass or Fail, read from the line's STORED tier
-only (`final_cap` writes it), never from a default that claims a fact: "rule not approved" (not AI approved), "rule approved by AI only"
-(AI approved), "not proven by code" (approved by the owner or an engineer, or an item of the app's approved checklist), "rule approval
-not recorded" (no tier stored, and the rule check's own AI rows, whose tier is not on the row). When the second AI reader DISAGREED, no
+only (`final_cap` writes it; for the rule check's rows, the looked-up tier), never from a default that claims a fact: "rule not
+approved" (not AI approved; a label that needs a person), "rule approved by AI only" (AI approved), "not proven by code" (approved by
+the owner or an engineer, or an item of the app's approved checklist), "rule not sorted yet" (no label), "rule approval not recorded"
+(no tier stored, or no requirement id to look it up by). When the second AI reader DISAGREED, no
 reader's answer is shown as the answer: "AI readers disagree (first: Pass, second: Fail), engineer to decide". The page is printed with
 `agent_review_crs.page_words` (a page hint says so); the quote only when code found it on the page, else "quote not found by code".
 """
@@ -48,7 +52,8 @@ WHY_NOT_APPROVED = "rule not approved"
 WHY_AI_ONLY = "rule approved by AI only"
 WHY_NOT_PROVEN = "not proven by code"
 WHY_NOT_RECORDED = "rule approval not recorded"
-WHYS = (WHY_NOT_APPROVED, WHY_AI_ONLY, WHY_NOT_PROVEN, WHY_NOT_RECORDED)
+WHY_NOT_SORTED = "rule not sorted yet"
+WHYS = (WHY_NOT_APPROVED, WHY_AI_ONLY, WHY_NOT_PROVEN, WHY_NOT_RECORDED, WHY_NOT_SORTED)
 DISAGREE_LABEL = (
     "AI readers disagree (first: {first}, second: {second}), engineer to decide"
 )
@@ -64,9 +69,10 @@ BOOK_HIDDEN = "rule book not shown (not one you may read)"
 BOOK_NO_NAME = "rule book name not recorded"
 NO_CLAUSE = "clause not named"
 NO_PAGE = "page not recorded"
-#: The rule check's own AI step (`crs_normal`: AI clause review, AI engineering check, ...) wrote a "not met" (rank 3), or one that names
-#: no clause (a question): its tier is not on the row, so the middle words say it is not recorded.
-RULE_CHECK_LABEL = LABEL.format(answer=FAIL, why=WHY_NOT_RECORDED)
+DISAGREE_CLASS = "AI readers disagree, engineer to decide"
+#: The mark of a met / not met in our own words on an AI row's other cells (`marked`).
+AI_MARK = "(AI, engineer to confirm)"
+_MET_WORDS = frozenset({"met", "not met", "not_met"})
 #: The answers this module can give, as they open a label (the scorer reads them back: `is_label`).
 ANSWERS = (PASS, FAIL)
 
@@ -83,6 +89,62 @@ def _why(line: Mapping) -> str:
             WHY_NOT_PROVEN  # approved by a person, or the app's own approved checklist
         )
     return WHY_NOT_RECORDED
+
+
+def rule_check_why(requirement_id: object, cache: dict | None = None) -> str:
+    """THE middle words of a rule-check AI row, from its rule's tier looked up by the finding's requirement id (`rule_labels.usable_tier`):
+    owner / engineer -> "not proven by code"; AI approved -> "rule approved by AI only"; no label -> "rule not sorted yet"; any other
+    reason (needs a person, one pass only, quote not found, refused, declined) -> "rule not approved"; no requirement id, or a lookup
+    that cannot be made -> "rule approval not recorded". `cache`: one lookup per requirement id."""
+    import sqlite3
+
+    from . import rule_labels
+    from .db import connect
+
+    key = str(requirement_id or "").strip()
+    if not key:
+        return WHY_NOT_RECORDED
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        got = rule_labels.usable_tier(connect(), requirement_id=key)
+    except sqlite3.Error:
+        got = None
+    if got is None:
+        why = WHY_NOT_RECORDED
+    elif got.tier in (OWNER_TIER, ENGINEER_TIER):
+        why = WHY_NOT_PROVEN
+    elif got.tier == AI_TIER:
+        why = WHY_AI_ONLY
+    elif got.reason in (rule_labels.NOT_LABELLED, rule_labels.NO_LABEL_TABLE):
+        why = WHY_NOT_SORTED
+    else:
+        why = WHY_NOT_APPROVED
+    if cache is not None:
+        cache[key] = why
+    return why
+
+
+def rule_check_label(requirement_id: object, cache: dict | None = None) -> str:
+    """THE label of a rule-check AI "not met" (`rule_check_why`)."""
+    return LABEL.format(answer=FAIL, why=rule_check_why(requirement_id, cache))
+
+
+def is_ai_row(line: Mapping) -> bool:
+    """A line that is neither proven by code nor a two-reader verdict: its met / not met is one AI reader's."""
+    from . import agent_review_wording as wording
+
+    return line.get("verdict_class") not in (
+        wording.CLASS_PROVEN,
+        wording.CLASS_TWO_READERS,
+    )
+
+
+def marked(text: object, ai_row: bool = True) -> object:
+    """A cell that says met / not met in our own words on an AI row, marked as the AI's ("met (AI, engineer to confirm)"); any other
+    text, or a decision's row (`ai_row` False), unchanged."""
+    t = " ".join(str(text or "").split())
+    return f"{t} {AI_MARK}" if ai_row and t.lower() in _MET_WORDS else text
 
 
 def disagreement(line: Mapping) -> tuple[str, str] | None:
@@ -262,6 +324,8 @@ def class_words(tile_words: str, point: Mapping) -> str:
     AI's ("Not met (AI, engineer to confirm)"); on a rule not yet approved, its kind ("Rule not yet approved"), never "Does not apply"."""
     if not point.get("ai_label"):
         return tile_words
+    if str(point["ai_label"]).startswith("AI readers disagree (first: "):
+        return DISAGREE_CLASS
     if point.get("tile") in ("not_met", "met"):
         return AI_CLASS.format(tile=tile_words)
     if point.get("rank") == 8 and point.get("other_kind"):
@@ -274,6 +338,8 @@ def plain_class(text: object) -> str:
     from . import crs_ai_words as words
 
     t = " ".join(str(text or "").split())
+    if t == DISAGREE_CLASS:
+        return "Questions for you"  # a disagreement is a question, in both files
     for tile in ("Not met", "Met"):
         if t == AI_CLASS.format(tile=tile):
             return tile

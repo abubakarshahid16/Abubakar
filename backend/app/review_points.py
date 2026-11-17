@@ -735,9 +735,9 @@ def rule_point(
         "_finding": finding,
     }
     if not missing and (rank == 3 or unproven_ai):  # LP0: the rule check's AI step said "not met": its own answer, labelled
-        point["ai_label"] = ai_answer.RULE_CHECK_LABEL
+        point["ai_label"] = ai_answer.rule_check_label((finding or {}).get("requirement_id"), ctx.setdefault("_rule_tiers", {}))
         point["ai_answer"] = ai_answer.sentence(
-            ai_answer.RULE_CHECK_LABEL, book=book_name, clause=f"clause {point['clause']}" if point["clause"] else ai_answer.NO_CLAUSE,
+            point["ai_label"], book=book_name, clause=f"clause {point['clause']}" if point["clause"] else ai_answer.NO_CLAUSE,
             page=str(page) if page is not None else None, evidence=paper_q or None, looked=looked or None, hidden=hidden, linked=bool(book_doc),
         )  # fmt: skip
     if missing:

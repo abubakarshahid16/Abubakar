@@ -726,7 +726,7 @@ def _independent_cells(line: Mapping) -> list:
         else {}
     )
     return [
-        indep.get("verdict"),
+        ai_answer.marked(indep.get("verdict"), ai_answer.is_ai_row(line)),  # LP0: on an AI row, marked as the AI's
         _clean(indep.get("paper_quote")) or None,
         indep.get("paper_page"),
         _clean(indep.get("clause_quote")) or None,
@@ -762,7 +762,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         _check_word(bool(q.get("clause"))),
         _second_reader(line),
         _calls(line),
-        _clean(line.get("reason_code")) or None,
+        ai_answer.marked(_clean(line.get("reason_code")), ai_answer.is_ai_row(line)) or None,  # LP0: an AI row's met / not met is marked
         line.get("item_id"),
         label.get("label_key") if isinstance(label, Mapping) else None,
         *_independent_cells(line),
