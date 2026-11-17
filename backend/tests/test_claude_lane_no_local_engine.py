@@ -282,7 +282,7 @@ def test_a_task_is_skipped_with_the_note_as_its_reason(engine_calls):
         result = ai_task_runner.run_task(spec, "some text")
         assert (
             result.state == ai_task_runner.STATE_COULD_NOT_READ
-            and result.reason == NOTE
+            and result.reason == f"not run: {local_engine_bar.NO_CLAUDE_SETTING}"  # LP3: says why
         )
         assert ai_task_runner.model_identity("any-model") is None
         assert ai_task_runner._installed_tags() is None

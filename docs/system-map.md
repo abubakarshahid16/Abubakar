@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text`, `equipment_rule_books` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -85,7 +85,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_reread` | The AI reviewer's page re-read (core): which lines are silent, the pages a second model reads (at most 3), the quote check, the line decided again by the same gate; off by default |
 | `agent_review_reuse` | The AI reviewer's stored first-reader answers (behind `AGENT_REVIEW_REUSE_ANSWERS_ENABLED`, default off): a reader's raw complete answer is kept in the app database table `agent_review_answer` (local only) and used again, with no call and USD 0, when the whole request (pages, rule texts, items, model, token limit, prompt version) is byte-identical; the quote check, guards and second readers run again; a run can ask for fresh answers |
 | `agent_review_steady` | The AI reviewer's steadiness number: lines whose class (before the optional steps) changed since the previous finished run of the same paper, and how many are decisions; read from the stored lines, no call |
+| `agent_review_ai_answer` | The AI reviewer's own answer on a line code did not prove (owner, LP0): the label "Pass / Fail (AI, rule not approved, engineer to confirm)" and "Does not apply (AI, engineer to confirm)", and its line with standard, clause, page and quote; words only, never a decision |
 | `agent_review_not_applicable` | Whether an AI reader's "does not apply" carries its proof (the rule's condition and the paper's fact, each found by code); without it the line is the engineer's question |
+| `firm_clause` | LP1 (order 14 live proof): a firm "not met" that shows no clause (moved off as not checked or not confirmed, a book not held, or none named) is read as the engineer's question with its reason, at the one reading of stored lines (`crs_ai_words.read_now`) and in `agent_review_wording.classify` |
 | `agent_review_wording` | The AI reviewer's words (core): Pass/Fail only when proven, else AI thinks met / not met; the one exit cap by current tier; counts per class |
 | `agent_review_two_reader` | The class "AI verdict, two readers agree" (pure): which lines may be asked, the stored second answer, the one rule for "same evidence", and the check that both readers' quotes are verified and no guard objects; never a Pass or a Fail, internal copy only |
 | `agent_review_pair` | The AI reviewer line's class and word in the contract's words, asked of the one table (`LINE_TABLE`); a refused pair is never stored |
@@ -296,6 +298,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `paper_kind` | Paper kind first (owner order 11 Nov step 2, #805): one kind of a closed list (datasheet, procedure, contract, drawing, test record, other) from the paper's cover and title; a procedure or contract keeps an equipment type only as a secondary label; behind PAPER_KIND_FIRST_ENABLED (off) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
 | `kind_standards` | Standards by role and document kind: a procedure or study leaves out equipment design standards, counted in the run note; method standards still needed are named once (off by default) |
+| `equipment_rule_books` | Choose the standards that apply to a submittal |
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
