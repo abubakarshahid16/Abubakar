@@ -91,14 +91,18 @@ def not_checked_sentence(kind: str | None) -> str | None:
     return f"{why}; that does not mean the {noun} is acceptable."
 
 
-_OLD_NOT_CHECKED = re.compile(r"No (.+?) checklist is held, so no point of this (.+?) was checked")
+_OLD_NOT_CHECKED = re.compile(
+    r"No (.+?) checklist is held, so no point of this (.+?) was checked"
+)
 
 
 def current_not_checked(sentence: str) -> str:
     """A stored not-checked sentence in today's words: a run stored before order 14 W-C5 said "no point of this <kind> was
     checked", which is false beside the AI review's own points; it was about the rule check alone."""
     return _OLD_NOT_CHECKED.sub(
-        lambda m: f"No {m.group(1)} checklist is held, so the rule check compared no point of this {m.group(2)} with a checklist",
+        lambda m: (
+            f"No {m.group(1)} checklist is held, so the rule check compared no point of this {m.group(2)} with a checklist"
+        ),
         " ".join(str(sentence or "").split()),
     )
 

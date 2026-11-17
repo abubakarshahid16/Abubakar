@@ -487,7 +487,9 @@ def _call(
     if answer.get("stop_reason") in ("refusal", "max_tokens"):
         exc = _bad_reply("stop_" + str(answer.get("stop_reason")), usd)
         # order 14 W-C6: the text received is never used as an answer, but the caller may keep it, marked, in the run's record
-        exc.received = "".join(str(b.get("text") or "") for b in answer["content"] if isinstance(b, dict))
+        exc.received = "".join(
+            str(b.get("text") or "") for b in answer["content"] if isinstance(b, dict)
+        )
         raise exc
     return answer, usd
 

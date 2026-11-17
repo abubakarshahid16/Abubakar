@@ -502,11 +502,7 @@ class FindingsMixin:
     def _p5_line(self, c: Any, seen: set[str]) -> bool:
         """One comment into a line; False (and counted) when it is malformed, unverified or a repeat."""
         q = self.quote_of(c.get("quote")) if isinstance(c, dict) else None
-        text = (
-            core.whole_words(c.get("comment"))
-            if isinstance(c, dict)
-            else ""
-        )
+        text = core.whole_words(c.get("comment")) if isinstance(c, dict) else ""
         if q is None or not text:
             self.dropped.add(5, "malformed comment")
             return False

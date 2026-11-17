@@ -53,7 +53,10 @@ from .agent_review_request import FATAL, MAX_TOKENS_CAP, _text_of
 def failure_words(code: str) -> str:
     """A failed call's code in the words a line carries: plain words where the code has them (a reply cut at its length limit,
     order 14 W-C6; a request too long for the local model), else the code."""
-    said = {local_mod.LOCAL_TOO_LONG: local_mod.NOT_ASKED_WORDS, whole_mod.STOP_MAX_TOKENS: whole_mod.REPLY_CUT}
+    said = {
+        local_mod.LOCAL_TOO_LONG: local_mod.NOT_ASKED_WORDS,
+        whole_mod.STOP_MAX_TOKENS: whole_mod.REPLY_CUT,
+    }
     return said.get(code, code)
 
 
@@ -174,7 +177,9 @@ class GeneralRun(FindingsMixin):
         try:
             answer, usd = self.runner.call(model, parts, max_tokens)
         except agent_claude.AgentBadReply as exc:
-            if exc.code == whole_mod.STOP_MAX_TOKENS:  # order 14 W-C6: the cut reply is kept whole and marked, never used
+            if (
+                exc.code == whole_mod.STOP_MAX_TOKENS
+            ):  # order 14 W-C6: the cut reply is kept whole and marked, never used
                 self.trace({"type": "answer_cut", "step": key, "model": model, "cut_by_length_limit": True,
                             "text": getattr(exc, "received", None)})  # fmt: skip
             raise
@@ -232,7 +237,9 @@ class GeneralRun(FindingsMixin):
         if isinstance(exc, FATAL):
             self.halt(exc)
         self.failures += 1
-        self.not_reviewed(part, f"{label}: {failure_words(getattr(exc, 'code', type(exc).__name__))}")
+        self.not_reviewed(
+            part, f"{label}: {failure_words(getattr(exc, 'code', type(exc).__name__))}"
+        )
 
     def check(self, quote: Any, page: Any, doc: str) -> bool:
         ok, _why = verdict.check_paper_quote(quote, page, self.docs.pages(doc))
