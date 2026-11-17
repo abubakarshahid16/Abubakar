@@ -611,16 +611,10 @@ def _second_opinion(
             "usd": 0.0,
             "model": "unknown",
         }
-    prompt = json.dumps(
-        {
-            "colour": (finding or {}).get("color"),
-            "document_quote": (evidence or {}).get("doc_quote"),
-            "clause_quote": (evidence or {}).get("clause_quote"),
-            "question": "Do these two quotes alone support this colour? GREEN means the document meets the clause; "
-            "RED means it does not. Reply with ONE JSON object: "
-            '{"agree": true or false, "reason": "at most 20 words"}',
-        },
-        ensure_ascii=False,
+    prompt = second_prompt(
+        (finding or {}).get("color"),
+        (evidence or {}).get("doc_quote"),
+        (evidence or {}).get("clause_quote"),
     )
     parts = {
         "system": [
@@ -670,6 +664,25 @@ SECOND_SYSTEM = (
     "You are an independent senior engineer checking another reviewer's finding. Use only the two quotes given. "
     "If they do not clearly support the colour, answer false."
 )
+SECOND_QUESTION = (
+    "Do these two quotes alone support this colour? GREEN means the document meets the clause; "
+    "RED means it does not. Reply with ONE JSON object: "
+    '{"agree": true or false, "reason": "at most 20 words"}'
+)
+
+
+def second_prompt(colour: Any, document_quote: Any, clause_quote: Any) -> str:
+    """THE narrow second-opinion question (one home): the colour and the two quotes, nothing else. The Claude second opinion
+    and the Groq cross-check (`agent_review_crosscheck`) both send exactly this."""
+    return json.dumps(
+        {
+            "colour": colour,
+            "document_quote": document_quote,
+            "clause_quote": clause_quote,
+            "question": SECOND_QUESTION,
+        },
+        ensure_ascii=False,
+    )
 
 
 # ------------------------------------------------------------------ cost projector

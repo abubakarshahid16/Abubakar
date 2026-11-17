@@ -111,7 +111,10 @@ carries the client's name; only the owner can rename it.
    only a public standard's name taken from the app's own tables of public standards (never the paper's words), through
    `reader_transport.py` under the same caps; a stored answer is reused for 90 days and says when it was searched.
    The market search sends only the human-typed
-   phrase, previewed and approved per query. Only four modules may open a
+   phrase, previewed and approved per query. The SECOND AI LANE, Groq (owner, 17 Nov 2026, #1584 comment 6930244442):
+   `groq_transport.py` is a socket module behind `GROQ_CROSSCHECK_ENABLED` (off by default) that sends only short
+   code-verified quotes of papers on the owner's Groq list (`groq_approved_documents.json`, empty until he adds one), under
+   its own caps (`groq_spend`). Only five modules may open a
    socket, each behind a gate:
    `market_transport.py` (market lane, off by default), `model_transport.py`
    (local Ollama only — `ollama_url` validated by `config.check_model_url`),
@@ -131,7 +134,7 @@ carries the client's name; only the owner can rename it.
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
    which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default; in the socket-containment test
-   since #196). Known gap: the
+   since #196) and `groq_transport.py` (the second AI lane above). Known gap: the
    `claude_api` review routes check the two egress flags but not
    `REASONING_PROVIDER` (audit 2026-09-25 finding 1). Call graph:
    `docs/architecture-call-graph.md`.

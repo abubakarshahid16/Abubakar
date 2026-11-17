@@ -18,6 +18,7 @@ import logging
 from . import (
     agent_review_gate,
     agent_review_jobs,
+    groq_approved,
     job_queue,
     review_engine,
     review_jobs,
@@ -198,6 +199,8 @@ def _enqueue_ai(conn, got: dict, job) -> str | None:
         ai["engine"] == review_engine.ON_LOCAL
     )  # a local AI review is barred from Claude for its whole length
     plan = got["plan"]
+    # the re-plan may not add the second AI's line
+    groq_approved.narrow_replan(plan, again)
     general = agent_review_gate.general_kind_enabled(again.get("kind"))
     projects = tuple(plan.get("project_document_ids") or ()) if general else None
 

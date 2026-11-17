@@ -102,7 +102,8 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 63 on 17 Nov (#1584, online search for rule books not held): standards_web_search.py decides what leaves the machine
     # raised to 64 on 17 Nov (#1849 review, lead to confirm): question_card.py, split out of the datasheet_checks danger zone,
     # decides that a card whose limit no engineer confirmed gives no verdict and when a condition says 'does not apply'
-    assert len(vp.VERDICT_PATH) <= 64
+    # raised to 69 on 17 Nov (#1854, the second AI on Groq): its socket, its caps, its approval list, its words and its step decide what leaves and can make a line a Query
+    assert len(vp.VERDICT_PATH) <= 69
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

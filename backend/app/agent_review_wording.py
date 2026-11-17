@@ -17,6 +17,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping
 
 from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as code_proof
+from . import agent_review_crosscheck as crosscheck
 from . import agent_review_two_reader as two_reader
 from . import agent_run_second
 from .agent_review_local import (
@@ -338,7 +339,19 @@ def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
             if two_reader.second_cut_off(line)
             else DISAGREE_WHY,
         }
+    if crosscheck.disagrees(line):  # 2e. the second AI (Groq) disagrees: a Query
+        also_why = f"; {why}" if unapproved else ""
+        return _a_query(crosscheck.DISAGREE_WHY + also_why)
     return None
+
+
+def _a_query(reason: str) -> dict:
+    """The words of a line that is a Query for the engineer, with its reason."""
+    return {
+        "verdict_label": WORD_QUERY,
+        "verdict_class": CLASS_QUERY,
+        "not_proven_reason": reason,
+    }
 
 
 def classify(line: Mapping) -> dict:
@@ -455,13 +468,20 @@ def read_time(line: Mapping) -> dict:
     if line.get("source") not in ("rule", "skill"):
         return dict(line)
     got = classify(line)
-    narrowed = (
-        line.get("verdict_class") in _NARROWED_AT_READ
-        and line.get("ai_verdict") == FAIL
-    )
-    if got["verdict_class"] == CLASS_QUERY and narrowed:
-        return {**line, **got}  # order 14 (G5): read as today's Query (narrowing only)
-    return {**line, "not_proven_reason": got["not_proven_reason"]}
+    query = got["verdict_class"] == CLASS_QUERY and line.get("ai_verdict") == FAIL
+    narrowed = query and line.get("verdict_class") in _NARROWED_AT_READ  # G5 above
+    out = {**line, **got} if narrowed else dict(line)
+    note = crosscheck.said(line)  # the cross-check's not-run note, on either path
+    out["not_proven_reason"] = _with_note(got["not_proven_reason"], note)
+    return out
+
+
+def _with_note(reason: str | None, note: str | None) -> str | None:
+    """The reason with the cross-check's not-run sentence after it (ONE home: `apply` and `read_time`)."""
+    if not note:
+        return reason
+    base = str(reason or "").rstrip(" .;")
+    return f"{base}; {note}" if base else note
 
 
 def apply(line: Mapping) -> dict:
@@ -479,6 +499,10 @@ def apply(line: Mapping) -> dict:
     if words and out["verdict_class"] in (CLASS_QUERY, CLASS_OPINION, CLASS_UNAPPROVED):
         base = str(out.get("not_proven_reason") or "").rstrip(" .;")
         out["not_proven_reason"] = f"{base}; {words}" if base else words
+    # the second AI on, this line not asked: said (the page reads it through `read_time`)
+    out["not_proven_reason"] = _with_note(
+        out.get("not_proven_reason"), crosscheck.said(line)
+    )
     return out
 
 

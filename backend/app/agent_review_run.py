@@ -50,6 +50,7 @@ from . import agent_review_reuse as reuse_mod
 from . import agent_review_two_reader as two_reader_mod
 from . import agent_review_verdict as verdict
 from . import agent_review_wording as wording
+from .agent_review_crosscheck_run import CrosscheckMixin
 from .agent_review_decide import DecideMixin
 from .agent_review_local_run import LocalRunMixin
 from .agent_review_request import (
@@ -99,6 +100,7 @@ class Runner(
     AbsenceMixin,
     OtherPaperMixin,
     LocalRunMixin,
+    CrosscheckMixin,
 ):
     _scope = threading.local()  # per-thread charge scope (`charged_scope`)
 
@@ -769,14 +771,11 @@ class Runner(
             ]
             for f in futures:
                 f.result()
-        if (
-            self.two_reader_on()
-        ):  # optional, off by default: nothing below runs and no call is made when off
+        if self.two_reader_on():  # optional, off by default: no call when off
             self.run_two_readers()
-        if (
-            self.answers is not None and not self.stopped and not self._stop.is_set()
-        ):  # point E: the answers of a run that was not halted are kept for the next run
-            self.answers.commit()
+        self.run_crosscheck()  # the second AI (Groq), off by default: nothing is sent when off
+        if self.answers is not None and not self.stopped and not self._stop.is_set():
+            self.answers.commit()  # point E: kept for the next run (not halted)
         return {"batches": len(batches), "batch_source": source}
 
 
@@ -797,4 +796,5 @@ def counts_of(lines: Iterable[Mapping], runner: Runner | None = None) -> dict:
             "local_items_total": len(ls),
             "local_items_asked": sum(1 for ln in ls if not ln.get("error")),
         }
-    return {**out, **(runner.two_reader_counts() if runner else {}), **local}
+    steps = runner.two_reader_counts() | runner.crosscheck_counts() if runner else {}
+    return {**out, **steps, **local}

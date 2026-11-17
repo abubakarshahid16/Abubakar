@@ -5,6 +5,7 @@
 1. **Close every agent session:** s1, s2, cloud and the planner.
 2. **Revoke the cloud GitHub token:** GitHub → Settings → Developer settings → Fine-grained tokens → Revoke.
 3. **Remove or rotate the Claude API key** in `backend/.env`, and set `REASONING_PROVIDER=ollama`.
+   Remove or rotate the Groq key (`GROQ_API_KEY`) too, and set `GROQ_CROSSCHECK_ENABLED=false` (the second AI's cross-check).
 4. **Stop the backend:** press `Ctrl+C` in the `python run.py` window.
 5. **Post on #692** what was done and when (times in UTC).
 

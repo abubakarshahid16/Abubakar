@@ -167,6 +167,12 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_senior_review_enabled": False,  # a model call per review item
     "applicability_reasoning_enabled": False,  # a model call per standard per review
     "crs_ai_wording_enabled": False,  # a model call per CRS row per review
+    # --- the second AI (groq_transport, owner decision 17 Nov 2026): off, no key; its model and its own USD caps
+    "groq_crosscheck_enabled": False,
+    "groq_api_key": "",
+    "groq_crosscheck_model": "openai/gpt-oss-120b",
+    "groq_crosscheck_usd_per_run": 0.50,
+    "groq_crosscheck_usd_per_day": 2.00,
     # --- the market lane (market_transport)
     "market_live_enabled": False,
     "market_allow_public_egress": False,

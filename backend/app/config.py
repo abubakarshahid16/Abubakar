@@ -1201,6 +1201,24 @@ class Settings(SettingsExt, BaseSettings):
     #: None: `<data_dir>/claude_cache`, so it moves with DATA_DIR.
     claude_cache_dir: Path | None = None
 
+    # ------------------------------------- the second AI: Groq cross-check
+    #
+    # OWNER DECISION 17 Nov 2026 (#1584 comment 6927034366, pending his confirmation there): an INDEPENDENT second AI of
+    # another company cross-checks the AI reviewer's lines that code did not prove. OFF by default. `groq_transport` is the
+    # only socket to api.groq.com; it sends only the two quotes of a line (paper quote, clause quote) and the colour, and only
+    # for a paper (and its rule book) on BOTH the Claude approved list and `<data_dir>/groq_approved_documents.json`, never a
+    # contract, never a blocked file. It can only make a line LESS confident (`agent_review_crosscheck`).
+    groq_crosscheck_enabled: bool = False
+    #: FROM `backend/.env` (GROQ_API_KEY) AND FROM NOWHERE ELSE: read at call time by `groq_transport`, never logged, never
+    #: printed, never in a URL. Empty = the cross-check cannot run.
+    groq_api_key: str = ""
+    #: The Groq model id that judges the two quotes (an open model; priced in `groq_spend.PRICES`).
+    groq_crosscheck_model: str = "openai/gpt-oss-120b"
+    #: USD caps of the cross-check's OWN ledger (`groq_spend`, `<data_dir>/groq_spend.jsonl`), apart from Claude's: the worst
+    #: case of the next call must fit under both before it leaves.
+    groq_crosscheck_usd_per_run: float = 0.50
+    groq_crosscheck_usd_per_day: float = 2.00
+
     # ------------------------------------------------------------- the chat
     #
     # OWNER ORDER 2026-09-26 (chat redesign). The chat answers through the
