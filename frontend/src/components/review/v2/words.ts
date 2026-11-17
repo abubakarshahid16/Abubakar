@@ -2,7 +2,33 @@
  * ONE home for the plain words of the redesigned review page (owner, 12 Nov 2026; SPEC.md). Nothing here decides anything: the
  * backend's plan and points already carry the facts; these functions only SAY them. No code word, no id, no model name.
  */
+import { request, type Result } from "../../../api/core";
 import type { EngineChoice, PointsListing, ReviewPlan, ReviewPoint } from "../../../api/reviewPoints";
+
+/** `GET /api/reviews/method` (order 14): which review method the ONE Review button runs. The fixed words (the mark and the
+ *  Local-only sentence) live in the backend, in ONE place; the screens read them from here and never write them. */
+export interface MethodInfo {
+  method: "general" | "earlier";
+  old_engine: boolean;
+  local_available: boolean;
+  local_words: string;
+  mark: string;
+}
+const isMethodInfo = (b: unknown): boolean =>
+  typeof b === "object" && b !== null && ["general", "earlier"].includes((b as MethodInfo).method)
+  && typeof (b as MethodInfo).local_words === "string" && typeof (b as MethodInfo).mark === "string";
+export const fetchMethod = (): Promise<Result<MethodInfo>> => request<MethodInfo>("/reviews/method", undefined, isMethodInfo);
+
+/** The Local-only sentence, only while the general review has no local engine; null otherwise (the earlier version runs locally). */
+export function localOnlyWords(info: MethodInfo | null): string | null {
+  return info && info.method === "general" && !info.local_available ? info.local_words : null;
+}
+
+/** One line for the "How it was reviewed" tab: the method and, for the general review, its mark. Null until the route answered. */
+export function methodLine(info: MethodInfo | null): string | null {
+  if (!info) return null;
+  return info.method === "general" ? `Method: the general review. ${info.mark}.` : "Method: the earlier rule check and AI review.";
+}
 
 export const ENGINE_LABELS: Record<EngineChoice, string> = { automatic: "Automatic", claude: "Claude", local: "Local only" };
 export const NEEDS_YES = "is a contract: Automatic keeps it on this computer, so choose Claude to send it to Claude";

@@ -1,14 +1,28 @@
-"""Routes of the general review (order 14, piece E): which review method the Review button runs (GET /api/reviews/method).
+"""Which review method the ONE Review button runs (order 14, piece E): GET /api/reviews/method.
 
-BASE BRANCH VERSION (integrator): an empty router, registered in `main.py`. Piece E adds the routes.
+The screens read the method, the mark and the Local-only sentence from here; the sentences have ONE home, `aim_review_gate`.
+`local_available` is a constant false today: the general review does not run on the local model yet.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from .. import (
-    aim_review_gate,  # noqa: F401 - piece E's route reads it; imported here so the app reaches it
-)
+from .. import access, aim_review_gate
 
 router = APIRouter()
+
+#: The general review has no local engine today (a constant, not a setting).
+LOCAL_AVAILABLE = False
+
+
+@router.get("/api/reviews/method", dependencies=[Depends(access.current_scope)])
+def review_method() -> dict:
+    """The method the Review button runs, whether the way back is on, and the fixed words. Writes nothing, calls nothing."""
+    return {
+        "method": aim_review_gate.method(),
+        "old_engine": aim_review_gate.old_engine_on(),
+        "local_available": LOCAL_AVAILABLE,
+        "local_words": aim_review_gate.LOCAL_NOT_AVAILABLE,
+        "mark": aim_review_gate.AI_MARK,
+    }
