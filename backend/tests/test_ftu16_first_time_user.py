@@ -369,3 +369,142 @@ def test_the_online_search_found_for_a_book_with_its_clause_is_shown_beside_the_
         )
         got = sws.shown(conn, "run-1", ["BOOK-90"])
     assert got[0]["name"] == "BOOK-90" and got[0]["title"] == "An invented title"
+
+
+# ------------------------------------------------------------------------------------------------ review R1 of PR #1867
+
+
+def _rc_silent_row(monkeypatch, quote: str, **finding) -> list[dict]:
+    """The rows of a silent rule-check point whose verified quote is `quote`, as built (sheet CRS and sheet Evidence)."""
+    _verified(monkeypatch)
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    rc = _run(doc, recommended=None)
+    _finding(
+        doc,
+        rc,
+        "MISSING_INFORMATION",
+        contractor_evidence_text=quote,
+        origin="datasheet_check",
+        **finding,
+    )
+    _client(doc, "doc_std")
+    rows = [
+        r
+        for r in _rows(crs_completeness.file_or_refuse(doc, scope_all(), "team"))
+        if "found on the page by code" in str(r)
+    ]
+    assert len(rows) == 2, "the row on the sheet CRS and on the sheet Evidence"
+    return rows
+
+
+def _neutral(rows: list[dict]) -> None:
+    for r in rows:
+        assert r["What the contractor must do"].startswith("Engineer to check"), r
+        assert r["Reason"] == review_points.actions.CONTRADICT_REASON
+        assert not [
+            v for v in r.values() if "Left to be given" in v or "placeholder" in v
+        ]
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Set pressure | 10 barg | -",
+        "Set pressure 10 barg | Back pressure | TBA",
+        "Design pressure 10 barg; test pressure by contractor",
+    ],
+)
+def test_a_quote_that_also_states_a_value_is_never_a_placeholder(monkeypatch, quote):
+    """R1 (HIGH): a marker somewhere in the quote does not make the whole quote a placeholder: a figure or a value word is left."""
+    assert not review_points.actions.quote_is_placeholder(
+        quote, ["Set pressure"], value_field=True
+    )
+    _neutral(_rc_silent_row(monkeypatch, quote))
+
+
+@pytest.mark.parametrize("quote", ["-", "--", "—"])
+def test_a_dash_alone_is_ambiguous_and_the_engineer_checks(monkeypatch, quote):
+    assert not review_points.actions.quote_is_placeholder(
+        quote, ["Set pressure"], value_field=True
+    )
+    _neutral(_rc_silent_row(monkeypatch, quote))
+
+
+def test_by_contractor_is_a_value_to_give_only_on_a_field_that_asks_for_a_value():
+    q = review_points.actions.quote_is_placeholder
+    assert q("Set pressure: By Contractor", ["Set pressure"], value_field=True)
+    assert not q("Painting: By Contractor", ["Painting"], value_field=False)
+    assert not q("Installation by Contractor", ["Installation"], value_field=False)
+    assert q("Set pressure: TBA", ["Set pressure"]) and q(
+        "___*___", ["Set pressure"]
+    )  # a to-be-given marker needs no value rule
+
+
+@pytest.mark.parametrize("asks_a_figure", [True, False])
+def test_by_contractor_through_the_built_file_follows_what_the_rule_asks(
+    monkeypatch, asks_a_figure
+):
+    rule = (
+        {}
+        if asks_a_figure
+        else {"requirement_source_text": "Painting shall be done by the contractor."}
+    )  # default: 6,900 kPa
+    rows = _rc_silent_row(monkeypatch, "By Contractor", **rule)
+    if not asks_a_figure:
+        _neutral(rows)
+        return
+    for r in rows:
+        assert r["What the contractor must do"].startswith("Contractor to state")
+
+
+@pytest.mark.parametrize(
+    ("reference", "book", "clause"),
+    [
+        ("ZZ-SPEC-001 Part 2", "ZZ-SPEC-001 Part 2", None),
+        ("API 598 Table 5", "API 598 Table 5", None),
+        ("API 650 Annex 5", "API 650 Annex 5", None),
+        ("EN 10204 type 3.1", "EN 10204 type 3.1", None),
+        ("ASME B16.5 Class 300", "ASME B16.5 Class 300", None),
+        ("ASME B16.34-2020 6.1.2", "ASME B16.34-2020", "6.1.2"),
+    ],
+)
+def test_a_part_table_annex_class_or_type_number_stays_in_the_book_name(
+    reference, book, clause
+):
+    assert review_points.book_and_clause(reference) == (book, clause)
+
+
+def test_two_parts_of_one_book_are_two_books_not_held():
+    assert review_points.books_not_held(
+        ["ZZ-SPEC-001 Part 2", "ZZ-SPEC-001 Part 3"], [], []
+    ) == [
+        "ZZ-SPEC-001 Part 2",
+        "ZZ-SPEC-001 Part 3",
+    ]
+
+
+def test_the_listing_and_the_sign_gate_read_the_one_open_count(monkeypatch):
+    """R1: the listing's "x of M decided" and the sign gate read `still_open` itself: a forged count shows on both."""
+    doc, _rc, _ai, client = world_with_both()
+    of = points_of(client, doc)["of"]
+    monkeypatch.setattr(review_code_proposal, "still_open", lambda points: points[:1])
+    listing = points_of(client, doc)
+    assert (listing["decided"], listing["of"]) == (of - 1, of)
+    assert review_points_service.undecided(doc, scope_all()) == (1, of)
+
+
+def test_an_added_point_without_a_decision_is_kept_and_decided_on_the_sign_gate():
+    doc, _rc, _ai, client = world_with_both()
+    before = review_points_service.undecided(doc, scope_all())
+    added = client.post(
+        f"/api/reviews/papers/{doc}/points/add",
+        json={"text": "Check the invented schedule.", "page": 2},
+    )
+    assert added.status_code == 200, added.text
+    point = next(p for p in added.json()["points"] if p["source"] == "added")
+    assert point["decision"]["state"] == "keep"
+    assert review_points_service.undecided(doc, scope_all()) == (
+        before[0],
+        before[1] + 1,
+    )

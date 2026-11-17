@@ -604,9 +604,9 @@ def rule_point(
         # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
         rank, unproven_ai = 4, True
     # FTU-1: a point whose own record says no value, with a found passage: ALL its wording cells from the one silent-row decision
-    silent = (
-        actions.silent_row_words(_plain(field), looked, [field]) if looked else None
-    )
+    f = finding or {}  # FTU-16: a field that asks for a value reads "By Contractor" as a value left to be given
+    value_field = bool((f.get("_fact") or {}).get("unit")) or actions.asks_a_value(content.rule_text(finding), f.get("requirement_source_text"))
+    silent = actions.silent_row_words(_plain(field), looked, [field], value_field=value_field) if looked else None
     if silent and not missing and action_source != "hidden":
         action, action_source = silent.action, "check"
     point = {
@@ -838,7 +838,12 @@ def with_groups(points: list[dict]) -> list[dict]:
 
 
 _CLAUSE_TOKEN = re.compile(
-    r"(?:\b(?:cl(?:ause)?|section|sec|para(?:graph)?)\.?\s*)?(?<![\w.])([A-Z]{0,3}-?\d+(?:\.\d+)*[A-Za-z]?)(?![\w.])", re.I
+    r"(?:\b(?:cl(?:ause)?|para(?:graph)?)\.?\s*)?(?<![\w.])(\d+(?:\.\d+)*[A-Za-z]?|[A-Z]{1,3}-\d+(?:\.\d+)*[A-Za-z]?)(?![\w.])",
+    re.I,
+)
+#: A number after one of these words is part of the BOOK's name, never its clause ("Part 2", "Table 5", "Class 300", "type 3.1").
+_BOOK_QUALIFIER = re.compile(
+    r"\b(?:part|pt|table|tab|annex|appendix|class|type|section|sec|ed|edition|rev|revision|issue|div|division|vol|volume)\.?\s*$", re.I
 )
 
 
@@ -846,7 +851,8 @@ def book_and_clause(reference: str) -> tuple[str, str | None]:
     """FTU-16: (the book, the clause or None) of one stored rule reference: "IEC 61882 6.1" is the book "IEC 61882" and the clause "6.1".
     The clause exists only when `names_a_clause` says the reference names one beyond its book; the book ends where the identifier
     `standard_ids.find_citations` reads ends (a book it cannot read: at its first token with a digit, the book's own number). An edition
-    year is never the clause. General: identifiers and numbers only, no book's own spelling."""
+    year is never the clause, and a number after Part / Pt / Table / Annex / Class / Type / Section / edition words stays in the book's
+    name ("X-1 Part 2" and "X-1 Part 3" are two books). General: identifiers and numbers only, no book's own spelling."""
     from .standard_ids import find_citations
 
     text = _clean(reference)
@@ -860,9 +866,10 @@ def book_and_clause(reference: str) -> tuple[str, str | None]:
         end = first.end() if first else len(text)
     rest = _EDITION_NUMBER.sub(lambda m: " " * len(m.group(0)), text[end:])
     for m in _CLAUSE_TOKEN.finditer(rest):
-        if not _EDITION_YEAR.fullmatch(m.group(1)):
-            book = (text[:end] + text[end:][: m.start()]).strip(" ,;:-(")
-            return (book or text), m.group(1)
+        if _EDITION_YEAR.fullmatch(m.group(1)) or _BOOK_QUALIFIER.search(rest[: m.start()]):
+            continue  # an edition year, or a part / table / class ... number: the book's own name
+        book = (text[:end] + text[end:][: m.start()]).strip(" ,;:-(")
+        return (book or text), m.group(1)
     return text, None
 
 

@@ -139,27 +139,56 @@ AGREED_NOT_STATED_REASON = (
 )
 
 
-def quote_is_placeholder(quote: str) -> bool:
-    """FTU-16: the found quote only marks a value still to be given: a deferral phrase or marker (`quote_defers`, the AI lines' own
-    test) or placeholder ink where the value goes (`blank_markers.fact_is_placeholder`, the readers' one test, a figure on the cell
-    winning). A pointer to a note ("Note 3") or a bare "by ..." scope line is not one (the same exclusions as `quote_defers`)."""
-    from . import blank_markers
-    from .agent_review_verdict import _GENERIC_BY, is_note_start
+#: Words that carry no value of their own once the markers and the label are gone ("Set pressure is TBA").
+_NO_VALUE_WORDS = frozenset(
+    {"is", "are", "the", "a", "an", "of", "be", "as", "and", "or"}
+)
 
-    text = " ".join(str(quote or "").split())
-    if not text:
+
+def quote_is_placeholder(quote: str, labels=(), value_field: bool = False) -> bool:
+    """FTU-16: the found quote only marks a value still to be given. ONLY when, after its markers and units
+    (`blank_markers.strip_markers`) and the field's own label words are taken out, NO figure and no value word is left: a quote that
+    also states something ("Set pressure | 10 barg | -", "10 barg; test pressure by contractor") is never a placeholder. And only by
+    a to-be-given marker or placeholder ink: a dash alone is ambiguous (often "not applicable"), and a whose-job phrase ("By
+    Contractor") is a value left to be given only on a field that asks for a value (`value_field`); on any other it may be a scope
+    answer ("Painting: By Contractor"). Anything else is not a placeholder (the caller then decides it neutrally)."""
+    from . import blank_markers
+    from .agent_bind import _stem
+
+    left, kinds = blank_markers.strip_markers(quote)
+    own = {
+        _stem(w)
+        for lab in labels
+        if lab
+        for w in re.findall(r"[a-z]+", str(lab).replace("_", " ").lower())
+    }
+    left = [
+        w
+        for w in left
+        if re.search(r"\d", w)
+        or (w.lower() not in _NO_VALUE_WORDS and _stem(w.lower()) not in own)
+    ]
+    if [w.lower() for w in left] in (["later"], ["hold"]):
+        left, kinds = [], {*kinds, "given"}
+    if left:
         return False
-    if quote_defers(text):
-        return True
-    return (
-        blank_markers.fact_is_placeholder({"field_value": text}, figure_wins=True)
-        and not is_note_start(text)
-        and not _GENERIC_BY.match(text)
-    )
+    return bool(kinds & {"given", "fill"}) or ("who" in kinds and value_field)
+
+
+def asks_a_value(*texts) -> bool:
+    """FTU-16: the rule (or the field's record) asks for a figure: the app's one number reader finds a measurement in it."""
+    from .claims import extract_measurements
+
+    return any(t and extract_measurements(" ".join(str(t).split())) for t in texts)
 
 
 def silent_row_words(
-    field: str, quote: str, labels=(), where: str = "", agreed: bool = False
+    field: str,
+    quote: str,
+    labels=(),
+    where: str = "",
+    agreed: bool = False,
+    value_field: bool = False,
 ) -> SilentRow:
     """FTU-1: THE ONE decision of a silent row (its own record says the paper gives no value) that carries a quote code found on the
     page: the kind and every wording cell with it, so the cells of one row can never disagree. Read by the AI review's lines
@@ -169,7 +198,7 @@ def silent_row_words(
     paper cell never repeat it, and "not evidence of a value" is the paper cell's alone."""
     what = field or "the value asked for"
     found = f'"{quote}"{where} (found on the page by code)'
-    if quote_is_placeholder(quote):
+    if quote_is_placeholder(quote, [field, *labels], value_field):
         return SilentRow(
             DEFERRED,
             DEFERRED_REASON,
@@ -214,7 +243,12 @@ def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | No
         *(line.get("field_roles") or []),
     )
     agreed = two.absence_agrees(line)
-    return silent_row_words(what or field_words(line), quote, labels, where, agreed)
+    value_field = bool(line.get("raw_unit")) or asks_a_value(
+        line.get("clause_quote"), line.get("requirement")
+    )
+    return silent_row_words(
+        what or field_words(line), quote, labels, where, agreed, value_field
+    )
 
 
 def proven(line: Mapping) -> bool:

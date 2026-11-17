@@ -222,3 +222,47 @@ def defers_value(text: str | None) -> bool:
     `names_a_marker` stays phrases only, because the readers use it on single cells, where a lone star is handled by
     `classify`; the deferral finders read whole lines and quotes, so they ask this."""
     return names_a_marker(text) or star_fills_value(text)
+
+
+# ---------------------------------------------------------------- FTU-16: what a quote holds besides its markers
+
+#: A WHO phrase: says whose job the value is ("By Contractor", "as per vendor"). Alone it is ambiguous: a scope answer ("Painting: By
+#: Contractor") or a value left to someone; only a field that asks for a value reads it as a value to be given.
+_WHO = re.compile(
+    r"\bby\s+(?:the\s+)?(?:contractor|vendor|supplier|manufacturer|seller|bidder|others)"
+    r"(?:\s*/\s*(?:vendor|contractor|supplier|manufacturer))?\b"
+    r"|\bas\s+per\s+(?:the\s+)?(?:vendor|supplier|manufacturer|contractor)\b",
+    re.IGNORECASE,
+)
+#: A TO-BE-GIVEN phrase: the value itself is still to come ("TBA", "to be confirmed", "vendor to advise", "to follow").
+_GIVEN = re.compile(
+    r"\b(?:to\s+be\s+(?:advised|confirmed|determined|specified|furnished|provided|decided)"
+    r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+"
+    r"(?:advise|confirm|specify|furnish|provide|state|determine|decide)"
+    r"|tba|tbc|tbd|tbn|vta|to\s+follow)\b",
+    re.IGNORECASE,
+)
+_DASH = re.compile(r"(?:^|(?<=[\s|(:;,]))[-\u2013\u2014]+(?=[\s|):;,]|$)")  # a hyphen, an en or an em dash
+_TOKEN = re.compile(r"[A-Za-z0-9]+(?:[.,/][A-Za-z0-9]+)*")
+_UNIT_TOKEN = re.compile(
+    r"^" + _UNIT.replace(r"\(?", "").replace(r"\)?", "") + r"$", re.IGNORECASE
+)
+
+
+def strip_markers(text: str | None) -> tuple[list[str], set[str]]:
+    """(the words and figures `text` holds besides its markers and units, the kinds of marker found: "given" a to-be-given phrase, "who"
+    a whose-job phrase, "fill" placeholder ink (a star or an underscore run), "dash" a dash standing alone). Pure; the words are the
+    printed ones, in order. Whether what is left is the field's own label is the caller's question."""
+    t = " ".join(str(text or "").split())
+    kinds: set[str] = set()
+    for pattern, kind in ((_GIVEN, "given"), (_WHO, "who")):
+        if pattern.search(t):
+            kinds.add(kind)
+            t = pattern.sub(" ", t)
+    if re.search(r"[_*]", t):
+        kinds.add("fill")
+        t = re.sub(r"[_*]+", " ", t)
+    if _DASH.search(t):
+        kinds.add("dash")
+        t = _DASH.sub(" ", t)
+    return [w for w in _TOKEN.findall(t) if not _UNIT_TOKEN.match(w)], kinds
