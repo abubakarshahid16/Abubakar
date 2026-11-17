@@ -26,6 +26,19 @@
 # engines, production bench, chat benchmark script) run nightly and on demand
 # in `backend slow tests`, not on every pull request.
 
+# FAST AND FULL (owner decision 2026-11-18). A routine pull request runs a FAST
+# set in minutes: one backend job (the tests mapped to the changed files, the
+# whole suite when a file that can affect any test changed, and the cheap
+# checks) and one frontend job (tsc, lint, vitest for the changed files). The
+# FULL set (three shards with the ci_test_ids audit, benchmarks, does the app
+# start, frontend suite and build, accessibility) runs on a push to main, the
+# nightly schedule, a manual start, and a pull request carrying the label
+# `full-checks` or `live-update`. Before a live update the lead adds the label
+# `live-update`, so the full set runs on the exact head that goes live. The job
+# `mode` decides; `backend (pytest)` passes in fast mode only when both fast
+# jobs passed, in full mode only when every shard, the checks, the app start and
+# the audit passed, and always fails when `mode` failed.
+
 name: tests
 
 on:
@@ -34,7 +47,10 @@ on:
   # duplicate work (owner decision 2026-10-08, CI trim).
   push:
     branches: [main]
+  # `labeled` / `unlabeled`: adding `live-update` or `full-checks` starts a
+  # new run that sees the label (a re-run of an old run keeps its old labels).
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   # Safety net for docs/adr/ADR-0004-github-free-tier-gaps.md's recorded gap:
   # a push-triggered run on main did not dispatch at all, twice, for reasons
   # unconfirmed. workflow_dispatch lets a run be started by hand when that
@@ -52,8 +68,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides FAST or FULL. Full when the event is not a pull request (push to
+  # main, nightly schedule, manual start) or the pull request carries the label
+  # `full-checks` or `live-update`. Everything else is fast. No checkout: it
+  # reads only the event.
+  mode:
+    name: which checks run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.decide.outputs.full }}
+    steps:
+      - name: Decide fast or full
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          full=false
+          if [ "$EVENT" != "pull_request" ]; then
+            full=true
+          elif printf '%s' "$LABELS" | grep -q -e '"full-checks"' -e '"live-update"'; then
+            full=true
+          fi
+          echo "event: $EVENT, labels: $LABELS, full: $full"
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
   backend-shard:
     name: backend shard ${{ matrix.group }}/3
+    needs: mode
+    if: needs.mode.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -162,6 +206,9 @@ jobs:
 
   backend-checks:
     name: backend lint, anchors and benchmarks
+    # Runs in fast AND full mode; the model staging and the benchmarks only in
+    # full mode.
+    needs: mode
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -254,6 +301,7 @@ jobs:
           python scripts/quality_ratchet.py format-check --base HEAD^1
 
       - name: Cache models
+        if: needs.mode.outputs.full == 'true'
         id: models
         uses: actions/cache@v6
         with:
@@ -261,9 +309,11 @@ jobs:
           key: models-${{ hashFiles('scripts/fetch_models.py') }}
 
       - name: Stage models
+        if: needs.mode.outputs.full == 'true'
         run: python scripts/fetch_models.py
 
       - name: Confirm the models are staged
+        if: needs.mode.outputs.full == 'true'
         run: python scripts/fetch_models.py --verify-only
 
       # THE BENCHMARKS, WHICH THE SHARDS DESELECT (pytest.ini's
@@ -272,32 +322,50 @@ jobs:
       # and p95 floors still fail this job, and so `backend (pytest)`. `-m`
       # here replaces the default.
       - name: Run the benchmarks
+        if: needs.mode.outputs.full == 'true'
         working-directory: backend
         run: python -m pytest -q -m benchmark --durations=10
 
   # THE REQUIRED CHECK. `main` requires a check named `backend (pytest)`; this
-  # job carries that name and passes only if all three shards and the checks
-  # job passed. `if: always()` makes it run - and fail - when one of them
-  # failed or was cancelled, instead of being skipped (a skipped required check
-  # would leave the merge blocked with no reason shown).
+  # job carries that name. `if: always()` makes it run - and fail - when a job
+  # it stands for failed or was cancelled, instead of being skipped (a skipped
+  # required check would leave the merge blocked with no reason shown).
+  #   mode failed      -> this fails (never a green aggregate on a skipped job)
+  #   full mode        -> all three shards, the checks job (with the
+  #                       benchmarks), the app start and the test-id audit passed
+  #   fast mode        -> the checks job, the fast backend job and the fast
+  #                       frontend job passed
   backend:
     name: backend (pytest)
-    needs: [backend-shard, backend-checks, app-starts]
+    needs: [mode, backend-shard, backend-checks, app-starts, fast-backend, fast-frontend]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # "= success", not "!= failure": a cancelled or skipped shard fails it too.
+      # "= success", not "!= failure": a cancelled or skipped job that must have
+      # run fails it too.
       - name: Every shard and the checks job passed
+        env:
+          FULL: ${{ needs.mode.outputs.full }}
         run: |
-          echo "shards: ${{ needs.backend-shard.result }}, checks: ${{ needs.backend-checks.result }}, app starts: ${{ needs.app-starts.result }}"
-          test "${{ needs.backend-shard.result }}" = "success"
+          echo "mode: ${{ needs.mode.result }}, full: $FULL"
+          echo "shards: ${{ needs.backend-shard.result }}, checks: ${{ needs.backend-checks.result }}, app starts: ${{ needs.app-starts.result }}, fast backend: ${{ needs.fast-backend.result }}, fast frontend: ${{ needs.fast-frontend.result }}"
+          test "${{ needs.mode.result }}" = "success"
           test "${{ needs.backend-checks.result }}" = "success"
-          test "${{ needs.app-starts.result }}" = "success"
+          if [ "$FULL" = "true" ]; then
+            test "${{ needs.backend-shard.result }}" = "success"
+            test "${{ needs.app-starts.result }}" = "success"
+          else
+            test "$FULL" = "false"
+            test "${{ needs.fast-backend.result }}" = "success"
+            test "${{ needs.fast-frontend.result }}" = "success"
+          fi
 
       - uses: actions/checkout@v7
+        if: needs.mode.outputs.full == 'true'
 
       - name: Download the shards' test ids
+        if: needs.mode.outputs.full == 'true'
         uses: actions/download-artifact@v8
         with:
           pattern: test-ids-*
@@ -305,8 +373,9 @@ jobs:
           merge-multiple: true
 
       # Fails if any collected test ran in no shard, in two shards, or ran
-      # without being collected (#589).
+      # without being collected (#589). Full mode only.
       - name: Every collected test ran in exactly one shard
+        if: needs.mode.outputs.full == 'true'
         run: python3 scripts/ci_test_ids.py compare --full test-ids/full.txt test-ids/shard-1.txt test-ids/shard-2.txt test-ids/shard-3.txt
 
       # Only a fully green nightly (or on-demand) run refreshes the durations
@@ -341,6 +410,8 @@ jobs:
   # path from another machine) and fails unless /api/health answers ok.
   app-starts:
     name: does the app start?
+    needs: mode
+    if: needs.mode.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -374,6 +445,135 @@ jobs:
 
       - name: Start the backend and ask /api/health
         run: python scripts/check_app_starts.py --timeout 120
+
+  # FAST SET, backend (routine pull requests). The tests mapped to the changed
+  # files (scripts/test_changed.py); the WHOLE suite when a file that can affect
+  # any test changed (conftest, pytest.ini, requirements, package files); the
+  # workflow tests when a workflow file changed. The cheap checks (lint, anchors,
+  # system map and the rest) are the job `backend-checks`, which runs in both
+  # modes. No shards, no benchmarks, no app start: those are full mode.
+  fast-backend:
+    name: fast backend (changed tests and cheap checks)
+    needs: mode
+    if: needs.mode.outputs.full == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        id: py
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Restore the Python environment
+        id: venv
+        uses: actions/cache@v6
+        with:
+          path: ~/venv
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0
+
+      - name: Install dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/venv
+          ~/venv/bin/python -m pip install --upgrade pip
+          ~/venv/bin/pip install -r backend/requirements.txt
+          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0
+
+      - name: Use the environment
+        run: echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Cache models
+        id: models
+        uses: actions/cache@v6
+        with:
+          path: backend/models
+          key: models-${{ hashFiles('scripts/fetch_models.py') }}
+
+      - name: Stage models
+        run: python scripts/fetch_models.py
+
+      - name: Confirm the models are staged
+        run: python scripts/fetch_models.py --verify-only
+
+      - name: Run the tests the change can break
+        env:
+          HEAVY_JOB_LOCK: "off"
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          set -o pipefail
+          python scripts/test_changed.py --base "$BASE" | tee changed.txt
+          if grep -q "run the whole suite" changed.txt; then
+            echo "a changed file can affect any test: running the whole suite"
+            (cd backend && python -m pytest -q -n auto --durations=10)
+          fi
+          if git diff --name-only "$BASE"...HEAD | grep -q '^\.github/workflows/'; then
+            echo "a workflow file changed: running the workflow tests"
+            (cd backend && python -m pytest -q tests/test_ci_workflow.py tests/test_windows_ci_workflow.py tests/test_w7_661_dead_code_guard.py tests/test_lint_baseline.py)
+          fi
+
+  # FAST SET, frontend: typecheck, lint, and vitest for the changed files only
+  # (the whole suite when a package or config file changed). The suite, the
+  # production build and the bundle budget are full mode.
+  fast-frontend:
+    name: fast frontend (tsc, lint, related tests)
+    needs: mode
+    if: needs.mode.outputs.full == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Restore node_modules
+        id: nm
+        uses: actions/cache@v6
+        with:
+          path: frontend/node_modules
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install frontend dependencies
+        if: steps.nm.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npx tsc -b
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Tests for the changed frontend files
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          changed=$(git diff --name-only "$BASE"...HEAD)
+          cd frontend
+          if echo "$changed" | grep -q -e '^frontend/package.json$' -e '^frontend/package-lock.json$' -e '^frontend/vite.config.ts$' -e '^frontend/vitest.config.ts$'; then
+            echo "a package or config file changed: running the whole frontend suite"
+            npm run test
+          else
+            files=$(echo "$changed" | grep -E '^frontend/(src|tests)/.*\.(ts|tsx)$' | sed 's#^frontend/##' || true)
+            if [ -z "$files" ]; then
+              echo "no frontend source or test file changed: no frontend test to run"
+            else
+              npx vitest related --run $files
+            fi
+          fi
 
   backend-slow:
     name: backend slow tests (nightly)
@@ -441,6 +641,8 @@ jobs:
 
   frontend:
     name: frontend (vitest + tsc)
+    needs: mode
+    if: needs.mode.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -490,6 +692,8 @@ jobs:
 
   accessibility:
     name: accessibility (axe serious/critical gate)
+    needs: mode
+    if: needs.mode.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

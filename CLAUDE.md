@@ -243,7 +243,7 @@ it is stale after 3 hours or when its process is gone. `run_p1.py`,
 ```
 Never write a second waiter.
 
-1. GitHub CI is the first gate for every PR. The Windows job is manual (rule 14c). Related PRs ride one branch and
+1. GitHub CI is the first gate for every PR. A routine PR runs the FAST set (changed tests, cheap checks, tsc, lint); the FULL set (3 shards + audit, benchmarks, app start, accessibility) runs on main, nightly, by hand, and on a PR labelled `full-checks` or `live-update` - add `live-update` before a live update (owner, 18 Nov 2026). The Windows job is manual (rule 14c). Related PRs ride one branch and
    are checked once on the combined head (rule 14a).
 2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
    of green PRs, plus per PR only when it touches retrieval, answer, review or
