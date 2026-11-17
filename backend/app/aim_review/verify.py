@@ -190,3 +190,19 @@ def quoted_value(value, quote: str) -> dict | None:
                 "op": _OP_OF.get(words),
             }
     return None
+
+
+def rule_operator(rule_quote: str) -> str | None:
+    """The ONE comparison the rule's verified words name, with no number needed ("shall not exceed the allowed pressure" -> "<="),
+    read by the app's one comparator vocabulary (`claims.comparator_ending`, at every word end). None when the words name none,
+    or name two different ones (ambiguous: never guessed)."""
+    from app import claims
+
+    text = str(rule_quote or "")
+    found = set()
+    for m in re.finditer(r"\S+", text):
+        words = claims.comparator_ending(text[: m.end()])
+        op = _OP_OF.get(str(words or ""))
+        if op:
+            found.add(op)
+    return found.pop() if len(found) == 1 else None

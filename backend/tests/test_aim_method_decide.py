@@ -423,10 +423,124 @@ def test_a_provisional_figure_under_the_limit_stays_in_all_points_and_is_not_sen
     assert d["code_compare"]["result"] == "pass" and not _sent(d)
 
 
-def test_a_provisional_figure_code_cannot_check_is_not_sent():
-    j = {"label": "Met", "quote": STATED, "page": 1}  # no numbers: code cannot check it
+def test_a_provisional_figure_code_cannot_check_is_a_sent_question_with_the_ai_comment():
+    """The lead, 18 Nov 2026 (valve-A AFTER run): an unchecked provisional line hid real findings; it is SENT, only a passed
+    check is held back."""
+    j = {
+        "label": "Met",
+        "quote": STATED,
+        "page": 1,
+        "comment": "the model's words",
+    }  # no numbers: code cannot check it
     d = S._decide(_item(), j, OPEN_PAPER, BOOKS, "")
-    assert d["label"] == "Question" and d["code"] == "provisional" and not _sent(d)
+    assert (
+        d["label"] == "Question" and d["code"] == "provisional_unchecked" and _sent(d)
+    )
+    assert d["comment"] == "the model's words"
+
+
+# ---- paper vs paper: the value AND its limit are on the paper (the lead, 18 Nov 2026; invented values) ------------------------
+
+PP_PAGES = {
+    1: "Set pressure 380 psig (By Contractor)\nDesign pressure 12 bar gauge at the inlet\n",
+    2: "Allowed pressure of the protected item 23.5 barg\nMaximum working pressure of the item 20 bar gauge\n",
+}
+PP_PAPER = Paper(paper_id="doc_pp", pages=PP_PAGES)
+SET_ABOVE = (
+    "The set pressure shall not exceed the allowed pressure of the protected item."
+)
+NO_OP = "The set pressure is chosen against the allowed pressure of the protected item."
+
+
+def _pp(
+    quote,
+    value,
+    unit,
+    limit,
+    limit_unit,
+    limit_quote,
+    rule_quote,
+    label="Not met",
+    op="<=",
+):
+    j = {"label": label, "quote": quote, "page": 1, "comment": "the model's words",
+         "numbers": {"paper_value": value, "paper_unit": unit, "operator": op, "rule_value": limit,
+                     "rule_unit": limit_unit, "limit_quote": limit_quote, "limit_page": 2}}  # fmt: skip
+    return S._decide(_item(kind="limit", rule_quote=rule_quote), j, PP_PAPER, BOOKS, "")
+
+
+def test_a_provisional_figure_over_a_limit_the_paper_states_is_sent_with_both_numbers():
+    d = _pp("Set pressure 380 psig (By Contractor)", "380", "psig", "23.5", "barg",
+            "Allowed pressure of the protected item 23.5 barg", SET_ABOVE)  # fmt: skip
+    assert d["label"] == "Question" and d["code"] == "provisional_fails" and _sent(d)
+    assert (
+        d["code_compare"]["read_from"] == "verified paper quotes"
+        and d["code_compare"]["result"] == "fail"
+    )
+    assert d["comment"] == (
+        "The stated 380 psig (by contractor) is above the 23.5 barg limit of page 2 of this paper; contractor to confirm the value."
+    )
+
+
+def test_a_paper_limit_with_the_operator_from_the_rule_is_compared_by_code():
+    from app import aim_review_store
+    from app.aim_review.engine import to_line
+
+    d = _pp("Design pressure 12 bar gauge at the inlet", "12", "bar", "20", "bar",
+            "Maximum working pressure of the item 20 bar gauge", "The design pressure shall not exceed the working pressure.",
+            label="Met")  # fmt: skip
+    assert (
+        d["label"] == "Met"
+        and d["code_compare"]["op_from"] == "the rule's verified words"
+    )
+    line = to_line(1, d)
+    shown = aim_review_store.shown_label(
+        line["label"], line["code_compare_json"], line["deferred"]
+    )
+    assert shown == aim_review_store.PASS_BY_CODE
+
+
+def test_a_paper_limit_with_no_operator_in_any_rule_is_an_ai_opinion_never_a_code_verdict():
+    from app import aim_review_store
+    from app.aim_review.engine import to_line
+
+    d = _pp("Design pressure 12 bar gauge at the inlet", "12", "bar", "20", "bar",
+            "Maximum working pressure of the item 20 bar gauge", "The design pressure is compared with the working pressure.",
+            label="Met")  # fmt: skip
+    assert (
+        d["label"] == "AI opinion" and d["code_compare"]["op_from"] == "the AI's answer"
+    )
+    assert "code compared two values of the paper: 12 bar <= 20 bar: true" in d["code"]
+    line = to_line(1, d)
+    shown = aim_review_store.shown_label(
+        line["label"], line["code_compare_json"], line["deferred"]
+    )
+    assert shown not in (aim_review_store.PASS_BY_CODE, aim_review_store.FAIL_BY_CODE)
+
+
+def test_a_limit_quote_that_is_not_on_the_paper_is_never_compared():
+    d = _pp("Design pressure 12 bar gauge at the inlet", "12", "bar", "20", "bar",
+            "Maximum working pressure 20 bar gauge as invented here", SET_ABOVE, label="Met")  # fmt: skip
+    assert d["label"] == "Question" and d["code_compare"] is None
+    assert "nor in a verified quote of the paper" in d["code"]
+
+
+@pytest.mark.parametrize(
+    "rule_quote,op",
+    [
+        ("The set pressure shall not exceed the allowed pressure.", "<="),
+        ("The thickness shall be at least the minimum required by the code.", ">="),
+        ("The set pressure is chosen against the allowed pressure.", None),
+        (
+            "The minimum design temperature shall not exceed the operating temperature.",
+            None,
+        ),  # two comparisons: never guessed
+    ],
+)
+def test_the_rule_operator_is_read_only_when_the_words_name_one(rule_quote, op):
+    from app.aim_review.verify import rule_operator
+
+    assert rule_operator(rule_quote) == op
 
 
 @pytest.mark.parametrize("label", ["Met", "Not met", "AI opinion", "Question"])
