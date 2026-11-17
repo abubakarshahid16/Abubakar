@@ -1,0 +1,538 @@
+"""Read-only access to the library's own metadata and text, for the general review.
+
+What chooses books and rules here is LIBRARY METADATA only, never words shared between the paper and a rule:
+  * `rule_label.paper_kind`         - which kind of paper each stored rule is checked on (two-model labels);
+  * `rule_equipment_label`          - which equipment each rule is about (two-model labels; agreed rows);
+  * `rule_label.reading_json`       - the subject each rule was read to be about (shown to the AI as a catalog);
+  * `document_classification`       - role and committee of each held document;
+  * reference/governing_standards.json, standard_roles.json, equipment_taxonomy.json, equipment_mapping.json;
+  * the paper's own citations, read by code (`standard_ids.cited_standards`) and resolved by identifier.
+
+Nothing here names an equipment type, a standard, a paper or a layout: those are the reference files' data (CLAUDE.md rule 13).
+Nothing here writes, and nothing here asks a model.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from collections import Counter, defaultdict
+from functools import lru_cache
+from pathlib import Path
+
+# The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
+from . import MAX_BOOKS as MAX_CANDIDATES
+from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
+
+log = logging.getLogger(__name__)
+
+REF = Path(__file__).resolve().parents[1] / "reference"
+
+#: The method's paper kinds -> the library's rule kind labels (`rule_label.paper_kind`). A specification states what a contractor
+#: must meet, as a contract's scope documents do, so it is checked with the rules labelled for contracts.
+KINDS = (
+    "datasheet",
+    "procedure",
+    "contract",
+    "specification",
+    "drawing",
+    "calculation",
+    "test record",
+    "other",
+)
+KIND_LABELS = {
+    "datasheet": ("datasheet",),
+    "procedure": ("procedure",),
+    "contract": ("contract",),
+    "specification": ("contract",),
+    "drawing": ("drawing",),
+    "calculation": ("calculation",),
+    "test record": ("other", "datasheet"),
+    "other": ("other",),
+}
+#: The method's kinds -> standard_roles.json kinds (for `kinds_apply` and `method_standards`).
+ROLE_KIND = {
+    "datasheet": "datasheet",
+    "procedure": "procedure",
+    "contract": "contract",
+    "specification": "specification",
+    "drawing": "drawing",
+    "calculation": "datasheet",
+    "test record": "datasheet",
+    "other": None,
+}
+#: The app's stored paper kinds (`paper_kind.PAPER_KINDS`) -> the method's kinds.
+APP_KIND = {"test_record": "test record", "transmittal": "other"}
+
+STANDARD_ROLE = "COMPANY_STANDARD"
+SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL"
+
+
+def method_kind(app_kind: str | None) -> str | None:
+    """The app's stored kind in the method's spelling; None stays None (unknown is never invented)."""
+    if not app_kind:
+        return None
+    k = APP_KIND.get(str(app_kind), str(app_kind).replace("_", " "))
+    return k if k in KINDS else "other"
+
+
+def _json(name: str) -> dict:
+    return json.loads((REF / name).read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
+def taxonomy() -> tuple[dict, ...]:
+    """({id, name, family, also_applies}, ...) from equipment_taxonomy.json."""
+    out = []
+    for fam in _json("equipment_taxonomy.json")["families"]:
+        for t in fam.get("types") or []:
+            out.append(
+                {
+                    "id": t["id"],
+                    "name": t.get("name") or t["id"],
+                    "family": fam["id"],
+                    "also_applies": list(t.get("also_applies") or []),
+                }
+            )
+    return tuple(out)
+
+
+def type_ids() -> frozenset[str]:
+    return frozenset(t["id"] for t in taxonomy())
+
+
+def type_id_of(equipment: str | None) -> str | None:
+    """The app's stored equipment name (its vocabulary or a taxonomy id) -> one taxonomy id, by the reference files only."""
+    if not equipment:
+        return None
+    e = str(equipment).strip()
+    if e in type_ids():
+        return e
+    mapped = (_json("equipment_mapping.json").get("map") or {}).get(e.lower())
+    return mapped if mapped in type_ids() else None
+
+
+def type_set(type_id: str | None) -> tuple[set[str], str | None]:
+    """The type, the types it also applies as (a sub-type and its parent), and its family."""
+    by_id = {t["id"]: t for t in taxonomy()}
+    if not type_id or type_id not in by_id:
+        return set(), None
+    seen, todo = set(), [type_id]
+    while todo:
+        t = todo.pop()
+        if t in seen or t not in by_id:
+            continue
+        seen.add(t)
+        todo.extend(by_id[t]["also_applies"])
+    return seen, by_id[type_id]["family"]
+
+
+# ------------------------------------------------------------------ the library's documents
+
+
+def library(
+    conn, *, exclude: frozenset[str] = frozenset(), within: frozenset[str] | None = None
+) -> list[dict]:
+    """Every held document that can serve as a book: not a contractor submittal, not in `exclude`; with `within`, only those."""
+    rows = conn.execute(
+        """SELECT d.id AS id, d.filename AS filename, d.page_count AS page_count, c.document_number AS document_number,
+                  c.document_role AS document_role, c.discipline_canonical AS committee, c.title AS title
+           FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id
+           WHERE COALESCE(c.document_role, '') <> ?""",
+        (SUBMITTAL_ROLE,),
+    ).fetchall()
+    return [
+        dict(r)
+        for r in rows
+        if r["id"] not in exclude and (within is None or r["id"] in within)
+    ]
+
+
+def identifier_of(entry: dict) -> str:
+    from app import applicability
+
+    name = entry.get("filename") or ""
+    return (
+        entry.get("document_number")
+        or applicability.library_identifier(name)
+        or applicability._file_identifier(name)
+        or re.sub(r"\.[A-Za-z0-9]{1,5}$", "", name)
+    )
+
+
+def _fold(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def resolve(lib: list[dict], cited: str) -> dict | None:
+    """The held document a citation names: by identifier (the app's `find_standard`), then by the cited name being the document's
+    own file name (its stem, without a leading sequence number and a revision tail), compared whole. Never a partial name."""
+    from app import applicability
+
+    found = applicability.find_standard(
+        [e for e in lib if (e.get("document_role") or "") == STANDARD_ROLE], cited
+    )
+    if found:
+        return found
+    want = _fold(cited)
+    if len(want) < 6:
+        return None
+    best = None
+    for e in lib:
+        stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", e.get("filename") or "")
+        stem = re.sub(r"^\s*\d+[a-z]?\s*-\s*", "", stem, flags=re.I)
+        core = re.sub(r"\s*-\s*rev\.?\s*\d+\s*$", "", stem, flags=re.I)
+        names = {_fold(core), _fold(identifier_of(e))}
+        names.discard("")
+        if want in names and (
+            best is None or e.get("document_role") == "CONTRACT_DOCUMENT"
+        ):
+            best = e
+    return best
+
+
+def committee_role(entry: dict) -> str | None:
+    """A book's role from standard_roles.json (by identifier), else the governing-books role if it governs any type."""
+    from app import standard_ids
+
+    roles = _json("standard_roles.json")
+    ident = identifier_of(entry)
+    for name, role in (roles.get("standards") or {}).items():
+        if standard_ids.same_standard(name, ident):
+            return role
+    for books in _json("governing_standards.json")["equipment_types"].values():
+        if any(standard_ids.same_standard(b, ident) for b in books):
+            return roles.get("governing_books_role")
+    return None
+
+
+def role_applies(entry: dict, kind: str | None) -> bool:
+    rk = ROLE_KIND.get(kind or "")
+    applies = (
+        (_json("standard_roles.json").get("kinds_apply") or {}).get(rk) if rk else None
+    )
+    role = committee_role(entry)
+    return not applies or role is None or role in applies
+
+
+def governing_books(
+    lib: list[dict], type_id: str | None
+) -> list[tuple[dict | None, str]]:
+    """Held books governing the equipment type (governing_standards.json), and the unheld ones by name."""
+    from app import applicability
+
+    if not type_id:
+        return []
+    types, _fam = type_set(type_id)
+    names = {
+        app_name
+        for app_name, tid in _json("equipment_mapping.json")["map"].items()
+        if tid in types
+    }
+    gov = _json("governing_standards.json")["equipment_types"]
+    stds = [e for e in lib if (e.get("document_role") or "") == STANDARD_ROLE]
+    out = []
+    for app_name in sorted(names):
+        for ident in gov.get(app_name, []):
+            out.append((applicability.find_standard(stds, ident), ident))
+    return out
+
+
+def method_books(lib: list[dict], kind: str | None) -> list[tuple[dict | None, str]]:
+    from app import applicability
+
+    rk = ROLE_KIND.get(kind or "")
+    names = (
+        (_json("standard_roles.json").get("method_standards") or {}).get(rk) or []
+        if rk
+        else []
+    )
+    stds = [e for e in lib if (e.get("document_role") or "") == STANDARD_ROLE]
+    return [(applicability.find_standard(stds, n), n) for n in names]
+
+
+# ------------------------------------------------------------------ rules
+
+
+def _tables(conn) -> set[str]:
+    return {
+        r[0]
+        for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+
+
+def rule_pool(
+    conn,
+    kind: str | None,
+    type_id: str | None,
+    *,
+    books: set[str] | frozenset[str] = frozenset(),
+    within: frozenset[str] | None = None,
+    subjects: bool = True,
+) -> list[dict]:
+    """Stored rules a paper of this kind (and equipment) is checked on, by the library's labels only.
+
+    In: the rule's kind label is one of the paper kind's labels (two models agreed); and, when the paper has an equipment type,
+    the rule's agreed equipment tag is general, the type (or a type it applies as), the family with no type, or not agreed. A
+    rule agreed to be about OTHER equipment is out. With `books`, every rule of those books passes the kind test (a governing
+    book). With `within`, only rules of those books are read at all (the run's catalog holds only the listed books)."""
+    held = _tables(conn)
+    if "standard_requirements" not in held or (within is not None and not within):
+        return []
+    labels = KIND_LABELS.get(kind or "") or ("other",)
+    types, fam = type_set(type_id)
+    has_kind = "rule_label" in held
+    has_equip = "rule_equipment_label" in held
+    cols = [
+        "sr.id AS id",
+        "sr.standard_document_id AS book",
+        "sr.clause AS clause",
+        "sr.page AS page",
+        "sr.source_text AS source_text",
+        "sr.requirement_text AS requirement_text",
+        "rl.reading_json AS reading_json" if has_kind else "NULL AS reading_json",
+        "el.equip_state AS equip_state" if has_equip else "NULL AS equip_state",
+        "el.equip_general AS equip_general" if has_equip else "0 AS equip_general",
+        "el.equip_type AS equip_type" if has_equip else "NULL AS equip_type",
+        "el.equip_family AS equip_family" if has_equip else "NULL AS equip_family",
+    ]
+    sql = "SELECT " + ", ".join(cols) + " FROM standard_requirements sr"
+    if has_kind:
+        sql += " LEFT JOIN rule_label rl ON rl.source = 'requirement' AND rl.rule_ref = sr.id"
+    if has_equip:
+        sql += " LEFT JOIN rule_equipment_label el ON el.source = 'requirement' AND el.rule_ref = sr.id"
+    where, args = [], []
+    if has_kind:
+        where.append(
+            f"(rl.paper_kind IN ({','.join('?' for _ in labels)}) AND rl.state = 'ai_approved')"
+        )
+        args += list(labels)
+    if books:
+        where.append(f"sr.standard_document_id IN ({','.join('?' for _ in books)})")
+        args += sorted(books)
+    if not where:
+        return []
+    sql += " WHERE sr.superseded_at IS NULL AND (" + " OR ".join(where) + ")"
+    if within is not None:
+        sql += f" AND sr.standard_document_id IN ({','.join('?' for _ in within)})"
+        args += sorted(within)
+    out = []
+    for r in conn.execute(sql, args):
+        r = dict(r)
+        tagged = False
+        if types and r["equip_state"] == "agreed" and not r["equip_general"]:
+            if r["equip_type"] in types or (
+                r["equip_type"] is None and r["equip_family"] == fam
+            ):
+                tagged = True
+            else:
+                continue  # agreed to be about other equipment
+        r["tagged"] = tagged
+        r["subject"] = ""
+        if subjects:
+            try:
+                r["subject"] = str(
+                    (json.loads(r["reading_json"] or "{}") or {}).get("subject") or ""
+                ).strip()[:60]
+            except (ValueError, AttributeError):
+                r["subject"] = ""
+        out.append(r)
+    return out
+
+
+def catalog(
+    lib_by_id: dict[str, dict], pool: list[dict], top_subjects: int = 6
+) -> list[dict]:
+    """One line per book holding pool rules: identifier, committee, counts, its most common rule subjects (library labels)."""
+    by_book: dict[str, list[dict]] = defaultdict(list)
+    for r in pool:
+        by_book[r["book"]].append(r)
+    out = []
+    for book, rows in by_book.items():
+        e = lib_by_id.get(book)
+        if not e:
+            continue
+        subj = Counter(r["subject"] for r in rows if r["subject"])
+        out.append(
+            {
+                "book": book,
+                "identifier": identifier_of(e),
+                "committee": e.get("committee") or "",
+                "rules": len(rows),
+                "tagged": sum(1 for r in rows if r["tagged"]),
+                "subjects": [s for s, _n in subj.most_common(top_subjects)],
+            }
+        )
+    out.sort(key=lambda c: (-c["tagged"], -c["rules"], c["book"]))
+    return out
+
+
+class BookText:
+    """The stored pages of the books of one run, each read once (`agent_review_standards.read_book`: text, else OCR)."""
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+        self._pages: dict[str, dict[int, str]] = {}
+
+    def pages(self, doc: str) -> dict[int, str]:
+        if doc not in self._pages:
+            from app import agent_review_standards
+
+            self._pages[doc] = dict(
+                agent_review_standards.read_book(self.conn, str(doc)).pages
+            )
+        return self._pages[doc]
+
+    def page(self, doc: str, page: int) -> str | None:
+        return self.pages(doc).get(int(page))
+
+
+# ------------------------------------------------------------------ plan time: the books a review MAY use
+
+
+def _paper_citations(conn, paper_id: str) -> list[str]:
+    """The standards the paper names, read by code (names of standards only, never the paper's text)."""
+    from app import agent_review_standards, standard_ids
+
+    pages = agent_review_standards.read_book(conn, str(paper_id)).pages
+    return standard_ids.cited_standards("\n".join(t for _n, t in sorted(pages.items())))
+
+
+def stored_reading(
+    conn, paper_id: str, allowed: frozenset[str]
+) -> tuple[str | None, str | None, str]:
+    """(method kind, taxonomy type id, how the app's stored reading decided the kind). Reads only; a fault is 'unknown'."""
+    from app import agent_review_kind
+
+    try:
+        got = agent_review_kind.read_kind(conn, str(paper_id))
+    except Exception as exc:  # noqa: BLE001 - an unreadable reading is an unknown kind, never a guess
+        log.info("general review plan: kind unreadable (%s)", type(exc).__name__)
+        return None, None, agent_review_kind.SOURCE_NONE
+    if not (got.get("known") and got.get("kind")):
+        return (
+            None,
+            None,
+            agent_review_kind.decided_by(
+                got.get("method"), got.get("page"), bool(got.get("guess"))
+            ),
+        )
+    kind = method_kind(str(got["kind"]))
+    source = agent_review_kind.decided_by(
+        got.get("method"), got.get("page"), bool(got.get("guess"))
+    )
+    try:
+        equipment, _where = agent_review_kind.read_equipment(str(paper_id), allowed)
+    except Exception as exc:  # noqa: BLE001 - an unreadable equipment reading is none
+        log.info("general review plan: equipment unreadable (%s)", type(exc).__name__)
+        equipment = None
+    return kind, type_id_of(equipment), source
+
+
+def checklist_key(
+    kind: str | None, type_id: str | None, subject_key: str | None = None
+) -> str | None:
+    """`<kind>__<equipment type or subject>`: the key a checklist is saved and found under. None without both parts."""
+    tail = (
+        type_id
+        or re.sub(r"[^a-z0-9]+", "_", str(subject_key or "").lower()).strip("_")[:60]
+    )
+    if not kind or not tail:
+        return None
+    return f"{kind}__{tail}"
+
+
+def saved_books(checklist: dict | None) -> list[str]:
+    """The document ids a saved checklist's items rest on, in first-use order."""
+    out: list[str] = []
+    for b in (checklist or {}).get("books") or []:
+        bid = str(b.get("book") or "") if isinstance(b, dict) else ""
+        if bid and bid not in out:
+            out.append(bid)
+    return out
+
+
+def candidates(
+    conn,
+    paper_id: str,
+    allowed: frozenset[str],
+    store,
+    earlier_unlisted: frozenset[str] = frozenset(),
+):
+    """PLAN TIME. The rule books the general review MAY use, by library metadata only. No model, no socket, no write.
+
+    A saved checklist for the paper's key decides by itself: exactly its books. Otherwise: books governing the stored equipment
+    type, method books of the stored kind, books an earlier review of this paper wanted but could not send, books the paper cites
+    (resolved by code), then books holding the most rules labelled for the kind (and type). Intersected with `allowed` (rule 5):
+    a book outside it is counted in `unreadable`, never named. At most MAX_CANDIDATES books."""
+    from . import Candidates
+
+    paper_id = str(paper_id)
+    kind, type_id, source = stored_reading(conn, paper_id, allowed)
+    key = checklist_key(kind, type_id)
+    saved = store.get(key) if key and store is not None else None
+    order, not_held = (
+        ([(b, WHY_SAVED) for b in saved_books(saved) if b != paper_id], [])
+        if saved is not None
+        else _ordered_books(conn, paper_id, kind, type_id, earlier_unlisted)
+    )
+    readable = [(d, w) for d, w in order if d in allowed]
+    unreadable = sum(1 for d, _w in order if d not in allowed)
+    books = [{"id": d, "why": w} for d, w in readable[:MAX_CANDIDATES]]
+    return Candidates(
+        kind=kind,
+        equipment_type=type_id,
+        kind_source=source,
+        books=books,
+        not_held=_unique(not_held),
+        unreadable=unreadable,
+        checklist_key=key,
+        checklist_saved=saved is not None,
+    )
+
+
+def _ordered_books(
+    conn, paper_id: str, kind: str | None, type_id: str | None, earlier: frozenset[str]
+) -> tuple[list[tuple[str, str]], list[dict]]:
+    """(book id, why) in priority order, and the books named but not held: governing, method, wanted earlier, cited, rules."""
+    lib = library(conn, exclude=frozenset({paper_id}))
+    by_id = {e["id"]: e for e in lib}
+    order: list[tuple[str, str]] = []
+    not_held: list[dict] = []
+
+    def add(doc_id: str, why: str) -> None:
+        if doc_id and doc_id not in {d for d, _w in order}:
+            order.append((doc_id, why))
+
+    def named(found: dict | None, name: str, why: str) -> None:
+        if found:
+            add(found["id"], why)
+        else:
+            not_held.append({"name": name, "why": f"{why}; not held"})
+
+    for e, name in governing_books(lib, type_id):
+        if not e or role_applies(e, kind):
+            named(e, name, WHY_GOVERNS)
+    for e, name in method_books(lib, kind):
+        named(e, name, WHY_METHOD)
+    for b in sorted(earlier):
+        if b in by_id:
+            add(b, WHY_LAST)
+    for name in _paper_citations(conn, paper_id):
+        named(resolve(lib, name), name, WHY_CITED)
+    if kind:
+        for c in catalog(by_id, rule_pool(conn, kind, type_id, subjects=False)):
+            if role_applies(by_id[c["book"]], kind):
+                add(c["book"], WHY_RULES)
+    return order, not_held
+
+
+def _unique(rows: list[dict]) -> list[dict]:
+    seen, out = set(), []
+    for r in rows:
+        k = r["name"].casefold()
+        if k not in seen:
+            seen.add(k)
+            out.append(r)
+    return out
