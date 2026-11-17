@@ -185,6 +185,25 @@ def test_a_comment_is_a_sendable_label_in_line_order(world):
     assert all(c["label"] in aim_review.SENDABLE for c in body["comments"])
 
 
+def test_a_question_that_was_only_not_judged_is_a_point_not_a_comment(
+    world, monkeypatch
+):
+    """ASK A -> C (RISKS 2): `aim_review.sendable` decides; a not-judged Question stays on "All points" and is counted there."""
+    db.connect().execute("DELETE FROM aim_lines")
+    db.connect().execute("DELETE FROM aim_runs")
+    db.connect().execute("DELETE FROM review_runs")
+    db.connect().commit()
+    make_run(
+        lines=[
+            _line(1, "Question", "Question", code_note=aim_review.NOT_JUDGED),
+            _line(2, "Question", "Question"),
+        ]
+    )
+    body = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").json()
+    assert [c["item_id"] for c in body["comments"]] == ["C02"]
+    assert [p["item_id"] for p in body["points"]] == ["C01", "C02"]
+
+
 def test_what_a_person_sees_is_the_stored_shown_label(world):
     got = {
         p["item_id"]: p["shown_label"]

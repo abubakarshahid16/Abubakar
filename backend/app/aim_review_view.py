@@ -148,7 +148,8 @@ def build(conn, run: dict, scope=None) -> dict:
         raise NotFinished(NOT_FINISHED_WORDS)
     rows = aim_review_store.lines(conn, run["run_id"])
     points = [line_view(r, i) for i, r in enumerate(rows, 1)]
-    comments = [p for p in points if p["label"] in aim_review.SENDABLE]
+    # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C)
+    comments = [p for p in points if aim_review.sendable(p)]
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
