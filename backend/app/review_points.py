@@ -439,7 +439,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             None if paper_q or looked else (_clean(line.get("paper_quote")) or None)
         ),
         "paper_value_page": page,
-        "rule_text": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
+        "rule_text": (None if clause_q or not book_readable else shown_rule_words(book_doc, line.get("clause_quote") or line.get("requirement"),
+                                                                                 line.get("rule_page") or line.get("clause_page"), ctx)),
+        "_rule_stored": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
         "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
         "paper_looked": looked,
@@ -497,6 +499,31 @@ def _view_page(document_id: str | None, page) -> dict | None:
 
 
 _PAGE = re.compile(r"\b(?:page|p\.?)\s*(\d{1,4})", re.I)
+
+
+def shown_rule_words(book_doc, text, page, ctx: dict) -> str | None:
+    """A point's stored rule words as the page and the CRS show them as the BOOK's words: only where code finds them in the linked
+    held book (`agent_review_standards.book_words`: whole, or in pieces with a visible mark where the book has other text between
+    them); None otherwise (no linked book, or words the book does not hold). Each book is read once per listing (`ctx`)."""
+    from . import agent_review_standards as standards
+
+    if not book_doc or not _clean(text):
+        return None
+    return standards.book_words(book_doc, text, page, ctx.setdefault("_book_pages", standards.BookPages()))
+
+
+def clause_unconfirmed(book_doc, clause, finding: dict | None, ctx: dict) -> str:
+    """The rule check's cited clause when code is CERTAIN it does NOT hold the rule's stored words in the linked book (the same test as
+    the AI lines, `crs_ai_words.mark_clause_unconfirmed`: `agent_review_standards.clause_holds` False), else "". A doubt
+    (`CLAUSE_UNSURE`) or "cannot tell" keeps the clause: a rule check point has no place to say "not checked". Each book's text is
+    read once per listing (`ctx`)."""
+    from . import agent_review_standards as standards
+
+    if not book_doc or not _clean(clause) or not finding:
+        return ""
+    got = standards.clause_holds(book_doc, _clean(clause), content.rule_text(finding), finding.get("standard_page"),
+                                 ctx.setdefault("_book_texts", {}))  # fmt: skip
+    return _clean(clause) if got is False else ""
 
 
 def rule_point(
@@ -589,6 +616,9 @@ def rule_point(
     ref = content.rule_ref(row, finding)
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
     missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
+    unconfirmed = "" if missing or ref_hidden else clause_unconfirmed(book_doc, ref["clause"], finding, ctx)
+    if unconfirmed:  # the clause does not hold the rule's words in the book: no clause is cited (the grouping keeps it)
+        ref = {**ref, "clause": ""}
     unproven_ai = False
     missing_words = book_missing_words(missing, ref["clause"]) if missing else ""  # order 14 lane C (C1): the clause, or "not named"
     if missing:  # order 14 lane B (lane D, G7): a rule whose book is not held is a question, never a verdict; none of its words shown
@@ -629,8 +659,11 @@ def rule_point(
         "paper_value": None if looked else (value or None),
         "paper_value_page": value_page,
         # order 14 lane B: our checklist's own wording is never shown as the rule book's words: it is `check_text`, labelled as ours
-        "rule_text": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
+        # honesty rule 4 (G1): the stored words are shown as the book's only where code finds them in the linked book (`book_words`)
+        "rule_text": None if hidden or is_check_text(finding) else shown_rule_words(book_doc, content.rule_text(finding), (finding or {}).get("standard_page"), ctx),
         "check_text": (content.rule_text(finding) or None) if not hidden and is_check_text(finding) else None,
+        # the stored rule words as they were before the G1 rule: the comment grouping keys on them (`crs_comments._requirement_of`)
+        "_rule_stored": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
         "rule_hidden": hidden,
         "rule_ref": ref if (ref["name"] or ref["clause"]) and not ref_hidden else None,
         "reason_words": silent.reason
@@ -668,15 +701,16 @@ def rule_point(
         "_book_docs": [book_doc] if book_doc else [],
         "_book_missing": missing or None,
         "_book_missing_words": missing_words or None,
+        "_clause_unconfirmed": unconfirmed or None,
         "_row_key": key,
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
-                     clause_quote_note=NO_CLAUSE_QUOTE)  # fmt: skip
+                     clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)  # fmt: skip
     if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)
-        point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE)
+        point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)
     return point
 
 

@@ -172,7 +172,8 @@ def key_of(point: dict) -> str:
 def _requirement_of(p: dict) -> str:
     """The point's requirement text, folded: what its rule asks (the verified clause quote, the stored rule text, our check's words)."""
     line = _line_of(p)
-    for text in (p.get("clause_quote"), p.get("rule_text"), p.get("check_text"), line.get("clause_quote"), line.get("requirement")):
+    stored = p["_rule_stored"] if "_rule_stored" in p else p.get("rule_text")  # the stored words, shown or not (G1 hides unfound ones)
+    for text in (p.get("clause_quote"), stored, p.get("check_text"), line.get("clause_quote"), line.get("requirement")):
         if _norm(text):
             return re.sub(r"[^0-9a-z]+", " ", _norm(text)).strip()
     return ""
@@ -182,8 +183,10 @@ def _rule_of(p: dict) -> tuple[str, str, str] | None:
     """(book key, clause, requirement): ONE rule; None unless all three are known."""
     book = p.get("rule_book") or (p.get("rule_ref") or {}).get("name")
     req = _requirement_of(p)
-    if _norm(book) and _norm(p.get("clause")) and req:
-        return (_book_key(book), _clause_key(p.get("clause")), req)
+    # a clause not shown because it does not hold the rule's words (`crs_ai_words.mark_clause_unconfirmed`) still names ONE rule
+    clause = p.get("clause") or _line_of(p).get(words.CLAUSE_UNCONFIRMED_KEY) or p.get("_clause_unconfirmed")
+    if _norm(book) and _norm(clause) and req:
+        return (_book_key(book), _clause_key(clause), req)
     return None
 
 
@@ -237,22 +240,31 @@ def met_question_why(line: dict) -> str | None:
     )
 
 
+#: The pass guard's objections that say only what CODE could not reach, nothing about the paper: the rule's field is not known, so code
+#: could not look for the field's words or a deferral mark (`agent_review_verdict.GUARD_CODES`). The two "... not quoted" objections
+#: doubt the quote itself (is it this field's value?): they stay questions.
+REACH_ONLY_GUARDS = frozenset({"pass_field_unknown", "field_unknown_cannot_check_deferral"})
+
+
 def tick_only(point: dict) -> bool:
-    """An AI line its reader judged met (its reason "met" or "pass_...") whose PAPER quote code verified, held back only because its
-    CLAUSE quote was not verified: the engineer ticks it; it is not a comment. Never ticked (each checked on its own, whatever reason
-    the guard gave first): a paper quote not verified, the readers disagreeing, words saying the value is not stated, a quote of the
-    field's label only, a value left open (R91: these are real questions)."""
+    """An AI line its reader judged met, made a Query by code for ONE reason that says nothing open about the paper: the engineer ticks
+    it ("AI says met, not confirmed: engineer to tick", the reason said); it is not a comment (gate G3: nothing for the contractor to
+    correct). The reasons: its reason "met" with only the CLAUSE quote unverified; or a pass-guard objection of code's own reach
+    (`REACH_ONLY_GUARDS`) with both quotes verified by code. Never ticked (each checked on its own, whatever reason the guard gave
+    first): a paper quote not verified, the readers disagreeing, words saying the value is not stated, a quote of the field's label
+    only, a value left open (R91, `met_question_why`: real questions), or a guard objection to the quote itself."""
     from . import agent_review_verdict as v
 
     line = _line_of(point)
     reason = str(line.get("reason_code") or "").strip().lower()
-    if reason != "met":  # a "pass_..." reason is the pass guard's objection: a second doubt, never ticked (R94)
+    if met_question_why(line):  # R91: a real question, never ticked (shared with gate G3)
         return False
-    if met_question_why(
-        line
-    ):  # R91: a real question, never ticked (shared with gate G3)
+    if reason == "met":
+        return v.met_unsafe_why(line) == v.UNVERIFIED_CLAUSE_WHY
+    if reason not in REACH_ONLY_GUARDS or line.get("ai_verdict") != v.PASS or line.get("verdict") != v.QUERY:
         return False
-    return v.met_unsafe_why(line) == v.UNVERIFIED_CLAUSE_WHY
+    checks = line.get("quotes_checked") if isinstance(line.get("quotes_checked"), dict) else {}
+    return checks.get("paper") is True and checks.get("clause") is True
 
 
 def _rule_keys(p: dict) -> set[tuple]:

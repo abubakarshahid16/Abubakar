@@ -30,8 +30,19 @@ def row(kind="clause_review", **kw) -> dict:
             "ai_review_comment": "Check that both assessments follow the procedure.", **kw}  # fmt: skip
 
 
+class _HeldBook:
+    """Order 14 lane D (G1): a stored rule text is shown as the book's words only where the LINKED book's stored pages hold it."""
+
+    def book(self, _doc):
+        from app import agent_review_pass_guards as pass_guards
+
+        return pass_guards.Book({1: "5.3 Assessments. Both assessments shall follow the written procedure. End."})
+
+
 FINDING = {"id": "f1", "standard_clause": "5.3", "requirement": "Both assessments shall follow the written procedure.", "requirement_source_text": "",
            "contractor_evidence_text": "Assessments are done by the team.", "contractor_page": 8, "compliance_status": "NEEDS_ENGINEER_REVIEW"}  # fmt: skip
+LINKED = {**FINDING, "standard_document_id": "doc-std"}  # the same finding with its held book linked
+CTX_BOOK = {**CTX, "readable": frozenset({"doc1", "doc-std"}), "_book_pages": _HeldBook()}
 
 
 # ------------------------------------------------------------------------------------------------ the pieces
@@ -82,15 +93,17 @@ def test_a_clause_review_point_carries_its_own_content():
     assert p["name"].startswith("STD-9") and "awaiting" not in p["name"]
     assert p["action"] == "Check that both assessments follow the procedure." and p["action_source"] == "ai_suggestion"
     assert p["paper_value"] == "Assessments are done by the team." and p["paper_quote"] is None  # stored, NOT verified
-    assert p["rule_text"].startswith("Both assessments") and p["checked_by"] == "Rule check: clause review (AI)"
+    assert p["rule_text"] is None and p["checked_by"] == "Rule check: clause review (AI)"  # order 14 lane D (G1): no book linked to find it in
     assert p["page"] == 8 and p["reason_words"]
+    linked = review_points.rule_point(row(), CTX_BOOK, LINKED, {})
+    assert linked["rule_text"].startswith("Both assessments")  # the linked book holds the words: shown
 
 
 def test_the_cells_say_stored_not_verified_and_say_nothing_recorded_once():
     p = review_points.rule_point(row(), CTX, FINDING, {})
     assert 'not verified by code' in crs_one.paper_shows(p) and '"Assessments are done by the team."' in crs_one.paper_shows(p)
     assert "verified by code)" not in crs_one.paper_shows(p).replace("not verified by code)", "")  # never worded as verified
-    assert "not verified by code" in crs_one.rule_requires(p)
+    assert "not verified by code" in crs_one.rule_requires(review_points.rule_point(row(), CTX_BOOK, LINKED, {}))  # order 14 lane D: linked book
     empty = review_points.rule_point(row(), CTX, {"id": "f2"}, {})
     assert crs_one.paper_shows(empty) == c.NOTHING and crs_one.rule_requires(empty) == c.NOTHING
     assert "No verified quote" not in crs_one.paper_shows(p) + crs_one.rule_requires(p) + crs_one.paper_shows(empty)
@@ -314,7 +327,8 @@ def test_a_hidden_point_never_uses_the_ais_or_the_findings_words_and_the_hand_re
     proven = review_points.rule_point(hidden_row, CTX, FINDING, {}, proof=(True, True))
     assert proven["rule_hidden"] is False and proven["action_source"] == "ai_suggestion"
     # the reference may be withheld while the app's own checklist text stays
-    half = review_points.rule_point(row("datasheet_check", comment="A check.", standard_reference="CLOSED-777 cl. 9.9"), CTX, FINDING, {}, proof=(True, False))
+    half = review_points.rule_point(row("datasheet_check", comment="A check.", standard_reference="CLOSED-777 cl. 9.9"), CTX_BOOK, LINKED, {},
+                                    proof=(True, False))  # order 14 lane D (G1): a linked book that holds the words
     assert half["rule_hidden"] is False and half["rule_ref"] is None and half["clause"] is None and half["rule_text"]
     assert "CLOSED-777" not in str(half["name"])
     # an AI point of a hidden book drops the AI's free words too

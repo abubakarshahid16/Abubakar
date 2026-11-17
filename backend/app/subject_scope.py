@@ -657,6 +657,15 @@ def _heading(line: str) -> tuple[str, str] | None:
     return shape[:2] if shape and not shape[2] else None
 
 
+def contents_page(lines: list[str]) -> bool:
+    """Is a page (its lines) a table of contents: 5 or more heading-shaped
+    lines, at least half of them contents entries (`_NOT_A_TITLE`)?"""
+    shapes = [s for s in map(_heading_shape, lines) if s]
+    return len(shapes) >= _CONTENTS_LEAST and (
+        sum(s[2] for s in shapes) >= _CONTENTS_SHARE * len(shapes)
+    )
+
+
 def _next_number(ident: str, last: str | None) -> bool:
     """Is numbered clause `ident` plausible after the last numbered heading
     `last` - its first child, its next sibling, or the next of a parent?"""
@@ -678,10 +687,7 @@ def _headings(pages: list[list[str]]) -> tuple[list[tuple[str, str] | None], set
     bare_at: set[int] = set()
     last: str | None = None
     for lines in pages:
-        shapes = [s for s in map(_heading_shape, lines) if s]
-        if len(shapes) >= _CONTENTS_LEAST and (
-            sum(s[2] for s in shapes) >= _CONTENTS_SHARE * len(shapes)
-        ):
+        if contents_page(lines):
             out.extend([None] * len(lines))  # a contents page
             continue
         heads: list[tuple[str, str] | None] = []
