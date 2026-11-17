@@ -287,7 +287,10 @@ class _Body:
 
     def __init__(self, book: pass_guards.Book) -> None:
         numbers = sorted(book.pages)
-        split = {n: [" ".join(r.split()) for r in book.pages[n].splitlines() if r.strip()] for n in numbers}
+        split = {
+            n: [" ".join(r.split()) for r in book.pages[n].splitlines() if r.strip()]
+            for n in numbers
+        }
         seen: dict[str, set[int]] = {}
         for n in numbers:
             for line in split[n]:
@@ -303,7 +306,11 @@ class _Body:
         for n in numbers:
             for line in split[n]:
                 folded = pass_guards._fold(line)
-                if _digits_out(line) in running or re.fullmatch(rf"[^0-9A-Za-z]*0*{n}[^0-9A-Za-z]*", line) or not folded:
+                if (
+                    _digits_out(line) in running
+                    or re.fullmatch(rf"[^0-9A-Za-z]*0*{n}[^0-9A-Za-z]*", line)
+                    or not folded
+                ):
                     dropped = True
                     continue
                 at += 1 if parts else 0  # the joining space
@@ -339,16 +346,25 @@ def _word_hits(text: str, q: str):
 def _pieces(body: _Body, words: list[str], q: str, at: int) -> list[str] | None:
     """The stored words in pieces at the page breaks where the match at `at` skips the book's running lines; None when it skips them
     anywhere else, needs more than `MOST_PIECES` pieces, skips nothing, or a piece is shorter than `pass_guards.OFF_PAGE_MIN`."""
-    first, last = bisect.bisect_right(body.starts, at) - 1, bisect.bisect_right(body.starts, at + len(q) - 1) - 1
+    first, last = (
+        bisect.bisect_right(body.starts, at) - 1,
+        bisect.bisect_right(body.starts, at + len(q) - 1) - 1,
+    )
     cuts = [k for k in range(first + 1, last + 1) if body.gap_before[k]]
-    if not cuts or len(cuts) >= MOST_PIECES or any(body.pages[k] != body.pages[k - 1] + 1 for k in cuts):
+    if (
+        not cuts
+        or len(cuts) >= MOST_PIECES
+        or any(body.pages[k] != body.pages[k - 1] + 1 for k in cuts)
+    ):
         return None
     marks = [0] + [q[: body.starts[k] - at].count(" ") for k in cuts] + [len(words)]
     pieces = [" ".join(words[a:b]) for a, b in itertools.pairwise(marks)]
     return pieces if all(len(p) >= pass_guards.OFF_PAGE_MIN for p in pieces) else None
 
 
-def book_words(doc: Any, text: Any, page_hint: Any = None, books: BookPages | None = None) -> str | None:
+def book_words(
+    doc: Any, text: Any, page_hint: Any = None, books: BookPages | None = None
+) -> str | None:
     """The rule's stored words as a CRS may show them as the BOOK's words (honesty rule 4, gate G1): the text itself when code finds it
     in the book's stored pages (`verify`); in pieces joined by `CUT_MARK` ONLY where the book's text between them is a page break and
     nothing but the book's running header and footer lines and the page's own number (`_Body`): whole words only, every word of the
@@ -364,13 +380,21 @@ def book_words(doc: Any, text: Any, page_hint: Any = None, books: BookPages | No
         if verify(doc, shown, page_hint, books).found:
             return shown
         book = books.book(doc)
-    except sqlite3.Error:  # a database without the pages table holds no book: nothing is found
+    except (
+        sqlite3.Error
+    ):  # a database without the pages table holds no book: nothing is found
         log.debug("agent review: no stored pages to search for the rule book %s", doc)
         return None
     words = shown.split()
     q, body = " ".join(pass_guards._fold(w) for w in words), _body(book)
     hints = set(pass_guards._hints(page_hint))
-    hits = sorted(_word_hits(body.text, q), key=lambda a: (body.pages[bisect.bisect_right(body.starts, a) - 1] not in hints, a))
+    hits = sorted(
+        _word_hits(body.text, q),
+        key=lambda a: (
+            body.pages[bisect.bisect_right(body.starts, a) - 1] not in hints,
+            a,
+        ),
+    )
     for at in hits:
         pieces = _pieces(body, words, q, at)
         if pieces:
@@ -385,7 +409,9 @@ def book_words(doc: Any, text: Any, page_hint: Any = None, books: BookPages | No
 CLAUSE_UNSURE = "unsure"
 
 
-def _id_line(lines: list[str], i: int, running: set[str]) -> tuple[str, str, bool] | None:
+def _id_line(
+    lines: list[str], i: int, running: set[str]
+) -> tuple[str, str, bool] | None:
     """(kind, id, bare) when line `i` of a page reads as a clause heading: `subject_scope._heading` (a title on the line), or a numbered
     id alone on its line with a title word on the next line (bare; its number need not follow the last heading read, so a body heading
     after a contents page that was not recognised as one is still read). Never a running header or footer."""
@@ -395,7 +421,12 @@ def _id_line(lines: list[str], i: int, running: set[str]) -> tuple[str, str, boo
     if head:
         return head[0], head[1], False
     bare = subject_scope._BARE_NUMBER.match(lines[i])
-    if bare and i + 1 < len(lines) and re.match(subject_scope._TITLE_WORD, lines[i + 1]) and _digits_out(lines[i + 1]) not in running:
+    if (
+        bare
+        and i + 1 < len(lines)
+        and re.match(subject_scope._TITLE_WORD, lines[i + 1])
+        and _digits_out(lines[i + 1]) not in running
+    ):
         return "number", bare.group("id"), True
     return None
 
@@ -405,7 +436,10 @@ class ClauseText:
     fold `subject_scope.StandardText` places sentences with) and its reading as a clause heading (`_id_line`; none on a contents page)."""
 
     def __init__(self, pages: list[tuple[int, str]]) -> None:
-        split = [(n, [" ".join(r.split()) for r in (t or "").splitlines() if r.strip()]) for n, t in pages]
+        split = [
+            (n, [" ".join(r.split()) for r in (t or "").splitlines() if r.strip()])
+            for n, t in pages
+        ]
         running = subject_scope._running_lines([lines for _n, lines in split])
         self.page_of: list[int] = []
         self.offsets: list[int] = []
@@ -453,8 +487,12 @@ class ClauseText:
                 if kind == key[0] and subject_scope._stored_clause_in(ident, key):
                     return True
                 if subject_scope._ends_for_certain(key, (kind, ident)):
-                    return False if not bare and self.page_of[i] == page else CLAUSE_UNSURE
-                if subject_scope._ends(key, (kind, ident)) or (kind == key[0] == "number" and key[1].startswith(ident + ".")):
+                    return (
+                        False if not bare and self.page_of[i] == page else CLAUSE_UNSURE
+                    )
+                if subject_scope._ends(key, (kind, ident)) or (
+                    kind == key[0] == "number" and key[1].startswith(ident + ".")
+                ):
                     return CLAUSE_UNSURE
             i -= 1
         return None
@@ -469,7 +507,9 @@ def _together(found: list) -> bool | str | None:
     return CLAUSE_UNSURE if CLAUSE_UNSURE in found else None
 
 
-def clause_holds(doc: Any, clause: Any, words: Any, page: Any, texts: dict | None = None) -> bool | str | None:
+def clause_holds(
+    doc: Any, clause: Any, words: Any, page: Any, texts: dict | None = None
+) -> bool | str | None:
     """Does the cited clause hold the rule's words in the book's own text (honesty rule 4: no claim without a resolving citation)?
     Judged at EVERY place the words start on their verified page (`ClauseText.starts`) by the nearest deciding heading before them
     (`ClauseText.where`), only on body pages (a contents page has no headings). True: in the clause (any place). False, ONLY when code
@@ -490,7 +530,11 @@ def clause_holds(doc: Any, clause: Any, words: Any, page: Any, texts: dict | Non
             pages = []
         texts[doc] = ClauseText(pages)
     text = texts[doc]
-    keys = [k for k in _clause_keys(str(clause)) if any(g and (g[0], g[1]) == k for g in text.ids)]
+    keys = [
+        k
+        for k in _clause_keys(str(clause))
+        if any(g and (g[0], g[1]) == k for g in text.ids)
+    ]
     hits = text.starts(words, page)
     if not keys or not hits:
         return None
