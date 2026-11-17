@@ -80,6 +80,9 @@ METHOD_MANUAL = "manual"                  # an engineer's own decision
 #: B5: the standard's own SCOPE CLAUSE names the submittal's equipment
 #: (applicability_v2.decide on a stored, verified scope record).
 METHOD_SCOPE = "scope"
+#: LPB (owner, 17 Nov 2026): the book holds AGREED rules our own rule sorting tagged for the paper's equipment
+#: (`equipment_rule_books`, the AI reviewer's own equipment decision per rule).
+METHOD_EQUIPMENT_RULES = "equipment_rules"
 
 #: B5 (live wiring, 2026-09-25): methods that are EVIDENCE a standard governs
 #: this submittal - it is cited, or it is classified for this equipment,
@@ -91,6 +94,7 @@ METHOD_SCOPE = "scope"
 #: any of them (`override`).
 INCLUDING_METHODS = frozenset({
     "governing_standard",  # #725 F5: reference/governing_standards.json
+    "equipment_rules",  # LPB: holds agreed rules our rule sorting tagged for this equipment
     "manual", "referenced", "equipment_type", "scope", "service", "project"})
 CANDIDATE_ONLY_REASON = {
     "possible_citation": ("possible match, engineer to confirm: the submittal names something "
@@ -119,6 +123,7 @@ _PRIORITY = {
     METHOD_EQUIPMENT: 2,
     METHOD_GOVERNING: 2,
     METHOD_SCOPE: 2,
+    METHOD_EQUIPMENT_RULES: 2,
     METHOD_SERVICE: 3,
     METHOD_PROJECT: 3,
     METHOD_POSSIBLE: 4,
@@ -137,6 +142,7 @@ _CONFIDENCE = {
     METHOD_EQUIPMENT: 0.7,
     METHOD_GOVERNING: 0.7,
     METHOD_SCOPE: 0.7,
+    METHOD_EQUIPMENT_RULES: 0.6,
     METHOD_DISCIPLINE: 0.5,
     METHOD_SERVICE: 0.5,
     METHOD_SEMANTIC: 0.4,
@@ -1212,6 +1218,31 @@ def _semantic_cannot_cover_a_missing_reference(
     return selected, missing
 
 
+#: the methods that rest only on the equipment type (order 142: held when the type is unsure)
+_FROM_TYPE = (METHOD_EQUIPMENT, METHOD_SCOPE, METHOD_EQUIPMENT_RULES)
+
+
+def equipment_rule_candidates(submittal_document_id: str, library: list[dict]) -> dict[str, dict]:
+    """LPB: the books holding agreed rules our rule sorting tagged for this paper's equipment (`equipment_rule_books`)."""
+    from . import equipment_rule_books
+
+    return equipment_rule_books.candidates(connect(), submittal_document_id, library)
+
+
+def _add_equipment_rule_books(selected: dict, submittal_document_id: str, library: list[dict],
+                              kind_part: tuple) -> None:
+    """LPB: keep every book that holds agreed rules our rule sorting tagged for this paper's equipment. A stronger or equal
+    reason already recorded (cited, governing, equipment type, scope, an engineer) is kept as it is; a weaker one is replaced.
+    #1474: a document whose KIND takes no equipment-type standards (`kind_rules.profile` gave its part) gets none of them
+    either; `kind_rules.profile` lists them with the equipment-type books it left out."""
+    if kind_part[0] is not None:
+        return
+    for standard_id, row in equipment_rule_candidates(submittal_document_id, library).items():
+        existing = selected.get(standard_id)
+        if existing is None or _PRIORITY[row["method"]] < _PRIORITY[existing["method"]]:
+            selected[standard_id] = dict(row)
+
+
 def _hold_on_unsure_type(selected: dict, check: dict, library: list, profile: dict):
     """Order 142: an unsure equipment type rules nothing in or out. AI-first:
     the scope reasoning ran, but no row is excluded by it ("engineer to
@@ -1224,14 +1255,14 @@ def _hold_on_unsure_type(selected: dict, check: dict, library: list, profile: di
         other = _match_attribute(library, profile, "project", METHOD_PROJECT)
         other |= _match_attribute(library, profile, "service", METHOD_SERVICE)
     for sid, row in list(selected.items()) if unsure else ():
-        if row["method"] in (METHOD_EQUIPMENT, METHOD_SCOPE) and sid in other:
+        if row["method"] in _FROM_TYPE and sid in other:
             note = row.get("excluded_by_scope")
             row = selected[sid] = {**other[sid], "excluded_by_scope": note}
         scoped_out = row.pop("excluded_by_scope", None)
         if scoped_out:
             tail = "the equipment type is unsure, engineer to check"
             row["reason"] = f"{row['reason']}; {scoped_out} - {tail}"
-        if row["method"] in (METHOD_EQUIPMENT, METHOD_SCOPE):
+        if row["method"] in _FROM_TYPE:
             why = f"it came only from the equipment type ({unsure})"
             row["held_for_engineer"] = f"held for the engineer to check: {why}"
             continue
@@ -1328,6 +1359,9 @@ def select(
     else:
         scope_candidates = library
         decisions, scope_not_run = scope_decisions(library, profile)
+    # LPB: after the scope pool is chosen (what the model is asked is unchanged), before the scope decisions apply (a scope
+    # clause that excludes this equipment still excludes the book; one that covers it records the book as "scope").
+    _add_equipment_rule_books(selected, submittal_document_id, library, kind_part)
     scope_not_run = keep_no_type(
         submittal_document_id, selected, scope_not_run, library, allowed_document_ids
     )
@@ -1344,6 +1378,8 @@ def select(
         cited = (f"\"{decision.get('quote')}\" (page {decision.get('page')})"
                  if decision.get("quote") else "no specific quoted clause")
         row = selected.get(standard_id)
+        if verdict == v2.APPLICABLE and row is not None and row["method"] == METHOD_EQUIPMENT_RULES:
+            row = None  # LPB: a scope clause that covers the equipment is the stronger, quoted reason: recorded as scope
         if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):
             selected[standard_id] = {
                 "method": METHOD_SCOPE, "identifier": None, **evidence,

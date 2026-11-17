@@ -119,12 +119,18 @@ describe("AgentSummary: two readers agree", () => {
 
 describe("AgentSummary: the reader's own questions by group", () => {
   it("counts the groups apart and says what Not reviewed is", () => {
-    render(<AgentSummary summary={summary({ query_groups: { contractor_silent: 7, engineer_drawing: 9, could_not_decide: 4 }, not_reviewed: 2 })} />);
+    render(<AgentSummary summary={summary({ query_groups: { contractor_silent: 7, engineer_drawing: 9, could_not_decide: 4, clause_not_checked: 0 }, not_reviewed: 2 })} />);
     const text = screen.getByTestId("agent-query-groups").textContent ?? "";
+    expect(text).not.toContain("Firm findings held"); // none held: not said
     expect(text).toContain("for the contractor (the sheet does not state it) 7");
     expect(text).toContain("for the engineer (needs a drawing or a calculation) 9");
     expect(text).toContain("the AI could not decide 4");
     expect(text).toContain("Not reviewed (the AI gave no answer): 2");
+  });
+  it("counts the firm findings held as questions apart (LP1)", () => {
+    render(<AgentSummary summary={summary({ query_groups: { contractor_silent: 0, engineer_drawing: 0, could_not_decide: 0, clause_not_checked: 3 } })} />);
+    const text = screen.getByTestId("agent-query-groups").textContent ?? "";
+    expect(text).toContain("Firm findings held as questions (the clause was not checked or the rule book is not held): 3");
   });
   it("shows nothing for a run stored before it", () => {
     render(<AgentSummary summary={summary()} />);

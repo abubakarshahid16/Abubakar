@@ -19,7 +19,7 @@ from . import agent_review_approved_code as approved_code
 from . import agent_review_code_proof as code_proof
 from . import agent_review_not_applicable as not_applicable
 from . import agent_review_two_reader as two_reader
-from . import agent_run_second
+from . import agent_run_second, firm_clause
 from .agent_review_local import (
     AI_QUERY_WHY,
     LOCAL_TOO_LONG,
@@ -271,6 +271,8 @@ def not_met_deferred_why(line: Mapping) -> str | None:
 def _early(line: Mapping, unapproved: bool, why: str) -> dict | None:
     """Steps 1, 2 and 2b of `classify`: the AI gave no answer (Not reviewed); a silent paper (Query); an AI "met" whose paper
     defers the value or whose quotes code could not verify (Query, N9). None when none applies."""
+    if held := firm_clause.held_class(line):  # LP1: a firm "not met" with no clause
+        return held
     error = line.get("error") or (NO_VERDICT_CODE if no_verdict(line) else None)
     if (
         error

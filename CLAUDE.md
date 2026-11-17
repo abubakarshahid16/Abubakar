@@ -123,7 +123,10 @@ carries the client's name; only the owner can rename it.
    `AI_ENGINEERING_REVIEW_PASS_ENGINE` and, for the AI reviewer (rule review and
    general review) alone, `AGENT_REVIEW_ENGINE`, and for the chat alone `CHAT_MODEL_ENGINE`
    (the picker offers Claude under per_task only when it says claude; the reader still
-   chooses per request) - owner decision 2026-10-12, #501;
+   chooses per request) - owner decision 2026-10-12, #501; two steps with no setting of their own follow another
+   step's: in a Claude-lane review run `clause_check_proposal` follows `AI_CLAUSE_REVIEW_ENGINE` and field naming
+   (`b4-naming2`) follows `MATCH_ENGINE`; `requirement_value_question` stays local - owner decision of 17 Nov 2026,
+   recorded on #1584;
    AI reviewer 12 Nov 2026; under per_task a normal review whose own engine
    settings are all local runs exactly as under ollama, no local-engine bar; owner
    decision of 12 Nov 2026, recorded on #1584 (comment 6806441133, item 5), to be

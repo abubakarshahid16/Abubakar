@@ -77,7 +77,13 @@ KIND_NOTHING_TO_CHANGE = "Checked, nothing to change"  # met (proven, two reader
 KIND_COVERAGE = "Coverage note"  # "N rules of a book could not be matched to a field": one coverage note, not a comment
 KIND_IN_COMMENT = "Part of comment {n}"  # the same field or topic as comment n: its clause and page are listed on that comment
 KIND_MET_NOT_CONFIRMED = "AI says met, not confirmed: engineer to tick"  # only the clause quote unverified, or a pass-guard objection
-NOT_A_COMMENT_KINDS = (KIND_NOTHING_TO_CHANGE, KIND_MET_NOT_CONFIRMED, KIND_COVERAGE)
+KIND_NA_TO_CONFIRM = "Does not apply (AI, engineer to confirm)"  # owner on PR #1872: its own section on the page and in both files (LP1)
+NOT_A_COMMENT_KINDS = (
+    KIND_NOTHING_TO_CHANGE,
+    KIND_MET_NOT_CONFIRMED,
+    KIND_COVERAGE,
+    KIND_NA_TO_CONFIRM,
+)
 _NEED = r"(?:needed|required|necessary)"
 #: THE words that say there is nothing to do (the owner's "found none", "no correction needed", "could not be read" and their plain
 #: variants), as (label, pattern) on folded (lower case) text: ONE home, read by `NOISE` here and by the CRS gate G3
@@ -543,7 +549,7 @@ def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
     (code is CERTAIN the words are outside the clause): no clause, the page instead, `CLAUSE_NOT_CONFIRMED`. `CLAUSE_UNSURE` (a heading
     that may end the clause stands before the words) or `CLAUSE_BEFORE` (the words stand before the clause's own heading, under its
     parent): no clause cited either, and the line says the clause was NOT CHECKED and why (`CLAUSE_UNCHECKED_KEY` holds the doubt;
-    `not_checked_words`), never that the words are not in it. True or None (cannot tell): nothing changes.
+    `firm_clause.not_checked_words`), never that the words are not in it. True or None (cannot tell): nothing changes.
     The clause carried is kept under `CLAUSE_UNCONFIRMED_KEY` (the grouping still keys on it). The verdict is untouched. Idempotent."""
     from .agent_review_standards import CLAUSE_BEFORE, CLAUSE_UNSURE, clause_holds
 
@@ -597,28 +603,17 @@ def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
     return out
 
 
-def not_checked_words(line: Mapping) -> str:
-    """The words a line marked "not checked" (`mark_clause_unconfirmed`) shows after its book's page; "" for any other line."""
-    from .agent_review_standards import CLAUSE_BEFORE
-
-    doubt = line.get(CLAUSE_UNCHECKED_KEY)
-    if not doubt:
-        return ""
-    words = CLAUSE_NOT_CHECKED_BEFORE if doubt == CLAUSE_BEFORE else CLAUSE_NOT_CHECKED
-    return words.format(clause=line.get(CLAUSE_UNCONFIRMED_KEY) or "")
-
-
 def read_now(
     lines: list[Mapping], missing: list[Mapping] = (), holds=None
 ) -> list[dict]:
     """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
-    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`),
-    then the clauses that do not hold their rule's words (`mark_clause_unconfirmed`, `holds` as there)."""
+    the completeness count, the gates): today's rule (`read_time`), the books not held (`mark_not_held`), the clauses that do not hold
+    their rule's words (`mark_clause_unconfirmed`, `holds` as there), then a firm "not met" with no clause is a question (`firm_clause`)."""
     from .agent_review_wording import read_time
+    from .firm_clause import hold
 
-    return mark_clause_unconfirmed(
-        mark_not_held([read_time(ln) for ln in lines], missing), holds
-    )
+    read = mark_not_held([read_time(ln) for ln in lines], missing)
+    return hold(mark_clause_unconfirmed(read, holds))
 
 
 def book_not_held(line: Mapping) -> bool:
@@ -788,7 +783,6 @@ __all__ = [
     "has_banned",
     "mark_clause_unconfirmed",
     "mark_not_held",
-    "not_checked_words",
     "plain",
     "priority",
     "priority_ai",

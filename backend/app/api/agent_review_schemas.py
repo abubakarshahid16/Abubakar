@@ -270,6 +270,9 @@ class AgentQueryGroups(BaseModel):
     could_not_decide: Count = (
         0  # the AI could not decide (unclear clause or another reason)
     )
+    #: LP1: a firm "not met" held as a question because its clause was not checked or its rule book is not held (not the reader's
+    #: own Query: the engineer confirms the clause)
+    clause_not_checked: Count = 0
 
 
 class AgentRunSummary(BaseModel):

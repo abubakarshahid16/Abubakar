@@ -34,6 +34,7 @@ from . import (
     run_record,
 )
 from . import crs_export_quality as quality
+from .crs_ai_drafts import STORED_STATE
 from .crs_mapping import (
     PRIORITY_CARRIED_FORWARD,
     ROW_KIND_CARRIED_FORWARD,
@@ -501,6 +502,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # f), and whether the caller sent no comment text (spec e; internal
         # copy only - the issue copy never carries such a row).
         rows[-1].update(_rank_cells(finding, copy), comment_missing=comment_missing)
+        # NEVER PRINTED (LPH): the stored state of an AI row's finding, so the file's Status is the page's (`crs_normal.settled`)
+        rows[-1][STORED_STATE] = finding.get(STORED_STATE)
 
     view = {
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.

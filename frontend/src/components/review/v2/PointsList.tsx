@@ -17,7 +17,7 @@ function pillStyle(p: ReviewPoint) {
 }
 
 export function Pill({ p }: { p: ReviewPoint }) {
-  return <span data-testid="v2-pill" style={pillStyle(p)} className="inline-block whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium">{p.pill}</span>;
+  return <span data-testid="v2-pill" style={pillStyle(p)} className="inline-block max-w-full whitespace-normal break-words text-left rounded-full border px-2.5 py-0.5 text-xs font-medium">{p.pill}</span>;
 }
 
 function Boxes({ p, onViewPage }: { p: ReviewPoint; onViewPage: (documentId: string, page: number) => void }) {
@@ -107,6 +107,7 @@ function Row({ p, open, onToggle, decide, busy, onViewPage }: {
       </div>
       {open && (
         <div className="mt-3 space-y-3" data-testid="v2-open-point">
+          {p.ai_answer && <p className="text-sm text-slateish-100" data-testid="v2-ai-answer">{p.ai_answer}</p>}
           {p.action && <p className="text-sm text-slateish-100">{p.action}</p>}
           {tagsWords(p) && (
             <details data-testid="v2-tags" className="text-xs text-slateish-300">
