@@ -4,9 +4,12 @@ GENERAL TERMS paper of its own package serves as its contract rule book, togethe
 
   * `package_papers(conn, doc_id, viewer)`: the other papers of the SAME contract package, by THE one finder of order 14 LPC
     (`contract_package.package_papers`: the same labelled cover number, role or kind contract, only papers the viewer may read).
-  * `rule_book_of`: the package paper whose OWN title (else page-1 heading) says "general terms" or "general conditions" and never
-    special, particular, supplementary or additional terms. Exactly one, or none (and why). Never a document id, a file name or a
-    layout of one paper (CLAUDE.md rule 13).
+  * `rule_book_of`: two signals must agree, and a false "no" is always safe (none is used; the run says none was recognised):
+    (A) the paper's own title, labels, numbers, revision, version and year taken off, is EXACTLY the general terms phrase (any other
+    word anywhere is a no; its page-1 heading lines decide by the same rule only when no title names the general terms);
+    (B) when the paper under review lists its general terms under a label ("Schedule X  General Terms and Conditions"), the
+    candidate's own label is that label. With no such entry, (A) decides alone and only when exactly one paper passes it. Never a
+    document id, a file name or a layout of one paper (CLAUDE.md rule 13).
   * `checklist_items`: CT-01 to CT-08 as items of the general review's part 2 (the path a procedure's checklist takes).
   * `code_lines`: what code decides of CT-01 to CT-03 (`contract_checks.run_all`) as lines of part 2, each a Query for the engineer.
   * `mark`: every line that comes from the rule book or the checklist says "AI draft, engineer to confirm" and is internal only. The
@@ -39,21 +42,23 @@ NOT_LISTED = "the general terms paper was not on the list shown before the start
 NO_YES = "the general terms paper is a contract: it goes to Claude only on an explicit Claude start"
 HEAD_LINES = 6  # the heading lines of page 1: a title, a header and a number; never the body, which may cite another paper
 
-#: A title part that IS the general terms: the phrase is the whole part (after its label and number), never qualified before or
-#: after ("Supplementary General Conditions", "Amendments to the General Conditions" are other papers about them).
+#: THE general terms, as the whole of what a title says once its labels, numbers, revision, version and year are taken off. Nothing
+#: else may be left anywhere in the title (lead decision, round 3 of #1880: no list of qualifiers, no split into parts).
 _IS_GENERAL_TERMS = re.compile(
-    r"^(?:the )?general (?:terms(?: (?:and |& )?conditions?)?|conditions?)"
-    r"(?: of (?:the )?(?:contract|agreement|purchase|sale|supply|subcontract|services?))?$"
+    r"^(?:the )?general (?:terms(?: (?:and )?conditions?)?|conditions?(?: of (?:the )?contract)?)$"
 )
-#: A part that speaks of terms or conditions at all: it decides, one way or the other.
-_SPEAKS_OF_TERMS = re.compile(r"\b(?:terms?|conditions?)\b")
-#: Where a title splits into its parts: a dash with a space on one side, a colon, a bar, brackets.
-_PARTS = re.compile(r"\s+[-\u2013\u2014]\s*|\s*[-\u2013\u2014]\s+|[:|()\[\]]")
-#: What a part may carry in front of its name: a number and a label of the paper ("08", "Schedule A", "Attachment II").
-_LEAD = re.compile(
-    r"^(?:\d+[a-z]?\s+)?(?:(?:schedule|appendix|annex|exhibit|attachment|att|part|section|volume|book)\s+[a-z0-9]{1,4}\s+)?"
-)
-_REVISION = re.compile(r"\s+rev(?:ision)?\s*\w{1,3}$")
+#: The title speaks of the general terms at all ("general terms", "general conditions"): then it decides, yes or no.
+_NAMES_GENERAL_TERMS = re.compile(r"\bgeneral (?:terms?|conditions?)\b")
+#: The tokens that only label, number or date a paper: a label word with its id, a revision or version with its id.
+_LABEL_WORDS = frozenset(
+    {"schedule", "annex", "appendix", "exhibit", "attachment", "att", "enclosure", "part", "section", "volume", "vol",
+     "book", "chapter"}
+)  # fmt: skip
+_REVISION_WORDS = frozenset({"rev", "revision", "version", "ver"})
+_ID = re.compile(r"^(?:[a-z]{1,2}|[ivxl]{1,6}|\d{1,4}[a-z]?)$")
+_NUMBER_ONLY = re.compile(
+    r"^(?:\d{1,4}[a-z]?|v\d{1,3})$"
+)  # a number, a year, a version
 YES, NO, SILENT = "yes", "no", "silent"
 
 
@@ -110,50 +115,87 @@ def _titles(conn: sqlite3.Connection, doc: str) -> list[str]:
     return out
 
 
-def _fold(part: str) -> str:
-    folded = " ".join(re.sub(r"[^\w&]+|_", " ", part.lower()).split())
-    return _REVISION.sub("", _LEAD.sub("", folded)).strip()
+def strip_labels(text: str) -> str:
+    """The words of a title or a list entry with ONLY its labels, numbers, revision, version and year taken off, folded."""
+    words = re.sub(
+        r"[^a-z0-9]+", " ", str(text or "").lower().replace("&", " and ")
+    ).split()
+    out, i = [], 0
+    while i < len(words):
+        w = words[i]
+        nxt = words[i + 1] if i + 1 < len(words) else ""
+        if (w in _LABEL_WORDS or w in _REVISION_WORDS) and _ID.match(nxt):
+            i += 2
+            continue
+        if _NUMBER_ONLY.match(w):
+            i += 1
+            continue
+        out.append(w)
+        i += 1
+    return " ".join(out)
 
 
 def title_state(text: str) -> str:
-    """YES when a part of the title IS the general terms; NO when the title speaks of terms or conditions but no part is them (a
-    qualified or other terms paper); SILENT when it does not speak of terms at all. Structural, never a list of qualifier words."""
-    parts = [_fold(x) for x in _PARTS.split(text or "") if x and x.strip()]
-    if any(_IS_GENERAL_TERMS.match(x) for x in parts):
+    """YES when, labels and numbers taken off, the title is EXACTLY the general terms; NO when it names the general terms with any
+    other word anywhere (a supplement, an amendment, a summary of them...); SILENT when it does not name them. A false NO is safe:
+    the paper is then not used and the run says none was recognised."""
+    left = strip_labels(text)
+    if _IS_GENERAL_TERMS.match(left):
         return YES
-    return NO if any(_SPEAKS_OF_TERMS.search(x) for x in parts) else SILENT
+    return NO if _NAMES_GENERAL_TERMS.search(left) else SILENT
 
 
-def _combined(states: Iterable[str], first: str) -> str:
-    """One state of several: `first` wins (titles: NO, the safe side when its two titles disagree; heading lines: YES, a heading line
-    that IS the general terms is not undone by another line naming other conditions), then the other, else SILENT."""
+def _combined(states: Iterable[str]) -> str:
+    """NO wins (the safe side), then YES, else SILENT."""
     states = list(states)
-    other = NO if first == YES else YES
-    return first if first in states else (other if other in states else SILENT)
+    return NO if NO in states else (YES if YES in states else SILENT)
 
 
-def says_general_terms(conn: sqlite3.Connection, doc: str) -> tuple[str, str]:
-    """(by its own titles, by its page-1 heading lines): is the paper the general terms or conditions? Each YES, NO or SILENT; the
-    title decides first and the heading is read only when no title speaks of terms (`rule_book_of`)."""
-    return (
-        _combined((title_state(x) for x in _titles(conn, doc)), NO),
-        _combined((title_state(x) for x in _head(conn, doc).splitlines()), YES),
-    )
+def says_general_terms(conn: sqlite3.Connection, doc: str) -> str:
+    """Signal (A): is the paper, by its own titles, the general terms? Its titles decide when they name the general terms at all;
+    only when they are silent do its page-1 heading lines decide, by the same strict rule. YES, NO or SILENT."""
+    title = _combined(title_state(x) for x in _titles(conn, doc))
+    if title != SILENT:
+        return title
+    return _combined(title_state(x) for x in _head(conn, doc).splitlines())
+
+
+def named_general_terms(conn: sqlite3.Connection, paper: str) -> frozenset:
+    """Signal (B): the labels the paper under review gives its general terms in its own list of contract documents: a labelled
+    reference ("Schedule X") whose listed name (the rest of its line, else the next line) BEGINS with the general terms phrase.
+    Only a pointer: the paper so labelled must also pass (A)."""
+    lines = contract_checks.lines_of(_pages(conn, paper))
+    out = set()
+    for i, (_p, line) in enumerate(lines):
+        for word, label, at in contract_checks.labels(line):
+            rest = strip_labels(line[at:])
+            if not rest and i + 1 < len(lines):
+                rest = strip_labels(lines[i + 1][1])
+            if re.match(r"(?:the )?general (?:terms|conditions?)\b", rest):
+                out.add((word, label.upper()))
+    return frozenset(out)
 
 
 def rule_book_of(
     conn: sqlite3.Connection, paper: str, viewer: Iterable[str], kind: str | None
 ) -> dict:
     """`{"id": doc id or None, "why": words}`. The general terms paper of the paper's package when the switch is on and the paper is
-    a contract: a paper of its package (the one finder) whose own title IS the general terms (its page-1 heading decides only when
-    no title speaks of terms), exactly one."""
+    a contract: a paper of its package (the one finder) that passes (A), its own title is exactly the general terms; when the paper
+    under review lists its general terms under a label (B), that paper's own label must be it too. Exactly one, else none."""
     if not enabled() or str(kind or "") != CONTRACT_KIND:
         return {"id": None, "why": "not used"}
-    found = package_papers(conn, paper, viewer)
-    says = {d: says_general_terms(conn, d) for d in found}
-    pick = [d for d in found if says[d][0] == YES] or [
-        d for d in found if says[d][0] == SILENT and says[d][1] == YES
-    ]
+    from . import contract_package
+
+    package = contract_package.package_papers(conn, paper, frozenset(viewer))
+    passes = [p for p in package if says_general_terms(conn, p["document_id"]) == YES]
+    named = named_general_terms(conn, paper)
+    if named:  # the two signals must agree: the paper's own label for its general terms, and the strict title
+        passes = [
+            p
+            for p in passes
+            if {(w, lab.upper()) for (w, lab), _up in p["parts"]} & named
+        ]
+    pick = [str(p["document_id"]) for p in passes]
     if len(pick) == 1:
         return {"id": pick[0], "why": WHY_LISTED}
     return {"id": None, "why": SEVERAL.format(n=len(pick)) if pick else NONE_FOUND}

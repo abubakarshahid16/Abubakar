@@ -185,7 +185,11 @@ def test_the_title_decides_before_the_heading_and_a_heading_decides_when_no_titl
             "SCHEDULE D - read with the General Conditions",
         )
         conn.commit()
-    assert _book(scope=ALL | {"doc_heads"})["id"] == GT
+    # (A) alone decides only when exactly one paper passes it: two pass, so none (the safe side)
+    assert _book(scope=ALL | {"doc_heads"}) == {
+        "id": None,
+        "why": contract_rule_book.SEVERAL.format(n=2),
+    }
     assert _book(scope=(ALL - {GT}) | {"doc_heads", "doc_refers"})["id"] == "doc_heads"
     assert (
         _book(scope=(ALL - {GT}) | {"doc_refers"})["why"]
@@ -690,3 +694,114 @@ def test_a_general_terms_paper_whose_heading_names_the_special_conditions_is_sti
         contract_rule_book.NONE_FOUND
         == "no general terms paper recognised in this package"
     )
+
+
+# ---------------------------------------------------------------- round 3 of #1880: (A) the strict title, (B) the paper names it
+
+LEAKED = (
+    "General Conditions - Supplement",
+    "Amendment No. 1 - General Conditions",
+    "Supplement: General Conditions",
+    "General Conditions (Amended)",
+    "Deviations - General Terms and Conditions",
+    "Addendum 2 (General Conditions)",
+    "Summary - General Terms",
+    "Supplementary General Conditions",
+)
+
+
+@pytest.mark.parametrize("title", LEAKED)
+def test_a_title_with_any_other_word_is_not_the_general_terms(pkg, title):
+    assert contract_rule_book.title_state(title) == contract_rule_book.NO
+    with db.connect() as conn:
+        _contract(
+            conn, "doc_q", f"{title}.pdf", NO_A, "GENERAL CONDITIONS"
+        )  # a heading cannot undo a title that decides
+        conn.commit()
+    assert _book(scope=(ALL - {GT}) | {"doc_q"}) == {
+        "id": None,
+        "why": contract_rule_book.NONE_FOUND,
+    }
+
+
+@pytest.mark.parametrize(
+    ("title", "state"),
+    (
+        ("General Conditions of Contract 2024", "yes"),  # a year is a label
+        ("General Conditions of Contract Rev 2", "yes"),  # a revision is a label
+        (
+            "Volume 1 Section 3 General Conditions of Contract",
+            "yes",
+        ),  # labels only around the phrase
+        ("General Terms & Conditions v2", "yes"),
+        (
+            "General Conditions of Contract for Construction",
+            "no",
+        ),  # a word is left: a SAFE no (none is used, the run says so)
+    ),
+)
+def test_true_titles_pass_when_only_labels_are_around_the_phrase_else_a_safe_no(
+    title, state
+):
+    assert contract_rule_book.title_state(title) == state
+
+
+def test_a_silent_title_with_a_yes_and_a_no_heading_line_is_a_safe_no(pkg):
+    with db.connect() as conn:
+        _contract(
+            conn,
+            "doc_mix",
+            "Schedule E.pdf",
+            NO_A,
+            "GENERAL CONDITIONS\nAmendments to the General Conditions",
+        )
+        conn.commit()
+    assert (
+        contract_rule_book.says_general_terms(db.connect(), "doc_mix")
+        == contract_rule_book.NO
+    )
+    assert (
+        _book(scope=(ALL - {GT}) | {"doc_mix"})["why"] == contract_rule_book.NONE_FOUND
+    )
+
+
+def _paper_lists(label: str, name: str) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = text || ? WHERE document_id = ? AND page_no = 2",
+            (
+                f'\nThe contract documents are:\nSCHEDULE "{label}"\n{name} and its Attachments\n',
+                g.PAPER,
+            ),
+        )
+        conn.commit()
+
+
+def test_b_the_paper_names_its_general_terms_and_the_labelled_paper_agrees(pkg):
+    with (
+        db.connect() as conn
+    ):  # a second paper passes (A): alone, (A) would choose none
+        _contract(
+            conn,
+            "doc_gt2",
+            "General Conditions of Contract.pdf",
+            NO_A,
+            "GENERAL CONDITIONS OF CONTRACT",
+        )
+        conn.commit()
+    assert _book(scope=ALL | {"doc_gt2"})["id"] is None
+    _paper_lists("A", "General Terms and Conditions")
+    assert contract_rule_book.named_general_terms(db.connect(), g.PAPER) == {
+        ("schedule", "A")
+    }
+    assert _book(scope=ALL | {"doc_gt2"}) == {
+        "id": GT,
+        "why": contract_rule_book.WHY_LISTED,
+    }
+
+
+def test_b_disagreeing_with_a_chooses_none(pkg):
+    _paper_lists(
+        "K", "General Terms and Conditions"
+    )  # the paper says its general terms are Schedule K; the titled one is A
+    assert _book() == {"id": None, "why": contract_rule_book.NONE_FOUND}
