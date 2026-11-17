@@ -168,13 +168,17 @@ def test_a_silent_line_with_a_verified_quote_keeps_its_own_reason_and_action_and
                  not_proven_reason="the paper is silent on this; a missing statement is not a failure")  # fmt: skip
     assert action_of(line).startswith("Engineer to check Set pressure")
     said = actions.reason_for(line, "the AI reviewer found the paper silent on this")
-    assert said == actions.CONTRADICT_REASON
+    # FTU-17: "Body: steel" holds another field's label and no word of Set pressure: the same neutral row, worded as about another field
+    assert said == actions.OTHER_FIELD_REASON
     cell = wb.layout_comment(line, words.STATUS_QUERY, words.ORDER_QUERY)
-    assert "a value is stated" not in cell and actions.CONTRADICT_REASON in cell
+    assert "a value is stated" not in cell and actions.OTHER_FIELD_REASON in cell
     from app import crs_one
 
     point = {"_line": line, "source": "ai_review"}
-    assert crs_one.reason_of(point) == actions.CONTRADICT_REASON
+    assert crs_one.reason_of(point) == actions.OTHER_FIELD_REASON
+    # a quote that names no other field may state the value
+    bare_value = {**line, "paper_quote": "steel"}
+    assert actions.reason_for(bare_value, "x") == actions.CONTRADICT_REASON
     label = {**line, "paper_quote": "Set pressure"}
     assert action_of(label) == "Contractor to state Set pressure, or the page where it is shown."
     assert crs_one.reason_of({"_line": label, "source": "ai_review"}) == actions.NOT_STATED_REASON

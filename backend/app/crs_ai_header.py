@@ -64,6 +64,77 @@ def header_for_run(conn, review_run_id: str) -> dict[str, str]:
 
 LOCAL_AI_WORDS = "AI reviewer on the local model (this computer; nothing sent out)"
 
+# ------------------------------------------------------------------------------------------------ which engine read a line (FTU-17)
+
+#: FTU-17: the ONE home of "which engine read this line of the AI review": the page's points, the points route and the one CRS file
+#: (`crs_one`) all take their engine from here, so a run on the local model is never labelled "on Claude" in one place and "Local" in
+#: another. Read from what was STORED: the line's own engine or model, else the models the run stored (`agent_review_run.models_json`).
+ENGINE_CLAUDE, ENGINE_LOCAL, ENGINE_BOTH, ENGINE_UNKNOWN = "claude", "local", "both", ""
+AI_ON_CLAUDE = "AI reviewer on Claude"
+AI_ON_LOCAL = "AI reviewer on the local model"
+_ENGINE_WORDS = {
+    ENGINE_CLAUDE: AI_ON_CLAUDE,
+    ENGINE_LOCAL: AI_ON_LOCAL,
+    ENGINE_BOTH: "AI reviewer on Claude and the local model",
+    ENGINE_UNKNOWN: "AI reviewer (engine not recorded)",
+}
+_ENGINE_SHORT = {
+    ENGINE_CLAUDE: "Claude",
+    ENGINE_LOCAL: "Local",
+    ENGINE_BOTH: "Claude and Local",
+    ENGINE_UNKNOWN: "not recorded",
+}
+
+
+def _is_claude(model: object) -> bool:
+    return _text(model).lower().startswith("claude")
+
+
+def engine_of_models(models) -> str:
+    """The engine of a list of stored model names: Claude, the local model, both, or unknown (no model stored)."""
+    names = [m for m in (models or []) if _text(m)]
+    if not names:
+        return ENGINE_UNKNOWN
+    claude = [m for m in names if _is_claude(m)]
+    if len(claude) == len(names):
+        return ENGINE_CLAUDE
+    return ENGINE_BOTH if claude else ENGINE_LOCAL
+
+
+def engine_of_line(line: Mapping, run_engine: str = ENGINE_UNKNOWN) -> str:
+    """The engine that read ONE line: its own stored engine ("claude" / "local"), else its own stored model name, else the run's."""
+    own = _text(line.get("engine")).lower()
+    if own in (ENGINE_CLAUDE, ENGINE_LOCAL):
+        return own
+    if _text(line.get("model")):
+        return engine_of_models([line.get("model")])
+    return run_engine
+
+
+def run_engine(conn, run_id: str | None) -> str:
+    """The engine of one AI review run from the models it stored; unknown when the run or its models are not recorded."""
+    import json
+
+    if not run_id:
+        return ENGINE_UNKNOWN
+    row = conn.execute(
+        "SELECT models_json FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    try:
+        return engine_of_models(json.loads(row["models_json"] or "[]") if row else [])
+    except (TypeError, ValueError):
+        return ENGINE_UNKNOWN
+
+
+def engine_words(engine: str) -> str:
+    """The engine in the words a point carries ("AI reviewer on the local model")."""
+    return _ENGINE_WORDS.get(engine, _ENGINE_WORDS[ENGINE_UNKNOWN])
+
+
+def engine_short(engine: str) -> str:
+    """The engine in the words of the CRS header ("Local")."""
+    return _ENGINE_SHORT.get(engine, _ENGINE_SHORT[ENGINE_UNKNOWN])
+
 
 def reviewed_by(
     review_run_id: str, *, ai: bool, usd: float | None = None, local: bool = False
@@ -77,7 +148,7 @@ def reviewed_by(
     if ai:
         # `usd` is None when no model was asked (the run's own record says so)
         if usd is not None:
-            return "AI reviewer on Claude"
+            return AI_ON_CLAUDE
         return "AI reviewer (no model was asked on this run)"
     from . import local_engine_bar, review_engine
 

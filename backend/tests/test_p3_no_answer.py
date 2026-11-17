@@ -15,6 +15,7 @@ from app import agent_review_verdict as V
 from app import agent_review_wording as W
 from app import crs_ai_workbook as WB
 from tests import agent_review_support as s
+from tests.agent_review_support import NA_PROOF
 from tests.test_agent_review_crs import META, mk
 from tests.test_agent_review_guards import run_review, w  # noqa: F401
 from tests.test_agent_review_job import lines_of
@@ -89,8 +90,9 @@ def test_the_readers_own_query_is_routed_by_its_reason_code_in_plain_words():
 
 
 def test_not_applicable_stays_the_class_does_not_apply_and_is_never_a_decision():
-    got = W.apply(_own("not_applicable"))
+    got = W.apply(_own("not_applicable", **NA_PROOF))  # FTU-17: "does not apply" stands only with its proof
     assert got["verdict_class"] == W.CLASS_NOT_APPLICABLE
+    assert W.apply(_own("not_applicable"))["verdict_class"] == W.CLASS_QUERY  # FTU-17: without it, a question
     assert W.decisions_of([(got["verdict_class"], got["verdict_label"])])["total"] == 0
 
 
@@ -138,9 +140,12 @@ def test_a_drawing_question_is_for_the_engineer_not_the_contractor(tmp_path):
         and "Contractor to state" not in cell
     )
     # a silent line with no quote found on the page: the contractor states it (FTU-1: a found quote that may state it is the engineer's)
-    quiet = _own("sheet_silent", quotes_checked={"paper": False, "clause": True})
+    quiet = _own("sheet_silent", paper_quote="", quotes_checked={"paper": False, "clause": True})
     silent = WB.layout_view([quiet], META, "internal")["rows"][0][3]
     assert "Contractor to" in silent
+    # FTU-17: a quote code did not find on the page never decides the action: the engineer checks
+    unverified = _own("sheet_silent", quotes_checked={"paper": False, "clause": True})
+    assert "Contractor to" not in WB.layout_view([unverified], META, "internal")["rows"][0][3]
     found = WB.layout_view([_own("sheet_silent")], META, "internal")["rows"][0][3]
     assert "Engineer to check" in found and "Contractor to state" not in found
     assert (

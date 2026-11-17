@@ -30,6 +30,7 @@ import re
 from collections import Counter, defaultdict
 
 from . import crs_ai_actions as actions
+from . import crs_ai_header
 from . import crs_ai_words as words
 from . import review_points_content as content
 
@@ -98,7 +99,7 @@ PASSAGE_PAPER_CHECK = "Checked by code: this passage is on the page."
 PASSAGE_CLAUSE_CHECK = "Checked by code: this passage is in the clause."
 ROUTE_INDEPENDENT = "Two readers reached this verdict independently."
 ROUTE_SAW_FIRST = "A second reader checked this verdict and saw the first answer."
-ENGINE_AI = "AI reviewer on Claude"
+#: FTU-17: an AI point's engine is the engine that READ its line (`crs_ai_header.engine_of_line`), never a fixed "on Claude"
 ENGINE_RC = "Rule check"
 
 
@@ -424,7 +425,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "id": f"ai:{ctx['run_id']}:{item}",
         "source": SOURCE_AI_REVIEW,
         "source_words": SOURCE_WORDS[SOURCE_AI_REVIEW],
-        "engine": ENGINE_AI,
+        "engine": crs_ai_header.engine_words(
+            crs_ai_header.engine_of_line(line, ctx.get("run_engine", ""))
+        ),
         "rank": rank,
         "tile": TILE_OF_RANK[rank],
         "firm": RANKS[rank][1] or None,
@@ -1114,6 +1117,7 @@ def ai_points_of_run(
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,
+        "run_engine": crs_ai_header.run_engine(conn, run_id),  # FTU-17: what the run stored
         "paper_document_id": paper_document_id,
         "book_of": _book_of(conn, run_id),
         "readable": readable,

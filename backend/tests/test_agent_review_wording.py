@@ -6,6 +6,7 @@ import pytest
 
 from app import agent_review_verdict as V
 from app import agent_review_wording as W
+from tests.agent_review_support import NA_PROOF
 
 RULE_OK = {"item_id": "R-1", "source": "rule", "rule_label": {"tier": "AI approved"}}
 RULE_NO = {
@@ -68,8 +69,13 @@ def test_proven_lines_are_pass_or_fail_and_unproven_ai_verdicts_are_ai_thinks():
         and failed["verdict_class"] == W.CLASS_NOT_REVIEWED
     )
     assert W.classify(line("Query"))["verdict_label"] == "Query for the engineer"
-    na = W.classify(line("Query", reason_code="not_applicable"))
+    na = W.classify(line("Query", reason_code="not_applicable", **NA_PROOF))
     assert na["verdict_class"] == W.CLASS_NOT_APPLICABLE
+    # FTU-17: a "not applicable" without its proof is the engineer's question
+    assert (
+        W.classify(line("Query", reason_code="not_applicable"))["verdict_class"]
+        == W.CLASS_QUERY
+    )
 
 
 def test_a_held_code_fail_is_a_query_not_an_ai_thinks_line():
@@ -231,7 +237,9 @@ def test_counts_keep_the_classes_apart():
         line("Query", "Fail", rule_tier=V.RULE_NOT_APPROVED),
         line("Query", "Pass", rule_tier=V.RULE_NOT_APPROVED),
         line("Query"),
-        line("Query", reason_code="not_applicable"),
+        line(
+            "Query", reason_code="not_applicable", **NA_PROOF
+        ),  # FTU-17: with its proof
         line("Fail", rule_kind="advice"),
     ]
     c = W.counts(lines)

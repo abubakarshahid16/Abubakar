@@ -16,6 +16,7 @@ from app import crs_ai_words as words
 from app import crs_ai_workbook as WB
 from app import crs_layout
 from app.config import settings
+from tests.agent_review_support import NA_PROOF
 
 META = {
     "paper": "Paper A",
@@ -126,7 +127,7 @@ LINES = [
     mk(
         "S-1", "Fail", "Fail", item={"source": "skill", "item_id": "S-1"}
     ),  # a checklist Fail
-    mk("R-7", "Query", None, reason_code="not_applicable"),
+    mk("R-7", "Query", None, reason_code="not_applicable", **NA_PROOF),  # FTU-17: "does not apply" only with its proof
     mk(
         "R-8",
         "Query",
@@ -324,13 +325,18 @@ def test_a_query_is_worded_as_a_crs_comment_that_starts_contractor_to_confirm():
         "Query",
         why="the AI reviewer answered that it cannot decide this",
         reason_code="sheet_silent",
-        # FTU-1: a found quote makes it a silent row, worded by its one decision
+        # FTU-1: a found quote makes it a silent row, worded by its one decision; FTU-17: a quote code did not find decides nothing
+        # either, so the line that asks the contractor holds no quote at all
+        paper_quote="",
         quotes_checked={"paper": False, "clause": True},
     )
     assert WB.status_of(line) == ("Query", words.ORDER_QUERY)
     assert WB.layout_comment(line, *WB.status_of(line)).startswith(
         "Contractor to confirm Field R8 against STD-1 clause 4.1"
     )
+    # FTU-17: the same line with a quote code did NOT find on the page asks the contractor nothing
+    unverified = {**line, "paper_quote": "Nameplate: steel"}
+    assert "Contractor to" not in WB.layout_comment(unverified, *WB.status_of(unverified))
 
 
 def test_a_comment_is_three_parts_the_rule_the_paper_and_what_the_contractor_must_do():
@@ -728,7 +734,7 @@ def _every_kind_of_line():
             paper_quote="340 psig (By Contractor)",
         ),
         mk("R-17", "Query", None, error="stop_max_tokens", reasoning=""),
-        mk("R-18", "Query", None, reason_code="not_applicable", comment=stored),
+        mk("R-18", "Query", None, reason_code="not_applicable", comment=stored, **NA_PROOF),
     ]
 
 

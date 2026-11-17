@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import NamedTuple
 
 from . import agent_review_two_reader as two
@@ -47,6 +48,15 @@ def action_case(line: Mapping) -> str:
         return "cut_off"  # R98/R101: the second reader's answer was cut off (its own marker): never "the readers disagree"
     if two.disagrees(line) or two.absence_disagrees(line):
         return "disagree"  # the two readers reached opposite verdicts: code's own flag
+    case = _case_of_record(line)
+    # FTU-17: a quote code did NOT find on the page never decides the action: a row that would ask the contractor on the reader's own
+    # record ("blank", "deferred") while carrying such a quote is the engineer's to check
+    if case in ("blank", "deferred") and unverified_quote(line):
+        return UNVERIFIED
+    return case
+
+
+def _case_of_record(line: Mapping) -> str:
     verified = bool(verified_quote(line))
     if line.get("reason_code") == "value_deferred":
         return "deferred"
@@ -61,6 +71,13 @@ def action_case(line: Mapping) -> str:
     if verified:
         return "stated"
     return "unknown"
+
+
+def unverified_quote(line: Mapping) -> bool:
+    """FTU-17: the line carries a paper quote that code did NOT find on the page."""
+    return bool(" ".join(str(line.get("paper_quote") or "").split())) and not (
+        (line.get("quotes_checked") or {}).get("paper")
+    )
 
 
 def verified_quote(line: Mapping) -> str:
@@ -80,6 +97,8 @@ def says_silent(line: Mapping) -> bool:
 
 
 LOOKED, CONTRADICTS, DEFERRED = "looked", "contradicts", "deferred"
+#: FTU-17: the case of a row whose quote code did not find on the page (`action_case`, `unverified_row`)
+UNVERIFIED = "unverified"
 
 #: FTU-1: the reason of a silent row whose found quote is the field's own label alone (code can show it holds no value). FTU-16: the
 #: reader's sentence is said ONCE in a row, here; "not evidence of a value" is the paper cell's alone (`SilentRow.note`).
@@ -93,6 +112,10 @@ CONTRADICT_REASON = (
 )
 #: FTU-16: the reason of a silent row whose found quote is only a placeholder or a to-be-given marker: the value is deferred
 DEFERRED_REASON = "the paper leaves this value to be given: the words quoted are a placeholder, not a value"
+#: FTU-17: the reason of a silent row whose found quote holds ANOTHER field's label and none of this field's words (`about_another_field`)
+OTHER_FIELD_REASON = "the quoted words are about another field; code did not decide whether the paper states this value, so the engineer checks"
+#: FTU-17: the reason of a row whose quote code did NOT find on the page (`unverified_row`): it decides nothing
+UNVERIFIED_REASON = "the words the reader quoted were not found on the page by code, so they decide nothing"
 
 
 class SilentRow(NamedTuple):
@@ -205,6 +228,16 @@ def silent_row_words(
             "where the reader looked, not evidence of a value",
             f"Not confirmed: {reason}; it looked here: {found}.",
         )
+    if about_another_field(quote, [field, *labels]):
+        # FTU-17: the same neutral kind (the engineer checks; every reader of the kind is unchanged), worded for what code saw
+        return SilentRow(
+            CONTRADICTS,
+            OTHER_FIELD_REASON,
+            f"Engineer to check {what}: the quoted words are about another field.",
+            f"Quoted from the page: {found}, which is about another field.",
+            "about another field; the engineer checks",
+            f"Not confirmed: {OTHER_FIELD_REASON}; quoted: {found}.",
+        )
     return SilentRow(
         CONTRADICTS,
         CONTRADICT_REASON,
@@ -213,6 +246,65 @@ def silent_row_words(
         "may state it; the engineer checks",
         f"Not confirmed: {CONTRADICT_REASON}; quoted: {found}.",
     )
+
+
+@lru_cache(maxsize=1)
+def _field_rules() -> tuple[dict, tuple[tuple[str, tuple], ...]]:
+    """The approved checklist's rules and (role, the ways a sheet prints its label) of every field of its fixed field list
+    (`datasheet_checks`): the one list of field labels; never one sheet's layout (rule 13)."""
+    from . import datasheet_checks as dc
+
+    rules = dc.load_rules()
+    return rules, tuple(
+        (role, tuple(dc.label_patterns(role, rules))) for role in sorted(rules["roles"])
+    )
+
+
+def _own_roles(labels) -> set[str]:
+    """The fields of the fixed list this row's labels name: a role written as one, or a label the list reads as that role."""
+    from . import datasheet_checks as dc
+
+    rules, _ = _field_rules()
+    out = set()
+    for lab in labels:
+        text = " ".join(str(lab or "").replace("_", " ").split()).lower()
+        if not text:
+            continue
+        if text.replace(" ", "_") in rules["roles"]:
+            out.add(text.replace(" ", "_"))
+        if role := dc.role_of(text, rules):
+            out.add(role)
+    return out
+
+
+def _content_words(text: object) -> set[str]:
+    """The words of a label that name its subject: lowercased, plural folded, the subject check's neutral words left out."""
+    from .agent_subject import NEUTRAL_WORDS, _stem
+
+    return {
+        _stem(w)
+        for w in re.findall(r"[a-z0-9]+", str(text or "").replace("_", " ").lower())
+        if w not in NEUTRAL_WORDS
+    } - NEUTRAL_WORDS
+
+
+def about_another_field(quote: str, labels) -> bool:
+    """FTU-17: the found quote is about ANOTHER field: this row's field is a field of the fixed field list, the quote OPENS with the label
+    of a DIFFERENT field of that list, and it holds NONE of this field's own words (any word of its labels or roles). Anything less certain
+    (a row named by a section or a clause, no label of another field, or one shared word, as in "Design pressure" for "Set pressure")
+    is not said to be about another field."""
+    from .datasheets import normalise_field_name
+
+    mine = _own_roles(labels)
+    own = set().union(*(_content_words(x) for x in [*labels, *mine] if x))
+    text = normalise_field_name(" ".join(str(quote or "").split()))
+    if not mine or not text or own & _content_words(text):
+        return False
+    # the quote OPENS with that label (a label is where a quote starts; a word inside a value, "gas", is never read as a label)
+    found = {
+        role for role, pats in _field_rules()[1] if any(p.match(text) for p in pats)
+    }
+    return bool(found - mine) and not mine & found
 
 
 def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | None:
@@ -237,6 +329,36 @@ def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | No
     return silent_row_words(
         what or field_words(line), quote, labels, where, agreed, value_field
     )
+
+
+def unverified_row(line: Mapping, what: str = "") -> SilentRow | None:
+    """FTU-17: every wording cell of a row whose quote code did NOT find on the page and whose own record would otherwise ask the
+    contractor (`action_case` is `UNVERIFIED`): the quote decides nothing, its words are never shown as the paper's, and the engineer
+    checks. None for any other line."""
+    from .crs_ai_workbook import (
+        field_words,
+    )  # the comment's own field words, never the reader's unverified label
+
+    if proven(line) or action_case(line) != UNVERIFIED:
+        return None
+    what = what or field_words(line) or "the value asked for"
+    note = "The words the reader quoted were not found on the page by code; they are not evidence."
+    return SilentRow(
+        UNVERIFIED,
+        UNVERIFIED_REASON,
+        f"Engineer to check {what}: the words quoted were not found on the page by code.",
+        note,
+        "not found on the page by code; not evidence",
+        f"{note} Not confirmed: {UNVERIFIED_REASON}.",
+    )
+
+
+def engineer_question(line: Mapping) -> bool:
+    """FTU-17: the row is the engineer's question by its own record (a quote code did not find, `unverified_row`; a "does not apply"
+    without its proof), so NO cell of it asks the contractor."""
+    from .agent_review_wording import not_applicable_question
+
+    return unverified_row(line) is not None or not_applicable_question(line)
 
 
 def proven(line: Mapping) -> bool:
@@ -268,8 +390,9 @@ def looked_only(line: Mapping) -> bool:
 
 
 def quote_cell(line: Mapping, where: str = "") -> str:
-    """FTU-16: the ONE cell of a sheet that says the paper and the reason together for a silent row ("" for any other line)."""
-    row = silent_row(line, where=where)
+    """FTU-16: the ONE cell of a sheet that says the paper and the reason together for a silent row ("" for any other line); FTU-17: a
+    row whose quote code did not find says so there (`unverified_row`), never the quote as the paper's words."""
+    row = silent_row(line, where=where) or unverified_row(line)
     return row.cell if row else ""
 
 
@@ -307,15 +430,15 @@ def reason_for(line: Mapping, why: str) -> str:
     otherwise the stored reason in plain words."""
     if proof := absence_proof(line):  # FTU-1: a code-proved absence says its proof
         return proof
-    row = silent_row(line)
+    row = silent_row(line) or unverified_row(line)
     return row.reason if row else why
 
 
 def query_action(line: Mapping, what: str, ref: str) -> str:
     """Part 3 of a Query: the sentence for the case the line is in."""
-    if row := silent_row(
+    if row := silent_row(line, what) or unverified_row(
         line, what
-    ):  # FTU-1: a silent row's action is decided with its other cells
+    ):  # FTU-1 / FTU-17: a silent row's action is decided with its other cells
         return row.action
     case = action_case(line)
     if case == "stated":

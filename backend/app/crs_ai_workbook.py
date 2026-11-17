@@ -202,9 +202,8 @@ def _requires(line: Mapping, status: str) -> str:
         if line.get("recommendation") or line.get("rule_kind") == "advice"
         else "requires"
     )
-    if (
-        status == words.STATUS_QUERY and (mark := _deferred_mark(line)) is not None
-    ):  # lane D: the sheet leaves it to the vendor
+    asks = status == words.STATUS_QUERY and not actions.engineer_question(line)
+    if asks and (mark := _deferred_mark(line)) is not None:  # lane D: vendor to give
         lead = (
             "Contractor to confirm the provisional value of"
             if provisional(line)
@@ -212,7 +211,7 @@ def _requires(line: Mapping, status: str) -> str:
         )
         head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
         return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
-    if status == words.STATUS_QUERY and not actions.silent_row(line):
+    if asks and not actions.silent_row(line):
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
         return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
     if ask:

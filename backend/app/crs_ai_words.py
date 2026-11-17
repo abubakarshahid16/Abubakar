@@ -336,6 +336,7 @@ _SAID_AS_THEY_ARE = (
     "needs a drawing or a calculation to judge",
     "the AI could not decide",
     "the AI gave no answer",
+    "the AI reader judged the rule not applicable to this paper, but code holds no proof",  # FTU-17 (`agent_review_not_applicable.UNPROVEN_WHY`)
 )
 
 

@@ -125,6 +125,8 @@ class CrsFileCheckOut(BaseModel):
     cut_problems: int
     checked_at: str
     sentence: str | None = None
+    #: FTU-17: the paper has no finished review (its sentence says so; never "Complete")
+    not_reviewed: bool = False
 
 
 class CrsCheckOut(BaseModel):
