@@ -22,6 +22,7 @@ only; no model, no network.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from collections.abc import Iterable, Mapping
@@ -30,6 +31,8 @@ from typing import Any
 
 from . import contract_checks
 from .agent_general_review import CLASS_QUERY
+
+log = logging.getLogger(__name__)
 
 DRAFT = contract_checks.RULE_STATE  # "AI draft, engineer to confirm"
 CONTRACT_KIND = "contract"
@@ -45,6 +48,9 @@ NONE_SUGGESTED = (
     "contract rule book: no recorded choice and none suggested, so none is used"
 )
 NOT_READABLE = "the recorded contract rule book is not held or you may not read it, so it is not used"
+NOT_IN_PACKAGE = (
+    "the recorded rule book is not part of this contract's package: not used"
+)
 MALFORMED = (
     "the recorded contract rule book file cannot be read ({why}), so none is used"
 )
@@ -196,10 +202,17 @@ def recorded_choice(paper: str) -> dict:
     (never a crash, never a guess)."""
     if not RECORD_FILE.is_file():
         return {"state": "none"}
-    try:
-        data = json.loads(RECORD_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return {"state": "malformed", "why": f"not JSON: {type(exc).__name__}"}
+    try:  # ANY failure to read or check the file (a deep nesting raises RecursionError) is "cannot be read", never a crash
+        return _read_choice(RECORD_FILE.read_text(encoding="utf-8"), paper)
+    except Exception as exc:  # noqa: BLE001 - the honest line instead of a crashed run
+        log.warning(
+            "contract rule book record unreadable (%s)", type(exc).__name__
+        )  # the class only, never a text
+        return {"state": "malformed", "why": f"not readable: {type(exc).__name__}"}
+
+
+def _read_choice(raw: str, paper: str) -> dict:
+    data = json.loads(raw)
     if not isinstance(data, dict) or data.get("format") != RECORD_FORMAT:
         return {"state": "malformed", "why": f"the format is not {RECORD_FORMAT}"}
     choices = data.get("choices")
@@ -248,6 +261,7 @@ def rule_book_of(
     choice the "why" says what `suggest` would suggest, and the id is None."""
     if not enabled() or str(kind or "") != CONTRACT_KIND:
         return {"id": None, "why": "not used"}
+    viewer = frozenset(str(d) for d in viewer)
     rec = recorded_choice(paper)
     if rec["state"] == "malformed":
         return {"id": None, "why": MALFORMED.format(why=rec["why"])}
@@ -258,6 +272,9 @@ def rule_book_of(
         readable = rec["id"] in frozenset(viewer)  # rule 5: a filter only narrows
         if held is None or not readable:
             return {"id": None, "why": NOT_READABLE}
+        # the one finder: the same package, a contract by role or kind
+        if rec["id"] not in package_papers(conn, paper, viewer):
+            return {"id": None, "why": NOT_IN_PACKAGE}
         return {
             "id": rec["id"],
             "why": WHY_LISTED,

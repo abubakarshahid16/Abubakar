@@ -897,3 +897,57 @@ def test_a_recorded_paper_the_caller_may_not_read_or_that_is_not_held_is_not_use
         "id": None,
         "why": contract_rule_book.NOT_READABLE,
     }
+
+
+# ---------------------------------------------------------------- final check of #1880: two hardenings
+
+
+def test_a_record_file_that_cannot_even_be_parsed_gives_the_honest_line_never_a_crash(
+    pkg, monkeypatch, tmp_path
+):
+    _record(
+        tmp_path, monkeypatch, {}, raw="[" * 100_000
+    )  # deep nesting: RecursionError inside the JSON reader
+    got = contract_rule_book.for_run(
+        db.connect(), "r", g.PAPER, "contract", ALL, [], local=True
+    )
+    assert got["book"] is None
+    assert (
+        "the recorded contract rule book file cannot be read" in got["lines"][0]["text"]
+    )
+
+
+def test_a_recorded_paper_outside_the_package_or_not_a_contract_is_not_used(
+    pkg, monkeypatch, tmp_path
+):
+    _record(
+        tmp_path, monkeypatch, {g.PAPER: FOREIGN}
+    )  # held, readable, but another package
+    assert _used() == {"id": None, "why": contract_rule_book.NOT_IN_PACKAGE}
+    with (
+        db.connect() as conn
+    ):  # the same package number, but a specification, not a contract
+        _contract(
+            conn, SPEC, "General Terms.pdf", NO_A, "General Terms", role="SPECIFICATION"
+        )
+        conn.commit()
+    _record(tmp_path, monkeypatch, {g.PAPER: SPEC})
+    assert _used(scope=ALL | {SPEC}) == {
+        "id": None,
+        "why": contract_rule_book.NOT_IN_PACKAGE,
+    }
+    got = contract_rule_book.for_run(
+        db.connect(), "r", g.PAPER, "contract", ALL | {SPEC}, [], local=True
+    )
+    assert (
+        got["book"] is None
+        and got["lines"][0]["text"]
+        == f"not reviewed: {contract_rule_book.NOT_IN_PACKAGE}"
+    )
+
+
+def test_the_project_paper_block_words_say_what_is_checked():
+    import inspect
+
+    src = inspect.getsource(core.check_project_papers)
+    assert "file name or checksum" not in src and "blocked by its file name" in src
