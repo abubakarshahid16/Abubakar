@@ -286,6 +286,38 @@ def test_a_soft_end_or_a_certain_end_on_the_page_before_is_never_proof():
                                   texts) == standards.CLAUSE_UNSURE  # fmt: skip
 
 
+# a numbered line of the clause's own family that is no plausible next clause (a table row, a wrapped line), or a wrapped line that
+# reads as the next clause: never proof the words are outside the clause (review round 3)
+OWN_FAMILY = [
+    ("6", "6 Flanges\nThe flanges of the widget are rated as follows.\n150 Carbon steel flanges rating\nThe widget flanges shall be"
+          " rated for the full design pressure of the casing."),
+    ("6", "6 Warranty\nThe maker of the widget shall warrant it for a period of\n12 Months from the date of delivery to the site, and"
+          " the widget flanges shall be rated for the full design pressure of the casing."),
+    ("4.1", "4.1 Bolting\nThe bolts of the widget casing joints are given in the table of\n4.2 Bolts are listed there\nThe widget"
+            " flanges shall be rated for the full design pressure of the casing."),
+]  # fmt: skip
+RATED = "The widget flanges shall be rated for the full design pressure of the casing."
+
+
+def test_a_line_of_the_clauses_family_that_is_no_plausible_next_heading_is_never_proof():
+    for clause, page in OWN_FAMILY:
+        texts = {"doc-f": standards.ClauseText([(9, page)])}
+        words_at = RATED if RATED in page else RATED.rstrip(".")
+        assert standards.clause_holds("doc-f", clause, words_at, 9, texts) == standards.CLAUSE_UNSURE, page.split(chr(10))[2]
+
+
+def test_words_before_the_clauses_own_heading_say_so():
+    page = "4 Materials\nEvery widget casing part shall be of forged carbon steel of a listed grade.\n4.1 Casing\nOther words."
+    texts = {"doc-q": standards.ClauseText([(6, page)])}
+    words_at = "Every widget casing part shall be of forged carbon steel of a listed grade."
+    assert standards.clause_holds("doc-q", "4.1", words_at, 6, texts) == standards.CLAUSE_BEFORE  # under its parent "4"
+    (line,) = words.mark_clause_unconfirmed([{**_line(words_at, 6), "clause": "4.1", "standard_document_id": "doc-q"}],
+                                            lambda d, c, t, p: standards.clause_holds(d, c, t, p, texts))  # fmt: skip
+    from app import agent_review_crs as arc
+
+    assert arc.against(line) == f"ZZ-1 page 6 ({words.CLAUSE_NOT_CHECKED_BEFORE.format(clause='4.1')})"
+
+
 def _line(clause_quote: str, page: int) -> dict:
     return {"item_id": "R-2", "source": "rule", "standard": "ZZ-1", "clause": "2.1", "clause_page": 1, "standard_document_id": "doc-c",
             "clause_quote": clause_quote, "requirement": clause_quote, "verdict": "Query", "ai_verdict": "Query",
@@ -318,7 +350,7 @@ def test_a_clause_that_does_not_hold_the_rules_words_is_not_cited():
 def test_a_clause_code_is_not_sure_of_is_marked_not_checked_never_wrong():
     texts = _texts()
     (doubt,) = words.mark_clause_unconfirmed([_line(COST, 2)], lambda d, c, t, p: standards.clause_holds(d, c, t, p, texts))
-    assert doubt["clause"] == "" and doubt[words.CLAUSE_UNCONFIRMED_KEY] == "2.1" and doubt[words.CLAUSE_UNCHECKED_KEY] is True
+    assert doubt["clause"] == "" and doubt[words.CLAUSE_UNCONFIRMED_KEY] == "2.1" and doubt[words.CLAUSE_UNCHECKED_KEY] == standards.CLAUSE_UNSURE
     from app import agent_review_crs as arc
 
     shown = arc.against(doubt)
@@ -346,7 +378,7 @@ def test_every_reader_reads_the_clause_rule_through_read_now():
     (same,) = words.read_now([_line(COST, 2)], [], holds=lambda *_a: None)
     assert same["clause"] == "2.1"  # code cannot tell: nothing changes
     (unsure,) = words.read_now([_line(COST, 2)], [], holds=lambda *_a: standards.CLAUSE_UNSURE)
-    assert unsure["clause"] == "" and unsure[words.CLAUSE_UNCHECKED_KEY] is True
+    assert unsure["clause"] == "" and unsure[words.CLAUSE_UNCHECKED_KEY] == standards.CLAUSE_UNSURE
 
 
 def test_an_ai_point_shows_its_unverified_rule_words_only_where_the_book_holds_them():

@@ -407,6 +407,10 @@ def book_words(
 #: `clause_holds`: code cannot say the rule's words are in the clause, nor that they are outside it (a heading that MAY end it, a parent
 #: heading, or a certain end on another page stands between): the clause is "not checked", never "the rule's words are not in it".
 CLAUSE_UNSURE = "unsure"
+#: `clause_holds`: the nearest heading before the words is the clause's PARENT ("4" for "4.1"): they stand before its own heading.
+CLAUSE_BEFORE = "before its heading"
+#: The end of a line that closes a sentence: a heading read after such a line is no line of a wrapped sentence.
+_SENTENCE_END = re.compile(r"[.:;!?]$")
 
 
 def _id_line(
@@ -444,6 +448,7 @@ class ClauseText:
         self.page_of: list[int] = []
         self.offsets: list[int] = []
         self.ids: list[tuple[str, str, bool] | None] = []
+        self.after_stop: list[bool] = []
         self.bounds: dict[int, tuple[int, int]] = {}
         parts, at = [], 0
         for n, lines in split:
@@ -452,6 +457,14 @@ class ClauseText:
                 self.page_of.append(n)
                 self.offsets.append(at)
                 self.ids.append(None if contents else _id_line(lines, i, running))
+                # the line before, on this page, closes a sentence or is a heading itself (the page's first line may be a wrap)
+                self.after_stop.append(
+                    i > 0
+                    and bool(
+                        _SENTENCE_END.search(lines[i - 1])
+                        or _id_line(lines, i - 1, running)
+                    )
+                )
                 parts.append(subject_scope._key(line))
                 at += len(parts[-1])
             self.bounds[n] = (start, at)
@@ -474,10 +487,11 @@ class ClauseText:
 
     def where(self, key: tuple[str, str], at: int) -> bool | str | None:
         """Is the text starting at `at` in clause `key`? Read back from it, over its own page and the page before, to the nearest heading
-        that decides: the clause itself or a part of it True; another clause of its own family (`subject_scope._ends_for_certain`: "4.2"
-        or "4.0" for "4.1"), titled on its line and on the SAME page, False (certain); any other heading that may end it, a bare one, a
-        certain end on the page before, or a parent ("4" for "4.1": the words come before the clause's own heading) `CLAUSE_UNSURE`.
-        No deciding heading on the two pages: None (cannot tell)."""
+        that decides: the clause itself or a part of it True. False (certain) ONLY for a clause of its own family that is also a
+        plausible NEXT clause (`subject_scope._ends_for_certain` AND `subject_scope._ends`: "4.2" for "4.1"), titled on its line, on the
+        SAME page, after a line that closes a sentence (never a wrapped line such as "4.2 Bolts are listed there"). Any other heading of
+        its family ("150 Carbon steel", "12 Months from"), any heading that may end it, a bare one, a certain end on the page before or
+        after an open line: `CLAUSE_UNSURE`. A parent ("4" for "4.1"): `CLAUSE_BEFORE`. No deciding heading on the two pages: None."""
         i = bisect.bisect_right(self.offsets, at) - 1
         page = self.page_of[i] if i >= 0 else None
         while i >= 0 and self.page_of[i] >= page - 1:
@@ -486,25 +500,34 @@ class ClauseText:
                 kind, ident, bare = got
                 if kind == key[0] and subject_scope._stored_clause_in(ident, key):
                     return True
+                ends = subject_scope._ends(key, (kind, ident))
                 if subject_scope._ends_for_certain(key, (kind, ident)):
-                    return (
-                        False if not bare and self.page_of[i] == page else CLAUSE_UNSURE
+                    certain = (
+                        ends
+                        and not bare
+                        and self.page_of[i] == page
+                        and self.after_stop[i]
                     )
-                if subject_scope._ends(key, (kind, ident)) or (
-                    kind == key[0] == "number" and key[1].startswith(ident + ".")
-                ):
+                    return False if certain else CLAUSE_UNSURE
+                if ends:
                     return CLAUSE_UNSURE
+                if kind == key[0] == "number" and key[1].startswith(ident + "."):
+                    return CLAUSE_BEFORE
             i -= 1
         return None
 
 
 def _together(found: list) -> bool | str | None:
-    """One answer from several: True if any is True; False only if every one is False; else `CLAUSE_UNSURE` if any is; else None."""
+    """One answer from several: True if any is True; False only if every one is False; else a doubt if any (`CLAUSE_BEFORE` when
+    every doubt is that one, else `CLAUSE_UNSURE`); else None."""
     if True in found:
         return True
     if found and all(f is False for f in found):
         return False
-    return CLAUSE_UNSURE if CLAUSE_UNSURE in found else None
+    doubts = [f for f in found if f in (CLAUSE_UNSURE, CLAUSE_BEFORE)]
+    if not doubts:
+        return None
+    return CLAUSE_BEFORE if all(d == CLAUSE_BEFORE for d in doubts) else CLAUSE_UNSURE
 
 
 def clause_holds(
