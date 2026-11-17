@@ -469,10 +469,107 @@ def test_an_earlier_scope_book_is_not_listed_when_the_run_did_not_complete_or_th
     with db.connect() as conn:
         conn.execute("UPDATE review_runs SET status = 'completed' WHERE id = 'earlier'")
     docs = _plan(lib, scope=lib["scope"])  # the caller may not read it
-    assert (
-        "bk_s3" not in {d["id"] for d in docs["leaving"]} and docs["not_readable"] >= 0
-    )
+    # not named, and not counted either: the earlier-scope route keeps only books inside the caller's access before `put`
+    assert "bk_s3" not in {d["id"] for d in docs["leaving"]}
+    assert docs["not_readable"] == 0
     assert "ZZZ-D-003" not in json.dumps(docs)
+
+
+def _start_pair(paper, scope_books):
+    """One review start as the app makes it: a completed RULE-CHECK run (job stage `review_jobs.STAGE`) that recorded the books
+    the scope step applied, then, seconds later, the completed AI run (job stage `agent_review_gate.STAGE`) with no book rows."""
+    from app import agent_review_gate
+
+    with db.connect() as conn:
+        for run, job, stage, started in (
+            ("rc_run", "rc_job", review_jobs.STAGE, "2026-11-17T10:00:00Z"),
+            ("ai_run2", "ai_job2", agent_review_gate.STAGE, "2026-11-17T10:00:19Z"),
+        ):
+            conn.execute(
+                "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at, started_at)"
+                " VALUES (?, ?, 'completed', ?, ?, ?)",
+                (run, paper, started, started, started),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, review_run_id)"
+                " VALUES (?, ?, ?, 'done', ?, ?, ?)",
+                (job, paper, stage, started, started, run),
+            )
+        for n, book in enumerate(scope_books):
+            conn.execute(
+                "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+                " selection_method, included, created_at) VALUES (?, 'rc_run', ?, 'x', 'scope', 1, 't')",
+                (f"pr{n}", book),
+            )
+
+
+def test_the_next_plan_lists_the_scope_books_of_the_rule_check_run_not_the_newer_ai_run(
+    lib,
+):
+    """Live defect of 17 Nov 2026: a start makes a rule-check run and then an AI run; the newest completed run is the AI run, which
+    records no books, so the "Review again to include them" promise listed nothing."""
+    _book("bk_p1", "95" * 32, "ZZZ-F-001 pair one.pdf")
+    scope = lib["scope"] | {"bk_p1"}
+    _start_pair(lib["sub"], ["bk_p1"])
+    got = {d["id"]: d["why"] for d in _plan(lib, scope=scope)["leaving"]}
+    assert got.get("bk_p1") == "applied by scope in the last review of this paper"
+    assert review_leaving.last_rule_check_run(db.connect(), lib["sub"]) == "rc_run"
+
+
+def _one_run(run, paper, started, stage, books):
+    """One completed run with a job of `stage` and its own `scope` rows."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at, started_at)"
+            " VALUES (?, ?, 'completed', ?, ?, ?)",
+            (run, paper, started, started, started),
+        )
+        conn.execute(
+            "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, review_run_id)"
+            " VALUES (?, ?, ?, 'done', ?, ?, ?)",
+            ("j_" + run, paper, stage, started, started, run),
+        )
+        for n, book in enumerate(books):
+            conn.execute(
+                "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+                " selection_method, included, created_at) VALUES (?, ?, ?, 'x', 'scope', 1, 't')",
+                (f"{run}_{n}", run, book),
+            )
+
+
+def test_an_ai_run_that_selected_inline_is_read_for_its_own_scope_books(lib):
+    """With no reusable rule check the AI job runs the selection under ITS OWN id (`agent_review_jobs._scope_run_id`)."""
+    from app import agent_review_gate
+
+    _book("bk_a", "97" * 32, "ZZZ-G-001 inline.pdf")
+    _one_run("ai_only", lib["sub"], "2026-11-17T10:00:00Z", agent_review_gate.STAGE, ["bk_a"])  # fmt: skip
+    assert "bk_a" in {
+        d["id"] for d in _plan(lib, scope=lib["scope"] | {"bk_a"})["leaving"]
+    }
+
+
+def test_an_inline_ai_run_newer_than_an_old_rule_check_wins(lib):
+    from app import agent_review_gate
+
+    _book("bk_old", "98" * 32, "ZZZ-G-002 old.pdf")
+    _book("bk_new", "99" * 32, "ZZZ-G-003 new.pdf")
+    _one_run("rc_old", lib["sub"], "2026-11-01T10:00:00Z", review_jobs.STAGE, ["bk_old"])  # fmt: skip
+    _one_run("ai_new", lib["sub"], "2026-11-17T10:00:00Z", agent_review_gate.STAGE, ["bk_new"])  # fmt: skip
+    got = {
+        d["id"]
+        for d in _plan(lib, scope=lib["scope"] | {"bk_old", "bk_new"})["leaving"]
+    }
+    assert "bk_new" in got and "bk_old" not in got
+
+
+def test_a_scope_book_of_the_rule_check_run_the_caller_may_not_read_is_still_not_listed(
+    lib,
+):
+    _book("bk_p2", "96" * 32, "ZZZ-F-002 pair two.pdf")
+    _start_pair(lib["sub"], ["bk_p2"])
+    docs = _plan(lib, scope=lib["scope"])  # bk_p2 is outside the caller's access
+    assert "bk_p2" not in {d["id"] for d in docs["leaving"]}
+    assert "ZZZ-F-002" not in json.dumps(docs)
 
 
 def test_the_result_carries_the_found_during_review_count_and_the_sentence(lib):

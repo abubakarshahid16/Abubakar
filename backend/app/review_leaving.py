@@ -328,17 +328,39 @@ def _fill(
             put(row, kind, WHY_CHOSEN)
 
 
+#: The finished states of a run: the app writes "completed"; "complete" is kept because older rows and readers used it.
+DONE = ("complete", "completed")
+
+
+def last_rule_check_run(conn, document_id) -> str | None:
+    """The paper's newest COMPLETED run that selected the applicable standards. One review start usually makes two runs: the rule
+    check (it records the applicable standards) and, seconds later, the AI review, which reuses the rule check's selection and
+    records none of its own; the newest completed run is then the AI run, and reading it found no books (live, 17 Nov 2026). So an
+    AI run (told apart by its explicit marker, its job's stage `agent_review_gate.STAGE`, written with the run in one transaction
+    by `agent_review_jobs`) counts only when it holds rows of its own: with no reusable rule check, `agent_review_jobs._scope_run_id`
+    runs the selection inline under the AI run's id. A run without a job (older rule-check paths) counts. None: no such run."""
+    from . import agent_review_gate
+
+    marks = ",".join("?" for _ in DONE)
+    row = conn.execute(
+        "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status IN ("
+        + marks
+        + ")"
+        " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
+        " OR EXISTS (SELECT 1 FROM review_applicable_standards s WHERE s.review_run_id = r.id))"
+        " ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
+        (document_id, *DONE, agent_review_gate.STAGE),
+    ).fetchone()
+    return row["id"] if row else None
+
+
 def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
-    """The books the paper's LAST COMPLETED review applied by scope (the one step the plan cannot take without a model), so from the
-    second review on nothing it found is lost. Only those still held in the library (selectable) and, by `put`, inside the caller's
-    scope and approved or approvable as the gate says."""
+    """The books the paper's last completed RULE-CHECK run applied by scope (the one step the plan cannot take without a model), so
+    from the second review on nothing it found is lost. Only those still held in the library (selectable) and, by `put`, inside
+    the caller's scope and approved or approvable as the gate says."""
     from . import standards
 
-    last = conn.execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND status = 'completed'"
-        " ORDER BY started_at DESC, id DESC LIMIT 1",
-        (document_id,),
-    ).fetchone()
+    last = last_rule_check_run(conn, document_id)
     if last is None:
         return
     ids = [
@@ -346,7 +368,7 @@ def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
         for r in conn.execute(
             "SELECT standard_document_id FROM review_applicable_standards WHERE review_run_id = ?"
             " AND selection_method = 'scope' AND COALESCE(included, 1) = 1",
-            (last["id"],),
+            (last,),
         )
     ]
     held = standards.selectable_standard_ids(allowed_document_ids=allowed)

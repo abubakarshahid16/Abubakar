@@ -466,3 +466,34 @@ def test_rules_used_carries_the_book_table_with_its_boundary_and_names_only_read
     assert asked_total <= len(
         used["asked"]
     )  # only readable books are counted in the table
+
+
+def test_rules_used_answers_a_run_whose_rules_were_left_out_as_not_on_the_list_shown(
+    client,
+):
+    """Live 17 Nov 2026: a run whose rules were left out because their book was not on the list shown answered 500 here (the
+    contract's closed list of reasons did not hold that reason)."""
+    from app import agent_review_rules
+
+    run_id = finished_run(client)
+    words = agent_review_rules.REASON_WORDS[agent_review_rules.NOT_ON_LIST]
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_rule SET left_out_reason = ? WHERE run_id = ? AND asked = 0",
+            (words, run_id),
+        )
+    r = client.get(f"/api/reviews/runs/{run_id}/rules-used")
+    assert r.status_code == 200, r.text
+    assert [x["reason"] for x in r.json()["left_out"]] == [words]
+    assert r.json()["left_out_counts"] == {words: 1}
+
+
+def test_every_left_out_reason_a_run_can_store_is_in_the_contracts_closed_list():
+    """Rule 8: every reason written to `agent_review_rule` (`agent_review_rule_rows.LEFT_OUT_WORDS`) is allowed by the contract."""
+    from typing import get_args
+
+    from app import agent_review_rule_rows
+    from app.api import agent_review_schemas as contract
+
+    allowed = set(get_args(contract.LeftOutReason))
+    assert set(agent_review_rule_rows.LEFT_OUT_WORDS.values()) <= allowed
