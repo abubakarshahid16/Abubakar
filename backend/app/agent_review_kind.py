@@ -53,6 +53,8 @@ def decided_by(method: str | None, page: int | None = None, guess: bool = False)
 #: the record of a datasheet run whose equipment type is not known (order 14 LPV V4)
 UNSURE_PREFIX = "type unsure: "
 NO_TYPE_REASON = "the paper names no equipment type the app's list knows"
+KIND_UNKNOWN_REASON = "the paper kind is not known"
+NOT_A_DATASHEET = "not a datasheet"
 
 
 @dataclass(frozen=True)
@@ -74,11 +76,16 @@ class PaperReading:
         return decided_by(self.method, self.page, self.guess)
 
     @property
-    def equipment_record(self) -> str | None:
-        """What the run RECORDS as its equipment type (order 14 LPV V4): the type, or for a datasheet "type unsure: <reason>",
-        never empty. Only the record: every rule decision still reads `equipment_type` (None when unsure)."""
-        if self.equipment_type or not (self.known and self.kind == "datasheet"):
+    def equipment_record(self) -> str:
+        """What the run RECORDS as its equipment type (order 14 LPV V4), never empty: the type; for a datasheet "type unsure:
+        <reason>"; for another kind "not a datasheet (<kind>)"; an unknown kind says so. Only the record: every rule decision still
+        reads `equipment_type` (None when unsure)."""
+        if self.equipment_type:
             return self.equipment_type
+        if not self.known:
+            return f"{UNSURE_PREFIX}{KIND_UNKNOWN_REASON}"
+        if self.kind != "datasheet":
+            return f"{NOT_A_DATASHEET} ({self.kind.replace('_', ' ')})"
         return f"{UNSURE_PREFIX}{self.equipment_unsure or NO_TYPE_REASON}"
 
     def as_dict(self) -> dict:

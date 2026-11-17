@@ -242,7 +242,7 @@ def _finish(
                     submittal,
                     kind.kind,
                     kind.source,
-                    None,
+                    getattr(kind, "equipment_record", None),  # LPV V4: never left empty without saying why
                     usd,
                     json.dumps(models),
                     stopped or None,

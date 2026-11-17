@@ -26,9 +26,12 @@ def test_a_datasheet_run_records_its_type_or_why_it_is_unsure_never_empty():
     )
     assert _reading().equipment_record == K.UNSURE_PREFIX + K.NO_TYPE_REASON
     assert (
-        _reading(kind="procedure").equipment_record is None
-    )  # a procedure names no equipment type: as before
-    assert _reading(known=False).equipment_record is None
+        _reading(kind="test_record").equipment_record == "not a datasheet (test record)"
+    )  # never empty, says why
+    assert (
+        _reading(known=False).equipment_record
+        == K.UNSURE_PREFIX + K.KIND_UNKNOWN_REASON
+    )
     assert (
         _reading().equipment_type is None
     )  # every rule decision still reads None when the type is unsure
@@ -126,13 +129,126 @@ def test_the_rule_checks_engine_names_the_local_model_it_stored():
     con.execute(
         "INSERT INTO model_call_metrics VALUES ('rc', 'invented-local-7b', 'd', 3, 0, 1, 1, '{}', NULL, 'x')"
     )
-    names = run_record.models_used(
-        con, "rc", {"model_name": None, "outcome_json": "{}"}
-    )
-    assert names == ["invented-local-7b"]
+    run = {
+        "model_name": None,
+        "outcome_json": json.dumps(
+            {"ai_matcher": {"asked": 2, "model": "ollama:invented-local-7b"}}
+        ),
+    }
+    names = run_record.models_used(con, "rc", run)
+    assert names == {
+        "claude": [],
+        "local": ["invented-local-7b"],
+        "unknown": [],
+    }  # the name once, not "X, ollama:X"
     assert (
         crs_one._engine_of(con, "rc", "", "rule_check", names)
         == "Local (invented-local-7b)"
+    )
+    both = run_record.models_used(con, "rc", {**run, "model_name": "claude-invented-1"})
+    assert both["claude"] == ["claude-invented-1"]
+    marked = {
+        **run,
+        "model_name": "claude-invented-1",
+        "ai_check_status": json.dumps(
+            {"calls_made": 1, "model": "claude:claude-invented-1"}
+        ),
+    }
+    assert run_record.models_used(con, "rc", marked)["claude"] == [
+        "claude-invented-1"
+    ]  # once, not "X, claude:X"
+    assert crs_one._engine_of(con, "rc", "claude-invented-1", "rule_check", both) == (
+        "Claude and Local (claude-invented-1, invented-local-7b)"
+    )
+    # no engine choice stored and a local name stored: the engine cell names it (never "not recorded" beside a models row)
+    con.execute("DELETE FROM review_engine_choice")
+    assert (
+        crs_one._engine_of(con, "rc", "", "rule_check", names)
+        == "Local (invented-local-7b)"
+    )
+
+
+def test_the_header_reads_the_runs_names_and_the_ai_record_first(monkeypatch):
+    con = _engine_db()
+    con.execute(
+        "CREATE TABLE review_runs (id TEXT, model_name TEXT, outcome_json TEXT, completed_at TEXT, started_at TEXT)"
+    )
+    con.execute(
+        "CREATE TABLE agent_review_run (run_id TEXT, models_json TEXT, finished_at TEXT, started_at TEXT, paper_kind TEXT,"
+        " equipment_type TEXT, usd REAL, counts_json TEXT)"
+    )
+    outcome = {
+        "applicability": {
+            "submittal_equipment": [],
+            "equipment_unsure": "equipment type unsure: read as A, but B",
+        }
+    }
+    con.execute(
+        "INSERT INTO review_runs VALUES ('rc', NULL, ?, 'd', 'd')",
+        (json.dumps(outcome),),
+    )
+    con.execute(
+        "INSERT INTO model_call_metrics VALUES ('rc', 'invented-local-7b', 'd', 3, 0, 1, 1, '{}', NULL, 'x')"
+    )
+    con.execute(
+        "INSERT INTO agent_review_run VALUES ('ai', '[]', 'd', 'd', 'datasheet', 'pump', NULL, '{}')"
+    )
+    monkeypatch.setattr(crs_one, "connect", lambda: con)
+    rc, ai = crs_one._run_facts({"rc_run": "rc", "ai_run": "ai"})
+    assert rc["engine"] == "Local (invented-local-7b)" and rc["models"] == [
+        "invented-local-7b"
+    ]
+    assert rc["equipment"] == "type unsure: read as A, but B"
+    monkeypatch.setattr(crs_one.crs_ai_header, "document_header", lambda *_a: {})
+    monkeypatch.setattr(crs_one, "connect", lambda: _FakeDocs(con))
+    assert (
+        crs_one._paper_facts("d", [rc, ai])["equipment"] == "pump"
+    )  # the AI review's own record first
+    assert (
+        crs_one._paper_facts("d", [rc, {**ai, "equipment": None}])["equipment"]
+        == rc["equipment"]
+    )
+
+
+class _FakeDocs:
+    """The documents table the header reads, over the test connection."""
+
+    def __init__(self, con):
+        self.con = con
+
+    def execute(self, sql, args=()):
+        if "FROM documents" in sql:
+            return self.con.execute("SELECT 'paper.pdf' AS filename")
+        return self.con.execute(sql, args)
+
+
+def test_the_gates_report_keeps_the_papers_reason_out():
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "crs_gates.py"
+    spec = importlib.util.spec_from_file_location("lpv_crs_gates", path)
+    gates = importlib.util.module_from_spec(spec)
+    import sys
+
+    sys.modules[spec.name] = (
+        gates  # a dataclass module must be registered while it loads
+    )
+    spec.loader.exec_module(gates)
+    assert (
+        gates.recorded_type("type unsure: read as A (page 4), but B") == "type unsure"
+    )
+    assert gates.recorded_type("not a datasheet (procedure)") == "not a datasheet"
+    assert gates.recorded_type("pump") == "pump" and gates.recorded_type(None) is None
+
+
+def test_a_general_review_run_records_why_it_has_no_type():
+    import inspect
+
+    from app import agent_general_job
+
+    assert 'getattr(kind, "equipment_record", None)' in inspect.getsource(
+        agent_general_job
     )
 
 

@@ -269,13 +269,20 @@ def row_of(
 # ------------------------------------------------------------------------------------------------ the facts of the paper and its runs
 
 
-def _engine_of(conn, run_id: str, model: str, part: str, names=()) -> str:
-    """The engine of a run: from its stored model name; else from the engine choice stored with the run (Claude or Local) with the
-    names of the models its own rows say were used (order 14 LPV V4: `run_record.models_used`, the local model's name included), or
-    "model name not recorded" when none is stored; else NOT_RECORDED. Never a guess."""
+def _engine_of(conn, run_id: str, model: str, part: str, names: dict | None = None) -> str:
+    """The engine of a run, in the SAME words as its models row (order 14 LPV V4): from the models its own rows name by engine
+    (`run_record.models_used`: Claude, Local, or Claude and Local, with each name once); else from its stored model name; else from
+    the engine choice stored with the run ("model name not recorded" when no name is stored); else NOT_RECORDED. Never a guess."""
+    names = names or {}
+    known = [n for k in ("claude", "local") for n in names.get(k, [])]
+    words = {(True, False): "Claude", (False, True): "Local", (True, True): "Claude and Local"}.get(
+        (bool(names.get("claude")), bool(names.get("local")))
+    )
+    if words:
+        return f"{words} ({', '.join([*known, *names.get('unknown', [])])})"
     if model:
         return "Claude" if model.startswith("claude") else "Local"
-    named = ", ".join(str(n) for n in names if n) or "model name not recorded"
+    named = ", ".join(names.get("unknown", [])) or "model name not recorded"
     try:
         row = conn.execute("SELECT plan_json FROM review_engine_choice WHERE run_id = ?", (run_id,)).fetchone()
         for p in (json.loads(row["plan_json"]).get("parts") or []) if row else []:
@@ -315,10 +322,11 @@ def _run_facts(extra: dict) -> list[dict]:
 
         r = conn.execute("SELECT * FROM review_runs WHERE id = ?", (rc,)).fetchone()
         model = (r["model_name"] if r else None) or ""
-        names = run_record.models_used(conn, rc, dict(r)) if r else []  # V4: the local model's name too, when the run stored it
+        names = run_record.models_used(conn, rc, dict(r)) if r else {}  # V4: the local model's name too, when the run stored it
+        listed = [n for k in ("claude", "local", "unknown") for n in names.get(k, [])]
         out.append({
             "what": "Rule check", "run": rc, "engine": _engine_of(conn, rc, model, "rule_check", names),
-            "models": names or ([model] if model else []), "date": (r["completed_at"] or r["started_at"]) if r else None,
+            "models": listed or ([model] if model else []), "date": (r["completed_at"] or r["started_at"]) if r else None,
             "kind": None, "equipment": rule_check_equipment(r["outcome_json"] if r else None), "usd": None,
         })  # fmt: skip
     if ai:
