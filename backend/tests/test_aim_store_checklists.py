@@ -35,7 +35,7 @@ def test_put_then_get_returns_the_same_body_and_the_sha(temp_storage):
     assert s.get(KEY) is None
     digest = s.put(KEY, _checklist(), run_id="gen_1", usd=0.79)
     assert len(digest) == 64
-    assert s.get(KEY) == _checklist()
+    assert s.get(KEY) == {**_checklist(), "sha256": digest}
     row = store.checklists(db.connect())[0]
     assert row["key"] == KEY and row["sha256"] == digest and row["items"] == 3
     assert row["kind"] == "datasheet" and row["equipment_type"] == "invented type"
@@ -137,3 +137,19 @@ def test_checklists_lists_current_first_and_never_the_body(temp_storage):
     assert [r["current"] for r in rows] == [True, True, False]
     assert all("body" not in r and "body_json" not in r for r in rows)
     assert {r["key"] for r in rows} == {"a__x", "b__y"}
+
+
+def test_a_body_got_and_put_back_keeps_its_fingerprint_and_keys_lists_current_keys(
+    temp_storage,
+):
+    """ASK A -> D: `get` carries the current sha256 so a reusing run records it; `put` ignores that key, so the same body
+    never becomes a second row; `keys` names the keys with a current checklist."""
+    s = store.DbChecklistStore(db.connect())
+    assert s.keys() == []
+    digest = s.put(KEY, _checklist(), run_id="gen_1", usd=0.5)
+    got = s.get(KEY)
+    assert got["sha256"] == digest
+    assert s.put(KEY, got, run_id="gen_2", usd=0.0) == digest
+    assert len(store.checklists(db.connect())) == 1
+    s.put("procedure__inv", _checklist(2), run_id="gen_3", usd=0.1)
+    assert s.keys() == sorted([KEY, "procedure__inv"])

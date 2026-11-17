@@ -25,6 +25,8 @@ LINES = "aim_lines"
 CHECKLISTS = "aim_checklists"
 #: The only `built_from` a saved checklist may have: it was written from the rule books alone, never from a paper.
 BUILT_FROM = "standards only, no paper"
+#: The key `DbChecklistStore.get` adds to the body: the current row's sha256 (ASK A -> D).
+SHA_KEY = "sha256"
 
 #: For every old reader of `review_runs` (alias `r`): a general run is not one of its runs.
 EXCLUDE_SQL = "r.id NOT IN (SELECT run_id FROM aim_runs)"
@@ -402,19 +404,32 @@ class DbChecklistStore:
         return self.conn
 
     def get(self, key: str) -> dict | None:
-        """The current checklist for the key, or None (also when the stored body cannot be read, or was not built from the
-        standards alone)."""
+        """The current checklist for the key, WITH a "sha256" key (the current row's fingerprint, so a reusing run records it), or
+        None (also when the stored body cannot be read, or was not built from the standards alone)."""
         conn = self._conn()
         if not has_tables(conn):
             return None
         row = conn.execute(
-            f"SELECT body_json, built_from FROM {CHECKLISTS} WHERE key = ? AND current = 1",
+            f"SELECT sha256, body_json, built_from FROM {CHECKLISTS} WHERE key = ? AND current = 1",
             (key,),
         ).fetchone()
         if row is None or row["built_from"] != BUILT_FROM:
             return None
         body = _json_of(row["body_json"])
-        return body if isinstance(body, dict) else None
+        return {**body, SHA_KEY: row["sha256"]} if isinstance(body, dict) else None
+
+    def keys(self) -> list[str]:
+        """The keys that have a current checklist built from the standards alone, sorted."""
+        conn = self._conn()
+        if not has_tables(conn):
+            return []
+        return [
+            r["key"]
+            for r in conn.execute(
+                f"SELECT key FROM {CHECKLISTS} WHERE current = 1 AND built_from = ? ORDER BY key",
+                (BUILT_FROM,),
+            )
+        ]
 
     def put(self, key: str, checklist: dict, *, run_id: str, usd: float) -> str:
         """Save a checklist as the current one for the key; returns its sha256. Refused (ValueError) unless it was built from the
@@ -423,6 +438,8 @@ class DbChecklistStore:
             raise ValueError(
                 'a saved checklist must be built from "' + BUILT_FROM + '"'
             )
+        # the "sha256" that `get` adds is not part of the body: a body put back unchanged keeps its fingerprint
+        checklist = {k: v for k, v in checklist.items() if k != SHA_KEY}
         digest = checklist_sha256(checklist)
         conn = self._conn()
         _create(conn)
