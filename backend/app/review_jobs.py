@@ -158,12 +158,21 @@ REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 def review_code_version() -> str:
     """`review@<12 hex>` over the review modules' source and every
     `reference/*.json` data file. Derived, never typed (see `provenance`);
-    recomputed each call, so a changed data file is seen without a restart."""
+    recomputed each call, so a changed data file is seen without a restart.
+    Hotfix 19c: with `equipment_rule_books_enabled` on, `+equipment_rule_books`
+    is added, because that switch changes which rule books a run selects: a
+    stored selection made with the other switch value is never reused
+    (`agent_review_job_facts.reusable_scope_run`). Off: unchanged."""
     import hashlib
     digest = hashlib.sha256(provenance.code_version(*REVIEW_CODE_MODULES).encode())
     for path in sorted(REFERENCE_DIR.glob("*.json")):
         digest.update(path.name.encode() + b"\0" + path.read_bytes())
-    return f"review@{digest.hexdigest()[:12]}"
+    switch = EQUIPMENT_RULE_BOOKS_KEY if settings.equipment_rule_books_enabled else ""
+    return f"review@{digest.hexdigest()[:12]}{switch}"
+
+
+#: The part of the review code version that says book selection by rule tags was on (hotfix 19c).
+EQUIPMENT_RULE_BOOKS_KEY = "+equipment_rule_books"
 
 
 def last_run_versions(review_run_id: str) -> dict | None:

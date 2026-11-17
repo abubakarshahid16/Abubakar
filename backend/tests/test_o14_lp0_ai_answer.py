@@ -822,3 +822,58 @@ def test_a_deferred_value_is_a_question_never_the_ai_readers_pass_or_fail():
         (row,) = view["rows"]
         assert f"\n{DEFERRED}. " in row[3]
         assert "(AI, rule" not in row[3] and " (AI, engineer to confirm)" not in row[3]
+
+
+def test_a_deferred_quote_that_states_a_figure_says_so_and_no_cell_says_met():
+    """Lead's review of #1892: "leaves this value open" is untrue when the verified quote STATES a figure beside its deferral mark;
+    such a line says the value is given but still to be confirmed (both are questions). No cell beside a deferred line says "judged it
+    met" or a bare "met (AI, engineer to confirm)"."""
+    from app import agent_review_crs as arc
+
+    figure = mk(
+        "R-V1",
+        "Query",
+        "Fail",
+        reason_code="not_met",
+        field="Field Figure",
+        paper_quote="Set pressure: 340 psig by contractor",
+    )
+    blank = mk(
+        "R-V2",
+        "Query",
+        "Pass",
+        reason_code="met",
+        field="Field Blank",
+        paper_quote="Seal kind: by contractor",
+    )
+    assert A.label(figure) == A.DEFERRED_VALUE_LABEL and A.label(blank) == DEFERRED
+    assert A.DEFERRED_VALUE_LABEL == (
+        "The paper gives a value but marks it as still to be confirmed (by the contractor): engineer to confirm"
+    )
+    assert (
+        A.is_label(A.DEFERRED_VALUE_LABEL)
+        and A.answer_of(A.DEFERRED_VALUE_LABEL) is None
+    )
+    assert WB.status_of(figure) == (words.STATUS_QUERY, words.ORDER_QUERY)
+    assert (
+        A.class_words(
+            "Not met", {"ai_label": A.DEFERRED_VALUE_LABEL, "tile": "not_met"}
+        )
+        == "Questions for you"
+    )
+    for line in (figure, blank):
+        for kind in (words.KIND_MET_NOT_CONFIRMED, words.KIND_NOTHING_TO_CHANGE):
+            said = arc._other_reason(line, kind)
+            assert said == f"{A.label(line)}." and "judged it met" not in said
+        cell = A.marked("met", True, line)
+        assert (
+            cell.startswith('AI reader said "met", not a decision: the paper ')
+            and A.AI_MARK not in cell
+        )
+    assert (
+        A.marked("met", True, by_id("R-D3")) == f"met {A.AI_MARK}"
+    )  # a stated value: the AI's own word, marked as before
+
+
+def by_id(item: str) -> dict:
+    return {ln["item_id"]: ln for ln in _deferred_lines()}[item]

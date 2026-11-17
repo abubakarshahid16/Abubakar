@@ -46,7 +46,9 @@ def _header_facts(submittal: str, equipment_type: str | None) -> dict:
 
 
 def reusable_scope_run(conn, submittal: str) -> str | None:
-    """The finished rule-check run (same code version, with stored scope decisions) the AI job reuses; None: selection runs inline."""
+    """The finished rule-check run (same code version, with stored scope decisions) the AI job reuses; None: selection runs inline.
+    The code version carries the book-selection switch (`review_jobs.review_code_version`, hotfix 19c), so a run selected with
+    `equipment_rule_books_enabled` set the other way is never reused."""
     row = conn.execute(
         "SELECT r.id FROM review_runs r JOIN jobs j ON j.review_run_id = r.id"
         " WHERE r.submittal_document_id = ? AND r.status = 'completed' AND j.stage = ? AND j.code_version = ?"
