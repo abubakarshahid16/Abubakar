@@ -39,11 +39,17 @@ def test_left_alone_unverified_quote_other_reason_proven_fail_or_no_mark():
         is None
     )
     assert (
+        wording.not_met_deferred_why(
+            _line(paper_quote="SEAL CHAMBER PRESSURE  (blank)")
+        )
+        is None
+    )  # no deferral mark
+    assert (
         wording.classify(_line(paper_quote="SEAL CHAMBER PRESSURE  (blank)"))[
             "verdict_class"
         ]
-        == wording.CLASS_OPINION
-    )
+        == wording.CLASS_QUERY
+    )  # order 14 (G5): an unproven silence is a Query by its own rule, not by the deferral rule
 
 
 def test_quote_defers_sees_the_star_blank():

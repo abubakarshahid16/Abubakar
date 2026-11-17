@@ -40,8 +40,9 @@ THE GATES, EXACTLY.
      With the app's tables a book with no entry, or one that applies to the type only in part, is NOT JUDGED (counted, never a pass);
      with a file, a book the file does not list for the kind fails. No mapping for the kind: "G2 not run: no kind-to-book mapping".
   G3 No comment row has nothing to correct. It fails by CLASS: Met (ranks 5-7), Does not apply (8), or a pass reason stored on its line
-     ("met", "pass_..."); and by WORDS, in any cell: NOISE_PATTERNS ("found none", "no correction needed", "could not be read", "not
-     readable", "no action required", "no change needed", "need not state it", "... stated ..., which meets the" and close variants).
+     ("met", "pass_...") unless the line records a doubt about the paper (`no_comment_class`); and by WORDS, in any cell:
+     NOISE_PATTERNS (the app's own `crs_ai_words.NOTHING_TO_DO_PATTERNS`: "found none", "no correction needed", "could not be
+     read", "not readable", "no action required", "no change needed", "need not state it", "... stated ..., which meets the" and close variants).
      A row whose paper value is a deferral (`agent_review_verdict.quote_defers`: "By Contractor", "TBA") asks the contractor for the
      value: a real comment, never failed here. The sheet Evidence is not judged: the completeness rule keeps every point there.
   G4 One comment per field or topic. FIELD = the row's field name (the point's name with its tags taken off, `review_points.split_tags`;
@@ -69,7 +70,9 @@ THE GATES, EXACTLY.
      such a book that gives a verdict (met, not met, does not apply) or shows a clause or a rule text of it; and a missing book of the
      run that the file's OWN book-missing listing does not name (the page's sheet "Rule books not held"; the run file's "not held" rows
      and its Notes line); a name elsewhere, such as inside a question, is not a listing. A question with no clause and no rule text
-     passes (it asks, it does not guess).
+     passes (it asks, it does not guess). The run file shows a line whose book is on the run's missing list with its book "not held"
+     and no clause (`crs_ai_words.mark_not_held`); the gate reads that line as the file shows it (order 14 gate change 2: no clause,
+     no clause quote), and still fails it when a cell prints the line's stored rule text.
 """
 
 from __future__ import annotations
@@ -94,12 +97,11 @@ FILE_PAGE, FILE_RUN = "page", "run"
 REPLAY_AT_LEAST = 90
 FIRM_RANKS = frozenset({1, 2, 3, 6, 7})
 MAPPING_FORMAT = "crs-gates-kind-books/1"
-_NEED = r"(?:needed|required|necessary)"
+# the app's one home of the "nothing to do" words: G3 fails exactly what the CRS drops
+from app.crs_ai_words import NOTHING_TO_DO_PATTERNS  # noqa: E402
+
 NOISE_PATTERNS = (  # (the words the owner named, the pattern of them and their plain variants), matched on folded text
-    ("found none", r"\bfound none\b|\bnone (?:was |were )?found\b|\bnothing (?:was )?found\b|^no findings?\.?$|\bno findings? (?:was |were )?(?:made|raised|found)\b|^none\.?$"),
-    ("no correction needed", rf"\bno corrections? (?:is |are |was |were )?{_NEED}\b|\bcorrections? (?:is |are )?not {_NEED}\b"
-                             rf"|\bnothing to correct\b|\bno actions? (?:is |are )?{_NEED}\b|\bno changes? (?:is |are )?{_NEED}\b"),
-    ("could not be read", r"\b(?:could|can) ?not be read\b|\bcouldn'?t be read\b|\bcan'?t be read\b|\bnot readable\b|\bunreadable\b"),
+    *NOTHING_TO_DO_PATTERNS,
     # the owner's row 12: the reader's own words say the paper need not state the item (a "does not apply" written as a query)
     ("need not state it", r"\b(?:does|do) not (?:have|need) to (?:state|show|give)\b|\bneed not (?:state|show|give)\b"
                           r"|\bnot something [\w ,/'-]{0,60}?(?:has|needs) to (?:state|show|give)\b"),
@@ -150,6 +152,7 @@ class Row:
     paper_lines: tuple[
         str, ...
     ] = ()  # the paper line the row shows (G4: do two near-same comments rest on one line)
+    open_question: str = ""  # G3: why the row's AI "met" is a real question about the paper (`crs_comments.met_question_why`)
 
 
 @dataclass
@@ -406,11 +409,15 @@ def noise_in(text) -> str | None:
 
 def no_comment_class(r: Row) -> str | None:
     """Why the row's own class says there is nothing to correct (G3), or None: Met (ranks 5-7), Does not apply (8), or a pass reason
-    stored on its line ("met", "pass_..."), whatever its words."""
+    stored on its line ("met", "pass_..."), whatever its words. A pass reason on a question whose line records a doubt about the
+    PAPER (`open_question`: the app's one test, `crs_comments.met_question_why`, R91: the paper quote not verified, the value
+    deferred or said not stated, a label-only quote, the second reader disagreeing) is a real question, never failed here: the AI's
+    "met" is what is in doubt. A pass reason with no such doubt (only the clause quote unverified, the pass guard's objection alone)
+    still fails."""
     if r.rank in NO_COMMENT_RANKS:
         return NO_COMMENT_RANKS[r.rank]
     reason = _fold(r.reason)
-    if reason == "met" or reason.startswith("pass"):
+    if (reason == "met" or reason.startswith("pass")) and not r.open_question:
         return "pass reason"
     return None
 
@@ -817,6 +824,12 @@ def absence_proven(line: dict) -> bool:
     )
 
 
+def _open_question(line: dict) -> str:
+    from app.crs_comments import met_question_why
+
+    return (met_question_why(line) or "") if line else ""
+
+
 def _comment_row(c: dict, cells) -> Row:
     """A comment of the page's sheet CRS: the strongest point's words lead (`crs_one.comment_cells`), every member's clause is listed."""
     from app import crs_comments
@@ -834,6 +847,7 @@ def _comment_row(c: dict, cells) -> Row:
         reason=_reason_of(s), paper_figure=str((s.get("_line") or {}).get("paper_figure") or ""),
         rules=tuple(_rule_key(i) for i in c["member_ids"]),
         paper_lines=tuple(v for v in (s.get("paper_quote") or s.get("paper_value"),) if v),  # the line the comment SHOWS
+        open_question=_open_question(s.get("_line") or {}),
     )  # fmt: skip
 
 
@@ -880,11 +894,20 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
     line's own item wording first); every line's Evidence row shows its clause quote."""
     from app import crs_ai_workbook, crs_comments
     from app import review_points as rp
-    from app.crs_ai_words import KIND_NOT_HELD
+    from app.crs_ai_words import KIND_NOT_HELD, NOT_HELD_KEY, shown_clause_quote
 
     rank = rp.rank_of_ai_line(ln)[0]
     name = rp.split_tags(crs_ai_workbook.field_name(ln))[0]
-    book, clause = str(ln.get("standard") or ""), str(ln.get("clause") or "")
+    # the file shows a not-held book as "not held", no clause and no clause words (`mark_not_held`); its stored rule text, if printed
+    gone = bool(ln.get(NOT_HELD_KEY))
+    req = " ".join(str(ln.get("requirement") or "").split())
+    shown_req = (
+        gone and bool(req) and any(req in " ".join(c.split()) for c in _cells(cells))
+    )
+    book, clause = (
+        str(ln.get("standard") or ""),
+        "" if gone else str(ln.get("clause") or ""),
+    )
     asked = crs_ai_workbook._item_ask(ln) if cells else ""
     doc, page = ln.get("standard_document_id"), ln.get("clause_page")
     return Row(
@@ -892,46 +915,36 @@ def _line_row(rid: str, ln: dict, cells=()) -> Row:
         paper_value=ln.get("paper_quote"), value_verified=bool((ln.get("quotes_checked") or {}).get("paper")),
         absence_proven=absence_proven(ln),
         book=book, clause=clause, clauses=((book, clause),) if clause else (),
-        quotes=tuple(q for q in (asked, ln.get("clause_quote")) if q), quote_docs=(doc,) if doc else (),
+        quotes=tuple(q for q in (asked, shown_clause_quote(ln)) if q), quote_docs=(doc,) if doc else (),
         quote_page=page if isinstance(page, int) and not isinstance(page, bool) else None,
-        names=(book,) if book.strip() else (), shows_rule_words=bool(clause or ln.get("clause_quote") or asked),
+        names=(book,) if book.strip() else (), shows_rule_words=bool(clause or (ln.get("clause_quote") and not gone) or asked or shown_req),
         is_missing_listing=rank == 0 or ln.get("verdict_class") == KIND_NOT_HELD,
         reason=str(ln.get("reason_code") or ""), paper_figure=str(ln.get("paper_figure") or ""), rules=(str(ln.get("item_id") or ""),),
-        paper_lines=(str(ln["paper_quote"]),) if ln.get("paper_quote") else (),
+        paper_lines=(str(ln["paper_quote"]),) if ln.get("paper_quote") else (), open_question=_open_question(ln),
     )  # fmt: skip
 
 
 def run_lines(conn, run_id: str) -> list[dict]:
-    """The run's stored lines as every reader sees them (the reading `crs_completeness._older_expected` uses)."""
-    from app import agent_review_wording as wording
+    """The run's stored lines as every CRS reads them (`review_points_service.stored_lines`: today's rule and the books not held)."""
+    from app.review_points_service import stored_lines
 
-    return [
-        wording.read_time(
-            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}
-        )
-        for r in conn.execute(
-            "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
-            (run_id,),
-        )
-    ]
+    return stored_lines(conn, run_id)
 
 
 def run_file(run_id: str, paper_id: str) -> dict:
-    """The AI run's internal file drawn again by its own builder from the stored lines and the run's kept meta, and read back."""
+    """The AI run's internal file drawn again by its own builder from the stored lines and the run's kept meta (`run_meta`, the app's
+    decided copy's own reading), and read back."""
     from openpyxl import load_workbook
 
     from app import crs_ai_workbook, crs_layout
     from app.agent_review_jobs import run_dir
     from app.crs_completeness import _table_rows
     from app.db import connect
+    from app.review_points_service import run_meta
 
+    # the app's one reading of the run's meta: the books not held come from the database; the lines as the builder marks them
+    meta = run_meta(connect(), run_id, paper_id, run_dir(run_id))
     lines = run_lines(connect(), run_id)
-    meta_path = run_dir(run_id) / "crs-meta.json"
-    meta = (
-        json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
-    )
-    meta.setdefault("paper", paper_id)
-    meta.setdefault("run_id", run_id)
     wb = load_workbook(
         BytesIO(
             crs_layout.build_layout_crs(

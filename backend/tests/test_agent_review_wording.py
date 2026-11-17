@@ -54,11 +54,11 @@ def test_proven_lines_are_pass_or_fail_and_unproven_ai_verdicts_are_ai_thinks():
         and met["verdict_class"] == W.CLASS_OPINION
     )
     assert met["not_proven_reason"] == "no second opinion"
-    not_met = W.classify(line("Query", "Fail", reason_code="sheet_silent"))
+    not_met = W.classify(line("Query", "Fail", reason_code="not_met"))
     assert (
         not_met["verdict_label"] == "AI thinks: not met"
-        and not_met["not_proven_reason"] == "sheet_silent"
-    )
+        and not_met["not_proven_reason"] == "not_met"
+    )  # order 14 (G5): a not-met on a stated value (a silence code is a Query: test_crs_gates_order14_fixes)
     assert W.classify(line("Query", "Fail"))[
         "not_proven_reason"
     ]  # never an empty reason
@@ -312,13 +312,16 @@ def test_a_silent_paper_is_a_query_for_every_kind_but_a_datasheet(code, kind):
         assert out["not_proven_reason"] == V.SILENCE_WHY
 
 
-def test_a_datasheet_keeps_the_ai_opinion_and_other_reasons_are_never_held_as_silence():
+def test_an_unproven_datasheet_absence_is_a_query_not_held_as_silence_and_other_reasons_keep_their_verdict():
     kept = W.final_cap(
         line("Query", "Fail", reason_code="absent", why="code cannot prove an absence"),
         RULE_OK,
         paper_kind="datasheet",
     )
-    assert kept["verdict_label"] == "AI thinks: not met" and "silence_query" not in kept
+    assert (
+        kept["verdict_label"] == "Query for the engineer"
+        and "silence_query" not in kept
+    )  # order 14 (G5): one reader's word that the paper is silent names no value: a Query, never 'AI thinks: not met' (not the silence rule)
     other = W.final_cap(
         line("Fail", "Fail", reason_code="not_met"), RULE_OK, paper_kind="procedure"
     )
