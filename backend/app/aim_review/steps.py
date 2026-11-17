@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 import re
 
-from . import PROVISIONAL, PROVISIONAL_FAILS
+from . import PROVISIONAL, PROVISIONAL_FAILS, PROVISIONAL_UNCHECKED
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
-from .verify import compare, find_page, norm, quoted_value
+from .verify import compare, find_page, norm, quoted_value, rule_operator
 
 LABELS = ("Met", "Not met", "Question", "Does not apply", "AI opinion")
 HELD = "held standard"
@@ -127,6 +127,53 @@ def _deferred(quote: str) -> bool:
     return blank_markers.value_left_open(quote)
 
 
+def _paper_limit(
+    nums: dict, paper: dict, quote: str, paper_doc
+) -> tuple[dict | None, int | None]:
+    """The limit when the PAPER states it (a value and its limit both on the paper): read by code from the judged quote itself (a
+    number other than the paper value), else from the judge's `limit_quote`, which must be found on a page of the paper first."""
+    wanted = nums.get("rule_value")
+    here = quoted_value(wanted, quote)
+    if here is not None and here["value"] != paper["value"]:
+        return here, None
+    second = str(nums.get("limit_quote") or "")
+    hint = nums.get("limit_page") if isinstance(nums.get("limit_page"), int) else None
+    page = find_page(second, paper_doc.pages, hint) if second else None
+    return (quoted_value(wanted, second), page) if page is not None else (None, None)
+
+
+def _paper_numbers(
+    nums: dict, paper: dict, quote: str, rule_quote: str, notes: list[str], paper_doc
+) -> tuple[str, dict | None]:
+    """PAPER vs PAPER (the lead, 18 Nov 2026): the rule's words hold no value, the paper states both the value and its limit. Code
+    reads both from verified paper quotes and compares them by the app's unit code. The operator comes from the rule's verified
+    words (`rule_operator`): then the label follows the result ("compared by code"). When no rule gives it, the AI's operator is
+    used and the line is an AI opinion, the comparison in its code note: never a code verdict."""
+    limit, limit_page = _paper_limit(nums, paper, quote, paper_doc)
+    if limit is None:
+        notes.append(
+            "the rule value is not in the rule's verified words nor in a verified quote of the paper"
+        )
+        return "Question", None
+    op, op_from = rule_operator(rule_quote), "the rule's verified words"
+    if op is None:
+        op, op_from = str(nums.get("operator") or ""), "the AI's answer"
+    code_cmp = compare(paper["value"], paper["unit"], op, limit["value"], limit["unit"])
+    if code_cmp["result"] == "cannot":
+        notes.append("code could not compare the two paper values: " + code_cmp["why"])
+        return "Question", code_cmp
+    code_cmp.update(
+        read_from="verified paper quotes", op=op, op_from=op_from, limit_page=limit_page
+    )
+    notes.append("code compared two values of the paper: " + code_cmp["why"])
+    if op_from == "the AI's answer":
+        notes.append(
+            "no rule gives the comparison: an AI opinion, never a code verdict"
+        )
+        return "AI opinion", code_cmp
+    return {"pass": "Met", "fail": "Not met"}[code_cmp["result"]], code_cmp
+
+
 def _provisional_figure(quote: str) -> bool:
     from app import blank_markers
 
@@ -144,16 +191,25 @@ _FAILS_AS = {
 }
 
 
-def _provisional(it: dict, j: dict, quote: str, page: int, base: dict) -> dict:
+def _provisional(
+    it: dict, j: dict, quote: str, page: int, base: dict, paper_doc=None
+) -> dict:
     """A PROVISIONAL figure (a stated figure beside a who-supplies note; verified quote): code checks it from the verified quotes
     as for any value, but the label is ALWAYS Question (the standing order: a value left to the vendor is a Question, nothing
     unproven is a Pass or Fail). A failed check is a sent Question that states the check in numbers (`PROVISIONAL_FAILS`); a
-    passed check, or one code cannot run, stays in "All points" (`PROVISIONAL`, never sent)."""
+    check code could not run is a sent Question with the AI's comment (`PROVISIONAL_UNCHECKED`); only a PASSED check stays in
+    "All points" (`PROVISIONAL`, never sent). The limit may be the rule's or one the paper states (`_paper_numbers`)."""
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
     code_cmp = None
     if nums and it["source"] == HELD:
-        _label, code_cmp = _numbers(nums, quote, str(it.get("rule_quote") or ""), [])
-    fails = isinstance(code_cmp, dict) and code_cmp.get("result") == "fail"
+        _label, code_cmp = _numbers(
+            nums, quote, str(it.get("rule_quote") or ""), [], paper_doc
+        )
+    result = code_cmp.get("result") if isinstance(code_cmp, dict) else None
+    fails = result == "fail"
+    note = {"fail": PROVISIONAL_FAILS, "pass": PROVISIONAL}.get(
+        str(result), PROVISIONAL_UNCHECKED
+    )
     return {
         **base,
         "field": str(j.get("field") or "")[:100],
@@ -164,7 +220,7 @@ def _provisional(it: dict, j: dict, quote: str, page: int, base: dict) -> dict:
         "comment": _fails_comment(code_cmp, quote, base)
         if fails
         else str(j.get("comment") or "")[:400],
-        "code": PROVISIONAL_FAILS if fails else PROVISIONAL,
+        "code": note,
         "numbers": nums,
         "code_compare": code_cmp,
         "deferred": False,
@@ -183,11 +239,13 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict) -> str:
     stated = f"{_num(pv)} {pu}".strip()
     rule = f"{_num(rv)} {ru}".strip()
     who = blank_markers.who_supplies(quote) or "who supplies it"
-    where = (
-        f"{base['standard']} clause {base['clause']}".strip()
-        if base.get("standard")
-        else "the rule"
-    )
+    if code_cmp.get("read_from") == "verified paper quotes":
+        page = code_cmp.get("limit_page")
+        where = f"page {page} of this paper" if page else "this paper"
+    elif base.get("standard"):
+        where = f"{base['standard']} clause {base['clause']}".strip()
+    else:
+        where = "the rule"
     fails = _FAILS_AS.get(str(code_cmp.get("op") or ""), "does not meet the {r} rule")
     return f"The stated {stated} ({who.lower()}) {fails.format(r=rule)} of {where}; contractor to confirm the value."
 
@@ -375,7 +433,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     if label in ("Met", "Not met") and not quote:
         label, _ = "Question", notes.append("no paper quote for a verdict")
     if page is not None and _provisional_figure(quote):
-        return _provisional(it, j, quote, page, base)
+        return _provisional(it, j, quote, page, base, paper)
     deferred = bool(j.get("deferred")) or _deferred(quote)
     if (
         deferred and label != "Question"
@@ -387,7 +445,9 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
     code_cmp = None
     if nums and label in ("Met", "Not met") and it["source"] == HELD:
-        label, code_cmp = _numbers(nums, quote, str(it.get("rule_quote") or ""), notes)
+        label, code_cmp = _numbers(
+            nums, quote, str(it.get("rule_quote") or ""), notes, paper
+        )
     elif it["kind"] == "limit" and label in ("Met", "Not met") and it["source"] == HELD:
         label = "Question"
         notes.append("a limit with no numbers for code to compare")
@@ -410,7 +470,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
 
 
 def _numbers(
-    nums: dict, quote: str, rule_quote: str, notes: list[str]
+    nums: dict, quote: str, rule_quote: str, notes: list[str], paper_doc=None
 ) -> tuple[str, dict | None]:
     """A held item's numbers. A code stamp rests ONLY on the verified quotes (review R1, B1): the paper value and its unit are read
     by code from the verified paper quote, the rule value, its unit and the operator from the item's verified rule quote
@@ -421,6 +481,8 @@ def _numbers(
         notes.append("the paper value is not in the verified quote")
         return "Question", None
     rule = quoted_value(nums.get("rule_value"), rule_quote)
+    if rule is None and paper_doc is not None:
+        return _paper_numbers(nums, paper, quote, rule_quote, notes, paper_doc)
     if rule is None:
         notes.append("the rule value is not in the rule's verified words")
         return "Question", None

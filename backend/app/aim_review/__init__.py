@@ -81,17 +81,19 @@ class Result:
 #: `code_note` of a line whose item was never answered (the run stopped, a batch failed, its book was not on the list).
 NOT_JUDGED = "not_judged"
 #: `code_note` of a PROVISIONAL figure (a stated figure beside a who-supplies note, "380 psig (By Contractor)"): always a Question.
-#: Code checked it and it passed, or code could not check it: kept in "All points", never sent (fewer false alarms).
+#: Code compared it and it PASSED: kept in "All points", never sent (fewer false alarms).
 PROVISIONAL = "provisional"
-#: ... and code's check FAILED: a sent Question whose comment states the check in numbers.
+#: ... code compared it and it FAILED: a sent Question whose comment states the check in numbers.
 PROVISIONAL_FAILS = "provisional_fails"
+#: ... code could not compare it: a sent Question with the AI's comment as written.
+PROVISIONAL_UNCHECKED = "provisional_unchecked"
 #: The code notes of a line that stays in "All points" and is never a comment.
 NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL)
 
 
 def sendable(line: dict) -> bool:
     """Does this line go on the comment sheet? Its label is one of SENDABLE, and its code note is not one of NOT_SENT_NOTES: a
-    Question whose only content is "not judged" (RISKS 2), or a provisional figure that code's check did not fail. Such a line
+    Question whose only content is "not judged" (RISKS 2), or a provisional figure that code compared and that passed. Such a line
     stays in "All points" and is counted there, never sent to the vendor."""
     return (
         line.get("label") in SENDABLE
@@ -148,6 +150,7 @@ __all__ = [
     "NOT_SENT_NOTES",
     "PROVISIONAL",
     "PROVISIONAL_FAILS",
+    "PROVISIONAL_UNCHECKED",
     "SENDABLE",
     "WHYS",
     "WHY_CITED",
