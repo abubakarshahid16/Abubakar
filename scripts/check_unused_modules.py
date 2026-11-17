@@ -8,8 +8,10 @@ imports is not part of the app: it belongs in `scripts/` or nowhere.
 
     python scripts/check_unused_modules.py          # exit 1 if any is unused
 
-Package files (`__init__.py`) are not counted. No module is exempt; there is
-no allow-list to grow.
+Package files (`__init__.py`) are not counted as modules, but they are WALKED:
+a module that imports a package reaches what the package's `__init__.py`
+imports (order 14: `app.aim_review` reaches its modules only through its
+`__init__.py`). No module is exempt; there is no allow-list to grow.
 """
 from __future__ import annotations
 
@@ -44,6 +46,9 @@ ENTRY_POINTS = (
     # order 14 lane E: the contract checks, reached from scripts/contract_checks.py until lane B's "Contract checks" sheet
     # imports them (then this line goes)
     "contract_checks",
+    # order 14: the general review's package (walked through its __init__.py), reached from scripts and tests until piece B's
+    # `aim_review_jobs` imports `app.aim_review` (then this line goes)
+    "aim_review",
 )
 
 
@@ -55,6 +60,12 @@ def module_name(path: Path, app: Path) -> str:
 def _modules() -> dict[str, Path]:
     return {module_name(p, APP): p for p in APP.rglob("*.py")
             if p.stem != "__init__" and "__pycache__" not in p.parts}
+
+
+def _packages() -> dict[str, Path]:
+    """`ai/__init__.py` -> "ai": the app's sub-packages, walked through but never counted."""
+    return {module_name(p.parent, APP): p for p in APP.rglob("__init__.py")
+            if p.parent != APP and "__pycache__" not in p.parts}
 
 
 def imports_of(path: Path, known: set[str]) -> set[str]:
@@ -93,17 +104,20 @@ def run_entry_points() -> set[str]:
 
 
 def reachable() -> set[str]:
+    """The modules reached from the entry points. A package reached by an import is walked (its `__init__.py`'s imports)
+    but is not itself a module, so it is never in the answer."""
     modules = _modules()
-    known = set(modules)
-    todo = [m for m in (*ENTRY_POINTS, *run_entry_points()) if m in modules]
+    files = {**_packages(), **modules}
+    known = set(files)
+    todo = [m for m in (*ENTRY_POINTS, *run_entry_points()) if m in files]
     seen: set[str] = set()
     while todo:
         name = todo.pop()
         if name in seen:
             continue
         seen.add(name)
-        todo.extend(imports_of(modules[name], known) - seen)
-    return seen
+        todo.extend(imports_of(files[name], known) - seen)
+    return seen & set(modules)
 
 
 def unused() -> list[str]:
