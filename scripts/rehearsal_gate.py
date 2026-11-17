@@ -33,6 +33,15 @@ What `compare` refuses (exit 1), per paper and per metric (rules asked, comments
   * WRONG (from the KEEP/WEAK/WRONG tables) is higher in the rehearsal than live, or could not be read;
   * the rehearsal shows the same review run as live (the paper was not re-reviewed on the copy, so nothing was compared).
 `--accept <paper>:<metric>:<reason>` turns ONE refusal into ACCEPTED, printed with its reason: the gate is never bypassed silently.
+
+`history` (the general-review update, DONE-MEANS check 5): snapshot live BEFORE the update and the copy AFTER it WITHOUT
+re-reviewing, then
+       python scripts/rehearsal_gate.py history --live live.json --rehearsal rehearsal.json [--accept PAPER:<row>:"<why>"]
+It refuses (exit 1) unless, per paper: the copy shows the SAME old run ids; rules asked, comments and points are EXACTLY equal
+(0 on both sides refuses, missing is NOT MEASURED); every old CRS file (team, contractor) has the same page count and rows; and
+the copy's GET /api/reviews/papers/{id}/history lists every old run as "earlier version". The snapshot now also keeps the history
+route's run list (ids, version and part words, status, points: no text); live, before the update, has no such route and that
+error is kept in its `errors`.
 """
 
 from __future__ import annotations
@@ -243,7 +252,31 @@ def snapshot_paper(client: Client, document_id: str) -> dict:
     paper["crs_check"] = _crs_part(check) if check else None
     if err:
         paper["errors"].append(err)
+    # the history route exists only after the general review lands: before it, the error is kept and `history` uses the other side
+    history, err = client.get(f"/api/reviews/papers/{doc}/history")
+    paper["history"] = _history_part(history) if isinstance(history, dict) else None
+    if err:
+        paper["errors"].append(err)
     return paper
+
+
+def _history_part(history: dict) -> list[dict] | None:
+    """The runs GET /papers/{doc}/history lists: ids, the app's version and part words, status and points (no text)."""
+    runs = history.get("runs")
+    if not isinstance(runs, list):
+        return None
+    return [
+        {
+            "run_id": r.get("run_id"),
+            "version": _words(r.get("version")),
+            "part": _words(r.get("part")),
+            "status": _words(r.get("status")),
+            "points": _int(r.get("points")),
+            "files": len(r.get("files") or []),
+        }
+        for r in runs
+        if isinstance(r, dict)
+    ]
 
 
 def parse_papers(items: list[str]) -> dict[str, str]:
@@ -373,7 +406,9 @@ def change_percent(live, rehearsal) -> str:
     return f"{(rehearsal - live) * 100 / live:+.1f}%"
 
 
-def parse_accepts(items: list[str]) -> dict[tuple[str, str], str]:
+def parse_accepts(
+    items: list[str], allowed: tuple[str, ...] = ALL_ROWS
+) -> dict[tuple[str, str], str]:
     out: dict[tuple[str, str], str] = {}
     for item in items or []:
         parts = item.split(":", 2)
@@ -382,12 +417,161 @@ def parse_accepts(items: list[str]) -> dict[tuple[str, str], str]:
                 f"--accept must be <paper>:<metric>:<reason>, got {item!r}"
             )
         paper, metric, reason = (p.strip() for p in parts)
-        if metric not in ALL_ROWS:
+        if metric not in allowed:
             raise ValueError(
-                f"--accept metric must be one of {', '.join(ALL_ROWS)}, got {metric!r}"
+                f"--accept metric must be one of {', '.join(allowed)}, got {metric!r}"
             )
         out[(paper.lower(), metric)] = reason
     return out
+
+
+# ------------------------------------------------------------------- history (check 5: old reviews unchanged)
+
+#: The rows `history` prints per paper, in order.
+SAME_RUNS = "old_runs"
+CRS_FILES = "crs_files"
+LISTED = "history_listed"
+HISTORY_ROWS = (SAME_RUNS, *METRICS, CRS_FILES, LISTED)
+#: The version word the history route gives an old run (CONTRACT section D).
+EARLIER = "earlier version"
+
+
+def judge_same(live, rehearsal) -> tuple[bool, str]:
+    """The old review's count must be EXACTLY the same on the copy (it was not re-reviewed). Missing is NOT MEASURED; 0 on
+    both sides is not a pass (a review that checks nothing cannot be told from a broken one)."""
+    if live is None or rehearsal is None:
+        side = (
+            "either side"
+            if live is None and rehearsal is None
+            else ("live" if live is None else "rehearsal")
+        )
+        return False, f"NOT MEASURED: could not be read on {side}"
+    if live != rehearsal:
+        return False, f"changed: live {live}, rehearsal {rehearsal}"
+    if live == 0:
+        return (
+            False,
+            "0 on both sides: a review that checks nothing cannot be told from a broken one",
+        )
+    return True, "same"
+
+
+def judge_same_runs(
+    live_runs: dict | None, rehearsal_runs: dict | None
+) -> tuple[bool, str]:
+    live = {k: v for k, v in (live_runs or {}).items() if v}
+    if not live:
+        return False, "NOT MEASURED: live shows no review run"
+    differ = sorted(k for k, v in live.items() if (rehearsal_runs or {}).get(k) != v)
+    if differ:
+        return (
+            False,
+            f"the copy shows another run for {', '.join(differ)} (re-reviewed, or the old run is gone)",
+        )
+    return True, "the same run ids"
+
+
+def judge_crs(live: dict | None, rehearsal: dict | None) -> tuple[bool, str]:
+    """Every old CRS file (team, contractor) reads back with the same page count and the same rows on the copy."""
+    if not live:
+        return False, "NOT MEASURED: live CRS check could not be read"
+    if not rehearsal:
+        return False, "NOT MEASURED: rehearsal CRS check could not be read"
+    team = (live.get("team") or {}).get("rows_in_file")
+    if not isinstance(team, int) or team == 0:
+        return False, "NOT MEASURED: live team file has no rows"
+    bad = []
+    for copy, a in sorted(live.items()):
+        b = rehearsal.get(copy) or {}
+        for key in ("page", "rows_in_file"):
+            if a.get(key) is None or a.get(key) != b.get(key):
+                bad.append(f"{copy} {key} {_show(a.get(key))} -> {_show(b.get(key))}")
+    return (
+        (False, "changed: " + "; ".join(bad))
+        if bad
+        else (True, "same rows in every file")
+    )
+
+
+def judge_listed(live_runs: dict | None, history: list | None) -> tuple[bool, str]:
+    if history is None:
+        return False, "NOT MEASURED: the rehearsal's history route could not be read"
+    live = {k: v for k, v in (live_runs or {}).items() if v}
+    if not live:
+        return False, "NOT MEASURED: live shows no review run"
+    by_id = {h.get("run_id"): h for h in history if isinstance(h, dict)}
+    bad = []
+    for kind, run_id in sorted(live.items()):
+        h = by_id.get(run_id)
+        if h is None:
+            bad.append(f"{kind} not listed")
+        elif (h.get("version") or "").lower() != EARLIER:
+            bad.append(f"{kind} listed as {h.get('version')!r}")
+    return (
+        (False, "; ".join(bad))
+        if bad
+        else (True, f'every old run listed as "{EARLIER}"')
+    )
+
+
+def history_rows(live: dict, rehearsal: dict, accepts: dict) -> list[dict]:
+    lp, rp = live.get("papers") or {}, rehearsal.get("papers") or {}
+    rows = []
+    for paper in sorted(set(lp) | set(rp)):
+        a, b = lp.get(paper) or {}, rp.get(paper) or {}
+        checks = [
+            (SAME_RUNS, None, None, judge_same_runs(a.get("runs"), b.get("runs")))
+        ]
+        checks += [
+            (m, a.get(m), b.get(m), judge_same(a.get(m), b.get(m))) for m in METRICS
+        ]
+        checks.append(
+            (CRS_FILES, None, None, judge_crs(a.get("crs_check"), b.get("crs_check")))
+        )
+        checks.append(
+            (LISTED, None, None, judge_listed(a.get("runs"), b.get("history")))
+        )
+        for metric, lv, rv, (ok, reason) in checks:
+            outcome = "PASS" if ok else "REFUSE"
+            accepted = accepts.get((paper.lower(), metric))
+            if not ok and accepted:
+                outcome, reason = "ACCEPTED", f"{reason}; accepted: {accepted}"
+            rows.append(
+                {
+                    "paper": paper,
+                    "metric": metric,
+                    "live": lv,
+                    "rehearsal": rv,
+                    "change": change_percent(lv, rv) if metric in METRICS else "",
+                    "outcome": outcome,
+                    "reason": reason,
+                }
+            )
+    return rows
+
+
+def cmd_history(args) -> int:
+    """Check 5 of the general-review update: the copy, NOT re-reviewed, still shows every old review exactly as live did."""
+    try:
+        live, rehearsal = _load_snapshot(args.live), _load_snapshot(args.rehearsal)
+        accepts = parse_accepts(args.accept, HISTORY_ROWS)
+    except (OSError, ValueError) as exc:
+        print(f"REFUSED: {exc}")
+        return 1
+    if not (live.get("papers") or rehearsal.get("papers")):
+        print("REFUSED: NOT MEASURED: neither snapshot names a paper")
+        return 1
+    rows = history_rows(live, rehearsal, accepts)
+    print(render(rows, blank=(SAME_RUNS, CRS_FILES, LISTED)))
+    refused = [r for r in rows if r["outcome"] == "REFUSE"]
+    accepted = sum(1 for r in rows if r["outcome"] == "ACCEPTED")
+    if refused:
+        print(
+            f"HISTORY: REFUSED ({len(refused)} of {len(rows)} rows refuse; {accepted} accepted). No live update."
+        )
+        return 1
+    print(f"HISTORY: PASS ({len(rows)} rows; {accepted} accepted with a reason).")
+    return 0
 
 
 def gate_rows(
@@ -427,14 +611,14 @@ def gate_rows(
     return rows
 
 
-def render(rows: list[dict]) -> str:
+def render(rows: list[dict], blank: tuple[str, ...] = (FRESH,)) -> str:
     head = ("paper", "metric", "live", "rehearsal", "change %", "result", "reason")
     body = [
         (
             r["paper"],
             r["metric"],
-            "" if r["metric"] == FRESH else _show(r["live"]),
-            "" if r["metric"] == FRESH else _show(r["rehearsal"]),
+            "" if r["metric"] in blank else _show(r["live"]),
+            "" if r["metric"] in blank else _show(r["rehearsal"]),
             r["change"],
             r["outcome"],
             r["reason"],
@@ -531,8 +715,22 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="<paper>:<metric>:<reason>, one refusal accepted",
     )
+    h = sub.add_parser(
+        "history",
+        help="check 5: the copy, not re-reviewed, shows every old review exactly as live",
+    )
+    h.add_argument("--live", required=True)
+    h.add_argument("--rehearsal", required=True)
+    h.add_argument(
+        "--accept",
+        action="append",
+        default=[],
+        help="<paper>:<row>:<reason>, one refusal accepted",
+    )
     args = ap.parse_args(argv)
-    return cmd_snapshot(args) if args.cmd == "snapshot" else cmd_compare(args)
+    return {"snapshot": cmd_snapshot, "compare": cmd_compare, "history": cmd_history}[
+        args.cmd
+    ](args)
 
 
 if __name__ == "__main__":
