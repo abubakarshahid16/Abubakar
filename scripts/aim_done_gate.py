@@ -3,6 +3,16 @@
     python scripts/aim_done_gate.py switches --base-url http://127.0.0.1:<port> --token-file <file> --datasheet-id <doc id>
     python scripts/aim_done_gate.py found --score BUILD/score/new/SCORE.txt --old BUILD/score/old/SCORE.txt [--old-runs-dir BUILD/score/old]
     python scripts/aim_done_gate.py alarms --score-dir BUILD/score/new --judge-dir BUILD/score/judge
+    python scripts/aim_done_gate.py report --score BUILD/score/new/SCORE.txt --score-dir BUILD/score/new --judge-dir BUILD/score/judge \
+        --old BUILD/score/old/SCORE.txt [--old-runs-dir BUILD/score/old]
+
+report (DONE-MEANS "How every result is shown, below target included"): one table per paper, the same every run: copies A, B, C
+  (found of 10 by code, chance hits, net, comments, WRONG n of N, the saved sheet's path) and the original (comments, sheet), then
+  the mean, the target 7.0, the old engine's number and false alarms as n of N, and ONE verdict word:
+  PASS; BELOW TARGET naming each missed check and the gap in numbers, never rounded in the method's favour ("valve: mean 6.66
+  (20/3) of 10, target 7.0, short by 0.34"; "pump: 2 WRONG of 14 comments = 14.2%, limit 10%"); or NOT MEASURED naming the
+  blocking step and the app's own sentence from the driver's run file ("valve-B: upload: HTTP 422 (<sentence>)"). Exit 0 only
+  when every paper is PASS.
 
 Each prints ONE table and exits 0 only on PASS. A number that could not be read is NOT MEASURED, and NOT MEASURED fails (never 0,
 never a pass).
@@ -24,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -53,6 +64,10 @@ _REPORT_CHANCE = re.compile(
 
 def _num(s: str | None) -> int | None:
     return None if s is None or s.startswith(NM) else int(s.split()[0])
+
+
+def _show(v) -> str:
+    return NM if v is None else str(v)
 
 
 def table(head: tuple, rows: list[tuple]) -> str:
@@ -292,6 +307,188 @@ def cmd_alarms(a) -> int:
     return 0 if ok_all and rows else 1
 
 
+# ------------------------------------------------------------------------------------------------ report (every result shown)
+
+PASS, BELOW, NOT_MEASURED = "PASS", "BELOW TARGET", "NOT MEASURED"
+DONE_STATUSES = ("completed", "done")
+
+
+def floor2(x: float) -> str:
+    """Two decimals, never rounded up (6.666 -> 6.66)."""
+    return f"{math.floor(x * 100 + 1e-9) / 100:.2f}"
+
+
+def ceil2(x: float) -> str:
+    """Two decimals, never rounded down: a shortfall is never shown smaller than it is (0.333 -> 0.34)."""
+    return f"{math.ceil(x * 100 - 1e-9) / 100:.2f}"
+
+
+def share_words(n: int, total: int) -> str:
+    pct = math.floor(n * 1000 / total) / 10 if total else 0.0
+    return f"{n} WRONG of {total} comments = {pct:.1f}%"
+
+
+def run_record(score_dir: Path, paper: str, copy: str) -> dict | None:
+    f = score_dir / f"{paper}-{copy}-run.json"
+    try:
+        rec = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) else None
+
+
+def blocking_words(label: str, rec: dict | None) -> str | None:
+    """Why a copy's review is not there: the driver's own record (the step and the app's sentence)."""
+    if rec is None:
+        return f"{label}: no review in the score folder (no run file)"
+    status = rec.get("status")
+    if status in DONE_STATUSES:
+        return None
+    return (
+        f"{label}: {rec.get('words') or 'the review did not finish'} (status {status})"
+    )
+
+
+def paper_report(
+    a, paper: str, new: dict, old: dict, refused: dict
+) -> tuple[str, list[str], list[tuple]]:
+    """(verdict, reasons, table rows) for one paper."""
+    score_dir, judge_dir = Path(a.score_dir), Path(a.judge_dir)
+    blocked, below, rows = [], [], []
+    nets, wrong, total = [], 0, 0
+    for copy in (*a.copies, "orig"):
+        label = f"{paper}-{copy}"
+        rec = run_record(score_dir, paper, copy)
+        sheet = score_dir / f"{label}-sheet.xlsx"
+        sheet_words = str(sheet) if sheet.is_file() else "no sheet saved"
+        block = blocking_words(label, rec)
+        if copy == "orig":
+            if block:
+                blocked.append(block + "; chance hits cannot be counted without it")
+            rows.append(
+                (
+                    copy,
+                    "-",
+                    "-",
+                    "-",
+                    _show(rec and rec.get("comments")),
+                    "-",
+                    sheet_words,
+                )
+            )
+            continue
+        row = new.get((paper, copy))
+        if block:
+            blocked.append(block)
+        elif row is None:
+            blocked.append(
+                f"{label}: no row in the score output (the test owner's score step has not run on it)"
+            )
+        elif row.get("found") is None:
+            blocked.append(f"{label}: found {NM} (0 comments read)")
+        elif row.get("chance") is None:
+            blocked.append(
+                f"{label}: chance hits {NM} (no scored review of the original)"
+            )
+        net = net_found(row)
+        nets.append(net)
+        n = comment_count(score_dir / f"{label}-comments.json")
+        marks = judge_marks(judge_dir / f"{label}.json")
+        w = None
+        if n:
+            if marks is None or any(i not in marks for i in range(1, n + 1)):
+                judged = (
+                    0
+                    if marks is None
+                    else sum(1 for i in range(1, n + 1) if i in marks)
+                )
+                blocked.append(
+                    f"{label}: false alarms {NM} (the reader judged {judged} of {n} comments)"
+                )
+            else:
+                w = sum(1 for i in range(1, n + 1) if marks[i] == "WRONG")
+                wrong, total = wrong + w, total + n
+        rows.append(
+            (
+                copy,
+                _show(row and row.get("found")),
+                _show(row and row.get("chance")),
+                _show(net),
+                _show(n),
+                "-" if w is None else f"{w} of {n}",
+                sheet_words,
+            )
+        )
+    olds, old_notes = [], []
+    for c in ("A", "B", "C"):
+        if (paper, c) in old and old_value(old[(paper, c)]) is not None:
+            olds.append(old_value(old[(paper, c)]))
+        elif (paper, c) in refused:
+            olds.append(0)
+            old_notes.append(f"old {c} refused, counted 0: {refused[(paper, c)]}")
+    if not olds:
+        blocked.append(f"{paper}: the old engine's number {NM} (no old score)")
+    mean = sum(nets) / len(nets) if nets and all(v is not None for v in nets) else None
+    old_mean = sum(olds) / len(olds) if olds else None
+    if mean is not None:
+        if mean < a.min_found:
+            below.append(
+                f"{paper}: mean {floor2(mean)} ({sum(nets)}/{len(nets)}) of 10, target {a.min_found:.1f}, "
+                f"short by {ceil2(a.min_found - mean)}"
+            )
+        if old_mean is not None and not mean > old_mean:
+            below.append(
+                f"{paper}: not above the old engine: new mean {floor2(mean)}, old {floor2(old_mean)}"
+            )
+    num, den = MAX_WRONG_SHARE
+    if total and wrong * den > num * total:
+        below.append(f"{paper}: {share_words(wrong, total)}, limit {num * 100 // den}%")
+    verdict = NOT_MEASURED if blocked else BELOW if below else PASS
+    summary = (
+        f"mean {NM if mean is None else floor2(mean)} of 10 | target {a.min_found:.1f} | old engine "
+        f"{NM if old_mean is None else floor2(old_mean) + f' ({len(olds)} copies)'} | false alarms "
+        f"{share_words(wrong, total) + ' (limit 10%)' if total and not blocked else NM if blocked else '0 comments'}"
+    )
+    rows.append(("", "", "", "", "", "", ""))
+    rows.append((summary, "", "", "", "", "", ""))
+    return verdict, blocked + below + old_notes, rows
+
+
+def cmd_report(a) -> int:
+    new = read_scores([a.score]) if a.score else {}
+    old = read_scores(a.old)
+    refused = old_refusals(a.old_runs_dir)
+    verdicts = {}
+    for paper in a.papers:
+        verdict, reasons, rows = paper_report(a, paper, new, old, refused)
+        verdicts[paper] = verdict
+        print(f"== {paper}: {verdict}")
+        print(
+            table(
+                (
+                    "copy",
+                    "found (code) of 10",
+                    "chance hits",
+                    "net",
+                    "comments",
+                    "WRONG",
+                    "sheet",
+                ),
+                rows[:-2],
+            )
+        )
+        print(rows[-1][0])
+        for r in reasons:
+            print(f"  - {r}")
+        print()
+    print(table(("paper", "verdict"), list(verdicts.items())))
+    ok = bool(verdicts) and all(v == PASS for v in verdicts.values())
+    print(
+        f"DONE GATE: {'PASS' if ok else 'NOT PASSED'} ({sum(v == PASS for v in verdicts.values())} of {len(verdicts)} papers PASS)"
+    )
+    return 0 if ok else 1
+
+
 # ------------------------------------------------------------------------------------------------ switches
 
 
@@ -357,6 +554,28 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--papers", nargs="+", default=list(PAPERS))
     f.add_argument("--copies", nargs="+", default=list(SCORED_COPIES))
     f.add_argument("--min-found", type=float, default=MIN_FOUND)
+    rp = sub.add_parser(
+        "report",
+        help="one table per paper, every result shown: PASS, BELOW TARGET or NOT MEASURED",
+    )
+    rp.add_argument(
+        "--score",
+        default=None,
+        help="the score command's output for the new method (missing: NOT MEASURED)",
+    )
+    rp.add_argument(
+        "--score-dir",
+        required=True,
+        help="the driver's --out folder (run files, comments, sheets)",
+    )
+    rp.add_argument("--judge-dir", required=True)
+    rp.add_argument(
+        "--old", nargs="+", default=[], help="old engine score files or folders"
+    )
+    rp.add_argument("--old-runs-dir", default=None)
+    rp.add_argument("--papers", nargs="+", default=list(PAPERS))
+    rp.add_argument("--copies", nargs="+", default=list(SCORED_COPIES))
+    rp.add_argument("--min-found", type=float, default=MIN_FOUND)
     al = sub.add_parser("alarms", help="check 3: at most 1 WRONG in 10 comments")
     al.add_argument("--score-dir", required=True)
     al.add_argument("--judge-dir", required=True)
@@ -364,9 +583,12 @@ def main(argv: list[str] | None = None) -> int:
     al.add_argument("--copies", nargs="+", default=list(SCORED_COPIES))
     a = ap.parse_args(argv)
     try:
-        return {"switches": cmd_switches, "found": cmd_found, "alarms": cmd_alarms}[
-            a.cmd
-        ](a)
+        return {
+            "switches": cmd_switches,
+            "found": cmd_found,
+            "alarms": cmd_alarms,
+            "report": cmd_report,
+        }[a.cmd](a)
     except driver.Refused as exc:
         print(f"REFUSED: {exc}")
         return 2
