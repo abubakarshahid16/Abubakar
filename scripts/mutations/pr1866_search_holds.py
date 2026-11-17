@@ -70,10 +70,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         "07",
-        "a late settle closes a hold the sweep already closed (charged twice)",
+        "a late settle closes a hold the sweep already settled (charged twice)",
         _S,
-        "        if reservation.id not in " + _SKIP + "            _append(entry)\n",
-        "        _append(entry)\n",
+        "            _append(entry)\n    return entry if done is None",
+        "            pass\n            _append(entry)\n    return entry if done is None",
         "never_closes_it_again and settle",
     ),
     _m(
@@ -83,5 +83,21 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        if reservation.id not in " + _SKIP + '            _append({"at"',
         '        if True:\n            _append({"at"',
         "never_closes_it_again and release",
+    ),
+    _m(
+        "09",
+        "a settle after a release is skipped: a call billed after all is never charged (spend lowered without proof)",
+        _S,
+        'if e.get("settles") == reservation.id), None)',
+        'if reservation.id in (e.get("settles"), e.get("releases"))), None)',
+        "billed_after_all",
+    ),
+    _m(
+        "10",
+        "a skipped settle returns a line that pretends it was written, so a caller summing settlements counts twice",
+        _S,
+        'return entry if done is None else {**done, "skipped": True, "cost_usd": 0.0, "charged_before_usd": done.get("cost_usd")}',
+        "return entry",
+        "cannot_count_twice",
     ),
 )

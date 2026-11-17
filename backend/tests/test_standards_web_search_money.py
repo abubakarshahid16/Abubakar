@@ -339,3 +339,66 @@ def test_names_already_paid_are_added_to_the_run_even_when_the_search_then_fails
     sws.after_run(ai)  # never fails the review
     paid = money.run_cost(ai, sws.STEP)
     assert paid > 0 and _usd(ai)[0] == pytest.approx(own + paid)
+
+
+# --- review R2-1866 (Fable): never lower recorded spend without proof
+
+
+def test_a_settle_after_a_release_is_still_written_the_call_was_billed_after_all():
+    held = claude_spend.reserve(
+        sws.STEP, 0.25, model=sws.MODEL, prompt_sha256="sh-digest"
+    )
+    claude_spend.release(held, "unbilled:test")
+    entry = claude_spend.settle(
+        held,
+        usage=None,
+        finish_reason="web_search_fee",
+        model=sws.MODEL,
+        estimated_usd=0.20,
+    )
+    assert "skipped" not in entry and entry["cost_usd"] == pytest.approx(0.20)
+    assert claude_spend.spent(sws.STEP) == pytest.approx(0.20)
+
+
+def test_a_release_after_a_settle_or_a_release_is_never_written():
+    for first in ("settle", "release"):
+        held = claude_spend.reserve(
+            sws.STEP, 0.25, model=sws.MODEL, prompt_sha256="sh-digest"
+        )
+        if first == "settle":
+            claude_spend.settle(
+                held,
+                usage=None,
+                finish_reason="web_search_fee",
+                model=sws.MODEL,
+                estimated_usd=0.05,
+            )
+        else:
+            claude_spend.release(held, "unbilled:test")
+        claude_spend.release(held, "unbilled:again")
+        assert len(_settlements(held.id)) == 1, first
+    assert claude_spend.spent(sws.STEP) == pytest.approx(0.05)
+
+
+def test_a_skipped_settle_says_so_and_a_caller_summing_settlements_cannot_count_twice():
+    with claude_spend.for_run("sh-run-sum"):
+        held = claude_spend.reserve(
+            sws.STEP, 0.25, model=sws.MODEL, prompt_sha256="sh-digest"
+        )
+    _redate(held.id, 2)
+    swept = money.close_stale_holds(sws.STEP, older_than_s=60, reason="process_ended")
+    late = claude_spend.settle(
+        held,
+        usage=None,
+        finish_reason="web_search_fee",
+        model=sws.MODEL,
+        estimated_usd=0.02,
+    )
+    assert late["skipped"] is True and late["settles"] == held.id
+    assert late["charged_before_usd"] == pytest.approx(0.25)
+    # what the sweep and the late caller report together is what the ledger charges: once
+    assert (
+        swept[0]["cost_usd"] + late["cost_usd"]
+        == pytest.approx(claude_spend.spent(sws.STEP))
+        == pytest.approx(0.25)
+    )

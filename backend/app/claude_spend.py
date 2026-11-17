@@ -605,10 +605,10 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
     entry["settles"] = reservation.id
     if reservation.run:
         entry["run"] = reservation.run
-    with _ledger_lock():  # a hold already closed is never closed twice
-        if reservation.id not in {e.get("settles") or e.get("releases") for e in _raw_lines()}:  # fmt: skip
+    with _ledger_lock():  # a hold already SETTLED is not settled twice (a settle after a release is: it was billed after all)
+        if (done := next((e for e in _raw_lines() if e.get("settles") == reservation.id), None)) is None:  # fmt: skip
             _append(entry)
-    return entry
+    return entry if done is None else {**done, "skipped": True, "cost_usd": 0.0, "charged_before_usd": done.get("cost_usd")}  # fmt: skip
 
 
 def _usage_reported(usage) -> bool:
