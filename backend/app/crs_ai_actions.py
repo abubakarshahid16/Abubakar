@@ -374,7 +374,9 @@ def label_cells(text: str, labels) -> list[tuple[str, str]]:
         m = next((h.match(row) for h in heads if h.match(row)), None)
         if m is None:
             continue
-        rest = row[m.end() :].strip(_SEP)  # a value keeps its brackets: "kPa(g)", "SA 516 (normalised)"
+        rest = row[m.end() :].strip(
+            _SEP
+        )  # a value keeps its brackets: "kPa(g)", "SA 516 (normalised)"
         nxt = "" if _words(rest) else next((r for r in rows[n + 1 :] if r), "")
         out.append((f"{row} {nxt}".strip(), rest if _words(rest) else nxt))
     return out
