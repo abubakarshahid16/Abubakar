@@ -151,13 +151,19 @@ class Client:
             data = None
         return code, data
 
-    def upload(self, path: Path, filename: str):
+    def upload(self, path: Path, filename: str, disciplines: list[str] | None = None):
+        """POST /api/documents as the upload screen does: the file and the disciplines it is visible to (signed in, the
+        app asks for at least one; the screen offers the uploader's own as the default)."""
         boundary = "aimF" + uuid.uuid4().hex
+        parts = b"".join(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="disciplines"\r\n\r\n{d}\r\n'.encode()
+            for d in disciplines or []
+        )
         head = (
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
             "Content-Type: application/octet-stream\r\n\r\n"
         ).encode()
-        body = head + path.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
+        body = parts + head + path.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
         code, raw = self.call(
             "POST",
             "/api/documents",
@@ -237,6 +243,22 @@ def spent_so_far(out: Path) -> float:
 
 
 # ------------------------------------------------------------------------------------------------ one file
+
+
+def upload_disciplines(c: Client, chosen: list[str]) -> list[str]:
+    """The disciplines the upload is made visible to: --discipline when given, else the upload screen's default
+    (GET /api/documents/upload-disciplines). Signed in with no default and none given: Stop (NOT MEASURED), never a guess."""
+    if chosen:
+        return list(chosen)
+    code, body = c.json("GET", "/api/documents/upload-disciplines")
+    if code != 200 or not isinstance(body, dict):
+        raise Stop(f"GET /api/documents/upload-disciplines: HTTP {code}")
+    default = [str(d) for d in body.get("default") or []]
+    if body.get("required") and not default:
+        raise Stop(
+            "the upload needs a discipline and the uploader has none of its own: give --discipline"
+        )
+    return default
 
 
 def wait_read(c: Client, doc: str, timeout: float, poll: float) -> str:
@@ -459,10 +481,15 @@ def review_one(c: Client, a, paper: str, copy: str, path: Path, engine: str) -> 
     }
     t0 = time.time()
     try:
-        code, up = c.upload(path, path.name)
+        disciplines = upload_disciplines(c, a.discipline)
+        rec["disciplines"] = len(disciplines)
+        code, up = c.upload(path, path.name, disciplines)
         doc = ((up.get("document") or {}).get("id")) or up.get("duplicate_of")
         if code != 200 or not doc:
-            raise Stop(f"upload: HTTP {code}")
+            raise Stop(
+                f"upload: HTTP {code}"
+                + (f" ({app_sentence(up)})" if app_sentence(up) else "")
+            )
         rec["document_id"], rec["duplicate_of_held"] = doc, bool(up.get("duplicate_of"))
         read = wait_read(c, doc, a.ingest_timeout, a.poll)
         rec["read_status"] = read
@@ -694,9 +721,15 @@ def cmd_run(a) -> int:
             if done.exists() and label not in (a.redo or []):
                 with contextlib.suppress(OSError, ValueError):
                     rec = json.loads(done.read_text(encoding="utf-8"))
-                    records.append(rec)
-                    log(f"skip (already in --out): {line_of(rec)}")
-                    continue
+                    # a review that started (it may have cost money) or that the app refused is kept; one that never
+                    # started (an upload or a read that failed: nothing was spent) is tried again
+                    if rec.get("started") or rec.get("status") == "refused":
+                        records.append(rec)
+                        log(f"skip (already in --out): {line_of(rec)}")
+                        continue
+                    log(
+                        f"again (it never started: {rec.get('words') or rec.get('status')}): {label}"
+                    )
             path = find_file(copies_dir, orig_dir, paper, copy)
             if path is None:
                 rec = {
@@ -797,6 +830,13 @@ def main(argv: list[str] | None = None) -> int:
         help="worst case of a review whose plan gives no cost",
     )
     r.add_argument("--redo", nargs="*", default=[], metavar="PAPER-COPY")
+    r.add_argument(
+        "--discipline",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="who may read the upload (default: what the upload screen offers, the uploader's own disciplines)",
+    )
     r.add_argument("--timeout", type=float, default=3600.0, help="per review")
     r.add_argument("--ingest-timeout", type=float, default=1800.0)
     r.add_argument("--poll", type=float, default=5.0)
