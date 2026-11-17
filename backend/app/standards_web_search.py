@@ -675,7 +675,7 @@ def search_run(run_id: str, *, send=None, env=None, conn=None, heartbeat=None) -
         return {"ran": False}
     money.close_stale(STEP)
     with claude_spend.for_run(run_id):
-        return _search_run(run_id, send=send, env=env, conn=conn, beat=heartbeat or (lambda: None))
+        return _search_run(run_id, send=send, env=env, conn=conn, beat=heartbeat or (lambda: None))  # fmt: skip
 
 
 def _search_run(run_id: str, *, send=None, env=None, conn=None, beat) -> dict:

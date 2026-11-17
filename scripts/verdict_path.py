@@ -101,7 +101,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "standards_web_search.py",
         "what leaves for the online search of rule books not held (egress, cost)",
     ),
-    (APP + "standards_web_search_money.py", "the online search's money: holds an ended process left open closed in the ledger, its cost in the run's usd"),
+    (
+        APP + "standards_web_search_money.py",
+        "the online search's money: holds an ended process left open closed in the ledger, its cost in the run's usd",
+    ),
     (
         APP + "agent_review_calculator_run.py",
         "pairs a stored fact with a rule and runs the calculator: a wrong pair is a wrong Pass",
