@@ -502,23 +502,27 @@ def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
     return out
 
 
-#: The key `mark_clause_unconfirmed` sets on a line whose stored clause code finds does not hold its rule's words: the clause it carried.
-CLAUSE_UNCONFIRMED_KEY, CLAUSE_NOT_CONFIRMED = (
+#: The key `mark_clause_unconfirmed` sets on a line whose stored clause is not cited (the clause it carried, which the grouping keys on), the
+#: key it sets when code is NOT certain (`agent_review_standards.CLAUSE_UNSURE`), and the words each shows after the book's page.
+CLAUSE_UNCONFIRMED_KEY, CLAUSE_UNCHECKED_KEY = (
     "clause_not_confirmed",
-    "clause not confirmed: the rule's words are not in it",
+    "clause_not_checked",
 )
+CLAUSE_NOT_CONFIRMED = "clause not confirmed: the rule's words are not in it"
+CLAUSE_NOT_CHECKED = "clause {clause} not checked: a heading that may end it stands before the rule's words"
 
 
 def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
-    """The lines as every CRS shows them when the clause a line cites does NOT hold its rule's words in the book's own text (order 14,
-    G4; honesty rule 4: no claim without a resolving citation): a clause number a reading carried over a later heading (every rule of
-    an annex filed under the last numbered clause before it). Judged only where code verified the clause quote in the book and knows
-    its page, by `holds(doc, clause, words, page)` (default `agent_review_standards.clause_holds`; False = proven not held, None = cannot
-    tell, which changes nothing). Such a line shows its book and its verified words with no clause and no cited page; the clause it
-    carried is kept under `CLAUSE_UNCONFIRMED_KEY` (the grouping still keys on it). Its verdict is untouched. Idempotent."""
-    if holds is None:
-        from .agent_review_standards import clause_holds
+    """The lines as every CRS shows them when code does not confirm the clause a line cites in the book's own text (order 14, G4;
+    honesty rule 4: no claim without a resolving citation), by `holds(doc, clause, words, page)` (default
+    `agent_review_standards.clause_holds`), judged only where code verified the clause quote in the book and knows its page. False
+    (code is CERTAIN the words are outside the clause): no clause, the page instead, `CLAUSE_NOT_CONFIRMED`. `CLAUSE_UNSURE` (a heading
+    that may end the clause stands before the words): no clause cited either, and the line says the clause was NOT CHECKED
+    (`CLAUSE_UNCHECKED_KEY`, `CLAUSE_NOT_CHECKED`), never that the words are not in it. True or None (cannot tell): nothing changes.
+    The clause carried is kept under `CLAUSE_UNCONFIRMED_KEY` (the grouping still keys on it). The verdict is untouched. Idempotent."""
+    from .agent_review_standards import CLAUSE_UNSURE, clause_holds
 
+    if holds is None:
         texts: dict = {}
 
         def holds(
@@ -544,23 +548,25 @@ def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
             and isinstance(page, int)
             and not isinstance(page, bool)
         )
-        if (
-            judged
-            and holds(
+        got = (
+            holds(
                 ln["standard_document_id"],
                 _clean(ln["clause"]),
                 ln["clause_quote"],
                 page,
             )
-            is False
-        ):
+            if judged
+            else None
+        )
+        if got is False or got == CLAUSE_UNSURE:
+            moved = {
+                **ln,
+                CLAUSE_UNCONFIRMED_KEY: _clean(ln["clause"]),
+                "clause": "",
+                "clause_page": None,
+            }
             out.append(
-                {
-                    **ln,
-                    CLAUSE_UNCONFIRMED_KEY: _clean(ln["clause"]),
-                    "clause": "",
-                    "clause_page": None,
-                }
+                {**moved, CLAUSE_UNCHECKED_KEY: True} if got == CLAUSE_UNSURE else moved
             )
         else:
             out.append(dict(ln))
@@ -710,7 +716,9 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 __all__ = [
     "BANNED",
     "BOOK_NOT_HELD",
+    "CLAUSE_NOT_CHECKED",
     "CLAUSE_NOT_CONFIRMED",
+    "CLAUSE_UNCHECKED_KEY",
     "CLAUSE_UNCONFIRMED_KEY",
     "EDITION_WORDS",
     "GUARD_OBJECTIONS",

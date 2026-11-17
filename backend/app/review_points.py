@@ -513,9 +513,10 @@ def shown_rule_words(book_doc, text, page, ctx: dict) -> str | None:
 
 
 def clause_unconfirmed(book_doc, clause, finding: dict | None, ctx: dict) -> str:
-    """The rule check's cited clause when code proves it does NOT hold the rule's stored words in the linked book (the same rule as the
-    AI lines, `crs_ai_words.mark_clause_unconfirmed`; `agent_review_standards.clause_holds` False), else "". Each book's text is read
-    once per listing (`ctx`)."""
+    """The rule check's cited clause when code is CERTAIN it does NOT hold the rule's stored words in the linked book (the same test as
+    the AI lines, `crs_ai_words.mark_clause_unconfirmed`: `agent_review_standards.clause_holds` False), else "". A doubt
+    (`CLAUSE_UNSURE`) or "cannot tell" keeps the clause: a rule check point has no place to say "not checked". Each book's text is
+    read once per listing (`ctx`)."""
     from . import agent_review_standards as standards
 
     if not book_doc or not _clean(clause) or not finding:
