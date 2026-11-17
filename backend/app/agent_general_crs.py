@@ -101,20 +101,14 @@ NO_QUOTE = "The AI reviewer holds no verified quote from the paper for this poin
 AI_WORDS = "the AI reviewer's words, not proven by code"
 REVIEW_REASON = "the review's own reason"
 NO_REASON = "no reason was recorded with this point"
-HIDDEN = "its words are not shown here: they may name a document you may not read"
+HIDDEN = "its words are not shown here: they may name a document that is not available to you"
 UNNAMED_BOOKS = "a rule book (not named here)"
-HIDDEN_DOCUMENT = "a document you may not read"
+HIDDEN_DOCUMENT = "a document that is not available to you"
 #: what a viewer who may not read the document sees of an engineer's edit or reason on a hidden line (his words may quote it), by
 #: what the engineer did (`engineer_hidden_words`)
-ENGINEER_HIDDEN = (
-    "an engineer edited this line (details not shown: a document you may not read)"
-)
-ENGINEER_REMOVED = (
-    "an engineer removed this line (details not shown: a document you may not read)"
-)
-ENGINEER_KEPT = (
-    "an engineer kept this line (details not shown: a document you may not read)"
-)
+ENGINEER_HIDDEN = "an engineer edited this line (details not shown: a document that is not available to you)"
+ENGINEER_REMOVED = "an engineer removed this line (details not shown: a document that is not available to you)"
+ENGINEER_KEPT = "an engineer kept this line (details not shown: a document that is not available to you)"
 
 
 def engineer_hidden_words(state) -> str:
