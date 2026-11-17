@@ -861,6 +861,128 @@ def run_all(
     )
 
 
+# ------------------------------------------------------------------------------------------------ CT-05 code part: blanks to fill
+# The checklist's CT-05 code part (`reference/contract_checks.json`): code finds the blanks left to fill - a run of underscores, a
+# run of dots or ellipses that is not a contents leader, empty brackets, a bracketed "insert ..." - and says what each one is for
+# by the plain words on its line (or the line above): a date, a price, a signature, else a blank. A blank is never a verdict: the
+# contract is a draft until it is filled, so each page with blanks is ONE question for the engineer, "blank to be filled before
+# signing", with its page (LPC, 17 Nov 2026).
+
+BLANK_TOPIC = "blank to be filled before signing"
+#: A blank: a run of underscores, a run of dots or ellipses, a bracketed "insert ..." (an empty "[ ]" is a tick box, not a blank).
+_BLANK = re.compile(
+    r"_{4,}|(?:[.\u2026]\s?){5,}|\[\s*(?:insert|enter|fill\s+in|state|specify)\b[^\]]{1,60}\]",
+    re.I,
+)
+#: A page number: digits, a roman numeral or "Page N" alone; after a run of dots (on its line or the next) it makes a contents leader.
+_PAGE_NO = re.compile(r"^\s*(?:page\s+)?(?:\d{1,4}|[ivxlc]{1,7})\s*$", re.I)
+_LETTER = re.compile(r"[^\W\d_]")
+FULL_WIDTH = 50  # characters: a rule line this long with no label on it is drawn across the page (a separator)
+BLANK_LABEL_WORDS = 4  # a label of a blank is a short line ("Title:", "CONTRACTOR")
+_NUMBER_ALONE = re.compile(
+    r"^\s*\d+(?:\.\d+)*\.\s*$|^\s*\d+(?:\.\d+)+\s*$"
+)  # "3.", "2.1": an article number
+_CONTENTS = re.compile(r"^\s*(?:table\s+of\s+)?contents\s*$|^\s*index\s*$", re.I)
+_BLANK_KINDS = (
+    (
+        "date",
+        re.compile(
+            r"\b(?:day|date|dated|month|year|(?:19|20)\d\d|january|february|march|april|may|june|july|august|september"
+            r"|october|november|december)\b",
+            re.I,
+        ),
+    ),
+    (
+        "price",
+        re.compile(
+            r"[$\u20ac\u00a3]|\b(?:price|amount|sum|cost|fee|value|dollars?|usd|eur|gbp)\b",
+            re.I,
+        ),
+    ),
+    (
+        "signature",
+        re.compile(
+            r"\b(?:sign(?:ed|ature)?|witness|name|title|designation|stamp|seal)\b", re.I
+        ),
+    ),
+)
+
+
+def blank_kind(line: str, above: str = "") -> str:
+    """What a blank is for, by the plain words on its line (the line above only for a line of nothing but the blank): 'date',
+    'price', 'signature' or 'blank'."""
+    words = _BLANK.sub(" ", line)
+    if not re.search(r"[^\W\d_]", words):
+        words = _BLANK.sub(" ", above)
+    return next((kind for kind, rx in _BLANK_KINDS if rx.search(words)), "blank")
+
+
+def _is_rule(line: str) -> bool:
+    return (
+        bool(line.strip()) and not _LETTER.search(_BLANK.sub(" ", line)) and "_" in line
+    )
+
+
+def _label_above(lines: list[tuple[int, str]], i: int) -> bool:
+    """The nearest line above on the same page that is not itself a rule line is a short label ("Title:", "CONTRACTOR")."""
+    page = lines[i][0]
+    for j in range(i - 1, -1, -1):
+        if lines[j][0] != page:
+            return False
+        if not _is_rule(lines[j][1]):
+            text = lines[j][1]
+            numbered = re.match(r"^\s*\d", text) or (
+                j and lines[j - 1][0] == page and _NUMBER_ALONE.match(lines[j - 1][1])
+            )  # a numbered heading underlined is not a label
+            return (
+                bool(_LETTER.search(text))
+                and len(text.split()) <= BLANK_LABEL_WORDS
+                and (text.rstrip().endswith(":") or not numbered)
+            )
+    return False
+
+
+def blanks(pages: Pages) -> dict[int, list[tuple[str, str]]]:
+    """{page: [(kind, line)]} of every blank to fill code finds, in reading order. Not a blank: a rule line drawn across the page
+    (`FULL_WIDTH` or more) with no label on its line or just above it (a separator); a contents leader: a run of dots that ends in
+    a page number on its line, or, on a contents page (`_CONTENTS`), on the next line."""
+    out: dict[int, list[tuple[str, str]]] = {}
+    lines = lines_of(pages)
+    contents = {pg for pg, ln in lines if _CONTENTS.match(ln)}
+    for i, (page, line) in enumerate(lines):
+        above = lines[i - 1][1] if i and lines[i - 1][0] == page else ""
+        if (
+            len(line.replace(" ", "")) >= FULL_WIDTH
+            and _is_rule(line)
+            and not _label_above(lines, i)
+        ):
+            continue  # a separator, not a blank
+        below = (
+            lines[i + 1][1] if i + 1 < len(lines) and lines[i + 1][0] == page else ""
+        )
+        for m in _BLANK.finditer(line):
+            rest = line[m.end() :]
+            if m.group(0)[0] in ".\u2026" and (
+                _PAGE_NO.match(rest)
+                or (page in contents and not rest.strip() and _PAGE_NO.match(below))
+            ):
+                continue  # a contents leader, not a blank
+            out.setdefault(page, []).append((blank_kind(line, above), line))
+    return out
+
+
+def check_blanks(pages: Pages) -> list[Result]:
+    """CT-05 (code part): ONE "engineer to check" result per page that holds blanks, with the page, the kinds and the count."""
+    out = []
+    for page, found in sorted(blanks(pages).items()):
+        kinds = Counter(k for k, _l in found)
+        said = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+        out.append(Result("CT-05", BLANK_TOPIC, ENGINEER, f"{len(found)} blank(s)",
+                          f"Page {page} has {len(found)} blank(s) to fill ({said}): {BLANK_TOPIC}.",
+                          [quote(pages, page, found[0][1])]))  # fmt: skip
+    return out
+
+
 # ------------------------------------------------------------------------------------------------ guards on AI comments
 #
 # Code checks what an AI comment states against the paper, where the paper lets code read it. A comment that a check

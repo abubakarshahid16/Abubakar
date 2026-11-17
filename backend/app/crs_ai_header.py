@@ -7,6 +7,7 @@ run number here: those live on the Notes sheet of the internal copy only.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Mapping
 
 FIELDS = ("project", "document_number", "title", "revision", "date", "discipline")
@@ -45,6 +46,35 @@ def document_header(
         "revision": _text(got.get("revision")),
         "date": _text(got.get("effective_date")),
         "discipline": discipline,
+    }
+
+
+NOT_ON_COVER = "not found on the cover"
+
+
+def with_cover(conn, document_id: str, head: dict[str, str]) -> dict[str, str]:
+    """LPC (C5): sheet 1's document number and revision, read on the paper's COVER (`contract_package.cover_id`: the top lines of
+    pages 1 and 2). The number: the cover's document number, else the one the app holds, else the cover's contract number (saying
+    it is one), else "not found on the cover". The revision: the cover's revision value, else the one held, else "not found on
+    the cover". Never guessed. A copy of `head`; the download name still reads `document_header`."""
+    from . import contract_package
+
+    try:
+        cover = contract_package.cover_id(
+            contract_package.load_pages(conn, document_id, contract_package.COVER_PAGES)
+        )
+    except (
+        sqlite3.Error
+    ):  # no page text to read: the value the app holds, else "not found"
+        cover = contract_package.CoverId()
+    # the paper's own document number first (the cover's, else the one held); a contract number only when neither is known
+    contract = f"{cover.number} ({cover.number_label})" if cover.number else None
+    number = cover.document_number or head.get("document_number") or contract
+    revision = cover.revision or head.get("revision")
+    return {
+        **head,
+        "document_number": number or NOT_ON_COVER,
+        "revision": revision or NOT_ON_COVER,
     }
 
 
