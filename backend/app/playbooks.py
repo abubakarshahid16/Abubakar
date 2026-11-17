@@ -24,7 +24,9 @@ Word file through the #668 reader, or a PDF) and reports, per element:
                        or "section found at page N", always engineer to confirm.
 
 RULES THE LOADER ENFORCES (W5b-10, #547): a check without a clause citation is
-rejected by name; a playbook is a DRAFT until a named engineer and a date are
+rejected by name; an element's source may carry the book's page and a short
+quote of it (order 14 lane P): a quote needs its page, and `source.verified` may
+be true only for a quote (`source_quote_checks` is the check that sets it); a playbook is a DRAFT until a named engineer and a date are
 recorded, and the report says so. Nothing here is invented by a model: the
 cues are data a person edits, and a model's proposal (`proposer`) is kept only
 when its quote is found verbatim in the passage it cites.
@@ -51,7 +53,10 @@ UNCLEAR = "unclear"
 MISSING = "missing"
 COULD_NOT_BE_CHECKED = "could_not_be_checked"
 STANDARD_NOT_HELD = "standard_not_held"
-STATES = (PRESENT, UNCLEAR, MISSING, COULD_NOT_BE_CHECKED, STANDARD_NOT_HELD)
+#: Order 14 lane P: an element that applies only under a condition (a pneumatic test, PWHT, ...) whose cue no
+#: passage of a document read in full holds: never "missing", an engineer question whether it applies.
+CONDITION_NOT_STATED = "condition_not_stated"
+STATES = (PRESENT, UNCLEAR, MISSING, COULD_NOT_BE_CHECKED, STANDARD_NOT_HELD, CONDITION_NOT_STATED)
 
 #: Chunk kinds that are the document's body. A footer, a tracked change, a
 #: comment and a table of contents are stored beside the body, never in it.
@@ -71,6 +76,13 @@ class Element:
     standard: str
     clause: str
     groups: tuple[tuple[str, tuple[str, ...]], ...]      # (label, phrases)
+    #: Order 14 lane P: the cited book's page and a short quote of it; `verified` only after
+    #: `source_quote_checks` found the quote on that stored page of a held book.
+    page: int | None = None
+    quote: str = ""
+    verified: bool = False
+    #: (what the condition is, its cue phrases): the element applies only when the document names it.
+    condition: tuple[str, tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +95,12 @@ class Playbook:
     clauses_verified: bool
     note: str
     elements: tuple[Element, ...]
+    #: Order 14 lane P: the phrases a cover names this kind of procedure by (empty: the title's own cue), and the
+    #: phrases that put a cover outside the scope of the playbook's book (a pipeline for an on-plot piping book).
+    title_cues: tuple[str, ...] = ()
+    title_excludes: tuple[str, ...] = ()
+    #: Order 14 lane P: phrases of the book's scope, one of which the cover must ALSO hold ("piping" for an on-plot piping book).
+    title_requires: tuple[str, ...] = ()
 
     @property
     def signed_off(self) -> bool:
@@ -127,11 +145,44 @@ def parse(data: object, where: str = "playbook") -> Playbook:
             raise PlaybookError(f"{where}: element {eid} has no evidence cues, so nothing can count as present")
         if not str(e.get("title") or "").strip():
             raise PlaybookError(f"{where}: element {eid} has no title")
+        page, quote, verified = _source_page_quote(source, f"{where}: element {eid}")
+        cond = e.get("applies_when")
+        if cond is not None:
+            cond = (str((cond or {}).get("label") or "").strip(), _phrases(cond, "any", f"{where}: element {eid} applies_when"))
+            if not cond[0]:
+                raise PlaybookError(f"{where}: element {eid} applies_when needs a label")
         elements.append(Element(eid, str(e["title"]).strip(), str(e.get("expects") or "").strip(),
-                                str(source["standard"]).strip(), str(source["clause"]).strip(), tuple(groups)))
+                                str(source["standard"]).strip(), str(source["clause"]).strip(), tuple(groups),
+                                page, quote, verified, cond))
     return Playbook(str(data["id"]).strip(), str(data["title"]).strip(), str(data["version"]).strip(),
                     str(data.get("document_kind") or "").strip(), dict(sign), bool(data.get("clauses_verified", False)),
-                    str(data.get("note") or "").strip(), tuple(elements))
+                    str(data.get("note") or "").strip(), tuple(elements),
+                    _phrases(data, "title_cues", where, empty=True), _phrases(data, "title_excludes", where, empty=True),
+                    _phrases(data, "title_requires", where, empty=True))
+
+
+def _phrases(data: dict, field: str, where: str, empty: bool = False) -> tuple[str, ...]:
+    """A list of cue phrases; refused by name when it is not a list of words."""
+    raw = (data or {}).get(field)
+    if raw is None and empty:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x.strip() for x in raw) or not (raw or empty):
+        raise PlaybookError(f"{where}: {field} must be a list of cue phrases")
+    return tuple(x.strip() for x in raw)
+
+
+def _source_page_quote(source: dict, where: str) -> tuple[int | None, str, bool]:
+    """(page, quote, verified) of an element's source. A quote with no page cannot be checked, and a
+    verified flag with no quote has nothing behind it: both are refused by name."""
+    page, quote = source.get("page"), " ".join(str(source.get("quote") or "").split())
+    if page is not None and (isinstance(page, bool) or not isinstance(page, int) or page < 1):
+        raise PlaybookError(f"{where}: source.page must be a page number")
+    if quote and page is None:
+        raise PlaybookError(f"{where}: a source quote needs the page it stands on (source.page)")
+    verified = source.get("verified", False)
+    if not isinstance(verified, bool) or (verified and not quote):
+        raise PlaybookError(f"{where}: source.verified may be true only for a quote")
+    return page, quote, verified
 
 
 def load_file(path: str | Path) -> Playbook:
@@ -163,7 +214,8 @@ def notice(pb: Playbook) -> str | None:
     if pb.signed_off:
         return None
     return ("This playbook has not been signed off by a client discipline engineer (W5b-10): its checks are a draft, "
-            "and its clause numbers have not been confirmed against the standards.")
+            "and its clause numbers have not been confirmed against the standards. An engineer also confirms that each "
+            "cited book governs this procedure.")
 
 
 # -------------------------------------------------------------------- matching
@@ -284,7 +336,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
         held = held_cache.setdefault(element.standard, standard_held(element.standard, library))
         found = _match(element, body)
         entry = {"id": element.id, "title": element.title, "expects": element.expects,
-                 "source": {"standard": element.standard, "clause": element.clause},
+                 "source": _source_out(element),
                  "standard_held": held, "state": None, "reason": None, "evidence": [],
                  "missing_cues": [], "found_at": []}
         if not held and _presence_without_standard():
@@ -305,6 +357,12 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             entry["reason"] = (f"{element.standard} is not in the library, so this element cannot be checked "
                                "against it; this is not a finding that it is met")
             entry["found_at"] = [e["locator"] for e in found["evidence"][:3]]
+            results.append(entry)
+            continue
+        if element.condition and read_in_full and not any(_hits(element.condition[1], _with_heading(c)) for c in body):
+            entry.update(state=CONDITION_NOT_STATED, reason=(
+                f"applies only when the procedure covers {element.condition[0]}, and no passage of the pages read "
+                "names it; this is not a finding that it is met or missing"))
             results.append(entry)
             continue
         if found["state"] == PRESENT:
@@ -340,6 +398,78 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "document": {"id": document_id, "filename": filename, "read_in_full": read_in_full,
                          "passages_read": len(body), "not_read_reason": why_not},
             "elements": results, "counts": counts, "ai": ai}
+
+
+def _with_heading(chunk: dict) -> str:
+    """A passage with its heading and section title: a condition named only in a heading ("5 Pneumatic test") counts."""
+    return " ".join(filter(None, [chunk.get("context"), chunk.get("section"), chunk.get("text")]))
+
+
+def _source_out(element: Element) -> dict:
+    """The element's source as a report shows it: the page and quote only where the file has them."""
+    out = {"standard": element.standard, "clause": element.clause}
+    if element.page is not None:
+        out["page"] = element.page
+    if element.quote:
+        out.update(quote=element.quote, quote_verified=element.verified)
+    return out
+
+
+#: What `source_quote_checks` says of one element (order 14 lane P). Only the first two pass.
+QUOTE_VERIFIED, BOOK_MISSING_NO_QUOTE = "verified", "book missing, no quote"
+QUOTE_NOT_ON_PAGE, QUOTE_OF_A_BOOK_NOT_HELD = "quote not on the cited page", "quote of a book not held"
+NO_QUOTE, QUOTE_TOO_SHORT = "held book, no quote", "quote shorter than the floor"
+CLAUSE_NOT_ON_PAGE = "clause number not on the cited page"
+#: The floor of a playbook source quote: eight words. A shorter fragment ("shall be calibrated prior to use") stands on
+#: many pages of many books, so finding it proves nothing about the cited clause.
+QUOTE_MIN_WORDS = 8
+FLAG_NOT_SET, FLAG_WRONG = "quote found, verified flag not set", "verified flag set, quote not on the cited page"
+
+
+def source_quote_checks(playbook: Playbook, library: list[dict], page_text) -> list[dict]:
+    """Per element: is its source quote on the cited page of the held book? THE quote check of gate G1
+    (`compiled_rule_proof.quote_verified`) on the stored page text `page_text(document_id, page)` gives.
+    A book not held must carry no quote ("book missing"); a held book's element must carry a verified
+    quote, and its `verified` flag must say what the check says. Ids, pages and states only: no text."""
+    from .applicability import find_standard
+    from .compiled_rule_proof import quote_verified
+
+    out = []
+    for e in playbook.elements:
+        book = find_standard(library, e.standard)
+        text = page_text(book["id"], e.page) if book and e.page else None
+        found = bool(e.quote and quote_verified(e.quote, text))
+        if book is None:
+            state = QUOTE_OF_A_BOOK_NOT_HELD if e.quote else BOOK_MISSING_NO_QUOTE
+        elif not e.quote:
+            state = NO_QUOTE
+        elif len(e.quote.split()) < QUOTE_MIN_WORDS:
+            state = QUOTE_TOO_SHORT
+        elif not _clause_on(e.clause, text):
+            state = CLAUSE_NOT_ON_PAGE
+        elif not found:
+            state = FLAG_WRONG if e.verified else QUOTE_NOT_ON_PAGE
+        else:
+            state = QUOTE_VERIFIED if e.verified else FLAG_NOT_SET
+        out.append({"playbook": playbook.id, "element": e.id, "standard": e.standard, "clause": e.clause,
+                    "page": e.page, "held": book is not None, "state": state,
+                    "passed": state in (QUOTE_VERIFIED, BOOK_MISSING_NO_QUOTE)})
+    return out
+
+
+def source_fingerprint(element: Element) -> str:
+    """The SHA-256 of what a verified source says (book, clause, page, quote): the stored record of what the check
+    verified (`backend/tests/fixtures/playbook_verified_quotes.json`), so an edited quote fails CI without the book."""
+    import hashlib
+
+    said = "|".join([element.standard, element.clause, str(element.page), " ".join(element.quote.split())])
+    return hashlib.sha256(said.encode("utf-8")).hexdigest()
+
+
+def _clause_on(clause: str, text: str | None) -> bool:
+    """The clause number stands on the page as a number of its own ("5.8.3", never inside "15.8.3" or "5.8.31")."""
+    c = re.escape(clause.strip())
+    return bool(text) and re.search(rf"(?<![\w.]){c}(?!\w|\.\d)", text) is not None
 
 
 def _mark_guessed_headings(document_id: str, body: list[dict]) -> None:

@@ -4241,8 +4241,8 @@ class PlaybookElementResult(BaseModel):
     expects: str
     source: dict
     standard_held: bool
-    #: present | unclear | missing | could_not_be_checked | standard_not_held.
-    #: "standard_not_held" is never "met".
+    #: present | unclear | missing | could_not_be_checked | standard_not_held | condition_not_stated.
+    #: "standard_not_held" is never "met"; "condition_not_stated" (order 14 lane P) is never "met" or "missing".
     state: str
     reason: str | None = None
     evidence: list[PlaybookEvidenceItem]

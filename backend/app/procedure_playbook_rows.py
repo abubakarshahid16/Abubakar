@@ -5,8 +5,8 @@ playbooks (`playbooks.review`), so its CRS had no completeness rows ("does the
 procedure contain its team and roles, its nodes, its follow-up"). With
 `settings.procedure_playbook_rows_enabled` ON, `crs_rows` adds one row per element of
 each matching playbook. No document is named in code: a playbook matches a procedure
-when its own title cue (its title less the generic words) is in the procedure's cover
-lines (the first lines of page 1).
+when one of its title phrases (`title_cues`, else its title less the generic words) stands as a phrase in the
+procedure's cover lines (the first lines of page 1) and none of its `title_excludes` does (order 14 lane P).
 
 What a row may say, and no more:
   * present            -> "found, engineer to confirm" with the page and quote.
@@ -117,9 +117,39 @@ def _is_heading(line: str) -> bool:
     return not any(w.lower() in _SENTENCE_WORDS for w in words)
 
 
-def matches(playbook: playbooks.Playbook, cover: str) -> bool:
+def cues(playbook: playbooks.Playbook) -> tuple[str, ...]:
+    """The phrases a cover names this kind of procedure by: the playbook's own list, else its title cue as one phrase."""
+    if playbook.title_cues:
+        return playbook.title_cues
     cue = title_cue(playbook)
-    return bool(cue) and all(playbooks._hits((w,), cover) for w in cue)
+    return (" ".join(cue),) if cue else ()
+
+
+def matches(playbook: playbooks.Playbook, cover: str) -> bool:
+    """One of the playbook's phrases stands in the cover lines as a PHRASE (its words adjacent, any case, spaces or hyphens:
+    `playbooks._hits`), and no phrase that puts the cover outside its book's scope does (order 14 lane P: "Pressure Safety
+    Valve Bench Test Procedure" is not a pressure test procedure; a pipeline welding procedure is not on-plot piping). A
+    playbook with `title_requires` also needs one of those scope phrases on the cover ("piping" for an on-plot piping book)."""
+    if any(playbooks._hits((x,), cover) for x in playbook.title_excludes):
+        return False
+    if playbook.title_requires and not playbooks._hits(playbook.title_requires, cover):
+        return False
+    return bool(playbooks._hits(cues(playbook), cover))
+
+
+def chosen(submittal_id: str) -> list[playbooks.Playbook]:
+    """The procedure playbooks whose phrases the paper's cover lines hold, by id: the procedure TYPE of the paper. The one
+    home of that choice: the CRS rows below and gate G2's books for the type (`scripts/crs_gates.py`) both take it."""
+    found, _broken = playbooks.available()
+    cover = cover_text(procedure_text.load_pages(submittal_id))
+    return sorted(
+        (
+            pb
+            for pb in found.values()
+            if pb.document_kind == KIND and matches(pb, cover)
+        ),
+        key=lambda p: p.id,
+    )
 
 
 def element_lead(playbook_title: str, element_title: str) -> str:
@@ -191,12 +221,8 @@ def crs_rows(
         or procedure_text.document_kind(submittal_id) != KIND
     ):
         return [], []
-    found, _broken = playbooks.available()
-    cover = cover_text(procedure_text.load_pages(submittal_id))
-    chosen = [
-        pb for pb in found.values() if pb.document_kind == KIND and matches(pb, cover)
-    ]
-    if not chosen:
+    picked = chosen(submittal_id)
+    if not picked:
         return [], [
             {
                 "note": "Playbook check - no playbook matched this procedure",
@@ -209,7 +235,7 @@ def crs_rows(
             }
         ]
     rows = []
-    for pb in sorted(chosen, key=lambda p: p.id):
+    for pb in picked:
         report = playbooks.review(submittal_id, pb, allowed_document_ids=allowed)
         rows.extend(
             _row(pb, report, e, submittal_name, submittal_id)
